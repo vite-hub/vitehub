@@ -9,7 +9,7 @@ const repository = 'vite-hub/vitehub'
 const repo = { full_name: repository }
 const pr = (patch = {}) => ({ number: 7, state: 'open', user: { login: 'onmax' }, head: { sha: 'a', ref: 'fix' }, base: { sha: 'base', ref: 'main' }, updated_at: '2026-09-13T10:00:00Z', ...patch })
 const comment = (id = 1, body = 'Please repair this') => ({ id, body, user: { login: 'human', type: 'User' } })
-function memory(t: { onTestFinished: (fn: () => void) => void }) { const inbox = new PullRequestInbox({path: ':memory:', repositories: [repository]}); t.onTestFinished(() => inbox.close()); return inbox }
+function memory(t: { onTestFinished: (fn: () => void) => void }) { const inbox = new PullRequestInbox({path: ':memory:', repositories: [repository], activityAuthors: ['vitehub-bot[bot]']}); t.onTestFinished(() => inbox.close()); return inbox }
 function post(inbox: PullRequestInbox, id: string, event: string, payload: object) { return inbox.ingest(id, event, { repository: repo, ...payload }) }
 
 test('GraphQL bootstrap normalizes state, author and head into a claimable snapshot', t => {
@@ -79,6 +79,19 @@ test('own activity and issue comments do not wake PR agents; AI review does', t 
   post(inbox, 'issue', 'issue_comment', { issue: { number: 7 }, comment: comment() })
   assert.equal(inbox.claim(1).length, 0)
   post(inbox, 'ai', 'pull_request_review', { pull_request: pr(), review: { ...comment(), user: { login: 'pullfrog[bot]', type: 'Bot' } } })
+  assert.equal(inbox.claim(1).length, 1)
+})
+test('trusted repair comments remain feedback without revoking the claim or waking completed work', t => {
+  const inbox = memory(t); inbox.seed(repository, pr()); const [claim] = inbox.claim(1); assert.ok(claim)
+  const repair = { ...comment(), body: '<!-- vitehub-babysitter-repair:7 --> Repaired the failure', user: { login: 'vitehub-bot[bot]', type: 'Bot' } }
+  assert.deepEqual(post(inbox, 'repair', 'issue_comment', { action: 'created', issue: { number: 7, pull_request: {} }, comment: repair }).queued, [])
+  assert.equal(inbox.get(repository, 7)?.comments['1']?.body, repair.body)
+  assert.equal(inbox.get(repository, 7)?.generation, claim.generation)
+  assert.ok(inbox.renew(claim, Date.now() + 60_000))
+  inbox.finish(claim, { text: 'wait' })
+  post(inbox, 'late-repair', 'issue_comment', { action: 'created', issue: { number: 7, pull_request: {} }, comment: { ...repair, id: 2 } })
+  assert.equal(inbox.claim(1).length, 0)
+  post(inbox, 'untrusted-repair', 'issue_comment', { action: 'created', issue: { number: 7, pull_request: {} }, comment: { ...repair, id: 3, user: { login: 'other', type: 'User' } } })
   assert.equal(inbox.claim(1).length, 1)
 })
 test('released claim is immediately reusable without handling the generation', t => {

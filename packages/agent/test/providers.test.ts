@@ -883,49 +883,54 @@ describe("agent Vite plugin", () => {
 
   it("invalidates runtime Schedule modules when an Agent changes", async () => {
     const { hubAgent } = await import("../src/vite.ts")
-    const plugin = hubAgent()
-    const registryModule = { id: "registry" }
-    const targetsModule = { id: "targets" }
-    const nitroRegistryModule = { id: "nitro-registry" }
-    const generatedRouteModule = { id: "generated-route" }
-    const configResolvedHook: unknown = plugin.configResolved
-    // SAFETY: hubAgent installs configResolved as an async Vite hook.
-    const configResolved = configResolvedHook as (config: { agent?: unknown; command: "serve"; plugins: never[]; root: string }) => Promise<void>
-    const configHook: unknown = plugin.config
-    // SAFETY: hubAgent installs config as a Vite config hook.
-    const config = configHook as (config: Record<string, unknown>) => void
-    config({ __vitehubServerDirs: ["/app/backend"] })
-    await configResolved({ command: "serve", plugins: [], root: "/app" })
-    const modules = new Map<string, object>([
-      ["\0#vitehub/schedule/registry", registryModule],
-      ["\0#vitehub/schedule/targets", targetsModule],
-      ["/app/.vitehub/nitro/schedule/runtime-registry.js", nitroRegistryModule],
-      ["/app/.vitehub/agent/chat-webhook-route.ts", generatedRouteModule],
-    ])
-    const getModuleById = vi.fn((id: string) => modules.get(id))
-    const invalidateModule = vi.fn()
-    // SAFETY: The plugin under test produced this hook, so the test invokes its documented callable shape.
-    const handleHotUpdate = plugin.handleHotUpdate as (context: unknown) => Promise<void>
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-schedule-invalidation-"))
+    try {
+      const plugin = hubAgent()
+      const registryModule = { id: "registry" }
+      const targetsModule = { id: "targets" }
+      const nitroRegistryModule = { id: "nitro-registry" }
+      const generatedRouteModule = { id: "generated-route" }
+      const configResolvedHook: unknown = plugin.configResolved
+      // SAFETY: hubAgent installs configResolved as an async Vite hook.
+      const configResolved = configResolvedHook as (config: { agent?: unknown; command: "serve"; plugins: never[]; root: string }) => Promise<void>
+      const configHook: unknown = plugin.config
+      // SAFETY: hubAgent installs config as a Vite config hook.
+      const config = configHook as (config: Record<string, unknown>) => void
+      config({ __vitehubServerDirs: [join(root, "backend")] })
+      await configResolved({ command: "serve", plugins: [], root })
+      const modules = new Map<string, object>([
+        ["\0#vitehub/schedule/registry", registryModule],
+        ["\0#vitehub/schedule/targets", targetsModule],
+        [join(root, ".vitehub/nitro/schedule/runtime-registry.js"), nitroRegistryModule],
+        [join(root, ".vitehub/agent/chat-webhook-route.ts"), generatedRouteModule],
+      ])
+      const getModuleById = vi.fn((id: string) => modules.get(id))
+      const invalidateModule = vi.fn()
+      // SAFETY: The plugin under test produced this hook, so the test invokes its documented callable shape.
+      const handleHotUpdate = plugin.handleHotUpdate as (context: unknown) => Promise<void>
 
-    await handleHotUpdate({
-      file: "/app/backend/agents/digest.ts",
-      server: { config: { root: "/app" }, moduleGraph: { getModuleById, invalidateModule } },
-    })
+      await handleHotUpdate({
+        file: join(root, "backend/agents/digest.ts"),
+        server: { config: { root }, moduleGraph: { idToModuleMap: modules, getModuleById, invalidateModule } },
+      })
 
-    expect(invalidateModule).toHaveBeenCalledWith(registryModule)
-    expect(invalidateModule).toHaveBeenCalledWith(targetsModule)
-    expect(invalidateModule).toHaveBeenCalledWith(nitroRegistryModule)
+      expect(invalidateModule).toHaveBeenCalledWith(registryModule)
+      expect(invalidateModule).toHaveBeenCalledWith(targetsModule)
+      expect(invalidateModule).toHaveBeenCalledWith(nitroRegistryModule)
 
-    invalidateModule.mockClear()
-    await handleHotUpdate({
-      file: "/app/backend/agents/digest/skills/review/SKILL.md",
-      server: { config: { root: "/app" }, moduleGraph: { getModuleById, invalidateModule } },
-    })
+      invalidateModule.mockClear()
+      await handleHotUpdate({
+        file: join(root, "backend/agents/digest/skills/review/SKILL.md"),
+        server: { config: { root }, moduleGraph: { idToModuleMap: modules, getModuleById, invalidateModule } },
+      })
 
-    expect(invalidateModule).toHaveBeenCalledWith(registryModule)
-    expect(invalidateModule).toHaveBeenCalledWith(targetsModule)
-    expect(invalidateModule).toHaveBeenCalledWith(nitroRegistryModule)
-    expect(invalidateModule).toHaveBeenCalledWith(generatedRouteModule)
+      expect(invalidateModule).toHaveBeenCalledWith(registryModule)
+      expect(invalidateModule).toHaveBeenCalledWith(targetsModule)
+      expect(invalidateModule).toHaveBeenCalledWith(nitroRegistryModule)
+      expect(invalidateModule).toHaveBeenCalledWith(generatedRouteModule)
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
   })
 
   it("watches colocated instructions without expanding relative references", async () => {
@@ -944,7 +949,8 @@ describe("agent Vite plugin", () => {
       const configResolved = configResolvedHook as (config: { agent?: unknown; command: "serve"; plugins: never[]; root: string }) => Promise<void>
       await configResolved({ command: "serve", plugins: [], root })
       const generatedRouteModule = { id: "generated-route" }
-      const getModuleById = vi.fn((id: string) => (id === join(root, ".vitehub/agent/chat-webhook-route.ts") ? generatedRouteModule : undefined))
+      const modules = new Map([[join(root, ".vitehub/agent/chat-webhook-route.ts"), generatedRouteModule]])
+      const getModuleById = vi.fn((id: string) => modules.get(id))
       const invalidateModule = vi.fn()
       // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
       const handleHotUpdate = plugin.handleHotUpdate as (context: unknown) => Promise<void>
@@ -952,7 +958,7 @@ describe("agent Vite plugin", () => {
 
       await handleHotUpdate({
         file: join(agentRoot, "tone.md"),
-        server: { moduleGraph: { getModuleById, invalidateModule } },
+        server: { moduleGraph: { idToModuleMap: modules, getModuleById, invalidateModule } },
       })
 
       expect(invalidateModule).not.toHaveBeenCalled()
@@ -961,7 +967,7 @@ describe("agent Vite plugin", () => {
       await rm(join(agentRoot, "instructions.md"))
       await handleHotUpdate({
         file: join(agentRoot, "instructions.md"),
-        server: { moduleGraph: { getModuleById, invalidateModule } },
+        server: { moduleGraph: { idToModuleMap: modules, getModuleById, invalidateModule } },
       })
 
       expect(invalidateModule).toHaveBeenCalledWith(generatedRouteModule)
@@ -1114,6 +1120,14 @@ describe("agent Vite plugin", () => {
       expect(generated).not.toContain(publishedAgentRoot)
       expect(wrapper).not.toContain("agent-generations")
       expect(generated).not.toContain("agent-generations")
+      const retainedCatalog = await readFile(join(root, ".vitehub", "agent", "sources", "0", ".vitehub", "agent", "registry-agents.mjs"), "utf8")
+      expect(retainedCatalog).toContain(publishedAgentRoot)
+      expect(retainedCatalog).not.toContain("agent-generations")
+      expect(retainedCatalog).not.toContain(agentRoot)
+      await rm(join(root, "server"), { recursive: true })
+      const retainedSourceRoot = retainedCatalog.match(/withWorkspaceSourceRoot\(agentWithColocatedInstructions\(resolveAgentModule\(agent0\), undefined\), "([^"]+)"/)?.[1]
+      expect(retainedSourceRoot).toBe(publishedAgentRoot)
+      await expect(readFile(join(retainedSourceRoot!, "context.md"), "utf8")).resolves.toBe("Retained Workspace context.\n")
     }
     finally {
       if (isRuntimeString(previousHosting)) process.env.VITEHUB_HOSTING = previousHosting

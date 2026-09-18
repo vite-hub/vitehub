@@ -35,8 +35,8 @@ const stamp = (value: GitHubEvidence) => Date.parse(value.updated_at ?? value.up
 /** Normalize REST and discovery records once, before they enter the inbox. */
 export const normalizePullRequest: typeof parsePullRequest = parsePullRequest
 
-/** Activity comments have a transport marker; all other humans and bots are feedback. */
-export const isFeedback = (item: GitHubEvidence | undefined): boolean => Boolean(item && !String(item.body ?? '').startsWith('<!-- vitehub-agent-activity:'))
+/** Evidence is feedback by default; callers suppress transport comments only after authenticating their author. */
+export const isFeedback = (item: GitHubEvidence | undefined): boolean => Boolean(item)
 
 function parseSnapshot(value: unknown): Snapshot {
   if (value === null || Object.prototype.toString.call(value) !== '[object Object]') throw new TypeError('Invalid inbox snapshot')
@@ -73,6 +73,7 @@ export interface PullRequestInboxOptions {
   repositories: readonly string[]
   filter?: GitHubPullRequestFilter
   clock?: () => number
+  activityAuthors?: readonly string[]
   budgets?: InboxBudgets
 }
 
@@ -89,13 +90,15 @@ export class PullRequestInbox {
   private repositories: string[]
   private clock: () => number
   private filter?: GitHubPullRequestFilter
+  private activityAuthors: Set<string>
   private budgets: InboxBudgets
-  constructor({ path, repositories, filter, clock = Date.now, budgets = {} }: PullRequestInboxOptions) {
+  constructor({ path, repositories, filter, clock = Date.now, budgets = {}, activityAuthors = [] }: PullRequestInboxOptions) {
     validateBudgets(budgets)
     this.budgets = { ...budgets }
     this.repositories = repositories.map(repository => repository.toLowerCase())
     this.clock = clock
     this.filter = filter
+    this.activityAuthors = new Set(activityAuthors.map(author => author.trim().toLowerCase()))
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true })
     this.db = new DatabaseSync(path)
     this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;
@@ -267,8 +270,17 @@ export class PullRequestInbox {
       if (!this.repositories.includes(repository)) return finish('repository not configured')
       // Activity suppression applies to issue comments only. Actual reviews
       // and inline review comments are evidence regardless of reviewer name.
-      if (event === 'issue_comment' && !isFeedback(payload.comment)) return finish('irrelevant comment')
+      const commentAuthor = String(payload.comment?.user?.login ?? payload.sender?.login ?? '').trim().toLowerCase()
+      const commentBody = String(payload.comment?.body ?? '')
+      const marked = commentBody.startsWith('<!-- vitehub-agent-activity:')
+      const repairMarked = commentBody.startsWith('<!-- vitehub-babysitter-repair:')
+      const activity = marked && this.activityAuthors.has(commentAuthor)
+      // Only authenticated activity markers are transport records. A public
+      // marker on an external comment must remain actionable feedback.
       if (event === 'issue_comment' && !payload.issue?.pull_request) return finish('issue is not a PR')
+      // Ordinary issue comments do not wake repair agents. Marker-prefixed
+      // comments from untrusted authors remain actionable feedback.
+      if (event === 'issue_comment' && !activity && !isFeedback(payload.comment)) return finish('irrelevant comment')
       const supported = ['pull_request','issue_comment','pull_request_review','pull_request_review_comment','pull_request_review_thread','check_run','check_suite','workflow_run','status','push']
       if (!supported.includes(event)) return finish('irrelevant event')
       if (event === 'pull_request' && !['opened','synchronize','reopened','closed','edited','ready_for_review','converted_to_draft','labeled','unlabeled','enqueued','dequeued'].includes(payload.action ?? '')) return finish('irrelevant PR action')
@@ -311,7 +323,13 @@ export class PullRequestInbox {
           map[key] = next
           changed = true
         }
-        if (event === 'issue_comment') upsert(s.comments, payload.comment)
+        if (event === 'issue_comment') {
+          const feedback = !activity
+          if (feedback) upsert(s.comments, payload.comment)
+          // Agent activity comments are self-generated transport records; they
+          // must not advance the repair generation or revoke the active claim.
+          if (activity || repairMarked && this.activityAuthors.has(commentAuthor)) changed = false
+        }
         if (event === 'pull_request_review_comment') { upsert(s.reviewComments, payload.comment); if (changed) s.feedbackRefresh = true }
         if (event === 'pull_request_review') { upsert(s.reviews, payload.review); if (changed) s.feedbackRefresh = true }
         if (event === 'pull_request_review_thread' && payload.thread) {
@@ -424,6 +442,15 @@ export class PullRequestInbox {
       s.lease = null; s.leaseUntil = 0
       if (s.status !== 'terminal') s.status = 'ready'
       this.put(s); return true
+    })
+  }
+  renew(claim: Claim, leaseUntil: number): boolean {
+    return this.transaction(() => {
+      const s = this.get(claim.snapshot.repository, claim.snapshot.number)
+      if (!s || s.lease !== claim.token || s.generation !== claim.generation || s.leaseUntil <= this.clock()) return false
+      s.leaseUntil = leaseUntil
+      this.put(s)
+      return true
     })
   }
   finish(claim: Claim, result: { text: string; retry?: boolean; terminal?: boolean; progress?: ProgressOutcome; wait?: Omit<PullRequestWait, 'headSha'> }): boolean {

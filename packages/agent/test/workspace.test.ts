@@ -1037,6 +1037,20 @@ describe("defineAgent workspace option", () => {
     expect(snapshot).toHaveBeenCalledWith({ name: "chore: archive response" })
   })
 
+  it("uses filled colocated templates through the synthetic Workspace run", async () => {
+    const { agentWithColocatedInstructions, defineAgent } = await import("../src/index.ts")
+    const original = defineAgent({
+      name: "reviewer",
+      workspace: {},
+      driver: { model: {} as never, instructions: { template: "Before.\n{{{ instructions }}}\nAfter." } },
+    })
+    const loaded = agentWithColocatedInstructions(original, "Review migrations.")
+
+    await expect(loaded.run!(context())).resolves.toBe("ok")
+
+    expect(agentSettings.at(-1)?.instructions).toBe("Before.\nReview migrations.\nAfter.")
+  })
+
   it("uses string instructions", async () => {
     const { defineAgent } = await import("../src/index.ts")
 

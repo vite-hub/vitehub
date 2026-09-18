@@ -148,6 +148,7 @@ describe("agent capability runtime", () => {
     const name = `pr-source-${crypto.randomUUID()}`
     const source = (ref: string, content: string) => ({
       ...github({ repo: "example/portal", ref, materialize }),
+      fingerprint: { inferredSource: "github", options: { repo: "example/portal", ref } },
       prepare: undefined,
       resolveRevision: async () => ({ id: ref, immutable: true }),
       getKeys: async () => ["version.txt"],
@@ -177,6 +178,66 @@ describe("agent capability runtime", () => {
       await expect(workspace.fs.readFile("portal/version.txt")).resolves.toBe("support")
       expect(definition.sources?.portal).toBeDefined()
     } finally { await result.close() }
+  })
+
+  it("does not overlay a GitHub source with a narrower declared scope", async () => {
+    const { resolveAgentCapabilities, trustGitHubPullRequestWorkspaceCapability } = await import("../src/capability-runtime.ts")
+    const { github } = await import("@vite-hub/workspace")
+    const name = `pr-scoped-source-${crypto.randomUUID()}`
+    const source = (ref: string, content: string, options: { root?: string, include?: string[], ignore?: string[] } = {}) => ({
+      ...github({ repo: "example/portal", ref, materialize: "lazy", ...options }),
+      fingerprint: { inferredSource: "github", options: { repo: "example/portal", ref, ...options } },
+      prepare: undefined,
+      resolveRevision: async () => ({ id: ref, immutable: true }),
+      getKeys: async () => ["version.txt"],
+      getItem: async (key: string) => ({ key, content }),
+      getItems: async () => [{ key: "version.txt", content }],
+      getMeta: async () => ({}),
+    })
+    const definition = defineWorkspace({
+      store: { provider: "memory" },
+      sources: { portal: source("main", "support", { root: "packages/portal", include: ["src/**"], ignore: ["**/*.secret"] }) },
+    })
+    registerWorkspace(name, definition)
+    const workspace = useWorkspace(name, { mode: "write" })
+    const capability = trustGitHubPullRequestWorkspaceCapability({
+      id: "github-pull-request-workspace",
+      workspace: { sources: { vitehubGitHubPullRequest: { ...source("pr-head", "pull request"), mount: { path: "portal" } } } },
+    })
+
+    await expect(resolveAgentCapabilities({ capabilities: [capability] }, runtime(), {}, workspace as never, "write", {
+      driverKind: "provider", invocationKind: "run", workspaceDefinition: { ...definition, name },
+    })).rejects.toThrow('conflicts with Workspace Source "portal"')
+  })
+
+  it("overlays a resolved GitHub source fingerprint when its scope matches", async () => {
+    const { resolveAgentCapabilities, trustGitHubPullRequestWorkspaceCapability } = await import("../src/capability-runtime.ts")
+    const { github } = await import("@vite-hub/workspace")
+    const name = `pr-resolved-source-${crypto.randomUUID()}`
+    const source = (ref: string, content: string, resolved = false) => ({
+      ...github({ repo: "example/portal", ref, materialize: "lazy", root: "packages/portal" }),
+      fingerprint: resolved
+        ? { source: { inferredSource: "github", options: { repo: "example/portal", ref, root: "packages/portal" } }, sourceResolution: {} }
+        : { inferredSource: "github", options: { repo: "example/portal", ref, root: "packages/portal" } },
+      prepare: undefined,
+      resolveRevision: async () => ({ id: ref, immutable: true }),
+      getKeys: async () => ["version.txt"],
+      getItem: async (key: string) => ({ key, content }),
+      getItems: async () => [{ key: "version.txt", content }],
+      getMeta: async () => ({}),
+    })
+    const definition = defineWorkspace({ store: { provider: "memory" }, sources: { portal: source("main", "support", true) } })
+    registerWorkspace(name, definition)
+    const workspace = useWorkspace(name, { mode: "write" })
+    const capability = trustGitHubPullRequestWorkspaceCapability({
+      id: "github-pull-request-workspace",
+      workspace: { sources: { vitehubGitHubPullRequest: { ...source("pr-head", "pull request"), mount: { path: "portal" } } } },
+    })
+    const result = await resolveAgentCapabilities({ capabilities: [capability] }, runtime(), {}, workspace as never, "write", {
+      driverKind: "provider", invocationKind: "run", workspaceDefinition: { ...definition, name },
+    })
+    try { expect(result.workspaceDefinition?.sources?.portal).toBeUndefined() }
+    finally { await result.close() }
   })
 
   it("runs lifecycle phases in capability order and closes in reverse order", async () => {

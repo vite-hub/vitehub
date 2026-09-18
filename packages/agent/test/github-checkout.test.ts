@@ -114,6 +114,23 @@ process.exit(result.status ?? 1);
     const hookMarker = join(root, 'hook-ran')
     await writeFile(join(hooks, 'pre-push'), `#!/bin/sh\ntouch '${hookMarker}'\n`, { mode: 0o755 })
     await git(target, 'config', 'core.hooksPath', hooks)
+    // Custody can change while host credentials are being refreshed.
+    let custody = true
+    credentials.mockImplementationOnce(({ repository }) => {
+      custody = false
+      return { token: repository ?? 'default', rateLimitKey: repository ?? 'default' }
+    })
+    await expect(checkout.push(target, { beforePush: () => {
+      if (!custody) throw new DOMException('Lease lost', 'AbortError')
+    } })).rejects.toThrow('Lease lost')
+    expect(await git(fork, 'rev-parse', 'feature')).toBe(headSha)
+    const pushController = new AbortController()
+    credentials.mockImplementationOnce(({ repository }) => {
+      pushController.abort(new DOMException('Lease expired', 'AbortError'))
+      return { token: repository ?? 'default', rateLimitKey: repository ?? 'default' }
+    })
+    await expect(checkout.push(target, { signal: pushController.signal })).rejects.toThrow('Lease expired')
+    expect(await git(fork, 'rev-parse', 'feature')).toBe(headSha)
     expect(await checkout.push(target)).toBe(repair)
     await expect(readFile(hookMarker)).rejects.toMatchObject({ code: 'ENOENT' })
     expect(await git(fork, 'rev-parse', 'feature')).toBe(repair)

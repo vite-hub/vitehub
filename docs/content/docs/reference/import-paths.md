@@ -27,6 +27,8 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/agent/evlog` | Host-level evlog integration for Agent lifecycle events and diagnostics. |
 | `vite-hub/agent/evlog/posthog` | Optional Node.js PostHog event, Error Tracking and log exporter. |
 | `vite-hub/agent/eval` | Agent Eval authoring helpers; install Evalite and the test runner explicitly. |
+| `vite-hub/agent/presets/babysitter` | Composable Babysitter repair-loop preset. |
+| `vite-hub/agent/presets/babysitter/server` | Babysitter host runtime integration. |
 | `vite-hub/agent/cloudflare` | Cloudflare Agent state configuration helpers. |
 | `vite-hub/agent/vue` | Vue Agent client handle and AI SDK chat composable. |
 | `vite-hub/agent/server` and `vite-hub/agent/state/sqlite` | Manual server integration and libSQL-compatible durable Agent state. |

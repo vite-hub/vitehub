@@ -69,6 +69,10 @@ describe("Agent diagnostics", () => {
     })
   })
 
+  it.each(["constructor", "toString", "__proto__"])("rejects inherited registry entry %s", async (name) => {
+    await expect(getAgentFromRegistry(name, {})).rejects.toMatchObject({ code: "AGENT_R0001" })
+  })
+
   it("preserves tool diagnostic guidance and the original failure", async () => {
     const failure = new Diagnostic({
       cause: new Error("private provider response"),

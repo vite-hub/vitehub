@@ -2156,7 +2156,7 @@ describe("Agent invocation console", () => {
       .toThrow("Agent names cannot exceed 512 characters")
   })
 
-  it("keeps colliding discovered route names until definitions resolve", async () => {
+  it("rejects colliding discovered Agent names", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-collision-"))
     try {
       await writeFile(join(root, "package.json"), "{}\n")
@@ -2172,9 +2172,9 @@ describe("Agent invocation console", () => {
       if (!configHook) throw new TypeError("Expected a console config hook.")
       const configHandler = "handler" in configHook ? configHook.handler : configHook
       const config = { root }
-      await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
-      const generated = await readFile(resolve(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")
-      expect(generated.match(/fallbackName: "review"/g)).toHaveLength(2)
+      await expect(
+        Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }]),
+      ).rejects.toThrow('Duplicate Agent name "review" discovered.')
     }
     finally {
       await rm(root, { force: true, recursive: true })

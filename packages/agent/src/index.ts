@@ -562,6 +562,8 @@ const baseAgentModel = Symbol.for("vitehub.baseAgentModel")
 const baseAgentDriverKind = Symbol.for("vitehub.baseAgentDriverKind")
 const baseAgentDriver = Symbol.for("vitehub.baseAgentDriver")
 const baseAgentDefinitionResolve = Symbol.for("vitehub.baseAgentDefinitionResolve")
+const baseAgentDefinitionHealth = Symbol.for("vitehub.baseAgentDefinitionHealth")
+const baseAgentDefinitionStatus = Symbol.for("vitehub.baseAgentDefinitionStatus")
 const baseAgentOutput = Symbol.for("vitehub.baseAgentOutput")
 const baseAgentCapabilitiesResolver = Symbol.for("vitehub.baseAgentCapabilitiesResolver")
 type WorkspaceSourceNames<TWorkspace> =
@@ -1856,6 +1858,10 @@ function defineBaseAgent<
         : adapterInstance
     },
   } as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS, TOutput>
+  Object.defineProperties(definition, {
+    [baseAgentDefinitionHealth]: { value: options.health ? undefined : definition.health },
+    [baseAgentDefinitionStatus]: { value: definition.status },
+  })
   configureAgentCapacity(definition, driver.capacity)
   Object.defineProperty(definition, "__vitehubAgentSettings", {
     value: channels === options.channels ? options : { ...options, channels },
@@ -2618,26 +2624,44 @@ export const defineAgent: DefineAgent = ((options: unknown) => {
 }) as DefineAgent
 
 export function agentWithColocatedInstructions<Agent>(agent: Agent, instructions?: string): Agent {
-  if (!instructions || !hasAgentDefinition(agent)) return agent
+  if (instructions === undefined || !hasAgentDefinition(agent)) return agent
   // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   const settings = (agent as AgentDefinition & { __vitehubAgentSettings?: AgentSettings }).__vitehubAgentSettings
-  if (!settings || settings.workspace) return agent
+  if (!settings) return agent
   const driver = normalizeAgentDriver(settings)
-  if (driver.kind === "run" || driver.instructions !== undefined) return agent
+  if (driver.kind === "run") return agent
+  const configured = driver.instructions
+  const template = configured && hasRuntimeType(configured, "object") && !Array.isArray(configured)
+    && "template" in configured && !("mode" in configured)
+    ? configured
+    : undefined
+  if (template ? template.content !== undefined : configured !== undefined || settings.workspace) return agent
+  const resolvedInstructions = template ? { ...template, content: instructions } : instructions
   // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   const definition = defineAgent({
     extends: agent,
     name: settings.name,
-    driver: { instructions },
+    driver: { instructions: resolvedInstructions },
   } as never) as Agent
   // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   const decorations = Object.getOwnPropertyDescriptors(agent as object)
   Reflect.deleteProperty(decorations, agentLayerMetadata)
   delete decorations.__vitehubAgentSettings
+  // The rebuilt workspace definition owns the newly filled instruction template.
+  delete decorations.__vitehubWorkspaceAgentOptions
+  const originalRun: unknown = decorations.run?.value
+  if (hasRuntimeType(originalRun, "function") && syntheticWorkspaceRun in originalRun) delete decorations.run
+  // Keep custom lifecycle properties, but regenerate closures over the rebuilt definition.
+  for (const [property, marker] of [["health", baseAgentDefinitionHealth], ["status", baseAgentDefinitionStatus]] as const) {
+    // SAFETY: Agent definitions are object values, so this assertion is required for reflective property access.
+    if (decorations[property]?.value === Reflect.get(agent as object, marker)) delete decorations[property]
+    Reflect.deleteProperty(decorations, marker)
+  }
   delete decorations.options
   Reflect.deleteProperty(decorations, baseAgentResolve)
   Reflect.deleteProperty(decorations, baseAgentModel)
   Reflect.deleteProperty(decorations, baseAgentDriverKind)
+  Reflect.deleteProperty(decorations, baseAgentDriver)
   Reflect.deleteProperty(decorations, baseAgentDefinitionResolve)
   if (
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
@@ -2687,7 +2711,7 @@ export async function getAgentFromRegistry<TContext extends AgentRuntimeContext>
   // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   registry: AgentRegistry<TContext> = agentRegistry as AgentRegistry<TContext>,
 ): Promise<AgentInput<TContext>> {
-  const loader = registry[name]
+  const loader = Object.hasOwn(registry, name) ? registry[name] : undefined
   if (!loader) {
     throw agentDiagnostics.AGENT_R0001({ name, available: Object.keys(registry).sort() })
   }
