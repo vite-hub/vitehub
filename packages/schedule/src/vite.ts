@@ -268,6 +268,7 @@ function renderNitroSchedulePlugin(options: RenderNitroSchedulePluginOptions): s
       ? [
           `import { normalizeScheduleRuntimeError } from ${JSON.stringify(options.runtimeImport ?? `${importBase}/runtime/static`)}`,
           `import { createKVRuntimeScheduleStore, createKVScheduleRunStore } from ${JSON.stringify(`${importBase}/runtime`)}`,
+          `import { scheduleKVStorage } from ${JSON.stringify(`${importBase}/runtime/kv`)}`,
           `import { installScheduleRuntime } from ${JSON.stringify(`${importBase}/runtime/driver`)}`,
           `import { createProcessScheduleWakeDriver } from ${JSON.stringify(`${importBase}/runtime/process`)}`,
           `import runtimeScheduleRegistry from ${JSON.stringify(moduleImportSpecifier(options.pluginFile, options.runtimeRegistryFile))}`,
@@ -278,7 +279,7 @@ function renderNitroSchedulePlugin(options: RenderNitroSchedulePluginOptions): s
     ...(processRuntime
       ? [
           `const processDriverOptions = ${JSON.stringify(processDriverOptions, null, 2)}`,
-          `const scheduleStoreOptions = ${JSON.stringify(scheduleStoreOptions, null, 2)}`,
+          `const scheduleStoreOptions = { ...${JSON.stringify(scheduleStoreOptions, null, 2)}, kvStore: scheduleKVStorage }`,
           "",
         ]
       : []),

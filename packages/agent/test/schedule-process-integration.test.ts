@@ -119,6 +119,7 @@ describe("Agent Process Schedule integration", () => {
           { find: /^@vite-hub\/agent\/server\/internal$/, replacement: join(agentSourceRoot, "server", "internal.ts") },
           { find: /^@vite-hub\/schedule$/, replacement: join(scheduleSourceRoot, "index.ts") },
           { find: /^@vite-hub\/schedule\/runtime$/, replacement: join(scheduleSourceRoot, "runtime.ts") },
+          { find: /^@vite-hub\/schedule\/runtime\/kv$/, replacement: join(scheduleSourceRoot, "runtime", "kv.ts") },
           { find: /^@vite-hub\/schedule\/runtime\/driver$/, replacement: join(scheduleSourceRoot, "runtime", "driver.ts") },
           { find: /^@vite-hub\/schedule\/runtime\/process$/, replacement: join(scheduleSourceRoot, "runtime", "process.ts") },
           { find: /^@vite-hub\/schedule\/runtime\/static$/, replacement: join(scheduleSourceRoot, "runtime", "static.ts") },

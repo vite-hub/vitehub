@@ -73,6 +73,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/sandbox` | Sandbox Definitions and Sandbox Run helpers. |
 | `vite-hub/schedule` and `vite-hub/schedule/runtime` | Static and runtime Schedule APIs. |
 | `vite-hub/schedule/runtime/driver` and `vite-hub/schedule/runtime/process` | Host wake registration and process-backed runtime Schedule controls. |
+| `vite-hub/schedule/runtime/kv` | ViteHub KV storage adapter for Runtime Schedules and Schedule Runs. |
 | `vite-hub/shell` | Shell runtime and command analysis APIs. |
 | `vite-hub/shell/providers/cloudflare` and `vite-hub/shell/providers/just-bash` | Cloudflare and Just Bash Shell providers. |
 | `vite-hub/shell/workspace` | Workspace-backed Shell execution helpers. |
@@ -148,6 +149,7 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/ui` and `@vite-hub/ui/headless` | UI Package | AI SDK-native Vue components and headless message scrolling. |
 | `@vite-hub/sandbox` | Sandbox Package | Sandbox Definition and Sandbox Run helpers. |
 | `@vite-hub/schedule/runtime` | Schedule Package | Runtime schedule helpers. |
+| `@vite-hub/schedule/runtime/kv` | Schedule Package | Explicit storage adapter; requires the optional `@vite-hub/kv` peer. |
 | `@vite-hub/schedule/runtime/driver` | Schedule Package | Host integration boundary for reconciling stored Runtime Schedules with native wake registrations. |
 | `#vitehub/schedule/registry` | Schedule Package | Generated static schedule registry for host bridges. |
 | `@vite-hub/workflow` | Workflow Package | Workflow Definition and run helpers. |

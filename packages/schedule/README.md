@@ -160,7 +160,19 @@ Omitting `timeZone` during an update preserves the stored zone. Set it to `UTC` 
 
 ## Choose storage and wake ownership
 
-Memory stores are the default for direct calls. They are process-local and lose Runtime Schedules and Schedule Run history on restart. Use `createKVRuntimeScheduleStore()` and `createKVScheduleRunStore()` when those records must survive a restart. The default KV-backed stores require `@vite-hub/kv`; custom stores can implement the public store interfaces instead.
+Memory stores are the default for direct calls. They are process-local and lose Runtime Schedules and Schedule Run history on restart. Use `createKVRuntimeScheduleStore({ kvStore })` and `createKVScheduleRunStore({ kvStore })` when those records must survive a restart. Both factories require an explicit `ScheduleKVStorage`. Static schedules, memory stores, and custom storage do not require `@vite-hub/kv`.
+
+To use ViteHub KV, install `@vite-hub/kv` and import the adapter explicitly:
+
+```ts
+import { createKVRuntimeScheduleStore, createKVScheduleRunStore } from "@vite-hub/schedule/runtime"
+import { scheduleKVStorage } from "@vite-hub/schedule/runtime/kv"
+
+const runtimeScheduleStore = createKVRuntimeScheduleStore({ kvStore: scheduleKVStorage })
+const scheduleRunStore = createKVScheduleRunStore({ kvStore: scheduleKVStorage })
+```
+
+Migration: replace factory calls without `kvStore` with the explicit adapter shown above. Generated Process Runtime wiring selects this adapter automatically. Applications using the framework can import it from `vite-hub/schedule/runtime/kv`.
 
 The generated Process Runtime creates both stores through the default KV store configured by `hubKv()`. It scans inside the Node.js process and runs discovered Static Schedule Definitions with stored Runtime Schedules. Configure it only for one long-lived replica:
 
