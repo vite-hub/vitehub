@@ -7,6 +7,7 @@ import { expect, it } from "vitest"
 
 import { getAgentLayerOptions, inheritAgentLayerOptions } from "../src/agent-layers.ts"
 import { defineAgent } from "../src/index.ts"
+import { colocatedAgentSkillsSymbol } from "../src/internal/colocated-agent-skills.ts"
 import { hubAgent } from "../src/vite.ts"
 import { workspaceAgentWithSourceRoot, workspaceDefinitionFromOptions } from "../src/workspace-agent.ts"
 
@@ -54,6 +55,58 @@ it("restores the discovered source root through the generated deployment helper"
       workspaceDefinitionFromOptions,
     ) as typeof workspaceAgentWithSourceRoot
     checkReconfiguredRoot(decorate)
+  }
+  finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+it("keeps generated colocated skills available to derived definitions", async () => {
+  const root = await mkdtemp(join(tmpdir(), "vitehub-generated-skills-"))
+  try {
+    const folder = join(root, "server", "agents", "support")
+    await mkdir(folder, { recursive: true })
+    await writeFile(join(folder, "agent.ts"), "export default defineAgent({ workspace: {} })")
+    const plugin = hubAgent({ runtime: "deno" })
+    if (typeof plugin.configResolved !== "function") throw new Error("Expected configResolved hook")
+    await plugin.configResolved.call({} as never, { root } as never)
+
+    const generated = await readFile(join(root, ".vitehub", "agent", "deno-server.ts"), "utf8")
+    const helper = generated.match(/function withWorkspaceSourceRoot[\s\S]*?\n}/)?.[0]
+    if (!helper) throw new Error("Expected generated Workspace source-root helper")
+    const { code } = await transform(helper, { loader: "ts", format: "esm" })
+    const decorate = new Function("inheritAgentLayerOptions", "workspaceDefinitionFromOptions", `${code}\nreturn withWorkspaceSourceRoot`) (
+      inheritAgentLayerOptions,
+      workspaceDefinitionFromOptions,
+    ) as (agent: object, sourceRootDir: string, colocatedInstructions?: string, colocatedSkills?: Record<string, {
+      content: string
+      encoding: "base64"
+      materialize: "startup"
+      mount: ""
+      workspacePath: string
+    }>) => object
+    const base = defineAgent({ driver: "codex", workspace: {} })
+    const encodedSkills = {
+      review: {
+        content: Buffer.from("Review.").toString("base64"),
+        encoding: "base64" as const,
+        materialize: "startup" as const,
+        mount: "" as const,
+        workspacePath: "skills/review/SKILL.md",
+      },
+    }
+    const discovered = decorate(base, "/discovered", undefined, encodedSkills)
+    const child = defineAgent({ extends: base, description: "Child" })
+
+    expect(Object.getOwnPropertyDescriptor(discovered, colocatedAgentSkillsSymbol)?.value).toMatchObject({
+      review: { content: new TextEncoder().encode("Review.") },
+    })
+    expect(Object.getOwnPropertyDescriptor(child, colocatedAgentSkillsSymbol)?.value).toEqual(
+      Object.getOwnPropertyDescriptor(discovered, colocatedAgentSkillsSymbol)?.value,
+    )
+    const cleared = decorate(base, "/discovered", undefined, undefined)
+    expect(Object.getOwnPropertyDescriptor(cleared, colocatedAgentSkillsSymbol)).toBeUndefined()
+    expect(Object.getOwnPropertyDescriptor(base, colocatedAgentSkillsSymbol)).toBeUndefined()
   }
   finally {
     await rm(root, { recursive: true, force: true })
