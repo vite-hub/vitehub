@@ -872,7 +872,7 @@ function generatedWorkspaceSourceRootHelper(name: string, workspaceDefinitionFro
     "    return [key, encoding === 'base64' ? { ...options, content: Uint8Array.from(atob(content), byte => byte.charCodeAt(0)) } : source]",
     "  }))",
     "  const skillsSymbol = Symbol.for('vitehub.agent.colocatedSkills')",
-    "  if (!Object.keys(skills).length) delete agent[skillsSymbol]",
+    "  if (!Object.keys(skills).length) Reflect.deleteProperty(agent, skillsSymbol)",
     `  const resolvedAgent = ${typescript ? "(" : ""}Object.keys(skills).length ? Object.create(Object.getPrototypeOf(agent), Object.getOwnPropertyDescriptors(agent)) : agent${typescript ? ") as Agent & Partial<WorkspaceAgentDefinition>" : ""}`,
     "  if (Object.keys(skills).length) {",
     "    const descriptor = { configurable: true, enumerable: true, value: skills }",
