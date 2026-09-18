@@ -220,7 +220,6 @@ it("seeds provider source retention with Workflow Definition handlers and steps"
     instructions,
     mixedHandler,
     mixedStep,
-    policy,
     skillsRoot,
     step,
     workspaceRoot,
@@ -236,7 +235,7 @@ it("seeds provider source retention with Workflow Definition handlers and steps"
   await expect(readFile(retained.resolve(mixedDependency), "utf8")).resolves.toContain('value = "retained"')
 })
 
-it("carries resolved parent Agent Workflow instructions into retained entries", async () => {
+it("preserves literal parent Agent Workflow references without retaining their targets", async () => {
   const container = await createWorkspaceTempDir("vitehub-workflow-parent-instructions-")
   const rootDir = join(container, "apps", "web")
   const agentRoot = join(rootDir, "server", "agents", "review")
@@ -253,6 +252,7 @@ it("carries resolved parent Agent Workflow instructions into retained entries", 
   ])
 
   const providerSources = discoverWorkflowProviderSources(rootDir)
+  expect(providerSources.paths).not.toContain(policy)
   const artifactDir = join(rootDir, ".vitehub", "workflow-generations", "test")
   const retained = await retainProviderOutputSources({
     artifactDir: join(artifactDir, "sources"),
@@ -276,7 +276,8 @@ it("carries resolved parent Agent Workflow instructions into retained entries", 
   )
 
   const registry = await readFile(artifacts.registryFile, "utf8")
-  expect(registry).toContain("Follow the shared Workflow policy.")
+  expect(registry).not.toContain("Follow the shared Workflow policy.")
+  expect(registry).toContain(`@${relative(agentRoot, policy)}`)
   expect(registry).toContain("Review the change.")
 })
 
@@ -1130,15 +1131,16 @@ describe("Vite workflow provider outputs", () => {
     await writeFile(join(optionalDevtoolsFixture, "index.js"), `export const optionalDevtools = import("@vitejs/devtools-vite")\n`)
     await writeFile(join(agentDir, "repository-host-context.md"), "Repository host context loaded through Vite raw semantics.\n")
     await writeFile(join(agentDir, "workspace", "context.md"), "Deployed workspace context.\n")
+    await writeFile(join(agentDir, "review.template.md"), "Review {{ data.repository }} through a bundled Markdown template.\n")
     await writeFile(join(agentDir, "agent.ts"), [
       `import { defineAgent } from "@vite-hub/agent"`,
       `import repositoryHostContext from "./repository-host-context.md?raw"`,
-      `import { renderMarkdownTemplate } from "@vite-hub/markdown-template"`,
+      `import renderReview from "./review.template.md"`,
       `import { optionalDevtools } from "optional-vite-devtools-fixture"`,
       "",
       "export default defineAgent({",
       "  workspace: {},",
-      `  run: async () => [repositoryHostContext, await renderMarkdownTemplate("Review {{ repository }} through a Markdown string.", { data: { repository: "ViteHub" } }), optionalDevtools].join("\\n"),`,
+      `  run: async () => [repositoryHostContext, await renderReview({ repository: "ViteHub" }), optionalDevtools].join("\\n"),`,
       "})",
       "",
     ].join("\n"))
@@ -1235,7 +1237,7 @@ describe("Vite workflow provider outputs", () => {
     expect(cloudflareWorkerBundleContents).toContain("NonRetryableError")
     expect(cloudflareWorkerBundleContents).toContain("cloudflare:workflows")
     expect(cloudflareWorkerBundleContents).toContain("Repository host context loaded through Vite raw semantics.")
-    expect(cloudflareWorkerBundleContents).toContain("Markdown string")
+    expect(cloudflareWorkerBundleContents).toContain("bundled Markdown template")
     expect(cloudflareWorkerBundleContents).toContain("./.vitehub/workflow/sources/")
     expect(cloudflareWorkerBundleContents).not.toMatch(/\b(?:from\s*|import\s*\(\s*)["']@vite-hub\/workspace(?:\/[^"']*)?["']/)
     const registry = await readFile(join(rootDir, ".vitehub", "workflow", "registry.mjs"), "utf8")
@@ -1253,11 +1255,11 @@ describe("Vite workflow provider outputs", () => {
     expect(registry).toContain("/server/agents/nuxt/workspace")
     expect(registry).not.toContain(JSON.stringify(join(agentDir, "workspace")))
     expect(registry).toContain("Keep answers concise")
-    expect(registry).toContain("Use shared policy")
+    expect(registry).not.toContain("Use shared policy")
     expect(registry).toContain("Use flat Agent instructions.")
     expect(registry).toContain("/server/agents/workspace")
     expect(registry).not.toContain(JSON.stringify(join(rootDir, "server", "agents", "workspace")))
-    expect(registry).not.toContain("@./shared.md")
+    expect(registry).toContain("@./shared.md")
     expect(registry).toContain("@./inline-example.md")
     expect(registry).toContain("@./fenced-example.md")
     expect(registry).toContain("@./indented-example.md")
@@ -1275,7 +1277,7 @@ describe("Vite workflow provider outputs", () => {
     await expect(readFile(resolve(dirname(vercelServer), vercelWorkspacePath!, "context.md"), "utf8"))
       .resolves.toBe("Deployed workspace context.\n")
     expect(await readFile(vercelServer, "utf8")).toContain("Repository host context loaded through Vite raw semantics.")
-    expect(await readFile(vercelServer, "utf8")).toContain("Markdown string")
+    expect(await readFile(vercelServer, "utf8")).toContain("bundled Markdown template")
   }, buildOutputTestTimeout)
 
   it("does not emit Cloudflare workflow artifacts for Vercel provider overrides", async () => {
@@ -1284,7 +1286,7 @@ describe("Vite workflow provider outputs", () => {
     const viteConfig = join(rootDir, "vite.config.ts")
     await writeFile(viteConfig, (await readFile(viteConfig, "utf8"))
       .replace("const baseConfig = {", `const baseConfig = {\n    resolve: { alias: { "@": resolve(import.meta.dirname, ".") } },`)
-      .replace("plugins: [hubWorkflow()],", `plugins: [{ name: "email-definition-alias", config: () => ({ resolve: { alias: { "#vitehub/email/definition": resolve(import.meta.dirname, "server/email.ts") } } }) }, hubWorkflow(), { name: "nitro:main", config() {} }],`)
+      .replace("      plugins: [hubWorkflow()],\n      workflow: {},", `      plugins: [{ name: "email-definition-alias", config: () => ({ resolve: { alias: { "#vitehub/email/definition": resolve(import.meta.dirname, "server/email.ts") } } }) }, hubWorkflow(), { name: "nitro:main", config() {} }],\n      workflow: {},`)
       .replaceAll("workflow: {},", "workflow: { provider: \"vercel\" },"))
     const generatedWorkflowDir = join(rootDir, "server", "workflows", "monthly-recap")
     await mkdir(generatedWorkflowDir, { recursive: true })

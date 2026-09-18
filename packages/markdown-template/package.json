@@ -1,7 +1,7 @@
 {
   "name": "@vite-hub/markdown-template",
   "version": "0.0.1",
-  "description": "Deterministic Markdown templates with explicit data, conditions, fragments, and caller-resolved imports.",
+  "description": "Deterministic Markdown templates with explicit data, conditions, and fragments.",
   "keywords": [
     "agent",
     "markdown",
@@ -35,7 +35,9 @@
     },
     "./file": "./dist/file.js",
     "./internal/composition": "./dist/internal/composition.js",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./internal/vite": "./dist/internal/vite.js",
+    "./vite": "./dist/vite.js"
   },
   "scripts": {
     "build": "vp pack",
@@ -48,8 +50,17 @@
     "comark": "catalog:markdown",
     "nostics": "catalog:runtime"
   },
+  "peerDependencies": {
+    "vite": "catalog:vite-compat"
+  },
+  "peerDependenciesMeta": {
+    "vite": {
+      "optional": true
+    }
+  },
   "devDependencies": {
     "@types/node": "catalog:tooling",
+    "@vite-hub/internal": "workspace:*",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",

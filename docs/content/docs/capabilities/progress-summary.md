@@ -95,7 +95,7 @@ Stop the invocation before the next interval and confirm that no later progress 
 | `template` | `string \| function` | generated | Markdown prompt template. |
 | `variables` | `Record<string, value \| function>` | none | Extra Markdown template variables. |
 
-String templates use `@vite-hub/markdown-template` and receive `userText`, `elapsed`, `reasoningActive`, `activeTools`, `completedTools`, and `previous`. Function templates additionally receive `elapsedText` plus the structured snapshot fields. Keep sensitive content out of prompts you construct.
+String templates use `@vite-hub/markdown-template` and receive their values under the `data` namespace: `data.userText`, `data.elapsed`, `data.reasoningActive`, `data.activeTools`, `data.completedTools`, and `data.previous`. Extra variables are available as `data.<variable>`. Function templates additionally receive `elapsedText` plus the structured snapshot fields. Keep sensitive content out of prompts you construct.
 
 ## Related pages
 
