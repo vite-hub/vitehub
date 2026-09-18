@@ -30,4 +30,19 @@ describe("Nitro server kit", () => {
 
     expect(kit.config.handlers).toHaveLength(2)
   })
+
+  it("keeps registration mutations connected after filtering an exposed array", () => {
+    const kit = createNitroServerKit({ handlers: [{ handler: "stale.ts" }], plugins: ["stale-plugin.ts"] })
+
+    const handlers = kit.config.handlers as unknown[]
+    handlers.splice(0, handlers.length, { handler: "kept.ts" })
+    const plugins = kit.config.plugins as unknown[]
+    plugins.splice(0, plugins.length, "kept-plugin.ts")
+
+    kit.addHandler({ handler: "generated.ts" })
+    kit.addPlugin("generated-plugin.ts")
+
+    expect(kit.config.handlers).toEqual([{ handler: "kept.ts" }, { handler: "generated.ts" }])
+    expect(kit.config.plugins).toEqual(["kept-plugin.ts", "generated-plugin.ts"])
+  })
 })

@@ -139,10 +139,12 @@ function mergeNitroBlobConfig(value: unknown, serve: BlobServeConfig | undefined
   kit.addPlugin(plugin)
   if (cloudflare) kit.addHandler({ handler: middleware, middleware: true, route: "/**" })
   if (!serve) return kit.config
-  const existingHandlers = (Array.isArray(kit.config.handlers) ? kit.config.handlers : []).filter(handler =>
-    !isGeneratedNitroRegistration(handler?.handler, generatedBlobServeRouteHandler),
-  )
-  kit.config.handlers = existingHandlers
+  if (Array.isArray(kit.config.handlers)) {
+    const existingHandlers = kit.config.handlers.filter(handler =>
+      !isGeneratedNitroRegistration(handler?.handler, generatedBlobServeRouteHandler),
+    )
+    kit.config.handlers.splice(0, kit.config.handlers.length, ...existingHandlers)
+  }
   kit.addHandler({ handler: serveHandler, route: blobServeNitroRoute(serve) })
   return kit.config
 }

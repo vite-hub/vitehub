@@ -358,10 +358,10 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
         { handler: join(consoleRuntimeRoot, "server/page.get.js"), route: "/_vitehub/**" },
       ]) kit.addHandler(handler)
       addConsoleDevframeHandler(kit.config, consoleRuntimeRoot)
-      const plugins = Array.isArray(kit.config.plugins)
-        ? kit.config.plugins.filter(candidate => !generatedConsolePluginRegistration(candidate))
-        : []
-      kit.config.plugins = plugins
+      if (Array.isArray(kit.config.plugins)) {
+        const plugins = kit.config.plugins.filter(candidate => !generatedConsolePluginRegistration(candidate))
+        kit.config.plugins.splice(0, kit.config.plugins.length, ...plugins)
+      }
       kit.addPlugin(generatedPlugin)
       const publicAssets = Array.isArray(nitro.publicAssets) ? nitro.publicAssets.filter((asset) => asset?.baseURL !== "/_vitehub/assets") : []
       publicAssets.push({
