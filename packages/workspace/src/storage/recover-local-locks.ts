@@ -28,15 +28,21 @@ export async function recoverLocalWorkspaceLocks(options: {
   }
   let removed = 0
   for (const entry of await readdir(directory, { withFileTypes: true })) {
-    if (!/^[a-f0-9]{64}\.(gate|readers)$/.test(entry.name)) continue
-    if (!entry.isDirectory() || entry.isSymbolicLink())
+    const markerName = /^[a-f0-9]{64}\.(gate|readers)$/.test(entry.name)
+    const quarantineName = /^\.recovery-[a-f0-9]{64}\.(gate|readers)-[0-9a-f-]+$/.test(entry.name)
+    if (!markerName && !quarantineName) continue
+    if (markerName && (!entry.isDirectory() || entry.isSymbolicLink()))
       throw workspaceError(`[vitehub] Expected a real Workspace lock marker directory: ${entry.name}.`)
-    const marker = join(directory, entry.name)
-    // Move the validated marker out of its public name before recursive removal.
-    // This prevents a replacement at the original pathname from being followed.
-    const quarantine = join(directory, `.recovery-${entry.name}-${randomUUID()}`)
-    await rename(marker, quarantine)
-    await rm(quarantine, { recursive: true })
+    // Rename before recursive removal. This makes an interrupted quarantine discoverable
+    // on the next run and prevents a replacement at the original pathname from being followed.
+    const source = join(directory, entry.name)
+    if (quarantineName) {
+      await rm(source, { recursive: true })
+    } else {
+      const quarantine = join(directory, `.recovery-${entry.name}-${randomUUID()}`)
+      await rename(source, quarantine)
+      await rm(quarantine, { recursive: true })
+    }
     removed++
   }
   return { removed }

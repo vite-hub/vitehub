@@ -48,3 +48,19 @@ it("refuses symlinked lock directories", async () => {
     await rm(root, { recursive: true, force: true })
   }
 })
+
+it("reclaims an interrupted quarantine on a later run", async () => {
+  const root = await mkdtemp(join(tmpdir(), "vitehub-lock-quarantine-"))
+  try {
+    const locks = join(root, ".vitehub/locks")
+    await mkdir(locks, { recursive: true })
+    const hash = "a".repeat(64)
+    const quarantine = join(locks, `.recovery-${hash}.gate-00000000-0000-0000-0000-000000000000`)
+    await mkdir(quarantine)
+    await writeFile(join(quarantine, "owner"), "terminated owner")
+    await expect(recoverLocalWorkspaceLocks({ root, offline: true })).resolves.toEqual({ removed: 1 })
+    expect(await readdir(locks)).toEqual([])
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
