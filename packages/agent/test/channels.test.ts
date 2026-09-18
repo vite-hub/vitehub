@@ -804,7 +804,11 @@ describe("agent channels", () => {
     }
 
     const defaultChannel = github({ pullRequest: true })
-    const defaultWorkspace = defaultChannel.capabilities?.find(capability => capability.id === "github-pull-request-workspace")?.workspace
+    const defaultCapability = defaultChannel.capabilities?.find(capability => capability.id === "github-pull-request-workspace")
+    expect(defaultCapability).toBeDefined()
+    expect(Object.isFrozen(defaultCapability)).toBe(true)
+    expect(Reflect.set(defaultCapability as object, "workspace", () => undefined)).toBe(false)
+    const defaultWorkspace = defaultCapability?.workspace
     if (!hasRuntimeType(defaultWorkspace, "function")) throw new Error("Missing default pull request Workspace contribution.")
     // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
     const contribution = await defaultWorkspace(context as never)
