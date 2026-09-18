@@ -192,6 +192,45 @@ Provider and controller subpaths are for low-level integrations. Use them when a
 
 `localBrowser({ executablePath })` from `@vite-hub/browser/providers/local` starts a local Chromium process for trusted-host development. It supports CDP control and live handoff, but ViteHub doesn't select it through `browser: true`. Pass it to `createBrowser()` when the application manages the browser process itself.
 
+## Use Agntn providers on Node
+
+To migrate a caller-managed session to `@agntn/browsers`, replace the provider passed to `createBrowser()`. Controller attachment, release, and session cleanup keep the ViteHub API.
+
+```bash
+pnpm add @agntn/browsers@0.2.0 playwright-core
+```
+
+```ts
+import { create } from "@agntn/browsers"
+import { agntnBrowser, createBrowser } from "vite-hub/browser"
+import { playwright } from "vite-hub/browser/controllers/playwright"
+
+const browser = createBrowser({
+  provider: agntnBrowser({
+    provider: create("browserbase", { apiKey: process.env.BROWSERBASE_API_KEY }),
+    sessionOptions: { extra: { projectId: process.env.BROWSERBASE_PROJECT_ID } },
+  }),
+})
+const session = await browser.open()
+try {
+  const control = await session.attach(playwright())
+  try {
+    await control.client.page.goto("https://example.com")
+    console.log(await control.client.page.title())
+  } finally {
+    await control.release()
+  }
+} finally {
+  await session.close()
+}
+```
+
+Agntn runs on a trusted Node host and is installed by the application. ViteHub does not import its runtime. This adapter uses a WebSocket CDP endpoint returned by the provider. Agntn's local Playwright provider does not expose one. Keep `localBrowser()` for local Chromium. Cloudflare REST sessions require an explicit `connection(session)` callback that supplies the endpoint and authentication headers. Use the `playwright()` controller for header authentication; the default `cdp()` WebSocket transport does not accept headers.
+
+Live handoff is disabled until provider behavior across controller release has been verified. To use `idleTimeoutMs`, supply a `sessionOptions` callback that maps it to the selected provider's idle timeout option. The adapter rejects an unmapped timeout before creating a session. Provider timeout units and semantics differ.
+
+Browser Definitions, `runBrowserAction()`, and `runBrowserContent()` continue to use the configured Cloudflare binding. The Agent `browser()` Capability continues to use `agent-browser`.
+
 ## Live handoff
 
 Low-level sessions can transfer one provider session through an opaque reference tied to an audience. Cloudflare's Kitesurf default is sessionless and doesn't support live handoff. Select `engine: 'chromium'` when a handoff must preserve the session.

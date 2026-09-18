@@ -17,29 +17,6 @@ Use `vite-hub` for normal application code. It includes this package and keeps t
 
 Install `@vite-hub/browser` directly when you compose Vite integrations yourself or need explicit providers and controllers. Choose one import family for application code so its package dependency stays clear.
 
-## Use an Agntn provider on a trusted Node host
-
-`@vite-hub/browser` can wrap an `@agntn/browsers` provider for ViteHub's session and controller contracts. Keep this adapter in a trusted Node host. The Agntn package eagerly loads Node-only providers and is not part of the Cloudflare Worker bundle.
-
-```bash
-pnpm add @agntn/browsers @vite-hub/browser
-```
-
-```ts
-import { create } from "@agntn/browsers"
-import { agntnBrowser, createBrowser } from "@vite-hub/browser"
-
-const browser = createBrowser({
-  provider: agntnBrowser({ provider: create("playwright") }),
-})
-
-const session = await browser.open()
-// Attach ViteHub's cdp() or playwright() controller here.
-await session.close()
-```
-
-The adapter keeps ViteHub's cleanup and session state rules. It does not add Agntn's provider-specific stateless operations to `runBrowserAction()`, and it disables live handoff because Agntn sessions do not provide ViteHub handoff semantics. Use the `connection` option when a provider needs authenticated CDP headers.
-
 ## Get rendered HTML
 
 Enable Browser on a Cloudflare deployment:
@@ -191,6 +168,45 @@ Set `executablePath` to an installed Chromium-compatible browser. The path above
 Use this adapter only when the process is allowed to start Chromium and isolate it according to the host's threat model. It uses a temporary browser profile and removes that profile when the session closes. ViteHub does not provide an untrusted-code sandbox around the browser process.
 
 Low-level Cloudflare sessions can also transfer an exact provider session through an audience-bound live handoff reference. Handoff requires the persistent Chromium engine. The receiver must claim the reference through the same `createBrowser()` client that created the session; references do not cross clients or processes. A handed-off session is not closed for the original caller. Treat the reference as a short-lived credential and close the claimed session when its work finishes.
+
+## Use Agntn providers on Node
+
+To migrate a caller-managed session to `@agntn/browsers`, replace the provider passed to `createBrowser()`. Controller attachment, release, and session cleanup keep the ViteHub API.
+
+```bash
+pnpm add @agntn/browsers@0.2.0 playwright-core
+```
+
+```ts
+import { create } from "@agntn/browsers"
+import { agntnBrowser, createBrowser } from "@vite-hub/browser"
+import { playwright } from "@vite-hub/browser/controllers/playwright"
+
+const browser = createBrowser({
+  provider: agntnBrowser({
+    provider: create("browserbase", { apiKey: process.env.BROWSERBASE_API_KEY }),
+    sessionOptions: { extra: { projectId: process.env.BROWSERBASE_PROJECT_ID } },
+  }),
+})
+const session = await browser.open()
+try {
+  const control = await session.attach(playwright())
+  try {
+    await control.client.page.goto("https://example.com")
+    console.log(await control.client.page.title())
+  } finally {
+    await control.release()
+  }
+} finally {
+  await session.close()
+}
+```
+
+Agntn runs on a trusted Node host and is installed by the application. ViteHub does not import its runtime. This adapter uses a WebSocket CDP endpoint returned by the provider. Agntn's local Playwright provider does not expose one. Keep `localBrowser()` for local Chromium. Cloudflare REST sessions require an explicit `connection(session)` callback that supplies the endpoint and authentication headers. Use the `playwright()` controller for header authentication; the default `cdp()` WebSocket transport does not accept headers.
+
+Live handoff is disabled until provider behavior across controller release has been verified. To use `idleTimeoutMs`, supply a `sessionOptions` callback that maps it to the selected provider's idle timeout option. The adapter rejects an unmapped timeout before creating a session. Provider timeout units and semantics differ.
+
+Browser Definitions, `runBrowserAction()`, and `runBrowserContent()` continue to use the configured Cloudflare binding. The Agent `browser()` Capability continues to use `agent-browser`.
 
 ## Production checks
 
