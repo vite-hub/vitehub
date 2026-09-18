@@ -17,6 +17,29 @@ Use `vite-hub` for normal application code. It includes this package and keeps t
 
 Install `@vite-hub/browser` directly when you compose Vite integrations yourself or need explicit providers and controllers. Choose one import family for application code so its package dependency stays clear.
 
+## Use an Agntn provider on a trusted Node host
+
+`@vite-hub/browser` can wrap an `@agntn/browsers` provider for ViteHub's session and controller contracts. Keep this adapter in a trusted Node host. The Agntn package eagerly loads Node-only providers and is not part of the Cloudflare Worker bundle.
+
+```bash
+pnpm add @agntn/browsers @vite-hub/browser
+```
+
+```ts
+import { create } from "@agntn/browsers"
+import { agntnBrowser, createBrowser } from "@vite-hub/browser"
+
+const browser = createBrowser({
+  provider: agntnBrowser({ provider: create("playwright") }),
+})
+
+const session = await browser.open()
+// Attach ViteHub's cdp() or playwright() controller here.
+await session.close()
+```
+
+The adapter keeps ViteHub's cleanup and session state rules. It does not add Agntn's provider-specific stateless operations to `runBrowserAction()`, and it disables live handoff because Agntn sessions do not provide ViteHub handoff semantics. Use the `connection` option when a provider needs authenticated CDP headers.
+
 ## Get rendered HTML
 
 Enable Browser on a Cloudflare deployment:

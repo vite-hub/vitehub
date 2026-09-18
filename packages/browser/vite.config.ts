@@ -17,6 +17,7 @@ export default defineConfig({
       "src/internal/runtime/unconfigured.ts",
       "src/controllers/cdp.ts",
       "src/controllers/playwright.ts",
+      "src/providers/agntn.ts",
       "src/providers/cloudflare.ts",
       "src/providers/local.ts",
       "src/vite.ts",
