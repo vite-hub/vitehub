@@ -134,9 +134,6 @@ export function createWorkspacePreparation<Name extends WorkspaceName = Workspac
         const selectedSources = sources ?? normalizeWorkspaceSources(definition.sources)
           .filter(source => source.materialize === "startup")
           .map(source => source.key)
-        if (!selectedSources.length) {
-          throw workspaceErrorDiagnostics.WORKSPACE_R0037({ message: `[vitehub] Workspace "${workspaceName}" has no startup sources to prepare.` })
-        }
 
         // The Workspace facade owns the synchronization fence for accepted
         // Store and publisher operations. Let it finish abort handling before
@@ -145,6 +142,10 @@ export function createWorkspacePreparation<Name extends WorkspaceName = Workspac
           abortSignal: controller.signal,
           sources: selectedSources,
         })
+        // Synchronization must retire removed startup files even when none remain.
+        if (!selectedSources.length) {
+          throw workspaceErrorDiagnostics.WORKSPACE_R0037({ message: `[vitehub] Workspace "${workspaceName}" has no startup sources to prepare.` })
+        }
         const sourceResults = new Map(result.sources.map(source => [source.source, source]))
         const failures = selectedSources.filter(source => sourceResults.get(source)?.status !== "ready")
         if (failures.length) {

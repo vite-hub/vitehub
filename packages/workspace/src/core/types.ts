@@ -280,6 +280,8 @@ export interface WorkspaceEntry {
 }
 
 export interface WorkspaceStat extends WorkspaceEntry {
+  /** Opaque stored-file version. Must change on modification or recreation, even when bytes are unchanged. */
+  revision?: string
   type: "file" | "directory"
 }
 
@@ -327,6 +329,7 @@ export interface WorkspaceStore {
   stat(path: string): Promise<WorkspaceStat | undefined>
   mkdir(path: string, options?: MkdirOptions): Promise<void>
   rm(path: string, options?: RmOptions): Promise<void>
+  removeEmptyDirectory?(path: string): Promise<void>
   snapshot(options?: SnapshotOptions): Promise<WorkspaceSnapshot>
   rebase?(options?: WorkspaceRebaseOptions): Promise<void>
   diff(options?: DiffOptions): Promise<WorkspaceDiff>

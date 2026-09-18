@@ -1,25 +1,106 @@
-import { describe, expect, it, vi } from "vitest"
+import { describe, expect, it } from "vitest"
 
-import {
-  renderMarkdownTemplateInternal,
-  resolveMarkdownTemplateImports,
-} from "../src/internal/composition.ts"
+import { renderMarkdownTemplateInternal } from "../src/internal/composition.ts"
 import { renderMarkdownTemplate } from "../src/index.ts"
 
 describe("renderMarkdownTemplate", () => {
+  it.each([false, true])("preserves matched undefined dotted paths in insertion order %s", async (reverse) => {
+    let reads = 0
+    const entries: [string, unknown][] = [
+      ["support.customer", { name: undefined }],
+      ["support", { customer: { get name() { reads++; return "fallback" } } }],
+    ]
+    const data = Object.fromEntries(reverse ? entries.reverse() : entries)
+    await expect(renderMarkdownTemplate("{{ data.support.customer.name }}", { data }))
+      .rejects.toMatchObject({ code: "MARKDOWN_TEMPLATE_R0017" })
+    expect(reads).toBe(0)
+  })
+
+  it("keeps colliding arrays separate without truncating nested elements", async () => {
+    const nested = ["nested", , "kept"]
+    const flat = ["flat"]
+    const data = { group: { items: nested }, "group.items": flat }
+    await expect(renderMarkdownTemplate("{{ data.group.items.0 }} {{ data.group.items.2 }} {{ data.group.items.length }}", { data }))
+      .resolves.toBe("flat kept 1")
+    expect(nested).toHaveLength(3)
+    expect(nested[2]).toBe("kept")
+    expect(flat).toEqual(["flat"])
+  })
+
+  it.each([false, true])("resolves overlapping scalar paths in insertion order %s", async (reverse) => {
+    const entries: [string, string][] = [["support.customer", "Acme"], ["support.customer.name", "Primary"]]
+    const data = Object.fromEntries(reverse ? entries.reverse() : entries)
+    await expect(renderMarkdownTemplate("{{ data.support.customer }} {{ data.support.customer.name }}", { data }))
+      .resolves.toBe("Acme Primary")
+    await expect(renderMarkdownTemplate('::if{:value="data.support.customer" eq="Acme"}\n[Customer](){:href="data.support.customer.name"}\n::', { data }))
+      .resolves.toBe("[Customer](Primary)")
+  })
+
+  it("keeps unused dotted accessors lazy", async () => {
+    let reads = 0
+    const data = {
+      enabled: false,
+      "customer.name": "Ada",
+      get "customer.unused"() { throw new Error("unused dotted getter") },
+      get "other.name"() { throw new Error("unselected dotted getter") },
+      get "customer.selected"() { reads++; return "selected" },
+    }
+    await expect(renderMarkdownTemplate('{{ data.customer.name }} {{ data.customer.selected }} {{ data.customer.selected }}\n\n::if{:condition="data.enabled"}\n{{ data.other.name }}\n::', { data }))
+      .resolves.toBe("Ada selected selected")
+    expect(reads).toBe(1)
+  })
+
+  it("resolves condition guards before comparison getters", async () => {
+    let reads = 0
+    const data = {
+      enabled: false,
+      get value() { reads++; return 2 },
+      get expected() { reads++; return 2 },
+    }
+    const template = '::if{:value="data.value" :eq="data.expected" :condition="data.enabled"}\nSelected\n::else\nFallback\n::\n::'
+    await expect(renderMarkdownTemplate(template, { data })).resolves.toBe("Fallback")
+    expect(reads).toBe(0)
+    data.enabled = true
+    await expect(renderMarkdownTemplate(template, { data })).resolves.toBe("Selected")
+    expect(reads).toBe(2)
+  })
+
+  it("excludes non-enumerable data without reading its getters", async () => {
+    const data = { name: "Ada" }
+    Object.defineProperty(data, "hidden.value", { get() { throw new Error("hidden getter") } })
+    Object.defineProperty(data, "token", { value: "secret" })
+    await expect(renderMarkdownTemplate("{{ data.name }}", { data })).resolves.toBe("Ada")
+    await expect(renderMarkdownTemplate("{{ data.token }}", { data })).rejects.toThrow()
+    await expect(renderMarkdownTemplate("{{ data.hidden.value }}", { data })).rejects.toThrow()
+  })
+
+  it.each([
+    [{ "customer.name": "Ada" }, "{{ data.customer.name }}", "Ada"],
+    [{ "support.customer": { tier: "gold" }, "support.customer.name": "Ada" }, "{{ data.support.customer.name }} {{ data.support.customer.tier }}", "Ada gold"],
+    [{ "support.customer.name": "Ada", "support.customer": { tier: "gold" } }, "{{ data.support.customer.name }} {{ data.support.customer.tier }}", "Ada gold"],
+    [{ "support.customer": "Acme", "support.customer.name": "Ada" }, "{{ data.support.customer.name }}", "Ada"],
+    [{ customer: "explicit", "customer.name": "Ada" }, "{{ data.customer }}", "explicit"],
+    // eslint-disable-next-line unicorn/no-new-array -- The regression requires sparse holes, not initialized elements.
+    [{ items: new Array(3), "items.length": 8 }, "{{ data.items.length }}", "8"],
+    // eslint-disable-next-line unicorn/no-new-array -- The regression requires sparse holes, not initialized elements.
+    [{ items: new Array(3), "items.0": "first" }, "{{ data.items.0 }} {{ data.items.length }}", "first 3"],
+  ])("preserves dotted aliases and explicit data for %j", async (data, template, expected) => {
+    await expect(renderMarkdownTemplate(template, { data })).resolves.toBe(expected)
+  })
+
   it("renders scalar data as Markdown text", async () => {
     expect(await renderMarkdownTemplate([
-      "Hello {{ pullRequest.title }}.",
-      "Attempt {{ count }} is {{ active }}.",
-      "{{ routes.llm-route.choice }}",
-      "{{ support.customer.name }}",
+      "Hello {{ data.pullRequest.title }}.",
+      "Attempt {{ data.count }} is {{ data.active }}.",
+      "{{ data.routes.llm-route.choice }}",
+      "{{ data.support.customer.name }}",
     ].join("\n"), {
       data: {
         active: true,
         count: 2,
         pullRequest: { title: "*untrusted* <policy>text</policy>" },
         routes: { "llm-route": { choice: "fast" } },
-        "support.customer": { name: "Acme" },
+        support: { customer: { name: "Acme" } },
       },
     })).toBe([
       "Hello \\*untrusted\\* \\<policy>text\\</policy>.",
@@ -30,55 +111,55 @@ describe("renderMarkdownTemplate", () => {
   })
 
   it("renders scalar bindings as complete Markdown link destinations", async () => {
-    await expect(renderMarkdownTemplate("[Open recap]({{ url }})", {
+    await expect(renderMarkdownTemplate("[Open recap](){:href=\"data.url\"}", {
       data: { url: "https://prs.onmax.me/recap/2026-07" },
     })).resolves.toBe("[Open recap](https://prs.onmax.me/recap/2026-07)")
 
-    await expect(renderMarkdownTemplate("[Open page]({{ page }})", {
+    await expect(renderMarkdownTemplate("[Open page](){:href=\"data.page\"}", {
       data: { page: 42 },
     })).resolves.toBe("[Open page](42)")
 
-    await expect(renderMarkdownTemplate("[Open state]({{ enabled }})", {
+    await expect(renderMarkdownTemplate("[Open state](){:href=\"data.enabled\"}", {
       data: { enabled: true },
     })).resolves.toBe("[Open state](true)")
 
-    await expect(renderMarkdownTemplate("[Open recap]({{ url }})", {
+    await expect(renderMarkdownTemplate("[Open recap](){:href=\"data.url\"}", {
       data: { url: "/recap/July 2026_(final)?share=team&from=email#top" },
     })).resolves.toBe("[Open recap](/recap/July%202026_%28final%29?share=team&from=email#top)")
 
-    await expect(renderMarkdownTemplate("[Open recap]({{ url }})", {
+    await expect(renderMarkdownTemplate("[Open recap](){:href=\"data.url\"}", {
       data: { url: "https://example.com/recap/July%202026?signature=a%2Fb%3D" },
     })).resolves.toBe("[Open recap](https://example.com/recap/July%202026?signature=a%2Fb%3D)")
 
-    await expect(renderMarkdownTemplate("[Open recap]({{ url }})", {
+    await expect(renderMarkdownTemplate("[Open recap](){:href=\"data.url\"}", {
       data: { url: "https://example.com/?a=1&debug" },
     })).resolves.toBe("[Open recap](https://example.com/?a=1&debug)")
 
-    await expect(renderMarkdownTemplate("[Open recap]({{ url }})", {
+    await expect(renderMarkdownTemplate("[Open recap](){:href=\"data.url\"}", {
       data: { url: "https://example.com/?q=a\\b" },
     })).resolves.toBe("[Open recap](https://example.com/?q=a%5Cb)")
 
-    await expect(renderMarkdownTemplate("[Open recap]({{ url }})", {
+    await expect(renderMarkdownTemplate("[Open recap](){:href=\"data.url\"}", {
       data: { url: "/recap\u00A0" },
     })).resolves.toBe("[Open recap](/recap%C2%A0)")
 
-    await expect(renderMarkdownTemplate("[Open item]({{ url }})", {
+    await expect(renderMarkdownTemplate("[Open item](){:href=\"data.url\"}", {
       data: { url: "web+demo:/folder\\item" },
     })).resolves.toBe("[Open item](web+demo:/folder%5Citem)")
 
-    await expect(renderMarkdownTemplate("[Open item]({{ url }})", {
+    await expect(renderMarkdownTemplate("[Open item](){:href=\"data.url\"}", {
       data: { url: "web+demo://host/folder\\item" },
     })).resolves.toBe("[Open item](web+demo://host/folder%5Citem)")
 
-    await expect(renderMarkdownTemplate("[Open recap]({{ url }})", {
+    await expect(renderMarkdownTemplate("[Open recap](){:href=\"data.url\"}", {
       data: { url: "https://example.com/a) [Injected](https://evil.test?q=\"x\"" },
     })).resolves.toBe("[Open recap](https://example.com/a%29%20%5BInjected%5D%28https://evil.test?q=%22x%22)")
 
-    await expect(renderMarkdownTemplate("[Open recap]({{ url }} \"Monthly recap\")", {
+    await expect(renderMarkdownTemplate("[Open recap](placeholder \"Monthly recap\"){:href=\"data.url\"}", {
       data: { url: "https://prs.onmax.me/recap/2026-07" },
     })).resolves.toBe("[Open recap](https://prs.onmax.me/recap/2026-07){title=\"Monthly recap\"}")
 
-    await expect(renderMarkdownTemplate("[Open recap](<{{ url }}> \"Monthly recap\")", {
+    await expect(renderMarkdownTemplate("[Open recap](placeholder \"Monthly recap\"){:href=\"data.url\"}", {
       data: { url: "https://prs.onmax.me/recap/2026-07" },
     })).resolves.toBe("[Open recap](https://prs.onmax.me/recap/2026-07){title=\"Monthly recap\"}")
   })
@@ -104,34 +185,34 @@ describe("renderMarkdownTemplate", () => {
       "//[::1]/recap",
       "///[::1]/recap",
     ]) {
-      await expect(renderMarkdownTemplate("[Open recap]({{ url }})", { data: { url } }))
+      await expect(renderMarkdownTemplate("[Open recap](){:href=\"data.url\"}", { data: { url } }))
         .rejects.toThrow("must resolve to a safe destination")
     }
 
-    await expect(renderMarkdownTemplate("[Open recap]({{ url }})"))
-      .rejects.toThrow("binding \"{{ url }}\" is not defined")
-    await expect(renderMarkdownTemplate("[Open recap]({{ url }})", { data: { url: {} } }))
+    await expect(renderMarkdownTemplate("[Open recap](){:href=\"data.url\"}"))
+      .rejects.toThrow("binding \"data.url\" is not defined")
+    await expect(renderMarkdownTemplate("[Open recap](){:href=\"data.url\"}", { data: { url: {} } }))
       .rejects.toThrow("must resolve to a scalar value")
 
     await expect(renderMarkdownTemplate([
-      "::if{enabled}",
-      "[Open recap]({{ missing }})",
+      "::if{:condition=\"data.enabled\"}",
+      "[Open recap](){:href=\"data.missing\"}",
       "::else",
       "No recap",
-      "::",
+      "::\n::",
     ].join("\n"), { data: { enabled: false } })).resolves.toBe("No recap")
   })
 
   it("keeps scalar bindings in other Markdown destinations unchanged", async () => {
-    await expect(renderMarkdownTemplate("[Open item](/items/{{ id }})", {
+    await expect(renderMarkdownTemplate("[Open item](/items/{{ data.id }})", {
       data: { id: "abc" },
     })).resolves.toBe("\\[Open item\\](/items/abc)")
 
-    await expect(renderMarkdownTemplate("![Preview]({{ url }})", {
+    await expect(renderMarkdownTemplate("![Preview]({{ data.url }})", {
       data: { url: "https://example.com/preview.png" },
     })).resolves.toBe("!\\[Preview\\](https://example.com/preview.png)")
 
-    await expect(renderMarkdownTemplate("[Open item][item]\n\n[item]: {{ url }}", {
+    await expect(renderMarkdownTemplate("[Open item][item]\n\n[item]: {{ data.url }}", {
       data: { url: "https://example.com/item" },
     })).resolves.toBe("\\[Open item\\][item]\n\n[item]: https://example.com/item")
   })
@@ -139,9 +220,9 @@ describe("renderMarkdownTemplate", () => {
   it("renders Markdown fragments without recursively evaluating template syntax", async () => {
     const template = [
       "# Review",
-      "{{{ sections.body }}}",
+      ":insert{:markdown=\"data.sections.body\"}",
       "",
-      "Use ({{{ sections.inline }}}).",
+      "Use (<Insert :markdown=\"data.sections.inline\"></Insert>).",
     ].join("\n")
 
     expect(await renderMarkdownTemplate(template, {
@@ -151,8 +232,8 @@ describe("renderMarkdownTemplate", () => {
           body: [
             "## Body",
             "Use **bold** [guidance](https://example.com).",
-            "{{ pullRequest.repository }}",
-            "::if{pullRequest.available}",
+            "{{ data.pullRequest.repository }}",
+            "::if{:condition=\"data.pullRequest.available\"}",
             "Keep this branch literal.",
             "::",
             "@./literal.md",
@@ -160,18 +241,15 @@ describe("renderMarkdownTemplate", () => {
           inline: "**raw Markdown**",
         },
       },
-      resolveImport: async () => {
-        throw new Error("fragment imports must not resolve")
-      },
     })).toBe([
       "# Review",
       "",
       "## Body",
       "",
       "Use **bold** [guidance](https://example.com).",
-      "{{ pullRequest.repository }}",
+      "{{ data.pullRequest.repository }}",
       "",
-      "::if{pullRequest.available}",
+      "::if{:condition=\"data.pullRequest.available\"}",
       "Keep this branch literal.",
       "::",
       "",
@@ -182,24 +260,24 @@ describe("renderMarkdownTemplate", () => {
   })
 
   it("rejects block Markdown in an inline fragment slot", async () => {
-    await expect(renderMarkdownTemplate("Use ({{{ section }}}).", {
+    await expect(renderMarkdownTemplate("Use (<Insert :markdown=\"data.section\"></Insert>).", {
       data: { section: "## Block heading" },
     })).rejects.toThrow("cannot contain block Markdown when used inline")
-    await expect(renderMarkdownTemplate("**Prefix** {{{ section }}}", {
+    await expect(renderMarkdownTemplate("**Prefix** :insert{:markdown=\"data.section\"}", {
       data: { section: "## Block heading" },
     })).rejects.toThrow("cannot contain block Markdown when used inline")
-    await expect(renderMarkdownTemplate("{{{ section }}} [suffix](https://example.com)", {
+    await expect(renderMarkdownTemplate(":insert{:markdown=\"data.section\"} [suffix](https://example.com)", {
       data: { section: "## Block heading" },
     })).rejects.toThrow("cannot contain block Markdown when used inline")
   })
 
   it("separates consecutive standalone fragments selected by branches", async () => {
     expect(await renderMarkdownTemplate([
-      "::if{sections.title}",
-      "{{{ sections.title }}}",
+      "::if{:condition=\"data.sections.title\"}",
+      ":insert{:markdown=\"data.sections.title\"}",
       "::",
-      "::if{sections.body}",
-      "{{{ sections.body }}}",
+      "::if{:condition=\"data.sections.body\"}",
+      ":insert{:markdown=\"data.sections.body\"}",
       "::",
     ].join("\n"), {
       data: {
@@ -221,13 +299,13 @@ describe("renderMarkdownTemplate", () => {
 
   it("selects bounded if, else-if, and else branches", async () => {
     const template = [
-      "::if{pullRequest.available && pullRequest.draft}",
+      "::if{:condition=\"data.pullRequest.available\" :value=\"data.pullRequest.draft\" :eq=\"true\"}",
       "Draft",
-      "::else-if{pullRequest.available && (pullRequest.kind === 'review' || pullRequest.kind === 'issue')}",
+      "::else-if{:condition=\"data.pullRequest.available\" :value=\"data.pullRequest.kind\" eq=\"review\"}",
       "Review",
       "::else",
       "Missing",
-      "::",
+      "::\n::\n::",
     ].join("\n")
 
     await expect(renderMarkdownTemplate(template, {
@@ -235,43 +313,103 @@ describe("renderMarkdownTemplate", () => {
     })).resolves.toBe("Review")
   })
 
-  it("consumes both sides of boolean expressions", async () => {
-    const andTemplate = "::if{enabled && name}\nEnabled\n::else\nDisabled\n::"
-    const orTemplate = "::if{enabled || name}\nEnabled\n::else\nDisabled\n::"
+  it.each([
+    ["eq", 3, 3, true], ["eq", 3, "3", false], ["neq", 3, 4, true],
+    ["gt", 4, 3, true], ["gt", 3, 3, false], ["gte", 3, 3, true],
+    ["lt", 2, 3, true], ["lte", 3, 3, true], ["lte", 4, 3, false],
+    ["gt", "b", "a", true], ["gt", "4", 3, false],
+    ["neq", undefined, 3, false], ["eq", undefined, undefined, false],
+    ["eq", false, false, true], ["eq", 0, 0, true],
+  ])("compares %s with %s and %s", async (operator, value, expected, selected) => {
+    await expect(renderMarkdownTemplate(`::if{:value="data.value" :${operator}="data.expected"}\nYes\n::else\nNo\n::\n::`, {
+      data: { value, expected },
+    })).resolves.toBe(selected ? "Yes" : "No")
+  })
 
-    await expect(renderMarkdownTemplate(andTemplate, {
-      data: { enabled: false, name: "Acme" },
-    })).resolves.toBe("Disabled")
-    await expect(renderMarkdownTemplate(orTemplate, {
-      data: { enabled: true, name: "Acme" },
-    })).resolves.toBe("Enabled")
+  it.each([false, 0, "", null, undefined, true, 1, "ready"])("requires both condition and value truthiness for %s", async (value) => {
+    const template = '::if{:condition="data.enabled" :value="data.value"}\nYes\n::else\nNo\n::\n::'
+    for (const enabled of [false, true]) {
+      await expect(renderMarkdownTemplate(template, { data: { enabled, value } }))
+        .resolves.toBe(enabled && value ? "Yes" : "No")
+    }
+  })
+
+  it("requires all comparisons and the optional condition to match", async () => {
+    const template = '::if{:condition="data.enabled" :value="data.count" :gte="2" :lt="5"}\nYes\n::else\nNo\n::\n::'
+    for (const [enabled, count, expected] of [[true, 3, "Yes"], [false, 3, "No"], [true, 5, "No"]] as const) {
+      await expect(renderMarkdownTemplate(template, { data: { enabled, count } })).resolves.toBe(expected)
+    }
+  })
+
+  it("renders nested branch chains and the content following them", async () => {
+    const template = `::if{:condition="data.enabled"}
+Before
+::if{:value="data.count" :gt="0"}
+Positive
+::else
+Empty
+::
+::
+After
+::else
+Disabled
+::
+::
+Outside`
+    await expect(renderMarkdownTemplate(template, { data: { enabled: true, count: 1 } }))
+      .resolves.toBe("Before\n\nPositive\n\nAfter\n\nOutside")
+    await expect(renderMarkdownTemplate(template, { data: { enabled: false } }))
+      .resolves.toBe("Disabled\n\nOutside")
+  })
+
+  it("selects explicitly closed sibling branch components", async () => {
+    const template = `::if{:condition="data.ready"}
+Ready
+::else-if{:condition="data.waiting"}
+Waiting
+::
+::else
+Unavailable
+::
+::`
+    for (const [ready, waiting, expected] of [[true, true, "Ready"], [false, true, "Waiting"], [false, false, "Unavailable"]] as const) {
+      await expect(renderMarkdownTemplate(template, { data: { ready, waiting } })).resolves.toBe(expected)
+    }
+  })
+
+  it("keeps nested inherited properties unavailable to bindings and comparisons", async () => {
+    const account = Object.freeze(Object.assign(Object.create({ role: "admin" }), { name: "Acme" }))
+    await expect(renderMarkdownTemplate("{{ data.account.name }}", { data: { account } })).resolves.toBe("Acme")
+    await expect(renderMarkdownTemplate('::if{:value="data.account.role" eq="admin"}\nAdmin\n::else\nGuest\n::\n::', { data: { account } }))
+      .resolves.toBe("Guest")
+    await expect(renderMarkdownTemplate("{{ data.account.role }}", { data: { account } })).rejects.toThrow("is not defined")
   })
 
   it("preserves authored XML-style tags", async () => {
-    expect(await renderMarkdownTemplate("<policy>Use {{ customer.name }}.</policy>", {
+    expect(await renderMarkdownTemplate("<policy>Use {{ data.customer.name }}.</policy>", {
       data: { customer: { name: "Acme" } },
     })).toBe("<policy>Use Acme.</policy>")
   })
 
   it("renders scalar bindings in quoted XML attributes", async () => {
-    expect(await renderMarkdownTemplate("<policy audience=\"{{ audience }}\" tone='{{ tone }}'>Use it.</policy>", {
+    expect(await renderMarkdownTemplate("<policy :audience=\"data.audience\" :tone=\"data.tone\">Use it.</policy>", {
       data: {
         audience: "A \"technical\" & safe audience",
         tone: "reviewer's <direct> tone",
       },
-    })).toBe("<policy audience=\"A &quot;technical&quot; &amp; safe audience\" tone='reviewer&#39;s &lt;direct&gt; tone'>Use it.</policy>")
+    })).toBe("<policy audience=\"A &quot;technical&quot; &amp; safe audience\" tone=\"reviewer's &lt;direct&gt; tone\">Use it.</policy>")
 
-    await expect(renderMarkdownTemplate("<policy audience=\"{{ audience }}\">Use it.</policy>"))
-      .rejects.toThrow("binding \"{{ audience }}\" is not defined")
+    await expect(renderMarkdownTemplate("<policy :audience=\"data.audience\">Use it.</policy>"))
+      .rejects.toThrow("binding \"data.audience\" is not defined")
   })
 
   it("only renders tag attribute bindings in the selected branch", async () => {
     await expect(renderMarkdownTemplate([
-      "::if{enabled}",
-      "<policy audience=\"{{ missing }}\">Hidden</policy>",
+      "::if{:condition=\"data.enabled\"}",
+      "<policy :audience=\"data.missing\">Hidden</policy>",
       "::else",
       "Visible",
-      "::",
+      "::\n::",
     ].join("\n"), {
       data: { enabled: false },
     })).resolves.toBe("Visible")
@@ -280,9 +418,9 @@ describe("renderMarkdownTemplate", () => {
   it("composes the full template language inside multiline XML blocks", async () => {
     expect(await renderMarkdownTemplate([
       "<policy>",
-      "Use {{ customer.name }}.",
-      "::if{enabled}",
-      "{{{ section }}}",
+      "Use {{ data.customer.name }}.",
+      "::if{:condition=\"data.enabled\"}",
+      ":insert{:markdown=\"data.section\"}",
       "@./detail.md",
       "::",
       "</policy>",
@@ -292,43 +430,40 @@ describe("renderMarkdownTemplate", () => {
         enabled: true,
         section: "**Trusted** guidance.",
       },
-      resolveImport: async () => ({ id: "/detail.md", template: "Imported detail." }),
-      sourceId: "/instructions.md",
     })).toBe([
       "<policy>",
       "Use Acme.",
       "",
+      "",
       "**Trusted** guidance.",
       "",
-      "Imported detail.",
-      "",
+      "@./detail.md",
       "</policy>",
     ].join("\n"))
   })
 
   it("keeps bindings, fragments, branches, and imports literal in code", async () => {
-    const resolveImport = vi.fn(() => ({ id: "/used.md", template: "Used" }))
     const template = [
-      "`{{ name }}`",
-      "``{{{ section }}}``",
+      "`{{ data.name }}`",
+      "``:insert{:markdown=\"data.section\"}``",
       "```md",
-      "{{ name }}",
-      "{{{ section }}}",
-      "::if{enabled}",
+      "{{ data.name }}",
+      ":insert{:markdown=\"data.section\"}",
+      "::if{:condition=\"data.enabled\"}",
       "@./ignored.md",
       "::",
-      "<policy audience=\"{{ name }}\">literal</policy>",
+      "<policy :audience=\"data.name\">literal</policy>",
       "```",
       "",
-      "    {{ name }}",
-      "    {{{ section }}}",
-      "    ::if{enabled}",
+      "    {{ data.name }}",
+      "    :insert{:markdown=\"data.section\"}",
+      "    ::if{:condition=\"data.enabled\"}",
       "    @./ignored.md",
       "    ::",
       "",
-      "``{{ name }}",
-      "{{{ section }}}",
-      "::if{enabled}",
+      "``{{ data.name }}",
+      ":insert{:markdown=\"data.section\"}",
+      "::if{:condition=\"data.enabled\"}",
       "@./ignored.md",
       "::",
       "``",
@@ -338,35 +473,63 @@ describe("renderMarkdownTemplate", () => {
 
     expect(await renderMarkdownTemplate(template, {
       data: { enabled: true, name: "Acme", section: "Rendered" },
-      resolveImport,
-      sourceId: "/instructions.md",
     })).toBe([
-      "`{{ name }}`",
-      "`{{{ section }}}`",
+      "`{{ data.name }}`",
+      "`:insert{:markdown=\"data.section\"}`",
       "",
       "```md",
-      "{{ name }}",
-      "{{{ section }}}",
-      "::if{enabled}",
+      "{{ data.name }}",
+      ":insert{:markdown=\"data.section\"}",
+      "::if{:condition=\"data.enabled\"}",
       "@./ignored.md",
       "::",
-      "<policy audience=\"{{ name }}\">literal</policy>",
+      "<policy :audience=\"data.name\">literal</policy>",
       "```",
       "",
       "```",
-      "{{ name }}",
-      "{{{ section }}}",
-      "::if{enabled}",
+      "{{ data.name }}",
+      ":insert{:markdown=\"data.section\"}",
+      "::if{:condition=\"data.enabled\"}",
       "@./ignored.md",
       "::",
       "```",
       "",
-      "`{{ name }} {{{ section }}} ::if{enabled} @./ignored.md :: `",
+      "`{{ data.name }} :insert{:markdown=\"data.section\"} ::if{:condition=\"data.enabled\"} @./ignored.md :: `",
       "",
-      "Used",
+      "@./used.md",
     ].join("\n"))
-    expect(resolveImport).toHaveBeenCalledOnce()
-    expect(resolveImport).toHaveBeenCalledWith("./used.md", "/instructions.md")
+  })
+
+  it.each([
+    ["fenced", "```md\n::else\n::if{:condition=\"data.missing\"}\n{{ data.missing }}\n```"],
+    ["indented", "    ::else\n    ::if{:condition=\"data.missing\"}\n    {{ data.missing }}"],
+    ["multiline inline", "``\n::else\n::if{:condition=\"data.missing\"}\n{{ data.missing }}\n``"],
+  ])("ignores malformed branches in %s code while validating authored branches", async (_kind, code) => {
+    const template = `::if{:condition=\"data.enabled\"}\nSelected\n\n${code}\n\n::else-if{:condition=\"data.fallback\"}\nFallback\n::else\nNeither\n::\n::\n::`
+    const selected = await renderMarkdownTemplate(template, { data: { enabled: true } })
+    expect(selected).toContain("Selected")
+    expect(selected).toContain("::else")
+    expect(selected).toContain("::if{:condition=\"data.missing\"}")
+    expect(selected).toContain("{{ data.missing }}")
+    expect(selected).not.toContain("VITEHUBMARKDOWNTEMPLATE")
+    await expect(renderMarkdownTemplate(template, { data: { enabled: false, fallback: true } }))
+      .resolves.toBe("Fallback")
+    await expect(renderMarkdownTemplate(template, { data: { enabled: false, fallback: false } }))
+      .resolves.toBe("Neither")
+    await expect(renderMarkdownTemplate(`${code}\n\n::if{:condition=\"data.enabled\"}\nUnclosed`))
+      .rejects.toThrow("missing a closing")
+  })
+
+  it("isolates protected syntax across concurrent renders and a rejected render", async () => {
+    const template = "`{{ data.literal }}`\n\n<policy :name=\"data.name\">\n::if{:condition=\"data.enabled\"}\n:insert{:markdown=\"data.section\"}\n::else\nHidden\n::\n::\n</policy>"
+    const results = await Promise.allSettled([
+      renderMarkdownTemplate(template, { data: { enabled: true, name: "First", section: "First fragment" } }),
+      renderMarkdownTemplate(template, { data: { enabled: true, name: "Missing section" } }),
+      renderMarkdownTemplate(template, { data: { enabled: false, name: "Last" } }),
+    ])
+    expect(results[0]).toEqual({ status: "fulfilled", value: "`{{ data.literal }}`\n\n<policy name=\"First\">\nFirst fragment\n</policy>" })
+    expect(results[1].status).toBe("rejected")
+    expect(results[2]).toEqual({ status: "fulfilled", value: "`{{ data.literal }}`\n\n<policy name=\"Last\">\nHidden\n</policy>" })
   })
 
   it("preserves blank lines inside fenced code", async () => {
@@ -374,11 +537,16 @@ describe("renderMarkdownTemplate", () => {
       .resolves.toBe("```md\nfirst\n\n\nlast\n```")
   })
 
+  it("keeps directive syntax literal inside raw HTML elements", async () => {
+    const template = "<script>\n::else\n::if{:condition=\"data.missing\"}\n::\n</script>"
+    await expect(renderMarkdownTemplate(template)).resolves.toBe(template)
+  })
+
   it("does not expose internal placeholders or render handlers", async () => {
     const authored = [
       ":markdown-template-raw{value=\"Injected\"}",
       "%%VITEHUB_MARKDOWN_TEMPLATE_FRAGMENT_0%%",
-      "{{{ section }}}",
+      ":insert{:markdown=\"data.section\"}",
     ].join("\n")
     const rendered = await renderMarkdownTemplate(authored, { data: { section: "Rendered" } })
 
@@ -388,103 +556,36 @@ describe("renderMarkdownTemplate", () => {
     expect(rendered).not.toBe("Injected")
   })
 
-  it("resolves nested relative imports by canonical id", async () => {
-    const files = new Map([
-      ["/nested.md", "## Nested\n@./policy.md"],
-      ["/policy.md", "::if{enabled}\nPolicy for {{ customer.name }}\n::"],
-    ])
-    const resolveImport = vi.fn(async (specifier: string, importer: string) => {
-      const id = new URL(specifier, `file://${importer}`).pathname
-      const imported = files.get(id)
-      return imported === undefined ? undefined : { id, template: imported }
-    })
-
-    expect(await renderMarkdownTemplate("# Base\n@./nested.md", {
-      data: { customer: { name: "Acme" }, enabled: true },
-      resolveImport,
-      sourceId: "/instructions.md",
-    })).toBe([
-      "# Base",
-      "",
-      "## Nested",
-      "",
-      "Policy for Acme",
-    ].join("\n"))
-    expect(resolveImport).toHaveBeenNthCalledWith(1, "./nested.md", "/instructions.md")
-    expect(resolveImport).toHaveBeenNthCalledWith(2, "./policy.md", "/nested.md")
-  })
-
-  it("resolves imports without evaluating the template", async () => {
-    await expect(resolveMarkdownTemplateImports([
-      "Hello {{ name }}.",
-      "@workspace.policy",
-      "@mention",
-    ].join("\n"), {
-      resolveBareImport: async specifier => specifier === "workspace.policy"
-        ? { id: specifier, template: "::if{enabled}\nPolicy\n::" }
-        : undefined,
-    })).resolves.toBe([
-      "Hello {{ name }}.",
-      "::if{condition=\"enabled\"}",
-      "Policy",
-      "::",
-      "@mention",
-    ].join("\n"))
-
-    await expect(resolveMarkdownTemplateImports("@./policy.md", {
-      resolveImport: async () => ({ id: "/policy.md", template: "::if{enabled}\nPolicy" }),
-    })).rejects.toThrow("missing a closing")
-  })
-
-  it("leaves relative-looking text literal when no resolver is provided", async () => {
-    await expect(renderMarkdownTemplate("Read @./policy.md")).resolves.toBe("Read @./policy.md")
-  })
-
-  it("rejects invalid imports, cycles, and depth overflow", async () => {
-    const resolveImport = async (specifier: string) => ({ id: specifier, template: `@${specifier}` })
-
-    await expect(renderMarkdownTemplate("@https://example.com/policy.md", {
-      resolveImport,
-    })).rejects.toThrow("must be a relative path")
-    await expect(renderMarkdownTemplate("@./*.md", {
-      resolveImport,
-    })).rejects.toThrow("cannot use globs")
-    await expect(renderMarkdownTemplate("@./missing.md", {
-      resolveImport: async () => undefined,
-    })).rejects.toThrow("could not be resolved")
-    await expect(renderMarkdownTemplate("@./a.md", {
-      resolveImport: async () => ({ id: "/root.md", template: "Again" }),
-      sourceId: "/root.md",
-    })).rejects.toThrow("Circular Markdown template import")
-    await expect(renderMarkdownTemplate("@./a.md", {
-      maxImportDepth: 1,
-      resolveImport,
-    })).rejects.toThrow("import depth exceeded 1")
+  it("keeps former import syntax literal", async () => {
+    const template = "@./missing.md @../policy.md @workspace.policy @https://example.com/policy.md"
+    await expect(renderMarkdownTemplate(template)).resolves.toBe(template)
   })
 
   it("rejects missing, null, and non-scalar values", async () => {
-    await expect(renderMarkdownTemplate("{{ missing }}")).rejects.toThrow("is not defined")
-    await expect(renderMarkdownTemplate("{{ value }}", { data: { value: null } })).rejects.toThrow("is not defined")
-    await expect(renderMarkdownTemplate("{{ value }}", { data: { value: {} } })).rejects.toThrow("scalar value")
-    await expect(renderMarkdownTemplate("{{{ missing }}}")).rejects.toThrow("is not defined")
-    await expect(renderMarkdownTemplate("{{{ value }}}", { data: { value: false } })).rejects.toThrow("string")
+    await expect(renderMarkdownTemplate("{{ data.missing }}")).rejects.toThrow("is not defined")
+    await expect(renderMarkdownTemplate("{{ data.value }}", { data: { value: null } })).rejects.toThrow("is not defined")
+    await expect(renderMarkdownTemplate("{{ data.value }}", { data: { value: {} } })).rejects.toThrow("scalar value")
+    await expect(renderMarkdownTemplate(":insert{:markdown=\"data.missing\"}")).rejects.toThrow('binding "data.missing" is not defined')
+    await expect(renderMarkdownTemplate(":insert{:markdown=\"data.value\"}", { data: { value: false } })).rejects.toThrow('Insert markdown prop "data.value" must resolve to a string')
+    await expect(renderMarkdownTemplate(':insert{markdown="literal"}')).rejects.toThrow('Use :insert{:markdown="data.summary"}')
+    await expect(renderMarkdownTemplate(":insert")).rejects.toThrow('Use :insert{:markdown="data.summary"}')
   })
 
   it("rejects unsafe expressions and malformed branch chains", async () => {
-    await expect(renderMarkdownTemplate("::if{name === 'call()'}\nYes\n::", {
+    await expect(renderMarkdownTemplate("::if{:value=\"data.name\" eq=\"call()\"}\nYes\n::", {
       data: { name: "call()" },
     })).resolves.toBe("Yes")
     await expect(renderMarkdownTemplate("::if{process.exit()}\nNo\n::"))
-      .rejects.toThrow("Unsafe Markdown template condition")
-    await expect(renderMarkdownTemplateInternal("::if{private.enabled}\nNo\n::", {
+      .rejects.toThrow("requires a condition or value prop")
+    await expect(renderMarkdownTemplateInternal("::if{:condition=\"data.private.enabled\"}\nNo\n::", {
       data: { private: { enabled: true } },
       validateConditionPath: path => path.startsWith("public."),
     })).rejects.toThrow("Unsafe Markdown template condition")
-    await expect(renderMarkdownTemplate("::if{enabled}\nYes"))
+    await expect(renderMarkdownTemplate("::if{:condition=\"data.enabled\"}\nYes"))
       .rejects.toThrow("missing a closing")
-    await expect(renderMarkdownTemplate("::if{enabled}\nYes\n::else{condition=\"admin\"}\nNo\n::"))
+    await expect(renderMarkdownTemplate("::if{:condition=\"data.enabled\"}\nYes\n::else{condition=\"admin\"}\nNo\n::\n::"))
       .rejects.toThrow("else block does not accept a condition")
-    await expect(renderMarkdownTemplate("::if{enabled}\nYes\n::else\nNo\n::else-if{admin}\nAdmin\n::"))
+    await expect(renderMarkdownTemplate("::if{:condition=\"data.enabled\"}\nYes\n::else\nNo\n::else-if{:condition=\"data.admin\"}\nAdmin\n::\n::\n::"))
       .rejects.toThrow("else-if block cannot follow else")
   })
 
@@ -492,7 +593,7 @@ describe("renderMarkdownTemplate", () => {
     const inherited = Object.create({ secret: "leak" }) as Record<string, unknown>
     inherited.visible = "shown"
 
-    await expect(renderMarkdownTemplate("{{ secret }}", { data: inherited })).rejects.toThrow("is not defined")
-    await expect(renderMarkdownTemplate("{{ visible }}", { data: inherited })).resolves.toBe("shown")
+    await expect(renderMarkdownTemplate("{{ data.secret }}", { data: inherited })).rejects.toThrow("is not defined")
+    await expect(renderMarkdownTemplate("{{ data.visible }}", { data: inherited })).resolves.toBe("shown")
   })
 })

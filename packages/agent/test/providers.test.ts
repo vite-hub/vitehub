@@ -928,7 +928,7 @@ describe("agent Vite plugin", () => {
     expect(invalidateModule).toHaveBeenCalledWith(generatedRouteModule)
   })
 
-  it("regenerates Agent outputs when an imported instruction document changes", async () => {
+  it("watches colocated instructions without expanding relative references", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-instruction-update-"))
     try {
@@ -955,7 +955,7 @@ describe("agent Vite plugin", () => {
         server: { moduleGraph: { getModuleById, invalidateModule } },
       })
 
-      expect(invalidateModule).toHaveBeenCalledWith(generatedRouteModule)
+      expect(invalidateModule).not.toHaveBeenCalled()
 
       invalidateModule.mockClear()
       await rm(join(agentRoot, "instructions.md"))
@@ -1122,7 +1122,7 @@ describe("agent Vite plugin", () => {
     }
   })
 
-  it("carries resolved parent instruction imports into Netlify provider output", async () => {
+  it("keeps parent instruction references literal in Netlify provider output", async () => {
     const { hubSchedule } = await import("../../schedule/src/vite.ts")
     const { hubAgent } = await import("../src/vite.ts")
     const previousHosting = process.env.VITEHUB_HOSTING
@@ -1169,9 +1169,11 @@ describe("agent Vite plugin", () => {
 
       const wrapper = await readFile(join(root, ".vitehub/agent/netlify-function.mjs"), "utf8")
       const scheduleRegistry = await readFile(join(root, ".vitehub/agent/schedule-registry.js"), "utf8")
-      expect(wrapper).toContain("Follow the shared parent policy.")
+      expect(wrapper).not.toContain("Follow the shared parent policy.")
+      expect(wrapper).toContain(`@${relative(agentRoot, policy)}`)
       expect(wrapper).toContain("Handle support requests.")
-      expect(scheduleRegistry).toContain("Follow the shared parent policy.")
+      expect(scheduleRegistry).not.toContain("Follow the shared parent policy.")
+      expect(scheduleRegistry).toContain(`@${relative(agentRoot, policy)}`)
       expect(scheduleRegistry).toContain("Handle support requests.")
       expect(scheduleRegistry).toContain(".vitehub/agent/sources")
       expect(scheduleRegistry).not.toContain("agent-generations")
@@ -2855,7 +2857,7 @@ export default defineAgent({
 
       const denoServer = await readFile(join(root, ".vitehub/agent/deno-server.ts"), "utf8")
 
-      expect(denoServer).toContain('import { setWorkspaceRuntimeRegistry } from "@vite-hub/workspace/runtime"')
+      expect(denoServer).toContain('import { registerWorkspace, setWorkspaceRuntimeRegistry } from "@vite-hub/workspace/runtime"')
       expect(denoServer).toContain("workspaceAgentOwnsWorkspaceDefinition")
       expect(denoServer).toContain("withWorkspaceSourceRoot(agentWithColocatedInstructions(resolveAgentModule(agent0)")
       expect(denoServer).toContain('workspaceRegistryEntry("support", agent0')
@@ -2864,13 +2866,13 @@ export default defineAgent({
       expect(denoServer).toContain("Symbol.for('vitehub.agent.colocatedSkills')")
       expect(denoServer).toContain("Object.create(Object.getPrototypeOf(agent), Object.getOwnPropertyDescriptors(agent))")
       expect(denoServer).toContain("Uint8Array.from(atob(content)")
-      expect(denoServer).toContain(JSON.stringify("__vitehubAgentSkill:skills/review/SKILL.md"))
+      expect(denoServer).toContain(JSON.stringify("__vitehubAgentSkill:.agents/skills/review/SKILL.md"))
       expect(denoServer).toContain(JSON.stringify(Buffer.from([0, 255, 42]).toString("base64")))
       expect(denoServer).toContain(
         "const existingSources = resolvedAgent.sources && typeof resolvedAgent.sources === 'object' ? resolvedAgent.sources : undefined",
       )
       expect(denoServer).toContain(
-        "    ? { __vitehubAgentInstructions: { content: colocatedInstructions, materialize: 'build', mount: '', workspacePath: 'AGENTS.md' }, ...workspace.sources, ...existingSources }",
+        "    ...(colocatedInstructions ? { __vitehubAgentInstructions: { content: colocatedInstructions, materialize: 'startup', mount: '', workspacePath: 'AGENTS.md' } } : {}),",
       )
       expect(denoServer).toContain("workspaceDefinitionFromOptions")
       expect(denoServer).toContain(
@@ -3563,6 +3565,38 @@ describe("server helpers", () => {
       error: "Agent request failed.",
     })
     expect(schedules.create).not.toHaveBeenCalled()
+  })
+
+  it("returns HTTP 400 for conflicting Claude prompt file arguments", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
+    const { agentDiagnostics } = await import("../src/agent-diagnostics.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    const handler = createChannelChatRouteHandler(
+      // SAFETY: This fixture supplies the Agent contract exercised by the chat route.
+      defineAgent({
+        capabilities: [defineChatCapability()],
+        driver: {
+          run: () => {
+            throw agentDiagnostics.AGENT_R0924({ message: "Conflicting Claude prompt file arguments." })
+          },
+        },
+      }) as never,
+    )
+
+    const response = await handler(
+      new Request("https://example.com/api/_vitehub/agents/support/chat", {
+        body: JSON.stringify({
+          messages: [{ id: "user-1", parts: [{ text: "hello", type: "text" }], role: "user" }],
+        }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      }),
+      { agentName: "support" },
+    )
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({ code: "INTERNAL", error: "Agent request failed." })
   })
 
   it("keeps manual chat route Schedule primitives explicit", async () => {

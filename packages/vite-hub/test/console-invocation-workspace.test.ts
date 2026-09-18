@@ -12,8 +12,8 @@ beforeEach(() => {
   mocks.get.mockResolvedValue({ agentName: "bot", observations: [{ attributes: { "vitehub.agent.configuration": { workspace: { name: "bot" } } } }] })
   mocks.definition.mockReturnValue({ workspace: { name: "bot" } })
   mocks.glob.mockResolvedValue([{ path: "AGENTS.md", type: "file" }, { path: ".env", type: "file" }, { path: "repo/.git/config", type: "file" }, { path: "src", type: "directory" }])
-  mocks.exists.mockResolvedValue(true)
   mocks.stat.mockResolvedValue({ type: "file", size: 4 })
+  mocks.exists.mockResolvedValue(true)
   mocks.readFile.mockResolvedValue("test")
 })
 describe("invocation Workspace inspection", () => {
@@ -27,12 +27,16 @@ describe("invocation Workspace inspection", () => {
     expect(mocks.get).not.toHaveBeenCalled()
     expect(mocks.glob).not.toHaveBeenCalled()
   })
-  it("passes the file path to the configured host inspector", async () => {
-    const file = { content: "test", path: "src/a b.ts", revision: "abc123", size: 4 }
+  it.each([undefined, { source: "repository" }])("passes the file path and preserves host provenance %j", async provenance => {
+    const file = { content: "test", path: "src/a b.ts", revision: "abc123", size: 4, ...provenance ? { provenance } : {} }
     const inspect = vi.fn(async () => Response.json(file))
     mocks.inspector.mockReturnValue(inspect)
     expect(await handler(request(file.path))).toEqual(file)
     expect(inspect).toHaveBeenCalledWith("run", file.path)
+  })
+  it.each(["", "repo\nname", "repo\0name", "repo\u007fname"])("rejects invalid host provenance %j", async source => {
+    mocks.inspector.mockReturnValue(async () => Response.json({ content: "test", path: "AGENTS.md", revision: "abc123", size: 4, provenance: { source } }))
+    await expect(handler(request("AGENTS.md"))).rejects.toThrow()
   })
   it.each([403, 404, 422])("preserves host inspection failure %i without falling back to mounted files", async status => {
     mocks.inspector.mockReturnValue(async () => new Response("Snapshot unavailable", { status }))
@@ -42,41 +46,39 @@ describe("invocation Workspace inspection", () => {
   it("identifies current mounted files without claiming a historical snapshot", async () => {
     expect(await handler(request())).toEqual({ paths: ["AGENTS.md"], repository: "bot", revision: "current" })
     expect(mocks.definition).toHaveBeenCalledWith("bot", "inspect")
-    expect(mocks.useWorkspace).toHaveBeenCalledWith("bot", { mode: "read" })
+    expect(mocks.useWorkspace).toHaveBeenCalledWith("bot", { mode: "read", refresh: false })
   })
   it("reads a visible file", async () => {
     expect(await handler(request("AGENTS.md"))).toEqual({ path: "AGENTS.md", content: "test", size: 4, revision: "current" })
+    expect(mocks.exists).toHaveBeenCalledWith("AGENTS.md")
     expect(mocks.glob).not.toHaveBeenCalled()
   })
-  it("reports a missing file without stat or listing the Workspace", async () => {
+  it("returns 404 for a missing file without enumerating other Sources", async () => {
     mocks.exists.mockResolvedValue(false)
-    mocks.stat.mockRejectedValue(new Error("[vitehub] Workspace path does not exist: missing.md."))
-    await expect(handler(request("missing.md"))).rejects.toMatchObject({ statusCode: 404 })
+    await expect(handler(request("missing.md"))).rejects.toMatchObject({ statusCode: 404, statusMessage: "This file is not in the mounted Workspace." })
+    expect(mocks.exists).toHaveBeenCalledWith("missing.md")
+    expect(mocks.stat).not.toHaveBeenCalled()
+    expect(mocks.readFile).not.toHaveBeenCalled()
     expect(mocks.glob).not.toHaveBeenCalled()
-    expect(mocks.readFile).not.toHaveBeenCalled()
-    expect(mocks.stat).not.toHaveBeenCalled()
   })
-  it("preserves Workspace failures during the existence check", async () => {
-    const error = new Error("Source unavailable")
-    mocks.exists.mockRejectedValue(error)
+  it("rejects directories with the file-selection response", async () => {
+    mocks.stat.mockResolvedValue({ type: "directory" })
+    await expect(handler(request("src"))).rejects.toMatchObject({ statusCode: 400, statusMessage: "Choose a file to preview." })
+    expect(mocks.readFile).not.toHaveBeenCalled()
+  })
+  it.each(["exists", "stat", "readFile"] as const)("preserves provider failures from %s", async operation => {
+    const error = new Error("Source authorization failed")
+    mocks[operation].mockRejectedValue(error)
     await expect(handler(request("AGENTS.md"))).rejects.toBe(error)
-    expect(mocks.stat).not.toHaveBeenCalled()
-    expect(mocks.readFile).not.toHaveBeenCalled()
+    expect(mocks.glob).not.toHaveBeenCalled()
   })
-  it.each(["portal", "docs:api", "org/repo", "../source", "日本語", "a".repeat(101)])("reports mounted source provenance %s as display text", async source => {
-    mocks.glob.mockResolvedValue([{ path: ".agents/skills/perf/SKILL.md", type: "file" }])
-    mocks.stat.mockResolvedValue({ type: "file", size: 4, metadata: { source } })
-    expect(await handler(request(".agents/skills/perf/SKILL.md"))).toEqual({
-      path: ".agents/skills/perf/SKILL.md",
-      content: "test",
-      provenance: { source },
-      size: 4,
-      revision: "current",
-    })
+  it("includes the source label for a source-backed file", async () => {
+    mocks.stat.mockResolvedValue({ type: "file", size: 4, metadata: { source: "repository", private: "hidden" } })
+    expect(await handler(request("AGENTS.md"))).toEqual({ path: "AGENTS.md", content: "test", size: 4, revision: "current", provenance: { source: "repository" } })
   })
-  it.each([null, 42, {}, "", "source\u0000key", "source\nkey"])("omits invalid source provenance %j while preserving the file preview", async source => {
+  it.each([42, { name: "repository" }, null, "", "repo\nname", "repo\0name", "repo\u007fname"])("omits invalid source provenance %j", async source => {
     mocks.stat.mockResolvedValue({ type: "file", size: 4, metadata: { source } })
-    expect(await handler(request("AGENTS.md"))).toEqual({ path: "AGENTS.md", content: "test", size: 4, revision: "current" })
+    expect(await handler(request("AGENTS.md"))).not.toHaveProperty("provenance")
   })
   it.each(["../secret", "/etc/passwd", "repo/../../secret", "repo\\secret", ".env.local", "repo/.git/config", "auth.json"])("rejects unsafe path %s before reading", async path => {
     await expect(handler(request(path))).rejects.toMatchObject({ statusCode: 400 })

@@ -61,7 +61,7 @@ server/
 
 ## Colocated Agent Skills
 
-An Agent folder can own Skills in an adjacent `skills/` directory. ViteHub recursively embeds every file during discovery and materializes the directory into the Provider Workspace. Existing files remain in place, and files below a `scripts/` directory become executable.
+An Agent folder can own Skills in an adjacent `skills/` directory. ViteHub recursively embeds every file during discovery and materializes the directory into the Provider Workspace at `.agents/skills/`. Existing files remain in place, and files below a `scripts/` directory become executable.
 
 ```txt [File tree]
 server/
@@ -81,7 +81,7 @@ This convention needs no `skills()` Capability declaration. Use [`skills()`](/do
 
 Use ordinary `.md` files for Markdown templates and fragments. Pass a file path or file URL to `renderMarkdownFile()`. For example, `server/agents/review/agent.ts` can render `new URL('./reply.md', import.meta.url)`.
 
-A local `templates/` directory can group several files. It has no discovery behavior. Ship the files with the server application and preserve their relative fragment paths. See [Markdown templates](/docs/reference/markdown-templates) for rendering, deployment, and migration examples.
+A local `templates/` directory can group several files, but it has no discovery or recursive import behavior. References such as `@./fragment.md` remain literal; compose additional Markdown explicitly before rendering. See [Markdown templates](/docs/reference/markdown-templates) for rendering, deployment, and migration examples.
 
 ## Email templates
 

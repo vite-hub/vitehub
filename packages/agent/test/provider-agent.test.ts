@@ -4112,7 +4112,16 @@ cli_auth_credentials_store = "keyring"
         async onStartSession() {
           const path = `${root}/${file}`
           const content = await readFile(path, "utf8")
-          expect(content).toContain("Mounted source provenance")
+          if (provider === "claude-code") {
+            expect(content).toBe(original)
+            const args = String(createProviderRuntime.mock.lastCall?.[0].settings?.launchArgs)
+            const promptFile = args.split("--append-system-prompt-file ")[1]!.slice(1, -1)
+            const prompt = await readFile(promptFile, "utf8")
+            expect(prompt).toMatch(/^Mounted source provenance/)
+            if (original) expect(prompt).not.toContain(original)
+          } else {
+            expect(content).toContain("Mounted source provenance")
+          }
           if (change === "edit") await writeFile(path, content.replace(original, "edited instructions") + "\nprovider addition")
           if (change === "replace") await writeFile(path, "replacement instructions")
           if (change === "delete") await rm(path)
@@ -4157,7 +4166,13 @@ cli_auth_credentials_store = "keyring"
 
   it("materializes AGENTS.md fallback instructions for Claude", async () => {
     const threadId = "thread-claude-agents-fallback"
-    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      async onStartSession() {
+        const args = String(createProviderRuntime.mock.lastCall?.[0].settings?.launchArgs)
+        const promptFile = args.split("--append-system-prompt-file ")[1]!.replace(/^['\"]|['\"]$/g, "")
+        expect(await readFile(promptFile, "utf8")).toBe("workspace instructions")
+      },
+    })
     let root = ""
     const session = {
       close: vi.fn(async () => undefined),
@@ -4165,7 +4180,7 @@ cli_auth_credentials_store = "keyring"
       diff: vi.fn(async () => ({ entries: [] })),
       exec: vi.fn(async (command: string, args: string[]) => {
         if (command === "git" && args.includes("add")) {
-          expect(await readFile(`${root}/CLAUDE.md`, "utf8")).toBe("workspace instructions")
+          expect(await readFile(`${root}/CLAUDE.md`, "utf8")).toBe("")
         }
         return { code: 0, stderr: "", stdout: "" }
       }),
@@ -4190,6 +4205,70 @@ cli_auth_credentials_store = "keyring"
     }) as never)
 
     expect(session.exec).toHaveBeenCalled()
+  })
+
+  it.each([
+    "--append-system-prompt-file caller.md",
+    "--verbose --append-system-prompt-file=caller.md",
+    '--append-system-prompt-file "caller prompt.md"',
+    '"--append-system-prompt-file" caller.md',
+    "'--append-system-prompt-file' caller.md",
+  ])("rejects conflicting Claude prompt files before provider startup: %s", async (launchArgs) => {
+    const callsBefore = createProviderRuntime.mock.calls.length
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await expect(createProviderAgentAdapter({
+      instructions: "Follow @./README.md literally.",
+      provider: "claude-code",
+      providerSettings: { launchArgs },
+    }).generate(context("thread-claude-prompt-conflict") as never)).rejects.toThrow("Compose the caller prompt file contents into driver.instructions and remove the flag.")
+    expect(createProviderRuntime).toHaveBeenCalledTimes(callsBefore)
+  })
+
+  it.each(["completed", "failed"])("delivers literal Claude instructions and restores Workspace files after a %s turn", async (state) => {
+    const threadId = `thread-claude-literal-${state}`
+    const instructions = "Follow @./README.md and @workspace.policy literally.\n<policy>Keep text intact.</policy>"
+    let root = ""
+    let promptFile = ""
+    runtime(threadId, [event("turn.completed", threadId, { state, ...(state === "failed" ? { errorMessage: "provider failed" } : {}) }, { turnId: "turn-1" })], {
+      async onStartSession() {
+        const args = String(createProviderRuntime.mock.lastCall?.[0].settings?.launchArgs)
+        expect(args).toContain("--verbose --append-system-prompt-file ")
+        expect(args).not.toContain(instructions)
+        promptFile = args.split("--append-system-prompt-file ")[1]!.replace(/^['\"]|['\"]$/g, "")
+        expect(await readFile(promptFile, "utf8")).toBe(instructions)
+        expect(await readFile(join(root, "CLAUDE.md"), "utf8")).toBe("")
+      },
+    })
+    const session = {
+      close: vi.fn(async () => {
+        expect(await readFile(join(root, "CLAUDE.md"), "utf8")).toBe("original instructions")
+        await expect(access(promptFile)).rejects.toThrow()
+      }),
+      commit: vi.fn(async () => undefined),
+      diff: vi.fn(async () => ({ entries: [] })),
+      exec: vi.fn(async () => ({ code: 0, stderr: "", stdout: "" })),
+      readFile: vi.fn(async () => new Uint8Array()),
+    }
+    const workspace = {
+      fs: {},
+      startSession: vi.fn(async (options: { target: string }) => {
+        root = options.target
+        await mkdir(root, { recursive: true })
+        await writeFile(join(root, "CLAUDE.md"), "original instructions")
+        await writeFile(join(root, "README.md"), "must not be imported")
+        return session
+      }),
+      tools: {},
+    }
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    const result = createProviderAgentAdapter({ instructions, provider: "claude-code", providerSettings: { launchArgs: "--verbose" } }).generate(context(threadId, {
+      workspace,
+      workspaceDefinition: { mode: "write", name: "docs" },
+      workspaceMode: "write",
+    }) as never)
+    if (state === "failed") await expect(result).rejects.toThrow("provider failed")
+    else await result
+    expect(session.close).toHaveBeenCalled()
   })
 
   it("reports runtime-wide provider errors without a thread association", async () => {
@@ -4569,6 +4648,56 @@ cli_auth_credentials_store = "keyring"
     expect(session.close).toHaveBeenCalledOnce()
   })
 
+  it("preserves Workspace Source precedence over colocated Skills and keeps provider edits", async () => {
+    const threadId = "thread-workspace-colocated-skill-override"
+    const skillPath = ".agents/skills/review/SKILL.md"
+    let root = ""
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      async onStartSession() {
+        for (const provider of [".agents", ".codex", ".claude"]) {
+          await expect(readFile(`${root}/${provider}/skills/review/SKILL.md`, "utf8")).resolves.toBe("# Explicit Source\n")
+        }
+        await writeFile(join(root, skillPath), "# Provider edit\n")
+      },
+    })
+    const session = {
+      close: vi.fn(async () => undefined),
+      commit: vi.fn(async () => undefined),
+      diff: vi.fn(async () => {
+        await expect(readFile(join(root, skillPath), "utf8")).resolves.toBe("# Provider edit\n")
+        return { entries: [] }
+      }),
+      exec: vi.fn(async () => ({ code: 0, stderr: "", stdout: "" })),
+      readFile: vi.fn(async () => new Uint8Array()),
+    }
+    const source = { content: "# Explicit Source\n", workspacePath: skillPath }
+    const workspace = {
+      fs: {},
+      startSession: vi.fn(async (options: { target: string }) => {
+        root = options.target
+        await mkdir(join(root, skillPath, ".."), { recursive: true })
+        await writeFile(join(root, skillPath), source.content)
+        return session
+      }),
+      tools: {},
+    }
+    const runContext = context(threadId, {
+      workspace,
+      workspaceAutoCommit: true,
+      workspaceDefinition: { mode: "write", name: "docs", sources: { review: source } },
+      workspaceMode: "write",
+    })
+    runContext.context.set("agent.colocatedSkills", {
+      review: { content: "# Colocated Skill\n", workspacePath: skillPath },
+    })
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await createProviderAgentAdapter({ provider: "codex" }).generate(runContext as never)
+
+    expect(session.diff).toHaveBeenCalledOnce()
+    expect(session.close).toHaveBeenCalledOnce()
+  })
+
   it("makes canonical and legacy Skill directories mutually readable without overwriting collisions", async () => {
     const { gmail } = await import("../src/capabilities/gmail.ts")
     const capability = gmail()
@@ -4640,6 +4769,49 @@ cli_auth_credentials_store = "keyring"
     expect(session.close).toHaveBeenCalledOnce()
   })
 
+  it.each([".codex", ".codex/skills", ".codex/skills/canonical"])("preserves a provider replacement file at %s during Skill cleanup", async (replacementPath) => {
+    const threadId = `thread-workspace-replaced-skill-parent-${replacementPath}`
+    let root = ""
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      async onStartSession() {
+        await expect(readFile(`${root}/.codex/skills/canonical/SKILL.md`, "utf8")).resolves.toBe("# Canonical\n")
+        await rm(join(root, replacementPath), { recursive: true })
+        await writeFile(join(root, replacementPath), "Provider replacement")
+      },
+    })
+    const session = {
+      close: vi.fn(async () => undefined),
+      commit: vi.fn(async () => undefined),
+      diff: vi.fn(async () => {
+        await expect(readFile(join(root, replacementPath), "utf8")).resolves.toBe("Provider replacement")
+        await expect(readFile(`${root}/.agents/skills/canonical/SKILL.md`, "utf8")).resolves.toBe("# Canonical\n")
+        return { entries: [] }
+      }),
+      exec: vi.fn(async () => ({ code: 0, stderr: "", stdout: "" })),
+      readFile: vi.fn(async () => new Uint8Array()),
+    }
+    const workspace = {
+      fs: {},
+      startSession: vi.fn(async (options: { target: string }) => {
+        root = options.target
+        await mkdir(`${root}/.agents/skills/canonical`, { recursive: true })
+        await writeFile(`${root}/.agents/skills/canonical/SKILL.md`, "# Canonical\n")
+        return session
+      }),
+      tools: {},
+    }
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId, {
+      workspace,
+      workspaceAutoCommit: true,
+      workspaceDefinition: { mode: "write", name: "docs" },
+      workspaceMode: "write",
+    }) as never)
+    expect(session.diff).toHaveBeenCalledOnce()
+    expect(session.close).toHaveBeenCalledOnce()
+  })
+
   it("does not discover Skills through a linked provider directory", async () => {
     const threadId = "thread-workspace-linked-provider-skills"
     const external = await mkdtemp(join(tmpdir(), "vitehub-provider-skills-"))
@@ -4678,9 +4850,117 @@ cli_auth_credentials_store = "keyring"
     }
   })
 
-  it("rejects colocated Skill materialization through Workspace symlinks", async () => {
+  it("replaces a colocated Skill symlink during execution and restores it without changing its external target", async () => {
+    const threadId = "thread-workspace-symlinked-skill-file"
+    const external = await mkdtemp(join(tmpdir(), "vitehub-provider-skill-target-"))
+    const externalFile = join(external, "SKILL.md")
+    await writeFile(externalFile, "# External\n")
+    let root = ""
+    const skillPath = ".agents/skills/review/SKILL.md"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      async onStartSession() {
+        expect((await lstat(join(root, skillPath))).isSymbolicLink()).toBe(false)
+        for (const provider of [".agents", ".codex", ".claude"]) {
+          await expect(readFile(`${root}/${provider}/skills/review/SKILL.md`, "utf8")).resolves.toBe("# Review\n")
+        }
+      },
+    })
+    const session = {
+      close: vi.fn(async () => {
+        expect(await readlink(join(root, skillPath))).toBe(externalFile)
+        await expect(readFile(externalFile, "utf8")).resolves.toBe("# External\n")
+      }),
+      commit: vi.fn(async () => undefined),
+      diff: vi.fn(async () => ({ entries: [] })),
+      exec: vi.fn(async () => ({ code: 0, stderr: "", stdout: "" })),
+      readFile: vi.fn(async () => new Uint8Array()),
+    }
+    const workspace = {
+      fs: {},
+      startSession: vi.fn(async (options: { target: string }) => {
+        root = options.target
+        await mkdir(join(root, skillPath, ".."), { recursive: true })
+        await symlink(externalFile, join(root, skillPath))
+        return session
+      }),
+      tools: {},
+    }
+    const runContext = context(threadId, { workspace })
+    runContext.context.set("agent.colocatedSkills", {
+      review: { content: "# Review\n", workspacePath: skillPath },
+    })
+
+    try {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await createProviderAgentAdapter({ provider: "codex" }).generate(runContext as never)
+      expect(session.close).toHaveBeenCalledOnce()
+    }
+    finally {
+      await rm(external, { force: true, recursive: true })
+    }
+  })
+
+  it.each([false, true])("does not restore a Skill through a replaced parent with external file %s", async (existingTarget) => {
+    const threadId = "thread-workspace-symlinked-skill-file"
+    const external = await mkdtemp(join(tmpdir(), "vitehub-provider-skill-target-"))
+    const externalFile = join(external, "SKILL.md")
+    if (existingTarget) await writeFile(externalFile, "# External\n")
+    let root = ""
+    const skillPath = ".agents/skills/review/SKILL.md"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      async onStartSession() {
+        expect((await lstat(join(root, skillPath))).isSymbolicLink()).toBe(false)
+        await rm(join(root, ".agents/skills/review"), { recursive: true })
+        await symlink(external, join(root, ".agents/skills/review"), "dir")
+      },
+    })
+    const session = {
+      close: vi.fn(async () => {
+        expect(await readlink(join(root, ".agents/skills/review"))).toBe(external)
+        if (existingTarget) {
+          expect((await lstat(externalFile)).isFile()).toBe(true)
+          await expect(readFile(externalFile, "utf8")).resolves.toBe("# External\n")
+        }
+        else await expect(lstat(externalFile)).rejects.toMatchObject({ code: "ENOENT" })
+      }),
+      commit: vi.fn(async () => undefined),
+      diff: vi.fn(async () => ({ entries: [] })),
+      exec: vi.fn(async () => ({ code: 0, stderr: "", stdout: "" })),
+      readFile: vi.fn(async () => new Uint8Array()),
+    }
+    const workspace = {
+      fs: {},
+      startSession: vi.fn(async (options: { target: string }) => {
+        root = options.target
+        await mkdir(join(root, skillPath, ".."), { recursive: true })
+        await symlink(externalFile, join(root, skillPath))
+        return session
+      }),
+      tools: {},
+    }
+    const runContext = context(threadId, { workspace })
+    runContext.context.set("agent.colocatedSkills", {
+      review: { content: "# Review\n", workspacePath: skillPath },
+    })
+
+    try {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await createProviderAgentAdapter({ provider: "codex" }).generate(runContext as never)
+      expect(session.close).toHaveBeenCalledOnce()
+    }
+    finally {
+      await rm(external, { force: true, recursive: true })
+    }
+  })
+
+  it.each([false, true])("rejects colocated Skill materialization through Workspace symlinks with existing target %s", async (existingTarget) => {
     const threadId = "thread-workspace-symlinked-skills"
     const runtimeCount = createProviderRuntime.mock.calls.length
+    const external = await mkdtemp(join(tmpdir(), "vitehub-provider-skill-parent-"))
+    if (existingTarget) {
+      await mkdir(join(external, "review"))
+      await writeFile(join(external, "review/SKILL.md"), "# External\n")
+    }
     const session = {
       close: vi.fn(async () => undefined),
       commit: vi.fn(async () => undefined),
@@ -4691,7 +4971,7 @@ cli_auth_credentials_store = "keyring"
     const workspace = {
       fs: {},
       startSession: vi.fn(async (options: { target: string }) => {
-        await symlink("/tmp", `${options.target}/skills`)
+        await symlink(external, `${options.target}/skills`)
         return session
       }),
       tools: {},
@@ -4701,12 +4981,18 @@ cli_auth_credentials_store = "keyring"
       review: { content: "# Review\n", workspacePath: "skills/review/SKILL.md" },
     })
 
-    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-    await expect(createProviderAgentAdapter({ provider: "codex" }).generate(runContext as never)).rejects.toThrow("parent must not be a symbolic link")
+    try {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await expect(createProviderAgentAdapter({ provider: "codex" }).generate(runContext as never)).rejects.toThrow("parent must not be a symbolic link")
 
-    expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCount)
-    expect(session.diff).not.toHaveBeenCalled()
-    expect(session.close).toHaveBeenCalledOnce()
+      expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCount)
+      expect(session.diff).not.toHaveBeenCalled()
+      expect(session.close).toHaveBeenCalledOnce()
+      if (existingTarget) await expect(readFile(join(external, "review/SKILL.md"), "utf8")).resolves.toBe("# External\n")
+    }
+    finally {
+      await rm(external, { force: true, recursive: true })
+    }
   })
 
   it("clears a provider cursor when Workspace write-back fails", async () => {
@@ -5468,9 +5754,10 @@ cli_auth_credentials_store = "keyring"
       const threadId = "thread-retained-cleanup-timeout"
       const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
       provider.close.mockImplementationOnce(() => new Promise(() => {}))
+      const abort = new AbortController()
       const retained: Promise<unknown>[] = []
       const invocation = context(threadId, {
-        input: { prompt: "hello", timeout: 50 },
+        input: { prompt: "hello", abortSignal: abort.signal },
         runtime: {
           memo: (_key: string, create: () => unknown) => create(),
           run: { runId: `run-${threadId}`, threadId },
@@ -5482,7 +5769,8 @@ cli_auth_credentials_store = "keyring"
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const result = createProviderAgentAdapter({ provider: "codex" }).generate(invocation as never)
 
-      await vi.waitFor(() => expect(provider.close).toHaveBeenCalledOnce())
+      await vi.waitUntil(() => provider.close.mock.calls.length === 1)
+      abort.abort(new DOMException("Invocation timed out", "TimeoutError"))
       await vi.advanceTimersByTimeAsync(50)
       const runtimeCall = createProviderRuntime.mock.lastCall
       expect(runtimeCall).toBeDefined()
@@ -5502,14 +5790,19 @@ cli_auth_credentials_store = "keyring"
   })
 
   it("bounds provider startup by the invocation timeout", async () => {
+    const abort = new AbortController()
     const threadId = "thread-start-timeout"
     const provider = runtime(threadId, [], { onStartSession: () => new Promise(() => {}) })
     const adapter = createProviderAgentAdapter({ provider: "codex" })
 
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-    await expect(adapter.generate(context(threadId, {
-      input: { prompt: "hello", timeout: 50 },
-    }) as never)).rejects.toMatchObject({ name: "TimeoutError" })
+    const result = adapter.generate(context(threadId, {
+      input: { prompt: "hello", abortSignal: abort.signal },
+    }) as never)
+
+    await vi.waitUntil(() => provider.startSession.mock.calls.length === 1)
+    abort.abort(new DOMException("Invocation timed out", "TimeoutError"))
+    await expect(result).rejects.toMatchObject({ name: "TimeoutError" })
 
     expect(provider.startSession).toHaveBeenCalledOnce()
     expect(provider.sendTurn).not.toHaveBeenCalled()
@@ -5649,6 +5942,7 @@ cli_auth_credentials_store = "keyring"
   })
 
   it("retains thread ownership until late Workspace preparation closes", async () => {
+    const abort = new AbortController()
     const threadId = "thread-late-workspace"
     let finishPreparation!: (session: Record<string, unknown>) => void
     let finishClose!: () => void
@@ -5667,12 +5961,14 @@ cli_auth_credentials_store = "keyring"
     const adapter = createProviderAgentAdapter({ provider: "codex" })
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const first = adapter.generate(context(threadId, {
-      input: { prompt: "hello", timeout: 50 },
+      input: { prompt: "hello", abortSignal: abort.signal },
       workspace,
       workspaceDefinition: { mode: "write", name: "docs" },
       workspaceMode: "write",
     }) as never)
 
+    await vi.waitUntil(() => typeof finishPreparation === "function")
+    abort.abort(new DOMException("Invocation timed out", "TimeoutError"))
     await expect(first).rejects.toMatchObject({ name: "TimeoutError" })
     const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
@@ -5695,6 +5991,7 @@ cli_auth_credentials_store = "keyring"
   })
 
   it("stops provider startup that settles after timeout before closing its runtime", async () => {
+    const abort = new AbortController()
     const threadId = "thread-late-start"
     let finishStartup!: () => void
     const provider = runtime(threadId, [], { onStartSession: () => new Promise<void>(resolve => finishStartup = resolve) })
@@ -5702,7 +5999,7 @@ cli_auth_credentials_store = "keyring"
     const adapter = createProviderAgentAdapter({ provider: "codex" })
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const result = adapter.generate(context(threadId, {
-      input: { prompt: "hello", timeout: 50 },
+      input: { prompt: "hello", abortSignal: abort.signal },
       runtime: {
         memo: (_key: string, create: () => unknown) => create(),
         run: { runId: `run-${threadId}`, threadId },
@@ -5712,6 +6009,8 @@ cli_auth_credentials_store = "keyring"
       },
     }) as never)
 
+    await vi.waitUntil(() => typeof finishStartup === "function")
+    abort.abort(new DOMException("Invocation timed out", "TimeoutError"))
     await expect(result).rejects.toMatchObject({ name: "TimeoutError" })
     expect(provider.close).not.toHaveBeenCalled()
     finishStartup()
@@ -5721,6 +6020,7 @@ cli_auth_credentials_store = "keyring"
   })
 
   it("stops deferred provider work before closing the Workspace", async () => {
+    const abort = new AbortController()
     const threadId = "thread-late-start-workspace"
     let finishStartup!: () => void
     const provider = runtime(threadId, [], { onStartSession: () => new Promise<void>(resolve => finishStartup = resolve) })
@@ -5734,11 +6034,13 @@ cli_auth_credentials_store = "keyring"
     const adapter = createProviderAgentAdapter({ provider: "codex" })
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const result = adapter.generate(context(threadId, {
-      input: { prompt: "hello", timeout: 50 },
+      input: { prompt: "hello", abortSignal: abort.signal },
       workspace: { fs: {}, startSession: vi.fn(async () => session), tools: {} },
       workspaceDefinition: { mode: "write", name: "docs" },
     }) as never)
 
+    await vi.waitUntil(() => typeof finishStartup === "function")
+    abort.abort(new DOMException("Invocation timed out", "TimeoutError"))
     await expect(result).rejects.toMatchObject({ name: "TimeoutError" })
     expect(session.close).not.toHaveBeenCalled()
     finishStartup()
@@ -5749,6 +6051,7 @@ cli_auth_credentials_store = "keyring"
   })
 
   it("closes a provider runtime when startup rejects after timeout", async () => {
+    const abort = new AbortController()
     const threadId = "thread-late-start-rejection"
     let rejectStartup!: (error: Error) => void
     const provider = runtime(threadId, [], { onStartSession: () => new Promise<void>((_resolve, reject) => rejectStartup = reject) })
@@ -5756,7 +6059,7 @@ cli_auth_credentials_store = "keyring"
     const adapter = createProviderAgentAdapter({ provider: "codex" })
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const result = adapter.generate(context(threadId, {
-      input: { prompt: "hello", timeout: 50 },
+      input: { prompt: "hello", abortSignal: abort.signal },
       runtime: {
         memo: (_key: string, create: () => unknown) => create(),
         run: { runId: `run-${threadId}`, threadId },
@@ -5766,6 +6069,8 @@ cli_auth_credentials_store = "keyring"
       },
     }) as never)
 
+    await vi.waitUntil(() => typeof rejectStartup === "function")
+    abort.abort(new DOMException("Invocation timed out", "TimeoutError"))
     await expect(result).rejects.toMatchObject({ name: "TimeoutError" })
     rejectStartup(new Error("late startup failed"))
     await vi.waitFor(() => expect(provider.close).toHaveBeenCalledOnce())

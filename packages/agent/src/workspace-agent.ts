@@ -31,12 +31,12 @@ import {
   collectStaticInstructionCoverage,
   createInstructionCoverage,
   composeInstructionDocument,
-  resolveInstructionImports,
 } from "./instruction-composition.ts"
 import { inheritAgentCapacity, inspectAgentCapacity } from "./internal/agent-capacity.ts"
 import { normalizeAgentDriver } from "./internal/agent-driver.ts"
 import { gatewayModelDescriptor } from "./internal/agent-model.ts"
 import { consumesMessageChannelInstructions, inspectMessageChannelInstructions } from "./internal/channels.ts"
+import { colocatedAgentSkillsSymbol, type ColocatedAgentSkills } from "./internal/colocated-agent-skills.ts"
 
 import type {
   AgentAdapterInstructions,
@@ -84,6 +84,7 @@ import type {
   WorkspaceMaterializeSourcesOptions,
   WorkspaceName,
   WorkspaceRules,
+  WorkspaceSourceInput,
   WorkspaceSourceMaterializationStatus,
 } from "@vite-hub/workspace"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
@@ -267,9 +268,15 @@ export function workspaceAgentWithSourceRoot<Agent>(agent: Agent, sourceRootDir:
   const ownedWorkspace = asUnknownBoundary(workspace) as WorkspaceAgentWorkspaceOptions
 
   const resolvedSourceRootDir = ownedWorkspace.sourceRootDir ?? workspaceAgent.sourceRootDir ?? sourceRootDir
-  const sources = colocatedInstructions
-    ? { __vitehubAgentInstructions: { content: colocatedInstructions, materialize: "build" as const, mount: "", workspacePath: "AGENTS.md" }, ...ownedWorkspace.sources }
-    : { ...ownedWorkspace.sources }
+  // SAFETY: withColocatedAgentSkills owns this symbol and stores only decoded Workspace source inputs.
+  const colocatedSkills = Reflect.get(workspaceAgent, colocatedAgentSkillsSymbol) as ColocatedAgentSkills | undefined
+  const sources: Record<string, WorkspaceSourceInput> = {
+    ...colocatedSkills,
+    ...ownedWorkspace.sources,
+  }
+  if (colocatedInstructions && !Object.hasOwn(sources, "__vitehubAgentInstructions")) {
+    sources.__vitehubAgentInstructions = { content: colocatedInstructions, materialize: "startup", mount: "", workspacePath: "AGENTS.md" }
+  }
   const workspaceOptions = {
     ...options,
     workspace: {
@@ -279,9 +286,9 @@ export function workspaceAgentWithSourceRoot<Agent>(agent: Agent, sourceRootDir:
     },
   }
 
-  const sourceDefaults = Object.fromEntries(Object.entries(sources).filter(([key, source]) => source !== ownedWorkspace.sources?.[key]))
+  const sourceDefaults: Record<string, WorkspaceSourceInput> = Object.fromEntries(Object.entries(sources).filter(([key, source]) => source !== ownedWorkspace.sources?.[key]))
   // SAFETY: The object is constructed with the required sourceRootDir and optional source defaults immediately below.
-  const decoratedWorkspace = { sourceRootDir } as { sourceRootDir: string; sources?: typeof sourceDefaults }
+  const decoratedWorkspace = { sourceRootDir } as { sourceRootDir: string; sources?: Record<string, WorkspaceSourceInput> }
   if (Object.keys(sourceDefaults).length) decoratedWorkspace.sources = sourceDefaults
   const decoratedAgent = {
     ...workspaceAgent,
@@ -987,33 +994,6 @@ function getNodeBuiltin(name: string): unknown {
   }
 }
 
-function resolveInstructionImportFromFile(specifier: string, importer: string): { content: string, file: string } {
-  const fs = getNodeBuiltin("node:fs")
-  const path = getNodeBuiltin("node:path")
-  if (!fs || !path) {
-    throw agentDiagnostics.AGENT_R0884({ message: `[vitehub] Instruction import "${specifier}" requires local filesystem access.` })
-  }
-  const file = path.resolve(path.dirname(importer), specifier)
-  return {
-    content: fs.readFileSync(file, "utf8"),
-    file,
-  }
-}
-
-export async function resolveInstructionDocumentImports(content: string, file: string): Promise<string> {
-  return await resolveInstructionImports(content, {
-    file,
-    read: resolveInstructionImportFromFile,
-  })
-}
-
-export async function resolveColocatedAgentInstructionDocument(content: string, sourceRootDir: string | undefined): Promise<string> {
-  const fs = getNodeBuiltin("node:fs")
-  const path = getNodeBuiltin("node:path")
-  if (!fs || !path || !sourceRootDir || !hasColocatedAgentInstructions(sourceRootDir)) return content
-  return await resolveInstructionDocumentImports(content, path.join(sourceRootDir, colocatedAgentInstructionsPath))
-}
-
 async function composeInstructions(
   content: string,
   context?: AgentInvocationContextStore,
@@ -1489,12 +1469,6 @@ export async function resolveWorkspaceAgentDefaultInstructions<
   catch {}
   if (!content) return undefined
 
-  const fs = getNodeBuiltin("node:fs")
-  const path = getNodeBuiltin("node:path")
-  const sourceRootDir = definition.sourceRootDir
-  if (fs && path && sourceRootDir && hasColocatedAgentInstructions(sourceRootDir)) {
-    return await resolveColocatedAgentInstructionDocument(content, sourceRootDir)
-  }
   return content
 }
 

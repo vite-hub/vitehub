@@ -127,7 +127,7 @@ import { defineWorkflow } from "vite-hub/workflow";
 
 The root export intentionally contains only the framework configuration API. Feature code belongs on a feature subpath, which forwards to the package that owns it.
 
-Render a local prompt with `renderMarkdownFile(new URL("./prompt.md", import.meta.url), { data })`. Use ordinary `.md` files and ship their relative fragments with the server. File rendering reads the local filesystem at runtime and needs no Vite plugin. Use `renderMarkdownTemplate(text, { data })` for content already loaded from a Workspace, Source, or application storage.
+Render a local prompt with `renderMarkdownFile(new URL("./prompt.md", import.meta.url), { data })`. File rendering reads only the requested file at runtime; references such as `@./fragment.md` remain literal, so compose any additional Markdown explicitly before rendering. Use `renderMarkdownTemplate(text, { data })` for content already loaded from a Workspace, Source, or application storage.
 
 Built-in Agent Drivers and Box runtimes are selected by literal or tagged values, so they do not need provider-specific ViteHub imports. Install an optional external provider or SDK explicitly when its runtime requires one.
 
@@ -140,8 +140,6 @@ Built-in Agent Drivers and Box runtimes are selected by literal or tagged values
 - [Public import paths](https://vitehub.dev/docs/reference/import-paths)
 
 ## Invoke Agents from the Console
-
-The Nuxt Console requires the application to provide the optional `@nuxt/ui`, `vue`, `vue-router`, and `reka-ui` peers. Use Vue Router `^4.5.0 || ^5.0.0` to match the application router. The standalone Vite Console bundles its client dependencies.
 
 The Console **Usage** page provides session history with date, Agent, status, and search filters. Open a row to inspect that session in the existing Agents view. History keeps completed, failed, and cancelled Agent Invocations visible even when token or cost evidence is unavailable. Totals use the same filters as the history table. See [Session history and usage](https://vitehub.dev/docs/console/usage) for the identity, coverage, and pagination contract.
 

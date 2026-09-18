@@ -102,6 +102,7 @@ export interface ProviderAgentAdapterOptions<
 }
 
 interface GeneratedProviderFile {
+  root: string
   appendedContent?: string
   content?: Uint8Array
   directories: string[]
@@ -113,7 +114,7 @@ interface GeneratedProviderFile {
   path: string
 }
 
-async function materializeGeneratedProviderFile(root: string, path: string, content: string | Uint8Array): Promise<GeneratedProviderFile> {
+async function inspectGeneratedProviderFilePath(root: string, path: string) {
   let parent = root
   const directories: string[] = []
   for (const segment of relative(root, dirname(path)).split(/[\\/]/).filter(Boolean)) {
@@ -127,7 +128,13 @@ async function materializeGeneratedProviderFile(root: string, path: string, cont
   if (entry && !entry.isFile() && !entry.isSymbolicLink()) {
     throw agentDiagnostics.AGENT_R0671({ message: `[vitehub] Generated provider file collides with a non-file entry: ${path}` })
   }
+  return { directories, entry }
+}
+
+async function materializeGeneratedProviderFile(root: string, path: string, content: string | Uint8Array): Promise<GeneratedProviderFile> {
+  const { directories, entry } = await inspectGeneratedProviderFilePath(root, path)
   const generated = {
+    root,
     content: entry?.isFile() ? await readFile(path) : undefined,
     directories,
     existed: entry !== undefined,
@@ -151,11 +158,12 @@ const providerSkillRoots = [".agents/skills", ".codex/skills", ".claude/skills"]
 
 async function hasSafeProviderPath(root: string, path: string): Promise<boolean> {
   let current = root
+  const rootEntry = await lstat(root).catch(() => undefined)
+  if (!rootEntry?.isDirectory() || rootEntry.isSymbolicLink()) return false
   for (const segment of relative(root, path).split(/[\\/]/).filter(Boolean)) {
     current = join(current, segment)
     const entry = await lstat(current).catch(() => undefined)
-    if (!entry) return false
-    if (entry.isSymbolicLink()) return false
+    if (!entry?.isDirectory() || entry.isSymbolicLink()) return false
   }
   return true
 }
@@ -193,7 +201,7 @@ async function materializeProviderSkillLink(root: string, source: string, target
   const link = relative(dirname(target), source)
   try {
     await symlink(link, target, "dir")
-    return { directories, existed: false, ownedLink: link, path: target }
+    return { root, directories, existed: false, ownedLink: link, path: target }
   }
   catch (error) {
     // Windows may deny directory symlinks without Developer Mode or elevation.
@@ -201,7 +209,7 @@ async function materializeProviderSkillLink(root: string, source: string, target
     if (isRuntimeRecord(error) && (error.code === "EPERM" || error.code === "EACCES")) {
       try {
         await cp(source, target, { recursive: true })
-        return { directories, existed: false, path: target, copiedBridgeSource: source }
+        return { root, directories, existed: false, path: target, copiedBridgeSource: source }
       }
       catch (copyError) {
         for (const directory of directories.reverse()) await rmdir(directory).catch(() => undefined)
@@ -237,6 +245,10 @@ async function materializeProviderSkillCompatibility(root: string): Promise<Gene
 }
 
 async function restoreGeneratedProviderFile(generated: GeneratedProviderFile): Promise<void> {
+  // The provider can replace parents after materialization. Leave redirected paths untouched.
+  if (!await hasSafeProviderPath(generated.root, dirname(generated.path))) return
+  if (generated.copiedBridgeSource !== undefined
+    && !await hasSafeProviderPath(generated.root, dirname(generated.copiedBridgeSource))) return
   if (generated.appendedContent !== undefined) {
     const entry = await lstat(generated.path).catch(() => undefined)
     if (entry?.isFile()) {
@@ -2404,7 +2416,8 @@ async function* runProvider<
   let acceptingSteering = true
   let abort: (() => void) | undefined
   let unregister: (() => void) | undefined
-  const generatedProviderFiles: GeneratedProviderFile[] = []
+    const generatedProviderFiles: GeneratedProviderFile[] = []
+    let claudePromptFile: string | undefined
   let pendingResumeCursor = preservesProviderSession && sessionKey ? resumeCursors.get(sessionKey) : undefined
   let deferredSessionConsume: Promise<void> | undefined
   let runtimeCleanupDeferred = false
@@ -2545,13 +2558,25 @@ async function* runProvider<
       })
     }
     if (instructions && materializeInstructions) {
-      const instructionFile = options.provider === "codex" ? "AGENTS.md" : "CLAUDE.md"
-      const generated = await materializeGeneratedProviderFile(root, join(root, instructionFile), instructions)
-      if (preserveNativeInstructions && provenanceInstructions && generated.content !== undefined) {
-        // Remove only the injected text so native instruction edits reach Workspace write-back.
-        generated.appendedContent = `${generated.content.length ? "\n\n" : ""}${provenanceInstructions}`
+      const promptFileInstructions = options.provider === "claude-code" && preserveNativeInstructions && provenanceInstructions
+        ? provenanceInstructions
+        : instructions
+      if (options.provider === "claude-code") {
+        // Deliver generated instructions once, without Claude's native @path imports.
+        // Preserve native instruction files when only adding source provenance.
+        if (!preserveNativeInstructions) {
+          generatedProviderFiles.push(await materializeGeneratedProviderFile(root, join(root, "CLAUDE.md"), ""))
+        }
+        claudePromptFile = join(root, ".claude", "vitehub-system-prompt.md")
+        generatedProviderFiles.push(await materializeGeneratedProviderFile(root, claudePromptFile, promptFileInstructions))
+      } else {
+        const generated = await materializeGeneratedProviderFile(root, join(root, "AGENTS.md"), instructions)
+        if (preserveNativeInstructions && provenanceInstructions && generated.content !== undefined) {
+          // Remove only the injected text so native instruction edits reach Workspace write-back.
+          generated.appendedContent = `${generated.content.length ? "\n\n" : ""}${provenanceInstructions}`
+        }
+        generatedProviderFiles.push(generated)
       }
-      generatedProviderFiles.push(generated)
     }
     const colocatedSkills = context.context.get(colocatedAgentSkillsContextKey)
     for (const source of Object.values(colocatedSkills || {})) {
@@ -2562,6 +2587,9 @@ async function* runProvider<
         || !hasRuntimeType(source.workspacePath, "string")) continue
       const target = resolve(root, source.workspacePath)
       if (target !== root && !target.startsWith(`${root}/`)) throw agentDiagnostics.AGENT_R0712({ message: "[vitehub] Colocated Skill path must stay inside the provider Workspace." })
+      // Preserve resolved Workspace Sources only after validating the complete path.
+      const { entry } = await inspectGeneratedProviderFilePath(root, target)
+      if (entry?.isFile()) continue
       generatedProviderFiles.push(await materializeGeneratedProviderFile(root, target, source.content))
     }
     generatedProviderFiles.push(...await materializeProviderSkillCompatibility(root))
@@ -2687,12 +2715,19 @@ async function* runProvider<
     const generatedLaunchArgs = options.provider === "codex" ? codexLaunchArgs(options) : undefined
     const launchArgs = [
       options.providerSettings?.launchArgs,
+      ...(claudePromptFile ? [`--append-system-prompt-file ${JSON.stringify(claudePromptFile)}`] : []),
       auxiliaryEnvironmentLaunchArgs,
       generatedLaunchArgs,
       // Login profiles reset PATH and hide the invocation's managed browser CLI.
       ...(options.provider === "codex" && capabilityEnvironment?.PATH ? ['-c "allow_login_shell=false"'] : []),
       ...(codexCredentialHome ? ['-c "cli_auth_credentials_store=\\"file\\""'] : []),
     ].filter(Boolean).join(" ") || undefined
+    if (options.provider === "claude-code"
+      && materializeInstructions
+      && hasRuntimeType(options.providerSettings?.launchArgs, "string")
+      && shellArgTokens(options.providerSettings.launchArgs).some(token => token === "--append-system-prompt-file" || token.startsWith("--append-system-prompt-file="))) {
+      throw agentDiagnostics.AGENT_R0924({ message: "[vitehub] Claude launchArgs cannot include --append-system-prompt-file when instructions are materialized. Compose the caller prompt file contents into driver.instructions and remove the flag." })
+    }
     // The runtime chooses environment arguments over settings. Give auxiliary
     // overrides the complete argument list, including managed credential storage.
     if (auxiliaryEnvironmentLaunchArgs !== undefined && launchArgs !== undefined) {
@@ -3164,6 +3199,24 @@ async function* runProvider<
       else throw cleanupError
     }
   }
+}
+
+function shellArgTokens(input: string): string[] {
+  const tokens: string[] = []
+  let token = ""
+  let quote: '"' | "'" | undefined
+  let escaped = false
+  for (const char of input) {
+    if (escaped) { token += char; escaped = false; continue }
+    if (char === "\\" && quote !== "'") { escaped = true; continue }
+    if (quote) { if (char === quote) quote = undefined; else token += char; continue }
+    if (char === '"' || char === "'") { quote = char; continue }
+    if (/\s/.test(char)) { if (token) { tokens.push(token); token = "" }; continue }
+    token += char
+  }
+  if (escaped) token += "\\"
+  if (token) tokens.push(token)
+  return tokens
 }
 
 async function generateProvider<CALL_OPTIONS, TRuntimeConfig extends AgentRuntimeConfig>(

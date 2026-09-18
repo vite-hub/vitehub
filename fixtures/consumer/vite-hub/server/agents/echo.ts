@@ -13,7 +13,7 @@ export default defineAgent({
       const executeShell = tools?.shell?.execute
       if (!executeShell) throw new Error("Expected the Workspace Shell capability.")
       const pwd = await executeShell({ command: "pwd" }) as { stdout: string }
-      return { text: `VITE_HUB_SERVER_ONLY:${await renderMarkdownTemplate("{{ cwd }}", { data: { cwd: pwd.stdout.trim() } })}` }
+      return { text: `VITE_HUB_SERVER_ONLY:${await renderMarkdownTemplate("{{ data.cwd }}", { data: { cwd: pwd.stdout.trim() } })}` }
     },
   },
   workspace: { mode: "write", store: { provider: "memory" } },

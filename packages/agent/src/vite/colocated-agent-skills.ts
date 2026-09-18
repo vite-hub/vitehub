@@ -3,7 +3,7 @@ import { readColocatedAgentFiles, resolveColocatedAgentFilesRoot } from "@vite-h
 export interface EncodedColocatedAgentSkillSource {
   content: string
   encoding: "base64"
-  materialize: "build"
+  materialize: "startup"
   mount: ""
   workspacePath: string
 }
@@ -17,12 +17,12 @@ export function readColocatedAgentSkills(handler: string): Record<string, Encode
   if (!files) return
   return Object.fromEntries(
     Object.entries(files).map(([path, file]) => {
-      const workspacePath = `skills/${path}`
+      const workspacePath = `.agents/skills/${path}`
       return [
         `__vitehubAgentSkill:${workspacePath}`,
         {
           ...file,
-          materialize: "build",
+          materialize: "startup",
           mount: "",
           workspacePath,
         },

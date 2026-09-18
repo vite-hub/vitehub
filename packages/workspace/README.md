@@ -77,6 +77,14 @@ export default defineEventHandler(async () => {
 })
 ```
 
+`useWorkspace(name)` returns read access. For read-only inspection of an existing Workspace, use `useWorkspace("docs", { refresh: false })` to reuse current persisted snapshots of Sources with `materialize: "startup"`. Snapshots are reused when they are ready and match the current Source configuration, even if upstream content has changed. Missing snapshots or snapshots that no longer match the configuration still materialize. Omitting `refresh`, or setting it to `true`, keeps normal startup Source refresh behavior. Custom Stores that omit `getMeta` or `setMeta` retain ownership and Source snapshots only for the lifetime of the Store instance.
+
+Build and startup overwrites persist a pending checkpoint before changing existing files. Cleanup accepts the new owner only after checkpoint completion, so failed rollback metadata cannot grant ownership of restored files after a Store reopen. If publishing completion fails after the file and owner were committed, the operation reports the error and keeps the generated output. Cleanup preserves that output unless completion was persisted. Retry the Source operation to establish ownership again.
+
+Stores can return `revision` from `stat()` to identify a stored file version. This opaque value must change when the file is modified or recreated, even with identical bytes. A write that makes no change to the stored file can keep its revision. Memory and local Stores provide it. Cleanup uses the revision and content digest to retry interrupted file removal. If the Store cannot identify the surviving file, cleanup preserves it and reports the ambiguous removal for inspection. After inspection, remove the file explicitly if it is still generated output, then retry cleanup.
+
+`refresh: false` applies only to read mode. It does not disable refreshes for other Sources or change explicit `sync()` and `materializeSources()` calls on a writable facade. `useWorkspace(name, { mode: "write" })` keeps normal refresh behavior.
+
 Serve a constrained Workspace subtree without custom route plumbing:
 
 ```ts
@@ -344,6 +352,10 @@ Built on [`@vite-hub/source`](../source/README.md) and [isomorphic-git](https://
 
 Learn more at [vitehub.dev](https://vitehub.dev).
 
-`metadata.source` is reserved for internal Source materialization. Public Workspace writes and write validators cannot assign this ownership marker.
+Startup and build Source cleanup track ownership by Workspace name. When definitions share a Store, removing or refreshing one definition does not remove files last materialized by another definition. Cleanup also preserves files without a recorded Workspace owner, including files from legacy snapshots. Shared paths still contain the most recent write.
+
+`metadata.source` is reserved for internal Source materialization. Public Workspace writes and write validators cannot assign this ownership marker. Explicit loaders write through `ctx.store`; when multiple build Sources share a mount, these writes must preserve the input item's `metadata.source` or set it to the owning Source key for derived output within that Source's mount. Ambiguous writes fail before storing the file.
 
 File metadata must be a JSON-safe plain object containing only plain objects, dense arrays, strings, booleans, null, and finite numbers except negative zero. Omit optional properties instead of assigning `undefined`. Bigints, cycles, class instances, accessors, symbols, and functions are rejected. Workspace writes validate this contract before provider dispatch; direct local and memory Store writes also validate before changing file content. This keeps accepted metadata values consistent after a local Store restart.
+
+Custom Stores can implement `removeEmptyDirectory(path)` to support build directory cleanup. The operation must check the path inside the Store mutation boundary, preserve files and missing paths, and reject nonempty directories. Stores without this method retain generated directories. The local, memory, and Cloudflare Artifacts Stores implement it.

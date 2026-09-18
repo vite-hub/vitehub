@@ -1155,13 +1155,28 @@ describe("defineAgent workspace option", () => {
     expect((agent as { sources?: unknown }).sources).toMatchObject({
       __vitehubAgentInstructions: {
         content: "Use generated instructions.\n",
-        materialize: "build",
+        materialize: "startup",
         mount: "",
         workspacePath: "AGENTS.md",
       },
     })
     expect((agent as { __vitehubWorkspaceAgentOptions?: { workspace?: { sourceRootDir?: string } } }).__vitehubWorkspaceAgentOptions?.workspace?.sourceRootDir)
       .toBe(sourceRootDir)
+  })
+
+  it("preserves own __proto__ sources and user precedence when applying discovered roots", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { workspaceAgentWithSourceRoot } = await import("../src/workspace-agent.ts")
+    const source = { content: "user source", materialize: "startup" as const, mount: "", workspacePath: "user.md" }
+    const agent = workspaceAgentWithSourceRoot(defineAgent({
+      workspace: { sources: { ["__proto__"]: source, __vitehubAgentInstructions: source } },
+      driver: { model: {} as never },
+    }), "/workspace", "Generated instructions") as { sources?: Record<string, unknown> }
+
+    expect(Object.keys(agent.sources!)).toContain("__proto__")
+    expect(Object.getPrototypeOf(agent.sources)).toBe(Object.prototype)
+    expect(agent.sources?.["__proto__"]).toEqual(source)
+    expect(agent.sources?.__vitehubAgentInstructions).toEqual(source)
   })
 
   it("does not replay capability workspace sources when applying discovered roots", async () => {
@@ -1206,20 +1221,20 @@ describe("defineAgent workspace option", () => {
       "# Support",
       "@./policy.md",
       "",
-      "::if{context.audience === 'technical'}",
-      "Use technical detail for {{ context.customerName }}.",
+      "::if{:value=\"data.context.audience\" eq=\"technical\"}",
+      "Use technical detail for {{ data.context.customerName }}.",
       "::else",
       "Use support detail.",
-      "::",
+      "::\n::",
       "",
-      "{{{ context.supportPolicy }}}",
+      ":insert{:markdown=\"data.context.supportPolicy\"}",
       "",
       "::source{key=\"docs\"}",
-      "Use docs for {{ context.customerName }}.",
+      "Use docs for {{ data.context.customerName }}.",
       "::",
       "",
       "::capability{key=\"support-context\"}",
-      "Use runtime support context for {{ context.customerName }}.",
+      "Use runtime support context for {{ data.context.customerName }}.",
       "::",
     ].join("\n")
     await writeLocalFile(join(sourceRootDir, "instructions.md"), document)
@@ -1248,7 +1263,7 @@ describe("defineAgent workspace option", () => {
     await agent.run!(context())
 
     expect(agentSettings.at(-1)?.instructions).toBe([
-      "# Support\n\nImported policy.",
+      "# Support\n\n@./policy.md",
       "Use technical detail for Acme.",
       "## Runtime policy\n\nUse trusted runtime context.",
       "Use docs for Acme.",
@@ -1370,9 +1385,9 @@ describe("defineAgent workspace option", () => {
       },
       driver: {
         instructions: [
-          "Use {{ workspace.tone }} tone.",
-          "Inline {{ workspace.policy }}",
-          "@workspace.policy",
+          "Use {{ data.workspace.tone }} tone.",
+          "Inline {{ data.workspace.policy }}",
+          ":insert{:markdown=\"data.workspace.policy\"}",
         ],
         model: {} as never
       },
@@ -2690,24 +2705,24 @@ describe("defineAgent workspace option", () => {
       workspace: {},
       driver: {
         instructions: [
-          "::if{context.enabled}",
+          "::if{:condition=\"data.context.enabled\"}",
           "Hidden.",
           "::else",
           "Answer from the workspace.",
-          "::",
-          "{{ context.missing }}",
+          "::\n::",
+          "{{ data.context.missing }}",
         ].join("\n"),
         model: {} as never
       },
     }), { workspace: "support" })
 
     expect(createAgentInspectionMetadata(agent).instructions).toEqual([[
-      "::if{context.enabled}",
+      "::if{:condition=\"data.context.enabled\"}",
       "Hidden.",
       "::else",
       "Answer from the workspace.",
-      "::",
-      "{{ context.missing }}",
+      "::\n::",
+      "{{ data.context.missing }}",
     ].join("\n")])
   })
 
