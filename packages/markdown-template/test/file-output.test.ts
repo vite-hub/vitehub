@@ -12,8 +12,8 @@ it("renders shipped Markdown files from a Vite server build without a template p
     const source = join(root, "source")
     const output = join(root, "output")
     await mkdir(join(source, "templates"), { recursive: true })
-    await writeFile(join(source, "templates/prompt.md"), "@./policy.md")
-    await writeFile(join(source, "templates/policy.md"), "Review {{ repository }}.")
+    await writeFile(join(source, "templates/prompt.md"), "Review {{ data.repository }}.\n\n@./policy.md")
+    await writeFile(join(source, "templates/policy.md"), "Review {{ data.repository }}.")
     const entry = join(source, "entry.ts")
     await writeFile(entry, [
       `import { renderMarkdownFile } from ${JSON.stringify(fileURLToPath(new URL("../dist/file.js", import.meta.url)))}`,
@@ -31,11 +31,13 @@ it("renders shipped Markdown files from a Vite server build without a template p
     })
     await cp(join(source, "templates"), join(output, "templates"), { recursive: true })
     await rm(source, { recursive: true })
-    expect(await readFile(join(output, "entry.mjs"), "utf8")).not.toContain("Review {{ repository }}.")
+    expect(await readFile(join(output, "entry.mjs"), "utf8")).not.toContain("Review {{ data.repository }}.")
     // SAFETY: This test builds the fixture's declared default render function above.
     const deployed = await import(pathToFileURL(join(output, "entry.mjs")).href) as { default: () => Promise<string> }
-    await expect(deployed.default()).resolves.toBe("Review ViteHub.")
+    await expect(deployed.default()).resolves.toBe("Review ViteHub.\n\n@./policy.md")
     await rm(join(output, "templates/policy.md"))
+    await expect(deployed.default()).resolves.toBe("Review ViteHub.\n\n@./policy.md")
+    await rm(join(output, "templates/prompt.md"))
     await expect(deployed.default()).rejects.toMatchObject({ code: "ENOENT" })
   }
   finally {

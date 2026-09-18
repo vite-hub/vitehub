@@ -4,10 +4,11 @@ export default defineConfig({
   pack: {
     tsconfig: "tsconfig.build.json",
     deps: {
-      neverBundle: ["comark"],
+      neverBundle: ["comark", "vite"],
       onlyBundle: false,
+      alwaysBundle: [/^@vite-hub\/internal/],
     },
-    entry: ["src/index.ts", "src/portable.ts", "src/file.ts", "src/internal/composition.ts"],
+    entry: ["src/index.ts", "src/portable.ts", "src/file.ts", "src/internal/composition.ts", "src/internal/vite.ts", "src/vite.ts"],
     exports: {
       customExports(exports) {
         exports["."] = {

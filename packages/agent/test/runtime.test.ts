@@ -9926,7 +9926,7 @@ describe("agent message protocol", () => {
           return "Checking inventory."
         } },
         intervalMs: 0,
-        template: "::if{reasoningActive}\nactive\n::else\ninactive\n::",
+        template: "::if{:condition=\"data.reasoningActive\"}\nactive\n::else\ninactive\n::\n::",
       })],
       driver: { run: () => (async function* () {
           yield { id: "tool-1", name: "inventory", type: "tool-call" }
