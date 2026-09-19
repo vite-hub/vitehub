@@ -1283,10 +1283,10 @@ async function writeCloudflareOutput(options: ViteE2EComposerOptions, artifacts:
     alias: artifacts.alias,
     conditions: ["vitehub-hosted", "workerd", "worker", "browser", "default"],
     external: [
+      "@agntn/web",
       "@vercel/blob",
       "@vercel/queue",
       "@vercel/sandbox",
-      "askweb",
       "cloudflare:workers",
       "cloudflare:workflows",
       "files-sdk",
@@ -1392,7 +1392,7 @@ async function writeVercelOutput(options: ViteE2EComposerOptions, artifacts: Gen
     alias: withoutCloudflareWorkspaceAliases(artifacts.alias),
     conditions: ["vitehub-hosted", "node", "default"],
     external: [
-      "askweb",
+      "@agntn/web",
       "cloudflare:workers",
       "files-sdk/akamai",
       "files-sdk/azure",
