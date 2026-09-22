@@ -862,7 +862,7 @@ async function githubPullRequestReconcileFromInput<TRuntimeConfig extends AgentR
     if (event === "pull_request_review" && payload.action !== "submitted") return
     if (event === "pull_request_review_comment" && payload.action !== "created") return
     const triggerOptions = githubPullRequestTriggerOptions(reconcile)
-    if (event === "pull_request_review" && !["commented", "changes_requested"].includes(githubPullRequestReviewState(payload) || "")) return
+    if (event === "pull_request_review" && !["approved", "commented", "changes_requested"].includes(githubPullRequestReviewState(payload) || "")) return
     if (event === "pull_request_review_comment" || event === "pull_request_review") {
       const reviewPullRequest = payload.pull_request
       const reviewActor = githubPullRequestReviewActor(payload)
@@ -889,7 +889,7 @@ async function githubPullRequestReconcileFromInput<TRuntimeConfig extends AgentR
       }
     }
     if ((event === "issue_comment" && payload.action !== "created") || !payload.issue?.pull_request) return
-    const body = maybeString(payload.comment?.body)
+    const body = maybeString(payload.comment?.body) || (event === "pull_request_review" ? githubPullRequestReviewUrl(payload) : undefined)
     let trigger: GitHubPullRequestTrigger | undefined
     for (const candidate of triggerOptions) {
       const events = Array.isArray(candidate.events) ? candidate.events : []

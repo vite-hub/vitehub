@@ -1343,6 +1343,39 @@ describe("agent channels", () => {
       event: "pull_request_review",
     })
     expect(review.webhook).toEqual({ concurrencyKey: "acme/app#42", concurrencyLimit: 1, deliveryId: "review-delivery" })
+
+    const approvedChannel = github({ pullRequest: { reconcile: { comments: { reviewStates: ["approved"] } }, reply: false } })
+    const approvedTrigger = approvedChannel.triggers?.webhook
+    if (!approvedTrigger) throw new Error("Missing approved-review webhook trigger.")
+    const approved = await approvedTrigger.invoke({ ...context, channel: approvedChannel } as never, {
+      github: { event: "pull_request_review" },
+      payload: {
+        action: "submitted",
+        number: 42,
+        pull_request: {
+          author_association: "CONTRIBUTOR",
+          html_url: "https://github.test/acme/app/pull/42",
+          number: 42,
+          title: "Improve app",
+          url: "https://api.github.test/repos/acme/app/pulls/42",
+        },
+        repository: { full_name: "acme/app" },
+        review: {
+          body: null,
+          html_url: "https://github.test/acme/app/pull/42#pullrequestreview-56",
+          id: 56,
+          state: "approved",
+          user: { id: 2, login: "reviewer", type: "User" },
+        },
+        sender: { id: 2, login: "reviewer", type: "User" },
+      },
+    })
+    if (approved instanceof Response) throw new Error("Expected approved GitHub review invocation.")
+    expect(approved.input.context?.github).toMatchObject({
+      args: "https://github.test/acme/app/pull/42#pullrequestreview-56",
+      command: "/comment",
+      event: "pull_request_review",
+    })
   })
 
   it("reconciles configured pull request lifecycle events with invocation ownership", async () => {
