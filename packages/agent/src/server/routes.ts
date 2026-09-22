@@ -14,6 +14,7 @@ import {
   streamAgentTrigger,
 } from "../index.ts"
 import { awaitAgentInvocationResult } from "../agent-invocation.ts"
+import type { AgentInvocationController } from "../agent-invocation.ts"
 import { appendLatestFinalText, hasTraceableStreamResult, isAsyncIterable, streamAgentOutputToEvents } from "../agent-output.ts"
 import { toAgentPublicError } from "../agent-error.ts"
 import { getAccessCapabilityOptions } from "../capabilities/access-metadata.ts"
@@ -996,6 +997,7 @@ function webhookConcurrencyFenceKey(concurrencyKey: string): string {
 const defaultWebhookQueueRetryMs = 1_000
 const maxWebhookQueueAttempts = 3
 const maxWebhookQueueExecutionMs = 900_000
+const maxWebhookLateReconciliationMs = 60_000
 
 function positiveWebhookConcurrencyLimit(value: number | undefined): number | undefined {
   if (value === undefined) return
@@ -1425,6 +1427,22 @@ async function executeQueuedWebhookDelivery(
   const stopForLifecycle = () => {
     ownershipAbort.abort(lifecycleSignal.reason)
   }
+  const reconcileLateInvocation = async (controller: Pick<AgentInvocationController, "inspect">): Promise<boolean> => {
+    const expired = Symbol("expired")
+    const deadline = new Promise<typeof expired>(resolve => setTimeout(() => resolve(expired), maxWebhookLateReconciliationMs))
+    for (;;) {
+      const inspection = await Promise.race([
+        controller.inspect().catch(() => undefined),
+        new Promise<undefined>(resolve => setTimeout(() => resolve(undefined), 1_000)),
+        deadline,
+      ])
+      if (inspection === expired) {
+        console.error(`[vitehub] Late webhook invocation "${delivery.deliveryId}" did not reach a terminal state within ${maxWebhookLateReconciliationMs}ms; releasing its concurrency fence.`)
+        return false
+      }
+      if (inspection?.outcome === "available" && inspection.invocation && ["completed", "failed", "cancelled"].includes(inspection.invocation.status)) return true
+    }
+  }
   if (lifecycleSignal.aborted) stopForLifecycle()
   else lifecycleSignal.addEventListener("abort", stopForLifecycle, { once: true })
   let context: ViteAgentRouteRuntimeContext
@@ -1566,15 +1584,7 @@ async function executeQueuedWebhookDelivery(
                 // invocation visible to the concurrency owner and reconcile it until the
                 // provider reports a terminal state. The durable fence prevents another
                 // worker from claiming same-key work while this invocation remains active.
-                const lateCompletion = (async () => {
-                  for (;;) {
-                    const inspection = await Promise.race([
-                      controller.inspect().catch(() => undefined),
-                      new Promise<undefined>(resolve => setTimeout(() => resolve(undefined), 1_000)),
-                    ])
-                    if (inspection?.outcome === "available" && inspection.invocation && ["completed", "failed", "cancelled"].includes(inspection.invocation.status)) return
-                  }
-                })()
+                const lateCompletion = reconcileLateInvocation(controller)
                 const unregister = delivery.concurrencyKey
                   ? registerActiveAgentInvocation(`${backendId}:${delivery.concurrencyKey}`, controller, lateCompletion, activeInvocationScope)
                   : () => undefined
@@ -1633,15 +1643,7 @@ async function executeQueuedWebhookDelivery(
                 // invocation visible to the concurrency owner and reconcile it until the
                 // provider reports a terminal state. The durable fence prevents another
                 // worker from claiming same-key work while this invocation remains active.
-                const lateCompletion = (async () => {
-                  for (;;) {
-                    const inspection = await Promise.race([
-                      controller.inspect().catch(() => undefined),
-                      new Promise<undefined>(resolve => setTimeout(() => resolve(undefined), 1_000)),
-                    ])
-                    if (inspection?.outcome === "available" && inspection.invocation && ["completed", "failed", "cancelled"].includes(inspection.invocation.status)) return
-                  }
-                })()
+                const lateCompletion = reconcileLateInvocation(controller)
                 const lateUnregister = delivery.concurrencyKey
                   ? registerActiveAgentInvocation(`${backendId}:${delivery.concurrencyKey}`, controller, lateCompletion, activeInvocationScope)
                   : () => undefined
