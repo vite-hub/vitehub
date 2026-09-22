@@ -1136,8 +1136,42 @@ function pullRequestCommandInput(
       github: command,
       pullRequest,
     },
-    prompt: command.body,
+    prompt: githubPullRequestTaskPrompt(command, pullRequest),
   }
+}
+
+function githubPullRequestTaskPrompt(
+  command: GitHubPullRequestCommand,
+  pullRequest: GitHubPullRequestRunContext,
+): string {
+  const commentUrl = pullRequest.trigger.comment.htmlUrl
+  const { head, source } = pullRequest.pullRequest
+  const lines = [
+    `Work on PR #${pullRequest.pullRequest.number} in ${pullRequest.repository.fullName}${commentUrl ? `, specifically this comment ${commentUrl}` : ""}.`,
+  ]
+  if (head?.sha || head?.ref) {
+    lines.push(`The pull request head is ${[head.sha && `commit ${head.sha}`, head.ref && `branch ${head.ref}`].filter(Boolean).join(" on ")}.`)
+  }
+  if (source.checkout === false) {
+    lines.push("No repository checkout is provided by this channel.")
+  }
+  else {
+    lines.push(source.mount
+      ? `The repository checkout is mounted at \`${source.mount}/\`; work inside that checkout.`
+      : "The repository checkout is mounted at the workspace root.")
+    lines.push("Verify the checkout state before making changes.")
+  }
+  return [
+    ...lines,
+    "",
+    "Follow the scope of the request. For review-only requests, report findings without making changes.",
+    "When changes are requested:",
+    "- Address unresolved review comments. Resolve threads when fixed, already addressed, or not worth changing, with a brief reason for dismissing a finding.",
+    "- Make sure CI is green.",
+    "- Resolve merge conflicts using the resolving-merge-conflicts skill when available.",
+    "",
+    `Request: ${command.body || "Inspect and resolve the requested pull request work."}`,
+  ].join("\n")
 }
 
 function githubPullRequestRunMetadata(
@@ -2704,6 +2738,17 @@ function githubPullRequestDevPrompt(input: Record<string, unknown>, pullRequest:
   return maybeString(input.prompt) || maybeString(pullRequest.trigger.comment.body) || (command && args ? `${command} ${args}` : command) || "/review"
 }
 
+function githubPullRequestDevTaskPrompt(
+  input: Record<string, unknown>,
+  command: GitHubPullRequestCommand,
+  pullRequest: GitHubPullRequestRunContext,
+): string {
+  return githubPullRequestTaskPrompt({
+    ...command,
+    body: githubPullRequestDevPrompt(input, pullRequest),
+  }, pullRequest)
+}
+
 function githubDevPayload(input: unknown): GitHubIssueCommentPayload | undefined {
   const payload = inputPayloadOrBody(input)
   if (payload) return payload
@@ -2891,7 +2936,9 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
                 ...(command ? { github: command } : {}),
                 pullRequest: existingPullRequest,
               },
-              prompt: githubPullRequestDevPrompt(inputRecord, existingPullRequest),
+              prompt: command
+                ? githubPullRequestDevTaskPrompt(inputRecord, command, existingPullRequest)
+                : githubPullRequestDevPrompt(inputRecord, existingPullRequest),
             },
             run: githubPullRequestRunMetadata(existingPullRequest, context.trigger.channelId),
           }
@@ -2922,7 +2969,10 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
               github: command,
               pullRequest,
             },
-            prompt: maybeString(inputRecord.prompt) || command.body,
+            prompt: githubPullRequestTaskPrompt({
+              ...command,
+              body: maybeString(inputRecord.prompt) || command.body,
+            }, pullRequest),
           },
           run: githubPullRequestRunMetadata(pullRequest, context.trigger.channelId),
         }

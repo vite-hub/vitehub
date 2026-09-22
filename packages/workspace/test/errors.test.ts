@@ -1,7 +1,7 @@
 import { ViteHubError } from "@vite-hub/runtime"
 import { describe, expect, it } from "vitest"
 
-import { workspaceNotFoundError, workspacePathError } from "../src/core/errors.ts"
+import { workspaceError, workspaceNotFoundError, workspacePathError } from "../src/core/errors.ts"
 
 describe("Workspace public errors", () => {
   it("uses ViteHubError for missing Workspaces", () => {
@@ -30,5 +30,16 @@ describe("Workspace public errors", () => {
     const error = workspacePathError(`../${"x".repeat(20_000)}`)
     expect(error.code).toBe("WORKSPACE_PATH_INVALID")
     expect(error.details?.path).toHaveLength(4_096)
+  })
+
+  it("classifies missing Workspace files and paths as not found", () => {
+    expect(workspaceError("[vitehub] Workspace file does not exist: AGENTS.md.").code).toBe("WORKSPACE_NOT_FOUND")
+    expect(workspaceError("[vitehub] Workspace path does not exist: docs/missing.").code).toBe("WORKSPACE_NOT_FOUND")
+    expect(workspaceError("[vitehub] Custom Workspace Source file does not exist: missing.md.").code).toBe("WORKSPACE_NOT_FOUND")
+  })
+
+  it("keeps other Workspace failures unchanged", () => {
+    expect(workspaceError("[vitehub] Workspace operation failed.").code).toBe("WORKSPACE_FAILED")
+    expect(workspaceError("[vitehub] Rule rejected a path containing Workspace path does not exist:.").code).toBe("WORKSPACE_FAILED")
   })
 })
