@@ -992,6 +992,7 @@ function webhookOwnershipKey(prefix: string, kind: "delivery" | "lease" | "steer
 const defaultWebhookQueueRetryMs = 1_000
 const maxWebhookQueueAttempts = 3
 const maxWebhookQueueExecutionMs = 900_000
+const maxWebhookQueueReconciliationMs = 900_000
 
 function positiveWebhookConcurrencyLimit(value: number | undefined): number | undefined {
   if (value === undefined) return
@@ -1533,16 +1534,19 @@ async function executeQueuedWebhookDelivery(
             // A startup that ignores the abort signal can still return a controller after the queue has failed the delivery.
             void invocationStartup.then(async (controller) => {
               const cancellation = await controller.cancel(error).catch(() => undefined)
-              if (cancellation?.outcome !== "unsupported" && cancellation?.outcome !== "unavailable") return
+              if (cancellation?.outcome === "invalid-state") return
 
               // Some workflow providers cannot cancel a run after startup. Keep the late
               // invocation visible to the concurrency owner and reconcile it until the
-              // provider reports a terminal state before releasing that ownership.
+              // provider reports a terminal state or the bounded reconciliation window ends.
+              const reconciliationDeadline = Date.now() + maxWebhookQueueReconciliationMs
               const lateCompletion = (async () => {
                 for (;;) {
                   const inspection = await controller.inspect().catch(() => undefined)
                   if (inspection?.outcome === "available" && inspection.invocation && ["completed", "failed", "cancelled"].includes(inspection.invocation.status)) return
-                  await new Promise(resolve => setTimeout(resolve, 1_000))
+                  const remainingMs = reconciliationDeadline - Date.now()
+                  if (remainingMs <= 0) return
+                  await new Promise(resolve => setTimeout(resolve, Math.min(1_000, remainingMs)))
                 }
               })()
               const unregister = delivery.concurrencyKey
