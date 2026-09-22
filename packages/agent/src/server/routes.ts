@@ -1401,51 +1401,62 @@ async function executeQueuedWebhookDelivery(
   let resolveActiveCompletion: (() => void) | undefined
   let rejectActiveCompletion: ((reason?: unknown) => void) | undefined
   const request = requestFromPersistedWebhook(delivery)
-  const waitUntil = await resolveRuntimeWaitUntil(handlerOptions.waitUntil)
-  let context = createRuntimeContext(
-    request,
-    undefined,
-    waitUntil,
-    handlerOptions.cloudflare,
-    handlerOptions.runtime,
-    handlerOptions.capabilities,
-    routeAgentIdentity(handlerOptions),
-  )
-  const channelDelivery = delivery.channelDeliveryId ? await resumeAgentChannelDelivery(state, delivery.channelDeliveryId) : undefined
-  if (channelDelivery) {
-    context = withAgentChannelDelivery(context, channelDelivery)
-  }
   const ownershipAbort = new AbortController()
+  let executionTimedOut = false
+  let executionTimeoutTimer: ReturnType<typeof setTimeout> | undefined
+  const executionTimeout = new Promise<never>((_, reject) => {
+    executionTimeoutTimer = setTimeout(() => {
+      executionTimedOut = true
+      const reason = agentDiagnostics.AGENT_R0820({ message: "[vitehub] Queued webhook invocation timed out after 900000ms." })
+      ownershipAbort.abort(reason)
+      reject(reason)
+    }, maxWebhookQueueExecutionMs)
+  })
   const stopHeartbeat = startWebhookQueueHeartbeat(state, delivery, () => {
     ownershipAbort.abort(agentDiagnostics.AGENT_R0777({ message: "[vitehub] Webhook queue lease was lost during Agent execution." }))
   })
-  if (channelDelivery) {
-    if (delivery.attempts > 0)
-      await recordChannelDeliveryEvidence(channelDelivery, {
-        attempt: delivery.attempts + 1,
-        type: "retrying",
-        // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-        runId: (delivery.invocation?.run as AgentRunMetadata | undefined)?.runId,
-      })
-    await recordChannelDeliveryEvidence(channelDelivery, {
-      attempt: delivery.attempts + 1,
-      type: "invocation.started",
-      // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-      runId: (delivery.invocation?.run as AgentRunMetadata | undefined)?.runId,
-      // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-    })
-  }
-  let executionTimedOut = false
-  const executionTimeout = setTimeout(() => {
-    executionTimedOut = true
-    ownershipAbort.abort(agentDiagnostics.AGENT_R0820({ message: "[vitehub] Queued webhook invocation timed out after 900000ms." }))
-  }, maxWebhookQueueExecutionMs)
   const stopForLifecycle = () => {
     ownershipAbort.abort(lifecycleSignal.reason)
   }
   if (lifecycleSignal.aborted) stopForLifecycle()
   else lifecycleSignal.addEventListener("abort", stopForLifecycle, { once: true })
+  let context: ViteAgentRouteRuntimeContext
+  let channelDelivery: Awaited<ReturnType<typeof resumeAgentChannelDelivery>>
   try {
+    const waitUntil = await Promise.race([resolveRuntimeWaitUntil(handlerOptions.waitUntil), executionTimeout])
+    context = createRuntimeContext(
+      request,
+      undefined,
+      waitUntil,
+      handlerOptions.cloudflare,
+      handlerOptions.runtime,
+      handlerOptions.capabilities,
+      routeAgentIdentity(handlerOptions),
+    )
+    channelDelivery = delivery.channelDeliveryId ? await Promise.race([resumeAgentChannelDelivery(state, delivery.channelDeliveryId), executionTimeout]) : undefined
+    if (channelDelivery) {
+      context = withAgentChannelDelivery(context, channelDelivery)
+      if (delivery.attempts > 0)
+        await Promise.race([
+          recordChannelDeliveryEvidence(channelDelivery, {
+            attempt: delivery.attempts + 1,
+            type: "retrying",
+            // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
+            runId: (delivery.invocation?.run as AgentRunMetadata | undefined)?.runId,
+          }),
+          executionTimeout,
+        ])
+      await Promise.race([
+        recordChannelDeliveryEvidence(channelDelivery, {
+          attempt: delivery.attempts + 1,
+          type: "invocation.started",
+          // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
+          runId: (delivery.invocation?.run as AgentRunMetadata | undefined)?.runId,
+          // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
+        }),
+        executionTimeout,
+      ])
+    }
     if (await hasActiveWorkflowRuntime(agent, context)) {
       throw agentDiagnostics.AGENT_R0778({ message: "[vitehub] Persisted webhook concurrency requires inline Agent execution." })
     }
@@ -1502,18 +1513,21 @@ async function executeQueuedWebhookDelivery(
       )
       const runContext = channelDelivery ? withAgentChannelDelivery(baseRunContext, channelDelivery) : baseRunContext
       await runWithRuntimeCloudflareEnv(runContext, async () => {
-        const controller = await startAgentInvocation(
-          // SAFETY: The route normalized this value for an internal boundary whose generic signature cannot express the narrowed variant.
-          agent as never,
-          // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-          runContext as never,
-          // SAFETY: The route normalized this value for an internal boundary whose generic signature cannot express the narrowed variant.
-          {
-            ...invocation.input,
-            abortSignal: invocation.input.abortSignal ? AbortSignal.any([invocation.input.abortSignal, ownershipAbort.signal]) : ownershipAbort.signal,
-          } as never,
-          { runId: invocation.run?.runId },
-        )
+        const controller = await Promise.race([
+          startAgentInvocation(
+            // SAFETY: The route normalized this value for an internal boundary whose generic signature cannot express the narrowed variant.
+            agent as never,
+            // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
+            runContext as never,
+            // SAFETY: The route normalized this value for an internal boundary whose generic signature cannot express the narrowed variant.
+            {
+              ...invocation.input,
+              abortSignal: invocation.input.abortSignal ? AbortSignal.any([invocation.input.abortSignal, ownershipAbort.signal]) : ownershipAbort.signal,
+            } as never,
+            { runId: invocation.run?.runId },
+          ),
+          executionTimeout,
+        ])
         const result = awaitAgentInvocationResult(controller)
         const settlement = result.then(async (output) => {
           if (!isWorkflowRun(output) || output.status !== "queued") await runContext.flushWaitUntil?.()
@@ -1534,7 +1548,7 @@ async function executeQueuedWebhookDelivery(
             once: true,
           })
         try {
-          await settlement
+          await Promise.race([settlement, executionTimeout])
         } finally {
           ownershipAbort.signal.removeEventListener("abort", unregisterOnOwnershipLoss)
           unregister()
@@ -1607,7 +1621,7 @@ async function executeQueuedWebhookDelivery(
     // The worker that reclaimed it owns the eventual terminal evidence.
     if (channelDelivery) detachAgentChannelDelivery(channelDelivery)
   } finally {
-    clearTimeout(executionTimeout)
+    if (executionTimeoutTimer) clearTimeout(executionTimeoutTimer)
     lifecycleSignal.removeEventListener("abort", stopForLifecycle)
     stopHeartbeat()
   }
