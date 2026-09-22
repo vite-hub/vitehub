@@ -1619,7 +1619,53 @@ async function executeQueuedWebhookDelivery(
           })
         try {
           await Promise.race([settlement, executionTimeout])
-        } finally {
+        }
+        catch (error) {
+          if (executionTimedOut) {
+            const lateFence = webhookFence
+            retainWebhookFence = Boolean(lateFence)
+            const lateReconciliation = (async () => {
+              try {
+                const cancellation = await controller.cancel(error).catch(() => undefined)
+                if (cancellation?.outcome === "invalid-state") return
+
+                // Some workflow providers cannot cancel a run after startup. Keep the late
+                // invocation visible to the concurrency owner and reconcile it until the
+                // provider reports a terminal state. The durable fence prevents another
+                // worker from claiming same-key work while this invocation remains active.
+                const lateCompletion = (async () => {
+                  for (;;) {
+                    const inspection = await Promise.race([
+                      controller.inspect().catch(() => undefined),
+                      new Promise<undefined>(resolve => setTimeout(() => resolve(undefined), 1_000)),
+                    ])
+                    if (inspection?.outcome === "available" && inspection.invocation && ["completed", "failed", "cancelled"].includes(inspection.invocation.status)) return
+                  }
+                })()
+                const lateUnregister = delivery.concurrencyKey
+                  ? registerActiveAgentInvocation(`${backendId}:${delivery.concurrencyKey}`, controller, lateCompletion, activeInvocationScope)
+                  : () => undefined
+                try {
+                  await lateCompletion
+                }
+                finally {
+                  lateUnregister()
+                }
+              }
+              finally {
+                if (lateFence) {
+                  stopWebhookFenceHeartbeat?.()
+                  stopWebhookFenceHeartbeat = undefined
+                  await state.releaseLock(lateFence).catch(() => undefined)
+                  webhookFence = undefined
+                }
+              }
+            })().catch(() => undefined)
+            void lateReconciliation
+          }
+          throw error
+        }
+        finally {
           ownershipAbort.signal.removeEventListener("abort", unregisterOnOwnershipLoss)
           unregister()
         }
