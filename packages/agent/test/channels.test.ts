@@ -1205,13 +1205,13 @@ describe("agent channels", () => {
       "The repository checkout is mounted at `portal/`; work inside that checkout.",
       "Verify the checkout state before making changes.",
       "",
-      "Request: /review please",
-      "",
       "Follow the scope of the request. For review-only requests, report findings without making changes.",
       "When changes are requested:",
       "- Address unresolved review comments. Resolve threads when fixed, already addressed, or not worth changing, with a brief reason for dismissing a finding.",
       "- Make sure CI is green.",
       "- Resolve merge conflicts using the resolving-merge-conflicts skill when available.",
+      "",
+      "Request: /review please",
     ].join("\n"))
     expect(result.input.context?.pullRequest).toMatchObject({
       pullRequest: { number: 42 },
