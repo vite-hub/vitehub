@@ -1443,7 +1443,7 @@ describe("agent chat capability discovery", () => {
 
     expect(events).toEqual([
       expect.objectContaining({ agent: "review", trigger: "github.webhook", type: "start" }),
-      { text: "context quiverdk/portal#709 /review /review", type: "text-delta" },
+      { text: expect.stringContaining("context quiverdk/portal#709 /review Work on PR #709 in quiverdk/portal."), type: "text-delta" },
       { type: "finish" },
       { type: "done" },
     ])
