@@ -992,7 +992,6 @@ function webhookOwnershipKey(prefix: string, kind: "delivery" | "lease" | "steer
 const defaultWebhookQueueRetryMs = 1_000
 const maxWebhookQueueAttempts = 3
 const maxWebhookQueueExecutionMs = 900_000
-const maxWebhookQueueReconciliationMs = 900_000
 
 function positiveWebhookConcurrencyLimit(value: number | undefined): number | undefined {
   if (value === undefined) return
@@ -1529,24 +1528,24 @@ async function executeQueuedWebhookDelivery(
         const controller = await Promise.race([
           invocationStartup,
           executionTimeout,
-        ]).catch((error) => {
+        ]).catch(async (error) => {
           if (executionTimedOut) {
             // A startup that ignores the abort signal can still return a controller after the queue has failed the delivery.
-            void invocationStartup.then(async (controller) => {
+            const lateReconciliation = invocationStartup.then(async (controller) => {
               const cancellation = await controller.cancel(error).catch(() => undefined)
               if (cancellation?.outcome === "invalid-state") return
 
               // Some workflow providers cannot cancel a run after startup. Keep the late
               // invocation visible to the concurrency owner and reconcile it until the
-              // provider reports a terminal state or the bounded reconciliation window ends.
-              const reconciliationDeadline = Date.now() + maxWebhookQueueReconciliationMs
+              // provider reports a terminal state. The queue delivery remains running
+              // for the same period, so same-key work cannot bypass this invocation.
               const lateCompletion = (async () => {
                 for (;;) {
-                  const inspection = await controller.inspect().catch(() => undefined)
+                  const inspection = await Promise.race([
+                    controller.inspect().catch(() => undefined),
+                    new Promise<undefined>(resolve => setTimeout(() => resolve(undefined), 1_000)),
+                  ])
                   if (inspection?.outcome === "available" && inspection.invocation && ["completed", "failed", "cancelled"].includes(inspection.invocation.status)) return
-                  const remainingMs = reconciliationDeadline - Date.now()
-                  if (remainingMs <= 0) return
-                  await new Promise(resolve => setTimeout(resolve, Math.min(1_000, remainingMs)))
                 }
               })()
               const unregister = delivery.concurrencyKey
@@ -1559,6 +1558,7 @@ async function executeQueuedWebhookDelivery(
                 unregister()
               }
             }).catch(() => undefined)
+            await lateReconciliation
           }
           throw error
         })
