@@ -175,6 +175,14 @@ export type GitHubIssueCommentPayload = {
     updated_at?: unknown
     user?: { id?: unknown, login?: unknown, type?: unknown }
   }
+  review?: {
+    body?: unknown
+    html_url?: unknown
+    id?: unknown
+    node_id?: unknown
+    state?: unknown
+    user?: { id?: unknown, login?: unknown, type?: unknown }
+  }
   installation?: { id?: unknown }
   issue?: {
     author_association?: unknown
@@ -224,7 +232,7 @@ export interface GitHubPullRequestCommand {
   commentId: number
   commentNodeId?: string
   deliveryId?: string
-  event: "issue_comment" | "pull_request"
+  event: "issue_comment" | "pull_request_review_comment" | "pull_request_review" | "pull_request"
   installationId?: number
   issueNumber: number
   owner: string
@@ -392,6 +400,15 @@ export interface GitHubPullRequestCommentEventOptions<TRuntimeConfig extends Age
   maxFiles?: number
   origin?: string
   reconcile?: boolean | {
+    /** Trigger on every human PR comment when no configured mention is present. */
+    comments?: boolean | {
+      events?: readonly ("issue_comment" | "pull_request_review_comment" | "pull_request_review" | (string & {}))[]
+      filter?: GitHubPullRequestFilter
+      prompt?: string
+      reviewStates?: readonly string[]
+      when?: (context: GitHubPullRequestFilterContext) => MaybePromise<boolean>
+    }
+    triggers?: readonly GitHubPullRequestTrigger[]
     events?: readonly ("opened" | "ready_for_review" | "reopened" | "synchronize" | (string & {}))[]
     mentions?: readonly string[]
     prompt?: string
@@ -401,6 +418,14 @@ export interface GitHubPullRequestCommentEventOptions<TRuntimeConfig extends Age
   workspace?: boolean | {
     mount?: string
   }
+}
+
+export interface GitHubPullRequestTrigger {
+  events: readonly ("issue_comment" | "pull_request_review_comment" | "pull_request_review" | (string & {}))[]
+  filter?: GitHubPullRequestFilter
+  mentions?: readonly string[]
+  prompt?: string
+  reviewStates?: readonly string[]
 }
 
 export interface GitHubPullRequestFilterContext {
@@ -768,13 +793,62 @@ function githubMentionCommand(body: string, mentions: readonly string[] | undefi
   }
 }
 
-function githubPullRequestReconcileFromInput(
-  input: unknown,
+function githubPullRequestAutomaticCommentOptions(
   reconcile: GitHubPullRequestCommentEventOptions["reconcile"],
-): GitHubPullRequestReconcileInput | undefined {
+): Exclude<NonNullable<Extract<GitHubPullRequestCommentEventOptions["reconcile"], object>["comments"]>, false> | undefined {
+  if (!reconcile || reconcile === true || !reconcile.comments) return
+  return reconcile.comments === true ? {} : reconcile.comments
+}
+
+function githubPullRequestReviewBody(payload: GitHubIssueCommentPayload): string | undefined {
+  return maybeString(payload.comment?.body) || maybeString(payload.review?.body)
+}
+
+function githubPullRequestReviewUrl(payload: GitHubIssueCommentPayload): string | undefined {
+  return maybeString(payload.comment?.html_url) || maybeString(payload.review?.html_url)
+}
+
+function githubPullRequestReviewActor(payload: GitHubIssueCommentPayload) {
+  return payload.comment?.user || payload.review?.user || payload.sender
+}
+
+function githubPullRequestReviewState(payload: GitHubIssueCommentPayload): string | undefined {
+  return maybeString(payload.review?.state)?.toLowerCase()
+}
+
+function githubPullRequestTriggerOptions(
+  reconcile: GitHubPullRequestCommentEventOptions["reconcile"],
+): readonly GitHubPullRequestTrigger[] {
+  if (!reconcile || reconcile === true) return []
+  if (Array.isArray(reconcile.triggers)) return reconcile.triggers
+  const triggers: GitHubPullRequestTrigger[] = []
+  const comments = githubPullRequestAutomaticCommentOptions(reconcile)
+  if (comments) {
+    triggers.push({
+      ...(comments === true ? {} : comments),
+      events: comments === true || !comments.events
+        ? ["issue_comment", "pull_request_review_comment", "pull_request_review"]
+        : comments.events,
+    })
+  }
+  if (Array.isArray(reconcile.mentions) && reconcile.mentions.length) {
+    triggers.push({
+      events: ["issue_comment", "pull_request_review_comment", "pull_request_review"],
+      mentions: reconcile.mentions,
+    })
+  }
+  return triggers
+}
+
+async function githubPullRequestReconcileFromInput<TRuntimeConfig extends AgentRuntimeConfig>(
+  input: unknown,
+  reconcile: GitHubPullRequestCommentEventOptions<TRuntimeConfig>["reconcile"],
+  app: true | GitHubAppOptions<TRuntimeConfig> | undefined,
+  context: AgentCallbackContext<TRuntimeConfig>,
+): Promise<GitHubPullRequestReconcileInput | undefined> {
   if (!reconcile) return
   const options = reconcile === true ? {} : reconcile
-  const payload = inputPayload(input)
+  let payload = inputPayload(input)
   const facts = inputGithubFacts(input)
   if (!payload) return
   const event = maybeString(facts?.event) || (isRecord(payload.pull_request) ? "pull_request" : undefined)
@@ -784,17 +858,64 @@ function githubPullRequestReconcileFromInput(
   const deliveryId = maybeString(facts?.deliveryId)
   if (!repository || !owner || !repo) return
 
-  if (!event || event === "issue_comment") {
-    if (payload.action !== "created" || !payload.issue?.pull_request) return
-    if (maybeString(payload.comment?.user?.type)?.toLowerCase() === "bot") return
-    const body = maybeString(payload.comment?.body)
-    const parsed = body ? githubMentionCommand(body, options.mentions) : undefined
+  if (!event || event === "issue_comment" || event === "pull_request_review_comment" || event === "pull_request_review") {
+    if (event === "pull_request_review" && payload.action !== "submitted") return
+    if (event === "pull_request_review_comment" && payload.action !== "created") return
+    const triggerOptions = githubPullRequestTriggerOptions(reconcile)
+    if (event === "pull_request_review" && !["approved", "commented", "changes_requested"].includes(githubPullRequestReviewState(payload) || "")) return
+    if (event === "pull_request_review_comment" || event === "pull_request_review") {
+      const reviewPullRequest = payload.pull_request
+      const reviewActor = githubPullRequestReviewActor(payload)
+      const reviewBody = githubPullRequestReviewBody(payload)
+      const reviewId = maybeNumber(payload.comment?.id) ?? maybeNumber(payload.review?.id)
+      const reviewNumber = maybeNumber(payload.number) ?? maybeNumber(reviewPullRequest?.number)
+      const reviewUrl = maybeString(reviewPullRequest?.url)
+      if (!reviewPullRequest || !reviewActor || (!reviewBody && !githubPullRequestReviewUrl(payload)) || !reviewId || !reviewNumber || !reviewUrl) return
+      payload = {
+        ...payload,
+        comment: {
+          ...payload.comment,
+          ...(payload.review ? { body: payload.review.body, html_url: payload.review.html_url, id: payload.review.id, node_id: payload.review.node_id, user: payload.review.user } : {}),
+          id: reviewId,
+          user: reviewActor,
+        },
+        issue: {
+          ...payload.issue,
+          author_association: reviewPullRequest.author_association,
+          number: reviewNumber,
+          pull_request: { html_url: reviewPullRequest.html_url, url: reviewUrl },
+          title: reviewPullRequest.title,
+        },
+      }
+    }
+    if ((event === "issue_comment" && payload.action !== "created") || !payload.issue?.pull_request) return
+    const body = maybeString(payload.comment?.body) || (event === "pull_request_review" ? githubPullRequestReviewUrl(payload) : undefined)
+    let trigger: GitHubPullRequestTrigger | undefined
+    for (const candidate of triggerOptions) {
+      const events = Array.isArray(candidate.events) ? candidate.events : []
+      if (!events.includes(event || "issue_comment")) continue
+      if (event === "pull_request_review" && Array.isArray(candidate.reviewStates) && !candidate.reviewStates.includes(githubPullRequestReviewState(payload) || "")) continue
+      if (!await githubPullRequestMatchesFilter(candidate, payload, app, context)) continue
+      if (Array.isArray(candidate.mentions) && maybeString(payload.comment?.user?.type)?.toLowerCase() === "bot") continue
+      if (Array.isArray(candidate.mentions) && !(body && githubMentionCommand(body, candidate.mentions))) continue
+      trigger = candidate
+      break
+    }
+    const parsed = body && trigger ? githubMentionCommand(body, trigger.mentions) : undefined
+    const slash = body ? parseSlashCommand(body) : undefined
+    const command = parsed || (!slash && trigger && body ? { args: body, command: "/comment" } : undefined)
     const login = maybeString(payload.comment?.user?.login)
     const issueNumber = maybeNumber(payload.issue?.number)
     const commentId = maybeNumber(payload.comment?.id)
     const pullRequestUrl = maybeString(payload.issue.pull_request.url)
-    if (!body || !parsed || !login || !issueNumber || !commentId || !pullRequestUrl) return
+    if (!body || !command || !login || !issueNumber || !commentId || !pullRequestUrl) return
     const association = maybeString(payload.comment?.author_association) || maybeString(payload.issue.author_association)
+    const commandEvent: GitHubPullRequestCommand["event"] = event === "pull_request_review_comment" || event === "pull_request_review" || event === "issue_comment"
+      ? event
+      : "issue_comment"
+    const prompt = maybeString(payload.comment?.user?.type)?.toLowerCase() === "bot"
+      ? `${maybeString(trigger?.prompt) || "Fix and resolve this automated comment"}: ${githubPullRequestReviewUrl(payload) || body}. Verify the pull request before finishing.`
+      : command.args || body
     return {
       command: {
         action: "created",
@@ -804,13 +925,13 @@ function githubPullRequestReconcileFromInput(
           login,
           ...(maybeString(payload.comment?.user?.type) ? { type: maybeString(payload.comment?.user?.type) } : {}),
         },
-        args: parsed.args,
-        body,
-        command: parsed.command,
+        args: command.args,
+        body: prompt,
+        command: command.command,
         commentId,
         ...(maybeString(payload.comment?.node_id) ? { commentNodeId: maybeString(payload.comment?.node_id) } : {}),
         ...(deliveryId ? { deliveryId } : {}),
-        event: "issue_comment",
+        event: commandEvent,
         ...(installationId ? { installationId } : {}),
         issueNumber,
         owner,
@@ -2746,9 +2867,13 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
         }
         if (!pullRequest) return ignored(payload ? "not_command" : "missing_payload")
         const pullRequestInput = isRecord(input) ? { ...input, payload } : { payload }
-        const reconciled = githubPullRequestReconcileFromInput(pullRequestInput, options.reconcile)
+        const reconciled = await githubPullRequestReconcileFromInput(pullRequestInput, options.reconcile, app, context)
         const command = reconciled?.command || githubPullRequestCommandFromInput(pullRequestInput)
         if (reconciled) payload = reconciled.payload
+        const automaticCommentOptions = reconciled?.command.command === "/comment" ? githubPullRequestAutomaticCommentOptions(options.reconcile) : undefined
+        if (automaticCommentOptions && automaticCommentOptions !== true && payload && !await githubPullRequestMatchesFilter(automaticCommentOptions, payload, app, context)) {
+          return options.ignored?.("filtered") || ignored("filtered")
+        }
         if (!payload && !command) return options.ignored?.("missing_payload") || ignored("missing_payload")
         if (!command) return options.ignored?.("not_command") || ignored("not_command")
         if (!reconciled && declaredInputCommand(context, command.command) === false) return options.ignored?.("not_command") || ignored("not_command")
@@ -2821,9 +2946,13 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
 
         let payload = githubDevPayload(input)
         const pullRequestInput = isRecord(input) ? { ...input, payload } : { payload }
-        const reconciled = githubPullRequestReconcileFromInput(pullRequestInput, options.reconcile)
+        const reconciled = await githubPullRequestReconcileFromInput(pullRequestInput, options.reconcile, app, context)
         const command = reconciled?.command || githubPullRequestCommandFromInput(pullRequestInput)
         if (reconciled) payload = reconciled.payload
+        const automaticCommentOptions = reconciled?.command.command === "/comment" ? githubPullRequestAutomaticCommentOptions(options.reconcile) : undefined
+        if (automaticCommentOptions && automaticCommentOptions !== true && payload && !await githubPullRequestMatchesFilter(automaticCommentOptions, payload, app, context)) {
+          return options.ignored?.("filtered") || ignored("filtered")
+        }
         if (!payload && !command) return options.ignored?.("missing_payload") || ignored("missing_payload")
         if (!command) return options.ignored?.("not_command") || ignored("not_command")
         if (!reconciled && declaredInputCommand(context, command.command) === false) return options.ignored?.("not_command") || ignored("not_command")
