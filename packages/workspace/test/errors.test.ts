@@ -35,9 +35,11 @@ describe("Workspace public errors", () => {
   it("classifies missing Workspace files and paths as not found", () => {
     expect(workspaceError("[vitehub] Workspace file does not exist: AGENTS.md.").code).toBe("WORKSPACE_NOT_FOUND")
     expect(workspaceError("[vitehub] Workspace path does not exist: docs/missing.").code).toBe("WORKSPACE_NOT_FOUND")
+    expect(workspaceError("[vitehub] Custom Workspace Source file does not exist: missing.md.").code).toBe("WORKSPACE_NOT_FOUND")
   })
 
   it("keeps other Workspace failures unchanged", () => {
     expect(workspaceError("[vitehub] Workspace operation failed.").code).toBe("WORKSPACE_FAILED")
+    expect(workspaceError("[vitehub] Rule rejected a path containing Workspace path does not exist:.").code).toBe("WORKSPACE_FAILED")
   })
 })

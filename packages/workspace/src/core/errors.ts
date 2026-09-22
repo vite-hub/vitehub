@@ -4,7 +4,9 @@ import type { ViteHubErrorOptions } from "@vite-hub/runtime"
 export type WorkspaceErrorCode = "WORKSPACE_COLLECTION_CURSOR_INVALID" | "WORKSPACE_CONFLICT" | "WORKSPACE_FAILED" | "WORKSPACE_NOT_FOUND" | "WORKSPACE_PATH_INVALID"
 
 export function workspaceError(message: string, options?: ErrorOptions): ViteHubError {
-  const code = message.includes("Workspace file does not exist:") || message.includes("Workspace path does not exist:")
+  const code = message.startsWith("[vitehub] Workspace file does not exist:")
+    || message.startsWith("[vitehub] Workspace path does not exist:")
+    || message.startsWith("[vitehub] Custom Workspace Source file does not exist:")
     ? "WORKSPACE_NOT_FOUND"
     : "WORKSPACE_FAILED"
   return new ViteHubError(code, message, options)
