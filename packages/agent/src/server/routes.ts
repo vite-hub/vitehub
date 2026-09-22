@@ -1534,17 +1534,24 @@ async function executeQueuedWebhookDelivery(
           executionTimeout,
         ]).catch(async (error) => {
           if (executionTimedOut) {
-            const lateFence = delivery.concurrencyKey
-              ? await state.acquireLock(webhookConcurrencyFenceKey(delivery.concurrencyKey), delivery.leaseTtlMs).catch(() => null)
-              : null
+            let lateFence: Lock | null = null
+            if (delivery.concurrencyKey) {
+              // Keep the delivery lease active until durable exclusion is established. A
+              // storage failure must not let a successor claim the same concurrency key.
+              while (!lateFence) {
+                lateFence = await state.acquireLock(webhookConcurrencyFenceKey(delivery.concurrencyKey), delivery.leaseTtlMs).catch(() => null)
+                if (!lateFence) await new Promise(resolve => setTimeout(resolve, 1_000))
+              }
+            }
             const stopLateFenceHeartbeat = lateFence
               ? startWebhookLockHeartbeat(state, lateFence, delivery.leaseTtlMs, () => {
                   console.error(`[vitehub] Lost the durable fence for timed-out webhook delivery "${delivery.deliveryId}".`)
                 })
               : undefined
             // A startup that ignores the abort signal can still return a controller after the queue has failed the delivery.
-            const lateReconciliation = invocationStartup.then(async (controller) => {
+            const lateReconciliation = (async () => {
               try {
+                const controller = await invocationStartup
                 const cancellation = await controller.cancel(error).catch(() => undefined)
                 if (cancellation?.outcome === "invalid-state") return
 
@@ -1575,7 +1582,7 @@ async function executeQueuedWebhookDelivery(
                 stopLateFenceHeartbeat?.()
                 if (lateFence) await state.releaseLock(lateFence).catch(() => undefined)
               }
-            }).catch(() => undefined)
+            })().catch(() => undefined)
             void lateReconciliation
           }
           throw error
