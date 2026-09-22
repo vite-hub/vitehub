@@ -1429,18 +1429,21 @@ async function executeQueuedWebhookDelivery(
   }
   const reconcileLateInvocation = async (controller: Pick<AgentInvocationController, "inspect">): Promise<boolean> => {
     const expired = Symbol("expired")
-    const deadline = new Promise<typeof expired>(resolve => setTimeout(() => resolve(expired), maxWebhookLateReconciliationMs))
-    for (;;) {
-      const inspection = await Promise.race([
-        controller.inspect().catch(() => undefined),
-        new Promise<undefined>(resolve => setTimeout(() => resolve(undefined), 1_000)),
-        deadline,
-      ])
-      if (inspection === expired) {
-        console.error(`[vitehub] Late webhook invocation "${delivery.deliveryId}" did not reach a terminal state within ${maxWebhookLateReconciliationMs}ms; releasing its concurrency fence.`)
-        return false
+    let deadlineTimer: ReturnType<typeof setTimeout> | undefined
+    try {
+      const deadline = new Promise<typeof expired>(resolve => {
+        deadlineTimer = setTimeout(() => resolve(expired), maxWebhookLateReconciliationMs)
+      })
+      for (;;) {
+        const inspection = await Promise.race([controller.inspect().catch(() => undefined), deadline])
+        if (inspection === expired) {
+          console.error(`[vitehub] Late webhook invocation "${delivery.deliveryId}" did not reach a terminal state within ${maxWebhookLateReconciliationMs}ms; releasing its concurrency fence.`)
+          return false
+        }
+        if (inspection?.outcome === "available" && inspection.invocation && ["completed", "failed", "cancelled"].includes(inspection.invocation.status)) return true
       }
-      if (inspection?.outcome === "available" && inspection.invocation && ["completed", "failed", "cancelled"].includes(inspection.invocation.status)) return true
+    } finally {
+      if (deadlineTimer !== undefined) clearTimeout(deadlineTimer)
     }
   }
   if (lifecycleSignal.aborted) stopForLifecycle()
