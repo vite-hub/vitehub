@@ -9458,6 +9458,7 @@ describe("server helpers", () => {
     })
 
     try {
+      await vi.advanceTimersByTimeAsync(1_000)
       await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
       await vi.waitFor(async () => {
         await expect(
@@ -10416,6 +10417,54 @@ describe("server helpers", () => {
       await stop()
       await state.disconnect()
       await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it("expires a queued webhook invocation that exceeds the execution deadline", async () => {
+    vi.useFakeTimers()
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { defineAgent } = await import("../src/index.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-execution-timeout-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const retry = vi.spyOn(state, "retryWebhookDelivery")
+    const complete = vi.spyOn(state, "completeWebhookDelivery")
+    const run = vi.fn(async ({ input }: { input: { abortSignal?: AbortSignal } }) => {
+      await new Promise<never>((_resolve, reject) => {
+        input.abortSignal?.addEventListener("abort", () => reject(input.abortSignal?.reason), { once: true })
+      })
+    })
+    const agent = defineAgent({ driver: { run } })
+    await state.connect()
+    await state.enqueueWebhookDelivery({
+      concurrencyGroup: "review:default",
+      concurrencyLimit: 1,
+      deliveryId: "delivery-execution-timeout",
+      enqueuedAt: Date.now(),
+      invocation: { input: { prompt: "persisted" } },
+      leaseTtlMs: 3_600_000,
+      request: { body: "{}", headers: {}, method: "POST", url: "https://example.com" },
+      scope: "webhook:review:github:timeout:",
+      webhookId: "missing-registration",
+    })
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    const stop = createChannelWebhookRouteHandler(agent as never).resume({
+      agentName: "review",
+      webhookState: state,
+    })
+
+    try {
+      await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
+      await vi.advanceTimersByTimeAsync(900_000)
+      await vi.waitFor(() => expect(complete).toHaveBeenCalled())
+      expect(retry).not.toHaveBeenCalled()
+    } finally {
+      await stop()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+      consoleError.mockRestore()
+      vi.useRealTimers()
     }
   })
 

@@ -991,6 +991,7 @@ function webhookOwnershipKey(prefix: string, kind: "delivery" | "lease" | "steer
 
 const defaultWebhookQueueRetryMs = 1_000
 const maxWebhookQueueAttempts = 3
+const maxWebhookQueueExecutionMs = 900_000
 
 function positiveWebhookConcurrencyLimit(value: number | undefined): number | undefined {
   if (value === undefined) return
@@ -1434,6 +1435,11 @@ async function executeQueuedWebhookDelivery(
       // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
     })
   }
+  let executionTimedOut = false
+  const executionTimeout = setTimeout(() => {
+    executionTimedOut = true
+    ownershipAbort.abort(agentDiagnostics.AGENT_R0820({ message: "[vitehub] Queued webhook invocation timed out after 900000ms." }))
+  }, maxWebhookQueueExecutionMs)
   const stopForLifecycle = () => {
     ownershipAbort.abort(lifecycleSignal.reason)
   }
@@ -1547,7 +1553,7 @@ async function executeQueuedWebhookDelivery(
     resolveActiveCompletion?.()
   } catch (error) {
     rejectActiveCompletion?.(error)
-    if (!lifecycleSignal.aborted && delivery.attempts + 1 >= maxWebhookQueueAttempts) {
+    if (executionTimedOut || (!lifecycleSignal.aborted && delivery.attempts + 1 >= maxWebhookQueueAttempts)) {
       if (await state.completeWebhookDelivery(delivery.scope, delivery.deliveryId, delivery.leaseToken)) {
         if (channelDelivery)
           await settleChannelDeliveryInvocation(channelDelivery, "failed", "failed", {
@@ -1601,6 +1607,7 @@ async function executeQueuedWebhookDelivery(
     // The worker that reclaimed it owns the eventual terminal evidence.
     if (channelDelivery) detachAgentChannelDelivery(channelDelivery)
   } finally {
+    clearTimeout(executionTimeout)
     lifecycleSignal.removeEventListener("abort", stopForLifecycle)
     stopHeartbeat()
   }
