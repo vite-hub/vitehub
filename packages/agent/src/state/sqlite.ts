@@ -209,11 +209,15 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
                 SELECT 1 FROM ${this.tables.webhookQueue} AS active_key
                 WHERE active_key.status = 'running' AND active_key.lease_expires_at > ?
                   AND active_key.concurrency_key = candidate.concurrency_key
+              ) AND NOT EXISTS (
+                SELECT 1 FROM ${this.tables.locks} AS fence
+                WHERE fence.thread_id = ('webhook-fence:' || candidate.concurrency_key)
+                  AND fence.expires_at > ?
               )
             )
           ORDER BY candidate.id ASC
           LIMIT 1`,
-        [scope, now, now, now, now],
+        [scope, now, now, now, now, now],
       )
       for (const candidate of candidates) {
         const leaseToken = randomToken()

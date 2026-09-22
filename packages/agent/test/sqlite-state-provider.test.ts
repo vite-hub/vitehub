@@ -477,6 +477,27 @@ describe("SQLite Agent State Provider", () => {
     await state.disconnect()
   })
 
+  it("fences same-key webhook claims after a timed-out invocation completes", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-08-04T10:00:00.000Z"))
+    const { state } = await createState()
+    await state.connect()
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    const queue = state as ViteHubSqliteAgentStateAdapter
+    const first = webhookDelivery("fenced-first", "same-key")
+    await queue.enqueueWebhookDelivery(first)
+    const lease = await queue.claimWebhookDelivery(first.scope)
+    expect(lease).toBeDefined()
+    const fence = await queue.acquireLock(`webhook-fence:${first.concurrencyKey}`, 1_000)
+    expect(fence).toBeDefined()
+    await queue.completeWebhookDelivery(lease!.scope, lease!.deliveryId, lease!.leaseToken)
+    await queue.enqueueWebhookDelivery(webhookDelivery("fenced-second", "same-key"))
+    await expect(queue.claimWebhookDelivery(first.scope)).resolves.toBeNull()
+    await queue.releaseLock(fence!)
+    await expect(queue.claimWebhookDelivery(first.scope)).resolves.toMatchObject({ deliveryId: "fenced-second" })
+    await state.disconnect()
+  })
+
   it("does not steer ahead of older queued work for the same concurrency key", async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date("2026-08-04T10:00:00.000Z"))

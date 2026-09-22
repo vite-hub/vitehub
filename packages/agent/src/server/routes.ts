@@ -989,6 +989,10 @@ function webhookOwnershipKey(prefix: string, kind: "delivery" | "lease" | "steer
   return `${prefix}${kind}:${value}`
 }
 
+function webhookConcurrencyFenceKey(concurrencyKey: string): string {
+  return `webhook-fence:${concurrencyKey}`
+}
+
 const defaultWebhookQueueRetryMs = 1_000
 const maxWebhookQueueAttempts = 3
 const maxWebhookQueueExecutionMs = 900_000
@@ -1530,35 +1534,49 @@ async function executeQueuedWebhookDelivery(
           executionTimeout,
         ]).catch(async (error) => {
           if (executionTimedOut) {
+            const lateFence = delivery.concurrencyKey
+              ? await state.acquireLock(webhookConcurrencyFenceKey(delivery.concurrencyKey), delivery.leaseTtlMs).catch(() => null)
+              : null
+            const stopLateFenceHeartbeat = lateFence
+              ? startWebhookLockHeartbeat(state, lateFence, delivery.leaseTtlMs, () => {
+                  console.error(`[vitehub] Lost the durable fence for timed-out webhook delivery "${delivery.deliveryId}".`)
+                })
+              : undefined
             // A startup that ignores the abort signal can still return a controller after the queue has failed the delivery.
             const lateReconciliation = invocationStartup.then(async (controller) => {
-              const cancellation = await controller.cancel(error).catch(() => undefined)
-              if (cancellation?.outcome === "invalid-state") return
-
-              // Some workflow providers cannot cancel a run after startup. Keep the late
-              // invocation visible to the concurrency owner and reconcile it until the
-              // provider reports a terminal state. The queue delivery remains running
-              // for the same period, so same-key work cannot bypass this invocation.
-              const lateCompletion = (async () => {
-                for (;;) {
-                  const inspection = await Promise.race([
-                    controller.inspect().catch(() => undefined),
-                    new Promise<undefined>(resolve => setTimeout(() => resolve(undefined), 1_000)),
-                  ])
-                  if (inspection?.outcome === "available" && inspection.invocation && ["completed", "failed", "cancelled"].includes(inspection.invocation.status)) return
-                }
-              })()
-              const unregister = delivery.concurrencyKey
-                ? registerActiveAgentInvocation(`${backendId}:${delivery.concurrencyKey}`, controller, lateCompletion, activeInvocationScope)
-                : () => undefined
               try {
-                await lateCompletion
+                const cancellation = await controller.cancel(error).catch(() => undefined)
+                if (cancellation?.outcome === "invalid-state") return
+
+                // Some workflow providers cannot cancel a run after startup. Keep the late
+                // invocation visible to the concurrency owner and reconcile it until the
+                // provider reports a terminal state. The durable fence prevents another
+                // worker from claiming same-key work while this invocation remains active.
+                const lateCompletion = (async () => {
+                  for (;;) {
+                    const inspection = await Promise.race([
+                      controller.inspect().catch(() => undefined),
+                      new Promise<undefined>(resolve => setTimeout(() => resolve(undefined), 1_000)),
+                    ])
+                    if (inspection?.outcome === "available" && inspection.invocation && ["completed", "failed", "cancelled"].includes(inspection.invocation.status)) return
+                  }
+                })()
+                const unregister = delivery.concurrencyKey
+                  ? registerActiveAgentInvocation(`${backendId}:${delivery.concurrencyKey}`, controller, lateCompletion, activeInvocationScope)
+                  : () => undefined
+                try {
+                  await lateCompletion
+                }
+                finally {
+                  unregister()
+                }
               }
               finally {
-                unregister()
+                stopLateFenceHeartbeat?.()
+                if (lateFence) await state.releaseLock(lateFence).catch(() => undefined)
               }
             }).catch(() => undefined)
-            await lateReconciliation
+            void lateReconciliation
           }
           throw error
         })
