@@ -9458,7 +9458,6 @@ describe("server helpers", () => {
     })
 
     try {
-      await vi.advanceTimersByTimeAsync(1_000)
       await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
       await vi.waitFor(async () => {
         await expect(
