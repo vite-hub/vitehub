@@ -1531,7 +1531,30 @@ async function executeQueuedWebhookDelivery(
         ]).catch((error) => {
           if (executionTimedOut) {
             // A startup that ignores the abort signal can still return a controller after the queue has failed the delivery.
-            void invocationStartup.then(controller => controller.cancel(error)).catch(() => undefined)
+            void invocationStartup.then(async (controller) => {
+              const cancellation = await controller.cancel(error).catch(() => undefined)
+              if (cancellation?.outcome !== "unsupported" && cancellation?.outcome !== "unavailable") return
+
+              // Some workflow providers cannot cancel a run after startup. Keep the late
+              // invocation visible to the concurrency owner and reconcile it until the
+              // provider reports a terminal state before releasing that ownership.
+              const lateCompletion = (async () => {
+                for (;;) {
+                  const inspection = await controller.inspect().catch(() => undefined)
+                  if (inspection?.outcome === "available" && inspection.invocation && ["completed", "failed", "cancelled"].includes(inspection.invocation.status)) return
+                  await new Promise(resolve => setTimeout(resolve, 1_000))
+                }
+              })()
+              const unregister = delivery.concurrencyKey
+                ? registerActiveAgentInvocation(`${backendId}:${delivery.concurrencyKey}`, controller, lateCompletion, activeInvocationScope)
+                : () => undefined
+              try {
+                await lateCompletion
+              }
+              finally {
+                unregister()
+              }
+            }).catch(() => undefined)
           }
           throw error
         })
