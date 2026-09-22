@@ -910,6 +910,9 @@ async function githubPullRequestReconcileFromInput<TRuntimeConfig extends AgentR
     const pullRequestUrl = maybeString(payload.issue.pull_request.url)
     if (!body || !command || !login || !issueNumber || !commentId || !pullRequestUrl) return
     const association = maybeString(payload.comment?.author_association) || maybeString(payload.issue.author_association)
+    const commandEvent: GitHubPullRequestCommand["event"] = event === "pull_request_review_comment" || event === "pull_request_review" || event === "issue_comment"
+      ? event
+      : "issue_comment"
     const prompt = maybeString(payload.comment?.user?.type)?.toLowerCase() === "bot"
       ? `${maybeString(trigger?.prompt) || "Fix and resolve this automated comment"}: ${githubPullRequestReviewUrl(payload) || body}. Verify the pull request before finishing.`
       : command.args || body
@@ -928,7 +931,7 @@ async function githubPullRequestReconcileFromInput<TRuntimeConfig extends AgentR
         commentId,
         ...(maybeString(payload.comment?.node_id) ? { commentNodeId: maybeString(payload.comment?.node_id) } : {}),
         ...(deliveryId ? { deliveryId } : {}),
-        event: (event || "issue_comment") as GitHubPullRequestCommand["event"],
+        event: commandEvent,
         ...(installationId ? { installationId } : {}),
         issueNumber,
         owner,
