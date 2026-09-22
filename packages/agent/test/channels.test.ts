@@ -12,6 +12,7 @@ function githubIssueCommentPayload(body = "/review please", userType = "User") {
     action: "created",
     comment: {
       body,
+      html_url: "https://github.test/acme/app/pull/42#issuecomment-99",
       id: 99,
       node_id: "comment-node",
       user: { id: 1, login: "mona", type: userType },
@@ -1199,6 +1200,19 @@ describe("agent channels", () => {
       installationId: 123,
       repository: "acme/app",
     })
+    expect(result.input.prompt).toBe([
+      "Work on PR #42 in acme/app, specifically this comment https://github.test/acme/app/pull/42#issuecomment-99.",
+      "The repository checkout is mounted at `portal/`; work inside that checkout.",
+      "Verify the checkout state before making changes.",
+      "",
+      "Request: /review please",
+      "",
+      "Follow the scope of the request. For review-only requests, report findings without making changes.",
+      "When changes are requested:",
+      "- Address unresolved review comments. Resolve threads when fixed, already addressed, or not worth changing, with a brief reason for dismissing a finding.",
+      "- Make sure CI is green.",
+      "- Resolve merge conflicts using the resolving-merge-conflicts skill when available.",
+    ].join("\n"))
     expect(result.input.context?.pullRequest).toMatchObject({
       pullRequest: { number: 42 },
       repository: { fullName: "acme/app" },
@@ -1219,6 +1233,32 @@ describe("agent channels", () => {
       installationId: 123,
       repository: "acme/app",
     })
+  })
+
+  it.each([
+    { workspace: false as const, location: "No repository checkout is provided by this channel." },
+    { workspace: true as const, location: "The repository checkout is mounted at the workspace root." },
+    { workspace: { mount: "repos/app" }, location: "The repository checkout is mounted at `repos/app/`; work inside that checkout." },
+  ])("describes the configured PR checkout: $location", async ({ workspace, location }) => {
+    const { github } = await import("../src/channels.ts")
+    const channel = github({
+      app: { fetch: async () => Response.json({ head: { ref: "feature", sha: "head-sha" } }) },
+      pullRequest: { workspace, reply: false },
+    })
+    const trigger = channel.triggers?.webhook
+    if (!trigger) throw new Error("Missing GitHub webhook trigger.")
+    // SAFETY: This fixture supplies the callback fields consumed by the webhook trigger.
+    const result = await trigger.invoke({
+      capabilities: [],
+      channel,
+      trigger: { channelId: "github", id: "github.webhook", name: "webhook", source: "channel" },
+    } as never, { payload: githubIssueCommentPayload() })
+    if (result instanceof Response) throw new Error("Expected GitHub webhook invocation.")
+    expect(result.input.prompt).toContain(location)
+    expect(result.input.prompt).toContain("The pull request head is commit head-sha on branch feature.")
+    expect(result.input.prompt).not.toContain("Your checkout has commit")
+    expect(result.input.prompt).toContain("For review-only requests, report findings without making changes.")
+    if (workspace === false) expect(result.input.prompt).not.toContain("The repository checkout is mounted")
   })
 
   it("keeps slash commands and adds explicit mention commands when reconciliation is enabled", async () => {
@@ -1312,8 +1352,9 @@ describe("agent channels", () => {
           trigger: { action: "reopened", event: "pull_request" },
         },
       },
-      prompt: "Keep this pull request healthy.",
     })
+    expect(result.input.prompt).toContain("Request: Keep this pull request healthy.")
+    expect(result.input.prompt).not.toContain("specifically this comment")
     expect(result.webhook).toEqual({ concurrencyKey: "acme/app#42", concurrencyLimit: 1, deliveryId: "delivery-1" })
     expect(result.run?.activity).toEqual({ links: [], target: { installationId: 123, issue: 42, repository: "acme/app" } })
 
