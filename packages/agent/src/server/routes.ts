@@ -1419,6 +1419,9 @@ async function executeQueuedWebhookDelivery(
   const stopHeartbeat = startWebhookQueueHeartbeat(state, delivery, () => {
     ownershipAbort.abort(agentDiagnostics.AGENT_R0777({ message: "[vitehub] Webhook queue lease was lost during Agent execution." }))
   })
+  let webhookFence: Lock | undefined
+  let stopWebhookFenceHeartbeat: (() => void) | undefined
+  let retainWebhookFence = false
   const stopForLifecycle = () => {
     ownershipAbort.abort(lifecycleSignal.reason)
   }
@@ -1427,6 +1430,22 @@ async function executeQueuedWebhookDelivery(
   let context: ViteAgentRouteRuntimeContext
   let channelDelivery: Awaited<ReturnType<typeof resumeAgentChannelDelivery>>
   try {
+    if (delivery.concurrencyKey) {
+      const fenceAcquisition = state.acquireLock(webhookConcurrencyFenceKey(delivery.concurrencyKey), delivery.leaseTtlMs)
+      try {
+        webhookFence = (await Promise.race([fenceAcquisition, executionTimeout])) ?? undefined
+      }
+      catch (error) {
+        if (executionTimedOut) {
+          void fenceAcquisition.then((lateFence) => lateFence && state.releaseLock(lateFence).catch(() => undefined), () => undefined)
+        }
+        throw error
+      }
+      if (!webhookFence) throw new Error(`[vitehub] Webhook delivery "${delivery.deliveryId}" could not acquire its concurrency fence.`)
+      stopWebhookFenceHeartbeat = startWebhookLockHeartbeat(state, webhookFence, delivery.leaseTtlMs, () => {
+        console.error(`[vitehub] Lost the durable fence for webhook delivery "${delivery.deliveryId}".`)
+      })
+    }
     const waitUntil = await Promise.race([resolveRuntimeWaitUntil(handlerOptions.waitUntil), executionTimeout])
     context = createRuntimeContext(
       request,
@@ -1534,20 +1553,8 @@ async function executeQueuedWebhookDelivery(
           executionTimeout,
         ]).catch(async (error) => {
           if (executionTimedOut) {
-            let lateFence: Lock | null = null
-            if (delivery.concurrencyKey) {
-              // Keep the delivery lease active until durable exclusion is established. A
-              // storage failure must not let a successor claim the same concurrency key.
-              while (!lateFence) {
-                lateFence = await state.acquireLock(webhookConcurrencyFenceKey(delivery.concurrencyKey), delivery.leaseTtlMs).catch(() => null)
-                if (!lateFence) await new Promise(resolve => setTimeout(resolve, 1_000))
-              }
-            }
-            const stopLateFenceHeartbeat = lateFence
-              ? startWebhookLockHeartbeat(state, lateFence, delivery.leaseTtlMs, () => {
-                  console.error(`[vitehub] Lost the durable fence for timed-out webhook delivery "${delivery.deliveryId}".`)
-                })
-              : undefined
+            const lateFence = webhookFence
+            retainWebhookFence = Boolean(lateFence)
             // A startup that ignores the abort signal can still return a controller after the queue has failed the delivery.
             const lateReconciliation = (async () => {
               try {
@@ -1579,8 +1586,12 @@ async function executeQueuedWebhookDelivery(
                 }
               }
               finally {
-                stopLateFenceHeartbeat?.()
-                if (lateFence) await state.releaseLock(lateFence).catch(() => undefined)
+                if (lateFence) {
+                  stopWebhookFenceHeartbeat?.()
+                  stopWebhookFenceHeartbeat = undefined
+                  await state.releaseLock(lateFence).catch(() => undefined)
+                  webhookFence = undefined
+                }
               }
             })().catch(() => undefined)
             void lateReconciliation
@@ -1683,6 +1694,10 @@ async function executeQueuedWebhookDelivery(
     if (executionTimeoutTimer) clearTimeout(executionTimeoutTimer)
     lifecycleSignal.removeEventListener("abort", stopForLifecycle)
     stopHeartbeat()
+    if (!retainWebhookFence) {
+      stopWebhookFenceHeartbeat?.()
+      if (webhookFence) void state.releaseLock(webhookFence).catch(() => undefined)
+    }
   }
 }
 

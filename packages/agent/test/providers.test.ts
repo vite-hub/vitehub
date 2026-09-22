@@ -10437,6 +10437,7 @@ describe("server helpers", () => {
     const agent = defineAgent({ driver: { run } })
     await state.connect()
     await state.enqueueWebhookDelivery({
+      concurrencyKey: "review:timeout",
       concurrencyGroup: "review:default",
       concurrencyLimit: 1,
       deliveryId: "delivery-execution-timeout",
