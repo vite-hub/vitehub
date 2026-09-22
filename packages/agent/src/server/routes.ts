@@ -1513,21 +1513,28 @@ async function executeQueuedWebhookDelivery(
       )
       const runContext = channelDelivery ? withAgentChannelDelivery(baseRunContext, channelDelivery) : baseRunContext
       await runWithRuntimeCloudflareEnv(runContext, async () => {
+        const invocationStartup = startAgentInvocation(
+          // SAFETY: The route normalized this value for an internal boundary whose generic signature cannot express the narrowed variant.
+          agent as never,
+          // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
+          runContext as never,
+          // SAFETY: The route normalized this value for an internal boundary whose generic signature cannot express the narrowed variant.
+          {
+            ...invocation.input,
+            abortSignal: invocation.input.abortSignal ? AbortSignal.any([invocation.input.abortSignal, ownershipAbort.signal]) : ownershipAbort.signal,
+          } as never,
+          { runId: invocation.run?.runId },
+        )
         const controller = await Promise.race([
-          startAgentInvocation(
-            // SAFETY: The route normalized this value for an internal boundary whose generic signature cannot express the narrowed variant.
-            agent as never,
-            // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-            runContext as never,
-            // SAFETY: The route normalized this value for an internal boundary whose generic signature cannot express the narrowed variant.
-            {
-              ...invocation.input,
-              abortSignal: invocation.input.abortSignal ? AbortSignal.any([invocation.input.abortSignal, ownershipAbort.signal]) : ownershipAbort.signal,
-            } as never,
-            { runId: invocation.run?.runId },
-          ),
+          invocationStartup,
           executionTimeout,
-        ])
+        ]).catch((error) => {
+          if (executionTimedOut) {
+            // A startup that ignores the abort signal can still return a controller after the queue has failed the delivery.
+            void invocationStartup.then(controller => controller.cancel(error)).catch(() => undefined)
+          }
+          throw error
+        })
         const result = awaitAgentInvocationResult(controller)
         const settlement = result.then(async (output) => {
           if (!isWorkflowRun(output) || output.status !== "queued") await runContext.flushWaitUntil?.()
