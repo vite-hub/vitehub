@@ -1431,18 +1431,16 @@ async function executeQueuedWebhookDelivery(
     const expired = Symbol("expired")
     let deadlineTimer: ReturnType<typeof setTimeout> | undefined
     let inspection: Promise<Awaited<ReturnType<typeof controller.inspect>> | undefined> | undefined
-    let deadlineReached = false
     try {
       const deadline = new Promise<typeof expired>(resolve => {
         deadlineTimer = setTimeout(() => resolve(expired), maxWebhookLateReconciliationMs)
       })
       for (;;) {
         inspection ||= controller.inspect().catch(() => undefined)
-        const result = deadlineReached ? await inspection : await Promise.race([inspection, deadline])
+        const result = await Promise.race([inspection, deadline])
         if (result === expired) {
-          deadlineReached = true
-          console.error(`[vitehub] Late webhook invocation "${delivery.deliveryId}" did not reach a terminal state within ${maxWebhookLateReconciliationMs}ms; retaining its concurrency fence until inspection reaches a terminal state.`)
-          continue
+          console.error(`[vitehub] Late webhook invocation "${delivery.deliveryId}" did not reach a terminal state within ${maxWebhookLateReconciliationMs}ms; releasing its retained concurrency fence.`)
+          return false
         }
         inspection = undefined
         if (result?.outcome === "available" && result.invocation && ["completed", "failed", "cancelled"].includes(result.invocation.status)) return true
