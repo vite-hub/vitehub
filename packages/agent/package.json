@@ -194,6 +194,7 @@
     "valibot": "catalog:runtime"
   },
   "devDependencies": {
+    "@agntn/web": "catalog:ai",
     "@ai-sdk/mcp": "catalog:ai",
     "@chat-adapter/discord": "catalog:chat",
     "@github-tools/eve-extension": "0.7.0",
@@ -205,7 +206,6 @@
     "@vite-hub/internal": "workspace:*",
     "@vite-hub/schedule": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
-    "askweb": "catalog:ai",
     "evalite": "catalog:ai",
     "eve": "0.46.1",
     "miniflare": "4.20260714.0",
@@ -223,6 +223,7 @@
     "@ai-sdk/vue": "catalog:ai"
   },
   "peerDependencies": {
+    "@agntn/web": "catalog:ai",
     "@chat-adapter/discord": "catalog:chat",
     "@vercel/functions": "catalog:vercel",
     "@vite-hub/blob": "workspace:*",
@@ -232,7 +233,6 @@
     "@vite-hub/workflow": "workspace:*",
     "@types/json-schema": "catalog:ai",
     "@types/mdast": "catalog:markdown",
-    "askweb": "catalog:ai",
     "evalite": "catalog:ai",
     "vite": "catalog:vite-compat",
     "vitest": "catalog:tooling",
@@ -241,6 +241,9 @@
     "posthog-node": "^5.51.6"
   },
   "peerDependenciesMeta": {
+    "@agntn/web": {
+      "optional": true
+    },
     "@chat-adapter/discord": {
       "optional": true
     },
@@ -260,9 +263,6 @@
       "optional": true
     },
     "@vite-hub/workflow": {
-      "optional": true
-    },
-    "askweb": {
       "optional": true
     },
     "evalite": {

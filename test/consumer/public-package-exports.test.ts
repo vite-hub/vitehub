@@ -78,7 +78,7 @@ async function installedVersion(path: string) {
 }
 
 async function requiredPeerSpecs() {
-  const agentCatalog = await catalogDependencySpecs("ai", ["askweb"])
+  const agentCatalog = await catalogDependencySpecs("ai", ["@agntn/web"])
   const browserCatalog = await catalogDependencySpecs("browser", ["@cloudflare/playwright"])
   const chatCatalog = await catalogDependencySpecs("chat", ["@chat-adapter/discord"])
   const vercelCatalog = await catalogDependencySpecs("vercel", ["@vercel/functions"])
@@ -733,15 +733,15 @@ describe("published declaration diagnostics", () => {
       "@vite-hub/agent",
       "vite",
       ["@types/json-schema", "@types/mdast"],
-      ["@chat-adapter/discord", "@vercel/functions", "askweb", "evalite", "vite"],
+      ["@agntn/web", "@chat-adapter/discord", "@vercel/functions", "evalite", "vite"],
       {},
       { ...peerSpecs, evalite: "1.0.0-beta.16", vite: "8.0.8" },
     )
 
     expect(fixtureSpecs).toMatchObject({
+      "@agntn/web": peerSpecs["@agntn/web"],
       "@chat-adapter/discord": peerSpecs["@chat-adapter/discord"],
       "@vercel/functions": peerSpecs["@vercel/functions"],
-      askweb: peerSpecs.askweb,
     })
     expect(fixtureSpecs).not.toHaveProperty("vite")
   })

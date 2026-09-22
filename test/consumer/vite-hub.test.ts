@@ -18,13 +18,13 @@ const repoRoot = resolve(import.meta.dirname, "../..")
 const fixtureRoot = resolve(repoRoot, "fixtures/consumer/vite-hub")
 const maxBuffer = 64 * 1024 * 1024
 const optionalPackages = [
+  "@agntn/web",
   "@ai-sdk/mcp",
   "@chat-adapter/discord",
   "@cloudflare/sandbox",
   "@vercel/blob",
   "@vercel/queue",
   "@vercel/sandbox",
-  "askweb",
   "evalite",
   "files-sdk",
   "openworkflow",
