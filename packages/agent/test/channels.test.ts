@@ -1669,8 +1669,8 @@ describe("agent channels", () => {
         },
         pullRequest,
       },
-      prompt: "/review docs",
     })
+    expect(fromContext.input.prompt).toContain("Request: /review docs")
     expect(fromContext.run).toMatchObject({
       annotations: {
         "custom.0": "value-0",
@@ -1802,6 +1802,7 @@ describe("agent channels", () => {
       pullRequest: { number: 42 },
       repository: { fullName: "acme/app" },
     })
+    expect(fromPayload.input.prompt).toContain("Request: /review raw payload")
     expect(fromPayload.run).toMatchObject({
       annotations: {
         "github.pullRequest": 42,
@@ -1830,8 +1831,8 @@ describe("agent channels", () => {
     if (fromLifecyclePayload instanceof Response) throw new Error("Expected GitHub lifecycle dev invocation.")
     expect(fromLifecyclePayload.input).toMatchObject({
       context: { github: { action: "reopened", command: "/reconcile" } },
-      prompt: "Keep this pull request healthy.",
     })
+    expect(fromLifecyclePayload.input.prompt).toContain("Request: Keep this pull request healthy.")
 
     // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
     const ignoredLifecyclePayload = await reconcileTrigger.invoke(reconcileContext as never, {

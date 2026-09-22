@@ -2617,6 +2617,17 @@ function githubPullRequestDevPrompt(input: Record<string, unknown>, pullRequest:
   return maybeString(input.prompt) || maybeString(pullRequest.trigger.comment.body) || (command && args ? `${command} ${args}` : command) || "/review"
 }
 
+function githubPullRequestDevTaskPrompt(
+  input: Record<string, unknown>,
+  command: GitHubPullRequestCommand,
+  pullRequest: GitHubPullRequestRunContext,
+): string {
+  return githubPullRequestTaskPrompt({
+    ...command,
+    body: githubPullRequestDevPrompt(input, pullRequest),
+  }, pullRequest)
+}
+
 function githubDevPayload(input: unknown): GitHubIssueCommentPayload | undefined {
   const payload = inputPayloadOrBody(input)
   if (payload) return payload
@@ -2800,7 +2811,9 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
                 ...(command ? { github: command } : {}),
                 pullRequest: existingPullRequest,
               },
-              prompt: githubPullRequestDevPrompt(inputRecord, existingPullRequest),
+              prompt: command
+                ? githubPullRequestDevTaskPrompt(inputRecord, command, existingPullRequest)
+                : githubPullRequestDevPrompt(inputRecord, existingPullRequest),
             },
             run: githubPullRequestRunMetadata(existingPullRequest, context.trigger.channelId),
           }
@@ -2827,7 +2840,10 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
               github: command,
               pullRequest,
             },
-            prompt: maybeString(inputRecord.prompt) || command.body,
+            prompt: githubPullRequestTaskPrompt({
+              ...command,
+              body: maybeString(inputRecord.prompt) || command.body,
+            }, pullRequest),
           },
           run: githubPullRequestRunMetadata(pullRequest, context.trigger.channelId),
         }
