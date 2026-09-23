@@ -997,6 +997,7 @@ function webhookConcurrencyFenceKey(concurrencyKey: string): string {
 const defaultWebhookQueueRetryMs = 1_000
 const maxWebhookQueueAttempts = 3
 const maxWebhookQueueExecutionMs = 900_000
+const maxWebhookLateReconciliationMs = 60_000
 
 function positiveWebhookConcurrencyLimit(value: number | undefined): number | undefined {
   if (value === undefined) return
@@ -1426,13 +1427,42 @@ async function executeQueuedWebhookDelivery(
   const stopForLifecycle = () => {
     ownershipAbort.abort(lifecycleSignal.reason)
   }
-  const reconcileLateInvocation = async (controller: Pick<AgentInvocationController, "inspect">): Promise<void> => {
+  const reconcileLateInvocation = async (controller: Pick<AgentInvocationController, "inspect">): Promise<boolean> => {
+    const expired = Symbol("expired")
+    let deadlineTimer: ReturnType<typeof setTimeout> | undefined
     let inspection: Promise<Awaited<ReturnType<typeof controller.inspect>> | undefined> | undefined
-    for (;;) {
-      inspection ||= controller.inspect().catch(() => undefined)
-      const result = await inspection
-      inspection = undefined
-      if (result?.outcome === "available" && result.invocation && ["completed", "failed", "cancelled"].includes(result.invocation.status)) return
+    try {
+      const deadline = new Promise<typeof expired>(resolve => {
+        deadlineTimer = setTimeout(() => resolve(expired), maxWebhookLateReconciliationMs)
+      })
+      for (;;) {
+        inspection ||= controller.inspect().catch(() => undefined)
+        const result = await Promise.race([inspection, deadline])
+        if (result === expired) {
+          console.error(`[vitehub] Late webhook invocation "${delivery.deliveryId}" did not reach a terminal state within ${maxWebhookLateReconciliationMs}ms; releasing its retained concurrency fence.`)
+          return false
+        }
+        inspection = undefined
+        if (result?.outcome === "available" && result.invocation && ["completed", "failed", "cancelled"].includes(result.invocation.status)) return true
+      }
+    } finally {
+      if (deadlineTimer !== undefined) clearTimeout(deadlineTimer)
+    }
+  }
+  const awaitLateInvocationStartup = async (startup: Promise<AgentInvocationController>): Promise<AgentInvocationController | undefined> => {
+    let deadlineTimer: ReturnType<typeof setTimeout> | undefined
+    try {
+      const deadline = new Promise<undefined>(resolve => {
+        deadlineTimer = setTimeout(() => resolve(undefined), maxWebhookLateReconciliationMs)
+      })
+      const controller = await Promise.race([startup, deadline])
+      if (!controller) {
+        console.error(`[vitehub] Late webhook invocation "${delivery.deliveryId}" did not finish startup within ${maxWebhookLateReconciliationMs}ms; releasing its retained concurrency fence.`)
+      }
+      return controller
+    }
+    finally {
+      if (deadlineTimer !== undefined) clearTimeout(deadlineTimer)
     }
   }
   if (lifecycleSignal.aborted) stopForLifecycle()
@@ -1568,7 +1598,8 @@ async function executeQueuedWebhookDelivery(
             // A startup that ignores the abort signal can still return a controller after the queue has failed the delivery.
             const lateReconciliation = (async () => {
               try {
-                const controller = await invocationStartup
+                const controller = await awaitLateInvocationStartup(invocationStartup)
+                if (!controller) return
                 const cancellation = await controller.cancel(error).catch(() => undefined)
                 if (cancellation?.outcome === "invalid-state") return
 
