@@ -1449,22 +1449,6 @@ async function executeQueuedWebhookDelivery(
       if (deadlineTimer !== undefined) clearTimeout(deadlineTimer)
     }
   }
-  const awaitLateInvocationStartup = async (startup: Promise<AgentInvocationController>): Promise<AgentInvocationController | undefined> => {
-    let deadlineTimer: ReturnType<typeof setTimeout> | undefined
-    try {
-      const deadline = new Promise<undefined>(resolve => {
-        deadlineTimer = setTimeout(() => resolve(undefined), maxWebhookLateReconciliationMs)
-      })
-      const controller = await Promise.race([startup, deadline])
-      if (!controller) {
-        console.error(`[vitehub] Late webhook invocation "${delivery.deliveryId}" did not finish startup within ${maxWebhookLateReconciliationMs}ms; releasing its retained concurrency fence.`)
-      }
-      return controller
-    }
-    finally {
-      if (deadlineTimer !== undefined) clearTimeout(deadlineTimer)
-    }
-  }
   if (lifecycleSignal.aborted) stopForLifecycle()
   else lifecycleSignal.addEventListener("abort", stopForLifecycle, { once: true })
   let context: ViteAgentRouteRuntimeContext
@@ -1598,8 +1582,10 @@ async function executeQueuedWebhookDelivery(
             // A startup that ignores the abort signal can still return a controller after the queue has failed the delivery.
             const lateReconciliation = (async () => {
               try {
-                const controller = await awaitLateInvocationStartup(invocationStartup)
-                if (!controller) return
+                // Keep the startup promise attached until the provider returns a
+                // controller. Releasing the fence while startup is still running
+                // would allow a same-key delivery to overlap provider work.
+                const controller = await invocationStartup
                 const cancellation = await controller.cancel(error).catch(() => undefined)
                 if (cancellation?.outcome === "invalid-state") return
 
