@@ -14,6 +14,7 @@ import {
   streamAgentTrigger,
 } from "../index.ts"
 import { awaitAgentInvocationResult } from "../agent-invocation.ts"
+import type { AgentInvocationController } from "../agent-invocation.ts"
 import { appendLatestFinalText, hasTraceableStreamResult, isAsyncIterable, streamAgentOutputToEvents } from "../agent-output.ts"
 import { toAgentPublicError } from "../agent-error.ts"
 import { getAccessCapabilityOptions } from "../capabilities/access-metadata.ts"
@@ -989,8 +990,14 @@ function webhookOwnershipKey(prefix: string, kind: "delivery" | "lease" | "steer
   return `${prefix}${kind}:${value}`
 }
 
+function webhookConcurrencyFenceKey(concurrencyKey: string): string {
+  return `webhook-fence:${concurrencyKey}`
+}
+
 const defaultWebhookQueueRetryMs = 1_000
 const maxWebhookQueueAttempts = 3
+const maxWebhookQueueExecutionMs = 900_000
+const maxWebhookLateReconciliationMs = 60_000
 
 function positiveWebhookConcurrencyLimit(value: number | undefined): number | undefined {
   if (value === undefined) return
@@ -1400,46 +1407,103 @@ async function executeQueuedWebhookDelivery(
   let resolveActiveCompletion: (() => void) | undefined
   let rejectActiveCompletion: ((reason?: unknown) => void) | undefined
   const request = requestFromPersistedWebhook(delivery)
-  const waitUntil = await resolveRuntimeWaitUntil(handlerOptions.waitUntil)
-  let context = createRuntimeContext(
-    request,
-    undefined,
-    waitUntil,
-    handlerOptions.cloudflare,
-    handlerOptions.runtime,
-    handlerOptions.capabilities,
-    routeAgentIdentity(handlerOptions),
-  )
-  const channelDelivery = delivery.channelDeliveryId ? await resumeAgentChannelDelivery(state, delivery.channelDeliveryId) : undefined
-  if (channelDelivery) {
-    context = withAgentChannelDelivery(context, channelDelivery)
-  }
   const ownershipAbort = new AbortController()
+  let executionTimedOut = false
+  let executionTimeoutTimer: ReturnType<typeof setTimeout> | undefined
+  const executionTimeout = new Promise<never>((_, reject) => {
+    executionTimeoutTimer = setTimeout(() => {
+      executionTimedOut = true
+      const reason = agentDiagnostics.AGENT_R0820({ message: "[vitehub] Queued webhook invocation timed out after 900000ms." })
+      ownershipAbort.abort(reason)
+      reject(reason)
+    }, maxWebhookQueueExecutionMs)
+  })
   const stopHeartbeat = startWebhookQueueHeartbeat(state, delivery, () => {
     ownershipAbort.abort(agentDiagnostics.AGENT_R0777({ message: "[vitehub] Webhook queue lease was lost during Agent execution." }))
   })
-  if (channelDelivery) {
-    if (delivery.attempts > 0)
-      await recordChannelDeliveryEvidence(channelDelivery, {
-        attempt: delivery.attempts + 1,
-        type: "retrying",
-        // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-        runId: (delivery.invocation?.run as AgentRunMetadata | undefined)?.runId,
-      })
-    await recordChannelDeliveryEvidence(channelDelivery, {
-      attempt: delivery.attempts + 1,
-      type: "invocation.started",
-      // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-      runId: (delivery.invocation?.run as AgentRunMetadata | undefined)?.runId,
-      // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-    })
-  }
+  let webhookFence: Lock | undefined
+  let stopWebhookFenceHeartbeat: (() => void) | undefined
+  let retainWebhookFence = false
   const stopForLifecycle = () => {
     ownershipAbort.abort(lifecycleSignal.reason)
   }
+  const reconcileLateInvocation = async (controller: Pick<AgentInvocationController, "inspect">): Promise<boolean> => {
+    const expired = Symbol("expired")
+    let deadlineTimer: ReturnType<typeof setTimeout> | undefined
+    let inspection: Promise<Awaited<ReturnType<typeof controller.inspect>> | undefined> | undefined
+    try {
+      const deadline = new Promise<typeof expired>(resolve => {
+        deadlineTimer = setTimeout(() => resolve(expired), maxWebhookLateReconciliationMs)
+      })
+      for (;;) {
+        inspection ||= controller.inspect().catch(() => undefined)
+        const result = await Promise.race([inspection, deadline])
+        if (result === expired) {
+          console.error(`[vitehub] Late webhook invocation "${delivery.deliveryId}" did not reach a terminal state within ${maxWebhookLateReconciliationMs}ms; releasing its retained concurrency fence.`)
+          return false
+        }
+        inspection = undefined
+        if (result?.outcome === "available" && result.invocation && ["completed", "failed", "cancelled"].includes(result.invocation.status)) return true
+      }
+    } finally {
+      if (deadlineTimer !== undefined) clearTimeout(deadlineTimer)
+    }
+  }
   if (lifecycleSignal.aborted) stopForLifecycle()
   else lifecycleSignal.addEventListener("abort", stopForLifecycle, { once: true })
+  let context: ViteAgentRouteRuntimeContext
+  let channelDelivery: Awaited<ReturnType<typeof resumeAgentChannelDelivery>>
   try {
+    if (delivery.concurrencyKey) {
+      const fenceAcquisition = state.acquireLock(webhookConcurrencyFenceKey(delivery.concurrencyKey), delivery.leaseTtlMs)
+      try {
+        webhookFence = (await Promise.race([fenceAcquisition, executionTimeout])) ?? undefined
+      }
+      catch (error) {
+        if (executionTimedOut) {
+          void fenceAcquisition.then((lateFence) => lateFence && state.releaseLock(lateFence).catch(() => undefined), () => undefined)
+        }
+        throw error
+      }
+      if (!webhookFence) throw new Error(`[vitehub] Webhook delivery "${delivery.deliveryId}" could not acquire its concurrency fence.`)
+      stopWebhookFenceHeartbeat = startWebhookLockHeartbeat(state, webhookFence, delivery.leaseTtlMs, () => {
+        console.error(`[vitehub] Lost the durable fence for webhook delivery "${delivery.deliveryId}".`)
+      })
+    }
+    const waitUntil = await Promise.race([resolveRuntimeWaitUntil(handlerOptions.waitUntil), executionTimeout])
+    context = createRuntimeContext(
+      request,
+      undefined,
+      waitUntil,
+      handlerOptions.cloudflare,
+      handlerOptions.runtime,
+      handlerOptions.capabilities,
+      routeAgentIdentity(handlerOptions),
+    )
+    channelDelivery = delivery.channelDeliveryId ? await Promise.race([resumeAgentChannelDelivery(state, delivery.channelDeliveryId), executionTimeout]) : undefined
+    if (channelDelivery) {
+      context = withAgentChannelDelivery(context, channelDelivery)
+      if (delivery.attempts > 0)
+        await Promise.race([
+          recordChannelDeliveryEvidence(channelDelivery, {
+            attempt: delivery.attempts + 1,
+            type: "retrying",
+            // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
+            runId: (delivery.invocation?.run as AgentRunMetadata | undefined)?.runId,
+          }),
+          executionTimeout,
+        ])
+      await Promise.race([
+        recordChannelDeliveryEvidence(channelDelivery, {
+          attempt: delivery.attempts + 1,
+          type: "invocation.started",
+          // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
+          runId: (delivery.invocation?.run as AgentRunMetadata | undefined)?.runId,
+          // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
+        }),
+        executionTimeout,
+      ])
+    }
     if (await hasActiveWorkflowRuntime(agent, context)) {
       throw agentDiagnostics.AGENT_R0778({ message: "[vitehub] Persisted webhook concurrency requires inline Agent execution." })
     }
@@ -1496,7 +1560,7 @@ async function executeQueuedWebhookDelivery(
       )
       const runContext = channelDelivery ? withAgentChannelDelivery(baseRunContext, channelDelivery) : baseRunContext
       await runWithRuntimeCloudflareEnv(runContext, async () => {
-        const controller = await startAgentInvocation(
+        const invocationStartup = startAgentInvocation(
           // SAFETY: The route normalized this value for an internal boundary whose generic signature cannot express the narrowed variant.
           agent as never,
           // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
@@ -1508,6 +1572,54 @@ async function executeQueuedWebhookDelivery(
           } as never,
           { runId: invocation.run?.runId },
         )
+        const controller = await Promise.race([
+          invocationStartup,
+          executionTimeout,
+        ]).catch(async (error) => {
+          if (executionTimedOut) {
+            const lateFence = webhookFence
+            retainWebhookFence = Boolean(lateFence)
+            // A startup that ignores the abort signal can still return a controller after the queue has failed the delivery.
+            const lateReconciliation = (async () => {
+              try {
+                // Keep the startup promise attached until the provider returns a
+                // controller. Releasing the fence while startup is still running
+                // would allow a same-key delivery to overlap provider work.
+                // Keep the durable fence until startup settles. The reconciliation
+                // deadline applies only after a controller exists and cannot release
+                // same-key work while the provider startup promise is still pending.
+                const controller = await invocationStartup
+                const cancellation = await controller.cancel(error).catch(() => undefined)
+                if (cancellation?.outcome === "invalid-state") return
+
+                // Some workflow providers cannot cancel a run after startup. Keep the late
+                // invocation visible to the concurrency owner and reconcile it until the
+                // provider reports a terminal state. The durable fence prevents another
+                // worker from claiming same-key work while this invocation remains active.
+                const lateCompletion = reconcileLateInvocation(controller)
+                const unregister = delivery.concurrencyKey
+                  ? registerActiveAgentInvocation(`${backendId}:${delivery.concurrencyKey}`, controller, lateCompletion, activeInvocationScope)
+                  : () => undefined
+                try {
+                  await lateCompletion
+                }
+                finally {
+                  unregister()
+                }
+              }
+              finally {
+                if (lateFence) {
+                  stopWebhookFenceHeartbeat?.()
+                  stopWebhookFenceHeartbeat = undefined
+                  await state.releaseLock(lateFence).catch(() => undefined)
+                  webhookFence = undefined
+                }
+              }
+            })().catch(() => undefined)
+            void lateReconciliation
+          }
+          throw error
+        })
         const result = awaitAgentInvocationResult(controller)
         const settlement = result.then(async (output) => {
           if (!isWorkflowRun(output) || output.status !== "queued") await runContext.flushWaitUntil?.()
@@ -1528,8 +1640,46 @@ async function executeQueuedWebhookDelivery(
             once: true,
           })
         try {
-          await settlement
-        } finally {
+          await Promise.race([settlement, executionTimeout])
+        }
+        catch (error) {
+          if (executionTimedOut) {
+            const lateFence = webhookFence
+            retainWebhookFence = Boolean(lateFence)
+            const lateReconciliation = (async () => {
+              try {
+                const cancellation = await controller.cancel(error).catch(() => undefined)
+                if (cancellation?.outcome === "invalid-state") return
+
+                // Some workflow providers cannot cancel a run after startup. Keep the late
+                // invocation visible to the concurrency owner and reconcile it until the
+                // provider reports a terminal state. The durable fence prevents another
+                // worker from claiming same-key work while this invocation remains active.
+                const lateCompletion = reconcileLateInvocation(controller)
+                const lateUnregister = delivery.concurrencyKey
+                  ? registerActiveAgentInvocation(`${backendId}:${delivery.concurrencyKey}`, controller, lateCompletion, activeInvocationScope)
+                  : () => undefined
+                try {
+                  await lateCompletion
+                }
+                finally {
+                  lateUnregister()
+                }
+              }
+              finally {
+                if (lateFence) {
+                  stopWebhookFenceHeartbeat?.()
+                  stopWebhookFenceHeartbeat = undefined
+                  await state.releaseLock(lateFence).catch(() => undefined)
+                  webhookFence = undefined
+                }
+              }
+            })().catch(() => undefined)
+            void lateReconciliation
+          }
+          throw error
+        }
+        finally {
           ownershipAbort.signal.removeEventListener("abort", unregisterOnOwnershipLoss)
           unregister()
         }
@@ -1547,7 +1697,7 @@ async function executeQueuedWebhookDelivery(
     resolveActiveCompletion?.()
   } catch (error) {
     rejectActiveCompletion?.(error)
-    if (!lifecycleSignal.aborted && delivery.attempts + 1 >= maxWebhookQueueAttempts) {
+    if (executionTimedOut || (!lifecycleSignal.aborted && delivery.attempts + 1 >= maxWebhookQueueAttempts)) {
       if (await state.completeWebhookDelivery(delivery.scope, delivery.deliveryId, delivery.leaseToken)) {
         if (channelDelivery)
           await settleChannelDeliveryInvocation(channelDelivery, "failed", "failed", {
@@ -1601,8 +1751,13 @@ async function executeQueuedWebhookDelivery(
     // The worker that reclaimed it owns the eventual terminal evidence.
     if (channelDelivery) detachAgentChannelDelivery(channelDelivery)
   } finally {
+    if (executionTimeoutTimer) clearTimeout(executionTimeoutTimer)
     lifecycleSignal.removeEventListener("abort", stopForLifecycle)
     stopHeartbeat()
+    if (!retainWebhookFence) {
+      stopWebhookFenceHeartbeat?.()
+      if (webhookFence) void state.releaseLock(webhookFence).catch(() => undefined)
+    }
   }
 }
 
