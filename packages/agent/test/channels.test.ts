@@ -12,6 +12,7 @@ function githubIssueCommentPayload(body = "/review please", userType = "User") {
     action: "created",
     comment: {
       body,
+      html_url: "https://github.test/acme/app/pull/42#issuecomment-99",
       id: 99,
       node_id: "comment-node",
       user: { id: 1, login: "mona", type: userType },
@@ -1199,6 +1200,19 @@ describe("agent channels", () => {
       installationId: 123,
       repository: "acme/app",
     })
+    expect(result.input.prompt).toBe([
+      "Work on PR #42 in acme/app, specifically this comment https://github.test/acme/app/pull/42#issuecomment-99.",
+      "The repository checkout is mounted at `portal/`; work inside that checkout.",
+      "Verify the checkout state before making changes.",
+      "",
+      "Follow the scope of the request. For review-only requests, report findings without making changes.",
+      "When changes are requested:",
+      "- Address unresolved review comments. Resolve threads when fixed, already addressed, or not worth changing, with a brief reason for dismissing a finding.",
+      "- Make sure CI is green.",
+      "- Resolve merge conflicts using the resolving-merge-conflicts skill when available.",
+      "",
+      "Request: /review please",
+    ].join("\n"))
     expect(result.input.context?.pullRequest).toMatchObject({
       pullRequest: { number: 42 },
       repository: { fullName: "acme/app" },
@@ -1219,6 +1233,32 @@ describe("agent channels", () => {
       installationId: 123,
       repository: "acme/app",
     })
+  })
+
+  it.each([
+    { workspace: false as const, location: "No repository checkout is provided by this channel." },
+    { workspace: true as const, location: "The repository checkout is mounted at the workspace root." },
+    { workspace: { mount: "repos/app" }, location: "The repository checkout is mounted at `repos/app/`; work inside that checkout." },
+  ])("describes the configured PR checkout: $location", async ({ workspace, location }) => {
+    const { github } = await import("../src/channels.ts")
+    const channel = github({
+      app: { fetch: async () => Response.json({ head: { ref: "feature", sha: "head-sha" } }) },
+      pullRequest: { workspace, reply: false },
+    })
+    const trigger = channel.triggers?.webhook
+    if (!trigger) throw new Error("Missing GitHub webhook trigger.")
+    // SAFETY: This fixture supplies the callback fields consumed by the webhook trigger.
+    const result = await trigger.invoke({
+      capabilities: [],
+      channel,
+      trigger: { channelId: "github", id: "github.webhook", name: "webhook", source: "channel" },
+    } as never, { payload: githubIssueCommentPayload() })
+    if (result instanceof Response) throw new Error("Expected GitHub webhook invocation.")
+    expect(result.input.prompt).toContain(location)
+    expect(result.input.prompt).toContain("The pull request head is commit head-sha on branch feature.")
+    expect(result.input.prompt).not.toContain("Your checkout has commit")
+    expect(result.input.prompt).toContain("For review-only requests, report findings without making changes.")
+    if (workspace === false) expect(result.input.prompt).not.toContain("The repository checkout is mounted")
   })
 
   it("keeps slash commands and adds explicit mention commands when reconciliation is enabled", async () => {
@@ -1287,6 +1327,97 @@ describe("agent channels", () => {
     await expect(ignoredLifecycle.json()).resolves.toMatchObject({ reason: "not_command" })
   })
 
+  it("reconciles plain PR comments and review events through configured comment triggers", async () => {
+    const { github } = await import("../src/channels.ts")
+    const channel = github({ pullRequest: { reconcile: { comments: true }, reply: false } })
+    const trigger = channel.triggers?.webhook
+    if (!trigger) throw new Error("Missing GitHub webhook trigger.")
+    const context = {
+      capabilities: [],
+      channel,
+      trigger: { channelId: "github", id: "github.webhook", name: "webhook", source: "channel" },
+    }
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
+    const comment = await trigger.invoke(context as never, {
+      github: { event: "issue_comment" },
+      payload: githubIssueCommentPayload("Please update the changelog"),
+    })
+    if (comment instanceof Response) throw new Error("Expected plain GitHub comment invocation.")
+    expect(comment.input.context?.github).toMatchObject({
+      args: "Please update the changelog",
+      command: "/comment",
+      event: "issue_comment",
+    })
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
+    const review = await trigger.invoke(context as never, {
+      github: { deliveryId: "review-delivery", event: "pull_request_review" },
+      payload: {
+        action: "submitted",
+        installation: { id: 123 },
+        number: 42,
+        pull_request: {
+          author_association: "CONTRIBUTOR",
+          html_url: "https://github.test/acme/app/pull/42",
+          number: 42,
+          title: "Improve app",
+          url: "https://api.github.test/repos/acme/app/pulls/42",
+        },
+        repository: { full_name: "acme/app" },
+        review: {
+          body: "Please fix the failing test",
+          html_url: "https://github.test/acme/app/pull/42#pullrequestreview-55",
+          id: 55,
+          node_id: "review-node",
+          state: "changes_requested",
+          user: { id: 2, login: "reviewer", type: "User" },
+        },
+        sender: { id: 2, login: "reviewer", type: "User" },
+      },
+    })
+    if (review instanceof Response) throw new Error("Expected GitHub review invocation.")
+    expect(review.input.context?.github).toMatchObject({
+      args: "Please fix the failing test",
+      command: "/comment",
+      event: "pull_request_review",
+    })
+    expect(review.webhook).toEqual({ concurrencyKey: "acme/app#42", concurrencyLimit: 1, deliveryId: "review-delivery" })
+
+    const approvedChannel = github({ pullRequest: { reconcile: { comments: { reviewStates: ["approved"] } }, reply: false } })
+    const approvedTrigger = approvedChannel.triggers?.webhook
+    if (!approvedTrigger) throw new Error("Missing approved-review webhook trigger.")
+    const approved = await approvedTrigger.invoke({ ...context, channel: approvedChannel } as never, {
+      github: { event: "pull_request_review" },
+      payload: {
+        action: "submitted",
+        number: 42,
+        pull_request: {
+          author_association: "CONTRIBUTOR",
+          html_url: "https://github.test/acme/app/pull/42",
+          number: 42,
+          title: "Improve app",
+          url: "https://api.github.test/repos/acme/app/pulls/42",
+        },
+        repository: { full_name: "acme/app" },
+        review: {
+          body: null,
+          html_url: "https://github.test/acme/app/pull/42#pullrequestreview-56",
+          id: 56,
+          state: "approved",
+          user: { id: 2, login: "reviewer", type: "User" },
+        },
+        sender: { id: 2, login: "reviewer", type: "User" },
+      },
+    })
+    if (approved instanceof Response) throw new Error("Expected approved GitHub review invocation.")
+    expect(approved.input.context?.github).toMatchObject({
+      args: "https://github.test/acme/app/pull/42#pullrequestreview-56",
+      command: "/comment",
+      event: "pull_request_review",
+    })
+  })
+
   it("reconciles configured pull request lifecycle events with invocation ownership", async () => {
     const { github } = await import("../src/channels.ts")
     const channel = github({ activity: true, pullRequest: { reconcile: { prompt: "Keep this pull request healthy." }, reply: false } })
@@ -1312,8 +1443,9 @@ describe("agent channels", () => {
           trigger: { action: "reopened", event: "pull_request" },
         },
       },
-      prompt: "Keep this pull request healthy.",
     })
+    expect(result.input.prompt).toContain("Request: Keep this pull request healthy.")
+    expect(result.input.prompt).not.toContain("specifically this comment")
     expect(result.webhook).toEqual({ concurrencyKey: "acme/app#42", concurrencyLimit: 1, deliveryId: "delivery-1" })
     expect(result.run?.activity).toEqual({ links: [], target: { installationId: 123, issue: 42, repository: "acme/app" } })
 
@@ -1628,8 +1760,8 @@ describe("agent channels", () => {
         },
         pullRequest,
       },
-      prompt: "/review docs",
     })
+    expect(fromContext.input.prompt).toContain("Request: /review docs")
     expect(fromContext.run).toMatchObject({
       annotations: {
         "custom.0": "value-0",
@@ -1761,6 +1893,7 @@ describe("agent channels", () => {
       pullRequest: { number: 42 },
       repository: { fullName: "acme/app" },
     })
+    expect(fromPayload.input.prompt).toContain("Request: /review raw payload")
     expect(fromPayload.run).toMatchObject({
       annotations: {
         "github.pullRequest": 42,
@@ -1789,8 +1922,8 @@ describe("agent channels", () => {
     if (fromLifecyclePayload instanceof Response) throw new Error("Expected GitHub lifecycle dev invocation.")
     expect(fromLifecyclePayload.input).toMatchObject({
       context: { github: { action: "reopened", command: "/reconcile" } },
-      prompt: "Keep this pull request healthy.",
     })
+    expect(fromLifecyclePayload.input.prompt).toContain("Request: Keep this pull request healthy.")
 
     // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
     const ignoredLifecyclePayload = await reconcileTrigger.invoke(reconcileContext as never, {

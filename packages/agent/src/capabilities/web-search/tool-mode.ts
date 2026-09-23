@@ -2,18 +2,12 @@ import type { AgentToolSet } from "../../types.ts"
 import type {
   WebReadToolInput,
   WebSearchProviderInput,
-  WebSearchResult,
   WebSearchToolInput,
 } from "./types.ts"
 import { resolveWebSearchProvider } from "./credentials.ts"
 import { agentDiagnostics } from "../../agent-diagnostics.ts"
 
-interface AskwebModule {
-  create: (name: string, config?: { apiKey?: string, baseURL?: string }) => {
-    search: (query: string, options?: WebSearchOptions) => Promise<WebSearchResult[]>
-  }
-  readUrl: (url: string, options?: { format?: "markdown" | "text", maxTokens?: number }) => Promise<unknown>
-}
+type WebModule = typeof import("@agntn/web")
 
 interface WebSearchOptions {
   excludeDomains?: string[]
@@ -47,13 +41,14 @@ function requireObject(input: unknown, toolName: string): Record<string, unknown
   return input as Record<string, unknown>
 }
 
-async function loadAskweb(): Promise<AskwebModule> {
+async function loadWeb(): Promise<WebModule> {
   try {
-    const specifier = "askweb"
-    return await import(/* @vite-ignore */ specifier) as AskwebModule
+    const specifier = "@agntn/web"
+    // SAFETY: The variable specifier keeps the optional package out of bundles and resolves @agntn/web, whose declarations type WebModule.
+    return await import(/* @vite-ignore */ specifier) as WebModule
   }
   catch (error) {
-    throw agentDiagnostics.AGENT_R0274({ message: "[vitehub] webSearch({ mode: \"tool\" }) requires askweb to be installed by the application. Install askweb@0.2.0 or use webSearch({ mode: \"model\" }).", cause: error })
+    throw agentDiagnostics.AGENT_R0274({ message: "[vitehub] webSearch({ mode: \"tool\" }) requires @agntn/web to be installed by the application. Install @agntn/web or use webSearch({ mode: \"model\" }).", cause: error })
   }
 }
 
@@ -84,7 +79,7 @@ function normalizeReadInput(input: unknown): WebReadToolInput {
 
 export function createWebSearchToolSet(provider: WebSearchProviderInput): AgentToolSet {
   const resolvedProvider = resolveWebSearchProvider(provider)
-  let askweb: Promise<AskwebModule> | undefined
+  let web: Promise<WebModule> | undefined
 
   return {
     web_read: {
@@ -92,8 +87,8 @@ export function createWebSearchToolSet(provider: WebSearchProviderInput): AgentT
       name: "web_read",
       async execute(input) {
         const value = normalizeReadInput(input)
-        askweb ||= loadAskweb()
-        const { readUrl } = await askweb
+        web ||= loadWeb()
+        const { readUrl } = await web
         return await readUrl(value.url, {
           format: "markdown",
           maxTokens: value.maxTokens,
@@ -105,9 +100,9 @@ export function createWebSearchToolSet(provider: WebSearchProviderInput): AgentT
       name: "web_search",
       async execute(input) {
         const { options, query } = normalizeSearchInput(input)
-        askweb ||= loadAskweb()
-        const { create } = await askweb
-        const searchProvider = create(resolvedProvider.name, {
+        web ||= loadWeb()
+        const { createSearchProvider } = await web
+        const searchProvider = await createSearchProvider(resolvedProvider.name, {
           apiKey: resolvedProvider.apiKey,
           baseURL: resolvedProvider.baseURL,
         })

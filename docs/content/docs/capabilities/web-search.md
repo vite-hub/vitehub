@@ -40,7 +40,11 @@ Tool mode loads the configured provider, executes normalized search requests, an
 `webSearch()` requires `mode: 'model'` or `mode: 'tool'`.
 Model mode requires an Agent Driver and model provider that support the provider tool.
 
-Tool mode requires the application to install `askweb` and configure one web search provider with any required credentials.
+Tool mode requires the application to install `@agntn/web` and configure one web search provider with any required credentials.
+
+```bash [Terminal]
+pnpm add @agntn/web
+```
 
 ## Driver support
 
@@ -55,7 +59,7 @@ Tool mode requires the application to install `askweb` and configure one web sea
 Inspect provider tool contributions for model mode or the Agent tool list for tool mode.
 Confirm that tool mode exposes `web_search` and `web_read`.
 
-Run tool mode without `askweb` during development.
+Run tool mode without `@agntn/web` during development.
 Confirm that the Capability reports the missing package and suggests model mode instead.
 
 ## Options

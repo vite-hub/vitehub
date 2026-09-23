@@ -5053,7 +5053,9 @@ describe("agent message protocol", () => {
         }),
       },
       driver: { run: (context) => {
-          expect(context.prompt).toBe("")
+          expect(context.prompt).toContain("Work on PR #42 in vite-hub/vitehub")
+          expect(context.prompt).toContain("- Make sure CI is green.")
+          expect(context.prompt).toMatch(/Request:$/)
           return {
             text: "Review completed.",
             totalUsage: { inputTokens: 10, outputTokens: 5 },
@@ -5555,8 +5557,8 @@ describe("agent message protocol", () => {
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await expect((filtered as Response).json()).resolves.toEqual({ accepted: false, ok: true, reason: "not_command" })
 
-    await expect(runAgentTrigger(agent, runtime, "triage.webhook", delivery("/summary please", 202))).resolves.toBe("ran:please")
-    await expect(runAgentTrigger(agent, runtime, "github.webhook", delivery("/review please", 203))).resolves.toBe("ran:please")
+    await expect(runAgentTrigger(agent, runtime, "triage.webhook", delivery("/summary please", 202))).resolves.toContain("Request: please")
+    await expect(runAgentTrigger(agent, runtime, "github.webhook", delivery("/review please", 203))).resolves.toContain("Request: please")
     expect(calls).toEqual(["summary:please", "review:please"])
   })
 
