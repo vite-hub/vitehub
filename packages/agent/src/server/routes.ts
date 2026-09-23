@@ -1585,6 +1585,9 @@ async function executeQueuedWebhookDelivery(
                 // Keep the startup promise attached until the provider returns a
                 // controller. Releasing the fence while startup is still running
                 // would allow a same-key delivery to overlap provider work.
+                // Keep the durable fence until startup settles. The reconciliation
+                // deadline applies only after a controller exists and cannot release
+                // same-key work while the provider startup promise is still pending.
                 const controller = await invocationStartup
                 const cancellation = await controller.cancel(error).catch(() => undefined)
                 if (cancellation?.outcome === "invalid-state") return
