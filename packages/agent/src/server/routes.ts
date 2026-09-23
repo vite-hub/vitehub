@@ -997,7 +997,6 @@ function webhookConcurrencyFenceKey(concurrencyKey: string): string {
 const defaultWebhookQueueRetryMs = 1_000
 const maxWebhookQueueAttempts = 3
 const maxWebhookQueueExecutionMs = 900_000
-const maxWebhookLateReconciliationMs = 60_000
 
 function positiveWebhookConcurrencyLimit(value: number | undefined): number | undefined {
   if (value === undefined) return
@@ -1427,26 +1426,13 @@ async function executeQueuedWebhookDelivery(
   const stopForLifecycle = () => {
     ownershipAbort.abort(lifecycleSignal.reason)
   }
-  const reconcileLateInvocation = async (controller: Pick<AgentInvocationController, "inspect">): Promise<boolean> => {
-    const expired = Symbol("expired")
-    let deadlineTimer: ReturnType<typeof setTimeout> | undefined
+  const reconcileLateInvocation = async (controller: Pick<AgentInvocationController, "inspect">): Promise<void> => {
     let inspection: Promise<Awaited<ReturnType<typeof controller.inspect>> | undefined> | undefined
-    try {
-      const deadline = new Promise<typeof expired>(resolve => {
-        deadlineTimer = setTimeout(() => resolve(expired), maxWebhookLateReconciliationMs)
-      })
-      for (;;) {
-        inspection ||= controller.inspect().catch(() => undefined)
-        const result = await Promise.race([inspection, deadline])
-        if (result === expired) {
-          console.error(`[vitehub] Late webhook invocation "${delivery.deliveryId}" did not reach a terminal state within ${maxWebhookLateReconciliationMs}ms; releasing its retained concurrency fence.`)
-          return false
-        }
-        inspection = undefined
-        if (result?.outcome === "available" && result.invocation && ["completed", "failed", "cancelled"].includes(result.invocation.status)) return true
-      }
-    } finally {
-      if (deadlineTimer !== undefined) clearTimeout(deadlineTimer)
+    for (;;) {
+      inspection ||= controller.inspect().catch(() => undefined)
+      const result = await inspection
+      inspection = undefined
+      if (result?.outcome === "available" && result.invocation && ["completed", "failed", "cancelled"].includes(result.invocation.status)) return
     }
   }
   if (lifecycleSignal.aborted) stopForLifecycle()
