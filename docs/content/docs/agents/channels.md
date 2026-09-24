@@ -57,9 +57,12 @@ export const agent = defineAgent({
 Select the Channel and its destination when the application starts the invocation. Links are application-owned; use them for the current session, memory, or another inspection surface.
 
 ```ts
-import { runScheduledAgent } from 'vite-hub/agent'
+import { runAgent } from 'vite-hub/agent'
 
-await runScheduledAgent(agent, schedule, {
+await runAgent(agent, {
+  memo: (_key, create) => create(),
+  runtime: 'vite',
+  waitUntil: schedule.waitUntil ?? (() => {}),
   run: {
     activity: {
       links: [
@@ -71,7 +74,7 @@ await runScheduledAgent(agent, schedule, {
     channelId: 'github',
     runId: schedule.runId,
   },
-}, { prompt: 'Converge this pull request.' })
+}, { prompt: 'Converge this pull request.' }, { schedule, output: 'drained' })
 ```
 
 The runtime publishes `queued` before capacity admission, `running` after admission, `waiting` for approval requests, and a terminal state on every exit. `data-agent-plan` stream events update the task list, so Codex and other harnesses that expose normalized plans do not need provider-specific GitHub code. Activity delivery failures are reported without replacing the Agent result.

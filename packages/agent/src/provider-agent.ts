@@ -26,6 +26,7 @@ import { defaultAgentProviderPermissions } from "./internal/agent-driver.ts"
 import { resolveInstalledProviderExecutable } from "./internal/provider-runtime-packages.ts"
 import { updateAgentTelemetryConfiguration } from "./internal/agent-telemetry.ts"
 import { inspectAgentTools } from "./tool-inspection.ts"
+import { agentToolJsonSchema } from "./tool-schema.ts"
 import { agentOutputInstructions } from "./internal/agent-structured-output.ts"
 import { registerAgentInvocationInputHandler } from "./internal/agent-invocation-control.ts"
 import { ownedAgentInvocationControlId } from "./internal/agent-invocation-response-owner.ts"
@@ -1335,12 +1336,9 @@ const emptyToolInputSchema = { additionalProperties: false, properties: {}, type
 
 function toolJsonSchema(schema: AgentToolSchema | undefined): Record<string, unknown> {
   if (!schema) return emptyToolInputSchema
-  // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
-  if (!("~standard" in schema)) return schema as Record<string, unknown>
-  const jsonSchema = schema["~standard"]?.jsonSchema
-  if (!jsonSchema?.input) throw agentDiagnostics.AGENT_R0695({ message: "[vitehub] Provider Agent Driver tools require JSON Schema-compatible input validation." })
-  // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
-  return jsonSchema.input({ target: "draft-07" }) as Record<string, unknown>
+  const jsonSchema = agentToolJsonSchema(schema, "input")
+  if (!jsonSchema) throw agentDiagnostics.AGENT_R0695({ message: "[vitehub] Provider Agent Driver tools require JSON Schema-compatible input validation." })
+  return jsonSchema
 }
 
 async function validateToolInput(tool: AgentToolDefinition, input: unknown): Promise<unknown> {

@@ -176,6 +176,7 @@
     "@libsql/client": "catalog:database",
     "@modelcontextprotocol/sdk": "catalog:ai",
     "@standard-schema/spec": "catalog:runtime",
+    "@valibot/to-json-schema": "catalog:runtime",
     "@t3tools/provider-runtime": "catalog:",
     "@vercel/connect": "2.0.1",
     "@vercel/nft": "catalog:vercel",
@@ -214,6 +215,7 @@
     "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling",
+    "zod": "catalog:runtime",
     "vue": "catalog:ui",
     "evlog": "^2.28.1",
     "posthog-node": "^5.51.6"

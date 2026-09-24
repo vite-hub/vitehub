@@ -11,9 +11,27 @@ import { toJsonCompatibleValue } from "../src/tool-runtime.ts"
 import { isAsyncIterable } from "../src/internal/stream-result.ts"
 import { adapterDefinition } from "./adapter-definition.ts"
 
+import { runAgent } from "../src/index.ts"
+import type { AgentInput, AgentRunInput, AgentRuntimeContext, ResolvedAgentRuntimeContext } from "../src/types.ts"
+import type { RunAgentOptions } from "../src/index.ts"
 import type { AgentChannelDeliveryFinishEffectCallback, AgentChannelDeliveryFinishEffectResult, AgentFinishEvent } from "../src/index.ts"
 import type { AgentActivityUpdate } from "../src/types.ts"
 import type { WritableWorkspaceFacade } from "@vite-hub/workspace"
+
+
+function runScheduled<CALL_OPTIONS = unknown>(
+  agent: AgentInput<AgentRuntimeContext>,
+  schedule: NonNullable<RunAgentOptions["schedule"]>,
+  runtimeContext: Partial<ResolvedAgentRuntimeContext> = {},
+  input: AgentRunInput<CALL_OPTIONS> = {},
+): Promise<unknown> {
+  return runAgent(agent, {
+    ...runtimeContext,
+    memo: runtimeContext.memo ?? ((_key, create) => create()),
+    runtime: runtimeContext.runtime ?? "unknown",
+    waitUntil: runtimeContext.waitUntil ?? schedule.waitUntil ?? (() => {}),
+  }, input, { schedule, output: "drained" })
+}
 
 const loadAiSdk = vi.hoisted(() => vi.fn())
 
@@ -2150,7 +2168,7 @@ describe("agent message protocol", () => {
   })
 
   it("runs scheduled agents with schedule-owned input metadata and no synthetic messages", async () => {
-    const { defineAgent, runScheduledAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
     const seen: unknown[] = []
     const waitUntil = vi.fn()
     const agent = defineAgent({
@@ -2161,7 +2179,7 @@ describe("agent message protocol", () => {
         } },
     })
 
-    await expect(runScheduledAgent(agent, {
+    await expect(runScheduled(agent, {
       attemptId: "attempt-1",
       id: "srun_schedule_2026-05-23T09:00:00.000Z",
       runId: "srun_schedule_2026-05-23T09:00:00.000Z",
@@ -2191,7 +2209,7 @@ describe("agent message protocol", () => {
   })
 
   it("passes invocation input through scheduled Agent runs", async () => {
-    const { defineAgent, runScheduledAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
     const abortController = new AbortController()
     const seen: unknown[] = []
     const agent = defineAgent<any, { worktreePath: string }>({
@@ -2208,7 +2226,7 @@ describe("agent message protocol", () => {
     })
     const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
 
-    await expect(runScheduledAgent(agent, {
+    await expect(runScheduled(agent, {
       id: "srun-scheduled-review",
       runId: "review-pr-646",
       scheduleId: "scheduled-review",
@@ -2238,7 +2256,7 @@ describe("agent message protocol", () => {
   })
 
   it("keeps durable scheduled Agent turn prompts authoritative", async () => {
-    const { defineAgent, runScheduledAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
     const seen: unknown[] = []
     const agent = defineAgent({
       driver: { run: context => {
@@ -2251,7 +2269,7 @@ describe("agent message protocol", () => {
         } },
     })
 
-    await expect(runScheduledAgent(agent, {
+    await expect(runScheduled(agent, {
       id: "srun-durable",
       input: {
         invoker: { id: "discord:user-1", kind: "chat" },
@@ -2276,7 +2294,7 @@ describe("agent message protocol", () => {
   })
 
   it("uses the schedule id as run id when scheduled context omits provider run id", async () => {
-    const { defineAgent, runScheduledAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
     const seen: unknown[] = []
     const agent = defineAgent({
       driver: { run: context => {
@@ -2285,7 +2303,7 @@ describe("agent message protocol", () => {
         } },
     })
 
-    await expect(runScheduledAgent(agent, {
+    await expect(runScheduled(agent, {
       id: "srun_schedule_2026-05-23T09:00:00.000Z",
       scheduleId: "schedule-0-9",
       scheduledAt: new Date("2026-05-23T09:00:00.000Z"),
@@ -2302,7 +2320,7 @@ describe("agent message protocol", () => {
   })
 
   it("memoizes scheduled agent runtime values by key", async () => {
-    const { defineAgent, runScheduledAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
     const create = vi.fn(() => ({ ok: true }))
     const agent = defineAgent({
       driver: { run: context => [
@@ -2311,7 +2329,7 @@ describe("agent message protocol", () => {
         ] },
     })
 
-    const result = await runScheduledAgent(agent, {
+    const result = await runScheduled(agent, {
       attemptId: "attempt-1",
       id: "srun_schedule_2026-05-23T09:00:00.000Z",
       runId: "srun_schedule_2026-05-23T09:00:00.000Z",
@@ -2327,7 +2345,7 @@ describe("agent message protocol", () => {
   })
 
   it("runs scheduled agents with host runtime context", async () => {
-    const { defineAgent, runScheduledAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
     const waitUntil = vi.fn()
     const seen: unknown[] = []
     const agent = defineAgent({
@@ -2341,7 +2359,7 @@ describe("agent message protocol", () => {
         } },
     })
 
-    await expect(runScheduledAgent(agent, {
+    await expect(runScheduled(agent, {
       attemptId: "attempt-1",
       id: "srun_schedule_2026-05-23T09:00:00.000Z",
       runId: "srun_schedule_2026-05-23T09:00:00.000Z",

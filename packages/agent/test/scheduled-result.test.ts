@@ -1,6 +1,23 @@
+import type { AgentInput, AgentRunInput, AgentRuntimeContext, ResolvedAgentRuntimeContext } from "../src/types.ts"
+import type { RunAgentOptions } from "../src/index.ts"
 import { expect, it, vi } from "vitest"
-import { createAgentInspectionMetadata, defineAgent, runScheduledAgent } from "../src/index.ts"
+import { createAgentInspectionMetadata, defineAgent, runAgent } from "../src/index.ts"
 import { toAgentRunResult } from "../src/output.ts"
+
+
+function runScheduled<CALL_OPTIONS = unknown>(
+  agent: AgentInput<AgentRuntimeContext>,
+  schedule: NonNullable<RunAgentOptions["schedule"]>,
+  runtimeContext: Partial<ResolvedAgentRuntimeContext> = {},
+  input: AgentRunInput<CALL_OPTIONS> = {},
+): Promise<unknown> {
+  return runAgent(agent, {
+    ...runtimeContext,
+    memo: runtimeContext.memo ?? ((_key, create) => create()),
+    runtime: runtimeContext.runtime ?? "unknown",
+    waitUntil: runtimeContext.waitUntil ?? schedule.waitUntil ?? (() => {}),
+  }, input, { schedule, output: "drained" })
+}
 
 it.each(["response", "ui-message"] as const)("settles scheduled %s streams before releasing capacity", async (kind) => {
   let release!: () => void
@@ -23,7 +40,7 @@ it.each(["response", "ui-message"] as const)("settles scheduled %s streams befor
   })
   const agent = defineAgent({ driver: { capacity: { concurrency: 1 }, run }, hooks: { "agent:finish": finish } })
   const settled = vi.fn()
-  const pending = runScheduledAgent(agent, { id: `scheduled-${kind}`, scheduledAt: new Date() }).then((result) => {
+  const pending = runScheduled(agent, { id: `scheduled-${kind}`, scheduledAt: new Date() }).then((result) => {
     settled()
     return result
   })
@@ -36,7 +53,7 @@ it.each(["response", "ui-message"] as const)("settles scheduled %s streams befor
   expect(toAgentRunResult(await pending).text).toBe("Done")
   expect(finish).toHaveBeenCalledOnce()
   expect(createAgentInspectionMetadata(agent).config?.driver.capacity).toMatchObject({ active: 0 })
-  expect(toAgentRunResult(await runScheduledAgent(agent, { id: `scheduled-${kind}-next`, scheduledAt: new Date() })).text).toBe("Done")
+  expect(toAgentRunResult(await runScheduled(agent, { id: `scheduled-${kind}-next`, scheduledAt: new Date() })).text).toBe("Done")
   expect(run).toHaveBeenCalledTimes(2)
 })
 
@@ -53,7 +70,7 @@ it.each(["response", "ui-message"] as const)("propagates scheduled %s failures a
     },
     hooks: { "agent:error": error },
   })
-  await expect(runScheduledAgent(agent, { id: `scheduled-${kind}-failure`, scheduledAt: new Date() })).rejects.toThrow("provider disconnected")
+  await expect(runScheduled(agent, { id: `scheduled-${kind}-failure`, scheduledAt: new Date() })).rejects.toThrow("provider disconnected")
   expect(createAgentInspectionMetadata(agent).config?.driver.capacity).toMatchObject({ active: 0 })
   expect(error).toHaveBeenCalledOnce()
 })
@@ -65,7 +82,7 @@ it("returns the final scheduled response without requiring invocation telemetry"
     yield { type: "text-delta", phase: "final", text: "complete.", id: "answer" }
     yield { type: "finish" }
   } } })
-  const result = await runScheduledAgent(agent, { id: "scheduled-final-result", scheduledAt: new Date() })
+  const result = await runScheduled(agent, { id: "scheduled-final-result", scheduledAt: new Date() })
   expect(toAgentRunResult(result).text).toBe("Repair complete.")
 })
 
@@ -79,7 +96,7 @@ it("propagates scheduled stream failures and closes the generator", async () => 
     }
     finally { closed = true }
   } } })
-  await expect(runScheduledAgent(agent, { id: "scheduled-failure", scheduledAt: new Date() })).rejects.toThrow("provider disconnected")
+  await expect(runScheduled(agent, { id: "scheduled-failure", scheduledAt: new Date() })).rejects.toThrow("provider disconnected")
   expect(closed).toBe(true)
 })
 
@@ -95,5 +112,5 @@ it("validates a structured scheduled result and returns its typed fields", async
       yield { type: "finish" }
     },
   } })
-  expect(await runScheduledAgent(agent, { id: "scheduled-structured", scheduledAt: new Date() })).toMatchObject({ text: "Done", disposition: "park" })
+  expect(await runScheduled(agent, { id: "scheduled-structured", scheduledAt: new Date() })).toMatchObject({ text: "Done", disposition: "park" })
 })

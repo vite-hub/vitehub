@@ -194,6 +194,9 @@ catalogs:
     '@standard-schema/spec':
       specifier: ^1.1.0
       version: 1.1.0
+    '@valibot/to-json-schema':
+      specifier: ^1.7.1
+      version: 1.7.1
     devframe:
       specifier: 0.9.12
       version: 0.9.12
@@ -206,6 +209,9 @@ catalogs:
     valibot:
       specifier: ^1.4.2
       version: 1.4.2
+    zod:
+      specifier: ^4.5.4
+      version: 4.5.4
   sandbox:
     '@cloudflare/computer':
       specifier: ^0.2.1
@@ -695,6 +701,9 @@ importers:
       '@t3tools/provider-runtime':
         specifier: 'catalog:'
         version: https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@f603ba290f3fba0706137f485bdda71e6a0dec7c
+      '@valibot/to-json-schema':
+        specifier: catalog:runtime
+        version: 1.7.1(valibot@1.4.2(typescript@6.0.3))
       '@vercel/connect':
         specifier: 2.0.1
         version: 2.0.1(@ai-sdk/mcp@2.0.36(zod@4.5.4))(ai@7.0.58(zod@4.5.4))(better-auth@1.7.2(@cloudflare/workers-types@5.20260904.1)(@opentelemetry/api@1.9.1)(better-sqlite3@12.9.0)(drizzle-kit@0.31.10)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260904.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.38.3)(better-sqlite3@12.9.0)(bun-types@1.4.0)(kysely@0.29.3)(postgres@3.4.9)(sql.js@1.14.1))(react-dom@19.2.8(react@19.2.6))(react@19.2.6)(vitest@4.1.11)(vue@3.5.40(typescript@6.0.3)))(eve@0.46.1(6415e810754b7f4cdac920de9f089ca6))
@@ -816,6 +825,9 @@ importers:
       vue:
         specifier: 3.5.40
         version: 3.5.40(typescript@6.0.3)
+      zod:
+        specifier: catalog:runtime
+        version: 4.5.4
     optionalDependencies:
       '@ai-sdk/mcp':
         specifier: catalog:ai
@@ -24759,7 +24771,6 @@ snapshots:
   '@valibot/to-json-schema@1.7.1(valibot@1.4.2(typescript@6.0.3))':
     dependencies:
       valibot: 1.4.2(typescript@6.0.3)
-    optional: true
 
   '@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25)':
     dependencies:
