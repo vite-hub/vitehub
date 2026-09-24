@@ -27,6 +27,35 @@ describe("runAgent invocation tools", () => {
       },
     })
   })
+
+  it("accepts a manually typed JSON Schema handler with schedule options", () => {
+    const agent = defineAgent({ driver: { run: () => "done" } })
+    const schedule = { id: "friday", scheduledAt: new Date() }
+    runAgent(agent, { prompt: "Roast" }, {
+      schedule,
+      output: "drained",
+      tools: {
+        send_message: {
+          name: "send_message",
+          inputSchema: { type: "object", properties: { message: { type: "string" } }, required: ["message"] },
+          async execute({ message }: { message: string }) {
+            expectTypeOf(message).toEqualTypeOf<string>()
+            return { sent: true }
+          },
+        },
+      },
+    })
+  })
+
+  it("rejects handlers that contradict a standard schema", () => {
+    const agent = defineAgent({ driver: { run: () => "done" } })
+    // @ts-expect-error The schema produces query, not id.
+    runAgent(agent, {}, { output: "drained", tools: { search: {
+      name: "search",
+      inputSchema: sdkSchema,
+      execute(input: { id: number }) { return input.id },
+    } } })
+  })
 })
 
 describe("Capability tool schema inference", () => {

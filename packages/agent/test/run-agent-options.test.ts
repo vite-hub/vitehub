@@ -62,3 +62,35 @@ it("does not expose invocation tools to a later run", async () => {
   await runAgent(agent, runtime, {})
   expect(observed).toEqual([["send_message"], []])
 })
+
+it("does not pass invocation tools to a delegated Agent", async () => {
+  const send = vi.fn()
+  const child = defineAgent({ runtime: false, driver: { run({ tools }) {
+    expect(tools?.send_message).toBeUndefined()
+    return "child done"
+  } } })
+  const parent = defineAgent({ runtime: false, driver: { async run(context) {
+    const { tools } = context
+    expect(tools?.send_message).toBeDefined()
+    return await runAgent(child, context, {})
+  } } })
+  const runtime = { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }
+  await expect(runAgent(parent, runtime, {}, { tools: { send_message: { name: "send_message", execute: send } } })).resolves.toBe("child done")
+  expect(send).not.toHaveBeenCalled()
+})
+
+it("keeps an empty tool set from changing Workflow selection", async () => {
+  const agent = defineAgent({ driver: { run: () => "inline" } })
+  const [error, result] = await runAgent(agent, {}, { tools: {}, output: "drained" })
+  expect(error?.message).toContain("cannot discover an Agent Workflow")
+  expect(result).toBeNull()
+})
+
+it("keeps contextual calls direct when their input has an option-like property", async () => {
+  const agent = defineAgent({ runtime: false, driver: { run({ input }) {
+    expect((input as typeof input & { output?: string }).output).toBe("json")
+    return "direct result"
+  } } })
+  const runtime = { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }
+  await expect(runAgent(agent, runtime, { output: "json" } as never)).resolves.toBe("direct result")
+})

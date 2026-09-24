@@ -741,6 +741,7 @@ interface AgentWorkflowRun<TOutput = unknown> {
   status: "cancelled" | "completed" | "failed" | "queued" | "running" | "unknown"
 }
 type AgentWorkflowOutput<TOutput> = TOutput extends Response ? AgentRunResult : TOutput | AgentRunResult
+type AgentDrainedOutput<TOutput> = TOutput extends Response ? AgentRunResult : TOutput | AgentRunResult
 interface StartedAgentWorkflow<CALL_OPTIONS = unknown, TOutput = unknown> {
   activity?: ActiveAgentActivity
   handle: WorkflowHandle<AgentWorkflowInvocationPayload<CALL_OPTIONS>, TOutput>
@@ -774,8 +775,14 @@ type SchemaOwnedInvocationTools<TSchemas extends Record<string, AgentToolSchema>
     execute?: (input: InvocationToolSchemaOutput<TSchemas[Key]>) => MaybePromise<unknown>
   }
 }
+type CheckedInvocationTools<TTools> = {
+  [Key in keyof TTools]: TTools[Key] extends { inputSchema: infer TSchema }
+    ? TSchema extends AgentToolStandardSchema<infer TInput>
+      ? { execute?: (input: TInput) => MaybePromise<unknown> }
+      : unknown
+    : unknown
+}
 
-const invocationToolsContextKey = Symbol("vitehub.invocationTools")
 
 const agentWorkflowHandles = new WeakMap<object, Map<string, WorkflowHandle<AgentWorkflowInvocationPayload, unknown>>>()
 const agentWorkflowNames = new Set<string>()
@@ -2812,6 +2819,7 @@ function hasCustomRun<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
 
 interface RunAgentInlineOptions {
   output?: "raw" | "rendered"
+  tools?: AgentToolSet
 }
 
 type AgentInvocationContext<
@@ -3746,6 +3754,7 @@ async function createAgentInvocationContext<
   input: AgentRunInput<CALL_OPTIONS>,
   invocationKind: "run" | "stream" = "run",
   invocationJournal?: AgentInvocationJournal<TRuntimeConfig>,
+  invocationTools?: AgentToolSet,
 ): Promise<AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS>> {
   const startedAt = Date.now()
   const resolvedContext = createResolvedRuntimeContext(context)
@@ -4070,8 +4079,6 @@ async function createAgentInvocationContext<
     }
     let transformed: { tools: typeof capabilities.tools, originalNames: Map<string, string> }
     try {
-      // SAFETY: runAgent attaches this private symbol only to the invocation's Runtime Context.
-      const invocationTools = (context as AgentRuntimeContext & { [invocationToolsContextKey]?: AgentToolSet })[invocationToolsContextKey]
       const collisions = Object.keys(invocationTools || {}).filter(name => Object.hasOwn(capabilities.tools || {}, name))
       if (collisions.length) throw new Error(`[vitehub] Invocation tool name already exists: ${collisions.join(", ")}.`)
       const availableTools = invocationTools ? { ...capabilities.tools, ...invocationTools } : capabilities.tools
@@ -6087,6 +6094,7 @@ type AgentInvocationExecutionOptions =
     holdCapacity?: boolean
     onCapacityBypass?: () => void
     onFinish?: (outcome: AgentInvocationFinishOutcome) => void
+    tools?: AgentToolSet
   }
 
 async function finishPreparedInvocationFailure<
@@ -6161,9 +6169,10 @@ async function createAgentInvocationContextWithWorkflowFailureDelivery<
   input: AgentRunInput<CALL_OPTIONS>,
   kind: "run" | "stream",
   invocationJournal?: AgentInvocationJournal<TRuntimeConfig>,
+  invocationTools?: AgentToolSet,
 ): Promise<AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS>> {
   try {
-    return await createAgentInvocationContext(definition, context, input, kind, invocationJournal)
+    return await createAgentInvocationContext(definition, context, input, kind, invocationJournal, invocationTools)
   }
   catch (error) {
     try {
@@ -6195,7 +6204,7 @@ async function executeAgentInvocationWithCapacityLease<
     ? asUnknownBoundary(agent) as AgentDefinition<TRuntimeConfig, CALL_OPTIONS, any, any, TOutput>
     : undefined
   const invocation = preparedInvocation
-    ?? await createAgentInvocationContextWithWorkflowFailureDelivery(definition, context, input, options.kind, invocationJournal)
+    ?? await createAgentInvocationContextWithWorkflowFailureDelivery(definition, context, input, options.kind, invocationJournal, options.tools)
   invocation.activity = activity
   const shouldHoldInvocationOutput = () => options.holdCapacity === true || shouldWrapInvocationOutput(invocation)
   const lifecycle = await openAgentInvocationLifecycle<AgentInvocationFinishOutcome>(
@@ -7258,6 +7267,7 @@ async function executeAgentInvocation<
         input,
         options.kind,
         invocationJournal,
+        options.tools,
       )
     }
     if (preparedInvocation?.handledResponse) {
@@ -7358,6 +7368,7 @@ export async function runAgentInline<
   return await executeAgentInvocation(agent, context, input, {
     kind: "run",
     renderOutput: options.output !== "raw",
+    tools: options.tools,
   }) as TOutput
 }
 
@@ -7520,8 +7531,18 @@ export function runAgent<
 >(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput>,
   input: AgentRunInput<CALL_OPTIONS>,
-  options: RunAgentOptions<TTools> & { output: "drained" },
+  options: RunAgentOptions<TTools> & { output: "drained", tools?: TTools & CheckedInvocationTools<TTools> },
 ): Promise<[Error, null] | [null, string]>
+export function runAgent<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+  TOutput = unknown,
+>(
+  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput>,
+  context: AgentRuntimeContext<TRuntimeConfig>,
+  input: AgentRunInput<CALL_OPTIONS>,
+  options: RunAgentOptions & { output: "drained" },
+): Promise<AgentDrainedOutput<TOutput> | AgentWorkflowRun<AgentWorkflowOutput<TOutput>>>
 export function runAgent<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
@@ -7542,10 +7563,16 @@ export async function runAgent<
   inputOrOptions?: AgentRunInput<CALL_OPTIONS> | RunAgentOptions,
   options: RunAgentOptions = {},
 ): Promise<TOutput | Response | AgentWorkflowRun<AgentWorkflowOutput<TOutput>> | [Error, null] | [null, string | TOutput | Response | AgentWorkflowRun<AgentWorkflowOutput<TOutput>>]> {
-  const hasStandaloneOptions = inputOrOptions !== undefined
+  const standaloneDrainedOptions = inputOrOptions !== undefined
     && hasRuntimeType(inputOrOptions, "object")
-    && ("schedule" in inputOrOptions || "tools" in inputOrOptions || "output" in inputOrOptions)
-  if (inputOrOptions !== undefined && !hasStandaloneOptions) {
+    && "output" in inputOrOptions
+    && inputOrOptions.output === "drained"
+  const hasContext = arguments.length === 4
+    || (inputOrOptions !== undefined && (
+      (hasRuntimeType(contextOrInput, "object") && "runtime" in contextOrInput)
+      || !standaloneDrainedOptions
+    ))
+  if (hasContext) {
     // SAFETY: The three-argument overload requires a Runtime Context as its second argument.
     return runAgentWithContext(agent, contextOrInput as AgentRuntimeContext<TRuntimeConfig>, inputOrOptions as AgentRunInput<CALL_OPTIONS>, options)
   }
@@ -7561,10 +7588,11 @@ export async function runAgent<
   }
   try {
     const binding = resolveAgentWorkflowRuntimeBinding(agent)
-    if (binding && "discoveryDefault" in binding && !standaloneOptions?.tools) {
+    const hasInvocationTools = Object.keys(standaloneOptions?.tools || {}).length > 0
+    if (binding && "discoveryDefault" in binding && !hasInvocationTools) {
       throw agentDiagnostics.AGENT_R0421({ message: "[vitehub] Standalone runAgent() cannot discover an Agent Workflow without a host context. Set runtime: false for inline execution, configure an explicit workflow(\"name\") binding, or use runAgent(agent, runtimeContext, input)." })
     }
-    if (binding && standaloneOptions?.output === "drained" && !standaloneOptions.tools) {
+    if (binding && standaloneOptions?.output === "drained" && !hasInvocationTools) {
       throw new Error("[vitehub] Drained output requires inline execution; a Workflow returns a run handle.")
     }
     // SAFETY: The two-argument overload requires invocation input as its second argument.
@@ -7632,15 +7660,13 @@ async function runAgentWithContext<
   }
   const invocationContext = withAgentIdentityOwner(agent, context)
   const binding = resolveAgentWorkflowRuntimeBinding(agent)
-  if (options.tools && binding && !("discoveryDefault" in binding)) {
+  const hasInvocationTools = Object.keys(options.tools || {}).length > 0
+  if (hasInvocationTools && binding && !("discoveryDefault" in binding)) {
     throw new Error("[vitehub] Invocation tools cannot be used with an explicit Agent Workflow. Callable tools require inline execution.")
   }
-  const contextWithTools = options.tools
-    ? { ...invocationContext, [invocationToolsContextKey]: options.tools }
-    : invocationContext
   // Discovered Workflows are optional host defaults. Invocation-scoped functions
   // require an inline run because they cannot be serialized into Workflow input.
-  const workflow = options.tools ? undefined : await runAgentAsWorkflow<TRuntimeConfig, CALL_OPTIONS, TOutput>(agent, contextWithTools, input)
+  const workflow = hasInvocationTools ? undefined : await runAgentAsWorkflow<TRuntimeConfig, CALL_OPTIONS, TOutput>(agent, invocationContext, input)
   if (workflow) {
     return workflow.run
   }
@@ -7651,7 +7677,7 @@ async function runAgentWithContext<
     await activity?.update(input.abortSignal?.aborted ? "cancelled" : "failed", error)
     throw error
   }
-  const result = await runAgentInline(agent, contextWithTools, input)
+  const result = await runAgentInline(agent, invocationContext, input, { tools: hasInvocationTools ? options.tools : undefined })
   // SAFETY: The caller requested the rendered output contract, including a collected stream result.
   return options.output === "drained" ? await drainAgentRunOutput(result) as TOutput : result
 }
