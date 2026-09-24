@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     concurrency:
       group: release-proposal
-      cancel-in-progress: true
+      cancel-in-progress: false
     permissions:
       contents: write
       pull-requests: write
@@ -37,15 +37,40 @@ jobs:
           if [[ "$live_sha" == "$GITHUB_SHA" ]]; then
             echo "current=true" >> "$GITHUB_OUTPUT"
           fi
-      - uses: danielroe/uppt/pr@7bcfb5397c37202ef882363f755423130419d28a # v0.5.5
+      - name: Reconcile an untagged release merge
+        id: pending-release
         if: steps.current.outputs.current == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          merged_branch="$(gh api "repos/${GITHUB_REPOSITORY}/pulls?state=closed&base=main&sort=updated&direction=desc&per_page=100" \
+            --jq '[.[] | select(.merged_at != null and (.head.ref | startswith("release/v")))] | sort_by(.merged_at) | last | .head.ref // empty')"
+          if [[ -z "$merged_branch" ]]; then
+            exit 0
+          fi
+          release_tag="${merged_branch#release/}"
+          tag_sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${release_tag}" --jq .sha 2>/dev/null || true)"
+          if [[ -n "$tag_sha" ]]; then
+            exit 0
+          fi
+
+          echo "pending=true" >> "$GITHUB_OUTPUT"
+          mapfile -t stale_prs < <(gh api "repos/${GITHUB_REPOSITORY}/pulls?state=open&base=main&per_page=100" \
+            --jq '.[] | select(.head.repo.full_name == .base.repo.full_name and (.head.ref | startswith("release/v"))) | .number')
+          for pr in "${stale_prs[@]}"; do
+            gh pr close "$pr" --repo "$GITHUB_REPOSITORY" --delete-branch
+          done
+      - uses: danielroe/uppt/pr@7bcfb5397c37202ef882363f755423130419d28a # v0.5.5
+        if: steps.current.outputs.current == 'true' && steps.pending-release.outputs.pending != 'true'
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           checkout: "false"
           packages: |
             packages/*
       - name: Run CI for the generated release PR
-        if: steps.current.outputs.current == 'true'
+        if: steps.current.outputs.current == 'true' && steps.pending-release.outputs.pending != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash

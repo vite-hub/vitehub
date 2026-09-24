@@ -6,6 +6,9 @@ import { join } from "node:path"
 const branch = process.argv[2]
 const match = /^release\/v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/.exec(branch || "")
 if (!match) throw new Error(`Invalid release branch: ${branch || "(missing)"}`)
+if (match[4]?.split(".").some(identifier => /^\d+$/.test(identifier) && identifier.length > 1 && identifier.startsWith("0"))) {
+  throw new Error(`Invalid release branch: ${branch}`)
+}
 
 const version = branch.slice("release/v".length)
 const root = JSON.parse(readFileSync("package.json", "utf8"))

@@ -12,9 +12,12 @@ const checker = resolve(root, ".github/scripts/check-release-candidate.mjs")
 describe("release PR workflow", () => {
   it("gates tag creation on the merged commit's full verification", () => {
     expect(workflow).toContain("danielroe/uppt/pr@7bcfb5397c37202ef882363f755423130419d28a # v0.5.5")
-    expect(workflow).toContain("group: release-proposal\n      cancel-in-progress: true")
+    expect(workflow).toContain("group: release-proposal\n      cancel-in-progress: false")
     expect(workflow).toContain('live_sha="$(gh api "repos/${GITHUB_REPOSITORY}/branches/main" --jq .commit.sha)"')
     expect(workflow).toContain("if: steps.current.outputs.current == 'true'")
+    expect(workflow).toContain("Reconcile an untagged release merge")
+    expect(workflow).toContain("gh pr close \"$pr\" --repo \"$GITHUB_REPOSITORY\" --delete-branch")
+    expect(workflow).toContain("steps.pending-release.outputs.pending != 'true'")
     expect(workflow).toContain('checkout: "false"')
     expect(workflow).toContain("packages/*")
     expect(workflow).toContain("gh workflow run ci.yml --repo")
@@ -46,6 +49,7 @@ describe("release PR workflow", () => {
       expect(check("release/v0.1.0")).toContain("Validated 1 packages at 0.1.0")
       expect(() => check("release/v0.0.1")).toThrow()
       expect(() => check("release/other")).toThrow()
+      expect(() => check("release/v0.1.0-01")).toThrow()
       writeFileSync(join(directory, "packages", "public", "package.json"), JSON.stringify({ name: "public", version: "0.0.1" }))
       expect(() => check("release/v0.1.0")).toThrow()
     }
