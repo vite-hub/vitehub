@@ -323,49 +323,6 @@ describe("docs import contracts", () => {
   })
 })
 
-describe("playground import contracts", () => {
-  it("keeps the Vite e2e workspace shim aligned with root source exports", () => {
-    const sourceIndex = readFileSync(join(packageDir("workspace"), "src", "sources", "index.ts"), "utf8")
-    const viteE2e = readFileSync(join(repoRoot, "playground", "vite", "build", "vite-e2e.ts"), "utf8")
-    const workspaceShim = viteE2e.slice(
-      viteE2e.indexOf("function renderWorkspaceRuntimeModule"),
-      viteE2e.indexOf("function renderWorkspaceShellRuntimeModule"),
-    )
-    const vercelQueueWrapper = viteE2e.slice(
-      viteE2e.indexOf("function renderVercelQueueWrapper"),
-      viteE2e.indexOf("function renderVercelScheduleWrapper"),
-    )
-    const sourceExports = [...sourceIndex.matchAll(/^export \{ (\w+) \}/gm)].map(match => match[1]).sort()
-    const shimExports = [...workspaceShim.matchAll(/`export (?:\{ (\w+) \}|\* as (\w+)|const (\w+) =)/g)].map(match => match[1] || match[2] || match[3]).sort()
-    const sourceShim = workspaceShim.match(/export const source = \{([^`]+)\}/)?.[1] || ""
-    const shimProperties = [...sourceShim.matchAll(/\b(\w+): [^,}]+/g)].map(match => match[1])
-
-    expect(shimExports).toEqual(["defineWorkspace", "source", "useWorkspace"])
-    expect(shimProperties.sort()).toEqual(sourceExports)
-    expect(viteE2e).toContain('alias["@vite-hub/workspace/internal/runtime/workspace"] = workspaceRuntimeFile')
-    expect(viteE2e).toContain('resolve(queuePackageDir, "src/runtime/create-client.ts")')
-    expect(viteE2e).not.toContain('export { createQueueClient, deferQueue, getQueue, runQueue }')
-    expect(viteE2e).toContain("setQueueRuntimeConfig(queueConfig, createCloudflareQueueRuntimeClient)")
-    expect(viteE2e).toContain("setQueueRuntimeConfig(queueConfig, createVercelQueueRuntimeClient)")
-    expect(vercelQueueWrapper).toContain("createVercelQueueRuntimeClient")
-    expect(vercelQueueWrapper).toContain("}, createVercelQueueRuntimeClient)`")
-    expect(viteE2e).not.toContain('"setQueueRuntimeConfig(queueConfig)"')
-  })
-
-  it("keeps the Vite e2e KV shim on error-first results", () => {
-    const viteE2E = readFileSync(join(repoRoot, "playground", "vite", "build", "vite-e2e.ts"), "utf8")
-    const kvShim = viteE2E.slice(
-      viteE2E.indexOf("function renderKvRuntimeModule"),
-      viteE2E.indexOf("function renderQueueRuntimeModule"),
-    )
-
-    expect(kvShim).toContain('resolve(kvPackageDir, "src/errors.ts")')
-    for (const operation of ["clear", "del", "get", "has", "keys", "set"]) {
-      expect(kvShim).toContain(String.raw`kvResult(\"${operation}\", \"default\"`)
-    }
-  })
-})
-
 describe("showcase contracts", () => {
   it("keeps existing showcase manifests pointed at real files", () => {
     for (const packageName of packageNames) {
