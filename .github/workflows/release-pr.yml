@@ -46,7 +46,7 @@ jobs:
         run: |
           set -euo pipefail
           merged_branch="$(gh api "repos/${GITHUB_REPOSITORY}/pulls?state=closed&base=main&sort=updated&direction=desc&per_page=100" \
-            --jq '[.[] | select(.merged_at != null and (.head.ref | startswith("release/v")))] | sort_by(.merged_at) | last | .head.ref // empty')"
+            --jq '[.[] | select(.merged_at != null and .head.repo.full_name == .base.repo.full_name and (.head.ref | startswith("release/v")))] | sort_by(.merged_at) | last | .head.ref // empty')"
           if [[ -z "$merged_branch" ]]; then
             exit 0
           fi

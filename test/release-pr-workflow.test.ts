@@ -16,6 +16,7 @@ describe("release PR workflow", () => {
     expect(workflow).toContain('live_sha="$(gh api "repos/${GITHUB_REPOSITORY}/branches/main" --jq .commit.sha)"')
     expect(workflow).toContain("if: steps.current.outputs.current == 'true'")
     expect(workflow).toContain("Reconcile an untagged release merge")
+    expect(workflow).toContain(".head.repo.full_name == .base.repo.full_name")
     expect(workflow).toContain("gh pr close \"$pr\" --repo \"$GITHUB_REPOSITORY\" --delete-branch")
     expect(workflow).toContain("steps.pending-release.outputs.pending != 'true'")
     expect(workflow).toContain('checkout: "false"')
