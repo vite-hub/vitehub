@@ -14,17 +14,38 @@ jobs:
   proposal:
     if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && github.repository == 'vite-hub/vitehub'
     runs-on: ubuntu-latest
+    concurrency:
+      group: release-proposal
+      cancel-in-progress: true
     permissions:
       contents: write
       pull-requests: write
       actions: write
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check current main commit
+        id: current
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          live_sha="$(gh api "repos/${GITHUB_REPOSITORY}/branches/main" --jq .commit.sha)"
+          if [[ "$live_sha" == "$GITHUB_SHA" ]]; then
+            echo "current=true" >> "$GITHUB_OUTPUT"
+          fi
       - uses: danielroe/uppt/pr@7bcfb5397c37202ef882363f755423130419d28a # v0.5.5
+        if: steps.current.outputs.current == 'true'
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          checkout: "false"
           packages: |
             packages/*
       - name: Run CI for the generated release PR
+        if: steps.current.outputs.current == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash

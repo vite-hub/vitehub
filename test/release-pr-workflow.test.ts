@@ -12,6 +12,10 @@ const checker = resolve(root, ".github/scripts/check-release-candidate.mjs")
 describe("release PR workflow", () => {
   it("gates tag creation on the merged commit's full verification", () => {
     expect(workflow).toContain("danielroe/uppt/pr@7bcfb5397c37202ef882363f755423130419d28a # v0.5.5")
+    expect(workflow).toContain("group: release-proposal\n      cancel-in-progress: true")
+    expect(workflow).toContain('live_sha="$(gh api "repos/${GITHUB_REPOSITORY}/branches/main" --jq .commit.sha)"')
+    expect(workflow).toContain("if: steps.current.outputs.current == 'true'")
+    expect(workflow).toContain('checkout: "false"')
     expect(workflow).toContain("packages/*")
     expect(workflow).toContain("gh workflow run ci.yml --repo")
     expect(workflow).toContain("actions: write")
