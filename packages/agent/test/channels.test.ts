@@ -1278,7 +1278,7 @@ describe("agent channels", () => {
     })
     if (mentioned instanceof Response) throw new Error("Expected GitHub mention invocation.")
     expect(mentioned.input.context?.github).toMatchObject({ args: "Please, review this", command: "@AgEnT", event: "issue_comment" })
-    expect(mentioned.webhook).toEqual({ concurrencyKey: "acme/app#42", concurrencyLimit: 1, deliveryId: "mention-delivery" })
+    expect(mentioned.webhook).toEqual({ concurrencyGroup: "acme/app#42", concurrencyLimit: 1, deliveryId: "mention-delivery" })
 
     // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
     const botMention = await trigger.invoke(context as never, {
@@ -1382,7 +1382,7 @@ describe("agent channels", () => {
       command: "/comment",
       event: "pull_request_review",
     })
-    expect(review.webhook).toEqual({ concurrencyKey: "acme/app#42", concurrencyLimit: 1, deliveryId: "review-delivery" })
+    expect(review.webhook).toEqual({ concurrencyGroup: "acme/app#42", concurrencyLimit: 1, deliveryId: "review-delivery" })
 
     const approvedChannel = github({ pullRequest: { reconcile: { comments: { reviewStates: ["approved"] } }, reply: false } })
     const approvedTrigger = approvedChannel.triggers?.webhook
@@ -1418,6 +1418,65 @@ describe("agent channels", () => {
     })
   })
 
+  it.each([1, 4])("limits reconciled queue deliveries per PR to %i", async (limit) => {
+    const { github } = await import("../src/channels.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const queue = createLibsqlAgentState({ url: "file::memory:" })
+    await queue.connect()
+    try {
+      const channel = github({ pullRequest: { reconcile: limit === 1 ? true : { concurrencyLimit: limit }, reply: false } })
+      const trigger = channel.triggers?.webhook
+      if (!trigger) throw new Error("Missing GitHub webhook trigger.")
+      for (const issueNumber of [42, 43]) {
+        for (let index = 0; index <= limit; index++) {
+          const deliveryId = `${issueNumber}-${index}`
+          const payload = githubPullRequestPayload("reopened")
+          payload.number = issueNumber
+          payload.pull_request.number = issueNumber
+          // SAFETY: This test fixture constructs the channel invocation context.
+          const result = await trigger.invoke({
+            capabilities: [{ metadata: { commands: { review: {} }, trigger: "/" } }],
+            channel,
+            trigger: { channelId: "github", id: "github.webhook", name: "webhook", source: "channel" },
+          } as never, {
+            github: { deliveryId, event: "pull_request", installationId: 123 },
+            payload,
+          })
+          if (result instanceof Response || !result.webhook?.concurrencyGroup || !result.webhook.concurrencyLimit) {
+            throw new Error("Expected GitHub reconciliation ownership.")
+          }
+          await queue.enqueueWebhookDelivery({
+            deliveryId: result.webhook.deliveryId,
+            concurrencyKey: result.webhook.concurrencyKey,
+            concurrencyGroup: result.webhook.concurrencyGroup,
+            concurrencyLimit: result.webhook.concurrencyLimit,
+            enqueuedAt: Date.now(),
+            leaseTtlMs: 60_000,
+            request: { body: JSON.stringify(payload), headers: {}, method: "POST", url: "https://github.test/webhook" },
+            scope: "github",
+            webhookId: "github",
+          })
+        }
+      }
+      const leases = []
+      for (const issueNumber of [42, 43]) {
+        for (let index = 0; index < limit; index++) {
+          const lease = await queue.claimWebhookDelivery("github")
+          expect(lease?.deliveryId).toBe(`${issueNumber}-${index}`)
+          if (!lease) throw new Error("Expected queued delivery lease.")
+          leases.push(lease)
+        }
+      }
+      await expect(queue.claimWebhookDelivery("github")).resolves.toBeNull()
+      const first = leases[0]!
+      await queue.completeWebhookDelivery(first.scope, first.deliveryId, first.leaseToken)
+      await expect(queue.claimWebhookDelivery("github")).resolves.toMatchObject({ deliveryId: `42-${limit}` })
+      await expect(queue.claimWebhookDelivery("github")).resolves.toBeNull()
+    } finally {
+      await queue.disconnect()
+    }
+  })
+
   it("reconciles configured pull request lifecycle events with invocation ownership", async () => {
     const { github } = await import("../src/channels.ts")
     const channel = github({ activity: true, pullRequest: { reconcile: { prompt: "Keep this pull request healthy." }, reply: false } })
@@ -1446,7 +1505,7 @@ describe("agent channels", () => {
     })
     expect(result.input.prompt).toContain("Request: Keep this pull request healthy.")
     expect(result.input.prompt).not.toContain("specifically this comment")
-    expect(result.webhook).toEqual({ concurrencyKey: "acme/app#42", concurrencyLimit: 1, deliveryId: "delivery-1" })
+    expect(result.webhook).toEqual({ concurrencyGroup: "acme/app#42", concurrencyLimit: 1, deliveryId: "delivery-1" })
     expect(result.run?.activity).toEqual({ links: [], target: { installationId: 123, issue: 42, repository: "acme/app" } })
 
     const concurrentChannel = github({ pullRequest: { reconcile: { concurrencyLimit: 4 }, reply: false } })
@@ -1458,7 +1517,7 @@ describe("agent channels", () => {
       payload: githubPullRequestPayload("reopened"),
     })
     if (concurrent instanceof Response) throw new Error("Expected GitHub reconciliation invocation.")
-    expect(concurrent.webhook).toEqual({ concurrencyKey: "acme/app#42", concurrencyLimit: 4, deliveryId: "delivery-2" })
+    expect(concurrent.webhook).toEqual({ concurrencyGroup: "acme/app#42", concurrencyLimit: 4, deliveryId: "delivery-2" })
 
     const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
     const privateKeyPem = privateKey.export({ format: "pem", type: "pkcs1" }).toString()

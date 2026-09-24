@@ -2910,7 +2910,7 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
         }
         if (reconciled && command.deliveryId) {
           invocation.webhook = {
-            concurrencyKey: `${command.repository}#${command.issueNumber}`,
+            concurrencyGroup: `${command.repository}#${command.issueNumber}`,
             concurrencyLimit: githubPullRequestReconcileConcurrencyLimit(options.reconcile),
             deliveryId: command.deliveryId,
           }
