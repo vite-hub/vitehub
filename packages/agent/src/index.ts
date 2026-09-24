@@ -199,6 +199,7 @@ import type {
   AgentTelemetryContentOptions,
   AgentTelemetryConfiguration,
   AgentToolDefinition,
+  AgentToolExecutionContext,
   AgentToolSchema,
   AgentToolSet,
   AgentToolStandardSchema,
@@ -774,13 +775,13 @@ type InvocationToolSchemaOutput<TSchema> = TSchema extends StandardSchemaV1<unkn
 type SchemaOwnedInvocationTools<TSchemas extends Record<string, AgentToolSchema>> = {
   [Key in keyof TSchemas]: Omit<AgentToolDefinition<any, any>, "execute" | "inputSchema"> & {
     inputSchema: TSchemas[Key]
-    execute?: (input: InvocationToolSchemaOutput<TSchemas[Key]>) => MaybePromise<unknown>
+    execute?: (input: InvocationToolSchemaOutput<TSchemas[Key]>, context?: AgentToolExecutionContext) => MaybePromise<unknown>
   }
 }
 type CheckedInvocationTools<TTools> = {
   [Key in keyof TTools]: TTools[Key] extends { inputSchema: infer TSchema }
     ? TSchema extends StandardSchemaV1<unknown, infer TInput>
-      ? { execute?: (input: TInput) => MaybePromise<unknown> }
+      ? { execute?: (input: TInput, context?: AgentToolExecutionContext) => MaybePromise<unknown> }
       : unknown
     : unknown
 }

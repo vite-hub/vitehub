@@ -21,9 +21,9 @@ describe("runAgent invocation tools", () => {
         send_message: {
           name: "send_message",
           inputSchema: sdkSchema,
-          async execute(input) {
+          async execute(input, context?: AgentToolExecutionContext) {
             expectTypeOf(input).toEqualTypeOf<{ query: string }>()
-            return input.query
+            return context?.toolCallId ?? input.query
           },
         },
       },
@@ -40,9 +40,9 @@ describe("runAgent invocation tools", () => {
         send_message: {
           name: "send_message",
           inputSchema: { type: "object", properties: { message: { type: "string" } }, required: ["message"] },
-          async execute({ message }: { message: string }) {
+          async execute({ message }: { message: string }, context?: AgentToolExecutionContext) {
             expectTypeOf(message).toEqualTypeOf<string>()
-            return { sent: true }
+            return { sent: true, aborted: context?.abortSignal?.aborted }
           },
         },
       },
