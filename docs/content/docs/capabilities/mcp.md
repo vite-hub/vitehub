@@ -128,6 +128,10 @@ Tool integrity requires `ai` 7.0.19 or newer only when `integrity` is configured
 
 The external MCP Server owns its own credentials, availability, and tool behavior.
 
+During resolution and tool discovery, transient transport failures make only the affected server unavailable. Other servers retain their tools. HTTP 408, 409, 429, and 5xx responses, recognized network errors, and bounded timeouts produce entries in the Invocation input context at `vitehub.mcp.warnings`. Each entry records the server, phase, and HTTP status when available. Inspection marks the server `Unavailable`.
+
+Authentication, configuration, cancellation, protocol errors, duplicate tools, and tool-definition integrity drift remain fatal. This degradation applies to `mcp()`; Executor connection and discovery failures remain fatal.
+
 ## Driver support
 
 | Agent Driver | Support |

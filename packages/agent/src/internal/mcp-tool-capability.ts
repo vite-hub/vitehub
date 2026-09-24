@@ -43,6 +43,7 @@ export interface McpToolCapabilityOptions<
   Name extends WorkspaceName = WorkspaceName,
 > {
   id: string
+  degradeUnavailable?: boolean
   inspection?: AgentCapabilityInspectionDefinition
   integrityLabel: string
   invalidServerMessage: string
@@ -124,18 +125,27 @@ async function assertMcpToolIntegrity(server: string, tools: Record<string, unkn
 }
 
 function mcpFailureStatus(error: unknown): number | undefined {
-  if (!isRuntimeObject(error)) return undefined
-  const record = error as Record<string, unknown>
+  if (!isRuntimeRecord(error)) return undefined
+  const record = error
   const statusCode = Number(record.statusCode ?? record.status)
   return Number.isInteger(statusCode) && statusCode >= 400 && statusCode <= 599 ? statusCode : undefined
 }
 
-function isMcpAvailabilityFailure(error: unknown): boolean {
-  if (mcpFailureStatus(error)) return true
-  const record = isRuntimeObject(error) ? error as Record<string, unknown> : undefined
-  const name = record && hasRuntimeType(record.name, "string") ? record.name : ""
-  const message = record && hasRuntimeType(record.message, "string") ? record.message : String(error ?? "")
-  return /MCPClientError|fetch failed|network|timeout|timed out|ECONN|socket/i.test(`${name} ${message}`)
+function isMcpAvailabilityFailure(error: unknown, seen = new Set<unknown>()): boolean {
+  if (!isRuntimeRecord(error) || seen.has(error)) return false
+  seen.add(error)
+  if (error.name === "AbortError") return false
+  if (error.name === "MCPClientError" && hasRuntimeType(error.message, "string")) {
+    if (/\baborted\b/.test(error.message) || hasRuntimeType(error.code, "number")) return false
+    // The SDK has no structured timeout code for these two bounded timers.
+    if (/^(?:MCP client initialization|Request) timed out after \d+(?:\.\d+)?ms$/.test(error.message)) return true
+  }
+  const status = mcpFailureStatus(error)
+  if (status !== undefined) return status === 408 || status === 409 || status === 429 || status >= 500
+  if (error.name === "TimeoutError") return true
+  if (hasRuntimeType(error.code, "string") && ["ECONNREFUSED", "ECONNRESET", "ETIMEDOUT", "EAI_AGAIN", "ENETUNREACH", "EHOSTUNREACH", "UND_ERR_CONNECT_TIMEOUT", "UND_ERR_HEADERS_TIMEOUT", "UND_ERR_SOCKET"].includes(error.code)) return true
+  if (error.cause !== undefined) return isMcpAvailabilityFailure(error.cause, seen)
+  return error.name === "TypeError" && error.message === "fetch failed"
 }
 
 function recordMcpAvailabilityWarning(
@@ -145,7 +155,7 @@ function recordMcpAvailabilityWarning(
   error: unknown,
 ): void {
   const input = context.input.get()
-  const currentContext = input.context && typeof input.context === "object" && !Array.isArray(input.context)
+  const currentContext = isRuntimeRecord(input.context) && !Array.isArray(input.context)
     ? input.context
     : {}
   const statusCode = mcpFailureStatus(error)
@@ -218,19 +228,19 @@ export function defineMcpToolCapability<
           clients[index] = definition.value.connection
         }
       }
-      let hardFailure: unknown
+      let hardFailure: PromiseRejectedResult | undefined
       for (const [index, definition] of definitions.entries()) {
         if (definition.status !== "rejected") continue
-        if (isMcpAvailabilityFailure(definition.reason)) {
+        if (options.degradeUnavailable && isMcpAvailabilityFailure(definition.reason)) {
           servers[index]!.status = "Unavailable"
           recordMcpAvailabilityWarning(context, options.servers[index]!.name, "resolve", definition.reason)
         }
         else {
-          hardFailure ||= definition.reason
+          hardFailure ??= definition
         }
       }
       await publishInspection()
-      if (hardFailure) throw hardFailure
+      if (hardFailure) throw hardFailure.reason
       const needsMcpRuntime = definitions.some(result => result.status === "fulfilled"
         && result.value
         && !isMcpClient(result.value.connection)
@@ -256,19 +266,19 @@ export function defineMcpToolCapability<
       }))
       for (const [index, result] of results.entries()) {
         if (result.status === "rejected") {
-          if (isMcpAvailabilityFailure(result.reason)) {
+          if (options.degradeUnavailable && isMcpAvailabilityFailure(result.reason)) {
             servers[index]!.status = "Unavailable"
             recordMcpAvailabilityWarning(context, options.servers[index]!.name, "discovery", result.reason)
           }
           else {
             servers[index]!.status = "Discovery failed"
-            hardFailure ||= result.reason
+            hardFailure ??= result
           }
         }
         else if (result.value) servers[index]!.status = "Resolved"
       }
       await publishInspection()
-      if (hardFailure) throw hardFailure
+      if (hardFailure) throw hardFailure.reason
       for (const result of results) {
         if (result.status !== "fulfilled" || !result.value) continue
         const { metadata, server, serverTools } = result.value

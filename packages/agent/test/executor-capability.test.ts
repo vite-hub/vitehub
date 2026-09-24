@@ -355,9 +355,9 @@ describe("executor capability", () => {
     }
   })
 
-  it("closes the Executor client when tool discovery fails", async () => {
+  it.each([new Error("discovery failed"), Object.assign(new Error("Gateway timeout"), { statusCode: 504 })])("closes the Executor client when tool discovery fails: %s", async (error) => {
     const client = createClient({})
-    client.tools.mockRejectedValueOnce(new Error("discovery failed"))
+    client.tools.mockRejectedValueOnce(error)
     vi.doMock("@ai-sdk/mcp", () => ({ createMCPClient: vi.fn(async () => client) }))
 
     try {
@@ -365,7 +365,7 @@ describe("executor capability", () => {
       const { executor } = await import("../src/capabilities.ts")
       await expect(resolveAgentCapabilities({
         capabilities: [executor({ url: "https://executor.sh/quiver/mcp" })],
-      }, runtime(), {})).rejects.toThrow("discovery failed")
+      }, runtime(), {})).rejects.toBe(error)
       expect(client.close).toHaveBeenCalledTimes(1)
     }
     finally {

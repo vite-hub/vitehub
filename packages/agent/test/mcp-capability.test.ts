@@ -40,6 +40,51 @@ async function fingerprintTools(tools: Record<string, unknown>) {
 }
 
 describe("mcp capability", () => {
+  describe.each(["resolve", "discovery"] as const)("%s failure classification", (phase) => {
+    async function resolveFailure(error: unknown) {
+      const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+      const { mcp } = await import("../src/capabilities.ts")
+      const client = createClient({})
+      client.tools.mockRejectedValue(error)
+      return resolveAgentCapabilities({
+        capabilities: [mcp({ servers: { failing: async () => {
+          if (phase === "resolve") throw error
+          return client
+        } } })],
+      }, runtime(), {})
+    }
+
+    it.each([
+      undefined, null, false, 0, "",
+      Object.assign(new Error("Unauthorized"), { statusCode: 401 }),
+      Object.assign(new Error("Forbidden"), { status: 403 }),
+      Object.assign(new Error("Bad request"), { statusCode: 400 }),
+      Object.assign(new Error("Request aborted"), { name: "AbortError" }),
+      Object.assign(new Error("Unsupported protocol version"), { name: "MCPClientError" }),
+      Object.assign(new Error("Invalid maxRetries"), { name: "MCPClientError" }),
+      new Error("Invalid network configuration"),
+      Object.assign(new Error("MCP client initialization was aborted", { cause: new TypeError("fetch failed") }), { name: "MCPClientError" }),
+      Object.assign(new Error("Request timed out after 5ms"), { name: "MCPClientError", code: -32602 }),
+    ])("preserves hard rejection %#", async (error) => {
+      await expect(resolveFailure(error)).rejects.toBe(error)
+    })
+
+    it.each([
+      Object.assign(new Error("Gateway timeout"), { statusCode: 504 }),
+      Object.assign(new Error("Rate limited"), { statusCode: 429 }),
+      Object.assign(new Error("Connection refused"), { code: "ECONNREFUSED" }),
+      Object.assign(new Error("Request timed out"), { name: "TimeoutError" }),
+      new TypeError("fetch failed"),
+      Object.assign(new Error("MCP client initialization timed out after 5ms"), { name: "MCPClientError" }),
+      Object.assign(new Error("Request timed out after 5ms"), { name: "MCPClientError" }),
+      new Error("MCP transport failed", { cause: Object.assign(new Error("reset"), { code: "ECONNRESET" }) }),
+    ])("degrades transient rejection %#", async (error) => {
+      const resolved = await resolveFailure(error)
+      expect(resolved.tools).toEqual({})
+      await resolved.close()
+    })
+  })
+
   it("resolves independent servers concurrently while preserving configured tool order", async () => {
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { mcp } = await import("../src/capabilities.ts")
