@@ -7540,11 +7540,55 @@ export function runAgent<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
   TOutput = unknown,
+  const TSchemas extends Record<string, AgentToolSchema> = Record<string, AgentToolSchema>,
 >(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput>,
   context: AgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS>,
-  options: RunAgentOptions & { output: "drained" },
+  options: RunAgentOptions<SchemaOwnedInvocationTools<TSchemas>> & { output: "drained", tools: SchemaOwnedInvocationTools<TSchemas> },
+): Promise<AgentDrainedOutput<TOutput> | AgentWorkflowRun<AgentWorkflowOutput<TOutput>>>
+export function runAgent<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+  TOutput = unknown,
+  const TTools extends Record<string, AgentToolDefinition<any, any>> = Record<string, AgentToolDefinition<any, any>>,
+>(
+  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput>,
+  context: AgentRuntimeContext<TRuntimeConfig>,
+  input: AgentRunInput<CALL_OPTIONS>,
+  options: RunAgentOptions<TTools> & { output: "drained", tools?: TTools & CheckedInvocationTools<TTools> },
+): Promise<AgentDrainedOutput<TOutput> | AgentWorkflowRun<AgentWorkflowOutput<TOutput>>>
+export function runAgent<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+  TOutput = unknown,
+  const TSchemas extends Record<string, AgentToolSchema> = Record<string, AgentToolSchema>,
+>(
+  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput>,
+  context: AgentRuntimeContext<TRuntimeConfig>,
+  input: AgentRunInput<CALL_OPTIONS>,
+  options: RunAgentOptions<SchemaOwnedInvocationTools<TSchemas>> & { tools: SchemaOwnedInvocationTools<TSchemas> },
+): Promise<TOutput | Response | AgentWorkflowRun<AgentWorkflowOutput<TOutput>>>
+export function runAgent<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+  TOutput = unknown,
+  const TTools extends Record<string, AgentToolDefinition<any, any>> = Record<string, AgentToolDefinition<any, any>>,
+>(
+  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput>,
+  context: AgentRuntimeContext<TRuntimeConfig>,
+  input: AgentRunInput<CALL_OPTIONS>,
+  options: RunAgentOptions<TTools> & { tools?: TTools & CheckedInvocationTools<TTools> },
+): Promise<TOutput | Response | AgentWorkflowRun<AgentWorkflowOutput<TOutput>>>
+export function runAgent<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+  TOutput = unknown,
+>(
+  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput>,
+  context: AgentRuntimeContext<TRuntimeConfig>,
+  input: AgentRunInput<CALL_OPTIONS>,
+  options: Omit<RunAgentOptions, "tools"> & { output: "drained", tools?: Record<string, never> },
 ): Promise<AgentDrainedOutput<TOutput> | AgentWorkflowRun<AgentWorkflowOutput<TOutput>>>
 export function runAgent<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -7554,7 +7598,7 @@ export function runAgent<
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput>,
   context: AgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS>,
-  options?: RunAgentOptions,
+  options?: Omit<RunAgentOptions, "tools"> & { tools?: Record<string, never> },
 ): Promise<TOutput | Response | AgentWorkflowRun<AgentWorkflowOutput<TOutput>>>
 export async function runAgent<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,

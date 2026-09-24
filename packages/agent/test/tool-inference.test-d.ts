@@ -5,12 +5,13 @@ import { z } from "zod"
 import type { StandardJSONSchemaV1, StandardSchemaV1 } from "@standard-schema/spec"
 import { defineCapability } from "../src/capability-runtime.ts"
 import { defineAgent, runAgent } from "../src/index.ts"
-import type { AgentCapabilityContext, AgentCapabilityRuntimeContext, AgentToolExecutionContext, AgentToolSchema, AgentToolStandardSchema } from "../src/types.ts"
+import type { AgentCapabilityContext, AgentCapabilityRuntimeContext, AgentRuntimeContext, AgentToolExecutionContext, AgentToolSchema, AgentToolStandardSchema } from "../src/types.ts"
 
 declare const searchSchema: AgentToolSchema<{ query: string }>
 declare const sdkSchema: AgentToolStandardSchema<{ query: string }>
 declare const countSchema: StandardSchemaV1<string, number> & StandardJSONSchemaV1<string, number>
 declare const optionalSchema: AgentToolStandardSchema<{ query?: string } | undefined>
+declare const runtimeContext: AgentRuntimeContext
 
 describe("runAgent invocation tools", () => {
   it("accepts a typed handler for a schema-backed invocation tool", () => {
@@ -73,6 +74,35 @@ describe("runAgent invocation tools", () => {
     } })
   })
 
+  it("infers and checks contextual invocation tool inputs", () => {
+    const agent = defineAgent({ driver: { run: () => "done" } })
+    const valibotSchema = v.object({ message: v.string() })
+    const zodSchema = z.object({ count: z.number() })
+    runAgent(agent, runtimeContext, {}, { tools: {
+      send_message: {
+        name: "send_message",
+        inputSchema: valibotSchema,
+        execute(input, context?: AgentToolExecutionContext) {
+          expectTypeOf(input).toEqualTypeOf<{ message: string }>()
+          return context?.toolCallId ?? input.message
+        },
+      },
+      count: {
+        name: "count",
+        inputSchema: zodSchema,
+        execute(input) {
+          expectTypeOf(input).toEqualTypeOf<{ count: number }>()
+          return input.count
+        },
+      },
+    } })
+    // @ts-expect-error The Valibot schema produces message, not id.
+    runAgent(agent, runtimeContext, {}, { tools: { send_message: {
+      name: "send_message", inputSchema: valibotSchema,
+      execute(input: { id: number }) { return input.id },
+    } } })
+  })
+
   it("rejects handlers that contradict a standard schema", () => {
     const agent = defineAgent({ driver: { run: () => "done" } })
     // @ts-expect-error The schema produces query, not id.
@@ -85,6 +115,17 @@ describe("runAgent invocation tools", () => {
 })
 
 describe("Capability tool schema inference", () => {
+  it("infers inputs from validation-only Standard Schemas", () => {
+    const schema = v.object({ message: v.string() })
+    defineCapability({ id: "valibot", tools: { send_message: {
+      name: "send_message",
+      inputSchema: schema,
+      execute(input) {
+        expectTypeOf(input).toEqualTypeOf<{ message: string }>()
+        return input.message
+      },
+    } } })
+  })
   it("infers each inline handler from its schema and preserves its return type", () => {
     const capability = defineCapability({
       id: "search",

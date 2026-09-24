@@ -3,6 +3,7 @@ import { markCapabilityInspection } from "./internal/capability-inspection.ts"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
 import { asUnknownBoundary, hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { resolveRuntimeValue } from "@vite-hub/runtime"
+import type { StandardSchemaV1 } from "@standard-schema/spec"
 
 import { applyWorkspaceAccessWrapper, hasTrustedWorkspaceAccessScope, hasTrustedWorkspaceSourceResolutionDefinition, isTrustedSourceFreeInspection, workspaceOverrideSymbol } from "./access-runtime.ts"
 import {
@@ -60,7 +61,6 @@ import type {
   AgentStaticCapabilitiesList,
   AgentToolInspection,
   AgentToolSet,
-  AgentToolStandardSchema,
   AgentToolTransform,
   MaybePromise,
   ResolvedAgentTriggerDefinition,
@@ -99,7 +99,7 @@ type AgentCapabilityDefinitionInput<
   TTypeContract extends AgentCapabilityTypeContract = AgentCapabilityTypeContract,
 > = AgentCapabilityDefinition<TRuntimeConfig, Name, TTypeContract>
 // Only portable validators own a handler input type. Raw JSON Schema needs an explicit handler type.
-type ToolSchemaOutput<TSchema> = TSchema extends AgentToolStandardSchema<infer TOutput> ? TOutput : never
+type ToolSchemaOutput<TSchema> = TSchema extends StandardSchemaV1<unknown, infer TOutput> ? TOutput : never
 type SchemaOwnedTools<TSchemas extends Record<string, unknown>> = {
   [Key in keyof TSchemas]: unknown extends TSchemas[Key] ? unknown : {
     inputSchema?: TSchemas[Key]
