@@ -1,5 +1,7 @@
 import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
+import { agentToolJsonSchema } from "./tool-schema.ts"
 import type { AgentInspectionValue, AgentToolInspection } from "./types.ts"
+import type { AgentToolSchema } from "./types.ts"
 
 const emptyToolInputSchema = {
   additionalProperties: false,
@@ -30,14 +32,9 @@ function inspectionValue(value: unknown): AgentInspectionValue | undefined {
 }
 
 function standardJsonSchema(value: Record<string, unknown>, direction: "input" | "output"): AgentInspectionValue | undefined {
-  const standard = value["~standard"]
-  if (!isRuntimeRecord(standard)) return
-  const jsonSchema = Reflect.get(standard, "jsonSchema")
-  if (!jsonSchema || !hasRuntimeType(jsonSchema, "object")) return
-  const resolve = Reflect.get(jsonSchema, direction)
-  if (!hasRuntimeType(resolve, "function")) return
   try {
-    return inspectionValue(resolve({ target: "draft-07" }))
+    // SAFETY: The Standard Schema discriminator is checked by toolJsonSchema before this helper is called.
+    return inspectionValue(agentToolJsonSchema(value as AgentToolSchema, direction))
   }
   catch {
     return

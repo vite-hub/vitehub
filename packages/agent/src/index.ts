@@ -108,6 +108,7 @@ import {
   withJsonCompatibleToolOutputs,
 } from "./tool-runtime.ts"
 import { inspectAgentTools } from "./tool-inspection.ts"
+import { withAgentToolJsonSchemas } from "./tool-schema.ts"
 import {
   createAgentStreamEventTracer,
   agentInvocationJournalContentTraceLogSymbol,
@@ -215,6 +216,7 @@ import type {
   BackedAgentInvocationOptions,
 } from "./agent-invocation.ts"
 import type { StreamEvent } from "./messages.ts"
+import type { StandardSchemaV1 } from "@standard-schema/spec"
 import type { AgentTraceContext } from "./trace.ts"
 import type { ResolvedAgentTriggerInvocation, ResolvedAgentTriggerInvocationResult } from "./trigger-runtime.ts"
 import type {
@@ -768,7 +770,7 @@ export interface RunAgentOptions<TTools extends Record<string, AgentToolDefiniti
   output?: "drained"
 }
 
-type InvocationToolSchemaOutput<TSchema> = TSchema extends AgentToolStandardSchema<infer TOutput> ? TOutput : unknown
+type InvocationToolSchemaOutput<TSchema> = TSchema extends StandardSchemaV1<unknown, infer TOutput> ? TOutput : unknown
 type SchemaOwnedInvocationTools<TSchemas extends Record<string, AgentToolSchema>> = {
   [Key in keyof TSchemas]: Omit<AgentToolDefinition<any, any>, "execute" | "inputSchema"> & {
     inputSchema: TSchemas[Key]
@@ -777,7 +779,7 @@ type SchemaOwnedInvocationTools<TSchemas extends Record<string, AgentToolSchema>
 }
 type CheckedInvocationTools<TTools> = {
   [Key in keyof TTools]: TTools[Key] extends { inputSchema: infer TSchema }
-    ? TSchema extends AgentToolStandardSchema<infer TInput>
+    ? TSchema extends StandardSchemaV1<unknown, infer TInput>
       ? { execute?: (input: TInput) => MaybePromise<unknown> }
       : unknown
     : unknown
@@ -1879,7 +1881,7 @@ function defineBaseAgent<
         ? await resolveStaticCapabilityTools({ capabilities: normalizedCapabilities }, resolvedContext)
         : undefined
       const capabilityTools = Object.keys(resolvedTools || {}).length
-        ? withAgentToolStepReporting(withJsonCompatibleToolOutputs(applyAgentToolPolicies(resolvedTools) || {}), context.toolStepReporter)
+        ? withAgentToolStepReporting(withAgentToolJsonSchemas(withJsonCompatibleToolOutputs(applyAgentToolPolicies(resolvedTools) || {})), context.toolStepReporter)
         : undefined
       return capabilityTools
         ? { ...adapterInstance, tools: capabilityTools }
@@ -4096,7 +4098,7 @@ async function createAgentInvocationContext<
       throw error
     }
     const transformedTools = transformed.tools
-    const preparedTools = withJsonCompatibleToolOutputs(applyAgentToolPolicies(transformedTools) || {})
+    const preparedTools = withAgentToolJsonSchemas(withJsonCompatibleToolOutputs(applyAgentToolPolicies(transformedTools) || {}))
     const tools = Object.keys(transformedTools || {}).length
       ? withAgentToolStepReporting(preparedTools, toolStepReporter)
       : undefined

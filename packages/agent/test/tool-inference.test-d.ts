@@ -1,5 +1,7 @@
 import { describe, expectTypeOf, it } from "vitest"
 import { tool } from "ai"
+import * as v from "valibot"
+import { z } from "zod"
 import type { StandardJSONSchemaV1, StandardSchemaV1 } from "@standard-schema/spec"
 import { defineCapability } from "../src/capability-runtime.ts"
 import { defineAgent, runAgent } from "../src/index.ts"
@@ -45,6 +47,30 @@ describe("runAgent invocation tools", () => {
         },
       },
     })
+  })
+
+  it("infers Valibot and Zod invocation tool inputs", () => {
+    const agent = defineAgent({ driver: { run: () => "done" } })
+    const valibotSchema = v.object({ message: v.pipe(v.string(), v.trim(), v.minLength(1)) })
+    const zodSchema = z.object({ count: z.number().int() })
+    runAgent(agent, {}, { output: "drained", tools: {
+      send_message: {
+        name: "send_message",
+        inputSchema: valibotSchema,
+        execute(input) {
+          expectTypeOf(input).toEqualTypeOf<{ message: string }>()
+          return input.message
+        },
+      },
+      count: {
+        name: "count",
+        inputSchema: zodSchema,
+        execute(input) {
+          expectTypeOf(input).toEqualTypeOf<{ count: number }>()
+          return input.count
+        },
+      },
+    } })
   })
 
   it("rejects handlers that contradict a standard schema", () => {

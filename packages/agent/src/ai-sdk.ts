@@ -24,6 +24,7 @@ import { materializeAgentModel } from "./internal/agent-model.ts"
 import { updateAgentTelemetryConfiguration } from "./internal/agent-telemetry.ts"
 import { isAuxiliaryAgentAdapterContext } from "./internal/channels.ts"
 import { inspectAgentTools } from "./tool-inspection.ts"
+import { withAgentToolJsonSchemas } from "./tool-schema.ts"
 import {
   applyAgentToolPolicies,
   copyToolWithOverrides,
@@ -814,7 +815,7 @@ async function resolveTools(options: AiSdkAdapterOptions, context: AgentAdapterM
   // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
   const resolved = await resolveValue(options.tools as never, context)
   // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
-  const tools = withJsonCompatibleToolOutputs(applyAgentToolPolicies(resolved as AgentToolSet | undefined) || {})
+  const tools = withAgentToolJsonSchemas(withJsonCompatibleToolOutputs(applyAgentToolPolicies(resolved as AgentToolSet | undefined) || {}))
   const { materialize_sources: materializeSources, ...reportableTools } = tools
   return {
     // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
@@ -1464,7 +1465,7 @@ async function createAgent(
 export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
   const staticTools = hasRuntimeType(options.tools, "object") && options.tools
     // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
-    ? withAgentToolStepReporting(withJsonCompatibleToolOutputs(applyAgentToolPolicies(options.tools as AgentToolSet) || {}))
+    ? withAgentToolStepReporting(withAgentToolJsonSchemas(withJsonCompatibleToolOutputs(applyAgentToolPolicies(options.tools as AgentToolSet) || {})))
     : undefined
   return markMessageChannelInstructionConsumer({
     async generate(context) {

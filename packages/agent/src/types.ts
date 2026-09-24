@@ -2046,7 +2046,7 @@ export interface AgentToolPolicyContext {
 }
 
 export type AgentToolStandardSchema<T = unknown> = StandardSchemaV1<unknown, T> & StandardJSONSchemaV1<unknown, T>
-export type AgentToolSchema<T = unknown> = AgentToolStandardSchema<T> | (JSONSchema7 & { "~standard"?: never })
+export type AgentToolSchema<T = unknown> = AgentToolStandardSchema<T> | StandardSchemaV1<unknown, T> | (JSONSchema7 & { "~standard"?: never })
 
 export interface AgentToolExecutionContext {
   abortSignal?: AbortSignal
