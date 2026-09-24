@@ -30,14 +30,17 @@ export function createChannel<
       let deliveryId: string | undefined
       let connectorName: string | undefined
       try {
+        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Public send can receive invalid JavaScript input.
         if (typeof text !== "string" || text.trim().length === 0) {
           throw channelError("Channel message text must be a non-empty string.")
         }
 
+        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Public send validates JavaScript options before reading the selector.
         if (!options || typeof options !== "object") {
           throw channelError(`Channel "${name}" send options must select a connector.`)
         }
 
+        // SAFETY: The object check above establishes that options can carry a connector selector.
         connectorName = (options as { connector?: string }).connector || definition.defaultConnector
         if (!connectorName) {
           throw channelError(`Channel "${name}" requires a connector in send options.`)
@@ -48,6 +51,7 @@ export function createChannel<
           throw channelError(`Channel "${name}" does not define connector "${connectorName}".`)
         }
 
+        // SAFETY: The object check above establishes that options can be copied into connector options.
         const connectorOptions = { ...(options as Record<string, unknown>) }
         delete connectorOptions.connector
         deliveryId = globalThis.crypto.randomUUID()
