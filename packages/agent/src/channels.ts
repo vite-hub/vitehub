@@ -400,6 +400,8 @@ export interface GitHubPullRequestCommentEventOptions<TRuntimeConfig extends Age
   maxFiles?: number
   origin?: string
   reconcile?: boolean | {
+    /** Maximum concurrent reconciled webhook deliveries for one pull request. Defaults to 1. */
+    concurrencyLimit?: number
     /** Trigger on every human PR comment when no configured mention is present. */
     comments?: boolean | {
       events?: readonly ("issue_comment" | "pull_request_review_comment" | "pull_request_review" | (string & {}))[]
@@ -798,6 +800,14 @@ function githubPullRequestAutomaticCommentOptions(
 ): Exclude<NonNullable<Extract<GitHubPullRequestCommentEventOptions["reconcile"], object>["comments"]>, false> | undefined {
   if (!reconcile || reconcile === true || !reconcile.comments) return
   return reconcile.comments === true ? {} : reconcile.comments
+}
+
+function githubPullRequestReconcileConcurrencyLimit(
+  reconcile: GitHubPullRequestCommentEventOptions["reconcile"],
+): number {
+  return reconcile && typeof reconcile === "object" && reconcile.concurrencyLimit !== undefined
+    ? reconcile.concurrencyLimit
+    : 1
 }
 
 function githubPullRequestReviewBody(payload: GitHubIssueCommentPayload): string | undefined {
@@ -2902,7 +2912,7 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
             ? {
                 webhook: {
                   concurrencyKey: `${command.repository}#${command.issueNumber}`,
-                  concurrencyLimit: 1,
+                  concurrencyLimit: githubPullRequestReconcileConcurrencyLimit(options.reconcile),
                   deliveryId: command.deliveryId,
                 },
               }

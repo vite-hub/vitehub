@@ -1449,6 +1449,17 @@ describe("agent channels", () => {
     expect(result.webhook).toEqual({ concurrencyKey: "acme/app#42", concurrencyLimit: 1, deliveryId: "delivery-1" })
     expect(result.run?.activity).toEqual({ links: [], target: { installationId: 123, issue: 42, repository: "acme/app" } })
 
+    const concurrentChannel = github({ pullRequest: { reconcile: { concurrencyLimit: 4 }, reply: false } })
+    const concurrentTrigger = concurrentChannel.triggers?.webhook
+    if (!concurrentTrigger) throw new Error("Missing GitHub webhook trigger.")
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
+    const concurrent = await concurrentTrigger.invoke({ ...context, channel: concurrentChannel } as never, {
+      github: { deliveryId: "delivery-2", event: "pull_request", installationId: 123 },
+      payload: githubPullRequestPayload("reopened"),
+    })
+    if (concurrent instanceof Response) throw new Error("Expected GitHub reconciliation invocation.")
+    expect(concurrent.webhook).toEqual({ concurrencyKey: "acme/app#42", concurrencyLimit: 4, deliveryId: "delivery-2" })
+
     const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
     const privateKeyPem = privateKey.export({ format: "pem", type: "pkcs1" }).toString()
     const fetcher = vi.fn(async (input: string | URL | Request) => String(input).includes("/access_tokens")
