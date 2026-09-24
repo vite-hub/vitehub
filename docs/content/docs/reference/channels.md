@@ -69,17 +69,19 @@ The file name becomes the Channel name. For a Vite suffix definition, use `src/a
 
 ## Send from an H3 or Nitro handler
 
-`useChannel()` returns immediately. `send()` performs the connector call and returns a normalized result with the Channel name, connector name, ViteHub delivery id, and optional provider message id.
+`useChannel()` returns immediately. `send()` performs the connector call and returns `[null, receipt]` on success or `[error, null]` on failure. The receipt has the Channel name, connector name, ViteHub delivery id, and optional provider message id. Check the error before using the receipt.
 
 ```ts [server/api/build-finished.post.ts]
 import { defineEventHandler } from 'h3'
 import { useChannel } from 'vite-hub/channels/server'
 
 export default defineEventHandler(async () => {
-  return await useChannel('alerts').send('Build finished.', {
+  const [error, receipt] = await useChannel('alerts').send('Build finished.', {
     connector: 'telegram',
     chatId: 'build-room',
   })
+  if (error) throw error
+  return receipt
 })
 ```
 
@@ -101,11 +103,12 @@ Each send emits metadata-only JSON events with the `vitehub.channel.send` scope 
 Add another entry to `connectors` when the same logical destination can deliver through more than one provider. Each entry defines its own options, so Telegram can require `chatId` while Slack requires `channelId` and optionally accepts `threadTs`.
 
 ```ts
-await useChannel('alerts').send('Build finished.', {
+const [error] = await useChannel('alerts').send('Build finished.', {
   connector: 'slack',
   channelId: 'builds',
   threadTs: '1730000000.000100',
 })
+if (error) throw error
 ```
 
 Keep `connector` explicit when a Channel has more than one delivery path. This makes the delivery choice visible at each call site.

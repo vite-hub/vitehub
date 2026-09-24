@@ -9,6 +9,8 @@ export interface ChannelSendResult extends ChannelConnectorResult {
   deliveryId: string
 }
 
+export type ChannelSendOutcome = [error: Error, receipt: null] | [error: null, receipt: ChannelSendResult]
+
 export interface ChannelConnector<TOptions = Record<string, unknown>, TResult extends ChannelConnectorResult = ChannelConnectorResult> {
   send: (text: string, options: TOptions) => Promise<TResult> | TResult
 }
@@ -59,5 +61,5 @@ export interface ChannelClient<
   TDefault extends keyof TConnectors & string = never,
 > {
   readonly name: string
-  send: (text: string, options: ChannelSendOptions<TConnectors, TDefault>) => Promise<ChannelSendResult>
+  send: (text: string, options: ChannelSendOptions<TConnectors, TDefault>) => Promise<ChannelSendOutcome>
 }

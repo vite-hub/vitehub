@@ -10,6 +10,7 @@ export type {
   ChannelDefinition,
   ChannelDefinitionRegistry,
   ChannelSendOptions,
+  ChannelSendOutcome,
   ChannelSendResult,
   DiscoveredChannelDefinition,
 } from "./types.ts"

@@ -19,6 +19,18 @@ const definition = defineChannel({
 
 const channel = createChannel("alerts", definition)
 
+async function checkSendTuple() {
+  const [error, receipt] = await channel.send("Build finished.", { connector: "telegram", chatId: "chat-1" })
+  if (error) {
+    const absent: null = receipt
+    return absent
+  }
+  const noError: null = error
+  const deliveryId: string = receipt.deliveryId
+  return { noError, deliveryId }
+}
+void checkSendTuple
+
 channel.send("Build finished.", { connector: "telegram", chatId: "chat-1" })
 channel.send("Build finished.", { connector: "slack", channelId: "channel-1" })
 

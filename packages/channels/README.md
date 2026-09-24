@@ -35,10 +35,11 @@ const alerts = createChannel(
   }),
 );
 
-const result = await alerts.send("Build finished.", {
+const [error, receipt] = await alerts.send("Build finished.", {
   connector: "log",
   label: "release",
 });
+if (error) throw error;
 ```
 
 The connector receives `Build finished.` and `{ label: "release" }`. The call adds the Channel name, selected connector, and a new delivery ID to the connector result:
@@ -105,10 +106,11 @@ Server code can then send through the discovered definition:
 ```ts
 import { useChannel } from "@vite-hub/channels/server";
 
-const result = await useChannel("alerts").send("Build finished.", {
+const [error, receipt] = await useChannel("alerts").send("Build finished.", {
   connector: "log",
   label: "release",
 });
+if (error) throw error;
 ```
 
 The integration writes Channel registry types to `.vitehub/types/channels.d.ts` and aliases the generated registry into Nitro builds. It does not generate provider bindings or webhook routes.
@@ -117,7 +119,7 @@ The integration writes Channel registry types to `.vitehub/types/channels.d.ts` 
 
 Channels is an outbound delivery interface. It does not include Slack, Telegram, or other provider adapters. Write each connector in the application or in a separate provider package.
 
-`send()` waits for the selected connector and returns its result. Connector failures reject the call unchanged. Channels does not persist messages, retry delivery, impose a timeout, deduplicate sends, or recover work after the process exits. Add those behaviors before `send()` or inside the connector when the delivery contract requires them.
+`send()` waits for the selected connector and returns `[null, receipt]` or `[error, null]`. Invalid input, discovery failures, and connector failures return an `Error` in the first slot. Check it before using the receipt. Channels does not persist messages, retry delivery, impose a timeout, deduplicate sends, or recover work after the process exits. Add those behaviors before `send()` or inside the connector when the delivery contract requires them.
 
 Every send writes `outbound.started`, `outbound.completed`, or `outbound.failed` JSON metadata under the `vitehub.channel.send` scope. ViteHub omits message text and connector options from those events. Failed events include up to 2,000 characters of the thrown error message, so connectors must not put credentials or message content in errors. Connector code can still read, transmit, or log every value it receives; keep credentials in server-only configuration and redact provider failures before throwing them.
 
