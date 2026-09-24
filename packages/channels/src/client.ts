@@ -8,7 +8,12 @@ function channelError(message: string): Error {
 }
 
 export function toChannelSendError(cause: unknown): Error {
-  return cause instanceof Error ? cause : new Error(String(cause))
+  try {
+    return cause instanceof Error ? cause : new Error(String(cause))
+  }
+  catch {
+    return new Error("Channel send failed with an uninspectable value.")
+  }
 }
 
 function logDelivery(event: string, deliveryId: string, channel: string, connector: string, extra: Record<string, unknown> = {}): void {

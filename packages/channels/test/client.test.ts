@@ -90,4 +90,21 @@ describe("createChannel", () => {
       info.mockRestore()
     }
   })
+
+  it("returns a tuple even when the thrown value cannot be inspected", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => {})
+    const { proxy, revoke } = Proxy.revocable({}, {})
+    revoke()
+    try {
+      const channel = createChannel("alerts", defineChannel({
+        connectors: { telegram: { send: async () => { throw proxy } } },
+      }))
+      const [error, receipt] = await channel.send("Build finished.", { connector: "telegram" })
+      expect(error?.message).toBe("Channel send failed with an uninspectable value.")
+      expect(receipt).toBeNull()
+    }
+    finally {
+      info.mockRestore()
+    }
+  })
 })
