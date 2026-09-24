@@ -63,6 +63,26 @@ describe("createChannel", () => {
     info.mockRestore()
   })
 
+  it.each([
+    ["throwing", { get: () => { throw new Error("cannot read message") } }],
+    ["non-string", { value: 42 }],
+  ])("returns the original error when its message is %s", async (_label, descriptor) => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => {})
+    const failure = Object.defineProperty(new Error(), "message", descriptor)
+    try {
+      const channel = createChannel("alerts", defineChannel({
+        connectors: { telegram: { send: async () => { throw failure } } },
+      }))
+      const [error, receipt] = await channel.send("Build finished.", { connector: "telegram" })
+      expect(error).toBe(failure)
+      expect(receipt).toBeNull()
+      expect(info).toHaveBeenLastCalledWith(expect.stringContaining('"error":"Channel send failed with an uninspectable value."'))
+    }
+    finally {
+      info.mockRestore()
+    }
+  })
+
   it("returns discovery failures in the tuple", async () => {
     setChannelRuntimeRegistry({})
     try {

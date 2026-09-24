@@ -3,6 +3,8 @@ import { defineChannel } from "./definition.ts"
 import type { ChannelClient, ChannelConnectorMap, ChannelDefinition, ChannelSendOptions, ChannelSendOutcome } from "./types.ts"
 import { channelsErrorDiagnostics } from "./error-diagnostics.ts"
 
+const uninspectableSendErrorMessage = "Channel send failed with an uninspectable value."
+
 function channelError(message: string): Error {
   return channelsErrorDiagnostics.CHANNELS_R0001({ message: `[vitehub] ${message}` })
 }
@@ -12,8 +14,20 @@ export function toChannelSendError(cause: unknown): Error {
     return cause instanceof Error ? cause : new Error(String(cause))
   }
   catch {
-    return new Error("Channel send failed with an uninspectable value.")
+    return new Error(uninspectableSendErrorMessage)
   }
+}
+
+function channelSendErrorMessage(error: Error): string {
+  try {
+    const message = error.message
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Connector errors can carry non-string messages from JavaScript.
+    if (typeof message === "string") return message.slice(0, 2_000)
+  }
+  catch {
+    // Connector error getters and proxies can throw while reading the message.
+  }
+  return uninspectableSendErrorMessage
 }
 
 function logDelivery(event: string, deliveryId: string, channel: string, connector: string, extra: Record<string, unknown> = {}): void {
@@ -75,7 +89,7 @@ export function createChannel<
       }
       catch (cause) {
         const error = toChannelSendError(cause)
-        if (deliveryId && connectorName) logDelivery("outbound.failed", deliveryId, name, connectorName, { error: error.message.slice(0, 2_000) })
+        if (deliveryId && connectorName) logDelivery("outbound.failed", deliveryId, name, connectorName, { error: channelSendErrorMessage(error) })
         return [error, null]
       }
     },
