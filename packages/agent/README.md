@@ -320,6 +320,8 @@ Learn more at [vitehub.dev](https://vitehub.dev).
 
 GitHub pull request Channels use `pullRequest.workspace.mount` for a custom repository mount. Omitting `workspace` mounts at `portal`. Both `workspace: true` and `workspace: {}` use the Workspace root. Set `workspace: false` to disable the contribution.
 
+For GitHub Channels, `pullRequest.reconcile.concurrencyLimit` sets the maximum concurrent reconciled webhook deliveries per repository and pull request. It defaults to `1`; set a positive integer such as `4` to run up to four deliveries for one PR together. Other PRs have separate limits. See the [GitHub Channel guide](../../docs/content/docs/agents/channels.md#reconcile-github-pull-requests).
+
 ## D1 invocation storage
 
 `@vite-hub/agent/invocations/d1` exports `createD1AgentInvocationStore({ database })`. Pass a D1 binding or a resolver that returns the current request binding. Generate the required SQL with `d1AgentInvocationSchema()` and apply it through your D1 migration tool before requests use the store. The adapter does not create or migrate tables at runtime.

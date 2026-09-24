@@ -94,6 +94,7 @@ export default defineAgent({
       app: true,
       pullRequest: {
         reconcile: {
+          concurrencyLimit: 4,
           events: ['opened', 'reopened', 'ready_for_review', 'synchronize'],
           mentions: ['@agent'],
           prompt: 'Review this pull request and make any needed changes.',
@@ -106,7 +107,7 @@ export default defineAgent({
 })
 ```
 
-Lifecycle deliveries use one concurrent invocation slot per repository and pull request. ViteHub ignores bot-authored `synchronize` events to prevent a bot push from immediately triggering itself. Existing slash commands still work when reconciliation is enabled. Reconciliation starts work; merge policy and any required human consent remain application-owned instructions or Capabilities.
+Reconciled deliveries use `pullRequest.reconcile.concurrencyLimit` concurrent invocation slots per repository and pull request. The default is `1`. Set a positive integer such as `4` to allow up to four deliveries for the same pull request to run together. Other pull requests have separate limits. ViteHub ignores bot-authored `synchronize` events to prevent a bot push from immediately triggering itself. Existing slash commands still work when reconciliation is enabled. Reconciliation starts work; merge policy and any required human consent remain application-owned instructions or Capabilities.
 
 Set `pullRequest.workspace.mount` to the repository path inside the Workspace. Omitting `workspace` mounts at `portal`. Both `workspace: true` and `workspace: {}` mount at the Workspace root. Set `workspace: false` to disable the pull request Workspace contribution.
 
