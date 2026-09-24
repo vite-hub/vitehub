@@ -7567,9 +7567,13 @@ export async function runAgent<
     && hasRuntimeType(inputOrOptions, "object")
     && "output" in inputOrOptions
     && inputOrOptions.output === "drained"
+  const runtimeContextShape = hasRuntimeType(contextOrInput, "object")
+    && "runtime" in contextOrInput
+    && "memo" in contextOrInput
+    && "waitUntil" in contextOrInput
   const hasContext = arguments.length === 4
     || (inputOrOptions !== undefined && (
-      (hasRuntimeType(contextOrInput, "object") && "runtime" in contextOrInput)
+      runtimeContextShape
       || !standaloneDrainedOptions
     ))
   if (hasContext) {

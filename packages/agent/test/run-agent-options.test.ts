@@ -94,3 +94,8 @@ it("keeps contextual calls direct when their input has an option-like property",
   const runtime = { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }
   await expect(runAgent(agent, runtime, { output: "json" } as never)).resolves.toBe("direct result")
 })
+
+it("keeps a standalone input with a runtime field in tuple mode", async () => {
+  const agent = defineAgent({ runtime: false, driver: { run: () => "standalone result" } })
+  await expect(runAgent(agent, { runtime: "user data" } as never, { output: "drained" })).resolves.toEqual([null, "standalone result"])
+})
