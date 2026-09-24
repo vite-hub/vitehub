@@ -460,6 +460,37 @@ describe("mcp capability", () => {
     }
   })
 
+  it("keeps healthy MCP servers available when others are unavailable", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { mcp } = await import("../src/capabilities.ts")
+    const unavailable = createClient({ unavailable: { execute: vi.fn() } })
+    unavailable.tools.mockRejectedValueOnce(Object.assign(new Error("MCP server returned 504"), { status: 504 }))
+    const healthy = createClient({ lookup: { execute: vi.fn() } })
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [mcp({
+        servers: {
+          resolveUnavailable: () => { throw Object.assign(new Error("fetch failed"), { statusCode: 503 }) },
+          discoveryUnavailable: () => unavailable,
+          healthy: () => healthy,
+        },
+      })],
+    }, runtime(), { context: { existing: true } })
+
+    expect(Object.keys(resolved.tools || {})).toEqual(["mcp_healthy_lookup"])
+    expect(resolved.input.context).toMatchObject({
+      existing: true,
+      "vitehub.mcp.warnings": [
+        { server: "resolveUnavailable", phase: "resolve", statusCode: 503 },
+        { server: "discoveryUnavailable", phase: "discovery", statusCode: 504 },
+      ],
+    })
+
+    await resolved.close()
+    expect(unavailable.close).toHaveBeenCalledTimes(1)
+    expect(healthy.close).toHaveBeenCalledTimes(1)
+  })
+
   it("does not treat resolver failures as absent configuration", async () => {
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { mcp } = await import("../src/capabilities.ts")

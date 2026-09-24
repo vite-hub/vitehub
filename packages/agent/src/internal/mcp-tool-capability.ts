@@ -123,6 +123,49 @@ async function assertMcpToolIntegrity(server: string, tools: Record<string, unkn
   }
 }
 
+function mcpFailureStatus(error: unknown): number | undefined {
+  if (!isRuntimeObject(error)) return undefined
+  const record = error as Record<string, unknown>
+  const statusCode = Number(record.statusCode ?? record.status)
+  return Number.isInteger(statusCode) && statusCode >= 400 && statusCode <= 599 ? statusCode : undefined
+}
+
+function isMcpAvailabilityFailure(error: unknown): boolean {
+  if (mcpFailureStatus(error)) return true
+  const record = isRuntimeObject(error) ? error as Record<string, unknown> : undefined
+  const name = record && hasRuntimeType(record.name, "string") ? record.name : ""
+  const message = record && hasRuntimeType(record.message, "string") ? record.message : String(error ?? "")
+  return /MCPClientError|fetch failed|network|timeout|timed out|ECONN|socket/i.test(`${name} ${message}`)
+}
+
+function recordMcpAvailabilityWarning(
+  context: AgentCapabilityRuntimeContext,
+  server: string,
+  phase: "resolve" | "discovery",
+  error: unknown,
+): void {
+  const input = context.input.get()
+  const currentContext = input.context && typeof input.context === "object" && !Array.isArray(input.context)
+    ? input.context
+    : {}
+  const statusCode = mcpFailureStatus(error)
+  const warning = {
+    server,
+    phase,
+    ...(statusCode ? { statusCode } : {}),
+  }
+  const currentWarnings = Array.isArray(currentContext["vitehub.mcp.warnings"])
+    ? currentContext["vitehub.mcp.warnings"]
+    : []
+  context.input.set({
+    ...input,
+    context: {
+      ...currentContext,
+      "vitehub.mcp.warnings": [...currentWarnings, warning],
+    },
+  })
+}
+
 async function resolveMcpToolServer(
   resolved: ResolvedMcpToolServer,
   invalidServerMessage: string,
@@ -175,9 +218,19 @@ export function defineMcpToolCapability<
           clients[index] = definition.value.connection
         }
       }
-      const definitionFailure = definitions.find(result => result.status === "rejected")
+      let hardFailure: unknown
+      for (const [index, definition] of definitions.entries()) {
+        if (definition.status !== "rejected") continue
+        if (isMcpAvailabilityFailure(definition.reason)) {
+          servers[index]!.status = "Unavailable"
+          recordMcpAvailabilityWarning(context, options.servers[index]!.name, "resolve", definition.reason)
+        }
+        else {
+          hardFailure ||= definition.reason
+        }
+      }
       await publishInspection()
-      if (definitionFailure?.status === "rejected") throw definitionFailure.reason
+      if (hardFailure) throw hardFailure
       const needsMcpRuntime = definitions.some(result => result.status === "fulfilled"
         && result.value
         && !isMcpClient(result.value.connection)
@@ -202,12 +255,20 @@ export function defineMcpToolCapability<
         return { metadata, server, serverTools }
       }))
       for (const [index, result] of results.entries()) {
-        if (result.status === "rejected") servers[index]!.status = "Discovery failed"
+        if (result.status === "rejected") {
+          if (isMcpAvailabilityFailure(result.reason)) {
+            servers[index]!.status = "Unavailable"
+            recordMcpAvailabilityWarning(context, options.servers[index]!.name, "discovery", result.reason)
+          }
+          else {
+            servers[index]!.status = "Discovery failed"
+            hardFailure ||= result.reason
+          }
+        }
         else if (result.value) servers[index]!.status = "Resolved"
       }
       await publishInspection()
-      const failure = results.find(result => result.status === "rejected")
-      if (failure?.status === "rejected") throw failure.reason
+      if (hardFailure) throw hardFailure
       for (const result of results) {
         if (result.status !== "fulfilled" || !result.value) continue
         const { metadata, server, serverTools } = result.value
