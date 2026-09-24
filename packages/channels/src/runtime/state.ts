@@ -1,6 +1,6 @@
 import discoveredRegistry from "#vitehub/channels/registry"
 
-import { createChannel } from "../client.ts"
+import { createChannel, toChannelSendError } from "../client.ts"
 
 import type { ChannelClient, ChannelConnectorMap, ChannelDefinition, ChannelDefinitionRegistry } from "../types.ts"
 import type {
@@ -58,8 +58,13 @@ export function useChannel<TConnectors extends ChannelConnectorMap = ChannelConn
   return {
     name,
     async send(text, options) {
-      resolved ||= resolveChannel<TConnectors>(name)
-      return (await resolved).send(text, options)
+      try {
+        resolved ||= resolveChannel<TConnectors>(name)
+        return await (await resolved).send(text, options)
+      }
+      catch (cause) {
+        return [toChannelSendError(cause), null]
+      }
     },
   }
 }
