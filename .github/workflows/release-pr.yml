@@ -13,6 +13,11 @@ on:
         type: boolean
         required: false
         default: false
+      recovery_pr:
+        description: Number of the merged correction PR immediately after the failed release merge
+        type: number
+        required: false
+        default: 0
 
 permissions: {}
 
@@ -113,21 +118,37 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - uses: ./.github/actions/setup
-      - uses: ./.github/actions/setup-deno
-      - name: Resolve unpublished release version
+      - name: Resolve reviewed correction boundary
         id: release
         env:
           GH_TOKEN: ${{ github.token }}
+          RECOVERY_PR: ${{ inputs.recovery_pr }}
         shell: bash
         run: |
           set -euo pipefail
-          release_branch="$(gh api "repos/${GITHUB_REPOSITORY}/pulls?state=closed&base=main&sort=updated&direction=desc&per_page=100" \
-            --jq '[.[] | select(.merged_at != null and .head.repo.full_name == .base.repo.full_name and (.head.ref | startswith("release/v")))] | sort_by(.merged_at) | last | .head.ref // empty')"
-          if [[ -z "$release_branch" ]]; then
+          if [[ ! "$RECOVERY_PR" =~ ^[1-9][0-9]*$ ]]; then
+            echo "A merged correction PR number is required for recovery" >&2
+            exit 1
+          fi
+          release_boundary="$(gh api "repos/${GITHUB_REPOSITORY}/pulls?state=closed&base=main&sort=updated&direction=desc&per_page=100" \
+            --jq '[.[] | select(.merged_at != null and .head.repo.full_name == .base.repo.full_name and (.head.ref | startswith("release/v")))] | sort_by(.merged_at) | last | if . == null then empty else "\(.head.ref)|\(.merge_commit_sha)" end')"
+          if [[ -z "$release_boundary" ]]; then
             echo "No merged release PR found for recovery" >&2
             exit 1
           fi
+          IFS='|' read -r release_branch failed_sha <<< "$release_boundary"
+          correction="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${RECOVERY_PR}" \
+            --jq '[.merged_at, .base.ref, .merge_commit_sha] | @tsv')"
+          IFS=$'\t' read -r merged_at base_ref recovery_sha <<< "$correction"
+          if [[ -z "$merged_at" || "$merged_at" == "null" || "$base_ref" != "main" ]]; then
+            echo "Recovery PR must be merged into main" >&2
+            exit 1
+          fi
+          if [[ "$(git rev-parse "${recovery_sha}^1")" != "$failed_sha" ]]; then
+            echo "Recovery PR must immediately follow the failed release merge" >&2
+            exit 1
+          fi
+          git checkout --detach "$recovery_sha"
           node .github/scripts/check-release-candidate.mjs "$release_branch"
           release_tag="${release_branch#release/}"
           if gh api "repos/${GITHUB_REPOSITORY}/commits/${release_tag}" --jq .sha >/dev/null 2>&1; then
@@ -135,17 +156,21 @@ jobs:
             exit 1
           fi
           echo "tag=$release_tag" >> "$GITHUB_OUTPUT"
+          echo "sha=$recovery_sha" >> "$GITHUB_OUTPUT"
+      - uses: ./.github/actions/setup
+      - uses: ./.github/actions/setup-deno
       - run: vp run verify
       - name: Tag corrected main and dispatch release
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_SHA: ${{ steps.release.outputs.sha }}
         shell: bash
         run: |
           set -euo pipefail
-          live_sha="$(gh api "repos/${GITHUB_REPOSITORY}/branches/main" --jq .commit.sha)"
-          if [[ "$live_sha" != "$GITHUB_SHA" ]]; then
-            echo "main changed during release recovery" >&2
+          status="$(gh api "repos/${GITHUB_REPOSITORY}/compare/${RELEASE_SHA}...main" --jq .status)"
+          if [[ "$status" != "ahead" && "$status" != "identical" ]]; then
+            echo "Reviewed recovery commit is no longer on main" >&2
             exit 1
           fi
           if gh api "repos/${GITHUB_REPOSITORY}/commits/${RELEASE_TAG}" --jq .sha >/dev/null 2>&1; then
@@ -153,7 +178,7 @@ jobs:
             exit 1
           fi
           gh api -X POST "repos/${GITHUB_REPOSITORY}/git/refs" \
-            -f "ref=refs/tags/${RELEASE_TAG}" -f "sha=${GITHUB_SHA}"
+            -f "ref=refs/tags/${RELEASE_TAG}" -f "sha=${RELEASE_SHA}"
           gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref "$RELEASE_TAG"
           gh workflow run release-pr.yml --repo "$GITHUB_REPOSITORY" --ref main
 
