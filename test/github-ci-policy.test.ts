@@ -43,6 +43,7 @@ describe("GitHub CI input policy", () => {
       ".github/workflows/live-smoke.yml",
       ".github/workflows/pkg-pr-new.yml",
       ".github/workflows/pullfrog.yml",
+      ".github/workflows/release-pr.yml",
       ".github/workflows/release.yml",
     ])
     await expect(checkGitHubCIInputs(repoRoot)).resolves.toEqual([])
