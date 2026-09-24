@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { resolveRuntimeValue } from "@vite-hub/runtime";
 import { hasRuntimeType } from "../../internal/runtime-type.ts";
 import type { ProcessReconcilerRunContext } from "@vite-hub/runtime/node";
-import { createMessage, defineAgent, runScheduledAgent } from "../../index.ts";
+import { createMessage, defineAgent, runAgent } from "../../index.ts";
 import type { AgentDefinition, CodexDriverOptions } from "../../index.ts";
 import {
   createGitHubPullRequestRun,
@@ -465,21 +465,20 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               // provider session to this pass so a new checkout never
               // resumes a Codex process whose temporary cwd was deleted.
               githubRun.threadId = `${githubRun.threadId}:${runId}`;
-              const result = await runScheduledAgent(
+              const result = await runAgent(
                 agent,
-                {
-                  ...schedule,
-                  runId,
-                },
                 {
                   runtime: "vite",
                   run: githubRun,
+                  memo: (_key, create) => create(),
+                  waitUntil: () => {},
                 },
                 {
                   abortSignal,
                   context,
                   messages: [createMessage({ role: "user", text: userMessage })],
                 },
+                { schedule: { ...schedule, runId }, output: "drained" },
               );
               const validated = babysitterPassResultSchema["~standard"].validate(result);
               if ("issues" in validated)

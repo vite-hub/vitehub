@@ -1,4 +1,4 @@
-import { runScheduledAgent } from "../index.ts"
+import { runAgent } from "../index.ts"
 
 import type { AgentInput, AgentRuntimeContext, ResolvedAgentRuntimeContext } from "../types.ts"
 
@@ -10,6 +10,7 @@ interface ScheduledAgentTargetRunContext {
   scheduleId?: string
   scheduledAt: Date
   target?: string
+  waitUntil?: (promise: PromiseLike<unknown>) => void
 }
 
 interface ScheduledAgentTargetDefinition {
@@ -24,7 +25,12 @@ export function defineScheduledAgentTarget(
   runtimeContext: Partial<ResolvedAgentRuntimeContext> = {},
 ): ScheduledAgentTargetDefinition {
   return {
-    handler: async context => await runScheduledAgent(agent, context, runtimeContext),
+    handler: async schedule => await runAgent(agent, {
+      ...runtimeContext,
+      memo: runtimeContext.memo ?? ((_, create) => create()),
+      runtime: runtimeContext.runtime ?? "unknown",
+      waitUntil: runtimeContext.waitUntil ?? schedule.waitUntil ?? (() => {}),
+    }, {}, { schedule, output: "drained" }),
     options: { allowRuntimeSchedules: true },
   }
 }
