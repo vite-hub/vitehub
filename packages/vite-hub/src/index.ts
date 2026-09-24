@@ -38,7 +38,6 @@ import type { AgentModuleOptions } from "@vite-hub/agent"
 import type { AuthModuleOptions } from "@vite-hub/auth"
 import type { BlobModuleOptions } from "@vite-hub/blob"
 import type { BrowserModuleOptions } from "@vite-hub/browser/vite"
-import type { ChannelsVitePluginOptions } from "@vite-hub/channels/vite"
 import type { DBModulePublicOptions } from "@vite-hub/database"
 import type { EmailVitePluginOptions } from "@vite-hub/email/vite"
 import type { EnvIntegrationOptions, EnvRuntimeRegistry } from "@vite-hub/env"
@@ -251,7 +250,6 @@ export interface ViteHubOptions {
   auth?: true | AuthModuleOptions
   blob?: boolean | BlobModuleOptions
   browser?: boolean | BrowserModuleOptions
-  channels?: boolean | ChannelsVitePluginOptions
   console?: boolean | ConsoleOptions
   database?: boolean | DBModulePublicOptions
   email?: true | EmailVitePluginOptions
@@ -845,7 +843,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
     } as AgentModuleOptions))
   }
   if (options.browser) plugins.push(hubBrowser(options.browser === true ? undefined : options.browser))
-  if (options.channels) plugins.push(hubChannels(options.channels === true ? undefined : options.channels))
+  if (options.agent) plugins.push(hubChannels())
   if (options.database) plugins.push(hubDb(options.database === true ? undefined : options.database))
   if (blobEnabled) {
     plugins.push(hubBlob(

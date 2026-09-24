@@ -2659,7 +2659,7 @@ describe("ViteHub Nuxt integration", () => {
 
     await viteHubNuxtModule(
       {
-        channels: { projectRoot: "apps/api" },
+        rateLimit: { projectRoot: "apps/api" },
         env: { projectRoot: "packages/config" },
         preset: "node",
       },

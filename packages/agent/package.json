@@ -181,6 +181,7 @@
     "comark": "catalog:markdown",
     "effect": "catalog:effect",
     "esbuild": "catalog:esbuild-v27",
+    "micromark": "4.0.2",
     "nostics": "catalog:runtime",
     "proper-lockfile": "catalog:",
     "valibot": "catalog:runtime"
@@ -188,6 +189,7 @@
   "devDependencies": {
     "@ai-sdk/mcp": "catalog:ai",
     "@chat-adapter/discord": "catalog:chat",
+    "@chat-adapter/teams": "4.39.0",
     "@github-tools/eve-extension": "0.7.0",
     "@types/json-schema": "catalog:ai",
     "@types/mdast": "catalog:markdown",
@@ -216,6 +218,7 @@
   },
   "peerDependencies": {
     "@chat-adapter/discord": "catalog:chat",
+    "@chat-adapter/teams": "^4.39.0",
     "@vercel/functions": "catalog:vercel",
     "@vite-hub/blob": "workspace:*",
     "@vite-hub/database": "workspace:*",
@@ -234,6 +237,9 @@
   },
   "peerDependenciesMeta": {
     "@chat-adapter/discord": {
+      "optional": true
+    },
+    "@chat-adapter/teams": {
       "optional": true
     },
     "@vercel/functions": {

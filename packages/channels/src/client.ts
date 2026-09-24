@@ -22,14 +22,15 @@ export function createChannel<
 
   return {
     name,
-    async send(text: string, options: ChannelSendOptions<TConnectors, TDefault>): Promise<ChannelSendResult> {
+    async send(text: string, recipient: string, options?: ChannelSendOptions<TConnectors, TDefault>): Promise<ChannelSendResult> {
       if (typeof text !== "string" || text.trim().length === 0) {
         throw channelError("Channel message text must be a non-empty string.")
       }
 
-      if (!options || typeof options !== "object") {
-        throw channelError(`Channel "${name}" send options must select a connector.`)
+      if (typeof recipient !== "string" || !recipient.trim()) {
+        throw channelError(`Channel "${name}" send recipient must be a non-empty string.`)
       }
+      options ||= {} as ChannelSendOptions<TConnectors, TDefault>
 
       const connectorName = (options as { connector?: string }).connector || definition.defaultConnector
       if (!connectorName) {
@@ -46,7 +47,7 @@ export function createChannel<
       const deliveryId = globalThis.crypto.randomUUID()
       logDelivery("outbound.started", deliveryId, name, connectorName)
       try {
-        const result = await connector.send(text, connectorOptions as never)
+        const result = await connector.send(text, recipient, connectorOptions as never)
         if (!result || typeof result !== "object") {
           throw channelError(`Channel connector "${connectorName}" returned an invalid result.`)
         }

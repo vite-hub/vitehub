@@ -1,38 +1,22 @@
 import { createChannel, defineChannel, useChannel } from "../src/index.ts"
 
-declare global {
-  interface ViteHubChannelDefinitionModules {
-    alerts: { default: typeof definition }
-  }
-}
-
 const definition = defineChannel({
   connectors: {
     slack: {
-      send: async (_text: string, options: { channelId: string, threadTs?: string }) => ({ id: options.channelId }),
+      send: async (_text: string, recipient: string, options: { threadTs?: string }) => ({ id: `${recipient}:${options.threadTs || ""}` }),
     },
     telegram: {
-      send: async (_text: string, options: { chatId: string }) => ({ id: options.chatId }),
+      send: async (_text: string, recipient: string, options: { format?: string }) => ({ id: `${recipient}:${options.format || ""}` }),
     },
   },
 })
 
 const channel = createChannel("alerts", definition)
-
-channel.send("Build finished.", { connector: "telegram", chatId: "chat-1" })
-channel.send("Build finished.", { connector: "slack", channelId: "channel-1" })
+channel.send("Build finished.", "chat-1", { connector: "telegram", format: "markdown" })
+channel.send("Build finished.", "channel-1", { connector: "slack", threadTs: "1" })
 
 // @ts-expect-error Connector options remain specific to the selected connector.
-channel.send("Build finished.", { connector: "telegram", channelId: "channel-1" })
+channel.send("Build finished.", "chat-1", { connector: "telegram", threadTs: "1" })
 
-const discovered = useChannel("alerts")
-discovered.send("Build finished.", { connector: "telegram", chatId: "chat-1" })
-
-// @ts-expect-error Generated Channel names reject unknown literals.
-useChannel("alrets")
-
-const runtimeName: string = "runtime-channel"
-useChannel(runtimeName)
-
-// @ts-expect-error Discovered Channel names retain connector-specific options.
-discovered.send("Build finished.", { connector: "telegram", channelId: "channel-1" })
+const global = useChannel("teams")
+global.send("Build finished.", "user:123")

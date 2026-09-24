@@ -43,6 +43,7 @@
     "test": "vp run -t @vite-hub/channels#build && vp test"
   },
   "dependencies": {
+    "@vite-hub/agent": "workspace:*",
     "nostics": "catalog:runtime",
     "pathe": "catalog:unjs"
   },

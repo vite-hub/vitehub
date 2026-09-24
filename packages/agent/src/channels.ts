@@ -1,6 +1,7 @@
 import { matchesGitHubPullRequestFilter } from './internal/github-pull-request-filter.ts'
 export { matchesGitHubPullRequestFilter } from './internal/github-pull-request-filter.ts'
 import { createHash, createSign } from "node:crypto"
+import { micromark } from "micromark"
 import { CHAT_FINISH_EXTENSION_CONTEXT_KEY } from "./chat-trigger.ts"
 import { defineCapability } from "./capability-runtime.ts"
 import { asUnknownBoundary, hasRuntimeType } from "./internal/runtime-type.ts"
@@ -48,6 +49,7 @@ import type {
   MaybeResolvable,
   PublishedAgentDeliveryArtifact,
 } from "./types.ts"
+import type { WorkspaceName } from "@vite-hub/workspace"
 import { defineMessageChannelInstructions } from "./internal/channels.ts"
 import { chatFinishDeliveryRegistrarKey, setMessageChannelDeferredReplyTrace } from "./internal/chat-finish-delivery.ts"
 import type { ChatFinishDeliveryRegistrar } from "./internal/chat-finish-delivery.ts"
@@ -59,7 +61,6 @@ import type { TelegramAdapterConfig } from "@chat-adapter/telegram"
 import { resolveRuntimeValue } from "@vite-hub/runtime"
 import type { Adapter, FileUpload } from "chat"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
-import type { WorkspaceName } from "@vite-hub/workspace"
 
 export const messageChannelTitleSupportContextKey = "channel.delivery.supportsTitle"
 const customTitleEffectChannels = new WeakSet<object>()
@@ -122,9 +123,11 @@ export interface AgentChannelOptions<
   adapter?: AgentChannelDefinition<TRuntimeConfig>["adapter"]
   capabilities?: AgentChannelDefinition<TRuntimeConfig>["capabilities"]
   effects?: AgentChannelDefinition<TRuntimeConfig>["effects"]
+  global?: AgentChannelDefinition<TRuntimeConfig>["global"]
   identity?: AgentChannelDefinition<TRuntimeConfig>["identity"]
   messages?: false | AgentMessageChannelSettings<TRuntimeConfig>
   route?: boolean | AgentChannelChatRouteHandlerOptions<TBody, TAuth>
+  send?: AgentChannelDefinition<TRuntimeConfig>["send"]
   triggers?: AgentChannelDefinition<TRuntimeConfig>["triggers"]
   webhooks?: AgentChannelDefinition<TRuntimeConfig>["webhooks"]
 }
@@ -2941,10 +2944,86 @@ export function slack<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
   return defineChannel("slack", options)
 }
 
+export interface TeamsChannelCredentials {
+  appId: string
+  appPassword: string
+  tenantId: string
+  botName?: string
+}
+
+export interface TeamsChannelOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
+  extends AgentChannelOptions<TRuntimeConfig> {
+  /** Shared credentials for inbound adapter and outbound messages. */
+  credentials?: () => TeamsChannelCredentials
+}
+
 export function teams<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
-  options: AgentChannelOptions<TRuntimeConfig> = {},
+  options: TeamsChannelOptions<TRuntimeConfig> = {},
 ): AgentChannelDefinition<TRuntimeConfig> {
-  return defineMessageChannelInstructions(defineChannel("teams", options), "Write formulas for Microsoft Teams as readable plain text, using words, Unicode symbols, or inline code. Teams does not render LaTeX math delimiters or Mermaid diagrams. Explain variables in short bullets; use a numbered flow instead of diagram syntax.")
+  const { credentials, ...channelOptions } = options
+  if (options.global && !credentials && !options.send) {
+    throw new Error("[vitehub] A global Teams Channel requires credentials or send().")
+  }
+  const adapter = options.adapter || (credentials
+    ? async () => {
+        const { createTeamsAdapter } = await import("@chat-adapter/teams")
+        const config = credentials()
+        return createTeamsAdapter({
+          appId: config.appId,
+          appPassword: config.appPassword,
+          appTenantId: config.tenantId,
+          appType: "SingleTenant",
+        }) as AgentChatPlatformAdapter
+      }
+    : undefined)
+  const send = options.send || (credentials
+    ? async (message: string, target: string) => {
+        const { createTeamsConversation, callTeamsConnectorApi, resolveTeamsAccessToken } = await import("@chat-adapter/teams/api")
+        const { decodeThreadId } = await import("@chat-adapter/teams")
+        const config = credentials()
+        const serviceUrl = "https://smba.trafficmanager.net/teams/"
+        const accessToken = await resolveTeamsAccessToken({ credentials: {
+          appId: config.appId,
+          appPassword: () => config.appPassword,
+          tenantId: config.tenantId,
+        } })
+        const apiCredentials = { accessToken }
+        const thread = target.startsWith("user:")
+          ? await (async () => {
+              const userId = target.slice("user:".length)
+              if (!userId) throw new Error("[vitehub] A Teams user target requires a user ID.")
+              const { body } = await createTeamsConversation({
+                credentials: apiCredentials,
+                serviceUrl,
+                bot: { id: config.appId, name: config.botName || "Agent" },
+                members: [{ id: userId }],
+                tenantId: config.tenantId,
+                isGroup: false,
+              })
+              if (!body.id) throw new Error("[vitehub] Teams conversation response did not include an ID.")
+              return { conversationId: body.id, serviceUrl: body.serviceUrl || serviceUrl }
+            })()
+          : decodeThreadId(target)
+        const result = await callTeamsConnectorApi({
+          credentials: apiCredentials,
+          serviceUrl: thread.serviceUrl,
+          method: "POST",
+          path: `v3/conversations/${encodeURIComponent(thread.conversationId)}/activities`,
+          body: {
+            type: "message",
+            text: micromark(message).replace(/<\/p>\n<p>/g, "<br><br>"),
+            textFormat: "xml",
+          },
+        })
+        const body = result.body as { id?: string } | undefined
+        return { ...(body?.id ? { id: body.id } : {}) }
+      }
+    : undefined)
+  return defineMessageChannelInstructions(defineChannel("teams", {
+    ...channelOptions,
+    ...(adapter ? { adapter } : {}),
+    ...(send ? { send } : {}),
+  }), "Write formulas for Microsoft Teams as readable plain text, using words, Unicode symbols, or inline code. Teams does not render LaTeX math delimiters or Mermaid diagrams. Explain variables in short bullets instead of a diagram syntax.")
 }
 
 export function telegram<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(

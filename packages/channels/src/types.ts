@@ -10,7 +10,7 @@ export interface ChannelSendResult extends ChannelConnectorResult {
 }
 
 export interface ChannelConnector<TOptions = Record<string, unknown>, TResult extends ChannelConnectorResult = ChannelConnectorResult> {
-  send: (text: string, options: TOptions) => Promise<TResult> | TResult
+  send: (text: string, recipient: string, options: TOptions) => Promise<TResult> | TResult
 }
 
 export type ChannelConnectorMap = Record<string, ChannelConnector<any, any>>
@@ -24,13 +24,13 @@ export interface ChannelDefinition<
 }
 
 export interface ChannelDefinitionRegistry {
-  [name: string]: () => Promise<{ default?: ChannelDefinition } | ChannelDefinition>
+  [name: string]: () => Promise<{ default?: { channels?: Record<string, unknown> } } | { channels?: Record<string, unknown> }>
 }
 
 export interface DiscoveredChannelDefinition {
   handler: string
   name: string
-  source: "server-channels" | "vite-suffix"
+  source: "agent"
 }
 
 type ConnectorOptions<TConnector> = TConnector extends ChannelConnector<infer TOptions, any> ? TOptions : never
@@ -59,5 +59,5 @@ export interface ChannelClient<
   TDefault extends keyof TConnectors & string = never,
 > {
   readonly name: string
-  send: (text: string, options: ChannelSendOptions<TConnectors, TDefault>) => Promise<ChannelSendResult>
+  send: (text: string, recipient: string, options?: ChannelSendOptions<TConnectors, TDefault>) => Promise<ChannelSendResult>
 }

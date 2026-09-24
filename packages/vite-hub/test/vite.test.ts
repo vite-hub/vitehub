@@ -567,7 +567,6 @@ describe("vitehub", () => {
       blob: true,
       database: true,
       email: { driver: "resend" },
-      channels: true,
       kv: true,
       preset: "cloudflare",
       rateLimit: true,
@@ -648,7 +647,7 @@ describe("vitehub", () => {
       hosting: "cloudflare-module",
       runtimeEnvImport: "vite-hub/env/server",
     })
-    expect(integrationMocks.hubChannels).toHaveBeenLastCalledWith(undefined)
+    expect(integrationMocks.hubChannels).toHaveBeenLastCalledWith()
     expect(integrationMocks.hubKv).toHaveBeenLastCalledWith({ driver: "cloudflare-kv-binding" })
     expect(integrationMocks.hubSandbox).toHaveBeenLastCalledWith({
       provider: "cloudflare",

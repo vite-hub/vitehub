@@ -1965,11 +1965,15 @@ export interface AgentChannelDefinition<TRuntimeConfig extends AgentRuntimeConfi
   adapter?: AgentChatPlatformResolver<TRuntimeConfig>
   capabilities?: readonly AgentCapabilityDefinition<TRuntimeConfig>[]
   effects?: AgentChannelDeliveryEffects<TRuntimeConfig>
+  /** Make this Channel available to server code through useChannel(kind). */
+  global?: boolean
   identity?: IdentityResolver
   kind: string
   listener?: { kind: "telegram-polling" }
   messages?: false | AgentMessageChannelSettings<TRuntimeConfig>
   route?: unknown
+  /** Send to an explicit recipient outside an Agent Invocation. */
+  send?: (message: string, target: string) => MaybePromise<{ id?: string }>
   triggers?: Record<string, AgentTriggerDefinition<TRuntimeConfig, WorkspaceName, any, any, AgentChannelTriggerContext<TRuntimeConfig>>>
   webhooks?: boolean | AgentChannelWebhookRegistrationDefinition<TRuntimeConfig> | AgentChannelWebhookRegistrationDefinition<TRuntimeConfig>[]
 }
