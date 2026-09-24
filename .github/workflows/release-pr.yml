@@ -37,7 +37,7 @@ jobs:
           if [[ "$live_sha" == "$GITHUB_SHA" ]]; then
             echo "current=true" >> "$GITHUB_OUTPUT"
           fi
-      - name: Reconcile an untagged release merge
+      - name: Reconcile the latest release merge
         id: pending-release
         if: steps.current.outputs.current == 'true'
         env:
@@ -52,16 +52,21 @@ jobs:
           fi
           release_tag="${merged_branch#release/}"
           tag_sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${release_tag}" --jq .sha 2>/dev/null || true)"
-          if [[ -n "$tag_sha" ]]; then
-            exit 0
-          fi
-
-          echo "pending=true" >> "$GITHUB_OUTPUT"
           mapfile -t stale_prs < <(gh api "repos/${GITHUB_REPOSITORY}/pulls?state=open&base=main&per_page=100" \
-            --jq '.[] | select(.head.repo.full_name == .base.repo.full_name and (.head.ref | startswith("release/v"))) | .number')
-          for pr in "${stale_prs[@]}"; do
+            --jq '.[] | select(.head.repo.full_name == .base.repo.full_name and (.head.ref | startswith("release/v"))) | "\(.number)|\(.head.sha)"')
+          for entry in "${stale_prs[@]}"; do
+            IFS='|' read -r pr head_sha <<< "$entry"
+            if [[ -n "$tag_sha" ]]; then
+              parent_sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${head_sha}" --jq '.parents[0].sha')"
+              if ! git merge-base --is-ancestor "$parent_sha" "$tag_sha"; then
+                continue
+              fi
+            fi
             gh pr close "$pr" --repo "$GITHUB_REPOSITORY" --delete-branch
           done
+          if [[ -z "$tag_sha" || "$tag_sha" == "$GITHUB_SHA" ]]; then
+            echo "pending=true" >> "$GITHUB_OUTPUT"
+          fi
       - uses: danielroe/uppt/pr@7bcfb5397c37202ef882363f755423130419d28a # v0.5.5
         if: steps.current.outputs.current == 'true' && steps.pending-release.outputs.pending != 'true'
         with:
@@ -148,3 +153,4 @@ jobs:
               -f "ref=refs/tags/${release_tag}" -f "sha=${RELEASE_SHA}"
           fi
           gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref "$release_tag"
+          gh workflow run release-pr.yml --repo "$GITHUB_REPOSITORY" --ref main
