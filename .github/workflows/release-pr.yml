@@ -1,0 +1,104 @@
+name: prepare release
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [closed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  proposal:
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && github.repository == 'vite-hub/vitehub'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+    steps:
+      - uses: danielroe/uppt/pr@7bcfb5397c37202ef882363f755423130419d28a # v0.5.5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          packages: |
+            packages/*
+      - name: Run CI for the generated release PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t release_branches < <(gh api "repos/${GITHUB_REPOSITORY}/pulls?state=open&base=main&per_page=100" \
+            --jq '.[] | select(.head.repo.full_name == .base.repo.full_name and (.head.ref | startswith("release/v"))) | .head.ref')
+          if (( ${#release_branches[@]} > 1 )); then
+            echo "Expected one open release PR, found ${#release_branches[@]}" >&2
+            exit 1
+          fi
+          if (( ${#release_branches[@]} == 1 )); then
+            gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref "${release_branches[0]}"
+          fi
+
+  verify-release:
+    if: |
+      github.event_name == 'pull_request'
+      && github.event.pull_request.merged == true
+      && startsWith(github.event.pull_request.head.ref, 'release/v')
+      && github.event.pull_request.head.repo.full_name == github.repository
+      && github.repository == 'vite-hub/vitehub'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - uses: ./.github/actions/setup-deno
+      - name: Check release candidate
+        env:
+          RELEASE_BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: node .github/scripts/check-release-candidate.mjs "$RELEASE_BRANCH"
+      - run: vp run verify
+
+  tag-release:
+    needs: verify-release
+    if: needs.verify-release.result == 'success'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: release-tag-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          persist-credentials: false
+      - name: Check release candidate again
+        env:
+          RELEASE_BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: node .github/scripts/check-release-candidate.mjs "$RELEASE_BRANCH"
+      - name: Create tag and dispatch verified release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_BRANCH: ${{ github.event.pull_request.head.ref }}
+          RELEASE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_tag="${RELEASE_BRANCH#release/}"
+          existing_sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${release_tag}" --jq .sha 2>/dev/null || true)"
+          if [[ -n "$existing_sha" && "$existing_sha" != "$RELEASE_SHA" ]]; then
+            echo "Tag $release_tag already points to $existing_sha" >&2
+            exit 1
+          fi
+          if [[ -z "$existing_sha" ]]; then
+            gh api -X POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+              -f "ref=refs/tags/${release_tag}" -f "sha=${RELEASE_SHA}"
+          fi
+          gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref "$release_tag"

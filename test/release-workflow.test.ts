@@ -80,17 +80,21 @@ describe("release workflow authority", () => {
     expect(githubRelease).not.toContain("id-token:")
   })
 
-  it("keeps manual and fork runs out of authority-bearing jobs", () => {
+  it("publishes only from a tag, including a tag dispatch", () => {
     expect(verify).toContain("Dry-run npm package publish")
     expect(verify).not.toContain("Publish packages to npm")
     expect(verify).not.toContain("gh release create")
 
-    const publishGate = "if: github.event_name == 'push' && needs.verify.outputs.publish == 'true' && github.repository == 'vite-hub/vitehub'"
+    const publishGate = "if: needs.verify.outputs.publish == 'true' && github.repository == 'vite-hub/vitehub'"
     expect(publishNpm.indexOf(publishGate)).toBeLessThan(publishNpm.indexOf("    steps:"))
     expect(githubRelease.indexOf(publishGate)).toBeLessThan(githubRelease.indexOf("    steps:"))
     expect(workflow).not.toContain("pull_request_target")
     expect(releaseMetadata("push", "refs/tags/v1.2.3", "v1.2.3")).toMatchObject({ publish: "true", version: "1.2.3" })
-    expect(releaseMetadata("workflow_dispatch", "refs/tags/v1.2.3", "v1.2.3")).toMatchObject({ publish: "false", version: "0.0.0-dev.42" })
+    expect(releaseMetadata("workflow_dispatch", "refs/tags/v1.2.3", "v1.2.3")).toMatchObject({ publish: "true", version: "1.2.3" })
+    expect(releaseMetadata("workflow_dispatch", "refs/heads/main", "main")).toMatchObject({ publish: "false", version: "0.0.0-dev.42" })
+    expect(releaseMetadata("push", "refs/heads/main", "main")).toMatchObject({ publish: "false", version: "0.0.0-dev.42" })
+    expect(verify).toContain('root.version !== process.env.RELEASE_VERSION')
+    expect(verify).toContain('manifest.version !== process.env.RELEASE_VERSION')
   })
 })
 

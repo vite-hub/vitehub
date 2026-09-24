@@ -119,6 +119,14 @@ The fix is complete when the consumer works without the patch. Retire combined p
 - Check overflow, narrow widths, long tab lists, empty states, keyboard access, and panel resizing when they apply.
 - Ask before opening a browser or starting a development server unless the task already requests it.
 
+## Releases
+
+ViteHub publishes all public packages at one version. The checked-in root and public package versions are the release baseline. A push to `main` uses conventional commits since the latest `v*` tag to open or update a draft `release/vX.Y.Z` PR. CI runs on that release branch even though GitHub creates the PR with `GITHUB_TOKEN`.
+
+Review the version, package changes, CI result, and release notes before merging the release PR. After merge, the release workflow verifies the exact merge commit, creates its tag, and dispatches `release.yml` on that tag. The existing package workflow builds and tests immutable tarballs, publishes to npm, verifies the registry, and then creates the GitHub release. A manual dispatch on a branch remains a dry run. A manual dispatch on a `v*` tag resumes publication for that tag.
+
+Repository administrators must enable **Settings → Actions → General → Allow GitHub Actions to create and approve pull requests** before merging the workflow change. The `npm-release` environment must restrict deployments to `v*` tags and require the chosen reviewers before the first automated release. Each public npm package must trust `vite-hub/vitehub` with workflow `release.yml` and environment `npm-release`. Nuxt Better Auth and Vite Doctor use npm staged publishing; ViteHub continues its current direct trusted publication until staged publishing and its approval flow are configured for every public package.
+
 ## Pull requests
 
 - Do not push changes, create a pull request, or update a pull request unless I ask.

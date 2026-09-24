@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/cli",
-  "version": "0.0.1",
+  "version": "0.0.4",
   "description": "Command-line workflows for ViteHub projects.",
   "keywords": [
     "agent",
