@@ -805,9 +805,8 @@ function githubPullRequestAutomaticCommentOptions(
 function githubPullRequestReconcileConcurrencyLimit(
   reconcile: GitHubPullRequestCommentEventOptions["reconcile"],
 ): number {
-  return reconcile && typeof reconcile === "object" && reconcile.concurrencyLimit !== undefined
-    ? reconcile.concurrencyLimit
-    : 1
+  if (!reconcile || reconcile === true) return 1
+  return reconcile.concurrencyLimit ?? 1
 }
 
 function githubPullRequestReviewBody(payload: GitHubIssueCommentPayload): string | undefined {
@@ -2904,20 +2903,19 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
             },
           }
         }
-        return {
+        const invocation: AgentTriggerInvokeResult = {
           ...(finishEffects ? { delivery: { finishEffects } } : {}),
           input: pullRequestCommandInput(command, pullRequestContext),
           run,
-          ...(reconciled && command.deliveryId
-            ? {
-                webhook: {
-                  concurrencyKey: `${command.repository}#${command.issueNumber}`,
-                  concurrencyLimit: githubPullRequestReconcileConcurrencyLimit(options.reconcile),
-                  deliveryId: command.deliveryId,
-                },
-              }
-            : {}),
         }
+        if (reconciled && command.deliveryId) {
+          invocation.webhook = {
+            concurrencyKey: `${command.repository}#${command.issueNumber}`,
+            concurrencyLimit: githubPullRequestReconcileConcurrencyLimit(options.reconcile),
+            deliveryId: command.deliveryId,
+          }
+        }
+        return invocation
       },
     },
     dev: {
