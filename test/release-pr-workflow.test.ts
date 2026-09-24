@@ -16,6 +16,8 @@ describe("release PR workflow", () => {
     expect(workflow).toContain('live_sha="$(gh api "repos/${GITHUB_REPOSITORY}/branches/main" --jq .commit.sha)"')
     expect(workflow).toContain("if: steps.current.outputs.current == 'true'")
     expect(workflow).toContain("Reconcile the latest release merge")
+    expect(workflow).toContain("recover_failed_release:")
+    expect(workflow).toContain('if [[ -z "$tag_sha" && "$RECOVER_FAILED_RELEASE" == "true" ]]')
     expect(workflow).toContain(".head.repo.full_name == .base.repo.full_name")
     expect(workflow).toContain('git merge-base --is-ancestor "$parent_sha" "$tag_sha"')
     expect(workflow).toContain('if [[ -z "$tag_sha" || "$tag_sha" == "$GITHUB_SHA" ]]')

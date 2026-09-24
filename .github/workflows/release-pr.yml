@@ -7,6 +7,12 @@ on:
     types: [closed]
     branches: [main]
   workflow_dispatch:
+    inputs:
+      recover_failed_release:
+        description: Propose a new release after an untagged release merge failed verification
+        type: boolean
+        required: false
+        default: false
 
 permissions: {}
 
@@ -42,6 +48,7 @@ jobs:
         if: steps.current.outputs.current == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          RECOVER_FAILED_RELEASE: ${{ github.event_name == 'workflow_dispatch' && inputs.recover_failed_release || false }}
         shell: bash
         run: |
           set -euo pipefail
@@ -64,6 +71,9 @@ jobs:
             fi
             gh pr close "$pr" --repo "$GITHUB_REPOSITORY" --delete-branch
           done
+          if [[ -z "$tag_sha" && "$RECOVER_FAILED_RELEASE" == "true" ]]; then
+            exit 0
+          fi
           if [[ -z "$tag_sha" || "$tag_sha" == "$GITHUB_SHA" ]]; then
             echo "pending=true" >> "$GITHUB_OUTPUT"
           fi
