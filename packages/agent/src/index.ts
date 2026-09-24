@@ -4059,6 +4059,7 @@ async function createAgentInvocationContext<
     }
     let transformed: { tools: typeof capabilities.tools, originalNames: Map<string, string> }
     try {
+      // SAFETY: runAgent attaches this private symbol only to the invocation's Runtime Context.
       const invocationTools = (context as AgentRuntimeContext & { [invocationToolsContextKey]?: AgentToolSet })[invocationToolsContextKey]
       const collisions = Object.keys(invocationTools || {}).filter(name => Object.hasOwn(capabilities.tools || {}, name))
       if (collisions.length) throw new Error(`[vitehub] Invocation tool name already exists: ${collisions.join(", ")}.`)
@@ -7526,6 +7527,7 @@ export async function runAgent<
     // SAFETY: The three-argument overload requires a Runtime Context as its second argument.
     return runAgentWithContext(agent, contextOrInput as AgentRuntimeContext<TRuntimeConfig>, inputOrOptions as AgentRunInput<CALL_OPTIONS>, options)
   }
+  // SAFETY: The Runtime Context overload returned above; the remaining third argument contains invocation options.
   const standaloneOptions = inputOrOptions as RunAgentOptions | undefined
   const schedule = standaloneOptions?.schedule
   const runtime = createRuntimeContext({ runtime: "unknown", run: { runId: schedule?.runId || schedule?.id || createTraceId() } })
@@ -7568,6 +7570,7 @@ async function runAgentWithContext<
   if (options.schedule) {
     const schedule = options.schedule
     const runId = schedule.runId || schedule.id
+    // SAFETY: The object check narrows schedule input before reading its optional discriminator.
     const turn = schedule.input && hasRuntimeType(schedule.input, "object") && (schedule.input as { kind?: unknown }).kind === "agent-turn"
       ? parseScheduledAgentTurnInput(schedule.input)
       : undefined
@@ -7582,6 +7585,7 @@ async function runAgentWithContext<
       ...context,
       memo(key, create) {
         if (!memoValues.has(key)) memoValues.set(key, create())
+        // SAFETY: This value was created for the same memo key by the caller's factory.
         return memoValues.get(key) as never
       },
       run: { ...context.run, ...turn?.delivery, runId },
@@ -7626,6 +7630,7 @@ async function runAgentWithContext<
     throw error
   }
   const result = await runAgentInline(agent, contextWithTools, input)
+  // SAFETY: The caller requested the rendered output contract, including a collected stream result.
   return options.output === "drained" ? await drainAgentRunOutput(result) as TOutput : result
 }
 
