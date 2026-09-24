@@ -144,10 +144,23 @@ jobs:
             echo "Recovery PR must be merged into main" >&2
             exit 1
           fi
-          if [[ "$(git rev-parse "${recovery_sha}^1")" != "$failed_sha" ]]; then
-            echo "Recovery PR must immediately follow the failed release merge" >&2
+          if [[ "$recovery_sha" == "$failed_sha" ]] || ! git merge-base --is-ancestor "$failed_sha" "$recovery_sha"; then
+            echo "Recovery PR must follow the failed release merge" >&2
             exit 1
           fi
+          mapfile -t boundary_commits < <(git rev-list --first-parent --reverse "${failed_sha}..${recovery_sha}")
+          if (( ${#boundary_commits[@]} == 0 || ${#boundary_commits[@]} > 250 )); then
+            echo "Invalid recovery commit boundary" >&2
+            exit 1
+          fi
+          for commit_sha in "${boundary_commits[@]}"; do
+            associated_pr="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${commit_sha}/pulls" \
+              --jq ".[] | select(.number == ${RECOVERY_PR}) | .number")"
+            if [[ -z "$associated_pr" ]]; then
+              echo "Commit $commit_sha was not introduced by recovery PR $RECOVERY_PR" >&2
+              exit 1
+            fi
+          done
           git checkout --detach "$recovery_sha"
           node .github/scripts/check-release-candidate.mjs "$release_branch"
           release_tag="${release_branch#release/}"
