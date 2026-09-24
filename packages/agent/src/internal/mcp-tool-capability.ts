@@ -126,8 +126,10 @@ async function assertMcpToolIntegrity(server: string, tools: Record<string, unkn
 
 function mcpFailureStatus(error: unknown): number | undefined {
   if (!isRuntimeRecord(error)) return undefined
-  const record = error
-  const statusCode = Number(record.statusCode ?? record.status)
+  const sseStatus = error.name === "MCPClientError" && hasRuntimeType(error.message, "string")
+    ? /^MCP SSE Transport Error: (\d{3}) [^\r\n]*$/.exec(error.message)?.[1]
+    : undefined
+  const statusCode = Number(error.statusCode ?? error.status ?? sseStatus)
   return Number.isInteger(statusCode) && statusCode >= 400 && statusCode <= 599 ? statusCode : undefined
 }
 
@@ -143,7 +145,7 @@ function isMcpAvailabilityFailure(error: unknown, seen = new Set<unknown>()): bo
   const status = mcpFailureStatus(error)
   if (status !== undefined) return status === 408 || status === 409 || status === 429 || status >= 500
   if (error.name === "TimeoutError") return true
-  if (hasRuntimeType(error.code, "string") && ["ECONNREFUSED", "ECONNRESET", "ETIMEDOUT", "EAI_AGAIN", "ENETUNREACH", "EHOSTUNREACH", "UND_ERR_CONNECT_TIMEOUT", "UND_ERR_HEADERS_TIMEOUT", "UND_ERR_SOCKET"].includes(error.code)) return true
+  if (hasRuntimeType(error.code, "string") && ["ECONNREFUSED", "ECONNRESET", "EPIPE", "ConnectionRefused", "ConnectionClosed", "FailedToOpenSocket", "ETIMEDOUT", "EAI_AGAIN", "ENETUNREACH", "EHOSTUNREACH", "UND_ERR_CONNECT_TIMEOUT", "UND_ERR_HEADERS_TIMEOUT", "UND_ERR_SOCKET"].includes(error.code)) return true
   if (error.cause !== undefined) return isMcpAvailabilityFailure(error.cause, seen)
   return error.name === "TypeError" && error.message === "fetch failed"
 }

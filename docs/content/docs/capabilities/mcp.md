@@ -72,7 +72,7 @@ During resolution, `mcp()` connects to each configured MCP Server and asks for i
 ViteHub prefixes normalized tool names with `mcp_<server>_` and rejects duplicate normalized names.
 Pass a resolver or client config for an invocation-owned connection, or a static direct client when the application owns its lifetime.
 An absent entry contributes no tools and creates no MCP client. Other configured servers still resolve.
-Thrown resolver errors and connection, authentication, discovery, integrity, and cleanup failures remain errors; ViteHub does not mistake a broken configured server for optional setup.
+Transient transport failures during resolution or discovery mark the affected server unavailable and let other servers contribute tools. Authentication, configuration, cancellation, protocol, integrity, cleanup, and other resolver failures remain fatal.
 
 Generic MCP client configurations default top-level `protocolVersionDiscovery` to `false` so existing initialize-first servers remain compatible. Set it to `true` on a client configuration when the server supports protocol-version discovery.
 

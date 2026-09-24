@@ -63,6 +63,7 @@ describe("mcp capability", () => {
       Object.assign(new Error("Unsupported protocol version"), { name: "MCPClientError" }),
       Object.assign(new Error("Invalid maxRetries"), { name: "MCPClientError" }),
       new Error("Invalid network configuration"),
+      ...[400, 401, 403, 404, 405].map(status => Object.assign(new Error(`MCP SSE Transport Error: ${status} Request failed`), { name: "MCPClientError" })),
       Object.assign(new Error("MCP client initialization was aborted", { cause: new TypeError("fetch failed") }), { name: "MCPClientError" }),
       Object.assign(new Error("Request timed out after 5ms"), { name: "MCPClientError", code: -32602 }),
     ])("preserves hard rejection %#", async (error) => {
@@ -75,6 +76,8 @@ describe("mcp capability", () => {
       Object.assign(new Error("Connection refused"), { code: "ECONNREFUSED" }),
       Object.assign(new Error("Request timed out"), { name: "TimeoutError" }),
       new TypeError("fetch failed"),
+      ...[408, 409, 429, 500, 503, 504].map(status => Object.assign(new Error(`MCP SSE Transport Error: ${status} Service unavailable`), { name: "MCPClientError" })),
+      ...["EPIPE", "ConnectionRefused", "ConnectionClosed", "FailedToOpenSocket"].map(code => Object.assign(new Error("Transport failed"), { code })),
       Object.assign(new Error("MCP client initialization timed out after 5ms"), { name: "MCPClientError" }),
       Object.assign(new Error("Request timed out after 5ms"), { name: "MCPClientError" }),
       new Error("MCP transport failed", { cause: Object.assign(new Error("reset"), { code: "ECONNRESET" }) }),
