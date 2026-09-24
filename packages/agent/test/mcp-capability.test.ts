@@ -40,6 +40,54 @@ async function fingerprintTools(tools: Record<string, unknown>) {
 }
 
 describe("mcp capability", () => {
+  describe.each(["resolve", "discovery"] as const)("%s failure classification", (phase) => {
+    async function resolveFailure(error: unknown) {
+      const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+      const { mcp } = await import("../src/capabilities.ts")
+      const client = createClient({})
+      client.tools.mockRejectedValue(error)
+      return resolveAgentCapabilities({
+        capabilities: [mcp({ servers: { failing: async () => {
+          if (phase === "resolve") throw error
+          return client
+        } } })],
+      }, runtime(), {})
+    }
+
+    it.each([
+      undefined, null, false, 0, "",
+      Object.assign(new Error("Unauthorized"), { statusCode: 401 }),
+      Object.assign(new Error("Forbidden"), { status: 403 }),
+      Object.assign(new Error("Bad request"), { statusCode: 400 }),
+      Object.assign(new Error("Request aborted"), { name: "AbortError" }),
+      Object.assign(new Error("Unsupported protocol version"), { name: "MCPClientError" }),
+      Object.assign(new Error("Invalid maxRetries"), { name: "MCPClientError" }),
+      new Error("Invalid network configuration"),
+      ...[400, 401, 403, 404, 405].map(status => Object.assign(new Error(`MCP SSE Transport Error: ${status} Request failed`), { name: "MCPClientError" })),
+      Object.assign(new Error("MCP client initialization was aborted", { cause: new TypeError("fetch failed") }), { name: "MCPClientError" }),
+      Object.assign(new Error("Request timed out after 5ms"), { name: "MCPClientError", code: -32602 }),
+    ])("preserves hard rejection %#", async (error) => {
+      await expect(resolveFailure(error)).rejects.toBe(error)
+    })
+
+    it.each([
+      Object.assign(new Error("Gateway timeout"), { statusCode: 504 }),
+      Object.assign(new Error("Rate limited"), { statusCode: 429 }),
+      Object.assign(new Error("Connection refused"), { code: "ECONNREFUSED" }),
+      Object.assign(new Error("Request timed out"), { name: "TimeoutError" }),
+      new TypeError("fetch failed"),
+      ...[408, 409, 429, 500, 503, 504].map(status => Object.assign(new Error(`MCP SSE Transport Error: ${status} Service unavailable`), { name: "MCPClientError" })),
+      ...["EPIPE", "ConnectionRefused", "ConnectionClosed", "FailedToOpenSocket"].map(code => Object.assign(new Error("Transport failed"), { code })),
+      Object.assign(new Error("MCP client initialization timed out after 5ms"), { name: "MCPClientError" }),
+      Object.assign(new Error("Request timed out after 5ms"), { name: "MCPClientError" }),
+      new Error("MCP transport failed", { cause: Object.assign(new Error("reset"), { code: "ECONNRESET" }) }),
+    ])("degrades transient rejection %#", async (error) => {
+      const resolved = await resolveFailure(error)
+      expect(resolved.tools).toEqual({})
+      await resolved.close()
+    })
+  })
+
   it("resolves independent servers concurrently while preserving configured tool order", async () => {
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { mcp } = await import("../src/capabilities.ts")
@@ -458,6 +506,37 @@ describe("mcp capability", () => {
     finally {
       vi.doUnmock("@ai-sdk/mcp")
     }
+  })
+
+  it("keeps healthy MCP servers available when others are unavailable", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { mcp } = await import("../src/capabilities.ts")
+    const unavailable = createClient({ unavailable: { execute: vi.fn() } })
+    unavailable.tools.mockRejectedValueOnce(Object.assign(new Error("MCP server returned 504"), { status: 504 }))
+    const healthy = createClient({ lookup: { execute: vi.fn() } })
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [mcp({
+        servers: {
+          resolveUnavailable: () => { throw Object.assign(new Error("fetch failed"), { statusCode: 503 }) },
+          discoveryUnavailable: () => unavailable,
+          healthy: () => healthy,
+        },
+      })],
+    }, runtime(), { context: { existing: true } })
+
+    expect(Object.keys(resolved.tools || {})).toEqual(["mcp_healthy_lookup"])
+    expect(resolved.input.context).toMatchObject({
+      existing: true,
+      "vitehub.mcp.warnings": [
+        { server: "resolveUnavailable", phase: "resolve", statusCode: 503 },
+        { server: "discoveryUnavailable", phase: "discovery", statusCode: 504 },
+      ],
+    })
+
+    await resolved.close()
+    expect(unavailable.close).toHaveBeenCalledTimes(1)
+    expect(healthy.close).toHaveBeenCalledTimes(1)
   })
 
   it("does not treat resolver failures as absent configuration", async () => {

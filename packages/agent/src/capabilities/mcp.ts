@@ -54,6 +54,7 @@ export function mcp<
   }
   assertMcpIntegrityOptions(options)
   return defineMcpToolCapability({
+    degradeUnavailable: true,
     id: "mcp",
     inspection: {
       label: "MCP",

@@ -43,6 +43,7 @@ export interface McpToolCapabilityOptions<
   Name extends WorkspaceName = WorkspaceName,
 > {
   id: string
+  degradeUnavailable?: boolean
   inspection?: AgentCapabilityInspectionDefinition
   integrityLabel: string
   invalidServerMessage: string
@@ -123,6 +124,60 @@ async function assertMcpToolIntegrity(server: string, tools: Record<string, unkn
   }
 }
 
+function mcpFailureStatus(error: unknown): number | undefined {
+  if (!isRuntimeRecord(error)) return undefined
+  const sseStatus = error.name === "MCPClientError" && hasRuntimeType(error.message, "string")
+    ? /^MCP SSE Transport Error: (\d{3}) [^\r\n]*$/.exec(error.message)?.[1]
+    : undefined
+  const statusCode = Number(error.statusCode ?? error.status ?? sseStatus)
+  return Number.isInteger(statusCode) && statusCode >= 400 && statusCode <= 599 ? statusCode : undefined
+}
+
+function isMcpAvailabilityFailure(error: unknown, seen = new Set<unknown>()): boolean {
+  if (!isRuntimeRecord(error) || seen.has(error)) return false
+  seen.add(error)
+  if (error.name === "AbortError") return false
+  if (error.name === "MCPClientError" && hasRuntimeType(error.message, "string")) {
+    if (/\baborted\b/.test(error.message) || hasRuntimeType(error.code, "number")) return false
+    // The SDK has no structured timeout code for these two bounded timers.
+    if (/^(?:MCP client initialization|Request) timed out after \d+(?:\.\d+)?ms$/.test(error.message)) return true
+  }
+  const status = mcpFailureStatus(error)
+  if (status !== undefined) return status === 408 || status === 409 || status === 429 || status >= 500
+  if (error.name === "TimeoutError") return true
+  if (hasRuntimeType(error.code, "string") && ["ECONNREFUSED", "ECONNRESET", "EPIPE", "ConnectionRefused", "ConnectionClosed", "FailedToOpenSocket", "ETIMEDOUT", "EAI_AGAIN", "ENETUNREACH", "EHOSTUNREACH", "UND_ERR_CONNECT_TIMEOUT", "UND_ERR_HEADERS_TIMEOUT", "UND_ERR_SOCKET"].includes(error.code)) return true
+  if (error.cause !== undefined) return isMcpAvailabilityFailure(error.cause, seen)
+  return error.name === "TypeError" && error.message === "fetch failed"
+}
+
+function recordMcpAvailabilityWarning(
+  context: AgentCapabilityRuntimeContext,
+  server: string,
+  phase: "resolve" | "discovery",
+  error: unknown,
+): void {
+  const input = context.input.get()
+  const currentContext = isRuntimeRecord(input.context) && !Array.isArray(input.context)
+    ? input.context
+    : {}
+  const statusCode = mcpFailureStatus(error)
+  const warning = {
+    server,
+    phase,
+    ...(statusCode ? { statusCode } : {}),
+  }
+  const currentWarnings = Array.isArray(currentContext["vitehub.mcp.warnings"])
+    ? currentContext["vitehub.mcp.warnings"]
+    : []
+  context.input.set({
+    ...input,
+    context: {
+      ...currentContext,
+      "vitehub.mcp.warnings": [...currentWarnings, warning],
+    },
+  })
+}
+
 async function resolveMcpToolServer(
   resolved: ResolvedMcpToolServer,
   invalidServerMessage: string,
@@ -175,9 +230,19 @@ export function defineMcpToolCapability<
           clients[index] = definition.value.connection
         }
       }
-      const definitionFailure = definitions.find(result => result.status === "rejected")
+      let hardFailure: PromiseRejectedResult | undefined
+      for (const [index, definition] of definitions.entries()) {
+        if (definition.status !== "rejected") continue
+        if (options.degradeUnavailable && isMcpAvailabilityFailure(definition.reason)) {
+          servers[index]!.status = "Unavailable"
+          recordMcpAvailabilityWarning(context, options.servers[index]!.name, "resolve", definition.reason)
+        }
+        else {
+          hardFailure ??= definition
+        }
+      }
       await publishInspection()
-      if (definitionFailure?.status === "rejected") throw definitionFailure.reason
+      if (hardFailure) throw hardFailure.reason
       const needsMcpRuntime = definitions.some(result => result.status === "fulfilled"
         && result.value
         && !isMcpClient(result.value.connection)
@@ -202,12 +267,20 @@ export function defineMcpToolCapability<
         return { metadata, server, serverTools }
       }))
       for (const [index, result] of results.entries()) {
-        if (result.status === "rejected") servers[index]!.status = "Discovery failed"
+        if (result.status === "rejected") {
+          if (options.degradeUnavailable && isMcpAvailabilityFailure(result.reason)) {
+            servers[index]!.status = "Unavailable"
+            recordMcpAvailabilityWarning(context, options.servers[index]!.name, "discovery", result.reason)
+          }
+          else {
+            servers[index]!.status = "Discovery failed"
+            hardFailure ??= result
+          }
+        }
         else if (result.value) servers[index]!.status = "Resolved"
       }
       await publishInspection()
-      const failure = results.find(result => result.status === "rejected")
-      if (failure?.status === "rejected") throw failure.reason
+      if (hardFailure) throw hardFailure.reason
       for (const result of results) {
         if (result.status !== "fulfilled" || !result.value) continue
         const { metadata, server, serverTools } = result.value
