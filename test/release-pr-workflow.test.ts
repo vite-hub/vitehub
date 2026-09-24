@@ -17,7 +17,10 @@ describe("release PR workflow", () => {
     expect(workflow).toContain("if: steps.current.outputs.current == 'true'")
     expect(workflow).toContain("Reconcile the latest release merge")
     expect(workflow).toContain("recover_failed_release:")
-    expect(workflow).toContain('if [[ -z "$tag_sha" && "$RECOVER_FAILED_RELEASE" == "true" ]]')
+    expect(workflow).toContain("  recover-release:\n")
+    expect(workflow).toContain('node .github/scripts/check-release-candidate.mjs "$release_branch"')
+    expect(workflow).toContain('release_tag="${release_branch#release/}"')
+    expect(workflow).toContain('gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref "$RELEASE_TAG"')
     expect(workflow).toContain(".head.repo.full_name == .base.repo.full_name")
     expect(workflow).toContain('git merge-base --is-ancestor "$parent_sha" "$tag_sha"')
     expect(workflow).toContain('if [[ -z "$tag_sha" || "$tag_sha" == "$GITHUB_SHA" ]]')
@@ -58,6 +61,42 @@ describe("release PR workflow", () => {
       expect(() => check("release/v0.1.0-01")).toThrow()
       writeFileSync(join(directory, "packages", "public", "package.json"), JSON.stringify({ name: "public", version: "0.0.1" }))
       expect(() => check("release/v0.1.0")).toThrow()
+    }
+    finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  it("recovers the unpublished version after a correction commit", () => {
+    const directory = mkdtempSync(join(tmpdir(), "vitehub-release-recovery-"))
+    try {
+      mkdirSync(join(directory, "packages", "public"), { recursive: true })
+      const writeVersion = (version: string) => {
+        writeFileSync(join(directory, "package.json"), JSON.stringify({ version }))
+        writeFileSync(join(directory, "packages", "public", "package.json"), JSON.stringify({ name: "public", version }))
+      }
+      const git = (...args: string[]) => execFileSync("git", args, { cwd: directory, encoding: "utf8" }).trim()
+      const commit = (message: string) => {
+        git("add", ".")
+        git("-c", "user.name=Release Test", "-c", "user.email=release@example.test", "commit", "-qm", message)
+      }
+
+      git("init", "-q")
+      writeVersion("1.0.0")
+      commit("chore: baseline")
+      git("tag", "v1.0.0")
+      writeVersion("1.1.0")
+      commit("feat: merged release candidate")
+      writeFileSync(join(directory, "correction.txt"), "corrected\n")
+      commit("fix: correct release verification")
+
+      expect(git("describe", "--tags", "--abbrev=0")).toBe("v1.0.0")
+      expect(execFileSync("node", [checker, "release/v1.1.0"], { cwd: directory, encoding: "utf8" }))
+        .toContain("Validated 1 packages at 1.1.0")
+      const recovery = workflow.slice(workflow.indexOf("  recover-release:\n"), workflow.indexOf("  verify-release:\n"))
+      expect(recovery).toContain('release_tag="${release_branch#release/}"')
+      expect(recovery).toContain("vp run verify")
+      expect(recovery).not.toContain("danielroe/uppt/pr")
     }
     finally {
       rmSync(directory, { recursive: true, force: true })

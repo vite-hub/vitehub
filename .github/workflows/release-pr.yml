@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       recover_failed_release:
-        description: Propose a new release after an untagged release merge failed verification
+        description: Verify corrected main and tag the unpublished release version
         type: boolean
         required: false
         default: false
@@ -18,7 +18,7 @@ permissions: {}
 
 jobs:
   proposal:
-    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && github.repository == 'vite-hub/vitehub'
+    if: (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && !inputs.recover_failed_release)) && github.ref == 'refs/heads/main' && github.repository == 'vite-hub/vitehub'
     runs-on: ubuntu-latest
     concurrency:
       group: release-proposal
@@ -48,7 +48,6 @@ jobs:
         if: steps.current.outputs.current == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-          RECOVER_FAILED_RELEASE: ${{ github.event_name == 'workflow_dispatch' && inputs.recover_failed_release || false }}
         shell: bash
         run: |
           set -euo pipefail
@@ -71,9 +70,6 @@ jobs:
             fi
             gh pr close "$pr" --repo "$GITHUB_REPOSITORY" --delete-branch
           done
-          if [[ -z "$tag_sha" && "$RECOVER_FAILED_RELEASE" == "true" ]]; then
-            exit 0
-          fi
           if [[ -z "$tag_sha" || "$tag_sha" == "$GITHUB_SHA" ]]; then
             echo "pending=true" >> "$GITHUB_OUTPUT"
           fi
@@ -100,6 +96,66 @@ jobs:
           if (( ${#release_branches[@]} == 1 )); then
             gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref "${release_branches[0]}"
           fi
+
+  recover-release:
+    if: github.event_name == 'workflow_dispatch' && inputs.recover_failed_release && github.ref == 'refs/heads/main' && github.repository == 'vite-hub/vitehub'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: release-recovery
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      actions: write
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - uses: ./.github/actions/setup-deno
+      - name: Resolve unpublished release version
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_branch="$(gh api "repos/${GITHUB_REPOSITORY}/pulls?state=closed&base=main&sort=updated&direction=desc&per_page=100" \
+            --jq '[.[] | select(.merged_at != null and .head.repo.full_name == .base.repo.full_name and (.head.ref | startswith("release/v")))] | sort_by(.merged_at) | last | .head.ref // empty')"
+          if [[ -z "$release_branch" ]]; then
+            echo "No merged release PR found for recovery" >&2
+            exit 1
+          fi
+          node .github/scripts/check-release-candidate.mjs "$release_branch"
+          release_tag="${release_branch#release/}"
+          if gh api "repos/${GITHUB_REPOSITORY}/commits/${release_tag}" --jq .sha >/dev/null 2>&1; then
+            echo "Tag $release_tag already exists; dispatch release.yml on that tag instead" >&2
+            exit 1
+          fi
+          echo "tag=$release_tag" >> "$GITHUB_OUTPUT"
+      - run: vp run verify
+      - name: Tag corrected main and dispatch release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          live_sha="$(gh api "repos/${GITHUB_REPOSITORY}/branches/main" --jq .commit.sha)"
+          if [[ "$live_sha" != "$GITHUB_SHA" ]]; then
+            echo "main changed during release recovery" >&2
+            exit 1
+          fi
+          if gh api "repos/${GITHUB_REPOSITORY}/commits/${RELEASE_TAG}" --jq .sha >/dev/null 2>&1; then
+            echo "Tag $RELEASE_TAG already exists" >&2
+            exit 1
+          fi
+          gh api -X POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+            -f "ref=refs/tags/${RELEASE_TAG}" -f "sha=${GITHUB_SHA}"
+          gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref "$RELEASE_TAG"
+          gh workflow run release-pr.yml --repo "$GITHUB_REPOSITORY" --ref main
 
   verify-release:
     if: |
