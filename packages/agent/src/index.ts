@@ -197,7 +197,10 @@ import type {
   IsTypedAgentStaticCapabilitiesList,
   AgentTelemetryContentOptions,
   AgentTelemetryConfiguration,
+  AgentToolDefinition,
+  AgentToolSchema,
   AgentToolSet,
+  AgentToolStandardSchema,
   AgentToolStepItem,
   AgentUsage,
   AgentUsageRecord,
@@ -757,11 +760,19 @@ export interface ScheduleRunContextLike {
 }
 
 /** Options supplied by trusted invocation code; callable tools are never persisted as input. */
-export interface RunAgentOptions {
-  tools?: AgentToolSet
+export interface RunAgentOptions<TTools extends Record<string, AgentToolDefinition<any, any>> = Record<string, AgentToolDefinition<any, any>>> {
+  tools?: TTools
   schedule?: ScheduleRunContextLike
   /** Consume streamed output and finish its lifecycle before resolving. */
   output?: "drained"
+}
+
+type InvocationToolSchemaOutput<TSchema> = TSchema extends AgentToolStandardSchema<infer TOutput> ? TOutput : unknown
+type SchemaOwnedInvocationTools<TSchemas extends Record<string, AgentToolSchema>> = {
+  [Key in keyof TSchemas]: Omit<AgentToolDefinition<any, any>, "execute" | "inputSchema"> & {
+    inputSchema: TSchemas[Key]
+    execute?: (input: InvocationToolSchemaOutput<TSchemas[Key]>) => MaybePromise<unknown>
+  }
 }
 
 const invocationToolsContextKey = Symbol("vitehub.invocationTools")
@@ -7495,10 +7506,21 @@ export function runAgent<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
   TOutput = unknown,
+  const TSchemas extends Record<string, AgentToolSchema> = Record<string, AgentToolSchema>,
 >(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput>,
   input: AgentRunInput<CALL_OPTIONS>,
-  options: RunAgentOptions & { output: "drained" },
+  options: RunAgentOptions<SchemaOwnedInvocationTools<TSchemas>> & { output: "drained", tools: SchemaOwnedInvocationTools<TSchemas> },
+): Promise<[Error, null] | [null, string]>
+export function runAgent<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+  TOutput = unknown,
+  const TTools extends Record<string, AgentToolDefinition<any, any>> = Record<string, AgentToolDefinition<any, any>>,
+>(
+  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput>,
+  input: AgentRunInput<CALL_OPTIONS>,
+  options: RunAgentOptions<TTools> & { output: "drained" },
 ): Promise<[Error, null] | [null, string]>
 export function runAgent<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,

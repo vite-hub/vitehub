@@ -2,12 +2,32 @@ import { describe, expectTypeOf, it } from "vitest"
 import { tool } from "ai"
 import type { StandardJSONSchemaV1, StandardSchemaV1 } from "@standard-schema/spec"
 import { defineCapability } from "../src/capability-runtime.ts"
+import { defineAgent, runAgent } from "../src/index.ts"
 import type { AgentCapabilityContext, AgentCapabilityRuntimeContext, AgentToolExecutionContext, AgentToolSchema, AgentToolStandardSchema } from "../src/types.ts"
 
 declare const searchSchema: AgentToolSchema<{ query: string }>
 declare const sdkSchema: AgentToolStandardSchema<{ query: string }>
 declare const countSchema: StandardSchemaV1<string, number> & StandardJSONSchemaV1<string, number>
 declare const optionalSchema: AgentToolStandardSchema<{ query?: string } | undefined>
+
+describe("runAgent invocation tools", () => {
+  it("accepts a typed handler for a schema-backed invocation tool", () => {
+    const agent = defineAgent({ driver: { run: () => "done" } })
+    runAgent(agent, {}, {
+      output: "drained",
+      tools: {
+        send_message: {
+          name: "send_message",
+          inputSchema: sdkSchema,
+          async execute(input) {
+            expectTypeOf(input).toEqualTypeOf<{ query: string }>()
+            return input.query
+          },
+        },
+      },
+    })
+  })
+})
 
 describe("Capability tool schema inference", () => {
   it("infers each inline handler from its schema and preserves its return type", () => {
