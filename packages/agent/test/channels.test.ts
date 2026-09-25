@@ -4,8 +4,12 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { describe, expect, it, vi } from "vitest"
+import { encodeRouteSegment } from "@vite-hub/runtime"
 
 import { hasRuntimeType, isRuntimeRecord } from "../src/internal/runtime-type.ts"
+import { defineAgent } from "../src/index.ts"
+import { agentInvocationId } from "../src/invocations.ts"
+import { resolveAgentTriggers } from "../src/trigger-runtime.ts"
 
 function githubIssueCommentPayload(body = "/review please", userType = "User") {
   return {
@@ -639,6 +643,7 @@ describe("agent channels", () => {
     try {
       const channel = github({ activity: true })
       const links = Array.from({ length: 3 }, (_, index) => ({ label: `link-${index}-${"l".repeat(80)}`, url: `https://example.test/${"u".repeat(800)}` }))
+      links[0]!.url = `https://example.test/${encodeRouteSegment("A".repeat(512))}`
       for (let index = 0; index < 101; index++) {
         // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
         await channel.activity?.update({
@@ -1551,6 +1556,35 @@ describe("agent channels", () => {
     expect(botUpdate).toBeInstanceOf(Response)
     if (!(botUpdate instanceof Response)) throw new Error("Expected ignored bot synchronization response.")
     await expect(botUpdate.json()).resolves.toMatchObject({ reason: "not_command" })
+  })
+
+  it.each(["support", "team/support", ".", "\uD800", "A".repeat(512)])("links GitHub activity to the effective Agent identity %j", async (agentName) => {
+    const { github } = await import("../src/channels.ts")
+    const channel = github({
+      activity: { publicUrl: "https://agent.example.test" },
+      pullRequest: { reconcile: { prompt: "Review this pull request." }, reply: false },
+    })
+    const agent = defineAgent({ name: agentName, channels: { github: channel }, driver: { run: () => "done" }, runtime: false })
+    const triggers = await resolveAgentTriggers(agent, {
+      agentIdentity: { name: "host-alias" },
+      capabilities: {},
+      memo: vi.fn(),
+      runtime: "unknown",
+      runtimeConfig: {},
+      waitUntil: vi.fn(),
+    })
+    const trigger = triggers["github.webhook"]
+    if (!trigger) throw new Error("Missing GitHub webhook trigger.")
+    const result = await trigger.invoke({
+      github: { deliveryId: "delivery-session", event: "pull_request", installationId: 123 },
+      payload: githubPullRequestPayload("reopened"),
+    })
+    if (result instanceof Response || !result.run) throw new Error("Expected GitHub invocation.")
+    const id = await agentInvocationId(result.run.runId, agentName)
+    expect(result.run.activity?.links).toEqual([{
+      label: "Current session",
+      url: `https://agent.example.test/_vitehub/agents/${encodeRouteSegment(agentName)}/invocations/${id}`,
+    }])
   })
 
   it("fetches public pull request head metadata without a token", async () => {

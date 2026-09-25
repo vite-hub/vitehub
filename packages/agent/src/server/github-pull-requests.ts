@@ -1,6 +1,7 @@
 import * as v from "valibot"
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts"
 import { createHash } from "node:crypto";
+import { encodeRouteSegment } from "@vite-hub/runtime";
 import type { GitHubHost } from "./github-host.ts";
 
 export type PullRequestFeedback = {
@@ -432,7 +433,7 @@ export async function createGitHubPullRequestRun(
 ): Promise<import('../types.ts').AgentRunMetadata> {
   const { agentInvocationId } = await import('../invocations.ts')
   const sessionUrl = options.publicUrl
-    ? new URL(`/_vitehub/agents/${encodeURIComponent(options.agentName)}/invocations/${encodeURIComponent(await agentInvocationId(options.runId, options.agentName))}`, options.publicUrl).href
+    ? new URL(`/_vitehub/agents/${encodeRouteSegment(options.agentName)}/invocations/${encodeURIComponent(await agentInvocationId(options.runId, options.agentName))}`, options.publicUrl).href
     : options.sessionUrl
   return {
     runId: options.runId,

@@ -56,7 +56,7 @@ import { withAgentChannelHistoryDefinition } from "./internal/channel-history.ts
 import { createTelegramChannelSyncProvider } from "./internal/telegram-channel-sync.ts"
 import type { AgentChannelChatRouteBody, AgentChannelChatRouteHandlerOptions } from "./server.ts"
 import type { TelegramAdapterConfig } from "@chat-adapter/telegram"
-import { resolveRuntimeValue } from "@vite-hub/runtime"
+import { encodeRouteSegment, resolveRuntimeValue } from "@vite-hub/runtime"
 import type { Adapter, FileUpload } from "chat"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
 import type { WorkspaceName } from "@vite-hub/workspace"
@@ -463,9 +463,13 @@ export interface GitHubPullRequestFilter {
   action?: GitHubPullRequestFilterRules
 }
 
+export interface GitHubChannelActivityOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
+  publicUrl: MaybeResolvable<string, AgentCallbackContext<TRuntimeConfig>>
+}
+
 export interface GitHubChannelOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
   extends AgentChannelOptions<TRuntimeConfig> {
-  activity?: boolean
+  activity?: boolean | GitHubChannelActivityOptions<TRuntimeConfig>
   app?: true | GitHubAppOptions<TRuntimeConfig>
   pullRequest?: boolean | GitHubPullRequestCommentEventOptions<TRuntimeConfig>
 }
@@ -1537,7 +1541,7 @@ async function githubApiJsonRecentPages(fetcher: typeof fetch, url: string, head
 const githubActivityMarker = "<!-- vitehub-agent-activity:"
 const githubActivityHistoryLimit = 10
 const githubActivityLinkLimit = 3
-const githubActivityLinkUrlLimit = 1_000
+const githubActivityLinkUrlLimit = 4_096
 const githubActivityBodyLimit = 65_000
 const githubActivityStateLimit = 50_000
 const githubActivityCommentLookupLimit = 100
@@ -2839,10 +2843,27 @@ async function githubPullRequestMatchesFilter<TRuntimeConfig extends AgentRuntim
   return options.when ? await options.when(value) : true
 }
 
+async function githubActivitySessionLink<TRuntimeConfig extends AgentRuntimeConfig>(
+  context: AgentChannelTriggerContext<TRuntimeConfig>,
+  runId: string,
+  options: GitHubChannelActivityOptions<TRuntimeConfig>,
+): Promise<{ label: string, url: string }> {
+  const agentName = context.agentName || context.agentIdentity?.name
+  if (!agentName) throw new Error("GitHub activity session links require an Agent identity.")
+  const { agentInvocationId } = await import("./invocations.ts")
+  const id = await agentInvocationId(runId, agentName)
+  const publicUrl = await resolveRuntimeValue(options.publicUrl, context)
+  return {
+    label: "Current session",
+    url: new URL(`/_vitehub/agents/${encodeRouteSegment(agentName)}/invocations/${encodeURIComponent(id)}`, publicUrl).href,
+  }
+}
+
 function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
   pullRequest: boolean | GitHubPullRequestCommentEventOptions<TRuntimeConfig> | undefined,
   app?: true | GitHubAppOptions<TRuntimeConfig>,
   activity?: NonNullable<AgentChannelDefinition<TRuntimeConfig>["activity"]>,
+  activityOptions?: GitHubChannelActivityOptions<TRuntimeConfig>,
 ): AgentChannelDefinition<TRuntimeConfig>["triggers"] {
   if (!pullRequest && !activity) return undefined
   const options = pullRequest === true || !pullRequest ? {} : pullRequest
@@ -2856,15 +2877,17 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
         }
         const activityTarget = githubOpenedPullRequestActivityTarget(input, payload)
         if (activity && activityTarget) {
+          const queuedActivity: AgentActivityUpdate = {
+            links: [],
+            runId: activityTarget.deliveryId || `github:pull_request.opened:${activityTarget.repository}#${activityTarget.issue}`,
+            status: "queued",
+            tasks: [],
+          }
+          const agentName = context.agentName || context.agentIdentity?.name
+          if (agentName) queuedActivity.agentName = agentName
           const update = Promise.resolve(activity.update({
             ...context,
-            activity: {
-              ...(context.agentIdentity?.name ? { agentName: context.agentIdentity.name } : {}),
-              links: [],
-              runId: activityTarget.deliveryId || `github:pull_request.opened:${activityTarget.repository}#${activityTarget.issue}`,
-              status: "queued",
-              tasks: [],
-            },
+            activity: queuedActivity,
             target: {
               issue: activityTarget.issue,
               repository: activityTarget.repository,
@@ -2895,7 +2918,7 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
         const run = githubPullRequestRunMetadata(pullRequestContext, context.trigger.channelId)
         if (activity) {
           run.activity = {
-            links: [],
+            links: activityOptions ? [await githubActivitySessionLink(context, run.runId, activityOptions)] : [],
             target: {
               issue: command.issueNumber,
               repository: command.repository,
@@ -3117,7 +3140,7 @@ export function github<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeC
     effects: appEffects ? { ...appEffects, ...options.effects } as AgentChannelDeliveryEffects<TRuntimeConfig> : options.effects,
     messages: false,
     triggers: {
-      ...githubEventTriggers(pullRequest, appOptions, openedActivityDefinition),
+      ...githubEventTriggers(pullRequest, appOptions, openedActivityDefinition, activity && activity !== true ? activity : undefined),
       ...options.triggers,
     },
     webhooks: githubWebhookDefaults(options.webhooks, appOptions),
