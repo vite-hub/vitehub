@@ -181,3 +181,19 @@ describe("Env Bridge", () => {
     expect(read).not.toHaveBeenCalled();
   });
 });
+
+
+it("limits custom-store previews to declared metadata", async () => {
+  const { store } = setup();
+  const bridge = createEnvBridge({ ...store, secrets: { ...store.secrets, inspect: async () => ({ revision: "v1", updatedAt: "now", preview: "test••••1234", value: "do-not-release" }) }, runtimeContext: () => admin });
+  expect(await bridge.preview(admin, "key")).toEqual({ revision: "v1", updatedAt: "now", preview: "test••••1234" });
+});
+
+it("sanitizes access-store failures in SDK authorization and history", async () => {
+  const { store } = setup();
+  const fail = async (): Promise<never> => { throw new Error("private-database-connection") };
+  const bridge = createEnvBridge({ ...store, access: { ...store.access, grants: fail, activity: fail }, runtimeContext: () => agent });
+  for (const operation of [() => bridge.permissions(agent, "key"), () => bridge.read({ env: {}, keys: ["key"] }), () => bridge.activity(admin, "key"), () => bridge.grants(admin, "key")]) {
+    await expect(operation()).rejects.toThrow("Env operation failed.");
+  }
+});

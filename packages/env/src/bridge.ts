@@ -232,7 +232,10 @@ export function createEnvBridge(options: EnvBridgeOptions): EnvBridge {
         return value ? { revision: value.revision, updatedAt: value.updatedAt } : undefined;
       }),
     preview: (context, key) =>
-      audited(context, key, "preview", "preview", () => options.secrets.inspect(key)),
+      audited(context, key, "preview", "preview", async () => {
+        const value = await options.secrets.inspect(key);
+        return value ? { revision: value.revision, updatedAt: value.updatedAt, ...(value.preview ? { preview: value.preview } : {}) } : undefined;
+      }),
     replace: (context, input) => {
       let revision: string | undefined;
       return audited(
