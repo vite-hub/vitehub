@@ -313,6 +313,37 @@ describe("agent channels", () => {
     }
   })
 
+  it("does not post activity for a pull request opening when reconciliation excludes opened", async () => {
+    const { github } = await import("../src/channels.ts")
+    const channel = github({
+      activity: true,
+      pullRequest: {
+        reconcile: {
+          events: [],
+          triggers: [{ events: ["issue_comment"], mentions: ["@reviewer"] }],
+        },
+      },
+    })
+    const trigger = channel.triggers?.webhook
+    if (!trigger) throw new Error("Missing GitHub webhook trigger.")
+    const waitUntil = vi.fn()
+    const context = {
+      agentCapabilities: [],
+      agentIdentity: { name: "reviewer" },
+      channel,
+      trigger: { channelId: "github", id: "github.webhook", name: "webhook", source: "channel" },
+      waitUntil,
+    } as never
+
+    const result = await trigger.invoke(context, {
+      github: { deliveryId: "opened-delivery", event: "pull_request" },
+      payload: githubPullRequestOpenedPayload(),
+    })
+
+    expect(result).toBeInstanceOf(Response)
+    expect(waitUntil).not.toHaveBeenCalled()
+  })
+
   it("resolves GitHub App activity ownership with app JWT metadata", async () => {
     const { github } = await import("../src/channels.ts")
     const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
