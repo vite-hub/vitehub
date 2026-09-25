@@ -37,7 +37,7 @@ import type { AuthModuleOptions } from "@vite-hub/auth"
 import type { EnvIntegrationOptions, EnvViteConfigOptions, EnvViteUserConfig } from "@vite-hub/env"
 import type { KVModuleOptions } from "@vite-hub/kv"
 import type { QueueModuleOptions } from "@vite-hub/queue"
-import type { HookHandler, Plugin, PluginOption, ResolvedConfig, UserConfig } from "vite"
+import type { HookHandler, Plugin, PluginOption, ResolvedConfig, UserConfig, ViteDevServer } from "vite"
 import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
 
 const databaseRuntimeState = fileURLToPath(new URL("./_internal/database/runtime/state", import.meta.url))
@@ -1051,6 +1051,16 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       ? { "#vitehub/emails": join(projectRoot, ".vitehub/email/templates") }
       : {}),
   }
+  const consoleAuthClientWatchers = new Set<ViteDevServer["watcher"]>()
+  let watchNewConsoleAuthClientSources: ((watcher: ViteDevServer["watcher"]) => void) | undefined
+  if (nuxt.options.dev && options.console && options.console !== true && options.console.access === "auth" && options.console.auth) {
+    const hookViteServerCreated = nuxt.hook as unknown as ((name: "vite:serverCreated", callback: (server: ViteDevServer, context: { isClient: boolean }) => void) => void) | undefined
+    hookViteServerCreated?.("vite:serverCreated", (server, context) => {
+      if (!context.isClient || consoleAuthClientWatchers.has(server.watcher)) return
+      consoleAuthClientWatchers.add(server.watcher)
+      watchNewConsoleAuthClientSources?.(server.watcher)
+    })
+  }
   nuxt.hook?.("nitro:config", async (config) => {
     const {
       config: replayConfig,
@@ -1063,14 +1073,37 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         const authConfig = resolveConsoleAuthConfig(viteRoot, options.console.auth, plan.preset)
         let authHandlers = await writeConsoleAuthHandlers(viteRoot, authConfig, nuxt.options.app?.baseURL ?? "/")
         if (nuxt.options.dev && authHandlers.clientSource) {
-          const clientDirectories = [...new Set(authHandlers.clientSources.map(dirname))]
-          nuxt.options.watch = [...new Set([...(nuxt.options.watch ?? []), ...clientDirectories, ...authHandlers.clientSources])]
+          const clientDirectories = new Set<string>()
+          const newClientDirectories = new Set<string>()
+          const rebuildClient = async () => {
+            authHandlers = await writeConsoleAuthHandlers(viteRoot, authConfig, nuxt.options.app?.baseURL ?? "/")
+            watchClientSources()
+          }
+          const watchClientSources = () => {
+            for (const source of authHandlers.clientSources) {
+              const directory = dirname(source)
+              if (clientDirectories.size && !clientDirectories.has(directory)) newClientDirectories.add(directory)
+              clientDirectories.add(directory)
+            }
+            nuxt.options.watch = [...new Set([...(nuxt.options.watch ?? []), ...clientDirectories, ...authHandlers.clientSources])]
+            for (const watcher of consoleAuthClientWatchers) watcher.add([...newClientDirectories])
+          }
+          watchNewConsoleAuthClientSources = (watcher) => {
+            watcher.add([...newClientDirectories])
+            watcher.on("change", (path) => {
+              if ([...newClientDirectories].some(directory => path.startsWith(`${directory}${sep}`))) {
+                void rebuildClient().catch(error => console.error(error))
+              }
+            })
+          }
+          for (const watcher of consoleAuthClientWatchers) watchNewConsoleAuthClientSources(watcher)
+          watchClientSources()
           // SAFETY: Nuxt's hook overload includes builder:watch with this callback contract.
           const hookBuilderWatch = nuxt.hook as unknown as ((name: "builder:watch", callback: (event: string, path: string) => Promise<void>) => void) | undefined
           hookBuilderWatch?.("builder:watch", async (_event, path) => {
             const changedPath = resolve(viteRoot, path)
-            if (clientDirectories.some(directory => changedPath.startsWith(`${directory}${sep}`)) || authHandlers.clientSources.includes(changedPath)) {
-              authHandlers = await writeConsoleAuthHandlers(viteRoot, authConfig, nuxt.options.app?.baseURL ?? "/")
+            if ([...clientDirectories].some(directory => changedPath.startsWith(`${directory}${sep}`)) || authHandlers.clientSources.includes(changedPath)) {
+              await rebuildClient()
             }
           })
         }
