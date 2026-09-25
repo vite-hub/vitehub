@@ -452,8 +452,7 @@ function createServerEnvModule(
   const referenced = referencedProviderNames(serverRegistry)
   const providers = Object.entries(providerModules).filter(([name]) => referenced.has(name))
   return [
-    `import { inspectServerEnv as inspectRegistry, loadServerEnv as loadRegistry, resolveServerEnv } from ${JSON.stringify(runtimeImports.server)};`,
-    'import { createServerEnvManagement } from "@vite-hub/env/server";',
+    `import { createServerEnvManagement, inspectServerEnv as inspectRegistry, loadServerEnv as loadRegistry, resolveServerEnv } from ${JSON.stringify(runtimeImports.server)};`,
 
     ...providers.map(([, specifier], index) => `import envProvider${index} from ${JSON.stringify(providerImportSpecifier(specifier, outputPath))};`),
     `const registry = JSON.parse(${JSON.stringify(JSON.stringify(serverRegistry))});`,
