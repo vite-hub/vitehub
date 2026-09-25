@@ -523,7 +523,9 @@ export function installConsoleSectionScope(
   if (registry) {
     const sectionsRegistry = sectionsByRoot(registry[consoleSectionsRegistryKey]) ?? new Map<string, ConsoleSectionRegistration>()
     const projectName = sectionsRegistry.get(projectRoot)?.projectName
-    sectionsRegistry.set(projectRoot, { auth: independentAuth, ...(projectName ? { projectName } : {}), sections: installed })
+    const registration: ConsoleSectionRegistration = { auth: independentAuth, sections: installed }
+    if (projectName) registration.projectName = projectName
+    sectionsRegistry.set(projectRoot, registration)
     registry[consoleSectionsRegistryKey] = sectionsRegistry
     registry[consoleSectionsKey] = installed
   }

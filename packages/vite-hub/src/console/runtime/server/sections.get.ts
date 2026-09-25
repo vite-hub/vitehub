@@ -10,5 +10,8 @@ export default function consoleSectionsHandler(event: ConsoleRequestEvent): {
 } {
   assertConsoleRequest(event)
   const projectName = getConsoleProjectName()
-  return { ...(getConsoleAuth() ? { auth: true as const } : {}), ...(projectName ? { projectName } : {}), sections: getConsoleSections() }
+  const result: { auth?: true, projectName?: string, sections: readonly string[] } = { sections: getConsoleSections() }
+  if (getConsoleAuth()) result.auth = true
+  if (projectName) result.projectName = projectName
+  return result
 }

@@ -50,7 +50,10 @@ async function loadSections(): Promise<void> {
 
 async function consoleAuthClient(): Promise<ReturnType<typeof createAuthClient>> {
   authClientRequest ??= import(/* @vite-ignore */ authClientURL)
-    .then(() => Reflect.get(globalThis, Symbol.for("vitehub.console.auth.client")) as ReturnType<typeof createAuthClient> | undefined)
+    .then(() => {
+      // SAFETY: The generated Console Auth client script is the only writer for this symbol and stores a createAuthClient result.
+      return Reflect.get(globalThis, Symbol.for("vitehub.console.auth.client")) as ReturnType<typeof createAuthClient> | undefined;
+    })
     .catch(() => undefined)
     .then((configured) => configured ?? createAuthClient({ basePath: authBase }));
   return await authClientRequest;
