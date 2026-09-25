@@ -242,3 +242,17 @@ describe("Env management HTTP", () => {
     })
   })
 })
+
+it("discovers preview-only permissions without requiring inspect or reading metadata", async () => {
+  const { bridge, handler } = setup(agent)
+  await bridge.replace(admin, { key, value: secret, expectedRevision: null })
+  await bridge.grant(admin, { key, actor: agent.actor, permissions: ["preview"] })
+  const inspect = vi.spyOn(bridge, "inspect")
+  const result = await handler(request({ path, action: "permissions" }))
+  expect(result.status).toBe(200)
+  expect(await result.json()).toEqual({ permissions: ["preview"], admin: false })
+  expect(inspect).not.toHaveBeenCalled()
+  expect((await handler(request({ path, action: "inspect" }))).status).toBe(403)
+  const preview = await handler(request({ path, action: "preview" }))
+  expect(await preview.json()).toMatchObject({ metadata: { preview: "ghp_••••1234" } })
+})
