@@ -129,7 +129,76 @@ The Console registers its page, assets, and Devframe SSE transport under `/_vite
 
 ViteHub sends `X-Robots-Tag: noindex, nofollow` on the Console route and includes the equivalent robots meta tag in the standalone Console page. These directives keep the Console out of search engines that honor them. They do not restrict access, so keep the production access policy below.
 
-If the app uses ViteHub Auth, set `console: { access: 'auth' }` and guard `/_vitehub/**` and `/api/_vitehub/console/**` in the Primary Auth Definition. The host decides what makes a user an administrator.
+Console Auth can use its own Better Auth session. It does not require the application's Primary Auth Definition. For a Node host, the inline GitHub setup accepts only verified email addresses in `allowedEmails`:
+
+If you previously protected the Console through Primary Auth, remove its `/_vitehub/**` and `/api/_vitehub/console/**` access routes when you switch to `console.auth`. Keep `auth: true` if application routes still use Primary Auth. Otherwise, both auth guards apply and maintainers must sign in twice.
+
+Inline Console Auth uses `node:sqlite` and requires the Node deployment preset. Other presets need a file-based Console Auth Definition with a database adapter supported by the host.
+
+```ts [vite.config.ts]
+export default defineConfig({
+  plugins: [vitehub({
+    agent: true,
+    console: {
+      access: 'auth',
+      auth: {
+        provider: 'github',
+        allowedEmails: ['maintainer@example.com'],
+        databasePath: '/var/lib/app/console-auth.sqlite',
+        baseURL: 'https://agent.example.com',
+      },
+    },
+    preset: 'node',
+  })],
+})
+```
+
+Set `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, and `BETTER_AUTH_SECRET` in the server environment. `baseURL` is the public origin used for OAuth redirects; set it when a proxy terminates TLS. The GitHub callback URL is `https://agent.example.com/api/_vitehub/console/auth/callback/github`. For Nuxt apps mounted below `/`, ViteHub includes `app.baseURL` in the callback and redirects. Put `databasePath` on persistent storage. Console Auth creates or updates its Better Auth tables before the first protected request. It refuses a missing database or secret. Application requests and channel requests keep their own authentication.
+
+For a custom provider, GitHub organization check, or Better Auth server plugins, commit `vitehub/console/auth/server.ts` and use `console: { access: 'auth', auth: {} }`. The file can import `defineAuth` and export a Console definition:
+
+```ts [vitehub/console/auth/server.ts]
+import { DatabaseSync } from 'node:sqlite'
+import { defineAuth } from 'vite-hub/auth'
+import { defineConsoleAuth } from 'vite-hub/console/auth'
+
+const database = new DatabaseSync('/var/lib/app/console-auth.sqlite')
+
+export default defineConsoleAuth({
+  auth: defineAuth(() => ({
+    baseURL: process.env.CONSOLE_AUTH_BASE_URL,
+    database,
+    secret: process.env.BETTER_AUTH_SECRET,
+    socialProviders: {
+      github: {
+        clientId: process.env.GITHUB_CLIENT_ID!,
+        clientSecret: process.env.GITHUB_CLIENT_SECRET!,
+      },
+    },
+  })),
+  signIn: { provider: 'github' },
+  authorize: ({ user }) => user.email === 'maintainer@example.com',
+})
+```
+
+ViteHub fixes this definition's auth route to `/api/_vitehub/console/auth/**` and its cookie prefix to `vitehub_console`. It guards `/_vitehub/**` and every method under `/api/_vitehub/console/**`, including the RPC transport and invocation actions. An unauthenticated browser visit opens `/_vitehub/sign-in`; the provider redirect starts only after the user selects its sign-in button. Console APIs return 401 without a session. The sign-in page and auth callback are excluded from the guard. The server file must provide a Better Auth database adapter and a secret. The host must place that database on durable storage. ViteHub runs Better Auth migrations before serving the first protected request. Set `migrate: false` only when your own startup process has applied the schema.
+
+An optional `vitehub/console/auth/client.ts` can provide Better Auth client plugins and a `setup` hook. ViteHub bundles it for the Console pages only:
+
+```ts [vitehub/console/auth/client.ts]
+import { defineConsoleAuthClient } from 'vite-hub/console/auth/client'
+
+export default defineConsoleAuthClient({
+  plugins: [],
+  setup(client) {
+    // Add Console-only browser behavior here.
+  },
+})
+```
+
+Use `console.auth.server` or `console.auth.client` for a file in another location. An explicit path conflicts with the corresponding discovered file. Client code does not authorize requests.
+
+Existing applications can instead reuse their Primary Auth Definition. Set `console: { access: 'auth' }` and guard `/_vitehub/**` and `/api/_vitehub/console/**` there:
 
 ```ts [vite.config.ts]
 export default defineConfig({

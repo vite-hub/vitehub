@@ -30,8 +30,10 @@ export const consoleInvocationsRootIdentityRegistryKey: unique symbol = Symbol.f
 export const consoleInvocationsRevisionRegistryKey: unique symbol = Symbol.for("vitehub.console.invocations.revisions")
 export const consoleProjectRootKey: typeof consoleInvocationsRootKey = consoleInvocationsRootKey
 export const consoleSectionsKey: unique symbol = Symbol.for("vitehub.console.sections")
+export const consoleAuthKey: unique symbol = Symbol.for("vitehub.console.auth")
 export const consoleProjectNameKey: unique symbol = Symbol.for("vitehub.console.project-name")
 export const consoleSectionsRootKey: unique symbol = Symbol.for("vitehub.console.sections.root")
+const consoleSectionsAmbiguousRootKey: unique symbol = Symbol.for("vitehub.console.sections.ambiguous-root")
 export const consoleSectionsRegistryKey: unique symbol = Symbol.for("vitehub.console.sections.registry")
 
 type ConsoleInvocationsByRoot = {
@@ -82,7 +84,7 @@ type ConsoleDatabaseByRoot = {
 
 type ConsoleInvocationRegistry = Record<
   symbol,
-  AgentInvocations | ConsoleBlobByRoot | ConsoleBlobInspection | ConsoleDatabaseByRoot | ConsoleDatabaseInspection | ConsoleDefinitionCatalog | ConsoleDefinitionsByRoot | string | readonly ConsoleSectionId[] | ConsoleInvocationsByRoot | ConsoleInvocationIdentitiesByRoot | ConsoleKVByRoot | ConsoleKVInspection | ConsoleSectionsByRoot | undefined
+  AgentInvocations | boolean | ConsoleBlobByRoot | ConsoleBlobInspection | ConsoleDatabaseByRoot | ConsoleDatabaseInspection | ConsoleDefinitionCatalog | ConsoleDefinitionsByRoot | string | readonly ConsoleSectionId[] | ConsoleInvocationsByRoot | ConsoleInvocationIdentitiesByRoot | ConsoleKVByRoot | ConsoleKVInspection | ConsoleSectionsByRoot | undefined
 >
 
 type ConsoleInvocationIdentitiesByRoot = {
@@ -94,6 +96,7 @@ type ConsoleInvocationIdentitiesByRoot = {
 }
 
 interface ConsoleSectionRegistration {
+  auth?: boolean
   projectName?: string
   sections: readonly ConsoleSectionId[]
 }
@@ -128,8 +131,10 @@ export type ConsoleInvocationScope = {
   [consoleProjectRootKey]?: string
   [consoleInvocationsRootIdentityRegistryKey]?: ConsoleInvocationIdentitiesByRoot
   [consoleSectionsKey]?: readonly ConsoleSectionId[]
+  [consoleAuthKey]?: boolean
   [consoleProjectNameKey]?: string
   [consoleSectionsRootKey]?: string
+  [consoleSectionsAmbiguousRootKey]?: boolean
   [consoleSectionsRegistryKey]?: ConsoleSectionsByRoot
 }
 
@@ -510,15 +515,20 @@ export function installConsoleSectionScope(
   projectRoot: string,
   sections: readonly ConsoleSectionId[],
   scope: ConsoleInvocationScope = defaultConsoleInvocationScope(),
+  independentAuth = false,
 ): readonly ConsoleSectionId[] {
   const installed = [...new Set(sections)]
+  if (scope[consoleSectionsRootKey] && scope[consoleSectionsRootKey] !== projectRoot) scope[consoleSectionsAmbiguousRootKey] = true
   scope[consoleSectionsRootKey] = projectRoot
   scope[consoleSectionsKey] = installed
+  scope[consoleAuthKey] = independentAuth
   const registry = processRegistry(scope)
   if (registry) {
     const sectionsRegistry = sectionsByRoot(registry[consoleSectionsRegistryKey]) ?? new Map<string, ConsoleSectionRegistration>()
     const projectName = sectionsRegistry.get(projectRoot)?.projectName
-    sectionsRegistry.set(projectRoot, { ...(projectName ? { projectName } : {}), sections: installed })
+    const registration: ConsoleSectionRegistration = { auth: independentAuth, sections: installed }
+    if (projectName) registration.projectName = projectName
+    sectionsRegistry.set(projectRoot, registration)
     registry[consoleSectionsRegistryKey] = sectionsRegistry
     registry[consoleSectionsKey] = installed
   }
@@ -530,13 +540,14 @@ export function installConsoleProjectNameScope(
   projectName: string,
   scope: ConsoleInvocationScope = defaultConsoleInvocationScope(),
 ): string {
+  if (scope[consoleSectionsRootKey] && scope[consoleSectionsRootKey] !== projectRoot) scope[consoleSectionsAmbiguousRootKey] = true
   scope[consoleSectionsRootKey] = projectRoot
   scope[consoleProjectNameKey] = projectName
   const registry = processRegistry(scope)
   if (registry) {
     const sectionsRegistry = sectionsByRoot(registry[consoleSectionsRegistryKey]) ?? new Map<string, ConsoleSectionRegistration>()
     const sections = sectionsRegistry.get(projectRoot)?.sections ?? scope[consoleSectionsKey] ?? []
-    sectionsRegistry.set(projectRoot, { projectName, sections })
+    sectionsRegistry.set(projectRoot, { ...sectionsRegistry.get(projectRoot), projectName, sections })
     registry[consoleSectionsRegistryKey] = sectionsRegistry
   }
   return projectName
@@ -550,6 +561,16 @@ export function resolveConsoleSections(scope: ConsoleInvocationScope = defaultCo
   if (registered && registered.size > 1) return scope[consoleSectionsKey] ?? []
   // SAFETY: installConsoleSectionScope is the only writer for this process registry key.
   return (registry?.[consoleSectionsKey] as readonly ConsoleSectionId[] | undefined) ?? scope[consoleSectionsKey] ?? []
+}
+
+export function resolveConsoleAuth(scope: ConsoleInvocationScope = defaultConsoleInvocationScope()): boolean {
+  // A shared scope can register several projects. Its last root cannot identify the current request.
+  if (scope[consoleSectionsAmbiguousRootKey]) return false
+  const root = scope[consoleSectionsRootKey]
+  const registered = sectionsByRoot(processRegistry(scope)?.[consoleSectionsRegistryKey])
+  if (root) return registered?.get(root)?.auth ?? scope[consoleAuthKey] ?? false
+  if (registered && registered.size > 1) return false
+  return registered?.values().next().value?.auth ?? scope[consoleAuthKey] ?? false
 }
 
 export function resolveConsoleProjectName(scope: ConsoleInvocationScope = defaultConsoleInvocationScope()): string | undefined {

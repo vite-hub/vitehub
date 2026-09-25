@@ -313,10 +313,19 @@ describe("Console requests", () => {
     await expect(
       loadConsoleNavigation("/navigation-test/api/_vitehub/console/sections"),
     ).resolves.toEqual({
+      auth: false,
       projectName: "console-host",
       sections: ["kv"],
     })
     expect(mocks.call).toHaveBeenCalledTimes(1)
+  })
+
+  it("loads independent auth availability in the navigation response", async () => {
+    mocks.call.mockResolvedValue({ ok: true, value: { auth: true, sections: ["kv"] } })
+
+    await expect(
+      loadConsoleNavigation("/auth-navigation-test/api/_vitehub/console/sections"),
+    ).resolves.toEqual({ auth: true, sections: ["kv"] })
   })
 
   it("stops waiting for an RPC result when navigation is aborted", async () => {

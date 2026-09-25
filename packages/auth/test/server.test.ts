@@ -265,6 +265,21 @@ describe("server auth helpers", () => {
     expect(called).toBe(false)
   })
 
+  it("suppresses automatic provider sign-in when requested by a host sign-in page", async () => {
+    const definition = defineAuth({
+      access: {
+        routes: [{ route: "/_vitehub/**" }],
+        signIn: { provider: "github" },
+      },
+      appName: "ViteHub",
+    })
+    const request = new Request("https://app.example.com/_vitehub", { headers: { accept: "text/html" } })
+
+    const response = await requireAuthAccessRoutes(request, [0], definition, [], { redirectToSignIn: false })
+    expect(response?.status).toBe(401)
+    expect(response?.headers.get("location")).toBeNull()
+  })
+
   it("rejects invalid route indexes", async () => {
     const definition = defineAuth({ appName: "ViteHub" })
 

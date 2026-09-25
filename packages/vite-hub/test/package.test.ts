@@ -29,6 +29,9 @@ import * as frameworkAgentMcp from "vite-hub/agent/mcp";
 import * as frameworkAgentProcessRuntime from "vite-hub/agent/runtime/process";
 import * as frameworkAgentVite from "vite-hub/agent/vite";
 import * as frameworkAgentVue from "vite-hub/agent/vue";
+import { defineConsoleAuth } from "vite-hub/console/auth";
+import { defineConsoleAuthClient } from "vite-hub/console/auth/client";
+import { createInlineConsoleAuth } from "vite-hub/console/auth/inline";
 import frameworkAuthHandler from "vite-hub/auth/server";
 import * as frameworkAuthVue from "vite-hub/auth/vue";
 import * as frameworkBlobContentType from "vite-hub/blob/content-type";
@@ -64,6 +67,14 @@ function parseDistributionManifest(text: string): DistributionManifest {
 const manifest = parseDistributionManifest(
   readFileSync(new URL("../package.json", import.meta.url), "utf8"),
 );
+
+describe("Console Auth package exports", () => {
+  it("resolves the public imports used by generated and user code", () => {
+    expect(typeof defineConsoleAuth).toBe("function");
+    expect(typeof defineConsoleAuthClient).toBe("function");
+    expect(typeof createInlineConsoleAuth).toBe("function");
+  });
+});
 
 const forwarderExportLine = /^export (?:type )?(?:\*|\{[^}]+\}) from "([^"]+)"$/;
 
@@ -224,6 +235,9 @@ describe("framework package contract", () => {
       "./agent",
       "./agent/capabilities",
       "./console",
+      "./console/auth",
+      "./console/auth/client",
+      "./console/auth/inline",
       "./console/blob",
       "./console/database",
       "./console/definitions",
@@ -755,12 +769,13 @@ describe("framework package contract", () => {
       if (!Array.isArray(handlers) || !Array.isArray(publicAssets)) {
         throw new TypeError("Expected the distributed Console Nitro configuration.");
       }
-      expect(handlers).toHaveLength(5);
+      expect(handlers).toHaveLength(6);
       expect(handlers.map((registration) => Reflect.get(Object(registration), "route"))).toEqual([
         "/api/_vitehub/console/status",
         "/api/_vitehub/console/usage",
         "/_vitehub",
         "/_vitehub/**",
+        "/api/_vitehub/console/client.js",
         "/_vitehub/rpc/**",
       ]);
       for (const registration of handlers) {

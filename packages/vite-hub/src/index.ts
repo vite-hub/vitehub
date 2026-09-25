@@ -808,9 +808,9 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
     if (options.agent) plugins.push(consoleInvocationRootPlugin(undefined, undefined, invocationRootState))
   }
 
-  if (options.auth) {
+  if (options.auth || (options.console && options.console !== true && options.console.access === "auth" && options.console.auth)) {
     plugins.push(hubAuth(
-      options.auth === true ? {} : options.auth,
+      options.auth === true ? {} : options.auth || false,
       {
       importBase: "vite-hub/auth",
       },

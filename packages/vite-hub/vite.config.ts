@@ -236,6 +236,7 @@ export default defineConfig({
       "src/console/runtime/sections.ts",
       "src/console/runtime/server/agents.get.ts",
       "src/console/runtime/server/blob.get.ts",
+      "src/console/runtime/server/client.get.ts",
       "src/console/runtime/server/database.get.ts",
       "src/console/runtime/server/definitions.get.ts",
       "src/console/runtime/server/invocation-capabilities.get.ts",
@@ -265,6 +266,7 @@ export default defineConfig({
         delete exports["./console/runtime/server/agents.get"];
         delete exports["./console/runtime/server/blob"];
         delete exports["./console/runtime/server/blob.get"];
+        delete exports["./console/runtime/server/client.get"];
         delete exports["./console/runtime/server/database"];
         delete exports["./console/runtime/server/database.get"];
         delete exports["./console/runtime/server/definitions"];
@@ -282,8 +284,12 @@ export default defineConfig({
         delete exports["./console/runtime/server/sections"];
         delete exports["./console/runtime/server/usage.get"];
         delete exports["./console/runtime/server/status.get"];
+        delete exports["./console/auth-client"];
+        delete exports["./console/auth-inline"];
         return {
           ...exports,
+          "./console/auth/client": "./dist/console/auth-client.js",
+          "./console/auth/inline": "./dist/console/auth-inline.js",
           "./console/blob": "./dist/console/runtime/server/blob.js",
           "./console/database": "./dist/console/runtime/server/database.js",
           "./console/definitions": "./dist/console/runtime/server/definitions.js",

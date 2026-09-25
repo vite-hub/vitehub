@@ -16,6 +16,7 @@ const page = `<!doctype html>
   </head>
   <body>
     <div id="app"></div>
+    <script type="module" src="/api/_vitehub/console/client.js"></script>
     <script type="module" src="/_vitehub/assets/__VITEHUB_CONSOLE_SCRIPT_ASSET__"></script>
   </body>
 </html>`;

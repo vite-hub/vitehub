@@ -15,6 +15,7 @@ import type { Environment, Plugin } from "vite"
 import type { ConsoleSectionId } from "./runtime/sections.ts"
 
 import { discoverConsoleBuildCatalog } from "./build.ts"
+import { resolveConsoleAuthConfig, writeConsoleAuthHandlers, type ConsoleAuthConfig } from "./auth-build.ts"
 import { writeConsoleNitroPlugin } from "./plugin.ts"
 import { serializeConsoleRefresh } from "./refresh.ts"
 import { createConsoleCliNamespace } from "./cli.ts"
@@ -55,7 +56,7 @@ type ConsoleNitroConfig = {
 }
 
 export type ConsoleOptions = (
-  | { access: "auth", exposure?: never, invoke?: boolean }
+  | { access: "auth", auth?: ConsoleAuthConfig, exposure?: never, invoke?: boolean }
   | { access?: never, exposure: "host-managed", invoke?: boolean }
 ) & { databaseUrl?: string, observations?: AgentInvocationsOptions["observations"] }
 
@@ -146,6 +147,7 @@ export function assertConsoleProductionAccess(
   options: {
     development: boolean
     auth?: ResolvedAuthViteConfig
+    consoleAuth?: boolean
   },
 ): void {
   if (options.development) return
@@ -156,6 +158,7 @@ export function assertConsoleProductionAccess(
   if (configured.access !== "auth") {
     throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: '[vitehub] Console production access must use access: "auth" or exposure: "host-managed".' })
   }
+  if (options.consoleAuth) return
   if (!options.auth) {
     throw viteHubErrorDiagnostics.VITE_HUB_B0005({ message: '[vitehub] console: { access: "auth" } requires a discovered ViteHub Auth Definition.' })
   }
@@ -196,11 +199,13 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
   let invoke = false
   let databaseUrl: string | undefined
   let observations: AgentInvocationsOptions["observations"]
+  let consoleAuthHandlers: Awaited<ReturnType<typeof writeConsoleAuthHandlers>> | undefined
+  let refreshConsoleAuthClient: (() => Promise<void>) | undefined
 
   const refreshConsoleCatalog = serializeConsoleRefresh(async () => {
     if (!generatedPlugin || !projectRoot || !root) return
     const catalog = await discoverConsoleBuildCatalog({ databaseDiscoveryRoot, discoveryRoot: root, projectRoot, rateLimitDiscoveryRoot, rateLimitScanDirs, sandboxDiscoveryRoot: root, scheduleDiscoveryRoot, sections, serverDirs, workspaceDiscoveryRoot })
-    const identity = await writeConsoleNitroPlugin(generatedPlugin, projectRoot, sections, catalog.agents, catalog, blobStores, kvStores, fixture, options.invocationRootState?.binding, invoke, observations, () => !options.invocationRootState?.closed, databaseUrl)
+    const identity = await writeConsoleNitroPlugin(generatedPlugin, projectRoot, sections, catalog.agents, catalog, blobStores, kvStores, fixture, options.invocationRootState?.binding, invoke, observations, () => !options.invocationRootState?.closed, databaseUrl, Boolean(consoleAuthHandlers))
     if (options.invocationRootState) updateConsoleInvocationRootState(options.invocationRootState, projectRoot, identity)
   })
 
@@ -283,11 +288,19 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       serverDirs = viteConfig[VITEHUB_SERVER_DIRS]
       cliDiscovery = viteConfig.vitehubCliDiscovery === true
       assertConsoleProductionAccess(configured, {
-        auth: configured !== true && configured.access === "auth"
+        auth: configured !== true && configured.access === "auth" && !configured.auth
           ? options.resolveAuthConfig?.(root, viteConfig[VITEHUB_SERVER_DIRS], viteConfig.auth)
           : undefined,
+        consoleAuth: configured !== true && configured.access === "auth" && Boolean(configured.auth),
         development: environment.command !== "build",
       })
+      const consoleAuthConfig = configured !== true && configured.access === "auth" && configured.auth
+        ? resolveConsoleAuthConfig(root, configured.auth, options.preset)
+        : undefined
+      consoleAuthHandlers = consoleAuthConfig ? await writeConsoleAuthHandlers(root, consoleAuthConfig) : undefined
+      refreshConsoleAuthClient = consoleAuthConfig
+        ? async () => { consoleAuthHandlers = await writeConsoleAuthHandlers(root!, consoleAuthConfig) }
+        : undefined
       projectRoot = resolveViteHubProjectRoot(root)
       const configuredFixture = viteConfig.vitehubCliDiscovery
         ? undefined
@@ -325,6 +338,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
           observations,
           undefined,
           databaseUrl,
+          Boolean(consoleAuthHandlers),
         )
       }
       // SAFETY: Nitro extends Vite's user config with this documented top-level configuration object.
@@ -335,6 +349,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       nitro.handlers = Array.isArray(nitro.handlers)
         ? nitro.handlers.filter(handler => ![
                 join(consoleRuntimeRoot, "server/blob.get.js"),
+                join(consoleRuntimeRoot, "server/client.get.js"),
                 join(consoleRuntimeRoot, "server/database.get.js"),
                 join(consoleRuntimeRoot, "server/definitions.get.js"),
                 join(consoleRuntimeRoot, "server/invocation.get.js"),
@@ -354,9 +369,19 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       for (const handler of [
         { handler: join(consoleRuntimeRoot, "server/status.get.js"), route: "/api/_vitehub/console/status", method: "get" },
         { handler: join(consoleRuntimeRoot, "server/usage.get.js"), route: "/api/_vitehub/console/usage", method: "get" },
+        ...(consoleAuthHandlers ? [{ handler: consoleAuthHandlers.signIn, route: "/_vitehub/sign-in", method: "get" }] : []),
         { handler: join(consoleRuntimeRoot, "server/page.get.js"), route: "/_vitehub" },
         { handler: join(consoleRuntimeRoot, "server/page.get.js"), route: "/_vitehub/**" },
       ]) kit.addHandler(handler)
+      kit.addHandler({
+        handler: consoleAuthHandlers?.client ?? join(consoleRuntimeRoot, "server/client.get.js"),
+        route: "/api/_vitehub/console/client.js",
+        method: "get",
+      })
+      if (consoleAuthHandlers) {
+        kit.addHandler({ handler: consoleAuthHandlers.route, route: "/api/_vitehub/console/auth/**" })
+        kit.addHandler({ handler: consoleAuthHandlers.middleware, middleware: true, route: "/**" })
+      }
       addConsoleDevframeHandler(kit.config, consoleRuntimeRoot)
       if (Array.isArray(kit.config.plugins)) {
         const plugins = kit.config.plugins.filter(candidate => !generatedConsolePluginRegistration(candidate))
@@ -432,8 +457,13 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
     },
     configureServer(server) {
       if (fixture) server.watcher.add(fixture)
-      const refresh = async () => {
+      if (consoleAuthHandlers?.clientSources.length) server.watcher.add(consoleAuthHandlers.clientSources)
+      const refresh = async (path: string) => {
         try {
+          if (consoleAuthHandlers?.clientSources.includes(path)) {
+            await refreshConsoleAuthClient?.()
+            if (consoleAuthHandlers?.clientSources.length) server.watcher.add(consoleAuthHandlers.clientSources)
+          }
           await refreshConsoleCatalog()
         }
         catch (error) {

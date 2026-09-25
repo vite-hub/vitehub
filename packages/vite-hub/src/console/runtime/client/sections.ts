@@ -4,6 +4,7 @@ import { isConsoleSectionId } from "../sections"
 import { requestConsole } from "./request"
 
 export interface ConsoleNavigation {
+  auth: boolean
   projectName?: string
   sections: ConsoleSectionId[]
 }
@@ -13,9 +14,10 @@ const navigationSubscribers = new Map<string, Set<(navigation: ConsoleNavigation
 
 function parseConsoleNavigation(value: unknown): ConsoleNavigation {
   // SAFETY: Reading an optional property is safe for every non-null JavaScript value; the property remains unknown until validated below.
-  const response = value as { projectName?: unknown, sections?: unknown } | null | undefined
+  const response = value as { auth?: unknown, projectName?: unknown, sections?: unknown } | null | undefined
   const sections = Array.isArray(response?.sections) ? response.sections.filter(isConsoleSectionId) : []
   return {
+    auth: response?.auth === true,
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
     ...(typeof response?.projectName === "string" && response.projectName.trim()
       ? { projectName: response.projectName.trim() }
