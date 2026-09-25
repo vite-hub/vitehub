@@ -493,6 +493,7 @@ describe("Agent invocation console", () => {
         "/api/_vitehub/console/usage",
         "/_vitehub",
         "/_vitehub/**",
+        "/api/_vitehub/console/client.js",
         "/_vitehub/rpc/**",
       ])
       expect(config.nitro.publicAssets).toEqual([expect.objectContaining({ baseURL: "/_vitehub/assets" })])
@@ -547,6 +548,7 @@ describe("Agent invocation console", () => {
         "/api/_vitehub/console/usage",
         "/_vitehub",
         "/_vitehub/**",
+        "/api/_vitehub/console/client.js",
         "/_vitehub/rpc/**",
       ])
       const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
@@ -612,7 +614,7 @@ describe("Agent invocation console", () => {
 
       await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
 
-      expect(config.nitro?.handlers.map((handler) => handler.route)).toEqual(["/api/_vitehub/console/status", "/api/_vitehub/console/usage", "/_vitehub", "/_vitehub/**", "/_vitehub/rpc/**"])
+      expect(config.nitro?.handlers.map((handler) => handler.route)).toEqual(["/api/_vitehub/console/status", "/api/_vitehub/console/usage", "/_vitehub", "/_vitehub/**", "/api/_vitehub/console/client.js", "/_vitehub/rpc/**"])
       const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
       expect(generated).toContain(`from "vite-hub/console/sections"`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
@@ -815,6 +817,7 @@ describe("Agent invocation console", () => {
         "/api/_vitehub/console/usage",
         "/_vitehub",
         "/_vitehub/**",
+        "/api/_vitehub/console/client.js",
         "/_vitehub/rpc/**",
       ])
       const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
@@ -864,6 +867,7 @@ describe("Agent invocation console", () => {
         "/api/_vitehub/console/usage",
         "/_vitehub",
         "/_vitehub/**",
+        "/api/_vitehub/console/client.js",
         "/_vitehub/rpc/**",
       ])
       const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
@@ -912,6 +916,7 @@ describe("Agent invocation console", () => {
         "/api/_vitehub/console/usage",
         "/_vitehub",
         "/_vitehub/**",
+        "/api/_vitehub/console/client.js",
         "/_vitehub/rpc/**",
       ])
       const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
@@ -999,6 +1004,7 @@ describe("Agent invocation console", () => {
         "/api/_vitehub/console/usage",
         "/_vitehub",
         "/_vitehub/**",
+        "/api/_vitehub/console/client.js",
         "/_vitehub/rpc/**",
       ])
       const generated = await readFile(config.nitro!.plugins[0]!, "utf8")

@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url"
 
 import { resolveViteHubProjectRoot, VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { normalizeNitroPreset, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
+import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import hubAuthNuxt from "@vite-hub/auth/nuxt"
 import { resolveAuthViteConfig } from "@vite-hub/auth/vite"
 import { resolveBlobViteConfig } from "@vite-hub/blob/vite"
@@ -26,6 +27,7 @@ import { resolveConsoleProjectNameFromRoot } from "./console/project.ts"
 import { resolveConsoleSectionIds, type ConsoleSectionId } from "./console/runtime/sections.ts"
 import { consoleDefinitionSectionIds } from "./console/runtime/definitions.ts"
 import { addConsoleDevframeHandler } from "./console/nitro.ts"
+import { resolveConsoleAuthConfig, writeConsoleAuthHandlers } from "./console/auth-build.ts"
 import { serializeConsoleRefresh } from "./console/refresh.ts"
 import { assertConsoleProductionAccess, closeConsoleInvocationRootState, configureConsoleFixtureLifecycle, consoleInvocationRootPlugin, createConsoleInvocationRootState, generatedConsolePluginRegistration, resolveGeneratedConsolePlugin, type ConsoleInvocationRootState, updateConsoleInvocationRootState } from "./console/vite.ts"
 
@@ -398,6 +400,10 @@ async function installConsole(
     plugins?: string[]
   }
   addConsoleDevframeHandler(nitro, consoleRuntimeRoot)
+  const clientHandler = join(consoleRuntimeRoot, "server/client.get.js")
+  if (!nitro.handlers?.some(handler => handler.route === "/api/_vitehub/console/client.js")) {
+    (nitro.handlers ??= []).push({ handler: clientHandler, route: "/api/_vitehub/console/client.js" })
+  }
   const plugins = (nitro.plugins ??= []).filter(candidate => !generatedConsolePluginRegistration(candidate))
   nitro.plugins = plugins
   const refreshAgentDefinitions = serializeConsoleRefresh(async () => {
@@ -807,13 +813,14 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     const effectiveAuth = viteAuth ?? options.auth
     if (!nuxt.options.vitehubCliDiscovery) {
       assertConsoleProductionAccess(configuredConsole, {
-        auth: configuredConsole !== true && configuredConsole.access === "auth" && effectiveAuth
+        auth: configuredConsole !== true && configuredConsole.access === "auth" && !configuredConsole.auth && effectiveAuth
           ? resolveAuthViteConfig(
               effectiveAuth === true ? undefined : effectiveAuth,
               viteRoot,
               { serverDirs: nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined },
             )
           : undefined,
+        consoleAuth: configuredConsole !== true && configuredConsole.access === "auth" && Boolean(configuredConsole.auth),
         development: Boolean(nuxt.options.dev),
       })
     }
@@ -1049,6 +1056,17 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     } = await applyNitroConfig(replayPlugins, config, nuxt, projectRoot)
     consoleWorkflowConfigResolved = true
     if (options.console) {
+      if (options.console !== true && options.console.access === "auth" && options.console.auth) {
+        const authHandlers = await writeConsoleAuthHandlers(viteRoot, resolveConsoleAuthConfig(viteRoot, options.console.auth))
+        if (Array.isArray(config.handlers)) {
+          config.handlers = config.handlers.filter((handler: { handler?: string }) => handler.handler !== join(consoleRuntimeRoot, "server/client.get.js"))
+        }
+        const kit = createNitroServerKit(config)
+        kit.addHandler({ handler: authHandlers.route, route: "/api/_vitehub/console/auth/**" })
+        kit.addHandler({ handler: authHandlers.client, route: "/api/_vitehub/console/client.js", method: "get" })
+        kit.addHandler({ handler: authHandlers.middleware, middleware: true, route: "/**" })
+        Object.assign(config, kit.config)
+      }
       const resolvedKV = resolvedKVFromPlugin(retainedKVPlugin, viteConfig.kv)
       const replayedBlob = replayConfig.blob ?? effectiveBlob
       const replayedExplicitBlob = Boolean(replayedBlob && replayedBlob !== true && ("driver" in replayedBlob || "stores" in replayedBlob))

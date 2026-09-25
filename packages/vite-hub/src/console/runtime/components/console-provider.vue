@@ -1,7 +1,10 @@
 <script setup lang="ts">
+import { useHead } from "#imports";
 import { injectTooltipProviderContext } from "reka-ui";
 
 const hasAppProvider = injectTooltipProviderContext(null) !== null;
+
+useHead({ script: [{ src: "/api/_vitehub/console/client.js", type: "module" }] });
 </script>
 
 <template>
