@@ -184,6 +184,9 @@ export default defineConfig({
       { from: "src/console/runtime/pages/blob.vue", to: "dist/console/runtime/pages" },
       { from: "src/console/runtime/pages/databases.vue", to: "dist/console/runtime/pages" },
       { from: "src/console/runtime/pages/index.vue", to: "dist/console/runtime/pages" },
+      { from: "src/console/runtime/pages/env.vue", to: "dist/console/runtime/pages" },
+      { from: "src/console/runtime/components/console-env.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-env-details.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/pages/kv.vue", to: "dist/console/runtime/pages" },
       { from: "src/console/runtime/pages/queues.vue", to: "dist/console/runtime/pages" },
       { from: "src/console/runtime/pages/rate-limits.vue", to: "dist/console/runtime/pages" },
@@ -244,6 +247,7 @@ export default defineConfig({
       "src/console/runtime/server/invocation.get.ts",
       "src/console/runtime/server/invocation-workspace.get.ts",
       "src/console/runtime/server/invocations.get.ts",
+      "src/console/runtime/server/env.get.ts",
       "src/console/runtime/server/kv.get.ts",
       "src/console/runtime/server/page.get.ts",
       "src/console/runtime/server/search.get.ts",
@@ -276,6 +280,8 @@ export default defineConfig({
         delete exports["./console/runtime/server/invocation.get"];
         delete exports["./console/runtime/server/invocation-workspace.get"];
         delete exports["./console/runtime/server/invocations.get"];
+        delete exports["./console/runtime/server/env.get"];
+        delete exports["./console/runtime/server/env"];
         delete exports["./console/runtime/server/kv.get"];
         delete exports["./console/runtime/server/kv"];
         delete exports["./console/runtime/server/page.get"];
@@ -293,6 +299,7 @@ export default defineConfig({
           "./console/blob": "./dist/console/runtime/server/blob.js",
           "./console/database": "./dist/console/runtime/server/database.js",
           "./console/definitions": "./dist/console/runtime/server/definitions.js",
+          "./console/env": "./dist/console/runtime/server/env.js",
           "./console/kv": "./dist/console/runtime/server/kv.js",
           "./console/sections": "./dist/console/runtime/server/sections.js",
           "./ui/styles.css": "./dist/ui/styles.css",

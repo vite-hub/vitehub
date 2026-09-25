@@ -12,6 +12,7 @@ import consoleInvocationCapabilitiesHandler from "./invocation-capabilities.get.
 import consoleInvocationWorkspaceHandler from "./invocation-workspace.get.ts"
 import consoleInvocationHandler from "./invocation.get.ts"
 import consoleInvocationsHandler from "./invocations.get.ts"
+import consoleEnvHandler from "./env.get.ts"
 import consoleKVHandler from "./kv.get.ts"
 import { consoleSearchCollectionHandler } from "./search.get.ts"
 import consoleSectionsHandler from "./sections.get.ts"
@@ -113,6 +114,7 @@ const operations = {
   [consoleRpcMethods.invocation]: (input: ConsoleRpcInput) => consoleInvocationHandler(requestEvent("invocations", input)),
   [consoleRpcMethods.invocationCapabilities]: (input: ConsoleRpcInput) => consoleInvocationCapabilitiesHandler(requestEvent("invocation-capabilities", input)),
   [consoleRpcMethods.invocations]: (input: ConsoleRpcInput) => consoleInvocationsHandler(requestEvent("invocations", input)),
+  [consoleRpcMethods.env]: (input: ConsoleRpcInput) => consoleEnvHandler(requestEvent("env", input)),
   [consoleRpcMethods.kv]: (input: ConsoleRpcInput) => consoleKVHandler(requestEvent("kv", input)),
   async [consoleRpcMethods.search](input: ConsoleRpcInput) {
     const event = requestEvent("search", input)

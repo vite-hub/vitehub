@@ -49,11 +49,13 @@ describe("Auth Nuxt integration", () => {
     ])
     expect(nuxt.options.alias).toEqual({
       "#existing": "/tmp/existing.mjs",
+      "#vitehub/env/description": "/tmp/vitehub-auth-nuxt/.vitehub/env/description.mjs",
       "#vitehub/env/public": "/tmp/vitehub-auth-nuxt/.vitehub/env/public.mjs",
       "#vitehub/env/server": "/tmp/vitehub-auth-nuxt/.vitehub/env/server.mjs",
     })
     expect(nuxt.options.nitro.alias).toEqual({
       "#nitro-existing": "/tmp/nitro-existing.mjs",
+      "#vitehub/env/description": "/tmp/vitehub-auth-nuxt/.vitehub/env/description.mjs",
       "#vitehub/env/public": "/tmp/vitehub-auth-nuxt/.vitehub/env/public.mjs",
       "#vitehub/env/server": "/tmp/vitehub-auth-nuxt/.vitehub/env/server.mjs",
     })

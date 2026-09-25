@@ -6,6 +6,7 @@ declare module "#vitehub/env/public" {
 
 declare module "#vitehub/env/server" {
   export interface ServerEnv extends Record<string, unknown> {}
+  export function describeServerEnv(): import("@vite-hub/env").ServerEnvDescription
   export interface ServerEnvInspectionEntry {
     masked: boolean
     path?: string

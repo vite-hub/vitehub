@@ -288,7 +288,7 @@ describe("vitehub", () => {
         ]),
       })
       await expect(readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")).resolves.toContain(
-        `installConsoleSections(${JSON.stringify(root)}, ["agents","usage","workflows"])`,
+        `installConsoleSections(${JSON.stringify(root)}, ["env","agents","usage","workflows"])`,
       )
     }
     finally {
@@ -1038,6 +1038,7 @@ describe("vitehub", () => {
     callHook(dependency.configResolved, [{ root: "/app" }])
 
     expect(aliases["#vitehub/env/server"]).toBe("/app/.vitehub/env/server.mjs")
+    expect(aliases["#vitehub/env/description"]).toBe("/app/.vitehub/env/description.mjs")
   })
 
   it("retains generated Server Env from the resolved Env project root", () => {
@@ -1048,6 +1049,7 @@ describe("vitehub", () => {
     callHook(dependency.configResolved, [{ root: "/app/client" }])
 
     expect(aliases["#vitehub/env/server"]).toBe("/app/.vitehub/env/server.mjs")
+    expect(aliases["#vitehub/env/description"]).toBe("/app/.vitehub/env/description.mjs")
   })
 
   it.each([

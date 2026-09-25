@@ -241,6 +241,7 @@ describe("framework package contract", () => {
       "./console/blob",
       "./console/database",
       "./console/definitions",
+      "./console/env",
       "./console/kv",
       "./console/sections",
       "./console/server",

@@ -16,6 +16,8 @@ import type {
   DeepReadonly,
   LoadServerEnvOptions,
   ServerEnvInspection,
+  ServerEnvDescription,
+  ServerEnvDescriptionEntry,
   ServerEnvInspectionEntry,
 } from "./types.ts"
 import { envErrorDiagnostics } from "./error-diagnostics.ts"
@@ -409,6 +411,31 @@ export async function loadServerEnv<TServerEnv extends Record<string, unknown> =
   const value = await loadRegistryValue(registry, env, loads)
   if (options.signal?.aborted) throw abortReason(options.signal)
   return value as DeepReadonly<TServerEnv>
+}
+
+/** Describe declarations without loading host values or calling providers. */
+export function describeServerEnv(registry: EnvRuntimeRegistry): ServerEnvDescription {
+  const entries: ServerEnvDescriptionEntry[] = []
+  function visit(value: unknown, path: string): void {
+    if (isRuntimeLiteralEntry(value)) {
+      entries.push({ ...inspectionPath(path), source: "literal", secret: false, required: false, hasDefault: false })
+      return
+    }
+    if (isRuntimeEnvEntry(value) || isRuntimeProviderEntry(value)) {
+      entries.push({
+        ...inspectionPath(path),
+        source: value.source.kind,
+        ...(isRuntimeProviderEntry(value) && /^[A-Za-z0-9_-]{1,64}$/.test(value.source.provider) ? { provider: value.source.provider } : {}),
+        secret: value.secret,
+        required: value.required,
+        hasDefault: value.default !== undefined,
+      })
+      return
+    }
+    if (isRecord(value)) for (const [key, child] of Object.entries(value)) visit(child, `${path}.${key}`)
+  }
+  visit(registry, "env.server")
+  return { entries }
 }
 
 export async function inspectServerEnv(

@@ -328,6 +328,7 @@ async function installConsole(
             path: "/_vitehub/blob",
           }]
         : []),
+      ...(sections.includes("env") ? [{ file: join(consoleRuntimeRoot, "pages/env.vue"), name: "vitehub-console-env", path: "/_vitehub/env" }] : []),
       ...(sections.includes("kv")
         ? [{
             file: join(consoleRuntimeRoot, "pages/kv.vue"),
@@ -622,7 +623,7 @@ async function applyNitroConfig(
       alias: nuxt.options.alias,
     },
     root: nuxt.options.rootDir || process.cwd(),
-  }, nuxt.options.vite ?? {}) as UserConfig & {
+  }, nuxt.options.vite ?? {}) as UserConfig & EnvViteUserConfig & {
     [VITEHUB_GENERATED_ROOT]?: string
     [VITEHUB_NITRO_CONFIG_CONTEXT]?: true
     [VITEHUB_PROJECT_ROOT]?: string
@@ -790,6 +791,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   const effectiveWorkflow = nuxt.options.vite?.workflow ?? options.workflow
   const consoleSections = resolveConsoleSectionIds({
     ...options,
+    env: options.env !== false,
     blob: consoleBlobEnabled,
     kv: effectiveKV,
     preset: plan.preset,
@@ -1068,6 +1070,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       hasReplayedDatabaseDiscoveryRoot,
       replayedDatabaseDiscoveryRoot,
     } = await applyNitroConfig(replayPlugins, config, nuxt, projectRoot)
+    if (options.env !== false) await envPlugin?.api?.prepareTypes?.(replayConfig.env, viteRoot)
     consoleWorkflowConfigResolved = true
     if (options.console) {
       if (options.console !== true && options.console.access === "auth" && options.console.auth) {
@@ -1129,6 +1132,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         : false
       const resolvedSections = resolveConsoleSectionIds({
         ...options,
+        env: options.env !== false,
         blob: replayedBlobEnabled,
         database: replayConfig.database ?? options.database,
         kv: resolvedKV,

@@ -231,6 +231,19 @@ export interface ServerEnvInspectionEntry {
   status: ServerEnvInspectionStatus
 }
 
+export interface ServerEnvDescriptionEntry {
+  path?: string
+  source: "env" | "literal" | "provider"
+  provider?: string
+  secret: boolean
+  required: boolean
+  hasDefault: boolean
+}
+
+export interface ServerEnvDescription {
+  entries: readonly ServerEnvDescriptionEntry[]
+}
+
 export interface ServerEnvInspection {
   entries: readonly ServerEnvInspectionEntry[]
 }

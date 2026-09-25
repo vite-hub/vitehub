@@ -1,3 +1,4 @@
+import type { ServerEnvDescription } from "@vite-hub/env"
 import type { AgentInvocations } from "@vite-hub/agent"
 import type { BlobStorage } from "@vite-hub/blob"
 import type { RuntimeDatabaseEntry } from "@vite-hub/database/drizzle"
@@ -26,6 +27,9 @@ export const consoleBlobRootKey: unique symbol = Symbol.for("vitehub.console.blo
 export const consoleKVKey: unique symbol = Symbol.for("vitehub.console.kv")
 export const consoleKVRegistryKey: unique symbol = Symbol.for("vitehub.console.kv.registry")
 export const consoleKVRootKey: unique symbol = Symbol.for("vitehub.console.kv.root")
+export const consoleEnvKey: unique symbol = Symbol.for("vitehub.console.env")
+export const consoleEnvRegistryKey: unique symbol = Symbol.for("vitehub.console.env.registry")
+export const consoleEnvRootKey: unique symbol = Symbol.for("vitehub.console.env.root")
 export const consoleInvocationsRootIdentityRegistryKey: unique symbol = Symbol.for("vitehub.console.invocations.root-identities")
 export const consoleInvocationsRevisionRegistryKey: unique symbol = Symbol.for("vitehub.console.invocations.revisions")
 export const consoleProjectRootKey: typeof consoleInvocationsRootKey = consoleInvocationsRootKey
@@ -48,6 +52,8 @@ type ConsoleDefinitionsByRoot = {
   set(key: string, value: ConsoleDefinitionCatalog): unknown
   readonly size: number
 }
+
+export type ConsoleEnvInspection = ServerEnvDescription
 
 export interface ConsoleKVInspection {
   storage: KVStorage
@@ -76,6 +82,12 @@ type ConsoleKVByRoot = {
   readonly size: number
 }
 
+type ConsoleEnvByRoot = {
+  get(key: string): ConsoleEnvInspection | undefined
+  set(key: string, value: ConsoleEnvInspection): unknown
+  readonly size: number
+}
+
 type ConsoleDatabaseByRoot = {
   get(key: string): ConsoleDatabaseInspection | undefined
   set(key: string, value: ConsoleDatabaseInspection): unknown
@@ -84,7 +96,7 @@ type ConsoleDatabaseByRoot = {
 
 type ConsoleInvocationRegistry = Record<
   symbol,
-  AgentInvocations | boolean | ConsoleBlobByRoot | ConsoleBlobInspection | ConsoleDatabaseByRoot | ConsoleDatabaseInspection | ConsoleDefinitionCatalog | ConsoleDefinitionsByRoot | string | readonly ConsoleSectionId[] | ConsoleInvocationsByRoot | ConsoleInvocationIdentitiesByRoot | ConsoleKVByRoot | ConsoleKVInspection | ConsoleSectionsByRoot | undefined
+  AgentInvocations | boolean | ConsoleBlobByRoot | ConsoleBlobInspection | ConsoleDatabaseByRoot | ConsoleDatabaseInspection | ConsoleDefinitionCatalog | ConsoleDefinitionsByRoot | string | readonly ConsoleSectionId[] | ConsoleInvocationsByRoot | ConsoleInvocationIdentitiesByRoot | ConsoleKVByRoot | ConsoleKVInspection | ConsoleEnvByRoot | ConsoleEnvInspection | ConsoleSectionsByRoot | undefined
 >
 
 type ConsoleInvocationIdentitiesByRoot = {
@@ -128,6 +140,9 @@ export type ConsoleInvocationScope = {
   [consoleKVKey]?: ConsoleKVInspection
   [consoleKVRegistryKey]?: ConsoleKVByRoot
   [consoleKVRootKey]?: string
+  [consoleEnvKey]?: ConsoleEnvInspection
+  [consoleEnvRegistryKey]?: ConsoleEnvByRoot
+  [consoleEnvRootKey]?: string
   [consoleProjectRootKey]?: string
   [consoleInvocationsRootIdentityRegistryKey]?: ConsoleInvocationIdentitiesByRoot
   [consoleSectionsKey]?: readonly ConsoleSectionId[]
@@ -221,6 +236,16 @@ function kvByRoot(value: unknown): ConsoleKVByRoot | undefined {
   if (typeof registry.get !== "function" || typeof registry.set !== "function" || !Number.isInteger(registry.size)) return
   // SAFETY: The preceding checks validate every ConsoleKVByRoot member.
   return registry as ConsoleKVByRoot
+}
+function envByRoot(value: unknown): ConsoleEnvByRoot | undefined {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Registry values cross Vite SSR realms, so realm-local prototypes cannot establish this boundary.
+  if (!value || (typeof value !== "object" && typeof value !== "function")) return
+  // SAFETY: The structural checks below validate every ConsoleEnvByRoot member before use.
+  const registry = value as Partial<ConsoleEnvByRoot>
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Callable members are the realm-independent registry contract.
+  if (typeof registry.get !== "function" || typeof registry.set !== "function" || !Number.isInteger(registry.size)) return
+  // SAFETY: The preceding checks validate every ConsoleEnvByRoot member.
+  return registry as ConsoleEnvByRoot
 }
 
 function databaseByRoot(value: unknown): ConsoleDatabaseByRoot | undefined {
@@ -483,6 +508,32 @@ export function resolveConsoleKV(scope: ConsoleInvocationScope = defaultConsoleI
   if (registered && registered.size > 1) return scope[consoleKVKey]
   // SAFETY: installConsoleKVScope is the only writer for this process registry key.
   return (processRegistry(scope)?.[consoleKVKey] as ConsoleKVInspection | undefined) ?? scope[consoleKVKey]
+}
+
+export function installConsoleEnvScope(
+  projectRoot: string,
+  inspection: ConsoleEnvInspection,
+  scope: ConsoleInvocationScope = defaultConsoleInvocationScope(),
+): ConsoleEnvInspection {
+  scope[consoleEnvRootKey] = projectRoot
+  scope[consoleEnvKey] = inspection
+  const registry = processRegistry(scope)
+  if (registry) {
+    const inspections = envByRoot(registry[consoleEnvRegistryKey]) ?? new Map<string, ConsoleEnvInspection>()
+    inspections.set(projectRoot, inspection)
+    registry[consoleEnvRegistryKey] = inspections
+    registry[consoleEnvKey] = inspection
+  }
+  return inspection
+}
+
+export function resolveConsoleEnv(scope: ConsoleInvocationScope = defaultConsoleInvocationScope()): ConsoleEnvInspection | undefined {
+  const root = scope[consoleEnvRootKey]
+  const registered = envByRoot(processRegistry(scope)?.[consoleEnvRegistryKey])
+  if (root) return registered?.get(root) ?? scope[consoleEnvKey]
+  if (registered && registered.size > 1) return scope[consoleEnvKey]
+  // SAFETY: installConsoleEnvScope is the only writer for this process registry key.
+  return (processRegistry(scope)?.[consoleEnvKey] as ConsoleEnvInspection | undefined) ?? scope[consoleEnvKey]
 }
 
 export function installConsoleDatabaseScope(

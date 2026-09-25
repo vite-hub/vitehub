@@ -37,6 +37,7 @@ const projectRootFileMarkers = [
 
 export const VITEHUB_ENV_PUBLIC_ID = "#vitehub/env/public" as const
 export const VITEHUB_ENV_SERVER_ID = "#vitehub/env/server" as const
+export const VITEHUB_ENV_DESCRIPTION_ID = "#vitehub/env/description" as const
 
 export function createNoExternalMerger(packageName: string) {
   return (current: NoExternalValue): NoExternalValue => {
@@ -181,6 +182,10 @@ export function viteHubEnvServerModulePath(root: string): string {
   return resolve(root, ".vitehub", "env", "server.mjs")
 }
 
+export function viteHubEnvDescriptionModulePath(root: string): string {
+  return resolve(root, ".vitehub", "env", "description.mjs")
+}
+
 export function viteHubEnvServerModuleTypesPath(root: string): string {
   return resolve(root, ".vitehub", "env", "server.d.ts")
 }
@@ -189,5 +194,6 @@ export function createViteHubEnvImportAliases(root: string): Record<string, stri
   return {
     [VITEHUB_ENV_PUBLIC_ID]: viteHubEnvPublicModulePath(root),
     [VITEHUB_ENV_SERVER_ID]: viteHubEnvServerModulePath(root),
+    [VITEHUB_ENV_DESCRIPTION_ID]: viteHubEnvDescriptionModulePath(root),
   }
 }

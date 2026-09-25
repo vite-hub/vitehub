@@ -1,3 +1,4 @@
+import { describeServerEnv } from "./server.ts"
 import { stat } from "node:fs/promises"
 import { dirname, isAbsolute, relative, resolve, win32 } from "node:path"
 
@@ -8,6 +9,7 @@ import {
   VITEHUB_ENV_PUBLIC_ID,
   VITEHUB_ENV_SERVER_ID,
   viteHubEnvAmbientTypesPath,
+  viteHubEnvDescriptionModulePath,
   viteHubEnvPublicModulePath,
   viteHubEnvPublicModuleTypesPath,
   viteHubEnvServerModulePath,
@@ -38,6 +40,8 @@ export const ENV_VITE_PLUGIN_NAME = "@vite-hub/env/vite"
 export const ENV_PUBLIC_ID: typeof VITEHUB_ENV_PUBLIC_ID = VITEHUB_ENV_PUBLIC_ID
 export const ENV_SERVER_ID: typeof VITEHUB_ENV_SERVER_ID = VITEHUB_ENV_SERVER_ID
 
+const ENV_DESCRIPTION_ID = "#vitehub/env/description"
+const RESOLVED_DESCRIPTION_ID = `\0${ENV_DESCRIPTION_ID}`
 const RESOLVED_PUBLIC_ID = `\0${ENV_PUBLIC_ID}`
 const RESOLVED_SERVER_ID = `\0${ENV_SERVER_ID}`
 const defaultRuntimeImports = {
@@ -234,6 +238,9 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
       const publicConfig = state?.publicConfig ?? buildPublicConfig
       const registry = state?.serverRegistry ?? serverRegistry
       const providerModules = state?.providerModules ?? {}
+      if (id === RESOLVED_DESCRIPTION_ID) {
+        return createServerEnvDescriptionModule(registry)
+      }
       if (id === RESOLVED_PUBLIC_ID) {
         return createPublicEnvModule(publicConfig)
       }
@@ -244,6 +251,9 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
     resolveId: {
       order: "pre",
       handler(id) {
+        if (id === ENV_DESCRIPTION_ID) {
+          return RESOLVED_DESCRIPTION_ID
+        }
         if (id === ENV_PUBLIC_ID) {
           return RESOLVED_PUBLIC_ID
         }
@@ -280,6 +290,7 @@ async function prepareEnvGeneratedTypes(
       : []),
     writeFileIfChanged(viteHubEnvAmbientTypesPath(root), createViteTypes(publicTypes, serverRegistry, runtimeImports)),
     writeFileIfChanged(viteHubEnvPublicModuleTypesPath(root), createPublicEnvModuleTypes(publicTypes)),
+    writeFileIfChanged(viteHubEnvDescriptionModulePath(root), createServerEnvDescriptionModule(serverRegistry)),
     writeFileIfChanged(viteHubEnvServerModuleTypesPath(root), createServerEnvModuleTypes(serverRegistry, runtimeImports)),
   ])
 }
@@ -354,6 +365,7 @@ async function refreshEnvGeneratedFiles(
     writeFileIfChanged(viteHubEnvAmbientTypesPath(root), createViteTypes(publicTypes, serverRegistry, runtimeImports)),
     writeFileIfChanged(viteHubEnvPublicModulePath(root), createPublicEnvModule(publicConfig)),
     writeFileIfChanged(viteHubEnvPublicModuleTypesPath(root), createPublicEnvModuleTypes(publicTypes)),
+    writeFileIfChanged(viteHubEnvDescriptionModulePath(root), createServerEnvDescriptionModule(serverRegistry)),
     writeFileIfChanged(
       viteHubEnvServerModulePath(root),
       createServerEnvModule(serverRegistry, runtimeImports, providerModules, viteHubEnvServerModulePath(root)),
@@ -444,12 +456,17 @@ function createServerEnvModule(
     ...providers.map(([, specifier], index) => `import envProvider${index} from ${JSON.stringify(providerImportSpecifier(specifier, outputPath))};`),
     `const registry = JSON.parse(${JSON.stringify(JSON.stringify(serverRegistry))});`,
     `const providers = Object.fromEntries([${providers.map(([name], index) => `[${JSON.stringify(name)}, envProvider${index}]`).join(", ")}]);`,
+    createServerEnvDescriptionModule(serverRegistry).trimEnd(),
     "export function useServerEnv(event) { return resolveServerEnv(registry, event); }",
     "export async function loadServerEnv(event, options) { return await loadRegistry(registry, event, { ...options, providers }); }",
     "export async function inspectServerEnv(event, options) { return await inspectRegistry(registry, event, { ...options, providers }); }",
     "export async function runWithServerEnv(event, callback, options) { return await callback(await loadServerEnv(event, options)); }",
     "",
   ].join("\n")
+}
+
+function createServerEnvDescriptionModule(serverRegistry: EnvRuntimeRegistry): string {
+  return `export function describeServerEnv() { return JSON.parse(${JSON.stringify(JSON.stringify(describeServerEnv(serverRegistry)))}); }\n`
 }
 
 function providerImportSpecifier(specifier: string, outputPath: string | undefined): string {
@@ -543,6 +560,9 @@ function createViteTypes(
 function createServerEnvInspectionTypes(indent: number): string[] {
   const prefix = " ".repeat(indent)
   return [
+    `${prefix}export interface ServerEnvDescriptionEntry { path?: string; source: "env" | "literal" | "provider"; provider?: string; secret: boolean; required: boolean; hasDefault: boolean }`,
+    `${prefix}export interface ServerEnvDescription { entries: readonly ServerEnvDescriptionEntry[] }`,
+    `${prefix}export function describeServerEnv(): ServerEnvDescription`,
     `${prefix}export interface ServerEnvInspectionEntry {`,
     `${prefix}  masked: boolean`,
     `${prefix}  path?: string`,

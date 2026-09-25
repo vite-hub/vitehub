@@ -42,6 +42,8 @@ describe("Console section preferences", () => {
     expect(resolveConsoleSectionIds({ agent: true, workflow: false })).toEqual(["agents", "usage"])
     expect(resolveConsoleSectionIds({ agent: true, queue: false, schedule: false, workflow: false })).toEqual(["agents", "usage"])
     expect(resolveConsoleSectionIds({})).toEqual([])
+    expect(resolveConsoleSectionIds({ env: true })).toEqual(["env"])
+    expect(resolveConsoleSectionIds({ env: false })).toEqual([])
   })
 
   it("prioritizes the last active section without losing configured sections", () => {

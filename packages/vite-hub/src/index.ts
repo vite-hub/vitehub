@@ -137,6 +137,7 @@ function getGeneratedOwnerProviderImportAliases(): Record<string, string> {
 const frameworkVirtualImporters = new Set([
   "\0#vitehub/auth/server",
   "\0#vitehub/env/server",
+  "\0#vitehub/env/description",
   "\0#vitehub/schedule/registry",
   "\0virtual:vitehub-agent-cloudflare-state-exports",
 ])
@@ -216,6 +217,7 @@ function frameworkDependencyResolver(
       if (envPlugin && config.root) {
         const envProjectRoot = envPlugin.api.resolveProjectRoot(config.root)
         providerImportAliases["#vitehub/env/server"] = resolve(envProjectRoot, ".vitehub/env/server.mjs")
+        providerImportAliases["#vitehub/env/description"] = resolve(envProjectRoot, ".vitehub/env/description.mjs")
       }
       configureProviderOptionalImportAliases(
         providerImportAliases,
@@ -730,7 +732,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
     ? Object.keys(resolvedConsoleBlob.stores || { default: resolvedConsoleBlob.store })
     : []
   const workflowEnabled = options.workflow !== false && Boolean(options.agent || options.workflow)
-  const consoleSections = resolveConsoleSectionIds({ ...options, blob: blobEnabled, preset: plan.preset, sandbox: sandboxEnabled })
+  const consoleSections = resolveConsoleSectionIds({ ...options, env: options.env !== false, blob: blobEnabled, preset: plan.preset, sandbox: sandboxEnabled })
   const plugins: unknown[] = [hubMarkdownTemplate()]
   const requestedServices: DeploymentService[] = []
   if (options.blob !== undefined && options.blob !== false && !hasExplicitBlobStore(options.blob)) requestedServices.push("blob")

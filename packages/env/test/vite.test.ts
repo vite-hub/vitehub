@@ -170,6 +170,7 @@ describe("Vite plugin", () => {
     expect(createEnvImportAliases({ projectRoot: root })).toEqual({
       "#vitehub/env/public": join(root, ".vitehub", "env", "public.mjs"),
       "#vitehub/env/server": join(root, ".vitehub", "env", "server.mjs"),
+      "#vitehub/env/description": join(root, ".vitehub", "env", "description.mjs"),
     })
     expect(createEnvTypeScriptPaths({ projectRoot: root })).toEqual({
       "#vitehub/env/public": [join(root, ".vitehub", "env", "public")],
@@ -387,6 +388,14 @@ describe("Vite plugin", () => {
     await configResolvedHook({ ...userConfig, ...configResult as object, logger: { info: vi.fn() } } as never)
 
     const serverModule = await readFile(join(root, ".vitehub", "env", "server.mjs"), "utf8")
+    const descriptionModule = await readFile(join(root, ".vitehub", "env", "description.mjs"), "utf8")
+    expect(descriptionModule).toContain("export function describeServerEnv()")
+    expect(descriptionModule).toContain('\\"provider\\":\\"secrets\\"')
+    expect(descriptionModule).not.toContain("import ")
+    const description = await import(pathToFileURL(join(root, ".vitehub", "env", "description.mjs")).href)
+    expect(description.describeServerEnv().entries).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: "env.server.codexAuth", source: "provider", provider: "secrets" }),
+    ]))
     expect(serverModule).toContain(`import envProvider0 from "../../server/env%23blue%3F%25/secrets.mjs"`)
     expect(serverModule).not.toContain("unused.mjs")
     expect(serverModule).toContain("export async function loadServerEnv")
@@ -499,6 +508,29 @@ describe("Vite plugin", () => {
     })
 
     await expect(readFile(join(root, "dist", "entry.mjs"), "utf8")).resolves.toContain("provider-value")
+  })
+
+  it("bundles declaration-only inventory through the direct Vite import", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-env-description-vite-"))
+    const entry = join(root, "entry.ts")
+    await writeFile(join(root, "package.json"), JSON.stringify({ type: "module" }), "utf8")
+    await writeFile(join(root, "provider.mjs"), 'throw new Error("provider must not initialize"); export default {}', "utf8")
+    await writeFile(entry, 'export { describeServerEnv } from "#vitehub/env/description"', "utf8")
+    await build({
+      root,
+      configFile: false,
+      logLevel: "silent",
+      plugins: [hubEnv({ providers: { vault: "./provider.mjs" } })],
+      env: { server: { token: env({ secret: true, source: env.provider("vault", "private/key") }) } },
+      build: { lib: { entry, fileName: () => "entry.mjs", formats: ["es"] }, outDir: join(root, "dist") },
+    })
+    const url = pathToFileURL(join(root, "dist", "entry.mjs")).href
+    const { stdout } = await execFileAsync(process.execPath, ["--input-type=module", "--eval", `
+      const { describeServerEnv } = await import(${JSON.stringify(url)});
+      process.stdout.write(JSON.stringify(describeServerEnv()));
+    `], { encoding: "utf8" })
+    expect(JSON.parse(stdout).entries).toEqual([{ path: "env.server.token", source: "provider", provider: "vault", secret: true, required: true, hasDefault: false }])
+    expect(await readFile(join(root, "dist", "entry.mjs"), "utf8")).not.toContain("provider must not initialize")
   })
 
   it("emits portable provider module specifiers", async () => {

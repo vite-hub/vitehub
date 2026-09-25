@@ -1,4 +1,4 @@
-export const consoleSectionIds = ["agents", "usage", "blob", "database", "databases", "kv", "rate-limits", "sandboxes", "workspaces", "workflows", "queues", "schedules"] as const
+export const consoleSectionIds = ["env", "agents", "usage", "blob", "database", "databases", "kv", "rate-limits", "sandboxes", "workspaces", "workflows", "queues", "schedules"] as const
 
 export type ConsoleSectionId = (typeof consoleSectionIds)[number]
 
@@ -8,6 +8,7 @@ export const consoleSectionDetails: Readonly<Record<ConsoleSectionId, {
   readonly label: string
   readonly routeName: string
 }>> = {
+  env: { description: "Inspect Server Env declarations and their providers.", icon: "i-ph-key-light", label: "Env", routeName: "vitehub-console-env" },
   agents: {
     description: "Inspect Agent sessions and invocation details.",
     icon: "i-ph-robot-light",
@@ -93,10 +94,11 @@ export function isConsoleSectionId(value: unknown): value is ConsoleSectionId {
   return consoleSectionIds.some((section) => section === value)
 }
 
-export function resolveConsoleSectionIds(options: { agent?: unknown; blob?: unknown; database?: unknown; kv?: unknown; preset?: unknown; queue?: unknown; rateLimit?: unknown; sandbox?: unknown; schedule?: unknown; workflow?: unknown; workspace?: unknown }): ConsoleSectionId[] {
+export function resolveConsoleSectionIds(options: { env?: unknown; agent?: unknown; blob?: unknown; database?: unknown; kv?: unknown; preset?: unknown; queue?: unknown; rateLimit?: unknown; sandbox?: unknown; schedule?: unknown; workflow?: unknown; workspace?: unknown }): ConsoleSectionId[] {
   const workflowEnabled = options.workflow !== false
     && Boolean(options.workflow || (options.agent && options.preset !== "netlify"))
   return [
+    ...(options.env ? ["env" as const] : []),
     ...(options.agent ? ["agents" as const, "usage" as const] : []),
     ...(options.blob ? ["blob" as const] : []),
     ...(options.database ? ["databases" as const] : []),
