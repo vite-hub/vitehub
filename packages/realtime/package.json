@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/realtime",
-  "version": "0.0.4",
+  "version": "0.1.0",
   "description": "Realtime document primitives and Vite integration for ViteHub.",
   "keywords": [
     "collaboration",

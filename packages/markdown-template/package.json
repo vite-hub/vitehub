@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/markdown-template",
-  "version": "0.0.4",
+  "version": "0.1.0",
   "description": "Deterministic Markdown templates with explicit data, conditions, and fragments.",
   "keywords": [
     "agent",

@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/box",
-  "version": "0.0.4",
+  "version": "0.1.0",
   "description": "Portable execution environments for ViteHub agents.",
   "keywords": [
     "agent",

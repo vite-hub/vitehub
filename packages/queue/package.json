@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/queue",
-  "version": "0.0.4",
+  "version": "0.1.0",
   "description": "Queue primitives and Vite deployment integration for ViteHub.",
   "keywords": [
     "cloudflare",

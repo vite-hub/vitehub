@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/kv",
-  "version": "0.0.4",
+  "version": "0.1.0",
   "description": "Vite-first key-value storage primitives and integration for ViteHub.",
   "keywords": [
     "cloudflare",
