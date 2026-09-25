@@ -254,7 +254,7 @@ it("discovers preview-only permissions without requiring inspect or reading meta
   expect(inspect).not.toHaveBeenCalled()
   expect((await handler(request({ path, action: "inspect" }))).status).toBe(403)
   const preview = await handler(request({ path, action: "preview" }))
-  expect(await preview.json()).toMatchObject({ metadata: { preview: "ghp_••••1234" } })
+  expect(await preview.json()).toEqual({ metadata: { preview: "ghp_••••1234" } })
 })
 
 

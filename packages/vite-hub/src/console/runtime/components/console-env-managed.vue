@@ -4,7 +4,7 @@ import * as v from "valibot";
 import {
   envInspectionSchema,
   envPermissionSchema,
-  envMetadataSchema,
+  envPreviewSchema,
   requestEnvManagement,
 } from "../client/env-management";
 import { ConsoleRequestError } from "../client/request";
@@ -71,7 +71,7 @@ function showPreview() {
       props.endpoint,
       props.path,
       "preview",
-      v.object({ metadata: envMetadataSchema }),
+      v.object({ metadata: envPreviewSchema }),
     );
     preview.value = result.metadata?.preview;
     if (!preview.value) notice.value = "A masked preview is not available for this credential.";

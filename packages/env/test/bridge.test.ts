@@ -66,6 +66,10 @@ describe("Env Bridge", () => {
       code: "ENV_BRIDGE_DENIED",
     });
     expect(await bridge.preview(admin, "github")).toMatchObject({ preview: "ghp_••••1234" });
+    await bridge.grant(admin, { actor: agent.actor, key: "github", permissions: ["preview"] });
+    expect(await bridge.preview(agent, "github")).toEqual({ preview: "ghp_••••1234" });
+    await expect(bridge.inspect(agent, "github")).rejects.toMatchObject({ code: "ENV_BRIDGE_DENIED" });
+    await bridge.grant(admin, { actor: agent.actor, key: "github", permissions: ["use", "inspect"] });
     await bridge.replace(admin, {
       key: "github",
       value: "ghp_second_secret_5678",
@@ -197,7 +201,7 @@ describe("Env Bridge", () => {
 it("limits custom-store previews to declared metadata", async () => {
   const { store } = setup();
   const bridge = createEnvBridge({ ...store, secrets: { ...store.secrets, inspect: async () => ({ revision: "v1", updatedAt: "now", preview: "test••••1234", value: "do-not-release" }) }, runtimeContext: () => admin });
-  expect(await bridge.preview(admin, "key")).toEqual({ revision: "v1", updatedAt: "now", preview: "test••••1234" });
+  expect(await bridge.preview(admin, "key")).toEqual({ preview: "test••••1234" });
 });
 
 it("sanitizes access-store failures in SDK authorization and history", async () => {
