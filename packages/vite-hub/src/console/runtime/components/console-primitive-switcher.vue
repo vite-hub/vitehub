@@ -21,8 +21,10 @@ const sections = ref<ConsoleSectionId[]>([]);
 const signedIn = ref(false);
 const signingOut = ref(false);
 const signOutFailed = ref(false);
-const authClient = createAuthClient({ basePath: props.sectionsBase.replace(/\/sections$/, "/auth") });
+const authBase = props.sectionsBase.replace(/\/sections$/, "/auth");
+const authClientURL = props.sectionsBase.replace(/\/sections$/, "/client.js");
 const signedOutURL = props.sectionsBase.replace(/\/api\/_vitehub\/console\/sections$/, "/_vitehub/signed-out");
+let authClientRequest: Promise<ReturnType<typeof createAuthClient>> | undefined;
 const items = computed(() =>
   sections.value
     .filter((section) => section !== "usage" && !props.exclude?.includes(section))
@@ -43,10 +45,20 @@ async function loadSections(): Promise<void> {
     return;
   }
   sections.value = navigation.sections;
+  if (navigation.auth) void loadAuthSession();
+}
+
+async function consoleAuthClient(): Promise<ReturnType<typeof createAuthClient>> {
+  authClientRequest ??= import(/* @vite-ignore */ authClientURL)
+    .then(() => Reflect.get(globalThis, Symbol.for("vitehub.console.auth.client")) as ReturnType<typeof createAuthClient> | undefined)
+    .catch(() => undefined)
+    .then((configured) => configured ?? createAuthClient({ basePath: authBase }));
+  return await authClientRequest;
 }
 
 async function loadAuthSession(): Promise<void> {
   try {
+    const authClient = await consoleAuthClient();
     const { data } = await authClient.getSession();
     signedIn.value = Boolean(data?.session);
   } catch {
@@ -58,6 +70,7 @@ async function signOut(): Promise<void> {
   signingOut.value = true;
   signOutFailed.value = false;
   try {
+    const authClient = await consoleAuthClient();
     const { error } = await authClient.signOut();
     if (error) throw error;
     window.location.assign(signedOutURL);
@@ -69,7 +82,6 @@ async function signOut(): Promise<void> {
 
 onMounted(() => {
   void loadSections();
-  void loadAuthSession();
 });
 </script>
 

@@ -13,8 +13,20 @@ import { createConsoleAuthDefinition, defineConsoleAuth, prepareConsoleAuth } fr
 import { resolveConsoleAuthConfig, writeConsoleAuthHandlers } from "../src/console/auth-build.ts"
 import { consoleVitePlugin } from "../src/console/vite.ts"
 import signedOutHandler from "../src/console/runtime/server/signed-out.get.ts"
+import { installConsoleProjectNameScope, installConsoleSectionScope, resolveConsoleAuth } from "../src/console/internal.ts"
+
+import type { ConsoleInvocationScope } from "../src/console/internal.ts"
 
 describe("independent Console Auth", () => {
+  it("reports independent auth only for the configured Console project", () => {
+    const scope: ConsoleInvocationScope = {}
+    installConsoleSectionScope("/console-auth", ["agents"], scope, true)
+    installConsoleProjectNameScope("/console-auth", "Console Auth", scope)
+    expect(resolveConsoleAuth(scope)).toBe(true)
+    installConsoleSectionScope("/host-managed", ["kv"], scope)
+    expect(resolveConsoleAuth(scope)).toBe(false)
+  })
+
   it("uses a distinct base path and cookie prefix and requires a database adapter", () => {
     const database = new DatabaseSync(":memory:")
     try {
@@ -215,6 +227,7 @@ describe("independent Console Auth", () => {
         expect.objectContaining({ route: "/_vitehub/signed-out" }),
         expect.objectContaining({ route: "/**", middleware: true }),
       ]))
+      expect(await readFile(resolve(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")).toContain(`installConsoleSections(${JSON.stringify(root)}, ["kv"], true)`)
     }
     finally {
       await rm(root, { recursive: true, force: true })

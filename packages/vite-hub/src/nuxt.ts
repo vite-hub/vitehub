@@ -271,6 +271,7 @@ async function installConsole(
   canDiscoverDefinitions: () => boolean = () => true,
   discoveryOptions: Pick<Parameters<typeof discoverConsoleBuildCatalog>[0], "databaseDiscoveryRoot" | "rateLimitDiscoveryRoot" | "rateLimitScanDirs" | "scheduleDiscoveryRoot" | "workspaceDiscoveryRoot"> = {},
   databaseUrl?: string,
+  independentAuth = false,
 ): Promise<string> {
   const uiModule = (await import("@vite-hub/ui/nuxt")).default
   const uiConfigured = (nuxt.options.modules ?? []).some((entry) => {
@@ -281,7 +282,7 @@ async function installConsole(
     await Reflect.apply(uiModule, undefined, [{}, nuxt])
   }
   const plugin = resolveGeneratedConsolePlugin(projectRoot, fixture, invocationRootState)
-  installConsoleSections(projectRoot, sections)
+  installConsoleSections(projectRoot, sections, independentAuth)
   installConsoleProjectName(projectRoot, resolveConsoleProjectNameFromRoot(projectRoot))
   if (installInvocations && nuxt.options.dev && sections.includes("agents") && !fixture) installConsoleInvocations(projectRoot, undefined, observations, databaseUrl)
   const routeRules = (nuxt.options.routeRules ??= {})
@@ -434,6 +435,7 @@ async function installConsole(
       observations,
       () => !invocationRootState?.closed,
       databaseUrl,
+      independentAuth,
     )
     if (invocationRootState) {
       updateConsoleInvocationRootState(invocationRootState, projectRoot, identity)
@@ -1102,7 +1104,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         consoleKVStores.length,
         ...(resolvedKV ? Object.keys(resolvedKV.stores || { default: resolvedKV.store }) : []),
       )
-      installConsoleSections(projectRoot, consoleSections)
+      installConsoleSections(projectRoot, consoleSections, Boolean(options.console !== true && options.console?.access === "auth" && options.console.auth))
       installConsoleProjectName(projectRoot, resolveConsoleProjectNameFromRoot(projectRoot))
       addConsoleDevframeHandler(config, consoleRuntimeRoot)
       const consoleCatalog = await discoverConsoleBuildCatalog({
@@ -1134,6 +1136,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         options.console === true ? undefined : options.console.observations,
         () => !consoleInvocationRootState.closed,
         consoleDatabaseUrl(options),
+        Boolean(options.console !== true && options.console?.access === "auth" && options.console.auth),
       )
     }
     Object.assign(config, mergeGeneratedSourceNitroConfig(config, generatedSourceHandlers))
@@ -1207,6 +1210,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         workspaceDiscoveryRoot: configuredProjectRoot(viteRoot, nuxt.options.vite.workspace ?? options.workspace),
       },
       consoleDatabaseUrl(options),
+      Boolean(options.console !== true && options.console.access === "auth" && options.console.auth),
     )
   }
 }

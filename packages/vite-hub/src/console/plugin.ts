@@ -27,6 +27,7 @@ function renderConsoleNitroPlugin(
   invoke = false,
   observations?: AgentInvocationsOptions["observations"],
   databaseUrl?: string,
+  independentAuth = false,
 ): string {
   const definitions = agents.map((agent, index) => {
     const skills = readColocatedAgentSkills(agent.handler)
@@ -68,7 +69,7 @@ function renderConsoleNitroPlugin(
         ]
       : []),
     ...agents.map((agent, index) => `import * as vitehubConsoleAgent${index} from ${JSON.stringify(pathToFileURL(agent.handler).href)}`),
-    `installConsoleSections(${JSON.stringify(projectRoot)}, ${JSON.stringify(sections)})`,
+    `installConsoleSections(${JSON.stringify(projectRoot)}, ${JSON.stringify(sections)}${independentAuth ? ", true" : ""})`,
     ...(blobEnabled
       ? [`installConsoleBlob(${JSON.stringify(projectRoot)}, vitehubConsoleBlob, ${JSON.stringify(blobStores)})`]
       : []),
@@ -107,6 +108,7 @@ export async function writeConsoleNitroPlugin(
   observations: AgentInvocationsOptions["observations"] = undefined,
   active: () => boolean = () => true,
   databaseUrl?: string,
+  independentAuth = false,
 ): Promise<string> {
   const snapshot = fixture ? readConsoleFixture(fixture) : undefined
   const identity = createConsoleInvocationsIdentity(
@@ -116,7 +118,7 @@ export async function writeConsoleNitroPlugin(
     runtimeBinding,
   )
   if (!active()) return identity
-  const contents = renderConsoleNitroPlugin(projectRoot, sections, agents, catalog, blobStores, kvStores, fixture, snapshot, runtimeBinding, invoke, observations, databaseUrl)
+  const contents = renderConsoleNitroPlugin(projectRoot, sections, agents, catalog, blobStores, kvStores, fixture, snapshot, runtimeBinding, invoke, observations, databaseUrl, independentAuth)
   if (await readFile(file, "utf8").catch(() => undefined) !== contents) {
     await mkdir(resolve(file, ".."), { recursive: true })
     await writeFile(file, contents, "utf8")
