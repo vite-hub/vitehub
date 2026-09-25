@@ -68,7 +68,7 @@ function renderConsoleNitroPlugin(
           `import { kv as vitehubConsoleKV } from "vite-hub/kv"`,
         ]
       : []),
-    ...(sections.includes("env") ? [`import { describeServerEnv } from "#vitehub/env/server"`, `import { installConsoleEnv } from "vite-hub/console/env"`] : []),
+    ...(sections.includes("env") ? [`import { describeServerEnv } from "#vitehub/env/description"`, `import { installConsoleEnv } from "vite-hub/console/env"`] : []),
     ...agents.map((agent, index) => `import * as vitehubConsoleAgent${index} from ${JSON.stringify(pathToFileURL(agent.handler).href)}`),
     `installConsoleSections(${JSON.stringify(projectRoot)}, ${JSON.stringify(sections)}${independentAuth ? ", true" : ""})`,
     ...(blobEnabled

@@ -170,6 +170,7 @@ describe("Vite plugin", () => {
     expect(createEnvImportAliases({ projectRoot: root })).toEqual({
       "#vitehub/env/public": join(root, ".vitehub", "env", "public.mjs"),
       "#vitehub/env/server": join(root, ".vitehub", "env", "server.mjs"),
+      "#vitehub/env/description": join(root, ".vitehub", "env", "description.mjs"),
     })
     expect(createEnvTypeScriptPaths({ projectRoot: root })).toEqual({
       "#vitehub/env/public": [join(root, ".vitehub", "env", "public")],
@@ -387,6 +388,14 @@ describe("Vite plugin", () => {
     await configResolvedHook({ ...userConfig, ...configResult as object, logger: { info: vi.fn() } } as never)
 
     const serverModule = await readFile(join(root, ".vitehub", "env", "server.mjs"), "utf8")
+    const descriptionModule = await readFile(join(root, ".vitehub", "env", "description.mjs"), "utf8")
+    expect(descriptionModule).toContain("export function describeServerEnv()")
+    expect(descriptionModule).toContain('\\"provider\\":\\"secrets\\"')
+    expect(descriptionModule).not.toContain("import ")
+    const description = await import(pathToFileURL(join(root, ".vitehub", "env", "description.mjs")).href)
+    expect(description.describeServerEnv().entries).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: "env.server.codexAuth", source: "provider", provider: "secrets" }),
+    ]))
     expect(serverModule).toContain(`import envProvider0 from "../../server/env%23blue%3F%25/secrets.mjs"`)
     expect(serverModule).not.toContain("unused.mjs")
     expect(serverModule).toContain("export async function loadServerEnv")

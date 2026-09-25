@@ -216,6 +216,7 @@ function frameworkDependencyResolver(
       if (envPlugin && config.root) {
         const envProjectRoot = envPlugin.api.resolveProjectRoot(config.root)
         providerImportAliases["#vitehub/env/server"] = resolve(envProjectRoot, ".vitehub/env/server.mjs")
+        providerImportAliases["#vitehub/env/description"] = resolve(envProjectRoot, ".vitehub/env/description.mjs")
       }
       configureProviderOptionalImportAliases(
         providerImportAliases,

@@ -2988,6 +2988,7 @@ describe("ViteHub Nuxt integration", () => {
       { from: "vite-hub/auth/vue", name: "useUserSession" },
     ])
     expect(options.nitro.alias["#vitehub/env/server"]).toBe("/tmp/vitehub-nuxt/.vitehub/env/server.mjs")
+    expect(options.nitro.alias["#vitehub/env/description"]).toBe("/tmp/vitehub-nuxt/.vitehub/env/description.mjs")
     expect(options.nitro.plugins).toHaveLength(1)
     expect(options.nitro.plugins[0]).toMatch(/\/runtime\/nuxt\.js$/)
     expect(nitroConfigHooks).toHaveLength(1)
