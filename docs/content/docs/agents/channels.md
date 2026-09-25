@@ -33,7 +33,7 @@ Built-in helpers include `discord()`, `github()`, `http()`, `slack()`, `teams()`
 
 ## Publish Agent activity without opening a chat
 
-Enable `activity` when an invocation should project its lifecycle into a Channel without treating that Channel as the Agent's conversation transport. With GitHub App webhooks enabled, ViteHub creates the authenticated app-owned comment on `pull_request.opened`; later invocations reuse it. The comment claims work with a “Starting” row. One table lists the current and recent sessions, newest first, with links, status, GitHub relative start times, and completed durations. Normalized harness task checkboxes and the latest iteration result appear below it. Previous results stay under a collapsed section. The full transcript stays in the linked session.
+Enable `activity` when an invocation should project its lifecycle into a Channel without treating that Channel as the Agent's conversation transport. With GitHub App webhooks enabled, ViteHub creates the authenticated app-owned comment on `pull_request.opened`; later invocations reuse it. The comment claims work with a “Starting” row. One table lists the current and recent sessions, newest first, with links, status, GitHub relative start times, and completed durations. Normalized harness task checkboxes and the latest iteration result appear below it. Previous results stay under a collapsed section. The full transcript stays in the linked session when one is configured.
 
 Enable the GitHub App webhook for `pull_request` events and route it to the Agent’s generated webhook endpoint to claim the comment when the PR opens. Without webhook delivery, the first invocation creates it.
 
@@ -46,13 +46,15 @@ import { github } from 'vite-hub/agent/channels'
 export const agent = defineAgent({
   channels: {
     github: github({
-      activity: true,
+      activity: { publicUrl: 'https://agent.example.com' },
       app: true,
     }),
   },
   driver: { model: 'openai/gpt-5.1-mini' },
 })
 ```
+
+Set `activity.publicUrl` to the public origin of the Agent's ViteHub Console. GitHub pull request webhook runs then receive a link to their own invocation as soon as they start. Use `activity: true` when the application supplies activity links itself.
 
 Select the Channel and its destination when the application starts the invocation. Links are application-owned; use them for the current session, memory, or another inspection surface.
 

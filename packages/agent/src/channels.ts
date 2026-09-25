@@ -463,9 +463,13 @@ export interface GitHubPullRequestFilter {
   action?: GitHubPullRequestFilterRules
 }
 
+export interface GitHubChannelActivityOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
+  publicUrl: MaybeResolvable<string, AgentCallbackContext<TRuntimeConfig>>
+}
+
 export interface GitHubChannelOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
   extends AgentChannelOptions<TRuntimeConfig> {
-  activity?: boolean
+  activity?: boolean | GitHubChannelActivityOptions<TRuntimeConfig>
   app?: true | GitHubAppOptions<TRuntimeConfig>
   pullRequest?: boolean | GitHubPullRequestCommentEventOptions<TRuntimeConfig>
 }
@@ -2839,10 +2843,27 @@ async function githubPullRequestMatchesFilter<TRuntimeConfig extends AgentRuntim
   return options.when ? await options.when(value) : true
 }
 
+async function githubActivitySessionLink<TRuntimeConfig extends AgentRuntimeConfig>(
+  context: AgentChannelTriggerContext<TRuntimeConfig>,
+  runId: string,
+  options: GitHubChannelActivityOptions<TRuntimeConfig>,
+): Promise<{ label: string, url: string }> {
+  const agentName = context.agentIdentity?.name
+  if (!agentName) throw new Error("GitHub activity session links require an Agent identity.")
+  const { agentInvocationId } = await import("./invocations.ts")
+  const id = await agentInvocationId(runId, agentName)
+  const publicUrl = await resolveRuntimeValue(options.publicUrl, context)
+  return {
+    label: "Current session",
+    url: new URL(`/_vitehub/agents/${encodeURIComponent(agentName)}/invocations/${encodeURIComponent(id)}`, publicUrl).href,
+  }
+}
+
 function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
   pullRequest: boolean | GitHubPullRequestCommentEventOptions<TRuntimeConfig> | undefined,
   app?: true | GitHubAppOptions<TRuntimeConfig>,
   activity?: NonNullable<AgentChannelDefinition<TRuntimeConfig>["activity"]>,
+  activityOptions?: GitHubChannelActivityOptions<TRuntimeConfig>,
 ): AgentChannelDefinition<TRuntimeConfig>["triggers"] {
   if (!pullRequest && !activity) return undefined
   const options = pullRequest === true || !pullRequest ? {} : pullRequest
@@ -2895,7 +2916,7 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
         const run = githubPullRequestRunMetadata(pullRequestContext, context.trigger.channelId)
         if (activity) {
           run.activity = {
-            links: [],
+            links: activityOptions ? [await githubActivitySessionLink(context, run.runId, activityOptions)] : [],
             target: {
               issue: command.issueNumber,
               repository: command.repository,
@@ -3117,7 +3138,7 @@ export function github<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeC
     effects: appEffects ? { ...appEffects, ...options.effects } as AgentChannelDeliveryEffects<TRuntimeConfig> : options.effects,
     messages: false,
     triggers: {
-      ...githubEventTriggers(pullRequest, appOptions, openedActivityDefinition),
+      ...githubEventTriggers(pullRequest, appOptions, openedActivityDefinition, typeof activity === "object" ? activity : undefined),
       ...options.triggers,
     },
     webhooks: githubWebhookDefaults(options.webhooks, appOptions),

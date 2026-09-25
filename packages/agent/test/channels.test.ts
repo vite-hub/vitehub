@@ -1553,6 +1553,33 @@ describe("agent channels", () => {
     await expect(botUpdate.json()).resolves.toMatchObject({ reason: "not_command" })
   })
 
+  it("links GitHub pull request activity to the invocation when given a public URL", async () => {
+    const { github } = await import("../src/channels.ts")
+    const { agentInvocationId } = await import("../src/invocations.ts")
+    const channel = github({
+      activity: { publicUrl: "https://agent.example.test" },
+      pullRequest: { reconcile: { prompt: "Review this pull request." }, reply: false },
+    })
+    const trigger = channel.triggers?.webhook
+    if (!trigger) throw new Error("Missing GitHub webhook trigger.")
+    // SAFETY: This fixture supplies the Agent identity that the webhook runtime provides.
+    const result = await trigger.invoke({
+      agentIdentity: { name: "reviewer" },
+      capabilities: [],
+      channel,
+      trigger: { channelId: "github", id: "github.webhook", name: "webhook", source: "channel" },
+    } as never, {
+      github: { deliveryId: "delivery-session", event: "pull_request", installationId: 123 },
+      payload: githubPullRequestPayload("reopened"),
+    })
+    if (result instanceof Response || !result.run) throw new Error("Expected GitHub invocation.")
+    const id = await agentInvocationId(result.run.runId, "reviewer")
+    expect(result.run.activity?.links).toEqual([{
+      label: "Current session",
+      url: `https://agent.example.test/_vitehub/agents/reviewer/invocations/${id}`,
+    }])
+  })
+
   it("fetches public pull request head metadata without a token", async () => {
     const { github } = await import("../src/channels.ts")
     const tokenKeys = ["VITEHUB_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"] as const
