@@ -34,6 +34,17 @@ function setup(url = ":memory:") {
 }
 
 describe("Env Bridge", () => {
+  it("rejects invalid acting actor kinds without corrupting durable activity", async () => {
+    const { bridge, db, store, emit } = setup();
+    const invalid = { actor: { id: "owner", kind: "other" }, admin: true } as unknown as EnvAccessContext;
+    await expect(bridge.replace(invalid, { key: "github", value: "secret", expectedRevision: null })).rejects.toMatchObject({ code: "ENV_BRIDGE_INVALID" });
+    await expect(bridge.permissions(invalid, "github")).rejects.toMatchObject({ code: "ENV_BRIDGE_INVALID" });
+    const runtime = createEnvBridge({ ...store, runtimeContext: () => invalid });
+    await expect(runtime.read({ env: {}, keys: ["github"] })).rejects.toMatchObject({ code: "ENV_BRIDGE_INVALID" });
+    expect(await bridge.activity(admin, "github")).toEqual([]);
+    expect(await db.all(sql`SELECT * FROM vitehub_env_activity`)).toEqual([]);
+    expect(emit).not.toHaveBeenCalled();
+  });
   it("persists encrypted replacements, resolves the new revision, and separates previews from inspection", async () => {
     const { bridge, db } = setup();
     const first = await bridge.replace(admin, {

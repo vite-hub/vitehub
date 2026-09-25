@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process"
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
@@ -301,7 +301,7 @@ describe("Vite plugin", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-env-facade-runtime-imports-"))
     await writeFile(join(root, "package.json"), JSON.stringify({ name: "facade-app", type: "module" }), "utf8")
     await writeFile(join(root, "secret.d.ts"), "export interface SecretEnv<T> { unseal(): T }\n", "utf8")
-    await writeFile(join(root, "runtime.d.ts"), 'declare module "#app/env/server" { export interface EnvAccessContext { actor: { id: string; kind: "user" | "agent" | "service" } } }\ndeclare module "@vite-hub/env/server" { export interface EnvAccessContext { actor: { id: string; kind: "user" | "agent" | "service" } } }\n', "utf8")
+    await writeFile(join(root, "runtime.d.ts"), 'declare module "@vite-hub/env/bridge" { export interface EnvAccessContext { actor: { id: string; kind: "user" | "agent" | "service" } } }\n', "utf8")
 
     const plugin = hubEnv({
       runtimeImports: {
@@ -347,6 +347,8 @@ describe("Vite plugin", () => {
   it("executes generated provider-backed Server Env modules as coherent rotating snapshots", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-env-provider-"))
     await writeFile(join(root, "package.json"), JSON.stringify({ name: "provider-app", type: "module" }), "utf8")
+    await mkdir(join(root, "node_modules", "@vite-hub"), { recursive: true })
+    await symlink(new URL("..", import.meta.url).pathname, join(root, "node_modules", "@vite-hub", "env"), "dir")
     await mkdir(join(root, "server", "env#blue?%"), { recursive: true })
     const providerPath = join(root, "server", "env#blue?%", "secrets.mjs")
     await writeFile(providerPath, [
@@ -360,7 +362,7 @@ describe("Vite plugin", () => {
     ].join("\n"), "utf8")
     const runtimeFacadePath = join(root, "env-runtime.mjs")
     await writeFile(runtimeFacadePath, [
-      `export { createServerEnvManagement, describeServerEnv, inspectServerEnv, loadServerEnv, resolveServerEnv } from ${JSON.stringify(new URL("../dist/server.js", import.meta.url).href)}`,
+      `export { describeServerEnv, inspectServerEnv, loadServerEnv, resolveServerEnv } from ${JSON.stringify(new URL("../dist/server.js", import.meta.url).href)}`,
       ``,
     ].join("\n"), "utf8")
 
@@ -787,7 +789,7 @@ describe("Vite plugin", () => {
     await mkdir(join(root, "server", "workspaces"), { recursive: true })
     await writeFile(join(root, ".env.production"), "PUBLIC_APP_NAME=Quiver\n", "utf8")
     await writeFile(join(root, "secret.d.ts"), "export interface SecretEnv<T> { unseal(): T }\n", "utf8")
-    await writeFile(join(root, "runtime.d.ts"), 'declare module "#app/env/server" { export interface EnvAccessContext { actor: { id: string; kind: "user" | "agent" | "service" } } }\ndeclare module "@vite-hub/env/server" { export interface EnvAccessContext { actor: { id: string; kind: "user" | "agent" | "service" } } }\n', "utf8")
+    await writeFile(join(root, "runtime.d.ts"), 'declare module "@vite-hub/env/bridge" { export interface EnvAccessContext { actor: { id: string; kind: "user" | "agent" | "service" } } }\n', "utf8")
     const packageJsonPath = join(appRoot, "package.json")
     const packageJson = JSON.stringify({
       imports: {
