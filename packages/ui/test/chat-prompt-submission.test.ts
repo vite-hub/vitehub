@@ -71,7 +71,11 @@ describe("AgentChatPrompt submission with Nuxt UI", () => {
     await wrapper.setProps({ modelValue: "", files: [filePart] });
     expect(wrapper.get('button[aria-label="Send prompt"]').attributes("disabled")).toBeUndefined();
     await wrapper.get("textarea").trigger("keydown", { key: "Enter" });
-    expect(wrapper.emitted("submit")).toEqual([[{ text: "", files: [filePart] }]]);
+    await wrapper.get("form").trigger("submit");
+    expect(wrapper.emitted("submit")).toEqual([
+      [{ text: "", files: [filePart] }],
+      [{ text: "", files: [filePart] }],
+    ]);
     wrapper.unmount();
   });
 
