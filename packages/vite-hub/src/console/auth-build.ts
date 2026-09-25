@@ -73,6 +73,7 @@ export function resolveConsoleAuthConfig(root: string, config: ConsoleAuthConfig
 export async function writeConsoleAuthHandlers(root: string, config: ResolvedConsoleAuthFiles | InlineConsoleAuth, mountBaseURL = "/"): Promise<{
   client: string
   clientSource?: string
+  clientSources: string[]
   middleware: string
   route: string
   signIn: string
@@ -88,13 +89,14 @@ export async function writeConsoleAuthHandlers(root: string, config: ResolvedCon
   const clientFile = inline
     ? config.client ? resolve(root, config.client) : discoverFile(root, "client")
     : config.client
-  const clientScript = clientFile
-    ? (await build({
+  const clientBuild = clientFile
+    ? await build({
         absWorkingDir: root,
         bundle: true,
         format: "esm",
         platform: "browser",
         write: false,
+        metafile: true,
         stdin: {
           contents: [
             `import config from ${JSON.stringify(clientFile)}`,
@@ -106,8 +108,14 @@ export async function writeConsoleAuthHandlers(root: string, config: ResolvedCon
           resolveDir: root,
           sourcefile: "vitehub-console-auth-client.ts",
         },
-      })).outputFiles?.[0]?.text
-    : ""
+      })
+    : undefined
+  const clientScript = clientBuild?.outputFiles?.[0]?.text ?? ""
+  const clientSources = clientFile
+    ? [...new Set([clientFile, ...Object.keys(clientBuild?.metafile?.inputs ?? {})
+        .filter(input => !input.includes("node_modules/") && input !== "vitehub-console-auth-client.ts")
+        .map(input => resolve(root, input))])]
+    : []
   if (clientFile && !clientScript) throw new TypeError("[vitehub] Could not build the Console Auth client extension.")
   await Promise.all([
     writeFileIfChanged(definitionFile, [
@@ -165,5 +173,5 @@ export async function writeConsoleAuthHandlers(root: string, config: ResolvedCon
       "",
     ].join("\n")),
   ])
-  return { client, clientSource: clientFile, middleware, route, signIn }
+  return { client, clientSource: clientFile, clientSources, middleware, route, signIn }
 }

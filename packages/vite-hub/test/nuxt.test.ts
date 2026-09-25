@@ -1,4 +1,5 @@
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
 import { resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -1592,6 +1593,28 @@ describe("ViteHub Nuxt integration", () => {
     expect(plugin).toContain(`installConsoleSections("/tmp/vitehub-nuxt", [], true)`)
     expect(nitroHandlerRoutes(nitroOptions(production.nuxt))).toContain("/api/_vitehub/console/auth/**")
     expect(nitroHandlerRoutes(nitroOptions(production.nuxt))).toContain("/_vitehub/sign-in")
+  })
+
+  it("refreshes the Nuxt client handler when an imported local module changes", async () => {
+    const directory = await mkdtemp(resolve(tmpdir(), "vitehub-nuxt-console-auth-"))
+    try {
+      const server = resolve(directory, "server.ts")
+      const client = resolve(directory, "client.ts")
+      const helper = resolve(directory, "helper.ts")
+      await writeFile(server, "export default {}")
+      await writeFile(helper, 'export const marker = "original"')
+      await writeFile(client, 'import { marker } from "./helper"; export default { setup() { globalThis.consoleAuthMarker = marker } }')
+      const development = createNuxt(true)
+      await viteHubNuxtModule({ console: { access: "auth", auth: { server, client } }, preset: "node" }, development.nuxt)
+      await development.runNitroConfigHook(nitroOptions(development.nuxt))
+      expect(development.nuxt.options.watch).toEqual(expect.arrayContaining([client, helper]))
+      await writeFile(helper, 'export const marker = "updated"')
+      await development.runBuilderWatchHook(helper)
+      expect(await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/auth-client.mjs", "utf8")).toContain("updated")
+    }
+    finally {
+      await rm(directory, { recursive: true, force: true })
+    }
   })
 
   it("bundles an independent Console Auth handler through the Nitro Auth resolver", async () => {

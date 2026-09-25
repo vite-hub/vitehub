@@ -299,7 +299,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
         : undefined
       consoleAuthHandlers = consoleAuthConfig ? await writeConsoleAuthHandlers(root, consoleAuthConfig) : undefined
       refreshConsoleAuthClient = consoleAuthConfig
-        ? async () => { await writeConsoleAuthHandlers(root!, consoleAuthConfig) }
+        ? async () => { consoleAuthHandlers = await writeConsoleAuthHandlers(root!, consoleAuthConfig) }
         : undefined
       projectRoot = resolveViteHubProjectRoot(root)
       const configuredFixture = viteConfig.vitehubCliDiscovery
@@ -457,10 +457,13 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
     },
     configureServer(server) {
       if (fixture) server.watcher.add(fixture)
-      if (consoleAuthHandlers?.clientSource) server.watcher.add(consoleAuthHandlers.clientSource)
+      if (consoleAuthHandlers?.clientSources.length) server.watcher.add(consoleAuthHandlers.clientSources)
       const refresh = async (path: string) => {
         try {
-          if (path === consoleAuthHandlers?.clientSource) await refreshConsoleAuthClient?.()
+          if (consoleAuthHandlers?.clientSources.includes(path)) {
+            await refreshConsoleAuthClient?.()
+            if (consoleAuthHandlers?.clientSources.length) server.watcher.add(consoleAuthHandlers.clientSources)
+          }
           await refreshConsoleCatalog()
         }
         catch (error) {

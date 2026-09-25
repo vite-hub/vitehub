@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { defineAuth } from "@vite-hub/auth"
 import { handleAuthRequest, requireAuthAccessRoutes } from "@vite-hub/auth/server"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { build } from "esbuild"
 
 import { consoleAuthPageResponse, consoleAuthSignInPage, createConsoleAuthDefinition, defineConsoleAuth, prepareConsoleAuth } from "../src/console/auth.ts"
@@ -225,6 +225,35 @@ describe("independent Console Auth", () => {
       await writeFile(clientSource, 'export default { plugins: [], setup() { globalThis.consoleAuthMarker = "updated" } }')
       await writeConsoleAuthHandlers(root, files)
       expect(await readFile(handlers.client, "utf8")).toContain("updated")
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("refreshes the Vite client handler when an imported local module changes", async () => {
+    const root = await mkdtemp(join(process.cwd(), ".vitehub-console-auth-watch-"))
+    try {
+      const server = resolve(root, "server.ts")
+      const client = resolve(root, "client.ts")
+      const helper = resolve(root, "helper.ts")
+      await writeFile(server, "export default {}")
+      await writeFile(helper, 'export const marker = "original"')
+      await writeFile(client, 'import { marker } from "./helper"; export default { setup() { globalThis.consoleAuthMarker = marker } }')
+      const plugin = consoleVitePlugin({ console: { access: "auth", auth: { server, client } }, preset: "node" })
+      const listeners = new Map<string, (path: string) => Promise<void>>()
+      const add = vi.fn()
+      const config = { root }
+      const configHook = plugin.config
+      if (!configHook) throw new TypeError("Expected Console config hook.")
+      await Reflect.apply("handler" in configHook ? configHook.handler : configHook, {}, [config, { command: "serve", mode: "development" }])
+      const configureServer = plugin.configureServer
+      if (!configureServer) throw new TypeError("Expected Console development-server hook.")
+      Reflect.apply("handler" in configureServer ? configureServer.handler : configureServer, {}, [{ config: { logger: { error: vi.fn() } }, watcher: { add, on: (event: string, listener: (path: string) => Promise<void>) => listeners.set(event, listener) } }])
+      expect(add).toHaveBeenCalledWith(expect.arrayContaining([client, helper]))
+      await writeFile(helper, 'export const marker = "updated"')
+      await listeners.get("change")?.(helper)
+      expect(await readFile(resolve(root, ".vitehub/nitro/console/auth-client.mjs"), "utf8")).toContain("updated")
     }
     finally {
       await rm(root, { recursive: true, force: true })

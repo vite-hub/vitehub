@@ -1061,13 +1061,15 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     if (options.console) {
       if (options.console !== true && options.console.access === "auth" && options.console.auth) {
         const authConfig = resolveConsoleAuthConfig(viteRoot, options.console.auth, plan.preset)
-        const authHandlers = await writeConsoleAuthHandlers(viteRoot, authConfig, nuxt.options.app?.baseURL ?? "/")
-        if (nuxt.options.dev && authHandlers.clientSource) {
-          nuxt.options.watch = [...new Set([...(nuxt.options.watch ?? []), authHandlers.clientSource])]
+        let authHandlers = await writeConsoleAuthHandlers(viteRoot, authConfig, nuxt.options.app?.baseURL ?? "/")
+        if (nuxt.options.dev && authHandlers.clientSources.length) {
+          nuxt.options.watch = [...new Set([...(nuxt.options.watch ?? []), ...authHandlers.clientSources])]
+          // SAFETY: Nuxt's hook overload includes builder:watch with this callback contract.
           const hookBuilderWatch = nuxt.hook as unknown as ((name: "builder:watch", callback: (event: string, path: string) => Promise<void>) => void) | undefined
           hookBuilderWatch?.("builder:watch", async (_event, path) => {
-            if (resolve(viteRoot, path) === authHandlers.clientSource) {
-              await writeConsoleAuthHandlers(viteRoot, authConfig, nuxt.options.app?.baseURL ?? "/")
+            if (authHandlers.clientSources.includes(resolve(viteRoot, path))) {
+              authHandlers = await writeConsoleAuthHandlers(viteRoot, authConfig, nuxt.options.app?.baseURL ?? "/")
+              nuxt.options.watch = [...new Set([...(nuxt.options.watch ?? []), ...authHandlers.clientSources])]
             }
           })
         }
