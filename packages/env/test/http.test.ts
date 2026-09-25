@@ -256,3 +256,19 @@ it("discovers preview-only permissions without requiring inspect or reading meta
   const preview = await handler(request({ path, action: "preview" }))
   expect(await preview.json()).toMatchObject({ metadata: { preview: "ghp_••••1234" } })
 })
+
+
+it("rejects malformed grant targets before they can poison durable activity", async () => {
+  const { bridge, handler } = setup()
+  await bridge.replace(admin, { key, value: secret, expectedRevision: null })
+  const before = await bridge.activity(admin, key)
+  for (const action of ["grant", "revoke"]) {
+    for (const id of ["", "x".repeat(513), "invalid\nactor"]) {
+      const response = await handler(request({ path, action, actor: { kind: "agent", id }, permissions: ["use"] }))
+      expect(response.status).toBe(400)
+    }
+  }
+  expect((await handler(request({ path, action: "grant", actor: agent.actor, permissions: [] }))).status).toBe(400)
+  expect(await bridge.activity(admin, key)).toEqual(before)
+  expect((await handler(request({ path, action: "activity" }))).status).toBe(200)
+})
