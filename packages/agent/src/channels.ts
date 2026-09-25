@@ -1541,7 +1541,7 @@ async function githubApiJsonRecentPages(fetcher: typeof fetch, url: string, head
 const githubActivityMarker = "<!-- vitehub-agent-activity:"
 const githubActivityHistoryLimit = 10
 const githubActivityLinkLimit = 3
-const githubActivityLinkUrlLimit = 1_000
+const githubActivityLinkUrlLimit = 4_096
 const githubActivityBodyLimit = 65_000
 const githubActivityStateLimit = 50_000
 const githubActivityCommentLookupLimit = 100

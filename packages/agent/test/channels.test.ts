@@ -643,6 +643,7 @@ describe("agent channels", () => {
     try {
       const channel = github({ activity: true })
       const links = Array.from({ length: 3 }, (_, index) => ({ label: `link-${index}-${"l".repeat(80)}`, url: `https://example.test/${"u".repeat(800)}` }))
+      links[0]!.url = `https://example.test/${encodeRouteSegment("A".repeat(512))}`
       for (let index = 0; index < 101; index++) {
         // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
         await channel.activity?.update({
@@ -1557,7 +1558,7 @@ describe("agent channels", () => {
     await expect(botUpdate.json()).resolves.toMatchObject({ reason: "not_command" })
   })
 
-  it.each(["support", "team/support", ".", "\uD800"])("links GitHub activity to the effective Agent identity %j", async (agentName) => {
+  it.each(["support", "team/support", ".", "\uD800", "A".repeat(512)])("links GitHub activity to the effective Agent identity %j", async (agentName) => {
     const { github } = await import("../src/channels.ts")
     const channel = github({
       activity: { publicUrl: "https://agent.example.test" },
