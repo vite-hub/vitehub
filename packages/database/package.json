@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/database",
-  "version": "0.0.1",
+  "version": "0.0.4",
   "description": "Vite-first Drizzle database primitives for ViteHub.",
   "keywords": [
     "database",

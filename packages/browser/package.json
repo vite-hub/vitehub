@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/browser",
-  "version": "0.0.1",
+  "version": "0.0.4",
   "description": "Browser Definitions and provider-backed sessions for ViteHub.",
   "keywords": [
     "browser",

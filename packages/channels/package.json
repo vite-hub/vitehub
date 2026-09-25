@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/channels",
-  "version": "0.0.1",
+  "version": "0.0.4",
   "description": "Provider-neutral channel primitives and Vite integration for ViteHub.",
   "keywords": [
     "channels",

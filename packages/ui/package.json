@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/ui",
-  "version": "0.0.1",
+  "version": "0.0.4",
   "description": "AI interface primitives for Vue and Nuxt.",
   "keywords": [
     "ai",
