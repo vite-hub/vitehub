@@ -23,7 +23,7 @@ const signingOut = ref(false);
 const signOutFailed = ref(false);
 const authBase = props.sectionsBase.replace(/\/sections$/, "/auth");
 const authClientURL = props.sectionsBase.replace(/\/sections$/, "/client.js");
-const signedOutURL = props.sectionsBase.replace(/\/api\/_vitehub\/console\/sections$/, "/_vitehub/signed-out");
+const signInURL = props.sectionsBase.replace(/\/api\/_vitehub\/console\/sections$/, "/_vitehub/sign-in");
 let authClientRequest: Promise<ReturnType<typeof createAuthClient>> | undefined;
 const items = computed(() =>
   sections.value
@@ -76,7 +76,7 @@ async function signOut(): Promise<void> {
     const authClient = await consoleAuthClient();
     const { error } = await authClient.signOut();
     if (error) throw error;
-    window.location.assign(signedOutURL);
+    window.location.assign(signInURL);
   } catch {
     signOutFailed.value = true;
     signingOut.value = false;
