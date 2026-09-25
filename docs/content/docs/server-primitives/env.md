@@ -102,7 +102,7 @@ Pass Integration Options to `hubEnv()`.
 | `projectRoot` | `string` | ViteHub project root | Resolves generated files and package import updates from a custom project root. |
 | `providers` | `Record<string, string>` | None | Maps runtime provider names to application module specifiers. Relative specifiers resolve from the ViteHub project root. |
 | `runtimeImports.secret` | `string` | `@vite-hub/env/secret` | Replaces the type import used for `SecretEnv` in generated Server Env modules. Framework integrations can point generated code at their runtime-owned entry point. |
-| `runtimeImports.server` | `string` | `@vite-hub/env/server` | Replaces the runtime facade used by generated Server Env modules. The facade must export `resolveServerEnv`, `loadServerEnv`, and `inspectServerEnv`, and the `EnvAccessContext` type used by generated declarations. Management uses `@vite-hub/env/server` directly. Framework integrations can point generated code at their runtime-owned entry point. |
+| `runtimeImports.server` | `string` | `@vite-hub/env/server` | Replaces the runtime facade used by generated Server Env modules. The facade must export `resolveServerEnv`, `loadServerEnv`, and `inspectServerEnv`, and the `EnvAccessContext` type used by generated declarations. Export `createServerEnvManagement` to enable credential management; without it, the other Env operations still work. Framework integrations can point generated code at their runtime-owned entry point. |
 
 ## Env config sections
 
