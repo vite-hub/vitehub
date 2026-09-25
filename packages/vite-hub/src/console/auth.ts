@@ -1,4 +1,4 @@
-import type { AuthAccessAuthorize, AuthDefinition, AuthDefinitionInput, AuthRuntimeContext, AuthSignInConfiguration } from "@vite-hub/auth"
+import type { AuthAccessAuthorize, AuthDefinition, AuthDefinitionInput, AuthResolvedDefinitionOptions, AuthRuntimeConfiguration, AuthRuntimeContext, AuthSignInConfiguration } from "@vite-hub/auth"
 import { createAuthForRequest } from "@vite-hub/auth/server"
 import { consoleAuthPath } from "./auth-path.ts"
 
@@ -181,21 +181,24 @@ export function createConsoleAuthDefinition(input: ConsoleAuthDefinition, mountB
   return {
     options: (context: AuthRuntimeContext) => {
       // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Auth Definitions may be static objects or request-scoped resolvers, and this is the documented discriminant.
-      const options = typeof definition.auth.options === "function"
+      const options = (typeof definition.auth.options === "function"
         ? definition.auth.options(context)
-        : definition.auth.options
-      const database = options.database
+        : definition.auth.options) as AuthResolvedDefinitionOptions & { runtime?: AuthRuntimeConfiguration }
+      const runtime = typeof options.runtime === "function" ? options.runtime(context) : options.runtime
+      const resolved = { ...options, ...runtime }
+      const database = resolved.database
       // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Better Auth accepts adapter objects, while ViteHub Auth also accepts metadata objects that do not create a database.
       const databaseMetadata = database === true
         || (database !== null && typeof database === "object" && "name" in database && Object.keys(database).every(key => key === "name" || key === "dedicated"))
       if (!database || databaseMetadata) {
         throw new TypeError("[vitehub] Console Auth requires a Better Auth database adapter.")
       }
-      if (!options.secret && !options.secrets) {
+      if (!resolved.secret && !resolved.secrets) {
         throw new TypeError("[vitehub] Console Auth requires a secret.")
       }
       return {
         ...options,
+        ...(runtime ? { runtime } : {}),
         access: {
           routes: [
             { route: consoleAuthPath(mountBaseURL, "/_vitehub/**"), authorize: definition.authorize },

@@ -5,6 +5,7 @@ import { DatabaseSync } from "node:sqlite"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { defineAuth } from "@vite-hub/auth"
+import type { AuthRuntimeContext } from "@vite-hub/auth"
 import { handleAuthRequest, requireAuthAccessRoutes } from "@vite-hub/auth/server"
 import { describe, expect, it, vi } from "vitest"
 import { build } from "esbuild"
@@ -59,6 +60,33 @@ describe("independent Console Auth", () => {
     const options = createConsoleAuthDefinition(metadata).options
     if (typeof options !== "function") throw new TypeError("Expected resolved Console Auth options.")
     expect(() => options({ env: {}, requestOrigin: "https://example.com" })).toThrow("Better Auth database adapter")
+  })
+
+  it("accepts a request-scoped secret from the Auth runtime options", async () => {
+    const database = new DatabaseSync(":memory:")
+    try {
+      const input = defineConsoleAuth({
+        auth: defineAuth(() => ({
+          database,
+          runtime: ({ request }: AuthRuntimeContext) => ({ secret: request?.headers.get("x-auth-secret") ?? undefined }),
+        })),
+        authorize: () => true,
+        signIn: { provider: "github" },
+      })
+      const definition = createConsoleAuthDefinition(input)
+      const request = new Request("https://example.com/api/_vitehub/console/status", {
+        headers: { "x-auth-secret": "test-secret-at-least-32-bytes-long" },
+      })
+      await prepareConsoleAuth(input, definition, request)
+      const response = await requireAuthAccessRoutes(request, [1], definition, [1])
+      expect(response?.status).toBe(401)
+      const options = definition.options
+      if (typeof options !== "function") throw new TypeError("Expected resolved Console Auth options.")
+      expect(() => options({ env: {}, requestOrigin: "https://example.com" })).toThrow("Console Auth requires a secret")
+    }
+    finally {
+      database.close()
+    }
   })
 
   it("discovers committed files and rejects a conflicting explicit path", async () => {
