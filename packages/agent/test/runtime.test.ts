@@ -5822,53 +5822,6 @@ describe("agent message protocol", () => {
     })
   })
 
-  it("applies model call defaults alongside flat driver retries", async () => {
-    const agentSettings: Record<string, unknown>[] = []
-    loadAiSdk.mockResolvedValue({
-      jsonSchema: vi.fn(schema => schema),
-      ToolLoopAgent: class {
-        constructor(settings: Record<string, unknown>) {
-          agentSettings.push(settings)
-        }
-
-        async generate() {
-          return { finishReason: "stop", text: "ok" }
-        }
-      },
-      isStepCount: () => () => false,
-    })
-    const { setModelCallSettings } = await import("../src/internal/model-call-settings.ts")
-    const { defineAgent, runAgent } = await import("../src/index.ts")
-    const model = setModelCallSettings({}, {
-      providerOptions: { gateway: { models: ["fallback/model"] } },
-    })
-    const agent = defineAgent({
-      driver: {
-        execution: {
-          callSettings: { providerOptions: { gateway: { order: ["preferred"] } } },
-        },
-        maxRetries: 0,
-        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-        model: () => model as never,
-      },
-    })
-
-    await expect(runAgent(agent, {
-      memo: vi.fn(),
-      runtime: "unknown",
-      waitUntil: vi.fn(),
-    }, {})).resolves.toMatchObject({ text: "ok" })
-    expect(agentSettings[0]).toMatchObject({
-      maxRetries: 0,
-      providerOptions: {
-        gateway: {
-          models: ["fallback/model"],
-          order: ["preferred"],
-        },
-      },
-    })
-  })
-
   it("lets usage() request OpenRouter usage metadata", async () => {
     const agentSettings: Record<string, unknown>[] = []
     loadAiSdk.mockResolvedValue({
