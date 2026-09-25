@@ -52,6 +52,7 @@ export default defineAuth({
 | `auth`, `getAuth`, `getAuthForRequest` from `@vite-hub/auth/server` | Access the Better Auth instance from server code. |
 | `handleAuth`, `handleAuthRequest`, `createAuthHandler` from `@vite-hub/auth/server` | Mount or call the Auth handler manually. |
 | `requireAuth` from `@vite-hub/auth/server` | Guard server routes with an Auth Session. |
+| `requireAuthAccessRoutes` from `@vite-hub/auth/server` | Guard selected configured access routes. |
 | `authenticated` from `@vite-hub/auth/agent` | Map a Better Auth session into an Agent Invoker. |
 | `getViteHubErrorShape` from `@vite-hub/runtime` | Handle missing authentication and provider failures by stable Auth code. |
 | `hubAuth` from `@vite-hub/auth/vite` | Register Auth discovery, route exposure, and generated server aliases. |
@@ -174,6 +175,8 @@ export default defineAuth({
 ```
 
 The callback receives the authenticated `user`, `session`, and request. ViteHub does not define an admin role. The host maps its own role or permission model here.
+
+`requireAuthAccessRoutes(input, routeIndexes, definition, requiredAuthorizeRouteIndexes, { redirectToSignIn: false })` returns `401` for an unauthenticated browser request instead of starting the configured provider sign-in redirect. Use this when the host presents its own sign-in page and starts provider sign-in after an explicit action. The default retains the Auth Definition's `access.signIn` redirect behavior.
 
 Read [Console](/docs/development/console#protect-the-console-route) for its page, Devframe transport, provider status route, and disabled behavior.
 

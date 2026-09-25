@@ -418,6 +418,7 @@ async function requireAuthRequest(
   definition: AuthDefinition,
   routeIndexes?: number[],
   requiredAuthorizeRouteIndexes: number[] = [],
+  redirectToSignIn = true,
 ): Promise<Response | undefined> {
   const request = unwrapAuthRequest(input)
   const auth = createAuthenticationProvider(resolveBetterAuthOptionsForRequest(definition, request, undefined, input))
@@ -449,6 +450,10 @@ async function requireAuthRequest(
     return Response.json({ error: "Unauthorized." }, { status: 401 })
   }
 
+  if (!redirectToSignIn) {
+    return Response.json({ error: "Unauthorized." }, { status: 401 })
+  }
+
   if (new URL(request.url).searchParams.has("auth_error")) {
     return new Response("Unauthorized.", {
       headers: { "content-type": "text/plain; charset=utf-8" },
@@ -474,6 +479,7 @@ export async function requireAuthAccessRoutes(
   routeIndexes: number[],
   definition: AuthDefinition = resolveDefaultDefinition(),
   requiredAuthorizeRouteIndexes: number[] = [],
+  options: { redirectToSignIn?: boolean } = {},
 ): Promise<Response | undefined> {
   if (!Array.isArray(routeIndexes) || routeIndexes.length === 0 || routeIndexes.some(routeIndex => !Number.isSafeInteger(routeIndex) || routeIndex < 0)) {
     throw authErrorDiagnostics.AUTH_R0009({ message: "[vitehub] Auth access route indexes must be a non-empty array of non-negative integers." })
@@ -481,7 +487,7 @@ export async function requireAuthAccessRoutes(
   if (!Array.isArray(requiredAuthorizeRouteIndexes) || requiredAuthorizeRouteIndexes.some(routeIndex => !Number.isSafeInteger(routeIndex) || routeIndex < 0)) {
     throw authErrorDiagnostics.AUTH_R0010({ message: "[vitehub] Required Auth authorize route indexes must be an array of non-negative integers." })
   }
-  return requireAuthRequest(input, definition, routeIndexes, requiredAuthorizeRouteIndexes)
+  return requireAuthRequest(input, definition, routeIndexes, requiredAuthorizeRouteIndexes, options.redirectToSignIn !== false)
 }
 
 export default handleAuth

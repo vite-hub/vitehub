@@ -9,10 +9,9 @@ import { handleAuthRequest, requireAuthAccessRoutes } from "@vite-hub/auth/serve
 import { describe, expect, it } from "vitest"
 import { build } from "esbuild"
 
-import { consoleAuthDeniedResponse, createConsoleAuthDefinition, defineConsoleAuth, prepareConsoleAuth } from "../src/console/auth.ts"
+import { consoleAuthPageResponse, consoleAuthSignInPage, createConsoleAuthDefinition, defineConsoleAuth, prepareConsoleAuth } from "../src/console/auth.ts"
 import { resolveConsoleAuthConfig, writeConsoleAuthHandlers } from "../src/console/auth-build.ts"
 import { consoleVitePlugin } from "../src/console/vite.ts"
-import signedOutHandler from "../src/console/runtime/server/signed-out.get.ts"
 import { installConsoleProjectNameScope, installConsoleSectionScope, resolveConsoleAuth } from "../src/console/internal.ts"
 
 import type { ConsoleInvocationScope } from "../src/console/internal.ts"
@@ -81,7 +80,7 @@ describe("independent Console Auth", () => {
     }
   })
 
-  it("rejects unauthenticated Console requests and redirects a browser to GitHub sign-in", async () => {
+  it("shows an explicit sign-in page before starting GitHub OAuth", async () => {
     const database = new DatabaseSync(":memory:")
     try {
       const input = defineConsoleAuth({
@@ -99,10 +98,24 @@ describe("independent Console Auth", () => {
       const apiResponse = await requireAuthAccessRoutes(apiRequest, [1], definition, [1])
       expect(apiResponse?.status).toBe(401)
       const pageRequest = new Request("https://example.com/_vitehub", { headers: { accept: "text/html" } })
-      const pageResponse = await requireAuthAccessRoutes(pageRequest, [0], definition, [0])
-      expect(pageResponse?.status).toBe(302)
-      expect(pageResponse?.headers.get("location")).toContain("github.com")
-      expect(pageResponse?.headers.get("location")).toContain("api%2F_vitehub%2Fconsole%2Fauth%2Fcallback%2Fgithub")
+      const pageResponse = await requireAuthAccessRoutes(pageRequest, [0], definition, [0], { redirectToSignIn: false })
+      expect(pageResponse?.status).toBe(401)
+      const signInRedirect = consoleAuthPageResponse(pageRequest, pageResponse)
+      expect(signInRedirect?.status).toBe(302)
+      expect(signInRedirect?.headers.get("location")).toBe("https://example.com/_vitehub/sign-in")
+      const signInPage = consoleAuthSignInPage("github", new Request("https://example.com/_vitehub/sign-in"))
+      expect(signInPage.status).toBe(200)
+      const html = await signInPage.text()
+      expect(html).toContain("Sign in with GitHub")
+      expect(html).toContain('action="/_vitehub" method="get"')
+      expect(html).toContain('name="auth_start" value="1"')
+      expect(html).not.toContain("github.com/login/oauth")
+
+      const explicitRequest = new Request("https://example.com/_vitehub?auth_start=1", { headers: { accept: "text/html" } })
+      const explicitResponse = await requireAuthAccessRoutes(explicitRequest, [0], definition, [0])
+      expect(explicitResponse?.status).toBe(302)
+      expect(explicitResponse?.headers.get("location")).toContain("github.com")
+      expect(explicitResponse?.headers.get("location")).toContain("api%2F_vitehub%2Fconsole%2Fauth%2Fcallback%2Fgithub")
     }
     finally {
       database.close()
@@ -140,19 +153,19 @@ describe("independent Console Auth", () => {
       })
       const denied = await requireAuthAccessRoutes(pageRequest, [0], definition, [0])
       expect(denied?.status).toBe(403)
-      const page = consoleAuthDeniedResponse(pageRequest, denied, "/portal/")
+      const page = consoleAuthPageResponse(pageRequest, denied, "/portal/")
       expect(page?.status).toBe(403)
       expect(page?.headers.get("content-security-policy")).toContain("script-src 'nonce-")
       const html = await page?.text()
       expect(html).toContain("Switch account")
       expect(html).toContain('fetch("/portal/api/_vitehub/console/auth/sign-out"')
-      expect(html).toContain('window.location.assign("/portal/_vitehub/signed-out?denied=1")')
+      expect(html).toContain('window.location.assign("/portal/_vitehub/sign-in?denied=1")')
 
       const apiRequest = new Request("https://example.com/portal/api/_vitehub/console/status", {
         headers: { accept: "application/json", cookie },
       })
       const apiDenied = await requireAuthAccessRoutes(apiRequest, [1], definition, [1])
-      expect(consoleAuthDeniedResponse(apiRequest, apiDenied, "/portal/")).toBe(apiDenied)
+      expect(consoleAuthPageResponse(apiRequest, apiDenied, "/portal/")).toBe(apiDenied)
       expect(apiDenied?.status).toBe(403)
 
       const signOut = await handleAuthRequest(definition, new Request("https://example.com/portal/api/_vitehub/console/auth/sign-out", {
@@ -178,12 +191,13 @@ describe("independent Console Auth", () => {
       const handlers = await writeConsoleAuthHandlers(root, { server })
       const middleware = await readFile(handlers.middleware, "utf8")
       const route = await readFile(handlers.route, "utf8")
-      expect(middleware).toContain('requireAuthAccessRoutes(event, [0], definition, [0])')
+      expect(middleware).toContain("redirectToSignIn: path === '/_vitehub' && event.url.searchParams.has('auth_start')")
       expect(middleware).toContain('from "#vitehub/auth/server"')
       expect(middleware).toContain('requireAuthAccessRoutes(event, [1], definition, [1])')
       expect(middleware).toContain("await prepare(event)")
       expect(middleware).toContain("'/api/_vitehub/console/auth/'")
-      expect(middleware).toContain("path === '/_vitehub/signed-out'")
+      expect(middleware).toContain("path === '/_vitehub/sign-in'")
+      expect(await readFile(handlers.signIn, "utf8")).toContain("consoleAuthSignInPage(signInProvider, event.req")
       expect(route).toContain("handleAuthRequest(definition, event.req")
       expect(route).toContain('from "#vitehub/auth/server"')
     }
@@ -215,7 +229,7 @@ describe("independent Console Auth", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-auth-guard-"))
     try {
       const server = resolve(root, "server.ts")
-      await writeFile(server, "export default {}")
+      await writeFile(server, 'export default { signIn: { provider: "github" } }')
       const handlers = await writeConsoleAuthHandlers(root, { server })
       const bundled = await build({
         bundle: true,
@@ -231,7 +245,7 @@ describe("independent Console Auth", () => {
             plugin.onLoad({ filter: /.*/, namespace: "test-console-auth" }, (args) => ({
               contents: args.path === "#vitehub/auth/server"
                 ? 'export function requireAuthAccessRoutes(event, indexes) { globalThis[Symbol.for("test.console.auth.calls")].push([event.url.pathname, indexes[0]]); return new Response("guarded", {status: 401}) }'
-                : "export function createConsoleAuthDefinition() { return {} }; export function prepareConsoleAuth() {}; export function consoleAuthDeniedResponse(_request, response) { return response }",
+                : "export function createConsoleAuthDefinition() { return {} }; export function prepareConsoleAuth() {}; export function consoleAuthPageResponse(_request, response) { return response }",
               loader: "js",
             }))
           },
@@ -245,7 +259,7 @@ describe("independent Console Auth", () => {
       try {
         expect(await guard.default({ url: new URL("https://example.com/api/app") })).toBeUndefined()
         expect(await guard.default({ url: new URL("https://example.com/api/_vitehub/console/auth/callback/github") })).toBeUndefined()
-        expect(await guard.default({ url: new URL("https://example.com/_vitehub/signed-out") })).toBeUndefined()
+        expect(await guard.default({ url: new URL("https://example.com/_vitehub/sign-in") })).toBeUndefined()
         expect((await guard.default({ url: new URL("https://example.com/_vitehub") }))?.status).toBe(401)
         expect((await guard.default({ url: new URL("https://example.com/api/_vitehub/console/status") }))?.status).toBe(401)
         expect(calls).toEqual([
@@ -283,7 +297,7 @@ describe("independent Console Auth", () => {
       await Reflect.apply(handler, {}, [config, { command: "build", mode: "production" }])
       expect(config.nitro?.handlers).toEqual(expect.arrayContaining([
         expect.objectContaining({ route: "/api/_vitehub/console/auth/**" }),
-        expect.objectContaining({ route: "/_vitehub/signed-out" }),
+        expect.objectContaining({ route: "/_vitehub/sign-in" }),
         expect.objectContaining({ route: "/**", middleware: true }),
       ]))
       expect(await readFile(resolve(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")).toContain(`installConsoleSections(${JSON.stringify(root)}, ["kv"], true)`)
@@ -293,12 +307,13 @@ describe("independent Console Auth", () => {
     }
   })
 
-  it("serves a signed-out page with a mounted Console sign-in link", async () => {
-    const response = signedOutHandler({ req: { url: "https://example.com/portal/_vitehub/signed-out" } })
+  it("serves a mounted sign-in page for custom providers and denied accounts", async () => {
+    const response = consoleAuthSignInPage("google", new Request("https://example.com/portal/_vitehub/sign-in"), "/portal/")
     expect(response.status).toBe(200)
     expect(response.headers.get("cache-control")).toBe("no-store")
-    expect(await response.text()).toContain('href="/portal/_vitehub"')
-    const denied = signedOutHandler({ req: { url: "https://example.com/portal/_vitehub/signed-out?denied=1" } })
+    expect(await response.text()).toContain('action="/portal/_vitehub" method="get"')
+    expect(await consoleAuthSignInPage("google", new Request("https://example.com/portal/_vitehub/sign-in"), "/portal/").text()).toContain("Sign in with google")
+    const denied = consoleAuthSignInPage("github", new Request("https://example.com/portal/_vitehub/sign-in?denied=1"), "/portal/")
     expect(await denied.text()).toContain("Choose a different account with your sign-in provider")
   })
 

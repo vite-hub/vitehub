@@ -1588,10 +1588,10 @@ describe("ViteHub Nuxt integration", () => {
     const plugin = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
     expect(definition).toContain('createConsoleAuthDefinition(input, "/portal/")')
     expect(middleware).toContain('const mountBase = "/portal"')
-    expect(middleware).toContain("path === '/_vitehub/signed-out'")
+    expect(middleware).toContain("path === '/_vitehub/sign-in'")
     expect(plugin).toContain(`installConsoleSections("/tmp/vitehub-nuxt", [], true)`)
     expect(nitroHandlerRoutes(nitroOptions(production.nuxt))).toContain("/api/_vitehub/console/auth/**")
-    expect(nitroHandlerRoutes(nitroOptions(production.nuxt))).toContain("/_vitehub/signed-out")
+    expect(nitroHandlerRoutes(nitroOptions(production.nuxt))).toContain("/_vitehub/sign-in")
   })
 
   it("bundles an independent Console Auth handler through the Nitro Auth resolver", async () => {

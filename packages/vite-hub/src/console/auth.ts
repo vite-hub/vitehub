@@ -4,7 +4,68 @@ import { consoleAuthPath } from "./auth-path.ts"
 
 export const consoleAuthBasePath = "/api/_vitehub/console/auth"
 
-export function consoleAuthDeniedResponse(request: Request, response: Response | undefined, mountBaseURL = "/"): Response | undefined {
+function escapeHTML(value: string): string {
+  return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;")
+}
+
+export function consoleAuthSignInPage(provider: string, request: Request, mountBaseURL = "/"): Response {
+  const buttonLabel = provider.toLowerCase() === "github" ? "Sign in with GitHub" : `Sign in with ${provider}`
+  const signInPath = consoleAuthPath(mountBaseURL, "/_vitehub")
+  const search = new URL(request.url).searchParams
+  const message = search.has("denied")
+    ? "Your previous account cannot access this Console. Choose a different account with your sign-in provider before signing in again."
+    : search.has("auth_error")
+      ? "Sign-in failed. Try again."
+      : search.has("signed_out")
+        ? "You have signed out."
+        : "Sign in to access the ViteHub Console."
+  const page = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow">
+    <title>Sign in · ViteHub Console</title>
+    <style>
+      :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+      body { min-height: 100dvh; margin: 0; display: grid; place-items: center; background: light-dark(#fafafa, #0a0a0a); color: light-dark(#171717, #f5f5f5); }
+      main { width: min(24rem, calc(100% - 3rem)); }
+      h1 { margin: 0 0 .5rem; font-size: 1.5rem; font-weight: 600; }
+      p { margin: 0 0 1.5rem; color: light-dark(#525252, #a3a3a3); line-height: 1.5; }
+      button { min-height: 2.5rem; padding: 0 1rem; border: 0; border-radius: .5rem; background: light-dark(#171717, #f5f5f5); color: light-dark(#fff, #171717); font: inherit; font-weight: 500; cursor: pointer; }
+      button:focus-visible { outline: 2px solid #3b82f6; outline-offset: 3px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Sign in</h1>
+      <p>${message}</p>
+      <form action="${escapeHTML(signInPath)}" method="get">
+        <input type="hidden" name="auth_start" value="1">
+        <button type="submit">${escapeHTML(buttonLabel)}</button>
+      </form>
+    </main>
+  </body>
+</html>`
+  return new Response(page, {
+    headers: {
+      "cache-control": "no-store",
+      "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+      "content-type": "text/html; charset=utf-8",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY",
+      "x-robots-tag": "noindex, nofollow",
+    },
+  })
+}
+
+export function consoleAuthPageResponse(request: Request, response: Response | undefined, mountBaseURL = "/"): Response | undefined {
+  if (response?.status === 401 && request.method === "GET" && request.headers.get("accept")?.includes("text/html")) {
+    const signIn = new URL(consoleAuthPath(mountBaseURL, "/_vitehub/sign-in"), request.url)
+    if (new URL(request.url).searchParams.has("auth_error")) signIn.searchParams.set("auth_error", "signin")
+    return Response.redirect(signIn, 302)
+  }
   if (
     response?.status !== 403
     || request.method !== "GET"
@@ -13,7 +74,7 @@ export function consoleAuthDeniedResponse(request: Request, response: Response |
   ) return response
 
   const signOutPath = consoleAuthPath(mountBaseURL, `${consoleAuthBasePath}/sign-out`)
-  const signedOutPath = consoleAuthPath(mountBaseURL, "/_vitehub/signed-out?denied=1")
+  const signedOutPath = consoleAuthPath(mountBaseURL, "/_vitehub/sign-in?denied=1")
   const signOutLiteral = JSON.stringify(signOutPath).replaceAll("<", "\\u003c")
   const signedOutLiteral = JSON.stringify(signedOutPath).replaceAll("<", "\\u003c")
   const nonce = crypto.randomUUID()

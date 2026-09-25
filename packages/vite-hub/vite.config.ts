@@ -246,7 +246,6 @@ export default defineConfig({
       "src/console/runtime/server/invocations.get.ts",
       "src/console/runtime/server/kv.get.ts",
       "src/console/runtime/server/page.get.ts",
-      "src/console/runtime/server/signed-out.get.ts",
       "src/console/runtime/server/search.get.ts",
       "src/console/runtime/server/sections.get.ts",
       "src/console/runtime/server/usage.get.ts",
@@ -280,7 +279,6 @@ export default defineConfig({
         delete exports["./console/runtime/server/kv.get"];
         delete exports["./console/runtime/server/kv"];
         delete exports["./console/runtime/server/page.get"];
-        delete exports["./console/runtime/server/signed-out.get"];
         delete exports["./console/runtime/server/search.get"];
         delete exports["./console/runtime/server/sections.get"];
         delete exports["./console/runtime/server/sections"];
