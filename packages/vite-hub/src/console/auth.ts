@@ -10,7 +10,7 @@ function escapeHTML(value: string): string {
 
 export function consoleAuthSignInPage(provider: string, request: Request, mountBaseURL = "/"): Response {
   const buttonLabel = provider.toLowerCase() === "github" ? "Sign in with GitHub" : `Sign in with ${provider}`
-  const signInPath = consoleAuthPath(mountBaseURL, "/_vitehub")
+  const startPath = consoleAuthPath(mountBaseURL, "/_vitehub?auth_start=1")
   const search = new URL(request.url).searchParams
   const message = search.has("denied")
     ? "Your previous account cannot access this Console. Choose a different account with your sign-in provider before signing in again."
@@ -32,25 +32,22 @@ export function consoleAuthSignInPage(provider: string, request: Request, mountB
       main { width: min(24rem, calc(100% - 3rem)); }
       h1 { margin: 0 0 .5rem; font-size: 1.5rem; font-weight: 600; }
       p { margin: 0 0 1.5rem; color: light-dark(#525252, #a3a3a3); line-height: 1.5; }
-      button { min-height: 2.5rem; padding: 0 1rem; border: 0; border-radius: .5rem; background: light-dark(#171717, #f5f5f5); color: light-dark(#fff, #171717); font: inherit; font-weight: 500; cursor: pointer; }
-      button:focus-visible { outline: 2px solid #3b82f6; outline-offset: 3px; }
+      a { display: inline-flex; min-height: 2.5rem; align-items: center; padding: 0 1rem; border-radius: .5rem; background: light-dark(#171717, #f5f5f5); color: light-dark(#fff, #171717); font-weight: 500; text-decoration: none; }
+      a:focus-visible { outline: 2px solid #3b82f6; outline-offset: 3px; }
     </style>
   </head>
   <body>
     <main>
       <h1>Sign in</h1>
       <p>${message}</p>
-      <form action="${escapeHTML(signInPath)}" method="get">
-        <input type="hidden" name="auth_start" value="1">
-        <button type="submit">${escapeHTML(buttonLabel)}</button>
-      </form>
+      <a href="${escapeHTML(startPath)}">${escapeHTML(buttonLabel)}</a>
     </main>
   </body>
 </html>`
   return new Response(page, {
     headers: {
       "cache-control": "no-store",
-      "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+      "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'",
       "content-type": "text/html; charset=utf-8",
       "referrer-policy": "no-referrer",
       "x-content-type-options": "nosniff",
