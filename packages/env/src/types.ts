@@ -1,3 +1,5 @@
+import type { EnvManagement } from "./http.ts"
+import type { EnvAccessContext } from "./bridge.ts"
 import type { SecretEnv } from "./secret.ts"
 
 export type EnvDiagnostics = "off" | "summary" | "trace"
@@ -198,18 +200,21 @@ export type PublicEnv = Record<string, unknown>
 
 export interface EnvProviderContext<TEnv extends Record<string, unknown> = Record<string, unknown>> {
   env: DeepReadonly<TEnv>
+  access?: EnvAccessContext
   signal?: AbortSignal
 }
 
 export type EnvProviderValues = Readonly<Record<string, string | undefined>>
 
 export interface EnvProvider<TEnv extends Record<string, unknown> = Record<string, unknown>> {
+  management?: EnvManagement
   read(input: EnvProviderContext<TEnv> & { keys: readonly string[] }): EnvProviderValues | Promise<EnvProviderValues>
 }
 
 export type EnvProviders = Record<string, EnvProvider>
 
 export interface LoadServerEnvOptions {
+  access?: EnvAccessContext
   providers?: EnvProviders
   signal?: AbortSignal
 }

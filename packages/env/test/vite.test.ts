@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process"
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
@@ -299,8 +299,9 @@ describe("Vite plugin", () => {
 
   it("can generate env runtime modules through a facade import path", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-env-facade-runtime-imports-"))
-    await writeFile(join(root, "package.json"), JSON.stringify({ name: "facade-app", type: "module" }), "utf8")
+    await writeFile(join(root, "package.json"), JSON.stringify({ name: "facade-app", type: "module", imports: { "#app/env/server": "./runtime.ts" } }), "utf8")
     await writeFile(join(root, "secret.d.ts"), "export interface SecretEnv<T> { unseal(): T }\n", "utf8")
+    await writeFile(join(root, "runtime.ts"), 'export interface EnvAccessContext { actor: { id: string; kind: "user" | "agent" | "service" } }\n', "utf8")
 
     const plugin = hubEnv({
       runtimeImports: {
@@ -329,6 +330,8 @@ describe("Vite plugin", () => {
     await expect(readFile(join(root, ".vitehub", "env", "server.d.ts"), "utf8")).resolves.toContain("from \"../../secret.js\"")
     const typesPath = join(root, ".vitehub", "types", "env.d.ts")
     await expect(readFile(typesPath, "utf8")).resolves.toContain("import(\"../../secret.js\").SecretEnv<string>")
+    await expect(readFile(typesPath, "utf8")).resolves.toContain('import("#app/env/server").EnvAccessContext')
+    await expect(readFile(join(root, ".vitehub", "env", "server.d.ts"), "utf8")).resolves.toContain('import("#app/env/server").EnvAccessContext')
     const program = createProgram({
       options: {
         module: ModuleKind.NodeNext,
@@ -338,7 +341,7 @@ describe("Vite plugin", () => {
         strict: true,
         target: ScriptTarget.ES2022,
       },
-      rootNames: [typesPath],
+      rootNames: [typesPath, join(root, ".vitehub", "env", "server.d.ts")],
     })
     expect(getPreEmitDiagnostics(program).map(diagnostic => flattenDiagnosticMessageText(diagnostic.messageText, "\n"))).toEqual([])
   })
@@ -346,6 +349,8 @@ describe("Vite plugin", () => {
   it("executes generated provider-backed Server Env modules as coherent rotating snapshots", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-env-provider-"))
     await writeFile(join(root, "package.json"), JSON.stringify({ name: "provider-app", type: "module" }), "utf8")
+    await mkdir(join(root, "node_modules", "@vite-hub"), { recursive: true })
+    await symlink(new URL("..", import.meta.url).pathname, join(root, "node_modules", "@vite-hub", "env"), "dir")
     await mkdir(join(root, "server", "env#blue?%"), { recursive: true })
     const providerPath = join(root, "server", "env#blue?%", "secrets.mjs")
     await writeFile(providerPath, [
@@ -359,7 +364,7 @@ describe("Vite plugin", () => {
     ].join("\n"), "utf8")
     const runtimeFacadePath = join(root, "env-runtime.mjs")
     await writeFile(runtimeFacadePath, [
-      `export { inspectServerEnv, loadServerEnv, resolveServerEnv } from ${JSON.stringify(new URL("../dist/server.js", import.meta.url).href)}`,
+      `export { describeServerEnv, inspectServerEnv, loadServerEnv, resolveServerEnv } from ${JSON.stringify(new URL("../dist/server.js", import.meta.url).href)}`,
       ``,
     ].join("\n"), "utf8")
 
@@ -786,6 +791,7 @@ describe("Vite plugin", () => {
     await mkdir(join(root, "server", "workspaces"), { recursive: true })
     await writeFile(join(root, ".env.production"), "PUBLIC_APP_NAME=Quiver\n", "utf8")
     await writeFile(join(root, "secret.d.ts"), "export interface SecretEnv<T> { unseal(): T }\n", "utf8")
+    await writeFile(join(root, "runtime.d.ts"), 'declare module "@vite-hub/env/server" { export interface EnvAccessContext { actor: { id: string; kind: "user" | "agent" | "service" } } }\n', "utf8")
     const packageJsonPath = join(appRoot, "package.json")
     const packageJson = JSON.stringify({
       imports: {
@@ -842,7 +848,7 @@ describe("Vite plugin", () => {
         strict: true,
         target: ScriptTarget.ES2022,
       },
-      rootNames: [entry, projectTypesPath, typesPath],
+      rootNames: [entry, projectTypesPath, typesPath, join(root, "runtime.d.ts")],
     })
     expect(getPreEmitDiagnostics(program).map(diagnostic => flattenDiagnosticMessageText(diagnostic.messageText, "\n"))).toEqual([])
   })

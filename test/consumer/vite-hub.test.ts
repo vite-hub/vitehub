@@ -1038,6 +1038,22 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         RESEND_API_KEY: emailSecretSentinel,
       })
       await run("pnpm", ["run", "typecheck"], appDir)
+      const generatedEnvTypes = await readFile(join(appDir, ".vitehub/env/server.d.ts"), "utf8")
+      expect(generatedEnvTypes).toContain('import("vite-hub/env/server").EnvAccessContext')
+      expect(generatedEnvTypes).not.toContain('import("@vite-hub/env/bridge")')
+      await writeFile(join(appDir, "env-typecheck.json"), JSON.stringify({
+        compilerOptions: {
+          module: "ESNext",
+          moduleResolution: "Bundler",
+          noEmit: true,
+          skipLibCheck: false,
+          strict: true,
+          target: "ES2022",
+          types: ["node"],
+        },
+        files: [".vitehub/env/server.d.ts", ".vitehub/types/env.d.ts"],
+      }), "utf8")
+      await run("pnpm", ["exec", "tsc", "-p", "env-typecheck.json"], appDir)
 
       const nodeEmailSources = await readJavaScriptSources(join(appDir, "dist"))
       const nodeEmailOutput = Object.values(nodeEmailSources).join("\n")

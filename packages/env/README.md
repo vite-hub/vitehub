@@ -202,3 +202,15 @@ Read the complete [Env guide](https://vitehub.dev/docs/server-primitives/env), t
 ### Declaration inventory
 
 `describeServerEnv()` from `#vitehub/env/server` returns declaration metadata without reading host values or calling providers. It includes the declaration path, source kind, provider alias, secret and required flags, and default presence. Values, defaults, host variable names and provider storage keys are omitted. Use `inspectServerEnv()` only when a status check that loads providers is intended.
+
+### Managed credentials
+
+`createEnvBridge` from `@vite-hub/env/bridge` adapts a secret store to Env with credential-scoped permissions and durable activity. `createDatabaseEnvStore` from `@vite-hub/env/database` supplies encrypted storage, grants, and activity using a ViteHub SQLite/Drizzle database. Keep its 32-byte encryption key in host configuration and back it up separately from the database.
+
+A bridge implements the existing `read()` provider contract. Its `replace()` operation requires the last inspected revision (or `null` to create), preventing lost updates. Existing snapshots remain unchanged; the next load resolves the replacement. A custom store returns its own activation requirement: next resolution, restart, or deployment.
+
+`inspect`, `preview`, `replace`, and `use` are separate permissions. Only a trusted administrator can modify grants or inspect activity. A verified agent token can supply a narrower permission ceiling. Context must come from authenticated server code, never an HTTP body. `loadServerEnv(undefined, { access })` forwards trusted actor and invocation attribution to providers.
+
+`bridge.use(context, key, operation, callback)` runs a trusted operation with a `SecretEnv` and records its outcome. Ordinary provider reads record `resolve`, which does not claim to observe later use of copied plaintext. Activity is persisted before release or mutation and after completion. An interrupted operation can retain a `started` record; a remote store and the activity database do not share a transaction. Failed audit persistence blocks release. The optional `emit` callback exports persisted events to evlog or another sink; exporter failures do not erase durable activity.
+
+Database previews are opt-in. Short and structured values have no preview. Previews remain protected metadata and are excluded from activity. The database adapter uses AES-256-GCM with per-write IVs and authenticates the namespace, key, and revision. Host administration and database backup security remain application responsibilities.

@@ -63,6 +63,10 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/box` | Box Definitions and built-in runtime selection for trusted-host, Crabbox, ASCII, Cloudflare Sandbox, Cloudflare Computer, and Vercel Sandbox execution. |
 | `vite-hub/database` and `vite-hub/database/drizzle` | Database Definitions and generated `useDatabase()` access. |
 | `vite-hub/env` | Env Declaration helpers and authoring types. |
+| `vite-hub/env/http` | Authenticated HTTP adapter for declared Env Bridge credentials. |
+| `vite-hub/env/auth` | Env Bridge authentication adapters |
+| `vite-hub/env/bridge` | Runtime credential replacement, scoped grants, and durable activity. |
+| `vite-hub/env/database` | Encrypted Env Bridge storage on ViteHub SQLite/Drizzle databases. |
 | `vite-hub/env/provider` | Define read-only runtime providers for application-owned external Env storage. |
 | `vite-hub/email`, `vite-hub/email/server`, and `vite-hub/email/markdown` | Email clients, configured runtime delivery, and Dynamic Markdown HTML with a composed Markdown text fallback. |
 | `vite-hub/env/presets` and `vite-hub/env/schema` | Reusable Env presets and schema helpers. |
@@ -140,6 +144,10 @@ for libraries, focused integrations, and advanced composition.
 | `#vitehub/emails/<name>` | Email Package | Generated async renderer for a discovered `server/emails/**/*.md` template. |
 | `@vite-hub/database/drizzle` | Database Package | Generated `useDatabase()` access to a Drizzle database and schema. |
 | `@vite-hub/env` | Env Package | Env Declaration helpers. |
+| `@vite-hub/env/auth` | Env Package | Env Bridge authentication adapters. |
+| `@vite-hub/env/http` | Env Package | Authenticated HTTP adapter for declared credentials. |
+| `@vite-hub/env/bridge` | Env Package | Runtime credential replacement, scoped grants, and durable activity. |
+| `@vite-hub/env/database` | Env Package | Encrypted SQLite/Drizzle storage for Env Bridge. |
 | `@vite-hub/env/provider` | Env Package | Define read-only runtime providers for application-owned external Env storage. |
 | `#vitehub/env/public` | Env Package | Generated Public Env access. |
 | `#vitehub/env/server` | Env Package | Generated Server Env access. |

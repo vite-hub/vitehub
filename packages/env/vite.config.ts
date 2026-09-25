@@ -20,6 +20,10 @@ export default defineConfig({
     },
     entry: [
       "src/index.ts",
+      "src/bridge.ts",
+      "src/auth.ts",
+      "src/http.ts",
+      "src/database.ts",
       "src/presets.ts",
       "src/provider.ts",
       "src/schema.ts",
