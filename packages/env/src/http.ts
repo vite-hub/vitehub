@@ -93,8 +93,10 @@ export function createEnvBridgeHandler(
             permissions: await bridge.permissions(context, key),
             admin: Boolean(context.admin && !context.scope),
           });
-        case "preview":
-          return response({ metadata: (await bridge.preview(context, key)) ?? null });
+        case "preview": {
+          const metadata = await bridge.preview(context, key);
+          return response({ metadata: metadata ? { preview: metadata.preview } : null });
+        }
         case "replace": {
           if (
             // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Replacement values must be strings; JSON objects and numbers cannot become credentials.

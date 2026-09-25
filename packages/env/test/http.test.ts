@@ -257,6 +257,27 @@ it("discovers preview-only permissions without requiring inspect or reading meta
   expect(await preview.json()).toEqual({ metadata: { preview: "ghp_••••1234" } })
 })
 
+it("projects custom bridge previews without exposing inspection metadata", async () => {
+  const { bridge, authenticate } = setup()
+  const handler = createEnvBridgeHandler((requested) =>
+    requested === path
+      ? {
+          key,
+          management: {
+            bridge: {
+              ...bridge,
+              preview: async () => ({ preview: "ghp_••••1234", revision: "private-revision", updatedAt: "2026-09-25" }),
+            },
+            authenticate,
+          },
+        }
+      : undefined,
+  )
+  const result = await handler(request({ path, action: "preview" }))
+  expect(result.status).toBe(200)
+  expect(await result.json()).toEqual({ metadata: { preview: "ghp_••••1234" } })
+})
+
 
 it("rejects malformed grant targets before they can poison durable activity", async () => {
   const { bridge, handler } = setup()
