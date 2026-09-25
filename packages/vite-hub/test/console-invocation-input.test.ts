@@ -18,7 +18,7 @@ describe("Console invocation input", () => {
     complete({ id: "invocation" })
     expect(await started).toEqual({ agent: "first", id: "invocation" })
     expect(requestConsole).toHaveBeenCalledExactlyOnceWith("/first/api/_vitehub/console/agents/first/invocations", {
-      body: { files: [{ url: "data:image/png;base64,aQ==", filename: "image" }], invokerProfileId: "reader", prompt: "Explain this image" }, method: "POST",
+      body: { files: [{ url: "data:image/png;base64,aQ==", filename: "image" }], invokerProfileId: "reader", prompt: "Explain this image" }, method: "POST", query: { agentRoute: "encoded" },
     })
   })
 
@@ -31,7 +31,7 @@ describe("Console invocation input", () => {
     await expect(startConsoleAgentInvocation({ agent, base: "/api/_vitehub/console/agents" }, { text: "Review" }))
       .resolves.toEqual({ agent, id: "invocation" })
     const path = `/api/_vitehub/console/agents/${segment}/invocations`
-    expect(requestConsole).toHaveBeenCalledExactlyOnceWith(path, { body: { prompt: "Review" }, method: "POST" })
+    expect(requestConsole).toHaveBeenCalledExactlyOnceWith(path, { body: { prompt: "Review" }, method: "POST", query: { agentRoute: "encoded" } })
     expect(new URL(path, "https://console.test").pathname).toBe(path)
   })
 

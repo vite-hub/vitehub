@@ -35,8 +35,11 @@ function agentName(event: ConsoleRequestEvent): string {
   const value = event.context?.params?.agent?.trim()
   if (!value) throw consoleError(400, "Missing Agent name.")
   try {
-    const decoded = decodeAgentRouteParam(decodeURIComponent(value))
-    if (decoded) return decoded
+    const decoded = decodeURIComponent(value)
+    const name = consoleRequestURL(event).searchParams.get("agentRoute") === "encoded"
+      ? decodeAgentRouteParam(decoded)
+      : decoded
+    if (name && name.trim() === name && name.length <= 512) return name
   }
   catch {
     // Invalid percent-encoded route segment.

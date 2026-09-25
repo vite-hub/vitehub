@@ -1972,7 +1972,7 @@ describe("Agent invocation console", () => {
         req: {
           json: async () => ({ invokerProfileId: "support", prompt: " Test this Agent " }),
           method: "POST",
-          url: `http://localhost/api/_vitehub/console/agents/${segment}/invocations`,
+          url: `http://localhost/api/_vitehub/console/agents/${segment}/invocations?agentRoute=encoded`,
         },
         res: response,
       })
@@ -1988,6 +1988,35 @@ describe("Agent invocation console", () => {
           agentName: name,
           status: "completed",
         })
+      })
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it.each([
+    ["team/support", "team%2Fsupport"],
+    ["~002e", "~002e"],
+  ])("starts an invocation from an existing Console client for %j", async (name, segment) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-legacy-invoke-"))
+    try {
+      const definition = defineAgent({ driver: { run: () => "done" }, name })
+      installConsoleAgentDefinitions([
+        { definition: { default: definition }, fallbackName: "help" },
+      ], { invoke: true, projectRoot: root })
+      const invocation = await agentInvocationsHandler({
+        context: { params: { agent: segment } },
+        method: "POST",
+        req: {
+          json: async () => ({ prompt: "Review" }),
+          method: "POST",
+          url: `http://localhost/api/_vitehub/console/agents/${segment}/invocations`,
+        },
+      })
+      expect(invocation.agent).toBe(name)
+      await vi.waitFor(async () => {
+        await expect(definition.invocations?.get(invocation.id)).resolves.toMatchObject({ agentName: name })
       })
     }
     finally {
