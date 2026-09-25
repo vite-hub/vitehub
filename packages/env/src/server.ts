@@ -417,7 +417,7 @@ export async function loadServerEnv<TServerEnv extends Record<string, unknown> =
 }
 
 /** Describe declarations without loading host values or calling providers. */
-export function describeServerEnv(registry: EnvRuntimeRegistry, providers?: EnvProviders): ServerEnvDescription {
+export function describeServerEnv(registry: EnvRuntimeRegistry): ServerEnvDescription {
   const entries: ServerEnvDescriptionEntry[] = []
   function visit(value: unknown, path: string): void {
     if (isRuntimeLiteralEntry(value)) {
@@ -429,7 +429,6 @@ export function describeServerEnv(registry: EnvRuntimeRegistry, providers?: EnvP
         ...inspectionPath(path),
         source: value.source.kind,
         ...(isRuntimeProviderEntry(value) && /^[A-Za-z0-9_-]{1,64}$/.test(value.source.provider) ? { provider: value.source.provider } : {}),
-        ...(isRuntimeProviderEntry(value) && providers && Object.hasOwn(providers, value.source.provider) && providers[value.source.provider]?.management ? { managed: true } : {}),
         secret: value.secret,
         required: value.required,
         hasDefault: value.default !== undefined,

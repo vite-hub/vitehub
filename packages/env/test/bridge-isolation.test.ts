@@ -153,4 +153,55 @@ describe("Env Bridge storage and request isolation", () => {
       actor: agent.actor,
     });
   });
+  it.each([
+    { actor: { kind: "root", id: "runner" }, key: "token", permissions: ["use"] },
+    { actor: { kind: "agent", id: "runner" }, key: "token", permissions: ["admin"] },
+    { actor: { kind: "agent", id: "runner" }, key: "token", permissions: [] },
+    { actor: { kind: "agent", id: "different" }, key: "token", permissions: ["use"] },
+    { actor: { kind: "agent", id: "runner" }, key: "other", permissions: ["use"] },
+    { actor: { kind: "agent", id: "" }, key: "token", permissions: ["use"] },
+  ])("rejects invalid persisted grants before authorizing reads: %j", async (payload) => {
+    const { db, namespace } = setup();
+    const { bridge, store } = namespace("first");
+    await bridge.replace(admin, { key: "token", value: "stored-secret", expectedRevision: null });
+    await bridge.grant(admin, { key: "token", actor: agent.actor, permissions: ["use"] });
+    await db.run(sql`UPDATE vitehub_env_grants SET payload = ${JSON.stringify(payload)}`);
+    await expect(store.access.grants("token")).rejects.toBeDefined();
+    await expect(bridge.read({ env: {}, keys: ["token"], access: agent })).rejects.toBeDefined();
+  });
+
+  it("validates persisted activity and its row identity before returning history", async () => {
+    const { db, namespace } = setup();
+    const { bridge, store } = namespace("first");
+    await bridge.replace(admin, { key: "token", value: "stored-secret", expectedRevision: null });
+    const event = (await bridge.activity(admin, "token"))[0]!;
+    for (const payload of [
+      { ...event, outcome: "invented" },
+      { ...event, actor: { kind: "root", id: "owner" } },
+      { ...event, permissions: ["admin"] },
+      { ...event, id: "different" },
+      { ...event, key: "other" },
+      { ...event, timestamp: "yesterday" },
+    ]) {
+      await db.run(
+        sql`UPDATE vitehub_env_activity SET payload = ${JSON.stringify(payload)} WHERE id = ${event.id}`,
+      );
+      await expect(store.access.activity({ key: "token", limit: 100 })).rejects.toBeDefined();
+    }
+    await db.run(sql`UPDATE vitehub_env_activity SET payload = '{' WHERE id = ${event.id}`);
+    await expect(store.access.activity({ key: "token", limit: 100 })).rejects.toMatchObject({
+      code: "ENV_BRIDGE_INVALID",
+    });
+  });
+
+  it("validates secret rows before returning metadata or decrypting", async () => {
+    const { db, namespace } = setup();
+    const { bridge, store } = namespace("first");
+    await bridge.replace(admin, { key: "token", value: "stored-secret", expectedRevision: null });
+    await db.run(sql`UPDATE vitehub_env_secrets SET payload = 'malformed'`);
+    await expect(store.secrets.inspect("token")).rejects.toBeDefined();
+    await expect(bridge.read({ env: {}, keys: ["token"], access: admin })).rejects.toMatchObject({
+      code: "ENV_BRIDGE_OPERATION_FAILED",
+    });
+  });
 });

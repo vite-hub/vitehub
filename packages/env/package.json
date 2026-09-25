@@ -84,7 +84,8 @@
   },
   "dependencies": {
     "@vite-hub/runtime": "workspace:*",
-    "nostics": "catalog:runtime"
+    "nostics": "catalog:runtime",
+    "valibot": "catalog:runtime"
   },
   "devDependencies": {
     "@vite-hub/internal": "workspace:*",

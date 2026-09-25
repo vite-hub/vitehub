@@ -562,7 +562,7 @@ function createViteTypes(
 function createServerEnvInspectionTypes(indent: number): string[] {
   const prefix = " ".repeat(indent)
   return [
-    `${prefix}export interface ServerEnvDescriptionEntry { managed?: boolean; path?: string; source: "env" | "literal" | "provider"; provider?: string; secret: boolean; required: boolean; hasDefault: boolean }`,
+    `${prefix}export interface ServerEnvDescriptionEntry { path?: string; source: "env" | "literal" | "provider"; provider?: string; secret: boolean; required: boolean; hasDefault: boolean }`,
     `${prefix}export interface ServerEnvDescription { entries: readonly ServerEnvDescriptionEntry[] }`,
     `${prefix}export function describeServerEnv(): ServerEnvDescription`,
     `${prefix}export function manageServerEnv(request: Request): Promise<Response>`,

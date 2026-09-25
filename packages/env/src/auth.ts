@@ -25,8 +25,9 @@ export interface EnvAuthenticatorOptions<
 }
 
 const permissions: readonly EnvPermission[] = ["inspect", "preview", "replace", "use"];
-function identifier(value: string): boolean {
+function identifier(value: unknown): value is string {
   return (
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate an authentication adapter identifier before applying length and control-character constraints.
     typeof value === "string" &&
     value.length > 0 &&
     value.length <= 512 &&

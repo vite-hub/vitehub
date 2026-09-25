@@ -29,7 +29,7 @@ describe("Server Env declaration inventory", () => {
   })
 })
 
-it("marks only managed providers without resolving credentials", async () => {
+it("manages only declared unambiguous provider paths without resolving credentials", async () => {
   const { createServerEnvManagement } = await import("../src/server.ts")
   const { createEnvBridge } = await import("../src/bridge.ts")
   const { vi } = await import("vitest")
@@ -48,7 +48,7 @@ it("marks only managed providers without resolving credentials", async () => {
     "nested.token": env({ source: env.provider("vault", "ambiguous") }),
     "unsafe name": env({ source: env.provider("vault", "other") }),
   })
-  expect(describeServerEnv(registry, providers).entries[1]).toMatchObject({ managed: true })
+  expect(describeServerEnv(registry).entries[1]).toMatchObject({ source: "provider", provider: "vault" })
   expect(read).not.toHaveBeenCalled()
   const handler = createServerEnvManagement(registry, providers)
   const request = (path: string) => new Request("https://example.com/manage", { method: "POST", headers: { origin: "https://example.com" }, body: JSON.stringify({ action: "inspect", path }) })
