@@ -13,7 +13,7 @@ describe("lazy Pierre renderer", () => {
     });
 
     await vi.waitFor(() => {
-      expect(wrapper.find("diffs-container").exists()).toBe(true);
+      expect(wrapper.get("diffs-container").element.shadowRoot?.textContent).toContain("true");
     });
   });
 });
