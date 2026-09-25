@@ -1054,12 +1054,13 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   const consoleAuthClientWatchers = new Set<ViteDevServer["watcher"]>()
   let watchNewConsoleAuthClientSources: ((watcher: ViteDevServer["watcher"]) => void) | undefined
   if (nuxt.options.dev && options.console && options.console !== true && options.console.access === "auth" && options.console.auth) {
-    const hookViteServerCreated = nuxt.hook as unknown as ((name: "vite:serverCreated", callback: (server: ViteDevServer, context: { isClient: boolean }) => void) => void) | undefined
-    hookViteServerCreated?.("vite:serverCreated", (server, context) => {
-      if (!context.isClient || consoleAuthClientWatchers.has(server.watcher)) return
-      consoleAuthClientWatchers.add(server.watcher)
-      watchNewConsoleAuthClientSources?.(server.watcher)
-    })
+    if (nuxt.hook) {
+      Reflect.apply(nuxt.hook, nuxt, ["vite:serverCreated", (server: ViteDevServer, context: { isClient: boolean }) => {
+        if (!context.isClient || consoleAuthClientWatchers.has(server.watcher)) return
+        consoleAuthClientWatchers.add(server.watcher)
+        watchNewConsoleAuthClientSources?.(server.watcher)
+      }])
+    }
   }
   nuxt.hook?.("nitro:config", async (config) => {
     const {
@@ -1090,11 +1091,13 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
           }
           watchNewConsoleAuthClientSources = (watcher) => {
             watcher.add([...newClientDirectories])
-            watcher.on("change", (path) => {
-              if ([...newClientDirectories].some(directory => path.startsWith(`${directory}${sep}`))) {
-                void rebuildClient().catch(error => console.error(error))
-              }
-            })
+            for (const event of ["add", "change", "unlink"] as const) {
+              watcher.on(event, (path) => {
+                if ([...newClientDirectories].some(directory => path.startsWith(`${directory}${sep}`))) {
+                  void rebuildClient().catch(error => console.error(error))
+                }
+              })
+            }
           }
           for (const watcher of consoleAuthClientWatchers) watchNewConsoleAuthClientSources(watcher)
           watchClientSources()

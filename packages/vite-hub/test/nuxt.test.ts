@@ -1634,10 +1634,10 @@ describe("ViteHub Nuxt integration", () => {
       await viteHubNuxtModule({ console: { access: "auth", auth: { server, client } }, preset: "node" }, development.nuxt)
       await development.runNitroConfigHook(nitroOptions(development.nuxt))
       const watchedByVite = new Set<string>()
-      let onViteChange: ((path: string) => void) | undefined
+      const viteWatchHandlers = new Map<string, (path: string) => void>()
       for (const hook of development.viteServerCreatedHooks) hook({ watcher: {
         add: paths => paths.forEach(path => watchedByVite.add(path)),
-        on: (_event, callback) => { onViteChange = callback },
+        on: (event, callback) => { viteWatchHandlers.set(event, callback) },
       } }, { isClient: true })
       const watchedAtStartup = development.nuxt.options.watch ?? []
       expect(watchedAtStartup).toContain(directory)
@@ -1657,10 +1657,16 @@ describe("ViteHub Nuxt integration", () => {
       expect(watchedByVite).toContain(helperDirectory)
 
       await writeFile(helper, 'export const marker = "updated"')
-      if (watchedByVite.has(helperDirectory)) onViteChange?.(helper)
+      if (watchedByVite.has(helperDirectory)) viteWatchHandlers.get("change")?.(helper)
       await vi.waitFor(async () => {
         expect(await readFile(resolve(directory, ".vitehub/nitro/console/auth-client.mjs"), "utf8")).toContain("updated")
       })
+      await writeFile(helper, 'export const marker = "added"')
+      viteWatchHandlers.get("add")?.(helper)
+      await vi.waitFor(async () => {
+        expect(await readFile(resolve(directory, ".vitehub/nitro/console/auth-client.mjs"), "utf8")).toContain("added")
+      })
+      expect(viteWatchHandlers.has("unlink")).toBe(true)
     }
     finally {
       await rm(directory, { recursive: true, force: true })
