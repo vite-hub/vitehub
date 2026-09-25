@@ -1,21 +1,21 @@
 import { viteHubErrorDiagnostics } from "../../error-diagnostics.ts"
+import { decodeRouteSegment, encodeRouteSegment } from "@vite-hub/runtime"
 export const consoleDatabaseSchemaPath = "/database/schema/diagram"
 export const consoleDatabaseTablePath = "/database/:table?"
 export const consoleDatabasesSchemaPath = "/databases/:database/schema/diagram"
 export const consoleDatabasesTablePath = "/databases/:database?/:table?"
 
-const agentRouteParamPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
-
 export function encodeAgentRouteParam(name: string): string {
-  if (!agentRouteParamPattern.test(name)) {
-    throw viteHubErrorDiagnostics.VITE_HUB_R0045({ message: `[vitehub] Agent name ${JSON.stringify(name)} must use lowercase letters, numbers, and single hyphens.` })
+  if (!name || name.trim() !== name || name.length > 512) {
+    throw viteHubErrorDiagnostics.VITE_HUB_R0045({ message: `[vitehub] Agent name ${JSON.stringify(name)} must be a non-empty trimmed string of at most 512 characters.` })
   }
-  return name
+  return encodeRouteSegment(name)
 }
 
 export function decodeAgentRouteParam(value: string | string[] | undefined): string | undefined {
   const segment = Array.isArray(value) ? value[0] : value
-  return segment && agentRouteParamPattern.test(segment) ? segment : undefined
+  const name = segment ? decodeRouteSegment(segment) : undefined
+  return name && name.trim() === name && name.length <= 512 ? name : undefined
 }
 
 export function resolveConsoleRouteName(currentRouteName: string | symbol | null | undefined, targetRouteName: string): string {

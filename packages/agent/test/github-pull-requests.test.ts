@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  createGitHubPullRequestRun,
   createGitHubPullRequests,
   parseRequiredChecks,
   pullRequestCheckState,
@@ -40,6 +41,20 @@ function host(node = feedback(), pullRequest: unknown = snapshot) {
 }
 
 describe("GitHub pull request snapshots", () => {
+  it("links non-slug Agent names to the Console invocation", async () => {
+    const { agentInvocationId } = await import("../src/invocations.ts")
+    const run = await createGitHubPullRequestRun("acme/app", snapshot, {
+      agentName: "team/support",
+      publicUrl: "https://agent.example.test",
+      runId: "delivery-1",
+    })
+    const id = await agentInvocationId("delivery-1", "team/support")
+    expect(run.activity?.links).toEqual([{
+      label: "Current session",
+      url: `https://agent.example.test/_vitehub/agents/~007400650061006d002f0073007500700070006f00720074/invocations/${id}`,
+    }])
+  })
+
   it("keeps failures actionable when another check is pending", () => {
     expect(pullRequestCheckState([{ bucket: "pending" }, { bucket: "fail" }])).toBe("failed");
     expect(pullRequestCheckState([{ state: "SUCCESS" }])).toBe("passed");

@@ -1,0 +1,260 @@
+name: prepare release
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [closed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      recover_failed_release:
+        description: Verify corrected main and tag the unpublished release version
+        type: boolean
+        required: false
+        default: false
+      recovery_pr:
+        description: Number of the merged correction PR immediately after the failed release merge
+        type: number
+        required: false
+        default: 0
+
+permissions: {}
+
+jobs:
+  proposal:
+    if: (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && !inputs.recover_failed_release)) && github.ref == 'refs/heads/main' && github.repository == 'vite-hub/vitehub'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: release-proposal
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check current main commit
+        id: current
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          live_sha="$(gh api "repos/${GITHUB_REPOSITORY}/branches/main" --jq .commit.sha)"
+          if [[ "$live_sha" == "$GITHUB_SHA" ]]; then
+            echo "current=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Reconcile the latest release merge
+        id: pending-release
+        if: steps.current.outputs.current == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          merged_branch="$(gh api "repos/${GITHUB_REPOSITORY}/pulls?state=closed&base=main&sort=updated&direction=desc&per_page=100" \
+            --jq '[.[] | select(.merged_at != null and .head.repo.full_name == .base.repo.full_name and (.head.ref | startswith("release/v")))] | sort_by(.merged_at) | last | .head.ref // empty')"
+          if [[ -z "$merged_branch" ]]; then
+            exit 0
+          fi
+          release_tag="${merged_branch#release/}"
+          tag_sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${release_tag}" --jq .sha 2>/dev/null || true)"
+          mapfile -t stale_prs < <(gh api "repos/${GITHUB_REPOSITORY}/pulls?state=open&base=main&per_page=100" \
+            --jq '.[] | select(.head.repo.full_name == .base.repo.full_name and (.head.ref | startswith("release/v"))) | "\(.number)|\(.head.sha)"')
+          for entry in "${stale_prs[@]}"; do
+            IFS='|' read -r pr head_sha <<< "$entry"
+            if [[ -n "$tag_sha" ]]; then
+              parent_sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${head_sha}" --jq '.parents[0].sha')"
+              if ! git merge-base --is-ancestor "$parent_sha" "$tag_sha"; then
+                continue
+              fi
+            fi
+            gh pr close "$pr" --repo "$GITHUB_REPOSITORY" --delete-branch
+          done
+          if [[ -z "$tag_sha" || "$tag_sha" == "$GITHUB_SHA" ]]; then
+            echo "pending=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: danielroe/uppt/pr@7bcfb5397c37202ef882363f755423130419d28a # v0.5.5
+        if: steps.current.outputs.current == 'true' && steps.pending-release.outputs.pending != 'true'
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          checkout: "false"
+          packages: |
+            packages/*
+      - name: Run CI for the generated release PR
+        if: steps.current.outputs.current == 'true' && steps.pending-release.outputs.pending != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t release_branches < <(gh api "repos/${GITHUB_REPOSITORY}/pulls?state=open&base=main&per_page=100" \
+            --jq '.[] | select(.head.repo.full_name == .base.repo.full_name and (.head.ref | startswith("release/v"))) | .head.ref')
+          if (( ${#release_branches[@]} > 1 )); then
+            echo "Expected one open release PR, found ${#release_branches[@]}" >&2
+            exit 1
+          fi
+          if (( ${#release_branches[@]} == 1 )); then
+            gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref "${release_branches[0]}"
+          fi
+
+  recover-release:
+    if: github.event_name == 'workflow_dispatch' && inputs.recover_failed_release && github.ref == 'refs/heads/main' && github.repository == 'vite-hub/vitehub'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: release-recovery
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      actions: write
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Resolve reviewed correction boundary
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RECOVERY_PR: ${{ inputs.recovery_pr }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$RECOVERY_PR" =~ ^[1-9][0-9]*$ ]]; then
+            echo "A merged correction PR number is required for recovery" >&2
+            exit 1
+          fi
+          release_boundary="$(gh api "repos/${GITHUB_REPOSITORY}/pulls?state=closed&base=main&sort=updated&direction=desc&per_page=100" \
+            --jq '[.[] | select(.merged_at != null and .head.repo.full_name == .base.repo.full_name and (.head.ref | startswith("release/v")))] | sort_by(.merged_at) | last | if . == null then empty else "\(.head.ref)|\(.merge_commit_sha)" end')"
+          if [[ -z "$release_boundary" ]]; then
+            echo "No merged release PR found for recovery" >&2
+            exit 1
+          fi
+          IFS='|' read -r release_branch failed_sha <<< "$release_boundary"
+          correction="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${RECOVERY_PR}" \
+            --jq '[.merged_at, .base.ref, .merge_commit_sha] | @tsv')"
+          IFS=$'\t' read -r merged_at base_ref recovery_sha <<< "$correction"
+          if [[ -z "$merged_at" || "$merged_at" == "null" || "$base_ref" != "main" ]]; then
+            echo "Recovery PR must be merged into main" >&2
+            exit 1
+          fi
+          if [[ "$recovery_sha" == "$failed_sha" ]] || ! git merge-base --is-ancestor "$failed_sha" "$recovery_sha"; then
+            echo "Recovery PR must follow the failed release merge" >&2
+            exit 1
+          fi
+          mapfile -t boundary_commits < <(git rev-list --first-parent --reverse "${failed_sha}..${recovery_sha}")
+          if (( ${#boundary_commits[@]} == 0 || ${#boundary_commits[@]} > 250 )); then
+            echo "Invalid recovery commit boundary" >&2
+            exit 1
+          fi
+          for commit_sha in "${boundary_commits[@]}"; do
+            associated_pr="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${commit_sha}/pulls" \
+              --jq ".[] | select(.number == ${RECOVERY_PR}) | .number")"
+            if [[ -z "$associated_pr" ]]; then
+              echo "Commit $commit_sha was not introduced by recovery PR $RECOVERY_PR" >&2
+              exit 1
+            fi
+          done
+          git checkout --detach "$recovery_sha"
+          node .github/scripts/check-release-candidate.mjs "$release_branch"
+          release_tag="${release_branch#release/}"
+          if gh api "repos/${GITHUB_REPOSITORY}/commits/${release_tag}" --jq .sha >/dev/null 2>&1; then
+            echo "Tag $release_tag already exists; dispatch release.yml on that tag instead" >&2
+            exit 1
+          fi
+          echo "tag=$release_tag" >> "$GITHUB_OUTPUT"
+          echo "sha=$recovery_sha" >> "$GITHUB_OUTPUT"
+      - uses: ./.github/actions/setup
+      - uses: ./.github/actions/setup-deno
+      - run: vp run verify
+      - name: Tag corrected main and dispatch release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_SHA: ${{ steps.release.outputs.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          status="$(gh api "repos/${GITHUB_REPOSITORY}/compare/${RELEASE_SHA}...main" --jq .status)"
+          if [[ "$status" != "ahead" && "$status" != "identical" ]]; then
+            echo "Reviewed recovery commit is no longer on main" >&2
+            exit 1
+          fi
+          if gh api "repos/${GITHUB_REPOSITORY}/commits/${RELEASE_TAG}" --jq .sha >/dev/null 2>&1; then
+            echo "Tag $RELEASE_TAG already exists" >&2
+            exit 1
+          fi
+          gh api -X POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+            -f "ref=refs/tags/${RELEASE_TAG}" -f "sha=${RELEASE_SHA}"
+          gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref "$RELEASE_TAG"
+          gh workflow run release-pr.yml --repo "$GITHUB_REPOSITORY" --ref main
+
+  verify-release:
+    if: |
+      github.event_name == 'pull_request'
+      && github.event.pull_request.merged == true
+      && startsWith(github.event.pull_request.head.ref, 'release/v')
+      && github.event.pull_request.head.repo.full_name == github.repository
+      && github.repository == 'vite-hub/vitehub'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - uses: ./.github/actions/setup-deno
+      - name: Check release candidate
+        env:
+          RELEASE_BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: node .github/scripts/check-release-candidate.mjs "$RELEASE_BRANCH"
+      - run: vp run verify
+
+  tag-release:
+    needs: verify-release
+    if: needs.verify-release.result == 'success'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: release-tag-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          persist-credentials: false
+      - name: Check release candidate again
+        env:
+          RELEASE_BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: node .github/scripts/check-release-candidate.mjs "$RELEASE_BRANCH"
+      - name: Create tag and dispatch verified release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_BRANCH: ${{ github.event.pull_request.head.ref }}
+          RELEASE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_tag="${RELEASE_BRANCH#release/}"
+          existing_sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${release_tag}" --jq .sha 2>/dev/null || true)"
+          if [[ -n "$existing_sha" && "$existing_sha" != "$RELEASE_SHA" ]]; then
+            echo "Tag $release_tag already points to $existing_sha" >&2
+            exit 1
+          fi
+          if [[ -z "$existing_sha" ]]; then
+            gh api -X POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+              -f "ref=refs/tags/${release_tag}" -f "sha=${RELEASE_SHA}"
+          fi
+          gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref "$release_tag"
+          gh workflow run release-pr.yml --repo "$GITHUB_REPOSITORY" --ref main

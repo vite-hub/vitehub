@@ -184,6 +184,7 @@ export async function resolveAgentTriggers<
         invoke: input => trigger.invoke({
           ...runtimeContext,
           agentCapabilities: channelCapabilities,
+          agentName: agent.name || runtimeContext.agentIdentity?.name,
           channel,
           trigger: {
             channelId,

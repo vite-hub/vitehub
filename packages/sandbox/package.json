@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/sandbox",
-  "version": "0.0.1",
+  "version": "0.0.4",
   "description": "Sandbox execution primitives and Vite integration for ViteHub.",
   "keywords": [
     "cloudflare",

@@ -19,7 +19,6 @@ import { agentOutputInstructions, agentOutputJsonSchema, nativeAgentOutputValida
 import { synthesizedAgentOutputSymbol } from "./internal/synthesized-agent-output.ts"
 import { resolveAgentUsageRecord } from "./agent-output.ts"
 import { aggregateAgentUsageCosts } from "./internal/usage-pricing.ts"
-import { getModelCallSettings } from "./internal/model-call-settings.ts"
 import { materializeAgentModel } from "./internal/agent-model.ts"
 import { updateAgentTelemetryConfiguration } from "./internal/agent-telemetry.ts"
 import { isAuxiliaryAgentAdapterContext } from "./internal/channels.ts"
@@ -1151,43 +1150,15 @@ async function instrumentCallSettings(
   return patch
 }
 
-function mergeCallSettings(
-  defaults: Record<string, unknown> | undefined,
-  overrides: Record<string, unknown> | undefined,
-): Record<string, unknown> {
-  const settings = { ...defaults, ...overrides }
-  const defaultProviders = defaults?.providerOptions
-  const overrideProviders = overrides?.providerOptions
-  if ((!defaultProviders || !hasRuntimeType(defaultProviders, "object"))
-    && (!overrideProviders || !hasRuntimeType(overrideProviders, "object"))) return settings
-  const providers = {
-    // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
-    ...(defaultProviders as Record<string, unknown> | undefined),
-    // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
-    ...(overrideProviders as Record<string, unknown> | undefined),
-  }
-  for (const provider of new Set([
-    // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
-    ...Object.keys((defaultProviders as Record<string, unknown> | undefined) || {}),
-    // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
-    ...Object.keys((overrideProviders as Record<string, unknown> | undefined) || {}),
-  ])) {
-    // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
-    const defaultSettings = (defaultProviders as Record<string, unknown> | undefined)?.[provider]
-    // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
-    const overrideSettings = (overrideProviders as Record<string, unknown> | undefined)?.[provider]
-    if ((defaultSettings && hasRuntimeType(defaultSettings, "object"))
-      || (overrideSettings && hasRuntimeType(overrideSettings, "object"))) {
-      providers[provider] = {
-        // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
-        ...(defaultSettings as Record<string, unknown> | undefined),
-        // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
-        ...(overrideSettings as Record<string, unknown> | undefined),
-      }
-    }
-  }
-  settings.providerOptions = providers
-  return settings
+function copyCallSettings(settings: Record<string, unknown> | undefined): Record<string, unknown> {
+  const copy = { ...settings }
+  const providers = settings?.providerOptions
+  if (!providers || !hasRuntimeType(providers, "object")) return copy
+  copy.providerOptions = Object.fromEntries(Object.entries(providers).map(([name, value]) => [
+    name,
+    value && hasRuntimeType(value, "object") ? { ...value } : value,
+  ]))
+  return copy
 }
 
 function withoutToolCallSettings(settings: Record<string, unknown>): Record<string, unknown> {
@@ -1321,7 +1292,7 @@ async function createAgent(
     tools: _tools,
   } = options
   const stepLimit = execution?.stepLimit
-  const baseCallSettings = mergeCallSettings(getModelCallSettings(model), execution?.callSettings)
+  const baseCallSettings = copyCallSettings(execution?.callSettings)
   const instrumentedCallSettings = await instrumentCallSettings(baseCallSettings, instrumentations, {
     ...runtime,
     actor: context.actor,

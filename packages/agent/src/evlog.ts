@@ -9,6 +9,7 @@ import { papercuts } from "./capabilities/papercuts.ts"
 import { diagnostics } from "./capabilities/diagnostics.ts"
 import { agentInvocationId } from "./invocations.ts"
 import { sanitizeAgentLog } from "./evlog/privacy.ts"
+import { encodeRouteSegment } from "@vite-hub/runtime"
 import type { AgentCapabilityDefinition, AgentFinishEvent, ResolvedAgentRuntimeContext } from "./types.ts"
 import type { RuntimeDiagnosticReporter } from "@vite-hub/runtime"
 
@@ -93,7 +94,7 @@ export function createAgentEvlog(options: AgentEvlogOptions): AgentEvlog {
   const sessionUrl = options.sessionUrl ?? (options.console ? ({ agentName, id }: { agentName: string, id: string }) => {
     const origin = hasRuntimeType(options.console!.origin, "function") ? options.console!.origin(agentName) : options.console!.origin
     const base = (options.console!.base ?? "/_vitehub").replace(/\/$/, "")
-    return new URL(`${base}/agents/${encodeURIComponent(agentName)}/invocations/${encodeURIComponent(id)}`, origin).href
+    return new URL(`${base}/agents/${encodeRouteSegment(agentName)}/invocations/${encodeURIComponent(id)}`, origin).href
   } : undefined)
   const exporter = options.exporter
   const level = options.level ?? "standard"

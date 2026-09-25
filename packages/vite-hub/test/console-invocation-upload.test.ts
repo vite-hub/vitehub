@@ -16,6 +16,7 @@ vi.mock("@vite-hub/agent", () => ({
 vi.mock("@vite-hub/runtime", () => ({
   createExecutionContext: (context: unknown) => context,
   createRuntimeWaitUntilController: () => ({ waitUntil: () => {} }),
+  encodeRouteSegment: (value: string) => value,
 }))
 vi.mock("../src/console/server.ts", () => ({ console: {} }))
 vi.mock("../src/console/runtime/server/agents.ts", () => ({
