@@ -280,38 +280,16 @@ export function createEnvBridge(options: EnvBridgeOptions): EnvBridge {
       if (!(await allowed(context, key, "admin"))) throw envBridgeError("denied");
       return await safe(() => options.access.grants(key));
     },
-    grant: (context, grant) =>
-      audited(
-        context,
-        grant.key,
-        "grant",
-        "admin",
-        async () => {
-          identifier(grant.actor.id);
-          if (
-            !grant.permissions.length ||
-            grant.permissions.some(
-              (permission) => !["inspect", "preview", "replace", "use"].includes(permission),
-            )
-          )
-            throw envBridgeError("invalid");
-          await options.access.setGrant(grant);
-        },
-        undefined,
-        { target: grant.actor, permissions: grant.permissions },
-      ),
-    revoke: (context, actor, key) =>
-      audited(
-        context,
-        key,
-        "revoke",
-        "admin",
-        async () => {
-          await options.access.revokeGrant(actor, key);
-        },
-        undefined,
-        { target: actor },
-      ),
+    async grant(context, grant) {
+      identifier(grant.actor.id);
+      if (!["user", "agent", "service"].includes(grant.actor.kind) || !grant.permissions.length || grant.permissions.some(permission => !["inspect", "preview", "replace", "use"].includes(permission))) throw envBridgeError("invalid");
+      return audited(context, grant.key, "grant", "admin", () => options.access.setGrant(grant), undefined, { target: grant.actor, permissions: grant.permissions });
+    },
+    async revoke(context, actor, key) {
+      identifier(actor.id);
+      if (!["user", "agent", "service"].includes(actor.kind)) throw envBridgeError("invalid");
+      return audited(context, key, "revoke", "admin", () => options.access.revokeGrant(actor, key), undefined, { target: actor });
+    },
   };
   return bridge;
 }
