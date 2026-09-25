@@ -1,24 +1,66 @@
 import { sql } from "drizzle-orm";
+import * as v from "valibot";
 import type { SQL } from "drizzle-orm";
 import { envBridgeError } from "./bridge-error.ts";
-import type { EnvAccessStore, EnvActivity, EnvGrant, EnvSecretStore } from "./bridge.ts";
+import type { EnvAccessStore, EnvSecretStore } from "./bridge.ts";
 
 export interface EnvDatabase {
   run(query: SQL): unknown;
-  all<T extends Record<string, unknown>>(query: SQL): T[] | PromiseLike<T[]>;
+  all(query: SQL): unknown[] | PromiseLike<unknown[]>;
 }
 export interface DatabaseEnvStore {
   secrets: EnvSecretStore;
   access: EnvAccessStore;
 }
-interface SecretRow extends Record<string, unknown> {
-  payload: string;
-  revision: string;
-  updated_at: string;
-  preview: string | null;
-}
-interface JSONRow extends Record<string, unknown> {
-  payload: string;
+const identifier = v.pipe(
+  v.string(),
+  v.minLength(1),
+  v.maxLength(512),
+  v.regex(/^[^\u0000-\u001f]+$/),
+);
+const actor = v.object({ id: identifier, kind: v.picklist(["user", "agent", "service"]) });
+const permission = v.picklist(["inspect", "preview", "replace", "use"]);
+const timestamp = v.pipe(v.string(), v.isoTimestamp());
+const activity = v.object({
+  id: identifier,
+  operationId: identifier,
+  timestamp,
+  actor,
+  key: identifier,
+  action: v.picklist(["inspect", "preview", "replace", "resolve", "use", "grant", "revoke"]),
+  outcome: v.picklist(["started", "succeeded", "failed", "denied"]),
+  revision: v.optional(identifier),
+  operation: v.optional(identifier),
+  target: v.optional(actor),
+  permissions: v.optional(v.array(permission)),
+  traceId: v.optional(v.string()),
+  invocationId: v.optional(v.string()),
+});
+const grant = v.object({
+  actor,
+  key: identifier,
+  permissions: v.pipe(v.array(permission), v.minLength(1)),
+});
+const secretRow = v.object({
+  payload: v.pipe(v.string(), v.regex(/^[a-f0-9]{24}:(?:[a-f0-9]{2}){16,}$/)),
+  revision: identifier,
+  updated_at: timestamp,
+  preview: v.nullable(v.string()),
+});
+const activityRow = v.object({ payload: v.string(), id: identifier });
+const grantRow = v.object({
+  payload: v.string(),
+  actor_kind: v.picklist(["user", "agent", "service"]),
+  actor_id: identifier,
+});
+const revisionRow = v.object({ revision: identifier });
+
+function parseStoredJson(payload: string): unknown {
+  try {
+    return JSON.parse(payload);
+  } catch {
+    throw envBridgeError("invalid");
+  }
 }
 
 function hex(value: Uint8Array): string {
@@ -64,13 +106,14 @@ export function createDatabaseEnvStore(options: {
       ready = undefined;
       throw error;
     }));
-  async function row(key: string): Promise<SecretRow | undefined> {
+  async function row(key: string): Promise<v.InferOutput<typeof secretRow> | undefined> {
     await initialize();
-    return (
-      await options.db.all<SecretRow>(
+    const stored = (
+      await options.db.all(
         sql`SELECT payload, revision, updated_at, preview FROM vitehub_env_secrets WHERE namespace = ${namespace} AND key = ${key}`,
       )
     )[0];
+    return stored === undefined ? undefined : v.parse(secretRow, stored);
   }
   function aad(key: string, revision: string): Uint8Array<ArrayBuffer> {
     return new TextEncoder().encode(JSON.stringify([namespace, key, revision]));
@@ -122,6 +165,8 @@ export function createDatabaseEnvStore(options: {
                 sql`UPDATE vitehub_env_secrets SET payload = ${payload}, revision = ${revision}, updated_at = ${updatedAt}, preview = ${preview} WHERE namespace = ${namespace} AND key = ${key} AND revision = ${expectedRevision} RETURNING revision`,
               );
         if (!written.length) throw envBridgeError("conflict");
+        if (written.length !== 1 || v.parse(revisionRow, written[0]).revision !== revision)
+          throw envBridgeError("invalid");
         return {
           revision,
           updatedAt,
@@ -139,17 +184,32 @@ export function createDatabaseEnvStore(options: {
       },
       async activity({ key, before, limit }) {
         await initialize();
-        const rows = await options.db.all<JSONRow>(
-          sql`SELECT payload FROM vitehub_env_activity WHERE namespace = ${namespace} AND key = ${key} ${before ? sql`AND sequence < (SELECT sequence FROM vitehub_env_activity WHERE id = ${before} AND namespace = ${namespace} AND key = ${key})` : sql``} ORDER BY sequence DESC LIMIT ${Math.min(Math.max(limit, 1), 100)}`,
+        const rows = await options.db.all(
+          sql`SELECT payload, id FROM vitehub_env_activity WHERE namespace = ${namespace} AND key = ${key} ${before ? sql`AND sequence < (SELECT sequence FROM vitehub_env_activity WHERE id = ${before} AND namespace = ${namespace} AND key = ${key})` : sql``} ORDER BY sequence DESC LIMIT ${Math.min(Math.max(limit, 1), 100)}`,
         );
-        return rows.map((row) => JSON.parse(row.payload) as EnvActivity);
+        return rows.map((row) => {
+          const stored = v.parse(activityRow, row);
+          const event = v.parse(activity, parseStoredJson(stored.payload));
+          if (event.key !== key || event.id !== stored.id) throw envBridgeError("invalid");
+          return event;
+        });
       },
       async grants(key) {
         await initialize();
-        const rows = await options.db.all<JSONRow>(
-          sql`SELECT payload FROM vitehub_env_grants WHERE namespace = ${namespace} AND key = ${key} ORDER BY actor_kind, actor_id`,
+        const rows = await options.db.all(
+          sql`SELECT payload, actor_kind, actor_id FROM vitehub_env_grants WHERE namespace = ${namespace} AND key = ${key} ORDER BY actor_kind, actor_id`,
         );
-        return rows.map((row) => JSON.parse(row.payload) as EnvGrant);
+        return rows.map((row) => {
+          const stored = v.parse(grantRow, row);
+          const access = v.parse(grant, parseStoredJson(stored.payload));
+          if (
+            access.key !== key ||
+            access.actor.kind !== stored.actor_kind ||
+            access.actor.id !== stored.actor_id
+          )
+            throw envBridgeError("invalid");
+          return access;
+        });
       },
       async setGrant(grant) {
         await initialize();

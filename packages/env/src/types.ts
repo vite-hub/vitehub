@@ -237,7 +237,6 @@ export interface ServerEnvInspectionEntry {
 }
 
 export interface ServerEnvDescriptionEntry {
-  managed?: boolean
   path?: string
   source: "env" | "literal" | "provider"
   provider?: string

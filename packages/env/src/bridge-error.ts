@@ -13,8 +13,17 @@ export function envBridgeError(code: keyof typeof messages): ViteHubError {
 }
 
 export function sanitizeEnvBridgeError(error: unknown): ViteHubError {
-  const code = isViteHubError(error)
-    ? Object.keys(messages).find((key) => error.code === `ENV_BRIDGE_${key.toUpperCase()}`)
-    : undefined;
-  return envBridgeError((code as keyof typeof messages | undefined) ?? "operation_failed");
+  if (isViteHubError(error)) {
+    for (const code of [
+      "denied",
+      "conflict",
+      "missing",
+      "invalid",
+      "operation_failed",
+      "audit_failed",
+    ] as const) {
+      if (error.code === `ENV_BRIDGE_${code.toUpperCase()}`) return envBridgeError(code);
+    }
+  }
+  return envBridgeError("operation_failed");
 }
