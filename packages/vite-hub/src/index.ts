@@ -137,6 +137,7 @@ function getGeneratedOwnerProviderImportAliases(): Record<string, string> {
 const frameworkVirtualImporters = new Set([
   "\0#vitehub/auth/server",
   "\0#vitehub/env/server",
+  "\0#vitehub/env/description",
   "\0#vitehub/schedule/registry",
   "\0virtual:vitehub-agent-cloudflare-state-exports",
 ])

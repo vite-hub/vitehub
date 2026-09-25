@@ -12,6 +12,7 @@ import {
   VITEHUB_PROJECT_ROOT,
   VITEHUB_SERVER_DIRS,
 } from "@vite-hub/internal/build/vite"
+import { env, hubEnv } from "@vite-hub/env/vite"
 import type { KVModuleOptions } from "@vite-hub/kv"
 import { resolveKVViteConfig } from "@vite-hub/kv/vite"
 import type { QueueModuleOptions } from "@vite-hub/queue"
@@ -2012,6 +2013,7 @@ describe("ViteHub Nuxt integration", () => {
         nitro: expect.objectContaining({ preset: "cloudflare_module" }),
         resolve: {
           alias: {
+            "#vitehub/env/description": "/tmp/vitehub-nuxt/.vitehub/env/description.mjs",
             "#vitehub/env/public": "/tmp/vitehub-nuxt/.vitehub/env/public.mjs",
             "#vitehub/env/server": "/tmp/vitehub-nuxt/.vitehub/env/server.mjs",
             "~": "/tmp/vitehub-nuxt/app",
@@ -2031,6 +2033,7 @@ describe("ViteHub Nuxt integration", () => {
     expect(mocks.useEnvPlugin).toHaveBeenCalledWith(expect.objectContaining({ name: "@vite-hub/env/vite" }))
     expect(nitroConfig).toEqual({
       alias: {
+        "#vitehub/env/description": "/tmp/vitehub-nuxt/.vitehub/env/description.mjs",
         "#vitehub/env/public": "/tmp/vitehub-nuxt/.vitehub/env/public.mjs",
         "#vitehub/env/server": "/tmp/vitehub-nuxt/.vitehub/env/server.mjs",
       },
@@ -2444,6 +2447,24 @@ describe("ViteHub Nuxt integration", () => {
       "#vitehub/env/server": "/tmp/vitehub-nuxt/apps/api/.vitehub/env/server.mjs",
       "#custom": "./custom.mjs",
     })
+  })
+
+  it("refreshes Console Env inventory after Nuxt Vite config replay", async () => {
+    // SAFETY: Env exports the standard Vite plugin hooks; the owner and framework use separate Vite type instances.
+    const envPlugin = hubEnv() as unknown as Plugin
+    const contribution: Plugin = {
+      name: "vite-hub/env-inventory-contribution",
+      config: () => ({ root: "/tmp/vitehub-nuxt", env: { server: { replayedToken: env({ secret: true }) } } }),
+    }
+    const { nuxt, runNitroConfigHook } = createNuxt(true, [envPlugin, contribution])
+    await viteHubNuxtModule({ console: true, preset: "node" }, nuxt)
+    const descriptionPath = "/tmp/vitehub-nuxt/.vitehub/env/description.mjs"
+    expect(await readFile(descriptionPath, "utf8")).not.toContain("replayedToken")
+    await runNitroConfigHook(nitroOptions(nuxt))
+    const description = await readFile(descriptionPath, "utf8")
+    expect(description).toContain("env.server.replayedToken")
+    expect(description).not.toContain("import ")
+    expect(await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).toContain("#vitehub/env/description")
   })
 
   it("prepares Env types before collecting generated declarations", async () => {

@@ -40,6 +40,8 @@ export const ENV_VITE_PLUGIN_NAME = "@vite-hub/env/vite"
 export const ENV_PUBLIC_ID: typeof VITEHUB_ENV_PUBLIC_ID = VITEHUB_ENV_PUBLIC_ID
 export const ENV_SERVER_ID: typeof VITEHUB_ENV_SERVER_ID = VITEHUB_ENV_SERVER_ID
 
+const ENV_DESCRIPTION_ID = "#vitehub/env/description"
+const RESOLVED_DESCRIPTION_ID = `\0${ENV_DESCRIPTION_ID}`
 const RESOLVED_PUBLIC_ID = `\0${ENV_PUBLIC_ID}`
 const RESOLVED_SERVER_ID = `\0${ENV_SERVER_ID}`
 const defaultRuntimeImports = {
@@ -236,6 +238,9 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
       const publicConfig = state?.publicConfig ?? buildPublicConfig
       const registry = state?.serverRegistry ?? serverRegistry
       const providerModules = state?.providerModules ?? {}
+      if (id === RESOLVED_DESCRIPTION_ID) {
+        return createServerEnvDescriptionModule(registry)
+      }
       if (id === RESOLVED_PUBLIC_ID) {
         return createPublicEnvModule(publicConfig)
       }
@@ -246,6 +251,9 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
     resolveId: {
       order: "pre",
       handler(id) {
+        if (id === ENV_DESCRIPTION_ID) {
+          return RESOLVED_DESCRIPTION_ID
+        }
         if (id === ENV_PUBLIC_ID) {
           return RESOLVED_PUBLIC_ID
         }
