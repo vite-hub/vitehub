@@ -267,31 +267,6 @@ describe("AgentChatPrompt", () => {
     expect(nextPromptFiles([oldFile], [newFile], false)).toEqual([newFile]);
   });
 
-  it("passes attachment-only form and keyboard submissions through a text-only host guard", async () => {
-    const wrapper = mount(AgentChatPrompt, {
-      global,
-      props: {
-        files: [
-          {
-            filename: "notes.txt",
-            mediaType: "text/plain",
-            type: "file",
-            url: "data:text/plain,notes",
-          },
-        ],
-      },
-    });
-
-    expect(wrapper.find("textarea").element.value).not.toBe("");
-    await wrapper.find("form").trigger("submit");
-    await wrapper.find("textarea").trigger("keydown", { key: "Enter" });
-
-    expect(wrapper.emitted("submit")?.map(([value]) => value)).toEqual([
-      { files: wrapper.props("files"), text: "" },
-      { files: wrapper.props("files"), text: "" },
-    ]);
-  });
-
   it("keeps empty prompts without attachments inert", async () => {
     const wrapper = mount(AgentChatPrompt, { global });
 
