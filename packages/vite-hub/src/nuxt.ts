@@ -1,5 +1,5 @@
 import { consoleDatabaseUrl, withDataDir } from "./storage-config.ts"
-import { join, relative, resolve } from "node:path"
+import { dirname, join, relative, resolve, sep } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { resolveViteHubProjectRoot, VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
@@ -1062,14 +1062,15 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       if (options.console !== true && options.console.access === "auth" && options.console.auth) {
         const authConfig = resolveConsoleAuthConfig(viteRoot, options.console.auth, plan.preset)
         let authHandlers = await writeConsoleAuthHandlers(viteRoot, authConfig, nuxt.options.app?.baseURL ?? "/")
-        if (nuxt.options.dev && authHandlers.clientSources.length) {
-          nuxt.options.watch = [...new Set([...(nuxt.options.watch ?? []), ...authHandlers.clientSources])]
+        if (nuxt.options.dev && authHandlers.clientSource) {
+          const clientDirectories = [...new Set(authHandlers.clientSources.map(dirname))]
+          nuxt.options.watch = [...new Set([...(nuxt.options.watch ?? []), ...clientDirectories, ...authHandlers.clientSources])]
           // SAFETY: Nuxt's hook overload includes builder:watch with this callback contract.
           const hookBuilderWatch = nuxt.hook as unknown as ((name: "builder:watch", callback: (event: string, path: string) => Promise<void>) => void) | undefined
           hookBuilderWatch?.("builder:watch", async (_event, path) => {
-            if (authHandlers.clientSources.includes(resolve(viteRoot, path))) {
+            const changedPath = resolve(viteRoot, path)
+            if (clientDirectories.some(directory => changedPath.startsWith(`${directory}${sep}`)) || authHandlers.clientSources.includes(changedPath)) {
               authHandlers = await writeConsoleAuthHandlers(viteRoot, authConfig, nuxt.options.app?.baseURL ?? "/")
-              nuxt.options.watch = [...new Set([...(nuxt.options.watch ?? []), ...authHandlers.clientSources])]
             }
           })
         }
