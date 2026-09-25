@@ -145,6 +145,11 @@ export interface ConsoleAuthDefinition {
   migrate?: false
 }
 
+function isConsoleAuthResolver<T>(option: T | ((context: AuthRuntimeContext) => T)): option is (context: AuthRuntimeContext) => T {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Auth Definitions may be static objects or request-scoped resolvers, and this is the documented discriminant.
+  return typeof option === "function"
+}
+
 const migrations = new WeakMap<AuthDefinition, Promise<void>>()
 
 export async function prepareConsoleAuth(
@@ -180,12 +185,12 @@ export function createConsoleAuthDefinition(input: ConsoleAuthDefinition, mountB
   // SAFETY: The resolver returns Better Auth options plus ViteHub Auth access metadata; AuthDefinition accepts this runtime option shape.
   return {
     options: (context: AuthRuntimeContext) => {
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Auth Definitions may be static objects or request-scoped resolvers, and this is the documented discriminant.
-      const options = (typeof definition.auth.options === "function"
+      const options: AuthResolvedDefinitionOptions & { runtime?: AuthRuntimeConfiguration } = isConsoleAuthResolver(definition.auth.options)
         ? definition.auth.options(context)
-        : definition.auth.options) as AuthResolvedDefinitionOptions & { runtime?: AuthRuntimeConfiguration }
-      const runtime = typeof options.runtime === "function" ? options.runtime(context) : options.runtime
-      const resolved = { ...options, ...runtime }
+        : definition.auth.options
+      const runtime = options.runtime
+      const resolvedRuntime = isConsoleAuthResolver(runtime) ? runtime(context) : runtime
+      const resolved = { ...options, ...resolvedRuntime }
       const database = resolved.database
       // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Better Auth accepts adapter objects, while ViteHub Auth also accepts metadata objects that do not create a database.
       const databaseMetadata = database === true
