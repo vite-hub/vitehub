@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import type { ServerEnvDescriptionEntry } from "@vite-hub/env";
 
-defineProps<{ entry: ServerEnvDescriptionEntry }>();
+import ConsoleEnvManaged from "./console-env-managed.vue";
+
+defineProps<{ entry: ServerEnvDescriptionEntry; endpoint: string }>();
 </script>
 
 <template>
@@ -32,5 +34,13 @@ defineProps<{ entry: ServerEnvDescriptionEntry }>();
           : "Resolved through the configured provider when the application loads Server Env. Manage values in the connected store."
     }}
   </p>
-  <p class="mt-3 text-sm text-muted">Values are not loaded by this view.</p>
+  <p v-if="entry.source !== 'provider'" class="mt-3 text-sm text-muted">
+    Values are not loaded by this view.
+  </p>
+  <ConsoleEnvManaged
+    v-if="entry.source === 'provider' && entry.path"
+    :key="entry.path"
+    :endpoint="endpoint"
+    :path="entry.path"
+  />
 </template>

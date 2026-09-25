@@ -29,6 +29,7 @@ const props = defineProps<{
   definitionsBase: string;
   kvBase: string;
   envBase: string;
+  managementBase: string;
   searchBase: string;
   sectionsBase: string;
 }>();
@@ -224,7 +225,9 @@ onBeforeUnmount(() => request?.abort());
       description="Declaration details"
       :ui="{ description: 'sr-only' }"
     >
-      <template #body><ConsoleEnvDetails v-if="selected" :entry="selected" /></template>
+      <template #body
+        ><ConsoleEnvDetails v-if="selected" :entry="selected" :endpoint="managementBase"
+      /></template>
     </USlideover>
   </ConsoleFrame>
 </template>

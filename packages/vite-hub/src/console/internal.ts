@@ -53,7 +53,7 @@ type ConsoleDefinitionsByRoot = {
   readonly size: number
 }
 
-export type ConsoleEnvInspection = ServerEnvDescription
+export type ConsoleEnvInspection = ServerEnvDescription & { manage?: (request: Request) => Promise<Response> }
 
 export interface ConsoleKVInspection {
   storage: KVStorage
