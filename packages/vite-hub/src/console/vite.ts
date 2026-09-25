@@ -200,6 +200,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
   let databaseUrl: string | undefined
   let observations: AgentInvocationsOptions["observations"]
   let consoleAuthHandlers: Awaited<ReturnType<typeof writeConsoleAuthHandlers>> | undefined
+  let refreshConsoleAuthClient: (() => Promise<void>) | undefined
 
   const refreshConsoleCatalog = serializeConsoleRefresh(async () => {
     if (!generatedPlugin || !projectRoot || !root) return
@@ -293,8 +294,12 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
         consoleAuth: configured !== true && configured.access === "auth" && Boolean(configured.auth),
         development: environment.command !== "build",
       })
-      consoleAuthHandlers = configured !== true && configured.access === "auth" && configured.auth
-        ? await writeConsoleAuthHandlers(root, resolveConsoleAuthConfig(root, configured.auth, options.preset))
+      const consoleAuthConfig = configured !== true && configured.access === "auth" && configured.auth
+        ? resolveConsoleAuthConfig(root, configured.auth, options.preset)
+        : undefined
+      consoleAuthHandlers = consoleAuthConfig ? await writeConsoleAuthHandlers(root, consoleAuthConfig) : undefined
+      refreshConsoleAuthClient = consoleAuthConfig
+        ? async () => { await writeConsoleAuthHandlers(root!, consoleAuthConfig) }
         : undefined
       projectRoot = resolveViteHubProjectRoot(root)
       const configuredFixture = viteConfig.vitehubCliDiscovery
@@ -452,8 +457,10 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
     },
     configureServer(server) {
       if (fixture) server.watcher.add(fixture)
-      const refresh = async () => {
+      if (consoleAuthHandlers?.clientSource) server.watcher.add(consoleAuthHandlers.clientSource)
+      const refresh = async (path: string) => {
         try {
+          if (path === consoleAuthHandlers?.clientSource) await refreshConsoleAuthClient?.()
           await refreshConsoleCatalog()
         }
         catch (error) {

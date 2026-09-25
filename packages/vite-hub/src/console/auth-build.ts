@@ -72,6 +72,7 @@ export function resolveConsoleAuthConfig(root: string, config: ConsoleAuthConfig
 
 export async function writeConsoleAuthHandlers(root: string, config: ResolvedConsoleAuthFiles | InlineConsoleAuth, mountBaseURL = "/"): Promise<{
   client: string
+  clientSource?: string
   middleware: string
   route: string
   signIn: string
@@ -152,7 +153,7 @@ export async function writeConsoleAuthHandlers(root: string, config: ResolvedCon
       "  if (!(path === '/_vitehub' || path.startsWith('/_vitehub/') || path === '/api/_vitehub/console' || path.startsWith('/api/_vitehub/console/'))) return",
       "  await prepare(event)",
       "  if (path === '/_vitehub' || path.startsWith('/_vitehub/')) return consoleAuthPageResponse(event.req, await requireAuthAccessRoutes(event, [0], definition, [0], { redirectToSignIn: path === '/_vitehub' && event.url.searchParams.has('auth_start') }), mountBase)",
-      "  if (path === '/api/_vitehub/console' || path.startsWith('/api/_vitehub/console/')) return requireAuthAccessRoutes(event, [1], definition, [1])",
+      "  if (path === '/api/_vitehub/console' || path.startsWith('/api/_vitehub/console/')) return requireAuthAccessRoutes(event, [1], definition, [1], { redirectToSignIn: false })",
       "}",
       "",
     ].join("\n")),
@@ -164,5 +165,5 @@ export async function writeConsoleAuthHandlers(root: string, config: ResolvedCon
       "",
     ].join("\n")),
   ])
-  return { client, middleware, route, signIn }
+  return { client, clientSource: clientFile, middleware, route, signIn }
 }

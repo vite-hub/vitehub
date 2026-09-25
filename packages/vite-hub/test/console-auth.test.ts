@@ -193,7 +193,7 @@ describe("independent Console Auth", () => {
       const route = await readFile(handlers.route, "utf8")
       expect(middleware).toContain("redirectToSignIn: path === '/_vitehub' && event.url.searchParams.has('auth_start')")
       expect(middleware).toContain('from "#vitehub/auth/server"')
-      expect(middleware).toContain('requireAuthAccessRoutes(event, [1], definition, [1])')
+      expect(middleware).toContain('requireAuthAccessRoutes(event, [1], definition, [1], { redirectToSignIn: false })')
       expect(middleware).toContain("await prepare(event)")
       expect(middleware).toContain("'/api/_vitehub/console/auth/'")
       expect(middleware).toContain("path === '/_vitehub/sign-in'")
@@ -212,13 +212,19 @@ describe("independent Console Auth", () => {
       const directory = resolve(root, "vitehub/console/auth")
       await mkdir(directory, { recursive: true })
       await writeFile(resolve(directory, "server.ts"), "export default {}")
-      await writeFile(resolve(directory, "client.ts"), "export default { plugins: [], setup() {} }")
+      const clientSource = resolve(directory, "client.ts")
+      await writeFile(clientSource, 'export default { plugins: [], setup() { globalThis.consoleAuthMarker = "original" } }')
       const files = resolveConsoleAuthConfig(root, {})
       if ("provider" in files) throw new TypeError("Expected file configuration.")
       const handlers = await writeConsoleAuthHandlers(root, files)
       const responseSource = await readFile(handlers.client, "utf8")
+      expect(handlers.clientSource).toBe(clientSource)
       expect(responseSource).toContain("vitehub.console.auth.client")
       expect(responseSource).toContain("text/javascript")
+      expect(responseSource).toContain("original")
+      await writeFile(clientSource, 'export default { plugins: [], setup() { globalThis.consoleAuthMarker = "updated" } }')
+      await writeConsoleAuthHandlers(root, files)
+      expect(await readFile(handlers.client, "utf8")).toContain("updated")
     }
     finally {
       await rm(root, { recursive: true, force: true })
@@ -244,7 +250,7 @@ describe("independent Console Auth", () => {
             plugin.onResolve({ filter: /^(#vitehub\/auth\/server|vite-hub\/console\/auth)$/ }, args => ({ path: args.path, namespace: "test-console-auth" }))
             plugin.onLoad({ filter: /.*/, namespace: "test-console-auth" }, (args) => ({
               contents: args.path === "#vitehub/auth/server"
-                ? 'export function requireAuthAccessRoutes(event, indexes) { globalThis[Symbol.for("test.console.auth.calls")].push([event.url.pathname, indexes[0]]); return new Response("guarded", {status: 401}) }'
+                ? 'export function requireAuthAccessRoutes(event, indexes, definition, routes, options) { globalThis[Symbol.for("test.console.auth.calls")].push([event.url.pathname, indexes[0], options?.redirectToSignIn]); return new Response("guarded", {status: 401}) }'
                 : "export function createConsoleAuthDefinition() { return {} }; export function prepareConsoleAuth() {}; export function consoleAuthPageResponse(_request, response) { return response }",
               loader: "js",
             }))
@@ -253,18 +259,19 @@ describe("independent Console Auth", () => {
       })
       const modulePath = resolve(root, "guard.mjs")
       await writeFile(modulePath, bundled.outputFiles![0]!.text)
-      const guard = (await import(pathToFileURL(modulePath).href)) as { default: (event: { url: URL }) => Promise<Response | undefined> }
-      const calls: Array<[string, number]> = []
+      const guard = (await import(pathToFileURL(modulePath).href)) as { default: (event: { url: URL; req?: Request }) => Promise<Response | undefined> }
+      const calls: Array<[string, number, boolean | undefined]> = []
       Reflect.set(globalThis, Symbol.for("test.console.auth.calls"), calls)
       try {
         expect(await guard.default({ url: new URL("https://example.com/api/app") })).toBeUndefined()
         expect(await guard.default({ url: new URL("https://example.com/api/_vitehub/console/auth/callback/github") })).toBeUndefined()
         expect(await guard.default({ url: new URL("https://example.com/_vitehub/sign-in") })).toBeUndefined()
         expect((await guard.default({ url: new URL("https://example.com/_vitehub") }))?.status).toBe(401)
-        expect((await guard.default({ url: new URL("https://example.com/api/_vitehub/console/status") }))?.status).toBe(401)
+        const apiURL = "https://example.com/api/_vitehub/console/status"
+        expect((await guard.default({ url: new URL(apiURL), req: new Request(apiURL, { headers: { accept: "text/html" } }) }))?.status).toBe(401)
         expect(calls).toEqual([
-          ["/_vitehub", 0],
-          ["/api/_vitehub/console/status", 1],
+          ["/_vitehub", 0, false],
+          ["/api/_vitehub/console/status", 1, false],
         ])
       }
       finally {
