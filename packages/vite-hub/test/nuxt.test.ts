@@ -1333,7 +1333,7 @@ describe("ViteHub Nuxt integration", () => {
         handlers: [
           { handler: "server/handler.ts", route: "/api/example" },
           { route: "/_vitehub/rpc/**" },
-          { route: "/_vitehub/env/manage" },
+          { method: "post", route: "/_vitehub/env/manage" },
         ],
       })
       expect(development.nuxt.options.vite.plugins).not.toContainEqual(expect.objectContaining({ name: "vite-hub/console-invocation-root" }))

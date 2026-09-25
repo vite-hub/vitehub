@@ -15,7 +15,7 @@ export function addConsoleDevframeHandler(nitro: { handlers?: Array<{ handler: s
   const managementHandler = join(consoleRuntimeRoot, "server/env-manage.js")
   const managementConflict = handlers.find(candidate => candidate.route === managementRoute && candidate.handler !== managementHandler)
   if (managementConflict) throw viteHubErrorDiagnostics.VITE_HUB_R0040({ message: `Cannot mount the ViteHub Env handler at "${managementRoute}" because that route is already registered.` })
-  kit.addHandler({ handler: managementHandler, route: managementRoute })
+  kit.addHandler({ handler: managementHandler, method: "post", route: managementRoute })
   // SAFETY: The kit preserves the caller's Nitro handler array while adding the Console route.
   nitro.handlers = kit.config.handlers as Array<{ handler: string; route: string }>
 }
