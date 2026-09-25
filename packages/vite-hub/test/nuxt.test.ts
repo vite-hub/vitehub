@@ -1566,6 +1566,29 @@ describe("ViteHub Nuxt integration", () => {
     }
   })
 
+  it("mounts independent Console Auth below the Nuxt app base URL", async () => {
+    const production = createNuxt(false)
+    Object.assign(production.nuxt.options, { app: { baseURL: "/portal/" } })
+    await viteHubNuxtModule({
+      console: {
+        access: "auth",
+        auth: {
+          provider: "github",
+          allowedEmails: ["maintainer@example.com"],
+          databasePath: "/data/console-auth.sqlite",
+        },
+      },
+      preset: "node",
+    }, production.nuxt)
+    await production.runNitroConfigHook(nitroOptions(production.nuxt))
+
+    const definition = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/auth-definition.mjs", "utf8")
+    const middleware = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/auth-middleware.mjs", "utf8")
+    expect(definition).toContain('createConsoleAuthDefinition(input, "/portal/")')
+    expect(middleware).toContain('const mountBase = "/portal"')
+    expect(nitroHandlerRoutes(nitroOptions(production.nuxt))).toContain("/api/_vitehub/console/auth/**")
+  })
+
   it("rejects Auth-backed production Console when replay config disables Auth", async () => {
     const production = createNuxt(false)
     Object.assign(production.nuxt.options.vite, { auth: false as const })

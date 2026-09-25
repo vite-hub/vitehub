@@ -1,5 +1,6 @@
 import type { AuthAccessAuthorize, AuthDefinition, AuthDefinitionInput, AuthRuntimeContext, AuthSignInConfiguration } from "@vite-hub/auth"
 import { createAuthForRequest } from "@vite-hub/auth/server"
+import { consoleAuthPath } from "./auth-path.ts"
 
 export const consoleAuthBasePath = "/api/_vitehub/console/auth"
 
@@ -33,20 +34,24 @@ export async function prepareConsoleAuth(
 }
 
 export function defineConsoleAuth(definition: ConsoleAuthDefinition): ConsoleAuthDefinition {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- A user-owned definition crosses the runtime module boundary, so reject a missing authorization callback.
   if (!definition || typeof definition.authorize !== "function" || !definition.auth || !definition.signIn?.provider) {
     throw new TypeError("[vitehub] Console Auth requires an Auth Definition, an authorize callback, and a sign-in provider.")
   }
   return definition
 }
 
-export function createConsoleAuthDefinition(input: ConsoleAuthDefinition): AuthDefinition {
+export function createConsoleAuthDefinition(input: ConsoleAuthDefinition, mountBaseURL = "/"): AuthDefinition {
   const definition = defineConsoleAuth(input)
+  // SAFETY: The resolver returns Better Auth options plus ViteHub Auth access metadata; AuthDefinition accepts this runtime option shape.
   return {
     options: (context: AuthRuntimeContext) => {
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Auth Definitions may be static objects or request-scoped resolvers, and this is the documented discriminant.
       const options = typeof definition.auth.options === "function"
         ? definition.auth.options(context)
         : definition.auth.options
       const database = options.database
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Better Auth accepts adapter objects, while ViteHub Auth also accepts metadata objects that do not create a database.
       const databaseMetadata = database === true
         || (database !== null && typeof database === "object" && "name" in database && Object.keys(database).every(key => key === "name" || key === "dedicated"))
       if (!database || databaseMetadata) {
@@ -59,12 +64,12 @@ export function createConsoleAuthDefinition(input: ConsoleAuthDefinition): AuthD
         ...options,
         access: {
           routes: [
-            { route: "/_vitehub/**", authorize: definition.authorize },
-            { route: "/api/_vitehub/console/**", authorize: definition.authorize },
+            { route: consoleAuthPath(mountBaseURL, "/_vitehub/**"), authorize: definition.authorize },
+            { route: consoleAuthPath(mountBaseURL, "/api/_vitehub/console/**"), authorize: definition.authorize },
           ],
           signIn: {
-            callbackURL: "/_vitehub",
-            errorCallbackURL: "/_vitehub?auth_error=signin",
+            callbackURL: consoleAuthPath(mountBaseURL, "/_vitehub"),
+            errorCallbackURL: consoleAuthPath(mountBaseURL, "/_vitehub?auth_error=signin"),
             ...definition.signIn,
           },
         },
@@ -72,7 +77,7 @@ export function createConsoleAuthDefinition(input: ConsoleAuthDefinition): AuthD
           ...options.advanced,
           cookiePrefix: "vitehub_console",
         },
-        basePath: consoleAuthBasePath,
+        basePath: consoleAuthPath(mountBaseURL, consoleAuthBasePath),
       }
     },
   } as AuthDefinition<AuthDefinitionInput>

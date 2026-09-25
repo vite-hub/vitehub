@@ -4,6 +4,7 @@ import { pathToFileURL } from "node:url"
 
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { build } from "esbuild"
+import { consoleAuthMountBase, consoleAuthPath } from "./auth-path.ts"
 import type { InlineConsoleAuth } from "./auth-inline.ts"
 
 export interface ConsoleAuthFiles {
@@ -42,7 +43,9 @@ export function resolveConsoleAuthFiles(root: string, config: ConsoleAuthFiles):
     throw new TypeError("[vitehub] Console Auth needs vitehub/console/auth/server.ts or console.auth.server.")
   }
   if (client && !existsSync(client)) throw new TypeError(`[vitehub] Console Auth client file does not exist: ${client}`)
-  return { server, ...(client ? { client } : {}) }
+  const files: ResolvedConsoleAuthFiles = { server }
+  if (client) files.client = client
+  return files
 }
 
 export function resolveConsoleAuthConfig(root: string, config: ConsoleAuthConfig): ResolvedConsoleAuthFiles | InlineConsoleAuth {
@@ -64,7 +67,7 @@ export function resolveConsoleAuthConfig(root: string, config: ConsoleAuthConfig
   return resolveConsoleAuthFiles(root, config)
 }
 
-export async function writeConsoleAuthHandlers(root: string, config: ResolvedConsoleAuthFiles | InlineConsoleAuth): Promise<{
+export async function writeConsoleAuthHandlers(root: string, config: ResolvedConsoleAuthFiles | InlineConsoleAuth, mountBaseURL = "/"): Promise<{
   client: string
   middleware: string
   route: string
@@ -75,6 +78,7 @@ export async function writeConsoleAuthHandlers(root: string, config: ResolvedCon
   const middleware = resolve(directory, "auth-middleware.mjs")
   const client = resolve(directory, "auth-client.mjs")
   const inline = "provider" in config
+  const mountBase = consoleAuthMountBase(mountBaseURL)
   const clientFile = inline
     ? config.client ? resolve(root, config.client) : discoverFile(root, "client")
     : config.client
@@ -89,7 +93,7 @@ export async function writeConsoleAuthHandlers(root: string, config: ResolvedCon
           contents: [
             `import config from ${JSON.stringify(clientFile)}`,
             'import { createAuthClient } from "vite-hub/auth/vue"',
-            'const client = createAuthClient({ basePath: "/api/_vitehub/console/auth", plugins: config.plugins ?? [] })',
+            `const client = createAuthClient({ basePath: ${JSON.stringify(consoleAuthPath(mountBaseURL, "/api/_vitehub/console/auth"))}, plugins: config.plugins ?? [] })`,
             'globalThis[Symbol.for("vitehub.console.auth.client")] = client',
             'config.setup?.(client)',
           ].join("\n"),
@@ -110,12 +114,12 @@ export async function writeConsoleAuthHandlers(root: string, config: ResolvedCon
             `import input from ${JSON.stringify(pathToFileURL(config.server).href)}`,
           ]),
       'import { createConsoleAuthDefinition, prepareConsoleAuth } from "vite-hub/console/auth"',
-      "export const definition = createConsoleAuthDefinition(input)",
+      `export const definition = createConsoleAuthDefinition(input, ${JSON.stringify(mountBaseURL)})`,
       "export function prepare(event) { return prepareConsoleAuth(input, definition, event.req, event) }",
       "",
     ].join("\n")),
     writeFileIfChanged(route, [
-      'import { handleAuthRequest } from "vite-hub/auth/server"',
+      'import { handleAuthRequest } from "#vitehub/auth/server"',
       'import { definition, prepare } from "./auth-definition.mjs"',
       "export default async function viteHubConsoleAuthRoute(event) {",
       "  await prepare(event)",
@@ -124,10 +128,12 @@ export async function writeConsoleAuthHandlers(root: string, config: ResolvedCon
       "",
     ].join("\n")),
     writeFileIfChanged(middleware, [
-      'import { requireAuthAccessRoutes } from "vite-hub/auth/server"',
+      'import { requireAuthAccessRoutes } from "#vitehub/auth/server"',
       'import { definition, prepare } from "./auth-definition.mjs"',
       "export default async function viteHubConsoleAuthMiddleware(event) {",
-      "  const path = event.url.pathname",
+      `  const mountBase = ${JSON.stringify(mountBase)}`,
+      "  const publicPath = event.url.pathname",
+      "  const path = mountBase && publicPath.startsWith(`${mountBase}/`) ? publicPath.slice(mountBase.length) : publicPath",
       "  if (path === '/api/_vitehub/console/auth' || path.startsWith('/api/_vitehub/console/auth/')) return",
       "  if (!(path === '/_vitehub' || path.startsWith('/_vitehub/') || path === '/api/_vitehub/console' || path.startsWith('/api/_vitehub/console/'))) return",
       "  await prepare(event)",

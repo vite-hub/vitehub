@@ -1057,7 +1057,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     consoleWorkflowConfigResolved = true
     if (options.console) {
       if (options.console !== true && options.console.access === "auth" && options.console.auth) {
-        const authHandlers = await writeConsoleAuthHandlers(viteRoot, resolveConsoleAuthConfig(viteRoot, options.console.auth))
+        const authHandlers = await writeConsoleAuthHandlers(viteRoot, resolveConsoleAuthConfig(viteRoot, options.console.auth), nuxt.options.app?.baseURL ?? "/")
         if (Array.isArray(config.handlers)) {
           config.handlers = config.handlers.filter((handler: { handler?: string }) => handler.handler !== join(consoleRuntimeRoot, "server/client.get.js"))
         }

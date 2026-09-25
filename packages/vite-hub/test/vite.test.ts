@@ -481,6 +481,22 @@ describe("vitehub", () => {
     }
   })
 
+  it("installs the server Auth bridge for independent Console Auth without Primary Auth", () => {
+    const plugins = vitehub({
+      console: {
+        access: "auth",
+        auth: {
+          provider: "github",
+          allowedEmails: ["maintainer@example.com"],
+          databasePath: "/data/console-auth.sqlite",
+        },
+      },
+      preset: "node",
+    })
+    expect(pluginNames(plugins)).toContain("@vite-hub/auth/vite")
+    expect(integrationMocks.hubAuth).toHaveBeenCalledWith(false, { importBase: "vite-hub/auth" })
+  })
+
   it("rejects production Auth policy that does not protect Console status", async () => {
     integrationMocks.resolveAuthViteConfig.mockReturnValueOnce({
       access: { routes: [{ authorize: true, route: "/_vitehub/**" }] },

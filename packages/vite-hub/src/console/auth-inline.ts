@@ -44,6 +44,7 @@ export function createInlineConsoleAuth(config: InlineConsoleAuth): ConsoleAuthD
       },
     })),
     authorize: ({ user }) => user.emailVerified === true
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Better Auth user fields are extensible, so verify email is a string before comparing it with the allowlist.
       && typeof user.email === "string"
       && allowedEmails.has(user.email.toLowerCase()),
     signIn: { provider: "github", scopes: ["user:email"] },

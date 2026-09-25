@@ -29,6 +29,12 @@ describe("independent Console Auth", () => {
       expect(resolved.advanced?.cookiePrefix).toBe("vitehub_console")
       expect(resolved.access?.routes).toHaveLength(2)
       expect(resolved.access?.signIn?.callbackURL).toBe("/_vitehub")
+      const mounted = createConsoleAuthDefinition(input, "/portal/").options
+      if (typeof mounted !== "function") throw new TypeError("Expected mounted Console Auth options.")
+      const mountedOptions = mounted({ env: {}, requestOrigin: "https://example.com" })
+      expect(mountedOptions.basePath).toBe("/portal/api/_vitehub/console/auth")
+      expect(mountedOptions.access?.signIn?.callbackURL).toBe("/portal/_vitehub")
+      expect(mountedOptions.access?.signIn?.errorCallbackURL).toBe("/portal/_vitehub?auth_error=signin")
     }
     finally {
       database.close()
@@ -101,10 +107,12 @@ describe("independent Console Auth", () => {
       const middleware = await readFile(handlers.middleware, "utf8")
       const route = await readFile(handlers.route, "utf8")
       expect(middleware).toContain('requireAuthAccessRoutes(event, [0], definition, [0])')
+      expect(middleware).toContain('from "#vitehub/auth/server"')
       expect(middleware).toContain('requireAuthAccessRoutes(event, [1], definition, [1])')
       expect(middleware).toContain("await prepare(event)")
       expect(middleware).toContain("'/api/_vitehub/console/auth/'")
       expect(route).toContain("handleAuthRequest(definition, event.req")
+      expect(route).toContain('from "#vitehub/auth/server"')
     }
     finally {
       await rm(root, { recursive: true, force: true })
@@ -146,9 +154,9 @@ describe("independent Console Auth", () => {
           name: "test-console-auth",
           setup(plugin) {
             plugin.onResolve({ filter: /^file:\/\// }, args => ({ path: fileURLToPath(args.path) }))
-            plugin.onResolve({ filter: /^vite-hub\/(auth\/server|console\/auth)$/ }, args => ({ path: args.path, namespace: "test-console-auth" }))
+            plugin.onResolve({ filter: /^(#vitehub\/auth\/server|vite-hub\/console\/auth)$/ }, args => ({ path: args.path, namespace: "test-console-auth" }))
             plugin.onLoad({ filter: /.*/, namespace: "test-console-auth" }, (args) => ({
-              contents: args.path === "vite-hub/auth/server"
+              contents: args.path === "#vitehub/auth/server"
                 ? 'export function requireAuthAccessRoutes(event, indexes) { globalThis[Symbol.for("test.console.auth.calls")].push([event.url.pathname, indexes[0]]); return new Response("guarded", {status: 401}) }'
                 : "export function createConsoleAuthDefinition() { return {} }; export function prepareConsoleAuth() {}",
               loader: "js",

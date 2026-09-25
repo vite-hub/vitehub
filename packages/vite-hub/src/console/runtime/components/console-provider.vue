@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { useHead } from "#imports";
+import { useHead, useRuntimeConfig } from "#imports";
 import { injectTooltipProviderContext } from "reka-ui";
 
 const hasAppProvider = injectTooltipProviderContext(null) !== null;
 
-useHead({ script: [{ src: "/api/_vitehub/console/client.js", type: "module" }] });
+const appBaseURL = useRuntimeConfig().app.baseURL.replace(/\/+$/, "");
+
+useHead({ script: [{ src: `${appBaseURL}/api/_vitehub/console/client.js`, type: "module" }] });
 </script>
 
 <template>
