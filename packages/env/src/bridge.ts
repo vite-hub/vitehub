@@ -97,6 +97,11 @@ function identifier(value: string): void {
     throw envBridgeError("invalid");
 }
 
+function validateActor(actor: EnvActor): void {
+  identifier(actor.id);
+  if (!["user", "agent", "service"].includes(actor.kind)) throw envBridgeError("invalid");
+}
+
 async function safe<T>(run: () => Promise<T>): Promise<T> {
   try {
     return await run();
@@ -123,7 +128,7 @@ export function createEnvBridge(options: EnvBridgeOptions): EnvBridge {
     permission: EnvPermission | "admin",
   ): Promise<boolean> {
     identifier(key);
-    identifier(context.actor.id);
+    validateActor(context.actor);
     if (
       context.scope &&
       (permission === "admin" ||
@@ -154,7 +159,7 @@ export function createEnvBridge(options: EnvBridgeOptions): EnvBridge {
     },
   ): Promise<T> {
     identifier(key);
-    identifier(context.actor.id);
+    validateActor(context.actor);
     const operationId = crypto.randomUUID();
     const base = {
       operationId,
@@ -281,13 +286,12 @@ export function createEnvBridge(options: EnvBridgeOptions): EnvBridge {
       return await safe(() => options.access.grants(key));
     },
     async grant(context, grant) {
-      identifier(grant.actor.id);
-      if (!["user", "agent", "service"].includes(grant.actor.kind) || !grant.permissions.length || grant.permissions.some(permission => !["inspect", "preview", "replace", "use"].includes(permission))) throw envBridgeError("invalid");
+      validateActor(grant.actor);
+      if (!grant.permissions.length || grant.permissions.some(permission => !["inspect", "preview", "replace", "use"].includes(permission))) throw envBridgeError("invalid");
       return audited(context, grant.key, "grant", "admin", () => options.access.setGrant(grant), undefined, { target: grant.actor, permissions: grant.permissions });
     },
     async revoke(context, actor, key) {
-      identifier(actor.id);
-      if (!["user", "agent", "service"].includes(actor.kind)) throw envBridgeError("invalid");
+      validateActor(actor);
       return audited(context, key, "revoke", "admin", () => options.access.revokeGrant(actor, key), undefined, { target: actor });
     },
   };

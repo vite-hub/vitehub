@@ -10,6 +10,7 @@ const id = ref("");
 const permissions = ref<Array<Grant["permissions"][number]>>(["use"]);
 const busy = ref(false);
 const error = ref("");
+const notice = ref("");
 const removing = ref<string>();
 async function load() {
   grants.value = (
@@ -19,12 +20,21 @@ async function load() {
 async function run(operation: () => Promise<void>) {
   busy.value = true;
   error.value = "";
+  notice.value = "";
   try {
     await operation();
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : "Could not update access.";
   } finally {
     busy.value = false;
+  }
+}
+async function refreshAfterUpdate(action: "saved" | "revoked") {
+  notice.value = action === "saved" ? "Access saved." : "Access revoked.";
+  try {
+    await load();
+  } catch {
+    error.value = `Access ${action}, but the grant list could not be refreshed. Reload to confirm current access.`;
   }
 }
 function grant() {
@@ -34,7 +44,7 @@ function grant() {
       permissions: permissions.value,
     });
     id.value = "";
-    await load();
+    await refreshAfterUpdate("saved");
   });
 }
 function revoke(actor: Grant["actor"]) {
@@ -47,7 +57,10 @@ function revoke(actor: Grant["actor"]) {
       { actor },
     );
     removing.value = undefined;
-    await load();
+    grants.value = grants.value.filter(
+      (item) => item.actor.kind !== actor.kind || item.actor.id !== actor.id,
+    );
+    await refreshAfterUpdate("revoked");
   });
 }
 onMounted(() => run(load));
@@ -58,6 +71,7 @@ onMounted(() => run(load));
       Grants apply only to this credential. Agent tokens may further limit access.
     </p>
     <p v-if="error" role="alert" class="text-sm text-error">{{ error }}</p>
+    <p v-if="notice" role="status" class="text-sm text-muted">{{ notice }}</p>
     <ul role="list" class="divide-y divide-default">
       <li
         v-for="item in grants"
