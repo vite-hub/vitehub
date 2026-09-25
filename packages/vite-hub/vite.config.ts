@@ -187,6 +187,9 @@ export default defineConfig({
       { from: "src/console/runtime/pages/env.vue", to: "dist/console/runtime/pages" },
       { from: "src/console/runtime/components/console-env.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-env-details.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-env-managed.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-env-activity.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-env-access.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/pages/kv.vue", to: "dist/console/runtime/pages" },
       { from: "src/console/runtime/pages/queues.vue", to: "dist/console/runtime/pages" },
       { from: "src/console/runtime/pages/rate-limits.vue", to: "dist/console/runtime/pages" },
@@ -233,6 +236,7 @@ export default defineConfig({
       "src/console/runtime/console-route.ts",
       "src/console/runtime/client/invocation.ts",
       "src/console/runtime/client/request.ts",
+      "src/console/runtime/client/env-management.ts",
       "src/console/runtime/client/time.ts",
       "src/console/runtime/definitions.ts",
       "src/console/runtime/rpc.ts",
@@ -248,6 +252,7 @@ export default defineConfig({
       "src/console/runtime/server/invocation-workspace.get.ts",
       "src/console/runtime/server/invocations.get.ts",
       "src/console/runtime/server/env.get.ts",
+      "src/console/runtime/server/env-manage.ts",
       "src/console/runtime/server/kv.get.ts",
       "src/console/runtime/server/page.get.ts",
       "src/console/runtime/server/search.get.ts",
@@ -263,6 +268,7 @@ export default defineConfig({
         delete exports["./console/runtime/client/sections"];
         delete exports["./console/runtime/client/invocation"];
         delete exports["./console/runtime/client/request"];
+        delete exports["./console/runtime/client/env-management"];
         delete exports["./console/runtime/client/time"];
         delete exports["./console/runtime/definitions"];
         delete exports["./console/runtime/rpc"];
@@ -281,6 +287,7 @@ export default defineConfig({
         delete exports["./console/runtime/server/invocation-workspace.get"];
         delete exports["./console/runtime/server/invocations.get"];
         delete exports["./console/runtime/server/env.get"];
+        delete exports["./console/runtime/server/env-manage"];
         delete exports["./console/runtime/server/env"];
         delete exports["./console/runtime/server/kv.get"];
         delete exports["./console/runtime/server/kv"];

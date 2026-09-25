@@ -71,7 +71,7 @@ export interface EnvBridgeOptions {
 export interface EnvBridge extends EnvProvider {
   permissions(context: EnvAccessContext, key: string): Promise<readonly EnvPermission[]>;
   inspect(context: EnvAccessContext, key: string): Promise<EnvSecretMetadata | undefined>;
-  preview(context: EnvAccessContext, key: string): Promise<EnvSecretMetadata | undefined>;
+  preview(context: EnvAccessContext, key: string): Promise<Pick<EnvSecretMetadata, "preview"> | undefined>;
   replace(
     context: EnvAccessContext,
     input: { key: string; value: string; expectedRevision: string | null },
@@ -239,7 +239,7 @@ export function createEnvBridge(options: EnvBridgeOptions): EnvBridge {
     preview: (context, key) =>
       audited(context, key, "preview", "preview", async () => {
         const value = await options.secrets.inspect(key);
-        return value ? { revision: value.revision, updatedAt: value.updatedAt, ...(value.preview ? { preview: value.preview } : {}) } : undefined;
+        return value ? { ...(value.preview ? { preview: value.preview } : {}) } : undefined;
       }),
     replace: (context, input) => {
       let revision: string | undefined;

@@ -299,9 +299,10 @@ describe("Vite plugin", () => {
 
   it("can generate env runtime modules through a facade import path", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-env-facade-runtime-imports-"))
-    await writeFile(join(root, "package.json"), JSON.stringify({ name: "facade-app", type: "module", imports: { "#app/env/server": "./runtime.ts" } }), "utf8")
+    await writeFile(join(root, "package.json"), JSON.stringify({ name: "facade-app", type: "module", imports: { "#app/env/server": "./runtime.mjs" } }), "utf8")
     await writeFile(join(root, "secret.d.ts"), "export interface SecretEnv<T> { unseal(): T }\n", "utf8")
-    await writeFile(join(root, "runtime.ts"), 'export interface EnvAccessContext { actor: { id: string; kind: "user" | "agent" | "service" } }\n', "utf8")
+    await writeFile(join(root, "runtime.d.mts"), 'export interface EnvAccessContext { actor: { id: string; kind: "user" | "agent" | "service" } }\n', "utf8")
+    await writeFile(join(root, "runtime.mjs"), 'export const resolveServerEnv = () => ({ token: "ok" }); export const loadServerEnv = async () => ({ token: "ok" }); export const inspectServerEnv = async () => ({ entries: [] });\n', "utf8")
 
     const plugin = hubEnv({
       runtimeImports: {
@@ -326,7 +327,12 @@ describe("Vite plugin", () => {
       root,
     } as never)
 
-    await expect(readFile(join(root, ".vitehub", "env", "server.mjs"), "utf8")).resolves.toContain("from \"#app/env/server\"")
+    const serverModule = await readFile(join(root, ".vitehub", "env", "server.mjs"), "utf8")
+    expect(serverModule).toContain('from "#app/env/server"')
+    expect(serverModule).not.toContain('from "@vite-hub/env/server"')
+    const generated = await import(pathToFileURL(join(root, ".vitehub", "env", "server.mjs")).href)
+    expect(await generated.loadServerEnv()).toEqual({ token: "ok" })
+    expect((await generated.manageServerEnv(new Request("http://localhost"))).status).toBe(503)
     await expect(readFile(join(root, ".vitehub", "env", "server.d.ts"), "utf8")).resolves.toContain("from \"../../secret.js\"")
     const typesPath = join(root, ".vitehub", "types", "env.d.ts")
     await expect(readFile(typesPath, "utf8")).resolves.toContain("import(\"../../secret.js\").SecretEnv<string>")
@@ -364,7 +370,7 @@ describe("Vite plugin", () => {
     ].join("\n"), "utf8")
     const runtimeFacadePath = join(root, "env-runtime.mjs")
     await writeFile(runtimeFacadePath, [
-      `export { describeServerEnv, inspectServerEnv, loadServerEnv, resolveServerEnv } from ${JSON.stringify(new URL("../dist/server.js", import.meta.url).href)}`,
+      `export { createServerEnvManagement, describeServerEnv, inspectServerEnv, loadServerEnv, resolveServerEnv } from ${JSON.stringify(new URL("../dist/server.js", import.meta.url).href)}`,
       ``,
     ].join("\n"), "utf8")
 

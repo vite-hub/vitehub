@@ -43,6 +43,7 @@ onMounted(loadSections);
         :definitions-base="`${appBaseURL}/api/_vitehub/console/definitions`"
         :kv-base="`${appBaseURL}/api/_vitehub/console/kv`"
         :env-base="`${appBaseURL}/api/_vitehub/console/env`"
+        :management-base="`${appBaseURL}/_vitehub/env/manage`"
         :search-base="`${appBaseURL}/api/_vitehub/console/search`"
         :sections-base="sectionsBase"
       />

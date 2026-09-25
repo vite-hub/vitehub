@@ -1,7 +1,17 @@
 <script setup lang="ts">
+import { ref, watch } from "vue";
 import type { ServerEnvDescriptionEntry } from "@vite-hub/env";
 
-defineProps<{ entry: ServerEnvDescriptionEntry }>();
+import ConsoleEnvManaged from "./console-env-managed.vue";
+
+const props = defineProps<{ entry: ServerEnvDescriptionEntry; endpoint: string }>();
+const managing = ref(false);
+watch(
+  () => props.entry.path,
+  () => {
+    managing.value = false;
+  },
+);
 </script>
 
 <template>
@@ -32,5 +42,19 @@ defineProps<{ entry: ServerEnvDescriptionEntry }>();
           : "Resolved through the configured provider when the application loads Server Env. Manage values in the connected store."
     }}
   </p>
-  <p class="mt-3 text-sm text-muted">Values are not loaded by this view.</p>
+  <p v-if="!managing" class="mt-3 text-sm text-muted">Values are not loaded by this view.</p>
+  <UButton
+    v-if="entry.source === 'provider' && entry.path && !managing"
+    class="mt-5"
+    label="Manage credential"
+    color="neutral"
+    variant="outline"
+    @click="managing = true"
+  />
+  <ConsoleEnvManaged
+    v-if="managing && entry.source === 'provider' && entry.path"
+    :key="entry.path"
+    :endpoint="endpoint"
+    :path="entry.path"
+  />
 </template>

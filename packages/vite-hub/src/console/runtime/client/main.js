@@ -30,7 +30,7 @@ const hostBase = "";
 const router = createRouter({
   history: createWebHistory("/_vitehub/"),
   routes: [
-    { component: ConsoleEnv, name: "vitehub-console-env", path: "/env", meta: { consoleSection: "env", title: "Env · ViteHub Console" }, props: { agentsBase: "/api/_vitehub/console/agents", definitionsBase: "/api/_vitehub/console/definitions", kvBase: "/api/_vitehub/console/kv", envBase: "/api/_vitehub/console/env", searchBase: "/api/_vitehub/console/search", sectionsBase } },
+    { component: ConsoleEnv, name: "vitehub-console-env", path: "/env", meta: { consoleSection: "env", title: "Env · ViteHub Console" }, props: { agentsBase: "/api/_vitehub/console/agents", definitionsBase: "/api/_vitehub/console/definitions", kvBase: "/api/_vitehub/console/kv", envBase: "/api/_vitehub/console/env", managementBase: "/_vitehub/env/manage", searchBase: "/api/_vitehub/console/search", sectionsBase } },
     {
       component: ConsoleHome,
       name: "vitehub-console",

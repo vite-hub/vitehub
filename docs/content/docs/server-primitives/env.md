@@ -102,7 +102,7 @@ Pass Integration Options to `hubEnv()`.
 | `projectRoot` | `string` | ViteHub project root | Resolves generated files and package import updates from a custom project root. |
 | `providers` | `Record<string, string>` | None | Maps runtime provider names to application module specifiers. Relative specifiers resolve from the ViteHub project root. |
 | `runtimeImports.secret` | `string` | `@vite-hub/env/secret` | Replaces the type import used for `SecretEnv` in generated Server Env modules. Framework integrations can point generated code at their runtime-owned entry point. |
-| `runtimeImports.server` | `string` | `@vite-hub/env/server` | Replaces the runtime facade used by generated Server Env modules. The facade must export `resolveServerEnv`, `loadServerEnv`, and `inspectServerEnv`, and the `EnvAccessContext` type used by generated declarations. Management uses `@vite-hub/env/server` directly. Framework integrations can point generated code at their runtime-owned entry point. |
+| `runtimeImports.server` | `string` | `@vite-hub/env/server` | Replaces the runtime facade used by generated Server Env modules. The facade must export `resolveServerEnv`, `loadServerEnv`, and `inspectServerEnv`, and the `EnvAccessContext` type used by generated declarations. Export `createServerEnvManagement` to enable credential management; without it, the other Env operations still work. Framework integrations can point generated code at their runtime-owned entry point. |
 
 ## Env config sections
 
@@ -242,11 +242,11 @@ This GitHub token authenticates application-owned Source materialization; it is 
 
 `useServerEnv()` remains synchronous for host and literal values. In a mixed registry those fields remain readable, but accessing a provider-backed field through `useServerEnv()` throws `ENV_ASYNC_REQUIRED`; use `loadServerEnv()` for the complete snapshot. `runWithServerEnv()` also loads the complete async snapshot before invoking its callback.
 
-`describeServerEnv()` returns declaration paths, source kinds, provider aliases, secret flags, required flags, and whether a default exists. It never resolves values or calls provider `read()`. Use it for inventory. Default values, source variable names, provider keys, and provider module paths are omitted. The Console Env section uses this metadata and inherits Console access protection.
+`describeServerEnv()` returns declaration paths, source kinds, provider aliases, secret flags, required flags, and whether a default exists. It never resolves values or calls provider `read()`. Use it for inventory. Default values, source variable names, provider keys, and provider module paths are omitted. The Console Env section uses this metadata and inherits Console access protection. A provider with Env Bridge management also offers masked previews and runtime replacement in its detail panel. Administrators can view persisted activity and manage per-credential grants. These controls additionally enforce the provider's authentication and permissions; host variables stay read-only.
 
 `inspectServerEnv()` uses the same provider load boundary and reports only declaration paths, source kinds, masking, and `available`, `defaulted`, `missing`, `invalid`, or `error` status. It never includes values, hashes, lengths, provider keys, or provider failure text. This is the safe primitive for future CLI and Console projections.
 
-Provider reads are read-only and receive the caller's abort signal. ViteHub does not add writes, rotation commands, watches, leases, or cross-request caches. Providers must not import the generated Server Env module; use the local `env` snapshot passed to `read()` for bootstrap credentials.
+Provider reads are read-only and receive the caller's abort signal. For managed credentials, [Env Bridge](/docs/server-primitives/env-bridge) adds conditional replacement, scoped access, and durable activity. Env resolution does not add watches, leases, or cross-request caches. Providers must not import the generated Server Env module; use the local `env` snapshot passed to `read()` for bootstrap credentials.
 
 ## Structured errors
 

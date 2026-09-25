@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest"
 import { consoleKVKey, consoleEnvKey, consoleEnvRootKey, consoleEnvRegistryKey, consoleSectionsKey, consoleSectionsRootKey, consoleSectionsRegistryKey, installConsoleEnvScope, resolveConsoleEnv } from "../src/console/internal.ts"
 import { writeConsoleNitroPlugin } from "../src/console/plugin.ts"
 import type { ConsoleInvocationScope } from "../src/console/internal.ts"
-import { installConsoleEnv } from "../src/console/runtime/server/env.ts"
+import { installConsoleEnv, manageConsoleEnv } from "../src/console/runtime/server/env.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import envHandler from "../src/console/runtime/server/env.get.ts"
 
@@ -30,6 +30,19 @@ describe("Console Env", () => {
     installConsoleEnv("/env-test", metadata)
     expect(envHandler({ method: "GET" })).toEqual(metadata)
     expect(() => envHandler({ method: "POST" })).toThrow("Method not allowed")
+  })
+  it("preserves the authenticated request and keeps management out of metadata", async () => {
+    installConsoleSections("/env-test", ["env"])
+    const request = new Request("https://app.test/_vitehub/env/manage", { method: "POST", headers: { cookie: "session=test", origin: "https://app.test" }, body: JSON.stringify({ action: "inspect", path: "env.server.token" }) })
+    let received: Request | undefined
+    installConsoleEnv("/env-test", { entries: [] }, async value => { received = value; return Response.json({ ok: true }) })
+    expect(envHandler({ method: "GET" })).toEqual({ entries: [] })
+    expect(await (await manageConsoleEnv(request)).json()).toEqual({ ok: true })
+    expect(received).toBe(request)
+    expect(received?.headers.get("cookie")).toBe("session=test")
+    expect(await received?.json()).toEqual({ action: "inspect", path: "env.server.token" })
+    installConsoleSections("/env-test", [])
+    expect((await manageConsoleEnv(request)).status).toBe(404)
   })
   it("rejects requests when Env is disabled", () => {
     installConsoleSections("/env-test", [])
