@@ -5,7 +5,7 @@ import { execFile } from "node:child_process"
 import { promisify } from "node:util"
 import { lock } from "proper-lockfile"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { closeBrowserRuntimeSession, browserRuntimeEnvironment, prepareBrowserRuntime, provideBrowserRuntimeEnvironment, resetBrowserRuntimePreparationForTest } from "../src/internal/browser-runtime.ts"
+import { closeBrowserRuntimeSession, browserRuntimeEnvironment, prepareBrowserRuntime, provideBrowserRuntimeEnvironment } from "../src/internal/browser-runtime.ts"
 import { createAgentInvocationContextStore } from "../src/invocation-context.ts"
 
 vi.mock("node:fs/promises", async (importOriginal) => {
@@ -42,7 +42,6 @@ const skill=path.join(prefix,'node_modules','agent-browser','skills','agent-brow
 
 afterEach(async () => {
   vi.mocked(lock).mockClear()
-  resetBrowserRuntimePreparationForTest()
   vi.unstubAllEnvs()
   await Promise.all(roots.splice(0).map(root => rm(root, { force: true, recursive: true })))
 })
@@ -148,7 +147,6 @@ describe("browser runtime", () => {
     await writeFile(join(abandoned, "partial-browser"), "interrupted payload")
     await mkdir(unrelated)
     await writeFile(join(unrelated, "keep"), "other runtime")
-    resetBrowserRuntimePreparationForTest()
 
     await prepareBrowserRuntime(options)
 

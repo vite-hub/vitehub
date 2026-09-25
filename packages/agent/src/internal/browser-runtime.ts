@@ -534,11 +534,6 @@ export function prepareBrowserRuntime(options: BrowserRuntimePreparationOptions 
   })
 }
 
-export function resetBrowserRuntimePreparationForTest(): void {
-  preparations.clear()
-  socketDirectoryReferences.clear()
-}
-
 export function provideBrowserRuntimeEnvironment(context: AgentInvocationContextStore, environment: Readonly<Record<string, string>>): void {
   browserRuntimeEnvironments.set(context, environment)
 }
