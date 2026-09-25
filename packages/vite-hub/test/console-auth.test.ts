@@ -5,11 +5,11 @@ import { DatabaseSync } from "node:sqlite"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { defineAuth } from "@vite-hub/auth"
-import { requireAuthAccessRoutes } from "@vite-hub/auth/server"
+import { handleAuthRequest, requireAuthAccessRoutes } from "@vite-hub/auth/server"
 import { describe, expect, it } from "vitest"
 import { build } from "esbuild"
 
-import { createConsoleAuthDefinition, defineConsoleAuth, prepareConsoleAuth } from "../src/console/auth.ts"
+import { consoleAuthDeniedResponse, createConsoleAuthDefinition, defineConsoleAuth, prepareConsoleAuth } from "../src/console/auth.ts"
 import { resolveConsoleAuthConfig, writeConsoleAuthHandlers } from "../src/console/auth-build.ts"
 import { consoleVitePlugin } from "../src/console/vite.ts"
 import signedOutHandler from "../src/console/runtime/server/signed-out.get.ts"
@@ -109,6 +109,65 @@ describe("independent Console Auth", () => {
     }
   })
 
+  it("lets a denied signed-in account switch accounts without opening Console APIs", async () => {
+    const database = new DatabaseSync(":memory:")
+    try {
+      const input = defineConsoleAuth({
+        auth: defineAuth(() => ({
+          baseURL: "https://example.com",
+          database,
+          emailAndPassword: { enabled: true },
+          secret: "test-secret-at-least-32-bytes-long",
+          socialProviders: { github: { clientId: "test-client", clientSecret: "test-secret" } },
+        })),
+        authorize: ({ user }) => user.email === "allowed@example.com",
+        signIn: { provider: "github" },
+      })
+      const definition = createConsoleAuthDefinition(input, "/portal/")
+      const signUp = new Request("https://example.com/portal/api/_vitehub/console/auth/sign-up/email", {
+        body: JSON.stringify({ email: "denied@example.com", name: "Denied User", password: "passwordpassword" }),
+        headers: { "content-type": "application/json", origin: "https://example.com" },
+        method: "POST",
+      })
+      await prepareConsoleAuth(input, definition, signUp)
+      const signUpResponse = await handleAuthRequest(definition, signUp)
+      expect(signUpResponse.status).toBe(200)
+      const cookie = signUpResponse.headers.getSetCookie().map(value => value.split(";")[0]).join("; ")
+      expect(cookie).toContain("vitehub_console.session_token")
+
+      const pageRequest = new Request("https://example.com/portal/_vitehub", {
+        headers: { accept: "text/html", cookie },
+      })
+      const denied = await requireAuthAccessRoutes(pageRequest, [0], definition, [0])
+      expect(denied?.status).toBe(403)
+      const page = consoleAuthDeniedResponse(pageRequest, denied, "/portal/")
+      expect(page?.status).toBe(403)
+      expect(page?.headers.get("content-security-policy")).toContain("script-src 'nonce-")
+      const html = await page?.text()
+      expect(html).toContain("Switch account")
+      expect(html).toContain('fetch("/portal/api/_vitehub/console/auth/sign-out"')
+      expect(html).toContain('window.location.assign("/portal/_vitehub/signed-out?denied=1")')
+
+      const apiRequest = new Request("https://example.com/portal/api/_vitehub/console/status", {
+        headers: { accept: "application/json", cookie },
+      })
+      const apiDenied = await requireAuthAccessRoutes(apiRequest, [1], definition, [1])
+      expect(consoleAuthDeniedResponse(apiRequest, apiDenied, "/portal/")).toBe(apiDenied)
+      expect(apiDenied?.status).toBe(403)
+
+      const signOut = await handleAuthRequest(definition, new Request("https://example.com/portal/api/_vitehub/console/auth/sign-out", {
+        body: "{}",
+        headers: { "content-type": "application/json", cookie, origin: "https://example.com" },
+        method: "POST",
+      }))
+      expect(signOut.status).toBe(200)
+      expect(signOut.headers.getSetCookie().join("; ")).toContain("vitehub_console.session_token=")
+    }
+    finally {
+      database.close()
+    }
+  })
+
   it("generates a guarded Console route without app Auth discovery", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-auth-handlers-"))
     try {
@@ -172,7 +231,7 @@ describe("independent Console Auth", () => {
             plugin.onLoad({ filter: /.*/, namespace: "test-console-auth" }, (args) => ({
               contents: args.path === "#vitehub/auth/server"
                 ? 'export function requireAuthAccessRoutes(event, indexes) { globalThis[Symbol.for("test.console.auth.calls")].push([event.url.pathname, indexes[0]]); return new Response("guarded", {status: 401}) }'
-                : "export function createConsoleAuthDefinition() { return {} }; export function prepareConsoleAuth() {}",
+                : "export function createConsoleAuthDefinition() { return {} }; export function prepareConsoleAuth() {}; export function consoleAuthDeniedResponse(_request, response) { return response }",
               loader: "js",
             }))
           },
@@ -239,6 +298,8 @@ describe("independent Console Auth", () => {
     expect(response.status).toBe(200)
     expect(response.headers.get("cache-control")).toBe("no-store")
     expect(await response.text()).toContain('href="/portal/_vitehub"')
+    const denied = signedOutHandler({ req: { url: "https://example.com/portal/_vitehub/signed-out?denied=1" } })
+    expect(await denied.text()).toContain("Choose a different account with your sign-in provider")
   })
 
   it("rejects inline SQLite auth on Cloudflare while allowing file-based auth", async () => {

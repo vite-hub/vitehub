@@ -4,6 +4,82 @@ import { consoleAuthPath } from "./auth-path.ts"
 
 export const consoleAuthBasePath = "/api/_vitehub/console/auth"
 
+export function consoleAuthDeniedResponse(request: Request, response: Response | undefined, mountBaseURL = "/"): Response | undefined {
+  if (
+    response?.status !== 403
+    || request.method !== "GET"
+    || !request.headers.get("accept")?.includes("text/html")
+    || !response.headers.get("content-type")?.startsWith("text/plain")
+  ) return response
+
+  const signOutPath = consoleAuthPath(mountBaseURL, `${consoleAuthBasePath}/sign-out`)
+  const signedOutPath = consoleAuthPath(mountBaseURL, "/_vitehub/signed-out?denied=1")
+  const signOutLiteral = JSON.stringify(signOutPath).replaceAll("<", "\\u003c")
+  const signedOutLiteral = JSON.stringify(signedOutPath).replaceAll("<", "\\u003c")
+  const nonce = crypto.randomUUID()
+  const script = `
+    const button = document.querySelector("button");
+    const error = document.querySelector("[role=alert]");
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      error.hidden = true;
+      try {
+        const response = await fetch(${signOutLiteral}, {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "content-type": "application/json" },
+          body: "{}",
+        });
+        if (!response.ok) throw new Error("Sign-out failed");
+        window.location.assign(${signedOutLiteral});
+      } catch {
+        error.hidden = false;
+        button.disabled = false;
+      }
+    });
+  `
+  const page = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow">
+    <title>Access denied · ViteHub Console</title>
+    <style>
+      :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+      body { min-height: 100dvh; margin: 0; display: grid; place-items: center; background: light-dark(#fafafa, #0a0a0a); color: light-dark(#171717, #f5f5f5); }
+      main { width: min(24rem, calc(100% - 3rem)); }
+      h1 { margin: 0 0 .5rem; font-size: 1.5rem; font-weight: 600; }
+      p { color: light-dark(#525252, #a3a3a3); line-height: 1.5; }
+      button { min-height: 2.5rem; padding: 0 1rem; border: 0; border-radius: .5rem; background: light-dark(#171717, #f5f5f5); color: light-dark(#fff, #171717); font: inherit; font-weight: 500; cursor: pointer; }
+      button:disabled { opacity: .6; cursor: wait; }
+      button:focus-visible { outline: 2px solid #3b82f6; outline-offset: 3px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Access denied</h1>
+      <p>This account cannot access the ViteHub Console.</p>
+      <button type="button">Switch account</button>
+      <p role="alert" hidden>Could not sign out. Try again.</p>
+    </main>
+    <script nonce="${nonce}">${script}</script>
+  </body>
+</html>`
+  return new Response(page, {
+    headers: {
+      "cache-control": "no-store",
+      "content-security-policy": `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
+      "content-type": "text/html; charset=utf-8",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY",
+      "x-robots-tag": "noindex, nofollow",
+    },
+    status: 403,
+  })
+}
+
 export interface ConsoleAuthDefinition {
   auth: AuthDefinition
   authorize: AuthAccessAuthorize

@@ -10,6 +10,8 @@ function signInPath(event: ConsoleRequestEvent): string {
 
 export default function consoleSignedOutHandler(event: ConsoleRequestEvent): Response {
   const signIn = signInPath(event)
+  const requestURL = event.req?.url ?? event.node?.req?.url ?? "/_vitehub/signed-out"
+  const denied = new URL(String(requestURL), "http://localhost").searchParams.has("denied")
   const page = `<!doctype html>
 <html lang="en">
   <head>
@@ -30,7 +32,9 @@ export default function consoleSignedOutHandler(event: ConsoleRequestEvent): Res
   <body>
     <main>
       <h1>Signed out</h1>
-      <p>Your ViteHub Console session has ended.</p>
+      <p>${denied
+        ? "Your Console session has ended. Choose a different account with your sign-in provider before signing in again."
+        : "Your ViteHub Console session has ended."}</p>
       <a href="${signIn}">Sign in again</a>
     </main>
   </body>

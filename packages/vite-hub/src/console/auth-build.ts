@@ -132,6 +132,7 @@ export async function writeConsoleAuthHandlers(root: string, config: ResolvedCon
     ].join("\n")),
     writeFileIfChanged(middleware, [
       'import { requireAuthAccessRoutes } from "#vitehub/auth/server"',
+      'import { consoleAuthDeniedResponse } from "vite-hub/console/auth"',
       'import { definition, prepare } from "./auth-definition.mjs"',
       "export default async function viteHubConsoleAuthMiddleware(event) {",
       `  const mountBase = ${JSON.stringify(mountBase)}`,
@@ -141,7 +142,7 @@ export async function writeConsoleAuthHandlers(root: string, config: ResolvedCon
       "  if (path === '/_vitehub/signed-out') return",
       "  if (!(path === '/_vitehub' || path.startsWith('/_vitehub/') || path === '/api/_vitehub/console' || path.startsWith('/api/_vitehub/console/'))) return",
       "  await prepare(event)",
-      "  if (path === '/_vitehub' || path.startsWith('/_vitehub/')) return requireAuthAccessRoutes(event, [0], definition, [0])",
+      "  if (path === '/_vitehub' || path.startsWith('/_vitehub/')) return consoleAuthDeniedResponse(event.req, await requireAuthAccessRoutes(event, [0], definition, [0]), mountBase)",
       "  if (path === '/api/_vitehub/console' || path.startsWith('/api/_vitehub/console/')) return requireAuthAccessRoutes(event, [1], definition, [1])",
       "}",
       "",
