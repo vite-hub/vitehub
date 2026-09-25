@@ -623,7 +623,7 @@ async function applyNitroConfig(
       alias: nuxt.options.alias,
     },
     root: nuxt.options.rootDir || process.cwd(),
-  }, nuxt.options.vite ?? {}) as UserConfig & {
+  }, nuxt.options.vite ?? {}) as UserConfig & EnvViteUserConfig & {
     [VITEHUB_GENERATED_ROOT]?: string
     [VITEHUB_NITRO_CONFIG_CONTEXT]?: true
     [VITEHUB_PROJECT_ROOT]?: string
@@ -1070,6 +1070,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       hasReplayedDatabaseDiscoveryRoot,
       replayedDatabaseDiscoveryRoot,
     } = await applyNitroConfig(replayPlugins, config, nuxt, projectRoot)
+    if (options.env !== false) await envPlugin?.api?.prepareTypes?.(replayConfig.env, viteRoot)
     consoleWorkflowConfigResolved = true
     if (options.console) {
       if (options.console !== true && options.console.access === "auth" && options.console.auth) {
