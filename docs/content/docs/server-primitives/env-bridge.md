@@ -109,7 +109,7 @@ Each grant targets one actor kind, actor ID, and store key. Permissions are inde
 | `replace` | Conditional replacement of the stored value. |
 | `use` | Runtime resolution or a trusted `bridge.use()` operation. |
 
-Console details require `inspect`; include it with `preview` or `replace` grants when people use those controls. Administrators manage grants and read activity. An agent's token scope is an additional ceiling over its durable grants. Revocation takes effect on the next permission check; it cannot retract a secret already resolved by an operation.
+Console discovers management only when you choose **Manage credential** in provider details. Preview access works independently. Replacement controls also require `inspect` so Console can obtain the revision for a conditional write. Administrators manage grants and read activity. An agent's token scope is an additional ceiling over its durable grants. Revocation takes effect on the next permission check; it cannot retract a secret already resolved by an operation.
 
 Previews are disabled unless the store enables them. The SQLite adapter stores four leading and four trailing characters only for token-shaped values longer than 12 characters. Short and structured secrets have no preview. Treat previews as sensitive metadata when deciding who receives `preview` access and who can inspect the database.
 

@@ -3,6 +3,7 @@ import { onMounted, ref } from "vue";
 import * as v from "valibot";
 import {
   envInspectionSchema,
+  envPermissionSchema,
   envMetadataSchema,
   requestEnvManagement,
 } from "../client/env-management";
@@ -11,6 +12,11 @@ import ConsoleEnvActivity from "./console-env-activity.vue";
 import ConsoleEnvAccess from "./console-env-access.vue";
 const props = defineProps<{ endpoint: string; path: string }>();
 const readonly = ref(false);
+const permissionsSchema = v.object({
+  permissions: v.array(envPermissionSchema),
+  admin: v.boolean(),
+});
+const access = ref<v.InferOutput<typeof permissionsSchema>>();
 const inspection = ref<v.InferOutput<typeof envInspectionSchema>>();
 const preview = ref<string>();
 const value = ref("");
@@ -32,20 +38,32 @@ async function run(action: () => Promise<void>) {
 }
 async function inspect() {
   preview.value = undefined;
-  try {
-    inspection.value = await requestEnvManagement(
-      props.endpoint,
-      props.path,
-      "inspect",
-      envInspectionSchema,
-    );
-  } catch (cause) {
-    if (cause instanceof ConsoleRequestError && cause.status === 404) readonly.value = true;
-    else throw cause;
-  }
+  inspection.value = undefined;
+  inspection.value = await requestEnvManagement(
+    props.endpoint,
+    props.path,
+    "inspect",
+    envInspectionSchema,
+  );
 }
 function load() {
-  return run(inspect);
+  return run(async () => {
+    access.value = undefined;
+    inspection.value = undefined;
+    preview.value = undefined;
+    try {
+      access.value = await requestEnvManagement(
+        props.endpoint,
+        props.path,
+        "permissions",
+        permissionsSchema,
+      );
+      if (access.value.permissions.includes("inspect")) await inspect();
+    } catch (cause) {
+      if (cause instanceof ConsoleRequestError && cause.status === 404) readonly.value = true;
+      else throw cause;
+    }
+  });
 }
 function showPreview() {
   return run(async () => {
@@ -60,6 +78,12 @@ function showPreview() {
   });
 }
 function replace() {
+  if (
+    !inspection.value ||
+    !access.value?.permissions.includes("inspect") ||
+    !access.value.permissions.includes("replace")
+  )
+    return;
   return run(async () => {
     const result = await requestEnvManagement(
       props.endpoint,
@@ -69,21 +93,30 @@ function replace() {
       { value: value.value, expectedRevision: inspection.value?.metadata?.revision ?? null },
     );
     value.value = "";
-    await inspect();
+    preview.value = undefined;
     notice.value =
       result.activation === "next-resolution"
         ? "Saved. New resolutions use this value; existing clients keep their loaded value."
         : result.activation === "restart"
           ? "Saved. Restart the application to activate this value."
           : "Saved. Deploy the application to activate this value.";
+    try {
+      await inspect();
+    } catch {
+      error.value =
+        "Saved, but credential details could not be refreshed. Reload before replacing it again.";
+    }
   });
 }
 onMounted(load);
 </script>
 
 <template>
-  <div v-if="!readonly" class="mt-8 space-y-4 border-t border-default pt-5">
-    <div v-if="inspection?.admin" class="flex gap-2" aria-label="Credential views">
+  <p v-if="readonly" class="mt-5 text-sm text-muted">
+    This provider is read-only in Console. Manage values in the connected store.
+  </p>
+  <div v-else class="mt-8 space-y-4 border-t border-default pt-5">
+    <div v-if="access?.admin" class="flex gap-2" aria-label="Credential views">
       <UButton
         v-for="item in [
           { value: 'credential', label: 'Credential' },
@@ -110,7 +143,9 @@ onMounted(load);
                 : "No stored value"
               : busy
                 ? "Loading credential…"
-                : "Credential unavailable"
+                : access && !access.permissions.includes("inspect")
+                  ? "Metadata inspection is not available for this identity."
+                  : "Credential unavailable"
           }}
         </p>
         <UButton label="Reload" color="neutral" variant="ghost" :loading="busy" @click="load" />
@@ -118,7 +153,7 @@ onMounted(load);
       <p v-if="inspection?.metadata" class="text-xs text-muted">
         Updated {{ new Date(inspection.metadata.updatedAt).toLocaleString() }}
       </p>
-      <div v-if="inspection?.permissions.includes('preview')" class="flex items-center gap-3">
+      <div v-if="access?.permissions.includes('preview')" class="flex items-center gap-3">
         <code v-if="preview" class="break-all text-sm">{{ preview }}</code>
         <UButton
           :label="preview ? 'Hide preview' : 'Show masked preview'"
@@ -129,7 +164,11 @@ onMounted(load);
         />
       </div>
       <form
-        v-if="inspection?.permissions.includes('replace')"
+        v-if="
+          inspection &&
+          access?.permissions.includes('inspect') &&
+          access.permissions.includes('replace')
+        "
         class="space-y-3"
         @submit.prevent="replace"
       >
@@ -146,12 +185,12 @@ onMounted(load);
       </form>
     </template>
     <ConsoleEnvActivity
-      v-else-if="tab === 'activity' && inspection?.admin"
+      v-else-if="tab === 'activity' && access?.admin"
       :endpoint="endpoint"
       :path="path"
     />
     <ConsoleEnvAccess
-      v-else-if="tab === 'access' && inspection?.admin"
+      v-else-if="tab === 'access' && access?.admin"
       :endpoint="endpoint"
       :path="path"
     />
