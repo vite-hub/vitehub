@@ -2876,7 +2876,9 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
           if (!await githubPullRequestMatchesFilter(optionsForFilter, payload, app, context)) return optionsForFilter.ignored?.("filtered") || ignored("filtered")
         }
         const activityTarget = githubOpenedPullRequestActivityTarget(input, payload)
-        if (activity && activityTarget) {
+        const openedEnabled = !options.reconcile || options.reconcile === true
+          || !Array.isArray(options.reconcile.events) || options.reconcile.events.includes("opened")
+        if (activity && activityTarget && openedEnabled) {
           const queuedActivity: AgentActivityUpdate = {
             links: [],
             runId: activityTarget.deliveryId || `github:pull_request.opened:${activityTarget.repository}#${activityTarget.issue}`,
