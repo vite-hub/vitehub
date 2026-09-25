@@ -86,6 +86,7 @@ export function createEnvBridgeHandler(
       const { bridge } = target.management;
       const key = target.key;
       switch (input.action) {
+        case "permissions": return response({ permissions: await bridge.permissions(context, key), admin: Boolean(context.admin && !context.scope) });
         case "inspect":
           return response({
             metadata: (await bridge.inspect(context, key)) ?? null,
