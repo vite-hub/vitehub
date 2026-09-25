@@ -1,3 +1,4 @@
+export type { EnvAccessContext } from "./bridge.ts"
 import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { isViteHubError } from "@vite-hub/runtime"
 
@@ -7,6 +8,8 @@ import {
   invalidRuntimeEnvValue,
   missingRequiredEnv,
 } from "./core/errors.ts"
+import { createEnvBridgeHandler } from "./http.ts"
+import type { EnvManagement } from "./http.ts"
 import { SecretEnv } from "./secret.ts"
 
 import type {
@@ -258,7 +261,7 @@ function createProviderLoads(
     const keys = Object.freeze([...requested])
     const load = Promise.resolve()
       .then(() => providerFor(name, options.providers))
-      .then(provider => readProvider(provider, { env: localEnv, keys, signal: options.signal }, options.signal))
+      .then(provider => readProvider(provider, { env: localEnv, keys, signal: options.signal, ...(options.access ? { access: options.access } : {}) }, options.signal))
       .then(value => normalizeProviderValues(value, keys))
       .catch((cause) => {
         if (options.signal?.aborted) throw abortReason(options.signal)
@@ -414,7 +417,7 @@ export async function loadServerEnv<TServerEnv extends Record<string, unknown> =
 }
 
 /** Describe declarations without loading host values or calling providers. */
-export function describeServerEnv(registry: EnvRuntimeRegistry): ServerEnvDescription {
+export function describeServerEnv(registry: EnvRuntimeRegistry, providers?: EnvProviders): ServerEnvDescription {
   const entries: ServerEnvDescriptionEntry[] = []
   function visit(value: unknown, path: string): void {
     if (isRuntimeLiteralEntry(value)) {
@@ -426,13 +429,14 @@ export function describeServerEnv(registry: EnvRuntimeRegistry): ServerEnvDescri
         ...inspectionPath(path),
         source: value.source.kind,
         ...(isRuntimeProviderEntry(value) && /^[A-Za-z0-9_-]{1,64}$/.test(value.source.provider) ? { provider: value.source.provider } : {}),
+        ...(isRuntimeProviderEntry(value) && providers && Object.hasOwn(providers, value.source.provider) && providers[value.source.provider]?.management ? { managed: true } : {}),
         secret: value.secret,
         required: value.required,
         hasDefault: value.default !== undefined,
       })
       return
     }
-    if (isRecord(value)) for (const [key, child] of Object.entries(value)) visit(child, `${path}.${key}`)
+    if (isRecord(value)) for (const [key, child] of Object.entries(value)) visit(child, `${path}.${key.includes(".") ? "!" : ""}${key}`)
   }
   visit(registry, "env.server")
   return { entries }
@@ -453,4 +457,22 @@ export async function inspectServerEnv(
   await inspectRegistryValue(registry, env, options, loads, "env.server", entries)
   if (options.signal?.aborted) throw abortReason(options.signal)
   return Object.freeze({ entries: Object.freeze(entries.map(entry => Object.freeze(entry))) })
+}
+
+/** Limit management to safe, declared provider paths. Host variables stay read-only. */
+export function createServerEnvManagement(registry: EnvRuntimeRegistry, providers: EnvProviders): (request: Request) => Promise<Response> {
+  const targets = new Map<string, { key: string; management: EnvManagement }>()
+  function visit(value: unknown, path: string): void {
+    if (isRuntimeProviderEntry(value)) {
+      const management = Object.hasOwn(providers, value.source.provider) ? providers[value.source.provider]?.management : undefined
+      if (inspectionPath(path).path && management) targets.set(path, { key: value.source.key, management })
+      return
+    }
+    if (isRuntimeEnvEntry(value) || isRuntimeLiteralEntry(value)) return
+    if (isRecord(value)) for (const [key, child] of Object.entries(value)) {
+      if (/^[A-Za-z_$][A-Za-z0-9_$-]{0,63}$/.test(key)) visit(child, `${path}.${key}`)
+    }
+  }
+  visit(registry, "env.server")
+  return createEnvBridgeHandler(path => targets.get(path))
 }

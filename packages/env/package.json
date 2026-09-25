@@ -30,6 +30,22 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./auth": {
+      "types": "./dist/auth.d.ts",
+      "import": "./dist/auth.js"
+    },
+    "./bridge": {
+      "types": "./dist/bridge.d.ts",
+      "import": "./dist/bridge.js"
+    },
+    "./database": {
+      "types": "./dist/database.d.ts",
+      "import": "./dist/database.js"
+    },
+    "./http": {
+      "types": "./dist/http.d.ts",
+      "import": "./dist/http.js"
+    },
     "./presets": {
       "types": "./dist/presets.d.ts",
       "import": "./dist/presets.js"
@@ -76,13 +92,19 @@
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
-    "vitest": "catalog:tooling"
+    "vitest": "catalog:tooling",
+    "drizzle-orm": "catalog:database",
+    "@libsql/client": "catalog:database"
   },
   "peerDependencies": {
-    "vite": "catalog:vite-compat"
+    "vite": "catalog:vite-compat",
+    "drizzle-orm": "catalog:database"
   },
   "peerDependenciesMeta": {
     "vite": {
+      "optional": true
+    },
+    "drizzle-orm": {
       "optional": true
     }
   },
