@@ -22,6 +22,19 @@ describe("Console invocation input", () => {
     })
   })
 
+  it.each([
+    [".", "~002e"],
+    ["..", "~002e002e"],
+    ["team/support", "~007400650061006d002f0073007500700070006f00720074"],
+  ])("starts Agent %j through one canonical route segment", async (agent, segment) => {
+    vi.mocked(requestConsole).mockReset().mockResolvedValueOnce({ id: "invocation" })
+    await expect(startConsoleAgentInvocation({ agent, base: "/api/_vitehub/console/agents" }, { text: "Review" }))
+      .resolves.toEqual({ agent, id: "invocation" })
+    const path = `/api/_vitehub/console/agents/${segment}/invocations`
+    expect(requestConsole).toHaveBeenCalledExactlyOnceWith(path, { body: { prompt: "Review" }, method: "POST" })
+    expect(new URL(path, "https://console.test").pathname).toBe(path)
+  })
+
   it.each(["agent", "base", "invokerProfileId"] as const)("invalidates a pending result when %s changes away and back", (field) => {
     const scope = effectScope()
     try {

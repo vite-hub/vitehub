@@ -42,6 +42,7 @@ import { serializeConsoleRefresh } from "../src/console/refresh.ts"
 import { consoleFixtureEnvironmentVariable, consoleFixtureFallbackAgentName, consoleFixtureRevision, parseConsoleFixture } from "../src/console/fixture.ts"
 import agentsHandler from "../src/console/runtime/server/agents.get.ts"
 import agentInvocationsHandler from "../src/console/runtime/server/agent-invocations.post.ts"
+import { encodeAgentRouteParam } from "../src/console/runtime/console-route.ts"
 import { installConsoleAgentDefinitions, installConsoleAgents } from "../src/console/runtime/server/agents.ts"
 import { createConsoleFixtureInvocations, createConsoleInvocations, getConsoleInvocationsDatabase, installConsoleFixtureInvocations, installConsoleInvocations, resolveConsoleDatabaseOptions } from "../src/console/runtime/server/invocations.ts"
 import { console as consoleRuntime } from "../src/console/server.ts"
@@ -1950,7 +1951,7 @@ describe("Agent invocation console", () => {
     }
   })
 
-  it("starts an enabled Agent invocation with a selected profile", async () => {
+  it.each(["support", ".", "team/support"])("starts an enabled Agent invocation for %j", async (name) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-invoke-agent-"))
     try {
       const definition = defineAgent({
@@ -1958,32 +1959,33 @@ describe("Agent invocation console", () => {
         invoker: {
           profiles: [{ id: "support", kind: "person", label: "Support agent" }],
         },
-        name: "support",
+        name,
       })
       installConsoleAgentDefinitions([
         { definition: { default: definition }, fallbackName: "help" },
       ], { invoke: true, projectRoot: root })
       const response = { headers: new Headers() }
+      const segment = encodeAgentRouteParam(name)
       const invocation = await agentInvocationsHandler({
-        context: { params: { agent: "support" } },
+        context: { params: { agent: segment } },
         method: "POST",
         req: {
           json: async () => ({ invokerProfileId: "support", prompt: " Test this Agent " }),
           method: "POST",
-          url: "http://localhost/api/_vitehub/console/agents/support/invocations",
+          url: `http://localhost/api/_vitehub/console/agents/${segment}/invocations`,
         },
         res: response,
       })
 
       expect(invocation).toMatchObject({
-        agent: "support",
+        agent: name,
         id: expect.any(String),
-        url: expect.stringContaining("/_vitehub/agents/support/invocations/"),
+        url: expect.stringContaining(`/_vitehub/agents/${segment}/invocations/`),
       })
       expect(Reflect.get(response, "status")).toBe(202)
       await vi.waitFor(async () => {
         await expect(definition.invocations?.get(invocation.id)).resolves.toMatchObject({
-          agentName: "support",
+          agentName: name,
           status: "completed",
         })
       })

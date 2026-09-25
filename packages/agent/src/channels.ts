@@ -2877,15 +2877,17 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
         }
         const activityTarget = githubOpenedPullRequestActivityTarget(input, payload)
         if (activity && activityTarget) {
+          const queuedActivity: AgentActivityUpdate = {
+            links: [],
+            runId: activityTarget.deliveryId || `github:pull_request.opened:${activityTarget.repository}#${activityTarget.issue}`,
+            status: "queued",
+            tasks: [],
+          }
+          const agentName = context.agentName || context.agentIdentity?.name
+          if (agentName) queuedActivity.agentName = agentName
           const update = Promise.resolve(activity.update({
             ...context,
-            activity: {
-              ...(context.agentName || context.agentIdentity?.name ? { agentName: context.agentName || context.agentIdentity?.name } : {}),
-              links: [],
-              runId: activityTarget.deliveryId || `github:pull_request.opened:${activityTarget.repository}#${activityTarget.issue}`,
-              status: "queued",
-              tasks: [],
-            },
+            activity: queuedActivity,
             target: {
               issue: activityTarget.issue,
               repository: activityTarget.repository,

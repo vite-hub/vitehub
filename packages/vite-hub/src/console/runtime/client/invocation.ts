@@ -2,6 +2,7 @@ import * as v from "valibot"
 import { watch } from "vue"
 
 import { requestConsole } from "./request.ts"
+import { encodeAgentRouteParam } from "../console-route.ts"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
 import type { FileUIPart } from "ai"
@@ -39,7 +40,7 @@ export async function startConsoleAgentInvocation(
   if (files.length) {
     body.files = files.map(file => ({ url: file.url, filename: file.filename?.slice(0, 255) || "image" }))
   }
-  const response = await requestConsole(`${base}/${encodeURIComponent(agent)}/invocations`, { body, method: "POST" })
+  const response = await requestConsole(`${base}/${encodeURIComponent(encodeAgentRouteParam(agent))}/invocations`, { body, method: "POST" })
   const result = v.safeParse(invocationResultSchema, response)
   if (!result.success) throw viteHubErrorDiagnostics.VITE_HUB_R0102({ message: "The Agent invocation response did not include an id." })
   return { agent, id: result.output.id }

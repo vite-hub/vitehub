@@ -3,7 +3,7 @@ import { agentInvocationId, createMessage, deserializeMessages, isAttachmentPart
 import { createExecutionContext, createRuntimeWaitUntilController } from "@vite-hub/runtime"
 import * as v from "valibot"
 
-import { encodeAgentRouteParam } from "../console-route.ts"
+import { decodeAgentRouteParam, encodeAgentRouteParam } from "../console-route.ts"
 import { console } from "../../server.ts"
 import { consoleAgentInvokerProfiles, getConsoleAgentDefinition } from "./agents.ts"
 import { assertConsoleRequest, consoleRequestJSON, consoleRequestURL, setConsoleResponseStatus } from "./request.ts"
@@ -35,11 +35,13 @@ function agentName(event: ConsoleRequestEvent): string {
   const value = event.context?.params?.agent?.trim()
   if (!value) throw consoleError(400, "Missing Agent name.")
   try {
-    return decodeURIComponent(value)
+    const decoded = decodeAgentRouteParam(decodeURIComponent(value))
+    if (decoded) return decoded
   }
   catch {
-    throw consoleError(400, "Invalid Agent name.")
+    // Invalid percent-encoded route segment.
   }
+  throw consoleError(400, "Invalid Agent name.")
 }
 
 function memo() {
