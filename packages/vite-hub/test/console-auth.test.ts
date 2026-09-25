@@ -216,4 +216,39 @@ describe("independent Console Auth", () => {
       await rm(root, { recursive: true, force: true })
     }
   })
+
+  it("rejects inline SQLite auth on Cloudflare while allowing file-based auth", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-auth-preset-"))
+    try {
+      expect(() => resolveConsoleAuthConfig(root, {
+        provider: "github",
+        allowedEmails: ["maintainer@example.com"],
+        databasePath: "/data/console-auth.sqlite",
+      }, "cloudflare")).toThrow("requires the Node deployment preset")
+
+      const plugin = consoleVitePlugin({
+        console: {
+          access: "auth",
+          auth: {
+            provider: "github",
+            allowedEmails: ["maintainer@example.com"],
+            databasePath: "/data/console-auth.sqlite",
+          },
+        },
+        preset: "cloudflare",
+      })
+      const hook = plugin.config
+      if (!hook) throw new TypeError("Expected Console config hook.")
+      const handler = "handler" in hook ? hook.handler : hook
+      await expect(Reflect.apply(handler, {}, [{ root }, { command: "build", mode: "production" }]))
+        .rejects.toThrow("requires the Node deployment preset")
+
+      const server = resolve(root, "server.ts")
+      await writeFile(server, "export default {}")
+      expect(resolveConsoleAuthConfig(root, { server }, "cloudflare")).toEqual({ server })
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
 })

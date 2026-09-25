@@ -294,7 +294,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
         development: environment.command !== "build",
       })
       consoleAuthHandlers = configured !== true && configured.access === "auth" && configured.auth
-        ? await writeConsoleAuthHandlers(root, resolveConsoleAuthConfig(root, configured.auth))
+        ? await writeConsoleAuthHandlers(root, resolveConsoleAuthConfig(root, configured.auth, options.preset))
         : undefined
       projectRoot = resolveViteHubProjectRoot(root)
       const configuredFixture = viteConfig.vitehubCliDiscovery

@@ -2,6 +2,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
+import { build } from "esbuild"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import {
@@ -1587,6 +1588,65 @@ describe("ViteHub Nuxt integration", () => {
     expect(definition).toContain('createConsoleAuthDefinition(input, "/portal/")')
     expect(middleware).toContain('const mountBase = "/portal"')
     expect(nitroHandlerRoutes(nitroOptions(production.nuxt))).toContain("/api/_vitehub/console/auth/**")
+  })
+
+  it("bundles an independent Console Auth handler through the Nitro Auth resolver", async () => {
+    const defaultPlugins = mocks.vitehub()
+    mocks.vitehub.mockReturnValueOnce([
+      defaultPlugins,
+      {
+        name: "@vite-hub/auth/vite",
+        resolveId(id: string) {
+          if (id === "#vitehub/auth/server") return "\0vitehub-test-auth-server"
+        },
+        load(id: string) {
+          if (id === "\0vitehub-test-auth-server") return "export function handleAuthRequest() { return new Response('auth resolver reached') }"
+        },
+      },
+    ])
+    const production = createNuxt(false)
+    await viteHubNuxtModule({
+      console: {
+        access: "auth",
+        auth: {
+          provider: "github",
+          allowedEmails: ["maintainer@example.com"],
+          databasePath: "/data/console-auth.sqlite",
+        },
+      },
+      preset: "node",
+    }, production.nuxt)
+    const nitroConfig = nitroOptions(production.nuxt)
+    await production.runNitroConfigHook(nitroConfig)
+    const rollupConfig = nitroConfig.rollupConfig as { plugins?: Plugin[] }
+    const resolver = rollupConfig.plugins?.find(plugin => plugin.name === "vite-hub/nuxt-runtime-resolver:@vite-hub/auth/vite")
+    expect(resolver).toBeDefined()
+    const resolveId = resolver?.resolveId
+    const load = resolver?.load
+    if (typeof resolveId !== "function" || typeof load !== "function") throw new TypeError("Expected Nitro Auth resolver hooks.")
+
+    const result = await build({
+      bundle: true,
+      entryPoints: ["/tmp/vitehub-nuxt/.vitehub/nitro/console/auth-route.mjs"],
+      format: "esm",
+      packages: "external",
+      platform: "node",
+      write: false,
+      plugins: [{
+        name: "nitro-auth-resolver-test",
+        setup(pluginBuild) {
+          pluginBuild.onResolve({ filter: /^#vitehub\/auth\/server$/ }, async args => ({
+            path: String(await Reflect.apply(resolveId, {}, [args.path, undefined, {}, {}])),
+            namespace: "nitro-auth",
+          }))
+          pluginBuild.onLoad({ filter: /.*/, namespace: "nitro-auth" }, async args => ({
+            contents: String(await Reflect.apply(load, {}, [args.path])),
+            loader: "js",
+          }))
+        },
+      }],
+    })
+    expect(result.outputFiles?.[0]?.text).toContain("auth resolver reached")
   })
 
   it("rejects Auth-backed production Console when replay config disables Auth", async () => {

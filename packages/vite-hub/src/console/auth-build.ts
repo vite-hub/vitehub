@@ -48,8 +48,11 @@ export function resolveConsoleAuthFiles(root: string, config: ConsoleAuthFiles):
   return files
 }
 
-export function resolveConsoleAuthConfig(root: string, config: ConsoleAuthConfig): ResolvedConsoleAuthFiles | InlineConsoleAuth {
+export function resolveConsoleAuthConfig(root: string, config: ConsoleAuthConfig, preset = "node"): ResolvedConsoleAuthFiles | InlineConsoleAuth {
   if ("provider" in config) {
+    if (preset !== "node") {
+      throw new TypeError("[vitehub] Inline Console Auth uses node:sqlite and requires the Node deployment preset. Use a file-based Console Auth Definition for other presets.")
+    }
     if (discoverFile(root, "server")) {
       throw new TypeError("[vitehub] Inline Console Auth conflicts with vitehub/console/auth/server.")
     }
