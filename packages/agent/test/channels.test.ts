@@ -4,8 +4,12 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { describe, expect, it, vi } from "vitest"
+import { encodeRouteSegment } from "@vite-hub/runtime"
 
 import { hasRuntimeType, isRuntimeRecord } from "../src/internal/runtime-type.ts"
+import { defineAgent } from "../src/index.ts"
+import { agentInvocationId } from "../src/invocations.ts"
+import { resolveAgentTriggers } from "../src/trigger-runtime.ts"
 
 function githubIssueCommentPayload(body = "/review please", userType = "User") {
   return {
@@ -1553,12 +1557,8 @@ describe("agent channels", () => {
     await expect(botUpdate.json()).resolves.toMatchObject({ reason: "not_command" })
   })
 
-  it.each(["support", "team/support", "."])("links GitHub activity to the effective Agent identity %j", async (agentName) => {
-    const { defineAgent } = await import("../src/index.ts")
-    const { resolveAgentTriggers } = await import("../src/trigger-runtime.ts")
+  it.each(["support", "team/support", ".", "\uD800"])("links GitHub activity to the effective Agent identity %j", async (agentName) => {
     const { github } = await import("../src/channels.ts")
-    const { agentInvocationId } = await import("../src/invocations.ts")
-    const { encodeRouteSegment } = await import("@vite-hub/runtime")
     const channel = github({
       activity: { publicUrl: "https://agent.example.test" },
       pullRequest: { reconcile: { prompt: "Review this pull request." }, reply: false },

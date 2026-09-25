@@ -32,7 +32,7 @@ describe("Console routes", () => {
     },
   )
 
-  it.each(["Reviewer", "team/support", "計画", ".", "..", "~chat", "chat_bot", "-chat", "chat--bot"])(
+  it.each(["Reviewer", "team/support", "計画", ".", "..", "~chat", "chat_bot", "-chat", "chat--bot", "\uD800", "�"])(
     "round-trips the Agent identity %j through one route segment",
     (agentName) => {
       const encoded = encodeAgentRouteParam(agentName)
@@ -46,7 +46,12 @@ describe("Console routes", () => {
     expect(() => encodeAgentRouteParam(agentName)).toThrowError(expect.objectContaining({ code: "VITE_HUB_R0045" }))
   })
 
-  it.each(["~", "~!", "~YQ", "team/support"])("rejects the invalid route segment %j", (segment) => {
+  it("keeps lone surrogates distinct from replacement characters", () => {
+    expect(encodeAgentRouteParam("\uD800")).toBe("~d800")
+    expect(encodeAgentRouteParam("�")).toBe("~fffd")
+  })
+
+  it.each(["~", "~!", "~0061", "team/support"])("rejects the invalid route segment %j", (segment) => {
     expect(decodeAgentRouteParam(segment)).toBeUndefined()
   })
 

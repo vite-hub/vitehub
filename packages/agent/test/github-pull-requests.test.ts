@@ -51,7 +51,7 @@ describe("GitHub pull request snapshots", () => {
     const id = await agentInvocationId("delivery-1", "team/support")
     expect(run.activity?.links).toEqual([{
       label: "Current session",
-      url: `https://agent.example.test/_vitehub/agents/~dGVhbS9zdXBwb3J0/invocations/${id}`,
+      url: `https://agent.example.test/_vitehub/agents/~007400650061006d002f0073007500700070006f00720074/invocations/${id}`,
     }])
   })
 
