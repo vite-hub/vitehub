@@ -525,9 +525,9 @@ function createServerEnvModuleTypes(serverRegistry: EnvRuntimeRegistry, runtimeI
     "}",
     "export function useServerEnv(event?: unknown): ServerEnv",
     ...createReadonlyServerEnvTypes(0, "SecretEnv"),
-    'export function loadServerEnv(event?: unknown, options?: { signal?: AbortSignal; access?: import("@vite-hub/env/bridge").EnvAccessContext }): Promise<ReadonlyServerEnv>',
-    'export function inspectServerEnv(event?: unknown, options?: { signal?: AbortSignal; access?: import("@vite-hub/env/bridge").EnvAccessContext }): Promise<ServerEnvInspection>',
-    'export function runWithServerEnv<T>(event: unknown, callback: (env: ReadonlyServerEnv) => T | Promise<T>, options?: { signal?: AbortSignal; access?: import("@vite-hub/env/bridge").EnvAccessContext }): Promise<T>',
+    `export function loadServerEnv(event?: unknown, options?: { signal?: AbortSignal; access?: import(${JSON.stringify(runtimeImports.server)}).EnvAccessContext }): Promise<ReadonlyServerEnv>`,
+    `export function inspectServerEnv(event?: unknown, options?: { signal?: AbortSignal; access?: import(${JSON.stringify(runtimeImports.server)}).EnvAccessContext }): Promise<ServerEnvInspection>`,
+    `export function runWithServerEnv<T>(event: unknown, callback: (env: ReadonlyServerEnv) => T | Promise<T>, options?: { signal?: AbortSignal; access?: import(${JSON.stringify(runtimeImports.server)}).EnvAccessContext }): Promise<T>`,
     "",
   ].join("\n")
 }
@@ -552,9 +552,9 @@ function createViteTypes(
     "  }",
     "  export function useServerEnv(event?: unknown): ServerEnv",
     ...createReadonlyServerEnvTypes(2, `import(${JSON.stringify(runtimeImports.secret)}).SecretEnv`),
-    '  export function loadServerEnv(event?: unknown, options?: { signal?: AbortSignal; access?: import("@vite-hub/env/bridge").EnvAccessContext }): Promise<ReadonlyServerEnv>',
-    '  export function inspectServerEnv(event?: unknown, options?: { signal?: AbortSignal; access?: import("@vite-hub/env/bridge").EnvAccessContext }): Promise<ServerEnvInspection>',
-    '  export function runWithServerEnv<T>(event: unknown, callback: (env: ReadonlyServerEnv) => T | Promise<T>, options?: { signal?: AbortSignal; access?: import("@vite-hub/env/bridge").EnvAccessContext }): Promise<T>',
+    `  export function loadServerEnv(event?: unknown, options?: { signal?: AbortSignal; access?: import(${JSON.stringify(runtimeImports.server)}).EnvAccessContext }): Promise<ReadonlyServerEnv>`,
+    `  export function inspectServerEnv(event?: unknown, options?: { signal?: AbortSignal; access?: import(${JSON.stringify(runtimeImports.server)}).EnvAccessContext }): Promise<ServerEnvInspection>`,
+    `  export function runWithServerEnv<T>(event: unknown, callback: (env: ReadonlyServerEnv) => T | Promise<T>, options?: { signal?: AbortSignal; access?: import(${JSON.stringify(runtimeImports.server)}).EnvAccessContext }): Promise<T>`,
     "}",
     "",
   ].join("\n")
