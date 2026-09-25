@@ -356,6 +356,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
                 join(consoleRuntimeRoot, "server/usage.get.js"),
                 join(consoleRuntimeRoot, "server/status.get.js"),
                 join(consoleRuntimeRoot, "server/page.get.js"),
+                join(consoleRuntimeRoot, "server/signed-out.get.js"),
           ].includes(handler?.handler),
           )
         : []
@@ -363,6 +364,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       for (const handler of [
         { handler: join(consoleRuntimeRoot, "server/status.get.js"), route: "/api/_vitehub/console/status", method: "get" },
         { handler: join(consoleRuntimeRoot, "server/usage.get.js"), route: "/api/_vitehub/console/usage", method: "get" },
+        ...(consoleAuthHandlers ? [{ handler: join(consoleRuntimeRoot, "server/signed-out.get.js"), route: "/_vitehub/signed-out", method: "get" }] : []),
         { handler: join(consoleRuntimeRoot, "server/page.get.js"), route: "/_vitehub" },
         { handler: join(consoleRuntimeRoot, "server/page.get.js"), route: "/_vitehub/**" },
       ]) kit.addHandler(handler)

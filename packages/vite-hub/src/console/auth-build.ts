@@ -138,6 +138,7 @@ export async function writeConsoleAuthHandlers(root: string, config: ResolvedCon
       "  const publicPath = event.url.pathname",
       "  const path = mountBase && publicPath.startsWith(`${mountBase}/`) ? publicPath.slice(mountBase.length) : publicPath",
       "  if (path === '/api/_vitehub/console/auth' || path.startsWith('/api/_vitehub/console/auth/')) return",
+      "  if (path === '/_vitehub/signed-out') return",
       "  if (!(path === '/_vitehub' || path.startsWith('/_vitehub/') || path === '/api/_vitehub/console' || path.startsWith('/api/_vitehub/console/'))) return",
       "  await prepare(event)",
       "  if (path === '/_vitehub' || path.startsWith('/_vitehub/')) return requireAuthAccessRoutes(event, [0], definition, [0])",

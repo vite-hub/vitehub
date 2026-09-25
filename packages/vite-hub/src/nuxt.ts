@@ -1063,6 +1063,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
           config.handlers = config.handlers.filter((handler: { handler?: string }) => handler.handler !== join(consoleRuntimeRoot, "server/client.get.js"))
         }
         const kit = createNitroServerKit(config)
+        kit.addHandler({ handler: join(consoleRuntimeRoot, "server/signed-out.get.js"), route: "/_vitehub/signed-out", method: "get" })
         kit.addHandler({ handler: authHandlers.route, route: "/api/_vitehub/console/auth/**" })
         kit.addHandler({ handler: authHandlers.client, route: "/api/_vitehub/console/client.js", method: "get" })
         kit.addHandler({ handler: authHandlers.middleware, middleware: true, route: "/**" })

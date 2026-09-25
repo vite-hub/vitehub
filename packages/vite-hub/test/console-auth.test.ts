@@ -12,6 +12,7 @@ import { build } from "esbuild"
 import { createConsoleAuthDefinition, defineConsoleAuth, prepareConsoleAuth } from "../src/console/auth.ts"
 import { resolveConsoleAuthConfig, writeConsoleAuthHandlers } from "../src/console/auth-build.ts"
 import { consoleVitePlugin } from "../src/console/vite.ts"
+import signedOutHandler from "../src/console/runtime/server/signed-out.get.ts"
 
 describe("independent Console Auth", () => {
   it("uses a distinct base path and cookie prefix and requires a database adapter", () => {
@@ -111,6 +112,7 @@ describe("independent Console Auth", () => {
       expect(middleware).toContain('requireAuthAccessRoutes(event, [1], definition, [1])')
       expect(middleware).toContain("await prepare(event)")
       expect(middleware).toContain("'/api/_vitehub/console/auth/'")
+      expect(middleware).toContain("path === '/_vitehub/signed-out'")
       expect(route).toContain("handleAuthRequest(definition, event.req")
       expect(route).toContain('from "#vitehub/auth/server"')
     }
@@ -172,6 +174,7 @@ describe("independent Console Auth", () => {
       try {
         expect(await guard.default({ url: new URL("https://example.com/api/app") })).toBeUndefined()
         expect(await guard.default({ url: new URL("https://example.com/api/_vitehub/console/auth/callback/github") })).toBeUndefined()
+        expect(await guard.default({ url: new URL("https://example.com/_vitehub/signed-out") })).toBeUndefined()
         expect((await guard.default({ url: new URL("https://example.com/_vitehub") }))?.status).toBe(401)
         expect((await guard.default({ url: new URL("https://example.com/api/_vitehub/console/status") }))?.status).toBe(401)
         expect(calls).toEqual([
@@ -209,12 +212,20 @@ describe("independent Console Auth", () => {
       await Reflect.apply(handler, {}, [config, { command: "build", mode: "production" }])
       expect(config.nitro?.handlers).toEqual(expect.arrayContaining([
         expect.objectContaining({ route: "/api/_vitehub/console/auth/**" }),
+        expect.objectContaining({ route: "/_vitehub/signed-out" }),
         expect.objectContaining({ route: "/**", middleware: true }),
       ]))
     }
     finally {
       await rm(root, { recursive: true, force: true })
     }
+  })
+
+  it("serves a signed-out page with a mounted Console sign-in link", async () => {
+    const response = signedOutHandler({ req: { url: "https://example.com/portal/_vitehub/signed-out" } })
+    expect(response.status).toBe(200)
+    expect(response.headers.get("cache-control")).toBe("no-store")
+    expect(await response.text()).toContain('href="/portal/_vitehub"')
   })
 
   it("rejects inline SQLite auth on Cloudflare while allowing file-based auth", async () => {
