@@ -33,6 +33,7 @@ export const consoleSectionsKey: unique symbol = Symbol.for("vitehub.console.sec
 export const consoleAuthKey: unique symbol = Symbol.for("vitehub.console.auth")
 export const consoleProjectNameKey: unique symbol = Symbol.for("vitehub.console.project-name")
 export const consoleSectionsRootKey: unique symbol = Symbol.for("vitehub.console.sections.root")
+const consoleSectionsAmbiguousRootKey: unique symbol = Symbol.for("vitehub.console.sections.ambiguous-root")
 export const consoleSectionsRegistryKey: unique symbol = Symbol.for("vitehub.console.sections.registry")
 
 type ConsoleInvocationsByRoot = {
@@ -133,6 +134,7 @@ export type ConsoleInvocationScope = {
   [consoleAuthKey]?: boolean
   [consoleProjectNameKey]?: string
   [consoleSectionsRootKey]?: string
+  [consoleSectionsAmbiguousRootKey]?: boolean
   [consoleSectionsRegistryKey]?: ConsoleSectionsByRoot
 }
 
@@ -516,6 +518,7 @@ export function installConsoleSectionScope(
   independentAuth = false,
 ): readonly ConsoleSectionId[] {
   const installed = [...new Set(sections)]
+  if (scope[consoleSectionsRootKey] && scope[consoleSectionsRootKey] !== projectRoot) scope[consoleSectionsAmbiguousRootKey] = true
   scope[consoleSectionsRootKey] = projectRoot
   scope[consoleSectionsKey] = installed
   scope[consoleAuthKey] = independentAuth
@@ -537,6 +540,7 @@ export function installConsoleProjectNameScope(
   projectName: string,
   scope: ConsoleInvocationScope = defaultConsoleInvocationScope(),
 ): string {
+  if (scope[consoleSectionsRootKey] && scope[consoleSectionsRootKey] !== projectRoot) scope[consoleSectionsAmbiguousRootKey] = true
   scope[consoleSectionsRootKey] = projectRoot
   scope[consoleProjectNameKey] = projectName
   const registry = processRegistry(scope)
@@ -560,10 +564,12 @@ export function resolveConsoleSections(scope: ConsoleInvocationScope = defaultCo
 }
 
 export function resolveConsoleAuth(scope: ConsoleInvocationScope = defaultConsoleInvocationScope()): boolean {
+  // A shared scope can register several projects. Its last root cannot identify the current request.
+  if (scope[consoleSectionsAmbiguousRootKey]) return false
   const root = scope[consoleSectionsRootKey]
   const registered = sectionsByRoot(processRegistry(scope)?.[consoleSectionsRegistryKey])
   if (root) return registered?.get(root)?.auth ?? scope[consoleAuthKey] ?? false
-  if (registered && registered.size > 1) return scope[consoleAuthKey] ?? false
+  if (registered && registered.size > 1) return false
   return registered?.values().next().value?.auth ?? scope[consoleAuthKey] ?? false
 }
 
