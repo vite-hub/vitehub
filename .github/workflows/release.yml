@@ -51,7 +51,7 @@ jobs:
           publish=false
           version="0.0.0-dev.${GITHUB_RUN_ID}"
 
-          if [[ "$GITHUB_EVENT_NAME" == "push" && "$GITHUB_REF" == refs/tags/v* ]]; then
+          if [[ "$GITHUB_REF" == refs/tags/v* && ( "$GITHUB_EVENT_NAME" == "push" || "$GITHUB_EVENT_NAME" == "workflow_dispatch" ) ]]; then
             publish=true
             version="${GITHUB_REF_NAME#v}"
           fi
@@ -105,12 +105,19 @@ jobs:
       - name: Apply release version
         env:
           RELEASE_VERSION: ${{ steps.release.outputs.version }}
+          RELEASE_PUBLISH: ${{ steps.release.outputs.publish }}
         run: |
           node <<'NODE'
           const { readdirSync, readFileSync, writeFileSync } = require("node:fs")
           const { join } = require("node:path")
 
           if (!process.env.RELEASE_VERSION) throw new Error("Missing release version")
+          if (process.env.RELEASE_PUBLISH === "true") {
+            const root = JSON.parse(readFileSync("package.json", "utf8"))
+            if (root.version !== process.env.RELEASE_VERSION) {
+              throw new Error(`Release tag does not match root version ${root.version}`)
+            }
+          }
 
           const manifests = []
           for (const entry of readdirSync("packages", { withFileTypes: true })) {
@@ -130,6 +137,9 @@ jobs:
 
           const releaseNames = new Set(manifests.map(({ manifest }) => manifest.name))
           for (const { manifest, path } of manifests) {
+            if (process.env.RELEASE_PUBLISH === "true" && manifest.version !== process.env.RELEASE_VERSION) {
+              throw new Error(`Release tag does not match ${manifest.name} version ${manifest.version}`)
+            }
             manifest.version = process.env.RELEASE_VERSION
             for (const section of ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]) {
               for (const name of Object.keys(manifest[section] || {})) {
@@ -201,7 +211,7 @@ jobs:
   publish-npm:
     name: publish npm packages
     needs: verify
-    if: github.event_name == 'push' && needs.verify.outputs.publish == 'true' && github.repository == 'vite-hub/vitehub'
+    if: needs.verify.outputs.publish == 'true' && github.repository == 'vite-hub/vitehub'
     runs-on: ubuntu-latest
     timeout-minutes: 360
     # Configure required reviewers and release-tag protection for this environment in repository settings.
@@ -307,7 +317,7 @@ jobs:
   github-release:
     name: create GitHub release
     needs: [verify, publish-npm]
-    if: github.event_name == 'push' && needs.verify.outputs.publish == 'true' && github.repository == 'vite-hub/vitehub'
+    if: needs.verify.outputs.publish == 'true' && github.repository == 'vite-hub/vitehub'
     runs-on: ubuntu-latest
     permissions:
       contents: write
