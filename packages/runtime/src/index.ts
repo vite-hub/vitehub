@@ -2,6 +2,8 @@ import { hasRuntimeType, isRuntimeObject } from "./internal/runtime-type.ts"
 import { ViteHubError } from "./errors.ts"
 import { runtimeErrorDiagnostics } from "./error-diagnostics.ts"
 
+export { decodeRouteSegment, encodeRouteSegment } from "./route-segment.ts"
+
 export {
   formatRuntimeDiagnosticError,
   normalizeRuntimeDiagnosticError,

@@ -1553,30 +1553,36 @@ describe("agent channels", () => {
     await expect(botUpdate.json()).resolves.toMatchObject({ reason: "not_command" })
   })
 
-  it("links GitHub pull request activity to the invocation when given a public URL", async () => {
+  it.each(["support", "team/support", "."])("links GitHub activity to the effective Agent identity %j", async (agentName) => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { resolveAgentTriggers } = await import("../src/trigger-runtime.ts")
     const { github } = await import("../src/channels.ts")
     const { agentInvocationId } = await import("../src/invocations.ts")
+    const { encodeRouteSegment } = await import("@vite-hub/runtime")
     const channel = github({
       activity: { publicUrl: "https://agent.example.test" },
       pullRequest: { reconcile: { prompt: "Review this pull request." }, reply: false },
     })
-    const trigger = channel.triggers?.webhook
+    const agent = defineAgent({ name: agentName, channels: { github: channel }, driver: { run: () => "done" }, runtime: false })
+    const triggers = await resolveAgentTriggers(agent, {
+      agentIdentity: { name: "host-alias" },
+      capabilities: {},
+      memo: vi.fn(),
+      runtime: "unknown",
+      runtimeConfig: {},
+      waitUntil: vi.fn(),
+    })
+    const trigger = triggers["github.webhook"]
     if (!trigger) throw new Error("Missing GitHub webhook trigger.")
-    // SAFETY: This fixture supplies the Agent identity that the webhook runtime provides.
     const result = await trigger.invoke({
-      agentIdentity: { name: "reviewer" },
-      capabilities: [],
-      channel,
-      trigger: { channelId: "github", id: "github.webhook", name: "webhook", source: "channel" },
-    } as never, {
       github: { deliveryId: "delivery-session", event: "pull_request", installationId: 123 },
       payload: githubPullRequestPayload("reopened"),
     })
     if (result instanceof Response || !result.run) throw new Error("Expected GitHub invocation.")
-    const id = await agentInvocationId(result.run.runId, "reviewer")
+    const id = await agentInvocationId(result.run.runId, agentName)
     expect(result.run.activity?.links).toEqual([{
       label: "Current session",
-      url: `https://agent.example.test/_vitehub/agents/reviewer/invocations/${id}`,
+      url: `https://agent.example.test/_vitehub/agents/${encodeRouteSegment(agentName)}/invocations/${id}`,
     }])
   })
 

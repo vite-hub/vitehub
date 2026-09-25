@@ -661,6 +661,7 @@ export interface AgentChannelTriggerContext<
 > extends AgentCallbackContext<TRuntimeConfig> {
   actor?: AgentActor
   agentCapabilities: readonly AgentCapabilityDefinition<TRuntimeConfig>[]
+  agentName?: string
   channel: AgentChannelDefinition<TRuntimeConfig>
   trigger: {
     channelId: string

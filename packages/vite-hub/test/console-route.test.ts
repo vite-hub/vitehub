@@ -32,16 +32,23 @@ describe("Console routes", () => {
     },
   )
 
-  it.each(["", ".", "..", "~", "~chat", "support/team", "Chat", "chat_bot", "-chat", "chat-", "chat--bot"])(
-    "rejects the invalid Agent identity %j",
+  it.each(["Reviewer", "team/support", "計画", ".", "..", "~chat", "chat_bot", "-chat", "chat--bot"])(
+    "round-trips the Agent identity %j through one route segment",
     (agentName) => {
-      expect(() => encodeAgentRouteParam(agentName)).toThrowError(expect.objectContaining({
-        code: "VITE_HUB_R0045",
-        message: `[vitehub] Agent name ${JSON.stringify(agentName)} must use lowercase letters, numbers, and single hyphens.`,
-      }))
-      expect(decodeAgentRouteParam(agentName)).toBeUndefined()
+      const encoded = encodeAgentRouteParam(agentName)
+      const url = new URL(`/agents/${encodeURIComponent(encoded)}`, "https://console.vitehub.dev")
+      expect(url.pathname).toBe(`/agents/${encoded}`)
+      expect(decodeAgentRouteParam(decodeURIComponent(url.pathname.slice("/agents/".length)))).toBe(agentName)
     },
   )
+
+  it.each(["", " chat", "chat ", "a".repeat(513)])("rejects the invalid Agent identity %j", (agentName) => {
+    expect(() => encodeAgentRouteParam(agentName)).toThrowError(expect.objectContaining({ code: "VITE_HUB_R0045" }))
+  })
+
+  it.each(["~", "~!", "~YQ", "team/support"])("rejects the invalid route segment %j", (segment) => {
+    expect(decodeAgentRouteParam(segment)).toBeUndefined()
+  })
 
   it("decodes the first route segment", () => {
     expect(decodeAgentRouteParam(["chat", "ignored"])).toBe("chat")

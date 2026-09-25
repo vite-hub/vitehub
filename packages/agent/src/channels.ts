@@ -56,7 +56,7 @@ import { withAgentChannelHistoryDefinition } from "./internal/channel-history.ts
 import { createTelegramChannelSyncProvider } from "./internal/telegram-channel-sync.ts"
 import type { AgentChannelChatRouteBody, AgentChannelChatRouteHandlerOptions } from "./server.ts"
 import type { TelegramAdapterConfig } from "@chat-adapter/telegram"
-import { resolveRuntimeValue } from "@vite-hub/runtime"
+import { encodeRouteSegment, resolveRuntimeValue } from "@vite-hub/runtime"
 import type { Adapter, FileUpload } from "chat"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
 import type { WorkspaceName } from "@vite-hub/workspace"
@@ -2848,14 +2848,14 @@ async function githubActivitySessionLink<TRuntimeConfig extends AgentRuntimeConf
   runId: string,
   options: GitHubChannelActivityOptions<TRuntimeConfig>,
 ): Promise<{ label: string, url: string }> {
-  const agentName = context.agentIdentity?.name
+  const agentName = context.agentName || context.agentIdentity?.name
   if (!agentName) throw new Error("GitHub activity session links require an Agent identity.")
   const { agentInvocationId } = await import("./invocations.ts")
   const id = await agentInvocationId(runId, agentName)
   const publicUrl = await resolveRuntimeValue(options.publicUrl, context)
   return {
     label: "Current session",
-    url: new URL(`/_vitehub/agents/${encodeURIComponent(agentName)}/invocations/${encodeURIComponent(id)}`, publicUrl).href,
+    url: new URL(`/_vitehub/agents/${encodeRouteSegment(agentName)}/invocations/${encodeURIComponent(id)}`, publicUrl).href,
   }
 }
 
@@ -2880,7 +2880,7 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
           const update = Promise.resolve(activity.update({
             ...context,
             activity: {
-              ...(context.agentIdentity?.name ? { agentName: context.agentIdentity.name } : {}),
+              ...(context.agentName || context.agentIdentity?.name ? { agentName: context.agentName || context.agentIdentity?.name } : {}),
               links: [],
               runId: activityTarget.deliveryId || `github:pull_request.opened:${activityTarget.repository}#${activityTarget.issue}`,
               status: "queued",

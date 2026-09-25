@@ -4013,6 +4013,12 @@ describe("Agent invocation console", () => {
       expect(resolved.invocationUrl(invocation)).toBe(
         `https://chat.example/_vitehub/agents/agent/invocations/${encodeURIComponent(invocation.id)}`,
       )
+      expect(resolved.invocationUrl({ ...invocation, agentName: "team/support" })).toBe(
+        `https://chat.example/_vitehub/agents/~dGVhbS9zdXBwb3J0/invocations/${encodeURIComponent(invocation.id)}`,
+      )
+      expect(resolved.invocationUrl({ ...invocation, agentName: "." })).toBe(
+        `https://chat.example/_vitehub/agents/~Lg/invocations/${encodeURIComponent(invocation.id)}`,
+      )
 
       vi.stubGlobal("__VITEHUB_APP_BASE_URL__", "/portal/")
       expect(resolved.invocationUrl(invocation)).toBe(
