@@ -1,3 +1,4 @@
+import { describeServerEnv } from "./server.ts"
 import { stat } from "node:fs/promises"
 import { dirname, isAbsolute, relative, resolve, win32 } from "node:path"
 
@@ -444,6 +445,7 @@ function createServerEnvModule(
     ...providers.map(([, specifier], index) => `import envProvider${index} from ${JSON.stringify(providerImportSpecifier(specifier, outputPath))};`),
     `const registry = JSON.parse(${JSON.stringify(JSON.stringify(serverRegistry))});`,
     `const providers = Object.fromEntries([${providers.map(([name], index) => `[${JSON.stringify(name)}, envProvider${index}]`).join(", ")}]);`,
+    `export function describeServerEnv() { return JSON.parse(${JSON.stringify(JSON.stringify(describeServerEnv(serverRegistry)))}); }`,
     "export function useServerEnv(event) { return resolveServerEnv(registry, event); }",
     "export async function loadServerEnv(event, options) { return await loadRegistry(registry, event, { ...options, providers }); }",
     "export async function inspectServerEnv(event, options) { return await inspectRegistry(registry, event, { ...options, providers }); }",
@@ -543,6 +545,9 @@ function createViteTypes(
 function createServerEnvInspectionTypes(indent: number): string[] {
   const prefix = " ".repeat(indent)
   return [
+    `${prefix}export interface ServerEnvDescriptionEntry { path?: string; source: "env" | "literal" | "provider"; provider?: string; secret: boolean; required: boolean; hasDefault: boolean }`,
+    `${prefix}export interface ServerEnvDescription { entries: readonly ServerEnvDescriptionEntry[] }`,
+    `${prefix}export function describeServerEnv(): ServerEnvDescription`,
     `${prefix}export interface ServerEnvInspectionEntry {`,
     `${prefix}  masked: boolean`,
     `${prefix}  path?: string`,

@@ -328,6 +328,7 @@ async function installConsole(
             path: "/_vitehub/blob",
           }]
         : []),
+      ...(sections.includes("env") ? [{ file: join(consoleRuntimeRoot, "pages/env.vue"), name: "vitehub-console-env", path: "/_vitehub/env" }] : []),
       ...(sections.includes("kv")
         ? [{
             file: join(consoleRuntimeRoot, "pages/kv.vue"),
@@ -790,6 +791,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   const effectiveWorkflow = nuxt.options.vite?.workflow ?? options.workflow
   const consoleSections = resolveConsoleSectionIds({
     ...options,
+    env: options.env !== false,
     blob: consoleBlobEnabled,
     kv: effectiveKV,
     preset: plan.preset,
@@ -1129,6 +1131,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         : false
       const resolvedSections = resolveConsoleSectionIds({
         ...options,
+        env: options.env !== false,
         blob: replayedBlobEnabled,
         database: replayConfig.database ?? options.database,
         kv: resolvedKV,

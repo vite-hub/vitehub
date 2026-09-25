@@ -198,3 +198,7 @@ export default {
 Public Env and `env.define` values are compiled into client bundles. Never put credentials in either section. The host still owns secret storage and injection; Env owns declarations, resolution, generated accessors, validation, and default redaction.
 
 Read the complete [Env guide](https://vitehub.dev/docs/server-primitives/env), the [host support matrix](https://vitehub.dev/docs/frameworks-hosts/support-matrix), and the project's [pre-1.0 security policy](https://github.com/vite-hub/vitehub/blob/main/SECURITY.md).
+
+### Declaration inventory
+
+`describeServerEnv()` from `#vitehub/env/server` returns declaration metadata without reading host values or calling providers. It includes the declaration path, source kind, provider alias, secret and required flags, and default presence. Values, defaults, host variable names and provider storage keys are omitted. Use `inspectServerEnv()` only when a status check that loads providers is intended.

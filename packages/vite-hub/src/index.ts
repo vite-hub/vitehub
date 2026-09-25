@@ -730,7 +730,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
     ? Object.keys(resolvedConsoleBlob.stores || { default: resolvedConsoleBlob.store })
     : []
   const workflowEnabled = options.workflow !== false && Boolean(options.agent || options.workflow)
-  const consoleSections = resolveConsoleSectionIds({ ...options, blob: blobEnabled, preset: plan.preset, sandbox: sandboxEnabled })
+  const consoleSections = resolveConsoleSectionIds({ ...options, env: options.env !== false, blob: blobEnabled, preset: plan.preset, sandbox: sandboxEnabled })
   const plugins: unknown[] = [hubMarkdownTemplate()]
   const requestedServices: DeploymentService[] = []
   if (options.blob !== undefined && options.blob !== false && !hasExplicitBlobStore(options.blob)) requestedServices.push("blob")

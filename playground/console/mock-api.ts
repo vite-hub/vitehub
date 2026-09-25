@@ -22,7 +22,7 @@ for (const record of fixture.invocations) {
   store.create(input)
 }
 const invocations = defineAgentInvocations({ content: "content", store })
-const sections = ["agents", "usage", "database", "kv", "workflows", "queues"] as const
+const sections = ["env", "agents", "usage", "database", "kv", "workflows", "queues"] as const
 const definitions = {
   queues: [
     {
@@ -177,6 +177,16 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
   const path = url.pathname
   if (!path.startsWith("/api/_vitehub/console/")) return false
 
+  if (path === "/api/_vitehub/console/env") {
+    json(response, { entries: [
+      { path: "env.server.github.token", source: "provider", provider: "personal-vault", secret: true, required: true, hasDefault: false },
+      { path: "env.server.openai.apiKey", source: "provider", provider: "personal-vault", secret: true, required: true, hasDefault: false },
+      { path: "env.server.codex.auth", source: "provider", provider: "personal-vault", secret: true, required: true, hasDefault: false },
+      { path: "env.server.webhookSecret", source: "env", secret: true, required: true, hasDefault: false },
+      { path: "env.server.logLevel", source: "env", secret: false, required: false, hasDefault: true },
+    ] })
+    return true
+  }
   if (path === "/api/_vitehub/console/sections") {
     json(response, { projectName: manifest.name, sections })
     return true

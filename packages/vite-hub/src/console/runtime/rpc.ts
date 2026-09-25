@@ -14,6 +14,7 @@ export const consoleRpcMethods = {
   blob: "vitehub:console:blob",
   database: "vitehub:console:database",
   definitions: "vitehub:console:definitions",
+  env: "vitehub:console:env",
   invocation: "vitehub:console:invocation",
   invocationWorkspace: "vitehub:console:invocation-workspace",
   invocationCapabilities: "vitehub:console:invocation-capabilities",

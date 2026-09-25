@@ -56,6 +56,7 @@ console.log(publicEnv.appName)
 | `hubEnv` from `@vite-hub/env/vite` | Register the Vite Integration. |
 | `defineEnvProvider` from `@vite-hub/env/provider` | Define a read-only runtime provider for external Env storage. |
 | `loadServerEnv` from `#vitehub/env/server` | Load one immutable Server Env snapshot, including provider-backed values. |
+| `describeServerEnv` from `#vitehub/env/server` | List declaration metadata without reading host values or calling providers. |
 | `inspectServerEnv` from `#vitehub/env/server` | Inspect status-only Server Env metadata without returning values. |
 | `usePublicEnv` from `#vitehub/env/public` | Read generated Public Env from browser-safe code. |
 | `useServerEnv` from `#vitehub/env/server` | Read generated Server Env from server code. |
@@ -240,6 +241,8 @@ export const privateRepository = github(async () => {
 This GitHub token authenticates application-owned Source materialization; it is separate from model or shell credentials such as Codex auth or `GH_TOKEN` inside an Agent workspace.
 
 `useServerEnv()` remains synchronous for host and literal values. In a mixed registry those fields remain readable, but accessing a provider-backed field through `useServerEnv()` throws `ENV_ASYNC_REQUIRED`; use `loadServerEnv()` for the complete snapshot. `runWithServerEnv()` also loads the complete async snapshot before invoking its callback.
+
+`describeServerEnv()` returns declaration paths, source kinds, provider aliases, secret flags, required flags, and whether a default exists. It never resolves values or calls provider `read()`. Use it for inventory. Default values, source variable names, provider keys, and provider module paths are omitted. The Console Env section uses this metadata and inherits Console access protection.
 
 `inspectServerEnv()` uses the same provider load boundary and reports only declaration paths, source kinds, masking, and `available`, `defaulted`, `missing`, `invalid`, or `error` status. It never includes values, hashes, lengths, provider keys, or provider failure text. This is the safe primitive for future CLI and Console projections.
 

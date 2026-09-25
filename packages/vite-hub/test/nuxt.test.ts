@@ -464,6 +464,7 @@ describe("ViteHub Nuxt integration", () => {
       }),
       expect.objectContaining({ name: "vitehub-console-usage", path: "/_vitehub/usage" }),
       expect.objectContaining({ name: "vitehub-console-blob", path: "/_vitehub/blob" }),
+      expect.objectContaining({ name: "vitehub-console-env", path: "/_vitehub/env" }),
       expect.objectContaining({ name: "vitehub-console-kv", path: "/_vitehub/kv" }),
       expect.objectContaining({ name: "vitehub-console-workflows", path: "/_vitehub/workflows" }),
     ])
@@ -481,7 +482,7 @@ describe("ViteHub Nuxt integration", () => {
     expect(development.nuxt.options.devServerHandlers).toEqual([{ handler: existingConsoleHandler, route: "/api/_vitehub/console" }])
     expect(development.nuxt.options.vite.plugins).toContainEqual(expect.objectContaining({ name: "vite-hub/console-invocation-root" }))
     await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toContain(
-      `installConsoleSections("/tmp/vitehub-nuxt", ["agents","usage","blob","kv","workflows"])`,
+      `installConsoleSections("/tmp/vitehub-nuxt", ["env","agents","usage","blob","kv","workflows"])`,
     )
     expect(development.nuxt.options.vite.plugins).toContainEqual(
       expect.objectContaining({ name: "vite-hub/console-cli" }),
@@ -519,6 +520,7 @@ describe("ViteHub Nuxt integration", () => {
         path: "/_vitehub/agents/:agent/invocations/:invocation",
       }),
       expect.objectContaining({ name: "vitehub-console-usage", path: "/_vitehub/usage" }),
+      expect.objectContaining({ name: "vitehub-console-env", path: "/_vitehub/env" }),
       expect.objectContaining({ name: "vitehub-console-kv", path: "/_vitehub/kv" }),
       expect.objectContaining({ name: "vitehub-console-workflows", path: "/_vitehub/workflows" }),
     ])
@@ -584,6 +586,7 @@ describe("ViteHub Nuxt integration", () => {
 
     expect(pages).toEqual([
       expect.objectContaining({ name: "vitehub-console", path: "/_vitehub" }),
+      expect.objectContaining({ name: "vitehub-console-env", path: "/_vitehub/env" }),
       expect.objectContaining({ name: "vitehub-console-kv", path: "/_vitehub/kv" }),
     ])
     expect(development.nuxt.options.nitro).toMatchObject({
@@ -593,7 +596,7 @@ describe("ViteHub Nuxt integration", () => {
     const generated = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
     expect(generated).toContain(`from "vite-hub/console/sections"`)
     expect(generated).not.toContain(`from "vite-hub/console/server"`)
-    expect(generated).toContain(`installConsoleSections("/tmp/vitehub-nuxt", ["kv"])`)
+    expect(generated).toContain(`installConsoleSections("/tmp/vitehub-nuxt", ["env","kv"])`)
     expect(generated).not.toContain("installConsoleInvocations")
     expect(generated).toContain(`installConsoleKV("/tmp/vitehub-nuxt", vitehubConsoleKV, ["default","cache"])`)
   })
@@ -1246,13 +1249,14 @@ describe("ViteHub Nuxt integration", () => {
 
       expect(pages).toEqual([
         expect.objectContaining({ name: "vitehub-console", path: "/_vitehub" }),
+        expect.objectContaining({ name: "vitehub-console-env", path: "/_vitehub/env" }),
         expect.objectContaining({ name: "vitehub-console-workspaces", path: "/_vitehub/workspaces" }),
       ])
       const generated = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
       expect(generated).toContain(`from "vite-hub/console/sections"`)
       expect(generated).toContain(`from "vite-hub/console/definitions"`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
-      expect(generated).toContain(`installConsoleSections("/tmp/vitehub-nuxt", ["workspaces"])`)
+      expect(generated).toContain(`installConsoleSections("/tmp/vitehub-nuxt", ["env","workspaces"])`)
       expect(generated).toContain(`installConsoleDefinitions("/tmp/vitehub-nuxt", {"workspaces":[{"fields":[{"label":"Kind","value":"Workspace Definition"},{"label":"Source root","value":"custom-server/workspaces/docs/workspace"}],"file":"custom-server/workspaces/docs/config.ts","name":"docs","source":"server-workspaces-directory-config"}]})`)
       expect(generated).not.toContain("The Console must not initialize")
       expect(generated).not.toContain("installConsoleInvocations")
@@ -1278,6 +1282,7 @@ describe("ViteHub Nuxt integration", () => {
 
       expect(pages).toEqual([
         expect.objectContaining({ name: "vitehub-console", path: "/_vitehub" }),
+        expect.objectContaining({ name: "vitehub-console-env", path: "/_vitehub/env" }),
         expect.objectContaining({ name: "vitehub-console-databases-schema", path: "/_vitehub/databases/:database/schema/diagram" }),
         expect.objectContaining({ name: "vitehub-console-databases", path: "/_vitehub/databases/:database?/:table?" }),
       ])
@@ -1291,7 +1296,7 @@ describe("ViteHub Nuxt integration", () => {
       expect(generated).toContain(`from "vite-hub/console/database"`)
       expect(generated).toContain(`from "vite-hub/database/drizzle"`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
-      expect(generated).toContain(`installConsoleSections("/tmp/vitehub-nuxt", ["databases"])`)
+      expect(generated).toContain(`installConsoleSections("/tmp/vitehub-nuxt", ["env","databases"])`)
       expect(generated).toContain(`installConsoleDefinitions("/tmp/vitehub-nuxt", {"databases":[{"fields":[{"label":"Mode","value":"Default"},{"label":"Tables","value":"notes, users"}],"file":"custom-server/databases/config.ts","name":"default","source":"server-database-default"}]})`)
       expect(generated).toContain(`installConsoleDatabase("/tmp/vitehub-nuxt", vitehubConsoleDatabases, ["default"])`)
       expect(generated).not.toContain("The Console must not evaluate")
@@ -1320,6 +1325,7 @@ describe("ViteHub Nuxt integration", () => {
 
       expect(pages).toEqual([
         expect.objectContaining({ name: "vitehub-console", path: "/_vitehub" }),
+        expect.objectContaining({ name: "vitehub-console-env", path: "/_vitehub/env" }),
         expect.objectContaining({ name: "vitehub-console-queues", path: "/_vitehub/queues" }),
       ])
       expect(nitroConfig).toMatchObject({
@@ -1330,7 +1336,7 @@ describe("ViteHub Nuxt integration", () => {
       })
       expect(development.nuxt.options.vite.plugins).not.toContainEqual(expect.objectContaining({ name: "vite-hub/console-invocation-root" }))
       const generated = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
-      expect(generated).toContain(`installConsoleSections("/tmp/vitehub-nuxt", ["queues"])`)
+      expect(generated).toContain(`installConsoleSections("/tmp/vitehub-nuxt", ["env","queues"])`)
       expect(generated).toContain(`installConsoleDefinitions("/tmp/vitehub-nuxt", {"queues":[{"fields":[],"file":"custom-server/queues/email.ts","name":"email","source":"server-queues"}]})`)
       expect(generated).not.toContain("The Console must not evaluate")
       expect(generated).not.toContain("installConsoleInvocations")
@@ -1389,6 +1395,7 @@ describe("ViteHub Nuxt integration", () => {
 
       expect(pages).toEqual([
         expect.objectContaining({ name: "vitehub-console", path: "/_vitehub" }),
+        expect.objectContaining({ name: "vitehub-console-env", path: "/_vitehub/env" }),
         expect.objectContaining({ name: "vitehub-console-rate-limits", path: "/_vitehub/rate-limits" }),
       ])
       expect(development.nuxt.options.nitro).toMatchObject({
@@ -1401,7 +1408,7 @@ describe("ViteHub Nuxt integration", () => {
       expect(generated).toContain(`from "vite-hub/console/sections"`)
       expect(generated).toContain(`from "vite-hub/console/definitions"`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
-      expect(generated).toContain(`installConsoleSections("/tmp/vitehub-nuxt", ["rate-limits"])`)
+      expect(generated).toContain(`installConsoleSections("/tmp/vitehub-nuxt", ["env","rate-limits"])`)
       expect(generated).toContain(`installConsoleDefinitions("/tmp/vitehub-nuxt", {"rate-limits":[{"fields":[{"label":"Limit","value":"25"},{"label":"Window","value":"10s"},{"label":"Enforcement","value":"Strict"},{"label":"Provider failure","value":"Allow"},{"label":"Source location","value":"2:1"}],"file":"packages/policies/rules/upload.ts","name":"uploads","source":"require-rate-limit"}]})`)
       expect(generated).not.toContain("The Console must not evaluate")
       expect(generated).not.toContain("installConsoleInvocations")
@@ -1429,6 +1436,7 @@ describe("ViteHub Nuxt integration", () => {
 
       expect(pages).toEqual([
         expect.objectContaining({ name: "vitehub-console", path: "/_vitehub" }),
+        expect.objectContaining({ name: "vitehub-console-env", path: "/_vitehub/env" }),
         expect.objectContaining({ name: "vitehub-console-schedules", path: "/_vitehub/schedules" }),
       ])
       expect(nitroConfig).toMatchObject({
@@ -1442,7 +1450,7 @@ describe("ViteHub Nuxt integration", () => {
       expect(generated).toContain(`from "vite-hub/console/sections"`)
       expect(generated).toContain(`from "vite-hub/console/definitions"`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
-      expect(generated).toContain(`installConsoleSections("/tmp/vitehub-nuxt", ["schedules"])`)
+      expect(generated).toContain(`installConsoleSections("/tmp/vitehub-nuxt", ["env","schedules"])`)
       expect(generated).toContain(`installConsoleDefinitions("/tmp/vitehub-nuxt", {"schedules":[{"fields":[{"label":"Kind","value":"Static schedule"},{"label":"Cron","value":"0 9 * * *"},{"label":"Time zone","value":"UTC"}],"file":"custom-server/schedules/daily.ts","name":"daily","source":"server-schedules"}]})`)
       expect(generated).not.toContain("The Console must not evaluate")
       expect(generated).not.toContain("installConsoleInvocations")
@@ -1497,6 +1505,7 @@ describe("ViteHub Nuxt integration", () => {
 
       expect(pages).toEqual([
         expect.objectContaining({ name: "vitehub-console", path: "/_vitehub" }),
+        expect.objectContaining({ name: "vitehub-console-env", path: "/_vitehub/env" }),
         expect.objectContaining({ name: "vitehub-console-sandboxes", path: "/_vitehub/sandboxes" }),
       ])
       const generated = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
@@ -1592,7 +1601,7 @@ describe("ViteHub Nuxt integration", () => {
     expect(definition).toContain('createConsoleAuthDefinition(input, "/portal/")')
     expect(middleware).toContain('const mountBase = "/portal"')
     expect(middleware).toContain("path === '/_vitehub/sign-in'")
-    expect(plugin).toContain(`installConsoleSections("/tmp/vitehub-nuxt", [], true)`)
+    expect(plugin).toContain(`installConsoleSections("/tmp/vitehub-nuxt", ["env"], true)`)
     expect(nitroHandlerRoutes(nitroOptions(production.nuxt))).toContain("/api/_vitehub/console/auth/**")
     expect(nitroHandlerRoutes(nitroOptions(production.nuxt))).toContain("/_vitehub/sign-in")
   })
@@ -2118,7 +2127,7 @@ describe("ViteHub Nuxt integration", () => {
     expect(pages).not.toContainEqual(expect.objectContaining({ path: "/_vitehub/workspaces" }))
     expect(nitroHandlerRoutes(nitroConfig)).not.toContain("/api/_vitehub/console/definitions")
     const generated = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
-    expect(generated).toContain(`installConsoleSections("/tmp/vitehub-nuxt", [])`)
+    expect(generated).toContain(`installConsoleSections("/tmp/vitehub-nuxt", ["env"])`)
     expect(generated).not.toContain("installConsoleDefinitions")
   })
 
