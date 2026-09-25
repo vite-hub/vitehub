@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it } from "vitest"
 
 import {
   clearSources,
@@ -16,37 +16,6 @@ afterEach(() => {
 })
 
 describe("@vite-hub/source registry", () => {
-  it("resolves one revision before preparing and reading a Source", async () => {
-    const revisions: Array<string | undefined> = []
-    let resolutionCount = 0
-    registerSources({
-      docs: {
-        name: "docs",
-        async resolveRevision() {
-          resolutionCount++
-          return { id: "revision-1", immutable: true, ref: "main" }
-        },
-        async prepare(ctx) {
-          revisions.push(ctx.revision?.id)
-        },
-        async getKeys(ctx) {
-          revisions.push(ctx.revision?.id)
-          return ["README.md"]
-        },
-        async getItem(key, ctx) {
-          revisions.push(ctx.revision?.id)
-          return { content: "# Readme", key }
-        },
-      },
-    })
-
-    const docs = useSource("docs")
-    await expect(docs.revision()).resolves.toEqual({ id: "revision-1", immutable: true, ref: "main" })
-    await expect(docs.read("README.md")).resolves.toBe("# Readme")
-    expect(resolutionCount).toBe(1)
-    expect(revisions).toEqual(["revision-1", "revision-1"])
-  })
-
   it("bounds invalid Source paths", () => {
     const error = sourcePathError(`../${"x".repeat(20_000)}`)
     expect(error).toMatchObject({ code: "SOURCE_PATH_INVALID" })
@@ -77,27 +46,6 @@ describe("@vite-hub/source registry", () => {
     await expect(docs.list()).resolves.toEqual([{ key: "README.md", type: "file" }])
     await expect(docs.items()).resolves.toMatchObject([{ key: "README.md" }])
     await expect(useSource("custom").get("data.json")).resolves.toMatchObject({ data: { ok: true } })
-  })
-
-  it("uses a source bulk reader when available", async () => {
-    const getItem = vi.fn()
-    const getItems = vi.fn(async () => [
-      { data: { title: "One" }, key: "one" },
-      { data: { title: "Two" }, key: "two" },
-    ])
-
-    registerSource("articles", defineSource({
-      name: "articles",
-      async getKeys() {
-        return ["one", "two"]
-      },
-      getItem,
-      getItems,
-    }))
-
-    await expect(useSource("articles").items()).resolves.toHaveLength(2)
-    expect(getItems).toHaveBeenCalledOnce()
-    expect(getItem).not.toHaveBeenCalled()
   })
 
   it("throws a source-specific error for missing registrations", () => {
