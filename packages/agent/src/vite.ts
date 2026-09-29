@@ -71,6 +71,7 @@ const resolvedScheduleTargetsId = "\0#vitehub/schedule/targets"
 const scheduleRuntimeImport = "@vite-hub/schedule/runtime"
 const scheduleVitePluginName = "@vite-hub/schedule/vite"
 const workspacePackageName = "@vite-hub/workspace"
+const optionalAskDriverPeer = "advocaat"
 const optionalAgentRuntimeExternals = [
   "@anthropic-ai/claude-agent-sdk",
   "bufferutil",
@@ -2750,6 +2751,12 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
 
   return {
     name: "@vite-hub/agent/vite",
+    async resolveId(source, importer, options) {
+      if (source !== optionalAskDriverPeer) return
+      // The ask Driver imports this optional peer lazily. Keep it external when the application does not install it,
+      // so Agents without driver.ask still build. An ask Driver then reports the missing package when it runs.
+      return await this.resolve(source, importer, { ...options, skipSelf: true }) ?? { external: true, id: source }
+    },
     async configureServer(server) {
       const clearUnlinkedEveExtensionOwnership = (file: string) => clearEveExtensionOwnership(file.replace(/\\/g, "/"))
       server.watcher?.on("add", clearUnlinkedEveExtensionOwnership)

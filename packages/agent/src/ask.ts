@@ -132,7 +132,13 @@ function askIf(instructions: string, options: { threshold?: number } = {}): AskI
  * Builds TypeSafe Jev questions for `defineAgent({ driver: { ask } })`.
  * Each builder returns a plain question object. The Driver sends all questions in one request.
  */
-export const ask = {
+export const ask: {
+  chance: typeof chance
+  choice: typeof choice
+  if: typeof askIf
+  score: typeof score
+  switch: typeof askSwitch
+} = {
   /** A yes or no question. Answers `{ chance }`, the probability of yes. */
   chance,
   /** Selects one option. Answers `{ choice, confidence, probabilities }`. */

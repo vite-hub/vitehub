@@ -22,7 +22,7 @@ pnpm add @vite-hub/agent @vite-hub/workspace ai
 
 `ai` is required for model-backed drivers and AI SDK-powered capabilities such as model-backed `title()`, `chatSummary()`, `llmGate()`, and `transcribe()`. Agents with `driver.run` can bundle without installing `ai`.
 
-`driver.ask` requires the optional peer `advocaat`. ViteHub imports it only when an ask Driver or a Jev decision runs, so other Agents do not need it.
+`driver.ask` requires the optional peer `advocaat`. ViteHub imports it only when an ask Driver or a Jev decision runs. When the application does not install it, the Agent Vite plugin keeps the import external, so other Agents still build.
 
 Add the AI SDK model provider you pass to `model`.
 
