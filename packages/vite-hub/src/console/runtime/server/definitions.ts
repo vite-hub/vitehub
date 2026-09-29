@@ -1,8 +1,9 @@
 import { resolve } from "node:path"
 
-import { installConsoleDefinitionScope, resolveConsoleDefinitions } from "../../internal.ts"
+import { installConsoleDefinitionScope, installConsoleSchedulesScope, resolveConsoleDefinitions, resolveConsoleSchedules } from "../../internal.ts"
 import { consoleDefinitionSectionIds } from "../definitions.ts"
 
+import type { ScheduleDefinitionRegistry } from "@vite-hub/schedule"
 import type { ConsoleDefinitionCatalog } from "../definitions.ts"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
@@ -29,4 +30,16 @@ export function getConsoleDefinitions(): ConsoleDefinitionCatalog {
     throw viteHubErrorDiagnostics.VITE_HUB_C0002({ message: "[vitehub] Definition inspection has not been installed for this runtime." })
   }
   return catalog
+}
+
+/**
+ * Installs the Static Schedule Definitions that the Console may run.
+ * The generated Console plugin passes only `manual: true` definitions, and only with Console invocation enabled.
+ */
+export function installConsoleSchedules(projectRoot: string, registry: ScheduleDefinitionRegistry): ScheduleDefinitionRegistry {
+  return installConsoleSchedulesScope(resolve(projectRoot), { ...registry })
+}
+
+export function getConsoleSchedules(): ScheduleDefinitionRegistry {
+  return resolveConsoleSchedules() ?? {}
 }

@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs"
 import { spawn } from "node:child_process"
 import { once } from "node:events"
+import { createServer } from "node:http"
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -9,7 +10,15 @@ import { describe, expect, it, vi } from "vitest"
 
 import { contributeProviderDeploymentOutput, createDefaultCloudflareOutputRoot, createDefaultNetlifyOutputRoot, createDefaultVercelOutputRoot, finalizeProviderDeploymentOutputs, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { collectViteHubCliNamespaces } from "@vite-hub/internal/cli"
+import { defineSchedule } from "../src/definition.ts"
+import { runScheduleRunCli } from "../src/cli.ts"
+import { resetScheduleRuntime } from "../src/runtime/state.ts"
 import { createScheduleNitroConfig, hubSchedule } from "../src/vite.ts"
+
+import type { IncomingMessage, ServerResponse } from "node:http"
+import type { AddressInfo } from "node:net"
+import type { ScheduleDefinitionRegistry } from "../src/types.ts"
 
 async function runProviderOutputHooks(plugin: ReturnType<typeof hubSchedule>) {
   if (typeof plugin.buildEnd !== "function") throw new TypeError("Expected hubSchedule buildEnd hook")
@@ -1092,5 +1101,100 @@ describe("Vite schedule integration", () => {
       "export default registry",
       "",
     ].join("\n"))
+  })
+})
+
+describe("Manual Schedule runs through the Vite Development Server", () => {
+  async function startDevServer(registry: ScheduleDefinitionRegistry) {
+    const middlewares: Array<(req: IncomingMessage, res: ServerResponse, next: () => void) => void> = []
+    const plugin = hubSchedule()
+    await (plugin.configureServer as (server: unknown) => Promise<void>)({
+      middlewares: { use: (handler: (typeof middlewares)[number]) => middlewares.push(handler) },
+      ssrLoadModule: async (id: string) => {
+        expect(id).toBe("#vitehub/schedule/registry")
+        return { default: registry }
+      },
+    })
+    const server = createServer((req, res) => {
+      middlewares[0]!(req, res, () => {
+        res.statusCode = 404
+        res.end()
+      })
+    })
+    server.listen(0, "127.0.0.1")
+    await once(server, "listening")
+    return {
+      close: async () => await new Promise<void>(resolve => server.close(() => resolve())),
+      url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+    }
+  }
+
+  function output() {
+    let text = ""
+    return { stream: { write: (chunk: string | Uint8Array) => { text += String(chunk) } }, text: () => text }
+  }
+
+  it("contributes the schedule run CLI command", async () => {
+    const namespaces = await collectViteHubCliNamespaces([hubSchedule()])
+
+    expect(namespaces).toEqual([expect.objectContaining({
+      features: [expect.objectContaining({ name: "run" })],
+      name: "schedule",
+    })])
+  })
+
+  it("runs a manual Schedule Definition from the CLI without --url", async () => {
+    let calls = 0
+    const server = await startDevServer({
+      sync: async () => ({ default: defineSchedule("*/5 * * * *", () => { calls++ }, { manual: true }) }),
+      nightly: async () => ({ default: defineSchedule("0 3 * * *", () => {}) }),
+    })
+    try {
+      const stdout = output()
+      const stderr = output()
+      const code = await runScheduleRunCli(["sync", "--server", server.url], { env: {}, stderr: stderr.stream, stdout: stdout.stream })
+
+      expect({ code, stderr: stderr.text() }).toEqual({ code: 0, stderr: "" })
+      expect(stdout.text()).toMatch(/^succeeded sync in \d+ ms\nRun srun_manual_sync_/)
+      expect(calls).toBe(1)
+
+      const refused = output()
+      expect(await runScheduleRunCli(["nightly", `--server=${server.url}`], { env: {}, stderr: refused.stream, stdout: output().stream })).toBe(1)
+      expect(refused.text()).toContain("HTTP 403: Schedule Definition does not allow manual runs.")
+
+      const missing = output()
+      expect(await runScheduleRunCli(["missing", "--server", server.url], { env: {}, stderr: missing.stream, stdout: output().stream })).toBe(1)
+      expect(missing.text()).toContain("HTTP 404: Static Schedule Definition was not found.")
+    }
+    finally {
+      await server.close()
+      resetScheduleRuntime()
+    }
+  })
+
+  it("rejects browser-style requests to the Development Server route", async () => {
+    const server = await startDevServer({})
+    try {
+      const withoutHeader = await fetch(`${server.url}/__vitehub/schedule/run`, {
+        body: JSON.stringify({ name: "sync" }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      })
+      const crossOrigin = await fetch(`${server.url}/__vitehub/schedule/run`, {
+        body: JSON.stringify({ name: "sync" }),
+        headers: { "content-type": "application/json", origin: "https://attacker.example", "x-vitehub-schedule-run": "1" },
+        method: "POST",
+      })
+      const form = await fetch(`${server.url}/__vitehub/schedule/run`, {
+        body: "name=sync",
+        headers: { "content-type": "application/x-www-form-urlencoded", "x-vitehub-schedule-run": "1" },
+        method: "POST",
+      })
+
+      expect([withoutHeader.status, crossOrigin.status, form.status]).toEqual([403, 403, 415])
+    }
+    finally {
+      await server.close()
+    }
   })
 })

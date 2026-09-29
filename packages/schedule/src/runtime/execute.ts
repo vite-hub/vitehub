@@ -6,14 +6,14 @@ import { isRuntimeScheduleDue } from "./due.ts"
 import { getRuntimeScheduleStore, getScheduleRunStore, loadScheduleDefinition } from "./state.ts"
 import { createLocalWaitUntil } from "./wait-until.ts"
 
-import type { RuntimeScheduleRecord, RuntimeScheduleStore, RuntimeScheduleWake, ScheduleDefinition, ScheduleRegistryDefinition, ScheduleRunAttemptRecord, ScheduleRunContext, ScheduleRunError, ScheduleRunRecord, ScheduleRunStore, ScheduleTargetName } from "../types.ts"
+import type { RuntimeScheduleRecord, RuntimeScheduleStore, RuntimeScheduleWake, ScheduleDefinition, ScheduleDefinitionRegistry, ScheduleRegistryDefinition, ScheduleRunAttemptRecord, ScheduleRunContext, ScheduleRunError, ScheduleRunRecord, ScheduleRunStore, ScheduleTargetName } from "../types.ts"
 
 interface ExecuteScheduleOptions {
   definition: ScheduleRegistryDefinition
   input?: unknown
   runStore?: ScheduleRunStore
   scheduleId: string
-  source?: "direct" | "runtime" | "static"
+  source?: "direct" | "manual" | "runtime" | "static"
   scheduledAt?: Date
   target: ScheduleTargetName
   waitUntil?: (promise: PromiseLike<unknown>) => void
@@ -25,6 +25,11 @@ interface ExecuteStaticScheduleOptions {
   name: string
   scheduledAt?: Date
   waitUntil?: (promise: PromiseLike<unknown>) => void
+}
+
+export interface RunScheduleOptions {
+  /** Loads the definition from this registry instead of the one installed with `setScheduleRuntimeRegistry()`. */
+  registry?: ScheduleDefinitionRegistry
 }
 
 interface ExecuteRuntimeScheduleOptions {
@@ -237,6 +242,44 @@ export async function executeStaticSchedule(options: ExecuteStaticScheduleOption
     target: options.name,
     waitUntil: options.waitUntil,
   })
+}
+
+async function loadStaticScheduleDefinition(name: string, registry: ScheduleDefinitionRegistry | undefined): Promise<ScheduleDefinition | undefined> {
+  let definition: ScheduleRegistryDefinition | undefined
+  if (registry) {
+    const entry = Object.hasOwn(registry, name) ? registry[name] : undefined
+    const loaded = typeof entry === "function" ? await entry() : undefined
+    definition = loaded && "handler" in loaded ? loaded : loaded?.default
+  }
+  else {
+    definition = await loadScheduleDefinition(name)
+  }
+  return definition && typeof definition.handler === "function" && "cron" in definition ? definition : undefined
+}
+
+/**
+ * Runs a Static Schedule Definition now, outside its cron.
+ * The definition must set `manual: true`. The run id uses the `manual` source, so it never matches a cron run.
+ * Resolves with the finished run record, also when the handler fails.
+ */
+export async function runSchedule(name: string, options: RunScheduleOptions = {}): Promise<ScheduleRunRecord> {
+  const definition = typeof name === "string" && name ? await loadStaticScheduleDefinition(name, options.registry) : undefined
+  if (!definition) {
+    throw createScheduleError("SCHEDULE_DEFINITION_NOT_FOUND")
+  }
+  if (definition.options?.manual !== true) {
+    throw createScheduleError("SCHEDULE_MANUAL_RUN_DISABLED")
+  }
+  const runStore = getScheduleRunStore()
+  const scheduledAt = new Date()
+  try {
+    return await executeSchedule({ definition, runStore, scheduleId: name, source: "manual", scheduledAt, target: name })
+  }
+  catch (error) {
+    const run = await runStore.getRun(toRunId("manual", name, scheduledAt))
+    if (run?.status === "failed") return run
+    throw error
+  }
 }
 
 async function loadRequiredRuntimeSchedule(id: string, store: RuntimeScheduleStore = getRuntimeScheduleStore()): Promise<RuntimeScheduleRecord> {

@@ -47,7 +47,7 @@ function consoleRpcCall(path: string): { agent?: string; id?: string; method: Co
       method: consoleRpcMethods.invocation,
     }
   }
-  const key = operation === "invocation-capabilities" ? "invocationCapabilities" : operation
+  const key = operation.replace(/-([a-z])/g, (_, letter: string) => letter.toUpperCase())
   const method = Object.entries(consoleRpcMethods).find(([name]) => name === key)?.[1]
   if (!method) throw new ConsoleRequestError(404, "Console operation not found.")
   return { method }

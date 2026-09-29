@@ -38,6 +38,8 @@ Available namespaces:
   provision   Idempotently create missing provider resources.
 ```
 
+Each namespace appears only when its package is enabled. For example, `schedule` appears when the app enables Schedule.
+
 ## Commands
 
 | Command | Status | Owner | Use it for |
@@ -51,6 +53,7 @@ Available namespaces:
 | `vitehub console dev` | Available | Console integration | Start the app's development command with deterministic Console fixture data. |
 | `vitehub db generate` | Available | Database Package | Refresh generated Database artifacts and generate Drizzle migrations. |
 | `vitehub db migrate` | Available | Database Package | Refresh generated Database artifacts and apply Drizzle migrations. |
+| `vitehub schedule run` | Available | Schedule Package | Run a manual Static Schedule Definition now, locally or on a deployment. |
 | `vitehub workspace dev` | Available | Workspace Package | Run commands through a Workspace Session exposed by a Compatible Vite Development Server. |
 | `vitehub types prepare` | Available | ViteHub Framework | Prepare generated TypeScript declarations for editors and type checking. |
 | `vitehub provision run` | Available | ViteHub CLI plus package Provision Steps | Create missing provider resources idempotently. |
@@ -127,6 +130,30 @@ pnpm vitehub db migrate
 ```
 
 `db generate` forwards Drizzle Kit arguments, supports `--name <name>` for a migration name, and uses `--custom` to create an empty custom migration. `db migrate` accepts forwarded Drizzle Kit migration arguments.
+
+## Run a Schedule on demand
+
+`schedule run` starts a Static Schedule Definition that sets `manual: true`. It prints the run status, duration, and run id, and exits with `1` when the run fails. Add `--json` to print the run record.
+
+```bash [Terminal]
+pnpm vitehub schedule run sync
+```
+
+Without `--url`, the command posts to the running Vite Development Server at `VITEHUB_DEV_SERVER_URL` or `http://localhost:5173`. Use `--server <url>` to select another local server.
+
+With `--url`, the command posts to `/_vitehub/schedules/run` on the deployment. That route runs only when the deployment enables the [Console](/docs/development/console#run-schedules-on-demand) with `invoke: true`, and the Console access policy protects it like every other `/_vitehub/**` route. Set one Console credential in the environment:
+
+| Variable | Value |
+| --- | --- |
+| `VITEHUB_CONSOLE_AUTHORIZATION` | An `Authorization` header value that the Console access policy accepts, for example the Basic or Bearer credential that host middleware checks. |
+| `VITEHUB_CONSOLE_COOKIE` | A `Cookie` header value from a signed-in Console session. |
+
+```bash [Terminal]
+VITEHUB_CONSOLE_AUTHORIZATION="Basic $(printf 'admin:%s' "$ADMIN_TOKEN" | base64)" \
+  pnpm vitehub schedule run sync --url https://app.example.com
+```
+
+The command requires HTTPS for remote URLs and does not follow redirects. A `401`, `403`, or redirect response reports a Console authentication failure. The command never sends the credential to the local Development Server.
 
 ## Run Agent Evals
 

@@ -14,6 +14,7 @@ export type ScheduleHandler<TResult = unknown, TInput = unknown> = {
 }["bivarianceHack"]
 
 export interface ScheduleDefinitionInput<TResult = unknown> {
+  /** Allows `runSchedule()`, the Console, and `vitehub schedule run` to start this definition outside its cron. */
   manual?: boolean
   allowRuntimeSchedules?: boolean
   cron: string
@@ -21,6 +22,7 @@ export interface ScheduleDefinitionInput<TResult = unknown> {
 }
 
 export interface ScheduleDefinitionOptions {
+  /** Allows `runSchedule()`, the Console, and `vitehub schedule run` to start this definition outside its cron. */
   manual?: boolean
   allowRuntimeSchedules?: boolean
 }

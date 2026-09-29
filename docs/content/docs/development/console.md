@@ -261,7 +261,7 @@ console: { exposure: 'host-managed', invoke: true }
 console: { access: 'auth', invoke: true }
 ```
 
-For `host-managed`, your middleware must authenticate and authorize all `/_vitehub/**` routes, including the RPC transport, before it allows a request through. The build cannot verify this policy. Setting `invoke: false` keeps inspection available and disables Agent Invocation creation. The development shorthand `console: true` enables invocation; fixture mode always disables it.
+For `host-managed`, your middleware must authenticate and authorize all `/_vitehub/**` routes, including the RPC transport, before it allows a request through. The build cannot verify this policy. Setting `invoke: false` keeps inspection available and disables Agent Invocation creation and manual Schedule runs. The development shorthand `console: true` enables invocation; fixture mode always disables it.
 
 The `vitehub:console:agent-invocations` RPC operation accepts an Agent name, `method: 'POST'`, and a body typed as `ConsoleAgentInvocationInput` from `vite-hub/console`. The body requires a non-empty `prompt` and can include a configured `invokerProfileId` and prior `messages`.
 
@@ -295,6 +295,12 @@ export default defineNuxtConfig({
 Do not use `robots.txt` as access control. A crawler can ignore it, and a disallowed URL may still be listed without its contents.
 
 Read [Auth](/docs/server-primitives/auth#authorize-access-routes) for sign-in redirects and the complete callback contract.
+
+### Run Schedules on demand
+
+The same `invoke` setting enables manual Schedule runs. The Schedules page shows a **Run now** button next to the **Read-only** badge for each Static Schedule Definition that sets `manual: true`. The run status, duration, run id, and error replace the page notice after the run finishes. The Console omits the error stack.
+
+[`vitehub schedule run --url`](/docs/development/cli#run-a-schedule-on-demand) uses `POST /_vitehub/schedules/run` with a JSON body `{ "name": "sync" }`. The route is under `/_vitehub/**`, so the Console access policy protects it. It accepts only `application/json` requests and rejects a cross-origin `Origin` header. With `invoke: false`, or for a definition without `manual: true`, the route returns `404`. The Console UI uses the `vitehub:console:schedule-run` RPC operation with the same rules.
 
 ## Know what the Console stores
 

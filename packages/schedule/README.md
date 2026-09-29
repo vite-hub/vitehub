@@ -78,6 +78,10 @@ succeeded
 
 The example uses the default in-memory Schedule Run store. It proves the handler and run bookkeeping, but it does not install a recurring wake or generate Provider Output.
 
+## Run a Schedule on demand
+
+Set `manual: true` on a Static Schedule Definition to allow runs outside its cron. `runSchedule(name, { registry })` from `@vite-hub/schedule/runtime` starts one run with a `srun_manual_` run id and resolves with the finished run record, also when the handler fails. `hubSchedule()` adds `vitehub schedule run <name>`, which uses the Vite Development Server, or the deployed Console with `--url`. Definitions without `manual: true` reject with `SCHEDULE_MANUAL_RUN_DISABLED`.
+
 ## Discover a static schedule
 
 Register the direct owner-package integration in Vite.

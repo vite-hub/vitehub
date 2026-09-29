@@ -20,10 +20,13 @@ import type { ConsoleDefinitionCatalog, ConsoleDefinitionField, ConsoleDefinitio
 import type { ConsoleSectionId } from "./runtime/sections.ts"
 
 export type ConsoleAgentEntry = { handler: string; name: string }
+/** A Static Schedule Definition that sets `manual: true`. */
+export type ConsoleScheduleEntry = { handler: string; name: string }
 
 export interface ConsoleBuildCatalog {
   agents: readonly ConsoleAgentEntry[]
   definitions: ConsoleDefinitionCatalog
+  manualSchedules?: readonly ConsoleScheduleEntry[]
 }
 
 function relativeDefinitionFile(projectRoot: string, file: string): string {
@@ -242,5 +245,8 @@ export async function discoverConsoleBuildCatalog(options: {
   return {
     agents,
     definitions,
+    manualSchedules: discoveredSchedules
+      .filter(definition => definition.manual === true && definition.runtimeOnly !== true)
+      .map(definition => ({ handler: definition.handler, name: definition.name })),
   }
 }

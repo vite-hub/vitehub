@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest"
 
 import { deserializeResponse, serializeResponse, ViteHubError } from "@vite-hub/runtime"
-import { defineScheduleTarget, schedules, type ScheduleKVStorage } from "../src/index.ts"
-import { createKVRuntimeScheduleStore, createKVScheduleRunStore, createMemoryScheduleRunStore, createScheduleRun, executeRuntimeSchedule, executeStaticSchedule } from "../src/runtime.ts"
+import { defineSchedule, defineScheduleTarget, schedules, type ScheduleKVStorage } from "../src/index.ts"
+import { createKVRuntimeScheduleStore, createKVScheduleRunStore, createMemoryScheduleRunStore, createScheduleRun, executeRuntimeSchedule, executeStaticSchedule, runSchedule } from "../src/runtime.ts"
 import { loadScheduleDefinition, resetScheduleRuntime, setScheduleRunStore, setScheduleRuntimeRegistry } from "../src/runtime/state.ts"
 
 function createTestKVStore(): ScheduleKVStorage {
@@ -834,6 +834,72 @@ describe("Schedule Run bookkeeping", () => {
     run!.error!.message = "mutated"
 
     expect((await schedules.getRun(run!.id))!.error).toMatchObject({ message: "boom" })
+  })
+})
+
+describe("Manual Schedule runs", () => {
+  it("runs a manual Static Schedule Definition with a run id that cron runs cannot use", async () => {
+    const calls: unknown[] = []
+    const run = await runSchedule("sync", {
+      registry: {
+        sync: async () => ({
+          default: defineSchedule("*/5 * * * *", (context) => {
+            calls.push(context.id)
+            return { synced: 3 }
+          }, { manual: true }),
+        }),
+      },
+    })
+
+    expect(run).toMatchObject({
+      attemptCount: 1,
+      scheduleId: "sync",
+      status: "succeeded",
+      target: "sync",
+    })
+    expect(run.id).toBe(`srun_manual_sync_${run.scheduledAt.toISOString()}`)
+    expect(calls).toEqual([run.id])
+    expect(await schedules.getRun(run.id)).toEqual(run)
+  })
+
+  it("uses the installed runtime registry when no registry is passed", async () => {
+    setScheduleRuntimeRegistry({
+      sync: async () => defineSchedule({ cron: "0 9 * * *", handler: () => {}, manual: true }),
+    })
+
+    await expect(runSchedule("sync")).resolves.toMatchObject({ status: "succeeded" })
+  })
+
+  it("rejects definitions that do not allow manual runs", async () => {
+    const registry = {
+      cron: async () => defineSchedule("0 9 * * *", () => {}),
+      disabled: async () => defineSchedule("0 9 * * *", () => {}, { manual: false }),
+      target: async () => defineScheduleTarget({ handler: () => {} }),
+    }
+
+    await expect(runSchedule("cron", { registry })).rejects.toMatchObject({ code: "SCHEDULE_MANUAL_RUN_DISABLED" })
+    await expect(runSchedule("disabled", { registry })).rejects.toMatchObject({ code: "SCHEDULE_MANUAL_RUN_DISABLED" })
+    await expect(runSchedule("target", { registry })).rejects.toMatchObject({ code: "SCHEDULE_DEFINITION_NOT_FOUND" })
+    await expect(runSchedule("missing", { registry })).rejects.toMatchObject({ code: "SCHEDULE_DEFINITION_NOT_FOUND" })
+    await expect(runSchedule("toString", { registry })).rejects.toMatchObject({ code: "SCHEDULE_DEFINITION_NOT_FOUND" })
+    await expect(runSchedule("", { registry })).rejects.toMatchObject({ code: "SCHEDULE_DEFINITION_NOT_FOUND" })
+    expect(await schedules.listRuns()).toEqual([])
+  })
+
+  it("resolves with the failed run when the handler fails", async () => {
+    const run = await runSchedule("sync", {
+      registry: {
+        sync: async () => defineSchedule("0 9 * * *", () => {
+          throw new TypeError("mailbox unavailable")
+        }, { manual: true }),
+      },
+    })
+
+    expect(run).toMatchObject({
+      error: { message: "mailbox unavailable", name: "TypeError" },
+      status: "failed",
+    })
+    expect(await schedules.listAttempts(run.id)).toEqual([expect.objectContaining({ status: "failed" })])
   })
 })
 

@@ -14,6 +14,7 @@ import consoleInvocationHandler from "./invocation.get.ts"
 import consoleInvocationsHandler from "./invocations.get.ts"
 import consoleEnvHandler from "./env.get.ts"
 import consoleKVHandler from "./kv.get.ts"
+import { consoleScheduleRunHandler } from "./schedule-run.ts"
 import { consoleSearchCollectionHandler } from "./search.get.ts"
 import consoleSectionsHandler from "./sections.get.ts"
 import consoleStatusHandler from "./status.get.ts"
@@ -116,6 +117,7 @@ const operations = {
   [consoleRpcMethods.invocations]: (input: ConsoleRpcInput) => consoleInvocationsHandler(requestEvent("invocations", input)),
   [consoleRpcMethods.env]: (input: ConsoleRpcInput) => consoleEnvHandler(requestEvent("env", input)),
   [consoleRpcMethods.kv]: (input: ConsoleRpcInput) => consoleKVHandler(requestEvent("kv", input)),
+  [consoleRpcMethods.scheduleRun]: (input: ConsoleRpcInput) => consoleScheduleRunHandler(requestEvent("schedule-run", input)),
   async [consoleRpcMethods.search](input: ConsoleRpcInput) {
     const event = requestEvent("search", input)
     const response = await consoleSearchCollectionHandler.fetch(new Request(event.req!.url!, { method: event.method }))
