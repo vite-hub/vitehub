@@ -25,6 +25,7 @@ catalogs:
     "@ai-sdk/vue": 4.0.58
     "@modelcontextprotocol/sdk": ^1.30.0
     "@types/json-schema": ^7.0.15
+    advocaat: ^0.0.6
     agents: ^0.22.0
     ai: 7.0.58
     evalite: 1.0.0-beta.16

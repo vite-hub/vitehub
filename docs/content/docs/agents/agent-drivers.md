@@ -1,6 +1,6 @@
 ---
 title: Agent Drivers
-description: Choose model-backed, provider-backed, or application-owned Agent execution.
+description: Choose model-backed, provider-backed, question-backed, or application-owned Agent execution.
 navigation.order: 30
 navigation.group: Configure
 icon: i-lucide-cpu
@@ -13,8 +13,9 @@ An Agent Driver decides how one invocation runs. Choose the execution method tha
 | Model-backed | ViteHub runs a model and its Capability-contributed tool loop. |
 | Provider-backed | Codex or Claude Code runs the coding-agent loop, tools, approvals, and session. |
 | Custom run | Application code runs the entire operation. |
+| Ask | A fast decision model answers a fixed set of typed questions. |
 
-Built-in `"codex"` and `"claude-code"` values are provider-backed. Application-supplied Drivers use exactly one of `{ model }` or `{ run }`.
+Built-in `"codex"` and `"claude-code"` values are provider-backed. Application-supplied Drivers use exactly one of `{ model }`, `{ run }`, or `{ ask }`.
 
 ## Use a model-backed Driver
 
@@ -184,6 +185,81 @@ export default defineAgent({
 The callback receives prepared input, messages, tools, Workspace access, invocation context, and the resolved Actor as both `actor` and `invoker`. A custom run callback may call a model internally, but ViteHub treats that execution and usage as application-owned behavior.
 
 Read [Instructions](/docs/agents/instructions) for model-facing behavior and [Workspace context](/docs/agents/workspace-context) for files and writeback.
+
+## Use an ask Driver
+
+Use `driver.ask` when the Agent only has to answer a few typed questions, such as a label or a score. The Driver sends every question to [TypeSafe Jev](https://typesafe.ai) in one request through the `advocaat` client. It does not run a chat model, tools, or instructions.
+
+Install the client. It is an optional peer dependency, so Agents without `driver.ask` bundle without it:
+
+```sh
+pnpm add advocaat
+```
+
+Declare the `typesafe` Server Env group with `typesafeEnv()`. The Driver always reads this group name:
+
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { typesafeEnv } from 'vite-hub/env'
+
+export default defineConfig({
+  env: {
+    server: {
+      typesafe: typesafeEnv(),
+    },
+  },
+  plugins: [vitehub()],
+})
+```
+
+Build the questions with `ask`:
+
+```ts [server/agents/labeller.ts]
+import { ask, defineAgent } from 'vite-hub/agent'
+
+export default defineAgent({
+  driver: {
+    ask: {
+      label: ask.choice('Which Gmail label fits this email?', {
+        invoice: 'Bills, receipts, and payment requests.',
+        none: 'No label clearly fits.',
+      }),
+      urgent: ask.if('Does the email need action today?'),
+    },
+  },
+})
+```
+
+The answers are the Invocation output, and their type comes from the questions. `runAgent(labeller, { prompt })` returns `{ label: { choice: 'invoice' | 'none', confidence, probabilities }, urgent: boolean }`. No output schema or parsing is necessary.
+
+Jev reads the Invocation `data` when a caller sets it, else the prompt text, else the latest user message. Pass a function to build the questions for each Invocation. It receives the same context as `driver.run`:
+
+```ts [server/agents/labeller.ts]
+import { useServerEnv } from '#vitehub/env/server'
+import { ask, defineAgent } from 'vite-hub/agent'
+
+export default defineAgent({
+  driver: {
+    ask: () => {
+      const labels = useServerEnv().labeller.labels.split(',')
+      return {
+        label: ask.choice('Which label fits?', Object.fromEntries(labels.map(label => [label, null]))),
+      }
+    },
+  },
+})
+```
+
+| Builder | Answer |
+| --- | --- |
+| `ask.choice(instructions, criteria)` | `{ choice, confidence, probabilities }`. `criteria` maps labels to descriptions, or is a list of 2 to 255 labels. |
+| `ask.switch(instructions, criteria)` | The selected label only. |
+| `ask.score(instructions, levels)` | `{ score, ratio, confidence, legend, probabilities }` for 2 to 10 ordered levels. |
+| `ask.chance(instructions, criteria?)` | `{ chance }`, the probability of yes. |
+| `ask.if(instructions, { threshold? })` | `true` when the probability of yes is above `threshold`, which defaults to `0.5`. |
+
+`driver.ask` accepts only `ask` and `capacity`. Missing `advocaat`, a missing `typesafe` group, and a missing TypeSafe API key fail the Invocation with a diagnostic. The Console and `vitehub agent info` show the Driver kind as `ask`. When an ask Driver Agent uses [`llmGate()`](/docs/capabilities/llm-gate) or [`llmRoute()`](/docs/capabilities/llm-route) without a `model`, the decision also uses Jev.
 
 ### Provider exit evidence
 

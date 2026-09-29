@@ -1,4 +1,5 @@
 import type { AgentActivity, Message, StreamEvent } from "./messages.ts"
+import type { AskAnswerType, AskQuestion } from "./ask.ts"
 import type { AgentRunEventPublisher, AgentRunEvents } from "./run-events.ts"
 import type { AgentInvocationAnnotationValue, AgentInvocations } from "./invocations.ts"
 import type { StandardJSONSchemaV1, StandardSchemaV1 } from "@standard-schema/spec"
@@ -879,7 +880,7 @@ export type AgentToolResolverWithWorkspace<
   | ((context: AgentAdapterMetadataContext<TRuntimeConfig, Name>) => MaybePromise<unknown>)
 
 export type AgentCapabilityMode = "read" | "write"
-export type AgentDriverKind = "model" | "provider" | "run"
+export type AgentDriverKind = "ask" | "model" | "provider" | "run"
 
 export interface AgentCapabilityCliStandardSchemaResultSuccess<T = unknown> {
   issues?: undefined
@@ -1473,6 +1474,7 @@ export interface AgentModelDriver<
   CALL_OPTIONS = unknown,
   TOutput = unknown,
 > {
+  ask?: never
   capacity?: AgentDriverCapacityOptions
   credentials?: never
   execution?: AgentModelExecutionOptions<TRuntimeConfig, CALL_OPTIONS>
@@ -1500,6 +1502,7 @@ export interface AgentRunDriver<
   TContextValues extends object = AgentInvocationContextValues,
   TOutput = unknown,
 > {
+  ask?: never
   capacity?: AgentDriverCapacityOptions
   credentials?: never
   execution?: never
@@ -1520,6 +1523,51 @@ export interface AgentRunDriver<
   workDir?: never
 }
 
+/** Jev questions whose answers form `TOutput`. Build each question with `ask.choice()`, `ask.score()`, and the other `ask` builders. */
+export type AgentAskQuestions<TOutput = Record<string, unknown>> = {
+  readonly [K in keyof TOutput]: AskQuestion & AskAnswerType<TOutput[K]>
+}
+
+export type AgentAskQuestionsResolver<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+  TContextValues extends object = AgentInvocationContextValues,
+  TOutput = Record<string, unknown>,
+> =
+  | AgentAskQuestions<TOutput>
+  | ((context: AgentRunContext<TRuntimeConfig, CALL_OPTIONS, WorkspaceName, TContextValues>) => MaybePromise<AgentAskQuestions<TOutput>>)
+
+/**
+ * Answers typed questions with TypeSafe Jev in one request. The answers are the Invocation output.
+ * Jev reads Invocation `data` when present, else the prompt, else the latest user message.
+ * Credentials and the model come from the Server Env group `typesafe`, declared with `typesafeEnv()`.
+ */
+export interface AgentAskDriver<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+  TContextValues extends object = AgentInvocationContextValues,
+  TOutput = unknown,
+> {
+  ask: AgentAskQuestionsResolver<TRuntimeConfig, CALL_OPTIONS, TContextValues, TOutput>
+  capacity?: AgentDriverCapacityOptions
+  credentials?: never
+  execution?: never
+  instructions?: never
+  kind?: never
+  launch?: never
+  model?: never
+  permissionMode?: never
+  permissions?: never
+  providerSettings?: never
+  reasoningEffort?: never
+  reasoningSummary?: never
+  sessionStorePath?: never
+  run?: never
+  sandbox?: never
+  sessionKey?: never
+  workDir?: never
+}
+
 export type AgentDriver<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
@@ -1528,6 +1576,7 @@ export type AgentDriver<
 > =
   | AgentModelDriver<TRuntimeConfig, CALL_OPTIONS, TOutput>
   | AgentRunDriver<TRuntimeConfig, CALL_OPTIONS, TContextValues, TOutput>
+  | AgentAskDriver<TRuntimeConfig, CALL_OPTIONS, TContextValues, TOutput>
   | BuiltInAgentDriver<CALL_OPTIONS, TOutput>
 
 export type CustomAgentDriver<
@@ -1538,6 +1587,7 @@ export type CustomAgentDriver<
 > =
   | AgentModelDriver<TRuntimeConfig, CALL_OPTIONS, TOutput>
   | AgentRunDriver<TRuntimeConfig, CALL_OPTIONS, TContextValues, TOutput>
+  | AgentAskDriver<TRuntimeConfig, CALL_OPTIONS, TContextValues, TOutput>
 
 export interface AgentDefinitionCliOptions {
   capabilities?: boolean
@@ -2159,7 +2209,7 @@ export interface AgentInspectionDriverMetadata {
   }
   readonly executionAuthority: ExecutionAuthority
   execution?: AgentInspectionModelExecutionMetadata
-  kind: "model" | "provider" | "run" | "unknown"
+  kind: AgentDriverKind | "unknown"
   model?: AgentInspectionModelMetadata
   provider?: AgentInspectionProviderMetadata
 }

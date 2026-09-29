@@ -4,6 +4,7 @@ import {
   confidence,
   decisionPrompt,
   generateDecision,
+  jevDecision,
   latestUserText,
   normalizeChoices,
   objectSchema,
@@ -24,12 +25,18 @@ export type LlmGateDecision<TAllow extends string = string, TReject extends stri
     allowed: true
     category: TAllow
     confidence?: number
+    /** Probability of each category. Only Jev decisions set it. */
+    probabilities?: Record<string, number>
+    /** The model's reason. Jev decisions have no reason. */
     reason?: string
   }
   | {
     allowed: false
     category: TReject
     confidence?: number
+    /** Probability of each category. Only Jev decisions set it. */
+    probabilities?: Record<string, number>
+    /** The model's reason. Jev decisions have no reason. */
     reason?: string
   }
 
@@ -43,6 +50,7 @@ export interface LlmGateOptions<
   message?: string | ((
     decision: Extract<LlmGateDecision<Extract<keyof TAllow, string>, Extract<keyof TReject, string>>, { allowed: false }>,
   ) => string)
+  /** Chat model for the decision. Default: the Agent model, or TypeSafe Jev when the Agent uses `driver.ask`. */
   model?: AgentModelResolver
   prompt?: string
   reject: TReject
@@ -71,6 +79,15 @@ export function llmGate<
   const allowKeys = allow.map(choice => choice.key)
   const rejectKeys = reject.map(choice => choice.key)
   const categoryKeys = [...allowKeys, ...rejectKeys]
+  type Decision = LlmGateDecision<Extract<keyof TAllow, string>, Extract<keyof TReject, string>>
+
+  function toDecision(category: unknown, details: Pick<LlmGateDecision, "confidence" | "probabilities" | "reason">): Decision {
+    if (typeof category !== "string" || !categoryKeys.includes(category)) {
+      throw agentDiagnostics.AGENT_R0111({ message: `[vitehub] ${id} returned an invalid gate category.` })
+    }
+    // SAFETY: category is a configured allow or reject key, and allowed follows from the list that contains it.
+    return { allowed: allowKeys.includes(category), category, ...details } as Decision
+  }
 
   return defineCapability({
     id,
@@ -86,48 +103,46 @@ export function llmGate<
       if (context.context.has(id)) {
         throw agentDiagnostics.AGENT_R0110({ message: `[vitehub] Invocation context value "${id}" is already set.` })
       }
-      const model = await context.model.resolve(options.model)
-      const output = await generateDecision<LlmGateDecision<Extract<keyof TAllow, string>, Extract<keyof TReject, string>>>({
-        id,
-        model,
-        prompt: decisionPrompt({
-          choices: [
-            ...allow.map(choice => ({ ...choice, description: `ALLOW: ${choice.description}` })),
-            ...reject.map(choice => ({ ...choice, description: `REJECT: ${choice.description}` })),
-          ],
-          history: renderHistory(messages, options.history),
-          prompt: options.prompt,
-          task: "Classify whether the user request is allowed before the main agent runs.",
-          userMessage: latestUserText(input.prompt, messages),
-        }),
-        schema: objectSchema({
-          additionalProperties: false,
-          properties: {
-            allowed: { type: "boolean" },
-            category: { enum: categoryKeys, type: "string" },
-            confidence: { maximum: 1, minimum: 0, type: "number" },
-            reason: { type: "string" },
-          },
-          required: ["allowed", "category"],
-          type: "object",
-        }, (value) => {
-          const record = value as { allowed?: unknown, category?: unknown, confidence?: unknown, reason?: unknown }
-          if (typeof record?.category !== "string" || !categoryKeys.includes(record.category)) {
-            throw agentDiagnostics.AGENT_R0111({ message: `[vitehub] ${id} returned an invalid gate category.` })
-          }
-          const allowed = allowKeys.includes(record.category)
-          return {
-            allowed,
-            category: record.category as Extract<keyof TAllow, string> | Extract<keyof TReject, string>,
-            ...(confidence(record.confidence) !== undefined ? { confidence: confidence(record.confidence) } : {}),
-            ...(optionalString(record.reason) ? { reason: optionalString(record.reason) } : {}),
-          } as LlmGateDecision<Extract<keyof TAllow, string>, Extract<keyof TReject, string>>
-        }),
-      })
+      const choices = [
+        ...allow.map(choice => ({ ...choice, description: `ALLOW: ${choice.description}` })),
+        ...reject.map(choice => ({ ...choice, description: `REJECT: ${choice.description}` })),
+      ]
+      const task = "Classify whether the user request is allowed before the main agent runs."
+      const jev = await jevDecision(context, options, { choices, task })
+      const output = jev
+        ? toDecision(jev.choice, { confidence: jev.confidence, probabilities: jev.probabilities })
+        : await generateDecision<Decision>({
+          id,
+          model: await context.model.resolve(options.model),
+          prompt: decisionPrompt({
+            choices,
+            history: renderHistory(messages, options.history),
+            prompt: options.prompt,
+            task,
+            userMessage: latestUserText(input.prompt, messages),
+          }),
+          schema: objectSchema({
+            additionalProperties: false,
+            properties: {
+              allowed: { type: "boolean" },
+              category: { enum: categoryKeys, type: "string" },
+              confidence: { maximum: 1, minimum: 0, type: "number" },
+              reason: { type: "string" },
+            },
+            required: ["allowed", "category"],
+            type: "object",
+          }, (value) => {
+            const record = value as { allowed?: unknown, category?: unknown, confidence?: unknown, reason?: unknown }
+            return toDecision(record?.category, {
+              ...(confidence(record?.confidence) !== undefined ? { confidence: confidence(record?.confidence) } : {}),
+              ...(optionalString(record?.reason) ? { reason: optionalString(record?.reason) } : {}),
+            })
+          }),
+        })
       context.context.set(id, output)
       if (!output.allowed) {
         const message = typeof options.message === "function"
-          ? options.message(output as Extract<LlmGateDecision<Extract<keyof TAllow, string>, Extract<keyof TReject, string>>, { allowed: false }>)
+          ? options.message(output as Extract<Decision, { allowed: false }>)
           : options.message
         throw llmGateRejectedError(id, output, message)
       }

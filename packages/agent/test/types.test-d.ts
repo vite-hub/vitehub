@@ -1,7 +1,7 @@
 import { describe, expectTypeOf, it } from "vitest"
 import type { LanguageModel } from "ai"
 
-import { defineAgent, defineAgentInvoker, defineCapability, defineFinishEffect, runAgent, runAgentInline, startAgentInvocation, type AgentActor, type AgentCallbackContext, type AgentCapabilityCliCommand, type AgentCapabilityCliResolver, type AgentCapabilityDefinition, type AgentChannelDeliveryEffectContext, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDeliveryFinishEffect, type AgentChannelDeliveryFinishEffectContext, type AgentChannelDefinition, type AgentChannelDeliveryReplyPayload, type AgentChannelDeliveryReplyStream, type AgentChannelFactory, type AgentChannelInput, type AgentChannelInputs, type AgentDeliveryArtifact, type AgentDriverAdaptiveCapacityOptions, type AgentDriverCapacityOptions, type AgentDriverCapacityQueueOptions, type AgentErrorHookEvent, type AgentFinishEvent, type AgentFinishHookEvent, type AgentGatewayModel, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentMessageDeliveryKind, type AgentModelInput, type AgentModuleOptions, type AgentRunInput, type AgentRunResult, type AgentRuntimeConfig, type AgentRuntimeContext, type AgentTriggerInvokeResult, type AgentTriggerRunInvokeResult, type AgentUIMessageStreamProjection, type AgentUsageRecord, type ImagePart, type PublishedAgentDeliveryArtifact, type ResolvedAgentRuntimeContext } from "../src/index.ts"
+import { ask, defineAgent, defineAgentInvoker, defineCapability, defineFinishEffect, runAgent, runAgentInline, startAgentInvocation, type AgentActor, type AgentCallbackContext, type AgentCapabilityCliCommand, type AgentCapabilityCliResolver, type AgentCapabilityDefinition, type AgentChannelDeliveryEffectContext, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDeliveryFinishEffect, type AgentChannelDeliveryFinishEffectContext, type AgentChannelDefinition, type AgentChannelDeliveryReplyPayload, type AgentChannelDeliveryReplyStream, type AgentChannelFactory, type AgentChannelInput, type AgentChannelInputs, type AgentDeliveryArtifact, type AgentDriverAdaptiveCapacityOptions, type AgentDriverCapacityOptions, type AgentDriverCapacityQueueOptions, type AgentErrorHookEvent, type AgentFinishEvent, type AgentFinishHookEvent, type AgentGatewayModel, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentMessageDeliveryKind, type AgentModelInput, type AgentModuleOptions, type AgentRunInput, type AgentRunResult, type AgentRuntimeConfig, type AgentRuntimeContext, type AgentTriggerInvokeResult, type AgentTriggerRunInvokeResult, type AgentUIMessageStreamProjection, type AgentUsageRecord, type ImagePart, type PublishedAgentDeliveryArtifact, type ResolvedAgentRuntimeContext } from "../src/index.ts"
 import { createProcessAgentCapacity, type ProcessAgentCapacityOptions } from "../src/runtime/process.ts"
 import { access, chat, email, executor, getTranscriptionResults, git, inputCommands, kv, mcp, modelsDevPricing, openapi, sandbox, schedule, skills, streamTranscription, transcribe, usage, webSearch, workspaceShell, type AgentUsagePricing, type EmailCapabilityOptions, type EmailCapabilityToolPolicy, type ExecutorCapabilityOptions, type ModelsDevPricingOptions, type UsageOptions } from "../src/capabilities.ts"
 import { defineChannel, github, http, pullRequest, teams, telegram, webChat, type GitHubPullRequestCommand, type GitHubPullRequestFilter, type GitHubPullRequestFilterContext, type GitHubPullRequestRunContext } from "../src/channels.ts"
@@ -398,6 +398,56 @@ describe("agent public types", () => {
     expectTypeOf<Extract<Awaited<typeof workflowResult>, { id: string }>["result"]>().toEqualTypeOf<AgentRunResult | { summary: string, title: string } | undefined>()
     expectTypeOf<Awaited<typeof controlled>["support"]>().toEqualTypeOf<{ followUp: boolean, respond: boolean, steer: boolean }>()
     expectTypeOf<Extract<Awaited<ReturnType<Awaited<typeof controlled>["inspect"]>>, { outcome: "available" }>["invocation"]["output"]>().toEqualTypeOf<AgentRunResult | Response | { summary: string, title: string } | undefined>()
+  })
+
+  it("infers ask Driver output from its Jev questions", () => {
+    const agent = defineAgent({
+      driver: {
+        ask: {
+          label: ask.choice("Which label fits?", { invoice: "Bills.", none: null }),
+          reply: ask.switch("Reply?", ["yes", "no"]),
+          spam: ask.if("Is it spam?"),
+          tone: ask.score("How urgent?", ["Calm", "Urgent"]),
+          urgent: ask.chance("Is it urgent?"),
+        },
+      },
+      runtime: false,
+    })
+    // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
+    const result = runAgentInline(agent, {} as AgentRuntimeContext, {})
+    type Output = Exclude<Awaited<typeof result>, Response>
+
+    expectTypeOf<Output["label"]["choice"]>().toEqualTypeOf<"invoice" | "none">()
+    expectTypeOf<Output["label"]["probabilities"]>().toEqualTypeOf<{ readonly invoice: number, readonly none: number }>()
+    expectTypeOf<Output["reply"]>().toEqualTypeOf<"yes" | "no">()
+    expectTypeOf<Output["spam"]>().toEqualTypeOf<boolean>()
+    expectTypeOf<Output["tone"]["ratio"]>().toEqualTypeOf<number>()
+    expectTypeOf<keyof Output["tone"]["legend"]>().toEqualTypeOf<"0" | "1">()
+    expectTypeOf<Output["urgent"]["chance"]>().toEqualTypeOf<number>()
+
+    const dynamic = defineAgent({
+      driver: {
+        ask: context => ({ label: ask.choice(context.prompt ?? null, ["a", "b"]) }),
+      },
+      runtime: false,
+    })
+    // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
+    const dynamicResult = runAgentInline(dynamic, {} as AgentRuntimeContext, {})
+    expectTypeOf<Exclude<Awaited<typeof dynamicResult>, Response>["label"]["choice"]>().toEqualTypeOf<"a" | "b">()
+
+    defineAgent({
+      // @ts-expect-error The ask Driver output is the Jev answers, so it takes no output schema.
+      driver: {
+        ask: { label: ask.choice("Pick", ["a", "b"]) },
+        output: { schema: {} },
+      },
+      runtime: false,
+    })
+    defineAgent({
+      // @ts-expect-error A Driver selects exactly one of model, run, or ask.
+      driver: { ask: { label: ask.choice("Pick", ["a", "b"]) }, run: () => "ok" },
+      runtime: false,
+    })
   })
 
   it("scopes output correction attempts to Model Drivers", () => {

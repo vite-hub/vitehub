@@ -29,3 +29,35 @@ export function openWorkflowEnv(options: OpenWorkflowEnvOptions = {}): EnvRuntim
     }),
   }
 }
+
+export interface TypesafeEnvOptions {
+  /** Default model when `TYPESAFE_DEFAULT_MODEL` is not set. Default: `jev-latest`, or `typesafe-ai/jev` for `"vercel"`. */
+  model?: string
+  /**
+   * Where Jev requests go. `"typesafe"` reads `TYPESAFE_API_KEY` and calls the TypeSafe API.
+   * `"vercel"` reads `AI_GATEWAY_API_KEY` and calls Vercel AI Gateway. Default: `"typesafe"`.
+   */
+  provider?: "typesafe" | "vercel"
+}
+
+/**
+ * Declares the TypeSafe Jev provider, API key, and model. `defineAgent({ driver: { ask } })`, `llmGate()`, and
+ * `llmRoute()` read this group from `env.server.typesafe`.
+ */
+export function typesafeEnv(options: TypesafeEnvOptions = {}): EnvRuntimeConfigOptions {
+  const provider = options.provider || "typesafe"
+  const vercel = provider === "vercel"
+  return {
+    apiKey: env({
+      // On Vercel, the Jev client can use VERCEL_OIDC_TOKEN when AI_GATEWAY_API_KEY is not set.
+      optional: vercel,
+      secret: true,
+      source: env.source(vercel ? "AI_GATEWAY_API_KEY" : "TYPESAFE_API_KEY"),
+    }),
+    model: env({
+      default: options.model || (vercel ? "typesafe-ai/jev" : "jev-latest"),
+      source: env.source("TYPESAFE_DEFAULT_MODEL"),
+    }),
+    provider,
+  }
+}

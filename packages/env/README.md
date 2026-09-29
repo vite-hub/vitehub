@@ -88,6 +88,25 @@ export async function sync(event: unknown) {
 }
 ```
 
+## Presets
+
+Presets return ordinary `env.server` declarations. Import them from `@vite-hub/env` or `@vite-hub/env/presets`.
+
+| Preset | Declares |
+| --- | --- |
+| `openWorkflowEnv()` | OpenWorkflow namespace, Postgres URL, schema, and worker concurrency. |
+| `typesafeEnv({ provider?, model? })` | TypeSafe Jev `provider`, Secret `apiKey`, and `model`. `"typesafe"` reads `TYPESAFE_API_KEY`; `"vercel"` reads the optional `AI_GATEWAY_API_KEY`. `TYPESAFE_DEFAULT_MODEL` overrides the model. |
+
+`@vite-hub/agent` reads `typesafeEnv()` from the `typesafe` group for `driver.ask`:
+
+```ts
+env: {
+  server: {
+    typesafe: typesafeEnv(),
+  },
+},
+```
+
 ## External runtime values
 
 Use a read-only Env provider when application credentials live outside the host environment. Keep the provider's bootstrap credential in Kubernetes, Cloudflare, or the current host, then load the external values as one operation-scoped snapshot.

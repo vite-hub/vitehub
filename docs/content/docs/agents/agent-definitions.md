@@ -37,7 +37,7 @@ export default defineAgent({
 })
 ```
 
-For application-supplied execution, use exactly one structural Driver variant: `{ model }` or `{ run }`.
+For application-supplied execution, use exactly one structural Driver variant: `{ model }`, `{ run }`, or [`{ ask }`](/docs/agents/agent-drivers#use-an-ask-driver).
 
 ## Add abilities and context
 

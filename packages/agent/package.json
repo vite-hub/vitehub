@@ -196,6 +196,7 @@
   },
   "devDependencies": {
     "@agntn/web": "catalog:ai",
+    "advocaat": "catalog:ai",
     "@ai-sdk/mcp": "catalog:ai",
     "@chat-adapter/discord": "catalog:chat",
     "@github-tools/eve-extension": "0.7.0",
@@ -226,6 +227,7 @@
   },
   "peerDependencies": {
     "@agntn/web": "catalog:ai",
+    "advocaat": "catalog:ai",
     "@chat-adapter/discord": "catalog:chat",
     "@vercel/functions": "catalog:vercel",
     "@vite-hub/blob": "workspace:*",
@@ -244,6 +246,9 @@
   },
   "peerDependenciesMeta": {
     "@agntn/web": {
+      "optional": true
+    },
+    "advocaat": {
       "optional": true
     },
     "@chat-adapter/discord": {

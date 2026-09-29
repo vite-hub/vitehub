@@ -50,6 +50,7 @@ When the decision rejects the request, ViteHub throws `ViteHubError` with code `
 Category keys must be stable identifiers.
 
 The Capability requires either an explicit model option or an Agent model resolver available to Capabilities.
+An Agent with [`driver.ask`](/docs/agents/agent-drivers#use-an-ask-driver) and no `model` option decides with TypeSafe Jev instead.
 
 ## Driver support
 
@@ -58,6 +59,16 @@ The Capability requires either an explicit model option or an Agent model resolv
 | Model-backed | Runs the pre-invocation gate before model execution. |
 | Provider-backed | Runs the pre-invocation gate before provider execution when a model resolver is available. |
 | Custom-run-backed | Runs before `driver.run`; rejected requests do not reach custom code. |
+| Ask-backed | Without `model`, asks Jev one `ask.choice()` question with every category. Rejected requests do not reach the Driver. |
+
+## Jev decisions
+
+An ask Driver Agent sends the gate to TypeSafe Jev when the Capability has no `model` option.
+The state is the Invocation `data` when a caller sets it. Otherwise it is `{ request, history? }` from the latest user text and the `history` option.
+Each category description gets an `ALLOW:` or `REJECT:` prefix.
+
+The decision has `confidence` and `probabilities`, a map from category key to probability. Jev decisions have no `reason`.
+Credentials come from the `typesafe` Server Env group, as for the ask Driver.
 
 ## Verify the gate
 
@@ -76,7 +87,7 @@ It records a decision; later behavior must read that decision explicitly.
 | `history` | `boolean \| number` | `false` | Include recent conversation history in the classifier prompt. |
 | `id` | `string` | `"llm-gate"` | Capability id and invocation context key. |
 | `message` | `string \| function` | default rejection message | Error message when the gate rejects. |
-| `model` | `AgentModelResolver` | Agent model | Model used for the pre-invocation decision. |
+| `model` | `AgentModelResolver` | Agent model, or Jev for ask Driver Agents | Model used for the pre-invocation decision. |
 | `prompt` | `string` | generated | Additional classifier prompt text. |
 
 ## Related pages

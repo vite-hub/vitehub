@@ -63,6 +63,7 @@ console.log(publicEnv.appName)
 | `SecretEnv` from `@vite-hub/env` or `@vite-hub/env/secret` | Represent Secret Env values that redact by default. |
 | `resolveServerEnv` from `@vite-hub/env` or `@vite-hub/env/server` | Resolve a server env registry manually. |
 | `openWorkflowEnv` from `@vite-hub/env` or `@vite-hub/env/presets` | Use the OpenWorkflow env preset. |
+| `typesafeEnv` from `@vite-hub/env` or `@vite-hub/env/presets` | Declare the TypeSafe Jev group for [`driver.ask`](/docs/agents/agent-drivers#use-an-ask-driver). |
 | `parseSchema` from `@vite-hub/env` or `@vite-hub/env/schema` | Parse Standard Schema-compatible values. |
 
 ## Configure Env
@@ -290,6 +291,27 @@ Add the generated type directory to `tsconfig.json` when the app wants field-lev
 Read application secrets through Server Env inside Agent and Capability callbacks. Don't pass secrets through Agent Invocation metadata or model-facing instructions.
 
 Env is usually not an agent-facing Capability. Other Capabilities consume Server Env when they need credentials, provider tokens, or app-owned configuration.
+
+The [ask Driver](/docs/agents/agent-drivers#use-an-ask-driver) reads the `typesafe` group. Declare it with `typesafeEnv()`:
+
+```ts [vite.config.ts]
+import { typesafeEnv } from 'vite-hub/env'
+
+export default defineConfig({
+  env: {
+    server: {
+      typesafe: typesafeEnv({ provider: 'vercel' }),
+    },
+  },
+})
+```
+
+| `provider` | `apiKey` source | `model` default |
+| --- | --- | --- |
+| `"typesafe"` (default) | Required Secret Env `TYPESAFE_API_KEY`. | `jev-latest` |
+| `"vercel"` | Optional Secret Env `AI_GATEWAY_API_KEY`. Without it, the client uses `VERCEL_OIDC_TOKEN` on Vercel. | `typesafe-ai/jev` |
+
+`TYPESAFE_DEFAULT_MODEL` overrides the model. The `model` option changes the default.
 
 ## Production checks
 

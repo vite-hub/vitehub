@@ -6,7 +6,7 @@
   <img alt="AI SDK" src="https://img.shields.io/badge/AI%20SDK-v7-111827?style=flat-square">
 </p>
 
-`@vite-hub/agent` defines Agents from files such as `server/agents/support/agent.ts`. Each Agent selects one Driver: an AI SDK model, a built-in coding provider, or application-owned `driver.run` logic.
+`@vite-hub/agent` defines Agents from files such as `server/agents/support/agent.ts`. Each Agent selects one Driver: an AI SDK model, a built-in coding provider, typed TypeSafe Jev questions, or application-owned `driver.run` logic.
 
 Keep the three pieces separate:
 
@@ -21,6 +21,8 @@ pnpm add @vite-hub/agent @vite-hub/workspace ai
 ```
 
 `ai` is required for model-backed drivers and AI SDK-powered capabilities such as model-backed `title()`, `chatSummary()`, `llmGate()`, and `transcribe()`. Agents with `driver.run` can bundle without installing `ai`.
+
+`driver.ask` requires the optional peer `advocaat`. ViteHub imports it only when an ask Driver or a Jev decision runs, so other Agents do not need it.
 
 Add the AI SDK model provider you pass to `model`.
 
@@ -67,6 +69,28 @@ export default defineAgent({
   },
 });
 ```
+
+## Typed questions
+
+`driver.ask` answers typed questions with TypeSafe Jev in one request. The answers are the Invocation output, and `runAgent()` infers their type from the questions:
+
+```ts
+// server/agents/labeller.ts
+import { ask, defineAgent } from "@vite-hub/agent";
+
+export default defineAgent({
+  driver: {
+    ask: {
+      label: ask.choice("Which label fits this email?", { invoice: "Bills and receipts.", none: "No label fits." }),
+      urgent: ask.if("Does it need action today?"),
+    },
+  },
+});
+```
+
+Jev reads Invocation `data` when a caller sets it, else the prompt text, else the latest user message. `ask.choice()`, `ask.switch()`, `ask.score()`, `ask.chance()`, and `ask.if()` return plain question objects. `driver.ask` also accepts a function that returns the questions for each Invocation.
+
+Credentials come from the Server Env group `typesafe`. Declare it with `typesafe: typesafeEnv()` from `@vite-hub/env`. `llmGate()` and `llmRoute()` on an ask Driver Agent use one Jev `ask.choice()` question when they have no `model` option. Their decisions include `probabilities` and no `reason`.
 
 ## Direct invocations
 

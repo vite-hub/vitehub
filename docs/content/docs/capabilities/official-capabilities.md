@@ -96,8 +96,8 @@ import {
 
 | Ability | Capability | Use it when |
 | --- | --- | --- |
-| LLM routing | [`llmRoute()`](/docs/capabilities/llm-route) | Choose one developer-defined route with a model before the invocation. |
-| LLM gate | [`llmGate()`](/docs/capabilities/llm-gate) | Allow or reject a request with a model before the invocation. |
+| LLM routing | [`llmRoute()`](/docs/capabilities/llm-route) | Choose one developer-defined route with a model, or with Jev for ask Driver Agents, before the invocation. |
+| LLM gate | [`llmGate()`](/docs/capabilities/llm-gate) | Allow or reject a request with a model, or with Jev for ask Driver Agents, before the invocation. |
 | Rate limit | [`rateLimit()`](/docs/capabilities/rate-limit) | Consume a trusted invocation budget before the Agent runs. |
 | Title | [`title()`](/docs/capabilities/title) | Generate a title for Agent output, finish extensions, or Channel threads. |
 | Chat summary | [`chatSummary()`](/docs/capabilities/chat-summary) | Replace a summary command with a conversation summary. |

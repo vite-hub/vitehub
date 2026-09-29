@@ -1,9 +1,11 @@
 import { isPlainObject, isPlainRecord } from "@vite-hub/internal/object"
 import { inheritSharedAgentCapacityOptions } from "./agent-capacity.ts"
+import { askJev, askState } from "./ask-runtime.ts"
 import { isRuntimeFunction, isRuntimeNumber, isRuntimeString } from "./runtime-value.ts"
 
 import type {
   AgentAdapterInstructions,
+  AgentAskQuestionsResolver,
   AgentAttachmentExecutionOptions,
   AgentDriverAdaptiveCapacityOptions,
   AgentDriverCapacityOptions,
@@ -56,6 +58,11 @@ export type NormalizedAgentDriver<
   | {
     kind: "run"
     output?: AgentOutputDefinition<TOutput>
+    run: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS>
+  }
+  | {
+    kind: "ask"
+    output?: undefined
     run: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS>
   }
 )
@@ -138,6 +145,7 @@ function normalizeAgentDriverCapacity(value: unknown): AgentDriverCapacityOption
 const modelDriverKeys = new Set(["capacity", "execution", "instructions", "maxRetries", "model", "output"])
 const providerDriverKeys = new Set(["capacity", "credentialProfile", "credentials", "env", "execution", "instructions", "kind", "launch", "model", "output", "permissions", "providerSettings", "reasoningEffort", "reasoningSummary", "sessionStorePath"])
 const runDriverKeys = new Set(["capacity", "output", "run"])
+const askDriverKeys = new Set(["ask", "capacity"])
 
 function isResolver(value: unknown): value is { resolve: (...args: never[]) => unknown } {
   return isPlainObject(value) && isRuntimeFunction(value.resolve)
@@ -307,7 +315,7 @@ function normalizeProviderDriver(provider: "claude-code" | "codex", value: Recor
 function normalizeExplicitAgentDriver(driver: unknown): NormalizedAgentDriver {
   if (isRuntimeString(driver)) {
     if (driver !== "codex" && driver !== "claude-code") {
-      throw agentDiagnostics.AGENT_R0490({ message: `[vitehub] Unknown Agent Driver "${driver}". Expected "codex", "claude-code", or a custom { model } or { run } driver.` })
+      throw agentDiagnostics.AGENT_R0490({ message: `[vitehub] Unknown Agent Driver "${driver}". Expected "codex", "claude-code", or a custom { model }, { run }, or { ask } driver.` })
     }
     return normalizeProviderDriver(driver, {})
   }
@@ -323,8 +331,27 @@ function normalizeExplicitAgentDriver(driver: unknown): NormalizedAgentDriver {
 
   const capacity = normalizeAgentDriverCapacity(driver.capacity)
   const hasModel = hasOwnDefined(driver, "model")
-  const hasRun = hasOwnDefined(driver, "run")
-  if (hasModel === hasRun) throw agentDiagnostics.AGENT_R0493({ message: "[vitehub] defineAgent({ driver }) requires exactly one of driver.model or driver.run." })
+  const hasAsk = hasOwnDefined(driver, "ask")
+  if ([hasModel, hasOwnDefined(driver, "run"), hasAsk].filter(Boolean).length !== 1) {
+    throw agentDiagnostics.AGENT_R0493({ message: "[vitehub] defineAgent({ driver }) requires exactly one of driver.model, driver.run, or driver.ask." })
+  }
+  if (hasAsk) {
+    assertNoUnsupportedOptions(driver, askDriverKeys, "defineAgent({ driver: { ask } })")
+    if (!isPlainObject(driver.ask) && !isRuntimeFunction(driver.ask)) {
+      throw agentDiagnostics.AGENT_R0932({ message: "[vitehub] defineAgent({ driver.ask }) must be an object of Jev questions or a function that returns one." })
+    }
+    // SAFETY: The typed AgentSettings boundary establishes the question map; askJev validates each question when it runs.
+    const ask = driver.ask as AgentAskQuestionsResolver
+    return {
+      capacity,
+      kind: "ask",
+      run: async context => await askJev(
+        { abortSignal: context.input.abortSignal, event: context },
+        askState(context.input, context.prompt, context.messages),
+        isRuntimeFunction(ask) ? await ask(context) : ask,
+      ),
+    }
+  }
   if (hasModel) {
     assertNoUnsupportedOptions(driver, modelDriverKeys, "defineAgent({ driver: { model } })")
     if (driver.maxRetries !== undefined && (!isRuntimeNumber(driver.maxRetries) || !Number.isInteger(driver.maxRetries) || driver.maxRetries < 0)) {
@@ -371,5 +398,5 @@ export function normalizeAgentDriver<
   const record = options as Record<string, unknown>
   // SAFETY: normalizeExplicitAgentDriver validates the runtime shape; options carries the matching compile-time driver contract.
   if (hasOwnDefined(record, "driver")) return normalizeExplicitAgentDriver(record.driver) as NormalizedAgentDriver<TRuntimeConfig, CALL_OPTIONS>
-  throw agentDiagnostics.AGENT_R0497({ message: "[vitehub] Agent Driver is required. Expected a built-in driver name, tagged built-in configuration, or custom { model } or { run } driver." })
+  throw agentDiagnostics.AGENT_R0497({ message: "[vitehub] Agent Driver is required. Expected a built-in driver name, tagged built-in configuration, or custom { model }, { run }, or { ask } driver." })
 }

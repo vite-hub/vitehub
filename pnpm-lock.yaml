@@ -24,6 +24,9 @@ catalogs:
     '@types/json-schema':
       specifier: ^7.0.15
       version: 7.0.15
+    advocaat:
+      specifier: ^0.0.6
+      version: 0.0.6
     agents:
       specifier: ^0.22.0
       version: 0.22.0
@@ -795,6 +798,9 @@ importers:
       '@vite-hub/workflow':
         specifier: workspace:*
         version: link:../workflow
+      advocaat:
+        specifier: catalog:ai
+        version: 0.0.6
       evalite:
         specifier: catalog:ai
         version: 1.0.0-beta.16(ai@7.0.58(zod@4.5.4))(better-sqlite3@12.9.0)
@@ -9638,6 +9644,9 @@ packages:
     resolution: {integrity: sha512-lGq+9yr1/GuAWaVYIHRjvvySG5/4VfKIvC8EWxStPdcDh/Ka7FG3twP6v4d5BkravUilhIAsG4Qj83t02LWUPQ==}
     engines: {node: '>=0.4.0'}
     hasBin: true
+
+  advocaat@0.0.6:
+    resolution: {integrity: sha512-mZomE2RzphVc23Uaa6bupoJvO2R3Bnnq7XQnSUshX2FEYrqh6dGt46zOvYYXnDczHV1JEGM6Wuz+u8aDN3nwNA==}
 
   agent-base@6.0.2:
     resolution: {integrity: sha512-RZNwNclF7+MS/8bDg70amg32dyeZGZxiDuQmZxKLAlQjr3jGyLx+4Kkk58UO7D2QdgFIQCovuSuZESne6RG6XQ==}
@@ -26168,6 +26177,8 @@ snapshots:
       acorn: 8.18.0
 
   acorn@8.18.0: {}
+
+  advocaat@0.0.6: {}
 
   agent-base@6.0.2:
     dependencies:
