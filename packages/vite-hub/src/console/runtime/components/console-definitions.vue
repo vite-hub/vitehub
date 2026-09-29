@@ -227,7 +227,7 @@ onBeforeUnmount(() => request?.abort());
 <template>
   <ConsoleFrame>
     <UDashboardSidebar
-      :id="console-navigation"
+      id="console-navigation"
       v-model:open="sidebarOpen"
       :default-size="16"
       :collapsed-size="4"

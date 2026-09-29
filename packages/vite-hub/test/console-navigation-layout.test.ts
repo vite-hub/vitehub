@@ -14,6 +14,9 @@ describe("shared Console navigation layout", () => {
       expect(component(name)).toContain("<ConsoleBrand")
       expect(component(name)).toContain("vitehub-console__search")
       expect(component(name)).toContain("border border-default")
+      // A bound `:id` evaluates `console - navigation` and stores the sidebar size under "NaN".
+      expect(component(name)).toMatch(/\sid="console-navigation"/)
+      expect(component(name)).not.toContain(':id="console-navigation"')
     }
   })
 
