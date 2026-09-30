@@ -49,7 +49,7 @@ Duplicate writers for the same invocation context value fail early.
 Choice keys must be stable identifiers.
 
 The Capability requires either an explicit model option or an Agent model resolver available to Capabilities.
-An Agent with [`driver.ask`](/docs/agents/agent-drivers#use-an-ask-driver) and no `model` option decides with TypeSafe Jev instead.
+An Agent with [`driver.ask`](/docs/agents/agent-drivers#use-an-ask-driver) and no `model` option records a single choice locally or decides between multiple choices with TypeSafe Jev.
 
 ## Driver support
 
@@ -58,13 +58,14 @@ An Agent with [`driver.ask`](/docs/agents/agent-drivers#use-an-ask-driver) and n
 | Model-backed | Runs the pre-invocation decision and records the route before model execution. |
 | Provider-backed | Runs the pre-invocation decision before provider execution when a model resolver is available. |
 | Custom-run-backed | Records the decision before `driver.run`; custom code decides how to use it. |
-| Ask-backed | Without `model`, asks Jev one `ask.choice()` question with every choice. A `driver.ask` function can read the decision from Invocation context. |
+| Ask-backed | Without `model`, records a single choice locally or asks Jev one `ask.choice()` question with 2 to 255 choices. A `driver.ask` function can read the decision from Invocation context. |
 
 ## Jev decisions
 
-An ask Driver Agent sends the route to TypeSafe Jev when the Capability has no `model` option.
+When the Capability has no `model` option, an ask Driver Agent records a single configured choice locally with confidence `1` and probability `1`. This route decision needs no credentials and sends no Jev request. The main ask Driver still needs its configured credentials.
+
+With 2 to 255 choices, the Capability sends the route to TypeSafe Jev.
 The state is the Invocation `data` when a caller sets it. Otherwise it is `{ request, history? }` from the latest user text and the `history` option.
-Jev needs 2 to 255 choices.
 
 The decision has `choice`, `confidence`, and `probabilities`, a map from choice key to probability. Jev decisions have no `reason`.
 Credentials come from the `typesafe` Server Env group, as for the ask Driver.
