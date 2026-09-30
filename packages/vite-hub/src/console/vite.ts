@@ -15,7 +15,7 @@ import type { Environment, Plugin } from "vite"
 import type { ConsoleSectionId } from "./runtime/sections.ts"
 
 import { discoverConsoleBuildCatalog } from "./build.ts"
-import { resolveConsoleAuthConfig, writeConsoleAuthHandlers, type ConsoleAuthConfig } from "./auth-build.ts"
+import { registeredConsoleAuthMode, resolveConsoleAuthConfig, writeConsoleAuthHandlers, type ConsoleAuthConfig, type ConsoleAuthHandlers } from "./auth-build.ts"
 import { writeConsoleNitroPlugin } from "./plugin.ts"
 import { serializeConsoleRefresh } from "./refresh.ts"
 import { createConsoleCliNamespace } from "./cli.ts"
@@ -145,6 +145,8 @@ function authRouteProtects(
   return targetBase === routeBase || targetBase.startsWith(`${routeBase}/`)
 }
 
+export const consoleHostManagedCloudflareWarning = '[vitehub] console: { exposure: "host-managed" } does not verify requests. On Cloudflare, use console: { access: "auth", auth: { provider: "cloudflare-access" } } so the Worker verifies the Cloudflare Access token.'
+
 export function assertConsoleProductionAccess(
   configured: true | ConsoleOptions,
   options: {
@@ -206,13 +208,15 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
   let invoke = false
   let journal: ConsoleJournal | undefined
   let observations: AgentInvocationsOptions["observations"]
-  let consoleAuthHandlers: Awaited<ReturnType<typeof writeConsoleAuthHandlers>> | undefined
+  let consoleAuthHandlers: ConsoleAuthHandlers | undefined
   let refreshConsoleAuthClient: (() => Promise<void>) | undefined
+  let hostManagedCloudflareBuild = false
+  let baseURL = "/"
 
   const refreshConsoleCatalog = serializeConsoleRefresh(async () => {
     if (!generatedPlugin || !projectRoot || !root) return
     const catalog = await discoverConsoleBuildCatalog({ databaseDiscoveryRoot, discoveryRoot: root, projectRoot, rateLimitDiscoveryRoot, rateLimitScanDirs, sandboxDiscoveryRoot: root, scheduleDiscoveryRoot, sections, serverDirs, workspaceDiscoveryRoot })
-    const identity = await writeConsoleNitroPlugin(generatedPlugin, projectRoot, sections, catalog.agents, catalog, blobStores, kvStores, fixture, options.invocationRootState?.binding, invoke, observations, () => !options.invocationRootState?.closed, journal, Boolean(consoleAuthHandlers))
+    const identity = await writeConsoleNitroPlugin(generatedPlugin, projectRoot, sections, catalog.agents, catalog, blobStores, kvStores, fixture, options.invocationRootState?.binding, invoke, observations, () => !options.invocationRootState?.closed, journal, consoleAuthHandlers?.auth ?? false)
     if (options.invocationRootState) updateConsoleInvocationRootState(options.invocationRootState, projectRoot, identity)
   })
 
@@ -301,12 +305,14 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
         consoleAuth: configured !== true && configured.access === "auth" && Boolean(configured.auth),
         development: environment.command !== "build",
       })
-      const consoleAuthConfig = configured !== true && configured.access === "auth" && configured.auth
-        ? resolveConsoleAuthConfig(root, configured.auth, options.preset)
-        : undefined
-      consoleAuthHandlers = consoleAuthConfig ? await writeConsoleAuthHandlers(root, consoleAuthConfig) : undefined
+      hostManagedCloudflareBuild = environment.command === "build" && !cliDiscovery && options.preset === "cloudflare" && configured !== true && configured.exposure === "host-managed"
+      const configuredConsoleAuth = configured !== true && configured.access === "auth" ? configured.auth : undefined
+      const resolvedConsoleAuth = configuredConsoleAuth ? resolveConsoleAuthConfig(root, configuredConsoleAuth, options.preset) : undefined
+      const consoleAuthConfig = registeredConsoleAuthMode(configuredConsoleAuth, environment.command !== "build") ? resolvedConsoleAuth : undefined
+      baseURL = config.base ?? "/"
+      consoleAuthHandlers = consoleAuthConfig ? await writeConsoleAuthHandlers(root, consoleAuthConfig, baseURL) : undefined
       refreshConsoleAuthClient = consoleAuthConfig
-        ? serializeConsoleRefresh(async () => { consoleAuthHandlers = await writeConsoleAuthHandlers(root!, consoleAuthConfig) })
+        ? serializeConsoleRefresh(async () => { consoleAuthHandlers = await writeConsoleAuthHandlers(root!, consoleAuthConfig, baseURL) })
         : undefined
       projectRoot = resolveViteHubProjectRoot(root)
       const configuredFixture = viteConfig.vitehubCliDiscovery
@@ -347,7 +353,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
           observations,
           undefined,
           journal,
-          Boolean(consoleAuthHandlers),
+          consoleAuthHandlers?.auth ?? false,
         )
       }
       // SAFETY: Nitro extends Vite's user config with this documented top-level configuration object.
@@ -378,7 +384,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       for (const handler of [
         { handler: join(consoleRuntimeRoot, "server/status.get.js"), route: "/api/_vitehub/console/status", method: "get" },
         { handler: join(consoleRuntimeRoot, "server/usage.get.js"), route: "/api/_vitehub/console/usage", method: "get" },
-        ...(consoleAuthHandlers ? [{ handler: consoleAuthHandlers.signIn, route: "/_vitehub/sign-in", method: "get" }] : []),
+        ...(consoleAuthHandlers?.signIn ? [{ handler: consoleAuthHandlers.signIn, route: "/_vitehub/sign-in", method: "get" }] : []),
         { handler: join(consoleRuntimeRoot, "server/page.get.js"), route: "/_vitehub" },
         { handler: join(consoleRuntimeRoot, "server/page.get.js"), route: "/_vitehub/**" },
       ]) kit.addHandler(handler)
@@ -387,10 +393,8 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
         route: "/api/_vitehub/console/client.js",
         method: "get",
       })
-      if (consoleAuthHandlers) {
-        kit.addHandler({ handler: consoleAuthHandlers.route, route: "/api/_vitehub/console/auth/**" })
-        kit.addHandler({ handler: consoleAuthHandlers.middleware, middleware: true, route: "/**" })
-      }
+      if (consoleAuthHandlers?.route) kit.addHandler({ handler: consoleAuthHandlers.route, route: "/api/_vitehub/console/auth/**" })
+      if (consoleAuthHandlers) kit.addHandler({ handler: consoleAuthHandlers.middleware, middleware: true, route: "/**" })
       addConsoleRpcHandler(kit.config, consoleRuntimeRoot)
       if (Array.isArray(kit.config.plugins)) {
         const plugins = kit.config.plugins.filter(candidate => !generatedConsolePluginRegistration(candidate))
@@ -407,8 +411,13 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       consoleConfig.nitro = { ...kit.config, publicAssets }
     },
     async configResolved(config) {
+      if (hostManagedCloudflareBuild) {
+        config.logger.warn(consoleHostManagedCloudflareWarning)
+      }
       if (journal && "d1Binding" in journal && sections.includes("agents")) config.logger.info(consoleD1JournalMessage(journal.d1Binding))
       root = config.root
+      baseURL = config.base
+      await refreshConsoleAuthClient?.()
       projectRoot ||= resolveViteHubProjectRoot(config.root)
       generatedPlugin ||= resolve(config.root, generatedConsolePlugin)
       // SAFETY: ViteHub KV and Nitro extend the resolved Vite config with these documented keys.

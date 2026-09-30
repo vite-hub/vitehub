@@ -4,7 +4,8 @@ import { isConsoleSectionId } from "../sections"
 import { requestConsole } from "./request"
 
 export interface ConsoleNavigation {
-  auth: boolean
+  /** `true` for a Console Auth session, `"cloudflare-access"` when Cloudflare Access verifies each request. */
+  auth: boolean | "cloudflare-access"
   projectName?: string
   sections: ConsoleSectionId[]
 }
@@ -17,7 +18,7 @@ function parseConsoleNavigation(value: unknown): ConsoleNavigation {
   const response = value as { auth?: unknown, projectName?: unknown, sections?: unknown } | null | undefined
   const sections = Array.isArray(response?.sections) ? response.sections.filter(isConsoleSectionId) : []
   return {
-    auth: response?.auth === true,
+    auth: response?.auth === true || response?.auth === "cloudflare-access" ? response.auth : false,
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
     ...(typeof response?.projectName === "string" && response.projectName.trim()
       ? { projectName: response.projectName.trim() }

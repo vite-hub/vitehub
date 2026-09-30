@@ -1,3 +1,4 @@
+import { Diagnostic } from "nostics"
 import { $fetch } from "ofetch"
 import { computed, onScopeDispose, ref, toValue, watch } from "vue"
 
@@ -42,6 +43,30 @@ export interface UseCollectionReturn<TCollection extends AnyCollection> {
 
 const defaultRequester: CollectionRequester = async (endpoint: string, options: CollectionRequestOptions) => {
   return await $fetch<unknown>(endpoint, options)
+}
+
+/** A Collection route rejected the request: `401` without a session, `403` when `authorize` denied it. */
+export class CollectionAccessError extends Diagnostic {
+  readonly status: 401 | 403
+
+  constructor(status: 401 | 403, options?: ErrorOptions) {
+    super({
+      cause: options?.cause,
+      code: "SOURCE_R0026",
+      docs: "https://vitehub.dev/docs/reference/diagnostics",
+      why: status === 401
+        ? "[vitehub] Collection requires a signed-in session."
+        : "[vitehub] Collection access is forbidden.",
+    }, CollectionAccessError)
+    this.name = "CollectionAccessError"
+    this.status = status
+  }
+}
+
+function accessError(error: unknown): CollectionAccessError | undefined {
+  if (Object(error) !== error) return
+  const status: unknown = Reflect.get(Object(error), "status") ?? Reflect.get(Object(error), "statusCode")
+  if (status === 401 || status === 403) return new CollectionAccessError(status, { cause: error })
 }
 
 function isAbortError(error: unknown): boolean {
@@ -144,7 +169,7 @@ export function useCollection<TName extends CollectionName>(
       return { items: loadedItems, nextCursor: response.nextCursor }
     } catch (cause) {
       if (active !== controller || isAbortError(cause)) return
-      error.value = cause
+      error.value = accessError(cause) ?? cause
     } finally {
       if (active === controller) {
         active = undefined

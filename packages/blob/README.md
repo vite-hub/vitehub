@@ -61,6 +61,7 @@ At config time, the `fs` driver uses `BLOB_FS_BASE` when `blob.base` is omitted,
 Set `blob.serve` to generate a Nitro route for serving Blob-backed assets. `serve: true` uses `/api/_vitehub/blob` as a safe namespaced API route. Use `serve.route` for product-facing paths such as `/assets`.
 Objects from the served store receive an absolute URL when `serve.publicBaseUrl` is configured, or a route-relative URL otherwise.
 Use `serve.headers` for static cache and security headers. Blob metadata remains authoritative for content headers such as `Content-Type`, `Content-Length`, and `ETag`.
+The serve route is public by default. Set `serve.authorize: true` to require a signed-in `@vite-hub/auth` session through the Auth Vite plugin; the build fails without an Auth Definition. Export `authorize` (type `BlobServeAuthorize`) from `server/blob.ts` to decide each request with the Auth access signature. ViteHub runs the check before the store read and before conditional `304` handling. It returns `401` without a session, `403` for `false`, and a returned `Response` as-is. Authorized responses default to `Cache-Control: private, no-cache`.
 
 Use `detectContentType()` when an application needs to classify leading bytes before storage. It returns a detected MIME type for common images and PDFs, or `undefined` when the signature is unknown. Storage `contentType` remains caller-provided metadata, and recognizing a signature does not prove that a complete file is valid or safe.
 

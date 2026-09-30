@@ -5681,7 +5681,7 @@ describe("agent message protocol", () => {
   it("rejects streaming and commentary with manual message delivery", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
-    const error = "messages.delivery \"manual\" cannot be combined with messages.stream or messages.commentary"
+    const error = "messages.delivery \"manual\" and messages.loading cannot be combined with messages.stream or messages.commentary"
 
     expect(() => defineAgent({
       channels: {

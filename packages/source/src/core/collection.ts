@@ -1,6 +1,7 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec"
 import { Diagnostic } from "nostics"
 import { isPlainRecord } from "@vite-hub/internal/object"
+import type { AccessAuthorizeOption } from "@vite-hub/runtime"
 import { sourceErrorDiagnostics } from "../error-diagnostics.ts"
 
 const defaultPageLimit = 50
@@ -42,6 +43,8 @@ export interface Collection<
   TQueryInput extends object = TQuery,
 > {
   readonly [collectionQueryInput]?: TQueryInput
+  /** Access rule for the generated route. Omit it for a public Collection. */
+  readonly authorize?: AccessAuthorizeOption
   page(options: CollectionPageOptions<TQuery>): Promise<CollectionPage<TItem>>
   parseQuery(input: CollectionRequestQuery): Promise<TQuery>
 }
@@ -139,6 +142,8 @@ export interface CollectionOptions<
   TCursorInput extends CollectionCursorValue,
   TCursorOutput extends CollectionCursorValue = TCursorInput,
 > {
+  /** `true` requires a signed-in Auth session. A callback also decides each request after sign-in. */
+  authorize?: AccessAuthorizeOption
   cursor(item: NoInfer<TSourceItem>): Readonly<TCursorInput>
   cursorSchema: StandardSchemaV1<TCursorInput, TCursorOutput>
   defaultLimit?: number
@@ -378,8 +383,13 @@ export function defineCollection<
   if (defaultLimit > maxLimit) {
     throw sourceErrorDiagnostics.SOURCE_R0008({ message: "[vitehub] Collection defaultLimit cannot exceed maxLimit." })
   }
+  const authorize = definition.authorize
+  if (authorize !== undefined && authorize !== true && !(authorize instanceof Function)) {
+    throw sourceErrorDiagnostics.SOURCE_R0024({ message: "[vitehub] Collection authorize must be true or a function." })
+  }
 
   return {
+    ...(authorize ? { authorize } : {}),
     async page(request) {
       const limit = resolveLimit(request.limit, defaultLimit, maxLimit)
       const sourceItems = await load({

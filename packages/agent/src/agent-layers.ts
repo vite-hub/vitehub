@@ -44,7 +44,7 @@ function record(value: unknown): value is Record<string, unknown> {
 }
 
 // These maps contain definitions and callbacks, not configuration to merge recursively.
-const opaqueOptions = new Set(["data", "messages.meta", "messages.state", "invocations", "runtime", "driver.output", "driver.model", "driver.launch"])
+const opaqueOptions = new Set(["data", "messages.meta", "messages.state", "invocations", "runtime", "github", "driver.output", "driver.model", "driver.launch"])
 const definitionMaps = new Set(["channels", "workspace.sources", "workspace.skills", "hooks"])
 
 function merge(parent: unknown, child: unknown, path: string): unknown {
@@ -170,7 +170,7 @@ export type DefinitionDecorationCarrier = Record<PropertyKey, unknown>
 export function copyDefinitionDecorations(source: DefinitionDecorationCarrier, target: DefinitionDecorationCarrier): void {
   const frameworkProperties = new Set<PropertyKey>([
     registeredWorkspaceAgentNames, "options", "__vitehubAgentSettings", "__vitehubWorkspaceAgent", "__vitehubWorkspaceAgentOptions", agentLayerMetadata,
-    "resolve", "run", "health", "status", "box", "capabilities", "channels", "chat", "cli", "description",
+    "resolve", "run", "health", "status", "box", "github", "capabilities", "channels", "chat", "cli", "description",
     "driver", "hooks", "invoker", "invocations", "messages", "name", "runtime", "runEvents", "uiMessageStream", "version", "workspace",
     "bindings", "commit", "loaders", "plugins", "publish", "rootDir", "rules", "sourceRootDir", "sources", "store", "mode",
     Symbol.for("vitehub.baseAgentResolve"), Symbol.for("vitehub.baseAgentDefinitionResolve"),

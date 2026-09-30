@@ -321,6 +321,18 @@ describe("Console requests", () => {
     ).resolves.toEqual({ auth: true, sections: ["kv"] })
   })
 
+  it("loads Cloudflare Access availability and rejects unknown auth modes", async () => {
+    mocks.call.mockResolvedValueOnce({ ok: true, value: { auth: "cloudflare-access", sections: ["kv"] } })
+    await expect(
+      loadConsoleNavigation("/access-navigation-test/api/_vitehub/console/sections"),
+    ).resolves.toEqual({ auth: "cloudflare-access", sections: ["kv"] })
+
+    mocks.call.mockResolvedValueOnce({ ok: true, value: { auth: "public", sections: ["kv"] } })
+    await expect(
+      loadConsoleNavigation("/unknown-auth-navigation-test/api/_vitehub/console/sections"),
+    ).resolves.toEqual({ auth: false, sections: ["kv"] })
+  })
+
   it("stops waiting for an RPC result when navigation is aborted", async () => {
     mocks.call.mockReturnValue(new Promise(() => undefined))
     const controller = new AbortController()

@@ -113,7 +113,40 @@ Reconciled deliveries use `pullRequest.reconcile.concurrencyLimit` concurrent in
 
 Set `pullRequest.workspace.mount` to the repository path inside the Workspace. Omitting `workspace` mounts at `portal`. Both `workspace: true` and `workspace: {}` mount at the Workspace root. Set `workspace: false` to disable the pull request Workspace contribution.
 
-When a declared GitHub Source uses the same repository and the same non-root mount, the pull request checkout replaces it for that Invocation. Reads use the pull request head SHA; the declared Source remains unchanged for other Invocations. Different repositories, overlapping parent or child mounts, and Sources contributed by other Capabilities still produce a conflict.
+When a declared GitHub Source uses the same repository, root, include, and ignore at the same non-root mount, the pull request checkout replaces it for that Invocation. Reads use the pull request head SHA; the declared Source remains unchanged for other Invocations. A different repository or scope at the same mount fails the Invocation with an error that names the Source. Overlapping parent or child mounts and Sources contributed by other Capabilities also produce a conflict.
+
+For provider Drivers such as Codex and Claude Code, the mount is a real Git checkout of the exact head SHA before the Driver starts. `origin` points to the base repository, the base branch is fetched as `origin/<base>`, and a local branch named after the head branch tracks it. The Driver's own shell can run `git fetch`, `git commit`, and `git push` with the Agent GitHub identity. No token is written to the repository configuration. Checkout setup rejects a head branch without an explicit head repository, including pull requests from deleted forks.
+
+### Share one GitHub identity
+
+Pass a GitHub identity, such as `createGitHubHost()`, as `app`. The Channel uses it for API calls, and the Agent uses it as `defineAgent({ github })` when that option is not set. Provider Drivers receive its `access().env`: `GH_TOKEN`, `GITHUB_TOKEN`, a Git credential helper, and the commit author and committer. The pull request checkout and `git()` use the same credentials.
+
+```ts [server/agents/reviewer.ts]
+import { defineAgent } from 'vite-hub/agent'
+import { github } from 'vite-hub/agent/channels'
+import { createGitHubHost } from 'vite-hub/agent/server/github'
+
+const githubApp = createGitHubHost({
+  identity: { login: 'reviewer[bot]', email: '123+reviewer[bot]@users.noreply.github.com' },
+  credentials: () => ({
+    owner: 'acme',
+    appId: process.env.GITHUB_APP_ID,
+    installationId: process.env.GITHUB_APP_INSTALLATION_ID,
+    privateKey: process.env.GITHUB_APP_PRIVATE_KEY,
+  }),
+})
+
+export default defineAgent({
+  github: githubApp,
+  channels: {
+    github: github({ app: githubApp, pullRequest: { workspace: { mount: 'storefront' } } }),
+  },
+  driver: { kind: 'codex', permissions: 'allow-all' },
+  workspace: { mode: 'write' },
+})
+```
+
+`driver.env` values override keys from the GitHub identity. Without a GitHub identity, the checkout fetches without credentials, which works only for public repositories.
 
 ## Connect a web chat
 
@@ -271,9 +304,11 @@ export default defineAgent({
 
 Set `messages.commentary: 'message'` only when the Driver emits explicit commentary phases for public progress. Commentary is hidden by default; ViteHub never publishes reasoning as progress.
 
-Use `messages.delivery: 'manual'` when finish hooks own replies. A generated Workflow may carry manual delivery across a durable boundary when the Channel and host support it. An explicit `messages.timeout` bounds inline execution and the durable handoff's typing indicator, but it does not cap the durable Agent Workflow. `steer` queues overlapping messages and preserves that Workflow handoff. Other overlap policies such as `serial`, `drop`, `queue`, and `reject` remain inline and cannot be combined with required durable delivery.
+ViteHub posts the Agent's final text by default. An `agent:finish` hook may add more replies with `event.reply()`. After successful final delivery, ViteHub skips a non-streaming, text-only hook reply whose trimmed text is the same as the final text. Streamed hook replies and replies with artifacts, attachments, or files still post. ViteHub does not buffer a hook reply stream to compare its text. If automatic final delivery fails, the hook reply remains available as a fallback. Use `messages.delivery: 'manual'` when finish hooks own all replies; ViteHub then posts no final text.
 
-For a progress message that is edited while the Agent works, configure `messages.loading`. Its required `text` accepts a string, rotating string array, callback, or `null`; `intervalMs` controls the minimum update interval. Set `updates: 'commentary'` to project explicit commentary text into that message. `messages.loading` selects manual delivery, so it cannot be combined with `messages.stream` or `messages.commentary`. Set `messages.final.delivery: 'new-message'` to post the final answer separately and then remove the loading placeholder.
+With `messages.loading` or manual delivery, a generated Workflow may carry the reply across a durable boundary when the Channel and host support it. An explicit `messages.timeout` bounds inline execution and the durable handoff's typing indicator, but it does not cap the durable Agent Workflow. `steer` queues overlapping messages and preserves that Workflow handoff. Other overlap policies such as `serial`, `drop`, `queue`, and `reject` remain inline and cannot be combined with required durable delivery.
+
+For a progress message that is edited while the Agent works, configure `messages.loading`. Its required `text` accepts a string, rotating string array, callback, or `null`; `intervalMs` controls the minimum update interval. Set `updates: 'commentary'` to project explicit commentary text into that message. The loading message holds the reply until the Agent finishes, so it cannot be combined with `messages.stream` or `messages.commentary`. Then ViteHub replaces the loading message with the final text: it deletes the loading message and posts the reply, or edits the loading message when it cannot delete it. Set `messages.final.delivery: 'new-message'` to post the final text first and then remove the loading message. Finish hook replies follow the final text. With `messages.delivery: 'manual'`, the first hook reply takes the place of the loading message.
 
 ```ts
 messages: {

@@ -112,9 +112,11 @@
   "dependencies": {
     "@vite-hub/runtime": "workspace:*",
     "aws4fetch": "catalog:storage",
+    "cjs-module-lexer": "2.2.1",
     "defu": "catalog:unjs",
     "esbuild": "catalog:esbuild-v27",
     "h3": "catalog:unjs",
+    "mlly": "catalog:unjs",
     "nostics": "catalog:runtime",
     "pathe": "catalog:unjs"
   },

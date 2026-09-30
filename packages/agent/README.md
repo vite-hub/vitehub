@@ -330,6 +330,10 @@ Learn more at [vitehub.dev](https://vitehub.dev).
 
 GitHub pull request Channels use `pullRequest.workspace.mount` for a custom repository mount. Omitting `workspace` mounts at `portal`. Both `workspace: true` and `workspace: {}` use the Workspace root. Set `workspace: false` to disable the contribution.
 
+Provider Drivers get the mount as a real Git checkout of the exact head SHA, with `origin`, the fetched base branch, and a local head branch that tracks the pull request branch. A declared GitHub Source of the same repository and scope at the same mount is replaced for the Invocation; a different repository or scope fails with an error that names the Source. Checkout setup rejects a head branch without an explicit head repository, including pull requests from deleted forks.
+
+Set `defineAgent({ github })` to a GitHub identity such as `createGitHubHost()`. Provider Drivers receive its `access().env` (`GH_TOKEN`, `GITHUB_TOKEN`, a Git credential helper, and the commit identity) before `driver.env`, and the pull request checkout and `git()` use the same credentials. `github({ app: host })` uses the identity for Channel API calls and also sets `defineAgent({ github })` when it is omitted.
+
 For GitHub Channels, `activity: { publicUrl: 'https://agent.example.com' }` links pull request webhook activity to its ViteHub Console invocation. The URL must be the Agent's public Console origin. `activity: true` keeps application-supplied links. See the [GitHub Channel guide](../../docs/content/docs/agents/channels.md#publish-agent-activity-without-opening-a-chat).
 
 `pullRequest.reconcile.concurrencyLimit` sets the maximum concurrent reconciled webhook deliveries per repository and pull request. It defaults to `1`; set a positive integer such as `4` to run up to four deliveries for one PR together. Other PRs have separate limits. See the [GitHub Channel guide](../../docs/content/docs/agents/channels.md#reconcile-github-pull-requests).
@@ -520,7 +524,7 @@ reviews. The operation never approves, merges directly, or deletes a branch.
 If automatic repository branch deletion could affect open child PRs, it blocks.
 API failures propagate without a direct-merge fallback.
 
-`host.channel({ activity: true })` shares a GitHub host's credentials and identity.
+`host.channel({ activity: true })` is `github({ activity: true, app: host })`. It shares the host's credentials and identity.
 A provider `env` resolver can call `host.environment()` inside
 `withPullRequestCheckout()`. The environment binds to that callback's checkout,
 including concurrent callbacks. Await the entire agent run before returning.

@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest"
 import * as v from "valibot"
 
 import { defineCollection } from "../src/index.ts"
-import { useCollection } from "../src/client.ts"
+import { CollectionAccessError, useCollection } from "../src/client.ts"
 
 import type { CollectionPage } from "../src/index.ts"
 import type { CollectionRequester, UseCollectionReturn } from "../src/client.ts"
@@ -270,6 +270,25 @@ describe("useCollection", () => {
     expect(collection.error.value).toBe(failure)
     await expect(collection.loadMore()).resolves.toBeUndefined()
     expect(calls).toHaveLength(2)
+    scope.stop()
+  })
+
+  it.each([401, 403] as const)("surfaces a %i response as a CollectionAccessError", async (status) => {
+    const { calls, request } = controlledRequester()
+    const scope = effectScope()
+    let collection!: UseCollectionReturn<typeof definition>
+    scope.run(() => {
+      collection = useCollection("items", { request })
+    })
+
+    const failure = Object.assign(new Error(`[GET] "/api/items": ${status}`), { statusCode: status })
+    calls[0]!.reject(failure)
+    await settle()
+
+    expect(collection.error.value).toBeInstanceOf(CollectionAccessError)
+    expect(collection.error.value).toMatchObject({ cause: failure, code: "SOURCE_R0026", status })
+    expect(collection.items.value).toEqual([])
+    expect(collection.pending.value).toBe(false)
     scope.stop()
   })
 

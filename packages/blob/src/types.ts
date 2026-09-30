@@ -1,4 +1,4 @@
-import type { ViteHubError, ViteHubErrorDetails } from "@vite-hub/runtime"
+import type { AccessAuthorize, ViteHubError, ViteHubErrorDetails } from "@vite-hub/runtime"
 
 export type BlobDriver =
   | "akamai"
@@ -328,13 +328,19 @@ export type ResolvedBlobStoreConfig =
 export type BlobStoreName = "default" | (string & {})
 
 export type BlobServeOptions = boolean | {
+  /** Requires a signed-in Auth session. Export `authorize` from `server/blob.ts` to also decide each request. */
+  authorize?: boolean
   headers?: Record<string, string>
   publicBaseUrl?: string
   route?: string
   store?: BlobStoreName
 }
 
+/** Decides whether a signed-in user can read one object from the Blob serve route. */
+export type BlobServeAuthorize = AccessAuthorize
+
 export interface BlobServeConfig {
+  authorize?: true
   headers?: Record<string, string>
   publicBaseUrl?: string
   route: string

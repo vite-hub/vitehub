@@ -370,15 +370,47 @@ ViteHub discovers modules in `server/collections` and generates their type
 registry and read-only GET routes. Each module exports a Collection with the
 same name as its filename, so `articles.ts` exports `articles` and maps to
 `/api/articles`. The Nuxt module auto-imports `useCollection`; outside Nuxt,
-import it from `vite-hub/source/client`. Everything in `server/collections` is
-public through its transformed shape; keep private definitions elsewhere and do
-not create a matching `server/api` handler. Restart Nuxt after adding, removing,
+import it from `vite-hub/source/client`. Do not create a matching `server/api`
+handler. Restart Nuxt after adding, removing,
 or renaming a Collection module so Nitro rebuilds its handler manifest. Use
 `filter` for validated request input. It stays
 fixed while `loadMore()` advances the opaque cursor. For a bounded Collection,
 set `all: true` to fetch every page asynchronously. `cursor` and `limit` are
 reserved route query parameters. Invalid limits, cursor encodings, and parsed
 filters return HTTP 400.
+
+### Protect a Collection
+
+A Collection route is public through its transformed shape unless it declares
+`authorize`. `authorize: true` requires a signed-in [Auth](/docs/server-primitives/auth)
+session. A callback uses the Auth access signature: it receives
+`{ request, session, user }` and returns `true`, `false`, or a `Response`.
+
+```ts [server/collections/meals.ts]
+export const meals = defineCollection({
+  source: table({ /* ... */ }),
+  authorize: ({ user }) => user.role === 'owner',
+  transform: meal => ({ id: meal.id, calories: meal.calories }),
+})
+```
+
+The loader overload accepts the same option: `defineCollection(load, { authorize, ... })`.
+ViteHub checks access before it parses the query or loads rows. A request without a
+session returns JSON `401`, `false` returns `403`, and a returned `Response` is sent
+as-is. The check reads the same-origin session cookie, so `useCollection()` needs no
+extra headers. It sets `error` to a `CollectionAccessError` with `status` `401` or
+`403`:
+
+```ts
+import { CollectionAccessError } from 'vite-hub/source/client'
+
+const { error } = useCollection('meals')
+const signedOut = computed(() => error.value instanceof CollectionAccessError && error.value.status === 401)
+```
+
+Enable Auth and define `server/auth.ts` before you use `authorize`. Without Auth,
+the generated route cannot read a session and fails closed with `SOURCE_R0025`.
+`authorize` decides access to the whole route. It does not filter rows per user.
 
 ## Use Sources with Workspace
 

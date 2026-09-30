@@ -3,6 +3,7 @@ import { createError, defineEventHandler, getQuery } from "h3"
 import { CollectionCursorError } from "./core/collection.ts"
 
 import type { H3Event } from "h3"
+import type { AccessAuthorizeOption } from "@vite-hub/runtime"
 import type { Collection, CollectionRequestQuery } from "./core/collection.ts"
 import { sourceErrorDiagnostics } from "./error-diagnostics.ts"
 
@@ -13,6 +14,17 @@ export interface CollectionHandler {
 
 export interface CollectionHandlerEvent {
   req: { signal: AbortSignal }
+}
+
+/** Authorizes one Collection request. Return a `Response` to reject it. */
+export type CollectionRequestAuthorizer = (
+  event: { req: Request },
+  authorize: AccessAuthorizeOption,
+) => Promise<Response | undefined>
+
+export interface CollectionHandlerOptions {
+  /** Required when the Collection declares `authorize`. Generated routes pass Auth's `authorizeRequest`. */
+  authorizeRequest?: CollectionRequestAuthorizer
 }
 
 function queryValue(query: Record<string, string | string[] | undefined>, key: string): string | undefined {
@@ -77,10 +89,21 @@ function assertCollection(value: unknown): asserts value is Collection<unknown, 
 
 export function defineCollectionHandler<TItem, TQuery extends object, TQueryInput extends object>(
   collection: Collection<TItem, TQuery, TQueryInput>,
+  options: CollectionHandlerOptions = {},
 ): CollectionHandler {
   assertCollection(collection)
+  const { authorize } = collection
+  const { authorizeRequest } = options
+  if (authorize && !authorizeRequest) {
+    // Fail closed: without Auth, the route cannot read a session.
+    throw sourceErrorDiagnostics.SOURCE_R0025({ message: "[vitehub] Collection authorize requires Auth. Enable Auth and add `server/auth.ts`." })
+  }
   // SAFETY: CollectionHandler preserves the callable and fetch contracts exposed by H3's handler.
   return defineEventHandler(async (event: H3Event) => {
+    if (authorize && authorizeRequest) {
+      const rejection = await authorizeRequest(event, authorize)
+      if (rejection) return rejection
+    }
     const requestQuery = getQuery(event)
     let cursor: string | undefined
     let limit: number | undefined

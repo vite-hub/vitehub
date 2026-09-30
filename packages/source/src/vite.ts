@@ -20,6 +20,8 @@ const collectionTypesPackageEntry = ".vitehub/types/source/vitehub-source-regist
 const legacyCollectionTypesEntry = ".vitehub/source/collections.d.ts"
 const collectionRoutesDirectory = ".vitehub/source/routes"
 const contentRouteEntry = ".vitehub/content/route.mjs"
+// Auth owns this virtual module. Generated routes import it only when Auth is enabled.
+const authServerModuleId = "#vitehub/auth/server"
 const initialHostRefreshRetryDelay = 25
 const maximumHostRefreshRetryDelay = 1_000
 const hostRestartOwnerSettlementTimeout = 30_000
@@ -31,6 +33,8 @@ export interface GeneratedSourceHandler {
 }
 
 export interface SourceGenerationOptions {
+  /** Pass Auth's `authorizeRequest` to generated Collection routes. Requires the Auth Vite plugin. */
+  auth?: boolean
   contentImportBase?: string
   importBase?: string
   projectRoot: string
@@ -38,6 +42,8 @@ export interface SourceGenerationOptions {
 }
 
 export interface SourceVitePluginOptions {
+  /** Pass Auth's `authorizeRequest` to generated Collection routes when the Auth Vite plugin has a Definition. */
+  auth?: boolean | ((input: { configuredAuth?: boolean, projectRoot: string, serverDirs?: string[] }) => boolean)
   contentImportBase?: string
   importBase?: string
 }
@@ -71,6 +77,7 @@ interface NitroRouteGuard {
 }
 
 interface SourcePluginConfig {
+  auth?: false | Record<string, never>
   base?: string
   define?: Record<string, string>
   nitro?: unknown
@@ -319,9 +326,12 @@ async function writeCollectionArtifacts(
     const handler = resolve(routesDirectory, `${name}.mjs`)
     await writeFileIfChanged(handler, [
       `import { defineCollectionHandler } from ${JSON.stringify(`${options.importBase ?? "@vite-hub/source"}/server`)}`,
+      ...(options.auth ? [`import { authorizeRequest } from ${JSON.stringify(authServerModuleId)}`] : []),
       `import { ${exportName} as collection } from ${JSON.stringify(toRuntimeModuleSpecifier(file))}`,
       "",
-      "export default defineCollectionHandler(collection)",
+      options.auth
+        ? "export default defineCollectionHandler(collection, { authorizeRequest })"
+        : "export default defineCollectionHandler(collection)",
       "",
     ].join("\n"))
     return {
@@ -421,11 +431,14 @@ function generatedSourceNitroContribution(
 }
 
 function sourceDefinitionPath(file: string, projectRoot: string, serverDirs: string[] | undefined): boolean {
+  const projectRelativePath = relative(resolve(projectRoot), resolve(file)).replaceAll("\\", "/")
+  if (/^server\.auth\.(?:[cm]?[jt]s)$/.test(projectRelativePath)) return true
   const directories = serverDirs === undefined ? [resolve(projectRoot, "server")] : serverDirs
   return directories.some((directory) => {
     const path = relative(resolve(projectRoot, directory), resolve(file)).replaceAll("\\", "/")
     if (path.startsWith("../") || isAbsolute(path)) return false
     return /^content\.(?:[cm]?[jt]s)$/.test(path)
+      || /^auth\.(?:[cm]?[jt]s)$/.test(path)
       || (/^collections\/.+\.(?:[cm]?[jt]s)$/.test(path) && !/\.d\.[cm]?ts$/.test(path))
   })
 }
@@ -436,15 +449,17 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
       listener: GeneratedSourceHandlersListener,
       options?: GeneratedSourceHandlersListenerOptions,
     ) => () => void
-    prepareSources: (options: Omit<SourceGenerationOptions, "contentImportBase" | "importBase">) => Promise<GeneratedSourceHandler[]>
+    prepareSources: (options: Omit<SourceGenerationOptions, "auth" | "contentImportBase" | "importBase">) => Promise<GeneratedSourceHandler[]>
   }
   nitro: { name: string, setup(nitro: SourceNitroHost): void }
 } {
+  const refreshAuthByRoot = new Map<string, () => unknown>()
   let nitroHost: SourceNitroHost | undefined
   let nitroHostContribution: NitroGeneratedConfig | undefined
   const nitroHandlers: GeneratedSourceHandler[] = []
   let latestProjectRoot: string | undefined
   const configuredStateByRoot = new Map<string, {
+    configuredAuth?: boolean
     handlerKey: string
     nitroContribution?: NitroGeneratedConfig
     serverDirs?: string[]
@@ -462,22 +477,29 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
     listener: GeneratedSourceHandlersListener
     projectRoot?: string
   }>()
-  const prepareSources = (input: Omit<SourceGenerationOptions, "contentImportBase" | "importBase">) => {
+  const prepareSources = (
+    input: Omit<SourceGenerationOptions, "auth" | "contentImportBase" | "importBase">,
+    configuredAuth?: boolean,
+  ) => {
     const root = resolve(input.projectRoot)
     const previousPreparation = sourcePreparationByRoot.get(root) ?? Promise.resolve()
-    const preparation = previousPreparation.then(() =>
-      prepareSourceGeneration({
+    const runPreparation = () => {
+      const configuredState = configuredStateByRoot.get(root)
+      const resolvedConfiguredAuth = configuredAuth === undefined
+        ? configuredState?.configuredAuth
+        : configuredAuth
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The Auth option is an untagged boolean-or-callback union; callability selects the callback.
+      const auth = typeof options.auth === "function"
+        ? options.auth({ configuredAuth: resolvedConfiguredAuth, projectRoot: root, serverDirs: input.serverDirs })
+        : options.auth && resolvedConfiguredAuth !== false && Boolean(refreshAuthByRoot.get(root)?.())
+      return prepareSourceGeneration({
         ...input,
+        auth,
         importBase: options.importBase,
         contentImportBase: options.contentImportBase,
-      }),
-    () =>
-      prepareSourceGeneration({
-        ...input,
-        importBase: options.importBase,
-        contentImportBase: options.contentImportBase,
-      }),
-    )
+      })
+    }
+    const preparation = previousPreparation.then(runPreparation, runPreparation)
     sourcePreparationByRoot.set(root, preparation)
     void preparation.finally(() => {
       if (sourcePreparationByRoot.get(root) === preparation) sourcePreparationByRoot.delete(root)
@@ -563,10 +585,11 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
         const previousConfiguredState = configuredStateByRoot.get(projectRoot)
         previousLifecycle?.pause()
         try {
-          const handlers = await prepareSources({ projectRoot, serverDirs })
+          const handlers = await prepareSources({ projectRoot, serverDirs }, viteConfig.auth === false ? false : viteConfig.auth ? true : undefined)
           const handlerKey = await generatedHandlerKey(handlers)
           const nitro = generatedSourceNitroContribution(viteConfig.nitro, handlers)
           configuredStateByRoot.set(projectRoot, {
+            configuredAuth: viteConfig.auth === false ? false : viteConfig.auth ? true : undefined,
             handlerKey,
             nitroContribution: nitro,
             serverDirs: serverDirs?.slice(),
@@ -610,13 +633,18 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
         : resolveViteHubProjectRoot(config.root)
       latestProjectRoot = projectRoot
       bindUnresolvedListenerRoots(projectRoot)
+      // Auth owns discovery. Refresh it during preparation so watcher listener order cannot leave stale imports.
+      const authPlugin = (config.plugins ?? []).flat(Infinity).find(plugin => plugin.name === "@vite-hub/auth/vite")
+      const refreshAuth: unknown = Reflect.get(Object(Reflect.get(Object(authPlugin), "api")), "refresh")
+      if (refreshAuth instanceof Function) refreshAuthByRoot.set(projectRoot, () => refreshAuth())
+      else refreshAuthByRoot.delete(projectRoot)
       viteConfig.define ??= {}
       viteConfig.define.__VITEHUB_APP_BASE_URL__ = JSON.stringify(applicationBaseURL(config.base))
       const previousTransition = configurationTransitionByRoot.get(projectRoot) ?? Promise.resolve()
       const runTransition = async () => {
         const configuredState = configuredStateByRoot.get(projectRoot)
         const serverDirs = viteConfig[VITEHUB_SERVER_DIRS] ?? configuredState?.serverDirs
-        const handlers = await prepareSources({ projectRoot, serverDirs })
+        const handlers = await prepareSources({ projectRoot, serverDirs }, viteConfig.auth === false ? false : viteConfig.auth ? true : undefined)
         const handlerKey = await generatedHandlerKey(handlers)
         if (nitroHost && !viteConfig[VITEHUB_NITRO_CONFIG_CONTEXT]) {
           // Nitro initializes before post-enforced config hooks. Reconcile its routes once
@@ -632,6 +660,7 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
           nitroHost.routing.sync()
         }
         configuredStateByRoot.set(projectRoot, {
+          configuredAuth: viteConfig.auth === false ? false : viteConfig.auth ? true : undefined,
           handlerKey,
           nitroContribution: configuredState?.nitroContribution,
           serverDirs: serverDirs?.slice(),

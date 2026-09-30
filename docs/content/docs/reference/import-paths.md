@@ -41,6 +41,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/console` | Route metadata for the local read-only invocation console. |
 | `vite-hub/console/auth` | Define a Console-owned Auth Definition and its access policy. |
 | `vite-hub/console/auth/client` | Configure Console Auth client plugins and setup. |
+| `vite-hub/console/auth/cloudflare-access` | Verify Cloudflare Access tokens for the Console guard. |
 | `vite-hub/console/auth/inline` | Build the Node-only inline GitHub Console Auth Definition. |
 | `vite-hub/console/blob` | Read-only Blob inspection registration for framework server integrations. |
 | `vite-hub/console/database` | Read-only Database inspection registration for framework server integrations. |
@@ -61,6 +62,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/browser/providers/cloudflare` and `vite-hub/browser/providers/local` | Advanced explicit provider selection for low-level Browser Clients. |
 | `vite-hub/channels` and `vite-hub/channels/server` | Outbound Channel Definitions with `defineOutboundChannel()` and discovered named delivery. |
 | `vite-hub/box` | Box Definitions and built-in runtime selection for trusted-host, Crabbox, ASCII, Cloudflare Sandbox, Cloudflare Computer, and Vercel Sandbox execution. |
+| `vite-hub/box/ssh` | `sshLaunch` for provider Driver launch callbacks and `serveSsh` for a trusted SSH runner. |
 | `vite-hub/database` and `vite-hub/database/drizzle` | Database Definitions and generated `useDatabase()` access. |
 | `vite-hub/env` | Env Declaration helpers and authoring types. |
 | `vite-hub/env/http` | Authenticated HTTP adapter for declared Env Bridge credentials. |
@@ -134,6 +136,7 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/browser/controllers/cdp` and `@vite-hub/browser/controllers/playwright` | Browser Package | Raw CDP and Playwright Browser Session controllers. |
 | `@vite-hub/browser/providers/cloudflare` and `@vite-hub/browser/providers/local` | Browser Package | Cloudflare Browser Run and local Chromium providers. |
 | `@vite-hub/box` | Box Package | Box Definitions, sessions, and built-in runtime selection. |
+| `@vite-hub/box/ssh` | Box Package | `sshLaunch` and `serveSsh` for a trusted SSH command transport. |
 | `@vite-hub/channels` | Channels Package | Outbound Channel Definitions with `defineOutboundChannel()`, explicit clients, portable types, and normalized delivery results. |
 | `@vite-hub/channels/server` | Channels Runtime | Server-only discovered named delivery. |
 | `@vite-hub/content` and `@vite-hub/content/client` | Content Package | Comark Content runtime definition, ViteHub Source adaptation, server handler, and typed client. |

@@ -1,9 +1,12 @@
 import { H3 } from "h3"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import * as v from "valibot"
 
 import { defineCollection } from "../src/index.ts"
 import { defineCollectionHandler } from "../src/server.ts"
+
+import type { AccessAuthorizeOption } from "@vite-hub/runtime"
+import type { CollectionRequestAuthorizer } from "../src/server.ts"
 
 function createApp() {
   const collection = defineCollection(
@@ -32,6 +35,74 @@ class NonPlainItem {
 }
 
 describe("defineCollectionHandler", () => {
+  describe("authorize", () => {
+    function privateCollection(authorize: AccessAuthorizeOption, load = vi.fn(async () => [{ id: 1 }])) {
+      return {
+        collection: defineCollection(load, { authorize, cursor: item => item.id, cursorSchema: v.number() }),
+        load,
+      }
+    }
+
+    // Mirrors Auth's authorizeRequest contract: the Auth package tests the real session lookup.
+    const authorizeRequest: CollectionRequestAuthorizer = async (event, authorize) => {
+      const user = event.req.headers.get("cookie") === "session=u1" ? { id: "u1" } : undefined
+      if (!user) return Response.json({ error: "Unauthorized." }, { status: 401 })
+      if (authorize === true) return
+      const result = await authorize({ request: event.req, session: {}, user })
+      if (result instanceof Response) return result
+      if (result !== true) return Response.json({ error: "Forbidden." }, { status: 403 })
+    }
+
+    it("fails closed when the route has no Auth authorizer", () => {
+      const { collection } = privateCollection(true)
+      expect(() => defineCollectionHandler(collection)).toThrow("Collection authorize requires Auth")
+    })
+
+    it("returns 401 before parsing the query or loading rows", async () => {
+      const { collection, load } = privateCollection(true)
+      const app = new H3().get("/meals", defineCollectionHandler(collection, { authorizeRequest }))
+
+      const response = await app.request("/meals?limit=invalid")
+
+      expect(response.status).toBe(401)
+      expect(await response.json()).toEqual({ error: "Unauthorized." })
+      expect(load).not.toHaveBeenCalled()
+    })
+
+    it("returns 403 when authorize returns false and a custom response as-is", async () => {
+      const denied = privateCollection(() => false)
+      const deniedApp = new H3().get("/meals", defineCollectionHandler(denied.collection, { authorizeRequest }))
+      const forbidden = await deniedApp.request("/meals", { headers: { cookie: "session=u1" } })
+      expect(forbidden.status).toBe(403)
+      expect(denied.load).not.toHaveBeenCalled()
+
+      const custom = privateCollection(() => new Response("Upgrade required", { status: 402 }))
+      const customApp = new H3().get("/meals", defineCollectionHandler(custom.collection, { authorizeRequest }))
+      const payment = await customApp.request("/meals", { headers: { cookie: "session=u1" } })
+      expect(payment.status).toBe(402)
+      expect(await payment.text()).toBe("Upgrade required")
+    })
+
+    it("serves the page after authorization", async () => {
+      const { collection } = privateCollection(({ user }) => user.id === "u1")
+      const app = new H3().get("/meals", defineCollectionHandler(collection, { authorizeRequest }))
+
+      const response = await app.request("/meals", { headers: { cookie: "session=u1" } })
+
+      expect(response.status).toBe(200)
+      expect(await response.json()).toEqual({ items: [{ id: 1 }], nextCursor: null })
+    })
+
+    it("keeps public Collections public when an authorizer is present", async () => {
+      const collection = defineCollection(async () => [{ id: 1 }], { cursor: item => item.id, cursorSchema: v.number() })
+      const authorizer = vi.fn(authorizeRequest)
+      const response = await new H3().get("/meals", defineCollectionHandler(collection, { authorizeRequest: authorizer })).request("/meals")
+
+      expect(response.status).toBe(200)
+      expect(authorizer).not.toHaveBeenCalled()
+    })
+  })
+
   it("rejects a non-Collection before accepting requests", () => {
     // SAFETY: The test deliberately violates the input contract to prove the runtime guard.
     expect(() => defineCollectionHandler({} as never)).toThrow("defineCollectionHandler() requires a Collection")

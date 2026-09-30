@@ -9,6 +9,7 @@ import type { AuthRuntimeContext } from "@vite-hub/auth"
 import { handleAuthRequest, requireAuthAccessRoutes } from "@vite-hub/auth/server"
 import { describe, expect, it, vi } from "vitest"
 import { build } from "esbuild"
+import { resolveConfig } from "vite"
 
 import { consoleAuthPageResponse, consoleAuthSignInPage, createConsoleAuthDefinition, defineConsoleAuth, prepareConsoleAuth } from "../src/console/auth.ts"
 import { resolveConsoleAuthConfig, writeConsoleAuthHandlers } from "../src/console/auth-build.ts"
@@ -18,6 +19,40 @@ import { installConsoleProjectNameScope, installConsoleSectionScope, resolveCons
 import type { ConsoleInvocationScope } from "../src/console/internal.ts"
 
 describe("independent Console Auth", () => {
+  it.each([
+    ["", ""],
+    ["./", ""],
+    ["/portal/", "/portal"],
+    ["https://assets.example.com/", ""],
+    ["https://assets.example.com/portal/", "/portal"],
+  ])("protects session auth routes with base %j", async (base, mount) => {
+    const database = new DatabaseSync(":memory:")
+    try {
+      const input = defineConsoleAuth({
+        auth: defineAuth(() => ({ database, secret: "test-secret-at-least-32-bytes-long" })),
+        authorize: () => true,
+        signIn: { provider: "github" },
+      })
+      const definition = createConsoleAuthDefinition(input, base)
+      if (typeof definition.options !== "function") throw new TypeError("Expected Console Auth options.")
+      const options = definition.options({ env: {}, requestOrigin: "https://example.com" })
+      expect(options.basePath).toBe(`${mount}/api/_vitehub/console/auth`)
+      expect(options.access?.routes).toEqual([
+        { route: `${mount}/_vitehub/**`, authorize: input.authorize },
+        { route: `${mount}/api/_vitehub/console/**`, authorize: input.authorize },
+      ])
+      expect(options.access?.signIn?.callbackURL).toBe(`${mount}/_vitehub`)
+      for (const path of ["/_vitehub/rpc/__call", "/api/_vitehub/console/status"]) {
+        const request = new Request(`https://example.com${mount}${path}`, { method: "POST" })
+        await prepareConsoleAuth(input, definition, request)
+        expect((await requireAuthAccessRoutes(request, [1], definition, [1]))?.status).toBe(401)
+      }
+    }
+    finally {
+      database.close()
+    }
+  })
+
   it("reports independent auth only for the configured Console project", () => {
     const scope: ConsoleInvocationScope = {}
     installConsoleSectionScope("/console-auth", ["agents"], scope, true)
@@ -237,6 +272,29 @@ describe("independent Console Auth", () => {
       expect(await readFile(handlers.signIn, "utf8")).toContain("consoleAuthSignInPage(signInProvider, event.req")
       expect(route).toContain("handleAuthRequest(definition, event.req")
       expect(route).toContain('from "#vitehub/auth/server"')
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("generates session auth routes from the final Vite base", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-auth-final-base-"))
+    try {
+      const server = resolve(root, "console-auth.ts")
+      await writeFile(server, "export default {}")
+      await resolveConfig({
+        root,
+        configFile: false,
+        base: "/early/",
+        plugins: [
+          consoleVitePlugin({ console: { access: "auth", auth: { server } }, preset: "node" }),
+          { name: "change-console-base", config: () => ({ base: "/portal/" }) },
+        ],
+      }, "build", "production")
+      const middleware = await readFile(resolve(root, ".vitehub/nitro/console/auth-middleware.mjs"), "utf8")
+      expect(middleware).toContain('const mountBase = "/portal"')
+      expect(middleware).not.toContain("/early/")
     }
     finally {
       await rm(root, { recursive: true, force: true })

@@ -12,6 +12,8 @@ import * as ownerAgent from "@vite-hub/agent";
 import * as ownerCapabilities from "@vite-hub/agent/capabilities";
 import * as ownerAgentEve from "@vite-hub/agent/eve";
 import * as ownerAgentMcp from "@vite-hub/agent/mcp";
+import * as ownerBoxSsh from "@vite-hub/box/ssh";
+import * as frameworkBoxSsh from "vite-hub/box/ssh";
 import * as ownerAgentProcessRuntime from "@vite-hub/agent/runtime/process";
 import * as ownerAgentVite from "@vite-hub/agent/vite";
 import * as ownerAgentVue from "@vite-hub/agent/vue";
@@ -31,6 +33,7 @@ import * as frameworkAgentVite from "vite-hub/agent/vite";
 import * as frameworkAgentVue from "vite-hub/agent/vue";
 import { defineConsoleAuth } from "vite-hub/console/auth";
 import { defineConsoleAuthClient } from "vite-hub/console/auth/client";
+import { handleCloudflareAccessConsoleRequest } from "vite-hub/console/auth/cloudflare-access";
 import { createInlineConsoleAuth } from "vite-hub/console/auth/inline";
 import frameworkAuthHandler from "vite-hub/auth/server";
 import * as frameworkAuthVue from "vite-hub/auth/vue";
@@ -73,6 +76,7 @@ describe("Console Auth package exports", () => {
     expect(typeof defineConsoleAuth).toBe("function");
     expect(typeof defineConsoleAuthClient).toBe("function");
     expect(typeof createInlineConsoleAuth).toBe("function");
+    expect(typeof handleCloudflareAccessConsoleRequest).toBe("function");
   });
 });
 
@@ -91,7 +95,6 @@ const lowLevelOwnerExports = new Set([
   "@vite-hub/agent/server/workspace",
   "@vite-hub/blob/config",
   "@vite-hub/blob/errors",
-  "@vite-hub/box/ssh",
   "@vite-hub/database/config",
   "@vite-hub/env/seal",
   "@vite-hub/kv/errors",
@@ -189,6 +192,8 @@ describe("framework package contract", () => {
       ownerAgentProcessRuntime.createProcessAgentCapacity,
     );
     expect(frameworkCapabilities.email).toBe(ownerCapabilities.email);
+    expect(frameworkBoxSsh.serveSsh).toBe(ownerBoxSsh.serveSsh);
+    expect(frameworkBoxSsh.sshLaunch).toBe(ownerBoxSsh.sshLaunch);
     expect(frameworkCapabilities.executor).toBe(ownerCapabilities.executor);
     expect(frameworkCapabilities.workspaceShell).toBe(ownerCapabilities.workspaceShell);
     expect(frameworkAgentMcp.remoteMcpServer).toBe(ownerAgentMcp.remoteMcpServer);
@@ -238,6 +243,7 @@ describe("framework package contract", () => {
       "./console",
       "./console/auth",
       "./console/auth/client",
+      "./console/auth/cloudflare-access",
       "./console/auth/inline",
       "./console/blob",
       "./console/database",

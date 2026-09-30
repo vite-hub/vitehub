@@ -164,8 +164,12 @@ function normalizeServeOptions(value: BlobServeOptions | undefined): ResolvedBlo
   if (value === undefined || value === false) return
   if (value === true) return { route: DEFAULT_BLOB_SERVE_ROUTE, store: "default" }
   if (!isPlainObject(value)) throw blobErrorDiagnostics.BLOB_C0005({ message: "`blob.serve` must be true or a plain object." })
+  if (value.authorize !== undefined && value.authorize !== true && value.authorize !== false) {
+    throw blobErrorDiagnostics.BLOB_C0012({ message: "`blob.serve.authorize` must be a boolean. Export an `authorize` function from `server/blob.ts` for per-request rules." })
+  }
   const headers = normalizeServeHeaders(value.headers)
   return {
+    ...(value.authorize ? { authorize: true } : {}),
     ...(headers ? { headers } : {}),
     route: trimmed(value.route) || DEFAULT_BLOB_SERVE_ROUTE,
     store: trimmed(value.store) || "default",

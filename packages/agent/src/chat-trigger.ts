@@ -3,6 +3,7 @@ import { defineCapability } from "./capability-runtime.ts"
 import { createChatMessageTriggerInput } from "./chat-message-input.ts"
 import { readAgentErrorProperty, toAgentPublicError } from "./agent-error.ts"
 import { createReplyDeliveryEffectIntent, defineFinishEffect } from "./delivery-effects.ts"
+import { chatFinalReplyIntent, chatFinalReplyMode } from "./internal/chat-finish-delivery.ts"
 import { agentWorkflowExecutionContextKey } from "./internal/workflow-execution.ts"
 import { agentInvokerLabel } from "./invoker.ts"
 
@@ -231,6 +232,18 @@ function durableChatErrorFallback<TRuntimeConfig extends AgentRuntimeConfig>(
   return effect
 }
 
+function chatFinalReply<TRuntimeConfig extends AgentRuntimeConfig>() {
+  const effect = defineFinishEffect<TRuntimeConfig>((context) => {
+    const text = context.text?.trim()
+    if (!text) return
+    if (chatFinalReplyMode(context.input) !== "pending") return
+    return context.reply(text, { intent: chatFinalReplyIntent })
+  })
+  effect.active = context => context.error === undefined && chatFinalReplyMode(context.input) !== undefined
+  effect.kind = chatFinalReplyIntent
+  return effect
+}
+
 export interface AgentChatRunContext<
   TMessageMetadata extends object = Record<string, unknown>,
   TUser extends object = Record<string, unknown>,
@@ -451,9 +464,10 @@ function createChatMessageTrigger<TRuntimeConfig extends AgentRuntimeConfig>(
 }
 
 export function assertChatDeliveryOptions(options: AgentChatOptions): void {
-  const manualDelivery = options.loading !== undefined || options.delivery === "manual"
-  if (manualDelivery && (options.stream === true || options.commentary !== undefined)) {
-    throw agentDiagnostics.AGENT_R0378({ message: "[vitehub] messages.delivery \"manual\" cannot be combined with messages.stream or messages.commentary." })
+  // Manual delivery and a loading message both buffer the reply until the Invocation finishes.
+  const bufferedDelivery = options.loading !== undefined || options.delivery === "manual"
+  if (bufferedDelivery && (options.stream === true || options.commentary !== undefined)) {
+    throw agentDiagnostics.AGENT_R0378({ message: "[vitehub] messages.delivery \"manual\" and messages.loading cannot be combined with messages.stream or messages.commentary." })
   }
   if (options.loading?.updates !== undefined && options.loading.updates !== "commentary") {
     throw agentDiagnostics.AGENT_R0379({ message: '[vitehub] messages.loading.updates must be "commentary".' })
@@ -467,8 +481,8 @@ export function assertChatDeliveryOptions(options: AgentChatOptions): void {
   if (options.timeout !== undefined && (!Number.isFinite(options.timeout) || options.timeout <= 0)) {
     throw agentDiagnostics.AGENT_R0382({ message: "[vitehub] messages.timeout must be a positive finite number." })
   }
-  if (options.durable && !manualDelivery) {
-    throw agentDiagnostics.AGENT_R0383({ message: "[vitehub] messages.durable requires delivery: \"manual\" so Agent finish effects own the deferred reply." })
+  if (options.durable && !bufferedDelivery) {
+    throw agentDiagnostics.AGENT_R0383({ message: "[vitehub] messages.durable requires messages.loading or delivery: \"manual\" because a durable Workflow cannot stream the reply." })
   }
   if (options.durable && options.concurrency !== undefined && options.concurrency !== "parallel" && options.concurrency !== "steer") {
     throw agentDiagnostics.AGENT_R0384({ message: `[vitehub] messages.durable cannot be combined with concurrency: ${JSON.stringify(options.concurrency)} because Workflow handoff releases the webhook lease before the Agent Invocation settles.` })
@@ -507,6 +521,8 @@ export function defineChatCapability<
       context.finish.provide(() => context.context.get(CHAT_FINISH_EXTENSION_CONTEXT_KEY))
       // SAFETY: Chat Capability normalization establishes the asserted trigger and delivery contract.
       context.delivery.finishEffect(durableChatErrorFallback(options) as never)
+      // SAFETY: Chat Capability normalization establishes the asserted trigger and delivery contract.
+      context.delivery.finishEffect(chatFinalReply() as never)
     },
     triggers: {
       message: createChatMessageTrigger(options),

@@ -36,7 +36,7 @@ Run help from the project root. The CLI loads the project config before it print
 pnpm vitehub --help
 ```
 
-Every project includes `provision`. Other namespaces appear when their Vite integrations are active.
+Every project includes `provision`. Other namespaces appear when their Vite integrations are active. A host can pass `runtimeNamespaces` to `runViteHubCli()`; these run without loading the project config. The `vite-hub` distribution uses this for `vitehub box`.
 
 ```txt
 Usage: vitehub <namespace> <feature> [args...]

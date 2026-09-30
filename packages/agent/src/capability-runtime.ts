@@ -993,6 +993,11 @@ async function applyCapabilityWorkspaceContributions<
           && !registries.some(entry => entry.sources.includes(key))) {
           delete remaining[key]
           replacedSources.add("vitehubGitHubPullRequest")
+          continue
+        }
+        // A different repository, root, include, or ignore at the checkout mount cannot be replaced safely.
+        if (!existing.requestOnly && pr.mountPath === existing.mountPath) {
+          throw agentDiagnostics.AGENT_R0327({ message: `[vitehub] The GitHub pull request checkout of ${String(prOptions?.repo)} at "${pr.mountPath || "."}" conflicts with Workspace Source "${key}", which has a different repository or scope. Declare the same repository without root, include, or ignore, set github({ pullRequest: { workspace: { mount } } }) to another path, or remove the Source.` })
         }
       }
       if (replacedSources.size) definition = { ...definition, sources: remaining }

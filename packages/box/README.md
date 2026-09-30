@@ -220,4 +220,6 @@ const launch = sshLaunch({
 
 The target must expose the same working-directory and credential paths, for example through a shared sidecar volume. Host keys are verified. Environment names come from the resolved provider launch context; values travel through SSH environment requests. An explicit `forwardEnvironment` narrows the list while retaining framework-required names. `serveSsh` accepts valid environment names from authenticated clients unless `acceptEnvironment` restricts them.
 
+The `vite-hub` distribution also exposes this module as `vite-hub/box/ssh`, and `vitehub box serve` and `vitehub box check` run the server and a Driver readiness check without a project config. See the [CLI reference](https://vitehub.dev/docs/development/cli#run-an-ssh-box-runner).
+
 This transport grants arbitrary command execution as the configured user. It is not a sandbox and does not synchronize Workspace files. Server shutdown closes connections and stops supervised process groups.

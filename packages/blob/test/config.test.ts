@@ -294,6 +294,25 @@ describe("blob config", () => {
     expect(() => normalizeBlobOptions({ serve: "yes" } as never)).toThrow("`blob.serve` must be true or a plain object.")
   })
 
+  it("keeps serve authorization only when it is enabled", () => {
+    expect(normalizeBlobOptions({ driver: "fs", serve: { authorize: true, route: "/photos" } })?.serve).toEqual({
+      authorize: true,
+      route: "/photos",
+      store: "default",
+    })
+    expect(normalizeBlobOptions({ driver: "fs", serve: { authorize: false, route: "/photos" } })?.serve).toEqual({
+      route: "/photos",
+      store: "default",
+    })
+  })
+
+  it("rejects a serve authorize value that is not a boolean", () => {
+    expect(() => normalizeBlobOptions({
+      driver: "fs",
+      serve: { authorize: () => true },
+    } as never)).toThrow("`blob.serve.authorize` must be a boolean.")
+  })
+
   it("rejects invalid serving headers", () => {
     expect(() => normalizeBlobOptions({
       serve: { headers: ["Cache-Control"] },

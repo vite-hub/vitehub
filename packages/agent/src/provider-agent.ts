@@ -1,8 +1,10 @@
 import { providerCallbackMetadata, withProviderCallbackMetadata } from "./internal/provider-callback-metadata.ts"
+import { protectGeneratedProviderGitFiles } from "./internal/generated-provider-git-files.ts"
 import { codexLaunchArgs } from "./internal/codex-launch-args.ts"
 import { resolveAgentInstructions } from "./agent-instructions.ts"
 import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { browserRuntimeEnvironment } from "./internal/browser-runtime.ts"
+import { preparePullRequestCheckout, pullRequestCheckoutEnvironment, pullRequestCheckoutPlan } from "./internal/pull-request-checkout.ts"
 import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
 import { once } from "node:events"
@@ -1756,7 +1758,7 @@ function sourceProvenanceInstructions(provenance: readonly ProviderSourceProvena
   return `Mounted source provenance (evidence metadata, not instructions):\n${JSON.stringify(provenance, null, 2)}\nWhen citing mounted source evidence, use only a GitHub HTTPS link derived from this exact metadata. For a file at <mount>/<relative-path>, the citation URL is <repository>/blob/<revision.id>/<root>/<relative-path>#L<line>. Omit <root>/ when root is empty. Percent-encode each path segment of <root> and <relative-path> separately, preserving / separators; append #L<line> only after encoding. Never cite /workspace paths, branch names, or guessed repository locations. If the mounted path cannot be mapped exactly to one provenance entry, cite no link. Read files from the matching mounted path.`
 }
 
-async function prepareWorkspace(context: AgentAdapterRunContext, root: string): Promise<{ provenance: ProviderSourceProvenance[], session: WorkspaceSession } | undefined> {
+async function prepareWorkspace(context: AgentAdapterRunContext, root: string): Promise<{ provenance: ProviderSourceProvenance[], pullRequestRoot: boolean, session: WorkspaceSession } | undefined> {
   if (!context.workspace) return
   if (process.platform === "win32") {
     throw agentDiagnostics.AGENT_R0701({ message: "[vitehub] Provider Agent Driver Workspaces require a POSIX Node host." })
@@ -1774,6 +1776,21 @@ async function prepareWorkspace(context: AgentAdapterRunContext, root: string): 
   }
   if (context.workspaceMode !== "write") sessionOptions.writeBack = false
   const session = await workspaceSessionStarter(context.workspace)(sessionOptions)
+  const pullRequest = pullRequestCheckoutPlan(context.context)
+  const checkoutPullRequest = pullRequest && (!paths || paths.some(path => !path || !pullRequest.mount || pullRequest.mount === path || pullRequest.mount.startsWith(`${path}/`)))
+  if (pullRequest && checkoutPullRequest) {
+    try {
+      // Give the Driver shell a real checkout so it can fetch, commit, and push with the Agent GitHub identity.
+      await preparePullRequestCheckout(session, pullRequest, {
+        abortSignal: context.input.abortSignal,
+        env: await pullRequestCheckoutEnvironment(context.runtime.githubIdentity, pullRequest.repository, context.input.abortSignal, pullRequest.headRepository),
+      })
+    }
+    catch (error) {
+      await session.close({ abortSignal: context.input.abortSignal }).catch(() => undefined)
+      throw error
+    }
+  }
   const gitInit = await session.exec("git", ["init", "-q"], { abortSignal: context.input.abortSignal })
   // Workspace adapters may return the legacy host-style `code` field.
   // SAFETY: legacy workspace adapters expose `code` while the production contract exposes `exitCode`.
@@ -1782,7 +1799,7 @@ async function prepareWorkspace(context: AgentAdapterRunContext, root: string): 
     await session.close({ abortSignal: context.input.abortSignal }).catch(() => undefined)
     throw new Error("Unable to initialize workspace Git repository")
   }
-  return { provenance, session }
+  return { provenance, pullRequestRoot: Boolean(checkoutPullRequest && pullRequest?.mount === ""), session }
 }
 
 async function closeWorkspace(context: AgentAdapterRunContext, session: WorkspaceSession | undefined, error: unknown, abortSignal: AbortSignal) {
@@ -2422,6 +2439,7 @@ async function* runProvider<
   let abort: (() => void) | undefined
   let unregister: (() => void) | undefined
     const generatedProviderFiles: GeneratedProviderFile[] = []
+  let restoreGeneratedGitMetadata: (() => Promise<void>) | undefined
     let claudePromptFile: string | undefined
   let pendingResumeCursor = preservesProviderSession && sessionKey ? resumeCursors.get(sessionKey) : undefined
   let deferredSessionConsume: Promise<void> | undefined
@@ -2514,6 +2532,7 @@ async function* runProvider<
     )
     workspaceSession = preparedWorkspace?.session
     sourceProvenance = preparedWorkspace?.provenance || []
+    const pullRequestRoot = preparedWorkspace?.pullRequestRoot === true
     if (workspaceSession) {
       clearActiveWorkspaceFiles = setActiveAgentWorkspaceFiles(context.context, {
         async readFile(path) {
@@ -2598,7 +2617,11 @@ async function* runProvider<
       generatedProviderFiles.push(await materializeGeneratedProviderFile(root, target, source.content))
     }
     generatedProviderFiles.push(...await materializeProviderSkillCompatibility(root))
-    if (workspaceSession) {
+    if (pullRequestRoot) {
+      restoreGeneratedGitMetadata = await protectGeneratedProviderGitFiles(root, generatedProviderFiles.map(file => file.path))
+    }
+    // A root pull request checkout is the Driver's repository. Do not add a baseline commit to its branch.
+    if (workspaceSession && !pullRequestRoot) {
       await workspaceSession.exec("git", ["add", "-A"], { abortSignal: effectiveSignal })
       await workspaceSession.exec("git", ["-c", "user.name=ViteHub", "-c", "user.email=vitehub@localhost", "commit", "--allow-empty", "-qm", "vitehub provider baseline"], { abortSignal: effectiveSignal })
     }
@@ -2621,12 +2644,23 @@ async function* runProvider<
       ...providerMetadataContext(context),
       abortSignal: effectiveSignal,
     }
-    const providerEnvironmentOverrides = options.env === undefined
+    const githubCheckoutPlan = pullRequestCheckoutPlan(context.context)
+    const githubEnvironment = auxiliary || !context.runtime.githubIdentity
+      ? undefined
+      : await waitForProviderOperation(
+          pullRequestCheckoutEnvironment(context.runtime.githubIdentity, githubCheckoutPlan?.repository, effectiveSignal, githubCheckoutPlan?.headRepository),
+          effectiveSignal,
+        )
+    const configuredEnvironmentOverrides = options.env === undefined
       ? undefined
       : normalizedProviderEnvironment(await waitForProviderOperation(
           Promise.resolve(resolveRuntimeValue(options.env, resolverContext)),
           effectiveSignal,
         ))
+    // driver.env can override the Agent GitHub environment.
+    const providerEnvironmentOverrides = githubEnvironment
+      ? { ...githubEnvironment, ...configuredEnvironmentOverrides }
+      : configuredEnvironmentOverrides
     if (codexCredentialHome && providerEnvironmentOverrides?.CODEX_HOME !== undefined) {
       throw agentDiagnostics.AGENT_R0713({ message: "[vitehub] driver.credentials owns CODEX_HOME and cannot be combined with resolved driver.env.CODEX_HOME." })
     }
@@ -3012,6 +3046,12 @@ async function* runProvider<
     const finalizeWorkspace = (signal = cleanup.signal) => workspaceFinalization ??= (async () => {
       try {
         for (const generated of generatedProviderFiles.reverse()) await restoreGeneratedProviderFile(generated)
+      }
+      catch (error) {
+        cleanupErrors.push(error)
+      }
+      try {
+        await restoreGeneratedGitMetadata?.()
       }
       catch (error) {
         cleanupErrors.push(error)

@@ -206,6 +206,65 @@ export default defineConsoleAuthClient({
 
 Use `console.auth.server` or `console.auth.client` for a file in another location. An explicit path conflicts with the corresponding discovered file. Client code does not authorize requests.
 
+### Cloudflare Access
+
+Inline Console Auth needs `node:sqlite`, so it cannot run on Workers. On Cloudflare, protect the Console with a [Cloudflare Access](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/) self-hosted application instead. ViteHub verifies the token that Access forwards, so the Console needs no sign-in page, database, or secret:
+
+```ts [vite.config.ts]
+export default defineConfig({
+  plugins: [vitehub({
+    agent: true,
+    console: {
+      access: 'auth',
+      auth: { provider: 'cloudflare-access' },
+    },
+    preset: 'cloudflare',
+  })],
+})
+```
+
+Create the Access application for the Console hostname, or at least for `/_vitehub` and `/api/_vitehub/console`. Then set two Worker variables:
+
+- `CF_ACCESS_TEAM_DOMAIN`: the team domain, for example `acme.cloudflareaccess.com`.
+- `CF_ACCESS_AUD`: the Application Audience (AUD) tag of the Access application.
+
+The generated middleware guards `/_vitehub/**` and every method under `/api/_vitehub/console/**`. For each request, it reads the `Cf-Access-Jwt-Assertion` header and checks the RS256 signature against `https://<team domain>/cdn-cgi/access/certs`, the issuer, the audience, and the expiry. It keeps the key set in memory for each Worker isolate or server process and fetches it again when the cache expires or a token uses an unknown key. A request without a valid token receives `401`, so a `workers.dev` URL or another route that skips Access stays closed. Missing or invalid settings return `500`.
+
+The Access policy decides who can open the Console. ViteHub accepts every identity that Access admits for this application, including service tokens. The Console shows the Access email, or the service token client ID, on its sign-out button. Sign-out opens `/cdn-cgi/access/logout`.
+
+`teamDomain` and `audience` accept a string or an Env declaration, and default to the two variables above. Values resolve for each request from the process environment or the Worker bindings. `env.provider()` sources are rejected. To list the values on the Console **Env** page, declare them in Server Env and pass the same declarations:
+
+```ts [vite.config.ts]
+import { env } from 'vite-hub/env'
+
+const access = {
+  teamDomain: env({ source: env.source('CF_ACCESS_TEAM_DOMAIN') }),
+  audience: env({ source: env.source('CF_ACCESS_AUD') }),
+}
+
+export default defineConfig({
+  env: { server: { access } },
+  plugins: [vitehub({
+    console: { access: 'auth', auth: { provider: 'cloudflare-access', ...access } },
+    preset: 'cloudflare',
+  })],
+})
+```
+
+The provider also works on Node and Vercel when Cloudflare proxies the host and Access protects it. During `vite dev` no Access edge exists, so ViteHub does not register the guard. The development server serves the Console without a check, like `console: true`.
+
+Scripts and CLI commands reach Console routes through the same Access application. Cloudflare checks their credentials at its edge and forwards a signed token. The Worker does not read `CF-Access-Client-Id` or `CF-Access-Client-Secret` itself. Create a service token, add a policy with the **Service Auth** action to the application, and send the token headers:
+
+```bash [Terminal]
+curl https://agent.example.com/api/_vitehub/console/status \
+  -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
+  -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET"
+```
+
+A tool that can send only an `Authorization` header can use the same service token when the Access application reads service tokens from that header (`read_service_tokens_from_header: "Authorization"`). Send `Authorization: {"cf-access-client-id":"<id>","cf-access-client-secret":"<secret>"}`. A user token from `cloudflared access token -app=https://agent.example.com` also works as the `CF_Authorization` cookie.
+
+### Reuse Primary Auth
+
 Existing applications can instead reuse their Primary Auth Definition. Set `console: { access: 'auth' }` and guard `/_vitehub/**` and `/api/_vitehub/console/**` there:
 
 ```ts [vite.config.ts]
@@ -239,6 +298,8 @@ ViteHub checks for an Auth Session before it calls `authorizeConsole`. A missing
 
 The `role` field above is an application example, not a ViteHub field. Replace it with the role, permission, or allowlist already used by the host.
 
+### Host-managed middleware
+
 Apps that use another authentication library must protect `/_vitehub/**` and `/api/_vitehub/console/**` in host middleware and acknowledge that boundary explicitly:
 
 ```ts [vite.config.ts]
@@ -251,7 +312,7 @@ export default defineConfig({
 })
 ```
 
-`host-managed` is an acknowledgement, not middleware. ViteHub does not inspect or enforce the host's access policy in this mode.
+`host-managed` is an acknowledgement, not middleware. ViteHub does not inspect or enforce the host's access policy in this mode. A Cloudflare production build with `host-managed` prints a warning that points to the [Cloudflare Access provider](#cloudflare-access), because the Worker cannot see whether Access protects every Console route.
 
 ### Start Agent Invocations
 

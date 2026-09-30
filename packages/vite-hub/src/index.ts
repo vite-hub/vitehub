@@ -932,6 +932,13 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
     } as WorkspaceModuleOptions))
   }
   const sourcePlugin = hubSource({
+    auth: options.auth
+      ? ({ configuredAuth, projectRoot, serverDirs }) => configuredAuth !== false && Boolean(resolveAuthViteConfig(
+          options.auth === true ? undefined : options.auth,
+          projectRoot,
+          { serverDirs },
+        ))
+      : false,
     contentImportBase: "vite-hub/content",
     importBase: "vite-hub/source",
   })

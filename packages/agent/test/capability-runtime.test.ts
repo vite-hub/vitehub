@@ -207,7 +207,7 @@ describe("agent capability runtime", () => {
 
     await expect(resolveAgentCapabilities({ capabilities: [capability] }, runtime(), {}, workspace as never, "write", {
       driverKind: "provider", invocationKind: "run", workspaceDefinition: { ...definition, name },
-    })).rejects.toThrow('conflicts with Workspace Source "portal"')
+    })).rejects.toThrow('The GitHub pull request checkout of example/portal at "portal" conflicts with Workspace Source "portal", which has a different repository or scope.')
   })
 
   it("overlays a resolved GitHub source fingerprint when its scope matches", async () => {

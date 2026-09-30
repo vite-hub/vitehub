@@ -469,6 +469,66 @@ function isRetainedProviderSource(file: string) {
 }
 
 describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-hub consumer contract", () => {
+  it("serves SSH from a packed vite-hub-only installation without hoisting", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vite-hub-box-consumer-"))
+    const appDir = join(root, "app")
+    const packDir = join(root, "packs")
+
+    try {
+      await Promise.all([mkdir(appDir), mkdir(packDir)])
+      const specs = await packWorkspacePackages(packDir)
+      await Promise.all([
+        writeFile(join(appDir, "package.json"), JSON.stringify({
+          dependencies: { "vite-hub": specs["vite-hub"] },
+          private: true,
+          type: "module",
+        }, null, 2), "utf8"),
+        writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(specs), "utf8"),
+      ])
+      await run("pnpm", ["install", "--no-hoist", "--strict-peer-dependencies"], appDir)
+      expect(existsSync(join(appDir, "node_modules/ssh2")), "the application must not install ssh2 directly").toBe(false)
+      const hostKey = join(root, "host")
+      const identity = join(root, "identity")
+      await Promise.all([hostKey, identity].map(path => run("ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-f", path], appDir)))
+      const port = await availablePort()
+      const child = spawn(join(appDir, "node_modules/.bin/vitehub"), [
+        "box", "serve", "--user", "agent", "--host-key", hostKey,
+        "--authorized-key", `${identity}.pub`, "--port", String(port), "--cwd", appDir,
+      ], { cwd: appDir, stdio: ["ignore", "pipe", "pipe"] })
+      const closed = once(child, "close")
+      let stdout = ""
+      let stderr = ""
+      child.stdout.on("data", chunk => { stdout += String(chunk) })
+      child.stderr.on("data", chunk => { stderr += String(chunk) })
+      try {
+        await new Promise<void>((resolve, reject) => {
+          const timeout = setTimeout(() => reject(new Error(`SSH runner did not start.\n${stdout}${stderr}`)), 10_000)
+          const ready = () => {
+            if (!stdout.includes("\n")) return
+            clearTimeout(timeout)
+            resolve()
+          }
+          child.stdout.on("data", ready)
+          child.once("error", error => { clearTimeout(timeout); reject(error) })
+          child.once("close", () => { clearTimeout(timeout); reject(new Error(`SSH runner exited before listening.\n${stdout}${stderr}`)) })
+        })
+        expect(JSON.parse(stdout.trim())).toEqual({ event: "box.listening", port })
+        child.kill("SIGTERM")
+        expect(await closed).toEqual([0, null])
+        expect(stderr).toBe("")
+      }
+      finally {
+        if (child.exitCode === null && child.signalCode === null) {
+          child.kill("SIGTERM")
+          await closed
+        }
+      }
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  }, 600_000)
+
   it("stages Node declarations for Deno from the packed facade", async () => {
     const root = await mkdtemp(join(tmpdir(), "vite-hub-deno-consumer-"))
     const appDir = join(root, "app")

@@ -1779,6 +1779,26 @@ describe("ViteHub Nuxt integration", () => {
     expect(nitroHandlerRoutes(nitroOptions(production.nuxt))).toContain("/_vitehub/sign-in")
   })
 
+  it("registers the Cloudflare Access Console guard in production Nuxt builds only", async () => {
+    const production = createNuxt(false)
+    Object.assign(production.nuxt.options, { app: { baseURL: "/portal/" } })
+    await viteHubNuxtModule({ console: { access: "auth", auth: { provider: "cloudflare-access" } }, preset: "cloudflare" }, production.nuxt)
+    await production.runNitroConfigHook(nitroOptions(production.nuxt))
+
+    const middleware = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/auth-middleware.mjs", "utf8")
+    expect(middleware).toContain('handleCloudflareAccessConsoleRequest(event, () => resolveServerEnv(settings, event), "/portal/")')
+    expect(await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).toContain('"cloudflare-access")')
+    const routes = nitroHandlerRoutes(nitroOptions(production.nuxt))
+    expect(routes).toContain("/**")
+    expect(routes).not.toContain("/_vitehub/sign-in")
+    expect(routes).not.toContain("/api/_vitehub/console/auth/**")
+
+    const development = createNuxt(true)
+    await viteHubNuxtModule({ console: { access: "auth", auth: { provider: "cloudflare-access" } }, preset: "cloudflare" }, development.nuxt)
+    await development.runNitroConfigHook(nitroOptions(development.nuxt))
+    expect(nitroHandlerRoutes(nitroOptions(development.nuxt))).not.toContain("/**")
+  })
+
   it("refreshes the Nuxt client handler when an imported local module changes", async () => {
     const directory = await mkdtemp(fileURLToPath(new URL("../.vitehub-nuxt-console-auth-", import.meta.url)))
     try {

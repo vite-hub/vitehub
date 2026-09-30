@@ -25,7 +25,7 @@ Libraries and advanced integrations that do not use the framework distribution
 can install `@vite-hub/cli` directly.
 
 Expected help lists available namespaces.
-The Agent Package contributes `agent` and `channels` when `hubAgent()` is active, Database contributes `db` when `hubDb()` is active, Workspace contributes `workspace` when `hubWorkspace()` is active, the framework contributes `types`, and the CLI includes the built-in `provision` namespace.
+The Agent Package contributes `agent` and `channels` when `hubAgent()` is active, Database contributes `db` when `hubDb()` is active, Schedule contributes `schedule` when `hubSchedule()` is active, Workspace contributes `workspace` when `hubWorkspace()` is active, the framework contributes `types` and `box`, and the CLI includes the built-in `provision` namespace. `box` does not load the project config, so it also runs in a deployed container without Vite.
 
 ```txt [Output]
 Usage: vitehub <namespace> <feature> [args...]
@@ -36,28 +36,63 @@ Available namespaces:
   workspace   Workspace development workflows.
   types       Generate ViteHub TypeScript declarations.
   provision   Idempotently create missing provider resources.
+  box         Serve and check an SSH Box runner. Does not load the project config.
 ```
 
-Each namespace appears only when its package is enabled. For example, `schedule` appears when the app enables Schedule.
+Package-contributed namespaces appear only when their package is enabled. For example, `schedule` appears when the app enables Schedule.
 
 ## Commands
 
-| Command | Status | Owner | Use it for |
-| --- | --- | --- | --- |
-| `vitehub agent eval` | Opt-in tooling | Agent Package | Run discovered Agent Evals through ViteHub defaults. |
-| `vitehub agent info` | Available | Agent Package | Inspect resolved Agent metadata through a running Vite Development Server. |
-| `vitehub agent dev` | Available | Agent Package | Talk to a discovered Agent through a running Vite Development Server. |
-| `vitehub agent invocations` | Available | Agent Package | List, inspect, or follow records in the application's Agent Invocation journal. |
-| `vitehub channels history` | Available | Agent Package | Download one deployed conversation and its attachments. |
-| `vitehub channels sync` | Available | Agent Package | Inspect or apply provider-owned webhook registrations for a deployed stage. |
-| `vitehub console dev` | Available | Console integration | Start the app's development command with deterministic Console fixture data. |
-| `vitehub db generate` | Available | Database Package | Refresh generated Database artifacts and generate Drizzle migrations. |
-| `vitehub db migrate` | Available | Database Package | Refresh generated Database artifacts and apply Drizzle migrations. |
-| `vitehub schedule run` | Available | Schedule Package | Run a manual Static Schedule Definition now, locally or on a deployment. |
-| `vitehub workspace dev` | Available | Workspace Package | Run commands through a Workspace Session exposed by a Compatible Vite Development Server. |
-| `vitehub types prepare` | Available | ViteHub Framework | Prepare generated TypeScript declarations for editors and type checking. |
-| `vitehub provision run` | Available | ViteHub CLI plus package Provision Steps | Create missing provider resources idempotently. |
-| `vitehub provision status` | Available | ViteHub CLI plus package Provision Steps | Show recorded provider ids and pending plan actions without applying them. |
+| Command                     | Status         | Owner                                             | Use it for                                                                                |
+| --------------------------- | -------------- | ------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `vitehub agent eval`        | Opt-in tooling | Agent Package                                     | Run discovered Agent Evals through ViteHub defaults.                                      |
+| `vitehub agent info`        | Available      | Agent Package                                     | Inspect resolved Agent metadata through a running Vite Development Server.                |
+| `vitehub agent dev`         | Available      | Agent Package                                     | Talk to a discovered Agent through a running Vite Development Server.                     |
+| `vitehub agent invocations` | Available      | Agent Package                                     | List, inspect, or follow records in the application's Agent Invocation journal.           |
+| `vitehub channels history`  | Available      | Agent Package                                     | Download one deployed conversation and its attachments.                                   |
+| `vitehub channels sync`     | Available      | Agent Package                                     | Inspect or apply provider-owned webhook registrations for a deployed stage.               |
+| `vitehub console dev`       | Available      | Console integration                               | Start the app's development command with deterministic Console fixture data.              |
+| `vitehub db generate`       | Available      | Database Package                                  | Refresh generated Database artifacts and generate Drizzle migrations.                     |
+| `vitehub db migrate`        | Available      | Database Package                                  | Refresh generated Database artifacts and apply Drizzle migrations.                        |
+| `vitehub schedule run`      | Available      | Schedule Package                                  | Run a manual Static Schedule Definition now, locally or on a deployment.                  |
+| `vitehub workspace dev`     | Available      | Workspace Package                                 | Run commands through a Workspace Session exposed by a Compatible Vite Development Server. |
+| `vitehub types prepare`     | Available      | ViteHub Framework                                 | Prepare generated TypeScript declarations for editors and type checking.                  |
+| `vitehub provision run`     | Available      | ViteHub CLI plus package Provision Steps          | Create missing provider resources idempotently.                                           |
+| `vitehub provision status`  | Available      | ViteHub CLI plus package Provision Steps          | Show recorded provider ids and pending plan actions without applying them.                |
+| `vitehub box serve`         | Available      | ViteHub Framework with the Box Package            | Serve authenticated SSH commands for provider Drivers from a runner container.            |
+| `vitehub box check`         | Available      | ViteHub Framework with the Agent and Box Packages | Start a provider Driver through the SSH runner and report its readiness.                  |
+
+## Run an SSH Box runner
+
+`vitehub box serve` wraps `serveSsh` from `vite-hub/box/ssh`. `vitehub box check` defines a Codex or Claude Code Driver with `sshLaunch` and calls `status()`. Neither command loads the project config. Each flag falls back to an environment variable:
+
+| Flag                 | Environment                            | Default                   | Command                                       |
+| -------------------- | -------------------------------------- | ------------------------- | --------------------------------------------- |
+| `--user`             | `CRABBOX_STATIC_USER`                  | Required                  | `serve`, `check`                              |
+| `--port`             | `CRABBOX_STATIC_PORT`, then `SSH_PORT` | `2222`                    | `serve`, `check`                              |
+| `--host`             | `CRABBOX_STATIC_HOST` (`check` only)   | `127.0.0.1`               | `serve` listens on it, `check` connects to it |
+| `--host-key`         | `SSH_HOST_KEY`                         | Required                  | `serve`                                       |
+| `--authorized-key`   | `SSH_AUTHORIZED_KEY`                   | Required                  | `serve`                                       |
+| `--cwd`              | `RUNNER_WORKSPACE`                     | Current directory         | `serve`                                       |
+| `--identity-file`    | `CRABBOX_SSH_KEY`                      | Required                  | `check`                                       |
+| `--host-key-file`    | `SSH_HOST_PUBLIC_KEY`                  | OpenSSH host verification | `check`                                       |
+| `--known-hosts-file` | None                                   | OpenSSH host verification | `check`                                       |
+| `--driver`           | None                                   | `codex`                   | `check`                                       |
+| `--timeout`          | None                                   | `25000` ms                | `check`                                       |
+
+```bash [Terminal]
+# Runner container
+vitehub box serve --host 0.0.0.0 --user agent \
+  --host-key /ssh/ssh_host_ed25519_key --authorized-key /ssh/id_ed25519.pub --cwd /workspace
+
+# Application container
+vitehub box check --user agent \
+  --identity-file /ssh/id_ed25519 --host-key-file /ssh/ssh_host_ed25519_key.pub
+```
+
+`serve` prints `{"event":"box.listening","port":2222}` and closes connections and supervised processes on `SIGINT` or `SIGTERM`. The framework installs its `ssh2` runtime dependency. It grants command execution as the server user and is not a sandbox.
+
+`check` uses a temporary working directory on the runner. It reads `CODEX_AUTH_JSON` as Codex credentials when it is set, sends it through the SSH environment, and writes a private temporary Codex home on the runner. These runner directories are removed when the probe exits. The application and runner do not need a shared temporary directory. Provider executables must be available on the runner PATH. It prints one `box.check` JSON line with `readiness`, `installed`, `authenticated`, and `reason`. It exits with `1` only when the provider executable cannot start or its account probe does not complete. A signed-out provider or an exhausted quota is reported but exits with `0`, so a container probe does not restart the runner for account state.
 
 ## Run the Console with saved data
 
@@ -144,10 +179,10 @@ Without `--url`, the command posts to the running Vite Development Server at `VI
 
 With `--url`, the command posts to `/_vitehub/schedules/run` on the deployment. That route runs only when the deployment enables the [Console](/docs/development/console#run-schedules-on-demand) with `invoke: true`, and the Console access policy protects it like every other `/_vitehub/**` route. Set one Console credential in the environment:
 
-| Variable | Value |
-| --- | --- |
+| Variable                        | Value                                                                                                                                           |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | `VITEHUB_CONSOLE_AUTHORIZATION` | An `Authorization` header value that the Console access policy accepts, for example the Basic or Bearer credential that host middleware checks. |
-| `VITEHUB_CONSOLE_COOKIE` | A `Cookie` header value from a signed-in Console session. |
+| `VITEHUB_CONSOLE_COOKIE`        | A `Cookie` header value from a signed-in Console session.                                                                                       |
 
 ```bash [Terminal]
 VITEHUB_CONSOLE_AUTHORIZATION="Basic $(printf 'admin:%s' "$ADMIN_TOKEN" | base64)" \
@@ -312,22 +347,22 @@ CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... pnpm vitehub provision status
 
 ## Troubleshooting
 
-| Symptom | Likely cause | Fix |
-| --- | --- | --- |
-| `Unknown ViteHub CLI namespace` | The package Vite Integration is not installed or is disabled. | Add the package's `hubX()` plugin to `vite.config.ts`. |
-| `Provision requires --provider cloudflare\|vercel` | The provider flag is missing or misspelled. | Pass a supported provider explicitly. |
-| Provision fails before applying actions | Required provider credentials are missing. | Set `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`, or set `VERCEL_TOKEN`. |
-| Provision dry-run reports no actions | A package plan skipped provider lookup because its read credentials are missing. | Supply the provider credentials to inspect existing resources; `--dry-run` still prevents `apply()`. |
-| Provision status reports `plan: not checked` | Provider credentials are missing, so the plan phase did not run. | Set the provider credentials. Recorded ids are shown without them. |
-| Vercel Provision reports no resources for Blob | `VERCEL_PROJECT_ID` is missing, or the active Blob store is not `vercel-blob`. | Set the project id and select the Vercel Blob driver before rerunning the plan. |
-| Agent eval CLI is disabled | `agent.eval` or `agent.cli` disables the Agent Eval Runner. | Re-enable the Agent integration option for local development. |
-| Agent eval times out | The eval case, model call, or provider run exceeds `agent.eval.testTimeout`. | Increase `agent.eval.testTimeout` in `vite.config.ts` or narrow the eval case. |
-| Vite config fails while loading a ViteHub plugin import | A fresh npm project is loading `vite.config.ts` as CommonJS, but ViteHub packages are ESM-only. | Set `"type": "module"` in `package.json` or rename the config to `vite.config.mts`. |
-| `No Compatible Vite Development Server found` | The app dev server is not running or `--url` points at the wrong port. | Start Vite separately, then pass the dev server URL. |
-| `Unknown Workspace Dev target` | The named Workspace is not discovered by the running Vite dev server. | Check the Workspace Definition name and make sure `hubWorkspace()` is active. |
-| `Agent Dev Loop command requires workspace.mode: "write"` | A `!` command targeted an Agent without writable Workspace access. | Configure the selected Agent with `workspace: { mode: 'write' }`, or send a normal Agent message instead. |
-| Agent Dev Loop request times out | A streamed invocation emitted no events before the inactivity timeout, or a Capability CLI/Workspace command exceeded its wall-clock deadline. | Pass `--timeout <ms>` for the dev-loop operation or inspect the stalled work. |
-| `Agent Dev Loop payload file must contain a JSON object` | The `--payload` file is not a JSON object. | Replace the file contents with one object shaped for the selected Agent Trigger. |
+| Symptom                                                   | Likely cause                                                                                                                                   | Fix                                                                                                       |
+| --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `Unknown ViteHub CLI namespace`                           | The package Vite Integration is not installed or is disabled.                                                                                  | Add the package's `hubX()` plugin to `vite.config.ts`.                                                    |
+| `Provision requires --provider cloudflare\|vercel`        | The provider flag is missing or misspelled.                                                                                                    | Pass a supported provider explicitly.                                                                     |
+| Provision fails before applying actions                   | Required provider credentials are missing.                                                                                                     | Set `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`, or set `VERCEL_TOKEN`.                            |
+| Provision dry-run reports no actions                      | A package plan skipped provider lookup because its read credentials are missing.                                                               | Supply the provider credentials to inspect existing resources; `--dry-run` still prevents `apply()`.      |
+| Provision status reports `plan: not checked`              | Provider credentials are missing, so the plan phase did not run.                                                                               | Set the provider credentials. Recorded ids are shown without them.                                        |
+| Vercel Provision reports no resources for Blob            | `VERCEL_PROJECT_ID` is missing, or the active Blob store is not `vercel-blob`.                                                                 | Set the project id and select the Vercel Blob driver before rerunning the plan.                           |
+| Agent eval CLI is disabled                                | `agent.eval` or `agent.cli` disables the Agent Eval Runner.                                                                                    | Re-enable the Agent integration option for local development.                                             |
+| Agent eval times out                                      | The eval case, model call, or provider run exceeds `agent.eval.testTimeout`.                                                                   | Increase `agent.eval.testTimeout` in `vite.config.ts` or narrow the eval case.                            |
+| Vite config fails while loading a ViteHub plugin import   | A fresh npm project is loading `vite.config.ts` as CommonJS, but ViteHub packages are ESM-only.                                                | Set `"type": "module"` in `package.json` or rename the config to `vite.config.mts`.                       |
+| `No Compatible Vite Development Server found`             | The app dev server is not running or `--url` points at the wrong port.                                                                         | Start Vite separately, then pass the dev server URL.                                                      |
+| `Unknown Workspace Dev target`                            | The named Workspace is not discovered by the running Vite dev server.                                                                          | Check the Workspace Definition name and make sure `hubWorkspace()` is active.                             |
+| `Agent Dev Loop command requires workspace.mode: "write"` | A `!` command targeted an Agent without writable Workspace access.                                                                             | Configure the selected Agent with `workspace: { mode: 'write' }`, or send a normal Agent message instead. |
+| Agent Dev Loop request times out                          | A streamed invocation emitted no events before the inactivity timeout, or a Capability CLI/Workspace command exceeded its wall-clock deadline. | Pass `--timeout <ms>` for the dev-loop operation or inspect the stalled work.                             |
+| `Agent Dev Loop payload file must contain a JSON object`  | The `--payload` file is not a JSON object.                                                                                                     | Replace the file contents with one object shaped for the selected Agent Trigger.                          |
 
 ## Next steps
 

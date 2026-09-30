@@ -39,6 +39,8 @@ Write mode supports only `fetch`, `checkout`, and `switch` on a clean working tr
 It blocks commit, push, reset, rebase, tag, arbitrary remote URLs, shell composition, and path escapes outside the Workspace.
 Supported write commands are allowed by default after the developer enables write mode. An explicit policy can require approval or deny them, but it cannot enable blocked commands.
 
+In a GitHub pull request Invocation, the first command prepares the pull request mount as a Git checkout of the exact head SHA. The checkout and `fetch` use the Agent GitHub identity from `defineAgent({ github })`. Without one, they run without credentials.
+
 ## Requirements
 
 `git()` requires a Workspace primitive that can start a Workspace Session.

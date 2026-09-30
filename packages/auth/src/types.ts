@@ -1,3 +1,4 @@
+import type { AccessAuthorizationContext, AccessAuthorize, AccessAuthorizeResult } from "@vite-hub/runtime"
 import type { Auth, BetterAuthOptions } from "better-auth"
 
 declare global {
@@ -38,16 +39,9 @@ export interface AuthAccessRouteConfiguration {
 
 export type AuthAccessRoute = string | AuthAccessRouteConfiguration
 
-export interface AuthAccessAuthorizationContext {
-  request: AuthRequest
-  session: Record<string, unknown>
-  user: Record<string, unknown> & { id: string }
-}
-
-export type AuthAccessAuthorizeResult = boolean | Response
-export type AuthAccessAuthorize = (
-  context: AuthAccessAuthorizationContext,
-) => AuthAccessAuthorizeResult | Promise<AuthAccessAuthorizeResult>
+export type AuthAccessAuthorizationContext = AccessAuthorizationContext
+export type AuthAccessAuthorizeResult = AccessAuthorizeResult
+export type AuthAccessAuthorize = AccessAuthorize
 
 export interface AuthAccessConfiguration {
   routes?: AuthAccessRoute[]

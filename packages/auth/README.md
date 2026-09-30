@@ -130,6 +130,8 @@ export default defineAuth({
 
 ViteHub runs `authorize` only after authentication. Return `true` to allow the request, `false` for a `403`, or a `Response` for a custom result. The callback receives the authenticated `user`, `session`, and request; role semantics remain owned by the host.
 
+`authorizeRequest(input, authorize, definition?)` from `@vite-hub/auth/server` applies the same rule to one request. `authorize` is `true` for any session or a callback. It returns JSON `401` without a session and never redirects to sign-in. Blob serve routes and Source Collections use it for their `authorize` option.
+
 ## Vite Integration
 
 Use `server/auth.ts` for the canonical Auth Definition, or `server.auth.ts` when a flat server file fits the project better. Vite discovers one Auth Definition, exposes it through an internal virtual module, owns `/api/auth/**` in development, and registers the same route with Nitro builds by default.

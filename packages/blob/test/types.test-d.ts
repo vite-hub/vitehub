@@ -3,7 +3,7 @@ import virtualConfig, { blob as virtualBlob, hosting as virtualHosting } from "#
 
 import { describe, expectTypeOf, it } from "vitest"
 
-import { blob, type BlobModuleOptions, type BlobResult, type BlobStoreConfig, type ResolvedBlobModuleOptions } from "../src/index.ts"
+import { blob, type BlobModuleOptions, type BlobResult, type BlobServeAuthorize, type BlobStoreConfig, type ResolvedBlobModuleOptions } from "../src/index.ts"
 import { hubBlob } from "../src/vite.ts"
 
 describe("types", () => {
@@ -52,6 +52,23 @@ describe("types", () => {
       "Cache-Control": string
       "X-Content-Type-Options": string
     }>()
+  })
+
+  it("accepts a boolean serve authorization and types the server module callback", () => {
+    const config = {
+      driver: "fs",
+      serve: { authorize: true, route: "/photos" },
+    } satisfies BlobModuleOptions
+    expectTypeOf(config).toMatchTypeOf<BlobModuleOptions>()
+
+    // @ts-expect-error Vite config cannot carry the callback. Export it from server/blob.ts.
+    const callbackConfig: BlobModuleOptions = { driver: "fs", serve: { authorize: () => true } }
+    expectTypeOf(callbackConfig).toMatchTypeOf<BlobModuleOptions>()
+
+    const authorize: BlobServeAuthorize = ({ request, user }) =>
+      new URL(request.url).pathname.startsWith(`/photos/${user.id}/`)
+    expectTypeOf(authorize).parameter(0).toHaveProperty("session").toEqualTypeOf<Record<string, unknown>>()
+    expectTypeOf(authorize).returns.toMatchTypeOf<boolean | Response | Promise<boolean | Response>>()
   })
 
   it("allows MinIO to resolve common Docker env defaults", () => {

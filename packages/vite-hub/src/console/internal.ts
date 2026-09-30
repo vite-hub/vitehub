@@ -117,8 +117,11 @@ type ConsoleInvocationIdentitiesByRoot = {
   values(): IterableIterator<string>
 }
 
+/** Independent Console Auth that serves the Console: a Better Auth session (`true`) or Cloudflare Access. */
+export type ConsoleAuthMode = true | "cloudflare-access"
+
 interface ConsoleSectionRegistration {
-  auth?: boolean
+  auth?: ConsoleAuthMode | false
   projectName?: string
   sections: readonly ConsoleSectionId[]
 }
@@ -159,7 +162,7 @@ export type ConsoleInvocationScope = {
   [consoleProjectRootKey]?: string
   [consoleInvocationsRootIdentityRegistryKey]?: ConsoleInvocationIdentitiesByRoot
   [consoleSectionsKey]?: readonly ConsoleSectionId[]
-  [consoleAuthKey]?: boolean
+  [consoleAuthKey]?: ConsoleAuthMode | false
   [consoleProjectNameKey]?: string
   [consoleSectionsRootKey]?: string
   [consoleSectionsAmbiguousRootKey]?: boolean
@@ -617,7 +620,7 @@ export function installConsoleSectionScope(
   projectRoot: string,
   sections: readonly ConsoleSectionId[],
   scope: ConsoleInvocationScope = defaultConsoleInvocationScope(),
-  independentAuth = false,
+  independentAuth: ConsoleAuthMode | false = false,
 ): readonly ConsoleSectionId[] {
   const installed = [...new Set(sections)]
   if (scope[consoleSectionsRootKey] && scope[consoleSectionsRootKey] !== projectRoot) scope[consoleSectionsAmbiguousRootKey] = true
@@ -665,7 +668,7 @@ export function resolveConsoleSections(scope: ConsoleInvocationScope = defaultCo
   return (registry?.[consoleSectionsKey] as readonly ConsoleSectionId[] | undefined) ?? scope[consoleSectionsKey] ?? []
 }
 
-export function resolveConsoleAuth(scope: ConsoleInvocationScope = defaultConsoleInvocationScope()): boolean {
+export function resolveConsoleAuth(scope: ConsoleInvocationScope = defaultConsoleInvocationScope()): ConsoleAuthMode | false {
   // A shared scope can register several projects. Its last root cannot identify the current request.
   if (scope[consoleSectionsAmbiguousRootKey]) return false
   const root = scope[consoleSectionsRootKey]

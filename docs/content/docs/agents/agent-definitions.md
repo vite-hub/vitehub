@@ -255,6 +255,7 @@ With the implicit discovery-default Workflow binding, direct `runAgent()` calls 
 | `data` | Validates structured Invocation input and types `data` at call sites and in hooks. |
 | `intercept` | Finishes an Invocation with app-computed output before the Driver runs. |
 | `channels` | Declares named Agent Channels and generated routes. |
+| `github` | Sets the Agent GitHub identity, for example `createGitHubHost()`. Provider Drivers receive its `access().env`, and pull request checkouts and `git()` use its token. Defaults to the identity passed as `github({ app })`. |
 | `messages` | Applies shared delivery, streaming, concurrency, session, and transcript settings to adapter Channels. |
 | `invoker` | Configures Agent Actor profiles and resolution using the current API name. |
 | `runtime` | Selects inline or Workflow-backed hosted execution. |
