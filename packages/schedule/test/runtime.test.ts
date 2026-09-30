@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { deserializeResponse, serializeResponse, ViteHubError } from "@vite-hub/runtime"
 import { defineSchedule, defineScheduleTarget, schedules, type ScheduleKVStorage } from "../src/index.ts"
@@ -51,6 +51,7 @@ async function flushAsyncWork(): Promise<void> {
 }
 
 afterEach(() => {
+  vi.useRealTimers()
   resetScheduleRuntime()
 })
 
@@ -863,6 +864,8 @@ describe("Manual Schedule runs", () => {
   })
 
   it("creates distinct runs for concurrent manual invocations in one millisecond", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-09-29T10:00:00.000Z"))
     let calls = 0
     const registry = {
       sync: async () => defineSchedule("*/5 * * * *", () => {

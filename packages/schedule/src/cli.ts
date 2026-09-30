@@ -105,11 +105,13 @@ function runTarget(parsed: ParsedScheduleRunArgs, env: NodeJS.ProcessEnv): Sched
 }
 
 function record(value: unknown): Record<string, unknown> | undefined {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate untrusted boundary values before use.
   return value !== null && typeof value === "object" && !Array.isArray(value) ? Object.fromEntries(Object.entries(value)) : undefined
 }
 
 function stringField(value: Record<string, unknown> | undefined, key: string): string | undefined {
   const field = value?.[key]
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate untrusted boundary values before use.
   return typeof field === "string" ? field : undefined
 }
 

@@ -36,6 +36,7 @@ async function readJSON(req: IncomingMessage): Promise<unknown> {
 }
 
 function isScheduleRegistry(value: unknown): value is ScheduleDefinitionRegistry {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate untrusted boundary values before use.
   return value !== null && typeof value === "object" && Object.values(value).every(entry => typeof entry === "function")
 }
 
@@ -71,6 +72,7 @@ async function handleScheduleDevRun(server: ViteDevServer, req: IncomingMessage,
   catch {
     return writeJSON(res, 400, { message: "Malformed Schedule run payload." })
   }
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate untrusted boundary values before use.
   const name = body !== null && typeof body === "object" && "name" in body ? body.name : undefined
   if (typeof name !== "string" || !name) return writeJSON(res, 400, { message: "Schedule run requires a Schedule Definition name." })
   const registry = (await server.ssrLoadModule("#vitehub/schedule/registry")).default

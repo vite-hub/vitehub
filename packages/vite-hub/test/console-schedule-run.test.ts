@@ -13,7 +13,7 @@ import { resetScheduleRuntime } from "@vite-hub/schedule/runtime"
 import { consoleDefinitionsKey, consoleDefinitionsRegistryKey, consoleDefinitionsRootKey, consoleSchedulesKey, consoleSchedulesRegistryKey, consoleSchedulesRootKey, consoleSectionsKey, consoleSectionsRegistryKey, consoleSectionsRootKey } from "../src/console/internal.ts"
 import { discoverConsoleBuildCatalog } from "../src/console/build.ts"
 import { writeConsoleNitroPlugin } from "../src/console/plugin.ts"
-import { consoleRpcMethods } from "../src/console/runtime/rpc.ts"
+import { consoleRpcHeader, consoleRpcMethods } from "../src/console/runtime/rpc.ts"
 import definitionsHandler from "../src/console/runtime/server/definitions.get.ts"
 import { installConsoleDefinitions, installConsoleSchedules } from "../src/console/runtime/server/definitions.ts"
 import { createConsoleDevframeHandler } from "../src/console/runtime/server/devframe.ts"
@@ -95,6 +95,17 @@ describe("Console Schedule runs", () => {
     expect(invokeDisabled).not.toContain(pathToFileURL(handler).href)
   })
 
+  it("emits prototype-named Schedules as own registry keys", async () => {
+    const root = await temporaryRoot("vitehub-console-schedule-prototype-")
+    const plugin = join(root, "console.mjs")
+    const handler = join(root, "server/schedules/__proto__.ts")
+    const catalog = { agents: [], definitions: { schedules: [scheduleSummary("__proto__")] }, manualSchedules: [{ handler, name: "__proto__" }] }
+
+    await writeConsoleNitroPlugin(plugin, root, ["schedules"], [], catalog, [], [], undefined, undefined, true)
+
+    expect(await readFile(plugin, "utf8")).toContain(`{ ["__proto__"]: () => import(${JSON.stringify(pathToFileURL(handler).href)}) }`)
+  })
+
   it("discovers manual Static Schedule Definitions for the Console", async () => {
     const root = await temporaryRoot("vitehub-console-schedule-catalog-")
     await mkdir(join(root, "server/schedules"), { recursive: true })
@@ -122,6 +133,7 @@ describe("Console Schedule runs", () => {
     const channel = createSseRpcChannel({
       fetch: async (input, init) => {
         const request = new Request(input, init)
+        request.headers.set(consoleRpcHeader, "1")
         // SAFETY: This fixture supplies the request fields read by the ViteHub H3 adapter.
         return (await handler({ method: request.method, req: request } as never)) as Response
       },
@@ -199,6 +211,29 @@ describe("Console Schedule runs", () => {
 
     expect([form.status, crossOrigin.status, malformed.status, sameOrigin.status]).toEqual([415, 403, 400, 200])
     expect(sameOrigin.headers.get("cache-control")).toBe("no-store")
+  })
+
+  it("rejects oversized bodies before reading their full stream", async () => {
+    let cancelled = false
+    let reads = 0
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        reads++
+        controller.enqueue(new Uint8Array(17 * 1_024))
+      },
+      cancel() { cancelled = true },
+    }, { highWaterMark: 0 })
+    const request = new Request("https://app.example/_vitehub/schedules/run", {
+      body,
+      headers: { "content-type": "application/json" },
+      method: "POST",
+      duplex: "half",
+    } as RequestInit)
+
+    expect((await handleConsoleScheduleRunRequest(request)).status).toBe(413)
+    expect(reads).toBe(1)
+    expect(cancelled).toBe(true)
+    expect((await handleConsoleScheduleRunRequest(runRequest({ name: "sync" }, { "content-length": "16385" }))).status).toBe(413)
   })
 
   it("returns 404 when Console invocation did not install Schedule runs", async () => {
