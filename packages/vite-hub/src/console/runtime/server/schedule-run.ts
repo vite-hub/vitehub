@@ -81,8 +81,26 @@ export async function handleConsoleScheduleRunRequest(request: Request): Promise
   if (origin && origin !== new URL(request.url).origin) return failure("Schedule run origin is not allowed.", 403)
   let body: unknown
   try {
-    const text = await request.text()
-    if (new TextEncoder().encode(text).byteLength > maximumBodyBytes) return failure("Schedule run request body is too large.", 413)
+    const contentLength = request.headers.get("content-length")
+    if (contentLength && Number.parseInt(contentLength, 10) > maximumBodyBytes) return failure("Schedule run request body is too large.", 413)
+    const reader = request.body?.getReader()
+    if (!reader) return failure("Malformed Schedule run payload.", 400)
+    const decoder = new TextDecoder()
+    let text = ""
+    let bytes = 0
+    while (true) {
+      const chunk = await reader.read()
+      if (chunk.done) {
+        text += decoder.decode()
+        break
+      }
+      bytes += chunk.value.byteLength
+      if (bytes > maximumBodyBytes) {
+        await reader.cancel()
+        return failure("Schedule run request body is too large.", 413)
+      }
+      text += decoder.decode(chunk.value, { stream: true })
+    }
     body = JSON.parse(text)
   }
   catch {

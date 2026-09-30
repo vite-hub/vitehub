@@ -45,7 +45,7 @@ function renderConsoleNitroPlugin(
   const schedulesEnabled = sections.includes("schedules")
   // Console invocation also allows manual Schedule runs. Without it, the installed registry stays empty.
   const runnableSchedules = (invoke ? catalog.manualSchedules ?? [] : [])
-    .map(schedule => ` ${JSON.stringify(schedule.name)}: () => import(${JSON.stringify(pathToFileURL(schedule.handler).href)}),`)
+    .map(schedule => ` [${JSON.stringify(schedule.name)}]: () => import(${JSON.stringify(pathToFileURL(schedule.handler).href)}),`)
     .join("")
     .replace(/,$/, " ")
   const revision = fixtureSnapshot ? consoleFixtureRevision(fixtureSnapshot) : undefined

@@ -857,9 +857,25 @@ describe("Manual Schedule runs", () => {
       status: "succeeded",
       target: "sync",
     })
-    expect(run.id).toBe(`srun_manual_sync_${run.scheduledAt.toISOString()}`)
+    expect(run.id).toMatch(new RegExp(`^srun_manual_sync_${run.scheduledAt.toISOString()}_.+$`))
     expect(calls).toEqual([run.id])
     expect(await schedules.getRun(run.id)).toEqual(run)
+  })
+
+  it("creates distinct runs for concurrent manual invocations in one millisecond", async () => {
+    let calls = 0
+    const registry = {
+      sync: async () => defineSchedule("*/5 * * * *", () => {
+        calls++
+        return { synced: calls }
+      }, { manual: true }),
+    }
+
+    const runs = await Promise.all([runSchedule("sync", { registry }), runSchedule("sync", { registry })])
+
+    expect(new Set(runs.map(run => run.id)).size).toBe(2)
+    expect(calls).toBe(2)
+    expect(await schedules.listRuns()).toHaveLength(2)
   })
 
   it("uses the installed runtime registry when no registry is passed", async () => {

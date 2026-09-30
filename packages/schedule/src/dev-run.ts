@@ -1,3 +1,5 @@
+import { StringDecoder } from "node:string_decoder"
+
 import { scheduleDevRunHeader, scheduleDevRunRoute } from "./cli.ts"
 import { runSchedule } from "./runtime/execute.ts"
 
@@ -22,12 +24,14 @@ function writeJSON(res: ServerResponse, status: number, value: unknown): void {
 async function readJSON(req: IncomingMessage): Promise<unknown> {
   let body = ""
   let bytes = 0
+  const decoder = new StringDecoder("utf8")
   for await (const chunk of req) {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk))
     bytes += buffer.byteLength
     if (bytes > maximumBodyBytes) throw new RangeError("Schedule run request body is too large.")
-    body += buffer.toString("utf8")
+    body += decoder.write(buffer)
   }
+  body += decoder.end()
   return JSON.parse(body)
 }
 

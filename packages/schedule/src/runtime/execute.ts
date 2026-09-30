@@ -12,6 +12,7 @@ interface ExecuteScheduleOptions {
   definition: ScheduleRegistryDefinition
   input?: unknown
   runStore?: ScheduleRunStore
+  runIdSuffix?: string
   scheduleId: string
   source?: "direct" | "manual" | "runtime" | "static"
   scheduledAt?: Date
@@ -59,8 +60,8 @@ function normalizeRunSource(source: ExecuteScheduleOptions["source"]): NonNullab
   return source ?? "direct"
 }
 
-function toRunId(source: ExecuteScheduleOptions["source"], scheduleId: string, scheduledAt: Date): string {
-  return `srun_${normalizeRunSource(source)}_${encodeURIComponent(scheduleId)}_${scheduledAt.toISOString()}`
+function toRunId(source: ExecuteScheduleOptions["source"], scheduleId: string, scheduledAt: Date, runIdSuffix?: string): string {
+  return `srun_${normalizeRunSource(source)}_${encodeURIComponent(scheduleId)}_${scheduledAt.toISOString()}${runIdSuffix ? `_${runIdSuffix}` : ""}`
 }
 
 function validateScheduledAt(scheduledAt: Date): Date {
@@ -92,7 +93,7 @@ function requireUpdatedRun(run: ScheduleRunRecord | undefined): ScheduleRunRecor
 
 async function createOrGetRun(options: Omit<ExecuteScheduleOptions, "definition"> & { scheduledAt: Date }): Promise<{ created: boolean, run: ScheduleRunRecord }> {
   const store = options.runStore ?? getScheduleRunStore()
-  const id = toRunId(options.source, options.scheduleId, options.scheduledAt)
+  const id = toRunId(options.source, options.scheduleId, options.scheduledAt, options.runIdSuffix)
   const existing = await store.getRun(id)
   if (existing) {
     return { created: false, run: existing }
@@ -272,11 +273,12 @@ export async function runSchedule(name: string, options: RunScheduleOptions = {}
   }
   const runStore = getScheduleRunStore()
   const scheduledAt = new Date()
+  const runIdSuffix = randomId("manual")
   try {
-    return await executeSchedule({ definition, runStore, scheduleId: name, source: "manual", scheduledAt, target: name })
+    return await executeSchedule({ definition, runIdSuffix, runStore, scheduleId: name, source: "manual", scheduledAt, target: name })
   }
   catch (error) {
-    const run = await runStore.getRun(toRunId("manual", name, scheduledAt))
+    const run = await runStore.getRun(toRunId("manual", name, scheduledAt, runIdSuffix))
     if (run?.status === "failed") return run
     throw error
   }
