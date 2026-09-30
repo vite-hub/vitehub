@@ -127,6 +127,7 @@ function chance(instructions: AskEntry, criteria?: AskChanceCriteria): AskChance
 function askIf(instructions: string, options: { threshold?: number } = {}): AskIfQuestion {
   const threshold = options.threshold ?? 0.5
   if (!Number.isFinite(threshold)) throw new TypeError("ask.if threshold must be a finite number")
+  if (threshold < 0 || threshold > 1) throw new TypeError("ask.if threshold must be between 0 and 1")
   return { instructions, threshold, type: "if" }
 }
 
@@ -145,7 +146,7 @@ export const ask: {
   chance,
   /** Selects one option. Answers `{ choice, confidence, probabilities }`. */
   choice,
-  /** A yes or no question. Answers `true` when the probability of yes is above `threshold` (default `0.5`). */
+  /** A yes or no question. Answers `true` when the probability of yes is above `threshold` (0 to 1, default `0.5`). */
   if: askIf,
   /** Rates the state against 2 to 10 ordered levels. Answers `{ score, ratio, confidence, legend, probabilities }`. */
   score,

@@ -272,7 +272,7 @@ export default defineAgent({
 | `ask.switch(instructions, criteria)` | The selected label only. |
 | `ask.score(instructions, levels)` | `{ score, ratio, confidence, legend, probabilities }` for 2 to 10 ordered levels. |
 | `ask.chance(instructions, criteria?)` | `{ chance }`, the probability of yes. |
-| `ask.if(instructions, { threshold? })` | `true` when the probability of yes is above `threshold`, which defaults to `0.5`. |
+| `ask.if(instructions, { threshold? })` | `true` when the probability of yes is above `threshold`. The threshold must be between `0` and `1` and defaults to `0.5`. |
 
 `driver.ask` accepts only `ask` and `capacity`. Missing `advocaat`, a missing `typesafe` group, and a missing TypeSafe API key fail the Invocation with a diagnostic. The Console and `vitehub agent info` show the Driver kind as `ask`. When an ask Driver Agent uses [`llmGate()`](/docs/capabilities/llm-gate) or [`llmRoute()`](/docs/capabilities/llm-route) without a `model`, the decision also uses Jev.
 

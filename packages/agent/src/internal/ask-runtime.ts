@@ -85,6 +85,9 @@ function invalidQuestion(name: string) {
 }
 
 function validateQuestionCriteria(name: string, question: AskQuestion): void {
+  if (question.type === "if" && (!Number.isFinite(question.threshold) || question.threshold < 0 || question.threshold > 1)) {
+    throw agentDiagnostics.AGENT_R0932({ message: `[vitehub] Jev question "${name}" threshold must be a finite number between 0 and 1.` })
+  }
   if (question.type === "choice" || question.type === "switch") {
     const count = isRuntimeRecord(question.criteria) && !Array.isArray(question.criteria)
       ? Object.keys(question.criteria).length

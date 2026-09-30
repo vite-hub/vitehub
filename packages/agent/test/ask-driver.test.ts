@@ -7,6 +7,8 @@ import { createMessage } from "../src/messages.ts"
 import { ask } from "../src/ask.ts"
 import { normalizeAgentDriver } from "../src/internal/agent-driver.ts"
 import { askState } from "../src/internal/ask-runtime.ts"
+import * as askRuntime from "../src/internal/ask-runtime.ts"
+import { importServerEnvModule } from "../src/internal/server-env.ts"
 
 type FakeQuestions = Record<string, { criteria?: Record<string, unknown>, type: string }>
 
@@ -28,7 +30,7 @@ vi.mock("advocaat", () => ({ ask: askJev }))
 vi.mock("../src/internal/server-env.ts", () => ({
   importServerEnvModule: async () => ({
     useServerEnv: (event?: unknown) => fake.useRequestBindings
-      ? { typesafe: { apiKey: getCloudflareEnv(event, { fallback: false })?.TYPESAFE_API_KEY } }
+      ? { typesafe: { apiKey: getCloudflareEnv(event)?.TYPESAFE_API_KEY } }
       : fake.serverEnv,
   }),
 }))
@@ -89,6 +91,43 @@ describe("ask Driver", () => {
     expect(askState({}, " prompt ", messages)).toBe("prompt")
     expect(askState({}, undefined, messages)).toBe("latest")
     expect(askState({}, undefined, [])).toBeNull()
+  })
+
+  it.each([-0.1, 1.1, Number.NEGATIVE_INFINITY])("rejects the invalid probability threshold %s", (threshold) => {
+    expect(() => ask.if("Is it spam?", { threshold })).toThrow(/ask.if threshold must be/)
+  })
+
+  it.each([0, 1])("accepts the boundary probability threshold %s", (threshold) => {
+    expect(ask.if("Is it spam?", { threshold }).threshold).toBe(threshold)
+  })
+
+  it("binds request Env for concurrent dynamic question resolvers", async () => {
+    const dispatch = vi.spyOn(askRuntime, "askJev").mockResolvedValue({ spam: true })
+    fake.useRequestBindings = true
+    const agent = defineAgent({
+      driver: { ask: async () => {
+        const { useServerEnv } = await importServerEnvModule()
+        await Promise.resolve()
+        const env = useServerEnv?.()
+        return { spam: ask.if(JSON.stringify(env)) }
+      } },
+      runtime: false,
+    })
+
+    try {
+      await Promise.all(["first-key", "second-key"].map(apiKey => runAgent(agent, {
+        ...runtime(),
+        cloudflare: { env: { TYPESAFE_API_KEY: apiKey } },
+      }, { prompt: apiKey })))
+      expect(dispatch).toHaveBeenCalledTimes(2)
+      for (const [, state, questions] of dispatch.mock.calls) {
+        expect(questions.spam).toMatchObject({ instructions: JSON.stringify({ typesafe: { apiKey: state } }) })
+      }
+      expect(getCloudflareEnv(undefined, { fallback: true })?.TYPESAFE_API_KEY).toBeUndefined()
+    }
+    finally {
+      dispatch.mockRestore()
+    }
   })
 
   it("answers the questions with Jev and returns the answers as output", async () => {
@@ -154,17 +193,20 @@ describe("ask Driver", () => {
   })
 
   it.each([
+    { name: "if", question: { instructions: "Spam?", threshold: -0.1, type: "if" } },
+    { name: "if", question: { instructions: "Spam?", threshold: 1.1, type: "if" } },
+    { name: "if", question: { instructions: "Spam?", threshold: Number.NaN, type: "if" } },
     { name: "choice", question: { criteria: { only: null }, instructions: "Pick", type: "choice" } },
     { name: "choice", question: { criteria: Object.fromEntries(Array.from({ length: 256 }, (_, index) => [`choice-${index}`, null])), instructions: "Pick", type: "choice" } },
     { name: "switch", question: { criteria: { only: null }, instructions: "Pick", type: "switch" } },
     { name: "score", question: { criteria: ["only"], instructions: "Rate", type: "score" } },
     { name: "score", question: { criteria: Array.from({ length: 11 }, (_, index) => String(index)), instructions: "Rate", type: "score" } },
-  ])("validates Jev $name question cardinality before dispatch", async ({ name, question }) => {
+  ])("validates Jev $name questions before dispatch", async ({ name, question }) => {
     const agent = defineAgent({ driver: { ask: { question: question as never } }, runtime: false })
 
     await expect(runAgent(agent, runtime(), { prompt: "value" })).rejects.toMatchObject({
       code: "AGENT_R0932",
-      message: expect.stringContaining(`${name} criteria must have`),
+      message: expect.stringContaining(name === "if" ? "threshold must be" : `${name} criteria must have`),
     })
     expect(askJev).not.toHaveBeenCalled()
   })

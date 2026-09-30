@@ -90,6 +90,8 @@ export default defineAgent({
 
 Jev reads Invocation `data` when a caller sets it, else the prompt text, else the latest user message. `ask.choice()`, `ask.switch()`, `ask.score()`, `ask.chance()`, and `ask.if()` return plain question objects. `driver.ask` also accepts a function that returns the questions for each Invocation.
 
+`ask.if()` accepts a finite threshold from `0` to `1`, inclusive. It defaults to `0.5`.
+
 Credentials come from the Server Env group `typesafe`. Declare it with `typesafe: typesafeEnv()` from `@vite-hub/env`. `llmGate()` and `llmRoute()` on an ask Driver Agent use one Jev `ask.choice()` question when they have no `model` option. Their decisions include `probabilities` and no `reason`.
 
 ## Direct invocations
