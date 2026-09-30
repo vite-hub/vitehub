@@ -19,6 +19,7 @@ import type {
 } from "../types.ts"
 import type { LlmDecisionChoiceMap } from "./llm-decision-shared.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
+import { isRuntimeString } from "../internal/runtime-value.ts"
 
 export type LlmGateDecision<TAllow extends string = string, TReject extends string = string> =
   | {
@@ -82,8 +83,7 @@ export function llmGate<
   type Decision = LlmGateDecision<Extract<keyof TAllow, string>, Extract<keyof TReject, string>>
 
   function toDecision(category: unknown, details: Pick<LlmGateDecision, "confidence" | "probabilities" | "reason">): Decision {
-    // SAFETY: the runtime schema accepts only string categories before this domain check.
-    if (typeof category !== "string" || !categoryKeys.includes(category)) {
+    if (!isRuntimeString(category) || !categoryKeys.includes(category)) {
       throw agentDiagnostics.AGENT_R0111({ message: `[vitehub] ${id} returned an invalid gate category.` })
     }
     // SAFETY: category is a configured key and the category generic is derived from those keys.
@@ -144,7 +144,7 @@ export function llmGate<
       context.context.set(id, output)
       if (!output.allowed) {
         const message = typeof options.message === "function"
-          ? options.message(output as Extract<Decision, { allowed: false }>)
+          ? options.message(output)
           : options.message
         throw llmGateRejectedError(id, output, message)
       }

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 
 import { llmGate, llmRoute } from "../src/capabilities.ts"
 import { createAgentInspectionMetadata, defineAgent, runAgent } from "../src/index.ts"
@@ -9,7 +10,7 @@ import { askState } from "../src/internal/ask-runtime.ts"
 
 type FakeQuestions = Record<string, { criteria?: Record<string, unknown>, type: string }>
 
-const fake = vi.hoisted(() => ({ serverEnv: {} as Record<string, unknown> }))
+const fake = vi.hoisted(() => ({ serverEnv: {} as Record<string, unknown>, useRequestBindings: false }))
 
 /** A fake advocaat module: no network. Each choice answers with its first label. */
 const askJev = vi.hoisted(() => vi.fn(async (_state: unknown, questions: FakeQuestions, _options?: unknown) =>
@@ -24,7 +25,13 @@ const askJev = vi.hoisted(() => vi.fn(async (_state: unknown, questions: FakeQue
   }))))
 
 vi.mock("advocaat", () => ({ ask: askJev }))
-vi.mock("../src/internal/server-env.ts", () => ({ importServerEnvModule: async () => ({ useServerEnv: () => fake.serverEnv }) }))
+vi.mock("../src/internal/server-env.ts", () => ({
+  importServerEnvModule: async () => ({
+    useServerEnv: (event?: unknown) => fake.useRequestBindings
+      ? { typesafe: { apiKey: getCloudflareEnv(event, { fallback: false })?.TYPESAFE_API_KEY } }
+      : fake.serverEnv,
+  }),
+}))
 
 const runtime = () => ({
   memo: vi.fn(),
@@ -41,6 +48,7 @@ function mockServerEnv(typesafe: unknown) {
 
 beforeEach(() => {
   askJev.mockClear()
+  fake.useRequestBindings = false
   mockServerEnv({ apiKey: sealed("ts-key"), model: "jev-latest", provider: "typesafe" })
 })
 
@@ -154,6 +162,26 @@ describe("ask Driver", () => {
 })
 
 describe("Jev decisions for ask Driver Agents", () => {
+  it.each(["gate", "route"] as const)("uses request Cloudflare bindings for the %s decision and main Driver", async (kind) => {
+    fake.useRequestBindings = true
+    const agent = defineAgent({
+      capabilities: [kind === "gate"
+        ? llmGate({ allow: { safe: "Normal email." }, id: "gate", reject: { unsafe: "Phishing." } })
+        : llmRoute({ choices: { billing: "Invoices.", support: "Other help." }, id: "route" })],
+      driver: { ask: { spam: ask.if("Is it spam?") } },
+      runtime: false,
+    })
+
+    await expect(runAgent(agent, {
+      ...runtime(),
+      cloudflare: { env: { TYPESAFE_API_KEY: "request-key" } },
+    }, { prompt: "Invoice 42" })).resolves.toEqual({ spam: true })
+    expect(askJev).toHaveBeenCalledTimes(2)
+    for (const call of askJev.mock.calls) {
+      expect(call[2]).toEqual(expect.objectContaining({ apiKey: "request-key" }))
+    }
+  })
+
   it("routes with one Jev choice when llmRoute has no model", async () => {
     const agent = defineAgent({
       capabilities: [llmRoute({ choices: { billing: "Invoices and payments.", support: "Other help." }, id: "route", prompt: "Route the email." })],

@@ -165,7 +165,7 @@ export async function jevDecision(
     : { request: latestUserText(input.prompt, messages), ...(history ? { history } : {}) }
   const criteria = Object.fromEntries(decision.choices.map(choice => [choice.key, choice.description]))
   const instructions = [options.prompt, decision.task].filter(Boolean).join("\n\n")
-  const { decision: answer } = await askJev({ abortSignal: context.abortSignal, event: context }, state, {
+  const { decision: answer } = await askJev({ abortSignal: context.abortSignal, event: { context } }, state, {
     decision: ask.choice(instructions, criteria),
   })
   return { choice: answer.choice, confidence: answer.confidence, probabilities: { ...answer.probabilities } }
