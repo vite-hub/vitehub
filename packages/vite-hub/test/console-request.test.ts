@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { connectDevframe } from "devframe/client"
 
 const mocks = vi.hoisted(() => ({
   call: vi.fn(),
@@ -18,16 +19,49 @@ import {
 } from "../src/console/runtime/client/request.ts"
 import { consoleScheduleRunDescription, runConsoleScheduleDefinition } from "../src/console/runtime/client/schedule-run.ts"
 import { createConsoleSectionLoader, loadConsoleNavigation } from "../src/console/runtime/client/sections.ts"
-import { consoleRpcMethods } from "../src/console/runtime/rpc.ts"
+import { consoleRpcHeader, consoleRpcMethods } from "../src/console/runtime/rpc.ts"
 
 afterEach(() => {
   mocks.call.mockReset()
   mocks.connectDevframe.mockClear()
+  vi.unstubAllGlobals()
 })
 
 mocks.connectDevframe.mockImplementation(async () => ({ call: mocks.call, ensureTrusted: async () => true }));
 
 describe("Console requests", () => {
+  it.each(["GET", "POST"])("marks SSE %s requests while preserving their headers, body, and cancellation", async (method) => {
+    mocks.call.mockResolvedValue({ ok: true, value: {} })
+    await requestConsole(`/sse-${method}/api/_vitehub/console/sections`)
+    const transportFetch = vi.mocked(connectDevframe).mock.calls[0]![0]!.sseOptions!.fetch!
+    const response = new Response("ok")
+    const fetchMock = vi.fn(async (request: Request) => {
+      expect(request.url).toBe("http://vitehub.local/_vitehub/rpc/__sse")
+      expect(request.method).toBe(method)
+      expect(request.headers.get(consoleRpcHeader)).toBe("1")
+      expect(request.headers.get("accept")).toBe("text/event-stream")
+      expect(request.headers.get("x-birpc-session")).toBe("session-id")
+      expect(request.headers.get("content-type")).toBe("text/plain; charset=utf-8")
+      expect(await request.text()).toBe(method === "POST" ? "rpc-message" : "")
+      return response
+    })
+    vi.stubGlobal("fetch", fetchMock)
+    const abort = new AbortController()
+    await expect(transportFetch("http://vitehub.local/_vitehub/rpc/__sse", {
+      body: method === "POST" ? "rpc-message" : undefined,
+      headers: {
+        accept: "text/event-stream",
+        "content-type": "text/plain; charset=utf-8",
+        "x-birpc-session": "session-id",
+      },
+      method,
+      signal: abort.signal,
+    })).resolves.toBe(response)
+    expect(fetchMock).toHaveBeenCalledOnce()
+    abort.abort()
+    expect(fetchMock.mock.calls[0]![0].signal.aborted).toBe(true)
+  })
+
   it("routes Workspace file requests through RPC with the invocation id", async () => {
     mocks.call.mockResolvedValue({ ok: true, value: { content: "hello" } })
     await expect(requestConsole("/workspace/api/_vitehub/console/invocations/run%20one/workspace?path=AGENTS.md"))
@@ -137,6 +171,7 @@ describe("Console requests", () => {
       baseURL: "/first/_vitehub/rpc/",
       otpParam: false,
       simpleAuth: false,
+      sseOptions: { fetch: expect.any(Function) },
       transport: "sse",
     })
     expect(mocks.call).toHaveBeenCalledWith(consoleRpcMethods.sections, {

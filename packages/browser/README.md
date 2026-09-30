@@ -165,9 +165,13 @@ try {
 
 Set `executablePath` to an installed Chromium-compatible browser. The path above is a Linux example. `playwright-core` supplies the controller but does not download a browser.
 
+Concurrent `control.release()` calls wait for the same cleanup. If controller cleanup fails, the session keeps controller ownership and rejects another attachment or handoff. Retry `control.release()` or call `session.close()` to terminate the provider session. If the detach trace fails after cleanup succeeds, `control.release()` rejects with controller ownership already cleared.
+
 Use this adapter only when the process is allowed to start Chromium and isolate it according to the host's threat model. It uses a temporary browser profile and removes that profile when the session closes. ViteHub does not provide an untrusted-code sandbox around the browser process.
 
 Low-level Cloudflare sessions can also transfer an exact provider session through an audience-bound live handoff reference. Handoff requires the persistent Chromium engine. The receiver must claim the reference through the same `createBrowser()` client that created the session; references do not cross clients or processes. A handed-off session is not closed for the original caller. Treat the reference as a short-lived credential and close the claimed session when its work finishes.
+
+Handoff references expire after 60 seconds by default. Set `policy.handoffTtl` or pass `ttl` to `session.handoff()` to change this duration. The value must be greater than zero and no greater than 2,147,483,647 milliseconds, the runtime timer limit.
 
 ## Production checks
 

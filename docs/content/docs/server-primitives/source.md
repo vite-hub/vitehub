@@ -110,6 +110,8 @@ Use `sourceIgnores` from `vite-hub/source` for reusable dependency, generated-ou
 
 `file()` follows a symbolic link only when its resolved target stays inside the Source root. `glob()` is also confined to the Source root. By default, it rejects an item when its file or a parent directory is a symbolic link. Set `followSymlinks: true` to follow links when their resolved targets stay inside the Source root. This option controls which local files the Source can select. It does not isolate the process from concurrent file system changes.
 
+Source paths are relative to the configured root. ViteHub rejects Windows drive paths, drive-relative paths such as `C:secrets.txt`, and null bytes on every host. Local Workspace Stores have a stricter contract and reject symlink access.
+
 ### Cache options
 
 `github()`, `mcpResources()`, and custom Sources can expose a cache policy; `false` disables it. GitHub applies the policy to its own ref, archive, and metadata caches. Workspace can also consume the same policy when it decides whether materialized Source content is fresh.

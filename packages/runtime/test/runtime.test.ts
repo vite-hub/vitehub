@@ -27,6 +27,41 @@ import {
 } from "../src/index.ts"
 
 describe("@vite-hub/runtime", () => {
+  it("shares an active waitUntil flush and its failure with concurrent callers", async () => {
+    const controller = createRuntimeWaitUntilController()
+    const failure = new Error("nested background failure")
+    let complete!: () => void
+    controller.waitUntil(new Promise<void>((resolve) => { complete = resolve }).then(() => {
+      controller.waitUntil(Promise.reject(failure))
+    }))
+
+    const first = controller.flushWaitUntil()
+    const second = controller.flushWaitUntil()
+    const outcomes = Promise.allSettled([first, second])
+    let secondSettled = false
+    void second.then(() => { secondSettled = true }, () => { secondSettled = true })
+    await Promise.resolve()
+    expect(secondSettled).toBe(false)
+
+    complete()
+    await expect(outcomes).resolves.toEqual([
+      { status: "rejected", reason: failure },
+      { status: "rejected", reason: failure },
+    ])
+    await expect(controller.flushWaitUntil()).resolves.toBeUndefined()
+  })
+
+  it("drains work registered immediately after an empty flush", async () => {
+    const controller = createRuntimeWaitUntilController()
+    const emptyFlush = controller.flushWaitUntil()
+    const failure = new Error("new background failure")
+    controller.waitUntil(Promise.reject(failure))
+
+    const results = await Promise.allSettled([emptyFlush, controller.flushWaitUntil()])
+    expect(results[1]).toEqual({ status: "rejected", reason: failure })
+    await expect(controller.flushWaitUntil()).resolves.toBeUndefined()
+  })
+
   it("drains nested waitUntil work before reporting a rejection", async () => {
     const controller = createRuntimeWaitUntilController()
     const failure = new Error("deferred failure")
@@ -287,6 +322,38 @@ describe("@vite-hub/runtime", () => {
       name: "queue",
       value: { send: expect.any(Function) },
     })
+  })
+
+  it("resolves only capabilities registered as own properties", () => {
+    const inherited = { inherited: defineCapability("inherited", {}) }
+    const context = createExecutionContext({
+      capabilities: Object.setPrototypeOf({
+        explicit: defineCapability("explicit", {}),
+      }, inherited),
+      memo: vi.fn(),
+      runtime: "vite",
+      waitUntil: vi.fn(),
+    })
+
+    for (const name of ["constructor", "toString", "__proto__", "inherited"]) {
+      expect(hasCapability(context, name)).toBe(false)
+      expect(() => getCapability(context, name)).toThrow(expect.objectContaining({ code: "CAPABILITY_NOT_FOUND" }))
+    }
+    expect(hasCapability(context, "explicit")).toBe(true)
+    expect(getCapability(context, "explicit").kind).toBe("explicit")
+  })
+
+  it("supports explicit capability names that also occur on Object.prototype", () => {
+    const capability = defineCapability("constructor", {})
+    const context = createExecutionContext({
+      capabilities: { constructor: capability },
+      memo: vi.fn(),
+      runtime: "vite",
+      waitUntil: vi.fn(),
+    })
+
+    expect(hasCapability(context, "constructor")).toBe(true)
+    expect(getCapability(context, "constructor")).toBe(capability)
   })
 
   it("resolves static, function, and object values against an execution context", async () => {

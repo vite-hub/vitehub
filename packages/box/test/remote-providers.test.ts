@@ -7,6 +7,29 @@ import { createVercelRuntime, type VercelSandboxInstance } from "../src/vercel.t
 afterEach(() => vi.useRealTimers());
 
 describe("remote Box providers", () => {
+  it.each(["cloudflare", "vercel"] as const)("retries failed %s cleanup without reopening the session", async (provider) => {
+    const cleanup = vi.fn<() => Promise<void>>()
+      .mockRejectedValueOnce(new Error("provider cleanup failed"))
+      .mockResolvedValue(undefined);
+    const stub = cloudflareStub(async () => ({ exitCode: 0, stderr: "", stdout: "", success: true }));
+    stub.destroy = cleanup;
+    const instance = vercelInstance();
+    instance.stop = cleanup;
+    const runtime = provider === "cloudflare"
+      ? createCloudflareRuntime({ getSandbox: () => stub, namespace: namespace(stub) })
+      : createVercelRuntime({ create: async () => instance });
+    const box = await resolveBox({ runtime }, {});
+    const session = await box.open();
+
+    await expect(session.close()).rejects.toThrow("provider cleanup failed");
+    await expect(session.exec("probe")).rejects.toThrow("Box session is closed");
+    await expect(session.files.exists("/workspace")).rejects.toThrow("Box session is closed");
+
+    await session.close();
+    await session.close();
+    expect(cleanup).toHaveBeenCalledTimes(2);
+  });
+
   it("resolves a selected Cloudflare runtime through the public Box root", async () => {
     const stub = cloudflareStub(async () => ({ exitCode: 0, stderr: "", stdout: "", success: true }));
     const box = await resolveBox({
@@ -159,8 +182,13 @@ describe("remote Box providers", () => {
     controller.abort(new Error("cancel exec"));
 
     await expect(result).rejects.toThrow("cancel exec");
+    const closed = vi.fn();
+    const closing = session.close().then(closed);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(closed).not.toHaveBeenCalled();
     finishCleanup();
-    await session.close();
+    await closing;
+    expect(closed).toHaveBeenCalledOnce();
   });
 
   it("passes cancellation through Vercel provisioning", async () => {

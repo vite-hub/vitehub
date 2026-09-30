@@ -1,6 +1,6 @@
 import { createRpcClient } from "devframe/rpc/client";
 import { createSseRpcChannel } from "devframe/rpc/transports/sse-client";
-import { consoleRpcMethods } from "../src/console/runtime/rpc.ts";
+import { consoleRpcHeader, consoleRpcMethods } from "../src/console/runtime/rpc.ts";
 import type { ConsoleRpcFunctions } from "../src/console/runtime/rpc.ts";
 import { createConsoleDevframeHandler } from "../src/console/runtime/server/devframe.ts";
 import { expect, it } from "vitest";
@@ -102,6 +102,7 @@ it.each(["100%_", "%41", "雪% &+?#"])(
     const channel = createSseRpcChannel({
       fetch: async (input, init) => {
         const request = new Request(input, init);
+        request.headers.set(consoleRpcHeader, "1");
         // SAFETY: Supply the request fields read by the H3 adapter.
         return (await handler({ method: request.method, req: request } as never)) as Response;
       },

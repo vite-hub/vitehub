@@ -4,7 +4,7 @@ import { createMessage, defineAgent } from "@vite-hub/agent"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server"
 import { describe, expect, it, vi } from "vitest"
 
-import { consoleRpcMethods } from "../src/console/runtime/rpc.ts"
+import { consoleRpcHeader, consoleRpcMethods } from "../src/console/runtime/rpc.ts"
 import { installConsoleAgentDefinitions } from "../src/console/runtime/server/agents.ts"
 import { createConsoleDevframeHandler } from "../src/console/runtime/server/devframe.ts"
 import { installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
@@ -29,6 +29,7 @@ function setup() {
   const channel = createSseRpcChannel({
     fetch: async (input, init) => {
       const request = new Request(input, init)
+      request.headers.set(consoleRpcHeader, "1")
       // SAFETY: This fixture supplies the request fields read by the ViteHub H3 adapter.
       return (await handler({ method: request.method, req: request } as never)) as Response
     },

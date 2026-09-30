@@ -1,5 +1,7 @@
 import type { Message } from "@vite-hub/agent"
 
+export const consoleRpcHeader = "x-vitehub-console"
+
 export interface ConsoleAgentInvocationInput {
   attachments?: Array<{ id: string, name: string }>
   files?: Array<{ url: string, filename?: string }>

@@ -1,7 +1,7 @@
 import { connectDevframe } from "devframe/client"
 import { Diagnostic } from "nostics"
 
-import { consoleRpcMethods } from "../rpc"
+import { consoleRpcHeader, consoleRpcMethods } from "../rpc"
 
 import type { DevframeRpcClient } from "devframe/client"
 import type { ConsoleRpcInput, ConsoleRpcMethod } from "../rpc"
@@ -59,6 +59,13 @@ function createConsoleDevframeClient(baseURL: string): { promise: Promise<Devfra
       baseURL,
       otpParam: false,
       simpleAuth: false,
+      sseOptions: {
+        fetch: (input, init) => {
+          const request = new Request(input, init)
+          request.headers.set(consoleRpcHeader, "1")
+          return fetch(request)
+        },
+      },
       transport: "sse",
     }).then(async (connected) => {
       try {

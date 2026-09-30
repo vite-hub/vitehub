@@ -49,6 +49,41 @@ afterEach(async () => {
 })
 
 describe("workspace public API", () => {
+  it.each([
+    ".vitehub./file-metadata/secret/metadata.json",
+    ".VITEHUB /file-metadata/secret/metadata.json",
+    ".vitehub::$INDEX_ALLOCATION/file-metadata/secret/metadata.json",
+    ".git./config",
+    "nested/.git:$I30:$INDEX_ALLOCATION/config",
+  ])("rejects reserved aliases through filesystem operations: %s", async (path) => {
+    registerWorkspace("reserved-alias", defineWorkspace({ store: { provider: "memory" } }))
+    const workspace = useWorkspace("reserved-alias", { mode: "write" })
+    const invalidPath = { code: "WORKSPACE_PATH_INVALID" }
+
+    await expect(workspace.fs.readFile(path)).rejects.toMatchObject(invalidPath)
+    await expect(workspace.fs.writeFile(path, "replacement")).rejects.toMatchObject(invalidPath)
+    await expect(workspace.fs.list(path)).rejects.toMatchObject(invalidPath)
+    await expect(workspace.fs.glob(`${path}/**`)).rejects.toMatchObject(invalidPath)
+    await expect(workspace.fs.stat(path)).rejects.toMatchObject(invalidPath)
+    await expect(workspace.fs.rm(path)).rejects.toMatchObject(invalidPath)
+  })
+
+  it.each([".. /secret.txt", ".. ./secret.txt", ".. . /secret.txt", ".:$DATA/secret.txt", "..:$DATA/secret.txt", "..::$INDEX_ALLOCATION/secret.txt", "git~1/config", "nested/git~1/config", "vitehu~1/file-metadata/secret/metadata.json"])(
+    "rejects Windows traversal and short-name aliases through filesystem operations: %s",
+    async (path) => {
+      registerWorkspace("windows-alias", defineWorkspace({ store: { provider: "memory" } }))
+      const workspace = useWorkspace("windows-alias", { mode: "write" })
+      const invalidPath = { code: "WORKSPACE_PATH_INVALID" }
+
+      await expect(workspace.fs.readFile(path)).rejects.toMatchObject(invalidPath)
+      await expect(workspace.fs.writeFile(path, "replacement")).rejects.toMatchObject(invalidPath)
+      await expect(workspace.fs.list(path)).rejects.toMatchObject(invalidPath)
+      await expect(workspace.fs.glob(`${path}/**`)).rejects.toMatchObject(invalidPath)
+      await expect(workspace.fs.stat(path)).rejects.toMatchObject(invalidPath)
+      await expect(workspace.fs.rm(path)).rejects.toMatchObject(invalidPath)
+    },
+  )
+
   it("rejects authored workspace names", () => {
     // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
     expect(() => defineWorkspace({ name: "api" } as never)).toThrow("Workspace names are inferred")

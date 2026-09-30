@@ -1079,10 +1079,10 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         if (nuxt.options.dev && authHandlers.clientSource) {
           const clientDirectories = new Set<string>()
           const newClientDirectories = new Set<string>()
-          const rebuildClient = async () => {
+          const rebuildClient = serializeConsoleRefresh(async () => {
             authHandlers = await writeConsoleAuthHandlers(viteRoot, authConfig, nuxt.options.app?.baseURL ?? "/")
             watchClientSources()
-          }
+          })
           const watchClientSources = () => {
             for (const source of authHandlers.clientSources) {
               const directory = dirname(source)

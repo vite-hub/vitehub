@@ -106,6 +106,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("../src/index.ts", () => ({ vitehub: mocks.vitehub }))
 vi.mock("@vite-hub/ui/nuxt", () => ({ default: mocks.uiModule }))
 
+import * as consoleAuthBuild from "../src/console/auth-build.ts"
 import { consoleFixtureEnvironmentVariable } from "../src/console/fixture.ts"
 import { consoleInvocationsRootIdentityRegistryKey } from "../src/console/internal.ts"
 import viteHubNuxtModule from "../src/nuxt.ts"
@@ -1665,24 +1666,44 @@ describe("ViteHub Nuxt integration", () => {
           await development.runBuilderWatchHook(path)
         }
       }
-      await writeFile(helper, 'export const marker = "original"')
+      await writeFile(helper, 'export const marker = "nuxt_auth_helper_original"')
       await writeFile(client, `import { marker } from ${JSON.stringify(helper)}; export default { setup() { globalThis.consoleAuthMarker = marker } }`)
       await changeWatchedFile(client)
-      expect(await readFile(resolve(directory, ".vitehub/nitro/console/auth-client.mjs"), "utf8")).toContain("original")
+      expect(await readFile(resolve(directory, ".vitehub/nitro/console/auth-client.mjs"), "utf8")).toContain("nuxt_auth_helper_original")
       expect(development.nuxt.options.watch).toContain(helperDirectory)
       expect(watchedByVite).toContain(helperDirectory)
 
-      await writeFile(helper, 'export const marker = "updated"')
-      if (watchedByVite.has(helperDirectory)) viteWatchHandlers.get("change")?.(helper)
-      await vi.waitFor(async () => {
-        expect(await readFile(resolve(directory, ".vitehub/nitro/console/auth-client.mjs"), "utf8")).toContain("updated")
+      let markRefreshBuilt: (() => void) | undefined
+      const refreshBuilt = new Promise<void>((resolve) => { markRefreshBuilt = resolve })
+      let releaseRefresh: (() => void) | undefined
+      const refreshPending = new Promise<void>((resolve) => { releaseRefresh = resolve })
+      const writeHandlers = consoleAuthBuild.writeConsoleAuthHandlers
+      const refresh = vi.spyOn(consoleAuthBuild, "writeConsoleAuthHandlers").mockImplementationOnce(async (...args) => {
+        const handlers = await writeHandlers(...args)
+        markRefreshBuilt?.()
+        await refreshPending
+        return handlers
       })
-      await writeFile(helper, 'export const marker = "added"')
-      viteWatchHandlers.get("add")?.(helper)
-      await vi.waitFor(async () => {
-        expect(await readFile(resolve(directory, ".vitehub/nitro/console/auth-client.mjs"), "utf8")).toContain("added")
-      })
-      expect(viteWatchHandlers.has("unlink")).toBe(true)
+      try {
+        await writeFile(helper, 'export const marker = "nuxt_auth_helper_updated"')
+        if (watchedByVite.has(helperDirectory)) viteWatchHandlers.get("change")?.(helper)
+        await refreshBuilt
+        expect(await readFile(resolve(directory, ".vitehub/nitro/console/auth-client.mjs"), "utf8")).toContain("nuxt_auth_helper_updated")
+        await writeFile(helper, 'export const marker = "nuxt_auth_helper_added"')
+        viteWatchHandlers.get("add")?.(helper)
+        expect(refresh).toHaveBeenCalledTimes(1)
+        releaseRefresh?.()
+        await vi.waitFor(() => expect(refresh).toHaveBeenCalledTimes(2))
+        await Promise.all(refresh.mock.results.map(result => result.value))
+        expect(await readFile(resolve(directory, ".vitehub/nitro/console/auth-client.mjs"), "utf8")).toContain("nuxt_auth_helper_added")
+        expect(viteWatchHandlers.has("unlink")).toBe(true)
+      }
+      finally {
+        releaseRefresh?.()
+        await changeWatchedFile(helper)
+        await Promise.allSettled(refresh.mock.results.map(result => result.value))
+        refresh.mockRestore()
+      }
     }
     finally {
       await rm(directory, { recursive: true, force: true })

@@ -50,12 +50,12 @@ async function readSourceFile<TKey extends string>(options: FileSourceOptions<TK
 
 async function resolveSafeSourceFilePath(path: string, ctx: SourceContext) {
   const { realpath } = await import("node:fs/promises")
-  const { relative, resolve, sep } = await import("node:path")
+  const { isAbsolute, relative, resolve, sep } = await import("node:path")
   const root = await realpath(resolve(resolveSourceRoot(ctx)))
   const target = await realpath(resolve(root, normalizeSafeSourcePath(path)))
   const rel = relative(root, target)
 
-  if (rel === ".." || rel.startsWith(`..${sep}`)) {
+  if (rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
     throw sourcePathError(path)
   }
 

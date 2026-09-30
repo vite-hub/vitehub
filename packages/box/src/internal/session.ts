@@ -257,7 +257,12 @@ export function createBoxSession(
       if (closePromise) return await closePromise;
       closed = true;
       closePromise = runtime.destroy ? runtime.destroy() : runtime.stop();
-      return await closePromise;
+      try {
+        await closePromise;
+      } catch (error) {
+        closePromise = undefined;
+        throw error;
+      }
     },
     async exec(command, args = [], options) {
       const result = await runtime.run({

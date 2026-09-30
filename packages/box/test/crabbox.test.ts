@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process"
+import { execFile, spawn } from "node:child_process"
 import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
@@ -149,7 +149,7 @@ describe("createCrabboxRuntime", () => {
     })
   }, 30_000)
 
-  it.skipIf(process.platform !== "linux")("reclaims only reparented processes owned by the disposable root", async () => {
+  it.skipIf(process.platform !== "linux")("reclaims session-marked processes across supervisors and preserves unrelated root observers", async () => {
     const root = await temporaryRoot()
     const workspace = join(root, "workspace")
     const bin = join(root, "bin")
@@ -157,41 +157,95 @@ describe("createCrabboxRuntime", () => {
     await fakeCrabbox(bin)
 
     await withEnvironment({ PATH: `${bin}:${process.env.PATH || ""}` }, async () => {
-      const box = await resolveBox({ runtime: createCrabboxRuntime({ profile: "babysitter" }), cwd: workspace }, {})
+      const box = await resolveBox({
+        runtime: createCrabboxRuntime({ profile: "babysitter" }),
+        cwd: workspace,
+        env: { VITEHUB_BOX_SESSION: "caller-overwrite" },
+      }, {})
       const session = await boxProvider(box).createSession()
+      const marker = await session.run({ command: 'printf "%s" "$VITEHUB_BOX_SESSION"' })
+      expect(marker).toMatchObject({ exitCode: 0, stdout: session.root })
+      await expect(session.run({ command: "true", env: { VITEHUB_BOX_SESSION: "caller-overwrite" } }))
+        .rejects.toThrow("cannot override VITEHUB_BOX_SESSION")
+      const originalParents = new Map<number, number>()
+      const spawnedPid = (output: string) => {
+        const [parent, pid] = output.trim().split(/\s+/).map(Number)
+        expect(parent).toBeGreaterThan(0)
+        expect(pid).toBeGreaterThan(0)
+        originalParents.set(pid!, parent!)
+        return pid!
+      }
       const spawnOrphan = async (argument: string, cwd?: string, boxRoot?: string) => {
         const result = await session.run({
-          command: `node -e 'const { spawn } = require("node:child_process"); const cwd = process.argv[2] || undefined; const env = { PATH: process.env.PATH, PWD: cwd || "/", ...(process.argv[3] ? { BOX_ROOT: process.argv[3] } : {}) }; const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 60000)", process.argv[1]], { cwd, detached: true, env, stdio: "ignore" }); child.unref(); console.log(child.pid)' '${argument}' '${cwd || ""}' '${boxRoot || ""}'`,
+          command: `node -e 'const { spawn } = require("node:child_process"); const cwd = process.argv[2] || undefined; const env = { PATH: process.env.PATH, PWD: cwd || "/", VITEHUB_BOX_SESSION: process.env.VITEHUB_BOX_SESSION, ...(process.argv[3] ? { BOX_ROOT: process.argv[3] } : {}) }; const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 60000)", process.argv[1]], { cwd, detached: true, env, stdio: "ignore" }); child.unref(); console.log(process.pid, child.pid)' '${argument}' '${cwd || ""}' '${boxRoot || ""}'`,
         })
         expect(result.exitCode).toBe(0)
-        return Number(result.stdout.trim())
+        return spawnedPid(result.stdout)
       }
       const ownedPid = await spawnOrphan(`${session.root}/owned`)
       const cwdOwnedPid = await spawnOrphan("unmarked", session.root)
       await session.run({ command: `mkdir -p -- '${session.root}.other'` })
       const envOwnedPid = await spawnOrphan("unmarked", `${session.root}.other`, session.root)
       const fdTree = await session.run({
-        command: `node -e 'const { openSync } = require("node:fs"); const { spawn } = require("node:child_process"); const fd = openSync(process.argv[1], "a"); const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 60000)"], { cwd: process.argv[2], detached: true, env: { PATH: process.env.PATH, PWD: process.argv[2] }, stdio: ["ignore", "ignore", "ignore", fd] }); child.unref(); console.log(child.pid)' '${session.root}/fd-owned' '${session.root}.other'`,
+          command: `node -e 'const { openSync } = require("node:fs"); const { spawn } = require("node:child_process"); const fd = openSync(process.argv[1], "a"); const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 60000)"], { cwd: process.argv[2], detached: true, env: { PATH: process.env.PATH, PWD: process.argv[2], VITEHUB_BOX_SESSION: process.env.VITEHUB_BOX_SESSION }, stdio: ["ignore", "ignore", "ignore", fd] }); child.unref(); console.log(process.pid, child.pid)' '${session.root}/fd-owned' '${session.root}.other'`,
       })
-      const fdOwnedPid = Number(fdTree.stdout.trim())
+      const fdOwnedPid = spawnedPid(fdTree.stdout)
       const commandOwnedPid = await spawnOrphan(`sleep 5; echo x >> ${session.root}/late-write`, `${session.root}.other`)
       const treePidFile = `${session.root}/tree-child.pid`
       const tree = await session.run({
-        command: `node -e 'const { spawn } = require("node:child_process"); const child = spawn(process.execPath, ["-e", "const { spawn } = require(\\"node:child_process\\"); const child = spawn(process.execPath, [\\"-e\\", \\"setInterval(() => {}, 60000)\\"], { stdio: \\"ignore\\" }); require(\\"node:fs\\").writeFileSync(process.argv[1], String(child.pid)); setInterval(() => {}, 60000)", process.argv[1]], { cwd: process.argv[2], detached: true, stdio: "ignore" }); child.unref(); console.log(child.pid)' '${treePidFile}' '${session.root}'`,
+        command: `node -e 'const { spawn } = require("node:child_process"); const child = spawn(process.execPath, ["-e", "const { spawn } = require(\\"node:child_process\\"); const child = spawn(process.execPath, [\\"-e\\", \\"setInterval(() => {}, 60000)\\"], { stdio: \\"ignore\\" }); require(\\"node:fs\\").writeFileSync(process.argv[1], String(child.pid)); setInterval(() => {}, 60000)", process.argv[1]], { cwd: process.argv[2], detached: true, stdio: "ignore" }); child.unref(); console.log(process.pid, child.pid)' '${treePidFile}' '${session.root}'`,
       })
-      const treeParentPid = Number(tree.stdout.trim())
+      const treeParentPid = spawnedPid(tree.stdout)
       const treeChildPid = Number(await vi.waitFor(async () => await readFile(treePidFile, "utf8")))
-      const unrelatedPid = await spawnOrphan(`${session.root}.other/keep`, `${session.root}.other`)
+      const unrelated = spawn(process.execPath, ["-e", "setInterval(() => {}, 60000)", `${session.root}.other/keep`], {
+        cwd: `${session.root}.other`,
+        env: { PATH: process.env.PATH, VITEHUB_BOX_SESSION: `${session.root}.other` },
+        stdio: "ignore",
+      })
+      const unrelatedPid = unrelated.pid!
+      const observerPidFile = join(root, "observer.pid")
+      const observer = spawn(process.execPath, ["-e", `
+        const { openSync, writeFileSync } = require("node:fs")
+        openSync(process.argv[1] + "/observed", "w")
+        writeFileSync(process.argv[2], String(process.pid))
+        setInterval(() => {}, 60000)
+      `, session.root, observerPidFile], {
+        cwd: session.root,
+        env: { PATH: process.env.PATH, BOX_ROOT: session.root },
+        stdio: "ignore",
+      })
+      const supervisorConfig = join(root, "supervisor.json")
+      const supervisedPidFile = join(root, "supervised.pid")
+      await writeFile(supervisorConfig, JSON.stringify({ boxRoot: session.root, marker: marker.stdout, pidFile: supervisedPidFile }))
+      // Keep the supervisor's cwd, arguments, environment, and open files outside the Box.
+      const supervisor = spawn(process.execPath, ["-e", `
+        const { readFileSync, writeFileSync } = require("node:fs")
+        const { spawn } = require("node:child_process")
+        const config = JSON.parse(readFileSync(process.argv[1], "utf8"))
+        const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 60000)", config.boxRoot], {
+          env: { PATH: process.env.PATH, VITEHUB_BOX_SESSION: config.marker },
+          stdio: "ignore",
+        })
+        writeFileSync(config.pidFile, String(child.pid))
+        setInterval(() => {}, 60000)
+      `, supervisorConfig], {
+        cwd: `${session.root}.other`,
+        env: { PATH: process.env.PATH },
+        stdio: "ignore",
+      })
+      let supervisedPid: number | undefined
 
       try {
+        await vi.waitFor(async () => expect(await readFile(observerPidFile, "utf8")).toBe(String(observer.pid)))
+        supervisedPid = Number(await vi.waitFor(async () => await readFile(supervisedPidFile, "utf8")))
+        await expect(readFile(`/proc/${supervisedPid}/status`, "utf8")).resolves.toContain(`PPid:\t${supervisor.pid}`)
         await vi.waitFor(async () => {
-          await expect(readFile(`/proc/${ownedPid}/status`, "utf8")).resolves.toContain("PPid:\t1")
-          await expect(readFile(`/proc/${cwdOwnedPid}/status`, "utf8")).resolves.toContain("PPid:\t1")
-          await expect(readFile(`/proc/${treeParentPid}/status`, "utf8")).resolves.toContain("PPid:\t1")
-          await expect(readFile(`/proc/${envOwnedPid}/status`, "utf8")).resolves.toContain("PPid:\t1")
-          await expect(readFile(`/proc/${fdOwnedPid}/status`, "utf8")).resolves.toContain("PPid:\t1")
-          await expect(readFile(`/proc/${commandOwnedPid}/status`, "utf8")).resolves.toContain("PPid:\t1")
-          await expect(readFile(`/proc/${unrelatedPid}/status`, "utf8")).resolves.toContain("PPid:\t1")
+          for (const [pid, originalParent] of originalParents) {
+            const status = await readFile(`/proc/${pid}/status`, "utf8")
+            const parent = Number(/^PPid:\s+(\d+)/m.exec(status)?.[1])
+            expect(parent).toBeGreaterThan(0)
+            expect(parent).not.toBe(originalParent)
+          }
         })
         await session.destroy()
         await expect(stat(session.root)).rejects.toMatchObject({ code: "ENOENT" })
@@ -208,10 +262,18 @@ describe("createCrabboxRuntime", () => {
           expect(fdStatus === undefined || /^State:\s+Z/m.test(fdStatus)).toBe(true)
           const commandStatus = await readFile(`/proc/${commandOwnedPid}/status`, "utf8").catch(() => undefined)
           expect(commandStatus === undefined || /^State:\s+Z/m.test(commandStatus)).toBe(true)
+          const supervisedStatus = await readFile(`/proc/${supervisedPid}/status`, "utf8").catch(() => undefined)
+          expect(supervisedStatus === undefined || /^State:\s+Z/m.test(supervisedStatus)).toBe(true)
         })
         expect(() => process.kill(unrelatedPid, 0)).not.toThrow()
+        expect(() => process.kill(supervisor.pid!, 0)).not.toThrow()
+        expect(() => process.kill(observer.pid!, 0)).not.toThrow()
+        expect(observer.signalCode).toBe(null)
       }
       finally {
+        observer.kill("SIGKILL")
+        supervisor.kill("SIGKILL")
+        if (supervisedPid) try { process.kill(supervisedPid, "SIGKILL") } catch {}
         try { process.kill(unrelatedPid, "SIGKILL") } catch {}
         try { process.kill(ownedPid, "SIGKILL") } catch {}
         try { process.kill(cwdOwnedPid, "SIGKILL") } catch {}
@@ -220,6 +282,7 @@ describe("createCrabboxRuntime", () => {
         try { process.kill(envOwnedPid, "SIGKILL") } catch {}
         try { process.kill(fdOwnedPid, "SIGKILL") } catch {}
         try { process.kill(commandOwnedPid, "SIGKILL") } catch {}
+        await rm(`${session.root}.other`, { force: true, recursive: true })
       }
     })
   }, 30_000)
@@ -872,7 +935,10 @@ describe("createCrabboxRuntime", () => {
       await expect(
         withEnvironment({ CRABBOX_TEST_FAIL_SYNC: "1" }, async () => await session.destroy?.()),
       ).rejects.toThrow()
-      const cleanup = (await readFile(log, "utf8")).trim().split("\n").at(-1)
+      const commands = await readFile(log, "utf8")
+      await expect(session.destroy()).rejects.toThrow()
+      expect(await readFile(log, "utf8")).toBe(commands)
+      const cleanup = commands.trim().split("\n").at(-1)
       expect(cleanup).toContain("rm -rf --")
       expect(cleanup).toContain("/tmp/vitehub-box.")
     })

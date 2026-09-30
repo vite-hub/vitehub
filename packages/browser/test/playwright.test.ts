@@ -1,6 +1,9 @@
+import { setImmediate } from "node:timers/promises"
+
 import { describe, expect, it, vi } from "vitest"
 
 import { playwright } from "../src/controllers/playwright.ts"
+import { createBrowser } from "../src/index.ts"
 
 function fakeContext(target: string, page = { goto: vi.fn() }) {
   const detach = vi.fn(async () => {})
@@ -26,6 +29,69 @@ function fakeBrowser(target = "target-1") {
 }
 
 describe("playwright controller", () => {
+  it("shares in-flight Playwright cleanup between direct lease releases", async () => {
+    const { browser } = fakeBrowser()
+    let completeClose!: () => void
+    browser.close.mockImplementation(() => new Promise<void>(resolve => { completeClose = resolve }))
+    const attached = await playwright({ chromium: { connectOverCDP: vi.fn(async () => browser) } as never }).attach({
+      endpoint: "ws://127.0.0.1:9222/devtools/browser/id",
+      kind: "cdp",
+    }, {
+      provider: { features: { liveHandoff: true }, isolation: "trusted-host", name: "local" },
+      sessionId: "safe-id",
+    })
+    const complete = vi.fn()
+    const first = Promise.resolve(attached.release()).then(complete)
+    const second = Promise.resolve(attached.release()).then(complete)
+    await setImmediate()
+    expect(browser.close).toHaveBeenCalledOnce()
+    expect(complete).not.toHaveBeenCalled()
+
+    completeClose()
+    await Promise.all([first, second])
+    await attached.release()
+    expect(browser.close).toHaveBeenCalledOnce()
+    expect(complete).toHaveBeenCalledTimes(2)
+  })
+
+  it("retains public session ownership until Playwright cleanup succeeds after a retry", async () => {
+    const { browser } = fakeBrowser()
+    const failure = new Error("Playwright disconnect failed")
+    let completeClose!: () => void
+    browser.close.mockRejectedValueOnce(failure).mockImplementationOnce(() => new Promise<void>(resolve => { completeClose = resolve }))
+    const providerClose = vi.fn()
+    const controller = playwright({ chromium: { connectOverCDP: vi.fn(async () => browser) } as never })
+    const session = await createBrowser({
+      provider: {
+        features: { liveHandoff: true },
+        isolation: "trusted-host",
+        name: "local",
+        open: () => ({
+          close: providerClose,
+          connection: { endpoint: "ws://127.0.0.1:9222/devtools/browser/id", kind: "cdp" as const },
+          id: "provider-session",
+        }),
+      },
+    }).open()
+    const control = await session.attach(controller)
+
+    await expect(control.release()).rejects.toBe(failure)
+    expect(session.inspect().state).toBe("controlled")
+    await expect(session.attach(controller)).rejects.toMatchObject({ code: "BROWSER_SESSION_STATE" })
+    const first = control.release()
+    const second = control.release()
+    await vi.waitFor(() => expect(browser.close).toHaveBeenCalledTimes(2))
+    expect(session.inspect().state).toBe("controlled")
+
+    completeClose()
+    await Promise.all([first, second])
+    await control.release()
+    expect(browser.close).toHaveBeenCalledTimes(2)
+    expect(session.inspect().state).toBe("released")
+    expect(providerClose).not.toHaveBeenCalled()
+    await session.close()
+  })
+
   it("launches Kitesurf through Cloudflare Playwright", async () => {
     const { browser } = fakeBrowser()
     const binding = { fetch: vi.fn() }

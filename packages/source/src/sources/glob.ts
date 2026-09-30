@@ -150,7 +150,10 @@ async function resolveGlobPaths(rootDir: string, cwd = "."): Promise<ResolvedGlo
   const { realpath } = await import("node:fs/promises")
   const { isAbsolute, relative, resolve, sep } = await import("node:path")
   const resolvedRoot = await realpath(resolve(rootDir))
-  const resolvedCwdPath = isAbsolute(cwd) ? resolve(cwd) : resolve(resolvedRoot, cwd)
+  const normalizedCwd = isAbsolute(cwd)
+    ? cwd
+    : normalizeSafeSourcePath(cwd === "." ? "" : cwd, { allowEmpty: true })
+  const resolvedCwdPath = isAbsolute(normalizedCwd) ? resolve(normalizedCwd) : resolve(resolvedRoot, normalizedCwd)
   const resolvedCwd = await realpath(resolvedCwdPath)
   const rel = relative(resolvedRoot, resolvedCwd)
   if (rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
