@@ -8,6 +8,7 @@ import type { ViteDevServer } from "vite"
 import type { ScheduleDefinitionRegistry, ScheduleRunRecord } from "./types.ts"
 
 const maximumBodyBytes = 16 * 1_024
+const maximumBodyErrorMessage = "Schedule run request body is too large."
 
 function header(req: IncomingMessage, name: string): string | undefined {
   const value = req.headers[name]
@@ -26,9 +27,10 @@ async function readJSON(req: IncomingMessage): Promise<unknown> {
   let bytes = 0
   const decoder = new StringDecoder("utf8")
   for await (const chunk of req) {
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Node's request stream permits string or byte chunks.
     const buffer = typeof chunk === "string" ? Buffer.from(chunk) : Buffer.from(chunk)
     bytes += buffer.byteLength
-    if (bytes > maximumBodyBytes) throw new RangeError("Schedule run request body is too large.")
+    if (bytes > maximumBodyBytes) throw new RangeError(maximumBodyErrorMessage)
     body += decoder.write(buffer)
   }
   body += decoder.end()
@@ -69,7 +71,10 @@ async function handleScheduleDevRun(server: ViteDevServer, req: IncomingMessage,
   try {
     body = await readJSON(req)
   }
-  catch {
+  catch (error) {
+    if (error instanceof RangeError && error.message === maximumBodyErrorMessage) {
+      return writeJSON(res, 413, { message: error.message })
+    }
     return writeJSON(res, 400, { message: "Malformed Schedule run payload." })
   }
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate untrusted boundary values before use.

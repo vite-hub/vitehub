@@ -1190,8 +1190,13 @@ describe("Manual Schedule runs through the Vite Development Server", () => {
         headers: { "content-type": "application/x-www-form-urlencoded", "x-vitehub-schedule-run": "1" },
         method: "POST",
       })
+      const oversized = await fetch(`${server.url}/__vitehub/schedule/run`, {
+        body: JSON.stringify({ name: "x".repeat(16 * 1_024) }),
+        headers: { "content-type": "application/json", "x-vitehub-schedule-run": "1" },
+        method: "POST",
+      })
 
-      expect([withoutHeader.status, crossOrigin.status, form.status]).toEqual([403, 403, 415])
+      expect([withoutHeader.status, crossOrigin.status, form.status, oversized.status]).toEqual([403, 403, 415, 413])
     }
     finally {
       await server.close()
