@@ -26,6 +26,8 @@ watch(
             : entry.provider || "External provider"
       }}
     </dd>
+    <dt class="text-muted">Type</dt>
+    <dd class="break-words font-mono text-xs text-highlighted">{{ entry.type ?? "literal" }}</dd>
     <dt class="text-muted">Value</dt>
     <dd>{{ entry.secret ? "Secret" : "Server only" }}</dd>
     <dt class="text-muted">Required</dt>

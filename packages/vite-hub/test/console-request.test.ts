@@ -1,13 +1,7 @@
-import { afterEach, describe, expect, it, vi } from "vitest"
-import { connectDevframe } from "devframe/client"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
   call: vi.fn(),
-  connectDevframe: vi.fn(),
-}));
-
-vi.mock("devframe/client", () => ({
-  connectDevframe: mocks.connectDevframe,
 }));
 
 import {
@@ -21,47 +15,31 @@ import { consoleScheduleRunDescription, runConsoleScheduleDefinition } from "../
 import { createConsoleSectionLoader, loadConsoleNavigation } from "../src/console/runtime/client/sections.ts"
 import { consoleRpcHeader, consoleRpcMethods } from "../src/console/runtime/rpc.ts"
 
+import type { ConsoleRpcResult } from "../src/console/runtime/rpc.ts"
+
+// Decode each stateless call and answer with the result that mocks.call returns.
+const fetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+  const payload: { input: unknown; method: string } = JSON.parse(String(init?.body))
+  const signal = init?.signal ?? undefined
+  const result = await new Promise<ConsoleRpcResult>((resolve, reject) => {
+    signal?.throwIfAborted()
+    signal?.addEventListener("abort", () => reject(signal.reason), { once: true })
+    Promise.resolve(mocks.call(payload.method, payload.input)).then(resolve, reject)
+  })
+  return Response.json(result, { status: result.ok ? 200 : result.status })
+})
+
+beforeEach(() => {
+  vi.stubGlobal("fetch", fetchMock)
+})
+
 afterEach(() => {
   mocks.call.mockReset()
-  mocks.connectDevframe.mockClear()
+  fetchMock.mockClear()
   vi.unstubAllGlobals()
 })
 
-mocks.connectDevframe.mockImplementation(async () => ({ call: mocks.call, ensureTrusted: async () => true }));
-
 describe("Console requests", () => {
-  it.each(["GET", "POST"])("marks SSE %s requests while preserving their headers, body, and cancellation", async (method) => {
-    mocks.call.mockResolvedValue({ ok: true, value: {} })
-    await requestConsole(`/sse-${method}/api/_vitehub/console/sections`)
-    const transportFetch = vi.mocked(connectDevframe).mock.calls[0]![0]!.sseOptions!.fetch!
-    const response = new Response("ok")
-    const fetchMock = vi.fn(async (request: Request) => {
-      expect(request.url).toBe("http://vitehub.local/_vitehub/rpc/__sse")
-      expect(request.method).toBe(method)
-      expect(request.headers.get(consoleRpcHeader)).toBe("1")
-      expect(request.headers.get("accept")).toBe("text/event-stream")
-      expect(request.headers.get("x-birpc-session")).toBe("session-id")
-      expect(request.headers.get("content-type")).toBe("text/plain; charset=utf-8")
-      expect(await request.text()).toBe(method === "POST" ? "rpc-message" : "")
-      return response
-    })
-    vi.stubGlobal("fetch", fetchMock)
-    const abort = new AbortController()
-    await expect(transportFetch("http://vitehub.local/_vitehub/rpc/__sse", {
-      body: method === "POST" ? "rpc-message" : undefined,
-      headers: {
-        accept: "text/event-stream",
-        "content-type": "text/plain; charset=utf-8",
-        "x-birpc-session": "session-id",
-      },
-      method,
-      signal: abort.signal,
-    })).resolves.toBe(response)
-    expect(fetchMock).toHaveBeenCalledOnce()
-    abort.abort()
-    expect(fetchMock.mock.calls[0]![0].signal.aborted).toBe(true)
-  })
-
   it("routes Workspace file requests through RPC with the invocation id", async () => {
     mocks.call.mockResolvedValue({ ok: true, value: { content: "hello" } })
     await expect(requestConsole("/workspace/api/_vitehub/console/invocations/run%20one/workspace?path=AGENTS.md"))
@@ -71,53 +49,40 @@ describe("Console requests", () => {
     })
   })
 
-  it("reconnects when the cached Devframe client has disconnected", async () => {
-    const disconnectedClient = { call: vi.fn(), ensureTrusted: vi.fn(), status: "disconnected" }
-    const connectedClient = {
-      call: vi.fn().mockResolvedValue({ ok: true, value: { sections: ["agents"] } }),
-      ensureTrusted: vi.fn(),
-      status: "connected",
-    }
-    mocks.connectDevframe
-      .mockResolvedValueOnce(disconnectedClient)
-      .mockResolvedValueOnce(connectedClient)
+  it("sends one stateless POST to the app-relative call endpoint", async () => {
+    mocks.call.mockResolvedValue({ ok: true, value: { sections: ["kv"] } })
+    const signal = new AbortController().signal
 
-    await expect(requestConsole("/reconnect-test/api/_vitehub/console/sections"))
-      .resolves.toEqual({ sections: ["agents"] })
-    expect(mocks.connectDevframe).toHaveBeenCalledTimes(2)
-    expect(disconnectedClient.call).not.toHaveBeenCalled()
-    expect(connectedClient.call).toHaveBeenCalledTimes(1)
+    await expect(requestConsole("/first/api/_vitehub/console/sections", { signal }))
+      .resolves.toEqual({ sections: ["kv"] })
+    expect(fetchMock).toHaveBeenCalledOnce()
+    expect(fetchMock).toHaveBeenCalledWith("/first/_vitehub/rpc/__call", {
+      body: JSON.stringify({ input: { method: "GET", query: {} }, method: consoleRpcMethods.sections }),
+      cache: "no-store",
+      credentials: "same-origin",
+      headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
+      method: "POST",
+      signal,
+    })
   })
 
-  it("does not replay a request that disconnects while the RPC call is in flight", async () => {
-    const disconnected = new Error("[devframe] Disconnected from the devframe server")
-    const firstClient = {
-      call: vi.fn().mockImplementation(async () => {
-        firstClient.status = "disconnected"
-        throw disconnected
-      }),
-      ensureTrusted: vi.fn(),
-      status: "connected",
-    }
-    const nextClient = {
-      call: vi.fn().mockResolvedValue({ ok: true, value: { found: true } }),
-      ensureTrusted: vi.fn(),
-      status: "connected",
-    }
-    mocks.connectDevframe
-      .mockResolvedValueOnce(firstClient)
-      .mockResolvedValueOnce(nextClient)
+  it("does not replay a submitted invocation when its connection drops", async () => {
+    fetchMock.mockRejectedValueOnce(new TypeError("connection dropped"))
+    await expect(requestConsole("/no-replay/api/_vitehub/console/agents/support/invocations", {
+      method: "POST", body: { prompt: "Run once" },
+    })).rejects.toThrow("connection dropped")
+    expect(fetchMock).toHaveBeenCalledOnce()
+  })
 
-    const path = "/in-flight-disconnect-test/api/_vitehub/console/kv"
-    await expect(requestConsole(path, { body: { key: "entry" }, method: "POST" }))
-      .rejects.toBe(disconnected)
-    expect(firstClient.call).toHaveBeenCalledTimes(1)
-    expect(nextClient.call).not.toHaveBeenCalled()
+  it("keeps the HTTP status of a response that is not a Console result", async () => {
+    fetchMock.mockResolvedValueOnce(new Response("Unauthorized", { status: 401 }))
+    const unauthorized = requestConsole("/auth/api/_vitehub/console/sections")
+    await expect(unauthorized).rejects.toMatchObject({ name: "ConsoleRequestError", status: 401 })
+    expect(isRetryableConsoleRequestError(await unauthorized.catch(error => error))).toBe(false)
 
-    await expect(requestConsole(path, { body: { key: "entry" }, method: "POST" }))
-      .resolves.toEqual({ found: true })
-    expect(mocks.connectDevframe).toHaveBeenCalledTimes(2)
-    expect(nextClient.call).toHaveBeenCalledTimes(1)
+    fetchMock.mockResolvedValueOnce(new Response("<!doctype html>", { headers: { "content-type": "text/html" } }))
+    await expect(requestConsole("/fallback/api/_vitehub/console/sections"))
+      .rejects.toMatchObject({ name: "ConsoleRequestError", status: 502 })
   })
 
   it("deduplicates keys repeated across provider pages", () => {
@@ -125,55 +90,12 @@ describe("Console requests", () => {
       .toEqual(["first", "repeated", "last"])
   })
 
-  it("replaces a disconnected client and shares the replacement across concurrent retries", async () => {
-    const old = { ensureTrusted: async () => true, call: vi.fn().mockResolvedValue({ ok: true, value: "first" }), close: vi.fn(), status: "connected" }
-    const replacement = { ensureTrusted: async () => true, call: vi.fn().mockResolvedValue({ ok: true, value: "recovered" }), status: "connected" }
-    mocks.connectDevframe.mockResolvedValueOnce(old).mockResolvedValueOnce(replacement)
-    await expect(requestConsole("/reconnect/api/_vitehub/console/sections")).resolves.toBe("first")
-    old.status = "disconnected"
-    await expect(Promise.all([
-      requestConsole("/reconnect/api/_vitehub/console/sections"),
-      requestConsole("/reconnect/api/_vitehub/console/sections"),
-    ])).resolves.toEqual(["recovered", "recovered"])
-    expect(mocks.connectDevframe).toHaveBeenCalledTimes(2)
-    expect(old.close).toHaveBeenCalledOnce()
-    expect(old.call).toHaveBeenCalledOnce()
-  })
-
-  it("does not replay a submitted invocation when its connection drops", async () => {
-    const client = { ensureTrusted: async () => true, call: vi.fn().mockRejectedValue(new Error("connection dropped")), status: "connected" }
-    mocks.connectDevframe.mockResolvedValueOnce(client)
-    await expect(requestConsole("/no-replay/api/_vitehub/console/agents/support/invocations", {
-      method: "POST", body: { prompt: "Run once" },
-    })).rejects.toThrow("connection dropped")
-    expect(client.call).toHaveBeenCalledOnce()
-    expect(mocks.connectDevframe).toHaveBeenCalledOnce()
-  })
-
-  it("discards a failed handshake before allowing another request", async () => {
-    const failed = { call: vi.fn(), ensureTrusted: vi.fn().mockRejectedValue(new Error("handshake timed out")), close: vi.fn() }
-    mocks.connectDevframe.mockResolvedValueOnce(failed)
-    await expect(requestConsole("/handshake/api/_vitehub/console/sections")).rejects.toThrow("handshake timed out")
-    expect(failed.ensureTrusted).toHaveBeenCalledWith(10_000)
-    expect(failed.call).not.toHaveBeenCalled()
-    expect(failed.close).toHaveBeenCalledOnce()
-    mocks.call.mockResolvedValue({ ok: true, value: "ready" })
-    await expect(requestConsole("/handshake/api/_vitehub/console/sections")).resolves.toBe("ready")
-    expect(mocks.connectDevframe).toHaveBeenCalledTimes(2)
-  })
-
   it("supports requests without query or signal options", async () => {
     mocks.call.mockResolvedValue({ ok: true, value: { sections: ["kv"] } })
 
     await expect(requestConsole("/first/api/_vitehub/console/sections"))
       .resolves.toEqual({ sections: ["kv"] })
-    expect(mocks.connectDevframe).toHaveBeenCalledWith({
-      baseURL: "/first/_vitehub/rpc/",
-      otpParam: false,
-      simpleAuth: false,
-      sseOptions: { fetch: expect.any(Function) },
-      transport: "sse",
-    })
+    expect(fetchMock).toHaveBeenCalledWith("/first/_vitehub/rpc/__call", expect.objectContaining({ method: "POST", signal: undefined }))
     expect(mocks.call).toHaveBeenCalledWith(consoleRpcMethods.sections, {
       method: "GET",
       query: {},

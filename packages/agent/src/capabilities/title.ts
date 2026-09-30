@@ -418,7 +418,7 @@ async function generateTitleWithDriver(
   }
   const runContext = titleAdapterRunContext(context, input, prompt)
   if (driver.kind === "provider") {
-    const { createProviderAgentAdapter } = await import("../provider-agent.ts")
+    const { createProviderAgentAdapter } = await import("#vitehub/agent/provider-agent")
     // SAFETY: Title Capability normalization establishes the asserted delivery and stream contract.
     return await titleResultText(context, await createProviderAgentAdapter(driver).generate(runContext as never))
   }

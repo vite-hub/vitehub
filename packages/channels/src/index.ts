@@ -1,5 +1,5 @@
 export { createChannel } from "./client.ts"
-export { defineChannel } from "./definition.ts"
+export { defineChannel, defineOutboundChannel } from "./definition.ts"
 export { useChannel } from "./runtime/state.ts"
 
 export type {

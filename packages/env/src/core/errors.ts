@@ -30,7 +30,7 @@ interface EnvErrorDetailsByCode {
   ENV_ASYNC_REQUIRED: { path?: string }
   ENV_DECLARATION_INVALID: { path?: string }
   ENV_REQUIRED_MISSING: { path?: string, source?: EnvSourceIdentifier }
-  ENV_RUNTIME_VALUE_INVALID: { source?: EnvSourceIdentifier }
+  ENV_RUNTIME_VALUE_INVALID: { path?: string, source?: EnvSourceIdentifier }
   ENV_SOURCE_FAILED: { source?: EnvSourceIdentifier }
 }
 
@@ -99,11 +99,11 @@ export function missingRequiredEnv(source: string, diagnostic: string, path?: st
   })
 }
 
-export function invalidRuntimeEnvValue(source: string, diagnostic: string): ViteHubError<"ENV_RUNTIME_VALUE_INVALID", EnvErrorDetails<"ENV_RUNTIME_VALUE_INVALID">> {
+export function invalidRuntimeEnvValue(source: string, diagnostic: string, path?: string): ViteHubError<"ENV_RUNTIME_VALUE_INVALID", EnvErrorDetails<"ENV_RUNTIME_VALUE_INVALID">> {
   return createEnvError({
     cause: envErrorDiagnostics.ENV_R0011({ message: diagnostic }),
     code: "ENV_RUNTIME_VALUE_INVALID",
-    details: { source: publicSourceIdentifier(source) },
+    details: { ...optionalPath(path), source: publicSourceIdentifier(source) },
   })
 }
 
@@ -139,7 +139,7 @@ function normalizeDetails<TCode extends EnvErrorCode>(
   if (details === undefined) return undefined
   if (typeof details !== "object" || details === null || Array.isArray(details)) invalidOptions()
   const normalized: { path?: string, source?: EnvSourceIdentifier } = {}
-  if (code === "ENV_ASYNC_REQUIRED" || code === "ENV_DECLARATION_INVALID" || code === "ENV_REQUIRED_MISSING") {
+  if (code === "ENV_ASYNC_REQUIRED" || code === "ENV_DECLARATION_INVALID" || code === "ENV_REQUIRED_MISSING" || code === "ENV_RUNTIME_VALUE_INVALID") {
     const path = safePath(own(details, "path"))
     if (path) normalized.path = path
   }

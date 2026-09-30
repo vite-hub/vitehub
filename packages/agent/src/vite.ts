@@ -1,5 +1,7 @@
 import { validateAgentStaticRoute } from "./internal/routes.ts"
+import { resolvesWorkerConditions, usesProviderAgentDriver } from "./internal/provider-driver-usage.ts"
 import { randomUUID } from "node:crypto"
+import { createRequire } from "node:module"
 import { existsSync, statSync } from "node:fs"
 import { cp, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { basename, dirname, extname, join, relative, resolve } from "node:path"
@@ -571,6 +573,20 @@ function resolveAgentHosting(config: unknown): "cloudflare" | "netlify" | "verce
   if (process.env.CLOUDFLARE_WORKER || process.env.CF_PAGES) return "cloudflare"
   if (process.env.VERCEL || process.env.VERCEL_ENV) return "vercel"
   if (process.env.NETLIFY || process.env.NETLIFY_DEV || process.env.NETLIFY_LOCAL) return "netlify"
+}
+
+// pkce-challenge, a dependency of @ai-sdk/mcp, exports only "browser" and "node" conditions, so Worker
+// conditions cannot resolve it. Its browser build uses only Web Crypto, which Workers provide.
+function resolveWorkerPackageAliases(): Record<string, string> {
+  try {
+    const requireFromMcp = createRequire(createRequire(import.meta.url).resolve("@ai-sdk/mcp/package.json"))
+    const browserEntry = join(dirname(requireFromMcp.resolve("pkce-challenge")), "index.browser.js")
+    return existsSync(browserEntry) ? { "pkce-challenge": browserEntry } : {}
+  }
+  catch {
+    // @ai-sdk/mcp is optional. Without it, the Worker bundle does not import pkce-challenge.
+    return {}
+  }
 }
 
 function shouldInstallCloudflareAgentState(
@@ -2865,6 +2881,14 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       )
       const projectModule = typescriptModule
         && (normalizedId.startsWith(`${resolve(resolved.root).replace(/\\/g, "/")}/`) || serverProjectModule)
+      if (
+        projectModule
+        && !normalizedId.includes("/node_modules/")
+        && resolvesWorkerConditions(this.environment?.config.resolve.conditions)
+        && usesProviderAgentDriver(code)
+      ) {
+        throw agentDiagnostics.AGENT_B0019({ files: [relative(resolved.root, normalizedId)] })
+      }
       let transformed = code
       if (projectModule) {
         clearEveExtensionOwnership(normalizedId)
@@ -3042,10 +3066,11 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           ...replacement,
         }
       }
+      const workerAliases = resolved && resolveAgentHosting(config) === "cloudflare" ? resolveWorkerPackageAliases() : {}
       if (resolved) {
         const alias = isRecord(mergedNitro.alias) ? { ...mergedNitro.alias } : {}
         alias[agentRegistryId] = join(generatedRoot, generatedAgentRegistry)
-        mergedNitro.alias = alias
+        mergedNitro.alias = { ...alias, ...workerAliases }
       }
       const result: UserConfig & { nitro?: NitroConfig } = {
         define: {
@@ -3058,7 +3083,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           },
         },
       }
-      if (resolved) result.resolve = { alias: { [agentRegistryId]: join(generatedRoot, generatedAgentRegistry) } }
+      if (resolved) result.resolve = { alias: { [agentRegistryId]: join(generatedRoot, generatedAgentRegistry), ...workerAliases } }
       if (agent !== undefined) result.agent = agent
       if (nitroHandlers.length) {
         // SAFETY: Vite's build options accept the Rolldown external field merged by this boundary.

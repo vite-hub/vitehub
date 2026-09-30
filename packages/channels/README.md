@@ -17,13 +17,13 @@ The package requires Node.js 24 or newer. Vite is an optional peer and is needed
 Use `createChannel()` when application code already has the connector and does not need file discovery.
 
 ```ts
-import { createChannel, defineChannel } from "@vite-hub/channels";
+import { createChannel, defineOutboundChannel } from "@vite-hub/channels";
 
 const delivered: string[] = [];
 
 const alerts = createChannel(
   "alerts",
-  defineChannel({
+  defineOutboundChannel({
     connectors: {
       log: {
         send(text: string, options: { label: string }) {
@@ -79,9 +79,9 @@ ViteHub discovers files below `server/channels` and files named `*.channel.ts`. 
 
 ```ts
 // server/channels/alerts.ts
-import { defineChannel } from "@vite-hub/channels";
+import { defineOutboundChannel } from "@vite-hub/channels";
 
-export default defineChannel({
+export default defineOutboundChannel({
   connectors: {
     log: {
       send(text: string, options: { label: string }) {
@@ -127,6 +127,6 @@ For each connector delivery, Channels attempts to write `outbound.started` and e
 
 Delivery logging is best effort. A logging failure does not change the result of a send. An inaccessible optional message `id` is omitted from the receipt and log without changing delivery success.
 
-This package is separate from Agent Channels. `@vite-hub/channels` sends ordinary application messages. [`@vite-hub/agent/channels`](https://vitehub.dev/docs/agents/channels) describes where Agent Invocations come from, inbound delivery, threads, and Agent reply policy.
+This package is separate from Agent Channels. `@vite-hub/channels` sends ordinary application messages with `defineOutboundChannel()`. The earlier `defineChannel()` export is a deprecated alias for one release; `defineChannel()` from `@vite-hub/agent/channels` defines an Agent Channel Kind. [`@vite-hub/agent/channels`](https://vitehub.dev/docs/agents/channels) describes where Agent Invocations come from, inbound delivery, threads, and Agent reply policy.
 
 Read the [Channels guide](https://vitehub.dev/docs/reference/channels) for Server Env credentials, H3 and Nitro handlers, multiple connectors, generated types, and delivery logs. Use the [public import reference](https://vitehub.dev/docs/reference/import-paths) when composing the owner package directly.

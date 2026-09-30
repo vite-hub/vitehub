@@ -57,6 +57,7 @@ Each namespace appears only when its package is enabled. For example, `schedule`
 | `vitehub workspace dev` | Available | Workspace Package | Run commands through a Workspace Session exposed by a Compatible Vite Development Server. |
 | `vitehub types prepare` | Available | ViteHub Framework | Prepare generated TypeScript declarations for editors and type checking. |
 | `vitehub provision run` | Available | ViteHub CLI plus package Provision Steps | Create missing provider resources idempotently. |
+| `vitehub provision status` | Available | ViteHub CLI plus package Provision Steps | Show recorded provider ids and pending plan actions without applying them. |
 
 ## Run the Console with saved data
 
@@ -303,6 +304,12 @@ CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... pnpm vitehub provision run --
 VERCEL_TOKEN=... VERCEL_PROJECT_ID=... pnpm vitehub provision run --provider vercel --dry-run
 ```
 
+Use `provision status` to compare the ids recorded in `.vitehub/provision.json` with the current plan. Add `--json` to `provision run` or `provision status` for one JSON document on stdout. Read [Provisioning](/docs/development/provisioning#json-output) for the fields.
+
+```bash [Terminal]
+CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... pnpm vitehub provision status --provider cloudflare --json
+```
+
 ## Troubleshooting
 
 | Symptom | Likely cause | Fix |
@@ -311,6 +318,7 @@ VERCEL_TOKEN=... VERCEL_PROJECT_ID=... pnpm vitehub provision run --provider ver
 | `Provision requires --provider cloudflare\|vercel` | The provider flag is missing or misspelled. | Pass a supported provider explicitly. |
 | Provision fails before applying actions | Required provider credentials are missing. | Set `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`, or set `VERCEL_TOKEN`. |
 | Provision dry-run reports no actions | A package plan skipped provider lookup because its read credentials are missing. | Supply the provider credentials to inspect existing resources; `--dry-run` still prevents `apply()`. |
+| Provision status reports `plan: not checked` | Provider credentials are missing, so the plan phase did not run. | Set the provider credentials. Recorded ids are shown without them. |
 | Vercel Provision reports no resources for Blob | `VERCEL_PROJECT_ID` is missing, or the active Blob store is not `vercel-blob`. | Set the project id and select the Vercel Blob driver before rerunning the plan. |
 | Agent eval CLI is disabled | `agent.eval` or `agent.cli` disables the Agent Eval Runner. | Re-enable the Agent integration option for local development. |
 | Agent eval times out | The eval case, model call, or provider run exceeds `agent.eval.testTimeout`. | Increase `agent.eval.testTimeout` in `vite.config.ts` or narrow the eval case. |

@@ -49,6 +49,12 @@ describe("Vite plugin", () => {
       },
       server: {
         githubToken: env({ secret: true }),
+        labeller: {
+          dryRun: env.boolean({ default: false }),
+          mode: env.enum(["draft", "send"]),
+          pin: env.number({ secret: true }),
+          retries: env.number({ optional: true }),
+        },
       },
     }, root)
 
@@ -58,8 +64,33 @@ describe("Vite plugin", () => {
     expect(types).toContain("\"port\": number")
     expect(types).toContain("\"optionalLabel\": string | undefined")
     expect(types).toContain("\"githubToken\": import(\"@vite-hub/env/secret\").SecretEnv<string>")
+    expect(types).toContain("\"dryRun\": boolean")
+    expect(types).toContain("\"mode\": \"draft\" | \"send\"")
+    expect(types).toContain("\"pin\": import(\"@vite-hub/env/secret\").SecretEnv<number>")
+    expect(types).toContain("\"retries\"?: number")
+    await expect(readFile(join(root, ".vitehub", "env", "server.d.ts"), "utf8")).resolves.toContain("\"pin\": SecretEnv<number>")
     await expect(readFile(join(root, ".vitehub", "env", "public.d.ts"), "utf8")).resolves.toContain("export interface PublicEnv")
     await expect(readFile(join(root, ".vitehub", "env", "server.d.ts"), "utf8")).resolves.toContain("export interface ServerEnv")
+  })
+
+  it("rejects unparsed typed defaults in public and nested define config", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-env-defaults-"))
+    await writeFile(join(root, "package.json"), JSON.stringify({ name: "typed-defaults" }), "utf8")
+    for (const section of ["public", "define"] as const) {
+      for (const hostValue of [undefined, "1"]) {
+        for (const declaration of [
+          env.boolean({ default: "false" as never, mode: "build", source: env.custom("test", () => hostValue) }),
+          env.number({ default: "0.6" as never, mode: "build", source: env.custom("test", () => hostValue) }),
+        ]) {
+          const plugin = hubEnv()
+          const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build", mode: string }) => Promise<unknown>
+          await expect(configHook({
+            root,
+            env: { [section]: section === "define" ? { settings: { value: declaration } } : { value: declaration } },
+          }, { command: "build", mode: "production" })).rejects.toThrow(`Invalid default for env.${section}.${section === "define" ? "settings." : ""}value: Expected a ${declaration.type} default.`)
+        }
+      }
+    }
   })
 
   it("loads Vite env, validates build values, injects define, and serves virtual config", async () => {
@@ -540,7 +571,7 @@ describe("Vite plugin", () => {
       const { describeServerEnv } = await import(${JSON.stringify(url)});
       process.stdout.write(JSON.stringify(describeServerEnv()));
     `], { encoding: "utf8" })
-    expect(JSON.parse(stdout).entries).toEqual([{ path: "env.server.token", source: "provider", provider: "vault", secret: true, required: true, hasDefault: false }])
+    expect(JSON.parse(stdout).entries).toEqual([{ path: "env.server.token", source: "provider", provider: "vault", secret: true, required: true, hasDefault: false, type: "string" }])
     expect(await readFile(join(root, "dist", "entry.mjs"), "utf8")).not.toContain("provider must not initialize")
   })
 

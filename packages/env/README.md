@@ -88,6 +88,23 @@ export async function sync(event: unknown) {
 }
 ```
 
+## Typed server values
+
+Host variables are strings. Declare `env.boolean()`, `env.number()`, or `env.enum()` when server code needs another type. ViteHub parses the value when Server Env resolves and generates the exact type.
+
+```ts
+// vite.config.ts
+env: {
+  server: {
+    dryRun: env.boolean({ default: true }), // true, false, 1, or 0
+    minConfidence: env.number({ default: 0.6 }), // finite number
+    mode: env.enum(["draft", "send"], { default: "draft" }),
+  },
+}
+```
+
+`useServerEnv().dryRun` is a `boolean`, `minConfidence` is a `number`, and `mode` is `"draft" | "send"`. Defaults use the parsed type. `env.enum()` cannot be secret because its allowed values are public metadata. An invalid value throws `ENV_RUNTIME_VALUE_INVALID` with the declaration path; the value is never included. `env.server` does not accept custom `schema` parsers because the generated runtime must serialize the parser.
+
 ## External runtime values
 
 Use a read-only Env provider when application credentials live outside the host environment. Keep the provider's bootstrap credential in Kubernetes, Cloudflare, or the current host, then load the external values as one operation-scoped snapshot.
@@ -201,7 +218,7 @@ Read the complete [Env guide](https://vitehub.dev/docs/server-primitives/env), t
 
 ### Declaration inventory
 
-`describeServerEnv()` from `#vitehub/env/server` returns declaration metadata without reading host values or calling providers. It includes the declaration path, source kind, provider alias, secret and required flags, and default presence. Values, defaults, host variable names and provider storage keys are omitted. Use `inspectServerEnv()` only when a status check that loads providers is intended.
+`describeServerEnv()` from `#vitehub/env/server` returns declaration metadata without reading host values or calling providers. It includes the declaration path, source kind, provider alias, secret and required flags, default presence, and the parsed value type. Values, defaults, host variable names and provider storage keys are omitted. Use `inspectServerEnv()` only when a status check that loads providers is intended.
 
 ### Managed credentials
 

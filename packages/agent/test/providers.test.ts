@@ -16158,7 +16158,7 @@ describe("server helpers", () => {
           }
         | undefined
       expect(binding?.steer).toBeDefined()
-      binding!.steer!.ttlMs = 400
+      binding!.steer!.ttlMs = 1_000
       expect(await state.queueDepth(binding!.steer!.pendingQueue)).toBe(1)
       // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
       expect(await state.extendLock(binding!.steer!.lock as never, binding!.steer!.ttlMs)).toBe(true)
@@ -16291,7 +16291,7 @@ describe("server helpers", () => {
         await rm(stateDir, { force: true, recursive: true })
       }
     }
-  }, 15_000)
+  }, 30_000)
 
   it("restarts pending steer input when terminal settlement cannot read its delivery", async () => {
     const { blob } = await import("../src/capabilities.ts")

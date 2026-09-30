@@ -99,6 +99,20 @@ Capability metadata appears under the Capability id in Agent inspection output. 
 Use `defineCapability({ finish })` for metadata read by evals, finish hooks, or channel delivery code after an invocation.
 Agent Evals expose those values through `observation.extensions.get(capabilityId)` and the `hasCapabilityExtension(capabilityId)` scorer.
 
+## Finish without the Driver
+
+A Capability `input` phase can finish an Invocation only with a `Response`. When app code decides the result for some inputs, such as mail rules that label an email before a model runs, use `defineAgent({ data, intercept })` instead. `intercept` returns a typed value that becomes the Invocation output, and `runAgent()` types its output as the union of that value and the Driver output.
+
+```ts [server/agents/labeller.ts]
+export default defineAgent({
+  data: email,
+  intercept: ({ data }) => data.from.endsWith('@github.com') ? { source: 'rule' as const, label: 'GitHub' } : undefined,
+  driver: { model, output: { schema: modelLabel } },
+})
+```
+
+Read [Finish before the Driver](/docs/agents/agent-definitions#finish-before-the-driver) for hooks, traces, and layer rules.
+
 ## Driver support
 
 A model-backed Agent Driver can consume model-facing tools and Provider Tool contributions.

@@ -21,6 +21,7 @@ const descriptionSchema = v.object({
       secret: v.boolean(),
       required: v.boolean(),
       hasDefault: v.boolean(),
+      type: v.optional(v.string()),
     }),
   ),
 });
@@ -70,6 +71,7 @@ const rows = computed(() =>
 );
 const columns: TableColumn<ServerEnvDescriptionEntry>[] = [
   { accessorKey: "path", header: "Variable" },
+  { id: "type", header: "Type" },
   { id: "source", header: "Source" },
   { id: "value", header: "Value" },
 ];
@@ -205,6 +207,11 @@ onBeforeUnmount(() => request?.abort());
             <template #path-cell="{ row }"
               ><span class="font-mono text-xs text-highlighted">{{
                 row.original.path?.replace(/^env\.server\./, "") || "Undisclosed name"
+              }}</span></template
+            >
+            <template #type-cell="{ row }"
+              ><span class="font-mono text-xs text-muted">{{
+                row.original.type ?? "literal"
               }}</span></template
             >
             <template #source-cell="{ row }"

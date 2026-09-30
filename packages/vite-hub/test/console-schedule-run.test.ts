@@ -3,8 +3,6 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 
-import { createRpcClient } from "devframe/rpc/client"
-import { createSseRpcChannel } from "devframe/rpc/transports/sse-client"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { defineSchedule } from "@vite-hub/schedule"
@@ -16,12 +14,12 @@ import { writeConsoleNitroPlugin } from "../src/console/plugin.ts"
 import { consoleRpcHeader, consoleRpcMethods } from "../src/console/runtime/rpc.ts"
 import definitionsHandler from "../src/console/runtime/server/definitions.get.ts"
 import { installConsoleDefinitions, installConsoleSchedules } from "../src/console/runtime/server/definitions.ts"
-import { createConsoleDevframeHandler } from "../src/console/runtime/server/devframe.ts"
+import { handleConsoleRpcRequest } from "../src/console/runtime/server/rpc.ts"
 import { handleConsoleScheduleRunRequest } from "../src/console/runtime/server/schedule-run.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 
 import type { ConsoleInvocationScope } from "../src/console/internal.ts"
-import type { ConsoleRpcFunctions } from "../src/console/runtime/rpc.ts"
+import type { ConsoleRpcInput, ConsoleRpcMethod } from "../src/console/runtime/rpc.ts"
 
 // SAFETY: Console state uses the same optional symbol keys in runtime and tests.
 const scope = globalThis as ConsoleInvocationScope
@@ -129,47 +127,38 @@ describe("Console Schedule runs", () => {
   it("runs a Schedule through the Console RPC operation", async () => {
     let calls = 0
     installSchedules(() => { calls++ })
-    const handler = createConsoleDevframeHandler()
-    const channel = createSseRpcChannel({
-      fetch: async (input, init) => {
-        const request = new Request(input, init)
-        request.headers.set(consoleRpcHeader, "1")
-        // SAFETY: This fixture supplies the request fields read by the ViteHub H3 adapter.
-        return (await handler({ method: request.method, req: request } as never)) as Response
-      },
-      url: "http://vitehub.local/_vitehub/rpc/__sse",
-    })
-    const client = createRpcClient<ConsoleRpcFunctions>({}, { channel })
+    async function call(method: ConsoleRpcMethod, input: ConsoleRpcInput) {
+      const response = await handleConsoleRpcRequest(new Request("http://vitehub.local/_vitehub/rpc/__call", {
+        body: JSON.stringify({ input, method }),
+        headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
+        method: "POST",
+      }))
+      return response.json()
+    }
 
-    try {
-      const run = await client.$call(consoleRpcMethods.scheduleRun, { body: { name: "sync" }, method: "POST" })
-      const unavailable = await client.$call(consoleRpcMethods.scheduleRun, { body: { name: "nightly" }, method: "POST" })
-      const read = await client.$call(consoleRpcMethods.scheduleRun, { method: "GET" })
+    const run = await call(consoleRpcMethods.scheduleRun, { body: { name: "sync" }, method: "POST" })
+    const unavailable = await call(consoleRpcMethods.scheduleRun, { body: { name: "nightly" }, method: "POST" })
+    const read = await call(consoleRpcMethods.scheduleRun, { method: "GET" })
 
-      expect(run).toEqual({
-        ok: true,
-        value: {
-          run: {
-            completedAt: expect.any(String),
-            id: expect.stringMatching(/^srun_manual_sync_/),
-            scheduleId: "sync",
-            startedAt: expect.any(String),
-            status: "succeeded",
-          },
+    expect(run).toEqual({
+      ok: true,
+      value: {
+        run: {
+          completedAt: expect.any(String),
+          id: expect.stringMatching(/^srun_manual_sync_/),
+          scheduleId: "sync",
+          startedAt: expect.any(String),
+          status: "succeeded",
         },
-      })
-      expect(unavailable).toEqual({
-        message: "Schedule run is not available. Set manual: true on the Schedule Definition and enable Console invocation.",
-        ok: false,
-        status: 404,
-      })
-      expect(read).toMatchObject({ ok: false, status: 405 })
-      expect(calls).toBe(1)
-    }
-    finally {
-      channel.close()
-      await handler.close()
-    }
+      },
+    })
+    expect(unavailable).toEqual({
+      message: "Schedule run is not available. Set manual: true on the Schedule Definition and enable Console invocation.",
+      ok: false,
+      status: 404,
+    })
+    expect(read).toMatchObject({ ok: false, status: 405 })
+    expect(calls).toBe(1)
   })
 
   it("returns a failed run with its error and without its stack", async () => {

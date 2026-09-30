@@ -1,8 +1,5 @@
-import { createRpcClient } from "devframe/rpc/client";
-import { createSseRpcChannel } from "devframe/rpc/transports/sse-client";
 import { consoleRpcHeader, consoleRpcMethods } from "../src/console/runtime/rpc.ts";
-import type { ConsoleRpcFunctions } from "../src/console/runtime/rpc.ts";
-import { createConsoleDevframeHandler } from "../src/console/runtime/server/devframe.ts";
+import { handleConsoleRpcRequest } from "../src/console/runtime/server/rpc.ts";
 import { expect, it } from "vitest";
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server";
 import { installConsoleAgentDefinitions } from "../src/console/runtime/server/agents.ts";
@@ -98,23 +95,11 @@ it.each(["100%_", "%41", "雪% &+?#"])(
     const expected = { sessions: [{ id: "session-00" }], from: first.from, to: first.to };
     // Direct HTTP callers paste the returned opaque token into the raw URL.
     expect(await request(`${new URLSearchParams(query)}&cursor=${cursor}`)).toMatchObject(expected);
-    const handler = createConsoleDevframeHandler();
-    const channel = createSseRpcChannel({
-      fetch: async (input, init) => {
-        const request = new Request(input, init);
-        request.headers.set(consoleRpcHeader, "1");
-        // SAFETY: Supply the request fields read by the H3 adapter.
-        return (await handler({ method: request.method, req: request } as never)) as Response;
-      },
-      url: "http://vitehub.local/_vitehub/rpc/__sse",
-    });
-    const client = createRpcClient<ConsoleRpcFunctions>({}, { channel });
-    try {
-      expect(await client.$call(consoleRpcMethods.usage, { query: { ...query, cursor } }))
-        .toMatchObject({ ok: true, value: expected });
-    } finally {
-      channel.close();
-      await handler.close();
-    }
+    const response = await handleConsoleRpcRequest(new Request("http://vitehub.local/_vitehub/rpc/__call", {
+      body: JSON.stringify({ input: { query: { ...query, cursor } }, method: consoleRpcMethods.usage }),
+      headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
+      method: "POST",
+    }));
+    expect(await response.json()).toMatchObject({ ok: true, value: expected });
   },
 );

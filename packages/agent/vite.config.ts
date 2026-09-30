@@ -1,5 +1,8 @@
 import { defineConfig } from "vite-plus";
 
+// These entries resolve only through the "#vitehub/agent/provider-agent" package import, so they are not public exports.
+const privateEntryExports = new Set(["./provider-agent", "./runtime/provider-agent-worker"]);
+
 export default defineConfig({
   pack: {
     tsconfig: "tsconfig.build.json",
@@ -9,6 +12,7 @@ export default defineConfig({
         "vite",
         "esbuild",
         "#vitehub/agent/registry",
+        "#vitehub/agent/provider-agent",
         "#vitehub/env/server",
         "@vercel/nft",
         "@t3tools/provider-runtime",
@@ -33,6 +37,7 @@ export default defineConfig({
       "src/mcp.ts",
       "src/mcp/stdio.ts",
       "src/output.ts",
+      "src/provider-agent.ts",
       "src/presets/workspace.ts",
       "src/cloudflare.ts",
       "src/cli.ts",
@@ -46,6 +51,7 @@ export default defineConfig({
       "src/cloudflare/state.ts",
       "src/runtime/empty-registry.ts",
       "src/runtime/process.ts",
+      "src/runtime/provider-agent-worker.ts",
       "src/runtime/workflow.ts",
       "src/server.ts",
       "src/presets/babysitter.ts",
@@ -61,7 +67,7 @@ export default defineConfig({
     exports: {
       customExports(exports) {
         return Object.fromEntries(
-          Object.entries(exports).map(([key, value]) => {
+          Object.entries(exports).filter(([key]) => !privateEntryExports.has(key)).map(([key, value]) => {
             if (typeof value !== "string" || !value.endsWith(".js")) {
               return [key, value];
             }

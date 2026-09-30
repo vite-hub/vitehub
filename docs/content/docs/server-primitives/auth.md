@@ -178,7 +178,7 @@ The callback receives the authenticated `user`, `session`, and request. ViteHub 
 
 `requireAuthAccessRoutes(input, routeIndexes, definition, requiredAuthorizeRouteIndexes, { redirectToSignIn: false })` returns `401` for an unauthenticated browser request instead of starting the configured provider sign-in redirect. Use this when the host presents its own sign-in page and starts provider sign-in after an explicit action. The default retains the Auth Definition's `access.signIn` redirect behavior.
 
-Read [Console](/docs/development/console#protect-the-console-route) for its page, Devframe transport, provider status route, and disabled behavior.
+Read [Console](/docs/development/console#protect-the-console-route) for its page, RPC endpoint, provider status route, and disabled behavior.
 
 ## Storage placement metadata
 

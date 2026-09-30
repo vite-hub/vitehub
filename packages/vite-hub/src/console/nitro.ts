@@ -2,9 +2,9 @@ import { join } from "node:path"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
 
-export function addConsoleDevframeHandler(nitro: { handlers?: Array<{ handler: string; route: string }> }, consoleRuntimeRoot: string): void {
+export function addConsoleRpcHandler(nitro: { handlers?: Array<{ handler: string; route: string }> }, consoleRuntimeRoot: string): void {
   const route = "/_vitehub/rpc/**"
-  const handler = join(consoleRuntimeRoot, "server/devframe.js")
+  const handler = join(consoleRuntimeRoot, "server/rpc.js")
   const kit = createNitroServerKit(nitro)
   // SAFETY: Console registration supplies Nitro handlers with the declared string fields.
   const handlers = kit.config.handlers as Array<{ handler: string; route: string }>

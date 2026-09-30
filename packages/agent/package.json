@@ -30,6 +30,12 @@
     "#vitehub/agent/registry": {
       "types": "./dist/runtime/empty-registry.d.ts",
       "default": "./dist/runtime/empty-registry.js"
+    },
+    "#vitehub/agent/provider-agent": {
+      "types": "./dist/provider-agent.d.ts",
+      "workerd": "./dist/runtime/provider-agent-worker.js",
+      "worker": "./dist/runtime/provider-agent-worker.js",
+      "default": "./dist/provider-agent.js"
     }
   },
   "exports": {

@@ -1,13 +1,13 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { createChannel, defineChannel, useChannel } from "../src/index.ts"
+import { createChannel, defineOutboundChannel, useChannel } from "../src/index.ts"
 import { setChannelRuntimeRegistry } from "../src/runtime/state.ts"
 
 describe("createChannel", () => {
   it("selects the connector through send options and normalizes the result", async () => {
     const info = vi.spyOn(console, "info").mockImplementation(() => {})
     const send = vi.fn(async (text: string, options: { chatId: string }) => ({ id: `${text}:${options.chatId}` }))
-    const channel = createChannel("alerts", defineChannel({ connectors: { telegram: { send } } }))
+    const channel = createChannel("alerts", defineOutboundChannel({ connectors: { telegram: { send } } }))
 
     await expect(channel.send("Build finished.", { connector: "telegram", chatId: "chat-1" })).resolves.toEqual([null, {
       channel: "alerts",
@@ -22,7 +22,7 @@ describe("createChannel", () => {
   it("uses a configured default connector", async () => {
     const info = vi.spyOn(console, "info").mockImplementation(() => {})
     const send = vi.fn(async () => ({ id: "delivery-1" }))
-    const channel = createChannel("alerts", defineChannel({
+    const channel = createChannel("alerts", defineOutboundChannel({
       connectors: { telegram: { send } },
       defaultConnector: "telegram",
     }))
@@ -143,7 +143,7 @@ describe("createChannel", () => {
 
   it("records failed deliveries without logging message content or connector options", async () => {
     const info = vi.spyOn(console, "info").mockImplementation(() => {})
-    const channel = createChannel("alerts", defineChannel({
+    const channel = createChannel("alerts", defineOutboundChannel({
       connectors: { telegram: { send: async () => { throw new Error("provider unavailable") } } },
     }))
 
@@ -165,7 +165,7 @@ describe("createChannel", () => {
     const info = vi.spyOn(console, "info").mockImplementation(() => {})
     const failure = Object.defineProperty(new Error(), "message", descriptor)
     try {
-      const channel = createChannel("alerts", defineChannel({
+      const channel = createChannel("alerts", defineOutboundChannel({
         connectors: { telegram: { send: async () => { throw failure } } },
       }))
       const [error, receipt] = await channel.send("Build finished.", { connector: "telegram" })
@@ -229,7 +229,7 @@ describe("createChannel", () => {
   it("normalizes non-Error connector failures", async () => {
     const info = vi.spyOn(console, "info").mockImplementation(() => {})
     try {
-      const channel = createChannel("alerts", defineChannel({
+      const channel = createChannel("alerts", defineOutboundChannel({
         connectors: { telegram: { send: async () => { throw "provider unavailable" } } },
       }))
       const [error, receipt] = await channel.send("Build finished.", { connector: "telegram" })
@@ -247,7 +247,7 @@ describe("createChannel", () => {
     const { proxy, revoke } = Proxy.revocable({}, {})
     revoke()
     try {
-      const channel = createChannel("alerts", defineChannel({
+      const channel = createChannel("alerts", defineOutboundChannel({
         connectors: { telegram: { send: async () => { throw proxy } } },
       }))
       const [error, receipt] = await channel.send("Build finished.", { connector: "telegram" })

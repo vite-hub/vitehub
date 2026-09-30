@@ -28,6 +28,7 @@ describe("@vite-hub/source package contract", () => {
       include: ["src"],
       ...overrides,
       compilerOptions: {
+        lib: ["ES2023"],
         paths: {
           "#application/*": ["./src/*"],
         },
@@ -52,13 +53,22 @@ describe("@vite-hub/source package contract", () => {
           throw new TypeError(String(diagnostic.messageText))
         },
       })
+      const programs = new WeakMap<NonNullable<ReturnType<typeof parse>>, ReturnType<typeof createProgram>>()
+      const programFor = (parsed: NonNullable<ReturnType<typeof parse>>) => {
+        let program = programs.get(parsed)
+        if (!program) {
+          program = createProgram({ options: parsed.options, rootNames: parsed.fileNames })
+          programs.set(parsed, program)
+        }
+        return program
+      }
       const sourceFiles = (parsed: NonNullable<ReturnType<typeof parse>>) => new Set(
-        createProgram({ options: parsed.options, rootNames: parsed.fileNames })
+        programFor(parsed)
           .getSourceFiles()
           .map(sourceFile => sourceFile.fileName),
       )
       const diagnostics = (parsed: NonNullable<ReturnType<typeof parse>>) => getPreEmitDiagnostics(
-        createProgram({ options: parsed.options, rootNames: parsed.fileNames }),
+        programFor(parsed),
       )
       const clean = parse()
       if (!clean) throw new TypeError("Expected clean Source TypeScript config.")

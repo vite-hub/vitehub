@@ -26,7 +26,7 @@ describe("Console Env", () => {
   it("uses registry keys distinct from KV", () => { expect(consoleEnvKey).not.toBe(consoleKVKey) })
   it("serves declaration metadata and rejects mutations", () => {
     installConsoleSections("/env-test", ["env"])
-    const metadata = { entries: [{ path: "env.server.token", source: "provider" as const, provider: "vault", secret: true, required: true, hasDefault: false }] }
+    const metadata = { entries: [{ path: "env.server.token", source: "provider" as const, provider: "vault", secret: true, required: true, hasDefault: false, type: "string" }, { path: "env.server.dryRun", source: "env" as const, secret: false, required: true, hasDefault: true, type: "boolean" }] }
     installConsoleEnv("/env-test", metadata)
     expect(envHandler({ method: "GET" })).toEqual(metadata)
     expect(() => envHandler({ method: "POST" })).toThrow("Method not allowed")

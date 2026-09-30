@@ -11,6 +11,7 @@ export interface ProvisionContext {
   env: Record<string, string | undefined>
   fetch: typeof globalThis.fetch
   logger: ProvisionLogger
+  markPlanUnchecked?: () => void
 }
 
 // Non-secret identifiers produced by an applied action, merged into Provision State.
@@ -28,6 +29,7 @@ export interface ProvisionAction {
   kind: string
   name: string
   exists: boolean
+  pending?: boolean
   apply: () => Promise<ProvisionResult>
 }
 
@@ -62,7 +64,14 @@ export function resolveVercelProvisionConfig(env: Record<string, string | undefi
 
 export interface CloudflareEnvelope<T> {
   result?: T
-  result_info?: { cursor?: string }
+  result_info?: {
+    count?: number
+    page?: number
+    per_page?: number
+    total_count?: number
+    total_pages?: number
+    cursor?: string
+  }
   success?: boolean
   errors?: Array<{ code?: number, message?: string }>
 }

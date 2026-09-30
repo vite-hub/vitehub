@@ -34,6 +34,7 @@ export interface ConsoleRequestEvent {
     headers?: {
       set(name: string, value: string): void
     }
+    status?: number
   }
   waitUntil?: (task: Promise<unknown>) => void
 }
@@ -99,7 +100,7 @@ export async function consoleRequestJSON(event: ConsoleRequestEvent, maximumByte
   return JSON.parse(body)
 }
 
-function consoleRequestError(statusCode: number, statusMessage: string): Error {
+export function consoleRequestError(statusCode: number, statusMessage: string): Error {
   return Object.assign(viteHubErrorDiagnostics.VITE_HUB_R0069({ message: statusMessage }), { statusCode, statusMessage })
 }
 

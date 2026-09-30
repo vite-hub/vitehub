@@ -51,7 +51,7 @@ console.log(publicEnv.appName)
 
 | Import | Use |
 | --- | --- |
-| `env` from `@vite-hub/env` or `@vite-hub/env/vite` | Declare Env values and Env Sources. |
+| `env` from `@vite-hub/env` or `@vite-hub/env/vite` | Declare Env values and Env Sources. `env.boolean()`, `env.number()`, and `env.enum()` declare typed values. |
 | `getViteHubErrorShape` from `@vite-hub/runtime` | Inspect operational Env failures by `ENV_*` code. |
 | `hubEnv` from `@vite-hub/env/vite` | Register the Vite Integration. |
 | `defineEnvProvider` from `@vite-hub/env/provider` | Define a read-only runtime provider for external Env storage. |
@@ -123,9 +123,54 @@ Pass Integration Options to `hubEnv()`.
 | `required` | `boolean` | `true` unless `optional` is set | Throws when a runtime value is missing. |
 | `optional` | `boolean` | `false` | Sets `required` to `false`. Cannot be combined with `required`. |
 | `mode` | `EnvMode` | `runtime` | Marks the value as Build Env or Runtime Env. Values: `build`, `runtime`. |
-| `schema` | Standard Schema-compatible parser | string parser | Validates and parses the value. |
+| `schema` | Standard Schema-compatible parser | string parser | Validates and parses `env.public` and `env.define` values. `env.server` accepts only the built-in parsers below because the generated runtime must serialize them. |
 | `secret` | `boolean` | `false` | Wraps runtime values in `SecretEnv`. |
-| `type` | `string` | Inferred | Overrides the generated type label. |
+| `type` | `string` | Inferred | Overrides the generated type label for `env.public` and `env.define`. In `env.server`, it must match the parser. |
+
+## Typed values
+
+Host variables and provider values are strings. Use a typed declaration when server code needs another type. ViteHub parses the value when Server Env resolves, generates the exact TypeScript type, and rejects an invalid value with `ENV_RUNTIME_VALUE_INVALID`.
+
+```ts [vite.config.ts]
+import { env, hubEnv } from '@vite-hub/env/vite'
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  plugins: [hubEnv()],
+  env: {
+    server: {
+      labeller: {
+        dryRun: env.boolean({ default: true }),
+        minConfidence: env.number({ default: 0.6 }),
+        mode: env.enum(['draft', 'send'], { default: 'draft' }),
+        apiKey: env({ secret: true }),
+      },
+    },
+  },
+})
+```
+
+```ts [server/labeller.ts]
+import { useServerEnv } from '#vitehub/env/server'
+
+const { labeller } = useServerEnv()
+if (!labeller.dryRun && labeller.mode === 'send') {
+  // labeller.minConfidence is a number.
+}
+```
+
+| Declaration | Accepted input | Generated type |
+| --- | --- | --- |
+| `env()` | Any string | `string` |
+| `env.boolean()` | `true`, `false`, `1`, or `0`, ignoring case and surrounding spaces | `boolean` |
+| `env.number()` | A string that converts to a finite number | `number` |
+| `env.enum(['a', 'b'])` | One of the listed strings | `"a" \| "b"` |
+
+The typed helpers accept every `env()` option except `schema` and `type`. A `default` uses the parsed type, for example `env.boolean({ default: false })`. With `secret: true`, the value is `SecretEnv<boolean>` or `SecretEnv<number>`. `env.enum()` cannot be secret: its allowed values appear in the generated types, the Console, and error causes. Cloudflare `vars` that are already booleans or numbers are accepted as they are.
+
+The error details contain the declaration path and source kind. The rejected value is never included. `inspectServerEnv()` reports a value that does not parse as `invalid`.
+
+The helpers also work in `env.public` and `env.define` with `mode: 'build'`.
 
 ## Env sources
 
@@ -242,7 +287,7 @@ This GitHub token authenticates application-owned Source materialization; it is 
 
 `useServerEnv()` remains synchronous for host and literal values. In a mixed registry those fields remain readable, but accessing a provider-backed field through `useServerEnv()` throws `ENV_ASYNC_REQUIRED`; use `loadServerEnv()` for the complete snapshot. `runWithServerEnv()` also loads the complete async snapshot before invoking its callback.
 
-`describeServerEnv()` returns declaration paths, source kinds, provider aliases, secret flags, required flags, and whether a default exists. It never resolves values or calls provider `read()`. Use it for inventory. Default values, source variable names, provider keys, and provider module paths are omitted. The Console Env section uses this metadata and inherits Console access protection. A provider with Env Bridge management also offers masked previews and runtime replacement in its detail panel. Administrators can view persisted activity and manage per-credential grants. These controls additionally enforce the provider's authentication and permissions; host variables stay read-only.
+`describeServerEnv()` returns declaration paths, source kinds, provider aliases, secret flags, required flags, whether a default exists, and the parsed value type such as `boolean` or `"draft" | "send"`. It never resolves values or calls provider `read()`. Use it for inventory. Default values, source variable names, provider keys, and provider module paths are omitted. The Console Env section uses this metadata and inherits Console access protection. A provider with Env Bridge management also offers masked previews and runtime replacement in its detail panel. Administrators can view persisted activity and manage per-credential grants. These controls additionally enforce the provider's authentication and permissions; host variables stay read-only.
 
 `inspectServerEnv()` uses the same provider load boundary and reports only declaration paths, source kinds, masking, and `available`, `defaulted`, `missing`, `invalid`, or `error` status. It never includes values, hashes, lengths, provider keys, or provider failure text. This is the safe primitive for future CLI and Console projections.
 

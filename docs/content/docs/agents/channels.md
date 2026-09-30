@@ -27,7 +27,7 @@ export default defineAgent({
 })
 ```
 
-Built-in helpers include `discord()`, `github()`, `http()`, `slack()`, `teams()`, `telegram()`, and `webChat()`. Use `defineChannel()` for an application-owned Channel Kind.
+Built-in helpers include `discord()`, `github()`, `http()`, `slack()`, `teams()`, `telegram()`, and `webChat()`. Use `defineChannel()` from `vite-hub/agent/channels` for an application-owned Channel Kind. To send ordinary outbound messages without an Agent, use [`defineOutboundChannel()`](/docs/reference/channels) from `vite-hub/channels`.
 
 `webChat()` enables a generated AI SDK chat route by default. `http()` is a generic HTTP Channel and keeps its route disabled unless you pass `http({ route: true })`.
 

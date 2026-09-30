@@ -7,6 +7,9 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -35,9 +38,17 @@ jobs:
         run: |
           node <<'NODE'
           const results = JSON.parse(process.env.CI_RESULTS)
+          const skippedPullRequestJobs = new Set([
+            "contract-tests",
+            "consumer-contracts",
+            "consumer-contracts-success",
+            "windows-agent-credentials",
+            "docs",
+            "verify-providers",
+          ])
           const failures = Object.entries(results).filter(([name, job]) => {
             const maySkip = process.env.GITHUB_EVENT_NAME === "pull_request"
-              && !["checks", "package-tests"].includes(name)
+              && skippedPullRequestJobs.has(name)
             return job.result !== "success" && !(maySkip && job.result === "skipped")
           })
           if (failures.length) {

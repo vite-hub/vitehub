@@ -18,9 +18,10 @@ import {
 import { loadEnv } from "vite"
 
 import { formatDiagnostics } from "./core/diagnostics.ts"
-import { env, isDefaultStringEnvVariable } from "./core/declarations.ts"
+import { env, runtimeValueSchema } from "./core/declarations.ts"
 import { createRuntimeRegistry, createSourceContext, resolveBuildConfig, resolveEnvEntries, validateEnvConfigShape } from "./core/resolve.ts"
 import { parseSchema } from "./schema.ts"
+import { envValueTypeName, stringValueSchema } from "./core/values.ts"
 
 export { createRuntimeRegistry as createRuntimeEnvRegistry } from "./core/resolve.ts"
 
@@ -30,6 +31,7 @@ import type {
   EnvRuntimeImportSpecifiers,
   EnvRuntimeRegistry,
   EnvRuntimeRegistryValue,
+  EnvValueSchema,
   EnvViteConfigOptions,
   EnvViteUserConfig,
 } from "./types.ts"
@@ -562,7 +564,7 @@ function createViteTypes(
 function createServerEnvInspectionTypes(indent: number): string[] {
   const prefix = " ".repeat(indent)
   return [
-    `${prefix}export interface ServerEnvDescriptionEntry { path?: string; source: "env" | "literal" | "provider"; provider?: string; secret: boolean; required: boolean; hasDefault: boolean }`,
+    `${prefix}export interface ServerEnvDescriptionEntry { path?: string; source: "env" | "literal" | "provider"; provider?: string; secret: boolean; required: boolean; hasDefault: boolean; type?: string }`,
     `${prefix}export interface ServerEnvDescription { entries: readonly ServerEnvDescriptionEntry[] }`,
     `${prefix}export function describeServerEnv(): ServerEnvDescription`,
     `${prefix}export function manageServerEnv(request: Request): Promise<Response>`,
@@ -598,13 +600,14 @@ function createPublicTypeEntries(publicConfig: Record<string, unknown>): Record<
 
 function createPreparedPublicTypeEntries(publicConfig: EnvViteConfigOptions["public"]): Record<string, string> {
   return Object.fromEntries(Object.entries(publicConfig ?? {}).map(([key, declaration]) => {
+    const valueSchema = runtimeValueSchema(declaration)
     const parsedDefault = typeof declaration.default === "undefined"
       ? undefined
       : parseSchema(declaration.schema, declaration.default, `env.public.${key}`)
     return [
       key,
       `${declaration.type
-        ?? (isDefaultStringEnvVariable(declaration) ? "string" : undefined)
+        ?? (valueSchema ? envValueTypeName(valueSchema) : undefined)
         ?? (parsedDefault === null ? "null" : typeof parsedDefault === "undefined" ? "unknown" : typeof parsedDefault)}${!declaration.required && typeof declaration.default === "undefined" ? " | undefined" : ""}`,
     ]
   }))
@@ -625,7 +628,10 @@ function createServerTypeFields(registry: EnvRuntimeRegistry, indent: number, se
 
 function serverTypeFor(value: EnvRuntimeRegistryValue, indent: number, secretType: string): string {
   if (isLiteralEntry(value)) return literalType(value.value)
-  if (isEnvEntry(value) || isProviderEntry(value)) return value.secret ? `${secretType}<string>` : "string"
+  if (isEnvEntry(value) || isProviderEntry(value)) {
+    const type = envValueTypeName(value.schema ?? stringValueSchema)
+    return value.secret ? `${secretType}<${type}>` : type
+  }
 
   const fields = createServerTypeFields(value as EnvRuntimeRegistry, indent + 2, secretType)
   if (!fields.length) return "Record<string, never>"
@@ -671,6 +677,7 @@ function isEnvEntry(value: EnvRuntimeRegistryValue): value is Extract<EnvRuntime
 function isProviderEntry(value: EnvRuntimeRegistryValue): value is EnvRuntimeRegistryValue & {
   default?: unknown
   required: boolean
+  schema?: EnvValueSchema
   secret: boolean
   source: { kind: "provider", provider: string }
 } {

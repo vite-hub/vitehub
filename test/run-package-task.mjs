@@ -33,7 +33,10 @@ function parseArguments(argv) {
     const value = rest[index + 1]
     if (!value) throw new Error(`Missing value for ${flag}`)
     if (flag === "--workspace") options.workspaceRoot = resolve(value)
-    else if (flag === "--packages") options.packageNames = parseList(value)
+    else if (flag === "--packages") {
+      options.packageNames = parseList(value)
+      if (options.packageNames.length === 0) throw new Error("--packages must name at least one package")
+    }
     else if (flag === "--max-parallel") options.maxParallel = Number(value)
     else throw new Error(`Unknown option: ${flag}`)
   }
@@ -70,9 +73,10 @@ function workspaceDependencies(pkg, packageByName) {
 
 function selectPackages(packages, task, requestedNames) {
   const packageByName = new Map(packages.map(pkg => [pkg.name, pkg]))
-  const selectedNames = requestedNames?.length
-    ? requestedNames
-    : packages.filter(pkg => pkg.manifest.scripts?.[task]).map(pkg => pkg.name)
+  const selectedNames = requestedNames
+    ?? packages.filter(pkg => pkg.manifest.scripts?.[task]).map(pkg => pkg.name)
+
+  if (selectedNames.length === 0) throw new Error(`No workspace packages define task: ${task}`)
 
   for (const name of selectedNames) {
     if (!packageByName.has(name)) throw new Error(`Unknown workspace package: ${name}`)

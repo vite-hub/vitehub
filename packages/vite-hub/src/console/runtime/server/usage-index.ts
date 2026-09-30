@@ -13,7 +13,7 @@ import {
 } from "./usage.ts";
 
 import type { ConsoleInvocationUsage, UsageQuery, UsageTotal } from "./usage.ts";
-import type { Client, InStatement, Row } from "@libsql/client";
+import type { InValue, Value } from "@libsql/client";
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts";
 
 const metrics = [
@@ -32,15 +32,29 @@ const terminalStatusList = [...terminalStatuses].map((status) => `'${status}'`).
 
 export type { UsageQuery } from "./usage.ts";
 
+type UsageStatement = { sql: string; args?: InValue[] };
+type UsageRow = Record<string, Value>;
+
+export interface ConsoleUsageClient {
+  execute(statement: UsageStatement): Promise<{ rows: UsageRow[] }>;
+  batch(statements: UsageStatement[], mode: "read" | "write"): Promise<{ rows: UsageRow[] }[]>;
+}
+
 /** A rebuildable projection. Invocation records remain the authoritative evidence. */
-export function createConsoleUsageIndex(client: Client): {
+export function createConsoleUsageIndex(
+  client: ConsoleUsageClient,
+  settings: { requestScoped?: boolean } = {},
+): {
   query(options?: UsageQuery): Promise<Record<string, unknown>>;
   rebuild(): Promise<void>;
 } {
+  let initialized = false;
   let initialization: Promise<void> | undefined;
   let backfill: Promise<void> | undefined;
-  const initialize = () =>
-    (initialization ??= (async () => {
+  const initialize = () => {
+    if (initialized) return Promise.resolve();
+    if (initialization) return initialization;
+    const initializing = (async () => {
       await client.batch(
         [
           // Older processes can still use v1 during a rollout. This index owns only v2 resources.
@@ -80,18 +94,23 @@ export function createConsoleUsageIndex(client: Client): {
           `INSERT OR IGNORE INTO ${dirty}(id)
         SELECT s.id FROM ${source} s LEFT JOIN ${table} p ON p.id = s.id AND p.model_key = ''
         WHERE s.status IN (${terminalStatusList}) AND (p.id IS NULL OR p.revision != s.updated_at)`,
-        ],
+        ].map((sql) => ({ sql })),
         "write",
       );
+      initialized = true;
     })().catch((error) => {
       initialization = undefined;
       throw error;
-    }));
+    });
+    // Workers may cache completed state, but cannot share pending I/O across requests.
+    if (!settings.requestScoped) initialization = initializing;
+    return initializing;
+  };
 
   const projectPage = async () => {
     // SQLite extracts only the final usage evidence. Transcripts and tool payloads never leave the database.
-    const page =
-      await client.execute(`SELECT d.id, d.generation, s.sequence, s.agent_name, s.status, s.updated_at,
+    const page = await client.execute({
+      sql: `SELECT d.id, d.generation, s.sequence, s.agent_name, s.status, s.updated_at,
       COALESCE(json_extract(s.record, '$.completedAt'), s.updated_at) AS at,
       json_extract(s.record, '$.annotations."agent.model.id"') AS model,
       json_extract(s.record, '$.title') AS title,
@@ -100,8 +119,9 @@ export function createConsoleUsageIndex(client: Client): {
         WHERE json_extract(j.value, '$.name') = 'agent.invocation.finish'
         ORDER BY CAST(j.key AS INTEGER) DESC LIMIT 1) AS finish
       FROM ${dirty} d JOIN ${source} s ON s.id = d.id
-      WHERE s.status IN (${terminalStatusList}) LIMIT 250`);
-    const writes: InStatement[] = [];
+      WHERE s.status IN (${terminalStatusList}) LIMIT 250`,
+    });
+    const writes: UsageStatement[] = [];
     for (const row of page.rows) {
       const finishValue = stringValue(row.finish);
       const finish = finishValue === undefined ? undefined : JSON.parse(finishValue);
@@ -170,6 +190,12 @@ export function createConsoleUsageIndex(client: Client): {
   };
   const rebuild = async () => {
     await initialize();
+    if (settings.requestScoped) {
+      while (await projectPage()) {
+        /* Drain only this request's work. */
+      }
+      return;
+    }
     if (!backfill)
       backfill = (async () => {
         while (await projectPage()) {
@@ -187,18 +213,21 @@ export function createConsoleUsageIndex(client: Client): {
     async query(options = {}) {
       const { window, now, to, from, after } = usageQueryWindow(options);
       await initialize();
-      // Large historical archives rebuild in the background. Never claim complete totals while queued.
-      const rebuilding = rebuild();
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      try {
-        await Promise.race([
-          rebuilding,
-          new Promise<void>((resolve) => {
-            timer = setTimeout(resolve, 100);
-          }),
-        ]);
-      } finally {
-        clearTimeout(timer);
+      // Workers finish one bounded page in this request. Node can keep rebuilding in the background.
+      if (settings.requestScoped) await projectPage();
+      else {
+        const rebuilding = rebuild();
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          await Promise.race([
+            rebuilding,
+            new Promise<void>((resolve) => {
+              timer = setTimeout(resolve, 100);
+            }),
+          ]);
+        } finally {
+          clearTimeout(timer);
+        }
       }
       const resolution = window.bucket;
       const bucket =
@@ -214,7 +243,7 @@ export function createConsoleUsageIndex(client: Client): {
         ...(options.status ? [options.status] : []),
         ...(search ? [search] : []),
       ];
-      const aggregate = (group: string, modelRows = false): InStatement => ({
+      const aggregate = (group: string, modelRows = false): UsageStatement => ({
         // Group equal decimal costs before multiplication in JS bigint. SQLite REAL must not round money.
         sql: `SELECT ${group} AS grouping, cost_usd AS cost,
           MAX(estimated) AS estimated,
@@ -237,8 +266,10 @@ export function createConsoleUsageIndex(client: Client): {
             sql: `SELECT * FROM ${table} WHERE model_key = '' AND ${filter} AND cost_usd IS NOT NULL ORDER BY length(cost_whole) DESC, cost_whole DESC, cost_fraction DESC, sequence DESC LIMIT 10`,
             args,
           },
-          `SELECT COUNT(*) AS count FROM ${dirty} d JOIN ${source} s ON s.id = d.id
+          {
+            sql: `SELECT COUNT(*) AS count FROM ${dirty} d JOIN ${source} s ON s.id = d.id
           WHERE s.status IN (${terminalStatusList})`,
+          },
         ],
         "read",
       );
@@ -248,7 +279,7 @@ export function createConsoleUsageIndex(client: Client): {
           message: "Expected six usage query results",
         });
       const incomplete = Number(remaining.rows[0]?.count) > 0;
-      const groups = (rows: Row[]) => {
+      const groups = (rows: UsageRow[]) => {
         const result = new Map<string, UsageTotal>();
         for (const row of rows) {
           const key = String(row.grouping);
@@ -290,7 +321,7 @@ export function createConsoleUsageIndex(client: Client): {
           models: [],
         });
       }
-      const run = (row: Row) => ({
+      const run = (row: UsageRow) => ({
         id: String(row.id),
         agent: String(row.agent),
         status: String(row.status),

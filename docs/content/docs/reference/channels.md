@@ -34,17 +34,17 @@ export default defineConfig({
 
 ## Define a named Channel
 
-Create `server/channels/alerts.ts`. Read typed Server Env inside the connector's `send()` method so the value is resolved when the message is delivered. Unseal a secret only when the provider call needs the raw value.
+Create `server/channels/alerts.ts` with `defineOutboundChannel()`. Read typed Server Env inside the connector's `send()` method so the value is resolved when the message is delivered. Unseal a secret only when the provider call needs the raw value.
 
 ```ts [server/channels/alerts.ts]
-import { defineChannel } from 'vite-hub/channels'
+import { defineOutboundChannel } from 'vite-hub/channels'
 import { useServerEnv } from '#vitehub/env/server'
 
 type TelegramOptions = {
   chatId: string
 }
 
-export default defineChannel({
+export default defineOutboundChannel({
   connectors: {
     telegram: {
       async send(text: string, { chatId }: TelegramOptions) {
@@ -122,5 +122,7 @@ Keep `connector` explicit when a Channel has more than one delivery path. This m
 Channels provide discovery, connector selection, and a normalized outbound send contract. The current package does not ship Telegram or Slack adapters and does not generate inbound webhook routes; implement those connectors on top of the contract or add them as a later provider package.
 
 `vite-hub/channels` is separate from `vite-hub/agent/channels`. Ordinary Channels send application messages. Agent Channels describe Agent conversation origins, inbound events, and Agent delivery policy; the Agent API stays unchanged.
+
+`defineOutboundChannel()` replaces the earlier `defineChannel()` export of `vite-hub/channels`. That export remains as a deprecated alias for one release so it does not clash with `defineChannel()` from `vite-hub/agent/channels`.
 
 See [Agent Channels](/docs/agents/channels) when the destination starts or drives an Agent Invocation.

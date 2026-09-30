@@ -566,6 +566,10 @@ async function acquireRemoteState(
   const releaseCommands = locks.toReversed().map((lock) => {
     return `if [ "$(sed -n '2p' ${shellQuote(lock)} 2>/dev/null || true)" = ${shellQuote(token)} ]; then rm -f -- ${shellQuote(lock)}; fi`;
   });
+  const releaseScript = [
+    ...releaseCommands,
+    `rm -f -- ${shellQuote(owner)}`,
+  ].join("\n");
   const script = [
     "set -eu",
     "umask 077",
@@ -669,20 +673,31 @@ async function acquireRemoteState(
   }
 
   let released = false;
+  let releasePromise: Promise<void> | undefined;
   return {
     assertActive() {
       if (failure) throw failure;
     },
     async release() {
-      if (!released) {
-        released = true;
-        releasing = true;
-        if (!child.stdin.destroyed) child.stdin.end();
+      if (!releasePromise) {
+        releasePromise = (async () => {
+          if (!released) {
+            released = true;
+            releasing = true;
+            if (!child.stdin.destroyed) child.stdin.end();
+          }
+          const exitCode = await completion;
+          if (failure || exitCode !== 0) {
+            const retry = await runCrabbox(options, leaseId, { command: releaseScript });
+            if (retry.exitCode !== 0)
+              throw boxErrorDiagnostics.BOX_R0106({ message: `[vitehub] Failed to release Crabbox state lease (exit ${retry.exitCode}).` });
+          }
+        })().catch((error) => {
+          releasePromise = undefined;
+          throw error;
+        });
       }
-      const exitCode = await completion;
-      if (failure) throw failure;
-      if (exitCode !== 0)
-        throw boxErrorDiagnostics.BOX_R0106({ message: `[vitehub] Failed to release Crabbox state lease (exit ${exitCode}).` });
+      return releasePromise;
     },
     signal: controller.signal,
   };
@@ -690,6 +705,7 @@ async function acquireRemoteState(
 
 function createCrabboxSession(state: CrabboxSessionState, sessionId: string | undefined): RuntimeSession {
   let destroyPromise: Promise<void> | undefined;
+  let retryDestroy = false;
   const session = {
     defaultWorkingDirectory: state.root,
     description: "Crabbox session.",
@@ -697,7 +713,8 @@ function createCrabboxSession(state: CrabboxSessionState, sessionId: string | un
     inspectionConcurrency: 1,
     ports: [0],
     async destroy() {
-      destroyPromise ??= (async () => {
+      const currentDestroy = destroyPromise ??= (async () => {
+        retryDestroy = false
         let failure: unknown
         try {
           await this.stop();
@@ -715,14 +732,26 @@ function createCrabboxSession(state: CrabboxSessionState, sessionId: string | un
             cleanupFailure = error
             return undefined
           })
-          await state.stateLease.release().catch((error) => (cleanupFailure ||= error));
-          await rm(state.options.stateHome, { force: true, recursive: true }).catch(error => cleanupFailure ||= error)
-          state.releaseWorkspace()
-          if (!failure) failure = cleanupFailure || (result && result.exitCode !== 0 ? crabboxError("remove disposable Box cache", result) : undefined)
+          if (!cleanupFailure && result && result.exitCode !== 0) cleanupFailure = crabboxError("remove disposable Box cache", result)
+          if (!cleanupFailure) {
+            await state.stateLease.release().catch((error) => (cleanupFailure ||= error));
+            if (!cleanupFailure) await rm(state.options.stateHome, { force: true, recursive: true }).catch(error => cleanupFailure ||= error)
+            if (!cleanupFailure) {
+              try { state.releaseWorkspace() } catch (error) { cleanupFailure ||= error }
+            }
+          }
+          retryDestroy = Boolean(cleanupFailure)
+          if (!failure) failure = cleanupFailure
         }
         if (failure) throw failure
       })();
-      await destroyPromise;
+      try {
+        await currentDestroy;
+      }
+      catch (error) {
+        if (destroyPromise === currentDestroy && retryDestroy) destroyPromise = undefined
+        throw error
+      }
     },
     async getPortUrl({ port, protocol = "http" }: { port: number, protocol?: "http" | "https" | "ws" }) {
       if (state.options.network === "direct") return `${protocol}://127.0.0.1:${port}`

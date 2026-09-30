@@ -21,6 +21,8 @@ export type {
   EnvSource,
   EnvSourceContext,
   EnvSourceResolver,
+  EnvTypedVariableOptions,
+  EnvValueSchema,
   EnvVariableDeclaration,
   EnvVariableOptions,
   EnvViteConfigOptions,

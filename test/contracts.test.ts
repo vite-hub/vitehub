@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process"
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { array, object, optional, record, string } from "valibot"
+import { array, object, optional, parse, record, string } from "valibot"
 import { describe, expect, it } from "vitest"
 import {
   packageDir,
@@ -18,7 +18,7 @@ import {
   walkFiles,
   type PackageName,
 } from "./utils/repo"
-import { readReleaseArtifactTarballs, resolveReleaseArtifactTarball } from "./utils/release-artifacts"
+import { readReleaseArtifactTarballs } from "./utils/release-artifacts"
 
 const ignoredGeneratedDirs = new Set([
   ".nuxt",
@@ -151,26 +151,33 @@ describe("package manifest contracts", () => {
     const packDir = mkdtempSync(join(tmpdir(), "vitehub-license-pack-"))
     const license = readFileSync(join(repoRoot, "LICENSE"), "utf8")
     const releaseTarballs = readReleaseArtifactTarballs(repoRoot)
+    const tarballs = releaseTarballs ?? new Map<string, string>()
 
     try {
+      if (!releaseTarballs) {
+        const output = execFileSync("pnpm", [
+          "--recursive",
+          "--workspace-concurrency=1",
+          ...packageInfos.flatMap(info => ["--filter", info.packageName]),
+          "pack",
+          "--pack-destination", packDir,
+          "--json",
+        ], { cwd: repoRoot, encoding: "utf8", stdio: "pipe" })
+        const value: unknown = JSON.parse(output)
+        const packed = parse(array(object({ filename: string(), name: string() })), value)
+        expect(packed.map(pkg => pkg.name).sort()).toEqual(packageInfos.map(info => info.packageName).sort())
+        expect(readdirSync(packDir)).toHaveLength(packageInfos.length)
+        for (const pkg of packed) tarballs.set(pkg.name, pkg.filename)
+      }
       for (const info of packageInfos) {
-        const tarball = resolveReleaseArtifactTarball(releaseTarballs, info.packageName, () => {
-          const before = new Set(readdirSync(packDir))
-          execFileSync("pnpm", ["--filter", info.packageName, "pack", "--pack-destination", packDir], {
-            cwd: repoRoot,
-            encoding: "utf8",
-            stdio: "pipe",
-          })
-          const tarballs = readdirSync(packDir).filter(file => !before.has(file))
-          expect(tarballs, `${info.packageName} should create one tarball`).toHaveLength(1)
-          return join(packDir, tarballs[0]!)
-        })
-        const listing = execFileSync("tar", ["-tzf", tarball], { encoding: "utf8" }).split("\n")
+        const tarball = tarballs.get(info.packageName)
+        expect(tarball, `${info.packageName} should have a packed tarball`).toBeDefined()
+        const listing = execFileSync("tar", ["-tzf", tarball!], { encoding: "utf8" }).split("\n")
         expect(listing, `${info.packageName} should include the root license`).toContain("package/LICENSE")
-        expect(execFileSync("tar", ["-xOf", tarball, "package/LICENSE"], { encoding: "utf8" }))
+        expect(execFileSync("tar", ["-xOf", tarball!, "package/LICENSE"], { encoding: "utf8" }))
           .toBe(license)
       }
-      if (releaseTarballs) expect(releaseTarballs.size).toBe(packageInfos.length)
+      expect(tarballs.size).toBe(packageInfos.length)
     }
     finally {
       rmSync(packDir, { recursive: true })
