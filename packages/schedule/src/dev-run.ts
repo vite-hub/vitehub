@@ -26,7 +26,7 @@ async function readJSON(req: IncomingMessage): Promise<unknown> {
   let bytes = 0
   const decoder = new StringDecoder("utf8")
   for await (const chunk of req) {
-    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk))
+    const buffer = typeof chunk === "string" ? Buffer.from(chunk) : Buffer.from(chunk)
     bytes += buffer.byteLength
     if (bytes > maximumBodyBytes) throw new RangeError("Schedule run request body is too large.")
     body += decoder.write(buffer)
