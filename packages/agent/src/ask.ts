@@ -125,7 +125,9 @@ function chance(instructions: AskEntry, criteria?: AskChanceCriteria): AskChance
 }
 
 function askIf(instructions: string, options: { threshold?: number } = {}): AskIfQuestion {
-  return { instructions, threshold: options.threshold ?? 0.5, type: "if" }
+  const threshold = options.threshold ?? 0.5
+  if (!Number.isFinite(threshold)) throw new TypeError("ask.if threshold must be a finite number")
+  return { instructions, threshold, type: "if" }
 }
 
 /**

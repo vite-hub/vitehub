@@ -237,7 +237,16 @@ export default defineAgent({
 })
 ```
 
-The answers are the Invocation output, and their type comes from the questions. `runAgent(labeller, { prompt })` returns `{ label: { choice: 'invoice' | 'none', confidence, probabilities }, urgent: boolean }`. No output schema or parsing is necessary.
+The answers are the Invocation output, and their type comes from the questions. The standalone `runAgent` overload returns a tuple, so destructure it before reading the result:
+
+```ts
+const [error, answers] = await runAgent(labeller, { prompt: 'Invoice 42' })
+if (error) throw error
+answers.label.choice // 'invoice' | 'none'
+answers.urgent // boolean
+```
+
+No output schema or parsing is necessary.
 
 Jev reads the Invocation `data` when a caller sets it, else the prompt text, else the latest user message. Pass a function to build the questions for each Invocation. It receives the same context as `driver.run`:
 

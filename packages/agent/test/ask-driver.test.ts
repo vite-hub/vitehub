@@ -75,6 +75,8 @@ describe("ask Driver", () => {
     expect(ask.score("Rate it", ["Low", "High"])).toEqual({ criteria: ["Low", "High"], instructions: "Rate it", type: "score" })
     expect(ask.chance("Is it urgent?")).toEqual({ instructions: "Is it urgent?", type: "chance" })
     expect(ask.if("Is it spam?", { threshold: 0.8 })).toEqual({ instructions: "Is it spam?", threshold: 0.8, type: "if" })
+    expect(() => ask.if("Is it spam?", { threshold: Number.NaN })).toThrow("ask.if threshold must be a finite number")
+    expect(() => ask.if("Is it spam?", { threshold: Number.POSITIVE_INFINITY })).toThrow("ask.if threshold must be a finite number")
   })
 
   it("reads Invocation data, then the prompt, then the latest user message", () => {
