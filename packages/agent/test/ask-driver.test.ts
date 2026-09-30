@@ -162,6 +162,23 @@ describe("ask Driver", () => {
 })
 
 describe("Jev decisions for ask Driver Agents", () => {
+  it("records the only route without a Jev decision request", async () => {
+    const agent = defineAgent({
+      capabilities: [llmRoute({ choices: { only: "All requests." }, id: "route" })],
+      driver: {
+        ask: (context) => {
+          expect(context.context.get("route")).toEqual({ choice: "only", confidence: 1, probabilities: { only: 1 } })
+          return { spam: ask.if("Is it spam?") }
+        },
+      },
+      runtime: false,
+    })
+
+    await expect(runAgent(agent, runtime(), { prompt: "Invoice 42" })).resolves.toEqual({ spam: true })
+    expect(askJev).toHaveBeenCalledOnce()
+    expect(askJev.mock.calls[0]?.[1]).toEqual({ spam: { instructions: "Is it spam?", threshold: 0.5, type: "if" } })
+  })
+
   it.each(["gate", "route"] as const)("uses request Cloudflare bindings for the %s decision and main Driver", async (kind) => {
     fake.useRequestBindings = true
     const agent = defineAgent({

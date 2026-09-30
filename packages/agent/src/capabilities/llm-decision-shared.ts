@@ -156,6 +156,10 @@ export async function jevDecision(
   decision: { choices: NormalizedLlmDecisionChoice[], task: string },
 ): Promise<JevDecision | undefined> {
   if (options.model !== undefined || context.driver?.kind !== "ask") return
+  const [onlyChoice] = decision.choices
+  if (onlyChoice && decision.choices.length === 1) {
+    return { choice: onlyChoice.key, confidence: 1, probabilities: { [onlyChoice.key]: 1 } }
+  }
   const input = context.input.get()
   const messages = context.input.messages()
   const history = renderHistory(messages, options.history)
