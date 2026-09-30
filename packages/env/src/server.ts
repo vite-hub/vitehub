@@ -11,12 +11,14 @@ import {
 import { createEnvBridgeHandler } from "./http.ts"
 import type { EnvManagement } from "./http.ts"
 import { SecretEnv } from "./secret.ts"
+import { envValueTypeName, parseEnvValue, stringValueSchema } from "./core/values.ts"
 
 import type {
   EnvProvider,
   EnvProviders,
   EnvRuntimeRegistry,
   DeepReadonly,
+  EnvValueSchema,
   LoadServerEnvOptions,
   ServerEnvInspection,
   ServerEnvDescription,
@@ -32,6 +34,7 @@ type RuntimeEnv = Record<string, unknown>
 interface RuntimeEnvEntry {
   default?: unknown
   required: boolean
+  schema?: EnvValueSchema
   secret: boolean
   source: { kind: "env", label: string, name: string, names?: string[] }
 }
@@ -39,6 +42,7 @@ interface RuntimeEnvEntry {
 interface RuntimeProviderEntry {
   default?: unknown
   required: boolean
+  schema?: EnvValueSchema
   secret: boolean
   source: { key: string, kind: "provider", label: "provider", provider: string }
 }
@@ -95,7 +99,7 @@ function readRuntimeSource(entry: RuntimeEnvEntry, env: RuntimeEnv): { found: bo
   return { found: false }
 }
 
-function resolvedRuntimeValue(entry: RuntimeEnvEntry | RuntimeProviderEntry, value: unknown, found: boolean): unknown {
+function resolvedRuntimeValue(entry: RuntimeEnvEntry | RuntimeProviderEntry, value: unknown, found: boolean, path: string): unknown {
   const resolved = found ? value : entry.default
   if (typeof resolved === "undefined") {
     if (entry.required) {
@@ -103,17 +107,20 @@ function resolvedRuntimeValue(entry: RuntimeEnvEntry | RuntimeProviderEntry, val
     }
     return undefined
   }
-  if (typeof resolved !== "string") {
-    throw invalidRuntimeEnvValue(entry.source.kind, `Runtime Env from ${entry.source.kind} must resolve to a string.`)
+  const parsed = parseEnvValue(entry.schema ?? stringValueSchema, resolved)
+  if (!parsed.success) {
+    // A secret must not list its allowed values, even though the registry rejects secret enums.
+    const message = entry.secret ? "The value does not match its declared type." : parsed.message
+    throw invalidRuntimeEnvValue(entry.source.kind, `Invalid ${path} from ${entry.source.kind}. ${message}`, path)
   }
-  return entry.secret ? new SecretEnv(resolved) : resolved
+  return entry.secret ? new SecretEnv(parsed.data) : parsed.data
 }
 
 function resolveRegistryValue(value: unknown, env: RuntimeEnv, path: string): unknown {
   if (isRuntimeLiteralEntry(value)) return value.value
   if (isRuntimeEnvEntry(value)) {
     const source = readRuntimeSource(value, env)
-    return resolvedRuntimeValue(value, source.value, source.found)
+    return resolvedRuntimeValue(value, source.value, source.found, path)
   }
   if (isRuntimeProviderEntry(value)) throw asyncServerEnvRequired(path)
   if (!isRecord(value)) return undefined
@@ -281,13 +288,13 @@ async function providerValue(entry: RuntimeProviderEntry, loads: ProviderLoads):
 
 const skipProviderValue = Symbol("vitehub.env.skip-provider")
 
-function localRegistryValue(value: unknown, env: RuntimeEnv, tolerateInvalid: boolean): unknown {
+function localRegistryValue(value: unknown, env: RuntimeEnv, tolerateInvalid: boolean, path: string): unknown {
   if (isRuntimeLiteralEntry(value)) return snapshotValue(value.value)
   if (isRuntimeProviderEntry(value)) return skipProviderValue
   if (isRuntimeEnvEntry(value)) {
     try {
       const source = readRuntimeSource(value, env)
-      return resolvedRuntimeValue(value, source.value, source.found)
+      return resolvedRuntimeValue(value, source.value, source.found, path)
     }
     catch (error) {
       if (!tolerateInvalid) throw error
@@ -297,7 +304,7 @@ function localRegistryValue(value: unknown, env: RuntimeEnv, tolerateInvalid: bo
   if (!isRecord(value)) return skipProviderValue
   const output: Record<string, unknown> = Object.create(null)
   for (const [key, child] of Object.entries(value)) {
-    const resolved = localRegistryValue(child, env, tolerateInvalid)
+    const resolved = localRegistryValue(child, env, tolerateInvalid, `${path}.${key}`)
     if (resolved !== skipProviderValue) output[key] = resolved
   }
   return Object.freeze(output)
@@ -308,28 +315,29 @@ function createLocalEnv(
   env: RuntimeEnv,
   tolerateInvalid: boolean,
 ): Readonly<Record<string, unknown>> {
-  return localRegistryValue(registry, env, tolerateInvalid) as Readonly<Record<string, unknown>>
+  return localRegistryValue(registry, env, tolerateInvalid, "env.server") as Readonly<Record<string, unknown>>
 }
 
 async function loadRegistryValue(
   value: unknown,
   env: RuntimeEnv,
   loads: ProviderLoads,
+  path: string,
 ): Promise<unknown> {
   if (isRuntimeLiteralEntry(value)) return snapshotValue(value.value)
   if (isRuntimeEnvEntry(value)) {
     const source = readRuntimeSource(value, env)
-    return resolvedRuntimeValue(value, source.value, source.found)
+    return resolvedRuntimeValue(value, source.value, source.found, path)
   }
   if (isRuntimeProviderEntry(value)) {
     const resolved = await providerValue(value, loads)
-    return resolvedRuntimeValue(value, resolved, typeof resolved !== "undefined")
+    return resolvedRuntimeValue(value, resolved, typeof resolved !== "undefined", path)
   }
   if (!isRecord(value)) return undefined
 
   const output: Record<string, unknown> = Object.create(null)
   for (const [key, child] of Object.entries(value)) {
-    output[key] = await loadRegistryValue(child, env, loads)
+    output[key] = await loadRegistryValue(child, env, loads, `${path}.${key}`)
   }
   return Object.freeze(output)
 }
@@ -346,7 +354,7 @@ function inspectionStatus(
 ): ServerEnvInspectionEntry["status"] {
   if (!found && typeof entry.default !== "undefined") return "defaulted"
   if (!found || typeof value === "undefined") return "missing"
-  return typeof value === "string" ? "available" : "invalid"
+  return parseEnvValue(entry.schema ?? stringValueSchema, value).success ? "available" : "invalid"
 }
 
 function inspectionPath(path: string): { path?: string } {
@@ -411,7 +419,7 @@ export async function loadServerEnv<TServerEnv extends Record<string, unknown> =
   const loads = createProviderLoads(registry, localEnv, options)
   await Promise.all(loads.values())
   if (options.signal?.aborted) throw abortReason(options.signal)
-  const value = await loadRegistryValue(registry, env, loads)
+  const value = await loadRegistryValue(registry, env, loads, "env.server")
   if (options.signal?.aborted) throw abortReason(options.signal)
   return value as DeepReadonly<TServerEnv>
 }
@@ -432,6 +440,7 @@ export function describeServerEnv(registry: EnvRuntimeRegistry): ServerEnvDescri
         secret: value.secret,
         required: value.required,
         hasDefault: value.default !== undefined,
+        type: value.secret && value.schema?.kind === "enum" ? "enum" : envValueTypeName(value.schema ?? stringValueSchema),
       })
       return
     }

@@ -104,7 +104,7 @@ Direct Trigger consumers must authenticate first, reject threads the caller does
 
 ## Add an application-owned Trigger
 
-Use `defineChannel()` when an application-owned Channel Kind prepares its own event.
+Use `defineChannel()` from `vite-hub/agent/channels` when an application-owned Channel Kind prepares its own event. This is not the outbound [`defineOutboundChannel()`](/docs/reference/channels) from `vite-hub/channels`.
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'

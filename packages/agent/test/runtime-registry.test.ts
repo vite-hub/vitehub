@@ -12,11 +12,11 @@ import { hubAgent } from '../src/vite.ts'
 const roots: string[] = []
 afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))) })
 
-async function fixture(withAgent = true, withWorkspace = false) {
+async function fixture(withAgent = true, withWorkspace = false, name = 'review') {
   const root = await mkdtemp(join(tmpdir(), 'vitehub-agent-registry-'))
   roots.push(root)
   if (withAgent) {
-    const folder = join(root, 'server/agents/review')
+    const folder = join(root, 'server/agents', name)
     await mkdir(folder, { recursive: true })
     await writeFile(join(folder, 'agent.ts'), `import { defineAgent } from '@vite-hub/agent'
 export default defineAgent({ driver: { kind: 'codex', instructions: { template: 'Before.\\n{{{ instructions }}}\\nAfter.' } }, ${withWorkspace ? "workspace: { mode: 'write' }," : ''} runtime: false })`)
@@ -38,17 +38,25 @@ it('generates a Vite alias and an empty registry without agents', async () => {
   expect(await readFile(target, 'utf8')).toContain('export default {}')
 })
 
-it('bundles the published runtime lookup with lazy decorated definitions and embedded Markdown', async () => {
-  const { root, configured } = await fixture()
+it.each(['review', '__proto__'])('bundles the published runtime lookup for %s with lazy decorated definitions and embedded Markdown', async (name) => {
+  const { root, configured } = await fixture(true, false, name)
   const aliases = (configured as { resolve: { alias: Record<string, string> } }).resolve.alias
   const registry = aliases['#vitehub/agent/registry']!
   expect(configured).toMatchObject({ nitro: { alias: { '#vitehub/agent/registry': registry } } })
   expect(await readFile(registry, 'utf8')).toContain('await import(')
   const entry = join(root, 'entry.ts')
   await writeFile(entry, `import { getAgentFromRegistry } from '@vite-hub/agent'
+import registry, { metadata } from '#vitehub/agent/registry'
+import { agents } from ${JSON.stringify(join(root, '.vitehub/agent/registry-agents.mjs'))}
 export async function inspect() {
-  const agent = await getAgentFromRegistry('review')
-  return agent.__vitehubAgentSettings.driver.instructions
+  const agent = await getAgentFromRegistry(${JSON.stringify(name)})
+  return {
+    instructions: agent.__vitehubAgentSettings.driver.instructions,
+    registryNames: Object.keys(registry),
+    metadataNames: Object.keys(metadata),
+    identity: metadata[${JSON.stringify(name)}],
+    catalogNames: Object.keys(agents),
+  }
 }`)
   const output = join(root, 'bundled.mjs')
   const packageRoot = fileURLToPath(new URL('..', import.meta.url))
@@ -67,7 +75,13 @@ export async function inspect() {
   try {
     await writeFile(artifact, await readFile(output))
     const result = await promisify(execFile)(process.execPath, ['--input-type=module', '-e', 'const mod = await import(process.argv[1]); console.log(JSON.stringify(await mod.inspect()))', pathToFileURL(artifact).href])
-    expect(JSON.parse(result.stdout)).toEqual({ template: 'Before.\n{{{ instructions }}}\nAfter.', content: 'Check migrations.' })
+    expect(JSON.parse(result.stdout)).toEqual({
+      instructions: { template: 'Before.\n{{{ instructions }}}\nAfter.', content: 'Check migrations.' },
+      registryNames: [name],
+      metadataNames: [name],
+      identity: { name },
+      catalogNames: [name],
+    })
   } finally { await rm(artifact, { force: true }) }
 }, 30_000)
 

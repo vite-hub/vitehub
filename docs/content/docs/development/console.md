@@ -8,7 +8,7 @@ icon: i-lucide-monitor-dot
 
 The ViteHub Console inspects the primitives enabled in the same ViteHub configuration. It is off by default. Enable it, start the app, then open `/_vitehub` to choose a section.
 
-ViteHub renders the Console UI and serves its static assets. One embedded Devframe instance carries Console operations over SSE, so the same interface works in development and production hosts without exposing separate resource routes.
+ViteHub renders the Console UI and serves its static assets. Each Console operation is one stateless JSON `POST` request, so the same interface works in development and on hosts that route consecutive requests to different instances, such as Cloudflare Workers. The Console does not expose separate resource routes.
 
 The Console currently exposes Env, Agents, Blob, Database, KV, Rate Limit, Sandbox, Workspace, Workflow, Queue, and Schedule. The home shows only configured primitives in a grid and places the last opened primitive first, with that preference stored in the browser. Opening a section replaces the sidebar items with that section's navigation, and **All sections** returns to the Console home. **Search console** opens a command palette with the active primitive pages plus Agents and retained sessions when Agents is enabled. Blob lists configured stores and bounded pages of object metadata without downloading contents or exposing provider URLs. Database lists discovered Definitions, their source metadata, definition mode, and statically discovered table names without connecting to a database. KV lists configured stores and keys, then fetches a value only after the key is selected. Rate Limit lists statically discovered policies and source locations without reading live counters. Sandbox lists discovered Definitions without starting runtime resources. Workspace lists discovered Definitions and source roots without initializing workspace stores, Sources, files, or processes. Workflow, Queue, and Schedule list discovered Definitions and their source metadata without loading the Definition modules. Static Schedule Definitions also show their cron expression and UTC time zone; runtime targets show whether runtime Schedules are allowed.
 
@@ -76,7 +76,7 @@ export default defineNuxtConfig({
 
 Restart the development server after changing the option. Open `http://localhost:3000/_vitehub`, using your app's actual origin and port.
 
-If `console` is omitted or set to `false`, ViteHub does not register a Console page, Devframe transport, Nitro plugin, or public asset path. A disabled Console returns the host's normal not-found response.
+If `console` is omitted or set to `false`, ViteHub does not register a Console page, RPC endpoint, Nitro plugin, or public asset path. A disabled Console returns the host's normal not-found response.
 
 ## Inspect environment declarations
 
@@ -131,7 +131,7 @@ Fixtures often contain prompts and model output. Use synthetic or scrubbed recor
 
 ## Protect the Console route
 
-The Console registers its page, assets, and Devframe SSE transport under `/_vitehub/**`. The transport uses `/_vitehub/rpc/**`. Provider status also uses `GET /api/_vitehub/console/status`; the other previous resource handlers are not registered. A production build rejects bare `console: true` so this inspection interface cannot be exposed by accident.
+The Console registers its page, assets, and RPC endpoint under `/_vitehub/**`. The RPC endpoint is `POST /_vitehub/rpc/__call`. The Console access policy checks each call, so a session cookie authorizes every request on its own. Provider status also uses `GET /api/_vitehub/console/status`; the other previous resource handlers are not registered. A production build rejects bare `console: true` so this inspection interface cannot be exposed by accident.
 
 ViteHub sends `X-Robots-Tag: noindex, nofollow` on the Console route and includes the equivalent robots meta tag in the standalone Console page. These directives keep the Console out of search engines that honor them. They do not restrict access, so keep the production access policy below.
 
@@ -261,7 +261,11 @@ console: { exposure: 'host-managed', invoke: true }
 console: { access: 'auth', invoke: true }
 ```
 
-For `host-managed`, your middleware must authenticate and authorize all `/_vitehub/**` routes, including the RPC transport, before it allows a request through. The build cannot verify this policy. Setting `invoke: false` keeps inspection available and disables Agent Invocation creation. The development shorthand `console: true` enables invocation; fixture mode always disables it.
+For `host-managed`, your middleware must authenticate and authorize all `/_vitehub/**` and `/api/_vitehub/console/**` routes, including the RPC transport, before it allows a request through. The build cannot verify this policy. Setting `invoke: false` keeps inspection available and disables Agent Invocation creation. The development shorthand `console: true` enables invocation; fixture mode always disables it.
+
+Console RPC requests must come from the same origin. The transport rejects opaque origins and browser requests marked `same-site` or `cross-site`. Browser Fetch Metadata permits same-origin requests through reverse proxies. When that metadata is absent, the transport compares the `Origin` header with the request URL. Hosts must reconstruct the public request origin for older browsers that send `Origin` without Fetch Metadata.
+
+Browsers can omit both headers on HTTP origins. Requests with neither same-origin Fetch Metadata nor an `Origin` header must send `x-vitehub-console: 1`. A foreign browser page cannot add this header without a CORS preflight, which the transport rejects. The built-in Console client adds it to every RPC call automatically. Server clients must add it when they send RPC calls without origin headers. The marker is not a credential. All requests still require the configured authentication and authorization.
 
 The `vitehub:console:agent-invocations` RPC operation accepts an Agent name, `method: 'POST'`, and a body typed as `ConsoleAgentInvocationInput` from `vite-hub/console`. The body requires a non-empty `prompt` and can include a configured `invokerProfileId` and prior `messages`.
 
@@ -298,7 +302,7 @@ Read [Auth](/docs/server-primitives/auth#authorize-access-routes) for sign-in re
 
 ## Know what the Console stores
 
-When Agents are configured, the Console installs a fallback Agent Invocation journal at `.vitehub/data/console.sqlite`. It retains invocation records and selected searchable text, including prompts, messages, final text, progress updates, and generated session titles. A KV-only Console does not install the Agent journal or Agent read endpoints.
+When Agents are configured, the Console installs a fallback Agent Invocation journal. Development and Node builds store it at `.vitehub/data/console.sqlite`. [Cloudflare builds](#cloudflare-journal) store it in the D1 Database binding. It retains invocation records and selected searchable text, including prompts, messages, final text, progress updates, and generated session titles. A KV-only Console does not install the Agent journal or Agent read endpoints.
 
 Console image uploads use the configured Blob store. Before each fresh upload, the Console retries at most 100 pending rollback records. Malformed batch records move to `vitehub-console-attachment-quarantine/batch/<id>` with their original contents preserved. Fresh uploads continue, but stored attachment references remain unavailable while any quarantine record exists because its deletion ownership is unknown. Existing retained image bytes are not deleted by quarantine.
 
@@ -341,9 +345,30 @@ The automatic fallback also requires `defineAgent` from `vite-hub/agent`. Defini
 
 The Agent Console uses an invocation journal configured on the discovered Agent Definition. Configure the same journal on every discovered Agent when the Console includes more than one. Distinct journals fail during runtime setup because the Console exposes one combined query interface.
 
-When no Agent Definition configures a journal, the Console falls back to local SQLite at `.vitehub/data/console.sqlite`. This fallback is suitable for development and Node deployments with durable local storage. It is local to one replica and does not survive replacement unless the host persists that path. Cloudflare, Netlify, Vercel, and Deno production deployments should configure a durable hosted invocation journal instead.
+When no Agent Definition configures a journal, the Console falls back to local SQLite at `.vitehub/data/console.sqlite`. This fallback is suitable for development and Node deployments with durable local storage. It is local to one replica and does not survive replacement unless the host persists that path. Netlify, Vercel, and Deno production deployments should configure a durable hosted invocation journal instead.
 
-The Console sends every read through one Devframe SSE instance at `/_vitehub/rpc/**`. Its internal request contract uses `GET` semantics for bounded listings and metadata, and JSON-body `POST` semantics to read a selected KV value without putting an opaque key in the request URL. The POST operation remains read-only. Responses set `Cache-Control: no-store` and `X-Content-Type-Options: nosniff`.
+### Cloudflare journal
+
+A Cloudflare build that uses the Database primitive stores the fallback journal in its D1 binding. ViteHub selects the default Database Definition, or the only Definition. Its `cloudflare.binding` takes precedence over the integration binding. When the Definition has no Cloudflare config, `database: { driver: 'd1' }` supplies the binding, which defaults to `DB`. Set this driver explicitly in Nuxt too. Without a discovered Definition, the Console keeps libSQL:
+
+```ts [vite.config.ts]
+vitehub({
+  preset: 'cloudflare',
+  agent: true,
+  console: { exposure: 'host-managed' },
+  database: { driver: 'd1', binding: 'DB', databaseName: 'my-app', databaseId: '<id>' },
+})
+```
+
+The build prints `Console journal: D1 binding DB, table vitehub_agent_invocations`, and the generated `.vitehub/nitro/console/plugin.mjs` passes the binding to `installConsoleAgentDefinitions()`. The journal uses the [D1 store](/docs/agents/invocations#store-invocations-in-cloudflare-d1). It creates its table on first use, so no migration step is necessary. It keeps the D1 store retention defaults: 10,000 terminal records from the last 30 days.
+
+The fallback journal exposes `console.resolve(context).invocations` from `vite-hub/console/server`. It provides `driver`, `db`, and `schema.invocations` for Drizzle queries on D1 and libSQL. Check `driver === 'd1'` or `driver === 'libsql'` before destructuring to narrow the database and schema types. D1 requires non-null `search` and `summary` values on inserts. libSQL reads allow null for those columns while legacy rows await backfill. On D1, each query or batch resolves the Worker binding and creates the journal table before it runs.
+
+Use `db.batch()` for atomic D1 writes. If any statement fails, D1 rolls back the whole batch. D1 does not support Drizzle's callback transactions, so `db.transaction()` rejects with `VITE_HUB_R0123` before the callback runs. The libSQL journal retains its transaction support.
+
+`vite dev` keeps the local SQLite journal. `console.databaseUrl` at build time, or `VITEHUB_CONSOLE_DATABASE_URL` at runtime, selects libSQL instead. An Agent Definition with its own `invocations` still wins. If the binding is missing from the Worker env, journal reads and writes fail with a diagnostic. Agent results do not change.
+
+The Console sends every operation as one `POST /_vitehub/rpc/__call` request with the JSON body `{ method, input }`. The server keeps no session between calls, so any instance can answer any call. The endpoint accepts calls only from the Console origin, as [Start Agent invocations](#start-agent-invocations) describes. Its internal request contract uses `GET` semantics for bounded listings and metadata, and JSON-body `POST` semantics to read a selected KV value without putting an opaque key in the request URL. The KV operation remains read-only. Each operation keeps its own body limit: 64 KiB for most operations, and the image attachment limit for Agent invocations. A successful call returns `200`, or `202` when it starts an Agent invocation. Failed calls use the operation status, such as `400`, `403`, `404`, `405`, or `413`. Responses set `Cache-Control: no-store` and `X-Content-Type-Options: nosniff`.
 
 KV inspection calls the configured store's paginated `list`, `get`, and `has` operations. It never calls `set`, `del`, or `clear`. Each key page returns at most 200 entries, and the Console passes the provider's opaque cursor when you load more. Selected values are rendered as text or formatted JSON and truncated at 256 KiB in the response. Listing and reading can still count as provider operations even though they do not change data.
 
@@ -358,6 +383,8 @@ Invocation journals are metadata-only by default. In that mode, Captured setup i
 ## Inspect usage
 
 Open **Usage** in the Console sidebar to inspect provider-reported tokens and cost across the past 24 hours, 7 days, 30 days, or 90 days. The dashboard groups completed Agent Invocations by time and model. A warning appears when the bounded journal scan reaches 10,000 records or a recorded finish event is truncated, so partial totals are never presented as complete.
+
+The Cloudflare fallback journal uses a persisted usage index. Each request projects at most 250 queued invocations and then queries aggregate totals and a page of sessions. Full transcripts stay in D1. Totals remain partial while the projection has queued work; later requests continue the backfill. Updates and deletions keep the index in sync.
 
 Session details also show the normalized usage record for one invocation. Add the [Usage Capability](/docs/capabilities/usage) when the provider needs an explicit usage request, estimated cost, or a typed Agent Usage Record at finish. Providers that report usage without the Capability still appear because the recorded finish event is authoritative.
 

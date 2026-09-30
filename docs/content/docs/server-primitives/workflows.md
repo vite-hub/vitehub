@@ -6,7 +6,7 @@ navigation.group: Background work
 icon: i-lucide-workflow
 ---
 
-Use Workflows for long-running work that needs a tracked run, retries, resumable state, or durable steps.
+Use Workflows for long-running work that needs a tracked run, retries, resumable state, or durable steps. These guarantees depend on the provider and Definition: Vercel's normal handler runs inline; [a native entry](#add-a-durable-vercel-entry) enables durable execution.
 
 Use [Queue](/docs/server-primitives/queue) when you only need to deliver a job. A Workflow starts and tracks a run.
 
@@ -84,7 +84,6 @@ The Vite config key is `workflow`.
 | `provider` | `WorkflowProvider` | inferred | Selects `cloudflare`, `vercel`, or `openworkflow`. |
 | `binding` | `string` | provider default | Provider binding name for generated output. |
 | `name` | `string` | discovered workflow name | Provider resource name override. |
-| `database` | `string` | none | OpenWorkflow storage through a ViteHub Named Database. |
 | `postgres.url` | `WorkflowRuntimeConfigValue` | none | OpenWorkflow Postgres URL. |
 | `postgres.schema` | `string` | provider default | OpenWorkflow Postgres schema. |
 | `postgres.namespaceId` | `string` | provider default | OpenWorkflow namespace id. |
@@ -94,15 +93,28 @@ The Vite config key is `workflow`.
 | `sqlite.runMigrations` | `boolean` | provider default | Runs OpenWorkflow SQLite migrations. |
 | `worker.concurrency` | `number` | provider default | OpenWorkflow worker concurrency. |
 
-When no provider is configured, ViteHub selects Cloudflare on Cloudflare hosting and Vercel on other supported hosts. Netlify cannot infer a Workflow Provider, so set `provider` explicitly or disable Workflow there. On Node or Docker hosting, OpenWorkflow is inferred when OpenWorkflow storage is configured through `database`, `postgres.url`, or `sqlite.path`.
+When no provider is configured, ViteHub selects Cloudflare on Cloudflare hosting and Vercel on other supported hosts. Netlify cannot infer a Workflow Provider, so set `provider` explicitly or disable Workflow there. On Node or Docker hosting, OpenWorkflow is inferred when OpenWorkflow storage is configured through `postgres.url` or `sqlite.path`.
 
 ## Providers
 
 | Provider | Configure with | Provider output | Nuance |
 | --- | --- | --- | --- |
 | Cloudflare | `workflow: { provider: 'cloudflare' }` | Cloudflare Workflow class, binding, and runtime entry output. | Runs through Cloudflare Workflow bindings. Use `binding` and `name` when the generated names must match existing infrastructure. |
-| Vercel | `workflow: { provider: 'vercel' }` | Vercel workflow runtime output under the build output. | Persists run state through provider runtime support and Vercel-specific workflow names. |
-| OpenWorkflow | `workflow: { provider: 'openworkflow', database/postgres/sqlite }` | OpenWorkflow worker/runtime output. | Requires explicit storage. `database`, `postgres.url`, and `sqlite.path` are mutually exclusive storage choices. |
+| Vercel | `workflow: { provider: 'vercel' }` | Vercel workflow runtime output under the build output. | A `native` entry uses Workflow DevKit for durable execution. The normal handler runs inline and does not survive a function restart. |
+| OpenWorkflow | `workflow: { provider: 'openworkflow', postgres: { url } }` or `workflow: { provider: 'openworkflow', sqlite: { path } }` | OpenWorkflow worker/runtime output. | Choose Postgres or SQLite explicitly for deployment. Configured `postgres.url` and `sqlite.path` are mutually exclusive. |
+
+### Select OpenWorkflow storage
+
+OpenWorkflow resolves storage at runtime in this order:
+
+1. An explicit `sqlite.path` selects SQLite; an explicit `postgres.url` selects Postgres. Configure only one. If its runtime environment declaration is missing or empty, startup fails instead of selecting another store.
+2. With neither option configured, `OPENWORKFLOW_SQLITE_PATH` selects SQLite.
+3. Otherwise, `OPENWORKFLOW_POSTGRES_URL`, then `DATABASE_URL`, selects Postgres.
+4. With none of these configured, it uses `.vitehub/data/openworkflow.sqlite.db` relative to the process working directory.
+
+The local SQLite default requires a writable filesystem. Its state survives only while that file remains available; a replacement container or ephemeral function filesystem can lose it. Configure persistent storage before serving production work. Keep staging and production storage or namespaces separate.
+
+`workflow.database` is unsupported and now rejects configuration. It previously accepted a Named Database without connecting OpenWorkflow to that database. Replace it with `workflow.postgres.url` or `workflow.sqlite.path`, and check the old runtime's actual storage before moving existing runs.
 
 ## Define a workflow
 

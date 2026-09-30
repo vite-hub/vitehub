@@ -1,16 +1,13 @@
-import { createRpcClient } from "devframe/rpc/client"
-import { createSseRpcChannel } from "devframe/rpc/transports/sse-client"
 import { createMessage, defineAgent } from "@vite-hub/agent"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server"
 import { describe, expect, it, vi } from "vitest"
 
-import { consoleRpcMethods } from "../src/console/runtime/rpc.ts"
+import { consoleRpcHeader, consoleRpcMethods } from "../src/console/runtime/rpc.ts"
 import { installConsoleAgentDefinitions } from "../src/console/runtime/server/agents.ts"
-import { createConsoleDevframeHandler } from "../src/console/runtime/server/devframe.ts"
 import { installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
+import { handleConsoleRpcRequest } from "../src/console/runtime/server/rpc.ts"
 
 import type { AgentRunContext, MessagePart } from "@vite-hub/agent"
-import type { ConsoleRpcFunctions } from "../src/console/runtime/rpc.ts"
 
 function setup() {
   const run = vi.fn((_context: AgentRunContext) => "From the requested receipt date.")
@@ -25,26 +22,20 @@ function setup() {
     invoke: true,
     projectRoot: root,
   })
-  const handler = createConsoleDevframeHandler()
-  const channel = createSseRpcChannel({
-    fetch: async (input, init) => {
-      const request = new Request(input, init)
-      // SAFETY: This fixture supplies the request fields read by the ViteHub H3 adapter.
-      return (await handler({ method: request.method, req: request } as never)) as Response
-    },
-    url: "http://vitehub.local/_vitehub/rpc/__sse",
-  })
-  const client = createRpcClient<ConsoleRpcFunctions>({}, { channel })
+  const waitUntil = vi.fn((_task: Promise<unknown>) => undefined)
+  const send = (body: unknown, method: "GET" | "POST" = "POST") => handleConsoleRpcRequest(new Request("http://vitehub.local/_vitehub/rpc/__call", {
+    body: JSON.stringify({ input: { agent: "history-fixture", body, method }, method: consoleRpcMethods.agentInvocations }),
+    headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
+    method: "POST",
+  }), { waitUntil })
   return {
-    async close() {
-      channel.close()
-      await handler.close()
-    },
     invocations,
-    request: (body: unknown, method: "GET" | "POST" = "POST") => client.$call(consoleRpcMethods.agentInvocations, {
-      agent: "history-fixture", body, method,
-    }),
+    async request(body: unknown, method: "GET" | "POST" = "POST"): Promise<unknown> {
+      return (await send(body, method)).json()
+    },
+    send,
     run,
+    waitUntil,
   }
 }
 
@@ -55,43 +46,50 @@ describe("Console invocation history", () => {
       createMessage({ metadata: { source: "conversation" }, role: "user", text: "Which receipt date?" }),
       createMessage({ role: "assistant", text: "The promised date, with a requested-date fallback." }),
     ]
-    try {
-      expect(await fixture.request({ messages, prompt: " And if that is blank? " })).toMatchObject({ ok: true })
-      await vi.waitFor(() => expect(fixture.run).toHaveBeenCalledOnce())
-      const input = fixture.run.mock.calls[0]![0].input
-      expect(input).toMatchObject({
-        messages: [...messages, expect.objectContaining({ role: "user", parts: [expect.objectContaining({ type: "text", text: "And if that is blank?" })] })],
-        prompt: "And if that is blank?",
-      })
-      expect(new Set(input.messages?.map(message => message.id)).size).toBe(3)
-      await vi.waitFor(async () => {
-        const page = await fixture.invocations.list()
-        expect(page.invocations[0]?.status).toBe("completed")
-        const saved = await fixture.invocations.get(page.invocations[0]!.id)
-        expect(saved?.observations).toContainEqual(expect.objectContaining({
-          name: "agent.invocation.start",
-          attributes: expect.objectContaining({ "input.messages": input.messages }),
-        }))
-      })
-    }
-    finally {
-      await fixture.close()
-    }
+    expect(await fixture.request({ messages, prompt: " And if that is blank? " })).toMatchObject({ ok: true })
+    await vi.waitFor(() => expect(fixture.run).toHaveBeenCalledOnce())
+    const input = fixture.run.mock.calls[0]![0].input
+    expect(input).toMatchObject({
+      messages: [...messages, expect.objectContaining({ role: "user", parts: [expect.objectContaining({ type: "text", text: "And if that is blank?" })] })],
+      prompt: "And if that is blank?",
+    })
+    expect(new Set(input.messages?.map(message => message.id)).size).toBe(3)
+    await vi.waitFor(async () => {
+      const page = await fixture.invocations.list()
+      expect(page.invocations[0]?.status).toBe("completed")
+      const saved = await fixture.invocations.get(page.invocations[0]!.id)
+      expect(saved?.observations).toContainEqual(expect.objectContaining({
+        name: "agent.invocation.start",
+        attributes: expect.objectContaining({ "input.messages": input.messages }),
+      }))
+    })
+  })
+
+  it("answers an accepted invocation with 202", async () => {
+    const fixture = setup()
+    const response = await fixture.send({ prompt: "Start." })
+    expect(response.status).toBe(202)
+    await expect(response.json()).resolves.toMatchObject({ ok: true, value: { agent: "history-fixture" } })
+    await vi.waitFor(() => expect(fixture.run).toHaveBeenCalledOnce())
+  })
+
+  it("accepts history over 64 KiB and passes background work to the host", async () => {
+    const fixture = setup()
+    const messages = [createMessage({ role: "user", text: "x".repeat(80 * 1_024) })]
+    expect(await fixture.request({ messages, prompt: "Summarize." })).toMatchObject({ ok: true })
+    await vi.waitFor(() => expect(fixture.run).toHaveBeenCalledOnce())
+    expect(fixture.run.mock.calls[0]![0].input.messages?.[0]).toEqual(messages[0])
+    expect(fixture.waitUntil).toHaveBeenCalled()
   })
 
   it.each([{}, { messages: [] }])("accepts prompt-only and empty history requests %j", async (history) => {
     const fixture = setup()
-    try {
-      expect(await fixture.request({ ...history, prompt: "Explain safety stock." })).toMatchObject({ ok: true })
-      await vi.waitFor(() => expect(fixture.run).toHaveBeenCalledOnce())
-      const input = fixture.run.mock.calls[0]![0].input
-      expect(input.prompt).toBe("Explain safety stock.")
-      if ("messages" in history) expect(input.messages).toHaveLength(1)
-      else expect(input.messages).toBeUndefined()
-    }
-    finally {
-      await fixture.close()
-    }
+    expect(await fixture.request({ ...history, prompt: "Explain safety stock." })).toMatchObject({ ok: true })
+    await vi.waitFor(() => expect(fixture.run).toHaveBeenCalledOnce())
+    const input = fixture.run.mock.calls[0]![0].input
+    expect(input.prompt).toBe("Explain safety stock.")
+    if ("messages" in history) expect(input.messages).toHaveLength(1)
+    else expect(input.messages).toBeUndefined()
   })
 
   it.each(["user", "assistant"] as const)("preserves text and attachments in %s history", async (role) => {
@@ -106,14 +104,9 @@ describe("Console invocation history", () => {
       ],
       role,
     })
-    try {
-      expect(await fixture.request({ messages: [message], prompt: "Explain the receipt." })).toMatchObject({ ok: true })
-      await vi.waitFor(() => expect(fixture.run).toHaveBeenCalledOnce())
-      expect(fixture.run.mock.calls[0]![0].input.messages?.[0]).toEqual(message)
-    }
-    finally {
-      await fixture.close()
-    }
+    expect(await fixture.request({ messages: [message], prompt: "Explain the receipt." })).toMatchObject({ ok: true })
+    await vi.waitFor(() => expect(fixture.run).toHaveBeenCalledOnce())
+    expect(fixture.run.mock.calls[0]![0].input.messages?.[0]).toEqual(message)
   })
 
   const privilegedParts = [
@@ -134,13 +127,8 @@ describe("Console invocation history", () => {
       const fixture = setup()
       // createMessage validates each sequence as a valid Message before it reaches the Console.
       const message = createMessage({ role, text: "Prior conversation.", parts })
-      try {
-        expect(await fixture.request({ messages: [message], prompt: "Follow up." })).toMatchObject({ ok: false, status: 400 })
-        expect(fixture.run).not.toHaveBeenCalled()
-      }
-      finally {
-        await fixture.close()
-      }
+      expect(await fixture.request({ messages: [message], prompt: "Follow up." })).toMatchObject({ ok: false, status: 400 })
+      expect(fixture.run).not.toHaveBeenCalled()
     },
   )
 
@@ -157,23 +145,13 @@ describe("Console invocation history", () => {
     [duplicate, duplicate],
   ].map(messages => ({ messages })))("rejects malformed or privileged history $messages", async ({ messages }) => {
     const fixture = setup()
-    try {
-      expect(await fixture.request({ messages, prompt: "Follow up." })).toMatchObject({ ok: false, status: 400 })
-      expect(fixture.run).not.toHaveBeenCalled()
-    }
-    finally {
-      await fixture.close()
-    }
+    expect(await fixture.request({ messages, prompt: "Follow up." })).toMatchObject({ ok: false, status: 400 })
+    expect(fixture.run).not.toHaveBeenCalled()
   })
 
   it("rejects non-POST invocation requests", async () => {
     const fixture = setup()
-    try {
-      expect(await fixture.request({ prompt: "Follow up." }, "GET")).toMatchObject({ ok: false, status: 405 })
-      expect(fixture.run).not.toHaveBeenCalled()
-    }
-    finally {
-      await fixture.close()
-    }
+    expect(await fixture.request({ prompt: "Follow up." }, "GET")).toMatchObject({ ok: false, status: 405 })
+    expect(fixture.run).not.toHaveBeenCalled()
   })
 })

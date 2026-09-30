@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { existsSync } from "node:fs"
-import { mkdtemp } from "node:fs/promises"
+import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { runInNewContext } from "node:vm"
@@ -10,6 +10,7 @@ import { isSerializedResponse, serializeResponse, toResponse, ViteHubError } fro
 import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from "vitest"
 
 import type { WorkflowProviderStep } from "../src/types.ts"
+import { normalizeWorkflowOptions } from "../src/config.ts"
 import { getCloudflareWorkflowBindingName } from "../src/integrations/cloudflare.ts"
 import { getOpenWorkflowRuntime, resetOpenWorkflowRuntime, setOpenWorkflowImporter } from "../src/runtime/openworkflow.ts"
 import { createOpenWorkflowWorker, startOpenWorkflowWorker } from "../src/runtime/openworkflow-worker.ts"
@@ -980,6 +981,20 @@ describe("workflow runtime", () => {
     expect(stop).toHaveBeenCalledOnce()
   })
 
+  it("shares one OpenWorkflow backend for padded and unpadded Postgres URLs", async () => {
+    const url = "postgres://localhost/shared%20workflow"
+    const [padded, unpadded] = await Promise.all([
+      getOpenWorkflowRuntime({ provider: "openworkflow", postgres: { url: ` \t${url}\n ` } }),
+      getOpenWorkflowRuntime({ provider: "openworkflow", postgres: { url } }),
+    ])
+
+    expect(padded).toBe(unpadded)
+    expect(openWorkflowMock.connect).toHaveBeenCalledExactlyOnceWith(url, {
+      namespaceId: "production",
+      schema: "openworkflow",
+    })
+  })
+
   it("evicts a rejected OpenWorkflow acquisition", async () => {
     const failure = new Error("database unavailable")
     const config = {
@@ -1165,6 +1180,24 @@ describe("workflow runtime", () => {
     })
   })
 
+  it("preserves a configured SQLite filename that ends with a space", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-workflow-spaced-path-"))
+    const path = join(root, " workflow.sqlite ")
+    try {
+      const config = normalizeWorkflowOptions({ provider: "openworkflow", sqlite: { path } })!
+      const spaced = await getOpenWorkflowRuntime(config)
+      const unspaced = await getOpenWorkflowRuntime({ provider: "openworkflow", sqlite: { path: path.trim() } })
+
+      expect(spaced).not.toBe(unspaced)
+      expect(openWorkflowMock.sqliteConnect).toHaveBeenCalledTimes(2)
+      expect(openWorkflowMock.sqliteConnect).toHaveBeenCalledWith(path, { namespaceId: "production" })
+      expect(openWorkflowMock.sqliteConnect).toHaveBeenCalledWith(path.trim(), { namespaceId: "production" })
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it("resolves OpenWorkflow SQLite connection options from runtime config env declarations", async () => {
     process.env.VITEHUB_WORKFLOW_DATABASE_URL = "file:.data/runtime-workflow.sqlite"
     setWorkflowRuntimeConfig({
@@ -1198,6 +1231,60 @@ describe("workflow runtime", () => {
 
     expect(openWorkflowMock.sqliteConnect).toHaveBeenCalledWith(".vitehub/data/openworkflow.sqlite.db", {
       namespaceId: "production",
+    })
+  })
+
+  it("rejects an unresolved database reference before opening fallback storage", async () => {
+    await expect(getOpenWorkflowRuntime({
+      database: "workflow",
+      provider: "openworkflow",
+    } as never)).rejects.toThrow(/workflow\.database.*not supported/)
+
+    expect(openWorkflowMock.sqliteConnect).not.toHaveBeenCalled()
+    expect(openWorkflowMock.connect).not.toHaveBeenCalled()
+  })
+
+  it.each(["runtime", "worker"] as const)("rejects conflicting explicit storage in the %s API before opening either backend", async (api) => {
+    const config = {
+      postgres: { url: "postgres://localhost/workflow" },
+      provider: "openworkflow" as const,
+      sqlite: { path: ":memory:" },
+    }
+    const operation = api === "runtime"
+      ? getOpenWorkflowRuntime(config)
+      : createOpenWorkflowWorker({ config })
+
+    await expect(operation).rejects.toThrow(/workflow\.postgres\.url.*workflow\.sqlite\.path.*cannot both/)
+    expect(openWorkflowMock.sqliteConnect).not.toHaveBeenCalled()
+    expect(openWorkflowMock.connect).not.toHaveBeenCalled()
+    expect(openWorkflowMock.newWorker).not.toHaveBeenCalled()
+  })
+
+  it.each(["sqlite", "postgres"] as const)("rejects an unresolved explicit %s storage env declaration", async (backend) => {
+    const value = {
+      kind: "env-variable" as const,
+      source: { kind: "env" as const, name: "VITEHUB_MISSING_WORKFLOW_STORAGE" },
+    }
+    await expect(getOpenWorkflowRuntime({
+      provider: "openworkflow",
+      ...(backend === "sqlite" ? { sqlite: { path: value } } : { postgres: { url: value } }),
+    })).rejects.toThrow(/must resolve to a non-empty/)
+
+    expect(openWorkflowMock.sqliteConnect).not.toHaveBeenCalled()
+    expect(openWorkflowMock.connect).not.toHaveBeenCalled()
+  })
+
+  it("uses an explicit Postgres URL before ambient SQLite configuration", async () => {
+    process.env.OPENWORKFLOW_SQLITE_PATH = ".data/other-workflow.sqlite"
+    await getOpenWorkflowRuntime({
+      postgres: { url: "postgres://localhost/selected" },
+      provider: "openworkflow",
+    })
+
+    expect(openWorkflowMock.sqliteConnect).not.toHaveBeenCalled()
+    expect(openWorkflowMock.connect).toHaveBeenCalledWith("postgres://localhost/selected", {
+      namespaceId: "production",
+      schema: "openworkflow",
     })
   })
 

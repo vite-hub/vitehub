@@ -338,7 +338,7 @@ function normalizeExplicitAgentDriver(driver: unknown): NormalizedAgentDriver {
   if (hasAsk) {
     assertNoUnsupportedOptions(driver, askDriverKeys, "defineAgent({ driver: { ask } })")
     if (!isPlainObject(driver.ask) && !isRuntimeFunction(driver.ask)) {
-      throw agentDiagnostics.AGENT_R0932({ message: "[vitehub] defineAgent({ driver.ask }) must be an object of Jev questions or a function that returns one." })
+      throw agentDiagnostics.AGENT_R0933({ message: "[vitehub] defineAgent({ driver.ask }) must be an object of Jev questions or a function that returns one." })
     }
     // SAFETY: The typed AgentSettings boundary establishes the question map; askJev validates each question when it runs.
     const ask = driver.ask as AgentAskQuestionsResolver

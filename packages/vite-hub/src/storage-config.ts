@@ -1,5 +1,6 @@
 import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
+import { resolveDBViteConfig } from "@vite-hub/database/config"
 import type { BlobStoreConfig } from "@vite-hub/blob"
 import type { KVStoreConfig } from "@vite-hub/kv"
 import type { ViteHubOptions } from "./index.ts"
@@ -43,6 +44,36 @@ export function withDataDir(options: ViteHubOptions): ViteHubOptions {
       root: (options.workspace === true ? undefined : options.workspace.root) ?? join(root, "workspaces"),
     } } : {}),
   }
+}
+
+/** Where the Console stores Agent invocations when no Agent Definition configures a journal. */
+export type ConsoleJournal = { databaseUrl: string } | { d1Binding: string }
+
+/**
+ * The D1 binding of the Database primitive on Cloudflare.
+ * Read the binding of the default or only Database Definition before integration defaults.
+ */
+export function consoleD1Binding(
+  preset: string,
+  database: ViteHubOptions["database"],
+  definitions?: { root: string, serverDirs?: string[] },
+): string | undefined {
+  if (preset !== "cloudflare" || !database) return
+  if (!definitions) return
+  const options = database === true ? undefined : database
+  const root = resolve(definitions.root, options?.projectRoot ?? ".")
+  const serverDirs = options?.projectRoot !== undefined ? [resolve(root, "server")] : definitions.serverDirs
+  const config = resolveDBViteConfig(options, root, { serverDirs })
+  const name = config?.databases.default ? "default" : config?.databaseNames.length === 1 ? config.databaseNames[0] : undefined
+  if (!name) return
+  return config?.databases[name]?.cloudflare?.binding
+    ?? (options?.driver === "d1" ? options.binding?.trim() || "DB" : undefined)
+}
+
+/** An explicit libSQL URL wins. Production builds use the D1 binding. Development keeps the local libSQL file. */
+export function resolveConsoleJournal(databaseUrl: string | undefined, d1Binding: string | undefined, build: boolean): ConsoleJournal | undefined {
+  if (databaseUrl) return { databaseUrl }
+  if (build && d1Binding) return { d1Binding }
 }
 
 /** Resolve the journal path without changing the development-only Console shorthand. */

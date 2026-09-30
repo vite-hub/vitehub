@@ -247,7 +247,7 @@ export default defineConfig({
       "src/console/runtime/server/database.get.ts",
       "src/console/runtime/server/definitions.get.ts",
       "src/console/runtime/server/invocation-capabilities.get.ts",
-      "src/console/runtime/server/devframe.ts",
+      "src/console/runtime/server/rpc.ts",
       "src/console/runtime/server/invocation.get.ts",
       "src/console/runtime/server/invocation-workspace.get.ts",
       "src/console/runtime/server/invocations.get.ts",
@@ -282,7 +282,7 @@ export default defineConfig({
         delete exports["./console/runtime/server/definitions"];
         delete exports["./console/runtime/server/definitions.get"];
         delete exports["./console/runtime/server/invocation-capabilities.get"];
-        delete exports["./console/runtime/server/devframe"];
+        delete exports["./console/runtime/server/rpc"];
         delete exports["./console/runtime/server/invocation.get"];
         delete exports["./console/runtime/server/invocation-workspace.get"];
         delete exports["./console/runtime/server/invocations.get"];

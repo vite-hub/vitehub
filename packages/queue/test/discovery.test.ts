@@ -29,7 +29,7 @@ describe("discoverQueueDefinitions", () => {
     expect(createRuntimeRegistryContents(registryFile, [{
       handler: sourceFile,
       name: "welcome",
-    }])).toContain('"welcome": async () => import(')
+    }])).toContain('["welcome"]: async () => import(')
   })
 
   it("discovers queue names for vite suffix and server entrypoints", async () => {

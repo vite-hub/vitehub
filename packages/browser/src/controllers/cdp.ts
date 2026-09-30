@@ -67,7 +67,8 @@ export function cdp(options: CDPControllerOptions = {}): BrowserController<CDPCl
     async attach(connection) {
       const socket = await (options.connect || connect)(connection)
       let nextId = 0
-      let released = false
+      let releasing = false
+      let releasePromise: Promise<void> | undefined
       const pending = new Map<number, { reject(error: unknown): void, resolve(value: unknown): void }>()
       const listeners = new Map<string, Set<(params: unknown, sessionId?: string) => void>>()
       socket.addEventListener("message", (event) => {
@@ -110,7 +111,7 @@ export function cdp(options: CDPControllerOptions = {}): BrowserController<CDPCl
             }
           },
           async send<TResult>(method: string, params: object = {}, sessionId?: string): Promise<TResult> {
-            if (released) throw browserProviderError("cdp", "send a command after release")
+            if (releasing) throw browserProviderError("cdp", "send a command after release")
             return await new Promise<TResult>((resolve, reject) => {
               const id = ++nextId
               pending.set(id, { reject, resolve: value => resolve(value as TResult) })
@@ -119,15 +120,27 @@ export function cdp(options: CDPControllerOptions = {}): BrowserController<CDPCl
           },
         },
         preservesSessionOnRelease: true,
-        async release() {
-          if (released) return
-          released = true
+        release() {
+          releasing = true
           listeners.clear()
-          if (socket.readyState >= 2) return
-          await new Promise<void>((resolve) => {
-            socket.addEventListener("close", () => resolve(), { once: true })
-            socket.close()
+          releasePromise ??= Promise.resolve().then(async () => {
+            if (socket.readyState === 3) return
+            await new Promise<void>((resolve, reject) => {
+              const onClose = () => resolve()
+              socket.addEventListener("close", onClose, { once: true })
+              try {
+                if (socket.readyState < 2) socket.close()
+              }
+              catch (error) {
+                socket.removeEventListener("close", onClose)
+                reject(error)
+              }
+            })
+          }).catch((error) => {
+            releasePromise = undefined
+            throw error
           })
+          return releasePromise
         },
       }
     },

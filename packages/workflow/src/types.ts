@@ -53,7 +53,6 @@ export interface OpenWorkflowWorkerOptions {
 }
 
 export interface OpenWorkflowProviderOptions extends WorkflowSharedOptions {
-  database?: string
   postgres?: OpenWorkflowPostgresOptions
   provider: "openworkflow"
   sqlite?: OpenWorkflowSqliteOptions
@@ -61,7 +60,6 @@ export interface OpenWorkflowProviderOptions extends WorkflowSharedOptions {
 }
 
 export interface InferredWorkflowProviderOptions extends WorkflowSharedOptions {
-  database?: string
   postgres?: OpenWorkflowPostgresOptions
   provider?: undefined
   sqlite?: OpenWorkflowSqliteOptions

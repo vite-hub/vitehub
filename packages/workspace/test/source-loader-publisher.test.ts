@@ -23,7 +23,7 @@ import { hasRuntimeType } from "../src/internal/runtime-type.ts"
 import { useRegisteredWorkspace } from "../src/core/registry.ts"
 import { createLocalWorkspaceStore } from "../src/storage/local.ts"
 import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
-import type { RmOptions, WorkspaceDefinition, WorkspaceStore } from "../src/core/types.ts"
+import type { RmOptions, WorkspaceAssets, WorkspaceDefinition, WorkspaceStore } from "../src/core/types.ts"
 
 const ghAuthToken = vi.hoisted(() => vi.fn<(...args: unknown[]) => string>(() => {
   throw new Error("missing gh")
@@ -709,7 +709,7 @@ describe("sources, loaders, and publishers", () => {
     }, registryFile)
 
     const contents = await readFile(registryFile, "utf8")
-    expect(contents.match(/"docs": createWorkspaceAssets/g)).toHaveLength(1)
+    expect(contents.match(/\["docs"\]: createWorkspaceAssets/g)).toHaveLength(1)
     expect(contents.match(/"instructions\/AGENTS.md"/g)).toHaveLength(1)
   })
 
@@ -1821,6 +1821,28 @@ describe("sources, loaders, and publishers", () => {
     await expect(registry["asset-bundle"].readFile("README.md")).resolves.toBe("hello\n")
     await expect(registry["asset-bundle"].readFile("data.bin", { encoding: "binary" })).resolves.toEqual(new Uint8Array([1, 2, 3]))
     await expect(registry["asset-bundle"].exists("../escape.txt")).resolves.toBe(false)
+  })
+
+  it.each(["docs", "__proto__"])("preserves the __proto__ asset path and metadata in the %s bundle", async (name) => {
+    const root = await createRoot()
+    const registryFile = join(root, ".vitehub/assets/registry.mjs")
+    const store = createMemoryWorkspaceStore()
+    const metadata = {
+      ["__proto__"]: { label: "prototype metadata" },
+      nested: [{ ["__proto__"]: "nested metadata", constructor: "literal constructor", toString: "literal toString" }],
+    }
+    await store.writeFile("__proto__", { content: "prototype asset", metadata, path: "__proto__" })
+    await writeWorkspaceAssetsRegistry(registryFile, [await collectWorkspaceStoreAssetBundle(name, store)])
+
+    const { default: registry }: { default: Record<string, WorkspaceAssets> } = await import(pathToFileURL(registryFile).href)
+
+    expect(Object.keys(registry)).toEqual([name])
+    expect(Object.getPrototypeOf(registry)).toBe(Object.prototype)
+    await expect(registry[name]!.readFile("__proto__")).resolves.toBe("prototype asset")
+    const stat = await registry[name]!.stat("__proto__")
+    expect(stat.metadata).toStrictEqual(metadata)
+    expect(Object.hasOwn(stat.metadata!, "__proto__")).toBe(true)
+    expect(Object.getPrototypeOf(stat.metadata)).toBe(Object.prototype)
   })
 
   it("rejects unsafe workspace asset paths", async () => {

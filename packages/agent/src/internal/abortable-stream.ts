@@ -4,11 +4,11 @@ export function abortSignalError(signal: AbortSignal, fallbackMessage: string): 
 }
 
 export async function nextWithAbort<T>(
-  next: Promise<IteratorResult<T>>,
+  next: () => Promise<IteratorResult<T>>,
   signal: AbortSignal | undefined,
   fallbackMessage: string,
 ): Promise<IteratorResult<T>> {
-  if (!signal) return await next
+  if (!signal) return await next()
   if (signal.aborted) throw abortSignalError(signal, fallbackMessage)
 
   return await new Promise<IteratorResult<T>>((resolve, reject) => {
@@ -17,15 +17,21 @@ export async function nextWithAbort<T>(
       reject(abortSignalError(signal, fallbackMessage))
     }
     signal.addEventListener("abort", onAbort, { once: true })
-    next.then(
-      (result) => {
-        signal.removeEventListener("abort", onAbort)
-        resolve(result)
-      },
-      (error) => {
-        signal.removeEventListener("abort", onAbort)
-        reject(error)
-      },
-    )
+    try {
+      next().then(
+        (result) => {
+          signal.removeEventListener("abort", onAbort)
+          resolve(result)
+        },
+        (error) => {
+          signal.removeEventListener("abort", onAbort)
+          reject(error)
+        },
+      )
+    }
+    catch (error) {
+      signal.removeEventListener("abort", onAbort)
+      reject(error)
+    }
   })
 }

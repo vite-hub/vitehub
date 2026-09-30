@@ -67,6 +67,15 @@ describe("workflow config", () => {
     })
   })
 
+  it("preserves SQLite filenames and trims Postgres URLs while rejecting blank values", () => {
+    const sqlite = { path: " workflow.sqlite " }
+    const postgres = { url: " postgres://localhost/workflow " }
+    expect(normalizeWorkflowOptions({ provider: "openworkflow", sqlite })).toMatchObject({ sqlite })
+    expect(normalizeWorkflowOptions({ provider: "openworkflow", postgres })).toMatchObject({ postgres: { url: "postgres://localhost/workflow" } })
+    expect(() => normalizeWorkflowOptions({ provider: "openworkflow", sqlite: { path: "   " } })).toThrow(/non-empty string/)
+    expect(() => normalizeWorkflowOptions({ provider: "openworkflow", postgres: { url: "   " } })).toThrow(/non-empty string/)
+  })
+
   it("accepts runtime env declarations for OpenWorkflow SQLite storage", () => {
     const path = {
       default: "file:.data/workflow.sqlite",
@@ -82,13 +91,11 @@ describe("workflow config", () => {
     })
   })
 
-  it("infers openworkflow from node hosting with a database reference", () => {
-    expect(normalizeWorkflowOptions({
+  it.each([undefined, "openworkflow", "cloudflare", "vercel"])("rejects unsupported database references with provider %s", (provider) => {
+    expect(() => normalizeWorkflowOptions({
       database: "workflow",
-    }, { hosting: "node-server" })).toEqual({
-      database: "workflow",
-      provider: "openworkflow",
-    })
+      provider,
+    } as never, { hosting: "node-server" })).toThrow(/workflow\.database.*not supported/)
   })
 
   it("does not infer openworkflow from docker hosting without Postgres config", () => {

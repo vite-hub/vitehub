@@ -1788,11 +1788,16 @@ export function withCapabilityCleanup<T extends AsyncIterable<unknown>>(
   const iterator = stream[Symbol.asyncIterator]()
   let cleanupTask: Promise<void> | undefined
   const cleanup = (completed: boolean, outcome: CapabilityCleanupOutcome, cancelReason?: unknown) => {
+    options.abortSignal?.removeEventListener("abort", onAbort)
     cleanupTask ||= (async () => {
-      if (!completed) await options.cancelOnAbort?.(cancelReason).catch(() => {})
+      if (!completed) {
+        try {
+          await options.cancelOnAbort?.(cancelReason)
+        }
+        catch {}
+      }
       await closeCapabilityStreamIterator(iterator, completed, outcome, close)
     })()
-    options.abortSignal?.removeEventListener("abort", onAbort)
     return cleanupTask
   }
   const onAbort = () => {
@@ -1807,7 +1812,7 @@ export function withCapabilityCleanup<T extends AsyncIterable<unknown>>(
     let failed = false
     try {
       for (;;) {
-        const result = await nextWithAbort(iterator.next(), options.abortSignal, "[vitehub] Agent Invocation stream aborted.")
+        const result = await nextWithAbort(() => iterator.next(), options.abortSignal, "[vitehub] Agent Invocation stream aborted.")
         if (result.done) {
           completed = true
           break

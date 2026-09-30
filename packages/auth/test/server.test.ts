@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { defineAuth } from "../src/index.ts"
 import { createAuthRequestRuntimeOptions, createBetterAuthOptions, getAuth, getAuthForDefinition, requireAuth, requireAuthAccessRoutes, resetAuth, setAuthRuntimeEnvResolver } from "../src/server.ts"
@@ -186,6 +186,15 @@ describe("server auth helpers", () => {
   })
 
   it("requires an Auth Session and starts configured provider sign-in for HTML requests", async () => {
+    const runtime = vi.fn(() => ({
+      secret: "abcdefghijklmnopqrstuvwxyz0123456789",
+      socialProviders: {
+        github: {
+          clientId: "github-client",
+          clientSecret: "github-secret",
+        },
+      },
+    }))
     const definition = defineAuth({
       access: {
         signIn: {
@@ -195,15 +204,7 @@ describe("server auth helpers", () => {
         },
       },
       appName: "ViteHub",
-      runtime: () => ({
-        secret: "abcdefghijklmnopqrstuvwxyz0123456789",
-        socialProviders: {
-          github: {
-            clientId: "github-client",
-            clientSecret: "github-secret",
-          },
-        },
-      }),
+      runtime,
     })
 
     const response = await requireAuth(new Request("https://app.example.com/app", {
@@ -214,6 +215,7 @@ describe("server auth helpers", () => {
     expect(response?.headers.get("location")).toContain("https://github.com/login/oauth/authorize")
     expect(response?.headers.get("location")).toContain("client_id=github-client")
     expect(response?.headers.get("set-cookie")).toContain("better-auth.oauth_state=")
+    expect(runtime).toHaveBeenCalledOnce()
   })
 
   it("returns JSON unauthorized for non-HTML guarded requests", async () => {

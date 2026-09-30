@@ -23,6 +23,17 @@ afterEach(async () => {
 })
 
 describe("@vite-hub/source local file sources", () => {
+  it.each(["C:/outside/file", "C:\\outside\\file", "C:outside", "a\0b"])("rejects non-portable file path %j", (path) => {
+    expect(() => file(path)).toThrow("Source path escapes the source root")
+  })
+
+  it.each(["C:/outside", "C:\\outside", "C:outside", "a\0b"])("rejects non-portable glob cwd %j", async (cwd) => {
+    const root = await createRoot()
+
+    await expect(glob({ cwd, include: "**/*.md" }).getKeys({ rootDir: root }))
+      .rejects.toThrow("Source path escapes the source root")
+  })
+
   it("preserves relative file paths as default workspace paths", async () => {
     const root = await createRoot()
     await mkdir(join(root, "docs"), { recursive: true })

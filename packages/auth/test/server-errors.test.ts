@@ -122,6 +122,49 @@ describe("server authentication provider boundaries", () => {
     await expect(handleAuthRequest(definition, request)).rejects.toBe(providerError)
   })
 
+  it.each(["definition", "runtime"] as const)("resolves the %s callback once for an Auth request", async (kind) => {
+    const resolve = vi.fn(() => ({
+      baseURL: "https://example.com",
+      secret: "abcdefghijklmnopqrstuvwxyz0123456789",
+    }))
+    const requestDefinition = kind === "definition" ? defineAuth(resolve) : defineAuth({ runtime: resolve })
+    const response = new Response("ok")
+    providerMocks.handler.mockResolvedValue(response)
+
+    await expect(handleAuthRequest(requestDefinition, request)).resolves.toBe(response)
+
+    expect(resolve).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ request }))
+    expect(providerMocks.betterAuth).toHaveBeenCalledWith(expect.objectContaining({
+      baseURL: "https://example.com",
+      secret: "abcdefghijklmnopqrstuvwxyz0123456789",
+      trustedOrigins: ["https://example.com"],
+    }))
+  })
+
+  it("authorizes with the same configuration snapshot that authenticated the request", async () => {
+    let allowAccess = false
+    const resolve = vi.fn(() => {
+      const allowed = allowAccess
+      return {
+        access: { routes: [{ authorize: () => allowed, route: "/api/private" }] },
+        secret: "abcdefghijklmnopqrstuvwxyz0123456789",
+      }
+    })
+    providerMocks.getSession.mockImplementation(async () => {
+      allowAccess = true
+      return { session: { id: "session-1" }, user: { id: "user-1" } }
+    })
+
+    const requestDefinition = defineAuth(resolve)
+    const response = await requireAuthAccessRoutes(request, [0], requestDefinition, [0])
+
+    expect(response?.status).toBe(403)
+    expect(resolve).toHaveBeenCalledOnce()
+
+    await expect(requireAuthAccessRoutes(request, [0], requestDefinition, [0])).resolves.toBeUndefined()
+    expect(resolve).toHaveBeenCalledTimes(2)
+  })
+
   it("runs route authorization with the authenticated request context", async () => {
     let allowed = true
     const authorize = vi.fn(({ request, session, user }) => {

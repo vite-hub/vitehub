@@ -174,7 +174,7 @@ function createWorkspaceRegistryEntry(definition: DiscoveredWorkspaceDefinition,
       : []),
   ].join(", ")
   return [
-    `  ${JSON.stringify(definition.name)}: async () => {`,
+    `  [${JSON.stringify(definition.name)}]: async () => {`,
     `    const mod = await ${importExpression}`,
     definition.sourceRootDir || override ? `    return { ...mod, default: { ${defaultValue} } }` : "    return mod",
     "  },",

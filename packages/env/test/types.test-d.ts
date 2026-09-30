@@ -27,6 +27,19 @@ describe("types", () => {
     expectTypeOf(new SecretEnv("secret").unseal()).toEqualTypeOf<string>()
     // @ts-expect-error string shorthands were intentionally removed
     env("SECRET")
+    expectTypeOf(env.boolean({ default: false })).toMatchTypeOf<EnvVariableDeclaration>()
+    expectTypeOf(env.number({ default: 0.6, secret: true })).toMatchTypeOf<EnvVariableDeclaration>()
+    expectTypeOf(env.enum(["draft", "send"], { default: "draft" })).toMatchTypeOf<EnvVariableDeclaration>()
+    // @ts-expect-error typed defaults use the parsed type
+    env.boolean({ default: "false" })
+    // @ts-expect-error typed defaults use the parsed type
+    env.number({ default: "0.6" })
+    // @ts-expect-error enum defaults must be one of the declared values
+    env.enum(["draft", "send"], { default: "archive" })
+    // @ts-expect-error typed helpers own their parser
+    env.boolean({ schema: {} })
+    // @ts-expect-error enum values are public metadata, so an enum cannot be secret
+    env.enum(["draft", "send"], { secret: true })
 
     const provider = defineEnvProvider({
       async read({ env: localEnv, keys, signal }) {

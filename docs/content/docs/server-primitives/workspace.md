@@ -96,6 +96,16 @@ Without a `store`, development uses Local. Production uses Memory on Cloudflare,
 
 Custom Stores can implement `removeEmptyDirectory(path)` for build Source cleanup. It must remove only an empty directory, preserve files and missing paths, and reject nonempty directories within the Store mutation boundary. Without this optional method, cleanup retains generated directories. Local, Memory, and Cloudflare Artifacts implement it.
 
+Public Workspace paths reserve `.git` at any depth and `.vitehub` at the root, regardless of case. This includes NTFS stream suffixes such as `.vitehub::$INDEX_ALLOCATION`, spellings with trailing ASCII periods or spaces such as `.vitehub.`, and NTFS short-name aliases such as `git~1`. ViteHub rejects these spellings on every host.
+
+### Local filesystem access
+
+Local Stores reject symlinks during reads, file metadata access, writes, directory creation, and explicit listing-prefix resolution. Directory listings omit symlinks. Removing a leaf symlink unlinks the link itself; removal cannot follow a symlink in a parent directory. Empty-directory cleanup preserves symlinks.
+
+Use configured [Source Bindings](/docs/server-primitives/source) to include files from another location. Existing symlink aliases, including links into `.vitehub` metadata, are no longer accepted as Workspace paths.
+
+These checks do not isolate the host filesystem from another process that can change paths during an operation. Use operating-system permissions or a sandbox when untrusted code can write to the same filesystem. Persist the Local Store root on a volume when Workspace files must survive instance replacement.
+
 ### Cloudflare Artifacts
 
 Select Cloudflare Artifacts when a deployed Worker needs durable Workspace state:

@@ -400,6 +400,30 @@ describe("createProcessReconciler", () => {
     expect(process.listenerCount("SIGUSR2")).toBe(listeners)
   })
 
+  it("removes its signal listener after a terminal drain failure", async () => {
+    const listeners = process.listeners("SIGUSR2")
+    const failure = new Error("cleanup failed")
+    const reconciler = createProcessReconciler({
+      intervalMs: 60_000,
+      onDrained() { throw failure },
+      run() {},
+      signal: "SIGUSR2",
+    })
+
+    try {
+      await expect(reconciler.close()).rejects.toBe(failure)
+      expect(reconciler.status()).toBe("failed")
+      expect(process.listeners("SIGUSR2")).toEqual(listeners)
+      await expect(reconciler.close()).rejects.toBe(failure)
+      expect(process.listeners("SIGUSR2")).toEqual(listeners)
+    }
+    finally {
+      for (const listener of process.listeners("SIGUSR2")) {
+        if (!listeners.includes(listener)) process.off("SIGUSR2", listener)
+      }
+    }
+  })
+
   it("retains its signal listener when close rejects", async () => {
     const listeners = process.listenerCount("SIGUSR2")
     let reconciler!: ProcessReconciler

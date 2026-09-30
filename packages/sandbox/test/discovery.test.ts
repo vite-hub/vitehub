@@ -148,6 +148,6 @@ describe("discoverServerSandboxDefinitions", () => {
     expect(createRuntimeRegistryContents(registryFile, [{
       handler: sourceFile,
       name: "release-notes",
-    }])).toContain('"release-notes": async () => import(')
+    }])).toContain('["release-notes"]: async () => import(')
   })
 })

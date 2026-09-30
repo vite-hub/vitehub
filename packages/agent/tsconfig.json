@@ -11,6 +11,9 @@
       "#vitehub/agent/registry": [
         "packages/agent/src/runtime/empty-registry.ts"
       ],
+      "#vitehub/agent/provider-agent": [
+        "packages/agent/src/provider-agent.ts"
+      ],
       "#vitehub-sandbox-provider-loader": [
         "packages/sandbox/src/runtime/provider-loader.ts"
       ],

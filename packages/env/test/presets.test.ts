@@ -42,8 +42,8 @@ describe("typesafeEnv()", () => {
     const registry = createRuntimeRegistry({ typesafe: typesafeEnv() })
 
     expect(describeServerEnv(registry).entries).toEqual([
-      { path: "env.server.typesafe.apiKey", source: "env", secret: true, required: true, hasDefault: false },
-      { path: "env.server.typesafe.model", source: "env", secret: false, required: true, hasDefault: true },
+      { path: "env.server.typesafe.apiKey", source: "env", secret: true, required: true, hasDefault: false, type: "string" },
+      { path: "env.server.typesafe.model", source: "env", secret: false, required: true, hasDefault: true, type: "string" },
       { path: "env.server.typesafe.provider", source: "literal", secret: false, required: false, hasDefault: false },
     ])
   })

@@ -1,4 +1,4 @@
-import { defineChannel } from "./definition.ts"
+import { defineOutboundChannel } from "./definition.ts"
 
 import type { ChannelClient, ChannelConnectorMap, ChannelConnectorResult, ChannelDefinition, ChannelSendOptions, ChannelSendOutcome } from "./types.ts"
 import { channelsErrorDiagnostics } from "./error-diagnostics.ts"
@@ -60,7 +60,7 @@ export function createChannel<
   name: string,
   definition: ChannelDefinition<TConnectors, TDefault>,
 ): ChannelClient<TConnectors, TDefault> {
-  defineChannel(definition)
+  defineOutboundChannel(definition)
 
   return {
     name,

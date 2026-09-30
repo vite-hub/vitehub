@@ -1,10 +1,11 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { pathToFileURL } from "node:url"
 
 import { afterEach, describe, expect, it } from "vitest"
 
-import { createWorkspaceRegistryContents, discoverServerWorkspaceDefinitions, discoverViteWorkspaceDefinitions } from "../src/build/discovery.ts"
+import { createWorkspaceRegistryContents, createWorkspaceVirtualRegistryContents, discoverServerWorkspaceDefinitions, discoverViteWorkspaceDefinitions } from "../src/build/discovery.ts"
 
 const tempDirs: string[] = []
 
@@ -68,8 +69,26 @@ describe("discoverServerWorkspaceDefinitions", () => {
     await writeFile(join(root, "server", "workspaces", "docs.ts"), "export default {}\n", "utf8")
 
     const contents = createWorkspaceRegistryContents(registryFile, discoverServerWorkspaceDefinitions(root))
-    expect(contents).toContain('"docs": async () => {')
+    expect(contents).toContain('["docs"]: async () => {')
     expect(contents).toContain("const mod = await import(")
+  })
+
+  it.each(["file", "virtual"] as const)("loads a discovered __proto__ definition from the %s registry", async (kind) => {
+    const root = await createRoot()
+    const registryFile = join(root, "registry.mjs")
+    await writeFile(join(root, "server", "workspaces", "__proto__.mjs"), 'export default { label: "prototype workspace" }\n')
+    const definitions = discoverServerWorkspaceDefinitions(root)
+    expect(definitions.map(definition => definition.name)).toEqual(["__proto__"])
+    const contents = kind === "file"
+      ? createWorkspaceRegistryContents(registryFile, definitions)
+      : createWorkspaceVirtualRegistryContents(definitions)
+    await writeFile(registryFile, contents)
+
+    const { default: registry }: { default: Record<string, () => Promise<{ default: { label: string } }>> } = await import(pathToFileURL(registryFile).href)
+
+    expect(Object.keys(registry)).toEqual(["__proto__"])
+    expect(Object.getPrototypeOf(registry)).toBe(Object.prototype)
+    await expect(registry["__proto__"]!()).resolves.toMatchObject({ default: { label: "prototype workspace" } })
   })
 
   it("preserves explicit sourceRootDir values in workspace modules", async () => {

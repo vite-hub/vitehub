@@ -107,7 +107,7 @@ describe("mergeDefinitions", () => {
 })
 
 describe("createRuntimeRegistryContents", () => {
-  it.each(["queue", "realtime", "sandbox", "schedule"])("renders and executes the %s owner registry", async (owner) => {
+  it.each(["queue", "realtime", "sandbox", "schedule", "__proto__", "constructor"])("renders and executes the %s owner registry", async (owner) => {
     const root = await createTempDir(`vitehub-internal-${owner}-registry-`)
     const registryFile = join(root, ".vitehub", owner, "registry.mjs")
     const handler = join(root, "definitions", `${owner}.mjs`)
@@ -121,7 +121,7 @@ describe("createRuntimeRegistryContents", () => {
     expect(contents).toBe([
       "",
       "const registry = {",
-      `  ${JSON.stringify(owner)}: async () => import(${JSON.stringify(`../../definitions/${owner}.mjs`)}),`,
+      `  [${JSON.stringify(owner)}]: async () => import(${JSON.stringify(`../../definitions/${owner}.mjs`)}),`,
       "}",
       "",
       "export default registry",
@@ -134,6 +134,7 @@ describe("createRuntimeRegistryContents", () => {
     const generated = await import(`${pathToFileURL(registryFile).href}?owner=${owner}`)
     // SAFETY: The generated fixture above exports this exact registry contract.
     const registry = generated.default as Record<string, () => Promise<{ default: string }>>
+    expect(Object.hasOwn(registry, owner)).toBe(true)
     await expect(registry[owner]!()).resolves.toMatchObject({ default: owner })
   })
 })
@@ -151,7 +152,7 @@ describe("writeRuntimeRegistryFiles", () => {
       registryFile,
     })
 
-    await expect(readFile(registryFile, "utf8")).resolves.toContain('"welcome": async () => import("../../server/queues/welcome.ts")')
+    await expect(readFile(registryFile, "utf8")).resolves.toContain('["welcome"]: async () => import("../../server/queues/welcome.ts")')
     await expect(readFile(pluginFile, "utf8")).resolves.toContain('import registry from "./registry.mjs"')
   })
 })
@@ -166,7 +167,7 @@ describe("writeRuntimeRegistryFile", () => {
       name: "cleanup",
     }])
 
-    await expect(readFile(registryFile, "utf8")).resolves.toContain('"cleanup": async () => import("../../src/cleanup.schedule.ts")')
+    await expect(readFile(registryFile, "utf8")).resolves.toContain('["cleanup"]: async () => import("../../src/cleanup.schedule.ts")')
   })
 })
 

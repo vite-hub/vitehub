@@ -292,7 +292,7 @@ export function createRuntimeRegistryContents(registryFile: string, definitions:
   return [
     "",
     "const registry = {",
-    ...definitions.map(definition => `  ${JSON.stringify(definition.name)}: async () => ${createImportExpression(registryFile, definition.handler)},`),
+    ...definitions.map(definition => `  [${JSON.stringify(definition.name)}]: async () => ${createImportExpression(registryFile, definition.handler)},`),
     "}",
     "",
     "export default registry",

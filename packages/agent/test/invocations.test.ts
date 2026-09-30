@@ -780,11 +780,11 @@ describe("Agent Invocations", () => {
     try {
       for (const [index, store] of stores.entries()) {
         const runId = `truncated-capability-${index}`
-        const invocations = defineAgentInvocations({ observations: { maxCount: 256 }, store })
+        const invocations = defineAgentInvocations({ observations: { maxCount: 4 }, store })
         const journal = await bindAgentInvocations(invocations, runtime(runId))
         if (!journal) throw new Error("Expected the invocation journal to be configured.")
         await journal.running()
-        for (let observation = 0; observation < 256; observation++) {
+        for (let observation = 0; observation < 4; observation++) {
           await journal.context.traceLog?.append({ name: `ordinary-${observation}`, type: "run" })
         }
         await journal.context.traceLog?.append({
@@ -801,7 +801,7 @@ describe("Agent Invocations", () => {
         })
         const record = await invocations.getByRunId(runId)
         expect(record).toMatchObject({ observationsTruncated: true })
-        expect(record?.observations).toHaveLength(256)
+        expect(record?.observations).toHaveLength(4)
         expect(record?.observations.some(observation => observation.attributes?.["capability.id"] === "late-capability"))
           .toBe(false)
         await journal.finish("completed")
@@ -974,6 +974,30 @@ describe("Agent Invocations", () => {
     await expect(invocations.getByRunId("stalled-store")).resolves.toBeUndefined()
   }, 10_000)
 
+  it.each([false, true])("bounds journal readiness before lifecycle hooks, failure: %s", async (fail) => {
+    const memory = createMemoryAgentInvocationStore()
+    const invocations = defineAgentInvocations({ store: {
+      ...memory,
+      create: () => new Promise(() => {}),
+    } })
+    const finish = vi.fn()
+    const error = vi.fn()
+    const failure = new Error("driver failed")
+    const agent = defineAgent({
+      driver: { run: () => { if (fail) throw failure; return "done" } },
+      hooks: { "agent:error": error, "agent:finish": finish },
+      invocations,
+      runtime: false,
+    })
+
+    const invocation = runAgent(agent, runtime(`stalled-store-hook-${fail}`), {})
+    if (fail) await expect(invocation).rejects.toBe(failure)
+    else await expect(invocation).resolves.toBe("done")
+    const hook = fail ? error : finish
+    expect(hook).toHaveBeenCalledOnce()
+    expect(hook.mock.calls[0]?.[0].invocation).not.toHaveProperty("traceId")
+  }, 5_000)
+
   it("does not block trace appends on stalled observation writes", async () => {
     const memory = createMemoryAgentInvocationStore()
     const invocations = defineAgentInvocations({
@@ -1023,6 +1047,225 @@ describe("Agent Invocations", () => {
         }),
       ])
     })
+  })
+
+  it("redacts streamed, terminal, late, and appended observations and the stored error", async () => {
+    vi.useFakeTimers()
+    try {
+      const redact = vi.fn((observation: invocationModule.AgentInvocationRecord["observations"][number]) => {
+        if (observation.name === "agent.tool.call") return undefined
+        if (observation.attributes?.["channel.effect.content"] === "throw") throw new Error("redaction failed")
+        return { ...observation, attributes: { ...observation.attributes, "channel.effect.content": "[redacted]" } }
+      })
+      const memory = createMemoryAgentInvocationStore()
+      let observationWrites = 0
+      const invocations = defineAgentInvocations({
+        content: "content",
+        redact,
+        redactError: error => ({ message: `Agent failed: ${error.message.length} characters hidden` }),
+        store: {
+          ...memory,
+          update(id, input, claimId) {
+            // Fail the first late write so persistLateObservation retries the redacted observation.
+            if (input.observation?.attributes?.["late"] === true && observationWrites++ === 0) return undefined
+            return memory.update(id, input, claimId)
+          },
+        },
+      })
+      const journal = await bindAgentInvocations(invocations, runtime("redacted-journal"))
+      if (!journal) throw new Error("Expected the invocation journal to be configured.")
+      await journal.running()
+      await journal.context.traceLog?.append({ attributes: { "tool.input": "secret tool input" }, name: "agent.tool.call", type: "run" })
+      await journal.context.traceLog?.append({ attributes: { "channel.effect.content": "secret streamed" }, name: "agent.channel.delivery.effect", type: "run" })
+      await journal.context.traceLog?.append({ attributes: { "channel.effect.content": "throw" }, name: "agent.channel.delivery.effect", type: "run" })
+      await journal.finish("failed", new Error("secret failure"))
+      await journal.context.traceLog?.append({ attributes: { "channel.effect.content": "secret late", late: true }, name: "agent.channel.delivery.effect", type: "run" })
+      await vi.advanceTimersByTimeAsync(1_000)
+
+      const record = await invocations.getByRunId("redacted-journal")
+      if (!record) throw new Error("Expected the invocation record.")
+      expect(observationWrites).toBe(2)
+      const appended = await invocations.appendObservation(record.id, {
+        attributes: { "channel.effect.content": "secret appended" },
+        name: "agent.channel.delivery.effect",
+        type: "run",
+      }, { id: "appended" })
+      expect(await invocations.appendObservation(record.id, { name: "agent.tool.call", type: "run" }, { id: "dropped" })).toEqual(appended)
+
+      const stored = await invocations.get(record.id)
+      expect(JSON.stringify(stored)).not.toContain("secret")
+      expect(stored?.error).toEqual({ message: "Agent failed: 14 characters hidden" })
+      expect(stored?.observations.map(observation => observation.name)).toEqual([
+        "agent.channel.delivery.effect",
+        "agent.channel.delivery.effect",
+        "agent.channel.delivery.effect",
+      ])
+      expect(stored?.observations.map(observation => observation.attributes?.["channel.effect.content"])).toEqual(["[redacted]", "[redacted]", "[redacted]"])
+      expect(stored?.observations.at(-1)?.attributes?.["vitehub.observation.id"]).toBe("appended")
+      expect(redact.mock.calls.filter(([observation]) => observation.attributes?.late === true)).toHaveLength(1)
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("rewrites appended observation traces to the stored invocation trace", async () => {
+    const store = createMemoryAgentInvocationStore()
+    const timestamp = "2026-01-01T00:00:00.000Z"
+    await store.create({ id: "append-trace", observations: [], status: "completed", createdAt: timestamp, updatedAt: timestamp, traceId: "stored-trace" })
+    const invocations = defineAgentInvocations({ store })
+    await invocations.appendObservation("append-trace", {
+      name: "retry.evidence", trace: { id: "retry-trace" }, type: "run",
+    }, { id: "retry" })
+    expect((await store.get("append-trace"))?.observations[0]?.trace?.id).toBe("stored-trace")
+  })
+
+  it("reports the stored trace id on finish and error hook events", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const finish = vi.fn()
+    const error = vi.fn()
+    const agent = (fail: boolean) => defineAgent({
+      driver: { run: () => { if (fail) throw new Error("failed"); return "done" } },
+      hooks: { "agent:error": error, "agent:finish": finish },
+      invocations,
+      runtime: false,
+    })
+
+    await runAgent(agent(false), runtime("hook-trace-finish"), {})
+    await expect(runAgent(agent(true), runtime("hook-trace-error"), {})).rejects.toThrow("failed")
+
+    const finished = await invocations.getByRunId("hook-trace-finish")
+    const failed = await invocations.getByRunId("hook-trace-error")
+    expect(finish.mock.calls[0]?.[0].invocation.traceId).toBe(finished?.traceId)
+    expect(error.mock.calls[0]?.[0].invocation.traceId).toBe(failed?.traceId)
+    expect(finished?.traceId).toMatch(/^sha256_/)
+  })
+
+  it("reuses the stored trace id for duplicate invocation observations", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const first = await bindAgentInvocations(invocations, {
+      ...runtime("duplicate-trace"), trace: { id: "first-trace" },
+    }, { agentName: "duplicate-agent", deferClaim: true })
+    const retry = await bindAgentInvocations(invocations, {
+      ...runtime("duplicate-trace"), trace: { id: "retry-trace" },
+    }, { agentName: "duplicate-agent" })
+    if (!first || !retry) throw new Error("Expected invocation journals.")
+
+    expect(retry.traceId).toBe(first.traceId)
+    await retry.running()
+    await retry.context.traceLog?.append({ name: "agent.tool.call", trace: { id: "retry-trace" }, type: "run" })
+    await retry.finish("completed")
+
+    const record = await invocations.getByRunId("duplicate-trace", "duplicate-agent")
+    expect(record?.traceId).toBe(first.traceId)
+    expect(record?.observations.length).toBeGreaterThan(0)
+    expect(record?.observations.every(observation => observation.trace?.id === first.traceId)).toBe(true)
+  })
+
+  it("adopts a duplicate record's trace id when creation resolves after the timeout", async () => {
+    const memory = createMemoryAgentInvocationStore()
+    const context = { ...runtime("late-duplicate-trace"), trace: { id: "first-trace" } }
+    const first = await bindAgentInvocations(defineAgentInvocations({ store: memory }), context, { deferClaim: true })
+    let releaseCreate!: () => void
+    const createGate = new Promise<void>((resolve) => { releaseCreate = resolve })
+    const invocations = defineAgentInvocations({ store: {
+      ...memory,
+      async create(input) {
+        await createGate
+        return memory.create(input)
+      },
+    } })
+    const retry = await bindAgentInvocations(invocations, { ...context, trace: { id: "retry-trace" } }, { deferClaim: true })
+    if (!first || !retry) throw new Error("Expected invocation journals.")
+    expect(retry.traceId).toBeUndefined()
+
+    releaseCreate()
+    await retry.ready()
+    expect(retry.traceId).toBe(first.traceId)
+    await retry.running()
+    await retry.context.traceLog?.append({ name: "agent.tool.call", trace: { id: "retry-trace" }, type: "run" })
+    await retry.finish("completed")
+
+    const record = await invocations.getByRunId("late-duplicate-trace")
+    expect(record?.observations[0]?.trace?.id).toBe(first.traceId)
+  })
+
+  it.each([false, true])("omits hook trace identity when duplicate creation resolves after readiness, failure: %s", async (fail) => {
+    const memory = createMemoryAgentInvocationStore()
+    const context = { ...runtime(`late-duplicate-hook-${fail}`), trace: { id: "first-trace" } }
+    const first = await bindAgentInvocations(defineAgentInvocations({ store: memory }), context, { deferClaim: true })
+    if (!first) throw new Error("Expected invocation journal.")
+    let releaseCreate!: () => void
+    const createGate = new Promise<void>((resolve) => { releaseCreate = resolve })
+    let resolveCreate!: () => void
+    const created = new Promise<void>((resolve) => { resolveCreate = resolve })
+    const invocations = defineAgentInvocations({ store: {
+      ...memory,
+      async create(input) {
+        await createGate
+        const result = await memory.create(input)
+        resolveCreate()
+        return result
+      },
+    } })
+    const finish = vi.fn()
+    const error = vi.fn()
+    const failure = new Error("driver failed")
+    const agent = defineAgent({
+      driver: { run: () => { if (fail) throw failure; return "done" } },
+      hooks: { "agent:error": error, "agent:finish": finish },
+      invocations,
+      runtime: false,
+    })
+
+    const invocation = runAgent(agent, { ...context, trace: { id: "retry-trace" } }, {})
+    try {
+      if (fail) await expect(invocation).rejects.toBe(failure)
+      else await expect(invocation).resolves.toBe("done")
+      const hook = fail ? error : finish
+      expect(hook).toHaveBeenCalledOnce()
+      expect(hook.mock.calls[0]?.[0].invocation).not.toHaveProperty("traceId")
+
+      releaseCreate()
+      await created
+      expect((await invocations.getByRunId(context.run.runId))?.traceId).toBe(first.traceId)
+      expect(hook.mock.calls[0]?.[0].invocation).not.toHaveProperty("traceId")
+    }
+    finally {
+      releaseCreate()
+    }
+  }, 5_000)
+
+  it.each([false, true])("reuses the stored trace id on duplicate invocation hooks, failure: %s", async (fail) => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const finish = vi.fn()
+    const error = vi.fn()
+    const agent = defineAgent({
+      driver: { run: () => { if (fail) throw new Error("failed"); return "done" } },
+      hooks: { "agent:error": error, "agent:finish": finish },
+      invocations,
+      runtime: false,
+    })
+    const invoke = async (traceId: string) => {
+      const result = runAgent(agent, { ...runtime("duplicate-hook-trace"), trace: { id: traceId } }, {})
+      if (fail) await expect(result).rejects.toThrow("failed")
+      else await result
+    }
+
+    await invoke("first-trace")
+    await invoke("retry-trace")
+
+    const record = await invocations.getByRunId("duplicate-hook-trace")
+    const hook = fail ? error : finish
+    expect(hook).toHaveBeenCalledTimes(2)
+    expect(hook.mock.calls[1]?.[0].invocation.traceId).toBe(record?.traceId)
+    expect(hook.mock.calls[1]?.[0].invocation.traceId).toBe(hook.mock.calls[0]?.[0].invocation.traceId)
+  })
+
+  it("rejects redaction hooks that are not functions", () => {
+    const store = createMemoryAgentInvocationStore()
+    expect(() => defineAgentInvocations({ redact: "all" as never, store })).toThrow("redact must be a function")
+    expect(() => defineAgentInvocations({ redactError: true as never, store })).toThrow("redactError must be a function")
   })
 
   it("retries late delivery observations after a transient store failure", async () => {
@@ -2605,7 +2848,7 @@ describe("Agent Invocations", () => {
     }
   })
 
-  it("does not duplicate a delivery committed before a terminal update returns", async () => {
+  it.each([false, true])("does not duplicate a delivery committed before a terminal update returns with attribute replacement %s", async (replaceAttributes) => {
     vi.useFakeTimers()
     try {
       const memory = createMemoryAgentInvocationStore()
@@ -2615,6 +2858,7 @@ describe("Agent Invocations", () => {
       const recoveryTasks: Array<Promise<unknown>> = []
       const invocations = defineAgentInvocations({
         content: "content",
+        redact: replaceAttributes ? observation => ({ ...observation, attributes: { "channel.effect.content": "Safe reply" } }) : undefined,
         store: {
           ...memory,
           async update(id, input, claimId) {
@@ -2652,6 +2896,11 @@ describe("Agent Invocations", () => {
       const record = await invocations.getByRunId("terminal-delivery-ambiguous-success")
       expect(record?.observations.filter(observation => observation.name === "agent.channel.delivery.effect")).toHaveLength(1)
       expect(deliveryUpdates).toBe(2)
+      if (replaceAttributes) {
+        const observation = record?.observations.find(observation => observation.name === "agent.channel.delivery.effect")
+        expect(observation?.attributes?.["vitehub.observation.id"]).toEqual(expect.any(String))
+        expect(observation?.attributes?.["channel.effect.content"]).toBe("Safe reply")
+      }
     }
     finally {
       vi.useRealTimers()

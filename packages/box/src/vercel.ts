@@ -245,9 +245,9 @@ function createVercelSession(
     ...(ports?.length ? { ports } : {}),
     async destroy() {
       if (destroyed) return;
-      destroyed = true;
       if (instance.stop) await instance.stop({ blocking: true });
       else await instance[Symbol.asyncDispose]?.();
+      destroyed = true;
     },
     async existsFile({ abortSignal, path }) {
       abortSignal?.throwIfAborted();

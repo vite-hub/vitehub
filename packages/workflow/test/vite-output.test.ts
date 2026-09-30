@@ -1244,7 +1244,7 @@ describe("Vite workflow provider outputs", () => {
     expect(registry).toContain("runAgentWorkflowDefinition")
     expect(registry).toContain("options: { rootStep: false }")
     expect(registry).toContain('agentIdentity: context.payload?.agentIdentity || { name: "nuxt" }')
-    expect(registry).toContain(`${JSON.stringify(agentRecoveryName)}: Object.assign(async () => {`)
+    expect(registry).toContain(`[${JSON.stringify(agentRecoveryName)}]: Object.assign(async () => {`)
     expect(registry).toContain("{ internalAgentInvocationRecovery: true })")
     expect(registry).toContain("workspaceAgentWithSourceRoot")
     expect(registry).toContain("agentWithColocatedSkills")

@@ -4,7 +4,9 @@ import { resolve } from "node:path"
 import { promisify } from "node:util"
 
 import { parseSchema } from "../schema.ts"
-import { defaultStringSchema, isDefaultStringEnvVariable } from "./declarations.ts"
+import { runtimeValueSchema } from "./declarations.ts"
+import { envValueTypeName, parseEnvValue } from "./values.ts"
+import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { isViteHubError } from "@vite-hub/runtime"
 import { envSourceFailed, invalidEnvDeclaration, isAbortError, missingRequiredEnv } from "./errors.ts"
 
@@ -18,6 +20,7 @@ import type {
   EnvRuntimeRegistry,
   EnvSource,
   EnvSourceContext,
+  EnvValueSchema,
   EnvVariableDeclaration,
   EnvViteConfigOptions,
   ResolvedEnvEntry,
@@ -129,10 +132,11 @@ export async function resolveEnvEntries(
   const diagnostics: EnvDiagnosticEntry[] = []
 
   for (const [key, declaration] of Object.entries(declarations || {})) {
+    const defaultValue = parseDeclarationDefault(declaration, `${input.section}.${key}`)
     const source = resolveEnvSource(declaration, `${input.section}.${key}`, input.prefix)
     const resolvedSource = await resolveSourceValue(source, input.context)
     const defaulted = typeof resolvedSource.value === "undefined"
-    const valueForSchema = defaulted ? declaration.default : resolvedSource.value
+    const valueForSchema = defaulted ? defaultValue : resolvedSource.value
     if (typeof valueForSchema === "undefined") {
       if (declaration.required) {
         const path = `${input.section}.${key}`
@@ -197,10 +201,11 @@ async function resolveBuildConfigValue(
   },
 ): Promise<{ diagnostics: EnvDiagnosticEntry[], value: unknown }> {
   if (isEnvVariableDeclaration(declaration)) {
+    const defaultValue = parseDeclarationDefault(declaration, path)
     const source = resolveEnvSource(declaration, path, input.prefix)
     const resolvedSource = await resolveSourceValue(source, input.context)
     const defaulted = typeof resolvedSource.value === "undefined"
-    const valueForSchema = defaulted ? declaration.default : resolvedSource.value
+    const valueForSchema = defaulted ? defaultValue : resolvedSource.value
     if (typeof valueForSchema === "undefined") {
       if (declaration.required) {
         throw missingRequiredEnv(source.kind === "custom" ? "custom" : source.label, `Missing ${path} from ${source.label}.`, path)
@@ -256,6 +261,13 @@ async function resolveBuildConfigValue(
   return { diagnostics, value }
 }
 
+function parseDeclarationDefault(declaration: EnvVariableDeclaration, path: string): unknown {
+  const schema = runtimeValueSchema(declaration)
+  return schema && declaration.default !== undefined
+    ? parseRuntimeDefault(schema, declaration.default, path)
+    : declaration.default
+}
+
 function buildRegistry(declarations: EnvRuntimeConfigOptions | undefined, path: string, prefix?: string): EnvRuntimeRegistry {
   if (typeof declarations === "undefined") {
     return {}
@@ -281,23 +293,37 @@ function buildRegistry(declarations: EnvRuntimeConfigOptions | undefined, path: 
     if (source.kind !== "env" && source.kind !== "provider") {
       throw invalidEnvDeclaration(valuePath, `Runtime declaration ${valuePath} must use env.source() or env.provider().`)
     }
-    if (!isDefaultStringEnvVariable(value)) {
-      throw invalidEnvDeclaration(valuePath, `Runtime declaration ${valuePath} uses a custom schema, but runtime schemas cannot be serialized in v1.`)
+    const schema = runtimeValueSchema(value)
+    if (!schema) {
+      throw invalidEnvDeclaration(valuePath, `Runtime declaration ${valuePath} uses a custom schema. Server Env accepts env(), env.boolean(), env.number(), and env.enum() because runtime parsers must be serializable.`)
     }
-    if (value.type && value.type !== "string") {
-      throw invalidEnvDeclaration(valuePath, `Runtime declaration ${valuePath} uses type ${JSON.stringify(value.type)}, but runtime values are strings in v1.`)
+    if (schema.kind === "enum" && value.secret) {
+      throw invalidEnvDeclaration(valuePath, `Runtime declaration ${valuePath} cannot be a secret enum: generated types, the Console, and errors show its allowed values. Use env({ secret: true }) and check the value in server code.`)
+    }
+    const type = envValueTypeName(schema)
+    if (value.type && value.type !== type) {
+      throw invalidEnvDeclaration(valuePath, `Runtime declaration ${valuePath} uses type ${JSON.stringify(value.type)}, but its parser produces ${type}. Use env.boolean(), env.number(), or env.enum() to parse other types.`)
     }
     return [key, {
       default: typeof value.default === "undefined"
         ? undefined
-        : parseSchema(defaultStringSchema, value.default, valuePath),
+        : parseRuntimeDefault(schema, value.default, valuePath),
       required: value.required,
-      schema: { kind: "string" },
+      schema,
       secret: value.secret,
       source,
-      type: value.type,
     }]
   }))
+}
+
+// Defaults use the parsed type. Only host and provider values are parsed from strings.
+function parseRuntimeDefault(schema: EnvValueSchema, value: unknown, path: string): unknown {
+  const typed = schema.kind === "boolean" || schema.kind === "number" ? hasRuntimeType(value, schema.kind) : true
+  const result = typed ? parseEnvValue(schema, value) : { message: `Expected a ${schema.kind} default.`, success: false as const }
+  if (!result.success) {
+    throw envErrorDiagnostics.ENV_R0023({ message: `[vitehub] Invalid default for ${path}: ${result.message}` })
+  }
+  return result.data
 }
 
 export function resolveEnvSource(declaration: EnvVariableDeclaration, path: string, prefix = ""): EnvSource {

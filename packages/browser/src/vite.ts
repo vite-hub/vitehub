@@ -155,7 +155,7 @@ export function hubBrowser(options?: BrowserModuleOptions | false): BrowserViteP
     return [
       "const registry = {",
       ...definitions.map(definition =>
-        `  ${JSON.stringify(definition.name)}: async () => import(${JSON.stringify(definition.handler)}),`
+        `  [${JSON.stringify(definition.name)}]: async () => import(${JSON.stringify(definition.handler)}),`
       ),
       "}",
       "",

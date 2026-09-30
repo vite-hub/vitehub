@@ -179,11 +179,14 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
 
   if (path === "/api/_vitehub/console/env") {
     json(response, { entries: [
-      { path: "env.server.github.token", source: "provider", provider: "personal-vault", secret: true, required: true, hasDefault: false },
-      { path: "env.server.openai.apiKey", source: "provider", provider: "personal-vault", secret: true, required: true, hasDefault: false },
-      { path: "env.server.codex.auth", source: "provider", provider: "personal-vault", secret: true, required: true, hasDefault: false },
-      { path: "env.server.webhookSecret", source: "env", secret: true, required: true, hasDefault: false },
-      { path: "env.server.logLevel", source: "env", secret: false, required: false, hasDefault: true },
+      { path: "env.server.github.token", source: "provider", provider: "personal-vault", secret: true, required: true, hasDefault: false, type: "string" },
+      { path: "env.server.openai.apiKey", source: "provider", provider: "personal-vault", secret: true, required: true, hasDefault: false, type: "string" },
+      { path: "env.server.codex.auth", source: "provider", provider: "personal-vault", secret: true, required: true, hasDefault: false, type: "string" },
+      { path: "env.server.webhookSecret", source: "env", secret: true, required: true, hasDefault: false, type: "string" },
+      { path: "env.server.logLevel", source: "env", secret: false, required: false, hasDefault: true, type: '"debug" | "info" | "warn"' },
+      { path: "env.server.labeller.dryRun", source: "env", secret: false, required: true, hasDefault: true, type: "boolean" },
+      { path: "env.server.labeller.minConfidence", source: "env", secret: false, required: true, hasDefault: true, type: "number" },
+      { path: "env.server.appName", source: "literal", secret: false, required: false, hasDefault: false },
     ] })
     return true
   }

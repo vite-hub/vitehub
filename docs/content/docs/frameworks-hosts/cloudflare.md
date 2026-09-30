@@ -59,6 +59,8 @@ export default defineDatabase({
 
 The Nuxt-only `database.driver: 'd1'` option configures one Nuxt Content and Nitro host resource; it is not a Vite Database Definition shortcut.
 
+When the Console is enabled with Agents, a Cloudflare build stores the Console invocation journal in this D1 binding. The journal creates its `vitehub_agent_invocations` table on first use. See [Cloudflare journal](/docs/development/console#cloudflare-journal).
+
 ## Provision boundary
 
 Provision exposes a dry-run plan before it applies changes. A successful apply writes non-secret ids into `.vitehub/provision.json`; secrets remain in environment variables or provider env stores.
@@ -164,6 +166,10 @@ Cloudflare Provider Output can require real Worker bindings such as D1, R2, KV, 
 ::
 
 Agent Definitions run on Cloudflare through generated host output where the Agent integration owns the route. Keep model keys, Durable Object state bindings, and other Runtime Env in Worker bindings.
+
+### Console on Workers
+
+Cloudflare can send consecutive requests from one browser to different Worker instances. The [Console](/docs/development/console) sends each operation as one stateless `POST /_vitehub/rpc/__call` request, so it does not need session affinity or in-memory state. With `access: 'auth'`, the access policy checks the session cookie on each call. Agent invocations started from the Console pass background work to the Worker's `waitUntil`. Configure a durable hosted invocation journal, as the [Console guide](/docs/development/console) describes.
 
 ## Next steps
 

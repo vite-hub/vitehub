@@ -122,6 +122,11 @@ function hasCanonicalFrozenProperties(value: unknown, keys: readonly string[]): 
 export type RuntimeWaitUntil = (task: Promise<unknown>) => void
 
 export interface RuntimeWaitUntilController {
+  /**
+   * Drain registered work, including tasks added during the flush.
+   * Call from the operation owner. A registered task must not await its own
+   * controller's flush, because the flush waits for that task to finish.
+   */
   flushWaitUntil(): Promise<void>
   waitUntil: RuntimeWaitUntil
 }
@@ -249,6 +254,7 @@ export interface RuntimeHostContext<TRuntimeConfig = Record<string, unknown>> {
   vercel?: {
     waitUntil?: RuntimeWaitUntil
   }
+  /** Drain from the operation owner, never from work registered with this context. */
   flushWaitUntil?: () => Promise<void>
   waitUntil: RuntimeWaitUntil
 }
@@ -1201,23 +1207,32 @@ export function createRuntimeWaitUntilController(options: {
   forward?: RuntimeWaitUntil
 } = {}): RuntimeWaitUntilController {
   const pending: Promise<unknown>[] = []
+  let flushing: Promise<void> | undefined
   return {
-    async flushWaitUntil() {
-      let error: unknown
-      let failed = false
-      while (pending.length > 0) {
-        await Promise.all(pending.splice(0).map(async task => {
-          try {
-            await task
+    flushWaitUntil() {
+      flushing ??= Promise.resolve().then(async () => {
+        try {
+          let error: unknown
+          let failed = false
+          while (pending.length > 0) {
+            await Promise.all(pending.splice(0).map(async task => {
+              try {
+                await task
+              }
+              catch (reason) {
+                if (failed) return
+                error = reason
+                failed = true
+              }
+            }))
           }
-          catch (reason) {
-            if (failed) return
-            error = reason
-            failed = true
-          }
-        }))
-      }
-      if (failed) throw error
+          if (failed) throw error
+        }
+        finally {
+          flushing = undefined
+        }
+      })
+      return flushing
     },
     waitUntil(task) {
       // Observe rejection now. The original task stays queued so flushWaitUntil can report it.
@@ -1238,14 +1253,14 @@ function isCapabilityHandle(value: unknown): value is CapabilityHandle {
 }
 
 export function hasCapability(context: RuntimeHostContext, name: string): boolean {
-  return !!context.capabilities && name in context.capabilities
+  return !!context.capabilities && Object.hasOwn(context.capabilities, name)
 }
 
 export function getCapability(
   context: RuntimeHostContext<any>,
   name: string,
 ): CapabilityHandle {
-  const value = context.capabilities?.[name]
+  const value = hasCapability(context, name) ? context.capabilities?.[name] : undefined
   if (value === undefined) {
     throw new ViteHubError("CAPABILITY_NOT_FOUND", `[vitehub:runtime] Capability "${name}" was not found.`, {
       details: { capability: name },

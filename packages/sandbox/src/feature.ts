@@ -151,7 +151,7 @@ function createSandboxRegistryContents(
     '',
     `const registry = createGeneratedSandboxRuntimeRegistry(${JSON.stringify(scopeSpecifier)}, {`,
     ...definitions.map(definition => [
-      `  ${JSON.stringify(definition.name)}: {`,
+      `  [${JSON.stringify(definition.name)}]: {`,
       `    load: async () => import(${JSON.stringify(createImportPath(file, definition.definitionModulePath))}),`,
       `    stablePath: ${JSON.stringify(createFileImportSpecifier(definition.stableDefinitionModulePath))},`,
       '  },',

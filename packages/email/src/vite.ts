@@ -102,7 +102,7 @@ function renderResolvedOptions(value: unknown, reference: string): string {
   if (isRuntimeEnvEntry(value)) return value.secret ? `${reference}?.unseal()` : reference
   if (!isRecord(value) || value.kind === "literal") return reference
   return `{ ${Object.entries(value).map(([key, child]) =>
-    `${JSON.stringify(key)}: ${renderResolvedOptions(child, `${reference}[${JSON.stringify(key)}]`)}`
+    `[${JSON.stringify(key)}]: ${renderResolvedOptions(child, `${reference}[${JSON.stringify(key)}]`)}`
   ).join(", ")} }`
 }
 
@@ -148,7 +148,7 @@ function renderConfiguredEmailDefinitionModule(
     ...(cloudflare ? ["import { env as vitehubEmailEnv } from \"cloudflare:workers\""] : []),
     ...(cloudflareEmail ? ["import { EmailMessage } from \"cloudflare:email\""] : []),
     "",
-    `const registry = ${JSON.stringify(definition.options, null, 2)}`,
+    `const registry = JSON.parse(${JSON.stringify(JSON.stringify(definition.options))})`,
     "export const definition = {",
     "  driver: () => {",
     `    const options = resolveServerEnv(registry${cloudflare ? ", { env: vitehubEmailEnv }" : ""})`,

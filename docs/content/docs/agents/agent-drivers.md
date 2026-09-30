@@ -151,6 +151,12 @@ Threads resume with the provider's opaque cursor. ViteHub normalizes assistant t
 
 Provider Drivers do not accept Agent Boxes, model-specific Provider Tool contributions, Cloudflare Agents, or Deno. Provider Workspaces are also unsupported on Windows. These boundaries fail explicitly. Workspace-scoped Skills and ordinary Capability tools are supported.
 
+### Cloudflare Workers
+
+Provider Drivers start local Codex or Claude Code processes, so they cannot run in a Cloudflare Worker. Worker builds exclude the provider Driver runtime and `@t3tools/provider-runtime`: `@vite-hub/agent` resolves its provider module to a Worker module through the `workerd` and `worker` package conditions. Apps that use only `{ model }` or `{ run }` Drivers do not bundle Node-only provider code.
+
+A Worker build fails with `AGENT_B0019` when a server module selects a provider Driver with `driver: 'codex'`, `driver: 'claude-code'`, `{ kind: 'codex' }`, `codexDriver()`, `claudeCodeDriver()`, or a first-party preset that uses Codex. The same check covers a provider Driver passed to the `title()` or `progressSummary()` Capability, including imported aliases and namespace calls. ViteHub checks parsed module syntax, so it ignores comments, strings, regular expressions, type-only imports, and unrelated objects. Computed or indirect selections are not resolved and fail at invocation time with `AGENT_R0928`. Deploy Agents that use provider Drivers to a Node.js host.
+
 ## Adaptive process capacity
 
 Self-hosted Node applications can admit new work according to current machine pressure instead of relying on a fixed schedule. Keep one shared capacity object in an application module and reuse it across the Agent Definitions that compete for the same host resources:

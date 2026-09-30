@@ -177,7 +177,7 @@ describe("Vite schedule integration", () => {
     expect(moduleSource).not.toContain(": Nitro")
     expect(moduleSource).not.toContain(": void")
     expect(moduleSource).not.toContain("cron is string")
-    await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "provider-registry.js"), "utf8")).resolves.toContain("\"mirror\": async () => import(")
+    await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "provider-registry.js"), "utf8")).resolves.toContain("[\"mirror\"]: async () => import(")
     await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "provider-registry.d.ts"), "utf8")).resolves.toContain("ScheduleRegistryDefinition")
   })
 
@@ -736,8 +736,8 @@ describe("Vite schedule integration", () => {
     await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "module.mjs"), "utf8")).resolves.toContain("\"0 4 * * *\"")
     await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "module.mjs"), "utf8")).resolves.not.toContain("\"0 0 * * *\"")
     await expect(readFile(join(appRoot, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8")).rejects.toThrow()
-    expect(registry).toContain("\"cleanup\": async () => import(")
-    expect(registry).toContain("\"sync\": async () => import(")
+    expect(registry).toContain("[\"cleanup\"]: async () => import(")
+    expect(registry).toContain("[\"sync\"]: async () => import(")
     expect(registry).toContain("../../app/src/cleanup.schedule.ts")
     expect(registry).toContain("../../server/schedules/sync.ts")
   })
@@ -1031,8 +1031,8 @@ describe("Vite schedule integration", () => {
     const registry = await loadScheduleRegistry(plugin)
 
     expect(resolveScheduleRegistry(plugin)).toBe("\0#vitehub/schedule/registry")
-    expect(registry).toContain("\"cleanup\": async () => import(")
-    expect(registry).toContain("\"reports\": async () => import(")
+    expect(registry).toContain("[\"cleanup\"]: async () => import(")
+    expect(registry).toContain("[\"reports\"]: async () => import(")
     expect(registry).toContain("../../src/cleanup.schedule.ts")
   })
 
@@ -1045,7 +1045,7 @@ describe("Vite schedule integration", () => {
     await resolvePluginConfig(plugin, root)
     const registry = await loadScheduleRegistry(plugin)
 
-    expect(registry).toContain("\"sync\": async () => import(")
+    expect(registry).toContain("[\"sync\"]: async () => import(")
     expect(registry).toContain("../../server/schedules/sync.ts")
   })
 

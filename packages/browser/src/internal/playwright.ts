@@ -40,14 +40,16 @@ export async function attachPlaywrightBrowser(
     const context = preferred?.context || contexts.find(value => value.pages().length > 0) || contexts[0] || await browser.newContext()
     const page = preferred?.page || context.pages()[0] || await context.newPage()
     connection.preferredTargetId ||= await targetId(context, page)
-    let released = false
+    let releasePromise: Promise<void> | undefined
     return {
       client: { browser, context, page },
       preservesSessionOnRelease: false,
-      async release() {
-        if (released) return
-        released = true
-        await browser.close()
+      release() {
+        releasePromise ??= Promise.resolve().then(() => browser.close()).catch((error) => {
+          releasePromise = undefined
+          throw error
+        })
+        return releasePromise
       },
     }
   }

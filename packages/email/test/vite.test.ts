@@ -1,9 +1,10 @@
 import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join, posix } from "node:path"
-import { pathToFileURL } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { env } from "@vite-hub/env"
+import * as esbuild from "@vite-hub/internal/build/esbuild"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { createServer } from "vite"
 
@@ -110,6 +111,57 @@ describe("hubEmail", () => {
     expect(source).toContain("RESEND_API_KEY")
     expect(source).toContain("options[\"apiKey\"]?.unseal()")
     expect(source).not.toContain(secret)
+  })
+
+  it("preserves prototype-named options in the executable Email definition", async () => {
+    const root = await createTempProject()
+    const driver = join(root, "capture-driver.mjs")
+    await writeFile(driver, "export default options => options\n")
+    vi.stubEnv("EMAIL_PROTOTYPE_SECRET", "prototype-secret")
+    const plugin = hubEmail({
+      driver: "resend",
+      options: {
+        ["__proto__"]: env({ secret: true, source: env.source("EMAIL_PROTOTYPE_SECRET") }),
+        constructor: "own constructor",
+        toString: "own toString",
+        nested: {
+          ["__proto__"]: { marker: "nested prototype" },
+          constructor: "nested constructor",
+          toString: "nested toString",
+        },
+      },
+    })
+    const bundle = esbuild.bundleEsmEntry
+    const bundler = vi.spyOn(esbuild, "bundleEsmEntry").mockImplementationOnce((entry, output, options) =>
+      bundle(entry, output, {
+        ...options,
+        alias: { [fileURLToPath(new URL("../src/drivers/resend.ts", import.meta.url))]: driver },
+      }),
+    )
+    try {
+      await resolvePlugin(plugin, root)
+    }
+    finally {
+      bundler.mockRestore()
+    }
+
+    const definition = plugin.api.getDefinition()!
+    // SAFETY: the test driver returns the options supplied by the generated definition.
+    const module = await import(pathToFileURL(definition.handler).href) as {
+      default: { driver: () => Record<string, unknown> & { nested: Record<string, unknown> } }
+    }
+    const options = module.default.driver()
+    expect(Object.hasOwn(options, "__proto__")).toBe(true)
+    expect(options["__proto__"]).toBe("prototype-secret")
+    expect(options.constructor).toBe("own constructor")
+    expect(options.toString).toBe("own toString")
+    expect(Object.getPrototypeOf(options)).toBe(Object.prototype)
+    expect(Object.hasOwn(options.nested, "__proto__")).toBe(true)
+    expect(options.nested["__proto__"]).toEqual({ marker: "nested prototype" })
+    expect(options.nested.constructor).toBe("nested constructor")
+    expect(options.nested.toString).toBe("nested toString")
+    expect(Object.getPrototypeOf(options.nested)).toBe(Object.prototype)
+    expect(await loadConfiguredDefinition(plugin)).not.toContain("prototype-secret")
   })
 
   it("reads Cloudflare Email credentials from the current runtime binding", async () => {
@@ -482,7 +534,10 @@ describe("hubEmail", () => {
     handlers.get("change")?.(template)
     handlers.get("change")?.(template)
 
-    await vi.waitFor(() => expect(send).toHaveBeenCalledOnce())
+    await vi.waitFor(() => {
+      expect(logError).not.toHaveBeenCalled()
+      expect(send).toHaveBeenCalledOnce()
+    }, { timeout: 5_000 })
     expect(invalidateModule).toHaveBeenCalledWith(generatedModule)
     expect(await readFile(join(root, ".vitehub", "email", "templates", "monthly-recap.mjs"), "utf8"))
       .toContain("Updated footer")
@@ -491,14 +546,17 @@ describe("hubEmail", () => {
     handlers.get("change")?.(template)
     handlers.get("change")?.(template)
 
-    await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(2))
+    await vi.waitFor(() => {
+      expect(logError).not.toHaveBeenCalled()
+      expect(send).toHaveBeenCalledTimes(2)
+    }, { timeout: 5_000 })
     expect(logError).not.toHaveBeenCalled()
     expect(addWatchPaths).not.toHaveBeenCalledWith(expect.arrayContaining([
       join(root, "server", "shared", "missing.md"),
     ]))
     expect(await readFile(join(root, ".vitehub", "email", "templates", "monthly-recap.mjs"), "utf8"))
       .toContain("@../shared/missing.md")
-  })
+  }, 15_000)
 
   it("uses the development Nitro preset instead of the deployment target", async () => {
     const root = await createTempProject()

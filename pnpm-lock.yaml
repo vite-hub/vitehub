@@ -200,9 +200,6 @@ catalogs:
     '@valibot/to-json-schema':
       specifier: ^1.7.1
       version: 1.7.1
-    devframe:
-      specifier: 0.9.12
-      version: 0.9.12
     nostics:
       specifier: 1.2.0
       version: 1.2.0
@@ -1339,12 +1336,12 @@ importers:
       nostics:
         specifier: catalog:runtime
         version: 1.2.0
-      vite:
-        specifier: npm:@voidzero-dev/vite-plus-core@0.3.1
-        version: '@voidzero-dev/vite-plus-core@0.3.1(@types/node@26.4.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.24)(terser@5.51.2)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0)'
       valibot:
         specifier: catalog:runtime
         version: 1.4.2(typescript@6.0.3)
+      vite:
+        specifier: npm:@voidzero-dev/vite-plus-core@0.3.1
+        version: '@voidzero-dev/vite-plus-core@0.3.1(@types/node@26.4.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.24)(terser@5.51.2)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0)'
     devDependencies:
       '@libsql/client':
         specifier: catalog:database
@@ -2246,9 +2243,6 @@ importers:
       comark-content:
         specifier: catalog:markdown
         version: 0.4.0(@azure/identity@4.13.2)(@azure/storage-blob@12.33.0)(@netlify/blobs@10.7.5)(@upstash/redis@1.38.3)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.9.5(@aws-sdk/credential-provider-web-identity@3.972.49)(ws@8.21.3))(aws4fetch@1.0.20)(db0@0.4.1)(ioredis@5.11.1)(katex@0.17.0)(shiki@4.4.3)(uploadthing@7.7.4(express@5.2.1)(fastify@5.10.0)(h3@2.0.1-rc.31(crossws@0.4.12(srvx@1.0.3))(ocache@0.3.0))(tailwindcss@4.3.3))
-      devframe:
-        specifier: catalog:runtime
-        version: 0.9.12(@modelcontextprotocol/client@2.0.0)(cac@7.0.0)(ocache@0.3.0)(srvx@1.0.3)
       drizzle-kit:
         specifier: catalog:database
         version: 0.31.10
@@ -2550,7 +2544,7 @@ importers:
     dependencies:
       '@nuxt/ui':
         specifier: catalog:nuxt
-        version: 4.11.0(9c77a22536004603d93831fa0cea0ae3)
+        version: 4.11.0(c97083d0e76bf8a184617d71715dc7d8)
       '@vite-hub/ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -2567,12 +2561,6 @@ importers:
       '@vitejs/plugin-vue':
         specifier: ^6.0.8
         version: 6.0.8(@voidzero-dev/vite-plus-core@0.3.1(@types/node@26.4.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.24)(terser@5.51.2)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0))(vue@3.5.40(typescript@6.0.3))
-      devframe:
-        specifier: catalog:runtime
-        version: 0.9.12(@modelcontextprotocol/client@2.0.0)(cac@7.0.0)(ocache@0.3.0)(srvx@1.0.3)
-      h3:
-        specifier: catalog:unjs
-        version: 2.0.1-rc.31(crossws@0.4.12(srvx@1.0.3))(ocache@0.3.0)
       vite:
         specifier: npm:@voidzero-dev/vite-plus-core@0.3.1
         version: '@voidzero-dev/vite-plus-core@0.3.1(@types/node@26.4.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.24)(terser@5.51.2)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0)'
@@ -10727,18 +10715,6 @@ packages:
 
   devalue@5.9.1:
     resolution: {integrity: sha512-+17vil3EVQRzvtDJSFuTWEb8XJRvXqAiV3qZyQWD398QeXUa6CxsUyMdD1fxzEhUrd4FojitFz7lhIHBTlV4fw==}
-
-  devframe@0.9.12:
-    resolution: {integrity: sha512-WXwohwmTPVesEQYDAIh41rZYry6BRsufEyr8f5EAPXKi3SYchAYVJJV5qjBv4jRtouyRh7Z96zfZiSE0YEfQaA==}
-    hasBin: true
-    peerDependencies:
-      '@modelcontextprotocol/client': ^2.0.0
-      cac: ^7.0.0
-    peerDependenciesMeta:
-      '@modelcontextprotocol/client':
-        optional: true
-      cac:
-        optional: true
 
   devlop@1.1.0:
     resolution: {integrity: sha512-RWmIqhcFf1lRYBvNmr7qTNuyCt/7/ns2jbpp1+PalgE/rDQcBT0fioSMUpJ93irlUhC5hrg4cYqe6U+0ImW0rA==}
@@ -20081,13 +20057,13 @@ snapshots:
       - vite
       - webpack
 
-  '@nuxt/fonts@0.14.0(@azure/identity@4.13.2)(@azure/storage-blob@12.33.0)(@netlify/blobs@10.7.5)(@upstash/redis@1.38.3)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.9.5(@aws-sdk/credential-provider-web-identity@3.972.76)(ws@8.21.3))(@voidzero-dev/vite-plus-core@0.3.1(@types/node@26.4.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.24)(terser@5.51.2)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0))(aws4fetch@1.0.20)(db0@0.4.1)(esbuild@0.28.2)(ioredis@5.11.1)(magic-string@1.2.2)(magicast@0.5.4)(oxc-parser@0.147.0)(rolldown@1.2.7)(rollup@4.63.1)(uploadthing@7.7.4(express@5.2.1)(h3@2.0.1-rc.31(crossws@0.4.12(srvx@1.0.3))(ocache@0.3.0))(tailwindcss@4.3.3))':
+  '@nuxt/fonts@0.14.0(@azure/identity@4.13.2)(@azure/storage-blob@12.33.0)(@netlify/blobs@10.7.5)(@upstash/redis@1.38.3)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.9.5(@aws-sdk/credential-provider-web-identity@3.972.76)(ws@8.21.3))(@voidzero-dev/vite-plus-core@0.3.1(@types/node@26.4.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.24)(terser@5.51.2)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0))(aws4fetch@1.0.20)(db0@0.4.1)(esbuild@0.28.2)(ioredis@5.11.1)(magic-string@1.2.2)(magicast@0.5.4)(oxc-parser@0.147.0)(rolldown@1.2.7)(rollup@4.63.1)(uploadthing@7.7.4(express@5.2.1)(h3@1.15.11)(tailwindcss@4.3.3))':
     dependencies:
       '@nuxt/devtools-kit': 3.4.2(@voidzero-dev/vite-plus-core@0.3.1(@types/node@26.4.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.24)(terser@5.51.2)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0))(magic-string@1.2.2)(magicast@0.5.4)(oxc-parser@0.147.0)(rolldown@1.2.7)(unplugin@3.3.0(@voidzero-dev/vite-plus-core@0.3.1(@types/node@26.4.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.24)(terser@5.51.2)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0))(esbuild@0.28.2)(rolldown@1.2.7)(rollup@4.63.1))
       '@nuxt/kit': 4.5.2(magic-string@1.2.2)(magicast@0.5.4)(oxc-parser@0.147.0)(rolldown@1.2.7)(unplugin@3.3.0(@voidzero-dev/vite-plus-core@0.3.1(@types/node@26.4.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.24)(terser@5.51.2)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0))(esbuild@0.28.2)(rolldown@1.2.7)(rollup@4.63.1))
       consola: 3.4.2
       defu: 6.1.7
-      fontless: 0.2.1(@azure/identity@4.13.2)(@azure/storage-blob@12.33.0)(@netlify/blobs@10.7.5)(@upstash/redis@1.38.3)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.9.5(@aws-sdk/credential-provider-web-identity@3.972.76)(ws@8.21.3))(@voidzero-dev/vite-plus-core@0.3.1(@types/node@26.4.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.24)(terser@5.51.2)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0))(aws4fetch@1.0.20)(db0@0.4.1)(ioredis@5.11.1)(uploadthing@7.7.4(express@5.2.1)(h3@2.0.1-rc.31(crossws@0.4.12(srvx@1.0.3))(ocache@0.3.0))(tailwindcss@4.3.3))
+      fontless: 0.2.1(@azure/identity@4.13.2)(@azure/storage-blob@12.33.0)(@netlify/blobs@10.7.5)(@upstash/redis@1.38.3)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.9.5(@aws-sdk/credential-provider-web-identity@3.972.76)(ws@8.21.3))(@voidzero-dev/vite-plus-core@0.3.1(@types/node@26.4.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.24)(terser@5.51.2)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0))(aws4fetch@1.0.20)(db0@0.4.1)(ioredis@5.11.1)(uploadthing@7.7.4(express@5.2.1)(h3@1.15.11)(tailwindcss@4.3.3))
       h3: 1.15.11
       magic-regexp: 0.10.0
       ofetch: 1.5.1
@@ -20097,7 +20073,7 @@ snapshots:
       ufo: 1.6.4
       unifont: 0.7.4
       unplugin: 3.3.0(@voidzero-dev/vite-plus-core@0.3.1(@types/node@26.4.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.24)(terser@5.51.2)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0))(esbuild@0.28.2)(rolldown@1.2.7)(rollup@4.63.1)
-      unstorage: 1.17.5(@azure/identity@4.13.2)(@azure/storage-blob@12.33.0)(@netlify/blobs@10.7.5)(@upstash/redis@1.38.3)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.9.5(@aws-sdk/credential-provider-web-identity@3.972.76)(ws@8.21.3))(aws4fetch@1.0.20)(db0@0.4.1)(ioredis@5.11.1)(uploadthing@7.7.4(express@5.2.1)(h3@2.0.1-rc.31(crossws@0.4.12(srvx@1.0.3))(ocache@0.3.0))(tailwindcss@4.3.3))
+      unstorage: 1.17.5(@azure/identity@4.13.2)(@azure/storage-blob@12.33.0)(@netlify/blobs@10.7.5)(@upstash/redis@1.38.3)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.9.5(@aws-sdk/credential-provider-web-identity@3.972.76)(ws@8.21.3))(aws4fetch@1.0.20)(db0@0.4.1)(ioredis@5.11.1)(uploadthing@7.7.4(express@5.2.1)(h3@1.15.11)(tailwindcss@4.3.3))
     transitivePeerDependencies:
       - '@azure/app-configuration'
       - '@azure/cosmos'
@@ -21138,131 +21114,6 @@ snapshots:
       - vue
       - webpack
 
-  '@nuxt/ui@4.11.0(9c77a22536004603d93831fa0cea0ae3)':
-    dependencies:
-      '@floating-ui/dom': 1.8.0
-      '@iconify/vue': 5.0.1(vue@3.5.40(typescript@6.0.3))
-      '@nuxt/fonts': 0.14.0(@azure/identity@4.13.2)(@azure/storage-blob@12.33.0)(@netlify/blobs@10.7.5)(@upstash/redis@1.38.3)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.9.5(@aws-sdk/credential-provider-web-identity@3.972.76)(ws@8.21.3))(@voidzero-dev/vite-plus-core@0.3.1(@types/node@26.4.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.24)(terser@5.51.2)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0))(aws4fetch@1.0.20)(db0@0.4.1)(esbuild@0.28.2)(ioredis@5.11.1)(magic-string@1.2.2)(magicast@0.5.4)(oxc-parser@0.147.0)(rolldown@1.2.7)(rollup@4.63.1)(uploadthing@7.7.4(express@5.2.1)(h3@2.0.1-rc.31(crossws@0.4.12(srvx@1.0.3))(ocache@0.3.0))(tailwindcss@4.3.3))
-      '@nuxt/icon': 2.5.1(@voidzero-dev/vite-plus-core@0.3.1(@types/node@26.4.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.24)(terser@5.51.2)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0))(magic-string@1.2.2)(magicast@0.5.4)(oxc-parser@0.147.0)(rolldown@1.2.7)(unplugin@3.3.0(@voidzero-dev/vite-plus-core@0.3.1(@types/node@26.4.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.24)(terser@5.51.2)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0))(esbuild@0.28.2)(rolldown@1.2.7)(rollup@4.63.1))(vue@3.5.40(typescript@6.0.3))
-      '@nuxt/kit': 4.5.2(magic-string@1.2.2)(magicast@0.5.4)(oxc-parser@0.147.0)(rolldown@1.2.7)(unplugin@3.3.0(@voidzero-dev/vite-plus-core@0.3.1(@types/node@26.4.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.24)(terser@5.51.2)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0))(esbuild@0.28.2)(rolldown@1.2.7)(rollup@4.63.1))
-      '@nuxt/schema': 4.5.2
-      '@nuxtjs/color-mode': 4.0.1(magic-string@1.2.2)(magicast@0.5.4)(oxc-parser@0.147.0)(rolldown@1.2.7)(unplugin@3.3.0(@voidzero-dev/vite-plus-core@0.3.1(@types/node@26.4.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.24)(terser@5.51.2)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0))(esbuild@0.28.2)(rolldown@1.2.7)(rollup@4.63.1))
-      '@standard-schema/spec': 1.1.0
-      '@tailwindcss/postcss': 4.3.3
-      '@tailwindcss/vite': 4.3.3(@voidzero-dev/vite-plus-core@0.3.1(@types/node@26.4.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.24)(terser@5.51.2)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0))
-      '@tanstack/vue-table': 8.21.3(vue@3.5.40(typescript@6.0.3))
-      '@tanstack/vue-virtual': 3.13.36(vue@3.5.40(typescript@6.0.3))
-      '@tiptap/core': 3.31.2(@tiptap/pm@3.31.2)
-      '@tiptap/extension-bubble-menu': 3.23.6(@tiptap/core@3.31.2(@tiptap/pm@3.31.2))(@tiptap/pm@3.31.2)
-      '@tiptap/extension-code': 3.31.2(@tiptap/core@3.31.2(@tiptap/pm@3.31.2))
-      '@tiptap/extension-collaboration': 3.31.2(@tiptap/core@3.31.2(@tiptap/pm@3.31.2))(@tiptap/pm@3.31.2)(@tiptap/y-tiptap@3.0.9(prosemirror-model@1.25.11)(prosemirror-state@1.4.4)(prosemirror-view@1.42.3)(y-protocols@1.0.7(yjs@13.6.32))(yjs@13.6.32))(yjs@13.6.32)
-      '@tiptap/extension-drag-handle': 3.23.6(@tiptap/core@3.31.2(@tiptap/pm@3.31.2))(@tiptap/extension-collaboration@3.31.2(@tiptap/core@3.31.2(@tiptap/pm@3.31.2))(@tiptap/pm@3.31.2)(@tiptap/y-tiptap@3.0.9(prosemirror-model@1.25.11)(prosemirror-state@1.4.4)(prosemirror-view@1.42.3)(y-protocols@1.0.7(yjs@13.6.32))(yjs@13.6.32))(yjs@13.6.32))(@tiptap/extension-node-range@3.23.6(@tiptap/core@3.31.2(@tiptap/pm@3.31.2))(@tiptap/pm@3.31.2))(@tiptap/pm@3.31.2)(@tiptap/y-tiptap@3.0.9(prosemirror-model@1.25.11)(prosemirror-state@1.4.4)(prosemirror-view@1.42.3)(y-protocols@1.0.7(yjs@13.6.32))(yjs@13.6.32))
-      '@tiptap/extension-drag-handle-vue-3': 3.23.6(@tiptap/extension-drag-handle@3.23.6(@tiptap/core@3.31.2(@tiptap/pm@3.31.2))(@tiptap/extension-collaboration@3.31.2(@tiptap/core@3.31.2(@tiptap/pm@3.31.2))(@tiptap/pm@3.31.2)(@tiptap/y-tiptap@3.0.9(prosemirror-model@1.25.11)(prosemirror-state@1.4.4)(prosemirror-view@1.42.3)(y-protocols@1.0.7(yjs@13.6.32))(yjs@13.6.32))(yjs@13.6.32))(@tiptap/extension-node-range@3.23.6(@tiptap/core@3.31.2(@tiptap/pm@3.31.2))(@tiptap/pm@3.31.2))(@tiptap/pm@3.31.2)(@tiptap/y-tiptap@3.0.9(prosemirror-model@1.25.11)(prosemirror-state@1.4.4)(prosemirror-view@1.42.3)(y-protocols@1.0.7(yjs@13.6.32))(yjs@13.6.32)))(@tiptap/pm@3.31.2)(@tiptap/vue-3@3.23.6(@floating-ui/dom@1.8.0)(@tiptap/core@3.31.2(@tiptap/pm@3.31.2))(@tiptap/pm@3.31.2)(vue@3.5.40(typescript@6.0.3)))(vue@3.5.40(typescript@6.0.3))
-      '@tiptap/extension-floating-menu': 3.23.6(@floating-ui/dom@1.8.0)(@tiptap/core@3.31.2(@tiptap/pm@3.31.2))(@tiptap/pm@3.31.2)
-      '@tiptap/extension-horizontal-rule': 3.31.2(@tiptap/core@3.31.2(@tiptap/pm@3.31.2))(@tiptap/pm@3.31.2)
-      '@tiptap/extension-image': 3.31.2(@tiptap/core@3.31.2(@tiptap/pm@3.31.2))
-      '@tiptap/extension-mention': 3.23.6(@tiptap/core@3.31.2(@tiptap/pm@3.31.2))(@tiptap/pm@3.31.2)(@tiptap/suggestion@3.23.6(@tiptap/core@3.31.2(@tiptap/pm@3.31.2))(@tiptap/pm@3.31.2))
-      '@tiptap/extension-node-range': 3.23.6(@tiptap/core@3.31.2(@tiptap/pm@3.31.2))(@tiptap/pm@3.31.2)
-      '@tiptap/extension-placeholder': 3.23.6(@tiptap/extensions@3.23.6(@tiptap/core@3.31.2(@tiptap/pm@3.31.2))(@tiptap/pm@3.31.2))
-      '@tiptap/markdown': 3.31.2(@tiptap/core@3.31.2(@tiptap/pm@3.31.2))(@tiptap/pm@3.31.2)
-      '@tiptap/pm': 3.31.2
-      '@tiptap/starter-kit': 3.31.2
-      '@tiptap/suggestion': 3.23.6(@tiptap/core@3.31.2(@tiptap/pm@3.31.2))(@tiptap/pm@3.31.2)
-      '@tiptap/vue-3': 3.23.6(@floating-ui/dom@1.8.0)(@tiptap/core@3.31.2(@tiptap/pm@3.31.2))(@tiptap/pm@3.31.2)(vue@3.5.40(typescript@6.0.3))
-      '@unhead/vue': 3.4.0(@oxc-project/types@0.148.0)(@voidzero-dev/vite-plus-core@0.3.1(@types/node@26.4.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.24)(terser@5.51.2)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0))(esbuild@0.28.2)(lightningcss@1.33.0)(oxc-parser@0.147.0)(rolldown@1.2.7)(rollup@4.63.1)(vue@3.5.40(typescript@6.0.3))
-      '@vueuse/core': 14.4.0(vue@3.5.40(typescript@6.0.3))
-      '@vueuse/integrations': 14.4.0(fuse.js@7.5.0)(vue@3.5.40(typescript@6.0.3))
-      '@vueuse/shared': 14.4.0(vue@3.5.40(typescript@6.0.3))
-      colortranslator: 5.0.0
-      consola: 3.4.2
-      defu: 6.1.7
-      embla-carousel-auto-height: 8.6.0(embla-carousel@8.6.0)
-      embla-carousel-auto-scroll: 8.6.0(embla-carousel@8.6.0)
-      embla-carousel-autoplay: 8.6.0(embla-carousel@8.6.0)
-      embla-carousel-class-names: 8.6.0(embla-carousel@8.6.0)
-      embla-carousel-fade: 8.6.0(embla-carousel@8.6.0)
-      embla-carousel-vue: 8.6.0(vue@3.5.40(typescript@6.0.3))
-      embla-carousel-wheel-gestures: 8.1.0(embla-carousel@8.6.0)
-      fuse.js: 7.5.0
-      hookable: 6.1.1
-      knitwork: 1.3.0
-      magic-string: 1.2.2
-      mlly: 1.8.2
-      motion-v: 2.4.0(@vueuse/core@14.4.0(vue@3.5.40(typescript@6.0.3)))(react-dom@19.2.8(react@19.2.6))(react@19.2.6)(vue@3.5.40(typescript@6.0.3))
-      ohash: 2.0.12
-      pathe: 2.0.3
-      reka-ui: 2.10.3(vue@3.5.40(typescript@6.0.3))
-      scule: 1.3.0
-      tailwind-merge: 3.6.0
-      tailwind-variants: 3.2.2(tailwind-merge@3.6.0)(tailwindcss@4.3.3)
-      tailwindcss: 4.3.3
-      tinyglobby: 0.2.17
-      typescript: 6.0.3
-      ufo: 1.6.4
-      unplugin: 3.3.0(@voidzero-dev/vite-plus-core@0.3.1(@types/node@26.4.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.24)(terser@5.51.2)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0))(esbuild@0.28.2)(rolldown@1.2.7)(rollup@4.63.1)
-      unplugin-auto-import: 21.1.0(@nuxt/kit@4.5.2(magic-string@1.2.2)(magicast@0.5.4)(oxc-parser@0.147.0)(rolldown@1.2.7)(unplugin@3.3.0(@voidzero-dev/vite-plus-core@0.3.1(@types/node@26.4.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.24)(terser@5.51.2)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0))(esbuild@0.28.2)(rolldown@1.2.7)(rollup@4.63.1)))(@voidzero-dev/vite-plus-core@0.3.1(@types/node@26.4.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.24)(terser@5.51.2)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0))(@vueuse/core@14.4.0(vue@3.5.40(typescript@6.0.3)))(esbuild@0.28.2)(oxc-parser@0.147.0)(rolldown@1.2.7)(rollup@4.63.1)
-      unplugin-vue-components: 32.1.0(@nuxt/kit@4.5.2(magic-string@1.2.2)(magicast@0.5.4)(oxc-parser@0.147.0)(rolldown@1.2.7)(unplugin@3.3.0(@voidzero-dev/vite-plus-core@0.3.1(@types/node@26.4.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.24)(terser@5.51.2)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0))(esbuild@0.28.2)(rolldown@1.2.7)(rollup@4.63.1)))(@voidzero-dev/vite-plus-core@0.3.1(@types/node@26.4.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.24)(terser@5.51.2)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0))(esbuild@0.28.2)(rolldown@1.2.7)(rollup@4.63.1)(vue@3.5.40(typescript@6.0.3))
-      vaul-vue: 0.4.1(reka-ui@2.10.3(vue@3.5.40(typescript@6.0.3)))(vue@3.5.40(typescript@6.0.3))
-      vue-component-type-helpers: 3.3.11
-    optionalDependencies:
-      '@internationalized/date': 3.12.2
-      '@internationalized/number': 3.6.7
-      '@nuxt/content': 3.16.0(@libsql/client@0.18.0)(@oxc-project/types@0.148.0)(@valibot/to-json-schema@1.7.1(valibot@1.4.2(typescript@6.0.3)))(@voidzero-dev/vite-plus-core@0.3.1(@types/node@26.4.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.24)(terser@5.51.2)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0))(better-sqlite3@12.9.0)(esbuild@0.28.2)(magic-string@1.2.3)(magicast@0.5.4)(oxc-parser@0.147.0)(rolldown@1.2.7)(rollup@4.63.1)(valibot@1.4.2(typescript@6.0.3))
-      ai: 7.0.58(zod@4.5.4)
-      valibot: 1.4.2(typescript@6.0.3)
-      vue-router: 5.3.1(@voidzero-dev/vite-plus-core@0.3.1(@types/node@26.4.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.24)(terser@5.51.2)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0))(@vue/compiler-sfc@3.5.42)(esbuild@0.28.2)(rolldown@1.2.7)(rollup@4.63.1)(vue@3.5.40(typescript@6.0.3))
-      zod: 4.5.4
-    transitivePeerDependencies:
-      - '@azure/app-configuration'
-      - '@azure/cosmos'
-      - '@azure/data-tables'
-      - '@azure/identity'
-      - '@azure/keyvault-secrets'
-      - '@azure/storage-blob'
-      - '@capacitor/preferences'
-      - '@deno/kv'
-      - '@farmfe/core'
-      - '@netlify/blobs'
-      - '@oxc-project/types'
-      - '@planetscale/database'
-      - '@rspack/core'
-      - '@unhead/cli'
-      - '@upstash/redis'
-      - '@vercel/blob'
-      - '@vercel/functions'
-      - '@vercel/kv'
-      - '@vitejs/devtools-kit'
-      - '@vue/composition-api'
-      - async-validator
-      - aws4fetch
-      - axios
-      - bun-types-no-globals
-      - change-case
-      - db0
-      - drauu
-      - embla-carousel
-      - esbuild
-      - focus-trap
-      - idb-keyval
-      - ioredis
-      - jwt-decode
-      - lightningcss
-      - magicast
-      - nprogress
-      - oxc-parser
-      - qrcode
-      - react
-      - react-dom
-      - rolldown
-      - rollup
-      - sortablejs
-      - universal-cookie
-      - unloader
-      - uploadthing
-      - vite
-      - vue
-      - webpack
-
   '@nuxt/ui@4.11.0(a9ead354d104ccafe13b71b46a630940)':
     dependencies:
       '@floating-ui/dom': 1.8.0
@@ -21337,6 +21188,131 @@ snapshots:
       valibot: 1.4.2(typescript@6.0.3)
       vue-router: 5.3.1(@vue/compiler-sfc@3.5.42)(esbuild@0.28.2)(rolldown@1.2.7)(rollup@4.63.1)(vite@8.2.2(@types/node@26.4.1)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.0))(vue@3.5.40(typescript@6.0.3))
       zod: 4.4.3
+    transitivePeerDependencies:
+      - '@azure/app-configuration'
+      - '@azure/cosmos'
+      - '@azure/data-tables'
+      - '@azure/identity'
+      - '@azure/keyvault-secrets'
+      - '@azure/storage-blob'
+      - '@capacitor/preferences'
+      - '@deno/kv'
+      - '@farmfe/core'
+      - '@netlify/blobs'
+      - '@oxc-project/types'
+      - '@planetscale/database'
+      - '@rspack/core'
+      - '@unhead/cli'
+      - '@upstash/redis'
+      - '@vercel/blob'
+      - '@vercel/functions'
+      - '@vercel/kv'
+      - '@vitejs/devtools-kit'
+      - '@vue/composition-api'
+      - async-validator
+      - aws4fetch
+      - axios
+      - bun-types-no-globals
+      - change-case
+      - db0
+      - drauu
+      - embla-carousel
+      - esbuild
+      - focus-trap
+      - idb-keyval
+      - ioredis
+      - jwt-decode
+      - lightningcss
+      - magicast
+      - nprogress
+      - oxc-parser
+      - qrcode
+      - react
+      - react-dom
+      - rolldown
+      - rollup
+      - sortablejs
+      - universal-cookie
+      - unloader
+      - uploadthing
+      - vite
+      - vue
+      - webpack
+
+  '@nuxt/ui@4.11.0(c97083d0e76bf8a184617d71715dc7d8)':
+    dependencies:
+      '@floating-ui/dom': 1.8.0
+      '@iconify/vue': 5.0.1(vue@3.5.40(typescript@6.0.3))
+      '@nuxt/fonts': 0.14.0(@azure/identity@4.13.2)(@azure/storage-blob@12.33.0)(@netlify/blobs@10.7.5)(@upstash/redis@1.38.3)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.9.5(@aws-sdk/credential-provider-web-identity@3.972.76)(ws@8.21.3))(@voidzero-dev/vite-plus-core@0.3.1(@types/node@26.4.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.24)(terser@5.51.2)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0))(aws4fetch@1.0.20)(db0@0.4.1)(esbuild@0.28.2)(ioredis@5.11.1)(magic-string@1.2.2)(magicast@0.5.4)(oxc-parser@0.147.0)(rolldown@1.2.7)(rollup@4.63.1)(uploadthing@7.7.4(express@5.2.1)(h3@1.15.11)(tailwindcss@4.3.3))
+      '@nuxt/icon': 2.5.1(@voidzero-dev/vite-plus-core@0.3.1(@types/node@26.4.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.24)(terser@5.51.2)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0))(magic-string@1.2.2)(magicast@0.5.4)(oxc-parser@0.147.0)(rolldown@1.2.7)(unplugin@3.3.0(@voidzero-dev/vite-plus-core@0.3.1(@types/node@26.4.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.24)(terser@5.51.2)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0))(esbuild@0.28.2)(rolldown@1.2.7)(rollup@4.63.1))(vue@3.5.40(typescript@6.0.3))
+      '@nuxt/kit': 4.5.2(magic-string@1.2.2)(magicast@0.5.4)(oxc-parser@0.147.0)(rolldown@1.2.7)(unplugin@3.3.0(@voidzero-dev/vite-plus-core@0.3.1(@types/node@26.4.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.24)(terser@5.51.2)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0))(esbuild@0.28.2)(rolldown@1.2.7)(rollup@4.63.1))
+      '@nuxt/schema': 4.5.2
+      '@nuxtjs/color-mode': 4.0.1(magic-string@1.2.2)(magicast@0.5.4)(oxc-parser@0.147.0)(rolldown@1.2.7)(unplugin@3.3.0(@voidzero-dev/vite-plus-core@0.3.1(@types/node@26.4.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.24)(terser@5.51.2)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0))(esbuild@0.28.2)(rolldown@1.2.7)(rollup@4.63.1))
+      '@standard-schema/spec': 1.1.0
+      '@tailwindcss/postcss': 4.3.3
+      '@tailwindcss/vite': 4.3.3(@voidzero-dev/vite-plus-core@0.3.1(@types/node@26.4.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.24)(terser@5.51.2)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0))
+      '@tanstack/vue-table': 8.21.3(vue@3.5.40(typescript@6.0.3))
+      '@tanstack/vue-virtual': 3.13.36(vue@3.5.40(typescript@6.0.3))
+      '@tiptap/core': 3.31.2(@tiptap/pm@3.31.2)
+      '@tiptap/extension-bubble-menu': 3.23.6(@tiptap/core@3.31.2(@tiptap/pm@3.31.2))(@tiptap/pm@3.31.2)
+      '@tiptap/extension-code': 3.31.2(@tiptap/core@3.31.2(@tiptap/pm@3.31.2))
+      '@tiptap/extension-collaboration': 3.31.2(@tiptap/core@3.31.2(@tiptap/pm@3.31.2))(@tiptap/pm@3.31.2)(@tiptap/y-tiptap@3.0.9(prosemirror-model@1.25.11)(prosemirror-state@1.4.4)(prosemirror-view@1.42.3)(y-protocols@1.0.7(yjs@13.6.32))(yjs@13.6.32))(yjs@13.6.32)
+      '@tiptap/extension-drag-handle': 3.23.6(@tiptap/core@3.31.2(@tiptap/pm@3.31.2))(@tiptap/extension-collaboration@3.31.2(@tiptap/core@3.31.2(@tiptap/pm@3.31.2))(@tiptap/pm@3.31.2)(@tiptap/y-tiptap@3.0.9(prosemirror-model@1.25.11)(prosemirror-state@1.4.4)(prosemirror-view@1.42.3)(y-protocols@1.0.7(yjs@13.6.32))(yjs@13.6.32))(yjs@13.6.32))(@tiptap/extension-node-range@3.23.6(@tiptap/core@3.31.2(@tiptap/pm@3.31.2))(@tiptap/pm@3.31.2))(@tiptap/pm@3.31.2)(@tiptap/y-tiptap@3.0.9(prosemirror-model@1.25.11)(prosemirror-state@1.4.4)(prosemirror-view@1.42.3)(y-protocols@1.0.7(yjs@13.6.32))(yjs@13.6.32))
+      '@tiptap/extension-drag-handle-vue-3': 3.23.6(@tiptap/extension-drag-handle@3.23.6(@tiptap/core@3.31.2(@tiptap/pm@3.31.2))(@tiptap/extension-collaboration@3.31.2(@tiptap/core@3.31.2(@tiptap/pm@3.31.2))(@tiptap/pm@3.31.2)(@tiptap/y-tiptap@3.0.9(prosemirror-model@1.25.11)(prosemirror-state@1.4.4)(prosemirror-view@1.42.3)(y-protocols@1.0.7(yjs@13.6.32))(yjs@13.6.32))(yjs@13.6.32))(@tiptap/extension-node-range@3.23.6(@tiptap/core@3.31.2(@tiptap/pm@3.31.2))(@tiptap/pm@3.31.2))(@tiptap/pm@3.31.2)(@tiptap/y-tiptap@3.0.9(prosemirror-model@1.25.11)(prosemirror-state@1.4.4)(prosemirror-view@1.42.3)(y-protocols@1.0.7(yjs@13.6.32))(yjs@13.6.32)))(@tiptap/pm@3.31.2)(@tiptap/vue-3@3.23.6(@floating-ui/dom@1.8.0)(@tiptap/core@3.31.2(@tiptap/pm@3.31.2))(@tiptap/pm@3.31.2)(vue@3.5.40(typescript@6.0.3)))(vue@3.5.40(typescript@6.0.3))
+      '@tiptap/extension-floating-menu': 3.23.6(@floating-ui/dom@1.8.0)(@tiptap/core@3.31.2(@tiptap/pm@3.31.2))(@tiptap/pm@3.31.2)
+      '@tiptap/extension-horizontal-rule': 3.31.2(@tiptap/core@3.31.2(@tiptap/pm@3.31.2))(@tiptap/pm@3.31.2)
+      '@tiptap/extension-image': 3.31.2(@tiptap/core@3.31.2(@tiptap/pm@3.31.2))
+      '@tiptap/extension-mention': 3.23.6(@tiptap/core@3.31.2(@tiptap/pm@3.31.2))(@tiptap/pm@3.31.2)(@tiptap/suggestion@3.23.6(@tiptap/core@3.31.2(@tiptap/pm@3.31.2))(@tiptap/pm@3.31.2))
+      '@tiptap/extension-node-range': 3.23.6(@tiptap/core@3.31.2(@tiptap/pm@3.31.2))(@tiptap/pm@3.31.2)
+      '@tiptap/extension-placeholder': 3.23.6(@tiptap/extensions@3.23.6(@tiptap/core@3.31.2(@tiptap/pm@3.31.2))(@tiptap/pm@3.31.2))
+      '@tiptap/markdown': 3.31.2(@tiptap/core@3.31.2(@tiptap/pm@3.31.2))(@tiptap/pm@3.31.2)
+      '@tiptap/pm': 3.31.2
+      '@tiptap/starter-kit': 3.31.2
+      '@tiptap/suggestion': 3.23.6(@tiptap/core@3.31.2(@tiptap/pm@3.31.2))(@tiptap/pm@3.31.2)
+      '@tiptap/vue-3': 3.23.6(@floating-ui/dom@1.8.0)(@tiptap/core@3.31.2(@tiptap/pm@3.31.2))(@tiptap/pm@3.31.2)(vue@3.5.40(typescript@6.0.3))
+      '@unhead/vue': 3.4.0(@oxc-project/types@0.148.0)(@voidzero-dev/vite-plus-core@0.3.1(@types/node@26.4.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.24)(terser@5.51.2)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0))(esbuild@0.28.2)(lightningcss@1.33.0)(oxc-parser@0.147.0)(rolldown@1.2.7)(rollup@4.63.1)(vue@3.5.40(typescript@6.0.3))
+      '@vueuse/core': 14.4.0(vue@3.5.40(typescript@6.0.3))
+      '@vueuse/integrations': 14.4.0(fuse.js@7.5.0)(vue@3.5.40(typescript@6.0.3))
+      '@vueuse/shared': 14.4.0(vue@3.5.40(typescript@6.0.3))
+      colortranslator: 5.0.0
+      consola: 3.4.2
+      defu: 6.1.7
+      embla-carousel-auto-height: 8.6.0(embla-carousel@8.6.0)
+      embla-carousel-auto-scroll: 8.6.0(embla-carousel@8.6.0)
+      embla-carousel-autoplay: 8.6.0(embla-carousel@8.6.0)
+      embla-carousel-class-names: 8.6.0(embla-carousel@8.6.0)
+      embla-carousel-fade: 8.6.0(embla-carousel@8.6.0)
+      embla-carousel-vue: 8.6.0(vue@3.5.40(typescript@6.0.3))
+      embla-carousel-wheel-gestures: 8.1.0(embla-carousel@8.6.0)
+      fuse.js: 7.5.0
+      hookable: 6.1.1
+      knitwork: 1.3.0
+      magic-string: 1.2.2
+      mlly: 1.8.2
+      motion-v: 2.4.0(@vueuse/core@14.4.0(vue@3.5.40(typescript@6.0.3)))(react-dom@19.2.8(react@19.2.6))(react@19.2.6)(vue@3.5.40(typescript@6.0.3))
+      ohash: 2.0.12
+      pathe: 2.0.3
+      reka-ui: 2.10.3(vue@3.5.40(typescript@6.0.3))
+      scule: 1.3.0
+      tailwind-merge: 3.6.0
+      tailwind-variants: 3.2.2(tailwind-merge@3.6.0)(tailwindcss@4.3.3)
+      tailwindcss: 4.3.3
+      tinyglobby: 0.2.17
+      typescript: 6.0.3
+      ufo: 1.6.4
+      unplugin: 3.3.0(@voidzero-dev/vite-plus-core@0.3.1(@types/node@26.4.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.24)(terser@5.51.2)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0))(esbuild@0.28.2)(rolldown@1.2.7)(rollup@4.63.1)
+      unplugin-auto-import: 21.1.0(@nuxt/kit@4.5.2(magic-string@1.2.2)(magicast@0.5.4)(oxc-parser@0.147.0)(rolldown@1.2.7)(unplugin@3.3.0(@voidzero-dev/vite-plus-core@0.3.1(@types/node@26.4.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.24)(terser@5.51.2)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0))(esbuild@0.28.2)(rolldown@1.2.7)(rollup@4.63.1)))(@voidzero-dev/vite-plus-core@0.3.1(@types/node@26.4.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.24)(terser@5.51.2)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0))(@vueuse/core@14.4.0(vue@3.5.40(typescript@6.0.3)))(esbuild@0.28.2)(oxc-parser@0.147.0)(rolldown@1.2.7)(rollup@4.63.1)
+      unplugin-vue-components: 32.1.0(@nuxt/kit@4.5.2(magic-string@1.2.2)(magicast@0.5.4)(oxc-parser@0.147.0)(rolldown@1.2.7)(unplugin@3.3.0(@voidzero-dev/vite-plus-core@0.3.1(@types/node@26.4.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.24)(terser@5.51.2)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0))(esbuild@0.28.2)(rolldown@1.2.7)(rollup@4.63.1)))(@voidzero-dev/vite-plus-core@0.3.1(@types/node@26.4.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.24)(terser@5.51.2)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0))(esbuild@0.28.2)(rolldown@1.2.7)(rollup@4.63.1)(vue@3.5.40(typescript@6.0.3))
+      vaul-vue: 0.4.1(reka-ui@2.10.3(vue@3.5.40(typescript@6.0.3)))(vue@3.5.40(typescript@6.0.3))
+      vue-component-type-helpers: 3.3.11
+    optionalDependencies:
+      '@internationalized/date': 3.12.2
+      '@internationalized/number': 3.6.7
+      '@nuxt/content': 3.16.0(@libsql/client@0.18.0)(@oxc-project/types@0.148.0)(@valibot/to-json-schema@1.7.1(valibot@1.4.2(typescript@6.0.3)))(@voidzero-dev/vite-plus-core@0.3.1(@types/node@26.4.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.24)(terser@5.51.2)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0))(better-sqlite3@12.9.0)(esbuild@0.28.2)(magic-string@1.2.3)(magicast@0.5.4)(oxc-parser@0.147.0)(rolldown@1.2.7)(rollup@4.63.1)(valibot@1.4.2(typescript@6.0.3))
+      ai: 7.0.58(zod@4.5.4)
+      valibot: 1.4.2(typescript@6.0.3)
+      vue-router: 5.3.1(@voidzero-dev/vite-plus-core@0.3.1(@types/node@26.4.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.24)(terser@5.51.2)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0))(@vue/compiler-sfc@3.5.42)(esbuild@0.28.2)(rolldown@1.2.7)(rollup@4.63.1)(vue@3.5.40(typescript@6.0.3))
+      zod: 4.5.4
     transitivePeerDependencies:
       - '@azure/app-configuration'
       - '@azure/cosmos'
@@ -27225,24 +27201,6 @@ snapshots:
 
   devalue@5.9.1: {}
 
-  devframe@0.9.12(@modelcontextprotocol/client@2.0.0)(cac@7.0.0)(ocache@0.3.0)(srvx@1.0.3):
-    dependencies:
-      '@modelcontextprotocol/server': 2.0.0
-      '@standard-schema/spec': 1.1.0
-      birpc: 4.2.0
-      crossws: 0.4.12(srvx@1.0.3)
-      h3: 2.0.1-rc.31(crossws@0.4.12(srvx@1.0.3))(ocache@0.3.0)
-      mrmime: 2.0.1
-      nostics: 1.2.0
-      pathe: 2.0.3
-      ufo: 1.6.4
-    optionalDependencies:
-      '@modelcontextprotocol/client': 2.0.0
-      cac: 7.0.0
-    transitivePeerDependencies:
-      - ocache
-      - srvx
-
   devlop@1.1.0:
     dependencies:
       dequal: 2.0.3
@@ -28585,7 +28543,7 @@ snapshots:
       - ioredis
       - uploadthing
 
-  fontless@0.2.1(@azure/identity@4.13.2)(@azure/storage-blob@12.33.0)(@netlify/blobs@10.7.5)(@upstash/redis@1.38.3)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.9.5(@aws-sdk/credential-provider-web-identity@3.972.76)(ws@8.21.3))(@voidzero-dev/vite-plus-core@0.3.1(@types/node@26.4.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.24)(terser@5.51.2)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0))(aws4fetch@1.0.20)(db0@0.4.1)(ioredis@5.11.1)(uploadthing@7.7.4(express@5.2.1)(h3@2.0.1-rc.31(crossws@0.4.12(srvx@1.0.3))(ocache@0.3.0))(tailwindcss@4.3.3)):
+  fontless@0.2.1(@azure/identity@4.13.2)(@azure/storage-blob@12.33.0)(@netlify/blobs@10.7.5)(@upstash/redis@1.38.3)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.9.5(@aws-sdk/credential-provider-web-identity@3.972.76)(ws@8.21.3))(@voidzero-dev/vite-plus-core@0.3.1(@types/node@26.4.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.24)(terser@5.51.2)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0))(aws4fetch@1.0.20)(db0@0.4.1)(ioredis@5.11.1)(uploadthing@7.7.4(express@5.2.1)(h3@1.15.11)(tailwindcss@4.3.3)):
     dependencies:
       consola: 3.4.2
       css-tree: 3.2.1
@@ -28599,7 +28557,7 @@ snapshots:
       pathe: 2.0.3
       ufo: 1.6.4
       unifont: 0.7.4
-      unstorage: 1.17.5(@azure/identity@4.13.2)(@azure/storage-blob@12.33.0)(@netlify/blobs@10.7.5)(@upstash/redis@1.38.3)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.9.5(@aws-sdk/credential-provider-web-identity@3.972.76)(ws@8.21.3))(aws4fetch@1.0.20)(db0@0.4.1)(ioredis@5.11.1)(uploadthing@7.7.4(express@5.2.1)(h3@2.0.1-rc.31(crossws@0.4.12(srvx@1.0.3))(ocache@0.3.0))(tailwindcss@4.3.3))
+      unstorage: 1.17.5(@azure/identity@4.13.2)(@azure/storage-blob@12.33.0)(@netlify/blobs@10.7.5)(@upstash/redis@1.38.3)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.9.5(@aws-sdk/credential-provider-web-identity@3.972.76)(ws@8.21.3))(aws4fetch@1.0.20)(db0@0.4.1)(ioredis@5.11.1)(uploadthing@7.7.4(express@5.2.1)(h3@1.15.11)(tailwindcss@4.3.3))
     optionalDependencies:
       vite: '@voidzero-dev/vite-plus-core@0.3.1(@types/node@26.4.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.24)(terser@5.51.2)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0)'
     transitivePeerDependencies:
@@ -30881,7 +30839,7 @@ snapshots:
       unenv: 2.0.0-rc.24
       unimport: 6.4.0(@voidzero-dev/vite-plus-core@0.3.1(@types/node@24.13.3)(esbuild@0.27.7)(jiti@2.7.0)(publint@0.3.24)(terser@5.51.2)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0))(esbuild@0.28.2)(oxc-parser@0.147.0)(rolldown@1.2.7)(rollup@4.63.1)
       unplugin-utils: 0.3.2
-      unstorage: 1.17.5(@azure/identity@4.13.2)(@azure/storage-blob@12.33.0)(@netlify/blobs@10.7.5)(@upstash/redis@1.38.3)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.9.5(@aws-sdk/credential-provider-web-identity@3.972.76)(ws@8.21.3))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.18.0)(better-sqlite3@12.9.0)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260904.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.38.3)(better-sqlite3@12.9.0)(bun-types@1.4.0)(kysely@0.29.3)(postgres@3.4.9)(sql.js@1.14.1)))(ioredis@5.11.1)(uploadthing@7.7.4(express@5.2.1)(fastify@5.10.0)(h3@1.15.11)(tailwindcss@4.3.3))
+      unstorage: 1.17.5(@azure/identity@4.13.2)(@azure/storage-blob@12.33.0)(@netlify/blobs@10.7.5)(@upstash/redis@1.38.3)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.9.5(@aws-sdk/credential-provider-web-identity@3.972.76)(ws@8.21.3))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.18.0)(better-sqlite3@12.9.0)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260904.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.38.3)(better-sqlite3@12.9.0)(bun-types@1.4.0)(kysely@0.29.3)(postgres@3.4.9)(sql.js@1.14.1)))(ioredis@5.11.1)(uploadthing@7.7.4(express@5.2.1)(h3@1.15.11)(tailwindcss@4.3.3))
       untyped: 2.0.0
       unwasm: 0.5.3
       youch: 4.1.1
@@ -31106,7 +31064,7 @@ snapshots:
       unenv: 2.0.0-rc.24
       unimport: 6.4.0(@voidzero-dev/vite-plus-core@0.3.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.24)(terser@5.51.2)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0))(esbuild@0.28.2)(oxc-parser@0.147.0)(rolldown@1.2.7)(rollup@4.63.1)
       unplugin-utils: 0.3.2
-      unstorage: 1.17.5(@azure/identity@4.13.2)(@azure/storage-blob@12.33.0)(@netlify/blobs@10.7.5)(@upstash/redis@1.38.3)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.9.5(@aws-sdk/credential-provider-web-identity@3.972.76)(ws@8.21.3))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.18.0)(better-sqlite3@12.9.0)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260904.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.38.3)(better-sqlite3@12.9.0)(bun-types@1.4.0)(kysely@0.29.3)(postgres@3.4.9)(sql.js@1.14.1)))(ioredis@5.11.1)(uploadthing@7.7.4(express@5.2.1)(fastify@5.10.0)(h3@1.15.11)(tailwindcss@4.3.3))
+      unstorage: 1.17.5(@azure/identity@4.13.2)(@azure/storage-blob@12.33.0)(@netlify/blobs@10.7.5)(@upstash/redis@1.38.3)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.9.5(@aws-sdk/credential-provider-web-identity@3.972.76)(ws@8.21.3))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.18.0)(better-sqlite3@12.9.0)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260904.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.38.3)(better-sqlite3@12.9.0)(bun-types@1.4.0)(kysely@0.29.3)(postgres@3.4.9)(sql.js@1.14.1)))(ioredis@5.11.1)(uploadthing@7.7.4(express@5.2.1)(h3@1.15.11)(tailwindcss@4.3.3))
       untyped: 2.0.0
       unwasm: 0.5.3
       youch: 4.1.1
@@ -31330,7 +31288,7 @@ snapshots:
       unenv: 2.0.0-rc.24
       unimport: 6.4.0(esbuild@0.28.2)(oxc-parser@0.143.0)(rolldown@1.2.7)(rollup@4.63.1)(vite@8.2.2(@types/node@26.4.1)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.0))
       unplugin-utils: 0.3.2
-      unstorage: 1.17.5(@azure/identity@4.13.2)(@azure/storage-blob@12.33.0)(@netlify/blobs@10.7.5)(@upstash/redis@1.38.3)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.9.5(@aws-sdk/credential-provider-web-identity@3.972.76)(ws@8.21.3))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.18.0)(better-sqlite3@12.9.0)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260904.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.38.3)(better-sqlite3@12.9.0)(bun-types@1.4.0)(kysely@0.29.3)(postgres@3.4.9)(sql.js@1.14.1)))(ioredis@5.11.1)(uploadthing@7.7.4(express@5.2.1)(fastify@5.10.0)(h3@1.15.11)(tailwindcss@4.3.3))
+      unstorage: 1.17.5(@azure/identity@4.13.2)(@azure/storage-blob@12.33.0)(@netlify/blobs@10.7.5)(@upstash/redis@1.38.3)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.9.5(@aws-sdk/credential-provider-web-identity@3.972.76)(ws@8.21.3))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.18.0)(better-sqlite3@12.9.0)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260904.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.38.3)(better-sqlite3@12.9.0)(bun-types@1.4.0)(kysely@0.29.3)(postgres@3.4.9)(sql.js@1.14.1)))(ioredis@5.11.1)(uploadthing@7.7.4(express@5.2.1)(h3@1.15.11)(tailwindcss@4.3.3))
       untyped: 2.0.0
       unwasm: 0.5.3
       youch: 4.1.1
@@ -35258,7 +35216,7 @@ snapshots:
       ioredis: 5.11.1
       uploadthing: 7.7.4(express@5.2.1)(fastify@5.10.0)(h3@2.0.1-rc.31(crossws@0.4.12(srvx@1.0.3))(ocache@0.3.0))(tailwindcss@4.3.3)
 
-  unstorage@1.17.5(@azure/identity@4.13.2)(@azure/storage-blob@12.33.0)(@netlify/blobs@10.7.5)(@upstash/redis@1.38.3)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.9.5(@aws-sdk/credential-provider-web-identity@3.972.76)(ws@8.21.3))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.18.0)(better-sqlite3@12.9.0)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260904.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.38.3)(better-sqlite3@12.9.0)(bun-types@1.4.0)(kysely@0.29.3)(postgres@3.4.9)(sql.js@1.14.1)))(ioredis@5.11.1)(uploadthing@7.7.4(express@5.2.1)(fastify@5.10.0)(h3@1.15.11)(tailwindcss@4.3.3)):
+  unstorage@1.17.5(@azure/identity@4.13.2)(@azure/storage-blob@12.33.0)(@netlify/blobs@10.7.5)(@upstash/redis@1.38.3)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.9.5(@aws-sdk/credential-provider-web-identity@3.972.76)(ws@8.21.3))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.18.0)(better-sqlite3@12.9.0)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260904.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.38.3)(better-sqlite3@12.9.0)(bun-types@1.4.0)(kysely@0.29.3)(postgres@3.4.9)(sql.js@1.14.1)))(ioredis@5.11.1)(uploadthing@7.7.4(express@5.2.1)(h3@1.15.11)(tailwindcss@4.3.3)):
     dependencies:
       anymatch: 3.1.3
       chokidar: 5.0.0

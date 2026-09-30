@@ -15,6 +15,29 @@ afterEach(async () => {
 })
 
 describe("Workflow registry", () => {
+  it.each(["plain", "steps", "agent"] as const)("preserves prototype-like names for %s definitions", async (kind) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-workflow-registry-name-"))
+    directories.push(root)
+    const registryFile = join(root, "registry.mjs")
+    const handler = join(root, "definition.mjs")
+    const step = join(root, "step.mjs")
+    await mkdir(join(root, "node_modules", "@vite-hub"), { recursive: true })
+    await symlink(packageRoot, join(root, "node_modules", "@vite-hub", "workflow"), "dir")
+    await symlink(resolve(packageRoot, "../agent"), join(root, "node_modules", "@vite-hub", "agent"), "dir")
+    await writeFile(handler, "export default { handler: async () => 'ok' }\n", "utf8")
+    await writeFile(step, "export default async function step(value) { return value }\n", "utf8")
+    await writeFile(registryFile, createWorkflowRegistryContents(registryFile, [{
+      handler,
+      name: "__proto__",
+      source: kind === "agent" ? "agent-workflow" : "server-workflows",
+      ...(kind === "steps" ? { steps: [step] } : {}),
+    }]), "utf8")
+
+    const generated = await import(pathToFileURL(registryFile).href)
+    expect(Object.keys(generated.default)).toEqual(["__proto__"])
+    expect(Object.hasOwn(generated.default, "__proto__")).toBe(true)
+  }, 15_000)
+
   it("renders, caches, and executes step-aware definitions", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-workflow-registry-"))
     directories.push(root)
@@ -43,7 +66,7 @@ describe("Workflow registry", () => {
       "const registryEntryCache = new Map()",
       "",
       "const registry = {",
-      '  "release": async () => {',
+      '  ["release"]: async () => {',
       '    const cached = registryEntryCache.get("release")',
       "    if (cached) return cached",
       `    const index = await import(${JSON.stringify(pathToFileURL(handler).href)})`,

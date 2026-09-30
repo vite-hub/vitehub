@@ -91,9 +91,24 @@ function getOpenWorkflowConfig(config: ResolvedWorkflowOptions): OpenWorkflowSto
   if (config.provider !== "openworkflow") {
     throw workflowErrorDiagnostics.WORKFLOW_R0020({ message: `OpenWorkflow runtime requires workflow.provider "openworkflow", received "${config.provider}".` })
   }
+  if ("database" in config && config.database !== undefined) {
+    throw workflowErrorDiagnostics.WORKFLOW_R0027({ message: "`workflow.database` is not supported. Set `workflow.sqlite.path` or `workflow.postgres.url` explicitly." })
+  }
 
   const sqlite = config.sqlite || {}
-  const sqlitePath = resolveRuntimeConfigValue(sqlite.path) || readEnv("OPENWORKFLOW_SQLITE_PATH")
+  const postgres = config.postgres || {}
+  if (postgres.url !== undefined && sqlite.path !== undefined) {
+    throw workflowErrorDiagnostics.WORKFLOW_R0030({ message: "`workflow.postgres.url` and `workflow.sqlite.path` cannot both configure OpenWorkflow storage." })
+  }
+  const explicitSqlitePath = resolveRuntimeConfigValue(sqlite.path)
+  const explicitPostgresUrl = resolveRuntimeConfigValue(postgres.url)?.trim()
+  if (sqlite.path !== undefined && !explicitSqlitePath?.trim()) {
+    throw workflowErrorDiagnostics.WORKFLOW_R0028({ message: "`workflow.sqlite.path` must resolve to a non-empty local SQLite path. Check its runtime environment declaration." })
+  }
+  if (postgres.url !== undefined && !explicitPostgresUrl) {
+    throw workflowErrorDiagnostics.WORKFLOW_R0029({ message: "`workflow.postgres.url` must resolve to a non-empty Postgres URL. Check its runtime environment declaration." })
+  }
+  const sqlitePath = explicitSqlitePath || (!explicitPostgresUrl ? readEnv("OPENWORKFLOW_SQLITE_PATH") : undefined)
   if (sqlitePath) {
     return {
       backend: "sqlite",
@@ -103,8 +118,7 @@ function getOpenWorkflowConfig(config: ResolvedWorkflowOptions): OpenWorkflowSto
     }
   }
 
-  const postgres = config.postgres || {}
-  const url = resolveRuntimeConfigValue(postgres.url) || readEnv("OPENWORKFLOW_POSTGRES_URL") || readEnv("DATABASE_URL")
+  const url = explicitPostgresUrl || readEnv("OPENWORKFLOW_POSTGRES_URL") || readEnv("DATABASE_URL")
   if (url) {
     return {
       backend: "postgres",

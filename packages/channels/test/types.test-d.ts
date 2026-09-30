@@ -1,4 +1,4 @@
-import { createChannel, defineChannel, useChannel } from "../src/index.ts"
+import { createChannel, defineOutboundChannel, useChannel } from "../src/index.ts"
 
 declare global {
   interface ViteHubChannelDefinitionModules {
@@ -6,7 +6,7 @@ declare global {
   }
 }
 
-const definition = defineChannel({
+const definition = defineOutboundChannel({
   connectors: {
     slack: {
       send: async (_text: string, options: { channelId: string, threadTs?: string }) => ({ id: options.channelId }),

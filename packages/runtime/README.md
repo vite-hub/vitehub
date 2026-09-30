@@ -39,7 +39,9 @@ tracked work during a graceful drain. Set `signal: "SIGUSR2"` when the service
 manager should trigger that drain through the `vitehub-drain` command included
 with the owner-package installation, `@vite-hub/runtime`. Lifecycle callbacks
 must return before an external caller starts `drain()`; calling `drain()` from an
-active callback rejects to prevent that callback from waiting on itself. Keep the
+active callback rejects to prevent that callback from waiting on itself. `close()`
+removes the configured signal listener after the drain settles, including a failed
+drain. Keep the
 status endpoint available until `vitehub-drain` observes the terminal `drained`
 status; process exit or endpoint loss before that acknowledgement is a failed drain.
 
@@ -73,7 +75,14 @@ node:health
 registered with `waitUntil()`. Pass the host's `waitUntil` method to forward that
 work to a real provider lifetime. Without one, await `flushWaitUntil()` before
 returning. A flush drains nested work and then reports the first observed failure.
+Concurrent flush calls wait for the same work and report the same result.
 The constructor does not extend serverless lifetime or cancel background tasks.
+
+Call `flushWaitUntil()` from the code that owns the operation. A task registered
+with `waitUntil()` must not await that context's flush. The flush waits for the
+task, so both would wait indefinitely. Await child promises directly inside a
+task. If the task needs its own background-work controller, create a separate
+Runtime Context and flush that context instead.
 
 For H3 1, H3 2, and Nuxt routes, use `getRuntimeContext(event, options?)` from
 `vite-hub/runtime/h3`. This framework entry normalizes event bindings and lifetime
@@ -101,7 +110,8 @@ needed by that operation, and do not copy secrets into traces or approval input.
 ### Runtime Capabilities
 
 `defineCapability()` and `getCapability()` pass a named implementation between
-packages. A handle is not a permission boundary: code that receives its `value`
+packages. Lookup accepts only own properties of `context.capabilities`; inherited
+properties do not register capabilities. A handle is not a permission boundary: code that receives its `value`
 can call that implementation. Keep authentication, tenant checks, input
 validation, rate limits, and provider credentials at the application or provider
 boundary that owns the operation.

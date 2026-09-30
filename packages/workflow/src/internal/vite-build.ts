@@ -788,7 +788,7 @@ function renderAgentWorkflowRegistryEntry(
     ? retainedAgentInstructions.get(definition.handler)
     : readAgentInstructions(definition.handler)
   return [
-    `  ${JSON.stringify(definition.name)}: Object.assign(async () => {`,
+    `  [${JSON.stringify(definition.name)}]: Object.assign(async () => {`,
     `    const cached = registryEntryCache.get(${JSON.stringify(definition.name)})`,
     "    if (cached) return cached",
     `    const loaded = await ${renderRegistryImport(registryFile, definition.handler)}`,
@@ -835,7 +835,7 @@ function renderWorkflowRegistryEntry(
   }
 
   if (!definition.steps?.length) {
-    return `  ${JSON.stringify(definition.name)}: async () => ${renderRegistryImport(registryFile, definition.handler)},`
+    return `  [${JSON.stringify(definition.name)}]: async () => ${renderRegistryImport(registryFile, definition.handler)},`
   }
 
   const workflowDirectory = /\.(?:c|m)?[jt]s$/i.test(definition.handler) ? dirname(definition.handler) : definition.handler
@@ -856,7 +856,7 @@ function renderWorkflowRegistryEntry(
     : "{ handler: async (context) => { let value = context.payload; for (const step of Object.values(context.steps || {})) value = await step(value); return value } }"
 
   return [
-    `  ${JSON.stringify(definition.name)}: async () => {`,
+    `  [${JSON.stringify(definition.name)}]: async () => {`,
     `    const cached = registryEntryCache.get(${JSON.stringify(definition.name)})`,
     "    if (cached) return cached",
     indexImport ? `    ${indexImport}` : "",

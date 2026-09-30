@@ -2,6 +2,7 @@ import { execFile } from "node:child_process"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
+import { pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
 import { afterEach, describe, expect, it } from "vitest"
@@ -117,7 +118,7 @@ describe("hubBrowser", () => {
     const runtime = await runHook(plugin.load, runtimeId)
     const types = await readFile(join(root, ".vitehub", "types", "browser.d.ts"), "utf8")
 
-    expect(registry).toContain('"code-image": async () => import(')
+    expect(registry).toContain('["code-image"]: async () => import(')
     expect(registry).toContain("server/browsers/code-image.ts")
     expect(runtime).toContain('"binding": "CODE_BROWSER"')
     expect(runtime).toContain('"engine": "kitesurf"')
@@ -154,6 +155,47 @@ describe("hubBrowser", () => {
     const runtime = await (plugin.load as (id: string) => string | Promise<string>)(runtimeId)
 
     expect(runtime).toContain('import("@cloudflare/playwright")')
+  })
+
+  it("executes a generated registry with an own __proto__ Browser Definition", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-browser-prototype-registry-"))
+    roots.push(root)
+    await mkdir(join(root, "server", "browsers"), { recursive: true })
+    await writeFile(
+      join(root, "server", "browsers", "__proto__.mjs"),
+      'export default { run: async () => "prototype-browser" }\n',
+      "utf8",
+    )
+    const plugin = hubBrowser()
+    const config = {
+      build: { outDir: "dist" },
+      command: "serve",
+      mode: "development",
+      nitro: {},
+      root,
+    }
+    await runHook(plugin.config, config)
+    await runHook(plugin.configResolved, config)
+    const registryId = await runHook(plugin.resolveId, "#vitehub/browser/registry")
+    const registry = await runHook(plugin.load, registryId)
+    const registryFile = join(root, "registry.mjs")
+    await writeFile(registryFile, String(registry), "utf8")
+
+    const { stdout } = await execFileAsync(process.execPath, [
+      "--input-type=module",
+      "--eval",
+      [
+        `import registry from ${JSON.stringify(pathToFileURL(registryFile).href)}`,
+        'const definition = await registry["__proto__"]()',
+        'console.log(JSON.stringify({ own: Object.hasOwn(registry, "__proto__"), prototype: Object.getPrototypeOf(registry) === Object.prototype, result: await definition.default.run() }))',
+      ].join("\n"),
+    ])
+
+    expect(JSON.parse(stdout)).toEqual({
+      own: true,
+      prototype: true,
+      result: "prototype-browser",
+    })
   })
 
   it("discovers Browser Definitions from the project root when Vite runs from app", async () => {

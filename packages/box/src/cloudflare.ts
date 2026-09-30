@@ -141,11 +141,16 @@ function createCloudflareSession(
   baseEnv: Record<string, string>,
   hostname: string | undefined,
 ): RuntimeSession {
-  let destroyed = false;
+  let destroyPromise: Promise<void> | undefined;
   const destroy = async () => {
-    if (destroyed) return;
-    destroyed = true;
-    await withCloudflareRequest("destroy", cloudflareStopTimeout, async () => await stub.destroy());
+    if (destroyPromise) return await destroyPromise;
+    destroyPromise = withCloudflareRequest("destroy", cloudflareStopTimeout, async () => await stub.destroy());
+    try {
+      await destroyPromise;
+    } catch (error) {
+      destroyPromise = undefined;
+      throw error;
+    }
   };
   const request = <T>(operation: string, run: () => Promise<T>, timeout = cloudflareControlPlaneTimeout) =>
     withCloudflareRequest(operation, timeout, run);

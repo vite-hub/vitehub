@@ -256,7 +256,7 @@ async function generateWithDriver(
   // SAFETY: The explicit driver option satisfies the normalized Agent driver input contract.
   const driver = normalizeAgentDriver({ driver: options.driver } as never)
   if (driver.kind === "ask") {
-    throw agentDiagnostics.AGENT_R0932({ message: "[vitehub] progressSummary({ driver }) requires a Driver that returns text. driver.ask returns Jev answers." })
+    throw agentDiagnostics.AGENT_R0933({ message: "[vitehub] progressSummary({ driver }) requires a Driver that returns text. driver.ask returns Jev answers." })
   }
   if (driver.kind === "run") {
     const runPrompt = [
@@ -272,7 +272,7 @@ async function generateWithDriver(
   const instructions = progressSummaryInstructions(options)
   const runContext = progressSummaryAdapterRunContext(context, input, prompt)
   if (driver.kind === "provider") {
-    const { createProviderAgentAdapter } = await import("../provider-agent.ts")
+    const { createProviderAgentAdapter } = await import("#vitehub/agent/provider-agent")
     // SAFETY: The adapter run context is normalized from the active Agent Invocation.
     return await resultText(await createProviderAgentAdapter({ ...driver, instructions }).generate(runContext as never))
   }

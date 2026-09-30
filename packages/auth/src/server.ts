@@ -124,11 +124,6 @@ function hasStaticTrustedOrigins(definition: AuthDefinition): boolean {
   return typeof definition.options !== "function" && "trustedOrigins" in definition.options
 }
 
-function definitionBasePath(definition: AuthDefinition): string | undefined {
-  if (typeof definition.options === "function") return
-  return definition.options.basePath
-}
-
 function stripViteHubOptions(
   options: AuthRuntimeOptions & Record<string, unknown>,
 ): AuthBetterAuthRuntimeOptions {
@@ -243,8 +238,24 @@ function resolveBetterAuthOptionsForRequest(
   runtimeOptions?: AuthRuntimeOptions,
   event?: unknown,
 ): AuthBetterAuthRuntimeOptions {
+  return createBetterAuthOptionsFromResolved(resolveDefinitionOptionsForRequest(definition, request, runtimeOptions, event))
+}
+
+function resolveDefinitionOptionsForRequest(
+  definition: AuthDefinition,
+  request: Pick<Request, "headers" | "url">,
+  runtimeOptions?: AuthRuntimeOptions,
+  event?: unknown,
+): AuthRuntimeOptions & Record<string, unknown> {
+  // SAFETY: The request resolver preserves Definition metadata until stripViteHubOptions removes it.
   const requestRuntimeOptions = createAuthRequestRuntimeOptions(definition, request, runtimeOptions, event) as AuthRuntimeOptions & Record<string, unknown>
-  return createBetterAuthOptionsFromResolved(resolveDefinitionOptions(definition, request, event, requestRuntimeOptions))
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Auth Definitions accept either an options object or a request resolver.
+  if (typeof definition.options === "function") return requestRuntimeOptions
+  // SAFETY: Static storage metadata is removed before these options reach Better Auth.
+  return {
+    ...definition.options,
+    ...requestRuntimeOptions,
+  } as AuthRuntimeOptions & Record<string, unknown>
 }
 
 export function createAuth(
@@ -338,15 +349,6 @@ export function handleAuth(
   return handleAuthRequest(resolveDefaultDefinition(), request, runtimeOptions, input)
 }
 
-function authRequestBasePath(definition: AuthDefinition, request: Pick<Request, "headers" | "url">, event?: unknown): string {
-  const options = createAuthRequestRuntimeOptions(definition, request, {}, event) as AuthRuntimeOptions & { basePath?: unknown }
-  return normalizeAuthBasePath(typeof options.basePath === "string" ? options.basePath : definitionBasePath(definition))
-}
-
-function authBaseURL(definition: AuthDefinition, request: Pick<Request, "headers" | "url">, event?: unknown): string {
-  return new URL(createAuthRequestRuntimeOptions(definition, request, {}, event).baseURL as string).origin
-}
-
 function wantsHtml(request: Pick<Request, "headers" | "method">): boolean {
   return request.method === "GET" && request.headers.get("accept")?.includes("text/html") === true
 }
@@ -361,13 +363,11 @@ function createForbiddenResponse(request: Pick<Request, "headers" | "method">): 
 }
 
 function authAccessRoutes(
-  definition: AuthDefinition,
-  request: Pick<Request, "headers" | "url">,
-  event: unknown,
+  options: AuthRuntimeOptions & Record<string, unknown>,
   routeIndexes: number[],
 ): AuthAccessRoute[] {
   // SAFETY: Auth Definitions validate `access` before the runtime resolves their options.
-  const routes = (resolveDefinitionOptions(definition, request, event) as { access?: AuthAccessConfiguration }).access?.routes
+  const routes = (options as { access?: AuthAccessConfiguration }).access?.routes
   return routeIndexes.map((routeIndex) => {
     const route = routes?.[routeIndex]
     if (!route) {
@@ -378,13 +378,15 @@ function authAccessRoutes(
 }
 
 async function createSignInResponse(
-  definition: AuthDefinition,
-  request: AuthRequest,
+  auth: ViteHubAuth,
+  options: AuthRuntimeOptions & Record<string, unknown>,
   signIn: AuthSignInConfiguration,
-  event?: unknown,
 ): Promise<Response> {
-  const origin = authBaseURL(definition, request, event)
-  const response = await handleAuthRequest(definition, new Request(`${origin}${authRequestBasePath(definition, request, event)}/sign-in/social`, {
+  // SAFETY: The request resolver supplies baseURL from the runtime configuration or request origin.
+  const origin = new URL(options.baseURL as string).origin
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- basePath comes from Definition metadata carried alongside Better Auth runtime options.
+  const basePath = normalizeAuthBasePath(typeof options.basePath === "string" ? options.basePath : undefined)
+  const response = await auth.handler(new Request(`${origin}${basePath}/sign-in/social`, {
     body: JSON.stringify({
       callbackURL: signIn.callbackURL,
       errorCallbackURL: signIn.errorCallbackURL,
@@ -398,7 +400,7 @@ async function createSignInResponse(
       "origin": origin,
     },
     method: "POST",
-  }), undefined, event)
+  }))
 
   if (!response.ok) return response
 
@@ -421,7 +423,8 @@ async function requireAuthRequest(
   redirectToSignIn = true,
 ): Promise<Response | undefined> {
   const request = unwrapAuthRequest(input)
-  const auth = createAuthenticationProvider(resolveBetterAuthOptionsForRequest(definition, request, undefined, input))
+  const options = resolveDefinitionOptionsForRequest(definition, request, undefined, input)
+  const auth = createAuthenticationProvider(createBetterAuthOptionsFromResolved(options))
   const session = await getAuthenticationSession(auth, { headers: request.headers })
   if (session) {
     if (routeIndexes === undefined) return
@@ -432,7 +435,7 @@ async function requireAuthRequest(
       user: session.user,
     }
     const requiredAuthorizeRoutes = new Set(requiredAuthorizeRouteIndexes)
-    const routes = authAccessRoutes(definition, request, input, routeIndexes)
+    const routes = authAccessRoutes(options, routeIndexes)
     for (const [index, route] of routes.entries()) {
       const authorize = route instanceof Object ? route.authorize : undefined
       if (!authorize && requiredAuthorizeRoutes.has(routeIndexes[index]!)) {
@@ -461,9 +464,9 @@ async function requireAuthRequest(
     })
   }
 
-  const signIn = (resolveDefinitionOptions(definition, request, input) as { access?: AuthAccessConfiguration }).access?.signIn
+  const signIn = (options as { access?: AuthAccessConfiguration }).access?.signIn
   return signIn
-    ? await createSignInResponse(definition, request, signIn, input)
+    ? await createSignInResponse(auth, options, signIn)
     : Response.json({ error: "Unauthorized." }, { status: 401 })
 }
 

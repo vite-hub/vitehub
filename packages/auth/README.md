@@ -107,6 +107,8 @@ export default defineAuth(({ env, requestOrigin }) => ({
 
 When `@vite-hub/env` is installed, the Auth Definition callback receives the typed server env. It also receives `requestOrigin`, so same-origin apps do not need a separate auth URL environment variable.
 
+Each Auth request or route guard resolves its Definition and `runtime` callbacks once. The guard uses the same resolved options for session lookup, route authorization, and automatic provider sign-in. A later request resolves fresh options.
+
 The generated Nitro middleware uses `access.signIn` when one of the configured `access.routes` needs a browser redirect. Route objects can add an `authorize` callback when a valid session is not sufficient:
 
 ```ts

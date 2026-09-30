@@ -36,6 +36,8 @@ another reader to resolve a new revision. No registration or global type map is 
 
 `file()` follows a symbolic link only when its resolved target stays inside the Source root. `glob()` is also confined to the Source root. It does not follow symbolic links by default, and it checks each file path again before it reads content or metadata. Set `followSymlinks: true` to follow links when their resolved targets stay inside the Source root. This option controls file selection. It does not isolate the process from concurrent file system changes.
 
+File paths are relative to the Source root. Absolute paths, Windows drive paths such as `C:notes.md`, parent traversal, and null bytes are rejected on every host.
+
 Use `defineSource()` for custom loaders:
 
 ```ts

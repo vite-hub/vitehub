@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 
@@ -205,6 +205,65 @@ describe("built-in deployment preset integration", () => {
       await rm(root, { force: true, recursive: true })
     }
   }, 30_000)
+
+  it("keeps the provider Driver runtime out of a Cloudflare Worker with a model Driver Agent", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-worker-bundle-"))
+    try {
+      await mkdir(join(root, "server", "agents"), { recursive: true })
+      await symlink(resolve(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), "dir")
+      await writeFile(join(root, "index.html"), "<main>ok</main>\n")
+      await writeFile(join(root, "server", "agents", "support.ts"), [
+        "import { defineAgent } from \"vite-hub/agent\"",
+        "import { progressSummary, title } from \"vite-hub/agent/capabilities\"",
+        "export default defineAgent({ capabilities: [title(), progressSummary()], driver: { model: \"openai/gpt-5\" } })",
+        "",
+      ].join("\n"))
+      const { nitro } = await import("nitro/vite" as string) as { nitro: () => unknown }
+      const builder = await createBuilder({
+        logLevel: "silent",
+        root,
+        plugins: [vitehub({ agent: true, preset: "cloudflare", workflow: false }), nitro() as never],
+      })
+      await builder.buildApp()
+
+      const serverDir = join(root, ".output", "server")
+      const files = (await readdir(serverDir, { recursive: true })).filter(file => file.endsWith(".mjs"))
+      const sources = await Promise.all(files.map(file => readFile(join(serverDir, file), "utf8")))
+      const bundle = sources.join("\n")
+      expect(bundle).toContain("AGENT_R0928")
+      expect(bundle).not.toContain("createSqliteProviderRuntimeSessionStore")
+      expect(bundle).not.toMatch(/["']node:child_process["']/)
+      expect(bundle).not.toMatch(/createRequire\(\s*import\.meta\.url\s*\)/)
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  }, 300_000)
+
+  it("fails a Cloudflare Worker build with a provider Driver Agent", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-worker-provider-"))
+    try {
+      await mkdir(join(root, "server", "agents"), { recursive: true })
+      await symlink(resolve(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), "dir")
+      await writeFile(join(root, "index.html"), "<main>ok</main>\n")
+      await writeFile(join(root, "server", "agents", "review.ts"), [
+        "import { defineAgent } from \"vite-hub/agent\"",
+        "export default defineAgent({ driver: \"codex\" })",
+        "",
+      ].join("\n"))
+      const { nitro } = await import("nitro/vite" as string) as { nitro: () => unknown }
+      const builder = await createBuilder({
+        logLevel: "silent",
+        root,
+        plugins: [vitehub({ agent: true, preset: "cloudflare", workflow: false }), nitro() as never],
+      })
+
+      await expect(builder.buildApp()).rejects.toThrow(/AGENT_B0019[\s\S]*server\/agents\/review\.ts/)
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  }, 300_000)
 
   it("emits prefixed secrets from a standalone Env plugin through Nitro", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-prefixed-standalone-secrets-build-"))

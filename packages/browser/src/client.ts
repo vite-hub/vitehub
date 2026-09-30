@@ -215,20 +215,27 @@ class BrowserSessionImpl<TConnection> implements BrowserSession<TConnection> {
       await this.owner.emit("browser.controller.attach", this, { controller: controller.name })
       const control = attached
       let released = false
+      let releasePromise: Promise<void> | undefined
       return {
         client: control.client,
         release: async () => {
+          if (releasePromise) return await releasePromise
           if (released) return
-          released = true
           this.detaching = true
-          try {
+          const releasing = (async () => {
             await control.release()
-          }
-          finally {
+            released = true
             this.detaching = false
             if (this.state === "controlled") this.state = "released"
             this.controller = undefined
             await this.owner.emit("browser.controller.detach", this, { controller: controller.name })
+          })()
+          releasePromise = releasing
+          try {
+            await releasing
+          }
+          finally {
+            releasePromise = undefined
           }
         },
       }
@@ -375,8 +382,8 @@ class BrowserClientImpl<TConnection> implements BrowserClient<TConnection> {
 
   createHandoff(input: Omit<HandoffRecord<TConnection>, "cleanup" | "expiresAt" | "timer"> & { ttl?: number }): BrowserSessionRef {
     const ttl = input.ttl ?? this.options.policy?.handoffTtl ?? 60_000
-    if (!Number.isFinite(ttl) || ttl <= 0) {
-      throw browserErrorDiagnostics.BROWSER_R0003({ message: "[vitehub:browser] Browser handoff ttl must be a positive number of milliseconds." })
+    if (!Number.isFinite(ttl) || ttl <= 0 || ttl > 2_147_483_647) {
+      throw browserErrorDiagnostics.BROWSER_R0003({ message: "[vitehub:browser] Browser handoff ttl must be a positive number of milliseconds no greater than 2147483647." })
     }
     const id = randomId("browser_ref")
     const expiresAt = Date.now() + ttl

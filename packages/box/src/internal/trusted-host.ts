@@ -424,7 +424,7 @@ async function createTrustedHostSession(options: {
   const workspace = join(options.root, "workspace");
   if (options.workspace) await symlink(options.workspace, workspace, "dir");
   else await mkdir(workspace, { recursive: true });
-  let destroyed = false;
+  let destroyPromise: Promise<void> | undefined;
   const processes = new Set<ChildProcessWithoutNullStreams>();
   const processGroups = new Set<number>();
   const session = {
@@ -437,13 +437,19 @@ async function createTrustedHostSession(options: {
     processes,
     root: options.root,
     async destroy() {
-      if (destroyed) return;
-      destroyed = true;
+      destroyPromise ??= (async () => {
+        try {
+          await this.stop();
+          await rm(options.root, { force: true, recursive: true });
+        } finally {
+          await options.release();
+        }
+      })();
       try {
-        await this.stop();
-        await rm(options.root, { force: true, recursive: true });
-      } finally {
-        await options.release();
+        await destroyPromise;
+      } catch (error) {
+        destroyPromise = undefined;
+        throw error;
       }
     },
     async getPortUrl({
@@ -764,8 +770,8 @@ async function acquireFileLock(
       let released = false;
       return async () => {
         if (released) return;
-        released = true;
         await rm(path, { force: true, recursive: true });
+        released = true;
       };
     }
     await abortable(new Promise((resolvePromise) => setTimeout(resolvePromise, 25)), abortSignal);

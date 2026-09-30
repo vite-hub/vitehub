@@ -11,7 +11,7 @@ vi.mock("advocaat", () => {
 describe("ask Driver without advocaat", () => {
   it("explains how to install the optional peer", async () => {
     await expect(askJev({}, "Win money", { spam: ask.if("Is it spam?") })).rejects.toMatchObject({
-      code: "AGENT_R0928",
+      code: "AGENT_R0929",
       message: "[vitehub] TypeSafe Jev requests require the advocaat package. Install it with: pnpm add advocaat",
     })
   })

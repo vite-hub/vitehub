@@ -77,6 +77,64 @@ describe("Browser Sessions", () => {
     expect(session.inspect().state).toBe("closed")
   })
 
+  it("waits for controller cleanup in every concurrent release call", async () => {
+    const { controller, provider, release } = fixture()
+    let resolveRelease!: () => void
+    release.mockImplementation(async () => await new Promise<void>(resolve => {
+      resolveRelease = resolve
+    }))
+    const session = await createBrowser({ provider }).open()
+    const control = await session.attach(controller)
+    const completed = vi.fn()
+
+    const first = control.release()
+    const second = control.release().then(completed)
+    await Promise.resolve()
+    expect(release).toHaveBeenCalledOnce()
+    expect(completed).not.toHaveBeenCalled()
+    expect(session.inspect().state).toBe("controlled")
+
+    resolveRelease()
+    await Promise.all([first, second])
+    expect(completed).toHaveBeenCalledOnce()
+    expect(session.inspect().state).toBe("released")
+    await session.close()
+  })
+
+  it("retains controller ownership and allows retry after failed release", async () => {
+    const { controller, provider, release } = fixture()
+    const failure = new Error("temporary detach failure")
+    release.mockRejectedValueOnce(failure)
+    const session = await createBrowser({ provider }).open()
+    const control = await session.attach(controller)
+
+    await expect(control.release()).rejects.toBe(failure)
+    expect(session.inspect().state).toBe("controlled")
+    await expect(session.attach(controller)).rejects.toMatchObject({ code: "BROWSER_SESSION_STATE" })
+    await expect(session.handoff({ audience: "run-1", mode: "live" })).rejects.toMatchObject({
+      code: "BROWSER_SESSION_STATE",
+    })
+
+    await control.release()
+    await control.release()
+    expect(release).toHaveBeenCalledTimes(2)
+    expect(session.inspect().state).toBe("released")
+    await session.close()
+  })
+
+  it("allows provider cleanup after controller release fails", async () => {
+    const { close, controller, provider, release } = fixture()
+    release.mockRejectedValueOnce(new Error("detach failed"))
+    const session = await createBrowser({ provider }).open()
+    const control = await session.attach(controller)
+
+    await expect(control.release()).rejects.toThrow("detach failed")
+    await session.close()
+
+    expect(close).toHaveBeenCalledOnce()
+    expect(session.inspect().state).toBe("closed")
+  })
+
   it("keeps failed session cleanup retryable", async () => {
     const { close, controller, provider } = fixture()
     close.mockRejectedValueOnce(new Error("temporary close failure"))
@@ -129,6 +187,45 @@ describe("Browser Sessions", () => {
         code: "BROWSER_SESSION_REF_INVALID",
         details: { reason: "unknown" },
       })
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it.each(["policy", "handoff"] as const)("rejects handoff timer overflow from %s without transferring ownership", async (source) => {
+    const { close, provider } = fixture()
+    const ttl = 2_147_483_648
+    const browser = createBrowser({
+      policy: source === "policy" ? { handoffTtl: ttl } : undefined,
+      provider,
+    })
+    const session = await browser.open()
+
+    await expect(session.handoff({
+      audience: "run-1",
+      mode: "live",
+      ...(source === "handoff" ? { ttl } : {}),
+    })).rejects.toThrow("no greater than 2147483647")
+
+    expect(session.inspect().state).toBe("released")
+    expect(close).not.toHaveBeenCalled()
+    await session.close()
+  })
+
+  it("accepts the maximum supported handoff timer without expiring early", async () => {
+    vi.useFakeTimers()
+    try {
+      const { close, provider } = fixture()
+      const browser = createBrowser({ provider })
+      const session = await browser.open()
+      const ref = await session.handoff({ audience: "run-1", mode: "live", ttl: 2_147_483_647 })
+
+      await vi.advanceTimersByTimeAsync(1)
+      expect(close).not.toHaveBeenCalled()
+      const claimed = await browser.claim(ref, { audience: "run-1" })
+      await claimed.close()
+      expect(close).toHaveBeenCalledOnce()
     }
     finally {
       vi.useRealTimers()

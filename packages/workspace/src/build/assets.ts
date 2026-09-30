@@ -254,10 +254,12 @@ export function createWorkspaceAssetsRegistryContents(
       const entries = bundle.files.map((file) => {
         const modulePath = modulePaths.get(`${bundle.name}\0${file.path}`)
         const importPath = modulePath ? createImportPath(registryFile, modulePath) : pathToFileURL(file.path).href
-        return `      ${JSON.stringify(file.path)}: { load: async () => (await import(${JSON.stringify(importPath)})).default, mediaType: ${JSON.stringify(file.mediaType)}, metadata: ${JSON.stringify(file.metadata)} },`
+        const serializedMetadata = JSON.stringify(file.metadata)
+        const metadata = serializedMetadata === undefined ? "undefined" : `JSON.parse(${JSON.stringify(serializedMetadata)})`
+        return `      [${JSON.stringify(file.path)}]: { load: async () => (await import(${JSON.stringify(importPath)})).default, mediaType: ${JSON.stringify(file.mediaType)}, metadata: ${metadata} },`
       })
       return [
-        `  ${JSON.stringify(bundle.name)}: createWorkspaceAssets({`,
+        `  [${JSON.stringify(bundle.name)}]: createWorkspaceAssets({`,
         ...entries,
         "  }),",
       ].join("\n")

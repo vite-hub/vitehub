@@ -24,6 +24,7 @@ export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     WORKFLOW_C0014: dynamicError,
     WORKFLOW_C0015: dynamicError,
     WORKFLOW_C0016: dynamicError,
+    WORKFLOW_C0017: dynamicError,
     WORKFLOW_R0001: dynamicError,
     WORKFLOW_R0002: dynamicError,
     WORKFLOW_R0003: dynamicError,
@@ -50,6 +51,10 @@ export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     WORKFLOW_R0024: dynamicError,
     WORKFLOW_R0025: dynamicError,
     WORKFLOW_R0026: dynamicError,
+    WORKFLOW_R0027: dynamicError,
+    WORKFLOW_R0028: dynamicError,
+    WORKFLOW_R0029: dynamicError,
+    WORKFLOW_R0030: dynamicError,
     WORKFLOW_B0001: dynamicError,
   },
 })

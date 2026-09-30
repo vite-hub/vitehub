@@ -765,6 +765,8 @@ export interface AgentFinishEvent<
     durationMs: number
     resultKind?: string
     run?: AgentRunMetadata
+    /** The `traceId` of the stored invocation record. Present when the Agent has an invocation journal. */
+    traceId?: string
     usage?: AgentUsageRecord
   }
   result?: TOutput

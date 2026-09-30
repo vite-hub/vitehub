@@ -7,6 +7,8 @@ import { build as esbuild } from "esbuild"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { build as viteBuild, type AliasOptions } from "vite"
 
+import type { SandboxRegistryEntry } from "../src/runtime/state.ts"
+
 const tempDirs: string[] = []
 const runtimePreparationMock = vi.hoisted(() => ({
   // SAFETY: The test hook assigns this callback only after the hoisted mock has been initialized.
@@ -196,6 +198,31 @@ describe("hubSandbox", () => {
     expect(providerLoader).not.toContain("createSandboxClient")
     expect(providerLoader).not.toContain("import('./providers/vercel.js')")
     await expect(readFile(join(rootDir, ".vitehub/sandbox/runtime/sandbox.d.ts"), "utf8")).resolves.toContain('"tools/release-notes"')
+  })
+
+  it("loads a discovered __proto__ Definition from the generated registry", async () => {
+    const rootDir = await createViteRoot()
+    await writeFile(join(rootDir, "src/__proto__.sandbox.ts"), [
+      `import { defineSandbox } from "@vite-hub/sandbox"`,
+      `export default defineSandbox({ timeout: 5000, run: async () => ({ message: "prototype sandbox" }) })`,
+      ``,
+    ].join("\n"))
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox({ provider: "vercel" })
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: [] } }) => unknown | Promise<unknown>
+    await configHook({ root: rootDir }, { command: "build", mode: "production" })
+    await configResolved({ root: rootDir, resolve: { alias: [] } })
+
+    const registryFile = await realpath(join(rootDir, ".vitehub/sandbox/runtime/sandbox-registry.mjs"))
+    const { default: registry }: { default: Record<string, () => Promise<{ default: SandboxRegistryEntry }>> } = await import(pathToFileURL(registryFile).href)
+
+    expect(Object.keys(registry)).toEqual(["__proto__", "tools/release-notes"])
+    expect(Object.hasOwn(registry, "__proto__")).toBe(true)
+    expect(Object.getPrototypeOf(registry)).toBe(Object.prototype)
+    const { default: definition } = await registry["__proto__"]!()
+    expect(definition.options).toEqual({ timeout: 5000 })
+    expect(definition.bundle.modules[definition.bundle.entry]).toContain("prototype sandbox")
   })
 
   it("loads only the selected generated Definition payload", async () => {

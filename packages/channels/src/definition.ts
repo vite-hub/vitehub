@@ -8,16 +8,16 @@ function isConnector(value: unknown): value is { send: unknown } {
 function validateChannelDefinition(value: unknown): asserts value is ChannelDefinition {
   const definition = value as ChannelDefinition
   if (!definition || typeof definition !== "object") {
-    throw channelsErrorDiagnostics.CHANNELS_C0001({ message: "`defineChannel()` expects an object with connectors." })
+    throw channelsErrorDiagnostics.CHANNELS_C0001({ message: "`defineOutboundChannel()` expects an object with connectors." })
   }
 
   if (!definition.connectors || typeof definition.connectors !== "object" || Array.isArray(definition.connectors)) {
-    throw channelsErrorDiagnostics.CHANNELS_C0002({ message: "`defineChannel()` expects a connectors object." })
+    throw channelsErrorDiagnostics.CHANNELS_C0002({ message: "`defineOutboundChannel()` expects a connectors object." })
   }
 
   const connectorNames = Object.keys(definition.connectors)
   if (connectorNames.length === 0) {
-    throw channelsErrorDiagnostics.CHANNELS_C0003({ message: "`defineChannel()` requires at least one connector." })
+    throw channelsErrorDiagnostics.CHANNELS_C0003({ message: "`defineOutboundChannel()` requires at least one connector." })
   }
 
   for (const name of connectorNames) {
@@ -31,7 +31,11 @@ function validateChannelDefinition(value: unknown): asserts value is ChannelDefi
   }
 }
 
-export function defineChannel<
+/**
+ * Defines an outbound Channel: a named destination that sends text through one of its connectors.
+ * Agent Channel Kinds use `defineChannel()` from `@vite-hub/agent/channels` instead.
+ */
+export function defineOutboundChannel<
   TConnectors extends ChannelConnectorMap,
   TDefault extends keyof TConnectors & string = never,
 >(
@@ -40,3 +44,8 @@ export function defineChannel<
   validateChannelDefinition(definition)
   return definition
 }
+
+/**
+ * @deprecated Use `defineOutboundChannel()`. This alias will be removed in the next release.
+ */
+export const defineChannel: typeof defineOutboundChannel = defineOutboundChannel

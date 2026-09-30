@@ -29,7 +29,7 @@ describe("discoverScheduleDefinitions", () => {
     expect(createRuntimeRegistryContents(registryFile, [{
       handler: sourceFile,
       name: "welcome",
-    }])).toContain('"welcome": async () => import(')
+    }])).toContain('["welcome"]: async () => import(')
   })
 
   it("derives Vite schedule identity from the schedule file location", async () => {
