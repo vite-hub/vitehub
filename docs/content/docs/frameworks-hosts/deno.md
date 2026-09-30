@@ -92,6 +92,7 @@ Keep generated-file imports confined to this deployment entrypoint. Agent Defini
 
 Use Deno environment variables for model keys and other Runtime Env.
 If you use Deno KV, verify the deployed runtime can call `Deno.openKv()` and choose an explicit KV Store when local development must not share production state.
+On Deno Deploy, create a KV database and assign it to the app before the first deploy that uses it. ViteHub Provision does not create it; see [Resources without provisioning](/docs/development/provisioning#resources-without-provisioning).
 
 ## Next steps
 

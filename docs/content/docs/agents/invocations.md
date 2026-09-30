@@ -142,6 +142,8 @@ export default defineAgent({
 
 Validate untrusted request data at the route boundary. The hook protects the Agent contract when multiple trusted callers invoke the same Definition.
 
+Set `defineAgent({ data })` when callers pass structured values. ViteHub validates `input.data` with the schema before hooks and the Driver run, and returns an error tuple from `runAgent()` for invalid data. See [Accept structured data](/docs/agents/agent-definitions#accept-structured-data).
+
 ## Observe the outcome
 
 Finish hooks receive normalized duration, result kind, and usage. Error hooks receive failed invocations.

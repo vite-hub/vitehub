@@ -5,7 +5,10 @@ export type KVDriver = "cloudflare-kv-binding" | "deno-kv" | "upstash" | "fs-lit
 export interface CloudflareKVStoreConfig {
   driver: "cloudflare-kv-binding"
   binding?: string
+  /** Cloudflare KV namespace id. When omitted, the build reads the id recorded by `vitehub provision run`. */
   namespaceId?: string
+  /** Cloudflare KV namespace title that `vitehub provision run` finds or creates when `namespaceId` is not set. */
+  namespaceName?: string
 }
 
 export interface UpstashKVStoreConfig {

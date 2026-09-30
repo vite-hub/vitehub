@@ -261,6 +261,31 @@ describe("Cloudflare integration", () => {
       id: "namespace-id",
     }])
   })
+
+  it("reads provisioned namespace ids by store name and lets a configured id win", () => {
+    const target: { cloudflare?: { wrangler?: { kv_namespaces?: Array<{ binding: string, id?: string }> } } } = {}
+    const config = normalizeKVOptions({
+      stores: {
+        default: { binding: "CACHE", driver: "cloudflare-kv-binding", namespaceName: "app-cache" },
+        pinned: { binding: "PINNED", driver: "cloudflare-kv-binding", namespaceId: "configured-id", namespaceName: "pinned" },
+        unrecorded: { binding: "UNRECORDED", driver: "cloudflare-kv-binding", namespaceName: "unrecorded" },
+      },
+    }, {
+      env: {},
+      hosting: "cloudflare-module",
+    })!
+
+    configureCloudflareKV(target, config, {
+      cloudflare: { kv: { default: "provisioned-cache", pinned: "provisioned-pinned" } },
+      vercel: { kv: { unrecorded: "vercel-id" } },
+    })
+
+    expect(target.cloudflare!.wrangler!.kv_namespaces).toEqual([
+      { binding: "CACHE", id: "provisioned-cache" },
+      { binding: "PINNED", id: "configured-id" },
+      { binding: "UNRECORDED" },
+    ])
+  })
 })
 
 describe("warnVercelKVFallback", () => {

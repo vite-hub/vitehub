@@ -256,6 +256,45 @@ describe("KV Vite output", () => {
     expect(wranglerContents).toBe(`${JSON.stringify(expected, null, 2)}\n`)
   })
 
+  it("reads a provisioned Cloudflare KV namespace id into provider output", async () => {
+    const rootDir = await createConsumerRoot()
+    const entry = join(rootDir, "src", "worker.ts")
+    const cloudflareOutputRoot = createDefaultCloudflareOutputRoot(rootDir)
+    await mkdir(join(rootDir, ".vitehub"), { recursive: true })
+    await writeFile(join(rootDir, ".vitehub", "provision.json"), `${JSON.stringify({
+      cloudflare: { kv: { default: "22222222222222222222222222222222" } },
+    })}\n`, "utf8")
+    const [{ build }, { hubKv }] = await Promise.all([
+      import("vite"),
+      import("../src/vite.ts"),
+    ])
+
+    await build({
+      appType: "custom",
+      build: {
+        emptyOutDir: false,
+        outDir: "dist",
+        rolldownOptions: {
+          input: entry,
+          output: { entryFileNames: "worker.js" },
+        },
+        ssr: entry,
+      },
+      configFile: false,
+      kv: {
+        binding: "SETTINGS",
+        driver: "cloudflare-kv-binding",
+        namespaceName: "app-settings",
+      },
+      logLevel: "silent",
+      plugins: [hubKv()],
+      root: rootDir,
+    })
+
+    const wrangler = JSON.parse(await readFile(join(cloudflareOutputRoot, "wrangler.json"), "utf8"))
+    expect(wrangler.kv_namespaces).toEqual([{ binding: "SETTINGS", id: "22222222222222222222222222222222" }])
+  })
+
   it("preserves sibling Cloudflare provider output from closeBundle hooks", async () => {
     const rootDir = await createConsumerRoot()
     const entry = join(rootDir, "src", "worker.ts")

@@ -20,7 +20,7 @@ export interface ParsedAgentMessageMetaState {
 const parsedAgentMessageMetaReceipts = new WeakMap<object, WeakMap<object, Map<string | undefined, ParsedAgentMessageMetaReceipt>>>()
 
 function parsedAgentMessageMetaReceipt<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
-  definition: AgentDefinition<TRuntimeConfig, CALL_OPTIONS> | undefined,
+  definition: Pick<AgentDefinition<TRuntimeConfig, CALL_OPTIONS>, "channels" | "messages"> | undefined,
   invocationContext: AgentInvocationContextStore,
   run?: AgentRunMetadata,
 ): ParsedAgentMessageMetaReceipt | undefined {
@@ -45,7 +45,7 @@ function parsedAgentMessageMetaReceipt<TRuntimeConfig extends AgentRuntimeConfig
 }
 
 export function hasParsedAgentMessageMeta<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
-  definition: AgentDefinition<TRuntimeConfig, CALL_OPTIONS> | undefined,
+  definition: Pick<AgentDefinition<TRuntimeConfig, CALL_OPTIONS>, "channels" | "messages"> | undefined,
   input: AgentRunInput<CALL_OPTIONS>,
   run?: AgentRunMetadata,
 ): boolean {
@@ -55,7 +55,7 @@ export function hasParsedAgentMessageMeta<TRuntimeConfig extends AgentRuntimeCon
 }
 
 export function parsedAgentMessageMetaState<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
-  definition: AgentDefinition<TRuntimeConfig, CALL_OPTIONS> | undefined,
+  definition: Pick<AgentDefinition<TRuntimeConfig, CALL_OPTIONS>, "channels" | "messages"> | undefined,
   input: AgentRunInput<CALL_OPTIONS>,
   run?: AgentRunMetadata,
 ): ParsedAgentMessageMetaState | undefined {
@@ -69,7 +69,7 @@ export function parsedAgentMessageMetaState<TRuntimeConfig extends AgentRuntimeC
 }
 
 export function restoreParsedAgentMessageMeta<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
-  definition: AgentDefinition<TRuntimeConfig, CALL_OPTIONS> | undefined,
+  definition: Pick<AgentDefinition<TRuntimeConfig, CALL_OPTIONS>, "channels" | "messages"> | undefined,
   input: AgentRunInput<CALL_OPTIONS>,
   run?: AgentRunMetadata,
   state?: ParsedAgentMessageMetaState,
@@ -114,7 +114,7 @@ function withParsedMeta(invoker: unknown, rawMeta: unknown, meta: Record<string,
 }
 
 function activeMessageSettings<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
-  definition: AgentDefinition<TRuntimeConfig, CALL_OPTIONS> | undefined,
+  definition: Pick<AgentDefinition<TRuntimeConfig, CALL_OPTIONS>, "channels" | "messages"> | undefined,
   invocationContext: AgentInvocationContextStore,
   run?: AgentRunMetadata,
 ) {
@@ -128,7 +128,7 @@ function activeMessageSettings<TRuntimeConfig extends AgentRuntimeConfig, CALL_O
 }
 
 export async function parseAgentMessageMeta<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
-  definition: AgentDefinition<TRuntimeConfig, CALL_OPTIONS> | undefined,
+  definition: Pick<AgentDefinition<TRuntimeConfig, CALL_OPTIONS>, "channels" | "messages"> | undefined,
   invocationContext: AgentInvocationContextStore,
   run?: AgentRunMetadata,
 ): Promise<void> {
@@ -170,7 +170,7 @@ export async function parseAgentMessageMeta<TRuntimeConfig extends AgentRuntimeC
 }
 
 export async function withParsedAgentMessageMeta<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
-  definition: AgentDefinition<TRuntimeConfig, CALL_OPTIONS> | undefined,
+  definition: Pick<AgentDefinition<TRuntimeConfig, CALL_OPTIONS>, "channels" | "messages"> | undefined,
   input: AgentRunInput<CALL_OPTIONS>,
   run?: AgentRunMetadata,
 ): Promise<AgentRunInput<CALL_OPTIONS>> {

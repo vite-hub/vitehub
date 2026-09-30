@@ -574,7 +574,8 @@ describe("createCrabboxRuntime", () => {
           },
           {},
         );
-        const session = await boxProvider(box).createSession();
+        const sandbox = boxProvider(box);
+        const session = await sandbox.createSession();
         const holderPid = Number(await readFile(holder, "utf8"));
         process.kill(holderPid, "SIGKILL");
 
@@ -591,6 +592,11 @@ describe("createCrabboxRuntime", () => {
         // SAFETY: the preceding assertion verifies the captured value is an Error.
         expect((failure as Error).message).toContain("Crabbox state lease was lost");
         await expect(session.destroy?.()).rejects.toThrow("Crabbox state lease was lost");
+        const remaining = await readdir(stateRoot);
+        expect(remaining.filter((name) => name.endsWith(".lock") || name.startsWith(".vitehub-owner-"))).toEqual([]);
+        const next = await sandbox.createSession({ abortSignal: AbortSignal.timeout(5_000) });
+        await expect(next.run({ command: "true" })).resolves.toMatchObject({ exitCode: 0 });
+        await next.destroy?.();
       },
     );
   }, 30_000);
@@ -944,6 +950,51 @@ describe("createCrabboxRuntime", () => {
     })
   }, 30_000)
 
+  it("retries disposable cleanup after remote root removal fails and shares each attempt", async () => {
+    const root = await temporaryRoot()
+    const workspace = join(root, "workspace")
+    const bin = join(root, "bin")
+    const failureMarker = join(root, "fail-remove-once")
+    const log = join(root, "crabbox.log")
+    const stateLog = join(root, "state.log")
+    await Promise.all([mkdir(workspace), mkdir(bin)])
+    await fakeCrabbox(bin)
+
+    await withEnvironment({
+      CRABBOX_TEST_FAIL_REMOVE_ROOT_ONCE: failureMarker,
+      CRABBOX_TEST_LOG: log,
+      CRABBOX_TEST_STATE_LOG: stateLog,
+      PATH: `${bin}:${process.env.PATH || ""}`,
+    }, async () => {
+      const box = await resolveBox({ runtime: createCrabboxRuntime({ profile: "babysitter" }), cwd: workspace }, {})
+      const sandbox = boxProvider(box)
+      const session = await sandbox.createSession()
+      const first = session.destroy()
+      const second = session.destroy()
+      const failures = await Promise.allSettled([first, second])
+
+      expect(failures).toEqual([
+        { status: "rejected", reason: expect.any(Error) },
+        { status: "rejected", reason: expect.any(Error) },
+      ])
+      await expect(stat(session.defaultWorkingDirectory)).resolves.toBeDefined()
+      const stateHomes = [...new Set((await readFile(stateLog, "utf8")).trim().split("\n"))]
+      expect(stateHomes).toHaveLength(1)
+      await expect(stat(stateHomes[0]!)).resolves.toBeDefined()
+      const firstCleanup = (await readFile(log, "utf8")).match(/\|run\|.*chmod -R u\+w --/g)
+      expect(firstCleanup).toHaveLength(1)
+
+      const retryFirst = session.destroy()
+      const retrySecond = session.destroy()
+      await expect(Promise.all([retryFirst, retrySecond])).resolves.toEqual([undefined, undefined])
+      await expect(session.destroy()).resolves.toBeUndefined()
+      await expect(stat(session.defaultWorkingDirectory)).rejects.toMatchObject({ code: "ENOENT" })
+      await expect(stat(stateHomes[0]!)).rejects.toMatchObject({ code: "ENOENT" })
+      const allCleanup = (await readFile(log, "utf8")).match(/\|run\|.*chmod -R u\+w --/g)
+      expect(allCleanup).toHaveLength(2)
+    })
+  }, 30_000)
+
   it("isolates Crabbox state across concurrent session bootstrap", async () => {
     const root = await temporaryRoot()
     const workspaces = [join(root, "pr-1"), join(root, "pr-2")]
@@ -1063,6 +1114,16 @@ case "$verb" in
         *VITEHUB_STATE_READY_*)
           printf '%s\n' "$$" > "$CRABBOX_TEST_STATE_HOLDER"
           exec /bin/sh -c "$script"
+          ;;
+      esac
+    fi
+    if [ -n "$CRABBOX_TEST_FAIL_REMOVE_ROOT_ONCE" ]; then
+      case "$script" in
+        *"chmod -R u+w --"*)
+          if [ ! -e "$CRABBOX_TEST_FAIL_REMOVE_ROOT_ONCE" ]; then
+            : > "$CRABBOX_TEST_FAIL_REMOVE_ROOT_ONCE"
+            exit 25
+          fi
           ;;
       esac
     fi

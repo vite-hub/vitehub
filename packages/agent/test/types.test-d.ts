@@ -1,7 +1,7 @@
 import { describe, expectTypeOf, it } from "vitest"
 import type { LanguageModel } from "ai"
 
-import { ask, defineAgent, defineAgentInvoker, defineCapability, defineFinishEffect, runAgent, runAgentInline, startAgentInvocation, type AgentActor, type AgentCallbackContext, type AgentCapabilityCliCommand, type AgentCapabilityCliResolver, type AgentCapabilityDefinition, type AgentChannelDeliveryEffectContext, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDeliveryFinishEffect, type AgentChannelDeliveryFinishEffectContext, type AgentChannelDefinition, type AgentChannelDeliveryReplyPayload, type AgentChannelDeliveryReplyStream, type AgentChannelFactory, type AgentChannelInput, type AgentChannelInputs, type AgentDeliveryArtifact, type AgentDriverAdaptiveCapacityOptions, type AgentDriverCapacityOptions, type AgentDriverCapacityQueueOptions, type AgentErrorHookEvent, type AgentFinishEvent, type AgentFinishHookEvent, type AgentGatewayModel, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentMessageDeliveryKind, type AgentModelInput, type AgentModuleOptions, type AgentRunInput, type AgentRunResult, type AgentRuntimeConfig, type AgentRuntimeContext, type AgentTriggerInvokeResult, type AgentTriggerRunInvokeResult, type AgentUIMessageStreamProjection, type AgentUsageRecord, type ImagePart, type PublishedAgentDeliveryArtifact, type ResolvedAgentRuntimeContext } from "../src/index.ts"
+import { defineAgent, defineAgentInvoker, defineCapability, defineFinishEffect, runAgent, runAgentInline, startAgentInvocation, type AgentActor, type AgentCallbackContext, type AgentCapabilityCliCommand, type AgentCapabilityCliResolver, type AgentCapabilityDefinition, type AgentChannelDeliveryEffectContext, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDeliveryFinishEffect, type AgentChannelDeliveryFinishEffectContext, type AgentChannelDefinition, type AgentChannelDeliveryReplyPayload, type AgentChannelDeliveryReplyStream, type AgentChannelFactory, type AgentChannelInput, type AgentChannelInputs, type AgentDeliveryArtifact, type AgentDriverAdaptiveCapacityOptions, type AgentDriverCapacityOptions, type AgentDriverCapacityQueueOptions, type AgentErrorHookEvent, type AgentFinishEvent, type AgentFinishHookEvent, type AgentGatewayModel, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentMessageDeliveryKind, type AgentModelInput, type AgentModuleOptions, type AgentRunInput, type AgentRunResult, type AgentRuntimeConfig, type AgentRuntimeContext, type AgentTriggerInvokeResult, type AgentTriggerRunInvokeResult, type AgentUIMessageStreamProjection, type AgentUsageRecord, type ImagePart, type PublishedAgentDeliveryArtifact, type ResolvedAgentRuntimeContext } from "../src/index.ts"
 import { createProcessAgentCapacity, type ProcessAgentCapacityOptions } from "../src/runtime/process.ts"
 import { access, chat, email, executor, getTranscriptionResults, git, inputCommands, kv, mcp, modelsDevPricing, openapi, sandbox, schedule, skills, streamTranscription, transcribe, usage, webSearch, workspaceShell, type AgentUsagePricing, type EmailCapabilityOptions, type EmailCapabilityToolPolicy, type ExecutorCapabilityOptions, type ModelsDevPricingOptions, type UsageOptions } from "../src/capabilities.ts"
 import { defineChannel, github, http, pullRequest, teams, telegram, webChat, type GitHubPullRequestCommand, type GitHubPullRequestFilter, type GitHubPullRequestFilterContext, type GitHubPullRequestRunContext } from "../src/channels.ts"
@@ -10,12 +10,14 @@ import { remoteMcpServer } from "../src/mcp.ts"
 import { stdioMcpServer } from "../src/mcp/stdio.ts"
 import { streamAgentOutputToEvents, toAgentRunResult } from "../src/output.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations, defineAgentRunEvents, type AgentRunEventPublisher } from "../src/server.ts"
+import { registerWorkspaceAgent } from "../src/server/workspace.ts"
 import type { AgentInvocationSummary, AgentInvocationContextStore, AgentInvokerProfile, AgentOutputExtensionProvider, AgentPublicError, AgentToolDefinition, AgentToolSchema, StreamEvent } from "../src/index.ts"
-import type { AgentCapabilitiesInput } from "../src/types.ts"
+import type { AgentCapabilitiesInput, AgentDefinition, AgentInvocationContextValues } from "../src/types.ts"
+import type { WorkspaceAgentDefinition } from "../src/workspace-agent.ts"
 import type { MCPClient } from "@ai-sdk/mcp"
 import type { StandardSchemaV1 } from "@standard-schema/spec"
 import githubExtension from "@github-tools/eve-extension"
-import { file, github as githubSource, type ReadonlyWorkspaceFacade } from "@vite-hub/workspace"
+import { file, github as githubSource, type ReadonlyWorkspaceFacade, type WorkspaceName } from "@vite-hub/workspace"
 import type { AccessChatOptions, AccessInvocationContextValue, AccessWorkspaceOptionsFor, AgentChatRunContext, FetchCapabilityToolOptions, TranscriptionResult } from "../src/capabilities.ts"
 
 declare global {
@@ -400,6 +402,421 @@ describe("agent public types", () => {
     expectTypeOf<Extract<Awaited<ReturnType<Awaited<typeof controlled>["inspect"]>>, { outcome: "available" }>["invocation"]["output"]>().toEqualTypeOf<AgentRunResult | Response | { summary: string, title: string } | undefined>()
   })
 
+  it("types Agent data and unions intercepted output with Driver output", () => {
+    interface Email { from: string, subject: string }
+    interface JevDecision { label: string, probability: number }
+    interface RuleDecision { rule: string, add: string[] }
+    function schemaFor<TOutput, TInput = TOutput>(): StandardSchemaV1<TInput, TOutput> {
+      return {
+        "~standard": {
+          // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
+          validate: (input: unknown) => ({ value: input as TOutput }),
+          vendor: "test",
+          version: 1,
+        },
+      }
+    }
+    const agent = defineAgent({
+      data: schemaFor<Email>(),
+      driver: {
+        output: { schema: schemaFor<JevDecision>() },
+        run: ({ input }) => {
+          expectTypeOf(input).toHaveProperty("data")
+          return "{}"
+        },
+      },
+      intercept: ({ data }) => {
+        expectTypeOf(data).toEqualTypeOf<Email>()
+        return data.from.endsWith("@github.com") ? { add: ["GitHub"], rule: "github" } satisfies RuleDecision : undefined
+      },
+      hooks: {
+        "agent:finish"(event) {
+          expectTypeOf(event.input.data).toEqualTypeOf<Email | undefined>()
+          expectTypeOf(event.result).toEqualTypeOf<JevDecision | RuleDecision | undefined>()
+        },
+        "agent:input"({ input }) {
+          expectTypeOf(input.data).toEqualTypeOf<Email | undefined>()
+        },
+      },
+      runtime: false,
+    })
+
+    // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
+    const inline = runAgentInline(agent, {} as AgentRuntimeContext, { data: { from: "a@example.com", subject: "Hi" } })
+    expectTypeOf(inline).toEqualTypeOf<Promise<Response | JevDecision | RuleDecision>>()
+    const standalone = runAgent(agent, { data: { from: "a@example.com", subject: "Hi" }, prompt: "a@example.com: Hi" })
+    expectTypeOf<Extract<Awaited<typeof standalone>, [null, unknown]>[1]>().toExtend<Response | JevDecision | RuleDecision | { id: string }>()
+    // Callers narrow by result fields after excluding host-level results.
+    const narrow = (output: Extract<Awaited<typeof standalone>, [null, unknown]>[1]) => output instanceof Response || !("rule" in output || "probability" in output) ? undefined : output
+    expectTypeOf(narrow).returns.toEqualTypeOf<JevDecision | RuleDecision | undefined>()
+    // @ts-expect-error Invocation data follows the Agent data schema.
+    void runAgent(agent, { data: { from: "a@example.com" } })
+    // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
+    void startAgentInvocation(agent, {} as AgentRuntimeContext, { data: { from: "a@example.com", subject: "Hi" } })
+    // @ts-expect-error Controlled invocations use the same data type.
+    void startAgentInvocation(agent, {} as AgentRuntimeContext, { data: { subject: "Hi" } })
+
+    const withoutIntercept = defineAgent({
+      data: schemaFor<Email>(),
+      driver: { output: { schema: schemaFor<JevDecision>() }, run: () => "{}" },
+      runtime: false,
+    })
+    // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
+    expectTypeOf(runAgentInline(withoutIntercept, {} as AgentRuntimeContext, {})).toEqualTypeOf<Promise<Response | JevDecision>>()
+    const untyped = defineAgent({ driver: { run: () => "ok" }, runtime: false })
+    void runAgent(untyped, { data: { anything: true } })
+
+    const transformed = defineAgent({
+      data: schemaFor<{ count: number }, { count: string }>(),
+      driver: { run: () => "ok" },
+      intercept: ({ data }) => {
+        expectTypeOf(data).toEqualTypeOf<{ count: number }>()
+        return undefined
+      },
+      hooks: {
+        "agent:input"({ input }) {
+          expectTypeOf(input.data).toEqualTypeOf<{ count: number } | undefined>()
+        },
+        "agent:finish"({ input }) {
+          expectTypeOf(input.data).toEqualTypeOf<{ count: number } | undefined>()
+        },
+      },
+      runtime: false,
+    })
+    type TransformedInputHook = NonNullable<typeof transformed.hooks>["agent:input"]
+    type TransformedFinishHook = NonNullable<typeof transformed.hooks>["agent:finish"]
+    expectTypeOf<Parameters<NonNullable<TransformedInputHook>>[0]["input"]["data"]>().toEqualTypeOf<{ count: number } | undefined>()
+    expectTypeOf<Parameters<NonNullable<TransformedFinishHook>>[0]["input"]["data"]>().toEqualTypeOf<{ count: number } | undefined>()
+    // Call sites pass the schema input type.
+    void runAgent(transformed, { data: { count: "2" } })
+    // @ts-expect-error Call sites do not pass the schema output type.
+    void runAgent(transformed, { data: { count: 2 } })
+
+    const configured = defineAgent({
+      options: { enabled: true },
+      configure: () => defineAgent({ data: schemaFor<{ count: number }, { count: string }>(), driver: { output: { schema: schemaFor<JevDecision>() }, run: () => "ok" }, intercept: () => ({ previous: true as const }), runtime: false }),
+    })
+    const inherited = defineAgent({ extends: configured })
+    expectTypeOf(runAgentInline(inherited, {} as AgentRuntimeContext, {})).toEqualTypeOf<Promise<Response | JevDecision | { previous: true }>>()
+    void runAgent(inherited, { data: { count: "2" } })
+    // @ts-expect-error Configured layers retain their parent's schema input.
+    void runAgent(inherited, { data: { count: 2 } })
+    const selected = defineAgent({ preset: "count", presets: { count: configured } })
+    expectTypeOf(runAgentInline(selected, {} as AgentRuntimeContext, {})).toEqualTypeOf<Promise<Response | JevDecision | { previous: true }>>()
+    void runAgent(selected, { data: { count: "2" } })
+    // @ts-expect-error Selected presets retain the schema input.
+    void runAgent(selected, { data: { count: 2 } })
+    const intercepted = defineAgent({
+      extends: agent,
+      intercept: () => ({ rule: "new", add: ["new"] } satisfies RuleDecision),
+      hooks: {
+        "agent:input"({ input }) {
+          expectTypeOf(input.data).toEqualTypeOf<Email | undefined>()
+        },
+        "agent:finish"({ input, result }) {
+          expectTypeOf(input.data).toEqualTypeOf<Email | undefined>()
+          expectTypeOf(result).toEqualTypeOf<JevDecision | RuleDecision | undefined>()
+        },
+      },
+    })
+    expectTypeOf(runAgentInline(intercepted, {} as AgentRuntimeContext, {})).toEqualTypeOf<Promise<Response | JevDecision | RuleDecision>>()
+    void runAgent(intercepted, { data: { from: "a@example.com", subject: "Hi" } })
+    // @ts-expect-error Replacing only the interceptor preserves the parent schema input.
+    void runAgent(intercepted, { data: { from: "a@example.com" } })
+    const inheritedHooks = defineAgent({
+      extends: agent,
+      hooks: {
+        "agent:input"({ input }) {
+          expectTypeOf(input.data).toEqualTypeOf<Email | undefined>()
+        },
+        "agent:finish"({ input, result }) {
+          expectTypeOf(input.data).toEqualTypeOf<Email | undefined>()
+          expectTypeOf(result).toEqualTypeOf<JevDecision | RuleDecision | undefined>()
+        },
+      },
+    })
+    void runAgent(inheritedHooks, { data: { from: "a@example.com", subject: "Hi" } })
+    const replaced = defineAgent({ extends: selected, data: schemaFor<Email>(), intercept: ({ data }) => {
+      expectTypeOf(data).toEqualTypeOf<Email>()
+      return { rule: "email", add: [data.from] } satisfies RuleDecision
+    } })
+    void runAgent(replaced, { data: { from: "a@example.com", subject: "Hi" } })
+    // @ts-expect-error Replacing a schema removes the parent input type.
+    void runAgent(replaced, { data: { count: "2" } })
+    expectTypeOf(runAgentInline(replaced, {} as AgentRuntimeContext, {})).toEqualTypeOf<Promise<Response | JevDecision | RuleDecision>>()
+
+    const directLayer = defineAgent({ extends: transformed })
+    void runAgent(directLayer, { data: { count: "2" } })
+    // @ts-expect-error Direct layers preserve their parent's input schema.
+    void runAgent(directLayer, { data: { count: 2 } })
+    const directPreset = defineAgent({ preset: "base", presets: { base: transformed } })
+    void runAgent(directPreset, { data: { count: "2" } })
+    // @ts-expect-error Direct presets preserve their parent's input schema.
+    void runAgent(directPreset, { data: { count: 2 } })
+
+    const workspaceAgent = defineAgent({
+      data: schemaFor<Email>(),
+      driver: { output: { schema: schemaFor<JevDecision>() }, run: () => "{}" },
+      intercept: ({ data }) => data.from.endsWith("@github.com") ? { add: ["GitHub"], rule: "github" } satisfies RuleDecision : undefined,
+      runtime: false,
+      workspace: {},
+    })
+    // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
+    expectTypeOf(runAgentInline(workspaceAgent, {} as AgentRuntimeContext, { data: { from: "a@example.com", subject: "Hi" } })).toEqualTypeOf<Promise<Response | JevDecision | RuleDecision>>()
+
+    const transformedWorkspaceAgent = defineAgent({
+      data: schemaFor<{ count: number }, { count: string }>(),
+      driver: { output: { schema: schemaFor<JevDecision>() }, run: () => "{}" },
+      hooks: {
+        "agent:error"({ input }) {
+          expectTypeOf(input.data).toEqualTypeOf<{ count: number } | undefined>()
+        },
+        "agent:finish"({ input }) {
+          expectTypeOf(input.data).toEqualTypeOf<{ count: number } | undefined>()
+        },
+        "agent:input"({ input }) {
+          expectTypeOf(input.data).toEqualTypeOf<{ count: number } | undefined>()
+        },
+      },
+      runtime: false,
+      workspace: {},
+    })
+    expectTypeOf<Parameters<NonNullable<NonNullable<typeof transformedWorkspaceAgent.hooks>["agent:input"]>>[0]["input"]["data"]>().toEqualTypeOf<{ count: number } | undefined>()
+    void runAgent(transformedWorkspaceAgent, { data: { count: "2" } })
+    // @ts-expect-error Workspace call sites accept the schema input type, not its parsed output.
+    void runAgent(transformedWorkspaceAgent, { data: { count: 2 } })
+
+    const runtimeContext: AgentRuntimeContext = {
+      memo: (_key, create) => create(),
+      runtime: "unknown",
+      waitUntil: () => {},
+    }
+    const driverResult = runAgent(withoutIntercept, {})
+    const fallthrough = defineAgent({
+      data: schemaFor<Email>(),
+      driver: { output: { schema: schemaFor<JevDecision>() }, run: () => "{}" },
+      intercept: () => undefined,
+      runtime: false,
+    })
+    const asyncFallthrough = defineAgent({
+      data: schemaFor<Email>(),
+      driver: { output: { schema: schemaFor<JevDecision>() }, run: () => "{}" },
+      intercept: async () => undefined,
+      runtime: false,
+      workspace: {},
+    })
+    expectTypeOf(runAgentInline(fallthrough, runtimeContext, {})).toEqualTypeOf<Promise<Response | JevDecision>>()
+    expectTypeOf(runAgent(fallthrough, {})).toEqualTypeOf<typeof driverResult>()
+    expectTypeOf(runAgentInline(asyncFallthrough, runtimeContext, {})).toEqualTypeOf<Promise<Response | JevDecision>>()
+    expectTypeOf(runAgent(asyncFallthrough, {})).toEqualTypeOf<typeof driverResult>()
+
+    const replacedWithFallthrough = defineAgent({ extends: agent, intercept: () => undefined })
+    const replacedWithAsyncFallthrough = defineAgent({ preset: "base", presets: { base: configured }, intercept: async () => undefined })
+    expectTypeOf(runAgentInline(replacedWithFallthrough, runtimeContext, {})).toEqualTypeOf<Promise<Response | JevDecision>>()
+    expectTypeOf(runAgent(replacedWithFallthrough, {})).toEqualTypeOf<typeof driverResult>()
+    expectTypeOf(runAgentInline(replacedWithAsyncFallthrough, runtimeContext, {})).toEqualTypeOf<Promise<Response | JevDecision>>()
+    expectTypeOf(runAgent(replacedWithAsyncFallthrough, {})).toEqualTypeOf<typeof driverResult>()
+
+    const asyncIntercept = defineAgent({
+      data: schemaFor<Email>(),
+      driver: { output: { schema: schemaFor<JevDecision>() }, run: () => "{}" },
+      intercept: async ({ data }) => data.from.endsWith("@github.com") ? { add: ["GitHub"], rule: "github" } satisfies RuleDecision : undefined,
+      runtime: false,
+    })
+    expectTypeOf(runAgentInline(asyncIntercept, runtimeContext, {})).toEqualTypeOf<Promise<Response | JevDecision | RuleDecision>>()
+    expectTypeOf(runAgent(asyncIntercept, {})).toEqualTypeOf<typeof standalone>()
+    const asyncLayer = defineAgent({ extends: withoutIntercept, intercept: async ({ data }) => data.from.endsWith("@github.com") ? { add: ["GitHub"], rule: "github" } satisfies RuleDecision : undefined })
+    expectTypeOf(runAgentInline(asyncLayer, runtimeContext, {})).toEqualTypeOf<Promise<Response | JevDecision | RuleDecision>>()
+    expectTypeOf(runAgent(asyncLayer, {})).toEqualTypeOf<typeof standalone>()
+
+    const nullableDriverSettings = { output: { schema: schemaFor<JevDecision | undefined>() }, run: () => undefined }
+    const nullableDriver = defineAgent({ driver: nullableDriverSettings, runtime: false })
+    const nullableOutput = defineAgent({ driver: nullableDriverSettings, intercept: () => undefined, runtime: false })
+    const nullableDriverResult = runAgentInline(nullableDriver, runtimeContext, {})
+    expectTypeOf(runAgentInline(nullableOutput, runtimeContext, {})).toEqualTypeOf<typeof nullableDriverResult>()
+    const nullableLayer = defineAgent({ extends: nullableDriver, intercept: () => undefined })
+    expectTypeOf(runAgentInline(nullableLayer, runtimeContext, {})).toEqualTypeOf<typeof nullableDriverResult>()
+  })
+
+  it("replaces Driver schema output across direct, preset, and configured layers", () => {
+    interface ParentOutput { parent: string }
+    interface ChildOutput { child: number }
+    interface InheritedOutput { inherited: boolean }
+    interface ReplacedOutput { replaced: string }
+    function schemaFor<TOutput, TInput = TOutput>(): StandardSchemaV1<TInput, TOutput> {
+      return { "~standard": { validate: () => ({ value: {} as TOutput }), vendor: "test", version: 1 } }
+    }
+    const parent = defineAgent({
+      data: schemaFor<{ count: number }, { count: string }>(),
+      driver: { output: { schema: schemaFor<ParentOutput>() }, run: () => "{}" },
+      intercept: (): InheritedOutput => ({ inherited: true }),
+      runtime: false,
+    })
+    const workspaceParent = defineAgent({ extends: parent, workspace: {} })
+    const nativeWorkspaceParent = defineAgent({
+      driver: { output: { schema: schemaFor<ParentOutput>() }, run: () => "{}" },
+      intercept: (): InheritedOutput => ({ inherited: true }),
+      runtime: false,
+      workspace: {},
+    })
+    const configured = defineAgent({ options: { label: "base" }, configure: () => parent })
+    const configuredWorkspace = defineAgent({ options: { label: "base" }, configure: () => nativeWorkspaceParent })
+    const driver = { output: { schema: schemaFor<ChildOutput, string>() } }
+    const intercept = async (): Promise<ReplacedOutput> => ({ replaced: "child" })
+    const direct = defineAgent({ extends: parent, driver })
+    const preset = defineAgent({ preset: "base", presets: { base: parent, other: nativeWorkspaceParent }, driver })
+    const directWorkspace = defineAgent({ extends: workspaceParent, driver })
+    const presetWorkspace = defineAgent({ preset: "base", presets: { base: nativeWorkspaceParent }, driver })
+    const promotedWorkspace = defineAgent({ preset: "base", presets: { base: parent }, driver, workspace: {} })
+    const configuredDirect = defineAgent({ extends: configured, options: { label: "child" }, driver })
+    const configuredPreset = defineAgent({ preset: "base", presets: { base: configured }, driver })
+    const configuredWorkspaceDirect = defineAgent({ extends: configuredWorkspace, driver })
+    const configuredWorkspacePreset = defineAgent({ preset: "base", presets: { base: configuredWorkspace }, driver })
+    const configuredPromoted = defineAgent({ extends: configured, driver, workspace: {} })
+    const runtime = {} as AgentRuntimeContext
+    expectTypeOf(runAgentInline(direct, runtime, {})).toMatchTypeOf<Promise<Response | ChildOutput | InheritedOutput>>()
+    expectTypeOf(runAgentInline(preset, runtime, {})).toMatchTypeOf<Promise<Response | ChildOutput | InheritedOutput>>()
+    expectTypeOf(runAgentInline(directWorkspace, runtime, {})).toMatchTypeOf<Promise<Response | ChildOutput | InheritedOutput>>()
+    void runAgentInline(presetWorkspace, runtime, {})
+    void runAgentInline(promotedWorkspace, runtime, {})
+    expectTypeOf(runAgentInline(configuredDirect, runtime, {})).toMatchTypeOf<Promise<Response | ChildOutput | InheritedOutput>>()
+    expectTypeOf(runAgentInline(configuredPreset, runtime, {})).toMatchTypeOf<Promise<Response | ChildOutput | InheritedOutput>>()
+    expectTypeOf(runAgentInline(configuredWorkspaceDirect, runtime, {})).toMatchTypeOf<Promise<Response | ChildOutput | InheritedOutput>>()
+    expectTypeOf(runAgentInline(configuredWorkspacePreset, runtime, {})).toMatchTypeOf<Promise<Response | ChildOutput | InheritedOutput>>()
+    expectTypeOf(runAgentInline(configuredPromoted, runtime, {})).toMatchTypeOf<Promise<Response | ChildOutput | InheritedOutput>>()
+
+    const replacedDirect = defineAgent({ extends: parent, driver, intercept })
+    const replacedPreset = defineAgent({ preset: "base", presets: { base: parent }, driver, intercept })
+    const replacedWorkspace = defineAgent({ extends: nativeWorkspaceParent, driver, intercept })
+    const replacedWorkspacePreset = defineAgent({ preset: "base", presets: { base: nativeWorkspaceParent }, driver, intercept })
+    const replacedConfigured = defineAgent({ extends: configured, driver, intercept })
+    const replacedConfiguredPreset = defineAgent({ preset: "base", presets: { base: configured }, driver, intercept })
+    const replacedConfiguredWorkspace = defineAgent({ extends: configuredWorkspace, driver, intercept })
+    const replacedConfiguredWorkspacePreset = defineAgent({ preset: "base", presets: { base: configuredWorkspace }, driver, intercept })
+    expectTypeOf(runAgentInline(replacedDirect, runtime, {})).toMatchTypeOf<Promise<Response | ChildOutput | ReplacedOutput>>()
+    expectTypeOf(runAgentInline(replacedPreset, runtime, {})).toMatchTypeOf<Promise<Response | ChildOutput | ReplacedOutput>>()
+    expectTypeOf(runAgentInline(replacedWorkspace, runtime, {})).toMatchTypeOf<Promise<Response | ChildOutput | ReplacedOutput>>()
+    expectTypeOf(runAgentInline(replacedWorkspacePreset, runtime, {})).toMatchTypeOf<Promise<Response | ChildOutput | ReplacedOutput>>()
+    expectTypeOf(runAgentInline(replacedConfigured, runtime, {})).toMatchTypeOf<Promise<Response | ChildOutput | ReplacedOutput>>()
+    expectTypeOf(runAgentInline(replacedConfiguredPreset, runtime, {})).toMatchTypeOf<Promise<Response | ChildOutput | ReplacedOutput>>()
+    expectTypeOf(runAgentInline(replacedConfiguredWorkspace, runtime, {})).toMatchTypeOf<Promise<Response | ChildOutput | ReplacedOutput>>()
+    expectTypeOf(runAgentInline(replacedConfiguredWorkspacePreset, runtime, {})).toMatchTypeOf<Promise<Response | ChildOutput | ReplacedOutput>>()
+    const fallthrough = defineAgent({ extends: direct, intercept: async () => undefined })
+    expectTypeOf(runAgentInline(fallthrough, runtime, {})).toMatchTypeOf<Promise<Response | ChildOutput>>()
+    const runResult = runAgent(direct, {})
+    expectTypeOf(runAgent(preset, {})).toEqualTypeOf<typeof runResult>()
+    expectTypeOf(runAgent(configuredDirect, {})).toEqualTypeOf<typeof runResult>()
+    expectTypeOf(runAgent(configuredPreset, {})).toEqualTypeOf<typeof runResult>()
+    void runAgent(direct, { data: { count: "1" } })
+    void runAgent(configuredPreset, { data: { count: "1" } })
+    // @ts-expect-error Replacing Driver output preserves the Agent data schema input.
+    void runAgent(configuredDirect, { data: { count: 1 } })
+    const dataLayer = defineAgent({ extends: configuredDirect, intercept: ({ data }) => {
+      expectTypeOf(data).toEqualTypeOf<{ count: number }>()
+      return undefined
+    } })
+    expectTypeOf(runAgentInline(dataLayer, runtime, {})).toMatchTypeOf<Promise<Response | ChildOutput>>()
+  })
+
+  it("preserves overlapping intercepted output and schema output through chained layers", () => {
+    interface ParentOutput { value: string }
+    interface ChildOutput { child: number }
+    function schemaFor<TOutput>(): StandardSchemaV1<unknown, TOutput> {
+      return { "~standard": { validate: () => ({ value: {} as TOutput }), vendor: "test", version: 1 } }
+    }
+    const parent = defineAgent({
+      driver: { output: { schema: schemaFor<ParentOutput>() }, run: () => "{}" },
+      intercept: async (): Promise<ParentOutput | undefined> => ({ value: "intercepted" }),
+      runtime: false,
+    })
+    const configured = defineAgent({ options: {}, configure: () => parent })
+    const driver = { output: { schema: schemaFor<ChildOutput | undefined>() } }
+    const direct = defineAgent({ extends: parent, driver })
+    const preset = defineAgent({ preset: "base", presets: { base: configured }, driver })
+    const chained = defineAgent({ extends: preset, driver: { output: { schema: schemaFor<boolean>() } }, workspace: {} })
+    const runtime = {} as AgentRuntimeContext
+    expectTypeOf(runAgentInline(direct, runtime, {})).toMatchTypeOf<Promise<Response | ChildOutput | ParentOutput | undefined>>()
+    expectTypeOf(runAgentInline(preset, runtime, {})).toMatchTypeOf<Promise<Response | ChildOutput | ParentOutput | undefined>>()
+    expectTypeOf(runAgentInline(chained, runtime, {})).toMatchTypeOf<Promise<Response | boolean | ParentOutput>>()
+    const settingsOnly = defineAgent({ extends: direct, driver: { run: () => "{}" } })
+    expectTypeOf(runAgentInline(settingsOnly, runtime, {})).toMatchTypeOf<Promise<Response | ChildOutput | ParentOutput | undefined>>()
+    const noIntercept = defineAgent({ driver: { output: { schema: schemaFor<ParentOutput>() }, run: () => "{}" } })
+    const replaced = defineAgent({ extends: noIntercept, driver })
+    expectTypeOf(runAgentInline(replaced, runtime, {})).toMatchTypeOf<Promise<Response | ChildOutput | undefined>>()
+    const removed = defineAgent({ extends: preset, intercept: () => undefined })
+    expectTypeOf(runAgentInline(removed, runtime, {})).toMatchTypeOf<Promise<Response | ChildOutput | undefined>>()
+    const untypedParent = defineAgent({ driver: { run: () => "{}" }, intercept: (): ParentOutput => ({ value: "intercepted" }) })
+    const typedChild = defineAgent({ extends: untypedParent, driver })
+    expectTypeOf(runAgentInline(typedChild, runtime, {})).toMatchTypeOf<Promise<Response | ChildOutput | ParentOutput | undefined>>()
+    const subtypeParent = defineAgent({
+      driver: { output: { schema: schemaFor<ParentOutput>() }, run: () => "{}" },
+      intercept: (): ParentOutput & { matched: true } => ({ matched: true, value: "intercepted" }),
+    })
+    const subtypeChild = defineAgent({ extends: subtypeParent, driver })
+    expectTypeOf(runAgentInline(subtypeChild, runtime, {})).toMatchTypeOf<Promise<Response | ChildOutput | (ParentOutput & { matched: true }) | undefined>>()
+  })
+
+  it("preserves output types when public definition aliases are extended", () => {
+    interface DriverOutput { value: string }
+    interface InterceptOutput { matched: true }
+    const schema: StandardSchemaV1<unknown, DriverOutput> = {
+      "~standard": { validate: () => ({ value: { value: "driver" } }), vendor: "test", version: 1 },
+    }
+    const definition: AgentDefinition<AgentRuntimeConfig, unknown, AgentInvokerProfile, AgentInvocationContextValues, DriverOutput> = defineAgent({
+      driver: { output: { schema }, run: () => "{}" },
+      runtime: false,
+    })
+    const workspaceDefinition: WorkspaceAgentDefinition<AgentRuntimeConfig, WorkspaceName, unknown, AgentInvokerProfile, AgentInvocationContextValues, AgentCapabilitiesInput<AgentRuntimeConfig>, DriverOutput> = defineAgent({
+      driver: { output: { schema }, run: () => "{}" },
+      runtime: false,
+      workspace: {},
+    })
+    const runtime = {} as AgentRuntimeContext
+    const inherited = defineAgent({ extends: definition })
+    const workspaceInherited = defineAgent({ extends: workspaceDefinition })
+    const presetInherited = defineAgent({ preset: "base", presets: { base: definition } })
+    expectTypeOf(runAgentInline(inherited, runtime, {})).toEqualTypeOf<Promise<Response | DriverOutput>>()
+    expectTypeOf(runAgentInline(workspaceInherited, runtime, {})).toEqualTypeOf<Promise<Response | DriverOutput>>()
+    expectTypeOf(runAgentInline(presetInherited, runtime, {})).toEqualTypeOf<Promise<Response | DriverOutput>>()
+
+    const interceptedWorkspaceDefinition: WorkspaceAgentDefinition<AgentRuntimeConfig, WorkspaceName, unknown, AgentInvokerProfile, AgentInvocationContextValues, AgentCapabilitiesInput<AgentRuntimeConfig>, DriverOutput | InterceptOutput, unknown, unknown, DriverOutput, InterceptOutput> = defineAgent({
+      driver: { output: { schema }, run: () => "{}" },
+      intercept: (): InterceptOutput => ({ matched: true }),
+      runtime: false,
+      workspace: {},
+    })
+    const workspaceIntercepted = defineAgent({ extends: interceptedWorkspaceDefinition })
+    const workspaceFallthrough = defineAgent({ extends: interceptedWorkspaceDefinition, intercept: () => undefined })
+    const registeredWorkspace = registerWorkspaceAgent(interceptedWorkspaceDefinition)
+    const registeredFallthrough = defineAgent({ extends: registeredWorkspace, intercept: () => undefined })
+    expectTypeOf(registeredWorkspace).toEqualTypeOf<typeof interceptedWorkspaceDefinition>()
+    expectTypeOf(runAgentInline(registeredFallthrough, runtime, {})).toEqualTypeOf<Promise<Response | DriverOutput>>()
+    const interceptedDefinition: AgentDefinition<AgentRuntimeConfig, unknown, AgentInvokerProfile, AgentInvocationContextValues, DriverOutput | InterceptOutput, unknown, DriverOutput, unknown, InterceptOutput> = interceptedWorkspaceDefinition
+    const legacyInterceptedDefinition: AgentDefinition<AgentRuntimeConfig, unknown, AgentInvokerProfile, AgentInvocationContextValues, DriverOutput | InterceptOutput> = defineAgent({
+      driver: { output: { schema }, run: () => "{}" },
+      intercept: (): InterceptOutput => ({ matched: true }),
+      runtime: false,
+    })
+    const legacyInterceptedWorkspaceDefinition: WorkspaceAgentDefinition<AgentRuntimeConfig, WorkspaceName, unknown, AgentInvokerProfile, AgentInvocationContextValues, AgentCapabilitiesInput<AgentRuntimeConfig>, DriverOutput | InterceptOutput> = defineAgent({
+      driver: { output: { schema }, run: () => "{}" },
+      intercept: (): InterceptOutput => ({ matched: true }),
+      runtime: false,
+      workspace: {},
+    })
+    const intercepted = defineAgent({ extends: interceptedDefinition })
+    const fallthrough = defineAgent({ extends: interceptedDefinition, intercept: () => undefined })
+    expectTypeOf(runAgentInline(workspaceIntercepted, runtime, {})).toEqualTypeOf<Promise<Response | DriverOutput | InterceptOutput>>()
+    expectTypeOf(runAgentInline(workspaceFallthrough, runtime, {})).toEqualTypeOf<Promise<Response | DriverOutput>>()
+    expectTypeOf(runAgentInline(intercepted, runtime, {})).toEqualTypeOf<Promise<Response | DriverOutput | InterceptOutput>>()
+    expectTypeOf(runAgentInline(legacyInterceptedDefinition, runtime, {})).toEqualTypeOf<Promise<Response | DriverOutput | InterceptOutput>>()
+    expectTypeOf(runAgentInline(legacyInterceptedWorkspaceDefinition, runtime, {})).toEqualTypeOf<Promise<Response | DriverOutput | InterceptOutput>>()
+    expectTypeOf(runAgentInline(fallthrough, runtime, {})).toEqualTypeOf<Promise<Response | DriverOutput>>()
+    function registerWithCallOptions(agent: WorkspaceAgentDefinition<AgentRuntimeConfig, WorkspaceName, { count: number }>) {
+      return registerWorkspaceAgent(agent)
+    }
+    expectTypeOf<ReturnType<typeof registerWithCallOptions>>().toEqualTypeOf<Parameters<typeof registerWithCallOptions>[0]>()
+  })
+
   it("infers ask Driver output from its Jev questions", () => {
     const agent = defineAgent({
       driver: {
@@ -449,6 +866,7 @@ describe("agent public types", () => {
       runtime: false,
     })
   })
+
 
   it("scopes output correction attempts to Model Drivers", () => {
     const schema = {

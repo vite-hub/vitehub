@@ -173,6 +173,69 @@ When an AI SDK Model Driver returns invalid native structured output, it makes u
 
 Provider Drivers such as `codex` and `claude-code`, and custom-run Drivers, validate their returned output once. They do not accept `maxAttempts` because a second provider session or application callback would replay work instead of performing an output-only Model Driver correction.
 
+## Accept structured data
+
+Set `data` to a Standard Schema when callers pass structured values instead of, or in addition to, model text. ViteHub validates `input.data` before Capabilities, hooks, `intercept`, and the Driver run. Invalid data fails the Invocation: `runAgent()` returns `[Error, null]`, and the Driver does not run.
+
+`data` does not replace `prompt` or `messages`. Model Drivers and provider Drivers do not read `data`, so pass the text they need in `prompt` or `messages`. A `prompt` also names Console sessions and gives the `title()` Capability its source text. Hooks, `intercept`, and custom-run Drivers receive the parsed value.
+
+Call sites use the schema input type. Hooks and `intercept` receive the schema output type. A custom-run Driver reads the same parsed value from `input.data` with the type `unknown`. ViteHub applies a schema transform once, before any of them run.
+
+ViteHub validates changed data again after input hooks and before the Driver runs. It detects in-place changes to arrays, plain records, `Date`, `RegExp`, `Map`, `Set`, `URL`, and `URLSearchParams`. Replace other class instances instead of mutating their internal state, which ViteHub cannot snapshot.
+
+Hooks and Capabilities receive the parsed output, but changed data is validated as schema input. Do not replace transformed output with another value; define the desired value in the original input form instead.
+
+## Finish before the Driver
+
+Set `intercept` when app code can answer some Invocations without the Driver. The handler receives the same context as an `agent:input` hook plus the parsed `data`. Return `undefined` to continue to the Driver. Return another value to finish the Invocation with that value as its output. Throw to fail the Invocation.
+
+```ts [server/agents/labeller.ts]
+import * as v from 'valibot'
+import { defineAgent } from 'vite-hub/agent'
+
+const email = v.object({ from: v.string(), subject: v.string() })
+
+const rules = [
+  { rule: 'github', from: '@github.com', label: 'GitHub' },
+  { rule: 'billing', from: '@stripe.com', label: 'Billing' },
+] as const
+
+export default defineAgent({
+  data: email,
+  // Config rules decide first. The model runs only when no rule matches.
+  intercept: ({ data }) => {
+    const match = rules.find(rule => data.from.endsWith(rule.from))
+    return match ? { source: 'rule' as const, rule: match.rule, label: match.label } : undefined
+  },
+  driver: {
+    model: 'openai/gpt-5.1-mini',
+    instructions: 'Choose one Gmail label for the email.',
+    output: { schema: v.object({ source: v.literal('model'), label: v.string() }) },
+  },
+})
+```
+
+```ts [server/lib/sync.ts]
+import { runAgent } from 'vite-hub/agent'
+import labeller from '../agents/labeller'
+
+const [error, output] = await runAgent(labeller, {
+  data: { from: email.from, subject: email.subject },
+  prompt: `${email.from}: ${email.subject}`,
+})
+if (error) throw error
+if (output instanceof Response || !('source' in output)) throw new Error('Expected inline labeller output')
+// output: { source: 'rule', rule: 'github' | 'billing', label: 'GitHub' | 'Billing' } | { source: 'model', label: string }
+```
+
+The `runAgent()` output type is the union of the awaited `intercept` return type, excluding the `undefined` fall-through signal, and the `driver.output` schema output. The caller narrows it with the fields of each result and does not parse the output again. As for any Agent, the type also includes `Response` and `AgentWorkflowRun`, so exclude those first.
+
+An intercepted Invocation skips the Driver, tools, and start Capabilities. `agent:finish` hooks receive the intercepted value as `result`. The `agent.invocation.finish` trace event sets `agent.intercepted: true` and records the value as `result.output`. Traces record `input.data` and `result.output` only when the trace content policy is `content`; the `metadata` policy keeps only `input.hasData`.
+
+The Capability pipeline pauses before its first `prepare` callback or preparation hook, and tool resolution waits for interception. When `intercept` returns `undefined`, the pipeline resumes at that point and keeps the configured Capability and phase order. Phases after that point do not run for an intercepted Invocation, so their input or context changes are not available to `intercept`. Data changed by a resumed phase is validated before the Driver runs.
+
+A child Agent that sets `data` or `intercept` replaces the parent value. ViteHub does not merge schemas or compose interceptors.
+
 ## Choose hosted execution
 
 Discovered Agents use the active host's Workflow integration by default. Set `runtime: false` when a hosted Agent must complete inline, or select a named Workflow identity with `runtime: workflow('support')`.
@@ -189,6 +252,8 @@ With the implicit discovery-default Workflow binding, direct `runAgent()` calls 
 | `workspace` | Declares or reuses scoped files, Sources, bindings, and access policy. |
 | `driver.instructions` | Configures instructions on the selected Driver; see [Instructions](/docs/agents/instructions). |
 | `driver.output` | Validates structured Agent output. |
+| `data` | Validates structured Invocation input and types `data` at call sites and in hooks. |
+| `intercept` | Finishes an Invocation with app-computed output before the Driver runs. |
 | `channels` | Declares named Agent Channels and generated routes. |
 | `messages` | Applies shared delivery, streaming, concurrency, session, and transcript settings to adapter Channels. |
 | `invoker` | Configures Agent Actor profiles and resolution using the current API name. |

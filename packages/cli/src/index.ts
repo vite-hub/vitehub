@@ -8,7 +8,7 @@ import { collectViteHubCliNamespaces, collectViteHubProvisionSteps } from "@vite
 import { formatRuntimeDiagnosticError } from "@vite-hub/runtime"
 import { resolve } from "pathe"
 
-import { runProvision } from "./provision.ts"
+import { provisionUsage, runProvision, runProvisionStatus } from "./provision.ts"
 
 import type { InlineConfig } from "vite"
 import type { ViteHubCliCommandNamespace, ViteHubCliContext } from "@vite-hub/internal/cli"
@@ -138,14 +138,18 @@ async function loadViteConfig(rootDir: string): Promise<ViteHubCliLoadedConfig> 
 // Built-in namespace that orchestrates package-contributed Provision Steps.
 function createProvisionNamespace(plugins: readonly unknown[]): ViteHubCliCommandNamespace {
   const collectSteps = () => collectViteHubProvisionSteps(plugins)
-  const run = (args: string[], context: ViteHubCliContext) => runProvision(args, context, { collectSteps })
   return {
     description: "Idempotently create missing provider resources.",
     features: [{
       description: "Create missing provider resources for the app's Definitions.",
       name: "run",
-      run,
-      usage: "vitehub provision run --provider <cloudflare|vercel> [--dry-run]",
+      run: (args, context) => runProvision(args, context, { collectSteps }),
+      usage: provisionUsage.run,
+    }, {
+      description: "Show recorded provider ids and pending plan actions.",
+      name: "status",
+      run: (args, context) => runProvisionStatus(args, context, { collectSteps }),
+      usage: provisionUsage.status,
     }],
     name: "provision",
   }
