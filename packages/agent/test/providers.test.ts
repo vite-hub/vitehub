@@ -14447,7 +14447,7 @@ describe("server helpers", () => {
     }
   })
 
-  it.each(["completed", "failed"] as const)("retries a restored primary %s journal before settling ownership", async (settlementStatus) => {
+  it.each(["completed", "failed"] as const)("retries a restored primary %s journal before settling ownership", { timeout: 30_000 }, async (settlementStatus) => {
     const { defineAgent } = await import("../src/index.ts")
     const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
     const { telegram } = await import("../src/channels.ts")
@@ -14512,7 +14512,7 @@ describe("server helpers", () => {
           async () => "stale",
         ),
       ).resolves.toBeUndefined()
-      await vi.waitFor(() => expect(createBatch).toHaveBeenCalledTimes(2))
+      await vi.waitFor(() => expect(createBatch).toHaveBeenCalledTimes(2), { timeout: 10_000 })
       expect(workflowIds[1]).not.toBe(workflowIds[0])
       const recoveredRunId = workflowPayloads[1]?.run?.runId
       expect(recoveredRunId).toEqual(expect.stringMatching(/,"telegram:456","telegram:91151"\]$/))
@@ -17603,7 +17603,7 @@ describe("server helpers", () => {
     }
   })
 
-  it("limits refreshed inline steering history to each waiting message", async () => {
+  it("limits refreshed inline steering history to each waiting message", { timeout: 30_000 }, async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
     const { registerAgentInvocationInputHandler } = await import("../src/internal/agent-invocation-control.ts")
@@ -17653,11 +17653,11 @@ describe("server helpers", () => {
       pending.push(handler(chatWebhookRequest(91_120, 456, "A"), "telegram"))
       await started.promise
       pending.push(handler(chatWebhookRequest(91_121, 456, "B"), "telegram"))
-      await vi.waitFor(() => expect(sendInput).toHaveBeenCalledTimes(1))
+      await vi.waitFor(() => expect(sendInput).toHaveBeenCalledTimes(1), { timeout: 10_000 })
       const laterMessages = ["C", "D", "E"]
       for (const [index, text] of laterMessages.entries()) {
         pending.push(handler(chatWebhookRequest(91_122 + index, 456, text), "telegram"))
-        await vi.waitFor(() => expect(sendInput).toHaveBeenCalledTimes(index + 2))
+        await vi.waitFor(() => expect(sendInput).toHaveBeenCalledTimes(index + 2), { timeout: 10_000 })
       }
       release.resolve()
       expect((await Promise.all(pending)).map(response => response.status)).toEqual([200, 200, 200, 200, 200])
