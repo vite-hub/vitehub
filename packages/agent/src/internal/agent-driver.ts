@@ -346,7 +346,7 @@ function normalizeExplicitAgentDriver(driver: unknown): NormalizedAgentDriver {
       capacity,
       kind: "ask",
       run: async context => await askJev(
-        { abortSignal: context.input.abortSignal, event: context },
+        { abortSignal: context.input.abortSignal, event: { context } },
         askState(context.input, context.prompt, context.messages),
         isRuntimeFunction(ask) ? await ask(context) : ask,
       ),

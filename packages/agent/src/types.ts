@@ -232,6 +232,8 @@ export interface AgentRunInput<
 > {
   abortSignal?: AbortSignal
   context?: TContext
+  /** Structured state supplied to the Agent invocation. */
+  data?: unknown
   message?: string | Message
   messages?: Message[]
   options?: CALL_OPTIONS

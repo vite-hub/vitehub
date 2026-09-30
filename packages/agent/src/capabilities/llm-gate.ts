@@ -82,10 +82,11 @@ export function llmGate<
   type Decision = LlmGateDecision<Extract<keyof TAllow, string>, Extract<keyof TReject, string>>
 
   function toDecision(category: unknown, details: Pick<LlmGateDecision, "confidence" | "probabilities" | "reason">): Decision {
+    // SAFETY: the runtime schema accepts only string categories before this domain check.
     if (typeof category !== "string" || !categoryKeys.includes(category)) {
       throw agentDiagnostics.AGENT_R0111({ message: `[vitehub] ${id} returned an invalid gate category.` })
     }
-    // SAFETY: category is a configured allow or reject key, and allowed follows from the list that contains it.
+    // SAFETY: category is a configured key and the category generic is derived from those keys.
     return { allowed: allowKeys.includes(category), category, ...details } as Decision
   }
 
@@ -132,6 +133,7 @@ export function llmGate<
             required: ["allowed", "category"],
             type: "object",
           }, (value) => {
+            // SAFETY: objectSchema validates this callback value as an object before invoking it.
             const record = value as { allowed?: unknown, category?: unknown, confidence?: unknown, reason?: unknown }
             return toDecision(record?.category, {
               ...(confidence(record?.confidence) !== undefined ? { confidence: confidence(record?.confidence) } : {}),

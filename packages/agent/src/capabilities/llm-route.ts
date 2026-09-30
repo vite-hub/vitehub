@@ -47,10 +47,11 @@ export function llmRoute<
   const choiceKeys = choices.map(choice => choice.key)
 
   function toDecision(choice: unknown, details: Omit<LlmRouteDecision, "choice">): LlmRouteDecision<Extract<keyof TChoices, string>> {
+    // SAFETY: the runtime schema accepts only string choices before this domain check.
     if (typeof choice !== "string" || !choiceKeys.includes(choice)) {
       throw agentDiagnostics.AGENT_R0113({ message: `[vitehub] ${id} returned an invalid route choice.` })
     }
-    // SAFETY: choice is one of the configured route keys.
+    // SAFETY: choice is a configured key and the generic is derived from those keys.
     return { choice: choice as Extract<keyof TChoices, string>, ...details }
   }
 
@@ -92,6 +93,7 @@ export function llmRoute<
             required: ["choice"],
             type: "object",
           }, (value) => {
+            // SAFETY: objectSchema validates this callback value as an object before invoking it.
             const record = value as { choice?: unknown, confidence?: unknown, reason?: unknown }
             return toDecision(record?.choice, {
               ...(confidence(record?.confidence) !== undefined ? { confidence: confidence(record?.confidence) } : {}),

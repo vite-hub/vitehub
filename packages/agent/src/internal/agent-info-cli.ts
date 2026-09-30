@@ -120,6 +120,7 @@ function agentInfoDriver(config: AgentInspectionMetadata["config"]): string {
   if (driver.kind === "model") return driver.model?.id ? `Model-backed Agent Driver (${driver.model.id})` : "Model-backed Agent Driver"
   if (driver.kind === "provider") return driver.provider?.provider ? `Provider Agent Driver (${driver.provider.provider})` : "Provider Agent Driver"
   if (driver.kind === "run") return "Custom-run Agent Driver"
+  if (driver.kind === "ask") return "Ask Agent Driver"
   return "Unknown Agent Driver"
 }
 

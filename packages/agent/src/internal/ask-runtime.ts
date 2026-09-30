@@ -5,6 +5,7 @@ import { importServerEnvModule } from "./server-env.ts"
 
 import type { AskAnswers, AskEntry, AskQuestion, AskQuestions } from "../ask.ts"
 import type { Message } from "../messages.ts"
+import type { AgentRunInput } from "../types.ts"
 
 type Advocaat = typeof import("advocaat")
 type AdvocaatQuestion = Parameters<Advocaat["ask"]>[1][string]
@@ -19,6 +20,8 @@ export interface AskRequestContext {
   /** Passed to `useServerEnv()` so Cloudflare bindings resolve for this request. */
   event?: unknown
 }
+
+type AskStateInput = Pick<AgentRunInput, "data" | "prompt">
 
 async function loadAdvocaat(): Promise<Advocaat> {
   try {
@@ -95,7 +98,7 @@ function toAdvocaatQuestion(name: string, question: AskQuestion): AdvocaatQuesti
 }
 
 /** Jev state for a run: Invocation `data` when present, else the prompt text, else the latest user message. */
-export function askState(input: object, prompt: unknown, messages: readonly Message[]): unknown {
+export function askState(input: AskStateInput, prompt: unknown, messages: readonly Message[]): unknown {
   // `data` is part of the Agent Run Input once `defineAgent({ data })` is available. Read it when a caller sets it.
   if ("data" in input && input.data !== undefined) return input.data
   if (hasRuntimeType(prompt, "string") && prompt.trim()) return prompt.trim()
