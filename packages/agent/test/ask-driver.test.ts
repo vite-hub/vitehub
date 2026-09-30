@@ -151,6 +151,22 @@ describe("ask Driver", () => {
     })
   })
 
+  it.each([
+    { name: "choice", question: { criteria: { only: null }, instructions: "Pick", type: "choice" } },
+    { name: "choice", question: { criteria: Object.fromEntries(Array.from({ length: 256 }, (_, index) => [`choice-${index}`, null])), instructions: "Pick", type: "choice" } },
+    { name: "switch", question: { criteria: { only: null }, instructions: "Pick", type: "switch" } },
+    { name: "score", question: { criteria: ["only"], instructions: "Rate", type: "score" } },
+    { name: "score", question: { criteria: Array.from({ length: 11 }, (_, index) => String(index)), instructions: "Rate", type: "score" } },
+  ])("validates Jev $name question cardinality before dispatch", async ({ name, question }) => {
+    const agent = defineAgent({ driver: { ask: { question: question as never } }, runtime: false })
+
+    await expect(runAgent(agent, runtime(), { prompt: "value" })).rejects.toMatchObject({
+      code: "AGENT_R0931",
+      message: expect.stringContaining(`${name} criteria must have`),
+    })
+    expect(askJev).not.toHaveBeenCalled()
+  })
+
   it("shows the ask Driver kind in inspection metadata", async () => {
     const agent = defineAgent({ driver: { ask: { spam: ask.if("Is it spam?") } }, runtime: false })
 

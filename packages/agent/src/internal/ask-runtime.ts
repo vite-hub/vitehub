@@ -84,6 +84,23 @@ function invalidQuestion(name: string) {
   return agentDiagnostics.AGENT_R0931({ message: `[vitehub] Jev question "${name}" must be built with ask.choice(), ask.score(), ask.chance(), ask.if(), or ask.switch().` })
 }
 
+function validateQuestionCriteria(name: string, question: AskQuestion): void {
+  if (question.type === "choice" || question.type === "switch") {
+    const count = isRuntimeRecord(question.criteria) && !Array.isArray(question.criteria)
+      ? Object.keys(question.criteria).length
+      : 0
+    if (count < 2 || count > 255) {
+      throw agentDiagnostics.AGENT_R0931({ message: `[vitehub] Jev question "${name}" ${question.type} criteria must have between 2 and 255 choices.` })
+    }
+  }
+  else if (question.type === "score") {
+    const count = Array.isArray(question.criteria) ? question.criteria.length : 0
+    if (count < 2 || count > 10) {
+      throw agentDiagnostics.AGENT_R0931({ message: `[vitehub] Jev question "${name}" score criteria must have between 2 and 10 levels.` })
+    }
+  }
+}
+
 function toAdvocaatQuestion(name: string, question: AskQuestion): AdvocaatQuestion {
   switch (question.type) {
     case "chance":
@@ -92,6 +109,7 @@ function toAdvocaatQuestion(name: string, question: AskQuestion): AdvocaatQuesti
     case "score":
     case "if":
     case "switch":
+      validateQuestionCriteria(name, question)
       return question
   }
   throw invalidQuestion(name)
