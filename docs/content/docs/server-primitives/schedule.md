@@ -191,7 +191,7 @@ export default defineEventHandler(async () => {
 
 `runSchedule(name, options?)` loads the definition from `options.registry`, or from the registry that the Process Runtime or `setScheduleRuntimeRegistry()` installed. It rejects with `SCHEDULE_DEFINITION_NOT_FOUND` when the name is not a Static Schedule Definition, and with `SCHEDULE_MANUAL_RUN_DISABLED` when the definition does not set `manual: true`. After the handler starts, it resolves with the finished Schedule Run record. A handler failure resolves with `status: 'failed'` and `error`; it does not reject.
 
-A manual run uses the run id `srun_manual_<name>_<ISO time>`, so it never matches the id of a cron occurrence and never deduplicates one. A manual run does not wait for a cron run of the same definition, and a cron run does not wait for a manual run. Make the handler safe to run twice at the same time. Use `schedules.run(id)` for Runtime Schedules; `runSchedule()` runs only Static Schedule Definitions.
+A manual run uses the run id `srun_manual_<name>_<ISO time>_<unique suffix>`, so it never matches the id of a cron occurrence and never deduplicates another manual request. A manual run does not wait for a cron run of the same definition, and a cron run does not wait for a manual run. Make the handler safe to run twice at the same time. Use `schedules.run(id)` for Runtime Schedules; `runSchedule()` runs only Static Schedule Definitions.
 
 ## Create recurring Runtime Schedules
 
