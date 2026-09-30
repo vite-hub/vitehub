@@ -5,11 +5,12 @@ import { Readable } from "node:stream"
 import { pathToFileURL } from "node:url"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { mergeConfig } from "vite"
 
 import { getWorkspaceHostedStoreLoader, setWorkspaceHostedStoreLoader } from "../src/runtime/state.ts"
 
 import type { IncomingMessage, ServerResponse } from "node:http"
-import type { Connect } from "vite"
+import type { ConfigEnv, Connect, Plugin, UserConfig } from "vite"
 
 const runWorkspaceDevCommand = vi.hoisted(() => vi.fn(async (_input?: { abortSignal?: AbortSignal, onProgress?: (event: { id: string, label: string, status: "started" | "completed" }) => void | Promise<void> }) => ({
   exitCode: 0,
@@ -44,6 +45,18 @@ function testFunction<T extends (...args: never[]) => unknown>(value: unknown, c
   const handler = Reflect.has(Object(value), "handler") ? Reflect.get(Object(value), "handler") : value
   // SAFETY: Each test supplies the exact argument subset read by the concrete hook it selects.
   return handler as T
+}
+
+// Vite merges each config hook result into the config it passed to the hook. Tests assert that merged config,
+// so a hook that returns entries the config already contains fails as a duplicate.
+function mergedConfigHook(hook: Plugin["config"]) {
+  const handler = typeof hook === "function" ? hook : hook?.handler
+  if (!handler) throw new TypeError("Expected the Workspace Vite config hook.")
+  return async (config: UserConfig, env: ConfigEnv) => {
+    // SAFETY: The Workspace config hook does not read the plugin context.
+    const result = await handler.call({} as never, config, env)
+    return result ? mergeConfig(config, result) : config
+  }
 }
 
 function createDeferred() {
@@ -220,7 +233,7 @@ describe("hubWorkspace", () => {
   it("ignores generated workspace files in the Vite dev watcher", async () => {
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace()
-    const config = plugin.config as (config: { server?: { watch?: { ignored?: string | string[] } } }) => Promise<{ server?: { watch?: { ignored?: string[] } } }>
+    const config = mergedConfigHook(plugin.config) as (config: { server?: { watch?: { ignored?: string | string[] } } }) => Promise<{ server?: { watch?: { ignored?: string[] } } }>
 
     await expect(config({})).resolves.toMatchObject({ server: { watch: { ignored: ["**/.vitehub/**"] } } })
     await expect(config({ server: { watch: { ignored: ["**/node_modules/**"] } } })).resolves.toMatchObject({ server: { watch: { ignored: [
@@ -244,13 +257,15 @@ describe("hubWorkspace", () => {
     expect(configEnvironment("ssr", { consumer: "server" })).toEqual({
       resolve: { dedupe: ["@vite-hub/workspace"], noExternal: ["@vite-hub/workspace"] },
     })
-    expect(configEnvironment("ssr", {
-      consumer: "server",
+    const environment = {
+      consumer: "server" as const,
       resolve: {
         dedupe: ["existing"],
         noExternal: ["existing"],
       },
-    })).toEqual({
+    }
+    expect(mergeConfig(environment, configEnvironment("ssr", environment) as Record<string, unknown>)).toEqual({
+      consumer: "server",
       resolve: {
         dedupe: ["existing", "@vite-hub/workspace"],
         noExternal: ["existing", "@vite-hub/workspace"],
@@ -550,7 +565,7 @@ describe("hubWorkspace", () => {
 
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace()
-    const config = plugin.config as (
+    const config = mergedConfigHook(plugin.config) as (
       config: { nitro?: Record<string, unknown>, root: string, workspace?: Record<string, unknown> },
       env: { command: "serve", mode: string },
     ) => Promise<{ nitro?: { plugins?: string[] } }>
@@ -590,7 +605,7 @@ describe("hubWorkspace", () => {
 
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace()
-    const config = plugin.config as (
+    const config = mergedConfigHook(plugin.config) as (
       config: { nitro?: Record<string, unknown>, root: string },
       env: { command: "serve", mode: string },
     ) => Promise<{ nitro?: { plugins?: string[] } }>
@@ -621,7 +636,7 @@ describe("hubWorkspace", () => {
 
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace()
-    const config = plugin.config as (
+    const config = mergedConfigHook(plugin.config) as (
       config: { nitro?: { plugins?: string[] }, root: string, workspace?: { root?: string, store?: { provider: "local" } } },
       env: { command: "serve", mode: string },
     ) => Promise<{ nitro?: { plugins?: string[] } }>
@@ -652,7 +667,7 @@ describe("hubWorkspace", () => {
     const root = await createViteRoot()
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace({ importBase: "vite-hub/_internal/workspace" } as never)
-    const config = plugin.config as (
+    const config = mergedConfigHook(plugin.config) as (
       config: { nitro?: Record<string, unknown>, root: string },
       env: { command: "serve", mode: string },
     ) => Promise<{ nitro?: { plugins?: string[] } }>
@@ -674,7 +689,7 @@ describe("hubWorkspace", () => {
     const root = await createViteRoot()
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace({ hosting: "cloudflare-module" } as never)
-    const config = plugin.config as (
+    const config = mergedConfigHook(plugin.config) as (
       config: { nitro?: Record<string, unknown>, root: string },
       env: { command: "build", mode: string },
     ) => Promise<unknown>
@@ -689,7 +704,7 @@ describe("hubWorkspace", () => {
     const root = await createViteRoot()
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace({ hosting } as never)
-    const config = plugin.config as (
+    const config = mergedConfigHook(plugin.config) as (
       config: { nitro?: Record<string, unknown>, root: string },
       env: { command: "build", mode: string },
     ) => Promise<unknown>
@@ -734,7 +749,7 @@ describe("hubWorkspace", () => {
     const root = await createViteRoot()
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace()
-    const config = plugin.config as (
+    const config = mergedConfigHook(plugin.config) as (
       config: { nitro?: { plugins?: string[] }, root: string, workspace?: { store?: { branch?: string, provider: "github", repository: string, root: string } } },
       env: { command: "build", mode: string },
     ) => Promise<{ nitro?: { plugins?: string[] } }>
@@ -773,7 +788,7 @@ describe("hubWorkspace", () => {
     const root = await createViteRoot()
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace({ hosting: "cloudflare-module" } as never)
-    const config = plugin.config as (
+    const config = mergedConfigHook(plugin.config) as (
       config: { nitro?: { plugins?: string[] }, root: string, workspace?: { store?: { provider: "github", repository?: () => string | undefined, root?: string, token?: () => string | undefined } } },
       env: { command: "build", mode: string },
     ) => Promise<{ nitro?: { plugins?: string[] } }>
@@ -816,7 +831,7 @@ describe("hubWorkspace", () => {
     if (signal !== "nitro.preset") vi.stubEnv(signal, "cloudflare-module")
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace()
-    const config = plugin.config as (config: {
+    const config = mergedConfigHook(plugin.config) as (config: {
       nitro?: { preset?: string }
       root: string
       workspace: { store: { provider: "github", repository: string } }
@@ -839,7 +854,7 @@ describe("hubWorkspace", () => {
     vi.stubEnv("SERVER_PRESET", "cloudflare-module")
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace()
-    const config = plugin.config as (config: {
+    const config = mergedConfigHook(plugin.config) as (config: {
       root: string
       workspace: { store: { provider: "github", repository: string } }
     }, env: { command: "build", mode: string }) => Promise<{ nitro?: { rollupConfig?: { external?: unknown } } }>
@@ -860,7 +875,7 @@ describe("hubWorkspace", () => {
     vi.stubEnv("NITRO_PRESET", "cloudflare-module")
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace()
-    const config = plugin.config as (config: {
+    const config = mergedConfigHook(plugin.config) as (config: {
       root: string
       workspace: { store: { branch: string, provider: "github", repo: string, root: string } }
     }, env: { command: "build", mode: string }) => Promise<unknown>
@@ -883,7 +898,7 @@ describe("hubWorkspace", () => {
     vi.stubEnv("GITHUB_REPOSITORY", "vite-hub/build-repository")
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace()
-    const config = plugin.config as (config: {
+    const config = mergedConfigHook(plugin.config) as (config: {
       root: string
       workspace: { store: { provider: "github" } }
     }, env: { command: "build", mode: string }) => Promise<unknown>
@@ -902,7 +917,7 @@ describe("hubWorkspace", () => {
     const root = await createViteRoot()
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace()
-    const config = plugin.config as (
+    const config = mergedConfigHook(plugin.config) as (
       config: { nitro?: { plugins?: string[] }, root: string, workspace?: { store?: { prefix?: string, provider: "vercel-blob" } } },
       env: { command: "build", mode: string },
     ) => Promise<{ nitro?: { plugins?: string[] } }>
@@ -939,7 +954,7 @@ describe("hubWorkspace", () => {
     const root = await createViteRoot()
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace()
-    const config = plugin.config as (
+    const config = mergedConfigHook(plugin.config) as (
       config: { nitro?: { plugins?: string[] }, root: string },
       env: { command: "build", mode: string },
     ) => Promise<{ nitro?: { plugins?: string[] } }>
@@ -967,7 +982,7 @@ describe("hubWorkspace", () => {
     const root = await createViteRoot()
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace()
-    const config = plugin.config as (
+    const config = mergedConfigHook(plugin.config) as (
       config: { nitro?: { plugins?: string[] }, root: string, workspace?: { root?: string, store?: { provider: "local" } } },
       env: { command: "serve", mode: string },
     ) => Promise<{ nitro?: { plugins?: string[] } }>
@@ -999,7 +1014,7 @@ describe("hubWorkspace", () => {
     const root = await createViteRoot()
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace()
-    const config = plugin.config as (
+    const config = mergedConfigHook(plugin.config) as (
       config: { plugins?: unknown[], root: string },
       env: { command: "serve", mode: string },
     ) => Promise<{ nitro?: { plugins?: string[] } }>
@@ -1023,7 +1038,7 @@ describe("hubWorkspace", () => {
     const root = await createViteRoot()
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace({ store: { provider: "cloudflare-artifacts" } })
-    const config = plugin.config as (
+    const config = mergedConfigHook(plugin.config) as (
       config: { plugins?: unknown[], root: string },
       env: { command: "build", mode: string },
     ) => Promise<{ nitro?: { plugins?: string[] } }>
@@ -1051,7 +1066,7 @@ describe("hubWorkspace", () => {
     await writeFile(join(root, "src", "docs.workspace.ts"), "export default { store: { provider: 'cloudflare-artifacts' } }\n")
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace()
-    const config = plugin.config as (
+    const config = mergedConfigHook(plugin.config) as (
       config: { plugins?: unknown[], root: string },
       env: { command: "build", mode: string },
     ) => Promise<unknown>
@@ -1507,7 +1522,7 @@ describe("hubWorkspace", () => {
 
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace()
-    const config = plugin.config as (
+    const config = mergedConfigHook(plugin.config) as (
       config: { root: string, workspace?: { store?: { branch?: string, provider: "github", repository: string, root: string } } },
       env: { command: "build", mode: string },
     ) => Promise<{ nitro?: { plugins?: string[] } }>
@@ -1545,7 +1560,7 @@ describe("hubWorkspace", () => {
 
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace()
-    const config = plugin.config as (
+    const config = mergedConfigHook(plugin.config) as (
       config: { root: string, workspace?: { store?: { branch?: string, provider: "github", repository: string, root: string } } },
       env: { command: "build", mode: string },
     ) => Promise<{ nitro?: { plugins?: string[] } }>

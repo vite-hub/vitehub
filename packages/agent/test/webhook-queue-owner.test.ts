@@ -30,6 +30,7 @@ function queueState(claims: AgentWebhookQueueLease[] = []) {
     enqueueWebhookDelivery: vi.fn(async () => true),
     extendWebhookDeliveryLease: vi.fn(async () => true),
     retryWebhookDelivery: vi.fn(async () => true),
+    webhookDeliveries: vi.fn(async () => []),
     webhookDeliveryScopes: vi.fn(async () => ["scope"]),
   } as unknown as AgentWebhookQueueStateAdapter
   return { queued, state }

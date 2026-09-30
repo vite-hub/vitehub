@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url"
 import { createRuntimeEnvRegistry } from "@vite-hub/env/vite"
 import { bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
-import { createNoExternalMerger, isServerEnvironment, resolveViteHubGeneratedRoot, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { createNoExternalAddition, isServerEnvironment, resolveViteHubGeneratedRoot, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
 
 import type { EnvRuntimeConfigOptions, EnvRuntimeRegistry } from "@vite-hub/env"
@@ -18,7 +18,7 @@ export const EMAIL_DEFINITION_ID = "#vitehub/email/definition"
 export const EMAIL_VITE_PLUGIN_NAME = "@vite-hub/email/vite"
 
 const resolvedEmailDefinitionId = `\0${EMAIL_DEFINITION_ID}`
-const mergeNoExternal = createNoExternalMerger("@vite-hub/email")
+const noExternalAddition = createNoExternalAddition("@vite-hub/email")
 const resolvePackageImport = createRequire(import.meta.url).resolve
 const normalizeTemplateModulePath = (id: string) => {
   const path = id.split(/[?#]/, 1)[0]
@@ -413,7 +413,7 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
               })),
             ] } }
           : {}),
-        ssr: { noExternal: mergeNoExternal(config.ssr?.noExternal) },
+        ssr: { noExternal: noExternalAddition(config.ssr?.noExternal) },
       }
     },
     async configResolved(config) {
@@ -492,7 +492,7 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
     configEnvironment(name, config) {
       if (!isServerEnvironment(name, config)) return
       return {
-        resolve: { noExternal: mergeNoExternal(config.resolve?.noExternal) },
+        resolve: { noExternal: noExternalAddition(config.resolve?.noExternal) },
       }
     },
     resolveId(id) {

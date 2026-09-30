@@ -674,8 +674,9 @@ describe("hubEmail", () => {
 
     expect(await config({})).toEqual({ ssr: { noExternal: ["@vite-hub/email"] } })
     expect(await config({ ssr: { noExternal: ["existing"] } })).toEqual({
-      ssr: { noExternal: ["existing", "@vite-hub/email"] },
+      ssr: { noExternal: ["@vite-hub/email"] },
     })
+    expect(await config({ ssr: { noExternal: ["@vite-hub/email"] } })).toEqual({ ssr: { noExternal: undefined } })
     expect(configEnvironment("client", {})).toBeUndefined()
     expect(configEnvironment("ssr", {})).toEqual({
       resolve: { noExternal: ["@vite-hub/email"] },

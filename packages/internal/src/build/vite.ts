@@ -39,16 +39,13 @@ export const VITEHUB_ENV_PUBLIC_ID = "#vitehub/env/public" as const
 export const VITEHUB_ENV_SERVER_ID = "#vitehub/env/server" as const
 export const VITEHUB_ENV_DESCRIPTION_ID = "#vitehub/env/description" as const
 
-export function createNoExternalMerger(packageName: string) {
-  return (current: NoExternalValue): NoExternalValue => {
-    if (current === true) {
-      return true
-    }
-    if (!current) {
-      return [packageName]
-    }
+// Vite concatenates arrays when it merges a config hook result. Return only the missing entries.
+export function createNoExternalAddition(...packageNames: string[]) {
+  return (current: NoExternalValue): string[] | undefined => {
+    if (current === true) return
     const values = Array.isArray(current) ? current : [current]
-    return values.includes(packageName) ? values : [...values, packageName]
+    const missing = packageNames.filter(packageName => !values.includes(packageName))
+    return missing.length ? missing : undefined
   }
 }
 
@@ -102,12 +99,10 @@ export function shouldSkipViteProviderBuild(command: "build" | "serve" | undefin
   return command === "serve" || mode === "e2e"
 }
 
-export function mergeGeneratedViteHubWatchIgnored(ignored: WatchIgnoredValue): WatchIgnoredValue {
-  if (!ignored) return [generatedViteHubFilesPattern]
-  if (Array.isArray(ignored)) {
-    return ignored.includes(generatedViteHubFilesPattern) ? ignored : [...ignored, generatedViteHubFilesPattern]
-  }
-  return [ignored, generatedViteHubFilesPattern]
+// Vite concatenates arrays when it merges a config hook result. Return only the missing pattern.
+export function generatedViteHubWatchIgnoredAddition(ignored: WatchIgnoredValue): string[] | undefined {
+  const values = Array.isArray(ignored) ? ignored : [ignored]
+  return values.includes(generatedViteHubFilesPattern) ? undefined : [generatedViteHubFilesPattern]
 }
 
 export function resolveViteHubProjectRoot(root: string, options: { projectRoot?: string } = {}): string {

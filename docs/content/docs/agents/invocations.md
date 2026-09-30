@@ -398,6 +398,8 @@ Invocation tools accept JSON Schema, Valibot, and Zod schemas directly. Valibot 
 
 For a process-owned store, `createProcessAgentInvocations` from `vite-hub/agent/runtime/process` runs interrupted-invocation recovery before returning the journal. Pass the normal `defineAgentInvocations` options and a `recovery` object with a `recover(invocation)` ownership predicate. Use `recover: () => true` only when the database belongs exclusively to that service. Recovery failure rejects startup.
 
+With a libSQL Agent state provider, a persistent Nitro server runs this recovery at startup for each Agent journal, before it resumes queued webhook deliveries. It fails the Agent's pending or running invocations that started before the process, except invocations that a persisted queued delivery runs again under the same run ID. Agents with a durable Workflow runtime are skipped. A recovery failure is logged and the queue still resumes.
+
 `agentInvocationId(runId, agentName)` from `vite-hub/agent/server` resolves the canonical invocation ID before admission, allowing applications to include a live Console link in Channel activity.
 
 For GitHub-backed sessions, `createGitHubWorkspaceInspector(host)` from `@vite-hub/agent/server/github` exposes `list({ repository, revision })` and `read({ repository, revision }, path)`. It requires a full commit SHA, rejects unsafe paths, truncated trees, oversized files, and binary previews, and does not retain disposable checkouts.

@@ -54,10 +54,10 @@ export default defineConfig({
 })
 ```
 
-Nuxt uses the same option. Install Nuxt UI because the Console uses the ViteHub UI module.
+Nuxt uses the same option. Install Nuxt UI because the Console uses the ViteHub UI module. Install the Lucide and Phosphor icon collections so `@nuxt/icon` can bundle the Console icons.
 
 ```bash [Terminal]
-pnpm add @nuxt/ui
+pnpm add @nuxt/ui @iconify-json/lucide @iconify-json/ph
 ```
 
 ```ts [nuxt.config.ts]
@@ -75,6 +75,8 @@ export default defineNuxtConfig({
 ```
 
 Restart the development server after changing the option. Open `http://localhost:3000/_vitehub`, using your app's actual origin and port.
+
+`@nuxt/icon` does not scan dependencies. The Nuxt module adds every icon that the Console and ViteHub UI use to the `@nuxt/icon` client bundle through the `icon:clientBundleIcons` hook, so the Console does not fetch icons at runtime on edge presets. Do not add `icon.clientBundle.scan` entries for `node_modules/vite-hub`.
 
 If `console` is omitted or set to `false`, ViteHub does not register a Console page, RPC endpoint, Nitro plugin, or public asset path. A disabled Console returns the host's normal not-found response.
 

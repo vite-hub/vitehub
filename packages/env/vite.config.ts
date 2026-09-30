@@ -29,6 +29,7 @@ export default defineConfig({
       "src/schema.ts",
       "src/server.ts",
       "src/secret.ts",
+      "src/seal.ts",
       "src/virtual.ts",
       "src/vite.ts",
     ],

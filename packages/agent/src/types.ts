@@ -632,7 +632,11 @@ export interface AgentWebhookRegistrationDefinition<TRuntimeConfig extends Agent
   method?: "POST" | (string & {})
   path?: string
   provider: string
-  signature?: "github-sha256" | (string & {}) | {
+  signature?: "github-sha256" | "stripe-sha256" | (string & {}) | {
+    preset: "stripe-sha256"
+    /** Maximum age of the signed `t` timestamp in integer seconds. Must be finite and non-negative. Defaults to 300. Future timestamps pass the age check. */
+    toleranceSeconds?: number
+  } | {
     verify: (input: {
       header: string
       rawBody: Uint8Array

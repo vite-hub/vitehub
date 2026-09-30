@@ -387,8 +387,6 @@ class LocalWorkspaceStore implements WorkspaceStore {
   #baseline: WorkspaceSnapshot | undefined
   #files = new Map<string, { version: string, value: Pick<WorkspaceFile, "mediaType" | "metadata"> }>()
   #fileMetadataRoot: string
-  #meta = new Map<string, unknown>()
-  #metaLoaded = false
   #metaPath: string
 
   constructor(public root: string) {
@@ -912,14 +910,15 @@ class LocalWorkspaceStore implements WorkspaceStore {
   }
 
   async getMeta(key: string): Promise<unknown> {
-    await this.#loadMeta()
-    return this.#meta.get(key)
+    return (await this.#readMeta()).get(key)
   }
 
   async setMeta(key: string, value: unknown): Promise<void> {
-    await this.#loadMeta()
-    this.#meta.set(key, value)
-    await this.#writeMeta()
+    await withWorkspacePathLock(this.root, ".vitehub/metadata", async () => {
+      const metadata = await this.#readMeta()
+      metadata.set(key, value)
+      await this.#writeMeta(metadata)
+    })
   }
 
   async #createSnapshot(name?: string): Promise<WorkspaceSnapshot> {
@@ -940,27 +939,25 @@ class LocalWorkspaceStore implements WorkspaceStore {
     }
   }
 
-  async #loadMeta() {
-    if (this.#metaLoaded) return
-    this.#metaLoaded = true
+  async #readMeta(): Promise<Map<string, unknown>> {
     const { readFile } = await import("node:fs/promises")
     const content = await readFile(this.#metaPath, "utf8").catch((error: NodeJS.ErrnoException) => {
       if (error.code === "ENOENT") return undefined
       throw error
     })
-    if (!content) return
+    if (!content) return new Map()
     const value: unknown = JSON.parse(content)
-    if (!value || Object(value) !== value || Array.isArray(value)) return
-    this.#meta = new Map(Object.entries(Object(value)))
+    if (!value || Object(value) !== value || Array.isArray(value)) return new Map()
+    return new Map(Object.entries(Object(value)))
   }
 
-  async #writeMeta() {
+  async #writeMeta(metadata: Map<string, unknown>) {
     const { dirname } = await import("node:path")
     const { mkdir, rename, rm, writeFile } = await import("node:fs/promises")
     const temp = `${this.#metaPath}.${randomUUID()}.tmp`
     await mkdir(dirname(this.#metaPath), { recursive: true })
     try {
-      await writeFile(temp, JSON.stringify(Object.fromEntries(this.#meta), null, 2))
+      await writeFile(temp, JSON.stringify(Object.fromEntries(metadata), null, 2))
       await rename(temp, this.#metaPath)
     }
     catch (error) {

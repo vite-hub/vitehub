@@ -305,7 +305,10 @@ export function renderSupportProofMarkdownRows(): string {
           return presentation.state === "not-applicable" ? "—" : `**${presentation.display}**`;
         }
         const maxAgeDays = claim.freshness.maxAgeDays;
-        return `[Evidence](${claim.evidence.url}) (${claim.evidence.observedAt.slice(0, 10)}${maxAgeDays === null ? "" : `; ${maxAgeDays}-day freshness window`})`;
+        const outcome = presentation.state === "failed" || presentation.state === "incomplete"
+          ? `**${presentation.display}** `
+          : "";
+        return `${outcome}[Evidence](${claim.evidence.url}) (${claim.evidence.observedAt.slice(0, 10)}${maxAgeDays === null ? "" : `; ${maxAgeDays}-day freshness window`})`;
       });
       return `| ${label} | ${cells.join(" | ")} |`;
     })

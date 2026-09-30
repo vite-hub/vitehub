@@ -21,7 +21,7 @@ Use `skipLibCheck: true` in app TypeScript configs while ViteHub depends on runt
 
 The local Store persists file metadata inside `.vitehub` under the Workspace root. If file removal stops before metadata cleanup completes, reads reject with `Interrupted Workspace removal` so a restored file cannot reuse deleted ownership. Retry removal of the reported path with `force: true` and, for directories, `recursive: true` before restoring files.
 
-Lock markers are not reclaimed based on age because a slow operation or failed heartbeat may still own them. If a process crashes and operations report `Timed out waiting to write Workspace`, stop every process using that Workspace, remove `.vitehub/locks` inside its root, then restart them. Never clear that directory while a Workspace operation may still be running.
+Lock markers are not reclaimed based on age because a slow operation or failed heartbeat may still own them. If a process crashes and operations report `Timed out waiting to write Workspace`, stop every process using that Workspace. Call `recoverLocalWorkspaceLocks({ root, offline: true })` from `@vite-hub/workspace/runtime` with the Local Store's root, then restart the processes after recovery succeeds. Prevent changes to the Store and its ancestor directories throughout recovery. The `offline: true` flag confirms exclusive offline access; it does not stop other processes. See [Local Store recovery](../../docs/content/docs/server-primitives/workspace.md#recover-a-local-store-after-a-crash) for the procedure.
 
 ```text
 server/
@@ -78,6 +78,8 @@ export default defineEventHandler(async () => {
 ```
 
 `useWorkspace(name)` returns read access. For read-only inspection of an existing Workspace, use `useWorkspace("docs", { refresh: false })` to reuse current persisted snapshots of Sources with `materialize: "startup"`. Snapshots are reused when they are ready and match the current Source configuration, even if upstream content has changed. Missing snapshots or snapshots that no longer match the configuration still materialize. Omitting `refresh`, or setting it to `true`, keeps normal startup Source refresh behavior. Custom Stores that omit `getMeta` or `setMeta` retain ownership and Source snapshots only for the lifetime of the Store instance.
+
+Local Store metadata reads use the persisted state. Metadata writes serialize their read and atomic replacement across Store instances that share the same root, so updates to different keys do not overwrite each other. A failed read or write can be retried on the same Store instance.
 
 Local Stores reject symbolic links in file reads, writes, file metadata reads, directory creation, and explicit listing paths. Listings omit symbolic links. Removal can unlink a symbolic link itself, but cannot follow a linked parent directory. To expose another directory, configure a Source instead of creating a symbolic link. These checks protect against existing links, including aliases to `.vitehub` metadata. They do not isolate the filesystem from another process that can replace paths during an operation. Use an OS or container boundary when untrusted processes share the host.
 

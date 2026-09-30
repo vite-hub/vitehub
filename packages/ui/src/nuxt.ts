@@ -6,6 +6,7 @@ import {
   installModule,
 } from "@nuxt/kit";
 import type { ViteHubUIOptions } from "./config.ts";
+import { viteHubUIIcons } from "./icons.ts";
 
 export interface ViteHubUINuxtModule {
   (inlineOptions: ViteHubUIOptions, nuxt: never): unknown;
@@ -45,6 +46,10 @@ const viteHubUINuxtModule: ViteHubUINuxtModule = defineNuxtModule<ViteHubUIOptio
     addPlugin(resolver.resolve("./runtime/nuxt-plugin.js"));
     for (const name of componentNames)
       addComponent({ export: name, filePath: resolver.resolve("./index.js"), name });
+    // @nuxt/icon does not scan dependencies, so add the icons these components use to its client bundle.
+    nuxt.hook("icon:clientBundleIcons", (icons) => {
+      for (const icon of viteHubUIIcons) icons.add(icon);
+    });
   },
 });
 

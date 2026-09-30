@@ -108,6 +108,7 @@ vi.mock("@vite-hub/ui/nuxt", () => ({ default: mocks.uiModule }))
 
 import * as consoleAuthBuild from "../src/console/auth-build.ts"
 import { consoleFixtureEnvironmentVariable } from "../src/console/fixture.ts"
+import { consoleIcons } from "../src/console/icons.ts"
 import { consoleInvocationsRootIdentityRegistryKey } from "../src/console/internal.ts"
 import viteHubNuxtModule from "../src/nuxt.ts"
 
@@ -117,10 +118,12 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
   const closeHooks: Array<() => Promise<void>> = []
   const nitroConfigHooks: Array<(config: Record<string, unknown>) => Promise<void>> = []
   const pageHooks: Array<(pages: Array<{ file: string, name: string, path: string }>) => void> = []
+  const iconHooks: Array<(icons: Set<string>) => void> = []
   const nuxt = {
     callHook: vi.fn(async (_name: "restart") => {}),
-    hook(name: "builder:watch" | "close" | "nitro:config" | "pages:extend" | "vite:serverCreated", callback: (() => Promise<void>) | ((config: Record<string, unknown>) => Promise<void>) | ((pages: Array<{ file: string, name: string, path: string }>) => void)) {
-      if (name === "nitro:config") nitroConfigHooks.push(callback as (config: Record<string, unknown>) => Promise<void>)
+    hook(name: "builder:watch" | "close" | "icon:clientBundleIcons" | "nitro:config" | "pages:extend" | "vite:serverCreated", callback: (() => Promise<void>) | ((config: Record<string, unknown>) => Promise<void>) | ((icons: Set<string>) => void) | ((pages: Array<{ file: string, name: string, path: string }>) => void)) {
+      if (name === "icon:clientBundleIcons") iconHooks.push(callback as (icons: Set<string>) => void)
+      else if (name === "nitro:config") nitroConfigHooks.push(callback as (config: Record<string, unknown>) => Promise<void>)
       else if (name === "builder:watch") builderWatchHooks.push(callback as (event: string, path: string) => Promise<void>)
       else if (name === "vite:serverCreated") viteServerCreatedHooks.push(callback as (typeof viteServerCreatedHooks)[number])
       else if (name === "close") closeHooks.push(callback as () => Promise<void>)
@@ -154,6 +157,7 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
   }
   return {
     closeHooks,
+    iconHooks,
     nitroConfigHooks,
     pageHooks,
     nuxt,
@@ -170,6 +174,9 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
     },
     runPagesHook(pages: Array<{ file: string, name: string, path: string }>) {
       for (const hook of pageHooks) hook(pages)
+    },
+    runIconHook(icons: Set<string>) {
+      for (const hook of iconHooks) hook(icons)
     },
   }
 }
@@ -454,8 +461,12 @@ describe("ViteHub Nuxt integration", () => {
     await viteHubNuxtModule({ agent: true, blob: true, console: true, kv: true, preset: "node" }, development.nuxt)
     const pages: Array<{ file: string; name: string; path: string }> = []
     development.runPagesHook(pages)
+    const icons = new Set(["app:existing"])
+    development.runIconHook(icons)
 
     expect(mocks.uiModule).toHaveBeenCalledOnce()
+    expect(icons).toEqual(new Set(["app:existing", ...consoleIcons]))
+    expect(icons).toContain("lucide:monitor")
     expect(pages).toEqual([
       expect.objectContaining({ name: "vitehub-console", path: "/_vitehub" }),
       expect.objectContaining({ name: "vitehub-console-agents", path: "/_vitehub/agents" }),
@@ -2003,21 +2014,23 @@ describe("ViteHub Nuxt integration", () => {
   })
 
   it("does not install the console when the option is omitted", async () => {
-    const { nuxt, pageHooks } = createNuxt(true)
+    const { iconHooks, nuxt, pageHooks } = createNuxt(true)
     await viteHubNuxtModule({ preset: "node" }, nuxt)
 
     expect(mocks.uiModule).not.toHaveBeenCalled()
     expect(pageHooks).toHaveLength(0)
+    expect(iconHooks).toHaveLength(0)
     expect(nuxt.options.nitro).not.toHaveProperty("handlers")
     expect(nuxt.options.routeRules).toEqual({})
   })
 
   it("does not install the console when explicitly disabled", async () => {
-    const { nuxt, pageHooks } = createNuxt(true)
+    const { iconHooks, nuxt, pageHooks } = createNuxt(true)
     await viteHubNuxtModule({ console: false, preset: "node" }, nuxt)
 
     expect(mocks.uiModule).not.toHaveBeenCalled()
     expect(pageHooks).toHaveLength(0)
+    expect(iconHooks).toHaveLength(0)
     expect(nuxt.options.nitro).not.toHaveProperty("handlers")
     expect(nuxt.options.routeRules).toEqual({})
     expect(nuxt.options.vite.plugins).not.toContainEqual(

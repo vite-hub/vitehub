@@ -58,6 +58,8 @@ export default defineNuxtConfig({
 })
 ```
 
+If you enable the [Console](/docs/development/console) in Nuxt, also install `@nuxt/ui`, `@iconify-json/lucide`, and `@iconify-json/ph`. The module adds the Console icons to the `@nuxt/icon` client bundle.
+
 Import application APIs from explicit feature subpaths.
 
 ```ts [server/agents/support.ts]

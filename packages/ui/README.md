@@ -20,7 +20,7 @@ The package currently declares `vue` and `ai` as required peers. Styled componen
 Add the package and its runtime peers to an existing Nuxt application:
 
 ```bash
-pnpm add @vite-hub/ui @nuxt/ui ai tailwindcss vue
+pnpm add @vite-hub/ui @nuxt/ui ai tailwindcss vue @iconify-json/lucide @iconify-json/ph
 ```
 
 Register the module:
@@ -32,7 +32,7 @@ export default defineNuxtConfig({
 });
 ```
 
-The module installs Nuxt UI, includes `@vite-hub/ui/styles.css`, and auto-imports public components such as `AgentChat`, `AgentMarkdown`, and `AgentInvocation`. No separate Vue plugin registration is needed.
+The module installs Nuxt UI, includes `@vite-hub/ui/styles.css`, and auto-imports public components such as `AgentChat`, `AgentMarkdown`, and `AgentInvocation`. It also adds the icons that these components use to the `@nuxt/icon` client bundle, because `@nuxt/icon` does not scan dependencies. The Lucide and Phosphor collections must be installed in the application. No separate Vue plugin registration is needed.
 
 ## Vue with Vite
 

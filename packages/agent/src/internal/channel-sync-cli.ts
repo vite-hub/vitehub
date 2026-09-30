@@ -275,6 +275,7 @@ export async function channelRegistration(
   if (secretToken === false || typeof secretToken === "string") result.secretToken = secretToken
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- CLI serialization accepts signature identifiers and omits executable verifier callbacks.
   if (typeof registration.signature === "string") result.signature = registration.signature
+  else if (registration.signature && "preset" in registration.signature) result.signature = registration.signature.preset
   if (registration.url) result.url = registration.url
   return result
 }

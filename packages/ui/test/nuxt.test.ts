@@ -5,6 +5,8 @@ import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { loadNuxt } from "nuxt";
 
+import { viteHubUIIcons } from "../src/icons.ts";
+
 const roots: string[] = [];
 
 afterEach(async () => {
@@ -57,6 +59,10 @@ describe("ViteHub UI Nuxt module", () => {
           expect.objectContaining({ export: "AgentUnresolvedFile", filePath: expect.stringMatching(/\/dist\/index\.js$/) }),
         ]),
       );
+
+      const icons = new Set(["app:existing"]);
+      await nuxt.callHook("icon:clientBundleIcons", icons);
+      expect([...icons]).toEqual(expect.arrayContaining(["app:existing", ...viteHubUIIcons]));
     } finally {
       await nuxt.close();
     }

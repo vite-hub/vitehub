@@ -4,6 +4,7 @@ import { createTraceEventLog, isTraceContentAttributeKey, normalizeRuntimeDiagno
 import { registerAgentInvocationRecovery } from "./internal/invocation-recovery.ts"
 import { consumeAuthorization, consumeCredentialAssignment, credentialTextLineContext, credentialTextMayContinue, pendingAuthorizationState, pendingCredentialAssignmentState, pendingCredentialQuote, pendingCredentialScheme, pendingCredentialTextSuffix, pendingCredentialUri, redactCredentialText } from "./internal/credential-redaction.ts"
 import { agentInvocationJournalContentTraceLogSymbol, agentInvocationJournalTraceLogSymbol } from "./trace.ts"
+import { failInterruptedAgentInvocations } from "./server/invocation-health.ts"
 
 import type { AuthorizationState, CredentialAssignmentState } from "./internal/credential-redaction.ts"
 import type { AgentInvocationStatus } from "./agent-invocation.ts"
@@ -12,6 +13,7 @@ import type { RuntimeDiagnosticError, TraceEvent, TraceEventContentPolicy, Trace
 import { agentDiagnostics } from "./agent-diagnostics.ts"
 
 const bindAgentInvocationsSymbol = Symbol("vitehub.bindAgentInvocations")
+const recoverInterruptedAgentInvocationsSymbol = Symbol("vitehub.recoverInterruptedAgentInvocations")
 const agentInvocationsBrand: unique symbol = Symbol("vitehub.agentInvocations")
 
 const DEFAULT_LIST_LIMIT = 50
@@ -207,6 +209,7 @@ interface BoundAgentInvocations extends AgentInvocations {
     context: AgentRuntimeContext<TRuntimeConfig>,
     options?: { agentName?: string, deferClaim?: boolean, terminalTakeover?: boolean },
   ): Promise<AgentInvocationJournal<TRuntimeConfig>>
+  [recoverInterruptedAgentInvocationsSymbol](options: Parameters<typeof failInterruptedAgentInvocations>[1]): Promise<number>
 }
 
 export interface AgentInvocationJournal<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
@@ -1696,6 +1699,9 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
   const store = options.store
   const invocations: BoundAgentInvocations = {
     [agentInvocationsBrand]: true,
+    async [recoverInterruptedAgentInvocationsSymbol](recoveryOptions) {
+      return await failInterruptedAgentInvocations(store, recoveryOptions)
+    },
     async [bindAgentInvocationsSymbol]<TRuntimeConfig extends AgentRuntimeConfig>(
       context: AgentRuntimeContext<TRuntimeConfig>,
       bindOptions: { agentName?: string, deferClaim?: boolean, terminalTakeover?: boolean } = {},
@@ -2259,4 +2265,17 @@ export async function bindAgentInvocations<TRuntimeConfig extends AgentRuntimeCo
   }
   // SAFETY: Invocation event normalization establishes the asserted invocation contract.
   return await bind.call(invocations, context, options) as AgentInvocationJournal<TRuntimeConfig>
+}
+
+/** Fails interrupted invocations in a journal created by defineAgentInvocations(). */
+export async function recoverInterruptedAgentInvocations(
+  invocations: AgentInvocations,
+  options: Parameters<typeof failInterruptedAgentInvocations>[1],
+): Promise<number> {
+  // SAFETY: Invocation event normalization establishes the asserted invocation contract.
+  const recover = (invocations as Partial<BoundAgentInvocations>)[recoverInterruptedAgentInvocationsSymbol]
+  if (!hasRuntimeType(recover, "function")) {
+    throw agentDiagnostics.AGENT_R0627({ message: "[vitehub] defineAgent({ invocations }) requires a definition created by defineAgentInvocations()." })
+  }
+  return await recover.call(invocations, options)
 }

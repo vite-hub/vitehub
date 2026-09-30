@@ -8,7 +8,7 @@ import { encodeProviderOutputAliases } from "@vite-hub/internal/build/esbuild"
 import { removeProviderOutputArtifactDir, retainProviderOutputAliases, retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-catalog"
-import { collectViteHubProviderImportAliases, createNoExternalMerger, hasNitroConfigContext, isServerEnvironment, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { collectViteHubProviderImportAliases, createNoExternalAddition, hasNitroConfigContext, isServerEnvironment, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 
 import { discoverScheduleDefinitions } from "./discovery.ts"
@@ -42,7 +42,7 @@ const generatedNitroProviderRegistry = ".vitehub/nitro/schedule/provider-registr
 const generatedNitroRuntimeRegistry = ".vitehub/nitro/schedule/runtime-registry.js"
 const generatedNitroStaticRegistry = ".vitehub/nitro/schedule/static-registry.js"
 const generatedNitroCloudflareModule = "./.vitehub/nitro/schedule/module.mjs"
-const mergeNoExternal = createNoExternalMerger(schedulePackageName)
+const noExternalAddition = createNoExternalAddition(schedulePackageName)
 
 export interface ScheduleProcessRuntimeOptions {
   concurrency?: number
@@ -619,7 +619,7 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
         return
       }
       return {
-        resolve: { noExternal: mergeNoExternal(config.resolve?.noExternal) },
+        resolve: { noExternal: noExternalAddition(config.resolve?.noExternal) },
       }
     },
     async handleHotUpdate(context) {

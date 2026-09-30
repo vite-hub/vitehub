@@ -570,6 +570,18 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
     return retried.length > 0
   }
 
+  async webhookDeliveries(scope: string): Promise<AgentWebhookQueueDelivery[]> {
+    await this.cleanupExpiredStateIfDue()
+    const rows = await execute(
+      this.driver,
+      `SELECT value FROM ${this.tables.webhookQueue}
+        WHERE scope = ? AND status != 'completed'
+        ORDER BY id ASC`,
+      [scope],
+    )
+    return rows.flatMap((row) => (isRuntimeString(row.value) ? [parseAgentWebhookQueueDelivery(row.value)] : []))
+  }
+
   async webhookDeliveryScopes(): Promise<string[]> {
     await this.cleanupExpiredStateIfDue()
     const scopeRows = await execute(

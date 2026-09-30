@@ -39,6 +39,8 @@ export interface AgentWebhookQueueStateAdapter extends StateAdapter {
   enqueueWebhookDelivery(delivery: AgentWebhookQueueDelivery): Promise<boolean>
   extendWebhookDeliveryLease(scope: string, deliveryId: string, leaseToken: string, ttlMs: number): Promise<boolean>
   retryWebhookDelivery(scope: string, deliveryId: string, leaseToken: string, availableAt: number, options?: { incrementAttempts?: boolean }): Promise<boolean>
+  /** Lists the deliveries in one scope that are not complete, in queue order. */
+  webhookDeliveries(scope: string): Promise<AgentWebhookQueueDelivery[]>
   webhookDeliveryScopes(): Promise<string[]>
 }
 
@@ -95,6 +97,7 @@ export function hasAgentWebhookQueue(state: StateAdapter): state is AgentWebhook
     isRuntimeFunction(candidate.enqueueWebhookDelivery) &&
     isRuntimeFunction(candidate.extendWebhookDeliveryLease) &&
     isRuntimeFunction(candidate.retryWebhookDelivery) &&
+    isRuntimeFunction(candidate.webhookDeliveries) &&
     isRuntimeFunction(candidate.webhookDeliveryScopes)
   )
 }

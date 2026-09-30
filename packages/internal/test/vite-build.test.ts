@@ -3,8 +3,11 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { describe, expect, it } from "vitest"
+import { mergeConfig } from "vite"
 
 import {
+  createNoExternalAddition,
+  generatedViteHubWatchIgnoredAddition,
   hasNitroConfigContext,
   resolveNitroVercelFunctionName,
   resolveViteHubGeneratedRoot,
@@ -14,6 +17,39 @@ import {
 } from "../src/build/vite.ts"
 
 describe("Vite provider builds", () => {
+  it("preserves scalar and array noExternal entries across plugin config merges", () => {
+    const existingPattern = /existing/
+    for (const noExternal of [undefined, "existing", existingPattern, ["existing", existingPattern]]) {
+      let config = { ssr: { noExternal } }
+      for (const packageName of ["@vite-hub/auth", "@vite-hub/workspace", "@vite-hub/auth"]) {
+        config = mergeConfig(config, { ssr: { noExternal: createNoExternalAddition(packageName)(config.ssr.noExternal) } })
+      }
+      expect(config.ssr.noExternal).toEqual([
+        ...(noExternal === undefined ? [] : Array.isArray(noExternal) ? noExternal : [noExternal]),
+        "@vite-hub/auth",
+        "@vite-hub/workspace",
+      ])
+    }
+    expect(mergeConfig({ ssr: { noExternal: true } }, {
+      ssr: { noExternal: createNoExternalAddition("@vite-hub/auth")(true) },
+    }).ssr.noExternal).toBe(true)
+  })
+
+  it("preserves scalar watch matchers and adds the generated ignore only once", () => {
+    const existingPattern = /existing/
+    const existingPredicate = (path: string) => path.includes("existing")
+    for (const ignored of [undefined, "**/existing/**", existingPattern, existingPredicate, ["**/existing/**", existingPattern, existingPredicate]]) {
+      let config = { server: { watch: { ignored } } }
+      for (let plugin = 0; plugin < 3; plugin++) {
+        config = mergeConfig(config, { server: { watch: { ignored: generatedViteHubWatchIgnoredAddition(config.server.watch.ignored) } } })
+      }
+      expect(config.server.watch.ignored).toEqual([
+        ...(ignored === undefined ? [] : Array.isArray(ignored) ? ignored : [ignored]),
+        "**/.vitehub/**",
+      ])
+    }
+  })
+
   it("continues project discovery above a repository-local temporary directory", async () => {
     const previousTemporaryDirectories = {
       TEMP: process.env.TEMP,

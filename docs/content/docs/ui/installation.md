@@ -11,10 +11,10 @@ icon: i-lucide-package
 Install the package and its public peers:
 
 ```bash
-pnpm add @vite-hub/ui @nuxt/ui ai tailwindcss vue
+pnpm add @vite-hub/ui @nuxt/ui ai tailwindcss vue @iconify-json/lucide @iconify-json/ph
 ```
 
-Register the module. It installs Nuxt UI, registers ViteHub UI components, and includes the package stylesheet.
+Register the module. It installs Nuxt UI, registers ViteHub UI components, includes the package stylesheet, and adds the icons that the components use to the `@nuxt/icon` client bundle.
 
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({

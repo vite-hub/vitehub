@@ -63,6 +63,8 @@ ViteHub is under active development and has not reached 1.0. Published 0.x packa
 
 Choose a built-in `cloudflare`, `netlify`, `vercel`, `deno`, or `node` deployment preset. Each enabled feature validates its host and provider requirements, and unsupported production combinations fail during configuration or build. Provider availability still differs by feature, so check [runtime and host support](https://vitehub.dev/docs/frameworks-hosts/support-matrix) before choosing a deployment target.
 
+Before serving traffic, follow [Prepare a production deployment](https://vitehub.dev/docs/frameworks-hosts/production) to select durable stores, protect entry points, and verify retries and recovery with your providers. A successful build does not verify deployment credentials, persistent storage, or application authorization.
+
 ## How Agents work
 
 - An **Agent Definition** declares one Agent and selects its Agent Driver.

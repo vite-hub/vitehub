@@ -93,6 +93,7 @@ const lowLevelOwnerExports = new Set([
   "@vite-hub/blob/errors",
   "@vite-hub/box/ssh",
   "@vite-hub/database/config",
+  "@vite-hub/env/seal",
   "@vite-hub/kv/errors",
   "@vite-hub/workspace/source-metadata",
 ]);

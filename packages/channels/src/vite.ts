@@ -1,6 +1,6 @@
 import { resolve } from "node:path"
 
-import { createNoExternalMerger, hasNitroConfigContext, isServerEnvironment, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { createNoExternalAddition, hasNitroConfigContext, isServerEnvironment, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 
 import { discoverChannelDefinitions } from "./discovery.ts"
@@ -12,7 +12,7 @@ export const CHANNELS_REGISTRY_ID = "#vitehub/channels/registry"
 export const CHANNELS_VITE_PLUGIN_NAME = "@vite-hub/channels/vite"
 
 const resolvedChannelsRegistryId = `\0${CHANNELS_REGISTRY_ID}`
-const mergeNoExternal = createNoExternalMerger("@vite-hub/channels")
+const noExternalAddition = createNoExternalAddition("@vite-hub/channels")
 
 export interface ChannelsVitePluginOptions {
   projectRoot?: string
@@ -121,16 +121,15 @@ export function hubChannels(options: ChannelsVitePluginOptions = {}): ChannelsVi
     },
     async config(config) {
       serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? serverDirs
-      const nextConfig: Record<string, unknown> = {
-        ssr: { noExternal: mergeNoExternal(config.ssr?.noExternal) },
-      }
       if (hasNitroConfigContext(config)) {
         const root = resolveViteHubProjectRoot(resolve(config.root || process.cwd()), { projectRoot: options.projectRoot })
         const nitroDefinitions = discoverChannelDefinitions({ rootDir: root, serverDirs })
-        nextConfig.nitro = await configureNitroChannels(config as Record<string, unknown>, root, nitroDefinitions)
+        // Replace the Nitro config in place. A returned Nitro config would repeat its arrays when Vite merges it.
+        // SAFETY: Nitro extends Vite's config with this optional record; configureNitroChannels produces the replacement.
+        ;(config as { nitro?: Record<string, unknown> }).nitro = await configureNitroChannels(config as Record<string, unknown>, root, nitroDefinitions)
         nitroRegistryFile = resolve(root, ".vitehub", "nitro", "channels", "registry.ts")
       }
-      return nextConfig
+      return { ssr: { noExternal: noExternalAddition(config.ssr?.noExternal) } }
     },
     async configResolved(config) {
       resolved = config
@@ -140,7 +139,7 @@ export function hubChannels(options: ChannelsVitePluginOptions = {}): ChannelsVi
     configEnvironment(name, config) {
       if (!isServerEnvironment(name, config)) return
       return {
-        resolve: { noExternal: mergeNoExternal(config.resolve?.noExternal) },
+        resolve: { noExternal: noExternalAddition(config.resolve?.noExternal) },
       }
     },
     async handleHotUpdate(context) {
