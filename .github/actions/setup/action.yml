@@ -7,6 +7,9 @@ runs:
       with:
         node-version: "24"
         cache: true
+        # The next step installs once with a frozen lockfile. The default
+        # install here would run every postinstall build a second time.
+        run-install: false
 
     - name: Install dependencies
       shell: bash

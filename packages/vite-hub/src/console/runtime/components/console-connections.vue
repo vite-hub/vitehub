@@ -4,7 +4,7 @@ import type { ConnectionInspection } from "@vite-hub/connections";
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 
 import {
-  connectionApprovalsSchema,
+  connectionApprovalCountsSchema,
   connectionListSchema,
   connectionStatusLabel,
   requestConnectionsManagement,
@@ -66,18 +66,13 @@ async function refresh() {
   loading.value = true;
   error.value = "";
   try {
-    const [list, approvals] = await Promise.all([
+    const [list, counts] = await Promise.all([
       requestConnectionsManagement(props.managementBase, "list", connectionListSchema),
-      requestConnectionsManagement(props.managementBase, "approvals", connectionApprovalsSchema, {
-        status: "pending",
-      }),
+      requestConnectionsManagement(props.managementBase, "approval-counts", connectionApprovalCountsSchema),
     ]);
     if (current.signal.aborted) return;
     connections.value = list.connections;
-    pending.value = approvals.approvals.reduce<Record<string, number>>((counts, approval) => {
-      counts[approval.name] = (counts[approval.name] ?? 0) + 1;
-      return counts;
-    }, {});
+    pending.value = counts.counts;
   } catch (cause) {
     if (!current.signal.aborted) {
       error.value = cause instanceof Error ? cause.message : "Could not load Connections.";

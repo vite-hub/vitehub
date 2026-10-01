@@ -10,6 +10,8 @@ export interface EnvDatabase {
   all(query: SQL): unknown[] | PromiseLike<unknown[]>;
 }
 export interface DatabaseEnvStore {
+  /** SQL predicate for atomically updating related records at a secret revision. */
+  revisionCondition(key: string, revision: string | null): Promise<SQL>;
   secrets: EnvSecretStore;
   access: EnvAccessStore;
 }
@@ -106,6 +108,12 @@ export function createDatabaseEnvStore(options: {
     return new TextEncoder().encode(JSON.stringify([namespace, key, revision]));
   }
   return {
+    async revisionCondition(key, revision) {
+      await initialize();
+      return revision === null
+        ? sql`NOT EXISTS (SELECT 1 FROM vitehub_env_secrets WHERE namespace = ${namespace} AND key = ${key})`
+        : sql`EXISTS (SELECT 1 FROM vitehub_env_secrets WHERE namespace = ${namespace} AND key = ${key} AND revision = ${revision})`;
+    },
     secrets: {
       async inspect(key) {
         const stored = await row(key);

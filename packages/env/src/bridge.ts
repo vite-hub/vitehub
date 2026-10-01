@@ -76,11 +76,12 @@ export interface EnvBridge extends EnvProvider {
     context: EnvAccessContext,
     input: { key: string; value: string; expectedRevision: string | null },
   ): Promise<EnvReplacement>;
+  /** Run with the read secret and its revision, when the store provides one. */
   use<T>(
     context: EnvAccessContext,
     key: string,
     operation: string,
-    run: (secret: SecretEnv<string>) => T | Promise<T>,
+    run: (secret: SecretEnv<string>, metadata?: Readonly<{ revision?: string }>) => T | Promise<T>,
   ): Promise<T>;
   activity(
     context: EnvAccessContext,
@@ -271,7 +272,7 @@ export function createEnvBridge(options: EnvBridgeOptions): EnvBridge {
           const secret = await options.secrets.read(key);
           if (!secret) throw envBridgeError("missing");
           revision = secret.revision;
-          return await run(new SecretEnv(secret.value));
+          return await run(new SecretEnv(secret.value), { revision });
         },
         operation,
         { revision: () => revision },

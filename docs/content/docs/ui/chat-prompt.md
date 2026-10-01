@@ -1,15 +1,17 @@
 ---
 title: Chat Prompt
-description: Compose Nuxt UI's prompt behavior with attachments and an AI SDK status-aware submit control.
+description: Collect prompt text and file attachments with a submit control that follows the AI SDK chat status.
 navigation.order: 14
 navigation.group: Chat
 icon: i-ph-paper-plane-tilt-light
 ---
 
-`AgentChatPrompt` retains Nuxt UI's autoresize, IME handling, Enter behavior, Escape blur, error state, and submit button states. ViteHub adds an attachment row and one submit payload.
+`AgentChatPrompt` is a chat input with attachments. It keeps Nuxt UI's `UChatPrompt` behavior: autoresize, IME handling, Enter to send, Escape to blur, and the status-aware submit button. ViteHub adds an attachment row, clipboard paste for files, and one `submit` payload with text and AI SDK file parts.
 
 ::component-preview{name="ChatPromptExample"}
 ::
+
+## Usage
 
 ```vue
 <AgentChatPrompt
@@ -17,31 +19,101 @@ icon: i-ph-paper-plane-tilt-light
   v-model:files="files"
   accept="image/*,.pdf"
   :status
-  @submit="({ text, files }) => sendMessage({ text, files })"
+  @submit="({ text, files }) => sendMessage({ text, files: [...files] })"
   @reload="regenerate"
   @stop="stop"
 />
 ```
 
-## Events
+## Submission rules
 
-| Event               | Payload                                                     |
-| ------------------- | ----------------------------------------------------------- |
-| `error`             | Attachment filtering or conversion error.                   |
-| `update:modelValue` | Current prompt text.                                        |
-| `update:files`      | Current `FileUIPart[]`.                                     |
-| `submit`            | `{ text, files }`. Empty text is accepted when files exist. |
-| `reload`            | No payload. Connect it to the AI SDK `regenerate()` helper. |
-| `stop`              | No payload. Connect it to the AI SDK `stop()` helper.       |
+- `submit` fires only when `status` is `ready`, the text or the files are not empty, and every attachment batch has finished conversion. Enter, form submission, and the Send button use the same rule.
+- You can edit the draft while a response streams or files convert.
+- Stop and Retry stay available in their states. Enter does not trigger them.
+- The component does not clear the draft. Clear `input` and `files` after a successful send.
+- An attachment conversion error emits `error`. It keeps the draft and the existing attachments.
+- Unmount the prompt when the user changes to another session, so a pending file read cannot update that session. A `:key` with the session ID does this.
 
-Use `#files`, `#actions`, and `#submit` to replace each built-in section without rebuilding keyboard behavior. The composer, attachment picker, and status-aware submit action have default accessible names; pass `aria-label` to override the composer name.
+The file picker and clipboard paste use the same path. A pasted image always becomes an attachment. Other pasted files become attachments only when the clipboard has no text.
 
-## Submission behavior
+## Examples
 
-Enter and form submission emit `submit` only when `status` is `ready`, text or files exist, and all attachment batches have finished conversion. The Send button uses the same guard. You can edit the draft while a response streams or files are being prepared. Stop and Retry remain available in their corresponding states; Enter does not trigger them.
+### Status
 
-The `#submit` slot receives `{ status, canSubmit, preparingFiles }`. Use `canSubmit` to disable a custom Send button and `preparingFiles` to show file preparation state. Custom Stop and Retry controls can remain active during preparation.
+The submit button follows `status`: Send in `ready`, Stop in `submitted` and `streaming`, and Retry in `error`. Change the status and watch the button and the emitted event.
 
-An attachment conversion error emits `error` and releases the submission guard. It does not clear the draft or existing attachments. The application owns draft recovery after a failed send and decides when to clear `input` and `files`. Unmount the prompt when changing to another session to prevent a pending file read from updating that session.
+::component-preview{name="ChatPromptStatusExample"}
+::
 
-The picker and clipboard paste share the same file path. Pasted images become attachments even when the clipboard also contains text. Other pasted files become attachments only when the clipboard contains no text. `filter-files` receives the raw files before ViteHub converts them to AI SDK file parts. Return the accepted files in their desired order, or return `[]` to reject the batch.
+### Custom submit button
+
+The `submit` slot receives `{ status, canSubmit, preparingFiles }`. Disable your button with `canSubmit` and show progress with `preparingFiles`.
+
+::component-preview{name="ChatPromptCustomSubmitExample"}
+::
+
+### Filter files
+
+`filter-files` receives the raw `File` objects of a batch before conversion. Return the files to keep, in the order you want. Return `[]` to reject the batch. This example rejects files over 200 KB.
+
+::component-preview{name="ChatPromptFilterFilesExample"}
+::
+
+## API reference
+
+### AgentChatPrompt
+
+#### Props
+
+| Prop          | Type                                           | Default   | Description                                                      |
+| ------------- | ---------------------------------------------- | --------- | ---------------------------------------------------------------- |
+| `modelValue`  | `string`                                       | `''`      | The draft text. Use `v-model`.                                   |
+| `files`       | `readonly FileUIPart[]`                        | `[]`      | The attached files. Use `v-model:files`.                         |
+| `status`      | `ChatStatus`                                   | `'ready'` | AI SDK chat status. Controls the submit button and the submit rule. |
+| `accept`      | `string`                                       |           | Accepted file types for the picker, in `<input accept>` format.  |
+| `multiple`    | `boolean`                                      | `true`    | Allows more than one attachment. When `false`, a new file replaces the current one. |
+| `filterFiles` | `(files: readonly File[]) => readonly File[]`  |           | Filters each batch of raw files before conversion.               |
+| `placeholder` | `string`                                       |           | Placeholder text of the input.                                   |
+
+Other attributes go to `UChatPrompt`.
+
+#### Events
+
+| Event               | Payload                 | Description                                                    |
+| ------------------- | ----------------------- | -------------------------------------------------------------- |
+| `submit`            | `AgentChatPromptSubmit` | `{ text, files }`. The text is trimmed. Empty text is allowed when files exist. |
+| `update:modelValue` | `string`                | The draft text changed.                                        |
+| `update:files`      | `readonly FileUIPart[]` | Files were added or removed.                                   |
+| `stop`              |                         | The viewer selected Stop. Connect it to the AI SDK `stop()`.   |
+| `reload`            |                         | The viewer selected Retry. Connect it to the AI SDK `regenerate()`. |
+| `error`             | `unknown`               | A file could not be read or converted.                         |
+
+#### Slots
+
+| Slot      | Scope                                    | Description                                         |
+| --------- | ---------------------------------------- | --------------------------------------------------- |
+| `files`   | `{ files, remove }`                      | Replaces the attachment row. Call `remove(index)` to remove a file. |
+| `actions` |                                          | Replaces the attachment button.                     |
+| `submit`  | `{ status, canSubmit, preparingFiles }`  | Replaces the submit button.                         |
+
+#### Types
+
+```ts
+interface AgentChatPromptSubmit {
+  files: readonly FileUIPart[];
+  text: string;
+}
+```
+
+## Accessibility
+
+- The input has the accessible name **Message**. Pass `aria-label` to change it.
+- The attachment button is named **Add attachment**. Each attachment has a **Remove** button with the file name.
+- The submit button is named **Send prompt**, **Stop response**, or **Retry prompt**, based on `status`.
+- Give custom buttons in the `actions` and `submit` slots their own accessible names.
+
+## Related
+
+- [Attachments](/docs/ui/attachments) validates raw files before you convert them.
+- [Chat](/docs/ui/chat) renders the conversation above the prompt.
+- [Chat app block](/docs/ui/blocks/chat-app) shows the prompt with sessions and attachments.

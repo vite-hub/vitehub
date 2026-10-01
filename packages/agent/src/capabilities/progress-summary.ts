@@ -61,6 +61,7 @@ export type ProgressSummaryTemplateVariable =
   | ((input: ProgressSummaryTemplateInput) => MaybePromise<boolean | null | number | string | undefined>)
 
 export interface ProgressSummaryOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
+  /** A Driver that returns text. `driver.ask` returns Jev answers, so it is not supported. */
   driver?: AgentDriver<TRuntimeConfig>
   execute?: (input: ProgressSummaryExecuteInput) => MaybePromise<ProgressSummaryExecuteResult>
   guidance?: string
@@ -254,6 +255,9 @@ async function generateWithDriver(
   if (!options.driver) return
   // SAFETY: The explicit driver option satisfies the normalized Agent driver input contract.
   const driver = normalizeAgentDriver({ driver: options.driver } as never)
+  if (driver.kind === "ask") {
+    throw agentDiagnostics.AGENT_R0495({ message: "[vitehub] progressSummary({ driver }) requires a Driver that returns text. driver.ask returns Jev answers." })
+  }
   if (driver.kind === "run") {
     const runPrompt = [
       "# Instructions",

@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL, fileURLToPath } from 'node:url'
 import { build } from 'esbuild'
-import { createServer } from 'vite'
+import { createServer, mergeConfig } from 'vite'
 import { afterEach, expect, it } from 'vitest'
 import { hubAgent } from '../src/vite.ts'
 
@@ -26,9 +26,12 @@ export default defineAgent({ driver: { kind: 'codex', instructions: { template: 
   const config = { root, command: 'build', plugins: [], build: { outDir: 'dist' }, resolve: { alias: [] }, createResolver: () => async (specifier: string) => fileURLToPath(import.meta.resolve(specifier)) }
   const hook = plugin.config
   if (typeof hook !== 'function') throw new Error('Expected config hook')
-  const configured = await hook.call({} as never, { root, nitro: {} } as never, { command: 'build', mode: 'production' })
+  const userConfig = { root, nitro: {} }
+  const result = await hook.call({} as never, userConfig, { command: 'build', mode: 'production' })
+  // Vite merges the returned config into the config it passed to the hook.
+  const configured = result ? mergeConfig(userConfig, result) : userConfig
   await (plugin.configResolved as (config: unknown) => Promise<void>)(config)
-  return { root, configured }
+  return { root, configured, plugin, config }
 }
 
 it('generates a Vite alias and an empty registry without agents', async () => {
@@ -112,6 +115,40 @@ export async function inspect() {
   } finally { await server.close() }
 }, 30_000)
 
+
+it('preserves earlier aliases across lazy loads and clears aliases when the parent registry is replaced', async () => {
+  const { root, plugin, config } = await fixture()
+  await writeFile(join(root, 'server/agents/review/agent.ts'), "import { defineAgent } from '@vite-hub/agent'; export default defineAgent({ name: 'explicit-review', driver: { kind: 'codex' }, runtime: false })")
+  const second = join(root, 'server/agents/second')
+  await mkdir(second, { recursive: true })
+  await writeFile(join(second, 'agent.ts'), "import { defineAgent } from '@vite-hub/agent'; export default defineAgent({ name: 'explicit-second', driver: { kind: 'codex' }, runtime: false })")
+  await (plugin.configResolved as (config: unknown) => Promise<void>)(config)
+  const entry = join(root, 'aliases.ts')
+  await writeFile(entry, `import { registerPublicUrlAgentName, resolvePublicUrl } from '@vite-hub/runtime'
+export async function inspect() {
+  registerPublicUrlAgentName('stale', 'review')
+  const { default: registry } = await import(${JSON.stringify(join(root, '.vitehub/agent/registry.mjs'))})
+  const stale = resolvePublicUrl({ agentName: 'stale' })
+  await registry.review()
+  await registry.second()
+  return { stale: stale ?? null, first: resolvePublicUrl({ agentName: 'explicit-review' }), second: resolvePublicUrl({ agentName: 'explicit-second' }) }
+}`)
+  const packageRoot = fileURLToPath(new URL('..', import.meta.url))
+  const manifest = JSON.parse(await readFile(join(packageRoot, 'package.json'), 'utf8'))
+  const artifact = join(packageRoot, 'dist', `registry-alias-test-${Date.now()}.mjs`)
+  try {
+    await build({
+      entryPoints: [entry], outfile: artifact, bundle: true, platform: 'node', format: 'esm', packages: 'external', tsconfigRaw: { compilerOptions: {} },
+      define: { __VITEHUB_PUBLIC_URL__: JSON.stringify({ agents: { review: 'https://first.example', second: 'https://second.example' } }) },
+      plugins: [{ name: 'published-agent-aliases', setup(builder) {
+        builder.onResolve({ filter: /^@vite-hub\/runtime$/ }, () => ({ path: join(packageRoot, '../runtime/dist/index.js') }))
+        builder.onResolve({ filter: /^@vite-hub\/agent(?:\/|$)/ }, args => ({ path: join(packageRoot, manifest.exports[args.path === '@vite-hub/agent' ? '.' : `.${args.path.slice('@vite-hub/agent'.length)}`].import) }))
+      } }],
+    })
+    const result = await promisify(execFile)(process.execPath, ['--input-type=module', '-e', 'const mod = await import(process.argv[1]); console.log(JSON.stringify(await mod.inspect()))', pathToFileURL(artifact).href])
+    expect(JSON.parse(result.stdout)).toEqual({ stale: null, first: 'https://first.example', second: 'https://second.example' })
+  } finally { await rm(artifact, { force: true }) }
+})
 
 it('refreshes discovered agents and their first instructions when files are added or removed', async () => {
   const { root } = await fixture(false)

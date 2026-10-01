@@ -48,6 +48,8 @@ The Capability runs during the input phase. It derives a stable key from the Cap
 
 A rejected decision throws `ViteHubError` with code `RATE_LIMIT_REJECTED`; the HTTP handler maps that code to `429` and emits `retry-after` headers only when the selected driver reports `retryAfter`. Cloudflare native enforcement does not return portable quota metadata.
 
+When the limiter cannot decide (`reason: 'unavailable'`), the Capability throws `RATE_LIMIT_UNAVAILABLE` instead, and the HTTP handler maps it to `503`. The invocation does not run in either case.
+
 The decision is stored under the Capability id in Agent Invocation Context and exposed as a finish extension. It contains the primitive decision plus `capabilityId`, `identity`, `identitySource`, `key`, and `scope`.
 
 ## Choose identity
@@ -142,3 +144,4 @@ For local tests, use a dedicated memory driver instance. For Cloudflare, resolve
 - [Rate Limit primitive](/docs/server-primitives/rate-limit)
 - [Agent invocations](/docs/agents/invocations)
 - [Auth Users and Agent Invokers](/docs/concepts/auth-users-and-agent-invokers)
+- [Official capabilities](/docs/capabilities/official-capabilities)

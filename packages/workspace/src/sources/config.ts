@@ -5,7 +5,6 @@ import { decodeFile, normalizeSafeWorkspacePath } from "../core/path.ts"
 import { fetch as fetchSource } from "./fetch.ts"
 import { getLiveWorkspaceSourcePaths, markLiveWorkspaceSource } from "./live.ts"
 import { resolveGitHubIgnore } from "./github-ignore.ts"
-import { loadMcpResourcesSource } from "./mcp-resources-loader.ts"
 import { prepareWorkspaceSource } from "./preparation.ts"
 import {
   copyWorkspaceSourceRequestMetadata,
@@ -347,7 +346,7 @@ async function loadInferredWorkspaceSource(family: WorkspaceSourceFamily, input:
   if (family === "file") return (await import("./file.ts")).file(input as never)
   if (family === "github") return (await import("./github.ts")).github(input as never)
   if (family === "glob") return (await import("./glob.ts")).glob(input as never)
-  return await loadMcpResourcesSource(input)
+  return (await import("./mcp-resources.ts")).mcpResources(input as never)
 }
 
 function inferredSourceDefaults(family: WorkspaceSourceFamily, input: WorkspaceSourceInput): Partial<WorkspaceSource> {

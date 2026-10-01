@@ -4,6 +4,7 @@ interface ConsoleHeaders {
 }
 
 export interface ConsoleRequestEvent {
+  env?: Record<string, unknown>
   context?: {
     clientAddress?: string
     params?: Record<string, string | undefined>
@@ -12,8 +13,9 @@ export interface ConsoleRequestEvent {
   method?: string
   node?: {
     req?: {
+      headers?: Record<string, string | string[] | undefined>
       method?: string
-      socket?: { remoteAddress?: string }
+      socket?: { remoteAddress?: string, encrypted?: boolean }
       url?: string
       [Symbol.asyncIterator]?: () => AsyncIterator<Uint8Array | string>
     }
@@ -124,5 +126,18 @@ export function setConsoleResponseHeaders(event: ConsoleRequestEvent): void {
 
 export function consoleRequestURL(event: ConsoleRequestEvent): URL {
   const value = event.req?.url ?? event.node?.req?.url ?? "/"
-  return value instanceof URL ? value : new URL(value, "http://localhost")
+  const headers = event.req?.headers ?? event.headers
+  const header = (name: string) => {
+    const raw = headers?.get(name) ?? event.node?.req?.headers?.[name]
+    return (Array.isArray(raw) ? raw[0] : raw)?.split(",")[0]?.trim()
+  }
+  const url = value instanceof URL ? new URL(value) : new URL(value, "http://localhost")
+  const host = header("x-forwarded-host") ?? header("host")
+  const protocol = header("x-forwarded-proto") ?? (event.node?.req?.socket?.encrypted ? "https" : undefined)
+  if (protocol === "http" || protocol === "https") url.protocol = `${protocol}:`
+  if (host) {
+    url.port = ""
+    url.host = host
+  }
+  return url
 }

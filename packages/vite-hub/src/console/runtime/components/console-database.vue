@@ -21,19 +21,15 @@ interface SchemaLine {
   y2: number;
 }
 
-const props = withDefaults(
-  defineProps<{
-    agentsBase: string;
-    databaseBase: string;
-    definitionsBase: string;
-    kvBase: string;
-    searchBase: string;
-    section?: "database" | "databases";
-    sectionsBase: string;
-    view: "data" | "schema";
-  }>(),
-  { section: "database" },
-);
+const props = defineProps<{
+  agentsBase: string;
+  databaseBase: string;
+  definitionsBase: string;
+  kvBase: string;
+  searchBase: string;
+  sectionsBase: string;
+  view: "data" | "schema";
+}>();
 
 const route = useRoute();
 const router = useRouter();
@@ -50,20 +46,11 @@ let request: AbortController | undefined;
 let filterTimer: ReturnType<typeof setTimeout> | undefined;
 const defaultSort = "__vitehub_default__";
 
-const dataRouteName = computed(() =>
-  props.section === "databases" ? "vitehub-console-databases" : "vitehub-console-database",
+const dataRouteName = "vitehub-console-databases";
+const schemaRouteName = "vitehub-console-databases-schema";
+const routeDatabase = computed(() =>
+  Array.isArray(route.params.database) ? route.params.database[0] : route.params.database,
 );
-const schemaRouteName = computed(() =>
-  props.section === "databases"
-    ? "vitehub-console-databases-schema"
-    : "vitehub-console-database-schema",
-);
-const routeDatabase = computed(() => {
-  const value = Array.isArray(route.params.database)
-    ? route.params.database[0]
-    : route.params.database;
-  return props.section === "databases" ? value : database.value?.database;
-});
 const routeTable = computed(() => {
   const value = Array.isArray(route.params.table) ? route.params.table[0] : route.params.table;
   return value;
@@ -169,7 +156,7 @@ function errorMessage(value: unknown): string | undefined {
 }
 
 function routeParams(databaseName: string, table?: string): Record<string, string | undefined> {
-  return props.section === "databases" ? { database: databaseName, table } : { table };
+  return { database: databaseName, table };
 }
 
 function resetTableState(): void {
@@ -211,13 +198,13 @@ async function loadDatabase(): Promise<void> {
       const table = value.table ?? value.tables[0]?.name;
       if (table && (routeDatabase.value !== value.database || routeTable.value !== table)) {
         await router.replace({
-          name: resolveConsoleRouteName(route.name, dataRouteName.value),
+          name: resolveConsoleRouteName(route.name, dataRouteName),
           params: routeParams(value.database, table),
         });
       }
-    } else if (props.section === "databases" && routeDatabase.value !== value.database) {
+    } else if (routeDatabase.value !== value.database) {
       await router.replace({
-        name: resolveConsoleRouteName(route.name, schemaRouteName.value),
+        name: resolveConsoleRouteName(route.name, schemaRouteName),
         params: { database: value.database },
       });
     }
@@ -243,7 +230,7 @@ async function openTable(name: string, replace = false): Promise<void> {
   sidebarOpen.value = false;
   resetTableState();
   const location = {
-    name: resolveConsoleRouteName(route.name, dataRouteName.value),
+    name: resolveConsoleRouteName(route.name, dataRouteName),
     params: routeParams(databaseName, name),
   };
   await (replace ? router.replace(location) : router.push(location));
@@ -255,7 +242,7 @@ async function openDatabase(value: unknown): Promise<void> {
   sidebarOpen.value = false;
   resetTableState();
   await router.push({
-    name: resolveConsoleRouteName(route.name, dataRouteName.value),
+    name: resolveConsoleRouteName(route.name, dataRouteName),
     params: routeParams(value),
   });
 }
@@ -266,8 +253,8 @@ async function openSchema(): Promise<void> {
   sidebarOpen.value = false;
   resetTableState();
   await router.push({
-    name: resolveConsoleRouteName(route.name, schemaRouteName.value),
-    params: props.section === "databases" ? { database: databaseName } : {},
+    name: resolveConsoleRouteName(route.name, schemaRouteName),
+    params: { database: databaseName },
   });
 }
 
@@ -305,7 +292,7 @@ function movePage(delta: -1 | 1): void {
 }
 
 onMounted(() => {
-  rememberConsoleSection(props.section);
+  rememberConsoleSection("databases");
   void loadDatabase();
 });
 watch(filter, applyFilter);
@@ -395,7 +382,7 @@ onBeforeUnmount(() => {
 
       <template #footer="{ collapsed }">
         <ConsolePrimitiveSwitcher
-          :active="section"
+          active="databases"
           :collapsed="collapsed"
           :sections-base="sectionsBase"
         />

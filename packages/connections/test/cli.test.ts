@@ -5,7 +5,7 @@ import { createConnectionsHandler } from "../src/http.ts"
 import { ACCESS_TOKEN, connect, createTestRuntime, REFRESH_TOKEN } from "./helpers.ts"
 
 function cli(test = createTestRuntime()) {
-  const handler = createConnectionsHandler({ runtime: () => test.runtime })
+  const handler = createConnectionsHandler({ actor: () => "user:local", runtime: () => test.runtime })
   const output = { stderr: "", stdout: "" }
   const context = {
     env: {},
@@ -63,7 +63,7 @@ describe("vitehub connections", () => {
     await harness.test.runtime.client("mail", { actor: "agent:labeller" }).call("mail.messages.modify", { id: "m1", userId: "me" }).catch(() => undefined)
     harness.output.stdout = ""
     expect(await harness.run("approvals", ["--json"])).toBe(0)
-    const [approval] = JSON.parse(harness.output.stdout) as Array<{ id: string }>
+    const { approvals: [approval] } = JSON.parse(harness.output.stdout) as { approvals: Array<{ id: string }> }
     expect(await harness.run("approvals", ["approve", approval!.id])).toBe(0)
     expect(harness.output.stdout).toContain("executed")
 
@@ -73,6 +73,33 @@ describe("vitehub connections", () => {
     expect(harness.output.stdout).toContain("revoked")
   })
 
+  it("exposes approval cursors in JSON and supports older-page decisions", async () => {
+    const harness = cli()
+    for (let index = 0; index < 101; index++) {
+      await harness.test.store.approvals.create({ action: "mail.messages.modify", actor: "agent:mail", createdAt: new Date().toISOString(), id: `approval-${index}`, input: {}, name: "mail", status: "pending" })
+    }
+    expect(await harness.run("approvals", ["--name", "mail", "--json"])).toBe(0)
+    const first = JSON.parse(harness.output.stdout) as { approvals: Array<{ id: string }>, nextCursor: string }
+    expect(first.approvals).toHaveLength(100)
+    expect(first.nextCursor).toBe("approval-1")
+    expect(harness.output.stderr).toBe("")
+    harness.output.stdout = ""
+    expect(await harness.run("approvals", ["--name", "mail", "--before", first.nextCursor, "--json"])).toBe(0)
+    expect(JSON.parse(harness.output.stdout)).toMatchObject({ approvals: [{ id: "approval-0" }] })
+    expect(JSON.parse(harness.output.stdout)).not.toHaveProperty("nextCursor")
+    expect(await harness.run("approvals", ["deny", "approval-0"])).toBe(0)
+    expect(await harness.test.store.approvals.get("approval-0")).toMatchObject({ status: "denied" })
+    harness.output.stdout = ""
+    expect(await harness.run("approvals", ["--name", "mail"])).toBe(0)
+    expect(harness.output.stdout).not.toContain("Next page:")
+    await harness.test.store.approvals.create({ action: "mail.messages.modify", actor: "agent:mail", createdAt: new Date().toISOString(), id: "new-pending", input: {}, name: "mail", status: "pending" })
+    harness.output.stdout = ""
+    expect(await harness.run("approvals", ["--name", "mail"])).toBe(0)
+    expect(harness.output.stdout).toContain("Next page: repeat this command with --before approval-2.")
+    expect(await harness.run("approvals", ["--before"])).toBe(1)
+    expect(harness.output.stderr).toContain("Missing value for --before.")
+  })
+
   it("prints the activity timestamp", async () => {
     const harness = cli()
     await connect(harness.test)
@@ -80,6 +107,19 @@ describe("vitehub connections", () => {
     expect(await harness.run("activity", ["mail"])).toBe(0)
     expect(harness.output.stdout).toMatch(/^\d{4}-\d{2}-\d{2}T\S+ {2}succeeded {2}\S+ {2}mail\.labels\.list {2}service:schedule:mail /m)
     expect(harness.output.stdout).not.toContain("undefined")
+  })
+
+  it("rejects malformed successful management responses", async () => {
+    const output = { stderr: "", stdout: "" }
+    const context = {
+      env: {},
+      stderr: { write: (chunk: string | Uint8Array) => (output.stderr += String(chunk)) },
+      stdout: { write: (chunk: string | Uint8Array) => (output.stdout += String(chunk)) },
+    }
+    const options = { fetch: async () => Response.json({ connections: [{ name: "mail" }] }) }
+    expect(await runConnectionsCli("list", [], context, options)).toBe(1)
+    expect(output.stderr).toContain("invalid Connections response")
+    expect(output.stdout).toBe("")
   })
 
   it("reports errors and unknown options", async () => {

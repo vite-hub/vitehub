@@ -16,7 +16,7 @@ For setup and API options, go to [Server primitives](/docs/server-primitives), [
 
 | Page | Read it when |
 | --- | --- |
-| [Server primitives](/docs/concepts/server-primitives-for-any-host) | You need storage, background work, auth, isolated execution, or another server feature. |
+| [Server primitives](/docs/server-primitives) | You need storage, background work, auth, isolated execution, or another server feature. |
 | [Agents](/docs/agents) | You need a named actor that runs with a model, coding provider, or application code. |
 
 ## Core vocabulary
@@ -24,12 +24,11 @@ For setup and API options, go to [Server primitives](/docs/server-primitives), [
 | Page | Defines |
 | --- | --- |
 | [Definition discovery](/docs/concepts/definitions-and-discovery) | How ViteHub finds and names a definition file. |
-| [Agent Invocations](/docs/concepts/agent-invocations) | What ViteHub resolves and records for one Agent request. |
-| [Capabilities](/docs/concepts/capabilities-api) | How an Agent receives a selected ability. |
+| [Agent Invocations](/docs/agents/invocations#what-happens-during-an-invocation) | What ViteHub resolves and records for one Agent request. |
+| [Capabilities](/docs/capabilities#choose-the-api-by-its-caller) | How an Agent receives a selected ability. |
 | [Workspace and Sources](/docs/concepts/workspace-and-sources) | How a writable file tree differs from the read-only content mounted into it. |
 | [Auth Users and Agent Invokers](/docs/concepts/auth-users-and-agent-invokers) | How application identity becomes trusted invocation identity. |
-| [Channels](/docs/concepts/channels-api) | How messages, delivery facts, and host commands reach an Agent. |
-| [Bash](/docs/concepts/bash) | How Capability-provided commands appear as one Agent tool. |
+| [Channels](/docs/agents/channels#channels-and-invocations) | How messages and delivery facts reach an Agent. |
 
 ## Runtime execution
 

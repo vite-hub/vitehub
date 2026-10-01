@@ -6,8 +6,8 @@ navigation.group: Proof and recovery
 icon: i-lucide-badge-check
 ---
 
-Verification proves that ViteHub primitives keep working across generated output, local provider execution, and live providers.
-Use the narrowest tier that covers the risk introduced by the change.
+Verification checks selected behavior across generated output, local provider execution, and live providers. Each tier covers a different failure mode; no single tier establishes production readiness.
+Use the narrowest tier that covers the change, then verify the provider behavior that local tests cannot exercise.
 
 ## Verification tiers
 
@@ -21,7 +21,7 @@ Use the narrowest tier that covers the risk introduced by the change.
 
 ## Run application checks
 
-Run the application's tests before inspecting generated host output. A successful test suite proves application behaviour, while a production-shaped build proves that the selected integrations can generate their current artifacts.
+Run the application's tests before inspecting generated host output. Tests establish the behavior exercised by their assertions. A production build checks that the selected integrations can generate their artifacts; it does not verify live credentials, access policy, or recovery after a host restart.
 
 ```bash [Terminal]
 pnpm test
@@ -41,6 +41,7 @@ A deployment smoke exercises the same application behavior as the local checks. 
 
 ## Next steps
 
+- Use [Production deployment](/docs/frameworks-hosts/production) to verify application access, persistence, retries, and recovery before rollout.
 - Use [Provider output](/docs/reference/provider-output) for generated artifact families.
 - Use [Generated files](/docs/development/generated-files) to inspect local output.
 - Use [Troubleshooting](/docs/development/troubleshooting) when a proof fails.

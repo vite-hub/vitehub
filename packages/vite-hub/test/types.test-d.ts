@@ -40,6 +40,12 @@ vitehub({ auth: true, console: { access: "auth" }, preset: "node" })
 vitehub({ console: { exposure: "host-managed" }, preset: "node" })
 vitehub({ console: { exposure: "host-managed", invoke: true }, preset: "node" })
 vitehub({ console: { exposure: "host-managed", invoke: false }, preset: "node" })
+vitehub({ console: { access: "auth", auth: { provider: "cloudflare-access" } }, preset: "cloudflare" })
+vitehub({ console: { access: "auth", auth: { provider: "cloudflare-access", teamDomain: "acme.cloudflareaccess.com", audience: env({ source: env.source("CF_ACCESS_AUD") }) }, invoke: true }, preset: "vercel" })
+// @ts-expect-error Cloudflare Access Console Auth has no database or allowlist; the Access policy decides who signs in.
+vitehub({ console: { access: "auth", auth: { provider: "cloudflare-access", allowedEmails: ["maintainer@example.com"] } }, preset: "cloudflare" })
+// @ts-expect-error Access settings are strings or Env declarations.
+vitehub({ console: { access: "auth", auth: { provider: "cloudflare-access", audience: 1 } }, preset: "cloudflare" })
 // @ts-expect-error Production access contracts are mutually exclusive.
 vitehub({ console: { access: "auth", exposure: "host-managed" }, preset: "node" })
 // @ts-expect-error Unknown Console access modes must not silently expose inspection routes.
@@ -82,6 +88,24 @@ const meals = defineCollection({
   },
 })
 expectTypeOf<CollectionItem<typeof meals>>().toEqualTypeOf<{ id: string }>()
+
+const privateMeals = defineCollection({
+  authorize: ({ user }) => {
+    expectTypeOf(user.id).toBeString()
+    return true
+  },
+  source: table({
+    db,
+    orderBy: {
+      column: schema.meals.createdAt,
+      direction: "desc",
+      tieBreaker: schema.meals.id,
+    },
+    table: schema.meals,
+  }),
+  transform: row => ({ id: row.id }),
+})
+expectTypeOf<CollectionItem<typeof privateMeals>>().toEqualTypeOf<{ id: string }>()
 
 interface MealFilters {
   day?: string

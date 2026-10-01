@@ -5,7 +5,7 @@ export default defineNuxtConfig({
   extends: ["docus"],
   modules: ["./modules/vitehub-docs", "@vite-hub/ui/nuxt", "nuxt-schema-org"],
   site: {
-    description: "Portable Agents and Server Primitives for any Vite host.",
+    description: "Portable Agents for Vite, built on Server Primitives.",
     name: "ViteHub",
     url: "https://vitehub.dev",
   },
@@ -16,7 +16,7 @@ export default defineNuxtConfig({
     contentRawMarkdown: false,
     domain: "https://vitehub.dev",
     title: "ViteHub",
-    description: "Portable Agents and Server Primitives for any Vite host.",
+    description: "Portable Agents for Vite, built on Server Primitives.",
     sections: [
       {
         title: "When to use ViteHub",

@@ -105,6 +105,24 @@ describe("server auth helpers", () => {
     }), request)).not.toHaveProperty("trustedOrigins")
   })
 
+  it("defaults the base URL to vitehub({ publicUrl })", () => {
+    const request = new Request("http://agents.example.com/api/auth/session")
+    try {
+      vi.stubGlobal("__VITEHUB_PUBLIC_URL__", { url: "https://public.example.com" })
+      expect(createAuthRequestRuntimeOptions(defineAuth({ appName: "ViteHub" }), request)).toMatchObject({
+        baseURL: "https://public.example.com",
+        trustedOrigins: ["https://public.example.com"],
+      })
+      vi.stubGlobal("__VITEHUB_PUBLIC_URL__", { agents: { bot: "https://bot.example.com", dev: "https://agents.example.com" } })
+      expect(createAuthRequestRuntimeOptions(defineAuth({ appName: "ViteHub" }), request).baseURL).toBe("https://agents.example.com")
+      // An unset value keeps the default instead of overriding it with undefined.
+      expect(createAuthRequestRuntimeOptions(defineAuth({ appName: "ViteHub", runtime: () => ({ baseURL: undefined }) }), request).baseURL).toBe("https://agents.example.com")
+    }
+    finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it("derives request runtime options from the Auth Definition", () => {
     const definition = defineAuth({
       appName: "ViteHub",

@@ -6,20 +6,27 @@ navigation.group: Verify
 icon: i-lucide-clipboard-check
 ---
 
-Agent Evals run the real Agent Definition against repeatable inputs. They preserve its Driver, Capabilities, and Workspace while running inline, so a passing eval covers more than a standalone model prompt test. Verify Workflow scheduling, durability, and provider lifecycle separately on the configured host.
+An Agent Eval sends repeatable input to a real Agent Definition and scores
+the result. Use Evals to protect behavior that must keep working: grounded
+answers, expected tool use, and refusals when evidence is missing.
+
+An Eval keeps the Driver, Capabilities, and Workspace of the Agent, so it tests
+more than a model prompt alone. Evals run the Agent inline. Verify Workflow
+scheduling, durability, and the provider lifecycle separately on the
+configured host.
 
 ## Add one behavior check
 
-Install the explicit runner dependencies:
+Install the Eval runner dependencies:
 
 ```bash [Terminal]
-pnpm add -D @vite-hub/agent evalite vitest
+pnpm add -D evalite vitest
 ```
 
-Create the eval beside the Agent it protects:
+Create the Eval beside the Agent that it protects:
 
 ```ts [server/agents/support.eval.ts]
-import { defineEval } from '@vite-hub/agent/eval'
+import { defineEval } from 'vite-hub/agent/eval'
 import support from './support'
 
 export default defineEval({
@@ -32,19 +39,23 @@ export default defineEval({
 })
 ```
 
-Run it from the workspace:
+Run it:
 
 ```bash [Terminal]
 pnpm vitehub agent eval server/agents/support.eval.ts
 ```
 
-A completed invocation containing `billing` passes and exits successfully. A failed invocation or missing text assertion fails the eval and exits non-zero.
+The Eval passes when the Invocation completes and the reply contains
+`billing`. The command then exits with code `0`. A failed Invocation or a
+missing text fails the Eval, and the command exits with a non-zero code.
 
-Sibling `support.eval.ts` files can infer `support.ts`; a folder-level `eval.ts` can infer `agent.ts`. Keep the explicit `agent` import when it makes the relationship easier to see.
+You can omit `agent`. A `support.eval.ts` file uses the sibling `support.ts`.
+A folder `eval.ts` file uses the sibling `agent.ts`. Keep the explicit import
+when it makes the relation easier to see.
 
 ## Test several scenarios
 
-Use declarative scenarios when independent inputs share scorers.
+Use `scenarios` when independent inputs share scorers:
 
 ```ts [server/agents/support.eval.ts]
 import {
@@ -52,7 +63,7 @@ import {
   defineEval,
   doesNotCallTool,
   textContains,
-} from '@vite-hub/agent/eval'
+} from 'vite-hub/agent/eval'
 import support from './support'
 
 export default defineEval({
@@ -71,22 +82,40 @@ export default defineEval({
 })
 ```
 
-Scenarios accept normal Agent Invocation input, including `prompt`, `messages`, `context`, call options, timeout, and abort signal. Split unrelated behavior into separate scenarios so a failure identifies the boundary that changed.
+A scenario accepts normal Agent Invocation input, including `prompt`,
+`messages`, `context`, call options, timeout, and abort signal. Put unrelated
+behavior in separate scenarios, so a failure shows which boundary changed.
+Scorers set on the Eval itself apply to every scenario.
 
-Use imperative `test(t)` for a conversation. Repeated `t.send()` calls preserve that test's Chat History, and helpers inspect the latest observation:
+| Scorer | Passes when |
+| --- | --- |
+| `textContains(value)` | The response text contains a string or matches a regular expression. |
+| `callsTool(name)` / `doesNotCallTool(name)` | The tool steps include or exclude the tool. |
+| `hasCapabilityExtension(id, key?)` | The Capability reported a finish extension. |
+| `staysUnderTokenBudget(limit)` | Total tokens stay at or below `limit`. |
+| `doesNotLeakSource()` | The response does not appear to contain source code. |
+
+A custom scorer is an object with `name` and a `score(observation)` function
+that returns `{ score, passed?, reason? }`.
+
+## Test a conversation
+
+Use `test(t)` for a conversation. Each `t.send()` call keeps the Chat History
+of that test. The helpers check the latest observation:
 
 | Helper | Check |
 | --- | --- |
-| `completed()` | The latest invocation completed. |
-| `textContains(value)` | Response text contains a string or matches a regular expression. |
-| `calledTool(name)` / `doesNotCallTool(name)` | Normalized tool steps include or exclude a tool. |
+| `completed()` | The latest Invocation completed. |
+| `textContains(value)` | The response text contains a string or matches a regular expression. |
+| `calledTool(name)` / `doesNotCallTool(name)` | The tool steps include or exclude a tool. |
 | `hasCapabilityExtension(id, key?)` | A Capability finish extension exists. |
-| `expect(scorer)` | A custom scorer passes. |
-| `observation` / `reply` | Access the latest normalized observation or response text. |
+| `capabilityExtension(id, key?)` | Returns the Capability finish extension value. |
+| `expect(scorer)` | A scorer passes. |
+| `observation` / `reply` | The latest normalized observation or response text. |
 
 ## Compare model variants
 
-Variants run the same cases with model or instruction changes:
+Variants run the same cases with a different model or instructions:
 
 ```ts [server/agents/support.eval.ts]
 export default defineEval({
@@ -102,36 +131,57 @@ export default defineEval({
 })
 ```
 
-Instruction-only variants require a model-backed Driver. A `model` variant may replace a model-backed or provider-backed Driver for the eval run. Use a separate Agent Definition when the change affects Capabilities, Workspace context, custom `driver.run` behavior, or host configuration.
+A variant can replace the model or the instructions of a model-backed Driver,
+or of a Codex or Claude Code Driver. A provider Driver variant needs a string
+model id. Use a separate Agent Definition when the change affects
+Capabilities, Workspace context, custom `driver.run` behavior, or host
+configuration.
 
 ## Configure the runner
 
-Executable `*.eval.ts`, `*.eval.mts`, `*.eval.tsx`, and folder `eval.*` files enable the generated Evalite configuration. Configure defaults through `hubAgent({ eval })`:
+ViteHub finds Eval files named `*.eval.ts`, `*.eval.mts`, `*.eval.tsx`, and
+folder `eval.*` files. The `vitehub agent eval` command is available only when
+at least one Eval file exists. Set defaults for every run under
+`vitehub({ agent: { eval } })`:
 
 ```ts [vite.config.ts]
-import { hubAgent } from '@vite-hub/agent/vite'
 import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [
-    hubAgent({
-      eval: {
-        cache: true,
-        maxConcurrency: 2,
-        scoreThreshold: 85,
-        testTimeout: 60_000,
+    vitehub({
+      agent: {
+        eval: {
+          cache: true,
+          maxConcurrency: 2,
+          scoreThreshold: 85,
+          testTimeout: 60_000,
+        },
       },
     }),
   ],
 })
 ```
 
-Useful one-run flags are `--watch`, `--threshold <score>`, `--output <path>`, `--hide-table`, and `--no-cache`. CLI flags override integration defaults.
+Use these flags for one run: `--watch`, `--threshold <score>`,
+`--output <path>`, `--hide-table`, and `--no-cache`. A CLI flag overrides the
+configured default.
 
 ## Score product behavior
 
-Prefer assertions about the behavior that matters: grounded answers, expected tool use, refusal when evidence is missing, Capability finish effects, and regressions in usage or latency. Read normalized usage from `observation.usage` and the finalized trace from `observation.trace`.
+Score the behavior that matters to the product: grounded answers, expected tool
+use, refusal when evidence is missing, Capability finish effects, and changes
+in usage or latency. Read normalized usage from `observation.usage` and the
+final trace from `observation.trace`.
 
-Keep provider credentials, model selection, permissions, and runtime selection on the Agent Definition. An eval owns scenarios and scores; duplicating runtime setup produces a different system than the application runs.
+Keep provider credentials, model selection, permissions, and runtime selection
+in the Agent Definition. An Eval owns scenarios and scores. If you copy runtime
+setup into the Eval, you test a different system from the one the application
+runs.
 
-Inline Workspaces infer their Source root from the Eval file directory, including when `agent` is an explicit Agent Definition or an async factory. If that directory contains a `workspace/` directory, ViteHub uses it. Set `workspace.sourceRootDir` when an imported Agent needs Sources from another directory. Named Workspaces keep their registered configuration.
+An inline Workspace uses the Eval file directory as its Source root, also when
+`agent` is an explicit Agent Definition or an async factory. When that
+directory contains a `workspace/` directory, ViteHub uses that directory. Set
+`workspace.sourceRootDir` when an imported Agent needs Sources from another
+directory. A named Workspace keeps its registered configuration.

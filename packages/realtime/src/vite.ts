@@ -2,6 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises"
 import { dirname, relative, resolve } from "node:path"
 
 import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-catalog"
+import { summarizeDefinitions } from "@vite-hub/internal/inspect"
 import { deploymentPresetFromNitro } from "@vite-hub/internal/deployment"
 import { VITEHUB_SERVER_DIRS, resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
@@ -9,12 +10,25 @@ import { getHostingProvider } from "@vite-hub/internal/hosting"
 
 import { discoverRealtimeDefinitions } from "./discovery.ts"
 
+import type { ViteHubDefinitionSummary, ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
 import type { Plugin, UserConfig } from "vite"
 import type { RealtimeModuleOptions } from "./types.ts"
 import { realtimeErrorDiagnostics } from "./error-diagnostics.ts"
 
 export interface RealtimeVitePluginOptions extends RealtimeModuleOptions {
   importBase?: string
+}
+
+export type RealtimeVitePlugin = Plugin & { vitehub: ViteHubInspectionPluginMetadata }
+
+export interface RealtimeInspectionOptions {
+  projectRoot: string
+  serverDirs?: string[]
+}
+
+/** Lists Realtime Definitions as serializable inspection summaries. */
+export function inspectRealtimeDefinitions(options: RealtimeInspectionOptions): ViteHubDefinitionSummary[] {
+  return summarizeDefinitions(options.projectRoot, discoverRealtimeDefinitions(options.projectRoot, options.serverDirs), "server-realtime")
 }
 
 interface NitroConfig extends Record<string, unknown> {
@@ -58,14 +72,30 @@ function applicationBaseURL(base: string | undefined): string {
   return base?.startsWith("/") && !base.startsWith("//") ? base : "/"
 }
 
-export function hubRealtime(options: RealtimeVitePluginOptions = {}): Plugin {
+export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVitePlugin {
   const importBase = options.importBase ?? "@vite-hub/realtime"
+  let inspectionRoot: string | undefined
+  let inspectionServerDirs: string[] | undefined
   return {
     name: "@vite-hub/realtime/vite",
     enforce: "pre",
+    vitehub: {
+      inspect: () => ({
+        definitions: [{
+          kind: "realtime",
+          label: "Realtime",
+          list: () => inspectRealtimeDefinitions({
+            projectRoot: inspectionRoot ?? resolveViteHubProjectRoot(process.cwd(), options),
+            serverDirs: inspectionServerDirs,
+          }),
+        }],
+      }),
+    },
     async config(config, environment) {
       const root = resolveViteHubProjectRoot(resolve(config.root || process.cwd()), options)
       const serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS]
+      inspectionRoot = root
+      inspectionServerDirs = serverDirs
       const definitions = discoverRealtimeDefinitions(root, serverDirs)
       if (definitions.length === 0) return
 

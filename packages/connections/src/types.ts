@@ -1,10 +1,21 @@
 import type { EnvDatabase } from "@vite-hub/env/database"
 
+/** Maximum name length that fits the Env Bridge `connection/<name>` key. */
+export const CONNECTION_NAME_MAX_LENGTH = 501
+
 /** Type shape of one provider API method. Generated catalogs describe each method with it. */
 export interface ConnectionMethodSignature {
+  /** Catalog HTTP method. Only GET reads execute during dry run. */
+  method: string
   body: unknown
   params: object
   response: unknown
+}
+
+export type ConnectionReadMethod = "GET" | "HEAD" | "OPTIONS"
+
+export function isConnectionReadMethod(method: string): method is ConnectionReadMethod {
+  return method === "GET" || method === "HEAD" || method === "OPTIONS"
 }
 
 /** Runtime description of one provider API. */
@@ -101,6 +112,9 @@ export interface ConnectionDefinition<
   access?: Readonly<Record<string, ConnectionAccessRule<ConnectionActionPattern<TApis>>>>
 }
 
+/** Fetch options supported by Connections. Bodies are persisted for approval replay. */
+export type ConnectionFetchInit = Pick<RequestInit, "headers" | "method" | "redirect" | "signal"> & { body?: string }
+
 export type ConnectionDefinitionRegistry = Record<string, () => Promise<unknown>>
 
 /** Loads the ViteHub Database that the default store uses. */
@@ -131,31 +145,34 @@ type MethodInput<TSignature> = TSignature extends { body: infer TBody, params: i
   : never
 
 type MethodResponse<TSignature> = TSignature extends { response: infer TResponse } ? TResponse : never
+type MethodDryRunResult<TSignature, TDryRun extends boolean> = TSignature extends { method: infer TMethod }
+  ? TMethod extends ConnectionReadMethod ? never : true extends TDryRun ? undefined : never
+  : true extends TDryRun ? undefined : never
 
 /** A typed provider method. In dry run, a skipped write resolves to `undefined`. */
-export type ConnectionMethod<TSignature> = object extends MethodInput<TSignature>
-  ? (input?: MethodInput<TSignature>, options?: ConnectionCallOptions) => Promise<MethodResponse<TSignature>>
-  : (input: MethodInput<TSignature>, options?: ConnectionCallOptions) => Promise<MethodResponse<TSignature>>
+export type ConnectionMethod<TSignature, TDryRun extends boolean = false> = object extends MethodInput<TSignature>
+  ? (input?: MethodInput<TSignature>, options?: ConnectionCallOptions) => Promise<MethodResponse<TSignature> | MethodDryRunResult<TSignature, TDryRun>>
+  : (input: MethodInput<TSignature>, options?: ConnectionCallOptions) => Promise<MethodResponse<TSignature> | MethodDryRunResult<TSignature, TDryRun>>
 
 type Head<TId extends string> = TId extends `${infer THead}.${string}` ? THead : TId
 
 /** Nested client built from dotted method ids, for example `gmail.users.labels.list()`. */
-export type ConnectionClientTree<TMethods> = {
-  readonly [THead in Head<MethodId<TMethods>>]: (THead extends keyof TMethods ? ConnectionMethod<TMethods[THead]> : unknown)
-    & ConnectionClientTree<{ [TId in MethodId<TMethods> as TId extends `${THead}.${infer TRest}` ? TRest : never]: TMethods[TId] }>
+export type ConnectionClientTree<TMethods, TDryRun extends boolean = false> = {
+  readonly [THead in Head<MethodId<TMethods>>]: (THead extends keyof TMethods ? ConnectionMethod<TMethods[THead], TDryRun> : unknown)
+    & ConnectionClientTree<{ [TId in MethodId<TMethods> as TId extends `${THead}.${infer TRest}` ? TRest : never]: TMethods[TId] }, TDryRun>
 }
 
 type SelectionPatterns<TSelection, TApi> = TSelection extends { readonly [TKey in TApi & PropertyKey]?: readonly (infer TPattern)[] } ? TPattern : never
 
-export type ConnectionClient<TApis extends object = object, TSelection = ConnectionApiSelection<TApis>> = {
+export type ConnectionClient<TApis extends object = object, TSelection = ConnectionApiSelection<TApis>, TDryRun extends boolean = false> = {
   readonly name: string
   /**
    * Call a provider URL with the Connection token. GET is a read. Other methods are
    * writes, and an access rule must name `fetch` to allow them.
    */
-  fetch: (input: string | URL, init?: RequestInit) => Promise<Response>
+  fetch: (input: string | URL, init?: ConnectionFetchInit) => Promise<Response>
 } & {
-  readonly [TApi in keyof TApis & keyof TSelection]: ConnectionClientTree<SelectedMethods<TApis[TApi], SelectionPatterns<TSelection, TApi>>>
+  readonly [TApi in keyof TApis & keyof TSelection]: ConnectionClientTree<SelectedMethods<TApis[TApi], SelectionPatterns<TSelection, TApi>>, TDryRun>
 }
 
 /** A write that dry run skipped. The fields match the Channel dry-run record. */
@@ -220,4 +237,10 @@ export interface ConnectionApproval {
   name: string
   status: ConnectionApprovalStatus
   traceId?: string
+}
+
+/** A bounded approval page. Pass `nextCursor` as `before` to read older approvals. */
+export interface ConnectionApprovalPage {
+  approvals: ConnectionApproval[]
+  nextCursor?: string
 }

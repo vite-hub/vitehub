@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { cp, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { access, cp, mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -161,3 +161,95 @@ process.exit(result.status ?? 1);
   })
 
 }, 30_000)
+
+it('reuses a pooled checkout, keeps ignored files, and resets the rest', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'vitehub-checkout-pool-'))
+  roots.push(root)
+  const base = join(root, 'base.git')
+  const source = join(root, 'source')
+  const pool = join(root, 'checkouts')
+  await mkdir(source)
+  await git(root, 'init', '--bare', base)
+  await git(source, 'init', '-b', 'main')
+  await git(source, 'config', 'user.name', 'Test')
+  await git(source, 'config', 'user.email', 'test@example.com')
+  await writeFile(join(source, '.gitignore'), 'node_modules\n')
+  await writeFile(join(source, 'file'), 'base')
+  await git(source, 'add', '.')
+  await git(source, 'commit', '-m', 'base')
+  await git(source, 'push', base, 'HEAD:refs/heads/main')
+  await git(root, '--git-dir', base, 'symbolic-ref', 'HEAD', 'refs/heads/main')
+  const commit = async (branch: string) => {
+    await git(source, 'checkout', '-b', branch, 'main')
+    await writeFile(join(source, 'file'), branch)
+    await git(source, 'commit', '-am', branch)
+    await git(source, 'push', base, `HEAD:refs/heads/${branch}`)
+    return await git(source, 'rev-parse', 'HEAD')
+  }
+  const oneSha = await commit('one')
+  const twoSha = await commit('two')
+  const config = join(root, 'gitconfig')
+  await writeFile(config, '')
+  await git(root, 'config', '--file', config, `url.file://${base}.insteadOf`, 'https://github.com/base--owner/repo--name.git')
+  vi.stubEnv('GIT_CONFIG_GLOBAL', config)
+  vi.stubEnv('GIT_CONFIG_NOSYSTEM', '1')
+  vi.stubEnv('GIT_ALLOW_PROTOCOL', 'file')
+  const options = {
+    checkouts: { root: pool },
+    credentials: () => ({ token: 'test-token', rateLimitKey: 'offline-test' }),
+    identity: { login: 'Test', email: 'test@example.com' },
+  }
+  const host = createGitHubHost(options)
+
+  let firstPath = ''
+  await host.withPullRequestCheckout({ repository: 'base--owner/repo--name', number: 1, headSha: oneSha, headRepository: 'base--owner/repo--name', headRef: 'one' }, async ({ path }) => {
+    firstPath = path
+    expect(await git(path, 'rev-parse', 'HEAD')).toBe(oneSha)
+    await mkdir(join(path, 'node_modules'), { recursive: true })
+    await writeFile(join(path, 'node_modules/marker'), 'warm')
+    await writeFile(join(path, 'file'), 'dirty')
+    await writeFile(join(path, 'untracked'), 'x')
+    await mkdir(join(path, '.git/hooks'), { recursive: true })
+    await writeFile(join(path, '.git/hooks/post-checkout'), '#!/bin/sh\nexit 1\n', { mode: 0o755 })
+    await git(path, 'config', 'core.fsmonitor', 'false')
+    await mkdir(join(path, '.vitehub'), { recursive: true })
+    await writeFile(`${path}.meta.json`, '{}')
+  })
+  await access(firstPath)
+
+  // A restarted process adopts the checkout that the previous process left in the pool.
+  const restarted = createGitHubHost(options)
+  await restarted.withPullRequestCheckout({ repository: 'base--owner/repo--name', number: 1, headSha: twoSha, headRepository: 'base--owner/repo--name', headRef: 'two' }, async ({ path }) => {
+    expect(path).toBe(firstPath)
+    expect(await git(path, 'rev-parse', 'HEAD')).toBe(twoSha)
+    expect(await git(path, 'branch', '--show-current')).toBe('two')
+    expect(await readFile(join(path, 'file'), 'utf8')).toBe('two')
+    expect(await readFile(join(path, 'node_modules/marker'), 'utf8')).toBe('warm')
+    await expect(access(join(path, 'untracked'))).rejects.toThrow()
+    await expect(access(join(path, '.git/hooks/post-checkout'))).rejects.toThrow()
+    await expect(access(join(path, '.vitehub'))).rejects.toThrow()
+    await expect(access(`${path}.meta.json`)).rejects.toThrow()
+    await expect(git(path, 'config', 'core.fsmonitor')).rejects.toThrow()
+    expect(await git(path, 'config', 'remote.origin.pushurl')).toBe('https://github.com/base--owner/repo--name.git')
+  })
+  let secondPath = ''
+  await restarted.withPullRequestCheckout({ repository: 'base--owner/repo--name', number: 2, headSha: oneSha }, async ({ path }) => {
+    secondPath = path
+    expect(path).not.toBe(firstPath)
+    expect(await git(path, 'rev-parse', 'HEAD')).toBe(oneSha)
+    await expect(access(join(path, 'node_modules/marker'))).rejects.toThrow()
+    expect(await git(path, 'config', 'remote.origin.pushurl')).toMatch(/^disabled:/)
+    await expect(git(path, 'config', 'remote.origin.push')).rejects.toThrow()
+  })
+
+  // A checkout without a verified head leaves the pool.
+  await expect(restarted.withPullRequestCheckout({ repository: 'base--owner/repo--name', number: 2, headSha: twoSha, headRepository: 'base--owner/repo--name', headRef: 'one' }, async () => {
+    throw new Error('must not run')
+  })).rejects.toThrow('head changed')
+  await expect(access(secondPath)).rejects.toThrow()
+  expect(await readdir(pool)).toHaveLength(1)
+}, 30_000)
+
+it('rejects an empty checkout pool root', () => {
+  expect(() => createGitHubHost({ checkouts: { root: ' ' }, credentials: () => ({ token: 'test-token' }) })).toThrow('checkouts.root must be a directory path')
+})

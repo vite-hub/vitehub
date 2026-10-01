@@ -37,6 +37,22 @@ describe("AgentMarkdown math", () => {
     wrapper.unmount();
   });
 
+  it("replaces built-in plugins by name", async () => {
+    const customTaskList = { name: "task-list", markdownItPlugins: [vi.fn()] };
+    const wrapper = mount(defineComponent({
+      setup() {
+        return () => h(Suspense, null, { default: () => h(AgentMarkdown, {
+          value: "- [x] replaced",
+          plugins: [customTaskList],
+        }) });
+      },
+    }));
+    await vi.waitFor(() => expect(wrapper.findComponent(Markdown).exists()).toBe(true));
+    const plugins = wrapper.findComponent(Markdown).props("plugins") as Array<{ name: string }>;
+    expect(plugins.filter(plugin => plugin.name === "task-list")).toEqual([customTaskList]);
+    wrapper.unmount();
+  });
+
   it("renders dollar and backslash inline/display formulas", async () => {
     const wrapper = await render(String.raw`Use $x^2$ and \(\sigma_w\).
 

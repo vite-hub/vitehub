@@ -2,13 +2,13 @@ import { createCloudflareHostedWorker } from "@vite-hub/internal/runtime/cloudfl
 
 import { normalizeWorkflowOptions } from "../config.ts"
 
-import type { WorkflowApp } from "./_app.ts"
+import type { VitehubApp } from "@vite-hub/internal/runtime/app"
 import { createCloudflareRuntimeEvent, runWithActiveCloudflareEnv, type CloudflareWorkerEnv, type CloudflareWorkerExecutionContext } from "./cloudflare-shared.ts"
 import { runWithWorkflowRuntimeEvent, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from "./state.ts"
 
 import type { ResolvedWorkflowOptions, WorkflowDefinitionRegistry } from "../types.ts"
 
-export type CloudflareWorkerApp = WorkflowApp
+export type CloudflareWorkerApp = VitehubApp
 
 export interface WorkflowCloudflareWorkerOptions {
   app?: CloudflareWorkerApp

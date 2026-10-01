@@ -83,7 +83,31 @@ export default defineConfig({
 | `blob: { stores: Record<string, BlobStoreConfig> }` | Defines named Blob Stores. `stores.default` is required. |
 | `blob: { serve: false }` | Disables Blob route generation. This is the default. |
 | `blob: { serve: true }` | Generates an opt-in Nitro route at `/api/_vitehub/blob/**` for serving the Default Blob Store. |
-| `blob: { serve: { route?, store?, publicBaseUrl?, headers? } }` | Generates an opt-in Nitro route. `route` defaults to `/api/_vitehub/blob`, `store` defaults to `default`, `publicBaseUrl` changes generated public URLs, and `headers` adds static response headers. |
+| `blob: { serve: { route?, store?, publicBaseUrl?, headers?, authorize? } }` | Generates an opt-in Nitro route. `route` defaults to `/api/_vitehub/blob`, `store` defaults to `default`, `publicBaseUrl` changes generated public URLs, and `headers` adds static response headers. `authorize: true` requires a signed-in Auth session. |
+
+### Protect served objects
+
+The serve route is public by default. Set `serve.authorize: true` to require a signed-in [Auth](/docs/server-primitives/auth) session before ViteHub reads the store. The app must enable Auth and define `server/auth.ts`, or the build fails with `BLOB_B0002`.
+
+```ts [vite.config.ts]
+export default defineConfig({
+  plugins: [vitehub({
+    auth: true,
+    blob: { serve: { route: '/photos', authorize: true } },
+  })],
+})
+```
+
+To decide each request, export `authorize` from `server/blob.ts`. It uses the Auth access signature: it receives `{ request, session, user }` and returns `true`, `false`, or a `Response`.
+
+```ts [server/blob.ts]
+import type { BlobServeAuthorize } from 'vite-hub/blob'
+
+export const authorize: BlobServeAuthorize = ({ request, user }) =>
+  new URL(request.url).pathname.startsWith(`/photos/${user.id}/`)
+```
+
+A request without a session returns JSON `401`. A `false` result returns `403`, and a `Response` is returned as-is. ViteHub checks access before the store read and before conditional `304` handling, so a cached `ETag` does not bypass the check. Browsers send the same-origin session cookie with `<img src>`, so image tags work without extra headers. Authorized responses use `Cache-Control: private, no-cache` unless `serve.headers` sets `Cache-Control`. If `server/blob.ts` exports `authorize` while `serve.authorize` is not `true`, the build fails with `BLOB_B0001`. Restart the dev server after you add or remove `server/blob.ts`.
 
 ## Provider options
 

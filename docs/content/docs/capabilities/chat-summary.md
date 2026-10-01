@@ -7,16 +7,14 @@ navigation.group: Decisions and output
 icon: i-lucide-file-text
 ---
 
-`chatSummary()` adds a conversation summary command.
-It looks for an explicit command in the latest user input, generates a summary, replaces the command with summary text, and exposes the generated summary as output metadata.
-
-The Capability contributes input behavior similar to `inputCommands()`.
-By default it recognizes a summary command, summarizes the current conversation, and writes the summary into Agent Run Input context.
+`chatSummary()` adds a `/summary` Input Command that the user types into the latest message.
+It adds no model-facing tool. When the command is present, it summarizes the conversation and replaces the command with the summary text before the Agent Driver runs.
+The summary comes from a custom `execute()` function, an AI SDK model call, or a local heuristic. No Server Primitive is involved.
 
 ## Configure summaries
 
-Attach `chatSummary()` with `chat()` to let users request a summary from a chat interface.
-The default command uses the standard input command trigger.
+Attach `chatSummary()` to an Agent that receives conversation messages, for example with `chat()`.
+`chat()` is not required; the command works on any message or string prompt input.
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'
@@ -31,51 +29,69 @@ export default defineAgent({
 })
 ```
 
+Without `model` or `execute`, the Capability uses its heuristic summary. Pass `chatSummary({ model })` for a model-generated summary.
+
 ## How summaries work
 
-`chatSummary()` runs during the input phase.
-When the configured command is present, it removes the command text, summarizes the source messages with a model, custom executor, or heuristic fallback, then replaces the command with `Conversation summary`.
+`chatSummary()` runs in the input phase. It uses the same command parser as [`inputCommands()`](/docs/capabilities/input-commands).
 
-The generated value is available as `chatSummary` in input context and as a finish extension for the invocation that generated it.
+1. It looks for the command (default `/summary`) in the latest user message, or in the string `prompt` when there are no messages. The command must start at a word boundary. Text after the command name is `args`.
+2. It removes the command from the source:
+   - Message input: it summarizes the conversation transcript (`role: text` lines). The command message keeps its other text, or is dropped when only the command remains.
+   - String prompt input: it summarizes the prompt text around the command.
+3. It generates the summary with `execute`, or with `model` and the summary instructions. When `args` is set, the model prompt ends with `Focus: <args>`. Without `execute` or `model`, the heuristic summary is the normalized source text cut to `maxLength`.
+4. It replaces the command with `Conversation summary:` and the summary on the next line.
+5. It sets `{ summary }` in Agent Run Input context under `chatSummary` and `<id>:summary`, and provides it as a finish extension.
+
+The finish extension appears only on the invocation that generated the summary. Summary context that a caller sets in advance, or that a later run reuses, does not produce the extension.
 
 ## Requirements
 
-The command name must be a valid Input Command name.
-Model-based summaries require an explicit model option; otherwise the Capability uses its heuristic fallback.
+- The command name must be a valid Input Command name: lowercase, a letter first, then letters, digits, `_`, or `-`.
+- The command trigger must be a non-empty string without whitespace.
+- A model-based summary requires the `model` option. The Capability does not use the Agent model.
 
-Disable the command only when application code invokes the summary behavior directly.
+Set `command: false` to turn the command off. The Capability then does not change input and does not register command metadata.
+
+## Security and approval
+
+`chatSummary()` adds no model-facing tool and has no `policy` option.
+The end user controls when the command runs. With `model`, ViteHub sends the conversation transcript, or the prompt text, to that model provider. The heuristic and `execute` paths do not call a model unless your `execute` code does.
+
+The summary replaces the command in the model input. Treat it as user-derived content, not as trusted instructions.
 
 ## Driver support
 
 | Agent Driver | Support |
 | --- | --- |
-| Model-backed | Receives the transformed input containing the generated summary. |
+| Model-backed | Receives the transformed input that contains the summary. |
 | Provider-backed | Receives the transformed input before provider execution. |
 | Custom-run-backed | Receives the transformed input and context values before `driver.run`. |
 
 ## Verify summaries
 
-Run a chat invocation with the summary command.
-Inspect the final Agent Run Input and confirm the command was replaced with `Conversation summary` text.
-
-Inspect the finish extension and verify it appears only on the invocation that generated the summary.
+1. Run `vitehub agent info --agent support --json` and confirm that the `chat-summary` Capability metadata lists the `summary` command and its trigger.
+2. Run a chat invocation with `/summary`. Inspect the final Agent Run Input and confirm that the command was replaced with `Conversation summary:` text.
+3. Inspect the finish extension and confirm that it appears only on the invocation that generated the summary.
 
 ## Options
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `command` | `false \| ChatSummaryCommandOptions` | `{ name: "summary", trigger: "/" }` | Enables or configures the summary Input Command. |
+| `command` | `false \| ChatSummaryCommandOptions` | `{ name: "summary", trigger: "/" }` | Enables or configures the summary Input Command. `false` turns the Capability off. |
 | `command.name` | `string` | `"summary"` | Command name. |
 | `command.trigger` | `string` | `"/"` | Command prefix. |
-| `command.description` | `string` | generated | Command description. |
-| `execute` | `(input) => string \| { summary?: string }` | none | Custom summary generator. |
+| `command.description` | `string` | `"Summarize this conversation."` | Command description in metadata. |
+| `execute` | `(input) => string \| { summary?: string }` | none | Custom summary generator. Receives `args`, `input`, `messages`, and `text`. |
 | `fallback` | `string` | `"No conversation to summarize."` | Summary used when generation returns no usable text. |
-| `id` | `string` | `"chat-summary"` | Capability id and summary context key prefix. |
+| `id` | `string` | `"chat-summary"` | Capability id, finish extension key, and prefix of the `<id>:summary` context key. |
 | `instructions` | `string` | generated | System instructions for model-backed summaries. |
 | `maxLength` | `number` | `1200` | Maximum summary length. |
-| `model` | AI SDK model | heuristic fallback | Model used for summaries. |
+| `model` | AI SDK model | none (heuristic) | Model passed to `generateText()` for summaries. |
 
 ## Related pages
 
 - [chat()](/docs/capabilities/chat)
 - [inputCommands()](/docs/capabilities/input-commands)
+- [title()](/docs/capabilities/title)
+- [Official Capabilities](/docs/capabilities/official-capabilities)

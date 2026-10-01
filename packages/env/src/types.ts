@@ -49,6 +49,8 @@ export type EnvSource =
     label: string
     name: string
     names?: string[]
+    /** Treat empty host values as missing when reading the ordered names. */
+    skipEmpty?: boolean
     serializable: true
   }
   | {
@@ -237,8 +239,12 @@ export type DeepReadonly<T> = T extends SecretEnv<unknown>
 export type ServerEnvInspectionStatus = "available" | "defaulted" | "error" | "invalid" | "missing"
 
 export interface ServerEnvInspectionEntry {
+  /** The declaration is secret. Inspection never returns values. */
   masked: boolean
   path?: string
+  /** Provider alias for provider-backed declarations. */
+  provider?: string
+  required: boolean
   source: "env" | "literal" | "provider"
   status: ServerEnvInspectionStatus
 }

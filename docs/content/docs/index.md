@@ -39,7 +39,7 @@ giving an Agent access to every server feature.
   :::
   :::u-page-card
   ---
-  title: Read the guide
+  title: Learn the concepts
   description: Learn how definitions, runtime imports, Workspaces, Capabilities, and host output fit together.
   icon: i-lucide-map
   to: /docs/concepts
@@ -54,9 +54,9 @@ giving an Agent access to every server feature.
 | [Server Primitives](/docs/server-primitives) | Trusted server code needs Env, Auth, storage, queues, workflows, schedules, browser sessions, sandboxes, or another server API. |
 | [Agents](/docs/agents) | A named server program needs a model, coding provider, or custom Driver plus controlled access to tools and files. |
 
-The lane switcher at the top of the sidebar keeps those two paths separate. The
-Guide, development, host guides, reference, and AI-readable pages appear in both lanes
-when the same contract applies to both.
+The lane switcher at the top of the sidebar keeps those two paths separate. Start,
+Concepts, Development, Frameworks and hosts, Reference, and AI resources appear in
+both lanes. A page that applies to only one lane appears only in that lane.
 
 ## Build a ViteHub application
 
@@ -87,7 +87,7 @@ The two first-result guides run without an account or provider credential:
 | Choose an Agent Driver, instructions, Workspace, trigger, or Channel | [Agents](/docs/agents) |
 | Give an Agent selected tools, context, input handling, or output behavior | [Capabilities](/docs/capabilities) |
 | Build chat, Agent inspection, diff, trace, or file-tree interfaces | [UI](/docs/ui) |
-| Understand Definitions, Runtime Context, imports, policy, and Provider Output | [Guide](/docs/concepts) |
+| Understand Definitions, Runtime Context, imports, policy, and Provider Output | [Concepts](/docs/concepts) |
 | Use the CLI, Console, generated files, provisioning, or verification tools | [Development](/docs/development) |
 | Configure Cloudflare, Vercel, Netlify, Deno, Nitro, or self-hosted Node | [Frameworks and hosts](/docs/frameworks-hosts) |
 | Look up packages, imports, configuration, runtime events, or diagnostics | [Reference](/docs/reference) |

@@ -45,3 +45,8 @@ export async function startConsoleAgentInvocation(
   if (!result.success) throw viteHubErrorDiagnostics.VITE_HUB_R0102({ message: "The Agent invocation response did not include an id." })
   return { agent, id: result.output.id }
 }
+
+/** Delete one completed, failed, or cancelled invocation from the Console journal. */
+export async function deleteConsoleInvocation(base: string, id: string): Promise<void> {
+  await requestConsole(`${base}/${encodeURIComponent(id)}`, { body: { action: "delete" }, method: "POST" })
+}

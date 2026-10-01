@@ -115,6 +115,7 @@ function dbTools(mode: AgentCapabilityMode, schemaMode: AgentCapabilityMode, opt
     const tools: AgentToolSet = {
       db_query: createTool<DbSqlInput>({
         description: "Run one read-only SQL query against the configured ViteHub database.",
+        icon: "i-lucide-database",
         execute: async ({ statement }) => {
           const sql = normalizeReadSql(statement)
           if (!sql) throw agentDiagnostics.AGENT_R0217({ message: "[vitehub] db_query only accepts one SELECT, WITH ... SELECT, or read-only introspection PRAGMA statement." })
@@ -122,11 +123,14 @@ function dbTools(mode: AgentCapabilityMode, schemaMode: AgentCapabilityMode, opt
         },
         inputSchema: dbQueryInputSchema,
         name: "db_query",
+        title: "Queried database",
       }),
       db_schema: createTool({
         description: "Describe the configured ViteHub database schema.",
         execute: async () => await readDatabaseSchema(database, databaseName),
+        icon: "i-lucide-table-properties",
         name: "db_schema",
+        title: "Read database schema",
       }),
     }
     if (mode === "write" || schemaMode === "write") {
@@ -143,9 +147,11 @@ function dbTools(mode: AgentCapabilityMode, schemaMode: AgentCapabilityMode, opt
           if (!kind) throw agentDiagnostics.AGENT_R0223({ message: "[vitehub] db_exec only accepts data mutation or DDL SQL statements." })
           return await executeSql(database, sql)
         },
+        icon: "i-lucide-database-zap",
         inputSchema: dbExecInputSchema,
         name: "db_exec",
         policy: options.policy,
+        title: "Changed database",
       })
     }
     return tools

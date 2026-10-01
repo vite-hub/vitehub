@@ -6,34 +6,30 @@ navigation.group: Connect
 icon: i-lucide-route
 ---
 
-A Trigger turns a product event into Agent Invocation input. Use it when a Capability owns the event's shape or policy. The Agent Driver still owns execution.
+A Trigger turns an event into Agent Invocation input. Use a Trigger when a
+Capability or a Channel owns the shape of the event and the policy for it. For
+example, the Chat Capability owns `chat.message`. It selects history, sessions,
+and concurrency before the Driver runs. The Trigger prepares input only. The
+Agent Driver still runs the Invocation.
 
-## Call an Agent directly
+Do not add a Trigger when your own route already validates the input. Call
+`runAgent()` or `streamAgent()` directly. See
+[Invocations](/docs/agents/invocations).
 
-An application route can call `runAgent()` when no Capability needs to prepare the event.
+## Choose how to call the Agent
 
-```ts [server/api/support.post.ts]
-import { runAgent } from 'vite-hub/agent'
-import support from '../agents/support'
-import { getRuntimeContext } from 'vite-hub/runtime/h3'
-
-export default defineEventHandler(async (event) => {
-  const { prompt } = await readBody<{ prompt: string }>(event)
-  const runtime = getRuntimeContext(event)
-  try {
-    return await runAgent(support, runtime, { prompt })
-  }
-  finally {
-    await runtime.flushWaitUntil().catch(console.error)
-  }
-})
-```
-
-Use this direct call for ordinary authenticated server routes and scheduled application code. Without a host lifetime API, drain tracked work before returning. The example reports background failures without replacing the Agent result or error.
+| Situation | Use |
+| --- | --- |
+| A server route already owns validation and input. | `runAgent()` or `streamAgent()` |
+| A Capability owns history, policy, or event preparation. | `runAgentTrigger()` or `streamAgentTrigger()` |
+| A messaging provider delivers an event. | A [Channel](/docs/agents/channels) and its Trigger |
+| Your application receives its own webhook events. | An application-owned Channel with `defineChannelTrigger()` |
+| A model delegates through a trusted application tool. | A Capability tool backed by [`startAgentInvocation()`](/docs/agents/controlled-child-invocations) or `runAgent()` |
 
 ## Use a Capability Trigger
 
-Use a Trigger when a Capability owns event preparation. The Chat Capability registers `chat.message` and can apply history, session, concurrency, and delivery behavior before the Driver runs.
+Attach the Capability that registers the Trigger. `chat()` registers
+`chat.message`:
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'
@@ -52,13 +48,13 @@ export default defineAgent({
 
 ### Consume a Capability Trigger
 
-Call the trigger from a server-owned route:
+Call the Trigger from a server-owned route:
 
 ```ts [server/api/support-chat.post.ts]
 import { streamAgentTrigger } from 'vite-hub/agent'
+import { getRuntimeContext } from 'vite-hub/runtime/h3'
 import support from '../agents/support'
 import { loadAuthorizedSupportThreadMessages } from '../support-history'
-import { getRuntimeContext } from 'vite-hub/runtime/h3'
 
 export default defineEventHandler(async (event) => {
   const { text, threadId } = await readBody<{
@@ -82,6 +78,12 @@ export default defineEventHandler(async (event) => {
     getRuntimeContext(event),
     'chat.message',
     {
+      context: {
+        invoker: {
+          id: user.id,
+          kind: 'customer',
+        },
+      },
       messages,
       run: {
         channelId: 'portal',
@@ -96,15 +98,30 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-This streaming route requires a host lifetime API that stays active until the stream is consumed or cancelled. Calling `flushWaitUntil()` before returning the stream does not cover work scheduled later. See [Runtime Context](/docs/concepts/runtime-context#background-work-and-cleanup) for host lifetime ownership.
+The route must do three things before it calls the Trigger:
 
-`run` contains origin and trace metadata; it is not chat context. Authenticate before passing Actor identity, session selection, or trusted metadata into the Trigger input.
+1. Authenticate the caller, then pass the Actor, the session selection, and
+   any trusted metadata.
+2. Reject a thread that the caller does not own.
+3. Load the ordered messages of the thread and add the new message.
 
-Direct Trigger consumers must authenticate first, reject threads the caller does not own, then load and supply the current thread's ordered messages, including the new message. `triggerHistory` limits that input; it does not backfill messages from `threadId` or a session id.
+`triggerHistory` limits the messages that you supply. It does not load
+messages from `threadId` or from a session id. See
+[Chat History and sessions](/docs/agents/chat-history-sessions).
+
+`run` holds origin and trace metadata. It is not chat context.
+
+This streaming route needs a host lifetime API that stays active until the
+caller consumes or cancels the stream. A `flushWaitUntil()` call before you
+return the stream does not cover work that starts later. See
+[Runtime Context](/docs/concepts/runtime-context#background-work-and-cleanup).
 
 ## Add an application-owned Trigger
 
-Use `defineChannel()` from `vite-hub/agent/channels` when an application-owned Channel Kind prepares its own event. This is not the outbound [`defineOutboundChannel()`](/docs/reference/channels) from `vite-hub/channels`.
+Use `defineChannel()` from `vite-hub/agent/channels` when an application-owned
+Channel Kind prepares its own event, such as a ticketing system. This is not
+the outbound [`defineOutboundChannel()`](/docs/server-primitives/channels) from
+`vite-hub/channels`, which sends messages and does not start an Agent.
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'
@@ -143,17 +160,51 @@ export default defineAgent({
 })
 ```
 
-`defineChannelTrigger()` infers `event` from any [Standard Schema](https://standardschema.dev/) implementation. ViteHub validates and applies schema transforms before `invoke()`. Webhook authentication runs first, and invalid webhook input receives a generic `400 invalid_payload` response without exposing schema details.
+`defineChannelTrigger()` infers the type of `event` from any
+[Standard Schema](https://standardschema.dev/). ViteHub validates the input and
+applies schema transforms before `invoke()` runs. For a webhook, ViteHub checks
+the signature first. Invalid webhook input gets a generic
+`400 invalid_payload` response that does not show schema details.
 
-The Trigger translates the validated event and attaches trusted context. Keep model selection, tools, and execution behavior in the Agent Definition.
+The Trigger translates the validated event and attaches trusted context. Keep
+the model, tools, and execution behavior in the Agent Definition.
 
-## Choose how to call the Agent
+When the Channel declares message methods, also return `message`. This is JSON
+data that identifies the provider message. Hooks read it through
+`event.message`. See
+[Act on the Channel message in hooks](/docs/agents/channels#act-on-the-channel-message-in-hooks).
 
-| Situation | Use |
+### Verify webhook signatures
+
+Add `webhooks` to the Channel to receive the Trigger over HTTP. `secretHeader`
+names the header that carries the signature. `secretToken` supplies the shared
+secret. `signature` selects how ViteHub checks the header:
+
+| `signature` | Header format |
 | --- | --- |
-| A server route already owns validation and input | `runAgent()` or `streamAgent()` |
-| A Capability owns history, policy, or event preparation | `runAgentTrigger()` or `streamAgentTrigger()` |
-| A messaging provider delivers an event | A [Channel](/docs/agents/channels) and its Trigger |
-| A model delegates through a trusted application tool | A Capability tool backed by [`startAgentInvocation()`](/docs/agents/controlled-child-invocations) for control or [`runAgent()`](/docs/agents/invocations), handling its runtime-specific return value |
+| Not set | The header equals `secretToken`. |
+| `'github-sha256'` | `sha256=<hex HMAC-SHA256 of the raw body>` |
+| `'stripe-sha256'` | `t=<unix seconds>,v1=<hex HMAC-SHA256 of "<t>.<raw body>">`. Any matching `v1` passes, with at most 32 candidates per header. The maximum timestamp age is 300 integer seconds. Future timestamps pass the age check. |
+| `{ preset: 'stripe-sha256', toleranceSeconds }` | The same format with another maximum age in seconds. The tolerance must be finite and non-negative. With `0`, current-second and future timestamps pass. Older timestamps fail. |
+| `{ verify({ header, rawBody, request, secret }) }` | Your function returns `true` for a valid delivery. |
 
-Webhook adapters may retain ownership until delivery finishes. Configure Channel timeout, concurrency, and durable delivery there rather than adding webhook policy to the Driver.
+```ts [server/agents/support.ts]
+const ticketing = defineChannel('ticketing', {
+  messages: false,
+  triggers: { /* ... */ },
+  webhooks: {
+    path: '/api/ticketing/webhook',
+    secretHeader: 'Ticketing-Signature',
+    secretToken: () => process.env.TICKETING_WEBHOOK_SECRET,
+    signature: 'stripe-sha256',
+  },
+})
+```
+
+ViteHub compares signatures in constant time. A failed check returns `401`
+before the Trigger runs. `vitehub channels history` signs its requests for
+`'github-sha256'`, `'stripe-sha256'`, and the plain header check.
+
+A webhook adapter can keep ownership of a delivery until it finishes.
+Configure timeout, concurrency, and durable delivery on the Channel. Do not add
+webhook policy to the Driver.

@@ -190,7 +190,7 @@ Crabbox requires either `cwd` or `checkout` and targets Linux/POSIX Static SSH h
 
 Commands must remain owned by their Box session. ViteHub adds the reserved `VITEHUB_BOX_SESSION` environment marker to commands and reclaims marked processes on the SSH target when the session closes, including children adopted by supervisors. Commands cannot override this marker through the `env` option. Supervisors that launch replacement processes must preserve it.
 
-Processes that discard the marker, such as children started with `env -i`, can escape cleanup and remain outside the v1 concurrency guarantee. A process that only references the Box directory is not owned by that Box. This cleanup does not add process isolation.
+The marker is read from each process's environment at launch. A process that starts with the marker remains owned by that Box, even if it later changes its environment. A process started without the marker is not owned by that Box, even if it references the Box directory. This cleanup does not add process isolation.
 
 ## Security boundary
 
@@ -219,5 +219,7 @@ const launch = sshLaunch({
 ```
 
 The target must expose the same working-directory and credential paths, for example through a shared sidecar volume. Host keys are verified. Environment names come from the resolved provider launch context; values travel through SSH environment requests. An explicit `forwardEnvironment` narrows the list while retaining framework-required names. `serveSsh` accepts valid environment names from authenticated clients unless `acceptEnvironment` restricts them.
+
+The `vite-hub` distribution also exposes this module as `vite-hub/box/ssh`, and `vitehub box serve` and `vitehub box check` run the server and a Driver readiness check without a project config. See the [CLI reference](https://vitehub.dev/docs/development/cli#run-an-ssh-box-runner).
 
 This transport grants arbitrary command execution as the configured user. It is not a sandbox and does not synchronize Workspace files. Server shutdown closes connections and stops supervised process groups.

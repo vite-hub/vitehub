@@ -107,9 +107,9 @@ const sidebarIconMap: Record<string, string> = {
 };
 
 const sidebarSectionIconMap: Record<string, string> = {
-  "AI Resources": "i-ph-brain-light",
+  "AI resources": "i-ph-brain-light",
   "Development": "i-ph-wrench-light",
-  "Frameworks and Hosts": "i-ph-plug-light",
+  "Frameworks and hosts": "i-ph-plug-light",
   "Reference": "i-ph-book-bookmark-light",
 };
 

@@ -4,248 +4,251 @@ import { DatabaseSync } from 'node:sqlite'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { hydrateSnapshot } from '../src/server/github-inbox/snapshot-sync.ts'
 import { PullRequestInbox, normalizePullRequest } from '../src/server/github-inbox.ts'
 const repository = 'vite-hub/vitehub'
 const repo = { full_name: repository }
 const pr = (patch = {}) => ({ number: 7, state: 'open', user: { login: 'onmax' }, head: { sha: 'a', ref: 'fix' }, base: { sha: 'base', ref: 'main' }, updated_at: '2026-09-13T10:00:00Z', ...patch })
 const comment = (id = 1, body = 'Please repair this') => ({ id, body, user: { login: 'human', type: 'User' } })
 function memory(t: { onTestFinished: (fn: () => void) => void }) { const inbox = new PullRequestInbox({path: ':memory:', repositories: [repository], activityAuthors: ['vitehub-bot[bot]']}); t.onTestFinished(() => inbox.close()); return inbox }
-function post(inbox: PullRequestInbox, id: string, event: string, payload: object) { return inbox.ingest(id, event, { repository: repo, ...payload }) }
+async function post(inbox: PullRequestInbox, id: string, event: string, payload: object) { return await inbox.ingest(id, event, { repository: repo, ...payload }) }
 
-test('GraphQL bootstrap normalizes state, author and head into a claimable snapshot', t => {
+test('GraphQL bootstrap normalizes state, author and head into a claimable snapshot', async t => {
   const inbox = memory(t)
-  inbox.seed(repository, { number: 7, state: 'OPEN', author: { login: 'onmax' }, headRefOid: 'a', headRefName: 'fix', baseRefName: 'main', updatedAt: '2026-09-13T10:00:00Z' })
-  const [claim] = inbox.claim(1)
+  await inbox.seed(repository, { number: 7, state: 'OPEN', author: { login: 'onmax' }, headRefOid: 'a', headRefName: 'fix', baseRefName: 'main', updatedAt: '2026-09-13T10:00:00Z' })
+  const [claim] = await inbox.claim(1)
   assert.equal(claim?.snapshot.pr?.head?.sha, 'a')
   assert.equal(claim?.snapshot.pr?.state, 'open')
 })
-test('delivery dedupe and three comments coalesce into one claim', t => {
-  const inbox = memory(t); inbox.seed(repository, pr())
-  for (let n = 1; n <= 3; n++) post(inbox, String(n), 'issue_comment', { action: 'created', issue: { number: 7, pull_request: {} }, comment: comment(n) })
-  const before = inbox.get(repository, 7)!
-  const duplicate = post(inbox, '1', 'issue_comment', { action: 'created', issue: { number: 7, pull_request: {} }, comment: comment(1) })
+test('delivery dedupe and three comments coalesce into one claim', async t => {
+  const inbox = memory(t); await inbox.seed(repository, pr())
+  for (let n = 1; n <= 3; n++) await post(inbox, String(n), 'issue_comment', { action: 'created', issue: { number: 7, pull_request: {} }, comment: comment(n) })
+  const before = (await inbox.get(repository, 7))!
+  const duplicate = await post(inbox, '1', 'issue_comment', { action: 'created', issue: { number: 7, pull_request: {} }, comment: comment(1) })
   assert.equal('duplicate' in duplicate && duplicate.duplicate, true)
-  assert.equal(inbox.get(repository, 7)!.generation, before.generation)
+  assert.equal((await inbox.get(repository, 7))!.generation, before.generation)
   assert.equal(Object.keys(before.comments).length, 3)
-  assert.equal(inbox.claim(6).length, 1); assert.equal(inbox.claim(6).length, 0)
+  assert.equal((await inbox.claim(6)).length, 1); assert.equal((await inbox.claim(6)).length, 0)
 })
-test('unknown PR comments survive until its PR metadata arrives', t => {
+test('unknown PR comments survive until its PR metadata arrives', async t => {
   const inbox = memory(t)
-  post(inbox, 'comment', 'issue_comment', { action: 'created', issue: { number: 7, pull_request: {} }, comment: comment() })
-  const [claim] = inbox.claim(1); assert.ok(claim); assert.equal(claim.snapshot.pr, null)
-  assert.ok(inbox.hydrate(claim, { pr: pr(), refresh: false }))
-  assert.equal(inbox.get(repository, 7)?.comments['1']?.body, 'Please repair this')
+  await post(inbox, 'comment', 'issue_comment', { action: 'created', issue: { number: 7, pull_request: {} }, comment: comment() })
+  const [claim] = await inbox.claim(1); assert.ok(claim); assert.equal(claim.snapshot.pr, null)
+  assert.ok(await inbox.hydrate(claim, { pr: pr(), refresh: false }))
+  assert.equal((await inbox.get(repository, 7))?.comments['1']?.body, 'Please repair this')
 })
-test('status and check events match local head even without pull_requests', t => {
-  const inbox = memory(t); inbox.seed(repository, pr())
-  assert.deepEqual(post(inbox, 'status', 'status', { sha: 'a', context: 'CI', state: 'failure' }).queued, [7])
-  assert.deepEqual(post(inbox, 'check', 'check_run', { action: 'completed', check_run: { id: 1, head_sha: 'a', conclusion: 'success' } }).queued, [7])
-  assert.equal(inbox.get(repository, 7)?.statuses.CI?.state, 'failure')
+test('status and check events match local head even without pull_requests', async t => {
+  const inbox = memory(t); await inbox.seed(repository, pr())
+  assert.deepEqual((await post(inbox, 'status', 'status', { sha: 'a', context: 'CI', state: 'failure' })).queued, [7])
+  assert.deepEqual((await post(inbox, 'check', 'check_run', { action: 'completed', check_run: { id: 1, head_sha: 'a', conclusion: 'success' } })).queued, [7])
+  assert.equal((await inbox.get(repository, 7))?.statuses.CI?.state, 'failure')
 })
-test('synchronize clears old-head checks and stale CI cannot dirty current head', t => {
-  const inbox = memory(t); inbox.seed(repository, pr())
-  post(inbox, 'check', 'check_run', { check_run: { id: 1, head_sha: 'a', conclusion: 'failure' } })
-  post(inbox, 'sync', 'pull_request', { action: 'synchronize', pull_request: pr({ head: { sha: 'b', ref: 'fix' }, updated_at: '2026-09-13T11:00:00Z' }) })
-  assert.equal(inbox.get(repository, 7)?.pr?.head?.sha, 'b'); assert.deepEqual(inbox.get(repository, 7)?.checks, {})
-  const generation = inbox.get(repository, 7)!.generation
-  assert.deepEqual(post(inbox, 'late', 'check_run', { check_run: { id: 1, head_sha: 'a', pull_requests: [{ number: 7 }] } }).queued, [])
-  assert.equal(inbox.get(repository, 7)!.generation, generation)
+test('synchronize clears old-head checks and stale CI cannot dirty current head', async t => {
+  const inbox = memory(t); await inbox.seed(repository, pr())
+  await post(inbox, 'check', 'check_run', { check_run: { id: 1, head_sha: 'a', conclusion: 'failure' } })
+  await post(inbox, 'sync', 'pull_request', { action: 'synchronize', pull_request: pr({ head: { sha: 'b', ref: 'fix' }, updated_at: '2026-09-13T11:00:00Z' }) })
+  assert.equal((await inbox.get(repository, 7))?.pr?.head?.sha, 'b'); assert.deepEqual((await inbox.get(repository, 7))?.checks, {})
+  const generation = (await inbox.get(repository, 7))!.generation
+  assert.deepEqual((await post(inbox, 'late', 'check_run', { check_run: { id: 1, head_sha: 'a', pull_requests: [{ number: 7 }] } })).queued, [])
+  assert.equal((await inbox.get(repository, 7))!.generation, generation)
 })
-test('new event during claim is preserved when old pass finishes', t => {
-  const inbox = memory(t); inbox.seed(repository, pr()); const [claim] = inbox.claim(1); assert.ok(claim)
-  post(inbox, 'new', 'issue_comment', { action: 'created', issue: { number: 7, pull_request: {} }, comment: comment() })
-  assert.equal(inbox.hydrate(claim, { comments: {} }), false)
-  inbox.finish(claim, { text: 'done' }); assert.equal(inbox.claim(1).length, 1)
+test('new event during claim is preserved when old pass finishes', async t => {
+  const inbox = memory(t); await inbox.seed(repository, pr()); const [claim] = await inbox.claim(1); assert.ok(claim)
+  await post(inbox, 'new', 'issue_comment', { action: 'created', issue: { number: 7, pull_request: {} }, comment: comment() })
+  assert.equal(await inbox.hydrate(claim, { comments: {} }), false)
+  await inbox.finish(claim, { text: 'done' }); assert.equal((await inbox.claim(1)).length, 1)
 })
-test('close then reopen during active claim is not lost by stale terminal result', t => {
-  const inbox = memory(t); inbox.seed(repository, pr()); const [claim] = inbox.claim(1); assert.ok(claim)
-  post(inbox, 'close', 'pull_request', { action: 'closed', pull_request: pr({ state: 'closed', updated_at: '2026-09-13T11:00:00Z' }) })
-  post(inbox, 'reopen', 'pull_request', { action: 'reopened', pull_request: pr({ updated_at: '2026-09-13T12:00:00Z' }) })
-  inbox.finish(claim, { text: 'stale close', terminal: true }); assert.equal(inbox.claim(1).length, 1)
+test('close then reopen during active claim is not lost by stale terminal result', async t => {
+  const inbox = memory(t); await inbox.seed(repository, pr()); const [claim] = await inbox.claim(1); assert.ok(claim)
+  await post(inbox, 'close', 'pull_request', { action: 'closed', pull_request: pr({ state: 'closed', updated_at: '2026-09-13T11:00:00Z' }) })
+  await post(inbox, 'reopen', 'pull_request', { action: 'reopened', pull_request: pr({ updated_at: '2026-09-13T12:00:00Z' }) })
+  await inbox.finish(claim, { text: 'stale close', terminal: true }); assert.equal((await inbox.claim(1)).length, 1)
 })
-test('comment deletion updates projection even if GitHub sends identical body', t => {
-  const inbox = memory(t); inbox.seed(repository, pr())
-  post(inbox, 'add', 'issue_comment', { action: 'created', issue: { number: 7, pull_request: {} }, comment: comment() })
-  post(inbox, 'del', 'issue_comment', { action: 'deleted', issue: { number: 7, pull_request: {} }, comment: comment() })
-  assert.equal(inbox.get(repository, 7)?.comments['1']?.deleted, true)
+test('comment deletion updates projection even if GitHub sends identical body', async t => {
+  const inbox = memory(t); await inbox.seed(repository, pr())
+  await post(inbox, 'add', 'issue_comment', { action: 'created', issue: { number: 7, pull_request: {} }, comment: comment() })
+  await post(inbox, 'del', 'issue_comment', { action: 'deleted', issue: { number: 7, pull_request: {} }, comment: comment() })
+  assert.equal((await inbox.get(repository, 7))?.comments['1']?.deleted, true)
 })
-test('stale bootstrap cannot reopen terminal PR', t => {
-  const inbox = memory(t); inbox.seed(repository, pr({ state: 'closed', updated_at: '2026-09-13T12:00:00Z' }))
-  inbox.seed(repository, pr()); assert.equal(inbox.claim(1).length, 0)
+test('stale bootstrap cannot reopen terminal PR', async t => {
+  const inbox = memory(t); await inbox.seed(repository, pr({ state: 'closed', updated_at: '2026-09-13T12:00:00Z' }))
+  await inbox.seed(repository, pr()); assert.equal((await inbox.claim(1)).length, 0)
 })
-test('own activity and issue comments do not wake PR agents; AI review does', t => {
-  const inbox = memory(t); inbox.seed(repository, pr()); const [claim] = inbox.claim(1); assert.ok(claim); inbox.finish(claim, { text: 'wait' })
-  post(inbox, 'own', 'issue_comment', { issue: { number: 7, pull_request: {} }, comment: { ...comment(), body: '<!-- vitehub-agent-activity: --> Working', user: { login: 'vitehub-bot[bot]', type: 'Bot' } } })
-  post(inbox, 'issue', 'issue_comment', { issue: { number: 7 }, comment: comment() })
-  assert.equal(inbox.claim(1).length, 0)
-  post(inbox, 'ai', 'pull_request_review', { pull_request: pr(), review: { ...comment(), user: { login: 'pullfrog[bot]', type: 'Bot' } } })
-  assert.equal(inbox.claim(1).length, 1)
+test('own activity and issue comments do not wake PR agents; AI review does', async t => {
+  const inbox = memory(t); await inbox.seed(repository, pr()); const [claim] = await inbox.claim(1); assert.ok(claim); await inbox.finish(claim, { text: 'wait' })
+  await post(inbox, 'own', 'issue_comment', { issue: { number: 7, pull_request: {} }, comment: { ...comment(), body: '<!-- vitehub-agent-activity: --> Working', user: { login: 'vitehub-bot[bot]', type: 'Bot' } } })
+  await post(inbox, 'issue', 'issue_comment', { issue: { number: 7 }, comment: comment() })
+  assert.equal((await inbox.claim(1)).length, 0)
+  await post(inbox, 'ai', 'pull_request_review', { pull_request: pr(), review: { ...comment(), user: { login: 'pullfrog[bot]', type: 'Bot' } } })
+  assert.equal((await inbox.claim(1)).length, 1)
 })
-test('trusted repair comments remain feedback without revoking the claim or waking completed work', t => {
-  const inbox = memory(t); inbox.seed(repository, pr()); const [claim] = inbox.claim(1); assert.ok(claim)
+test('trusted repair comments remain feedback without revoking the claim or waking completed work', async t => {
+  const inbox = memory(t); await inbox.seed(repository, pr()); const [claim] = await inbox.claim(1); assert.ok(claim)
   const repair = { ...comment(), body: '<!-- vitehub-babysitter-repair:7 --> Repaired the failure', user: { login: 'vitehub-bot[bot]', type: 'Bot' } }
-  assert.deepEqual(post(inbox, 'repair', 'issue_comment', { action: 'created', issue: { number: 7, pull_request: {} }, comment: repair }).queued, [])
-  assert.equal(inbox.get(repository, 7)?.comments['1']?.body, repair.body)
-  assert.equal(inbox.get(repository, 7)?.generation, claim.generation)
-  assert.ok(inbox.renew(claim, Date.now() + 60_000))
-  inbox.finish(claim, { text: 'wait' })
-  post(inbox, 'late-repair', 'issue_comment', { action: 'created', issue: { number: 7, pull_request: {} }, comment: { ...repair, id: 2 } })
-  assert.equal(inbox.claim(1).length, 0)
-  post(inbox, 'untrusted-repair', 'issue_comment', { action: 'created', issue: { number: 7, pull_request: {} }, comment: { ...repair, id: 3, user: { login: 'other', type: 'User' } } })
-  assert.equal(inbox.claim(1).length, 1)
+  assert.deepEqual((await post(inbox, 'repair', 'issue_comment', { action: 'created', issue: { number: 7, pull_request: {} }, comment: repair })).queued, [])
+  assert.equal((await inbox.get(repository, 7))?.comments['1']?.body, repair.body)
+  assert.equal((await inbox.get(repository, 7))?.generation, claim.generation)
+  assert.ok(await inbox.renew(claim, Date.now() + 60_000))
+  await inbox.finish(claim, { text: 'wait' })
+  await post(inbox, 'late-repair', 'issue_comment', { action: 'created', issue: { number: 7, pull_request: {} }, comment: { ...repair, id: 2 } })
+  assert.equal((await inbox.claim(1)).length, 0)
+  await post(inbox, 'untrusted-repair', 'issue_comment', { action: 'created', issue: { number: 7, pull_request: {} }, comment: { ...repair, id: 3, user: { login: 'other', type: 'User' } } })
+  assert.equal((await inbox.claim(1)).length, 1)
 })
-test('released claim is immediately reusable without handling the generation', t => {
-  const inbox = memory(t); inbox.seed(repository, pr()); const [claim] = inbox.claim(1); assert.ok(claim)
-  assert.ok(inbox.release(claim)); const [next] = inbox.claim(1); assert.ok(next)
+test('released claim is immediately reusable without handling the generation', async t => {
+  const inbox = memory(t); await inbox.seed(repository, pr()); const [claim] = await inbox.claim(1); assert.ok(claim)
+  assert.ok(await inbox.release(claim)); const [next] = await inbox.claim(1); assert.ok(next)
   assert.equal(next.generation, claim.generation); assert.notEqual(next.token, claim.token)
 })
-test('snapshot and delivery dedupe persist over restart; abandoned lease recovers', () => {
+test('snapshot and delivery dedupe persist over restart; abandoned lease recovers', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'inbox-test-')); const path = join(dir, 'state.sqlite')
   try {
-    const first = new PullRequestInbox({path, repositories: [repository], clock: () => 0}); post(first, 'open', 'pull_request', { action: 'opened', pull_request: pr() }); assert.equal(first.claim(1).length, 1); first.close()
-    const second = new PullRequestInbox({path, repositories: [repository], clock: () => 3 * 60 * 60_000}); second.recoverLeases()
-    assert.equal(second.claim(1).length, 1); const result = post(second, 'open', 'pull_request', { action: 'opened', pull_request: pr() }); assert.equal('duplicate' in result && result.duplicate, true); second.close()
+    const first = new PullRequestInbox({path, repositories: [repository], clock: () => 0}); await post(first, 'open', 'pull_request', { action: 'opened', pull_request: pr() }); assert.equal((await first.claim(1)).length, 1); await first.close()
+    const second = new PullRequestInbox({path, repositories: [repository], clock: () => 3 * 60 * 60_000}); await second.recoverLeases()
+    assert.equal((await second.claim(1)).length, 1); const result = await post(second, 'open', 'pull_request', { action: 'opened', pull_request: pr() }); assert.equal('duplicate' in result && result.duplicate, true); await second.close()
   } finally { rmSync(dir, { recursive: true, force: true }) }
 })
 
-test('thread resolution webhook persists explicit state and links feedback comments', t => {
-  const inbox = memory(t); inbox.seed(repository, pr())
-  const result = post(inbox, 'resolved', 'pull_request_review_thread', { action: 'resolved', pull_request: pr(), thread: { node_id: 'PRRT_1', comments: [comment()] } })
+test('thread resolution webhook persists explicit state and links feedback comments', async t => {
+  const inbox = memory(t); await inbox.seed(repository, pr())
+  const result = await post(inbox, 'resolved', 'pull_request_review_thread', { action: 'resolved', pull_request: pr(), thread: { node_id: 'PRRT_1', comments: [comment()] } })
   assert.deepEqual(result.queued, [7])
-  assert.equal(inbox.get(repository, 7)?.threads[0]?.id, 'PRRT_1')
-  assert.equal(inbox.get(repository, 7)?.threads[0]?.isResolved, true)
-  assert.equal(inbox.get(repository, 7)?.threads[0]?.resolutionSource, 'webhook')
-  assert.equal(inbox.get(repository, 7)?.reviewComments['1']?.body, 'Please repair this')
-  post(inbox, 'unresolved', 'pull_request_review_thread', { action: 'unresolved', pull_request: pr(), thread: { node_id: 'PRRT_1', comments: [comment()] } })
-  assert.equal(inbox.get(repository, 7)?.threads.length, 1)
-  assert.equal(inbox.get(repository, 7)?.threads[0]?.isResolved, false)
+  assert.equal((await inbox.get(repository, 7))?.threads[0]?.id, 'PRRT_1')
+  assert.equal((await inbox.get(repository, 7))?.threads[0]?.isResolved, true)
+  assert.equal((await inbox.get(repository, 7))?.threads[0]?.resolutionSource, 'webhook')
+  assert.equal((await inbox.get(repository, 7))?.reviewComments['1']?.body, 'Please repair this')
+  await post(inbox, 'unresolved', 'pull_request_review_thread', { action: 'unresolved', pull_request: pr(), thread: { node_id: 'PRRT_1', comments: [comment()] } })
+  assert.equal((await inbox.get(repository, 7))?.threads.length, 1)
+  assert.equal((await inbox.get(repository, 7))?.threads[0]?.isResolved, false)
 })
-test('unknown historical comments remain unknown when another thread is resolved', t => {
-  const inbox = memory(t); inbox.seed(repository, pr())
-  post(inbox, 'unknown-comment', 'pull_request_review_comment', { action: 'created', pull_request: pr(), comment: comment(2) })
-  post(inbox, 'resolved', 'pull_request_review_thread', { action: 'resolved', pull_request: pr(), thread: { node_id: 'PRRT_1', comments: [comment(1)] } })
-  const snapshot = inbox.get(repository, 7)!
+test('unknown historical comments remain unknown when another thread is resolved', async t => {
+  const inbox = memory(t); await inbox.seed(repository, pr())
+  await post(inbox, 'unknown-comment', 'pull_request_review_comment', { action: 'created', pull_request: pr(), comment: comment(2) })
+  await post(inbox, 'resolved', 'pull_request_review_thread', { action: 'resolved', pull_request: pr(), thread: { node_id: 'PRRT_1', comments: [comment(1)] } })
+  const snapshot = (await inbox.get(repository, 7))!
   assert.equal(snapshot.reviewComments['2']?.id, 2)
   assert.equal(snapshot.reviewComments['2']?.isResolved, undefined)
   assert.equal(snapshot.threads.some(thread => Array.isArray(thread.comments) && thread.comments.some(item => item.id === 2)), false)
 })
-test('equivalent thread delivery does not wake waiting agent again', t => {
-  const inbox = memory(t); inbox.seed(repository, pr())
+test('equivalent thread delivery does not wake waiting agent again', async t => {
+  const inbox = memory(t); await inbox.seed(repository, pr())
   const payload = { action: 'resolved', pull_request: pr(), thread: { node_id: 'PRRT_1', comments: [comment()] } }
-  post(inbox, 'resolved-1', 'pull_request_review_thread', payload)
-  const [claim] = inbox.claim(1); assert.ok(claim); inbox.finish(claim, { text: 'wait' })
-  const generation = inbox.get(repository, 7)!.generation
-  assert.deepEqual(post(inbox, 'resolved-2', 'pull_request_review_thread', payload).queued, [])
-  assert.equal(inbox.get(repository, 7)!.generation, generation); assert.equal(inbox.claim(1).length, 0)
+  await post(inbox, 'resolved-1', 'pull_request_review_thread', payload)
+  const [claim] = await inbox.claim(1); assert.ok(claim); await inbox.finish(claim, { text: 'wait' })
+  const generation = (await inbox.get(repository, 7))!.generation
+  assert.deepEqual((await post(inbox, 'resolved-2', 'pull_request_review_thread', payload)).queued, [])
+  assert.equal((await inbox.get(repository, 7))!.generation, generation); assert.equal((await inbox.claim(1)).length, 0)
 })
-test('thread webhook merges GraphQL baseline comments and rejects stale comment body', t => {
-  const inbox = memory(t); inbox.seed(repository, pr())
-  const [claim] = inbox.claim(1); assert.ok(claim)
-  inbox.hydrate(claim, { threads: [{ id: 'PRRT_1', isResolved: false, comments: { nodes: [{ id: 'PRRC_1', body: 'new', updatedAt: '2026-09-13T12:00:00Z' }] } }] })
-  post(inbox, 'resolved', 'pull_request_review_thread', { action: 'resolved', pull_request: pr(), thread: { node_id: 'PRRT_1', comments: [{ ...comment(), node_id: 'PRRC_1', body: 'old', updated_at: '2026-09-13T11:00:00Z' }] } })
-  const thread = inbox.get(repository, 7)!.threads[0]!
+test('thread webhook merges GraphQL baseline comments and rejects stale comment body', async t => {
+  const inbox = memory(t); await inbox.seed(repository, pr())
+  const [claim] = await inbox.claim(1); assert.ok(claim)
+  await inbox.hydrate(claim, { threads: [{ id: 'PRRT_1', isResolved: false, comments: { nodes: [{ id: 'PRRC_1', body: 'new', updatedAt: '2026-09-13T12:00:00Z' }] } }] })
+  await post(inbox, 'resolved', 'pull_request_review_thread', { action: 'resolved', pull_request: pr(), thread: { node_id: 'PRRT_1', comments: [{ ...comment(), node_id: 'PRRC_1', body: 'old', updated_at: '2026-09-13T11:00:00Z' }] } })
+  const thread = (await inbox.get(repository, 7))!.threads[0]!
   assert.equal(thread.isResolved, true); assert.ok(Array.isArray(thread.comments)); assert.equal(thread.comments.length, 1); assert.equal(thread.comments[0]!.body, 'new')
 })
 
-test('queued and running CI persist without waking, failure and final green wake', t => {
-  const inbox = memory(t); inbox.seed(repository, pr())
-  inbox.finish(inbox.claim(1)[0]!, { text: 'Waiting for CI' })
-  const generation = inbox.get(repository, 7)!.generation
+test('queued and running CI persist without waking, failure and final green wake', async t => {
+  const inbox = memory(t); await inbox.seed(repository, pr())
+  await inbox.finish((await inbox.claim(1))[0]!, { text: 'Waiting for CI' })
+  const generation = (await inbox.get(repository, 7))!.generation
   for (const status of ['queued', 'in_progress']) {
-    assert.deepEqual(post(inbox, status, 'check_run', { action: status === 'queued' ? 'created' : 'in_progress', check_run: { id: 1, head_sha: 'a', status, conclusion: null } }).queued, [])
-    assert.equal(inbox.get(repository, 7)?.checks['check_run:1']?.status, status)
-    assert.equal(inbox.get(repository, 7)!.generation, generation); assert.equal(inbox.claim(1).length, 0)
+    assert.deepEqual((await post(inbox, status, 'check_run', { action: status === 'queued' ? 'created' : 'in_progress', check_run: { id: 1, head_sha: 'a', status, conclusion: null } })).queued, [])
+    assert.equal((await inbox.get(repository, 7))?.checks['check_run:1']?.status, status)
+    assert.equal((await inbox.get(repository, 7))!.generation, generation); assert.equal((await inbox.claim(1)).length, 0)
   }
-  assert.deepEqual(post(inbox, 'failure', 'check_run', { action: 'completed', check_run: { id: 1, head_sha: 'a', status: 'completed', conclusion: 'failure' } }).queued, [7])
-  inbox.finish(inbox.claim(1)[0]!, { text: 'Repair pushed' })
-  assert.deepEqual(post(inbox, 'green', 'check_run', { action: 'completed', check_run: { id: 1, head_sha: 'a', status: 'completed', conclusion: 'success' } }).queued, [7])
-  assert.equal(inbox.claim(1).length, 1)
+  assert.deepEqual((await post(inbox, 'failure', 'check_run', { action: 'completed', check_run: { id: 1, head_sha: 'a', status: 'completed', conclusion: 'failure' } })).queued, [7])
+  await inbox.finish((await inbox.claim(1))[0]!, { text: 'Repair pushed' })
+  assert.deepEqual((await post(inbox, 'green', 'check_run', { action: 'completed', check_run: { id: 1, head_sha: 'a', status: 'completed', conclusion: 'success' } })).queued, [7])
+  assert.equal((await inbox.claim(1)).length, 1)
 })
-test('pending status does not wake but invalidates in-flight stale hydration', t => {
-  const inbox = memory(t); inbox.seed(repository, pr()); const claim = inbox.claim(1)[0]!
-  post(inbox, 'pending-status', 'status', { sha: 'a', context: 'deploy', state: 'pending' })
-  assert.equal(inbox.get(repository, 7)!.generation, claim.generation)
-  assert.equal(inbox.hydrate(claim, { statuses: {} }), false)
-  assert.equal(inbox.get(repository, 7)?.statuses.deploy?.state, 'pending')
-  inbox.finish(claim, { text: 'wait' }); assert.equal(inbox.claim(1).length, 0)
+test('pending status does not wake but invalidates in-flight stale hydration', async t => {
+  const inbox = memory(t); await inbox.seed(repository, pr()); const claim = (await inbox.claim(1))[0]!
+  await post(inbox, 'pending-status', 'status', { sha: 'a', context: 'deploy', state: 'pending' })
+  assert.equal((await inbox.get(repository, 7))!.generation, claim.generation)
+  assert.equal(await inbox.hydrate(claim, { statuses: {} }), false)
+  assert.equal((await inbox.get(repository, 7))?.statuses.deploy?.state, 'pending')
+  assert.equal(await inbox.finish(claim, { text: 'wait', wait: { reason: 'checks', evidenceKey: 'pending' } }), true)
+  assert.equal((await inbox.get(repository, 7))?.wait?.headSha, 'a')
+  assert.equal((await inbox.claim(1)).length, 0)
 })
-test('thread reconcile preserves concurrent webhook and only wakes on changed evidence', t => {
-  const inbox = memory(t); inbox.seed(repository, pr()); inbox.finish(inbox.claim(1)[0]!, { text: 'wait' })
+test('thread reconcile preserves concurrent webhook and only wakes on changed evidence', async t => {
+  const inbox = memory(t); await inbox.seed(repository, pr()); await inbox.finish((await inbox.claim(1))[0]!, { text: 'wait' })
   const thread = { id: 'PRRT_1', isResolved: true, comments: [] }
-  assert.equal(inbox.refreshThreads(inbox.get(repository, 7)!, [thread]), true)
-  inbox.finish(inbox.claim(1)[0]!, { text: 'read' })
-  assert.equal(inbox.refreshThreads(inbox.get(repository, 7)!, [thread]), true); assert.equal(inbox.claim(1).length, 0)
-  const observed = inbox.get(repository, 7)!
-  post(inbox, 'unresolved-thread', 'pull_request_review_thread', { action: 'unresolved', pull_request: pr(), thread: { node_id: 'PRRT_1', comments: [] } })
-  assert.equal(inbox.refreshThreads(observed, [thread]), false)
-  assert.equal(inbox.get(repository, 7)?.threads[0]?.isResolved, false)
+  assert.equal(await inbox.refreshThreads((await inbox.get(repository, 7))!, [thread]), true)
+  await inbox.finish((await inbox.claim(1))[0]!, { text: 'read' })
+  assert.equal(await inbox.refreshThreads((await inbox.get(repository, 7))!, [thread]), true); assert.equal((await inbox.claim(1)).length, 0)
+  const observed = (await inbox.get(repository, 7))!
+  await post(inbox, 'unresolved-thread', 'pull_request_review_thread', { action: 'unresolved', pull_request: pr(), thread: { node_id: 'PRRT_1', comments: [] } })
+  assert.equal(await inbox.refreshThreads(observed, [thread]), false)
+  assert.equal((await inbox.get(repository, 7))?.threads[0]?.isResolved, false)
 })
 
-test('unknown reviewer bot retains full review and inline body while own issue activity stays ignored', t => {
-  const inbox = memory(t); inbox.seed(repository, pr())
+test('unknown reviewer bot retains full review and inline body while own issue activity stays ignored', async t => {
+  const inbox = memory(t); await inbox.seed(repository, pr())
   const user = { login: 'new-reviewer-service[bot]', type: 'Bot' }
-  post(inbox, 'unknown-review', 'pull_request_review', { action: 'submitted', pull_request: pr(), review: { id: 9, user, body: 'Full future reviewer body', state: 'CHANGES_REQUESTED' } })
-  post(inbox, 'unknown-inline', 'pull_request_review_comment', { action: 'created', pull_request: pr(), comment: { id: 10, node_id: 'inline-node', user, body: 'Full future inline body' } })
-  post(inbox, 'unknown-thread', 'pull_request_review_thread', { action: 'unresolved', pull_request: pr(), thread: { node_id: 'thread-node', comments: [{ id: 11, node_id: 'thread-inline-node', user, body: 'Full thread-delivered body' }] } })
-  assert.equal(inbox.get(repository, 7)?.reviews['9']?.body, 'Full future reviewer body')
-  assert.equal(inbox.get(repository, 7)?.reviewComments['10']?.body, 'Full future inline body')
-  assert.equal(inbox.get(repository, 7)?.reviewComments['11']?.body, 'Full thread-delivered body')
-  inbox.finish(inbox.claim(1)[0]!, { text: 'handled' })
-  post(inbox, 'own-activity', 'issue_comment', { action: 'created', issue: { number: 7, pull_request: {} }, comment: { id: 12, user: { login: 'vitehub-bot[bot]', type: 'Bot' }, body: '<!-- vitehub-agent-activity: --> Working' } })
-  assert.equal(inbox.claim(1).length, 0)
+  await post(inbox, 'unknown-review', 'pull_request_review', { action: 'submitted', pull_request: pr(), review: { id: 9, user, body: 'Full future reviewer body', state: 'CHANGES_REQUESTED' } })
+  await post(inbox, 'unknown-inline', 'pull_request_review_comment', { action: 'created', pull_request: pr(), comment: { id: 10, node_id: 'inline-node', user, body: 'Full future inline body' } })
+  await post(inbox, 'unknown-thread', 'pull_request_review_thread', { action: 'unresolved', pull_request: pr(), thread: { node_id: 'thread-node', comments: [{ id: 11, node_id: 'thread-inline-node', user, body: 'Full thread-delivered body' }] } })
+  assert.equal((await inbox.get(repository, 7))?.reviews['9']?.body, 'Full future reviewer body')
+  assert.equal((await inbox.get(repository, 7))?.reviewComments['10']?.body, 'Full future inline body')
+  assert.equal((await inbox.get(repository, 7))?.reviewComments['11']?.body, 'Full thread-delivered body')
+  await inbox.finish((await inbox.claim(1))[0]!, { text: 'handled' })
+  await post(inbox, 'own-activity', 'issue_comment', { action: 'created', issue: { number: 7, pull_request: {} }, comment: { id: 12, user: { login: 'vitehub-bot[bot]', type: 'Bot' }, body: '<!-- vitehub-agent-activity: --> Working' } })
+  assert.equal((await inbox.claim(1)).length, 0)
 })
 
-test('persistent filters apply to discovery, labels, and claims; event rules only gate admission', t => {
+test('persistent filters apply to discovery, labels, and claims; event rules only gate admission', async t => {
   const inbox = new PullRequestInbox({path: ':memory:', repositories: [repository], filter: {
     author: { allow: ['alice'] }, labels: { allow: ['repair'], deny: ['hold'] },
     actor: { allow: ['maintainer'] }, action: { allow: ['opened'] },
   }})
   t.onTestFinished(() => inbox.close())
-  inbox.seed(repository, pr({ user: { login: 'alice' }, labels: ['repair'] }))
-  const claim = inbox.claim(1)[0]!
+  await inbox.seed(repository, pr({ user: { login: 'alice' }, labels: ['repair'] }))
+  const claim = (await inbox.claim(1))[0]!
   assert.ok(claim)
   // Non-admission events still cancel work when eligibility changes.
-  post(inbox, 'label', 'pull_request', { action: 'labeled', sender: {login: 'someone'}, pull_request: pr({user: {login: 'alice'}, labels: ['repair', 'hold'], updated_at: '2026-09-13T11:00:00Z'}) })
-  assert.equal(inbox.get(repository, 7)?.status, 'terminal')
-  inbox.finish(claim, {text: 'stopped'})
-  assert.equal(inbox.claim(1).length, 0)
-  post(inbox, 'remove-label', 'pull_request', { action: 'unlabeled', pull_request: pr({user: {login: 'alice'}, labels: ['repair'], updated_at: '2026-09-13T12:00:00Z'}) })
-  assert.equal(inbox.claim(1).length, 1)
-  post(inbox, 'new', 'pull_request', {action: 'opened', sender: {login: 'someone'}, pull_request: pr({number: 8, user: {login: 'alice'}, labels: ['repair']})})
-  assert.equal(inbox.get(repository, 8), undefined)
+  await post(inbox, 'label', 'pull_request', { action: 'labeled', sender: {login: 'someone'}, pull_request: pr({user: {login: 'alice'}, labels: ['repair', 'hold'], updated_at: '2026-09-13T11:00:00Z'}) })
+  assert.equal((await inbox.get(repository, 7))?.status, 'terminal')
+  await inbox.finish(claim, {text: 'stopped'})
+  assert.equal((await inbox.claim(1)).length, 0)
+  await post(inbox, 'remove-label', 'pull_request', { action: 'unlabeled', pull_request: pr({user: {login: 'alice'}, labels: ['repair'], updated_at: '2026-09-13T12:00:00Z'}) })
+  assert.equal((await inbox.claim(1)).length, 1)
+  await post(inbox, 'new', 'pull_request', {action: 'opened', sender: {login: 'someone'}, pull_request: pr({number: 8, user: {login: 'alice'}, labels: ['repair']})})
+  assert.equal(await inbox.get(repository, 8), undefined)
 })
 
-test('another process cannot recover a live lease, and an expired owner cannot finish the replacement claim', t => {
+test('another process cannot recover a live lease, and an expired owner cannot finish the replacement claim', async t => {
   const dir = mkdtempSync(join(tmpdir(), 'github-inbox-'))
   let now = 0
   const path = join(dir, 'inbox.sqlite')
   const first = new PullRequestInbox({path, repositories: [repository], clock: () => now})
   const second = new PullRequestInbox({path, repositories: [repository], clock: () => now})
-  t.onTestFinished(() => {first.close(); second.close(); rmSync(dir, {recursive: true, force: true})})
-  first.seed(repository, pr())
-  const original = first.claim(1)[0]!
-  second.recoverLeases()
-  assert.equal(second.claim(1).length, 0)
+  t.onTestFinished(async () => {await first.close(); await second.close(); rmSync(dir, {recursive: true, force: true})})
+  await first.seed(repository, pr())
+  const original = (await first.claim(1))[0]!
+  await second.recoverLeases()
+  assert.equal((await second.claim(1)).length, 0)
   now = 3 * 60 * 60_000
-  second.recoverLeases()
-  const replacement = second.claim(1)[0]!
+  await second.recoverLeases()
+  const replacement = (await second.claim(1))[0]!
   assert.ok(replacement)
   assert.notEqual(replacement.token, original.token)
-  assert.equal(first.finish(original, {text: 'stale'}), false)
-  assert.equal(first.hydrate(original, {comments: {}}), false)
+  assert.equal(await first.finish(original, {text: 'stale'}), false)
+  assert.equal(await first.hydrate(original, {comments: {}}), false)
 })
 
-test('unknown bots and former hardcoded own bot names remain feedback without the activity marker', t => {
+test('unknown bots and former hardcoded own bot names remain feedback without the activity marker', async t => {
   const inbox = memory(t)
-  inbox.seed(repository, pr({user: {login: 'other-author'}}))
+  await inbox.seed(repository, pr({user: {login: 'other-author'}}))
   for (const [id, login] of ['new-bot[bot]', 'pkg-pr-new[bot]', 'vitehub-bot[bot]'].entries()) {
-    post(inbox, String(id), 'issue_comment', {action: 'created', issue: {number: 7, pull_request: {}}, comment: {id, user: {login, type: 'Bot'}, body: 'Please fix'}})
+    await post(inbox, String(id), 'issue_comment', {action: 'created', issue: {number: 7, pull_request: {}}, comment: {id, user: {login, type: 'Bot'}, body: 'Please fix'}})
   }
-  assert.equal(Object.keys(inbox.get(repository, 7)!.comments).length, 3)
+  assert.equal(Object.keys((await inbox.get(repository, 7))!.comments).length, 3)
 })
 
 
-test('operation snapshots preserve author association and all durable filter fields', t => {
+test('operation snapshots preserve author association and all durable filter fields', async t => {
   const inbox = new PullRequestInbox({path: ':memory:', repositories: [repository], filter: {
     repository: {allow: [repository]}, author: {allow: ['alice']}, authorAssociation: {allow: ['MEMBER']},
     labels: {allow: ['repair']}, draft: {allow: ['false']}, fork: {allow: ['true']},
@@ -255,67 +258,144 @@ test('operation snapshots preserve author association and all durable filter fie
   const value = normalizePullRequest({number: 7, state: 'OPEN', author: {login: 'alice', __typename: 'User'}, authorAssociation: 'MEMBER', labels: ['repair'], isDraft: false, headRefOid: 'a', headRefName: 'fix', baseRefName: 'main', headRepository: {nameWithOwner: 'alice/fork'}, title: 'Fix bug'})
   assert.equal(value.author_association, 'MEMBER')
   assert.equal(inbox.eligible(repository, value), true)
-  inbox.seed(repository, value)
-  assert.equal(inbox.claim(1).length, 1)
+  await inbox.seed(repository, value)
+  assert.equal((await inbox.claim(1)).length, 1)
 })
 
 
-test('review deliveries advance PR metadata when the synchronize delivery was missed', t => {
+test('review deliveries advance PR metadata when the synchronize delivery was missed', async t => {
   const inbox = memory(t)
-  inbox.seed(repository, pr())
-  const claim = inbox.claim(1)[0]!
-  inbox.hydrate(claim, {hydrated: true, refresh: false, checks: {old: {id: 1, head_sha: 'a'}}})
-  inbox.finish(claim, {text: 'waiting'})
-  post(inbox, 'new-head-review', 'pull_request_review', { action: 'submitted', pull_request: pr({head: {sha: 'b', ref: 'fix'}, updated_at: '2026-09-13T11:00:00Z'}), review: {id: 4, body: 'Fix on the new head', commit_id: 'b'} })
-  const next = inbox.claim(1)[0]!
+  await inbox.seed(repository, pr())
+  const claim = (await inbox.claim(1))[0]!
+  await inbox.hydrate(claim, {hydrated: true, refresh: false, checks: {old: {id: 1, head_sha: 'a'}}})
+  await inbox.finish(claim, {text: 'waiting'})
+  await post(inbox, 'new-head-review', 'pull_request_review', { action: 'submitted', pull_request: pr({head: {sha: 'b', ref: 'fix'}, updated_at: '2026-09-13T11:00:00Z'}), review: {id: 4, body: 'Fix on the new head', commit_id: 'b'} })
+  const next = (await inbox.claim(1))[0]!
   assert.equal(next.snapshot.pr?.head?.sha, 'b')
   assert.equal(next.snapshot.hydrated, false)
   assert.deepEqual(next.snapshot.checks, {})
-  post(inbox, 'late-old-review', 'pull_request_review', {action: 'submitted', pull_request: pr(), review: {id: 5, body: 'Historical', commit_id: 'a'}})
-  assert.equal(inbox.get(repository, 7)?.pr?.head?.sha, 'b')
+  await post(inbox, 'late-old-review', 'pull_request_review', {action: 'submitted', pull_request: pr(), review: {id: 5, body: 'Historical', commit_id: 'a'}})
+  assert.equal((await inbox.get(repository, 7))?.pr?.head?.sha, 'b')
 })
 
 
-test('timestamp-only PR evidence prevents stale hydration and late head regression without waking', t => {
+test('timestamp-only PR evidence prevents stale hydration and late head regression without waking', async t => {
   const inbox = memory(t)
-  inbox.seed(repository, pr())
-  const claim = inbox.claim(1)[0]!
-  post(inbox, 'fresh-time', 'pull_request', {action: 'edited', pull_request: pr({updated_at: '2026-09-13T12:00:00Z'})})
-  assert.equal(inbox.get(repository, 7)?.generation, claim.generation)
-  assert.equal(inbox.hydrate(claim, {pr: pr()}), false)
-  post(inbox, 'late-head', 'pull_request', {action: 'synchronize', pull_request: pr({head: {sha: 'old', ref: 'fix'}, updated_at: '2026-09-13T11:00:00Z'})})
-  assert.equal(inbox.get(repository, 7)?.pr?.head?.sha, 'a')
-  inbox.release(claim)
-  const fresh = inbox.claim(1)[0]!
-  assert.equal(inbox.hydrate(fresh, {pr: pr()}), false)
+  await inbox.seed(repository, pr())
+  const claim = (await inbox.claim(1))[0]!
+  await post(inbox, 'fresh-time', 'pull_request', {action: 'edited', pull_request: pr({updated_at: '2026-09-13T12:00:00Z'})})
+  assert.equal((await inbox.get(repository, 7))?.generation, claim.generation)
+  assert.equal(await inbox.hydrate(claim, {pr: pr()}), false)
+  await post(inbox, 'late-head', 'pull_request', {action: 'synchronize', pull_request: pr({head: {sha: 'old', ref: 'fix'}, updated_at: '2026-09-13T11:00:00Z'})})
+  assert.equal((await inbox.get(repository, 7))?.pr?.head?.sha, 'a')
+  await inbox.release(claim)
+  const fresh = (await inbox.claim(1))[0]!
+  assert.equal(await inbox.hydrate(fresh, {pr: pr()}), false)
 })
 
-test('timestamp-only comment evidence also invalidates hydration without another repair generation', t => {
+test('timestamp-only comment evidence also invalidates hydration without another repair generation', async t => {
   const inbox = memory(t)
-  inbox.seed(repository, pr())
+  await inbox.seed(repository, pr())
   const payload = {action: 'edited', issue: {number: 7, pull_request: {}}, comment: {...comment(), updated_at: '2026-09-13T10:00:00Z'}}
-  post(inbox, 'original-comment', 'issue_comment', payload)
-  const claim = inbox.claim(1)[0]!
-  post(inbox, 'fresh-comment', 'issue_comment', {...payload, comment: {...payload.comment, updated_at: '2026-09-13T11:00:00Z'}})
-  assert.equal(inbox.get(repository, 7)?.generation, claim.generation)
-  assert.equal(inbox.hydrate(claim, {comments: {'1': payload.comment}}), false)
+  await post(inbox, 'original-comment', 'issue_comment', payload)
+  const claim = (await inbox.claim(1))[0]!
+  await post(inbox, 'fresh-comment', 'issue_comment', {...payload, comment: {...payload.comment, updated_at: '2026-09-13T11:00:00Z'}})
+  assert.equal((await inbox.get(repository, 7))?.generation, claim.generation)
+  assert.equal(await inbox.hydrate(claim, {comments: {'1': payload.comment}}), false)
 })
 
-test('persisted status values are validated without coercion by both snapshot readers', t => {
+test('persisted status values are validated without coercion by both snapshot readers', async t => {
   const directory = mkdtempSync(join(tmpdir(), 'inbox-status-'))
   const path = join(directory, 'inbox.sqlite')
   const inbox = new PullRequestInbox({ path, repositories: [repository] })
   const db = new DatabaseSync(path)
-  t.onTestFinished(() => { db.close(); inbox.close(); rmSync(directory, { recursive: true, force: true }) })
-  inbox.seed(repository, pr())
-  const snapshot = inbox.get(repository, 7)!
-  const update = db.prepare('UPDATE pr_snapshots SET value=? WHERE repository=? AND number=?')
+  t.onTestFinished(async () => { db.close(); await inbox.close(); rmSync(directory, { recursive: true, force: true }) })
+  await inbox.seed(repository, pr())
+  const snapshot = (await inbox.get(repository, 7))!
+  const update = db.prepare('UPDATE vitehub_babysitter_pull_requests SET value=? WHERE repository=? AND number=?')
   for (const status of ['ready', 'working', 'waiting', 'terminal']) {
     update.run(JSON.stringify({ ...snapshot, status }), repository, 7)
-    assert.equal(inbox.get(repository, 7)?.status, status)
-    assert.equal(inbox.all()[0]?.status, status)
+    assert.equal((await inbox.get(repository, 7))?.status, status)
+    assert.equal((await inbox.all())[0]?.status, status)
     update.run(JSON.stringify({ ...snapshot, status: [status] }), repository, 7)
-    assert.throws(() => inbox.get(repository, 7), /Invalid inbox snapshot/)
-    assert.throws(() => inbox.all(), /Invalid inbox snapshot/)
+    await assert.rejects(async () => inbox.get(repository, 7), /Invalid inbox snapshot/)
+    await assert.rejects(async () => inbox.all(), /Invalid inbox snapshot/)
   }
+})
+
+
+test('an interrupted merge forces live hydration after expired lease recovery', async t => {
+  let now = 0
+  const inbox = new PullRequestInbox({ path: ':memory:', repositories: [repository], clock: () => now })
+  t.onTestFinished(() => inbox.close())
+  await inbox.seed(repository, pr())
+  const [claim] = await inbox.claim(1); assert.ok(claim)
+  await inbox.hydrate(claim, { hydrated: true, refresh: false })
+  await assert.rejects(inbox.merge(claim, async () => { throw new Error('response lost after merge') }, 'merged'))
+  now = 3 * 60 * 60_000
+  await inbox.recoverLeases()
+  const [recovered] = await inbox.claim(1); assert.ok(recovered)
+  assert.equal(recovered.snapshot.refresh, true)
+  assert.equal(recovered.snapshot.hydrated, false)
+  let retried = false
+  assert.equal(await inbox.merge(recovered, async () => { retried = true; return true }, 'again'), false)
+  assert.equal(retried, false)
+  const paths: string[] = []
+  assert.equal(await hydrateSnapshot(inbox, recovered, async path => {
+    paths.push(path)
+    return [pr({ state: 'closed' })]
+  }), true)
+  assert.deepEqual(paths, ["repos/" + repository + "/pulls/7"])
+  assert.equal((await inbox.get(repository, 7))?.mergeIntent, undefined)
+  assert.equal((await inbox.get(repository, 7))?.status, 'terminal')
+})
+
+test('an inconclusive open read keeps an interrupted merge fenced', async t => {
+  let now = 0
+  const inbox = new PullRequestInbox({ path: ':memory:', repositories: [repository], clock: () => now })
+  t.onTestFinished(() => inbox.close())
+  await inbox.seed(repository, pr())
+  const [claim] = await inbox.claim(1); assert.ok(claim)
+  await assert.rejects(inbox.merge(claim, async () => { throw new Error('response lost after merge') }, 'merged'))
+  now = 3 * 60 * 60_000
+  await inbox.recoverLeases()
+  const [recovered] = await inbox.claim(1); assert.ok(recovered)
+  assert.equal(await inbox.hydrate(recovered, { pr: pr({ updated_at: '2026-09-13T11:00:00Z' }), refresh: false }), true)
+  assert.ok((await inbox.get(repository, 7))?.mergeIntent)
+  await inbox.release(recovered)
+  assert.equal(await inbox.hasPersistedMergeIntent(repository, 7), true)
+  let retried = false
+  assert.equal(await inbox.merge((await inbox.claim(1))[0], async () => { retried = true; return true }, 'again'), false)
+  assert.equal(retried, false)
+})
+
+test('an outstanding merge intent fences a claim after newer evidence arrives', async t => {
+  const inbox = memory(t); await inbox.seed(repository, pr())
+  const [claim] = await inbox.claim(1); assert.ok(claim)
+  let releaseAction!: () => void
+  const merge = inbox.merge(claim, () => new Promise<boolean>(resolve => { releaseAction = () => resolve(true) }), 'merged')
+  while (!releaseAction) await new Promise(resolve => setImmediate(resolve))
+  await post(inbox, 'during-merge-fence', 'issue_comment', { action: 'created', issue: { number: 7, pull_request: {} }, comment: comment() })
+  assert.equal(await inbox.hasMergeIntent(claim), true)
+  releaseAction()
+  await merge
+})
+
+test('merge finalization preserves feedback delivered during the GitHub request', async t => {
+  const inbox = memory(t); await inbox.seed(repository, pr())
+  const [claim] = await inbox.claim(1); assert.ok(claim)
+  assert.equal(await inbox.merge(claim, async () => {
+    await post(inbox, 'during-merge', 'issue_comment', { action: 'created', issue: { number: 7, pull_request: {} }, comment: comment() })
+    return true
+  }, 'merged'), true)
+  const snapshot = (await inbox.get(repository, 7))!
+  assert.equal(snapshot.status, 'ready')
+  assert.equal(snapshot.handled, claim.generation)
+  assert.ok(snapshot.generation > snapshot.handled)
+  assert.equal(snapshot.comments['1']?.body, 'Please repair this')
+  assert.equal(snapshot.refresh, true)
+  const [next] = await inbox.claim(1); assert.ok(next)
+  assert.equal(await hydrateSnapshot(inbox, next, async () => [pr({ state: 'closed' })]), true)
+  assert.equal((await inbox.get(repository, 7))?.status, 'terminal')
+  assert.equal((await inbox.get(repository, 7))?.comments['1']?.body, 'Please repair this')
 })

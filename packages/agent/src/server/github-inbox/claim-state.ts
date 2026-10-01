@@ -37,18 +37,18 @@ export function claimStopReason(claim: Claim, current: Snapshot | undefined, acc
 /** A new remote head may be our repair; prove it against the actual provider Git HEAD. */
 export function createClaimStopCheck(
   claim: Claim,
-  readCurrent: () => Snapshot | undefined,
+  readCurrent: () => Promise<Snapshot | undefined>,
   readProviderHead: () => Promise<string | undefined>,
 ): () => Promise<string | undefined> {
   let acceptedSelfHead: string | undefined
   return async (): Promise<string | undefined> => {
-    const reason = claimStopReason(claim, readCurrent(), acceptedSelfHead)
+    const reason = claimStopReason(claim, await readCurrent(), acceptedSelfHead)
     if (reason !== 'Pull request head changed.') return reason
     let providerHead: string | undefined
     try { providerHead = await readProviderHead() }
-    catch { return claimStopReason(claim, readCurrent(), acceptedSelfHead) }
+    catch { return claimStopReason(claim, await readCurrent(), acceptedSelfHead) }
     // A closed PR, lease loss, or another push may arrive during Git I/O.
-    const current = readCurrent()
+    const current = await readCurrent()
     const latestReason = claimStopReason(claim, current, acceptedSelfHead)
     if (latestReason !== 'Pull request head changed.') return latestReason
     if (!providerHead || current?.pr?.head?.sha !== providerHead) return latestReason

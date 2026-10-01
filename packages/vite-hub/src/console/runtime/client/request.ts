@@ -44,7 +44,7 @@ function consoleRpcCall(path: string): { agent?: string; id?: string; method: Co
       method: consoleRpcMethods.invocation,
     }
   }
-  const key = operation === "invocation-capabilities" ? "invocationCapabilities" : operation
+  const key = operation.replace(/-([a-z])/g, (_, letter: string) => letter.toUpperCase())
   const method = Object.entries(consoleRpcMethods).find(([name]) => name === key)?.[1]
   if (!method) throw new ConsoleRequestError(404, "Console operation not found.")
   return { method }
@@ -80,7 +80,7 @@ export async function requestConsole(
   if (options.body !== undefined) input.body = options.body
   // Each call is one complete request, so hosts can route consecutive calls to different instances.
   const response = await fetch(consoleRpcCallURL(path), {
-    body: JSON.stringify({ input, method: call.method }),
+    body: JSON.stringify({ method: call.method, input }),
     cache: "no-store",
     credentials: "same-origin",
     headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },

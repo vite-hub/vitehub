@@ -7,11 +7,9 @@ navigation.group: External context
 icon: i-lucide-send
 ---
 
-`fetch()` adds model-facing HTTP tools that the developer names and defines.
+`fetch()` gives the Agent one model-facing tool for each HTTP endpoint that you name and define.
 Use it for specific endpoints, not for unrestricted web browsing.
-
-The Capability creates one tool per entry in `tools`.
-Each tool can validate input, build a request, parse JSON or text, validate the response, and transform the output.
+It does not wrap a Server Primitive. Each tool calls the runtime `fetch` with the request that your tool definition builds.
 
 ## Configure HTTP requests
 
@@ -38,31 +36,50 @@ export default defineAgent({
 })
 ```
 
+The key in `tools` is the tool name that the Agent sees.
+
 ## How requests work
 
-ViteHub validates the configured tool map and creates internal Agent tools.
-At invocation time, each tool resolves the request, executes the HTTP call, parses the configured response type, and returns either the parsed data or a transformed output.
-Each request attempt times out after 30 seconds, and responses are limited to 5 MiB by default. Safe requests may retry once after a timeout. The size limit applies to decoded streamed bytes, so a missing or incorrect `Content-Length` cannot bypass it.
+ViteHub creates one Agent tool for each entry in `tools`.
+At invocation time, each tool:
+
+1. Validates the tool input with `inputSchema`, when set.
+2. Resolves the request from `url`, `method`, and `request`. A `request` function receives the validated input.
+3. Sends the request and parses the response as JSON or text.
+4. Validates the parsed data with `schema`, when set.
+5. Returns the data, or the result of `transform(data, input)`.
+
+Each request attempt times out after 30 seconds by default. Responses are limited to 5 MiB by default. The limit applies to decoded streamed bytes, so a missing or incorrect `Content-Length` cannot bypass it.
+`GET` and `HEAD` requests retry once after a timeout, a network error, or a `408`, `429`, or `5xx` response. `POST` requests do not retry.
+A response that is not `2xx` fails the tool call.
 
 ## Requirements
 
 `fetch({ tools })` requires at least one tool definition.
-Each tool must provide a URL directly or return one from its request resolver.
+Each tool must provide a URL directly or return one from its `request` resolver.
+Supported methods are `GET`, `HEAD`, and `POST`. Supported response types are `json` and `text`.
 
-Use schemas for input and response validation when the endpoint accepts arguments or returns data that model behavior depends on.
+## Security and approval
+
+The Agent can call only the endpoints that your tool definitions build. It cannot choose a different host unless your `request` function derives the URL from tool input.
+The Agent sees the tool name, `description`, and `inputSchema`. It does not see `headers`, `body`, or `query` values that you set in server code, so you can add credentials there.
+Use `inputSchema` when the endpoint accepts arguments, and `schema` when model behavior depends on the response shape.
+
+`fetch()` has no `policy` option. Calls run without an approval step. Use a [custom Capability](/docs/capabilities/custom-capabilities) with a tool `policy` when a request needs approval.
 
 ## Driver support
 
 | Agent Driver | Support |
 | --- | --- |
 | Model-backed | Receives the named fetch tools. |
-| Provider-backed | Receives the named fetch tools through the provider MCP bridge. |
-| Custom-run-backed | Receives prepared context; `driver.run` decides whether to call HTTP endpoints directly. |
+| Provider-backed | Receives the named fetch tools through the private MCP bridge. |
+| Custom-run-backed | Receives the tools in the prepared run context; `driver.run` decides whether to call them. |
 
 ## Verify HTTP requests
 
-Inspect the Agent tool list and confirm only the named fetch tools appear.
-Run one invocation with invalid input when a schema is configured and verify the request does not leave the process.
+Run `vitehub agent info --agent <name> --json` and confirm that `tools` contains a `fetch` entry. Entries use the Capability id, not the individual tool names.
+Run one invocation and confirm that the trace shows only the named fetch tools.
+Run one invocation with invalid input when `inputSchema` is configured. Confirm that the tool fails before the request leaves the process.
 
 ## Options
 
@@ -78,7 +95,7 @@ Run one invocation with invalid input when a schema is configured and verify the
 | `tools.*.request.headers` | `Record<string, string>` | none | Request headers. |
 | `tools.*.request.query` | `Record<string, unknown>` | none | Query parameters appended to the URL. |
 | `tools.*.request.body` | `unknown` | none | Request body. |
-| `tools.*.request.timeout` | `number` | `30000` | Request and response-body timeout in milliseconds. |
+| `tools.*.request.timeout` | `number` | `30000` | Timeout for each attempt, including the response body, in milliseconds. |
 | `tools.*.request.maxResponseBytes` | `number` | `5242880` | Maximum decoded response size. Explicit limits must not exceed 25 MiB. |
 | `tools.*.inputSchema` | Standard Schema | none | Validates model tool input before request construction. |
 | `tools.*.schema` | Standard Schema | none | Validates parsed response data. |
@@ -88,4 +105,6 @@ Run one invocation with invalid input when a schema is configured and verify the
 ## Related pages
 
 - [webSearch()](/docs/capabilities/web-search)
+- [openapi()](/docs/capabilities/openapi)
 - [Custom capabilities](/docs/capabilities/custom-capabilities)
+- [Official capabilities](/docs/capabilities/official-capabilities)

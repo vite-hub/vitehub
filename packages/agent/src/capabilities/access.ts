@@ -2,7 +2,6 @@ import { isTrustedSourceFreeInspection, markTrustedWorkspaceAccessScope, markTru
 import { defineCapability } from "../capability-runtime.ts"
 import { agentInvocationSourceContext } from "../invocation-context.ts"
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts"
-import type { AccessCapabilityMetadata } from "./access-metadata.ts"
 
 import type {
   AgentCallbackContext,
@@ -328,6 +327,29 @@ async function loadWorkspaceAccessRuntime(): Promise<WorkspaceAccessRuntime> {
     ...(await import("@vite-hub/workspace")),
     ...(await import("@vite-hub/workspace/runtime")),
   }
+}
+
+interface AccessCapabilityMetadata {
+  access: AccessCapabilityOptions
+  chat: boolean
+  kind: "access"
+  workspace: boolean
+}
+
+function isAccessMetadata(value: unknown): value is AccessCapabilityMetadata {
+  if (!isRecord(value) || value.kind !== "access" || !isRecord(value.access)) {
+    return false
+  }
+  // SAFETY: capability metadata is constructed by access() with this options shape.
+  return true
+}
+
+export function getAccessCapabilityOptions(
+  capabilities: AgentCapabilityDefinition[],
+): AccessCapabilityOptions[] {
+  return capabilities
+    .map(capability => capability.id === "access" && isAccessMetadata(capability.metadata) ? capability.metadata.access : undefined)
+    .filter((options): options is AccessCapabilityOptions => !!options)
 }
 
 export function access<
@@ -957,6 +979,7 @@ function createScopedWorkspaceFacade<Name extends WorkspaceName>(
       read: options?.read,
       search: options?.search,
     },
+    sourceRequests: options?.sourceRequests,
     timeout: options?.timeout,
   })
   // SAFETY: Access scope normalization establishes the asserted Workspace facade contract.

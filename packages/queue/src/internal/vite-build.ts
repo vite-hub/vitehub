@@ -83,6 +83,7 @@ interface GeneratedQueueArtifacts {
 }
 
 interface GenerateProviderOutputsOptions {
+  bundleDefines?: Record<string, string>
   artifactDir?: string
   clientOutDir: string
   cloudflareOwnedByNitro?: boolean
@@ -531,6 +532,7 @@ async function isVercelQueueFunctionOwned(rootDir: string, serverFunctionName: s
 }
 
 async function writeVercelQueueFunctions(
+  bundleDefines: Record<string, string> | undefined,
   rootDir: string,
   queue: QueueModuleOptions | undefined,
   artifacts: GeneratedQueueArtifacts,
@@ -573,6 +575,7 @@ async function writeVercelQueueFunctions(
     await writeFile(wrapperFile, createVercelQueueWrapperContents(wrapperFile, artifacts.registryFile, definition.name, queueConfig), "utf8")
     await bundleEsmEntry(wrapperFile, functionFile, {
       alias: callbackAliases,
+      define: bundleDefines,
       format: "esm",
       platform: "node",
       rootDir: sourceRootDir ?? rootDir,
@@ -713,7 +716,7 @@ export async function generateProviderOutputs(
     options.signal?.throwIfAborted()
     await rm(resolve(options.rootDir, cloudflareQueueOutputState), { force: true })
   }
-  await writeVercelQueueFunctions(options.rootDir, options.queue, artifacts, providerRuntimeInputs.aliases.vercel, providerRuntimeInputs.vercelPackages, options.sourceRootDir, options.signal)
+  await writeVercelQueueFunctions(options.bundleDefines, options.rootDir, options.queue, artifacts, providerRuntimeInputs.aliases.vercel, providerRuntimeInputs.vercelPackages, options.sourceRootDir, options.signal)
   if (createVercel) {
     options.signal?.throwIfAborted()
     await copyVercelRuntimePackages({

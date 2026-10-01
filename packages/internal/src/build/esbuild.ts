@@ -10,6 +10,7 @@ interface BundleEsmEntryOptions {
   alias?: Record<string, string> | ViteAlias[]
   banner?: string
   conditions?: string[]
+  define?: Record<string, string>
   extensions?: string[]
   external?: string[]
   format?: "esm" | "cjs"
@@ -481,6 +482,17 @@ function createViteRawPlugin(rootDir: string | undefined, frameworkRuntime: bool
   }
 }
 
+/** Select the runtime constants from one resolved Vite configuration. */
+export function resolveViteHubBundleDefines(config: { define?: Record<string, unknown> }): Record<string, string> {
+  const defines: Record<string, string> = {}
+  for (const name of ["__VITEHUB_PUBLIC_URL__", "__VITEHUB_APP_BASE_URL__"]) {
+    const value = config.define?.[name]
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vite accepts untagged define values; esbuild requires source strings.
+    if (typeof value === "string") defines[name] = value
+  }
+  return defines
+}
+
 function createFileUrlPlugin(): Plugin {
   return {
     name: "vitehub-file-url",
@@ -532,6 +544,7 @@ export async function bundleEsmEntry(
       : undefined,
     bundle: true,
     conditions: options.conditions ?? (platform === "node" ? ["node"] : undefined),
+    define: options.define,
     entryPoints: [entryFile],
     external: options.external,
     format,

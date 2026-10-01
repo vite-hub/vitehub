@@ -1,7 +1,7 @@
 import { posix } from "node:path"
 
 import { createJustBashProvider } from "../providers/just-bash.ts"
-import { createShellRuntime } from "../runtime/index.ts"
+import { createShellRuntime } from "../runtime/session.ts"
 import { analyzeWorkspaceInspectionCommand } from "./command-analysis.ts"
 import { workspaceMountPoint } from "./filesystem.ts"
 import { cleanWorkspaceShellPath } from "./path.ts"

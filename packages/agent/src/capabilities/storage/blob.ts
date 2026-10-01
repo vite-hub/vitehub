@@ -294,8 +294,10 @@ function blobTools(mode: AgentCapabilityMode, options: BlobCapabilityOptions): A
           }
           throw agentDiagnostics.AGENT_R0209({ message: `[vitehub] Unsupported blob_read operation: ${String(operation)}` })
         },
+        icon: "i-lucide-hard-drive-download",
         inputSchema: blobReadInputSchema,
         name: "blob_read",
+        title: "Read Blob storage",
       }),
     }
     if (mode === "write") {
@@ -333,9 +335,11 @@ function blobTools(mode: AgentCapabilityMode, options: BlobCapabilityOptions): A
           }
           throw agentDiagnostics.AGENT_R0212({ message: `[vitehub] Unsupported blob_edit operation: ${String(operation)}` })
         },
+        icon: "i-lucide-hard-drive-upload",
         inputSchema: blobEditInputSchema,
         name: "blob_edit",
         policy: options.policy,
+        title: "Changed Blob storage",
       })
     }
     return tools

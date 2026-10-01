@@ -229,6 +229,60 @@ describe("Provider Agent Driver", () => {
     vi.unstubAllEnvs()
   })
 
+  it("adds the Agent GitHub environment to the Driver environment", async () => {
+    const threadId = "thread-github-environment"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const access = vi.fn(async () => ({
+      env: { GH_TOKEN: "installation-token", GIT_AUTHOR_NAME: "app[bot]", GIT_CONFIG_COUNT: "1" },
+      token: "installation-token",
+    }))
+    const base = context(threadId)
+    base.context.set("pullRequest", {
+      pullRequest: { head: { sha: "a".repeat(40) }, number: 42, source: { mount: "portal", ref: "refs/pull/42/head", repo: "acme/portal" } },
+      repository: { fullName: "acme/portal", name: "portal" },
+    })
+    await createProviderAgentAdapter({
+      env: { GIT_AUTHOR_NAME: "Override" },
+      provider: "codex",
+    }).generate({ ...base, runtime: { ...base.runtime, githubIdentity: { access } } } as never)
+
+    expect(access).toHaveBeenCalledWith(expect.objectContaining({ repository: "acme/portal" }))
+    expect(createProviderRuntime.mock.lastCall?.[0].environment).toMatchObject({
+      GH_TOKEN: "installation-token",
+      GIT_AUTHOR_NAME: "Override",
+      GIT_CONFIG_COUNT: "1",
+    })
+  })
+
+  it("adds fork credentials while preserving base API access in the Driver environment", async () => {
+    const threadId = "thread-github-fork-environment"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const access = vi.fn(async (input?: { repository?: string }) => {
+      const token = input?.repository === "contributor/portal" ? "fork-token" : "installation-token"
+      return { env: { GH_TOKEN: token }, token }
+    })
+    const base = context(threadId)
+    base.context.set("pullRequest", {
+      pullRequest: {
+        head: { ref: "feature", repo: "contributor/portal", sha: "a".repeat(40) },
+        number: 42,
+        source: { mount: "portal", ref: "refs/pull/42/head", repo: "acme/portal" },
+      },
+      repository: { fullName: "acme/portal", name: "portal" },
+    })
+    await createProviderAgentAdapter({ provider: "codex" }).generate({ ...base, runtime: { ...base.runtime, githubIdentity: { access } } } as never)
+
+    expect(access).toHaveBeenCalledWith(expect.objectContaining({ repository: "acme/portal" }))
+    expect(access).toHaveBeenCalledWith(expect.objectContaining({ repository: "contributor/portal" }))
+    expect(createProviderRuntime.mock.lastCall?.[0].environment).toMatchObject({
+      GH_TOKEN: "installation-token",
+      VITEHUB_GITHUB_HEAD_TOKEN: "fork-token",
+      GIT_CONFIG_COUNT: "5",
+      GIT_CONFIG_KEY_1: "credential.https://github.com/contributor/portal.helper",
+      GIT_CONFIG_KEY_3: "credential.https://github.com/contributor/portal.git.helper",
+    })
+  })
+
   it("keeps managed browser lifecycle values consistent while preserving caller search paths", async () => {
     const browserThread = "thread-browser-environment"
     runtime(browserThread, [event("turn.completed", browserThread, { state: "completed" }, { turnId: "turn-1" })])
@@ -345,6 +399,7 @@ describe("Provider Agent Driver", () => {
     const launch = vi.fn((launchContext: { command: string, cwd: string, environment: Readonly<Record<string, string | undefined>>, requiredEnvironment: readonly string[] }) => {
       expect(launchContext).toMatchObject({
         command: "/app/node_modules/@openai/codex/bin/codex.js",
+        providerCommand: "/app/node_modules/@openai/codex/bin/codex.js",
         environment: expect.objectContaining({ LAUNCH_OUTPUT: outputPath, PROVIDER_SELECTED: "selected" }),
       })
       expect(launchContext.environment).not.toHaveProperty("PATH")
@@ -2620,13 +2675,49 @@ cli_auth_credentials_store = "keyring"
           activity: { kind: "action", name: "repository-host.write" },
           execute: vi.fn(),
           name: "repository_host_write",
+          title: "Updated repository",
         },
       },
     }) as never)) as Array<Record<string, unknown>>
 
     expect(events.slice(0, 2)).toEqual([
-      expect.objectContaining({ activity: { kind: "action", name: "repository-host.write" }, name: "repository_host_write", type: "tool-call" }),
-      expect.objectContaining({ activity: { kind: "action", name: "repository-host.write" }, name: "repository_host_write", type: "tool-result" }),
+      expect.objectContaining({ activity: { kind: "action", name: "repository-host.write" }, name: "repository_host_write", title: "Updated repository", type: "tool-call" }),
+      expect.objectContaining({ activity: { kind: "action", name: "repository-host.write" }, name: "repository_host_write", title: "Updated repository", type: "tool-result" }),
+    ])
+  })
+
+  it.each([
+    ["codex", undefined],
+    ["codex", "MCP tool call"],
+    ["codex", " "],
+    ["codex", "Provider search"],
+    ["claude-code", undefined],
+    ["claude-code", "MCP tool call"],
+    ["claude-code", " "],
+    ["claude-code", "Provider search"],
+  ] as const)("applies tool titles to %s generate traces with provider title %s", async (provider, title) => {
+    const threadId = "thread-generate-tool-title"
+    runtime(threadId, [
+      event("item.started", threadId, { data: { toolName: "search" }, itemType: "mcp_tool_call", title }, { itemId: "tool-1", turnId: "turn-1" }),
+      event("item.completed", threadId, { data: { toolName: "search" }, itemType: "mcp_tool_call", status: "completed" }, { itemId: "tool-1", turnId: "turn-1" }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ])
+    const traceLog = createTraceEventLog({ content: "content" })
+    const runContext = context(threadId, {
+      tools: { search: { execute: vi.fn(), name: "search", title: "Searched records" } },
+    })
+    const adapter = createProviderAgentAdapter({ provider })
+    await Reflect.apply(adapter.generate, adapter, [{
+      ...runContext,
+      runtime: { ...runContext.runtime, traceLog },
+    }])
+
+    expect(traceLog.entries().filter(observation => observation.name.startsWith("agent.tool.")).map(observation => ({
+      name: observation.name,
+      title: observation.attributes?.["tool.title"],
+    }))).toEqual([
+      { name: "agent.tool.start", title: title === "Provider search" ? title : "Searched records" },
+      { name: "agent.tool.finish", title: title === "Provider search" ? title : "Searched records" },
     ])
   })
 
@@ -2745,7 +2836,7 @@ cli_auth_credentials_store = "keyring"
     const firstToolObservations = observations.filter(observation => observation.attributes?.["tool.id"] === "mcp-1")
     expect(firstToolObservations).toHaveLength(3)
     expect(firstToolObservations[0]?.attributes).toHaveProperty("tool.title", "airtable · search_records")
-    expect(firstToolObservations.slice(1).every(observation => !("tool.title" in (observation.attributes ?? {})))).toBe(true)
+    expect(firstToolObservations.slice(1).every(observation => observation.attributes?.["tool.title"] === "airtable · search_records")).toBe(true)
     expect(observations.filter(observation => observation.attributes?.["tool.id"] === "mcp-3").every(observation => !("tool.title" in (observation.attributes ?? {})))).toBe(true)
     expect(observations.find(observation => observation.name === "agent.tool.error")?.attributes).not.toHaveProperty("tool.output")
   })
@@ -3921,6 +4012,112 @@ cli_auth_credentials_store = "keyring"
       .rejects.toThrow(/session exited before the turn completed/)
   })
 
+  it.each([
+    { baseline: true, mount: "portal" },
+    { baseline: false, mount: "" },
+  ])("checks out the pull request with the Agent GitHub environment before the Driver starts (mount $mount)", async ({ baseline, mount }) => {
+    const threadId = `thread-pull-request-checkout-${mount || "root"}`
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const session = {
+      close: vi.fn(async () => undefined),
+      commit: vi.fn(async () => undefined),
+      diff: vi.fn(async () => ({ entries: [] })),
+      exec: vi.fn(async (command: string, args: string[] = [], _options?: { env?: Record<string, string> }) => ({
+        exitCode: command === "git" && args.join(" ") === "rev-parse --is-inside-work-tree" ? 1 : 0,
+        stderr: "",
+        stdout: "",
+      })),
+      readFile: vi.fn(async () => new Uint8Array()),
+    }
+    const workspace = { fs: {}, startSession: vi.fn(async () => session), tools: {} }
+    const access = vi.fn(async () => ({ env: { GH_TOKEN: "installation-token" }, token: "installation-token" }))
+    const base = context(threadId, { workspace, workspaceDefinition: { mode: "write", name: "docs" }, workspaceMode: "write" })
+    base.context.set("pullRequest", {
+      pullRequest: {
+        head: { ref: "feature", repo: "acme/portal", sha: "a".repeat(40) },
+        number: 42,
+        source: { mount, ref: "refs/pull/42/head", repo: "acme/portal" },
+      },
+      repository: { fullName: "acme/portal", name: "portal" },
+    })
+
+    await createProviderAgentAdapter({ provider: "codex" }).generate({ ...base, runtime: { ...base.runtime, githubIdentity: { access } } } as never)
+
+    const calls = session.exec.mock.calls.map(([command, args = []]) => `${command} ${args.join(" ")}`)
+    const checkout = calls.findIndex(call => call.startsWith("sh -c set -eu"))
+    expect(checkout).toBeGreaterThan(-1)
+    expect(checkout).toBeLessThan(calls.indexOf("git init -q"))
+    expect(calls[checkout]).toContain("git remote add origin 'https://github.com/acme/portal.git'")
+    expect(session.exec.mock.calls[checkout]?.[2]).toMatchObject({ env: { GH_TOKEN: "installation-token" } })
+    expect(calls.some(call => call.includes("vitehub provider baseline"))).toBe(baseline)
+    expect(createProviderRuntime.mock.lastCall?.[0].environment).toMatchObject({ GH_TOKEN: "installation-token" })
+  })
+
+  it.each(["codex", "claude-code"] as const)("keeps %s generated root checkout files out of Agent commits", async (provider) => {
+    const threadId = `thread-root-generated-git-${provider}`
+    let root = ""
+    let originalFlags = ""
+    let originalExclude = ""
+    const git = (...args: string[]) => {
+      const result = spawnSync("git", ["-C", root, ...args], { encoding: "utf8" })
+      if (result.status !== 0) throw new Error(result.stderr)
+      return result.stdout
+    }
+    const base = context(threadId)
+    const session = {
+      close: vi.fn(async () => {
+        expect(await readFile(`${root}/AGENTS.md`, "utf8")).toBe("native instructions")
+        expect(await readFile(`${root}/CLAUDE.md`, "utf8")).toBe("native Claude instructions")
+        expect(git("ls-files", "-v", "--", "AGENTS.md", "CLAUDE.md")).toBe(originalFlags)
+        expect(await readFile(`${root}/.git/info/exclude`, "utf8")).toBe(originalExclude)
+        expect(git("rev-list", "--count", "HEAD")).toBe("2\n")
+      }),
+      commit: vi.fn(async () => undefined),
+      diff: vi.fn(async () => ({ entries: [] })),
+      exec: vi.fn(async (command: string, args: string[] = []) => {
+        const result = spawnSync(command, args, { cwd: root, encoding: "utf8" })
+        return { exitCode: result.status ?? 1, stderr: result.stderr, stdout: result.stdout }
+      }),
+      readFile: vi.fn(async () => new Uint8Array()),
+    }
+    const workspace = {
+      fs: {},
+      tools: {},
+      startSession: vi.fn(async ({ target }: { target: string }) => {
+        root = target
+        git("init", "-q")
+        git("config", "user.name", "Test")
+        git("config", "user.email", "test@localhost")
+        await writeFile(`${root}/AGENTS.md`, "native instructions")
+        await writeFile(`${root}/CLAUDE.md`, "native Claude instructions")
+        git("add", "-A")
+        git("commit", "-qm", "initial repository")
+        originalFlags = git("ls-files", "-v", "--", "AGENTS.md", "CLAUDE.md")
+        originalExclude = await readFile(`${root}/.git/info/exclude`, "utf8")
+        base.context.set("pullRequest", {
+          pullRequest: { head: { ref: "feature", repo: "acme/portal", sha: git("rev-parse", "HEAD").trim() }, source: { mount: "", repo: "acme/portal", ref: "refs/pull/42/head" } },
+          repository: { fullName: "acme/portal", name: "portal" },
+        })
+        return session
+      }),
+    }
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      async onSendTurn() {
+        await writeFile(`${root}/result.txt`, "Agent repair")
+        git("add", "-A")
+        git("commit", "-qm", "Agent repair")
+        expect(git("show", "HEAD:AGENTS.md")).toBe("native instructions")
+        expect(git("show", "HEAD:CLAUDE.md")).toBe("native Claude instructions")
+        expect(git("ls-tree", "-r", "--name-only", "HEAD")).not.toContain("vitehub-system-prompt")
+        expect(git("show", "HEAD:result.txt")).toBe("Agent repair")
+      },
+    })
+    await createProviderAgentAdapter({ instructions: "generated invocation instructions", provider }).generate({
+      ...base, workspace, workspaceDefinition: { mode: "write", name: "docs" }, workspaceMode: "write",
+    } as never)
+    expect(session.close).toHaveBeenCalled()
+  })
+
   it("force-closes an aborted Workspace process tree before settling execution", async () => {
     const threadId = "thread-workspace-child-close"
     let host: { exec: (command: string, args: string[], options: { signal: AbortSignal }) => Promise<unknown> } | undefined
@@ -4383,6 +4580,122 @@ cli_auth_credentials_store = "keyring"
     }) as never)
   })
 
+  it("runs in driver.cwd without a temporary root or Workspace session and keeps the directory", async () => {
+    const threadId = "thread-provider-cwd"
+    const cwd = await mkdtemp(join(tmpdir(), "vitehub-cwd-test-"))
+    await writeFile(join(cwd, "checkout.txt"), "local checkout")
+    let launchCwd = ""
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      async onStartSession() {
+        expect(await readFile(join(cwd, "checkout.txt"), "utf8")).toBe("local checkout")
+      },
+    })
+    const session = {
+      close: vi.fn(async () => undefined),
+      commit: vi.fn(async () => undefined),
+      diff: vi.fn(async () => ({ entries: [] })),
+      exec: vi.fn(async () => ({ code: 0, stderr: "", stdout: "" })),
+      readFile: vi.fn(async () => new Uint8Array()),
+    }
+    const materializeSources = vi.fn(async () => ({ bytes: 0, directories: 0, durationMs: 0, files: 0, path: "", sources: [] }))
+    const workspace = { fs: {}, materializeSources, startSession: vi.fn(async () => session), tools: {} }
+    const resolveCwd = vi.fn(() => cwd)
+    const launch = vi.fn((launchContext: { cwd: string }) => {
+      launchCwd = launchContext.cwd
+      return { command: process.execPath }
+    })
+    try {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await createProviderAgentAdapter({ cwd: resolveCwd, launch, provider: "codex" }).generate(context(threadId, {
+        workspace,
+        workspaceAutoCommit: true,
+        workspaceDefinition: { commit: "chore: save provider work", name: "docs" },
+        workspaceMode: "write",
+      }) as never)
+
+      expect(resolveCwd).toHaveBeenCalledOnce()
+      // SAFETY: The mocked provider runtime receives the provider root as cwd.
+      expect((createProviderRuntime.mock.lastCall![0] as { cwd: string }).cwd).toBe(cwd)
+      expect(launchCwd).toBe(cwd)
+      expect(materializeSources).toHaveBeenCalledOnce()
+      expect(workspace.startSession).not.toHaveBeenCalled()
+      expect(session.exec).not.toHaveBeenCalled()
+      expect(session.commit).not.toHaveBeenCalled()
+      expect(await readFile(join(cwd, "checkout.txt"), "utf8")).toBe("local checkout")
+    }
+    finally {
+      await rm(cwd, { force: true, recursive: true })
+    }
+  })
+
+  it("keeps generated instructions out of commits in a driver.cwd Git checkout", async () => {
+    const threadId = "thread-provider-cwd-git"
+    const cwd = await mkdtemp(join(tmpdir(), "vitehub-cwd-git-test-"))
+    const git = (...args: string[]) => {
+      const result = spawnSync("git", ["-C", cwd, ...args], { encoding: "utf8" })
+      if (result.status !== 0) throw new Error(result.stderr)
+      return result.stdout
+    }
+    git("init", "-q")
+    git("config", "user.name", "Test")
+    git("config", "user.email", "test@localhost")
+    await writeFile(join(cwd, "AGENTS.md"), "native instructions")
+    git("add", "-A")
+    git("commit", "-qm", "initial repository")
+    const originalFlags = git("ls-files", "-v", "--", "AGENTS.md")
+    const originalExclude = await readFile(join(cwd, ".git/info/exclude"), "utf8")
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      async onSendTurn() {
+        expect(await readFile(join(cwd, "AGENTS.md"), "utf8")).toContain("generated invocation instructions")
+        await writeFile(join(cwd, "result.txt"), "Agent repair")
+        git("add", "-A")
+        git("commit", "-qm", "Agent repair")
+        expect(git("show", "HEAD:AGENTS.md")).toBe("native instructions")
+        expect(git("show", "HEAD:result.txt")).toBe("Agent repair")
+      },
+    })
+    try {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await createProviderAgentAdapter({ cwd, instructions: "generated invocation instructions", provider: "codex" }).generate(context(threadId) as never)
+      expect(await readFile(join(cwd, "AGENTS.md"), "utf8")).toBe("native instructions")
+      expect(git("ls-files", "-v", "--", "AGENTS.md")).toBe(originalFlags)
+      expect(await readFile(join(cwd, ".git/info/exclude"), "utf8")).toBe(originalExclude)
+      expect(git("rev-list", "--count", "HEAD")).toBe("2\n")
+    }
+    finally {
+      await rm(cwd, { force: true, recursive: true })
+    }
+  })
+
+  it("rejects a driver.cwd that is not an existing directory before the provider starts", async () => {
+    const missing = join(tmpdir(), `vitehub-cwd-missing-${crypto.randomUUID()}`)
+    const calls = createProviderRuntime.mock.calls.length
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await expect(createProviderAgentAdapter({ cwd: missing, provider: "codex" }).generate(context("thread-provider-cwd-missing") as never))
+      .rejects.toMatchObject({ code: "AGENT_R0938" })
+    expect(createProviderRuntime.mock.calls.length).toBe(calls)
+    await expect(access(missing)).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("keeps a disposable root for auxiliary runs when driver.cwd is set", async () => {
+    const threadId = "thread-provider-cwd-auxiliary"
+    const cwd = await mkdtemp(join(tmpdir(), "vitehub-cwd-test-"))
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    try {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await createProviderAgentAdapter({ cwd, provider: "codex" }).generate(markAuxiliaryMessageChannelInstructionContext(context(threadId)) as never)
+      // SAFETY: The mocked provider runtime receives the provider root as cwd.
+      const root = (createProviderRuntime.mock.lastCall![0] as { cwd: string }).cwd
+      expect(root).not.toBe(cwd)
+      expect(root).toContain("vitehub-provider-")
+      await expect(access(root)).rejects.toMatchObject({ code: "ENOENT" })
+      await access(cwd)
+    }
+    finally {
+      await rm(cwd, { force: true, recursive: true })
+    }
+  })
+
   it("writes successful workspace sessions back before cleanup", async () => {
     const threadId = "thread-workspace"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
@@ -4417,6 +4730,38 @@ cli_auth_credentials_store = "keyring"
     expect(workspace.startSession).toHaveBeenCalledWith(expect.objectContaining({ materializeSources: false, onProgress: expect.any(Function), paths: undefined, target: expect.any(String) }))
     expect(workspace.startSession).toHaveBeenCalledWith(expect.not.objectContaining({ writeBack: expect.anything() }))
     expect(session.commit).toHaveBeenCalledWith(expect.objectContaining({ message: "chore: save provider work" }))
+    expect(session.close).toHaveBeenCalledOnce()
+  })
+
+  it.each([
+    { commit: false, name: "docs" },
+    {
+      name: "docs",
+      plugins: [{ id: "notes", rules: { "notes/**": { commit: true } } }],
+      rules: { "notes/**": { commit: false } },
+    },
+  ])("skips provider workspace diffs when auto-commit is disabled: %j", async (workspaceDefinition) => {
+    const threadId = "thread-workspace-no-auto-commit"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const session = {
+      close: vi.fn(async () => undefined),
+      commit: vi.fn(async () => undefined),
+      diff: vi.fn(async () => ({ entries: [{ path: "result.md", type: "modified" }] })),
+      exec: vi.fn(async () => ({ code: 0, stderr: "", stdout: "" })),
+      readFile: vi.fn(async () => new Uint8Array()),
+    }
+    const workspace = { fs: {}, startSession: vi.fn(async () => session), tools: {} }
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId, {
+      workspace,
+      workspaceAutoCommit: false,
+      workspaceDefinition,
+      workspaceMode: "write",
+    }) as never)
+
+    expect(session.diff).not.toHaveBeenCalled()
+    expect(session.commit).not.toHaveBeenCalled()
     expect(session.close).toHaveBeenCalledOnce()
   })
 

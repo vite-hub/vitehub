@@ -3,7 +3,6 @@ import { mcpResources as createMcpResourcesSource, type McpResourcesSourceOption
 import { normalizeSafeWorkspacePath } from "../core/path.ts"
 import { prepareWorkspaceSource } from "./preparation.ts"
 import { markLiveWorkspaceSource } from "./live.ts"
-import { registerMcpResourcesSourceLoader } from "./mcp-resources-loader.ts"
 import { withWorkspaceRuntimeOptions } from "./runtime-options.ts"
 
 import type { ExactOptions, WorkspaceSourceRuntimeOptions } from "./runtime-options.ts"
@@ -34,8 +33,6 @@ export function mcpResources<const TKey extends string = string, const TOptions 
 
   return markLiveWorkspaceSource(source, livePaths)
 }
-
-registerMcpResourcesSourceLoader(input => mcpResources(input as never))
 
 function resolveMountPath(mount: WorkspaceSource["mount"], ctx: { mountPath?: string, source?: string }) {
   const explicit = typeof mount === "string" ? mount : mount?.path

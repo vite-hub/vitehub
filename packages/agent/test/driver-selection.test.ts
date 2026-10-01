@@ -15,6 +15,38 @@ describe("built-in Agent Driver selection", () => {
     expect(() => defineAgent({ driver: { kind: "codex", launch: { command: "codex", onExit: "invalid" } } } as never)).toThrow("driver.launch.onExit");
   });
 
+  it("keeps and validates provider Driver requirements", () => {
+    expect(normalizeAgentDriver({ driver: { kind: "codex", requirements: ["git", "gh", "apply_patch"] } })).toMatchObject({
+      requirements: ["git", "gh", "apply_patch"],
+    });
+    // SAFETY: This fixture supplies a shell expression to test runtime validation.
+    expect(() => defineAgent({ driver: { kind: "codex", requirements: ["git; rm -rf /"] } } as never)).toThrow("driver.requirements");
+    expect(normalizeAgentDriver({ driver: { kind: "codex", launch: { command: "ssh", args: ["host", "codex"] }, requirements: [] } })).toMatchObject({
+      launch: { command: "ssh", args: ["host", "codex"] },
+      requirements: [],
+    });
+    expect(() => defineAgent({ driver: { kind: "codex", launch: { command: "ssh", args: ["host", "codex"] }, requirements: ["git"] } } as never)).toThrow("launch resolver");
+  });
+
+  it.each(["-v", "--", "-missing"])("rejects option-like Driver requirement %s", requirement => {
+    expect(() => defineAgent({ driver: { kind: "codex", requirements: [requirement] } })).toThrow("driver.requirements");
+  });
+
+  it("accepts callback and object launch resolvers with requirements", () => {
+    const launch = ({ command }: { command: string }) => ({ command: "ssh", args: ["host", command] });
+    for (const resolver of [launch, { resolve: launch }]) {
+      expect(normalizeAgentDriver({ driver: { kind: "codex", launch: resolver, requirements: ["git"] } })).toMatchObject({
+        launch: resolver,
+        requirements: ["git"],
+      });
+    }
+  });
+
+  it("exposes provider requirements in inspection metadata", () => {
+    const agent = defineAgent({ driver: { kind: "codex", requirements: ["git", "gh"] } });
+    expect(createAgentInspectionMetadata(agent).config?.driver.provider).toMatchObject({ requirements: ["git", "gh"] });
+  });
+
   it("normalizes the common retry setting into AI SDK call settings", () => {
     // SAFETY: This test needs only the resolver's presence; provider execution is not invoked.
     expect(normalizeAgentDriver({
@@ -271,6 +303,16 @@ describe("built-in Agent Driver selection", () => {
     });
   });
 
+  it("keeps a provider working directory and reports only its form", () => {
+    const cwd = () => "/srv/checkout";
+    expect(normalizeAgentDriver({ driver: { cwd: "/srv/checkout", kind: "codex" } })).toMatchObject({ cwd: "/srv/checkout", kind: "provider" });
+    expect(normalizeAgentDriver({ driver: { cwd, kind: "claude-code" } })).toMatchObject({ cwd, kind: "provider" });
+    // SAFETY: This fixture deliberately gives a model Driver a provider-only option.
+    expect(() => normalizeAgentDriver({ driver: { cwd: "/srv/checkout", model: {} } } as never)).toThrow("does not support option: cwd");
+    expect(createAgentInspectionMetadata(defineAgent({ driver: { cwd, kind: "codex" } })).config?.driver.provider).toMatchObject({ cwd: "dynamic" });
+    expect(createAgentInspectionMetadata(defineAgent({ driver: { cwd: "/srv/checkout", kind: "codex" } })).config?.driver.provider).toMatchObject({ cwd: "static" });
+  });
+
   it("accepts sealed Codex credentials implemented by a class instance", () => {
     class SecretEnv {
       unseal() {
@@ -295,6 +337,9 @@ describe("built-in Agent Driver selection", () => {
     [{ kind: "codex", providerSettings: [] }, "driver.providerSettings }) must be an object"],
     [{ kind: "codex", sessionStorePath: "" }, "driver.sessionStorePath }) must be a non-empty string"],
     [{ kind: "claude-code", sessionStorePath: {} }, "driver.sessionStorePath }) must be a non-empty string"],
+    [{ kind: "codex", cwd: "" }, "driver.cwd }) must be a non-empty directory path or resolver"],
+    [{ kind: "claude-code", cwd: "  " }, "driver.cwd }) must be a non-empty directory path or resolver"],
+    [{ kind: "codex", cwd: 1 }, "driver.cwd }) must be a non-empty directory path or resolver"],
   ])("rejects invalid provider options %#", (driver, message) => {
     // SAFETY: These deliberately invalid fixtures exercise the runtime normalization boundary.
     expect(() => normalizeAgentDriver({ driver } as never)).toThrow(message);

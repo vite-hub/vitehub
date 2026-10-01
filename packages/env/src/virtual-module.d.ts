@@ -11,6 +11,8 @@ declare module "#vitehub/env/server" {
   export interface ServerEnvInspectionEntry {
     masked: boolean
     path?: string
+    provider?: string
+    required: boolean
     source: "env" | "literal" | "provider"
     status: "available" | "defaulted" | "error" | "invalid" | "missing"
   }

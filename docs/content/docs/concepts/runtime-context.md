@@ -107,4 +107,4 @@ A Runtime Capability handle passes an implementation between packages. An Agent 
 
 Inspect the generated route or custom server call that starts the operation. It shows which host supplies the runtime, background work, provider resources, and trace information.
 
-Read [Runtime events](/docs/reference/runtime-events) for the records carried through Runtime Context and [Agent Invocations](/docs/concepts/agent-invocations) for the request record.
+Read [Runtime events](/docs/reference/runtime-events) for the records carried through Runtime Context and [Agent Invocations](/docs/agents/invocations) for the request record.

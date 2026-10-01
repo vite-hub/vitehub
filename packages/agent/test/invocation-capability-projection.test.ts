@@ -82,6 +82,44 @@ describe("SQLite invocation Capability projection", () => {
     expect(await journal.listCapabilityIds!()).toEqual([])
   })
 
+  it("reads filter values from indexes when legacy tables store them after record", async () => {
+    await client.execute(`CREATE TABLE vitehub_agent_invocations (
+      sequence INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE,
+      status TEXT NOT NULL, record TEXT NOT NULL, search TEXT, agent_name TEXT,
+      search_version INTEGER NOT NULL DEFAULT 0, updated_at TEXT, summary TEXT, capability_ids TEXT
+    )`)
+    const unnamed = invocation("unnamed", { annotations: { triggeredBy: "Legacy" }, observations: [observation("legacy-only")] })
+    await client.execute({ args: [unnamed.id, unnamed.status, JSON.stringify(unnamed)], sql: "INSERT INTO vitehub_agent_invocations (id, status, record, agent_name) VALUES (?, ?, ?, '')" })
+    const journal = store()
+    await journal.create(invocation("review", { annotations: { triggeredBy: " Alice " }, observations: [observation("first")] }))
+    await journal.create(invocation("other", { agentName: "other", annotations: { triggeredBy: "Bob" }, capabilityIds: ["other"] }))
+    const statements: string[] = []
+    const execute = client.execute.bind(client)
+    vi.spyOn(client, "execute").mockImplementation(async (statement: InStatement) => {
+      const sql = typeof statement === "string" ? statement : statement.sql
+      if (sql.startsWith("SELECT DISTINCT")) statements.push(sql)
+      return await execute(statement)
+    })
+
+    expect(await journal.listCapabilityIds!("review")).toEqual(["first", "legacy-only"])
+    expect(await journal.listCapabilityIds!()).toEqual(["first", "legacy-only", "other"])
+    expect(await journal.listTriggeredBy!("review")).toEqual([" Alice ", "Legacy"])
+    expect(await journal.listTriggeredBy!()).toEqual([" Alice ", "Bob", "Legacy"])
+
+    const plans = await Promise.all(statements.map(async sql => (await execute({
+      args: sql.includes("?") ? Array.from({ length: sql.split("?").length - 1 }, () => "review") : [],
+      sql: `EXPLAIN QUERY PLAN ${sql}`,
+    })).rows.map(row => String(row.detail)).join("\n")))
+    expect(plans).toHaveLength(4)
+    expect(plans[0]).toContain("USING COVERING INDEX vitehub_agent_invocations_agent_name_capability_ids (agent_name=? AND capability_ids>?)")
+    expect(plans[1]).toContain("SCAN vitehub_agent_invocations USING COVERING INDEX vitehub_agent_invocations_agent_name_capability_ids")
+    for (const plan of plans.slice(2)) {
+      expect(plan).toContain("SCAN vitehub_agent_invocations USING INDEX vitehub_agent_invocations_triggered_by_agent_name")
+      expect(plan).not.toContain("vitehub_agent_invocations_agent_name_sequence")
+      expect(plan).not.toMatch(/^SCAN vitehub_agent_invocations$/m)
+    }
+  })
+
   it("reads current IDs when another writer changes a row after cache population", async () => {
     const journal = store()
     const record = invocation("concurrent", { observations: [observation("before")] })

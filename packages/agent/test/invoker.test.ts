@@ -1,9 +1,35 @@
 import { describe, expect, it } from "vitest"
 
-import { agentInvokerLabel, normalizeAgentInvoker, portableResolvedAgentInvokerInput, withResolvedAgentInvokerInput } from "../src/invoker.ts"
+import { agentInvokerLabel, normalizeAgentInvoker, portableResolvedAgentInvokerInput, restoreResolvedAgentInvokerInput, withoutResolvedAgentInvokerInput, withResolvedAgentInvokerInput } from "../src/invoker.ts"
+import { agentInvocationCallerAbortSignal, copyAgentInvocationCallerAbortSignal, markAgentInvocationCallerAbortSignal } from "../src/internal/invocation-input.ts"
 import { sameInlineInvoker } from "../src/internal/inline-invoker.ts"
 
 describe("Agent Invoker", () => {
+  it.each([false, true, undefined])("preserves registered caller-signal provenance across invoker input clones: %s", (supplied) => {
+    const input = withResolvedAgentInvokerInput({ abortSignal: new AbortController().signal, prompt: "hello" }, { id: "owner", kind: "person" })
+    markAgentInvocationCallerAbortSignal(input, supplied)
+    const clones = [
+      withResolvedAgentInvokerInput(input, { id: "resolved-owner", kind: "person" }),
+      withoutResolvedAgentInvokerInput(input),
+      portableResolvedAgentInvokerInput(input),
+      restoreResolvedAgentInvokerInput(input),
+    ]
+    for (const clone of clones) {
+      expect(clone).not.toBe(input)
+      expect(clone.abortSignal).toBe(input.abortSignal)
+      expect(agentInvocationCallerAbortSignal(clone)).toBe(supplied)
+    }
+  })
+
+  it("does not inherit controller provenance when an input clone changes its signal", () => {
+    const input = { abortSignal: new AbortController().signal, prompt: "hello" }
+    markAgentInvocationCallerAbortSignal(input, false)
+    const replacement = copyAgentInvocationCallerAbortSignal(input, { ...input, abortSignal: new AbortController().signal })
+    expect(agentInvocationCallerAbortSignal(replacement)).toBe(true)
+    const unmarked = { abortSignal: new AbortController().signal, prompt: "hello" }
+    expect(agentInvocationCallerAbortSignal(copyAgentInvocationCallerAbortSignal(unmarked, { ...unmarked }))).toBe(true)
+  })
+
   it("resolves a human-readable label from the explicit label or metadata name", () => {
     expect(agentInvokerLabel({ id: "user-1", label: "  Maxi  ", meta: { name: "Ignored" } })).toBe("Maxi")
     expect(agentInvokerLabel({ id: "user-1", meta: { name: "  Metadata Maxi  " } })).toBe("Metadata Maxi")
@@ -86,4 +112,12 @@ describe("Agent Invoker", () => {
     })
     expect(portable.context?.invoker?.meta?.loadTenant).toBeUndefined()
   })
+  it("preserves caller abort provenance through resolved invoker input clones", () => {
+    const input = { prompt: "hello", abortSignal: new AbortController().signal }
+    markAgentInvocationCallerAbortSignal(input, false)
+    const resolved = withResolvedAgentInvokerInput(input, { id: "user-1", kind: "user" })
+    const portable = portableResolvedAgentInvokerInput(resolved)
+    expect(agentInvocationCallerAbortSignal(portable)).toBe(false)
+  })
+
 })

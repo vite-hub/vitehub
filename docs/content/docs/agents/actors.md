@@ -6,18 +6,28 @@ navigation.group: Connect
 icon: i-lucide-user-check
 ---
 
-An Agent Actor is the trusted caller identity for one invocation. It can drive access, rate limits, state partitioning, and inspection without turning a Channel or chat user object into an authorization decision.
+An Agent Actor is the trusted identity of the caller for one Invocation.
+Capabilities use it for access rules, rate limits, and state partitions. The
+CLI and the Console show it when you inspect an Invocation.
 
-The current public fields retain the name `invoker`: configure Actors with `defineAgent({ invoker })`, pass one through `context.invoker`, and read the normalized Actor as `actor` or `invoker` in callbacks.
+Pass an Actor when the Agent must know who is calling. Your application
+authenticates the request. The Actor carries the result of that check into the
+Agent. A Channel user or a chat user object is not an authorization decision.
+
+::note
+The public API keeps the name `invoker`. Configure Actors with
+`defineAgent({ invoker })` and pass one through `context.invoker`. Callbacks
+receive the same value as `actor` and `invoker`.
+::
 
 ## Pass a trusted Actor
 
-Authenticate at the application boundary, then pass only validated identity facts.
+Authenticate first. Then pass only validated identity facts:
 
 ```ts [server/api/support.post.ts]
 import { runAgent } from 'vite-hub/agent'
-import support from '../agents/support'
 import { getRuntimeContext } from 'vite-hub/runtime/h3'
+import support from '../agents/support'
 
 export default defineEventHandler(async (event) => {
   const user = await requireAuthenticatedUser(event)
@@ -43,23 +53,29 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-Without a host lifetime API, drain tracked work before returning. The example reports background failures without replacing the Agent result or error.
+ViteHub trusts this server-owned value. Never copy unverified request fields
+into `context.invoker`. The `finally` block drains tracked background work
+when the host has no lifetime API. See
+[Runtime Context](/docs/concepts/runtime-context#background-work-and-cleanup).
 
-ViteHub trusts this server-owned value. Never copy unverified request fields into `context.invoker`.
+Without an Actor, ViteHub uses an anonymous Actor with the id
+`anonymous:<origin>`. A `chat.message` Trigger without `invoker` derives a
+`chat` Actor from its `user` field.
 
 ## Actor fields
 
 | Field | Required | Purpose |
 | --- | --- | --- |
-| `id` | Yes | Stable identity for access, limits, state, and inspection. Empty ids are rejected. |
-| `kind` | No | Identity family such as `customer`, `chat`, or `anonymous`. |
+| `id` | Yes | Stable identity for access, limits, state, and inspection. ViteHub rejects an empty id. |
+| `kind` | No | Identity family, such as `customer`, `chat`, or `anonymous`. |
 | `label` | No | Human-readable value for logs and CLI inspection. |
-| `email` | No | Normalized `{ address, domain }`; invalid values are omitted. |
-| `meta` | No | Application-owned trusted facts. Validate them before invocation. |
+| `email` | No | Normalized `{ address, domain }`. ViteHub omits an invalid value. |
+| `meta` | No | Trusted facts that your application owns. Validate them before the Invocation. |
 
 ## Configure profiles
 
-Profiles provide known Actors for local development, schedules, CLI use, and trusted routes.
+Profiles are known Actors for local development, Schedules, CLI use, and
+trusted routes:
 
 ```ts [server/agents/support.ts]
 import { defineAgent, defineAgentInvoker } from 'vite-hub/agent'
@@ -85,9 +101,14 @@ export default defineAgent({
 })
 ```
 
-Select a profile with `context.invokerProfileId` for direct invocation or top-level `invokerProfileId` for `chat.message`. Unknown ids fail instead of falling back silently.
+Select a profile with `context.invokerProfileId` for a direct call, or with
+top-level `invokerProfileId` for `chat.message`. An unknown id fails the
+Invocation. ViteHub does not fall back to another Actor.
 
-Use `invoker.resolve` to normalize or reject the trusted input before Capabilities run:
+## Normalize the Actor
+
+Use `resolve` to normalize or reject the trusted input. ViteHub calls it
+before Capabilities and the Driver run:
 
 ```ts [server/agents/support-actor.ts]
 import { defineAgentInvoker } from 'vite-hub/agent'
@@ -104,11 +125,14 @@ export const supportActor = defineAgentInvoker({
 })
 ```
 
-Resolution happens before Capabilities and the Driver run.
+`defaultInvoker` is the Actor from the input, or the anonymous Actor.
+`selectedProfile` is the profile that the input selected. Return `undefined` to
+keep the default selection.
 
 ## Use Actors for access
 
-Actor metadata can select a Workspace Scope, but authorization must remain deterministic.
+Actor metadata can select a Workspace scope. Keep the authorization rule in
+code, not in the model:
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'
@@ -118,8 +142,8 @@ export default defineAgent({
   capabilities: [
     access({
       workspace: {
-        resolve({ invoker }) {
-          return invoker.meta?.customer === 'acme' ? 'acme' : 'public'
+        resolve({ actor }) {
+          return actor.meta?.customer === 'acme' ? 'acme' : 'public'
         },
         scopes: {
           public: { paths: ['public'] },
@@ -133,15 +157,17 @@ export default defineAgent({
 })
 ```
 
-Do not ask the model to decide its own Actor or access scope. Authenticate first, normalize once, and let Capabilities consume the trusted result.
+Do not let the model choose its own Actor or access scope. Authenticate first,
+normalize once, and let Capabilities use the trusted result. Read
+[Access](/docs/capabilities/access) for the scope options.
 
-## Current API names
+## API names
 
 | Task | API |
 | --- | --- |
 | Configure resolution | `defineAgent({ invoker })`, `defineAgentInvoker()` |
 | Direct invocation input | `input.context.invoker` |
-| `chat.message` input | top-level `invoker` |
+| `chat.message` input | Top-level `invoker` |
 | Read in callbacks | `actor` or `invoker` |
-| Read from context store | `context.get('actor')` or `context.get('invoker')` |
-| Public type | `AgentActor`; invoker-named APIs also expose `AgentInvoker` |
+| Read from the context store | `context.get('actor')` or `context.get('invoker')` |
+| Public type | `AgentActor`. Invoker-named APIs also expose `AgentInvoker`. |

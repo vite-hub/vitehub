@@ -16,6 +16,10 @@ export const allowedMissingIcons = Object.freeze([
   "vscode-icons:file-type-vue",
 ]);
 
+const zodRegexAnnotationComment = "/** Anchors a pattern source. The interpolation lives here rather than at the call site because\n * esbuild will not drop a `@__PURE__` call whose own argument interpolates a variable, but it\n * will drop `anchor(dateSource)`. Keeping it inline pinned `date` into every bundle. */";
+const zodUtilAnnotationComment = "// Wrapped in a `@__PURE__` IIFE: esbuild never tree-shakes a top-level initializer that contains a member access on `Number`, so the bare object literal survived into every bundle.";
+const rollupAnnotationConclusion = "contains an annotation that Rollup cannot interpret due to the position of the comment. The comment will be removed to avoid issues.";
+
 export const buildWarningBudget = Object.freeze([
   { name: "Docus assistant disabled", maximum: 1, text: "AI assistant disabled:" },
   {
@@ -36,9 +40,28 @@ export const buildWarningBudget = Object.freeze([
   { name: "build plugin timings", maximum: 3, text: "[PLUGIN_TIMINGS]" },
   { name: "VueUse pure annotations", maximum: 2, text: "[INVALID_ANNOTATION]" },
   {
-    name: "Rollup pure annotations",
+    name: "Nuxt generated pure annotations",
     maximum: 2,
-    text: "contains an annotation that Rollup cannot interpret",
+    text: rollupAnnotationConclusion,
+    source: "node_modules/.cache/nuxt/.nuxt/dist/server/_nuxt/dist-Dg8NDwTS.js",
+    sourcePattern: /^node_modules\/\.cache\/nuxt\/\.nuxt\/dist\/server\/_nuxt\/dist-[\w-]+\.js$/,
+    comment: zodRegexAnnotationComment,
+    warningTokenRequired: false,
+  },
+  {
+    name: "Zod util pure annotation",
+    maximum: 1,
+    text: rollupAnnotationConclusion,
+    source: "zod@4.5.4/node_modules/zod/v4/core/util.js",
+    comment: zodUtilAnnotationComment,
+    warningTokenRequired: false,
+  },
+  {
+    name: "Zod regexes pure annotation",
+    maximum: 1,
+    text: rollupAnnotationConclusion,
+    source: "zod@4.5.4/node_modules/zod/v4/core/regexes.js",
+    comment: zodRegexAnnotationComment,
     warningTokenRequired: false,
   },
   { name: "Nuxt UI button imports", maximum: 2, text: "[INEFFECTIVE_DYNAMIC_IMPORT]" },
@@ -76,15 +99,35 @@ export function assertBuildWarningBudget(output) {
   const unknownWarnings = [];
   const newMissingIcons = new Set();
 
-  for (const line of stripVTControlCharacters(output).split(/\r?\n/)) {
+  const lines = stripVTControlCharacters(output).split(/\r?\n/);
+  const annotationDetails = new Map();
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+    const line = lines[lineIndex];
     const normalizedLine = normalizeWarningText(line);
-    const warningWithoutToken = buildWarningBudget.find(
-      (entry) =>
-        entry.warningTokenRequired === false &&
-        normalizedLine.includes(normalizeWarningText(entry.text)),
-    );
-    if (warningWithoutToken) {
-      counts.set(warningWithoutToken.name, (counts.get(warningWithoutToken.name) ?? 0) + 1);
+    const annotationBudget = annotationDetails.get(lineIndex);
+    if (annotationBudget) {
+      counts.set(annotationBudget.name, (counts.get(annotationBudget.name) ?? 0) + 1);
+      continue;
+    }
+    const header = /^\s*(?:(?:\[warn(?:ing)?\]|warn(?:ing)?\b)\s*)?(.+?) \(\d+:\d+\): A comment\s*$/i.exec(line);
+    if (header) {
+      const source = header[1];
+      const budget = buildWarningBudget.find(entry => entry.comment && (
+        entry.sourcePattern ? entry.sourcePattern.test(source)
+          : source === entry.source || source.endsWith(`/${entry.source}`)
+      ));
+      if (budget) {
+        const detailIndex = lines.findIndex((detail, index) => index > lineIndex && index < lineIndex + 8
+          && detail.trim() === `in "${source}" ${budget.text}`);
+        const comment = lines.slice(lineIndex + 1, detailIndex).join("\n");
+        if (detailIndex !== -1 && normalizeWarningText(comment).trim() === normalizeWarningText(budget.comment).trim()) {
+          annotationDetails.set(detailIndex, budget);
+          continue;
+        }
+      }
+    }
+    if (normalizedLine.includes("contains an annotation that rollup cannot interpret")) {
+      unknownWarnings.push(line.trim());
       continue;
     }
     if (
@@ -103,7 +146,7 @@ export function assertBuildWarningBudget(output) {
       continue;
     }
     const budget = buildWarningBudget.find((entry) =>
-      normalizedLine.includes(normalizeWarningText(entry.text)),
+      !entry.comment && normalizedLine.includes(normalizeWarningText(entry.text)),
     );
     if (!budget) unknownWarnings.push(line.trim());
     else counts.set(budget.name, (counts.get(budget.name) ?? 0) + 1);

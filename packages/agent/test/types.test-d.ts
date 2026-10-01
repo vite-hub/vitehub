@@ -1,10 +1,11 @@
+import { defineFinishEffect } from "../src/delivery-effects.ts"
 import { describe, expectTypeOf, it } from "vitest"
 import type { LanguageModel } from "ai"
 
-import { defineAgent, defineAgentInvoker, defineCapability, defineFinishEffect, runAgent, runAgentInline, startAgentInvocation, type AgentActor, type AgentCallbackContext, type AgentCapabilityCliCommand, type AgentCapabilityCliResolver, type AgentCapabilityDefinition, type AgentChannelDeliveryEffectContext, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDeliveryFinishEffect, type AgentChannelDeliveryFinishEffectContext, type AgentChannelDefinition, type AgentChannelDeliveryReplyPayload, type AgentChannelDeliveryReplyStream, type AgentChannelFactory, type AgentChannelInput, type AgentChannelInputs, type AgentDeliveryArtifact, type AgentDriverAdaptiveCapacityOptions, type AgentDriverCapacityOptions, type AgentDriverCapacityQueueOptions, type AgentErrorHookEvent, type AgentFinishEvent, type AgentFinishHookEvent, type AgentGatewayModel, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentMessageDeliveryKind, type AgentModelInput, type AgentModuleOptions, type AgentRunInput, type AgentRunResult, type AgentRuntimeConfig, type AgentRuntimeContext, type AgentTriggerInvokeResult, type AgentTriggerRunInvokeResult, type AgentUIMessageStreamProjection, type AgentUsageRecord, type ImagePart, type PublishedAgentDeliveryArtifact, type ResolvedAgentRuntimeContext } from "../src/index.ts"
+import { ask, defineAgent, defineAgentInvoker, defineCapability, runAgent, runAgentInline, startAgentInvocation, type AgentActor, type AgentCallbackContext, type AgentCapabilityCliCommand, type AgentCapabilityCliResolver, type AgentCapabilityDefinition, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryFinishEffect, type AgentChannelDeliveryFinishEffectContext, type AgentChannelDefinition, type AgentChannelDeliveryReplyPayload, type AgentChannelDeliveryReplyInput, type AgentChannelDeliveryStatusInput, type AgentChannelMessage, type AgentChannelMessageContext, type AgentChannelDeliveryReplyStream, type AgentChannelFactory, type AgentChannelInput, type AgentChannelInputs, type AgentDeliveryArtifact, type AgentDriverAdaptiveCapacityOptions, type AgentDriverCapacityOptions, type AgentDriverCapacityQueueOptions, type AgentErrorHookEvent, type AgentFinishEvent, type AgentFinishHookEvent, type AgentGatewayModel, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentMessageDeliveryKind, type AgentModelInput, type AgentModuleOptions, type AgentRunInput, type AgentRunResult, type AgentRuntimeConfig, type AgentRuntimeContext, type AgentTriggerInvokeResult, type AgentTriggerRunInvokeResult, type AgentUIMessageStreamProjection, type AgentUsageRecord, type ImagePart, type PublishedAgentDeliveryArtifact, type ResolvedAgentRuntimeContext } from "../src/index.ts"
 import { createProcessAgentCapacity, type ProcessAgentCapacityOptions } from "../src/runtime/process.ts"
 import { access, chat, email, executor, getTranscriptionResults, git, inputCommands, kv, mcp, modelsDevPricing, openapi, sandbox, schedule, skills, streamTranscription, transcribe, usage, webSearch, workspaceShell, type AgentUsagePricing, type EmailCapabilityOptions, type EmailCapabilityToolPolicy, type ExecutorCapabilityOptions, type ModelsDevPricingOptions, type UsageOptions } from "../src/capabilities.ts"
-import { defineChannel, github, http, pullRequest, teams, telegram, webChat, type GitHubPullRequestCommand, type GitHubPullRequestFilter, type GitHubPullRequestFilterContext, type GitHubPullRequestRunContext } from "../src/channels.ts"
+import { defineChannel, github, http, pullRequest, slack, teams, telegram, webChat, type GitHubPullRequestCommand, type GitHubPullRequestFilter, type GitHubPullRequestFilterContext, type GitHubPullRequestRunContext } from "../src/channels.ts"
 import { defineEval, hasCapabilityExtension, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
 import { remoteMcpServer } from "../src/mcp.ts"
 import { stdioMcpServer } from "../src/mcp/stdio.ts"
@@ -275,6 +276,304 @@ describe("agent public types", () => {
           void event.errorMessage
           expectTypeOf(event.extensions.get("usage")).toEqualTypeOf<AgentUsageRecord | undefined>()
           expectTypeOf(event.extensions.get("unregistered")).toEqualTypeOf<unknown>()
+        },
+      },
+    })
+  })
+
+  it("types event.message from the Agent's Channels", () => {
+    const mailSchema = {
+      "~standard": {
+        // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
+        validate: (input: unknown) => ({ value: input as { id: string } }),
+        vendor: "test",
+        // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
+        version: 1 as const,
+      },
+    } satisfies StandardSchemaV1<unknown, { id: string }>
+    const mail = defineChannel("mail", {
+      message: {
+        data: mailSchema,
+        methods: {
+          async label(context, input: { add: string[] }) {
+            expectTypeOf(context.message).toEqualTypeOf<{ id: string }>()
+            return { applied: input.add.length }
+          },
+          subject: {
+            read: true,
+            handler: context => `subject:${context.message.id}`,
+          },
+        },
+      },
+    })
+    expectTypeOf(mail.kind).toEqualTypeOf<"mail">()
+
+    defineAgent({
+      channels: { mail },
+      driver: { run: () => "ok" },
+      hooks: {
+        async "agent:finish"(event) {
+          expectTypeOf(event.reply).toBeFunction()
+          if (!event.message) return
+          expectTypeOf(event.message.channel).toEqualTypeOf<"mail">()
+          expectTypeOf(event.message.kind).toEqualTypeOf<"mail">()
+          expectTypeOf(event.message.data).toEqualTypeOf<{ id: string }>()
+          expectTypeOf(event.message.label).toEqualTypeOf<(input: { add: string[] }) => Promise<{ applied: number } | undefined>>()
+          expectTypeOf(event.message.subject).toEqualTypeOf<() => Promise<string>>()
+          // @ts-expect-error The mail Channel declares no reply method.
+          void event.message.reply
+          await event.message.label({ add: ["Receipts"] })
+        },
+        "agent:error"(event) {
+          expectTypeOf(event.message?.data).toEqualTypeOf<{ id: string } | undefined>()
+        },
+      },
+    })
+
+    defineAgent({
+      channels: { mail },
+      driver: { run: () => "ok" },
+      workspace: { mode: "read" },
+      hooks: {
+        "agent:finish"(event) {
+          if (event.message?.channel !== "mail") return
+          expectTypeOf(event.message.data).toEqualTypeOf<{ id: string }>()
+          expectTypeOf(event.message.label).toEqualTypeOf<(input: { add: string[] }) => Promise<{ applied: number } | undefined>>()
+        },
+        "agent:error"(event) {
+          expectTypeOf(event.message?.subject).toEqualTypeOf<(() => Promise<string>) | undefined>()
+        },
+      },
+    })
+
+    defineAgent({
+      channels: { mail, support: telegram() },
+      driver: { model: "zai/glm-5v-turbo" },
+      workspace: { mode: "read" },
+      hooks: {
+        "agent:finish"(event) {
+          if (event.message?.channel === "mail") {
+            expectTypeOf(event.message.label).toEqualTypeOf<(input: { add: string[] }) => Promise<{ applied: number } | undefined>>()
+          }
+        },
+        "agent:error"(event) {
+          if (event.message?.channel === "mail") {
+            expectTypeOf(event.message.data).toEqualTypeOf<{ id: string }>()
+          }
+        },
+      },
+    })
+
+    defineAgent({
+      channels: { mail, support: telegram(), github: github() },
+      driver: { run: () => "ok" },
+      hooks: {
+        async "agent:finish"(event) {
+          if (event.message?.channel === "support") {
+            expectTypeOf(event.message.kind).toEqualTypeOf<"telegram">()
+            expectTypeOf(event.message.reply).toEqualTypeOf<((input: AgentChannelDeliveryReplyInput) => Promise<void>) | undefined>()
+          }
+          if (event.message?.channel === "github") {
+            expectTypeOf(event.message.status).toEqualTypeOf<((input: AgentChannelDeliveryStatusInput) => Promise<void>) | undefined>()
+          }
+          if (event.message?.channel === "mail") {
+            expectTypeOf(event.message.data).toEqualTypeOf<{ id: string }>()
+          }
+        },
+      },
+    })
+
+    defineAgent({
+      channels: { slack: slack(), disabled: slack({ messages: false }) },
+      driver: { run: () => "ok" },
+      hooks: {
+        "agent:finish"(event) {
+          if (event.message?.channel === "slack") {
+            expectTypeOf(event.message.reply).toEqualTypeOf<((input: AgentChannelDeliveryReplyInput) => Promise<void>) | undefined>()
+          }
+          if (event.message?.channel === "disabled") {
+            expectTypeOf(event.message.reply).toEqualTypeOf<((input: AgentChannelDeliveryReplyInput) => Promise<void>) | undefined>()
+          }
+        },
+      },
+    })
+
+    defineAgent({
+      driver: { run: () => "ok" },
+      hooks: {
+        "agent:finish"(event) {
+          expectTypeOf(event.message).toEqualTypeOf<undefined>()
+        },
+      },
+    })
+
+    defineAgent({
+      channels: {
+        slack: {
+          message: {
+            data: mailSchema,
+            methods: {
+              label: (_context: AgentChannelMessageContext, label: string) => ({ applied: label }),
+              reply: { read: true, handler: (_context: AgentChannelMessageContext, id: number) => id },
+            },
+          },
+        },
+      },
+      driver: { run: () => "ok" },
+      hooks: {
+        "agent:finish"(event) {
+          if (!event.message) return
+          expectTypeOf(event.message.kind).toEqualTypeOf<"slack">()
+          expectTypeOf(event.message.data).toEqualTypeOf<{ id: string }>()
+          expectTypeOf(event.message.label).toEqualTypeOf<(label: string) => Promise<{ applied: string } | undefined>>()
+          expectTypeOf(event.message.reply).toEqualTypeOf<(id: number) => Promise<number>>()
+        },
+        "agent:error"(event) {
+          expectTypeOf(event.message?.label).toEqualTypeOf<((label: string) => Promise<{ applied: string } | undefined>) | undefined>()
+        },
+      },
+    })
+
+    expectTypeOf<AgentFinishHookEvent["message"]>().toEqualTypeOf<AgentChannelMessage | undefined>()
+    expectTypeOf<AgentRunInput["dryRun"]>().toEqualTypeOf<boolean | undefined>()
+    // @ts-expect-error Message methods cannot use the handle's reserved names.
+    defineChannel("bad", { message: { methods: { data: () => undefined } } })
+    // @ts-expect-error Message methods cannot use the Promise protocol's reserved names.
+    defineChannel("bad", { message: { methods: { then: () => undefined } } })
+  })
+
+  it("preserves Invocation data beside Channel messages across composition", () => {
+    const schema = {
+      "~standard": { validate: () => ({ value: { id: "input" } }), vendor: "test", version: 1 },
+    } satisfies StandardSchemaV1<unknown, { id: string }>
+    const mail = defineChannel("mail", {
+      message: { data: schema, methods: { label: (context, label: string) => context.message.id + label } },
+    })
+    const base = defineAgent({
+      data: schema,
+      channels: { mail },
+      driver: { run: () => "ok" },
+      hooks: {
+        "agent:input"({ input }) { expectTypeOf(input.data).toEqualTypeOf<{ id: string } | undefined>() },
+        "agent:finish"(event) {
+          expectTypeOf(event.input.data).toEqualTypeOf<{ id: string } | undefined>()
+          expectTypeOf(event.message?.data).toEqualTypeOf<{ id: string } | undefined>()
+        },
+      },
+    })
+    defineAgent({
+      extends: base,
+      hooks: {
+        "agent:finish"(event) {
+          expectTypeOf(event.input.data).toEqualTypeOf<{ id: string } | undefined>()
+          expectTypeOf(event.message?.label).toEqualTypeOf<((label: string) => Promise<string | undefined>) | undefined>()
+        },
+        "agent:error"(event) {
+          expectTypeOf(event.input.data).toEqualTypeOf<{ id: string } | undefined>()
+          expectTypeOf(event.message?.data).toEqualTypeOf<{ id: string } | undefined>()
+        },
+      },
+    })
+    defineAgent({
+      preset: "mail", presets: { mail: base },
+      hooks: {
+        "agent:finish"(event) {
+          expectTypeOf(event.input.data).toEqualTypeOf<{ id: string } | undefined>()
+          expectTypeOf(event.message?.label).toEqualTypeOf<((label: string) => Promise<string | undefined>) | undefined>()
+        },
+      },
+    })
+  })
+
+  it("types Channel message handles in configured preset and extends hooks", () => {
+    const mail = defineChannel("mail", {
+      message: {
+        data: {
+          "~standard": {
+            validate: () => ({ value: { id: "mail" } }),
+            vendor: "test",
+            version: 1,
+          },
+        },
+        methods: {
+          label: (_context, input: { add: string[] }) => ({ applied: input.add.length }),
+          subject: { read: true, handler: context => context.message.id },
+        },
+      },
+    })
+    const base = defineAgent({
+      options: { name: "mail-agent" },
+      configure: options => defineAgent({ channels: { mail }, name: options.name, driver: { run: () => "ok" } }),
+    })
+
+    defineAgent({
+      preset: "mail",
+      presets: { mail: base },
+      channels: { mail },
+      hooks: {
+        async "agent:finish"(event) {
+          expectTypeOf(event.message?.data).toEqualTypeOf<{ id: string } | undefined>()
+          await event.message?.label({ add: ["Receipts"] })
+        },
+        "agent:error"(event) {
+          expectTypeOf(event.message?.subject).toEqualTypeOf<(() => Promise<string>) | undefined>()
+        },
+      },
+    })
+
+    defineAgent({
+      extends: base,
+      channels: { mail },
+      hooks: {
+        "agent:finish"(event) {
+          expectTypeOf(event.message?.channel).toEqualTypeOf<"mail" | undefined>()
+          expectTypeOf(event.message?.label).toEqualTypeOf<((input: { add: string[] }) => Promise<{ applied: number } | undefined>) | undefined>()
+        },
+        "agent:error"(event) {
+          expectTypeOf(event.message?.data).toEqualTypeOf<{ id: string } | undefined>()
+        },
+      },
+    })
+
+    defineAgent({
+      extends: base,
+      hooks: {
+        "agent:finish"(event) {
+          expectTypeOf(event.message?.label).toEqualTypeOf<((input: { add: string[] }) => Promise<{ applied: number } | undefined>) | undefined>()
+        },
+      },
+    })
+    defineAgent({
+      preset: "mail",
+      presets: { mail: base },
+      hooks: {
+        "agent:error"(event) {
+          expectTypeOf(event.message?.data).toEqualTypeOf<{ id: string } | undefined>()
+        },
+      },
+    })
+
+    const workspaceAgent = defineAgent({
+      channels: { mail },
+      driver: { run: () => "ok" },
+      workspace: { mode: "read" },
+    })
+    const child = defineAgent({
+      extends: workspaceAgent,
+      hooks: {
+        "agent:finish"(event) {
+          expectTypeOf(event.message?.data).toEqualTypeOf<{ id: string } | undefined>()
+          expectTypeOf(event.message?.subject).toEqualTypeOf<(() => Promise<string>) | undefined>()
+        },
+      },
+    })
+    defineAgent({
+      extends: child,
+      channels: { mail: telegram() },
+      hooks: {
+        "agent:error"(event) {
+          expectTypeOf(event.message?.kind).toEqualTypeOf<"telegram" | undefined>()
+          expectTypeOf(event.message?.reply).toEqualTypeOf<((input: AgentChannelDeliveryReplyInput) => Promise<void>) | undefined>()
         },
       },
     })
@@ -817,6 +1116,57 @@ describe("agent public types", () => {
     expectTypeOf<ReturnType<typeof registerWithCallOptions>>().toEqualTypeOf<Parameters<typeof registerWithCallOptions>[0]>()
   })
 
+  it("infers ask Driver output from its Jev questions", () => {
+    const agent = defineAgent({
+      driver: {
+        ask: {
+          label: ask.choice("Which label fits?", { invoice: "Bills.", none: null }),
+          reply: ask.switch("Reply?", ["yes", "no"]),
+          spam: ask.if("Is it spam?"),
+          tone: ask.score("How urgent?", ["Calm", "Urgent"]),
+          urgent: ask.chance("Is it urgent?"),
+        },
+      },
+      runtime: false,
+    })
+    // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
+    const result = runAgentInline(agent, {} as AgentRuntimeContext, {})
+    type Output = Exclude<Awaited<typeof result>, Response>
+
+    expectTypeOf<Output["label"]["choice"]>().toEqualTypeOf<"invoice" | "none">()
+    expectTypeOf<Output["label"]["probabilities"]>().toEqualTypeOf<{ readonly invoice: number, readonly none: number }>()
+    expectTypeOf<Output["reply"]>().toEqualTypeOf<"yes" | "no">()
+    expectTypeOf<Output["spam"]>().toEqualTypeOf<boolean>()
+    expectTypeOf<Output["tone"]["ratio"]>().toEqualTypeOf<number>()
+    expectTypeOf<keyof Output["tone"]["legend"]>().toEqualTypeOf<"0" | "1">()
+    expectTypeOf<Output["urgent"]["chance"]>().toEqualTypeOf<number>()
+
+    const dynamic = defineAgent({
+      driver: {
+        ask: context => ({ label: ask.choice(context.prompt ?? null, ["a", "b"]) }),
+      },
+      runtime: false,
+    })
+    // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
+    const dynamicResult = runAgentInline(dynamic, {} as AgentRuntimeContext, {})
+    expectTypeOf<Exclude<Awaited<typeof dynamicResult>, Response>["label"]["choice"]>().toEqualTypeOf<"a" | "b">()
+
+    defineAgent({
+      // @ts-expect-error The ask Driver output is the Jev answers, so it takes no output schema.
+      driver: {
+        ask: { label: ask.choice("Pick", ["a", "b"]) },
+        output: { schema: {} },
+      },
+      runtime: false,
+    })
+    defineAgent({
+      // @ts-expect-error A Driver selects exactly one of model, run, or ask.
+      driver: { ask: { label: ask.choice("Pick", ["a", "b"]) }, run: () => "ok" },
+      runtime: false,
+    })
+  })
+
+
   it("scopes output correction attempts to Model Drivers", () => {
     const schema = {
       "~standard": {
@@ -1167,14 +1517,15 @@ describe("agent public types", () => {
     defineChannel("portal", { dev: { samples: {} } })
     const custom = defineChannel("portal", {
       capabilities: [defineCapability({ id: "portal-api" })],
-      effects: {
-        reaction(context) {
-          expectTypeOf(context.effect.kind).toEqualTypeOf<AgentChannelDeliveryEffectKind>()
-          expectTypeOf(context.effect).toEqualTypeOf<AgentChannelDeliveryEffectIntent>()
-          expectTypeOf(context.effect.artifacts?.[0]).toEqualTypeOf<PublishedAgentDeliveryArtifact | undefined>()
-          expectTypeOf(context.context).toEqualTypeOf<AgentChannelDeliveryEffectContext["context"]>()
-          expectTypeOf(context.request).toEqualTypeOf<Request | undefined>()
-          expectTypeOf(context.workspace).toEqualTypeOf<AgentChannelDeliveryEffectContext["workspace"]>()
+      message: {
+        methods: {
+          reaction(context, emoji: string) {
+            expectTypeOf(emoji).toEqualTypeOf<string>()
+            expectTypeOf(context.message).toEqualTypeOf<unknown>()
+            expectTypeOf(context.context).toEqualTypeOf<AgentChannelMessageContext["context"]>()
+            expectTypeOf(context.request).toEqualTypeOf<Request | undefined>()
+            expectTypeOf(context.workspace).toEqualTypeOf<AgentChannelMessageContext["workspace"]>()
+          },
         },
       },
       messages: false,
@@ -1205,7 +1556,7 @@ describe("agent public types", () => {
       },
     })
     expectTypeOf(custom.capabilities?.[0]).toEqualTypeOf<AgentCapabilityDefinition | undefined>()
-    expectTypeOf(custom.kind).toEqualTypeOf<string>()
+    expectTypeOf(custom.kind).toEqualTypeOf<"portal">()
     expectTypeOf<AgentDeliveryArtifact>().toMatchTypeOf<{ path: string }>()
 
     defineAgent({

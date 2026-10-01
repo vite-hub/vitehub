@@ -208,7 +208,7 @@ function createVercelSession(
   ports: readonly number[] | undefined,
   workspace: string,
 ): RuntimeSession {
-  let destroyed = false;
+  let destroyPromise: Promise<void> | undefined;
   const run = async (options: {
     abortSignal?: AbortSignal;
     command: string;
@@ -244,10 +244,16 @@ function createVercelSession(
     id,
     ...(ports?.length ? { ports } : {}),
     async destroy() {
-      if (destroyed) return;
-      if (instance.stop) await instance.stop({ blocking: true });
-      else await instance[Symbol.asyncDispose]?.();
-      destroyed = true;
+      destroyPromise ??= (async () => {
+        if (instance.stop) await instance.stop({ blocking: true });
+        else await instance[Symbol.asyncDispose]?.();
+      })();
+      try {
+        await destroyPromise;
+      } catch (error) {
+        destroyPromise = undefined;
+        throw error;
+      }
     },
     async existsFile({ abortSignal, path }) {
       abortSignal?.throwIfAborted();

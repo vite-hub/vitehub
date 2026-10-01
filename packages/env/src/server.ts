@@ -36,7 +36,7 @@ interface RuntimeEnvEntry {
   required: boolean
   schema?: EnvValueSchema
   secret: boolean
-  source: { kind: "env", label: string, name: string, names?: string[] }
+  source: { kind: "env", label: string, name: string, names?: string[], skipEmpty?: boolean }
 }
 
 interface RuntimeProviderEntry {
@@ -92,7 +92,7 @@ function runtimeEnv(event?: unknown): RuntimeEnv {
 
 function readRuntimeSource(entry: RuntimeEnvEntry, env: RuntimeEnv): { found: boolean, value?: unknown } {
   for (const name of entry.source.names || [entry.source.name]) {
-    if (Object.hasOwn(env, name) && typeof env[name] !== "undefined") {
+    if (Object.hasOwn(env, name) && typeof env[name] !== "undefined" && !(entry.source.skipEmpty && env[name] === "")) {
       return { found: true, value: env[name] }
     }
   }
@@ -362,6 +362,10 @@ function inspectionPath(path: string): { path?: string } {
   return /^(?:env|runtime)(?:\.[A-Za-z_$][A-Za-z0-9_$-]{0,63}){0,8}$/.test(path) ? { path } : {}
 }
 
+function inspectionProvider(entry: RuntimeProviderEntry): { provider?: string } {
+  return /^[A-Za-z0-9_-]{1,64}$/.test(entry.source.provider) ? { provider: entry.source.provider } : {}
+}
+
 async function inspectRegistryValue(
   value: unknown,
   env: RuntimeEnv,
@@ -371,12 +375,12 @@ async function inspectRegistryValue(
   entries: ServerEnvInspectionEntry[],
 ): Promise<void> {
   if (isRuntimeLiteralEntry(value)) {
-    entries.push({ masked: false, ...inspectionPath(path), source: "literal", status: "available" })
+    entries.push({ masked: false, ...inspectionPath(path), required: false, source: "literal", status: "available" })
     return
   }
   if (isRuntimeEnvEntry(value)) {
     const source = readRuntimeSource(value, env)
-    entries.push({ masked: value.secret, ...inspectionPath(path), source: "env", status: inspectionStatus(value, source.value, source.found) })
+    entries.push({ masked: value.secret, ...inspectionPath(path), required: value.required, source: "env", status: inspectionStatus(value, source.value, source.found) })
     return
   }
   if (isRuntimeProviderEntry(value)) {
@@ -385,19 +389,21 @@ async function inspectRegistryValue(
       entries.push({
         masked: value.secret,
         ...inspectionPath(path),
+        ...inspectionProvider(value),
+        required: value.required,
         source: "provider",
         status: inspectionStatus(value, resolved, typeof resolved !== "undefined"),
       })
     }
     catch (error) {
       if (isCancellation(error, options.signal)) throw error
-      entries.push({ masked: value.secret, ...inspectionPath(path), source: "provider", status: "error" })
+      entries.push({ masked: value.secret, ...inspectionPath(path), ...inspectionProvider(value), required: value.required, source: "provider", status: "error" })
     }
     return
   }
   if (!isRecord(value)) return
   for (const [key, child] of Object.entries(value)) {
-    await inspectRegistryValue(child, env, options, loads, `${path}.${key}`, entries)
+    await inspectRegistryValue(child, env, options, loads, `${path}.${key.includes(".") ? "!" : ""}${key}`, entries)
   }
 }
 
@@ -436,7 +442,7 @@ export function describeServerEnv(registry: EnvRuntimeRegistry): ServerEnvDescri
       entries.push({
         ...inspectionPath(path),
         source: value.source.kind,
-        ...(isRuntimeProviderEntry(value) && /^[A-Za-z0-9_-]{1,64}$/.test(value.source.provider) ? { provider: value.source.provider } : {}),
+        ...(isRuntimeProviderEntry(value) ? inspectionProvider(value) : {}),
         secret: value.secret,
         required: value.required,
         hasDefault: value.default !== undefined,
@@ -448,6 +454,11 @@ export function describeServerEnv(registry: EnvRuntimeRegistry): ServerEnvDescri
   }
   visit(registry, "env.server")
   return { entries }
+}
+
+/** Returns whether an inspection entry makes `loadServerEnv()` fail: invalid, provider error, or required and missing. */
+export function isBlockingServerEnvEntry(entry: ServerEnvInspectionEntry): boolean {
+  return entry.status === "invalid" || entry.status === "error" || (entry.required && entry.status === "missing")
 }
 
 export async function inspectServerEnv(

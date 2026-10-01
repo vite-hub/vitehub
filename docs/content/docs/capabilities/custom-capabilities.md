@@ -31,6 +31,8 @@ export function tickets() {
     tools: {
       searchTickets: {
         name: 'searchTickets',
+        title: 'Searched tickets',
+        icon: 'i-lucide-ticket',
         description: 'Search support tickets by query.',
         inputSchema: searchTicketsInput,
         execute: async input => searchTickets(input.query),
@@ -45,6 +47,15 @@ Agent tools accept raw JSON Schema or a validator that implements both Standard 
 For inline tools, `defineCapability()` infers the handler input from the validator output, including transforms and optional values. TypeScript rejects a handler that requires a different input. Raw JSON Schema has no TypeScript output type, so annotate its handler input. Tools returned by a resolver also check annotated handler inputs against their schemas. Existing AI SDK `tool()` definitions and provider-native tools keep their own contracts.
 
 To set a runtime config type, use `defineCapability<Config>()({...})`. The inner call infers the Capability and its tools. Replace `defineCapability<Config>({...})` calls with this form; the old form could not infer tool schemas.
+
+`title` and `icon` are optional display metadata. The model does not receive them, and they do not change the configuration fingerprint.
+
+| Field | Use |
+| --- | --- |
+| `title` | Short past-tense label for each call, for example `Searched tickets`. Traces record it as `tool.title` when the driver event has no title. The Console shows it instead of the tool name. |
+| `icon` | Iconify name, for example `i-lucide-ticket`. The Console includes the [Lucide](https://lucide.dev/icons/) set and shows the icon on each call and in the tool list. |
+
+The tool catalog records `title` as `label` and keeps `label` and `icon` in metadata-only journals. Per-call `tool.title` attributes are trace content, so metadata-only journals omit them; the Console then reads the label from the catalog.
 
 Attach the custom Capability like any official Capability.
 Keep instructions explicit in the Agent Driver so Capability config does not become a hidden prompt bag.

@@ -21,9 +21,18 @@ export {
 } from "./server/invocation-health.ts"
 
 export { defineAgentRunEvents } from "./run-events.ts"
+export { channelReplayRunId, describeChannelHistory, replayChannel } from "./channel-replay.ts"
+export type {
+  ChannelHistoryDescription,
+  ReplayChannelItem,
+  ReplayChannelItemStatus,
+  ReplayChannelOptions,
+  ReplayChannelResult,
+} from "./channel-replay.ts"
 export {
   AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE,
   agentInvocationId,
+  agentInvocationRerunInput,
   applyAgentInvocationStoreUpdate,
   createMemoryAgentInvocationStore,
   defineAgentInvocations,
@@ -31,17 +40,25 @@ export {
 
 export type {
   AgentInvocationAnnotationValue,
+  AgentInvocationDeleteOutcome,
   AgentInvocationListOptions,
   AgentInvocationListResult,
   AgentInvocationObservationOptions,
+  AgentInvocationPruneOptions,
+  AgentInvocationPruneResult,
   AgentInvocationRecord,
   AgentInvocationRecordStatus,
+  AgentInvocationRerunInput,
+  AgentInvocationRerunUnavailableReason,
+  AgentInvocationRetentionOptions,
   AgentInvocationSummary,
+  AgentInvocationWorkflowBinding,
   AgentInvocations,
   AgentInvocationsOptions,
   AgentInvocationStore,
   AgentInvocationStoreCreateInput,
   AgentInvocationStoreCreateResult,
+  AgentInvocationStorePruneOptions,
   AgentInvocationStoreUpdateInput,
 } from "./invocations.ts"
 

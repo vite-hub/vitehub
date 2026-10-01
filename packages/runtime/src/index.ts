@@ -3,6 +3,7 @@ import { ViteHubError } from "./errors.ts"
 import { runtimeErrorDiagnostics } from "./error-diagnostics.ts"
 
 export { decodeRouteSegment, encodeRouteSegment } from "./route-segment.ts"
+export { consoleInvocationUrl, registerPublicUrlAgentName, resetPublicUrlAgentNames, resolvePublicUrl, type PublicUrlConfig } from "./public-url.ts"
 
 export {
   formatRuntimeDiagnosticError,
@@ -31,6 +32,20 @@ export {
 } from "./errors.ts"
 
 export type MaybePromise<T> = T | Promise<T>
+
+export interface AccessAuthorizationContext {
+  request: Pick<Request, "body" | "headers" | "method" | "signal" | "url">
+  session: Record<string, unknown>
+  user: Record<string, unknown> & { id: string }
+}
+
+export type AccessAuthorizeResult = boolean | Response
+
+/** Decides whether a signed-in user can access one request. Return `false` for `403` or a custom `Response`. */
+export type AccessAuthorize = (context: AccessAuthorizationContext) => MaybePromise<AccessAuthorizeResult>
+
+/** `true` requires a signed-in session. A callback also decides each request after sign-in. */
+export type AccessAuthorizeOption = true | AccessAuthorize
 
 export interface ExecutionAuthority {
   readonly credentials: "ambient" | "none" | "provisioned" | "unknown"

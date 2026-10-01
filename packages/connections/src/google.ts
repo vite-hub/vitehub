@@ -1,3 +1,5 @@
+import * as v from "valibot"
+
 import { gmailMethods, gmailRootUrl } from "./google/gmail.ts"
 
 import type { GmailMethods } from "./google/gmail.ts"
@@ -14,13 +16,18 @@ export interface GoogleProviderOptions {
   clientSecret: ConnectionValue
 }
 
+const accountClaims = v.object({ sub: v.string(), email: v.optional(v.string()) })
+
 function decodeIdToken(token: string | undefined): ConnectionAccount | undefined {
   const payload = token?.split(".")[1]
   if (!payload) return undefined
   try {
     const claims: unknown = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(payload.replace(/-/g, "+").replace(/_/g, "/")), character => character.charCodeAt(0))))
-    if (!claims || typeof claims !== "object" || !("sub" in claims) || typeof claims.sub !== "string") return undefined
-    return { id: claims.sub, ...("email" in claims && typeof claims.email === "string" ? { email: claims.email } : {}) }
+    const parsed = v.safeParse(accountClaims, claims)
+    if (!parsed.success) return undefined
+    const account: ConnectionAccount = { id: parsed.output.sub }
+    if (parsed.output.email !== undefined) account.email = parsed.output.email
+    return account
   }
   catch {
     return undefined
@@ -46,7 +53,9 @@ export function google(options: GoogleProviderOptions): ConnectionProvider<Googl
         rootUrl: gmailRootUrl,
         methods: gmailMethods,
         highRisk: [
+          "users.drafts.delete",
           "users.drafts.send",
+          "users.labels.delete",
           "users.messages.batchDelete",
           "users.messages.delete",
           "users.messages.send",

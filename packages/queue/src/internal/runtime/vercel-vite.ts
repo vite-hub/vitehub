@@ -1,7 +1,7 @@
 import { waitUntil as vercelWaitUntil } from "@vercel/functions"
 import { createVercelHostedServer } from "@vite-hub/internal/runtime/vercel-hosted"
 
-import type { QueueApp } from "../../runtime/_app.ts"
+import type { VitehubApp } from "@vite-hub/internal/runtime/app"
 import { runWithQueueRuntimeEvent, setQueueRuntimeConfig, setQueueRuntimeRegistry } from "./state.ts"
 
 import type { QueueDefinitionRegistry, ResolvedQueueOptions } from "../../types.ts"
@@ -9,7 +9,7 @@ import type { QueueRuntimeClientFactory } from "./state.ts"
 import { queueErrorDiagnostics } from "../../error-diagnostics.ts"
 
 interface QueueVercelServerBaseOptions {
-  app?: QueueApp
+  app?: VitehubApp
   registry?: QueueDefinitionRegistry
 }
 

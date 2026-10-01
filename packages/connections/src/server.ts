@@ -1,10 +1,11 @@
 export { ConnectionError, isConnectionError } from "./errors.ts"
 export { CONNECTIONS_ROUTE, createConnectionsHandler } from "./http.ts"
 export { createConnectionsRuntime } from "./runtime.ts"
-export { connections, getConnectionsRuntime, setConnectionsRuntime, useConnection } from "./runtime/state.ts"
+export { getConnectionsRuntime, setConnectionsRuntime, useConnection } from "./runtime/state.ts"
 export { createDatabaseConnectionStore } from "./store.ts"
 
 export type { ConnectionsHandlerOptions } from "./http.ts"
 export type { ConnectionRuntimeClient, ConnectionsRuntime, ConnectionsRuntimeOptions } from "./runtime.ts"
+export type { ConnectionFetchInit } from "./types.ts"
 export type { ConnectionAuthorization, ConnectionState, ConnectionStore } from "./store.ts"
 export type { ConnectionDefinitionName, ConnectionRegistryClient } from "./registry-types.ts"

@@ -212,16 +212,6 @@ export function toBase64(bytes: Uint8Array): string {
   return encode ? encode(binary) : Buffer.from(bytes).toString("base64");
 }
 
-export function fromBase64(input: string): Uint8Array {
-  const normalized = input.replace(/\s/g, "");
-  const decode = (globalThis as { atob?: (value: string) => string }).atob;
-  if (!decode) return new Uint8Array(Buffer.from(normalized, "base64"));
-  const binary = decode(normalized);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
-  return bytes;
-}
-
 export function resolveGitHubRepositoryOption(
   options: GitHubWorkspaceOptions,
   env: Record<string, string | undefined> = typeof process !== "undefined" ? process.env : {},
@@ -322,38 +312,6 @@ export async function requestGitHubJson<T>(
     throw workspaceError("[vitehub] GitHub workspace request failed.", { cause });
   }
   return (await response.json()) as T;
-}
-
-export async function requestGitHubBytes(
-  repository: string,
-  token: string,
-  path: string,
-  init?: RequestInit,
-): Promise<Uint8Array> {
-  const response = await requestGitHub(`https://api.github.com${path}`, {
-    ...init,
-    headers: {
-      accept: "application/vnd.github.raw+json",
-      authorization: `Bearer ${token}`,
-      "user-agent": "vitehub-workspace",
-      "x-github-api-version": "2022-11-28",
-      ...init?.headers,
-    },
-  });
-
-  if (!response.ok) {
-    const cause = new GitHubRequestError(
-      `[vitehub] GitHub workspace request failed for ${repository}: ${response.status} ${response.statusText} ${await response.text().catch(() => "")}`,
-      response.status,
-    );
-    throw workspaceError("[vitehub] GitHub workspace request failed.", { cause });
-  }
-  if (response.headers.get("content-type")?.includes("application/json")) {
-    const blob = await response.json() as { content?: unknown; encoding?: unknown };
-    if (blob.encoding === "base64" && typeof blob.content === "string") return fromBase64(blob.content);
-    throw workspaceError(`[vitehub] GitHub workspace request for ${repository} returned unsupported byte response.`);
-  }
-  return new Uint8Array(await response.arrayBuffer());
 }
 
 export async function readGitHubRawFile(input: {
@@ -505,20 +463,6 @@ export async function readGitHubBranchState(input: {
     refSha: ref.object.sha,
     treeSha: current.tree.sha,
   };
-}
-
-export async function readGitHubBlob(input: {
-  kind: "publisher" | "store";
-  repository: string;
-  sha: string;
-  token: string;
-}): Promise<Uint8Array> {
-  const { owner, repo } = splitGitHubRepository(input.repository, input.kind);
-  return await requestGitHubBytes(
-    input.repository,
-    input.token,
-    `/repos/${owner}/${repo}/git/blobs/${input.sha}`,
-  );
 }
 
 export async function commitGitHubChanges(input: {

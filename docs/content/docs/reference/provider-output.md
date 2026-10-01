@@ -29,8 +29,11 @@ It belongs to the package that owns the primitive. Application code does not edi
 
 Provider Output is normally written during production-shaped builds. Vite dev proves discovery and local generated files; Netlify local development also materialises package functions for Netlify CLI.
 
+`vitehub inspect provider-output` lists the files that the active packages and the deployment preset own, and shows which exist. Add `--json` to include parsed JSON content with credentials and Worker `vars` redacted. See the [CLI guide](/docs/development/cli#inspect-definitions-and-provider-output).
+
 ```bash [Terminal]
 pnpm build
+pnpm vitehub inspect provider-output
 find .vitehub -maxdepth 4 -type f | sort
 find .vercel/output -maxdepth 4 -type f | sort
 find dist -maxdepth 4 -type f | sort

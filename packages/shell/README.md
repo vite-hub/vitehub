@@ -74,10 +74,14 @@ export async function searchDocs() {
 
 Shell policy can bound calls, processes, output size, and timeouts. A declared boundary describes the provider contract; it is not proof of operating-system isolation. Use [Sandbox](https://vitehub.dev/docs/server-primitives/sandbox) when work needs provider-managed isolation.
 
+The Just Bash `commands` list also applies to controlled `curl` requests. A Source network grant permits access to its declared target, but `curl` must still be included when you configure a command list.
+
+The provider copies the command list at creation. Later changes to the supplied list do not change its permissions or network boundary.
+
 ## Use with Agents
 
 `workspaceShell()` in [`@vite-hub/agent`](../agent/README.md) exposes scoped shell work through an Agent Capability. It attaches Workspace Scope, Shell policy, metadata, and tools to the Agent Definition; do not expose an unrestricted raw runtime to a model.
 
 Built on [just-bash](https://www.npmjs.com/package/just-bash) for the built-in shell provider and [sh-syntax](https://www.npmjs.com/package/sh-syntax) for command analysis.
 
-Read the complete [Shell guide](https://vitehub.dev/docs/server-primitives/shell), the [Bash contract](https://vitehub.dev/docs/concepts/bash), and the [official Capabilities guide](https://vitehub.dev/docs/capabilities/official-capabilities).
+Read the complete [Shell guide](https://vitehub.dev/docs/server-primitives/shell), the [Workspace shell Capability](https://vitehub.dev/docs/capabilities/workspace-shell), and the [official Capabilities guide](https://vitehub.dev/docs/capabilities/official-capabilities).

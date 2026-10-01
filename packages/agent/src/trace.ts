@@ -4,11 +4,12 @@ import { emitTraceEvent } from "@vite-hub/runtime"
 import { redactCredentialText } from "./internal/credential-redaction.ts"
 
 import { agentErrorDetails } from "./agent-error.ts"
-import { agentInvokerLabel } from "./invoker.ts"
-import { isAttachmentPart, type AgentActivity, type Message, type StreamEvent } from "./messages.ts"
+import { agentInvokerLabel, hasResolvedAgentInvokerInput, hasResolverDerivedAgentInvoker, hasUnreplayableAgentInputContext, resolveInputAgentInvoker } from "./invoker.ts"
+import { isAttachmentPart, type Message, type StreamEvent } from "./messages.ts"
 import type {
   AgentDriverContribution,
   AgentInvocationContextStore,
+  AgentToolDefinition,
   AgentChannelDeliveryEffectIntent,
   AgentInvoker,
   AgentRunInput,
@@ -88,14 +89,27 @@ function invocationAttributes(
 ) {
   return {
     "agent.invoker.id": context.invoker.id,
+    "agent.invoker.profile.id": context.context.get("agent.invoker.profile.id"),
     "agent.invoker.kind": context.invoker.kind,
     "agent.invoker.label": agentInvokerLabel(context.invoker),
     "agent.run.id": context.run?.runId,
     "channel.delivery.id": context.runtime.channelDelivery?.id,
     "channel.delivery.provider": context.runtime.channelDelivery?.provider,
     "channel.delivery.source.id": context.runtime.channelDelivery?.sourceId,
+    "input.replay.version": 5,
+    "input.hasInvoker": resolveInputAgentInvoker(context.input.context) !== undefined
+      && !(hasResolvedAgentInvokerInput(context.input) && context.context.get("agent.invoker.profile.id") !== undefined),
+    // A resolver-derived invoker without a selected profile cannot be reconstructed by a rerun.
+    "input.hasResolvedInvoker": (hasResolvedAgentInvokerInput(context.input) || hasResolverDerivedAgentInvoker(context.context))
+      && context.context.get("agent.invoker.profile.id") === undefined,
+    "input.hasContext": hasUnreplayableAgentInputContext(context.input.context),
+    "input.hasRunMetadata": Object.entries(context.runtime.run ?? {}).some(([key, value]) => key !== "runId" && value !== undefined),
+    "input.hasDryRun": context.input.dryRun === true,
+    "input.hasTimeout": context.input.timeout !== undefined,
+    "input.hasAbortSignal": context.input.abortSignal !== undefined,
     "input.hasData": context.input.data !== undefined,
-    "input.hasMessages": Boolean(context.input.messages?.length),
+    "input.hasMessages": context.input.message !== undefined || context.input.messages !== undefined,
+    "input.hasOptions": context.input.options !== undefined,
     "input.hasPrompt": Boolean(context.input.prompt),
     ...(includeInput && context.input.data !== undefined ? { "input.data": context.input.data } : {}),
     ...(includeInput && context.input.messages?.length ? { "input.messages": traceMessages(context.input.messages) } : {}),
@@ -407,9 +421,16 @@ function agentTraceActivity(event: TraceEvent): TraceActivityContext {
 
 export async function traceAgentInvocationStart<TRuntimeConfig extends AgentRuntimeConfig>(
   context: AgentTraceContext<TRuntimeConfig>,
+  replayInput: AgentRunInput,
+  replayHasContext: boolean,
+  replayHasAbortSignal: boolean | undefined,
 ): Promise<void> {
   await traceAgentEvent(context, {
-    attributes: invocationAttributes(context, {}, true),
+    attributes: invocationAttributes({ ...context, input: replayInput }, {
+      "input.promptChanged": context.input.prompt !== replayInput.prompt,
+      "input.hasContext": replayHasContext,
+      "input.hasAbortSignal": replayHasAbortSignal,
+    }, true),
     name: "agent.invocation.start",
     type: "run",
   })
@@ -667,7 +688,7 @@ function firstString(...values: unknown[]): string | undefined {
 
 export function aiSdkTelemetryIntegration<TRuntimeConfig extends AgentRuntimeConfig>(
   context: AgentTraceContext<TRuntimeConfig>,
-  toolActivities?: ReadonlyMap<string, AgentActivity>,
+  toolDefaults?: ReadonlyMap<string, Pick<AgentToolDefinition, "activity" | "title">>,
 ): Telemetry {
   const modelAttributes = (event: unknown) => ({
     "model.id": firstString(valueFromPath(event, ["model", "modelId"]), valueFromPath(event, ["model", "id"]), valueFromPath(event, ["modelId"])),
@@ -676,11 +697,13 @@ export function aiSdkTelemetryIntegration<TRuntimeConfig extends AgentRuntimeCon
   })
   const toolAttributes = (event: unknown) => {
     const name = firstString(valueFromPath(event, ["toolCall", "toolName"]), valueFromPath(event, ["toolName"]), valueFromPath(event, ["name"]), valueFromPath(event, ["tool", "name"]))
-    const activity = name ? toolActivities?.get(name) : undefined
+    const defaults = name ? toolDefaults?.get(name) : undefined
+    const activity = defaults?.activity
     return {
       "step.id": firstString(valueFromPath(event, ["toolCall", "toolCallId"]), valueFromPath(event, ["toolCallId"]), valueFromPath(event, ["id"]), valueFromPath(event, ["tool", "id"])) || "tool",
       "tool.id": firstString(valueFromPath(event, ["toolCall", "toolCallId"]), valueFromPath(event, ["toolCallId"]), valueFromPath(event, ["id"]), valueFromPath(event, ["tool", "id"])),
       "tool.name": name,
+      ...(defaults?.title ? { "tool.title": defaults.title } : {}),
       "vitehub.action.name": activity?.kind === "action" ? activity.name : undefined,
       "vitehub.activity.kind": activity?.kind || "tool",
     }

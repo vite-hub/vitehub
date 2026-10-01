@@ -15,6 +15,7 @@ import {
   access,
   blob,
   browser,
+  channelDelivery,
   chat,
   chatSummary,
   title,
@@ -74,6 +75,7 @@ import {
 | Blob storage | [`blob()`](/docs/capabilities/blob) | The Agent needs scoped object read or edit tools. |
 | Database | [`db()`](/docs/capabilities/db) | The Agent needs guarded SQL query, schema, or mutation tools. |
 | Email | [`email()`](/docs/capabilities/email) | Send authorized plain-text messages through the configured Email primitive. |
+| Channel delivery | [`channelDelivery()`](/docs/capabilities/channel-delivery) | Send the Agent's result through a Channel to a recipient that the application selects. |
 | Sandbox execution | [`sandbox()`](/docs/capabilities/sandbox) | The Agent may run an allowlisted executable in an isolated runtime. |
 | Schedules | [`schedule()`](/docs/capabilities/schedule) | The Agent declares scheduled invocations or manages Runtime Schedules through tools. |
 | OTLP telemetry | [`otlp()`](/docs/capabilities/otlp) | Live Agent Invocation events and completed traces should be exported to an OpenTelemetry receiver. |
@@ -96,8 +98,8 @@ import {
 
 | Ability | Capability | Use it when |
 | --- | --- | --- |
-| LLM routing | [`llmRoute()`](/docs/capabilities/llm-route) | Choose one developer-defined route with a model before the invocation. |
-| LLM gate | [`llmGate()`](/docs/capabilities/llm-gate) | Allow or reject a request with a model before the invocation. |
+| LLM routing | [`llmRoute()`](/docs/capabilities/llm-route) | Choose one developer-defined route with a model, or with Jev for ask Driver Agents, before the invocation. |
+| LLM gate | [`llmGate()`](/docs/capabilities/llm-gate) | Allow or reject a request with a model, or with Jev for ask Driver Agents, before the invocation. |
 | Rate limit | [`rateLimit()`](/docs/capabilities/rate-limit) | Consume a trusted invocation budget before the Agent runs. |
 | Title | [`title()`](/docs/capabilities/title) | Generate a title for Agent output, finish extensions, or Channel threads. |
 | Chat summary | [`chatSummary()`](/docs/capabilities/chat-summary) | Replace a summary command with a conversation summary. |

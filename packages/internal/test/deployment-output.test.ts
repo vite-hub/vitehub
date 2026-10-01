@@ -14,7 +14,8 @@ vi.mock("node:fs", async (importOriginal) => {
   return { ...actual, renameSync: vi.fn(actual.renameSync), rmSync: vi.fn(actual.rmSync) }
 })
 
-vi.mock("../src/build/esbuild.ts", () => ({
+vi.mock("../src/build/esbuild.ts", async importOriginal => ({
+  ...await importOriginal<typeof import("../src/build/esbuild.ts")>(),
   bundleEsmEntry: vi.fn(async (_entry: string, outfile: string) => {
     await mkdir(dirname(outfile), { recursive: true })
     await writeFile(outfile, "export default {}\n", "utf8")
@@ -58,6 +59,29 @@ afterEach(async () => {
 })
 
 describe("provider deployment outputs", () => {
+  it.each([false, true])("recovers retained Netlify output before a transaction with failure %s", async (fail) => {
+    const rootDir = await createTempProject()
+    const { createDefaultNetlifyOutputRoot, withProviderDeploymentOutputLock } = await import("../src/build/deployment-output.ts")
+    const outputRoot = createDefaultNetlifyOutputRoot(rootDir)
+    const previousRoot = `${outputRoot}.previous`
+    const functionPath = "functions/vitehub-schedule-cleanup.mjs"
+    const sourcePath = "schedule/sources/cleanup.schedule.ts"
+    await mkdir(join(previousRoot, "functions"), { recursive: true })
+    await mkdir(join(previousRoot, "schedule/sources"), { recursive: true })
+    await writeFile(join(previousRoot, functionPath), "previous function")
+    await writeFile(join(previousRoot, sourcePath), "previous source")
+    const generation = withProviderDeploymentOutputLock(rootDir, async () => {
+      expect(await readFile(join(outputRoot, functionPath), "utf8")).toBe("previous function")
+      expect(await readFile(join(outputRoot, sourcePath), "utf8")).toBe("previous source")
+      if (fail) throw new Error("generation failed")
+    })
+    if (fail) await expect(generation).rejects.toThrow("generation failed")
+    else await generation
+    expect(await readFile(join(outputRoot, functionPath), "utf8")).toBe("previous function")
+    expect(await readFile(join(outputRoot, sourcePath), "utf8")).toBe("previous source")
+    expect(existsSync(previousRoot)).toBe(false)
+  })
+
   it("bundles retained sources against their captured project root", async () => {
     const rootDir = await createTempProject()
     const sourceRootDir = join(rootDir, ".vitehub", "agent-generations", "one", "sources", "0")
@@ -747,7 +771,7 @@ describe("provider deployment outputs", () => {
     expect(vi.mocked(bundleEsmEntry)).toHaveBeenCalledWith(
       join(rootDir, "agent.mjs"),
       join(`${netlifyDir}.pending`, "functions", "vitehub-agent.mjs"),
-      { format: "esm", minifyIdentifiers: true, platform: "node", rootDir, signal: undefined },
+      { define: {}, format: "esm", minifyIdentifiers: true, platform: "node", rootDir, signal: undefined },
     )
     await expect(readFile(join(netlifyDir, "config.json"), "utf8").then(JSON.parse)).resolves.toEqual({
       edge_functions: [{ function: "vitehub-edge", path: "/edge" }],

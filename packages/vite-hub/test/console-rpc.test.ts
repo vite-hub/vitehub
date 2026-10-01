@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
+import { inspectServerEnv } from "@vite-hub/env"
+import { installConsoleEnv } from "../src/console/runtime/server/env.ts"
+
 import { requestConsole } from "../src/console/runtime/client/request.ts"
 import { consoleRpcHeader, consoleRpcMethods } from "../src/console/runtime/rpc.ts"
 import consoleRpcHandler, { handleConsoleRpcRequest } from "../src/console/runtime/server/rpc.ts"
@@ -21,6 +25,25 @@ afterEach(() => {
 })
 
 describe("Console RPC", () => {
+  it("preserves request bindings through Env status inspection", async () => {
+    installConsoleSections("/console-rpc-env", ["env"])
+    const binding = "request-only-secret"
+    installConsoleEnv("/console-rpc-env", { entries: [] }, undefined, async event => {
+      expect(getCloudflareEnv(event, { fallback: false })).toEqual({ RPC_TOKEN: binding })
+      return inspectServerEnv({ token: { required: true, schema: { kind: "string" }, secret: true, source: { kind: "env", label: "env:RPC_TOKEN", name: "RPC_TOKEN", serializable: true } } }, event)
+    })
+    const request = Object.assign(new Request(callURL, {
+      body: JSON.stringify({ input: { query: { status: "1" } }, method: consoleRpcMethods.env }),
+      headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
+      method: "POST",
+    }), { runtime: { name: "cloudflare", cloudflare: { context: { waitUntil: vi.fn(), passThroughOnException: vi.fn() }, env: { RPC_TOKEN: binding } } } })
+    const response = await consoleRpcHandler.fetch(request)
+    expect(response.status).toBe(200)
+    const body = await response.json()
+    expect(body).toMatchObject({ ok: true, value: { status: [{ status: "available", blocking: false }] } })
+    expect(JSON.stringify(body)).not.toContain(binding)
+  })
+
   it("serves consecutive calls from different handler instances", async () => {
     installConsoleSections("/console-rpc-test", ["agents", "usage"])
     installConsoleProjectName("/console-rpc-test", "Stateless Console")
@@ -135,5 +158,103 @@ describe("Console RPC", () => {
     const oversized = await call(JSON.stringify({ input: { body: "x".repeat(16 * 1_024 * 1_024) }, method: consoleRpcMethods.agentInvocations }))
     expect(oversized.status).toBe(413)
     await expect(oversized.json()).resolves.toEqual({ message: "Console request body exceeds the byte limit.", ok: false, status: 413 })
+  })
+
+  it("enforces the non-invocation limit on raw envelope bytes", async () => {
+    const envelope = JSON.stringify({ method: consoleRpcMethods.sections })
+    const body = envelope.padEnd(64 * 1_024, " ")
+    expect((await call(body)).status).toBe(200)
+    const response = await call(`${body} `)
+    expect(response.status).toBe(413)
+    await expect(response.json()).resolves.toEqual({ message: "Console request body exceeds the byte limit.", ok: false, status: 413 })
+  })
+
+  it("cancels oversized ordinary envelopes before reading the remaining body", async () => {
+    const encoder = new TextEncoder()
+    const chunks = [
+      encoder.encode(JSON.stringify({ method: consoleRpcMethods.sections }).padEnd(32 * 1_024, " ")),
+      encoder.encode(" ".repeat(32 * 1_024)),
+      encoder.encode(" "),
+      encoder.encode(" ".repeat(32 * 1_024)),
+    ]
+    const cancel = vi.fn()
+    let reads = 0
+    const body = new ReadableStream<Uint8Array>({
+      cancel,
+      pull(controller) {
+        const chunk = chunks[reads++]
+        if (chunk) controller.enqueue(chunk)
+        else controller.close()
+      },
+    }, { highWaterMark: 0 })
+    const response = await handleConsoleRpcRequest(new Request(callURL, {
+      body,
+      duplex: "half",
+      headers: { [consoleRpcHeader]: "1" },
+      method: "POST",
+    } as RequestInit))
+    expect(response.status).toBe(413)
+    expect(cancel).toHaveBeenCalledOnce()
+    expect(reads).toBe(3)
+  })
+
+  it("counts UTF-8 bytes for non-invocation envelopes", async () => {
+    const body = JSON.stringify({ input: { body: "é".repeat(40 * 1_024) }, method: consoleRpcMethods.sections })
+    expect(body.length).toBeLessThan(64 * 1_024)
+    expect((await call(body)).status).toBe(413)
+  })
+
+  it("keeps the invocation allowance for a method-only envelope", async () => {
+    const envelope = JSON.stringify({ method: consoleRpcMethods.agentInvocations })
+    const response = await call(envelope.padEnd(80 * 1_024, " "))
+    expect(response.status).toBe(405)
+    await expect(response.json()).resolves.toEqual({ message: "Method not allowed", ok: false, status: 405 })
+  })
+
+  it("keeps the larger allowance for invocation envelopes", async () => {
+    const response = await call(JSON.stringify({ method: consoleRpcMethods.agentInvocations, input: { body: "x".repeat(80 * 1_024), method: "POST" } }))
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({ message: "Missing Agent name.", ok: false, status: 400 })
+  })
+
+  it("classifies invocation prefixes split across stream chunks", async () => {
+    const envelope = JSON.stringify({ method: consoleRpcMethods.agentInvocations, input: { body: "x".repeat(80 * 1_024), method: "POST" } })
+    const bytes = new TextEncoder().encode(envelope)
+    let offset = 0
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (offset === bytes.length) controller.close()
+        else {
+          controller.enqueue(bytes.subarray(offset, offset + 1_024))
+          offset = Math.min(offset + 1_024, bytes.length)
+        }
+      },
+    })
+    const response = await handleConsoleRpcRequest(new Request(callURL, {
+      body,
+      duplex: "half",
+      headers: { [consoleRpcHeader]: "1" },
+      method: "POST",
+    } as RequestInit))
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toMatchObject({ message: "Missing Agent name." })
+  })
+
+  it.each([
+    { input: { body: "x".repeat(80 * 1_024) }, method: consoleRpcMethods.agentInvocations },
+    { input: { method: consoleRpcMethods.agentInvocations, body: "x".repeat(80 * 1_024) }, method: consoleRpcMethods.sections },
+  ])("requires a leading invocation method before allowing a large body", async (envelope) => {
+    expect((await call(JSON.stringify(envelope))).status).toBe(413)
+  })
+
+  it("rejects a duplicate method after a leading invocation method", async () => {
+    const invocation = JSON.stringify({ method: consoleRpcMethods.agentInvocations, input: { body: "x".repeat(80 * 1_024) } })
+    const duplicate = `${invocation.slice(0, -1)}, "method": ${JSON.stringify(consoleRpcMethods.sections)}}`
+    expect((await call(duplicate)).status).toBe(400)
+  })
+
+  it("caps invocation bodies after selecting the larger allowance", async () => {
+    const envelope = JSON.stringify({ method: consoleRpcMethods.agentInvocations, input: { body: "x".repeat(16 * 1_024 * 1_024) } })
+    expect((await call(envelope)).status).toBe(413)
   })
 })

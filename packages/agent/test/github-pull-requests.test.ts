@@ -55,6 +55,23 @@ describe("GitHub pull request snapshots", () => {
     }])
   })
 
+  it("defaults the session link to vitehub({ publicUrl })", async () => {
+    const { agentInvocationId } = await import("../src/invocations.ts")
+    vi.stubGlobal("__VITEHUB_PUBLIC_URL__", { agents: { babysitter: "https://agents.example.test" } })
+    try {
+      const linked = await createGitHubPullRequestRun("acme/app", snapshot, { agentName: "babysitter", runId: "delivery-2" })
+      expect(linked.activity?.links).toEqual([{
+        label: "Current session",
+        url: `https://agents.example.test/_vitehub/agents/babysitter/invocations/${await agentInvocationId("delivery-2", "babysitter")}`,
+      }])
+      const unlinked = await createGitHubPullRequestRun("acme/app", snapshot, { agentName: "other", runId: "delivery-2" })
+      expect(unlinked.activity?.links).toEqual([])
+    }
+    finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it("keeps failures actionable when another check is pending", () => {
     expect(pullRequestCheckState([{ bucket: "pending" }, { bucket: "fail" }])).toBe("failed");
     expect(pullRequestCheckState([{ state: "SUCCESS" }])).toBe("passed");

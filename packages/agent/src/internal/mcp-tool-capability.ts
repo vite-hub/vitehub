@@ -14,7 +14,8 @@ import type {
   AgentToolSet,
   MaybePromise,
 } from "../types.ts"
-import type { McpClient, McpClientConfig, McpToolFingerprints } from "../mcp/types.ts"
+import type { McpAvailabilityWarning, McpClient, McpClientConfig, McpToolFingerprints } from "../mcp/types.ts"
+import { chatFinalReplyNoticesContextKey } from "./chat-finish-delivery.ts"
 import type { WorkspaceName } from "@vite-hub/workspace"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 
@@ -50,7 +51,10 @@ export interface McpToolCapabilityOptions<
   metadata?: Record<string, unknown>
   servers: McpToolServerDefinition<TRuntimeConfig, Name>[]
   toolName: (serverName: string, toolName: string) => string
+  unavailableNotice?: (servers: string[]) => string
 }
+
+export const mcpWarningsContextKey = "vitehub.mcp.warnings"
 
 function mcpToolDefinitionDriftError(server: string, drift: McpToolDrift, integrityLabel: string) {
   const summarize = (names: string[]) => names.slice(0, 12).map(name => name.slice(0, 128))
@@ -161,24 +165,51 @@ function recordMcpAvailabilityWarning(
     ? input.context
     : {}
   const statusCode = mcpFailureStatus(error)
-  const warning = {
+  const warning: McpAvailabilityWarning = {
     server,
     phase,
     ...(statusCode ? { statusCode } : {}),
   }
-  const currentWarnings = Array.isArray(currentContext["vitehub.mcp.warnings"])
-    ? currentContext["vitehub.mcp.warnings"]
+  const currentWarnings = Array.isArray(currentContext[mcpWarningsContextKey])
+    ? currentContext[mcpWarningsContextKey]
     : []
   context.input.set({
     ...input,
     context: {
       ...currentContext,
-      "vitehub.mcp.warnings": [...currentWarnings, warning],
+      [mcpWarningsContextKey]: [...currentWarnings, warning],
     },
   })
 }
 
-async function resolveMcpToolServer(
+function addChatFinalReplyNotice(context: AgentCapabilityRuntimeContext, notice: string): void {
+  if (!notice?.trim()) return
+  const input = context.input.get()
+  const currentContext = isRuntimeRecord(input.context) && !Array.isArray(input.context)
+    ? input.context
+    : {}
+  const currentNotices = Array.isArray(currentContext[chatFinalReplyNoticesContextKey])
+    ? currentContext[chatFinalReplyNoticesContextKey]
+    : []
+  context.input.set({
+    ...input,
+    context: {
+      ...currentContext,
+      [chatFinalReplyNoticesContextKey]: [...currentNotices, notice],
+    },
+  })
+}
+
+/** Send `initialize` first unless a config opts in to protocol discovery. */
+export function withMcpInitializationCompatibility(connection: McpClient | McpClientConfig): McpClient | McpClientConfig {
+  if (isMcpClient(connection) || !isMcpClientConfig(connection)) return connection
+  return {
+    ...connection,
+    protocolVersionDiscovery: connection.protocolVersionDiscovery ?? false,
+  }
+}
+
+export async function resolveMcpToolServer(
   resolved: ResolvedMcpToolServer,
   invalidServerMessage: string,
   createMcpClient?: (config: McpClientConfig) => Promise<McpClient>,
@@ -281,6 +312,8 @@ export function defineMcpToolCapability<
       }
       await publishInspection()
       if (hardFailure) throw hardFailure.reason
+      const unavailable = servers.filter(server => server.status === "Unavailable").map(server => String(server.name))
+      if (unavailable.length && options.unavailableNotice) addChatFinalReplyNotice(context, options.unavailableNotice(unavailable))
       for (const result of results) {
         if (result.status !== "fulfilled" || !result.value) continue
         const { metadata, server, serverTools } = result.value

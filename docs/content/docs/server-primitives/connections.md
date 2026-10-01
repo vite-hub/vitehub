@@ -135,10 +135,13 @@ A denied call throws `ConnectionError` with code `CONNECTION_DENIED` and records
 A write that needs approval throws `ConnectionError` with code `CONNECTION_APPROVAL_REQUIRED`. `error.requestId` is the approval id. The approval stores the method and its input.
 
 ```sh
-vitehub connections approvals
+vitehub connections approvals --json
+vitehub connections approvals --before approval_older_page...
 vitehub connections approvals approve approval_3kq2...
 vitehub connections approvals deny approval_3kq2...
 ```
+
+Approval lists return at most 100 rows. JSON output has `{ approvals, nextCursor? }`. Pass `nextCursor` to `--before` with the same name and status filters to read older approvals. The Console provides Previous and Next controls for pending approvals and uses grouped pending counts for its Connections list.
 
 Approving runs the call once, as the actor that requested it. The access rules still apply. The approval then has status `executed` or `failed`.
 

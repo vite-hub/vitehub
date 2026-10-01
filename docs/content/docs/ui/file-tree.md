@@ -1,12 +1,12 @@
 ---
 title: File Tree
 description: Render and control Pierre's path-first file tree from Vue.
-navigation.order: 35
+navigation.order: 38
 navigation.group: Agent work
 icon: i-ph-tree-structure-light
 ---
 
-`AgentFileTree` turns a list of repository paths into an interactive `@pierre/trees` view. The direct component path owns the Pierre model and cleans it up when Vue unmounts the tree.
+`AgentFileTree` turns a list of repository paths into an interactive `@pierre/trees` view with folders, search, selection, and Git status. Use it to browse a Workspace or the files that an Agent changed.
 
 ::component-preview{name="FileTreeExample"}
 ::
@@ -20,9 +20,16 @@ icon: i-ph-tree-structure-light
 />
 ```
 
-## Controlled model
+When you pass `paths`, the component owns the Pierre model and cleans it up when Vue unmounts the tree. A new `paths` array resets the paths. A new `options` object creates a new model.
 
-Use `useAgentFileTree()` when application code needs selection, search, rename, drag-and-drop, or mutation methods:
+## Examples
+
+### Controlled model
+
+Use `useAgentFileTree()` when application code needs selection, search, rename, drag and drop, or mutation methods. `useAgentFileTreeSelection()` returns a reactive copy of the selected paths. Pass `gitStatus` to mark added and modified files.
+
+::component-preview{name="FileTreeControlledExample" reset}
+::
 
 ```vue
 <script setup lang="ts">
@@ -40,16 +47,49 @@ const selectedPaths = useAgentFileTreeSelection(tree);
 </template>
 ```
 
-The composables dispose subscriptions and the model with the current Vue scope.
+When `model` is set, it is the source of truth. Do not also use `paths` or `options` as controlled inputs. Both composables dispose their subscription and the model with the current Vue scope.
 
-## Props
+## API reference
 
-| Prop      | Type                             | Default | Purpose                                  |
-| --------- | -------------------------------- | ------- | ---------------------------------------- |
-| `paths`   | `readonly string[]`              | `[]`    | Paths used to create or update the tree. |
-| `options` | `Omit<FileTreeOptions, 'paths'>` |         | Pierre configuration for an owned model. |
-| `model`   | `FileTree`                       |         | An application-owned Pierre tree model.  |
+### AgentFileTree
 
-When `model` is present, it is the source of truth. Do not also use `paths` or `options` as controlled inputs.
+#### Props
 
-The inner tree is named `Files` by default. Pass `aria-label` when the surrounding context calls for a more specific name.
+| Prop      | Type                             | Default | Description                                        |
+| --------- | -------------------------------- | ------- | -------------------------------------------------- |
+| `paths`   | `readonly string[]`              | `[]`    | Paths for the owned model.                         |
+| `options` | `Omit<FileTreeOptions, 'paths'>` |         | Pierre configuration for the owned model.          |
+| `model`   | `FileTree`                       |         | An application-owned model. Replaces `paths` and `options`. |
+
+Other attributes go to the tree element. The component exposes `getModel()` through a template ref.
+
+### useAgentFileTree
+
+```ts
+function useAgentFileTree(options: AgentFileTreeOptions): FileTree;
+
+interface AgentFileTreeOptions extends Omit<FileTreeOptions, "paths"> {
+  paths: readonly string[];
+}
+```
+
+Creates a Pierre `FileTree` model. Common options are `initialExpansion`, `initialSelectedPaths`, `search`, `gitStatus`, and `onSelectionChange`. The model is cleaned up when the current Vue scope is disposed.
+
+### useAgentFileTreeSelection
+
+```ts
+function useAgentFileTreeSelection(model: FileTree): ShallowRef<readonly string[]>;
+```
+
+Returns the selected paths. The ref updates only when the selection changes.
+
+## Accessibility
+
+- The inner tree has `role="tree"` and the accessible name **Files**. Pass `aria-label` for a more specific name, for example **Changed files**.
+- Pierre handles keyboard navigation inside the tree.
+
+## Related
+
+- [Diff](/docs/ui/diff) shows the change of the selected file.
+- [Code view](/docs/ui/code-view) shows the selected file's contents.
+- [Code review block](/docs/ui/blocks/code-review) connects a tree to a diff.

@@ -80,6 +80,7 @@ export const workspaceErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     WORKSPACE_R0059: dynamicError,
     WORKSPACE_R0060: dynamicError,
     WORKSPACE_R0061: dynamicError,
+    // Retired: inferred MCP resource Sources no longer need a registered loader. Do not reuse this code.
     WORKSPACE_R0062: dynamicError,
     WORKSPACE_R0063: dynamicError,
     WORKSPACE_R0064: dynamicError,

@@ -2,6 +2,12 @@ import { hasRuntimeType } from "./internal/runtime-type.ts"
 import { readFile } from "node:fs/promises"
 import { resolve } from "node:path"
 
+import {
+  discoverViteHubDevServer,
+  fetchViteHubDevEndpoint,
+  readViteHubDevTargetOption,
+  resolveViteHubDevServerUrl,
+} from "@vite-hub/internal/cli"
 import { readWorkspaceDevToken, workspaceDevTokenHeader } from "@vite-hub/workspace/server"
 
 import { formatAgentError } from "./agent-error.ts"
@@ -10,11 +16,11 @@ import { isCompatibleAgentDevServerRoot, runAgentInfoCli } from "./internal/agen
 import { runAgentInvocationsCli } from "./internal/agent-invocations-cli.ts"
 import { runAgentChannelSyncCli } from "./internal/channel-sync-cli.ts"
 import { runAgentChannelHistoryCli } from "./internal/channel-history-cli.ts"
+import { runAgentChannelReplayCli } from "./internal/channel-replay-cli.ts"
 import { enrichAgentUsageCost, modelsDevPricing, type AgentUsagePricing } from "./internal/usage-pricing.ts"
 import { resolveAgentEvalOptions, writeAgentEvaliteConfig, type ResolvedAgentEvalOptions } from "./internal/evalite-config.ts"
 import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute, readAgentInvocationStream } from "./invocation-stream.ts"
 
-import type { AgentDevLoopDiscoveryResponse } from "./invocation-stream.ts"
 import type { AgentEvalOptions, AgentUsageRecord } from "./types.ts"
 import type { UIMessageLike } from "./chat-message-input.ts"
 import type { WorkspaceDevTokenOptions } from "@vite-hub/workspace/server"
@@ -618,11 +624,23 @@ export async function runAgentEvalCli(
   return result?.exitCode ?? 0
 }
 
+const agentDevEndpoint = {
+  header: agentInvocationStreamHeader,
+  headerValue: agentInvocationStreamHeaderValue,
+  route: agentInvocationStreamRoute,
+}
+
+const agentDevTargetErrors = {
+  invalidInlineTimeout: (message: string) => agentDiagnostics.AGENT_R0394({ message }),
+  invalidTimeout: (message: string) => agentDiagnostics.AGENT_R0393({ message }),
+  missingValue: (message: string) => agentDiagnostics.AGENT_R0385({ message }),
+}
+
 function parseDevArgs(args: string[], env: NodeJS.ProcessEnv): ParsedDevArgs {
   const message: string[] = []
   const parsed: ParsedDevArgs = {
     help: false,
-    url: env.VITEHUB_DEV_SERVER_URL || "http://localhost:5173",
+    url: resolveViteHubDevServerUrl(env),
   }
 
   for (let index = 0; index < args.length; index++) {
@@ -683,26 +701,9 @@ function parseDevArgs(args: string[], env: NodeJS.ProcessEnv): ParsedDevArgs {
       parsed.payloadPath = arg.slice("--payload=".length)
       continue
     }
-    if (arg === "--url" || arg === "--server") {
-      parsed.url = readOptionValue(args, index, arg)
-      index++
-      continue
-    }
-    if (arg.startsWith("--url=")) {
-      parsed.url = arg.slice("--url=".length)
-      continue
-    }
-    if (arg === "--timeout") {
-      const timeout = Number.parseInt(readOptionValue(args, index, arg), 10)
-      if (!Number.isFinite(timeout) || timeout <= 0) throw agentDiagnostics.AGENT_R0393({ message: "--timeout must be a positive number." })
-      parsed.timeout = timeout
-      index++
-      continue
-    }
-    if (arg.startsWith("--timeout=")) {
-      const timeout = Number.parseInt(arg.slice("--timeout=".length), 10)
-      if (!Number.isFinite(timeout) || timeout <= 0) throw agentDiagnostics.AGENT_R0394({ message: "--timeout must be a positive number." })
-      parsed.timeout = timeout
+    const targetOption = readViteHubDevTargetOption(args, index, parsed, agentDevTargetErrors)
+    if (targetOption !== undefined) {
+      index += targetOption
       continue
     }
     if (arg.startsWith("-")) {
@@ -754,47 +755,29 @@ async function loadDevPayload(payloadPath: string, rootDir: string, cwd: string)
   }
 }
 
-function endpointUrl(baseUrl: string): string {
-  return new URL(agentInvocationStreamRoute, baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`).href
-}
-
 async function readDiscovery(
   parsed: ParsedDevArgs,
   context: AgentCliContext,
   fetchImpl: typeof fetch,
 ): Promise<AgentDevTarget | undefined> {
-  let url: string
-  try {
-    url = endpointUrl(parsed.url)
-  }
-  catch {
-    context.stderr.write(`Invalid Vite Development Server URL: ${parsed.url}\n`)
-    return
-  }
-  let response: Response
-  try {
-    response = await fetchImpl(url, {
-      headers: {
-        accept: "application/json",
-        [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
-      },
-    })
-  }
-  catch {
-    context.stderr.write(`No Compatible Vite Development Server found at ${parsed.url}.\n`)
-    return
-  }
-  if (!response.ok) {
-    context.stderr.write(`No Compatible Vite Development Server found at ${parsed.url}.\n`)
-    return
-  }
-
-  // SAFETY: CLI option parsing establishes the asserted command contract.
-  const discovery = await response.json().catch(() => ({})) as Partial<AgentDevLoopDiscoveryResponse>
-  if (hasRuntimeType(discovery.root, "string") && !isCompatibleAgentDevServerRoot(context.rootDir, discovery.root)) {
-    context.stderr.write(`Compatible Vite Development Server root mismatch: ${discovery.root}\n`)
-    return
-  }
+  const server = await discoverViteHubDevServer({
+    endpoint: agentDevEndpoint,
+    fetch: fetchImpl,
+    parseDiscovery(value: unknown) {
+      const response = isRecord(value) ? value : {}
+      return {
+        root: response.root,
+        workspaceDevTokenServerId: response.workspaceDevTokenServerId,
+        agents: Array.isArray(response.agents) ? response.agents.filter(isRecord) : [],
+      }
+    },
+    isCompatibleRoot: isCompatibleAgentDevServerRoot,
+    rootDir: context.rootDir,
+    serverUrl: parsed.url,
+    stderr: context.stderr,
+  })
+  if (!server) return
+  const { discovery, url } = server
   const tokenOptions = hasRuntimeType(discovery.workspaceDevTokenServerId, "string") ? { serverId: discovery.workspaceDevTokenServerId } : {}
   const root = hasRuntimeType(discovery.root, "string") ? discovery.root : context.rootDir
   const agents = (discovery.agents || []).flatMap(agent => hasRuntimeType(agent.name, "string") ? [agent.name] : [])
@@ -856,7 +839,7 @@ async function sendDevMessage(
   const startedAt = Date.now()
   let response: Response
   try {
-    response = await fetchImpl(url, {
+    response = await fetchViteHubDevEndpoint(fetchImpl, url, agentDevEndpoint, {
       body: JSON.stringify({
         agent,
         ...(messages.length ? { messages } : {}),
@@ -866,7 +849,6 @@ async function sendDevMessage(
       }),
       headers: {
         "content-type": "application/json",
-        [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
       },
       method: "POST",
       signal,
@@ -1059,7 +1041,7 @@ async function sendDevCliCommand(
   context: AgentCliContext,
   fetchImpl: typeof fetch,
 ): Promise<number> {
-  const response = await fetchImpl(url, {
+  const response = await fetchViteHubDevEndpoint(fetchImpl, url, agentDevEndpoint, {
     body: JSON.stringify({
       agent,
       ...(parsed.payload ? { payload: parsed.payload } : {}),
@@ -1071,7 +1053,6 @@ async function sendDevCliCommand(
     }),
     headers: {
       "content-type": "application/json",
-      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
     },
     method: "POST",
   })
@@ -1105,7 +1086,7 @@ async function sendDevWorkspaceCommand(
   const startedAt = Date.now()
   const stopFeedback = startWorkspaceCommandFeedback(context)
   try {
-    const response = await fetchImpl(url, {
+    const response = await fetchViteHubDevEndpoint(fetchImpl, url, agentDevEndpoint, {
       body: JSON.stringify({
         agent,
         ...(parsed.payload ? { payload: parsed.payload } : {}),
@@ -1118,7 +1099,6 @@ async function sendDevWorkspaceCommand(
       }),
       headers: {
         "content-type": "application/json",
-        [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
         [workspaceDevTokenHeader]: token,
       },
       method: "POST",
@@ -1305,10 +1285,10 @@ export function createAgentCliContributor(options?: false | AgentCliContributorO
       usage: "vitehub agent dev [message...] [--agent <name>]",
     },
     {
-      description: "Inspect an application's durable Agent Invocation journal.",
+      description: "Inspect, delete, and prune an application's durable Agent Invocation journal.",
       name: "invocations",
       run: async (args, context) => await runAgentInvocationsCli(args, context),
-      usage: "vitehub agent invocations <list|show|tail> [id] [--url <url>] [--json]",
+      usage: "vitehub agent invocations <list|show|tail|delete|prune> [id] [--url <url>] [--database <url>] [--older-than <duration>] [--dry-run] [--json]",
     },
   ]
   if (evalFiles.length) {
@@ -1343,6 +1323,12 @@ export function createAgentCliContributor(options?: false | AgentCliContributorO
               rootDir: options?.rootDir,
             }),
             usage: "vitehub channels history --stage <name> --url <https-origin> --output <directory> [--thread <id>]",
+          },
+          {
+            description: "Send past Channel messages from a Channel history through its trigger.",
+            name: "replay",
+            run: async (args, context) => await runAgentChannelReplayCli(args, context),
+            usage: "vitehub channels replay --agent <name> --channel <name> [--url <console-url>] [--dry-run] [--force] [--limit <n>]",
           },
           {
             description: "Inspect and synchronize provider-owned Channel webhooks for a deployed stage.",

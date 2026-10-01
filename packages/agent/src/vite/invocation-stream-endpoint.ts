@@ -3,6 +3,7 @@ import { hasRuntimeType } from "../internal/runtime-type.ts"
 
 import { createGitHubWorkspaceStore } from "@vite-hub/workspace/internal/stores/github"
 import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { registerViteHubDevEndpoint } from "@vite-hub/internal/dev-endpoint"
 import { installHostedWorkspaceRuntime } from "@vite-hub/workspace/internal/runtime/hosted"
 import { installHostedVercelBlobWorkspaceRuntime } from "@vite-hub/workspace/internal/runtime/hosted-vercel-blob"
 import { getWorkspaceHostedStoreLoader, setWorkspaceHostedStoreLoader, setWorkspaceRuntimeRegistry } from "@vite-hub/workspace/runtime"
@@ -14,6 +15,8 @@ import { uiMessagesToAgentMessages } from "../chat-message-input.ts"
 import { discoverAgentDefinitions } from "../discovery.ts"
 import { isResolvedAgentTriggerHandledInvocation, resolveAgentInspectionMetadata, resolveAgentTriggerInvocation, resolveAgentTriggers, runAgentInline, streamAgent } from "../index.ts"
 import { inheritMessageChannelInstructions } from "../internal/channels.ts"
+import { handleChannelReplayRequest } from "../channel-replay.ts"
+import { channelDeliveryHandlers } from "../internal/channel-delivery-handlers.ts"
 import { markDiscoveredWorkspaceAgentDefinitionRegistered, workspaceAgentOwnsWorkspaceDefinition, workspaceModeFromOptions, workspaceNameFromOptions } from "../workspace-agent.ts"
 import {
   createViteAgentDiscoveryContext,
@@ -29,6 +32,7 @@ import type { AgentChatMessageTriggerInput } from "../chat-trigger.ts"
 import type { AgentDevLoopDiscoveryResponse, AgentInvocationStreamEvent } from "../invocation-stream.ts"
 import type {
   AgentChannelDeliveryEffectContext,
+  AgentChannelMessageContext,
   AgentCapabilityCliExecutionInput,
   AgentCapabilityCliExecutionResult,
   AgentHostIdentity,
@@ -58,6 +62,8 @@ interface AgentInvocationStreamBody {
   messages?: AgentChatMessageTriggerInput["messages"]
   meta?: Record<string, unknown>
   payload?: unknown
+  /** A `vitehub channels replay` request for the selected Agent. */
+  replay?: unknown
   run?: AgentRunMetadata
   text?: string
   timeout?: number
@@ -157,16 +163,44 @@ function withDeliveryPreviewChannels(
 ): AgentInput<ViteAgentRuntimeContext> {
   if (!isRecord(agent) || !isRecord(agent.channels)) return agent
   const channels = Object.fromEntries(Object.entries(agent.channels).map(([channelId, channel]) => {
-    if (!isRecord(channel) || !isRecord(channel.effects)) return [channelId, channel]
-    const effects = Object.fromEntries(Object.keys(channel.effects).map(kind => [kind, (context: AgentChannelDeliveryEffectContext<AgentRuntimeConfig>) => {
-      preview({
-        channelId: context.trigger?.channelId || context.run?.channelId || channelId,
-        effect: context.effect,
-        ...(context.run ? { run: context.run } : {}),
-        type: "delivery-preview",
-      })
-    }]))
-    return [channelId, inheritMessageChannelInstructions({ ...channel, effects }, channel)]
+    if (!isRecord(channel)) return [channelId, channel]
+    const handlers = channel[channelDeliveryHandlers]
+    const message = isRecord(channel.message) ? channel.message : undefined
+    const methods = message && isRecord(message.methods) ? message.methods : undefined
+    if (!isRecord(handlers) && !methods) return [channelId, channel]
+    const previewHandlers = isRecord(handlers)
+      ? Object.fromEntries(Object.keys(handlers).map(kind => [kind, (context: AgentChannelDeliveryEffectContext<AgentRuntimeConfig>) => {
+          const previewInput: Extract<AgentInvocationStreamEvent, { type: "delivery-preview" }> = {
+            channelId: context.trigger?.channelId || context.run?.channelId || channelId,
+            effect: context.effect,
+            type: "delivery-preview",
+          }
+          if (context.run) previewInput.run = context.run
+          preview(previewInput)
+        }]))
+      : undefined
+    // Read methods still run; write methods show the call they would make.
+    const previewMethods = methods
+      ? Object.fromEntries(Object.entries(methods).map(([name, method]) => [name, isRecord(method) && method.read === true
+          ? method
+          : (context: AgentChannelMessageContext<AgentRuntimeConfig>, ...args: unknown[]) => {
+              const effect: AgentChannelDeliveryEffectContext<AgentRuntimeConfig>["effect"] = { kind: name }
+              if (args.length) effect.payload = args.length === 1 ? args[0] : args
+              const previewInput: Extract<AgentInvocationStreamEvent, { type: "delivery-preview" }> = {
+                channelId: context.trigger?.channelId || context.run?.channelId || channelId,
+                effect,
+                type: "delivery-preview",
+              }
+              if (context.run) previewInput.run = context.run
+              preview(previewInput)
+            }]))
+      : undefined
+    const previewChannel = {
+      ...channel,
+      message: previewMethods ? { ...message, methods: previewMethods } : channel.message,
+    }
+    if (previewHandlers) previewChannel[channelDeliveryHandlers] = previewHandlers
+    return [channelId, inheritMessageChannelInstructions(previewChannel, channel)]
   }))
   const clone = Object.create(Object.getPrototypeOf(agent)) as AgentInput<ViteAgentRuntimeContext>
   Object.defineProperties(clone, Object.getOwnPropertyDescriptors(agent))
@@ -197,32 +231,6 @@ function withCliDeliveryPreviews(
   return {
     ...result,
     stderr: `${result.stderr || ""}${previews.map(formatCliDeliveryPreview).join("")}`,
-  }
-}
-
-function requestOrigin(server: ViteDevServer, req: IncomingMessage): string {
-  const host = Array.isArray(req.headers.host) ? req.headers.host[0] : req.headers.host
-  if (host) {
-    const fallback = server.resolvedUrls?.local?.[0] || "http://localhost/"
-    return new URL(`${new URL(fallback).protocol}//${host}`).origin
-  }
-  const base = server.resolvedUrls?.local?.[0] || `http://localhost:${server.config.server.port || 5173}/`
-  return new URL(base).origin
-}
-
-function validateDevLoopRequest(server: ViteDevServer, req: IncomingMessage): Response | undefined {
-  const header = req.headers[agentInvocationStreamHeader]
-  if ((Array.isArray(header) ? header[0] : header) !== agentInvocationStreamHeaderValue) {
-    return new Response("Forbidden Agent Dev Loop request.", { status: 403 })
-  }
-  const origin = Array.isArray(req.headers.origin) ? req.headers.origin[0] : req.headers.origin
-  if (origin && origin !== requestOrigin(server, req)) {
-    return new Response("Forbidden Agent Dev Loop origin.", { status: 403 })
-  }
-  if (req.method !== "POST") return
-  const contentType = Array.isArray(req.headers["content-type"]) ? req.headers["content-type"][0] : req.headers["content-type"]
-  if (!contentType?.toLowerCase().startsWith("application/json")) {
-    return new Response("Agent Dev Loop requests must use application/json.", { status: 415 })
   }
 }
 
@@ -647,6 +655,10 @@ async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: In
   const payload = payloadFromBody(body)
   const timeout = typeof body.timeout === "number" && Number.isFinite(body.timeout) ? body.timeout : 90_000
 
+  if (body.replay !== undefined) {
+    return await handleChannelReplayRequest(entry.agent, body.replay, { maxLimit: 100, runtime: context, ...(abortSignal ? { signal: abortSignal } : {}) })
+  }
+
   if (body.cli) {
     if (typeof body.cli.name !== "string" || !body.cli.name.trim()) {
       return new Response("Missing Agent Capability CLI name.", { status: 400 })
@@ -763,10 +775,6 @@ async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: In
   }, { timeout })
 }
 
-function routeMatches(req: IncomingMessage): boolean {
-  return new URL(req.url || "/", "http://localhost").pathname === agentInvocationStreamRoute
-}
-
 export { writeResponse }
 
 function errorResponse(error: unknown): Response {
@@ -779,25 +787,18 @@ function errorResponse(error: unknown): Response {
 export async function registerAgentInvocationStreamEndpoint(server: ViteDevServer, runtimeOptions: AgentDevRuntimeOptions = {}): Promise<void> {
   const tokenOptions = { serverId: workspaceDevTokenServerId(server.config.server.port) }
   await refreshWorkspaceDevToken(server.config.root, tokenOptions)
-  server.middlewares.use((req, res, next) => {
-    if (!routeMatches(req)) {
-      next()
-      return
-    }
-    if (req.method !== "GET" && req.method !== "POST") {
-      void writeResponse(res, new Response("Method not allowed.", { status: 405 }))
-      return
-    }
-    const blocked = validateDevLoopRequest(server, req)
-    if (blocked) {
-      void writeResponse(res, blocked)
-      return
-    }
-
-    const abort = createAbortSignalFromClose(res, "[vitehub] Agent Invocation Stream response closed.")
-    void handleAgentInvocationStreamRequest(server, req, tokenOptions, abort.signal, runtimeOptions)
-      .catch(errorResponse)
-      .then(response => writeResponse(res, response))
-      .finally(abort.dispose)
+  registerViteHubDevEndpoint(server, {
+    handle: (req, res) => {
+      const abort = createAbortSignalFromClose(res, "[vitehub] Agent Invocation Stream response closed.")
+      void handleAgentInvocationStreamRequest(server, req, tokenOptions, abort.signal, runtimeOptions)
+        .catch(errorResponse)
+        .then(response => writeResponse(res, response))
+        .finally(abort.dispose)
+    },
+    header: agentInvocationStreamHeader,
+    headerValue: agentInvocationStreamHeaderValue,
+    label: "Agent Dev Loop",
+    methods: ["GET", "POST"],
+    route: agentInvocationStreamRoute,
   })
 }

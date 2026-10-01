@@ -1,3 +1,12 @@
+import { isPlainObject } from "@vite-hub/internal/object"
+
+import {
+  discoverViteHubDevServer,
+  fetchViteHubDevEndpoint,
+  readViteHubDevTargetOption,
+  resolveViteHubDevServerUrl,
+} from "@vite-hub/internal/cli"
+
 import {
   readWorkspaceDevToken,
   workspaceDevHeader,
@@ -44,11 +53,6 @@ interface WorkspaceDevCliOptions {
   fetch?: typeof fetch
 }
 
-interface WorkspaceDevDiscovery {
-  root?: unknown
-  workspaceDevTokenServerId?: unknown
-  workspaces?: Array<{ name?: unknown }>
-}
 
 interface WorkspaceDevTarget {
   tokenOptions: WorkspaceDevTokenOptions
@@ -73,6 +77,18 @@ interface WorkspaceDevCommandResult {
   exitCode?: unknown
   stderr?: unknown
   stdout?: unknown
+}
+
+const workspaceDevEndpoint = {
+  header: workspaceDevHeader,
+  headerValue: workspaceDevHeaderValue,
+  route: workspaceDevRoute,
+}
+
+const workspaceDevTargetErrors = {
+  invalidInlineTimeout: (message: string) => workspaceErrorDiagnostics.WORKSPACE_R0006({ message }),
+  invalidTimeout: (message: string) => workspaceErrorDiagnostics.WORKSPACE_R0005({ message }),
+  missingValue: (message: string) => workspaceErrorDiagnostics.WORKSPACE_R0004({ message }),
 }
 
 const workspaceCommandFeedbackIntervalMs = 15_000
@@ -180,7 +196,7 @@ function readOptionValue(args: string[], index: number, flag: string): string {
 function parseWorkspaceDevArgs(args: string[], env: NodeJS.ProcessEnv): ParsedWorkspaceDevArgs {
   const parsed: ParsedWorkspaceDevArgs = {
     help: false,
-    url: env.VITEHUB_DEV_SERVER_URL || "http://localhost:5173",
+    url: resolveViteHubDevServerUrl(env),
   }
 
   for (let index = 0; index < args.length; index += 1) {
@@ -189,26 +205,9 @@ function parseWorkspaceDevArgs(args: string[], env: NodeJS.ProcessEnv): ParsedWo
       parsed.help = true
       continue
     }
-    if (arg === "--url" || arg === "--server") {
-      parsed.url = readOptionValue(args, index, arg)
-      index += 1
-      continue
-    }
-    if (arg.startsWith("--url=")) {
-      parsed.url = arg.slice("--url=".length)
-      continue
-    }
-    if (arg === "--timeout") {
-      const timeout = Number.parseInt(readOptionValue(args, index, arg), 10)
-      if (!Number.isFinite(timeout) || timeout <= 0) throw workspaceErrorDiagnostics.WORKSPACE_R0005({ message: "--timeout must be a positive number." })
-      parsed.timeout = timeout
-      index += 1
-      continue
-    }
-    if (arg.startsWith("--timeout=")) {
-      const timeout = Number.parseInt(arg.slice("--timeout=".length), 10)
-      if (!Number.isFinite(timeout) || timeout <= 0) throw workspaceErrorDiagnostics.WORKSPACE_R0006({ message: "--timeout must be a positive number." })
-      parsed.timeout = timeout
+    const targetOption = readViteHubDevTargetOption(args, index, parsed, workspaceDevTargetErrors)
+    if (targetOption !== undefined) {
+      index += targetOption
       continue
     }
     if (arg === "--path") {
@@ -239,45 +238,28 @@ function parseWorkspaceDevArgs(args: string[], env: NodeJS.ProcessEnv): ParsedWo
   return parsed
 }
 
-function endpointUrl(baseUrl: string): string {
-  return new URL(workspaceDevRoute, baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`).href
-}
-
 async function readWorkspaceDiscovery(parsed: ParsedWorkspaceDevArgs, context: WorkspaceCliContext, fetchImpl: typeof fetch): Promise<WorkspaceDevTarget | undefined> {
   if (!parsed.workspace) {
     context.stderr.write("Missing Workspace Dev target.\n")
     return
   }
-  let url: string
-  try {
-    url = endpointUrl(parsed.url)
-  }
-  catch {
-    context.stderr.write(`Invalid Vite Development Server URL: ${parsed.url}\n`)
-    return
-  }
-  let response: Response
-  try {
-    response = await fetchImpl(url, {
-      headers: {
-        accept: "application/json",
-        [workspaceDevHeader]: workspaceDevHeaderValue,
-      },
-    })
-  }
-  catch {
-    context.stderr.write(`No Compatible Vite Development Server found at ${parsed.url}.\n`)
-    return
-  }
-  if (!response.ok) {
-    context.stderr.write(`No Compatible Vite Development Server found at ${parsed.url}.\n`)
-    return
-  }
-  const discovery = await response.json().catch(() => ({})) as WorkspaceDevDiscovery
-  if (typeof discovery.root === "string" && discovery.root !== context.rootDir) {
-    context.stderr.write(`Compatible Vite Development Server root mismatch: ${discovery.root}\n`)
-    return
-  }
+  const server = await discoverViteHubDevServer({
+    endpoint: workspaceDevEndpoint,
+    fetch: fetchImpl,
+    parseDiscovery(value: unknown) {
+      const response = isPlainObject(value) ? value : {}
+      return {
+        root: response.root,
+        workspaceDevTokenServerId: response.workspaceDevTokenServerId,
+        workspaces: Array.isArray(response.workspaces) ? response.workspaces.filter(isPlainObject) : [],
+      }
+    },
+    rootDir: context.rootDir,
+    serverUrl: parsed.url,
+    stderr: context.stderr,
+  })
+  if (!server) return
+  const { discovery, url } = server
   const workspaces = (discovery.workspaces || []).flatMap(workspace => typeof workspace.name === "string" ? [workspace.name] : [])
   if (!workspaces.includes(parsed.workspace)) {
     context.stderr.write(`Unknown Workspace Dev target: ${parsed.workspace}\n`)
@@ -307,7 +289,7 @@ async function sendWorkspaceCommand(
   const startedAt = Date.now()
   const stopFeedback = startWorkspaceCommandFeedback(context)
   try {
-    const response = await fetchImpl(target.url, {
+    const response = await fetchViteHubDevEndpoint(fetchImpl, target.url, workspaceDevEndpoint, {
       body: JSON.stringify({
         workspaceCommand: {
           ...(parsed.args ? { args: parsed.args } : {}),
@@ -320,7 +302,6 @@ async function sendWorkspaceCommand(
       headers: {
         accept: "application/x-ndjson, application/json",
         "content-type": "application/json",
-        [workspaceDevHeader]: workspaceDevHeaderValue,
         [workspaceDevTokenHeader]: token,
       },
       method: "POST",

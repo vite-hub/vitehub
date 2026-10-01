@@ -1,6 +1,8 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { execFile } from "node:child_process"
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { join, resolve } from "node:path"
+import { promisify } from "node:util"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { runViteHubCli } from "@vite-hub/cli"
@@ -37,7 +39,7 @@ describe("ViteHub CLI config loading", () => {
       root: String(config.root),
     }))
 
-    await expect(loadViteHubCliConfig(root, { loadNuxt, resolveViteConfig })).resolves.toEqual({
+    await expect(loadViteHubCliConfig(root, "serve", { loadNuxt, resolveViteConfig })).resolves.toEqual({
       plugins: [{ name: "nuxt-vitehub" }],
       root,
       vitehubConfigResolved: true,
@@ -50,7 +52,7 @@ describe("ViteHub CLI config loading", () => {
     expect(loadNuxt).toHaveBeenCalledWith({
       cwd: root,
       dev: true,
-      overrides: { vitehubCliDiscovery: true },
+      overrides: { devtools: { enabled: false }, vitehubCliDiscovery: true },
       ready: true,
     })
     expect(close).toHaveBeenCalledOnce()
@@ -71,7 +73,7 @@ describe("ViteHub CLI config loading", () => {
       root: String(config.root),
     }))
 
-    await expect(loadViteHubCliConfig(root, { loadNuxt, resolveViteConfig })).resolves.toEqual({
+    await expect(loadViteHubCliConfig(root, "serve", { loadNuxt, resolveViteConfig })).resolves.toEqual({
       plugins: [{ name: "nuxt-vitehub" }],
       root: join(root, "app"),
       vitehubConfigResolved: true,
@@ -89,7 +91,7 @@ describe("ViteHub CLI config loading", () => {
     const loadNuxt = vi.fn()
     const resolveViteConfig = vi.fn(async config => ({ plugins: [], root: String(config.root) }))
 
-    await expect(loadViteHubCliConfig(root, { loadNuxt, resolveViteConfig })).resolves.toEqual({
+    await expect(loadViteHubCliConfig(root, "serve", { loadNuxt, resolveViteConfig })).resolves.toEqual({
       plugins: [],
       root,
       vitehubConfigResolved: true,
@@ -116,7 +118,7 @@ describe("ViteHub CLI config loading", () => {
     await runViteHubCli({
       args: ["--help"],
       cwd: root,
-      loadConfig: directory => loadViteHubCliConfig(directory, { loadNuxt, resolveViteConfig }),
+      loadConfig: (directory, command) => loadViteHubCliConfig(directory, command, { loadNuxt, resolveViteConfig }),
       loadNuxtViteConfig,
       stdout: { write: () => true },
     })
@@ -126,3 +128,75 @@ describe("ViteHub CLI config loading", () => {
     expect(loadNuxtViteConfig).not.toHaveBeenCalled()
   })
 })
+
+describe("shipped ViteHub CLI production discovery", () => {
+  const execFileAsync = promisify(execFile);
+  const bin = resolve(import.meta.dirname, "../dist/bin.js");
+
+  it("inspects build-only Vite output through the framework entrypoint", async () => {
+    const root = await createProject("vite");
+    await writeFile(
+      join(root, "vite.config.ts"),
+      `
+export default ({ command, mode }) => ({
+  plugins: command === "build" && mode === "production" ? [{
+    apply: "build",
+    name: "production-output",
+    vitehub: { inspect: { providerOutput: [{ owner: "test", path: ${JSON.stringify(join(root, ".vitehub/production.json"))} }] } },
+  }] : [],
+})
+`,
+    );
+    const { stdout } = await execFileAsync(
+      process.execPath,
+      [bin, "inspect", "provider-output", "--json"],
+      { cwd: root },
+    );
+    expect(JSON.parse(stdout).providerOutput).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ owner: "test", path: ".vitehub/production.json" }),
+      ]),
+    );
+  });
+
+  it("inspects production-only Nuxt output through the framework entrypoint", async () => {
+    const root = await createProject("nuxt");
+    await mkdir(join(root, "node_modules"));
+    await symlink(
+      resolve(import.meta.dirname, "../../cli/node_modules/nuxt"),
+      join(root, "node_modules/nuxt"),
+      "dir",
+    );
+    await writeFile(join(root, "package.json"), "{}\n");
+    await writeFile(
+      join(root, "nuxt.config.ts"),
+      `export default { modules: ["./production-module.ts"] }`,
+    );
+    await writeFile(
+      join(root, "production-module.ts"),
+      `
+export default function (_options, nuxt) {
+  if (nuxt.options.vitehubCliDiscovery !== true) throw new Error("Missing CLI discovery marker")
+  if (nuxt.options.devtools.enabled) throw new Error("CLI discovery enabled DevTools")
+  if (nuxt.options.dev) return
+  nuxt.options.vite.plugins ||= []
+  nuxt.options.vite.plugins.push({
+    apply: "build",
+    name: "production-output",
+    vitehub: { inspect: { providerOutput: [{ owner: "test", path: ${JSON.stringify(join(root, ".vitehub/nuxt-production.json"))} }] } },
+  })
+}
+`,
+    );
+    const { stdout } = await execFileAsync(
+      process.execPath,
+      [bin, "inspect", "provider-output", "--json"],
+      { cwd: root },
+    );
+    expect(JSON.parse(stdout).providerOutput).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ owner: "test", path: ".vitehub/nuxt-production.json" }),
+      ]),
+    );
+  }, 30_000);
+});

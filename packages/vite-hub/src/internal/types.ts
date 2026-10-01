@@ -1,5 +1,5 @@
 import { mkdir, readFile, readdir, realpath, stat, writeFile } from "node:fs/promises"
-import { dirname, join, relative, resolve } from "node:path"
+import { dirname, isAbsolute, join, relative, resolve } from "node:path"
 
 import {
   resolveViteHubProjectRoot,
@@ -22,10 +22,12 @@ function isRetainedSourceDirectory(name: string): boolean {
 }
 
 interface ViteHubTypesOptions {
+  additionalProjectRoots?: string[]
   projectRoot: string
 }
 
 interface ViteHubTypesPluginOptions {
+  additionalProjectRoots?: string[]
   prepareSources?: (options: { projectRoot: string; serverDirs?: string[] }) => Promise<unknown>
 }
 
@@ -93,8 +95,12 @@ async function writeFileIfChanged(path: string, contents: string): Promise<void>
 
 async function writeViteHubTypes(options: ViteHubTypesOptions): Promise<void> {
   const directory = resolve(options.projectRoot, ".vitehub")
-  const files = (await collectGeneratedTypeFiles(directory)).sort()
-  const references = files.map(file => `/// <reference path="./${file}" />`).join("\n")
+  const roots = [options.projectRoot, ...(options.additionalProjectRoots ?? []).map(root => resolve(options.projectRoot, root))]
+  const files = [...new Set((await Promise.all(roots.map(async root => {
+    const generatedDirectory = resolve(root, ".vitehub")
+    return (await collectGeneratedTypeFiles(generatedDirectory)).map(file => relative(directory, join(generatedDirectory, file)).replaceAll("\\", "/"))
+  }))).flat())].sort()
+  const references = files.map(file => `/// <reference path="${isAbsolute(file) ? file : `./${file}`}" />`).join("\n")
   await writeFileIfChanged(
     resolve(options.projectRoot, viteHubTypesEntry),
     `${references}${references ? "\n\n" : ""}export {}\n`,
@@ -109,12 +115,13 @@ export function viteHubTypesPlugin(options: ViteHubTypesPluginOptions = {}): Plu
     }
   } {
   let projectRoot: string | undefined
+  let additionalProjectRoots = options.additionalProjectRoots
   let prepareSources = options.prepareSources
   let serverDirs: string[] | undefined
   const refreshGeneratedTypes = async () => {
     if (!projectRoot) return
     if (prepareSources) await prepareSources({ projectRoot, serverDirs })
-    await writeViteHubTypes({ projectRoot })
+    await writeViteHubTypes({ additionalProjectRoots, projectRoot })
   }
 
   return {
@@ -130,15 +137,18 @@ export function viteHubTypesPlugin(options: ViteHubTypesPluginOptions = {}): Plu
       // SAFETY: Vite passes the mutable user config object, which this plugin augments through ViteHub's shared symbols.
       const viteConfig = config as ViteHubPluginConfig
       if (viteConfig[VITEHUB_NITRO_CONFIG_CONTEXT]) return
-      projectRoot = resolveViteHubProjectRoot(viteConfig.root || process.cwd())
+      const viteRoot = viteConfig.root || process.cwd()
+      projectRoot = resolveViteHubProjectRoot(viteRoot)
+      additionalProjectRoots = options.additionalProjectRoots?.map(root => resolve(viteRoot, root))
       serverDirs = viteConfig[VITEHUB_SERVER_DIRS]
-      await writeViteHubTypes({ projectRoot })
+      await writeViteHubTypes({ additionalProjectRoots, projectRoot })
     },
     async configResolved(config) {
       projectRoot = resolveViteHubProjectRoot(config.root)
+      additionalProjectRoots = options.additionalProjectRoots?.map(root => resolve(config.root, root))
       // SAFETY: Vite's resolved config retains the ViteHub symbols added during the config hook.
       serverDirs = (config as ViteHubPluginConfig)[VITEHUB_SERVER_DIRS]
-      await writeViteHubTypes({ projectRoot })
+      await writeViteHubTypes({ additionalProjectRoots, projectRoot })
     },
     buildStart: refreshGeneratedTypes,
     buildEnd: refreshGeneratedTypes,
@@ -153,7 +163,7 @@ export function viteHubTypesPlugin(options: ViteHubTypesPluginOptions = {}): Plu
               const root = projectRoot || resolveViteHubProjectRoot(context.rootDir)
               if (prepareSources) await prepareSources({ projectRoot: root, serverDirs })
               else await prepareSourceGeneration({ importBase: "vite-hub/source", projectRoot: root, serverDirs })
-              await writeViteHubTypes({ projectRoot: root })
+              await writeViteHubTypes({ additionalProjectRoots, projectRoot: root })
               context.stdout.write(`types: prepared ${viteHubTypesEntry}\n`)
             },
             usage: "vitehub types prepare",

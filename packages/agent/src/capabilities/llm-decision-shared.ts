@@ -1,7 +1,10 @@
+import { ask } from "../ask.ts"
 import { getMessageText } from "../messages.ts"
 import { loadAiSdk } from "../internal/ai-sdk-runtime.ts"
+import { askJev } from "../internal/ask-runtime.ts"
 
 import type { Message } from "../messages.ts"
+import type { AgentCapabilityRuntimeContext } from "../types.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 export type LlmDecisionChoiceDefinition =
@@ -135,4 +138,39 @@ export async function generateDecision<T>(input: {
     prompt: input.prompt,
   })
   return (result as { output: T }).output
+}
+
+export interface JevDecision {
+  choice: string
+  confidence: number
+  probabilities: Record<string, number>
+}
+
+/**
+ * Decides with TypeSafe Jev when the Agent uses `driver.ask` and the Capability sets no `model`.
+ * Returns `undefined` to keep the chat model path. Jev returns probabilities, not a reason.
+ */
+export async function jevDecision(
+  context: AgentCapabilityRuntimeContext,
+  options: { history?: boolean | number, model?: unknown, prompt?: string },
+  decision: { choices: NormalizedLlmDecisionChoice[], task: string },
+): Promise<JevDecision | undefined> {
+  if (options.model !== undefined || context.driver?.kind !== "ask") return
+  const [onlyChoice] = decision.choices
+  if (onlyChoice && decision.choices.length === 1) {
+    return { choice: onlyChoice.key, confidence: 1, probabilities: { [onlyChoice.key]: 1 } }
+  }
+  const input = context.input.get()
+  const messages = context.input.messages()
+  const history = renderHistory(messages, options.history)
+  // `data` is part of the Agent Run Input once `defineAgent({ data })` is available. Read it when a caller sets it.
+  const state = "data" in input && input.data !== undefined
+    ? input.data
+    : { request: latestUserText(input.prompt, messages), ...(history ? { history } : {}) }
+  const criteria = Object.fromEntries(decision.choices.map(choice => [choice.key, choice.description]))
+  const instructions = [options.prompt, decision.task].filter(Boolean).join("\n\n")
+  const { decision: answer } = await askJev({ abortSignal: context.abortSignal, event: { context } }, state, {
+    decision: ask.choice(instructions, criteria),
+  })
+  return { choice: answer.choice, confidence: answer.confidence, probabilities: { ...answer.probabilities } }
 }

@@ -91,8 +91,8 @@ const agentInvocationsHandler: (event: ConsoleRequestEvent) => Promise<ConsoleAg
 
   if (body.files !== undefined && body.attachments !== undefined) throw consoleError(400, "Provide files or stored attachments, not both.")
 
-  const prompt = stringValue(body.prompt)?.trim() ?? ""
-  if (!prompt && !(Array.isArray(body.attachments) && body.attachments.length) && !(Array.isArray(body.files) && body.files.length)) throw consoleError(400, "Agent invocation requires a prompt.")
+  const prompt = stringValue(body.prompt) ?? ""
+  if (!prompt.trim() && !(Array.isArray(body.attachments) && body.attachments.length) && !(Array.isArray(body.files) && body.files.length)) throw consoleError(400, "Agent invocation requires a prompt.")
   let messages: Message[] | undefined
   if (body.messages !== undefined) {
     if (!Array.isArray(body.messages)) throw consoleError(400, "Agent invocation messages must be an array.")

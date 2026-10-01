@@ -1,4 +1,4 @@
-import { resolveWaitUntil } from "@vite-hub/internal/runtime/cloudflare-env"
+import { getCloudflareEnv, resolveWaitUntil } from "@vite-hub/internal/runtime/cloudflare-env"
 import { defineHandler } from "h3"
 import * as v from "valibot"
 
@@ -17,6 +17,7 @@ import consoleEnvHandler from "./env.get.ts"
 import consoleKVHandler from "./kv.get.ts"
 import { consoleRequestError, consoleRequestJSON } from "./request.ts"
 import { consoleSearchCollectionHandler } from "./search.get.ts"
+import { consoleScheduleRunHandler } from "./schedule-run.ts"
 import consoleSectionsHandler from "./sections.get.ts"
 import consoleStatusHandler from "./status.get.ts"
 import consoleUsageHandler from "./usage.get.ts"
@@ -28,8 +29,9 @@ import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
 export const consoleRpcCallPath = "/_vitehub/rpc/__call"
 
-// Invocation calls carry image data URLs; each operation still applies its own body limit.
-const maximumConsoleRpcRequestBytes = consoleAttachmentRequestBytes + 64 * 1_024
+const maximumConsoleRpcRequestBytes = 64 * 1_024
+// Invocation envelopes also carry image data URLs.
+const maximumConsoleInvocationRpcRequestBytes = consoleAttachmentRequestBytes + maximumConsoleRpcRequestBytes
 
 const responseHeaders = {
   "cache-control": "no-store",
@@ -47,6 +49,7 @@ const inputSchema = v.object({
 })
 
 interface ConsoleRpcContext {
+  env?: Record<string, unknown>
   waitUntil?: (task: Promise<unknown>) => void
 }
 
@@ -66,6 +69,7 @@ function requestEvent(operation: string, input: ConsoleRpcInput, context: Consol
   if (input.agent) params.agent = input.agent
   if (input.id) params.id = input.id
   const event: ConsoleRequestEvent = {
+    env: context.env,
     context: Object.keys(params).length ? { params } : undefined,
     method: input.method ?? "GET",
     req: {
@@ -117,6 +121,7 @@ const operations = new Map<string, ConsoleOperation>(Object.entries({
     if (!response.ok) throw Object.assign(viteHubErrorDiagnostics.VITE_HUB_R0052({ message: await response.text() }), { statusCode: response.status })
     return await response.json()
   },
+  [consoleRpcMethods.scheduleRun]: (input, context) => consoleScheduleRunHandler(requestEvent("schedule-run", input, context)),
   [consoleRpcMethods.sections]: (input, context) => consoleSectionsHandler(requestEvent("sections", input, context)),
   [consoleRpcMethods.status]: (input, context) => consoleStatusHandler(requestEvent("status", input, context)),
   [consoleRpcMethods.usage]: (input, context) => consoleUsageHandler(requestEvent("usage", input, context)),
@@ -139,6 +144,59 @@ function isConsoleRpcCallPath(pathname: string): boolean {
   return route !== -1 && pathname.slice(route) === consoleRpcCallPath
 }
 
+function invocationEnvelopePrefix(body: string): string | undefined {
+  // Large invocation calls put the method first so it can be classified within 64 KiB.
+  const prefix = /^[ \t\r\n]*\{[ \t\r\n]*"method"[ \t\r\n]*:[ \t\r\n]*("(?:[^"\\]|\\.)*")[ \t\r\n]*(?:,|(?=\}))/.exec(body)
+  if (!prefix) return undefined
+  return JSON.parse(prefix[1]!) === consoleRpcMethods.agentInvocations ? prefix[0] : undefined
+}
+
+async function readConsoleEnvelope(request: Request): Promise<unknown> {
+  if (!request.body) return consoleRequestJSON({ req: { json: () => request.json() } }, maximumConsoleRpcRequestBytes)
+  const reader = request.body.getReader()
+  const decoder = new TextDecoder()
+  let body = ""
+  let bytes = 0
+  let maximumBytes = maximumConsoleRpcRequestBytes
+  try {
+    while (true) {
+      const chunk = await reader.read()
+      if (chunk.done) break
+      const remaining = maximumBytes - bytes
+      if (chunk.value.byteLength > remaining) {
+        // Decode only the bounded prefix before deciding whether attachments are allowed.
+        if (maximumBytes === maximumConsoleRpcRequestBytes) {
+          body += decoder.decode(chunk.value.subarray(0, remaining), { stream: true })
+          if (invocationEnvelopePrefix(body)) maximumBytes = maximumConsoleInvocationRpcRequestBytes
+        }
+        if (bytes + chunk.value.byteLength > maximumBytes) {
+          throw consoleRequestError(413, "Console request body exceeds the byte limit.")
+        }
+        body += decoder.decode(chunk.value.subarray(remaining), { stream: true })
+      }
+      else {
+        body += decoder.decode(chunk.value, { stream: true })
+      }
+      bytes += chunk.value.byteLength
+    }
+    body += decoder.decode()
+    const prefix = invocationEnvelopePrefix(body)
+    if (!prefix) return JSON.parse(body)
+    // Parse the remaining members separately so a duplicate method cannot override
+    // the invocation classification and bypass the ordinary request limit.
+    const members = v.parse(v.record(v.string(), v.unknown()), JSON.parse(`{${body.slice(prefix.length)}`))
+    if (Object.hasOwn(members, "method")) throw consoleRequestError(400, "Invalid Console request.")
+    return { ...members, method: consoleRpcMethods.agentInvocations }
+  }
+  catch (error) {
+    await reader.cancel()
+    throw error
+  }
+  finally {
+    reader.releaseLock()
+  }
+}
+
 async function callConsoleOperation(request: Request, context: ConsoleOperationContext): Promise<unknown> {
   const url = new URL(request.url)
   if (!isSameOriginRequest(request, url)) throw consoleRequestError(403, "Forbidden")
@@ -146,7 +204,7 @@ async function callConsoleOperation(request: Request, context: ConsoleOperationC
   if (request.method !== "POST") throw consoleRequestError(405, "Method not allowed")
   let payload: unknown
   try {
-    payload = await consoleRequestJSON({ req: request }, maximumConsoleRpcRequestBytes)
+    payload = await readConsoleEnvelope(request)
   }
   catch (error) {
     if (Reflect.get(Object(error), "statusCode") === 413) throw error
@@ -170,7 +228,7 @@ export async function handleConsoleRpcRequest(request: Request, context: Console
 
 const consoleRpcHandler: EventHandlerWithFetch<EventHandlerRequest, Promise<Response>> = defineHandler((event) => {
   const waitUntil = resolveWaitUntil(event, { preferHost: true })
-  return handleConsoleRpcRequest(event.req, waitUntil ? { waitUntil } : {})
+  return handleConsoleRpcRequest(event.req, { env: getCloudflareEnv(event, { fallback: false }), waitUntil })
 })
 
 export default consoleRpcHandler

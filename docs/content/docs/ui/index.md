@@ -1,47 +1,42 @@
 ---
 title: UI
-description: Build AI chat, Agent inspection, diff, and file-tree interfaces with Vue and Nuxt.
+description: "Vue components for AI chat, Agent Invocations, traces, diffs, and file trees."
 navigation.title: Overview
 navigation.order: 1
 navigation.group: Start
 icon: i-ph-squares-four-light
 ---
 
-`@vite-hub/ui` is the interface layer for ViteHub applications. It combines AI SDK message contracts, Nuxt UI styling, reusable Vue behavior, and Pierre's code views without replacing any of those foundations.
+`@vite-hub/ui` gives Vue and Nuxt applications the interface for AI features: chat, prompts, message parts, Agent sessions, Invocation inspection, traces, diffs, and file trees. The components render AI SDK message contracts with Nuxt UI styling. They do not own transport, persistence, or authorization.
+
+Each component page has a live preview, the source of that preview, variants, and an API reference. Every example uses synthetic data and makes no network requests.
 
 ::u-page-grid{class="not-prose mt-8 sm:grid-cols-2"}
   :::u-page-card
   ---
   title: Install the package
-  description: Configure the Nuxt module or Vite plugin and load the default styles.
+  description: Add the Nuxt module or the Vite plugin, then load the styles.
   icon: i-lucide-package
   to: /docs/ui/installation
   ---
   :::
   :::u-page-card
   ---
-  title: Render a chat
-  description: Connect an AI SDK or ViteHub chat directly to the component layer.
-  icon: i-ph-chat-circle-text-light
-  to: /docs/ui/chat
+  title: Copy a block
+  description: Start from a complete chat app, Invocation dashboard, or code review view.
+  icon: i-ph-layout-light
+  to: /docs/ui/blocks/chat-app
   ---
   :::
-  :::u-page-card
-  ---
-  title: Customize message parts
-  description: Render text, reasoning, tools, files, sources, and typed data parts.
-  icon: i-lucide-blocks
-  to: /docs/ui/message-parts
-  ---
-  :::
-  :::u-page-card
-  ---
-  title: Inspect Agent work
-  description: Browse sessions, render invocation activity, and inspect the captured configuration.
-  icon: i-ph-activity-light
-  to: /docs/ui/invocation
-  ---
-  :::
+::
+
+## Components
+
+::ui-component-gallery
+- **Chat:** [Chat](/docs/ui/chat), [Chat message](/docs/ui/chat-message), [Message parts](/docs/ui/message-parts), [Markdown](/docs/ui/markdown), [Chat prompt](/docs/ui/chat-prompt), [Session](/docs/ui/session)
+- **Agent work:** [Invocation list](/docs/ui/invocation-list), [Invocation](/docs/ui/invocation), [Invocation inspector](/docs/ui/invocation-inspector), [Capability inspector](/docs/ui/capability-inspector), [Tool list](/docs/ui/tool-list), [Trace](/docs/ui/trace), [Diff](/docs/ui/diff), [Code view](/docs/ui/code-view), [File tree](/docs/ui/file-tree)
+- **Utilities:** [Attachments](/docs/ui/attachments), [Message scroller](/docs/ui/message-scroller)
+- **Blocks:** [Chat app](/docs/ui/blocks/chat-app), [Invocation dashboard](/docs/ui/blocks/invocation-dashboard), [Code review](/docs/ui/blocks/code-review)
 ::
 
 ## Layers
@@ -50,18 +45,18 @@ icon: i-ph-squares-four-light
 | ------------ | ---------------------------------------------------------------------------------------------- |
 | AI SDK       | `UIMessage`, `ChatStatus`, streaming state, tool parts, and transport helpers.                 |
 | Headless Vue | Scroll intent, live-edge following, prepend preservation, and message jumps.                   |
-| Nuxt UI      | Theme tokens and established chat, prompt, reasoning, tool, button, and badge components.      |
+| Nuxt UI      | Theme tokens and the chat, prompt, reasoning, tool, button, and badge components.              |
 | ViteHub UI   | Part dispatch, defaults, Markdown presentation, attachments, Agent inspection, and code views. |
 | Pierre       | Diff rendering and path-first file trees.                                                      |
 
-The package does not own chat transport. Use `useChat()` from `@ai-sdk/vue` or the ViteHub wrapper from `vite-hub/agent/vue`, then pass its reactive values to the UI.
+The package does not send messages. Use `useChat()` from `@ai-sdk/vue` or the ViteHub wrapper from `vite-hub/agent/vue`, then pass its reactive values to the components.
 
-## Components
+## Entry points
 
-- [Chat](/docs/ui/chat) and [Chat message](/docs/ui/chat-message)
-- [Session](/docs/ui/session)
-- [Message parts](/docs/ui/message-parts) and [Markdown](/docs/ui/markdown)
-- [Chat prompt](/docs/ui/chat-prompt) and [attachments](/docs/ui/attachments)
-- [Message scroller](/docs/ui/message-scroller)
-- [Invocation list](/docs/ui/invocation-list), [invocation](/docs/ui/invocation), and [invocation inspector](/docs/ui/invocation-inspector)
-- [Diff](/docs/ui/diff), [file tree](/docs/ui/file-tree), and [trace](/docs/ui/trace)
+| Import                    | Use it for                                                                     |
+| ------------------------- | ------------------------------------------------------------------------------ |
+| `@vite-hub/ui`            | Styled components, composables, display helpers, and Pierre diff helpers.      |
+| `@vite-hub/ui/headless`   | Message scroller primitives without styles or Nuxt UI.                         |
+| `@vite-hub/ui/nuxt`       | The Nuxt module. It installs Nuxt UI, registers components, and loads the CSS. |
+| `@vite-hub/ui/vite`       | The Vite plugin for Vue applications. It configures Nuxt UI and Comark.        |
+| `@vite-hub/ui/styles.css` | The package stylesheet. Load it after Tailwind CSS and Nuxt UI.                |

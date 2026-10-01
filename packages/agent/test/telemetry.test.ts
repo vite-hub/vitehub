@@ -57,6 +57,10 @@ describe("Agent telemetry", () => {
       ...left,
       instructions: ["Use the runbooks before answering."],
     })).not.toBe(leftFingerprint)
+    expect(await agentTelemetryConfigurationFingerprint({
+      ...left,
+      tools: [{ icon: "i-lucide-search", label: "Searched docs", name: "search" }],
+    })).toBe(leftFingerprint)
   })
 
   it("fingerprints non-ASCII metadata keys independently of the host locale", async () => {

@@ -11,7 +11,6 @@ import {
   createWorkspaceManifest,
   createWorkspaceVirtualRegistryContents,
 } from "./discovery.ts"
-import { createWorkspaceTypeAugmentation } from "./generated-types.ts"
 
 import type { DiscoveredWorkspaceDefinition } from "./discovery.ts"
 import type { ResolvedWorkspaceModuleOptions } from "../core/types.ts"
@@ -21,32 +20,16 @@ export interface WorkspaceBuildState {
   registryContents: string
 }
 
-export function workspaceAmbientTypesPath(root: string) {
-  return resolve(root, ".vitehub", "types", "workspace.d.ts")
-}
-
-export async function createWorkspaceBuildState(definitions: DiscoveredWorkspaceDefinition[]): Promise<WorkspaceBuildState> {
-  return {
+export async function refreshWorkspaceBuildState(root: string, definitions: DiscoveredWorkspaceDefinition[]): Promise<WorkspaceBuildState> {
+  const state: WorkspaceBuildState = {
     manifest: await createWorkspaceManifest(definitions),
     registryContents: createWorkspaceVirtualRegistryContents(definitions),
   }
-}
-
-export async function refreshWorkspaceAmbientTypes(root: string, definitions: DiscoveredWorkspaceDefinition[]): Promise<void> {
-  await writeFileIfChanged(workspaceAmbientTypesPath(root), createWorkspaceTypeAugmentation(definitions))
-}
-
-export async function refreshWorkspaceBuildState(root: string, definitions: DiscoveredWorkspaceDefinition[]): Promise<WorkspaceBuildState> {
-  const state = await createWorkspaceBuildState(definitions)
-  await refreshWorkspaceAmbientTypes(root, definitions)
+  await writeFileIfChanged(resolve(root, ".vitehub", "types", "workspace.d.ts"), createWorkspaceTypeAugmentation(definitions))
   return state
 }
 
-export async function initializeWorkspaceAssetRegistry(
-  assetsRegistryFile: string,
-  _definitions: DiscoveredWorkspaceDefinition[] = [],
-  _rootDir = process.cwd(),
-): Promise<void> {
+export async function initializeWorkspaceAssetRegistry(assetsRegistryFile: string): Promise<void> {
   await writeWorkspaceAssetsRegistry(assetsRegistryFile, [])
 }
 
@@ -76,4 +59,24 @@ function mergeWorkspaceAssetBundles(bundles: WorkspaceAssetBundle[]): WorkspaceA
     existing.files = [...files.values()].sort((a, b) => a.path.localeCompare(b.path))
   }
   return [...merged.values()].sort((a, b) => a.name.localeCompare(b.name))
+}
+
+function createWorkspaceTypeAugmentation(definitions: Array<{ name: string, path: string }>): string {
+  const names = [...new Set(definitions.map(definition => definition.name))].sort()
+  const nameProperties = names.map(name => `    ${JSON.stringify(name)}: true`)
+
+  return [
+    "declare global {",
+    "  interface ViteHubWorkspaceNameMap {",
+    ...(nameProperties.length ? nameProperties : ["    __vitehub_no_workspaces__?: never"]),
+    "  }",
+    "",
+    "  interface ViteHubWorkspaceAssetMap {",
+    "    __vitehub_no_workspace_assets__?: never",
+    "  }",
+    "}",
+    "",
+    "export {}",
+    "",
+  ].join("\n")
 }

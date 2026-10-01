@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest"
 
 import {
-  consoleDatabaseSchemaPath,
-  consoleDatabaseTablePath,
   consoleDatabasesSchemaPath,
   consoleDatabasesTablePath,
   decodeAgentRouteParam,
@@ -12,8 +10,6 @@ import {
 
 describe("Console routes", () => {
   it("keeps the schema view outside the table route namespace", () => {
-    expect(consoleDatabaseTablePath.replace(":table?", "schema")).toBe("/database/schema")
-    expect(consoleDatabaseSchemaPath).toBe("/database/schema/diagram")
     expect(
       consoleDatabasesTablePath.replace(":database?", "default").replace(":table?", "schema"),
     ).toBe("/databases/default/schema")
@@ -78,15 +74,19 @@ describe("Console routes", () => {
       .toBe("vitehub-console-agents___en")
     expect(resolveConsoleRouteName("vitehub-console-blob", "vitehub-console"))
       .toBe("vitehub-console")
+    expect(resolveConsoleRouteName("vitehub-console-future-primitive___en", "vitehub-console-kv"))
+      .toBe("vitehub-console-kv___en")
+    expect(resolveConsoleRouteName("vitehub-console-kv___en", "vitehub-console-future-primitive"))
+      .toBe("vitehub-console-future-primitive___en")
     expect(resolveConsoleRouteName("vitehub-console-rate-limits___en", "vitehub-console-databases"))
       .toBe("vitehub-console-databases___en")
     expect(resolveConsoleRouteName("vitehub-console-queues___en", "vitehub-console-databases"))
       .toBe("vitehub-console-databases___en")
     expect(resolveConsoleRouteName("vitehub-console-queues___en", "vitehub-console-kv"))
       .toBe("vitehub-console-kv___en")
-    expect(resolveConsoleRouteName("vitehub-console-database-schema___en", "vitehub-console-database"))
-      .toBe("vitehub-console-database___en")
-    expect(resolveConsoleRouteName("vitehub-console-databases___en", "vitehub-console-database"))
-      .toBe("vitehub-console-database___en")
+    expect(resolveConsoleRouteName("vitehub-console-databases-schema___en", "vitehub-console-databases"))
+      .toBe("vitehub-console-databases___en")
+    expect(resolveConsoleRouteName("vitehub-console-databases___en", "vitehub-console-databases-schema"))
+      .toBe("vitehub-console-databases-schema___en")
   })
 })

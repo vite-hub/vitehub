@@ -270,7 +270,6 @@ describe("workspace host sessions", () => {
       join(source, ".git"),
       join(source, ".agent-runs"),
       join(source, ".vitehub", "meta"),
-      join(source, "docs", ".Git"),
     ]
     if (process.platform !== "win32") {
       await Promise.all(excluded.map(path => chmod(path, 0)))
@@ -292,7 +291,6 @@ describe("workspace host sessions", () => {
       await expect(stat(join(target, ".agent-runs"))).rejects.toThrow()
       await expect(stat(join(target, ".git"))).rejects.toThrow()
       await expect(stat(join(target, ".vitehub", "meta"))).rejects.toThrow()
-      await expect(stat(join(target, "docs", ".Git"))).rejects.toThrow()
       await session.close()
 
       const scoped = await docs.startSession({

@@ -1,9 +1,9 @@
 export { env } from "./core/declarations.ts"
-export { openWorkflowEnv } from "./presets.ts"
+export { openWorkflowEnv, typesafeEnv } from "./presets.ts"
 export { parseSchema } from "./schema.ts"
 export { SecretEnv } from "./secret.ts"
 export { defineEnvProvider } from "./provider.ts"
-export { describeServerEnv, inspectServerEnv, loadServerEnv, resolveServerEnv } from "./server.ts"
+export { describeServerEnv, inspectServerEnv, isBlockingServerEnvEntry, loadServerEnv, resolveServerEnv } from "./server.ts"
 export type { StandardSchemaV1 } from "./schema.ts"
 export type { EnvErrorCode, EnvErrorDetails, EnvSourceIdentifier } from "./core/errors.ts"
 export type {

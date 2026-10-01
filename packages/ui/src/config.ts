@@ -38,6 +38,8 @@ const runtimeComponents = {
   UChatReasoning: defineAsyncComponent(() => import("@nuxt/ui/components/ChatReasoning.vue")),
   UChatTool: defineAsyncComponent(() => import("@nuxt/ui/components/ChatTool.vue")),
   UCollapsible: defineAsyncComponent(() => import("@nuxt/ui/components/Collapsible.vue")),
+  // Nuxt UI's Vite build replaces its Nuxt Icon only for imports inside Nuxt UI, so use the Vue version here.
+  UIcon: defineAsyncComponent(() => import("@nuxt/ui/runtime/vue/components/Icon.vue")),
   UModal: defineAsyncComponent(() => import("@nuxt/ui/components/Modal.vue")),
 };
 

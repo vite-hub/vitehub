@@ -668,12 +668,7 @@ describe("sources, loaders, and publishers", () => {
     await writeFile(join(directory, "README.md"), "# Docs\n")
     const registryFile = join(root, ".vitehub", "workspace", "assets", "registry.mjs")
 
-    await initializeWorkspaceAssetRegistry(registryFile, [{
-      handler: join(directory, "config.ts"),
-      name: "docs",
-      path: join(directory, "config.ts"),
-      source: "test",
-    }], root)
+    await initializeWorkspaceAssetRegistry(registryFile)
 
     const registry = (await import(`${pathToFileURL(registryFile).href}?t=${Date.now()}`)).default
     expect(registry.docs).toBeUndefined()

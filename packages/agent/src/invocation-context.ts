@@ -2,6 +2,7 @@ import { hasRuntimeType } from "./internal/runtime-type.ts"
 import type { AgentInvocationContextStore } from "./types.ts"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
 
+export const agentInvocationWorkflowBinding = Symbol.for("vitehub.agent.invocationWorkflowBinding")
 export const agentInvocationRunId = Symbol.for("vitehub.agent.invocationRunId")
 export const agentInvocationConfigurationUpdatedContextKey = "agent.inspection.configurationUpdated"
 

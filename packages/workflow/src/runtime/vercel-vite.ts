@@ -3,7 +3,7 @@ import { createVercelHostedServer } from "@vite-hub/internal/runtime/vercel-host
 
 import type { IncomingMessage, ServerResponse } from "node:http"
 
-import type { WorkflowApp } from "./_app.ts"
+import type { VitehubApp } from "@vite-hub/internal/runtime/app"
 import { runWithWorkflowRuntimeEvent, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from "./state.ts"
 
 import type { ResolvedWorkflowOptions, WorkflowDefinitionRegistry } from "../types.ts"
@@ -15,7 +15,7 @@ export async function runWithVercelWorkflowRuntimeEvent<T>(req: unknown, res: un
 }
 
 interface WorkflowVercelServerOptions {
-  app?: WorkflowApp
+  app?: VitehubApp
   registry?: WorkflowDefinitionRegistry
   workflow?: false | ResolvedWorkflowOptions
 }

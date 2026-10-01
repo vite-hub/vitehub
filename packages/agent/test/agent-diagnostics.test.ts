@@ -6,7 +6,7 @@ import { defineCapability, normalizeCapabilities } from "../src/capability-runti
 import { getAgentFromRegistry } from "../src/index.ts"
 import { formatAgentError, toAgentPublicError } from "../src/agent-error.ts"
 import { withAgentToolStepReporting } from "../src/tool-runtime.ts"
-import { agentGeneratedRuntimeError } from "../src/server/generated-runtime-error.ts"
+import { agentGeneratedRuntimeError } from "../src/server/internal.ts"
 import { agentDiagnostics, isAgentTypeDiagnostic } from "../src/agent-diagnostics.ts"
 
 describe("Agent diagnostics", () => {

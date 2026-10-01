@@ -33,7 +33,9 @@
   },
   "exports": {
     ".": "./dist/index.js",
+    "./agent": "./dist/agent.js",
     "./google": "./dist/google.js",
+    "./http": "./dist/http.js",
     "./server": "./dist/server.js",
     "./vite": "./dist/vite.js",
     "./package.json": "./package.json"
@@ -43,7 +45,7 @@
     "dev": "vp pack --watch",
     "generate": "node scripts/generate-google.ts gmail v1",
     "typecheck": "tsc --noEmit -p ./tsconfig.json",
-    "test": "vp run -t @vite-hub/connections#build && vp test"
+    "test": "vp run -t vite-hub#build && vp run -t @vite-hub/connections#build && vp test"
   },
   "dependencies": {
     "@vite-hub/env": "workspace:*",
@@ -57,6 +59,7 @@
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
     "drizzle-orm": "catalog:database",
+    "miniflare": "4.20260714.0",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",

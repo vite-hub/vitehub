@@ -22,7 +22,7 @@ export const defineAgent: DefineAgent = ((options: Parameters<DefineAgent>[0]) =
     configurable: true,
     enumerable: false,
     get() {
-      return assignedInvocations ?? globalConsoleInvocations()
+      return assignedInvocations ?? resolveConsoleInvocations()
     },
     set(value: AgentInvocations | undefined) {
       assignedInvocations = value
@@ -30,7 +30,3 @@ export const defineAgent: DefineAgent = ((options: Parameters<DefineAgent>[0]) =
   })
   return agent
 }) as DefineAgent
-
-function globalConsoleInvocations(): AgentInvocations | undefined {
-  return resolveConsoleInvocations()
-}

@@ -12,7 +12,7 @@ Don't build this with a KV `get()` followed by `set()`. Concurrent requests can 
 
 ## Quick start
 
-Register the integration. It uses memory during local Vite development and infers Cloudflare from a production Nitro preset.
+Register the integration. The `node` preset uses process-local memory, also during local Vite development. The `cloudflare` preset uses Cloudflare Rate Limiting. The `vercel`, `netlify`, and `deno` presets reject `rateLimit`.
 
 ```ts [vite.config.ts]
 import { vitehub } from 'vite-hub'
@@ -156,6 +156,8 @@ export default defineConfig({
   plugins: [hubRateLimit({ namespace: 'acme-image-service-production' })],
 })
 ```
+
+`vitehub({ preset: 'cloudflare', rateLimit: true })` sets the namespace to the deployment name and ignores a configured `rateLimit.namespace`. The deployment name comes from `vitehub({ name })`, `WRANGLER_CI_OVERRIDE_NAME`, the `package.json` name, or the project directory, in that order.
 
 Cloudflare native enforcement is best-effort and exposes only 10-second and 60-second windows. It does not return portable quota metadata, so incompatible policies fail during the build. Use a different namespace for staging, production, and any separately deployed Worker because Cloudflare shares counters with the same namespace ID across Workers.
 

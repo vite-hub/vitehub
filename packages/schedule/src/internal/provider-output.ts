@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url"
 import { isDeepStrictEqual } from "node:util"
 
 import { cloudflareRuntimeExternal, defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
-import { createDefaultCloudflareOutputRoot, createDefaultNetlifyOutputRoot, createDefaultVercelOutputRoot, withProviderDeploymentOutputLock } from "@vite-hub/internal/build/deployment-output"
+import { createDefaultCloudflareOutputRoot, createDefaultNetlifyOutputRoot, createDefaultVercelOutputRoot, recoverNetlifyDeploymentOutput, withProviderDeploymentOutputLock } from "@vite-hub/internal/build/deployment-output"
 import { bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
 import { createImportPath, ensureGeneratedDir } from "@vite-hub/internal/build/paths"
 import { publishProviderSourcesToDeploymentOutputs, rebasePublishedProviderSourceLinks, removeProviderOutputArtifactDir, rewriteRetainedProviderSourcePaths } from "@vite-hub/internal/build/provider-output-sources"
@@ -59,6 +59,7 @@ interface GeneratedScheduleArtifacts {
 }
 
 interface GenerateProviderOutputsOptions {
+  bundleDefines?: Record<string, string>
   bundleAlias?: Record<string, string>
   bundleExternal?: string[]
   clientOutDir: string
@@ -391,6 +392,7 @@ export async function readRuntimeDefinitionCrons(definitions: DiscoveredSchedule
 }
 
 export async function writeVercelScheduleFunctions(options: {
+  bundleDefines?: Record<string, string>
   bundleAlias?: Record<string, string>
   bundleExternal?: string[]
   definitions: DiscoveredScheduleDefinition[]
@@ -429,6 +431,7 @@ export async function writeVercelScheduleFunctions(options: {
     await writeFile(wrapperFile, renderProviderEntry(wrapperFile, options.registryFile, "vercel", definition.name, options.workflow), "utf8")
     await bundleEsmEntry(wrapperFile, functionFile, {
       alias: options.bundleAlias,
+      define: options.bundleDefines,
       external: options.bundleExternal,
       format: "esm",
       platform: "node",
@@ -590,6 +593,10 @@ export async function createNetlifyScheduleFunctionOutputs(options: {
 }
 
 async function writeNetlifyScheduleFunctions(options: {
+  bundleAlias?: Record<string, string>
+  bundleDefines?: Record<string, string>
+  bundleExternal?: string[]
+  sourceRootDir?: string
   definitions: DiscoveredScheduleDefinition[]
   outputRoot: string
   registryFile: string
@@ -601,59 +608,108 @@ async function writeNetlifyScheduleFunctions(options: {
   const publishedSourcesDir = resolve(dirname(options.registryFile), "sources")
   const netlifySourcesDir = resolve(options.outputRoot, "schedule", "sources")
   const includedSourcesDir = relative(functionRoot, netlifySourcesDir).replace(/\\/g, "/")
-  const stagedFunctionRoot = `${functionRoot}.pending`
-  const backupFunctionRoot = `${functionRoot}.previous`
-  await rm(stagedFunctionRoot, { force: true, recursive: true })
-  await cp(functionRoot, stagedFunctionRoot, { force: true, recursive: true }).catch((error: NodeJS.ErrnoException) => {
-    if (error.code !== "ENOENT") throw error
-  })
-  const existingFiles = await readdir(stagedFunctionRoot).catch((error: NodeJS.ErrnoException) => error.code === "ENOENT" ? [] : Promise.reject(error))
-  await Promise.all(existingFiles.filter(file => /^vitehub-schedule-.+\.mjs$/.test(file)).map(file => rm(resolve(stagedFunctionRoot, file), { force: true, recursive: true })))
+  const stagedOutputRoot = `${options.outputRoot}.pending`
+  const backupOutputRoot = `${options.outputRoot}.previous`
+  const stagedFunctionRoot = resolve(stagedOutputRoot, "functions")
+  const stagedSourcesDir = resolve(stagedOutputRoot, "schedule", "sources")
+  let preserveRecovery = false
+  try {
+    await rm(stagedOutputRoot, { force: true, recursive: true })
+    await cp(options.outputRoot, stagedOutputRoot, { force: true, recursive: true, verbatimSymlinks: true }).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== "ENOENT") throw error
+    })
+    await rm(stagedSourcesDir, { force: true, recursive: true })
+    const existingFiles = await readdir(stagedFunctionRoot).catch((error: NodeJS.ErrnoException) => error.code === "ENOENT" ? [] : Promise.reject(error))
+    await Promise.all(existingFiles.filter(file => /^vitehub-schedule-.+\.mjs$/.test(file)).map(file => rm(resolve(stagedFunctionRoot, file), { force: true, recursive: true })))
 
-  const outputs = await createNetlifyScheduleFunctionOutputs({
-    definitions: options.definitions,
-    functionRoot: stagedFunctionRoot,
-    includedSourcesDir: existsSync(publishedSourcesDir) ? includedSourcesDir : undefined,
-    registryFile: options.registryFile,
-  })
-  options.signal?.throwIfAborted()
-  if (outputs.length === 0) {
-    await mkdir(stagedFunctionRoot, { recursive: true })
-  }
-  else {
-    await mkdir(stagedFunctionRoot, { recursive: true })
+    const outputs = await createNetlifyScheduleFunctionOutputs({
+      definitions: options.definitions,
+      functionRoot: stagedFunctionRoot,
+      includedSourcesDir: existsSync(publishedSourcesDir) ? includedSourcesDir : undefined,
+      registryFile: options.registryFile,
+    })
     options.signal?.throwIfAborted()
-    await Promise.all(outputs.map(async output => writeFile(output.file, output.source, { encoding: "utf8", signal: options.signal })))
+    if (outputs.length === 0) {
+      await mkdir(stagedFunctionRoot, { recursive: true })
+    }
+    else {
+      await mkdir(stagedFunctionRoot, { recursive: true })
+      options.signal?.throwIfAborted()
+      const results = await Promise.allSettled(outputs.map(async (output) => {
+        const wrapperFile = `${output.file}.source.mjs`
+        await writeFile(wrapperFile, output.source, { encoding: "utf8", signal: options.signal })
+        try {
+          await bundleEsmEntry(wrapperFile, output.file, {
+            alias: options.bundleAlias,
+            define: options.bundleDefines,
+            external: options.bundleExternal,
+            format: "esm",
+            platform: "node",
+            plugins: [createScheduleDefinitionAliasPlugin()],
+            rootDir: options.sourceRootDir ?? options.rootDir,
+            signal: options.signal,
+            workingDir: options.sourceRootDir ?? options.rootDir,
+          })
+        }
+        finally {
+          await rm(wrapperFile, { force: true })
+        }
+      }))
+      const failure = results.find(result => result.status === "rejected")
+      if (failure) throw failure.reason
+    }
+    await publishProviderSourcesToDeploymentOutputs({
+      destinations: [{
+        files: outputs.map(output => output.file),
+        runtimeSourcesDir: relative(options.rootDir, netlifySourcesDir).replace(/\\/g, "/"),
+        sourcesDir: stagedSourcesDir,
+      }],
+      publishedSourcesDir,
+      signal: options.signal,
+    })
+    if (existsSync(stagedSourcesDir)) {
+      await rebasePublishedProviderSourceLinks(stagedSourcesDir, stagedSourcesDir, netlifySourcesDir)
+    }
+    options.signal?.throwIfAborted()
+    // Functions and retained sources must move together, including during recovery.
+    rmSync(backupOutputRoot, { force: true, recursive: true })
+    let movedPrevious = false
+    try {
+      if (existsSync(options.outputRoot)) {
+        renameSync(options.outputRoot, backupOutputRoot)
+        movedPrevious = true
+      }
+      renameSync(stagedOutputRoot, options.outputRoot)
+    }
+    catch (error) {
+      if (movedPrevious) {
+        try {
+          renameSync(backupOutputRoot, options.outputRoot)
+        }
+        catch (restoreError) {
+          // Retry a transient restore failure without deleting either complete pair.
+          try {
+            await rename(backupOutputRoot, options.outputRoot)
+          }
+          catch (retryError) {
+            preserveRecovery = true
+            throw new AggregateError([error, restoreError, retryError], `Netlify Schedule rollback failed; previous output retained at ${backupOutputRoot}`)
+          }
+        }
+      }
+      throw error
+    }
+    // Publication is committed. Cleanup must not turn successful output into a failed generation.
+    await rm(backupOutputRoot, { force: true, recursive: true }).catch(() => undefined)
+    if (outputs.length === 0) await removeEmptyDirectories(functionRoot, options.rootDir).catch(() => undefined)
   }
-  await publishProviderSourcesToDeploymentOutputs({
-    destinations: [{
-      files: outputs.map(output => output.file),
-      runtimeSourcesDir: relative(options.rootDir, netlifySourcesDir).replace(/\\/g, "/"),
-      sourcesDir: netlifySourcesDir,
-    }],
-    publishedSourcesDir,
-    signal: options.signal,
-  })
-  options.signal?.throwIfAborted()
-  rmSync(backupFunctionRoot, { force: true, recursive: true })
-  try {
-    renameSync(functionRoot, backupFunctionRoot)
+  finally {
+    if (!preserveRecovery) await rm(stagedOutputRoot, { force: true, recursive: true }).catch(() => undefined)
   }
-  catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
-  }
-  try {
-    renameSync(stagedFunctionRoot, functionRoot)
-    rmSync(backupFunctionRoot, { force: true, recursive: true })
-  }
-  catch (error) {
-    if (existsSync(backupFunctionRoot)) renameSync(backupFunctionRoot, functionRoot)
-    throw error
-  }
-  if (outputs.length === 0) await removeEmptyDirectories(functionRoot, options.rootDir)
 }
 
 async function writeCloudflareScheduleOutput(options: {
+  bundleDefines?: Record<string, string>
   bundleAlias?: Record<string, string>
   bundleEntry: string
   crons: string[]
@@ -701,6 +757,7 @@ async function writeCloudflareScheduleOutput(options: {
   await Promise.all([
     bundleEsmEntry(options.bundleEntry, resolve(outputRoot, main), {
       alias: options.bundleAlias,
+      define: options.bundleDefines,
       banner: `// ${cloudflareScheduleWorkerMarker}`,
       conditions: ["workerd", "worker", "browser", "default"],
       external: [cloudflareRuntimeExternal, "node:*"],
@@ -791,6 +848,8 @@ async function cleanCloudflareScheduleOutput(rootDir: string, stateFile: string,
 }
 
 export async function generateProviderOutputsWithinLock(options: GenerateProviderOutputsOptions): Promise<GeneratedScheduleArtifacts> {
+  // Restore the complete Netlify publication before any generation work can fail or abort.
+  recoverNetlifyDeploymentOutput(options.rootDir)
   options.signal?.throwIfAborted()
   const generatedDir = resolve(options.rootDir, ".vitehub", productName)
   const previousGeneratedDir = `${generatedDir}.${randomUUID()}.previous`
@@ -818,6 +877,7 @@ export async function generateProviderOutputsWithinLock(options: GenerateProvide
         await writeFile(stagedDenoCronInputFile, renderDenoCronEntry(artifacts.denoCronFile, artifacts.registryFile, crons, options.runtimeImport), "utf8")
         await bundleEsmEntry(stagedDenoCronInputFile, stagedDenoCronFile, {
           alias: options.bundleAlias,
+          define: options.bundleDefines,
           external: [...builtinModules, ...builtinModules.map(name => `node:${name}`), ...(options.bundleExternal ?? [])],
           format: "esm",
           packages: "external",
@@ -837,6 +897,7 @@ export async function generateProviderOutputsWithinLock(options: GenerateProvide
       options.signal?.throwIfAborted()
       await writeCloudflareScheduleOutput({
         bundleAlias: options.bundleAlias,
+        bundleDefines: options.bundleDefines,
         bundleEntry: artifacts.cloudflareWorkerFile,
         crons: [...new Set(crons.values())],
         rootDir: options.rootDir,
@@ -859,6 +920,7 @@ export async function generateProviderOutputsWithinLock(options: GenerateProvide
     options.signal?.throwIfAborted()
     await writeVercelScheduleFunctions({
       bundleAlias: options.bundleAlias,
+      bundleDefines: options.bundleDefines,
       bundleExternal: options.bundleExternal,
       definitions: artifacts.definitions,
       outputRoot: createDefaultVercelOutputRoot(options.rootDir),
@@ -870,6 +932,10 @@ export async function generateProviderOutputsWithinLock(options: GenerateProvide
     }, crons)
     options.signal?.throwIfAborted()
     await writeNetlifyScheduleFunctions({
+      bundleAlias: options.bundleAlias,
+      bundleDefines: options.bundleDefines,
+      bundleExternal: options.bundleExternal,
+      sourceRootDir: options.sourceRootDir,
       definitions: artifacts.definitions,
       outputRoot: createDefaultNetlifyOutputRoot(options.rootDir),
       registryFile: artifacts.registryFile,

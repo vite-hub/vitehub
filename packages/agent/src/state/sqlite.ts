@@ -38,6 +38,21 @@ export interface SqliteAgentStateOptions {
   transcripts?: { retention: "forever" }
 }
 
+/** SQL access for a package that owns tables next to Agent State. */
+export interface SqliteAgentStateExtensionExecutor {
+  execute: (statement: string, args?: unknown[]) => Promise<SqliteAgentStateRow[]>
+}
+
+/**
+ * Tables owned by one extension, such as the Babysitter PR inbox, in the Agent State database.
+ * Writes share the adapter's in-process serialization and run in `BEGIN IMMEDIATE` transactions.
+ */
+export interface SqliteAgentStateExtension extends SqliteAgentStateExtensionExecutor {
+  /** Prefix for the extension's own tables. It extends the Agent State table prefix. */
+  readonly tablePrefix: string
+  transaction: <T>(run: (executor: SqliteAgentStateExtensionExecutor) => Promise<T>) => Promise<T>
+}
+
 export interface LibsqlAgentStateClient {
   close?: () => MaybePromise<void>
   execute: (statement: string | { args?: unknown[]; sql: string }) => MaybePromise<SqliteAgentStateResult>
@@ -134,13 +149,42 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
   private readonly tables: StateTables
   private transactionTail: Promise<void> = Promise.resolve()
 
+  private readonly tablePrefix: string
+
   constructor(options: SqliteAgentStateOptions) {
     if (!options.driver) {
       throw agentDiagnostics.AGENT_R0850({ message: "[vitehub] SQLite Agent State requires a driver." })
     }
     this.preserveTranscripts = options.transcripts?.retention === "forever"
     this.driver = options.driver
+    this.tablePrefix = options.tablePrefix ?? "vitehub_agent_state_"
     this.tables = createTables(options.tablePrefix)
+  }
+
+  /**
+   * Opens SQL access for tables that `name` owns in this database. Table names start with
+   * `tablePrefix`. The extension creates and migrates its own tables.
+   */
+  extension(name: string): SqliteAgentStateExtension {
+    if (!/^[a-z][a-z0-9_]*$/.test(name)) {
+      throw agentDiagnostics.AGENT_R0849({ message: `[vitehub] Invalid SQLite Agent State extension name "${name}". Use lowercase letters, digits, and underscores.` })
+    }
+    const tablePrefix = `${this.tablePrefix}${name}_`
+    tableName(tablePrefix, "x")
+    const executor = (target: SqliteAgentStateExecutor): SqliteAgentStateExtensionExecutor => ({
+      execute: async (statement, args = []) => await execute(target, statement, args),
+    })
+    return {
+      tablePrefix,
+      execute: async (statement, args = []) => {
+        await this.connect()
+        return await this.serialize(async () => await retrySqliteBusy(async () => await execute(this.driver, statement, args)))
+      },
+      transaction: async (run) => {
+        await this.connect()
+        return await retrySqliteBusy(async () => await this.transaction(async tx => await run(executor(tx))))
+      },
+    }
   }
 
   async acquireLock(threadId: string, ttlMs: number): Promise<Lock | null> {
@@ -568,6 +612,18 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
       )
     })
     return retried.length > 0
+  }
+
+  async webhookDeliveries(scope: string): Promise<AgentWebhookQueueDelivery[]> {
+    await this.cleanupExpiredStateIfDue()
+    const rows = await execute(
+      this.driver,
+      `SELECT value FROM ${this.tables.webhookQueue}
+        WHERE scope = ? AND status != 'completed'
+        ORDER BY id ASC`,
+      [scope],
+    )
+    return rows.flatMap((row) => (isRuntimeString(row.value) ? [parseAgentWebhookQueueDelivery(row.value)] : []))
   }
 
   async webhookDeliveryScopes(): Promise<string[]> {

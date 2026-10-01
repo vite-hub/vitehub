@@ -1,11 +1,11 @@
-import { decodeQueueNameHex, encodeQueueNameHex } from "../internal/hex.ts"
+import { decodeNameHex, encodeNameHex } from "@vite-hub/internal/integrations/hex"
 
 const cloudflareQueueNamePrefix = "queue--"
 const defaultCloudflareQueueBindingPrefix = "QUEUE"
 const encodedCloudflareQueueNamePattern = /^queue--([0-9a-f]{2})+$/i
 
 export function getCloudflareQueueBindingName(name: string): string {
-  const encoded = encodeQueueNameHex(name).toUpperCase()
+  const encoded = encodeNameHex(name).toUpperCase()
   return encoded ? `${defaultCloudflareQueueBindingPrefix}_${encoded}` : defaultCloudflareQueueBindingPrefix
 }
 
@@ -15,5 +15,5 @@ export function getCloudflareQueueDefinitionName(name: string, namePrefix = ""):
     return encodedName
   }
 
-  return decodeQueueNameHex(encodedName.slice(cloudflareQueueNamePrefix.length)) || name
+  return decodeNameHex(encodedName.slice(cloudflareQueueNamePrefix.length)) || name
 }

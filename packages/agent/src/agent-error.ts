@@ -126,6 +126,10 @@ export type AgentPublicErrorCode =
 export interface AgentPublicErrorDetails {
   capability?: string
   category?: string
+  /** Provider quota reset time as an ISO 8601 timestamp, for a validated reset time. */
+  resetAt?: string
+  /** Validated provider quota reset time as the provider wrote it, for example `Sep 15th, 2026 1:23 AM`. */
+  resetText?: string
   retryAfter?: number
 }
 
@@ -160,6 +164,109 @@ function publicError(
   return { code, ...(details ? { details } : {}), error }
 }
 
+// Codex and similar providers report "... try again at Sep 15th, 2026 1:23 AM." in the failure text.
+// A date without a zone is read in the server's local time zone, the same clock the provider process used.
+function quotaResetDetails(message: unknown): AgentPublicErrorDetails | undefined {
+  if (!hasRuntimeType(message, "string")) return
+  const afterPrompt = message.match(/try again at\s+(.+)/i)?.[1]
+  if (!afterPrompt) return
+
+  // Match timestamps first to keep periods in abbreviations and explicit zones.
+  const timestamp = afterPrompt.match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?|(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\.?\s+\d{1,2}(?:st|nd|rd|th)?(?:,\s*|\s+)\d{4}\s+\d{1,2}:\d{2}\s+[ap]\.?m\.?(?:\s+(?:UTC|GMT|UT|[ECMP][DS]T|CET|CEST|EET|EEST|BST|IST|JST|AEST|AEDT|[+-]\d{2}:?\d{2}))?)(?=\.(?!\d)|\s*$)/i)?.[1]
+  const resetText = timestamp?.replace(/\.$/, "")
+  if (!resetText || resetText.length > 64) return
+  const isoDate = resetText.match(/^(\d{4})-(\d{2})-(\d{2})T/i)
+  const namedDate = resetText.match(/^([a-z]+)\.?\s+(\d{1,2})(?:st|nd|rd|th)?(?:,\s*|\s+)(\d{4})/i)
+  const year = Number(isoDate?.[1] ?? namedDate?.[3])
+  const month = isoDate
+    ? Number(isoDate[2]) - 1
+    : ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"].indexOf(namedDate?.[1]?.slice(0, 3).toLowerCase() ?? "")
+  const day = Number(isoDate?.[3] ?? namedDate?.[2])
+  // Date.parse applies legacy 1900-based conversion to named years below 100.
+  // Reject them rather than publishing an instant for a different calendar year.
+  if (namedDate && year < 100) return
+  const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0)
+  const daysInMonth = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month]
+  // Date.parse normalizes overflow days, so validate the provider's calendar date first.
+  if (daysInMonth === undefined || day < 1 || day > daysInMonth) return
+  const namedTime = namedDate && resetText.match(/\s(\d{1,2}):(\d{2})\s+([ap])\.?m\.?(?:\s+(.+))?$/i)
+  // Date.parse can normalize invalid clock fields in named dates too.
+  if (namedTime && (Number(namedTime[1]) < 1 || Number(namedTime[1]) > 12 || Number(namedTime[2]) > 59)) return
+  const isoTime = isoDate && resetText.match(/T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d+))?)?/i)
+  // Date.parse can normalize invalid ISO clock fields too.
+  if (isoTime && (Number(isoTime[1]) > 23 || Number(isoTime[2]) > 59 || Number(isoTime[3] ?? 0) > 59)) return
+  // `resetAt` is serialized with millisecond precision. Reject finer input so
+  // the public text and instant cannot describe different times.
+  if (isoTime?.[4] && isoTime[4].length > 3) return
+  const offset = resetText.match(/[+-](\d{2}):?(\d{2})$/)
+  if (offset && (Number(offset[1]) > 14 || Number(offset[2]) > 59 || Number(offset[1]) === 14 && Number(offset[2]) !== 0)) return
+  const namedZone = resetText.match(/\s(UTC|GMT|UT|[ECMP][DS]T|CET|CEST|EET|EEST|BST|IST|JST|AEST|AEDT)$/i)?.[1]
+  // These abbreviations identify different offsets in different regions.
+  // Without provider locale context, no single reset instant is safe to publish.
+  if (namedZone && /^(?:BST|IST|CST|CDT|EST|EDT|MST|PST)$/i.test(namedZone)) return
+  const namedZoneOffsets: Record<string, string> = {
+    aest: "+10:00",
+    aedt: "+11:00",
+    cest: "+02:00",
+    cet: "+01:00",
+    eest: "+03:00",
+    eet: "+02:00",
+    gmt: "+00:00",
+    jst: "+09:00",
+    mdt: "-06:00",
+    pdt: "-07:00",
+    utc: "+00:00",
+    ut: "+00:00",
+  }
+  const parseText = namedZone
+    ? resetText.replace(new RegExp(`\\s${namedZone}$`, "i"), ` ${namedZoneOffsets[namedZone.toLowerCase()]}`)
+    : resetText
+  const time = Date.parse(parseText
+    .replace(/\b(\d{1,2})(?:st|nd|rd|th)\b/gi, "$1")
+    .replace(/\b([ap])\.m\.?/gi, "$1m"))
+  if (!Number.isFinite(time)) return
+  // Date.parse normalizes nonexistent local wall times during DST transitions.
+  // Do not publish a reset instant that differs from the provider's unzoned clock.
+  if (namedTime && !namedTime[4] && !namedZone || isoTime && !/(?:Z|[+-]\d{2}:?\d{2})$/i.test(resetText)) {
+    const parsed = new Date(time)
+    const hour = namedTime
+      ? Number(namedTime[1]) % 12 + (namedTime[3]?.toLowerCase() === "p" ? 12 : 0)
+      : Number(isoTime?.[1])
+    const minute = Number(namedTime?.[2] ?? isoTime?.[2])
+    const second = Number(isoTime?.[3] ?? 0)
+    const millisecond = Number((isoTime?.[4] ?? "").slice(0, 3).padEnd(3, "0"))
+    if (parsed.getFullYear() !== year
+      || parsed.getMonth() !== month
+      || parsed.getDate() !== day
+      || parsed.getHours() !== hour
+      || parsed.getMinutes() !== minute
+      || parsed.getSeconds() !== second
+      || parsed.getMilliseconds() !== millisecond) return
+    // During a DST fall-back transition, the same local wall time occurs twice.
+    // Date.parse chooses one occurrence, but an unzoned provider timestamp does
+    // not identify which instant it means, so omit the reset details.
+    const localPartsMatch = (candidate: Date) => candidate.getFullYear() === year
+      && candidate.getMonth() === month
+      && candidate.getDate() === day
+      && candidate.getHours() === hour
+      && candidate.getMinutes() === minute
+      && candidate.getSeconds() === second
+      && candidate.getMilliseconds() === millisecond
+    const offset = parsed.getTimezoneOffset()
+    for (const sampleDays of [-2, -1, 1, 2]) {
+      const sampledOffset = new Date(time + sampleDays * 24 * 60 * 60 * 1000).getTimezoneOffset()
+      const alternateDelta = (sampledOffset - offset) * 60 * 1000
+      if (alternateDelta !== 0 && localPartsMatch(new Date(time + alternateDelta))) return
+    }
+  }
+  return { resetText, resetAt: new Date(time).toISOString() }
+}
+
+function quotaExhausted(...messages: unknown[]): AgentPublicError {
+  const details = messages.map(quotaResetDetails).find(Boolean)
+  return publicError("PROVIDER_QUOTA_EXHAUSTED", "AI provider quota is exhausted.", details)
+}
+
 function aiSdkProviderPublicError(error: unknown): AgentPublicError | undefined {
   const retry = readAgentErrorProperty(error, "name") === "AI_RetryError"
     ? readAgentErrorProperty(error, "lastError")
@@ -190,7 +297,7 @@ function aiSdkProviderPublicError(error: unknown): AgentPublicError | undefined 
     return publicError("PROVIDER_AUTHENTICATION_FAILED", "AI provider credentials were rejected.")
   }
   if (status === 402 || quota) {
-    return publicError("PROVIDER_QUOTA_EXHAUSTED", "AI provider quota is exhausted.")
+    return quotaExhausted(readAgentErrorProperty(nested, "message"), readAgentErrorProperty(retry, "message"))
   }
   if (status === 429) {
     return publicError("PROVIDER_RATE_LIMITED", "AI provider is temporarily rate limited. Try again later.")
@@ -210,7 +317,7 @@ export function toAgentPublicError(error: unknown, context: AgentPublicErrorCont
       const message = readAgentErrorProperty(error, "message")
       if (hasRuntimeType(message, "string")
         && /usage limit|quota (?:is )?(?:exhausted|exceeded)|insufficient (?:quota|credits)|credit balance.*(?:low|exhausted)|spend(?:ing)? limit|spend.?cap|(?:billing|spending) budget (?:is )?exceeded/i.test(message)) {
-        return publicError("PROVIDER_QUOTA_EXHAUSTED", "AI provider quota is exhausted.")
+        return quotaExhausted(message)
       }
     }
     const viteHubError = getViteHubErrorShape(error)

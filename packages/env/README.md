@@ -105,6 +105,27 @@ env: {
 
 `useServerEnv().dryRun` is a `boolean`, `minConfidence` is a `number`, and `mode` is `"draft" | "send"`. Defaults use the parsed type. `env.enum()` cannot be secret because its allowed values are public metadata. An invalid value throws `ENV_RUNTIME_VALUE_INVALID` with the declaration path; the value is never included. `env.server` does not accept custom `schema` parsers because the generated runtime must serialize the parser.
 
+## Presets
+
+Presets return ordinary `env.server` declarations. Import them from `@vite-hub/env` or `@vite-hub/env/presets`.
+
+| Preset | Declares |
+| --- | --- |
+| `openWorkflowEnv()` | OpenWorkflow namespace, Postgres URL, schema, and worker concurrency. |
+| `typesafeEnv({ provider?, model? })` | TypeSafe Jev `provider`, Secret `apiKey`, and `model`. `"typesafe"` reads `TYPESAFE_API_KEY`; `"vercel"` reads the optional `AI_GATEWAY_API_KEY`. `TYPESAFE_DEFAULT_MODEL` overrides the model. |
+
+The preset allows a missing API key during Env resolution. The ask Driver requires `TYPESAFE_API_KEY` for the TypeSafe provider and reports `AGENT_R0936` when it is missing. The Vercel provider can use `VERCEL_OIDC_TOKEN` without an API key.
+
+`@vite-hub/agent` reads `typesafeEnv()` from the `typesafe` group for `driver.ask`:
+
+```ts
+env: {
+  server: {
+    typesafe: typesafeEnv(),
+  },
+},
+```
+
 ## External runtime values
 
 Use a read-only Env provider when application credentials live outside the host environment. Keep the provider's bootstrap credential in Kubernetes, Cloudflare, or the current host, then load the external values as one operation-scoped snapshot.
@@ -154,6 +175,8 @@ const githubToken = snapshot.githubToken.unseal()
 ```
 
 Each `loadServerEnv()` call batches requested keys once per provider and returns a fresh frozen snapshot. ViteHub does not cache across loads, so rotation appears on the next load. `useServerEnv()` stays synchronous for host-backed and literal values; provider-backed values require `loadServerEnv()` or `runWithServerEnv()`.
+
+`env.source(["PRIMARY_TOKEN", "FALLBACK_TOKEN"], { skipEmpty: true })` skips empty host values. Without `skipEmpty`, a defined empty string remains a value. Generated built-in Channel sources use `skipEmpty` to preserve their host fallback behavior.
 
 The generated `#vitehub/env/server` module is not blocked from client builds. Keep its imports in server-only entry points, and supply credentials through `env.source(...)` without literals or defaults; static values and defaults can be serialized into the generated module.
 
@@ -218,11 +241,20 @@ Read the complete [Env guide](https://vitehub.dev/docs/server-primitives/env), t
 
 ### Declaration inventory
 
-`describeServerEnv()` from `#vitehub/env/server` returns declaration metadata without reading host values or calling providers. It includes the declaration path, source kind, provider alias, secret and required flags, default presence, and the parsed value type. Values, defaults, host variable names and provider storage keys are omitted. Use `inspectServerEnv()` only when a status check that loads providers is intended.
+`describeServerEnv()` from `#vitehub/env/server` returns declaration metadata without reading host values or calling providers. It includes the declaration path, source kind, provider alias, secret and required flags, default presence, and the parsed value type. Values, defaults, host variable names and provider storage keys are omitted. Use `inspectServerEnv()` only when a status check that loads providers is intended. Its entries add the provider alias, required flag, and `available`, `defaulted`, `missing`, `invalid`, or `error` status, and never include values. `isBlockingServerEnvEntry(entry)` from `@vite-hub/env` returns `true` when the entry makes `loadServerEnv()` fail.
+
+`hubEnv()` contributes two CLI commands:
+
+```bash
+vitehub env inspect [--stage <name>] [--json]
+vitehub env check [--stage <name>] [--json]
+```
+
+Both commands load the Vite config in the selected stage mode, including `.env.<stage>` files, with process environment values taking precedence. They list each declared variable with status, source, required, and secret flags. Values are never printed. `env check` exits with `1` when `loadServerEnv()` would fail.
 
 ### Managed credentials
 
-`createEnvBridge` from `@vite-hub/env/bridge` adapts a secret store to Env with credential-scoped permissions and durable activity. `createDatabaseEnvStore` from `@vite-hub/env/database` supplies encrypted storage, grants, and activity using a ViteHub SQLite/Drizzle database. Keep its 32-byte encryption key in host configuration and back it up separately from the database.
+`createEnvBridge` from `@vite-hub/env/bridge` adapts a secret store to Env with credential-scoped permissions and durable activity. `createDatabaseEnvStore` from `@vite-hub/env/database` supplies encrypted storage, grants, and activity using a ViteHub SQLite/Drizzle database. Use `await store.revisionCondition(key, revision)` to build a SQL predicate that updates related metadata only while that secret revision is current. A `null` revision requires the secret to be absent. Keep its 32-byte encryption key in host configuration and back it up separately from the database.
 
 `@vite-hub/env/seal` exports the AES-GCM helpers that the database store uses: `importSealKey`, `seal`, `unseal`, and `sealKeyId`. Other owner packages use them to store sealed values in the same format.
 
@@ -230,6 +262,6 @@ A bridge implements the existing `read()` provider contract. Its `replace()` ope
 
 `inspect`, `preview`, `replace`, and `use` are separate permissions. Only a trusted administrator can modify grants or inspect activity. A verified agent token can supply a narrower permission ceiling. Context must come from authenticated server code, never an HTTP body. `loadServerEnv(undefined, { access })` forwards trusted actor and invocation attribution to providers.
 
-`bridge.use(context, key, operation, callback)` runs a trusted operation with a `SecretEnv` and records its outcome. Ordinary provider reads record `resolve`, which does not claim to observe later use of copied plaintext. Activity is persisted before release or mutation and after completion. An interrupted operation can retain a `started` record; a remote store and the activity database do not share a transaction. Failed audit persistence blocks release. The optional `emit` callback exports persisted events to evlog or another sink; exporter failures do not erase durable activity.
+`bridge.use(context, key, operation, callback)` runs a trusted operation with a `SecretEnv` and records its outcome. The callback also receives `{ revision }` for the secret read when the store supplies a revision. Use that revision to fence related writes; a later inspection can refer to a replacement token. Ordinary provider reads record `resolve`, which does not claim to observe later use of copied plaintext. Activity is persisted before release or mutation and after completion. An interrupted operation can retain a `started` record; a remote store and the activity database do not share a transaction. Failed audit persistence blocks release. The optional `emit` callback exports persisted events to evlog or another sink; exporter failures do not erase durable activity.
 
 Database previews are opt-in. Short and structured values have no preview. Previews remain protected metadata and are excluded from activity. The database adapter uses AES-256-GCM with per-write IVs and authenticates the namespace, key, and revision. Host administration and database backup security remain application responsibilities.

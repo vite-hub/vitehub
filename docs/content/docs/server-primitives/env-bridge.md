@@ -6,15 +6,31 @@ navigation.group: Application
 icon: i-lucide-key-round
 ---
 
-Env Bridge connects an Env provider to a secret store, access policy, and durable activity log. Use it for credentials that must change while your application is running. Host variables, including `process.env` and Worker bindings, remain read-only through Console.
+Env Bridge is an [Env provider](/docs/server-primitives/env#read-external-env-storage) that connects Server Env to a secret store, an access policy, and a durable activity log. Use it for credentials that administrators must replace while the application runs, for example an API token that rotates.
 
-One provider is enough to start. Add another when credentials belong to a different store or access policy. Existing read-only providers continue to work without a bridge.
+Each credential has its own grants. A user, Agent, or service gets only the permissions you grant for that key. Every read, replacement, and grant change is recorded. Host variables, including `process.env` and Worker bindings, stay read-only.
 
-## Create a persistent provider
+::tip
+- **[Env](/docs/server-primitives/env)** declares values and reads them from the host or a read-only provider. Use it for most configuration.
+- **Env Bridge** adds runtime replacement, per-key grants, and activity to one provider. Use it when a credential changes without a redeploy or when you must audit who used it.
+- **[Connections](/docs/server-primitives/connections)** hold OAuth account tokens and store them through Env Bridge. Use them when the app calls a third-party API for a connected account.
+::
 
-The SQLite adapter stores encrypted values, exact-key grants, and activity in the same database. It accepts a SQLite Drizzle instance, including a compatible ViteHub Database. Install `drizzle-orm` when using this adapter. Supply a persistent 32-byte encryption key from your host secret store; keep it separate from the database and retain it across restarts.
+## Quick start
 
-This factory keeps the database, authentication, and host bootstrap configuration in application code. Pass your existing Better Auth session reader and administrator policy when calling it.
+::steps{level="3"}
+
+### Install
+
+```bash [Terminal]
+pnpm add vite-hub drizzle-orm
+```
+
+The SQLite adapter needs `drizzle-orm`. Owner-package users install `@vite-hub/env` and import from `@vite-hub/env/<subpath>` instead of `vite-hub/env/<subpath>`.
+
+### Configure
+
+Create a factory that builds the bridge from your database, encryption key, and session reader. The factory keeps database, authentication, and host bootstrap configuration in application code.
 
 ```ts [server/env/create-credentials.ts]
 import { createEnvAuthenticator } from 'vite-hub/env/auth'
@@ -53,9 +69,9 @@ export function createCredentials(options: {
 }
 ```
 
-Export `provider` as the default from your configured provider module. Call the factory once per application runtime. For ViteHub Auth, wrap the discovered instance's `auth.api.getSession({ headers })`; keep `isAdmin` as your own policy. Authentication alone does not grant administrator access. A provider's management authentication supplements existing Console access protection.
+Call the factory once per application runtime and export its `provider` as the default export of your provider module, here `server/env/credentials.ts`. For ViteHub Auth, pass a wrapper around the discovered instance's `auth.api.getSession({ headers })`. Keep `isAdmin` as your own policy: authentication alone does not grant administrator access.
 
-Declare the provider and the key your application uses:
+Register the provider module and declare the key your application uses.
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
@@ -64,6 +80,7 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
+    preset: 'node',
     console: true,
     env: { providers: { credentials: './server/env/credentials.ts' } },
   })],
@@ -78,7 +95,9 @@ export default defineConfig({
 })
 ```
 
-The configured service principal needs a `use` grant before `loadServerEnv()` can read this key. An authenticated administrator can initialize the value and grant access through trusted server code:
+### Start using it
+
+An administrator stores the first value and grants `use` to the service principal. Run this from trusted server code, or use the Console.
 
 ```ts
 // owner is an EnvAccessContext returned by your server authentication policy.
@@ -94,30 +113,149 @@ await bridge.grant(owner, {
 })
 ```
 
-`expectedRevision: null` creates a missing value. To replace an existing value, pass the revision returned by `bridge.inspect()`. Concurrent edits with a stale revision fail with `ENV_BRIDGE_CONFLICT`; refresh the metadata before trying again.
+Server code then reads the credential through Server Env.
 
-The database adapter reports `activation: 'next-resolution'`. The next `loadServerEnv()` reads the replacement. Existing snapshots, in-flight operations, initialized SDK clients, and child processes retain their previous value. Resolve credentials at each operation boundary and recreate clients when needed. Replacing a stored key does not renew an OAuth subscription or change a running process's environment.
+```ts
+import { loadServerEnv } from '#vitehub/env/server'
+
+const env = await loadServerEnv()
+const token = env.githubToken.unseal()
+```
+
+::
+
+## Public imports
+
+| Import | Use |
+| --- | --- |
+| `createEnvBridge` from `vite-hub/env/bridge` | Build a bridge from a secret store, an access store, and a runtime context. |
+| `createDatabaseEnvStore` from `vite-hub/env/database` | Store encrypted values, grants, and activity in a SQLite Drizzle database. |
+| `createEnvAuthenticator` from `vite-hub/env/auth` | Turn a management request into a trusted `EnvAccessContext` from a Better Auth session or a verified Agent session. |
+| `createEnvBridgeHandler` from `vite-hub/env/http` | Handle management requests on a server route. The Console uses it through the generated Server Env module. |
+| `importSealKey`, `seal`, `unseal`, `sealKeyId` from `@vite-hub/env/seal` | AES-GCM helpers in the database store format, for owner packages that store sealed values. |
+
+Types such as `EnvAccessContext`, `EnvPermission`, `EnvGrant`, `EnvActivity`, `EnvSecretStore`, and `EnvAccessStore` come from `vite-hub/env/bridge`. Each `vite-hub/env/<subpath>` import is also available as `@vite-hub/env/<subpath>`.
+
+## Bridge options
+
+| Option | Type | Description |
+| --- | --- | --- |
+| `secrets` | `EnvSecretStore` | Reads, inspects, and conditionally replaces stored values. |
+| `access` | `EnvAccessStore` | Stores grants and appends activity. |
+| `runtimeContext` | `() => EnvAccessContext \| Promise<EnvAccessContext>` | Supplies attribution when `loadServerEnv()` has no explicit access context. Derive it from trusted invocation or request context. |
+| `emit` | `(event: EnvActivity) => void \| Promise<void>` | Optional. Exports each event after it is persisted. See [Export persisted events to evlog](#export-persisted-events-to-evlog). |
+
+`createDatabaseEnvStore()` returns `secrets` and `access`, so you can spread it into `createEnvBridge()`. It accepts these options:
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `db` | `EnvDatabase` | Required | A SQLite Drizzle instance, including a compatible ViteHub Database. |
+| `encryptionKey` | `Uint8Array` | Required | A 32-byte key. Other lengths fail with `ENV_BRIDGE_INVALID`. |
+| `namespace` | `string` | `'default'` | Separates the credentials of several bridges in one database. |
+| `previews` | `boolean` | `false` | Stores a masked preview for token-shaped values. |
+
+The store also returns `revisionCondition(key, revision)`. It builds a SQL predicate that updates related records only while that secret revision is current. A `null` revision requires the secret to be absent.
+
+## Providers
+
+| Store | Activation | Notes |
+| --- | --- | --- |
+| `createDatabaseEnvStore()` (SQLite through Drizzle) | `next-resolution` | Uses AES-256-GCM with a new IV for each write. Authenticates the namespace, key, and revision. Creates its tables on first use. |
+| Custom `EnvSecretStore` and `EnvAccessStore` | `next-resolution`, `restart`, or `deploy` | The store's `replace()` returns the activation that applies to it. |
+
+Env Bridge runs where the Env provider runs. Keep the database and the encryption key persistent across restarts. Supply the key from your host secret store, separate from the database, and back it up.
+
+## Replace a credential
+
+Pass the revision from `bridge.inspect()` to replace an existing value. `expectedRevision: null` creates a missing value. A concurrent edit with a stale revision fails with `ENV_BRIDGE_CONFLICT`. Refresh the metadata before you try again.
+
+With `activation: 'next-resolution'`, the next `loadServerEnv()` reads the replacement. Existing snapshots, in-flight operations, initialized SDK clients, and child processes keep the previous value. Resolve credentials at each operation boundary and recreate clients when needed. Replacing a stored key does not renew an OAuth subscription or change the environment of a running process.
 
 ## Limit inspection and use independently
 
-Each grant targets one actor kind, actor ID, and store key. Permissions are independent:
+Each grant targets one actor kind (`user`, `agent`, or `service`), one actor ID, and one store key. Permissions are independent:
 
 | Permission | Allows |
 | --- | --- |
-| `inspect` | Revision and update metadata. |
-| `preview` | An optional masked preview. |
-| `replace` | Conditional replacement of the stored value. |
-| `use` | Runtime resolution or a trusted `bridge.use()` operation. |
+| `inspect` | Read revision and update metadata. |
+| `preview` | Read an optional masked preview. |
+| `replace` | Replace the stored value conditionally. |
+| `use` | Resolve the value at runtime, or run a trusted `bridge.use()` operation. |
 
-Console discovers management only when you choose **Manage credential** in provider details. Preview access works independently. Replacement controls also require `inspect` so Console can obtain the revision for a conditional write. Administrators manage grants and read activity. An agent's token scope is an additional ceiling over its durable grants. Revocation takes effect on the next permission check; it cannot retract a secret already resolved by an operation.
+- Only administrators manage grants and read activity. An administrator context without a `scope` passes every permission check.
+- A verified Agent token can add a `scope`. The scope is a ceiling over the Agent's durable grants. A context with a `scope` never gets administrator access.
+- Revocation applies to the next permission check. It cannot retract a secret that an operation already resolved.
+- Never accept actor IDs, administrator flags, or token scopes from a request body.
 
-Previews are disabled unless the store enables them. The SQLite adapter stores four leading and four trailing characters only for token-shaped values longer than 12 characters. Short and structured secrets have no preview. Treat previews as sensitive metadata when deciding who receives `preview` access and who can inspect the database.
+In the Console, select **Manage credential** in the provider details. Preview access works independently. Replacement controls also require `inspect`, because the Console needs the revision for a conditional write. A provider's management authentication supplements the existing Console access protection.
 
-## Connect the official Agent Auth plugin
+## Distinguish retrieval from actual use
 
-Add [`@better-auth/agent-auth`](https://www.better-auth.com/docs/plugins/agent-auth) to your editable Better Auth configuration. Its `auth.api.getAgentSession({ headers })` verifies the agent credential and returns capability grants intersected with the token's capabilities. Env does not install or configure the plugin for you.
+`loadServerEnv(undefined, { access: context })` attributes credential resolution to a trusted request or invocation context. Without an explicit context, the bridge uses `runtimeContext`.
 
-Pass that verified session reader to `createEnvAuthenticator`. You must map capabilities and their constraints to exact store keys. This example supports one fixed capability and rejects constrained grants until the application implements those constraints:
+| Action | Recorded when |
+| --- | --- |
+| `resolve` | `loadServerEnv()` reads the credential. |
+| `use` | A `bridge.use()` callback runs, with an operation name and its success or failure. |
+| `inspect`, `preview`, `replace` | A management call runs. |
+| `grant`, `revoke` | An administrator changes a grant. |
+
+A successful `use` means the callback completed. Make the callback reject unsuccessful provider responses. The bridge cannot observe downstream use of a value retrieved through an ordinary Env snapshot.
+
+`bridge.use(context, key, operation, callback)` passes `{ revision }` as the second callback argument when the store supplies a revision. Use it with `revisionCondition()` to fence related writes.
+
+Activity persists `started` before it reads or changes a credential, then `succeeded` or `failed`. It also records `denied` attempts. If the activity store is unavailable, the bridge denies the operation with `ENV_BRIDGE_AUDIT_FAILED`. A lone `started` entry means completion is unknown, for example after a crash. It does not prove that an external service received nothing.
+
+Administrators read `bridge.activity(context, key, before?)`. Pages contain up to 100 events, newest first. Pass the last event's ID as `before` for the next page. Activity excludes values, previews, and callback error messages. Actor IDs, operation names, trace IDs, and invocation IDs must contain identifiers, not secret data.
+
+## Export persisted events to evlog
+
+Use `emit` to send events to your configured evlog drain. Env calls it after the event is persisted. An export failure does not remove the activity record or undo a completed operation. The hook does not retry exports.
+
+```ts
+import { createLogger } from 'evlog'
+
+const bridge = createEnvBridge({
+  ...store,
+  runtimeContext: () => trustedInvocationContext(),
+  emit(event) {
+    createLogger({ event: 'env.activity', env: event }).emit()
+  },
+})
+```
+
+Set `traceId` and `invocationId` in the trusted access context to correlate these records with your Agent run.
+
+## Structured errors
+
+Bridge operations throw `ViteHubError` with a fixed public message. Other failures are sanitized to `ENV_BRIDGE_OPERATION_FAILED`.
+
+| Code | Cause |
+| --- | --- |
+| `ENV_BRIDGE_DENIED` | The context lacks the permission, or the scope excludes the key. |
+| `ENV_BRIDGE_CONFLICT` | The `expectedRevision` is stale. |
+| `ENV_BRIDGE_MISSING` | The credential is unavailable. |
+| `ENV_BRIDGE_INVALID` | The request, actor, grant, or store option is invalid. |
+| `ENV_BRIDGE_AUDIT_FAILED` | Activity could not be persisted. |
+| `ENV_BRIDGE_OPERATION_FAILED` | Any other failure, including a store or callback error. |
+
+## Limits
+
+- Previews are off unless the store enables them. The SQLite adapter stores the first four and last four characters only for token-shaped values longer than 12 characters. Short and structured secrets have no preview. Treat previews as sensitive metadata when you decide who gets `preview` access and who can read the database.
+- Activity pages hold at most 100 events.
+- A stored value must be non-empty and at most 32,768 bytes. Other values fail with `ENV_BRIDGE_INVALID`.
+- Host administration and database backup security remain application responsibilities.
+- After a self-hosted restart, confirm that the next resolution sees a replacement and that the activity page still contains the previous run's events.
+
+## Connect Env Bridge to Agents
+
+Agents get credential access through their own identity. They never inherit their owner's administrator access.
+
+### Authenticate Agent Auth sessions
+
+Add [`@better-auth/agent-auth`](https://www.better-auth.com/docs/plugins/agent-auth) to your Better Auth configuration. Its `auth.api.getAgentSession({ headers })` verifies the Agent credential and returns capability grants intersected with the token's capabilities. Env does not install or configure the plugin.
+
+Pass that verified session reader to `createEnvAuthenticator`. You map capabilities and their constraints to exact store keys. This example supports one fixed capability and rejects constrained grants until the application implements those constraints:
 
 ```ts
 import { createEnvAuthenticator } from 'vite-hub/env/auth'
@@ -143,9 +281,13 @@ const authenticate = createEnvAuthenticator({
 })
 ```
 
-The agent still needs a durable `use` grant for `github/token`. Invalid agent credentials never fall back to an owner's browser cookie. Agents keep their own identity and cannot inherit their owner's administrator access. Session verification, policy, or scope-mapping failures deny access.
+- The Agent still needs a durable `use` grant for `github/token`.
+- A request with an `Authorization` bearer header is treated as an Agent request. An invalid Agent credential never falls back to the owner's browser cookie.
+- A failure in session verification, policy, or scope mapping denies access.
 
-For brokered use, register a capability in the official plugin's `onExecute` handler. It receives an already verified `agentSession`; derive the context from that session and reuse your scope mapping. Do not call `getAgentSession` again on the same credential, because Agent Auth checks replay protection.
+### Run brokered operations
+
+For brokered use, register a capability in the plugin's `onExecute` handler. The handler receives an already verified `agentSession`. Derive the context from that session and reuse your scope mapping. Do not call `getAgentSession` again on the same credential, because Agent Auth checks replay protection.
 
 ```ts
 // Inside the plugin's onExecute handler for the fixed github-review capability:
@@ -163,32 +305,10 @@ const result = await bridge.use(context, 'github/token', 'github.review', async 
 })
 ```
 
-Keep the callback in trusted server code and return only the tool's intended result. Never return the raw credential to an agent. Validate capability inputs and constraints before calling external services. The official plugin is still evolving; pin and test its version in your application.
+Keep the callback in trusted server code and return only the tool's intended result. Never return the raw credential to an Agent. Validate capability inputs and constraints before you call external services. The Agent Auth plugin is still evolving: pin and test its version in your application.
 
-## Distinguish retrieval from actual use
+## Next steps
 
-`loadServerEnv(undefined, { access: context })` attributes credential resolution to a trusted request or invocation context. Without an explicit context, the bridge uses `runtimeContext`. Never accept actor IDs, administrator flags, or token scopes directly from a request body.
-
-Resolution records `resolve`. A `bridge.use()` callback records `use` with an operation name and its success or failure. A successful `use` means the callback completed; make the callback reject unsuccessful provider responses. The bridge cannot observe downstream use of a value retrieved through an ordinary Env snapshot.
-
-Activity persists `started` before reading or changing a credential, then `succeeded` or `failed`. It also records denied attempts. If the audit store is unavailable, the bridge denies the operation. A lone `started` entry means completion is unknown, for example after a crash; it does not prove that an external service received nothing.
-
-Administrators read `bridge.activity(context, key)`. Pages contain up to 100 newest-first events; pass the last event's ID as `before` for the next page. Values, previews, and callback error messages are excluded from activity. Actor IDs, operation names, trace IDs, and invocation IDs should contain identifiers rather than secret data.
-
-## Export persisted events to evlog
-
-Use `emit` to send events to your configured evlog drain. Env calls it after durable persistence. Export failure does not remove the activity record or undo a completed operation; the hook itself does not provide durable export retries.
-
-```ts
-import { createLogger } from 'evlog'
-
-const bridge = createEnvBridge({
-  ...store,
-  runtimeContext: () => trustedInvocationContext(),
-  emit(event) {
-    createLogger({ event: 'env.activity', env: event }).emit()
-  },
-})
-```
-
-Set `traceId` and `invocationId` in the trusted access context to correlate these records with your agent run. Keep the database and encryption key persistent when restarting a self-hosted deployment; confirm that the next resolution sees a replacement and the activity page still contains the previous run's events.
+- Declare provider-backed values with [Env](/docs/server-primitives/env#read-external-env-storage).
+- Call third-party APIs for connected accounts with [Connections](/docs/server-primitives/connections).
+- Protect management with [Auth](/docs/server-primitives/auth) and the [Console](/docs/development/console#protect-the-console-route).

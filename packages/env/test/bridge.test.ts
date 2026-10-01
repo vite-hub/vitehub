@@ -34,6 +34,16 @@ function setup(url = ":memory:") {
 }
 
 describe("Env Bridge", () => {
+  it("passes the leased secret revision to use and its audit event", async () => {
+    const { bridge } = setup();
+    const first = await bridge.replace(admin, { key: "github", value: "first", expectedRevision: null });
+    const leased = await bridge.use(admin, "github", "revoke", async (secret, metadata) => {
+      await bridge.replace(admin, { key: "github", value: "second", expectedRevision: first.revision });
+      return { value: secret.unseal(), revision: metadata?.revision };
+    });
+    expect(leased).toEqual({ value: "first", revision: first.revision });
+    expect(await bridge.activity(admin, "github")).toContainEqual(expect.objectContaining({ action: "use", operation: "revoke", outcome: "succeeded", revision: first.revision }));
+  });
   it("rejects invalid acting actor kinds without corrupting durable activity", async () => {
     const { bridge, db, store, emit } = setup();
     const invalid = { actor: { id: "owner", kind: "other" }, admin: true } as unknown as EnvAccessContext;

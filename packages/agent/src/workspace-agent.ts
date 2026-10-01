@@ -1,3 +1,4 @@
+import { agentDefinitionSourceSymbol } from "./internal/agent-definition-source.ts"
 import { inheritAgentLayerOptions } from "./agent-layers.ts"
 import { registeredWorkspaceAgentNames } from "./internal/workspace-agent-registration.ts"
 import { agentInstructionSources, resolveAgentInstructions } from "./agent-instructions.ts"
@@ -36,7 +37,7 @@ import { inheritAgentCapacity, inspectAgentCapacity } from "./internal/agent-cap
 import { normalizeAgentDriver } from "./internal/agent-driver.ts"
 import { gatewayModelDescriptor } from "./internal/agent-model.ts"
 import { consumesMessageChannelInstructions, inspectMessageChannelInstructions } from "./internal/channels.ts"
-import { colocatedAgentSkillsSymbol, type ColocatedAgentSkills } from "./internal/colocated-agent-skills.ts"
+import { colocatedAgentSkillsSymbol, discoveredSkillsSetter, type ColocatedAgentSkills } from "./internal/colocated-agent-skills.ts"
 
 import type {
   AgentAdapterInstructions,
@@ -208,6 +209,19 @@ export function workspaceDefinitionWithAutoCommitRules(definition: WorkspaceDefi
   return { ...definition, rules: mergeWorkspaceCommitRules(definition.rules, commit) }
 }
 
+/**
+ * Reports whether an explicit Agent Workspace `commit: false` leaves no commit to resolve.
+ * The Workspace definition, its plugins, and Capability contributions can still add commit rules.
+ */
+export function workspaceAutoCommitDisabled(definition: WorkspaceDefinition, commit: boolean | string | undefined): boolean {
+  if (commit !== false) return false
+  if (definition.commit === true || hasRuntimeType(definition.commit, "string")) return false
+  let rules: WorkspaceRules = {}
+  for (const plugin of definition.plugins ?? []) rules = { ...rules, ...plugin?.rules }
+  rules = { ...rules, ...definition.rules }
+  return !Object.values(rules).some(rule => Boolean(rule?.commit))
+}
+
 function isWorkspaceReference(workspace: WorkspaceAgentWorkspaceConfig): workspace is { mode?: AgentCapabilityMode, name: string } {
   return hasRuntimeType(workspace, "object")
     && workspace !== null
@@ -302,6 +316,11 @@ export function workspaceAgentWithSourceRoot<Agent>(agent: Agent, sourceRootDir:
     // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
     ...workspaceDefinitionFromOptions(workspaceOptions as never),
     __vitehubWorkspaceAgentOptions: workspaceOptions,
+  }
+  Object.defineProperty(decoratedAgent, agentDefinitionSourceSymbol, { configurable: true, value: workspaceAgent })
+  for (const key of [colocatedAgentSkillsSymbol, discoveredSkillsSetter]) {
+    const descriptor = Object.getOwnPropertyDescriptor(workspaceAgent, key)
+    if (descriptor) Object.defineProperty(decoratedAgent, key, descriptor)
   }
   inheritAgentCapacity(workspaceAgent, decoratedAgent)
   inheritAgentLayerOptions(workspaceAgent, decoratedAgent, {
@@ -553,6 +572,18 @@ function capabilityMetadataTool(capability: NormalizedCapability, options: { dri
       status: "available",
     }
   }
+  if (capability.id.startsWith("channel-delivery.")) {
+    const tool = capability.metadata?.tool
+    const name = hasRuntimeType(tool, "string") ? tool : undefined
+    if (!name) return undefined
+    return {
+      category: "capability",
+      description: "Deliver a message through the configured Channel.",
+      icon: "i-lucide-send",
+      name,
+      status: "available",
+    }
+  }
   return capability.tools
     ? {
         category: "capability",
@@ -596,7 +627,7 @@ function resolvedDriverExecutionAuthority<
   driver: ReturnType<typeof normalizeAgentDriver<TRuntimeConfig, CALL_OPTIONS>>,
   runtime?: AgentRuntimeName,
 ): ExecutionAuthority {
-  if (driver.kind === "model") return noExecutionAuthority
+  if (driver.kind === "model" || driver.kind === "ask") return noExecutionAuthority
   if (driver.kind === "provider" && (runtime === "cloudflare-agents" || runtime === "deno")) return noExecutionAuthority
   return driver.kind === "provider" ? staticDriverExecutionAuthority(driver) : unknownExecutionAuthority
 }
@@ -769,12 +800,14 @@ function providerResolverKind(value: unknown): "dynamic" | "static" {
 function providerMetadata(driver: {
   credentialProfile?: string
   credentials?: unknown
+  cwd?: unknown
   env?: unknown
   launch?: unknown
   model?: string
   permissions: AgentInspectionProviderMetadata["permissions"]
   provider: string
   providerSettings?: Record<string, unknown>
+  requirements?: readonly string[]
   reasoningEffort?: AgentInspectionProviderMetadata["reasoningEffort"]
   reasoningSummary?: AgentInspectionProviderMetadata["reasoningSummary"]
   sessionStorePath?: string
@@ -786,12 +819,14 @@ function providerMetadata(driver: {
   return {
     ...(driver.credentialProfile ? { credentialProfile: driver.credentialProfile } : {}),
     ...(driver.credentials !== undefined ? { credentials: true } : {}),
+    ...(driver.cwd !== undefined ? { cwd: providerResolverKind(driver.cwd) } : {}),
     ...(driver.env !== undefined ? { environment: providerResolverKind(driver.env) } : {}),
     ...(driver.launch !== undefined ? { launch: providerResolverKind(driver.launch) } : {}),
     ...(driver.model ? { model: driver.model } : {}),
     permissions: driver.permissions,
     provider: driver.provider,
     ...(providerSettings.length ? { providerSettings } : {}),
+    ...(driver.requirements?.length ? { requirements: [...driver.requirements] } : {}),
     ...(driver.reasoningEffort ? { reasoningEffort: driver.reasoningEffort } : {}),
     ...(driver.reasoningSummary ? { reasoningSummary: driver.reasoningSummary } : {}),
     ...(driver.sessionStorePath ? { sessionStore: "sqlite" as const } : {}),
@@ -822,6 +857,7 @@ function staticDriverMetadata<
       provider: providerMetadata(driver),
     }
   }
+  if (driver.kind === "ask") return { executionAuthority: noExecutionAuthority, kind: "ask" }
   return { executionAuthority: unknownExecutionAuthority, kind: "run" }
 }
 
@@ -858,6 +894,7 @@ async function resolvedDriverMetadata<
       provider: providerMetadata(driver),
     }
   }
+  if (driver.kind === "ask") return { executionAuthority: noExecutionAuthority, kind: "ask" }
   return { executionAuthority: unknownExecutionAuthority, kind: "run" }
 }
 
@@ -922,7 +959,8 @@ function agentChannelMetadataInstructions<
   definition: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
 ): string[] {
   const settings = agentSettings(definition)
-  if (!settings || normalizeAgentDriver(settings).kind === "run") return []
+  const driverKind = settings ? normalizeAgentDriver(settings).kind : undefined
+  if (!driverKind || driverKind === "run" || driverKind === "ask") return []
   return inspectMessageChannelInstructions(definition.channels)
 }
 

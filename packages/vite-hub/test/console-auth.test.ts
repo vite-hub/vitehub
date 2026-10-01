@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile, mkdir } from "node:fs/promises"
+import { mkdtemp, readFile, rm, stat, writeFile, mkdir } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { DatabaseSync } from "node:sqlite"
@@ -9,15 +9,51 @@ import type { AuthRuntimeContext } from "@vite-hub/auth"
 import { handleAuthRequest, requireAuthAccessRoutes } from "@vite-hub/auth/server"
 import { describe, expect, it, vi } from "vitest"
 import { build } from "esbuild"
+import { resolveConfig } from "vite"
 
 import { consoleAuthPageResponse, consoleAuthSignInPage, createConsoleAuthDefinition, defineConsoleAuth, prepareConsoleAuth } from "../src/console/auth.ts"
 import { resolveConsoleAuthConfig, writeConsoleAuthHandlers } from "../src/console/auth-build.ts"
+import { createInlineConsoleAuth } from "../src/console/auth-inline.ts"
 import { consoleVitePlugin } from "../src/console/vite.ts"
 import { installConsoleProjectNameScope, installConsoleSectionScope, resolveConsoleAuth } from "../src/console/internal.ts"
 
 import type { ConsoleInvocationScope } from "../src/console/internal.ts"
 
 describe("independent Console Auth", () => {
+  it.each([
+    ["", ""],
+    ["./", ""],
+    ["/portal/", "/portal"],
+    ["https://assets.example.com/", ""],
+    ["https://assets.example.com/portal/", "/portal"],
+  ])("protects session auth routes with base %j", async (base, mount) => {
+    const database = new DatabaseSync(":memory:")
+    try {
+      const input = defineConsoleAuth({
+        auth: defineAuth(() => ({ database, secret: "test-secret-at-least-32-bytes-long" })),
+        authorize: () => true,
+        signIn: { provider: "github" },
+      })
+      const definition = createConsoleAuthDefinition(input, base)
+      if (typeof definition.options !== "function") throw new TypeError("Expected Console Auth options.")
+      const options = definition.options({ env: {}, requestOrigin: "https://example.com" })
+      expect(options.basePath).toBe(`${mount}/api/_vitehub/console/auth`)
+      expect(options.access?.routes).toEqual([
+        { route: `${mount}/_vitehub/**`, authorize: input.authorize },
+        { route: `${mount}/api/_vitehub/console/**`, authorize: input.authorize },
+      ])
+      expect(options.access?.signIn?.callbackURL).toBe(`${mount}/_vitehub`)
+      for (const path of ["/_vitehub/rpc/__call", "/api/_vitehub/console/status"]) {
+        const request = new Request(`https://example.com${mount}${path}`, { method: "POST" })
+        await prepareConsoleAuth(input, definition, request)
+        expect((await requireAuthAccessRoutes(request, [1], definition, [1]))?.status).toBe(401)
+      }
+    }
+    finally {
+      database.close()
+    }
+  })
+
   it("reports independent auth only for the configured Console project", () => {
     const scope: ConsoleInvocationScope = {}
     installConsoleSectionScope("/console-auth", ["agents"], scope, true)
@@ -243,6 +279,29 @@ describe("independent Console Auth", () => {
     }
   })
 
+  it("generates session auth routes from the final Vite base", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-auth-final-base-"))
+    try {
+      const server = resolve(root, "console-auth.ts")
+      await writeFile(server, "export default {}")
+      await resolveConfig({
+        root,
+        configFile: false,
+        base: "/early/",
+        plugins: [
+          consoleVitePlugin({ console: { access: "auth", auth: { server } }, preset: "node" }),
+          { name: "change-console-base", config: () => ({ base: "/portal/" }) },
+        ],
+      }, "build", "production")
+      const middleware = await readFile(resolve(root, ".vitehub/nitro/console/auth-middleware.mjs"), "utf8")
+      expect(middleware).toContain('const mountBase = "/portal"')
+      expect(middleware).not.toContain("/early/")
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it("bundles a discovered Console client extension", async () => {
     const root = await mkdtemp(join(process.cwd(), ".vitehub-console-auth-client-"))
     try {
@@ -420,6 +479,246 @@ describe("independent Console Auth", () => {
     expect(await consoleAuthSignInPage("google", new Request("https://example.com/portal/_vitehub/sign-in"), "/portal/").text()).toContain("Sign in with google")
     const denied = consoleAuthSignInPage("github", new Request("https://example.com/portal/_vitehub/sign-in?denied=1"), "/portal/")
     expect(await denied.text()).toContain("Choose a different account with your sign-in provider")
+  })
+
+  it.each([
+    { publicUrl: { url: "https://public.example.com" }, expected: "https://public.example.com" },
+    { publicUrl: { agents: { worker: "https://internal.example.com" } }, expected: "https://internal.example.com" },
+    { publicUrl: {}, expected: "http://internal.example.com" },
+    { publicUrl: { url: "https://public.example.com" }, environment: "https://env.example.com", expected: "https://env.example.com" },
+    { publicUrl: { url: "https://public.example.com" }, environment: "https://env.example.com", baseURL: "https://explicit.example.com", expected: "https://explicit.example.com" },
+  ])("uses $expected for inline organization Auth behind a TLS proxy", async ({ publicUrl, environment, baseURL, expected }) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-auth-public-url-"))
+    vi.stubEnv("GITHUB_CLIENT_ID", "client-id")
+    vi.stubEnv("GITHUB_CLIENT_SECRET", "client-secret")
+    vi.stubEnv("BETTER_AUTH_SECRET", "test-secret-at-least-32-bytes-long")
+    vi.stubEnv("CONSOLE_AUTH_BASE_URL", environment ?? "")
+    vi.stubGlobal("__VITEHUB_PUBLIC_URL__", publicUrl)
+    let database: DatabaseSync | undefined
+    try {
+      const input = createInlineConsoleAuth({ provider: "github", org: "acme", baseURL, databasePath: join(root, "auth.sqlite") })
+      const definition = createConsoleAuthDefinition(input, "/portal/")
+      const request = new Request("http://internal.example.com/portal/_vitehub?auth_start=1", { headers: { accept: "text/html" } })
+      if (typeof definition.options !== "function") throw new TypeError("Expected resolved Console Auth options.")
+      const options = definition.options({ env: {}, requestOrigin: "http://internal.example.com", request })
+      if (!(options.database instanceof DatabaseSync)) throw new TypeError("Expected a SQLite database.")
+      database = options.database
+      await prepareConsoleAuth(input, definition, request)
+      const response = await requireAuthAccessRoutes(request, [0], definition, [0])
+      expect(response?.status).toBe(302)
+      const redirect = new URL(response!.headers.get("location")!)
+      expect(redirect.searchParams.get("redirect_uri")).toBe(`${expected}/portal/api/_vitehub/console/auth/callback/github`)
+      expect(redirect.searchParams.get("scope")).toContain("read:org")
+    }
+    finally {
+      database?.close()
+      vi.unstubAllEnvs()
+      vi.unstubAllGlobals()
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("admits only active GitHub organization members with a verified email", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-auth-org-"))
+    vi.stubEnv("GITHUB_CLIENT_ID", "client-id")
+    vi.stubEnv("GITHUB_CLIENT_SECRET", "client-secret")
+    vi.stubEnv("BETTER_AUTH_SECRET", "test-secret-at-least-32-bytes-long")
+    const github: Record<string, unknown> = {
+      "/user": { id: 1, login: "octocat", name: null, avatar_url: "https://avatars.example/octocat" },
+      "/user/memberships/orgs/acme": { state: "active" },
+      "/user/emails?per_page=100&page=1": [
+        { email: "secondary@example.com", verified: true },
+        { email: "primary@example.com", primary: true, verified: true },
+      ],
+    }
+    const requests: string[] = []
+    vi.stubGlobal("fetch", async (input: string | URL, init?: RequestInit) => {
+      const url = new URL(input)
+      requests.push(`${url.pathname}${url.search} ${new Headers(init?.headers).get("authorization")}`)
+      const path = `${url.pathname}${url.search}`
+      return path in github ? Response.json(github[path]) : new Response("{}", { status: 404 })
+    })
+    try {
+      const databasePath = join(root, "nested", "console-auth.sqlite")
+      const input = createInlineConsoleAuth({ provider: "github", org: ["other", "acme"], databasePath, session: { expiresIn: 43_200 } })
+      expect((await stat(databasePath)).mode & 0o777).toBe(0o600)
+      expect(input.signIn.scopes).toEqual(["read:org", "user:email"])
+      const options = input.auth.options
+      if (typeof options !== "function") throw new TypeError("Expected resolved Console Auth options.")
+      const resolved = options({ env: {}, requestOrigin: "https://example.com" })
+      expect(resolved.session).toEqual({ expiresIn: 43_200 })
+      const githubOptions = resolved.socialProviders?.github
+      const getUserInfo = githubOptions && typeof githubOptions !== "function" ? githubOptions.getUserInfo : undefined
+      if (!getUserInfo) throw new TypeError("Expected a GitHub organization check.")
+
+      expect(await getUserInfo({ accessToken: "token" })).toEqual({
+        data: github["/user"],
+        user: { email: "primary@example.com", emailVerified: true, image: "https://avatars.example/octocat", name: "octocat" },
+      })
+      expect(requests).toContain("/user/memberships/orgs/acme Bearer token")
+      github["/user/emails?per_page=100&page=1"] = [{ email: "primary@example.com", primary: true, verified: false }, { email: "other@example.com", verified: true }]
+      expect((await getUserInfo({ accessToken: "token" }))?.user.email).toBe("other@example.com")
+      github["/user/emails?per_page=100&page=1"] = Array.from({ length: 100 }, () => ({ email: "secondary@example.com", verified: true }))
+      github["/user/emails?per_page=100&page=2"] = [{ email: "primary@example.com", primary: true, verified: true }]
+      expect((await getUserInfo({ accessToken: "token" }))?.user.email).toBe("primary@example.com")
+      github["/user/emails?per_page=100&page=2"] = []
+      expect((await getUserInfo({ accessToken: "token" }))?.user.email).toBe("secondary@example.com")
+      delete github["/user/emails?per_page=100&page=2"]
+      expect(await getUserInfo({ accessToken: "token" })).toBeNull()
+      github["/user/emails?per_page=100&page=1"] = [{ email: "primary@example.com", primary: true, verified: false }]
+      expect(await getUserInfo({ accessToken: "token" })).toBeNull()
+      github["/user/emails?per_page=100&page=1"] = [{ email: "primary@example.com", primary: true, verified: true }]
+      github["/user/memberships/orgs/acme"] = { state: "pending" }
+      expect(await getUserInfo({ accessToken: "token" })).toBeNull()
+      expect(await getUserInfo({})).toBeNull()
+
+      expect(await input.authorize({ user: { email: "primary@example.com", emailVerified: true } } as never)).toBe(true)
+      expect(await input.authorize({ user: { email: "primary@example.com", emailVerified: false } } as never)).toBe(false)
+
+      const both = createInlineConsoleAuth({ provider: "github", org: "acme", allowedEmails: ["Primary@example.com"], databasePath })
+      expect(await both.authorize({ user: { email: "primary@example.com", emailVerified: true } } as never)).toBe(true)
+      expect(await both.authorize({ user: { email: "other@example.com", emailVerified: true } } as never)).toBe(false)
+
+      const emailsOnly = createInlineConsoleAuth({ provider: "github", allowedEmails: ["primary@example.com"], databasePath })
+      const emailsOnlyOptions = emailsOnly.auth.options
+      if (typeof emailsOnlyOptions !== "function") throw new TypeError("Expected resolved Console Auth options.")
+      expect(emailsOnly.signIn.scopes).toEqual(["user:email"])
+      expect(emailsOnlyOptions({ env: {}, requestOrigin: "https://example.com" }).socialProviders?.github).not.toHaveProperty("getUserInfo")
+
+      expect(() => createInlineConsoleAuth({ provider: "github", org: [], allowedEmails: ["primary@example.com"], databasePath })).toThrow("GitHub organization login")
+      expect(() => resolveConsoleAuthConfig(root, { provider: "github", org: [], allowedEmails: ["primary@example.com"], databasePath })).toThrow("GitHub organization login")
+      for (const org of ["../admin", "-acme", "acme-", "acme--team", "a".repeat(40)]) {
+        expect(() => createInlineConsoleAuth({ provider: "github", org, databasePath })).toThrow("GitHub organization login")
+        expect(() => resolveConsoleAuthConfig(root, { provider: "github", org, databasePath })).toThrow("GitHub organization login")
+      }
+      for (const org of ["a", "Acme-Team", "a".repeat(39)]) {
+        expect(() => resolveConsoleAuthConfig(root, { provider: "github", org, databasePath })).not.toThrow()
+      }
+      expect(() => createInlineConsoleAuth({ provider: "github", databasePath })).toThrow("allowedEmails, org, or both")
+      expect(() => resolveConsoleAuthConfig(root, { provider: "github", org: "acme" })).toThrow("Set databasePath or dataDir")
+    }
+    finally {
+      vi.unstubAllEnvs()
+      vi.unstubAllGlobals()
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("selects an allowlisted verified email for organization members across pages", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-auth-combined-"))
+    vi.stubEnv("GITHUB_CLIENT_ID", "client-id")
+    vi.stubEnv("GITHUB_CLIENT_SECRET", "client-secret")
+    vi.stubEnv("BETTER_AUTH_SECRET", "test-secret-at-least-32-bytes-long")
+    const emailsPath = "/user/emails?per_page=100&page="
+    const github: Record<string, unknown> = {
+      "/user": { id: 1, login: "octocat" },
+      "/user/memberships/orgs/acme": { state: "active" },
+    }
+    vi.stubGlobal("fetch", async (input: string | URL) => {
+      const url = new URL(input)
+      const path = `${url.pathname}${url.search}`
+      return path in github ? Response.json(github[path]) : new Response("{}", { status: 404 })
+    })
+    let database: DatabaseSync | undefined
+    try {
+      const input = createInlineConsoleAuth({
+        provider: "github", org: "acme", allowedEmails: ["Secondary@example.com", "allowed@example.com"],
+        databasePath: join(root, "console-auth.sqlite"),
+      })
+      const options = input.auth.options
+      if (typeof options !== "function") throw new TypeError("Expected resolved Console Auth options.")
+      const resolved = options({ env: {}, requestOrigin: "https://example.com" })
+      if (!(resolved.database instanceof DatabaseSync)) throw new TypeError("Expected a SQLite database.")
+      database = resolved.database
+      const provider = resolved.socialProviders?.github
+      const getUserInfo = provider && typeof provider !== "function" ? provider.getUserInfo : undefined
+      if (!getUserInfo) throw new TypeError("Expected a GitHub organization check.")
+      const primary = { email: "primary@example.com", primary: true, verified: true }
+      const secondary = { email: "SECONDARY@example.com", verified: true }
+      github[`${emailsPath}1`] = [primary, secondary]
+      const admitted = await getUserInfo({ accessToken: "token" })
+      expect(admitted?.user.email).toBe(secondary.email)
+      expect(await input.authorize({ user: admitted?.user } as never)).toBe(true)
+
+      // An unallowlisted primary must not stop lookup before a later allowed email.
+      github[`${emailsPath}1`] = Array.from({ length: 100 }, () => primary)
+      github[`${emailsPath}2`] = [secondary]
+      expect((await getUserInfo({ accessToken: "token" }))?.user.email).toBe(secondary.email)
+
+      github[`${emailsPath}1`] = Array.from({ length: 100 }, () => secondary)
+      github[`${emailsPath}2`] = [{ email: "allowed@example.com", primary: true, verified: true }]
+      expect((await getUserInfo({ accessToken: "token" }))?.user.email).toBe("allowed@example.com")
+      delete github[`${emailsPath}2`]
+      expect(await getUserInfo({ accessToken: "token" })).toBeNull()
+      github[`${emailsPath}1`] = [primary, { ...secondary, verified: false }]
+      expect(await getUserInfo({ accessToken: "token" })).toBeNull()
+      github[`${emailsPath}1`] = [secondary]
+      github["/user/memberships/orgs/acme"] = { state: "pending" }
+      expect(await getUserInfo({ accessToken: "token" })).toBeNull()
+    }
+    finally {
+      database?.close()
+      vi.unstubAllEnvs()
+      vi.unstubAllGlobals()
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("requires new session cookies when the organization gate changes", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-auth-policy-"))
+    vi.stubEnv("GITHUB_CLIENT_ID", "client-id")
+    vi.stubEnv("GITHUB_CLIENT_SECRET", "client-secret")
+    vi.stubEnv("BETTER_AUTH_SECRET", "test-secret-at-least-32-bytes-long")
+    const databases: DatabaseSync[] = []
+    try {
+      const databasePath = join(root, "console-auth.sqlite")
+      const withGate = (org?: string | string[]) => {
+        const input = createInlineConsoleAuth({ provider: "github", allowedEmails: ["user@example.com"], org, databasePath })
+        const options = input.auth.options
+        if (typeof options !== "function") throw new TypeError("Expected resolved Console Auth options.")
+        const resolved = options({ env: {}, requestOrigin: "https://example.com" })
+        if (!(resolved.database instanceof DatabaseSync)) throw new TypeError("Expected a SQLite database.")
+        databases.push(resolved.database)
+        // Use a local sign-in to issue real Better Auth cookies without a live GitHub OAuth exchange.
+        return { ...input, auth: defineAuth(() => ({ ...resolved, emailAndPassword: { enabled: true } })) }
+      }
+      const emailOnly = withGate()
+      const definition = createConsoleAuthDefinition(emailOnly)
+      const signUp = new Request("https://example.com/api/_vitehub/console/auth/sign-up/email", {
+        body: JSON.stringify({ email: "user@example.com", name: "User", password: "passwordpassword" }),
+        headers: { "content-type": "application/json", origin: "https://example.com" },
+        method: "POST",
+      })
+      await prepareConsoleAuth(emailOnly, definition, signUp)
+      const response = await handleAuthRequest(definition, signUp)
+      expect(response.status).toBe(200)
+      const cookie = response.headers.getSetCookie().map(value => value.split(";")[0]).join("; ")
+      databases[0]!.exec('UPDATE "user" SET "emailVerified" = 1')
+      const protectedRequest = (sessionCookie: string) => new Request("https://example.com/api/_vitehub/console/status", {
+        headers: { cookie: sessionCookie },
+      })
+      expect(await requireAuthAccessRoutes(protectedRequest(cookie), [1], definition, [1])).toBeUndefined()
+      const orgInput = withGate(["acme", "other"])
+      const orgDefinition = createConsoleAuthDefinition(orgInput)
+      expect((await requireAuthAccessRoutes(protectedRequest(cookie), [1], orgDefinition, [1]))?.status).toBe(401)
+      const signIn = await handleAuthRequest(orgDefinition, new Request("https://example.com/api/_vitehub/console/auth/sign-in/email", {
+        body: JSON.stringify({ email: "user@example.com", password: "passwordpassword" }),
+        headers: { "content-type": "application/json", origin: "https://example.com" },
+        method: "POST",
+      }))
+      expect(signIn.status).toBe(200)
+      const orgCookie = signIn.headers.getSetCookie().map(value => value.split(";")[0]).join("; ")
+      expect(await requireAuthAccessRoutes(protectedRequest(orgCookie), [1], orgDefinition, [1])).toBeUndefined()
+      const equivalent = createConsoleAuthDefinition(withGate(["OTHER", "acme", "acme"]))
+      expect(await requireAuthAccessRoutes(protectedRequest(orgCookie), [1], equivalent, [1])).toBeUndefined()
+      const changed = createConsoleAuthDefinition(withGate("different"))
+      expect((await requireAuthAccessRoutes(protectedRequest(orgCookie), [1], changed, [1]))?.status).toBe(401)
+    }
+    finally {
+      for (const database of databases) database.close()
+      vi.unstubAllEnvs()
+      await rm(root, { recursive: true, force: true })
+    }
   })
 
   it("rejects inline SQLite auth on Cloudflare while allowing file-based auth", async () => {

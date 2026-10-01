@@ -1,15 +1,22 @@
 import { existsSync } from "node:fs"
+import * as fs from "node:fs"
+import * as fsPromises from "node:fs/promises"
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
-import { fileURLToPath } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 
-import { afterAll, describe, expect, it } from "vitest"
+import { afterAll, describe, expect, it, vi } from "vitest"
 import { createDefaultCloudflareOutputRoot, createDefaultNetlifyOutputRoot, withProviderDeploymentOutputLock } from "@vite-hub/internal/build/deployment-output"
+import * as esbuild from "@vite-hub/internal/build/esbuild"
+import * as providerSources from "@vite-hub/internal/build/provider-output-sources"
 import { createVercelConfigJson } from "@vite-hub/internal/build/vercel-config"
 
 import { createNetlifyScheduleFunctionOutputs, generateProviderOutputs, generateProviderOutputsWithinLock, resolveScheduleDefinitionEntry, resolveScheduleRuntimeEntry, validateProviderCron, writeVercelScheduleFunctions } from "../src/internal/provider-output.ts"
 import { discoverScheduleDefinitions } from "../src/discovery.ts"
+
+vi.mock("node:fs", async importOriginal => ({ ...await importOriginal<typeof import("node:fs")>() }))
+vi.mock("node:fs/promises", async importOriginal => ({ ...await importOriginal<typeof import("node:fs/promises")>() }))
 
 const tempDirs: string[] = []
 const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)))
@@ -33,6 +40,240 @@ afterAll(async () => {
 })
 
 describe("schedule provider output", () => {
+  it("inlines each build's public URL and mounted base in Netlify functions", async () => {
+    const projects = await Promise.all([
+      { origin: "https://first.example", base: "/first/" },
+      { origin: "https://second.example", base: "/second/" },
+      { origin: undefined, base: "/" },
+    ].map(async ({ origin, base }) => {
+      const rootDir = await createTempProject("vitehub-schedule-netlify-url-")
+      await writeFile(join(rootDir, "src", "cleanup.schedule.ts"), [
+        "import { defineSchedule } from '@vite-hub/schedule'",
+        "import { resolvePublicUrl, consoleInvocationUrl } from '@vite-hub/runtime'",
+        "export default defineSchedule({ cron: '0 0 * * *', handler: () => {",
+        "  const origin = resolvePublicUrl({ agentName: 'worker' })",
+        "  globalThis.scheduleUrl = origin ? consoleInvocationUrl(origin, 'worker', 'invocation') : undefined",
+        "} })",
+      ].join("\n"), "utf8")
+      await generateProviderOutputs({
+        clientOutDir: "dist/client",
+        rootDir,
+        bundleAlias: { "@vite-hub/runtime": fileURLToPath(import.meta.resolve("@vite-hub/runtime")) },
+        bundleDefines: {
+          __VITEHUB_PUBLIC_URL__: JSON.stringify(origin ? { url: origin } : undefined) ?? "undefined",
+          __VITEHUB_APP_BASE_URL__: JSON.stringify(base),
+        },
+      })
+      return { rootDir, origin, base }
+    }))
+    for (const { rootDir, origin, base } of projects) {
+      const file = join(createDefaultNetlifyOutputRoot(rootDir), "functions/vitehub-schedule-cleanup.mjs")
+      const handler = await import(pathToFileURL(file).href)
+      const result = await handler.default(new Request("https://request.example"))
+      expect(result.status).toBe(204)
+      expect(Reflect.get(globalThis, "scheduleUrl")).toBe(origin ? `${origin}${base}_vitehub/agents/worker/invocations/invocation` : undefined)
+    }
+    Reflect.deleteProperty(globalThis, "scheduleUrl")
+  })
+
+  it.each(["source publication", "source abort", "function swap", "backup cleanup", "rollback restore", "persistent rollback restore", "rollback removal"] as const)("preserves consistent Netlify output after %s failure", async (failure) => {
+    const rootDir = await createTempProject("vitehub-schedule-netlify-publication-")
+    const retainedSourcesDir = join(rootDir, ".vitehub", "retained", "sources")
+    const retainedHandler = join(retainedSourcesDir, "cleanup.schedule.ts")
+    await mkdir(retainedSourcesDir, { recursive: true })
+    const source = (value: string) => `import { defineSchedule } from '@vite-hub/schedule'; export default defineSchedule({ cron: '0 0 * * *', handler: () => '${value}' })`
+    await writeFile(retainedHandler, source("previous"))
+    const options = {
+      clientOutDir: "dist/client",
+      definitions: [{ handler: retainedHandler, name: "cleanup" }],
+      retainedSourcesDir,
+      rootDir,
+      sourceRootDir: retainedSourcesDir,
+    }
+    await generateProviderOutputs(options)
+    const outputRoot = createDefaultNetlifyOutputRoot(rootDir)
+    const functionRoot = join(outputRoot, "functions")
+    const functionFile = join(functionRoot, "vitehub-schedule-cleanup.mjs")
+    const sourcesDir = join(outputRoot, "schedule", "sources")
+    const sourceFile = join(sourcesDir, "cleanup.schedule.ts")
+    const otherFunctionFile = join(functionRoot, "other-function.mjs")
+    const otherConfigFile = join(outputRoot, "config.json")
+    await writeFile(otherFunctionFile, "export default () => 'other'")
+    await writeFile(otherConfigFile, '{"other":true}')
+    const previousFunction = await readFile(functionFile, "utf8")
+    const previousSource = await readFile(sourceFile, "utf8")
+    await writeFile(retainedHandler, source("replacement"))
+    let injected = false
+    const controller = new AbortController()
+    const nextOptions = { ...options, signal: controller.signal }
+    const originalPublish = providerSources.publishProviderSourcesToDeploymentOutputs
+    const originalRename = fs.renameSync
+    const originalAsyncRename = fsPromises.rename
+    const originalRmSync = fs.rmSync
+    const originalRm = fsPromises.rm
+    const publication = vi.spyOn(providerSources, "publishProviderSourcesToDeploymentOutputs").mockImplementation(async (publicationOptions) => {
+      await originalPublish(publicationOptions)
+      if (publicationOptions.destinations.some(destination => destination.sourcesDir === join(`${outputRoot}.pending`, "schedule", "sources"))) {
+        if (failure === "source publication") {
+          injected = true
+          throw new Error("source publication failed")
+        }
+        if (failure === "source abort") {
+          injected = true
+          controller.abort(new Error("source abort failed"))
+        }
+      }
+    })
+    const swap = vi.spyOn(fs, "renameSync").mockImplementation((from, to) => {
+      if (["function swap", "rollback restore", "persistent rollback restore", "rollback removal"].includes(failure) && from === `${outputRoot}.pending`) {
+        injected = true
+        throw new Error("function swap failed")
+      }
+      if (["rollback restore", "persistent rollback restore"].includes(failure) && from === `${outputRoot}.previous`) {
+        throw new Error("rollback restore failed")
+      }
+      return originalRename(from, to)
+    })
+    const restore = vi.spyOn(fsPromises, "rename").mockImplementation(async (from, to) => {
+      if (failure === "persistent rollback restore" && from === `${outputRoot}.previous`) throw new Error("rollback restore failed")
+      return await originalAsyncRename(from, to)
+    })
+    const removal = vi.spyOn(fs, "rmSync").mockImplementation((path, rmOptions) => {
+      if (failure === "rollback removal" && [functionRoot, sourcesDir].includes(String(path))) {
+        throw new Error("rollback removal failed")
+      }
+      return originalRmSync(path, rmOptions)
+    })
+    const cleanup = vi.spyOn(fsPromises, "rm").mockImplementation(async (path, rmOptions) => {
+      if (failure === "backup cleanup" && path === `${outputRoot}.previous`) {
+        injected = true
+        throw new Error("backup cleanup failed")
+      }
+      return await originalRm(path, rmOptions)
+    })
+    try {
+      if (failure === "backup cleanup") {
+        await generateProviderOutputsWithinLock(nextOptions)
+        expect(await readFile(functionFile, "utf8")).not.toBe(previousFunction)
+        expect(await readFile(sourceFile, "utf8")).toBe(source("replacement"))
+      }
+      else if (failure === "persistent rollback restore") {
+        await expect(generateProviderOutputsWithinLock(nextOptions)).rejects.toThrow(`previous output retained at ${outputRoot}.previous`)
+        expect(await readFile(join(`${outputRoot}.previous`, "functions", "vitehub-schedule-cleanup.mjs"), "utf8")).toBe(previousFunction)
+        expect(await readFile(join(`${outputRoot}.previous`, "schedule", "sources", "cleanup.schedule.ts"), "utf8")).toBe(previousSource)
+        expect(existsSync(`${outputRoot}.pending`)).toBe(true)
+      }
+      else {
+        await expect(generateProviderOutputsWithinLock(nextOptions)).rejects.toThrow(["rollback restore", "rollback removal"].includes(failure) ? "function swap failed" : `${failure} failed`)
+        expect(await readFile(functionFile, "utf8")).toBe(previousFunction)
+        expect(await readFile(sourceFile, "utf8")).toBe(previousSource)
+      }
+      expect(injected).toBe(true)
+      if (failure !== "persistent rollback restore") expect(existsSync(`${outputRoot}.pending`)).toBe(false)
+    }
+    finally {
+      publication.mockRestore()
+      swap.mockRestore()
+      restore.mockRestore()
+      removal.mockRestore()
+      cleanup.mockRestore()
+    }
+    if (failure === "persistent rollback restore") {
+      const originalBundle = esbuild.bundleEsmEntry
+      const bundle = vi.spyOn(esbuild, "bundleEsmEntry").mockImplementation(async (entry, output, bundleOptions) => {
+        if (output.endsWith("deno-cron.mjs.vitehub-tmp")) throw new Error("Deno retry failed")
+        return await originalBundle(entry, output, bundleOptions)
+      })
+      try {
+        await expect(generateProviderOutputs(options)).rejects.toThrow("Deno retry failed")
+        expect(await readFile(functionFile, "utf8")).toBe(previousFunction)
+        expect(await readFile(sourceFile, "utf8")).toBe(previousSource)
+        expect(await readFile(otherFunctionFile, "utf8")).toBe("export default () => 'other'")
+        expect(existsSync(`${outputRoot}.previous`)).toBe(false)
+      }
+      finally {
+        bundle.mockRestore()
+      }
+    }
+    await generateProviderOutputs(options)
+    expect(await readFile(sourceFile, "utf8")).toBe(source("replacement"))
+    expect(await readFile(otherFunctionFile, "utf8")).toBe("export default () => 'other'")
+    expect(await readFile(otherConfigFile, "utf8")).toBe('{"other":true}')
+    expect(existsSync(`${outputRoot}.previous`)).toBe(false)
+    expect(existsSync(`${outputRoot}.pending`)).toBe(false)
+  })
+
+  it("waits for sibling Netlify bundles before releasing the lock after failure", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-netlify-failure-")
+    await generateProviderOutputs({ clientOutDir: "dist/client", rootDir })
+    const functionRoot = join(createDefaultNetlifyOutputRoot(rootDir), "functions")
+    const previousFunction = join(functionRoot, "vitehub-schedule-cleanup.mjs")
+    const previousOutput = await readFile(previousFunction, "utf8")
+    await writeFile(join(rootDir, "src", "sibling.schedule.ts"), [
+      "import { defineSchedule } from '@vite-hub/schedule'",
+      "export default defineSchedule({ cron: '0 0 * * *', handler: () => 'sibling' })",
+    ].join("\n"))
+
+    let markSiblingStarted!: () => void
+    let releaseSibling!: () => void
+    let markFailureStarted!: () => void
+    let markSiblingFinished!: () => void
+    const siblingStarted = new Promise<void>(resolve => { markSiblingStarted = resolve })
+    const siblingGate = new Promise<void>(resolve => { releaseSibling = resolve })
+    const failureStarted = new Promise<void>(resolve => { markFailureStarted = resolve })
+    const siblingFinished = new Promise<void>(resolve => { markSiblingFinished = resolve })
+    const originalBundle = esbuild.bundleEsmEntry
+    const bundle = vi.spyOn(esbuild, "bundleEsmEntry").mockImplementation(async (entry, output, options) => {
+      if (!output.startsWith(`${createDefaultNetlifyOutputRoot(rootDir)}.pending/functions/`)) return await originalBundle(entry, output, options)
+      if (output.endsWith("vitehub-schedule-cleanup.mjs")) {
+        await siblingStarted
+        markFailureStarted()
+        throw new Error("Netlify bundle failed")
+      }
+      markSiblingStarted()
+      await siblingGate
+      try {
+        await originalBundle(entry, output, options)
+      }
+      finally {
+        markSiblingFinished()
+      }
+    })
+    let settled = false
+    let lockReleased = false
+    const generation = generateProviderOutputs({ clientOutDir: "dist/client", rootDir }).then(
+      () => { settled = true; return undefined },
+      (error: unknown) => { settled = true; return error },
+    )
+    let nextWriter: Promise<void> | undefined
+    try {
+      await failureStarted
+      nextWriter = withProviderDeploymentOutputLock(rootDir, async () => { lockReleased = true })
+      await new Promise(resolve => setTimeout(resolve, 200))
+      expect(settled).toBe(false)
+      expect(lockReleased).toBe(false)
+      expect(existsSync(`${createDefaultNetlifyOutputRoot(rootDir)}.pending/functions`)).toBe(true)
+      await expect(readFile(previousFunction, "utf8")).resolves.toBe(previousOutput)
+
+      releaseSibling()
+      expect(await generation).toEqual(new Error("Netlify bundle failed"))
+      await nextWriter
+      expect(lockReleased).toBe(true)
+      expect(existsSync(`${functionRoot}.pending`)).toBe(false)
+      await expect(readFile(previousFunction, "utf8")).resolves.toBe(previousOutput)
+      expect(existsSync(join(functionRoot, "vitehub-schedule-sibling.mjs"))).toBe(false)
+    }
+    finally {
+      releaseSibling()
+      await generation
+      await siblingFinished
+      await nextWriter
+      bundle.mockRestore()
+    }
+    await generateProviderOutputs({ clientOutDir: "dist/client", rootDir })
+    expect(existsSync(join(functionRoot, "vitehub-schedule-sibling.mjs"))).toBe(true)
+  })
+
   it("does not publish Schedule output after finalization is canceled", async () => {
     const rootDir = await createTempProject("vitehub-schedule-output-canceled-")
     const controller = new AbortController()
@@ -150,7 +391,9 @@ describe("schedule provider output", () => {
     expect(await readFile(vercelFunction, "utf8")).toContain("executeStaticSchedule")
     expect(await readFile(vercelFunction, "utf8")).not.toContain("setWorkflowRuntimeRegistry")
     expect(existsSync(join(rootDir, ".vercel", "output", "functions", "api", "vitehub", "schedules", "vercel", "agent-turn.func"))).toBe(false)
-    await expect(readFile(netlifyFunction, "utf8")).resolves.toContain("export const config = {")
+    const netlifyModule = await import(pathToFileURL(netlifyFunction).href)
+    expect(netlifyModule.config.schedule).toBe("0 0 * * *")
+    expect((await netlifyModule.default(new Request("https://schedule.example"))).status).toBe(204)
     expect(existsSync(join(createDefaultNetlifyOutputRoot(rootDir), "functions", "vitehub-schedule-agent-turn.mjs"))).toBe(false)
     await expect(readFile(netlifyFunction, "utf8")).resolves.toContain("schedule: \"0 0 * * *\"")
     await expect(readFile(netlifyFunction, "utf8")).resolves.toContain("executeStaticSchedule")

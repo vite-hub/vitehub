@@ -21,11 +21,24 @@ describe("Console status", () => {
     installConsoleAgentDefinitions([{ definition, fallbackName: "bot" }], { invocations })
 
     expect(getConsoleAgentDefinition("bot")).toBeUndefined()
-    expect(await statusHandler({ method: "GET", req: { url: "http://localhost/api/_vitehub/console/status?agent=bot" } })).toEqual({ agents: [ready] })
+    expect(await statusHandler({ method: "GET", req: { url: "http://localhost/api/_vitehub/console/status?agent=bot" } })).toEqual({ agents: [ready], observability: null })
     expect(getConsoleAgentDefinition("bot")).toBeUndefined()
     await expect(agentInvocationsHandler({ method: "POST", context: { params: { agent: "bot" } } })).rejects.toMatchObject({ statusCode: 404 })
     expect(definition.resolve).not.toHaveBeenCalled()
     expect(create).not.toHaveBeenCalled()
+  })
+
+  it("reports the observability exporter and papercut backlog", async () => {
+    const status = { configured: false, accepted: 0, failed: 1, dropped: 0, pending: 0, closed: false, papercuts: { running: false, pending: 0, delivered: 0, failed: 1 } }
+    const slot = Symbol.for("vitehub.observability")
+    Object.assign(globalThis, { [slot]: { capability: { id: "observability" }, status: () => status } })
+    try {
+      installConsoleAgentDefinitions([{ definition: agent(vi.fn(async () => ready)), fallbackName: "bot" }], { invocations: defineAgentInvocations({ store: createMemoryAgentInvocationStore() }) })
+      expect(await statusHandler({ method: "GET", req: { url: "http://localhost/api/_vitehub/console/status?agent=bot" } })).toEqual({ agents: [ready], observability: status })
+    }
+    finally {
+      Reflect.deleteProperty(globalThis, slot)
+    }
   })
 
   it("shares concurrent probes and cached results per definition", async () => {

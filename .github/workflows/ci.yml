@@ -19,8 +19,10 @@ jobs:
     name: ci
     needs:
       - checks
+      - contracts-examples
       - contract-tests
       - package-tests
+      - package-tests-success
       - consumer-contracts
       - consumer-contracts-success
       - windows-agent-credentials
@@ -43,7 +45,6 @@ jobs:
             "consumer-contracts",
             "consumer-contracts-success",
             "windows-agent-credentials",
-            "docs",
             "verify-providers",
           ])
           const failures = Object.entries(results).filter(([name, job]) => {
@@ -58,7 +59,7 @@ jobs:
           NODE
 
   checks:
-    name: lint, types and contracts
+    name: lint and types
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -76,16 +77,33 @@ jobs:
         env:
           VITE_DOCTOR_SINCE: ${{ github.event_name == 'pull_request' && 'HEAD^1' || github.event.before || 'HEAD^' }}
       - run: vp run typecheck
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+      - name: Docs links
+        run: vp run --filter vitehub-docs test:links
+
+  # Split from checks, which took 9 minutes because typecheck, contracts and
+  # examples each ran a full build in sequence.
+  contracts-examples:
+    name: contracts and examples
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup
+      - uses: ./.github/actions/setup-deno
+
+      # Run contracts first: examples:verify leaves generated example output
+      # that the repository contract tests would scan.
+      - run: vp run build
 
       - name: Fast contracts
         if: ${{ github.event_name == 'pull_request' }}
-        run: |
-          vp run build
-          vp test --config vitest.config.ts --exclude test/docs-host-fixtures.test.ts
+        run: vp test --config vitest.config.ts --exclude test/docs-host-fixtures.test.ts
 
-      - run: vp run examples:verify
-      - name: Docs links
-        run: vp run --filter vitehub-docs test:links
+      - run: vp run --ignore-depends-on examples:verify
 
   contract-tests:
     name: contract tests
@@ -99,16 +117,56 @@ jobs:
       - uses: ./.github/actions/setup-deno
       - run: vp run test:contracts
 
+  # Package tests were one 22-minute job. Agent test files run serially, so
+  # Vitest splits them across three jobs. Workflow's playground builds take
+  # about 4 minutes and set the floor. The last shard excludes the named
+  # packages, so a new package always runs somewhere.
   package-tests:
-    name: package tests
+    name: package tests (${{ matrix.shard.name }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard:
+          - name: agent 1/3
+            args: --packages @vite-hub/agent
+            test-shard: 1/3
+          - name: agent 2/3
+            args: --packages @vite-hub/agent
+            test-shard: 2/3
+          - name: agent 3/3
+            args: --packages @vite-hub/agent
+            test-shard: 3/3
+          - name: vite-hub
+            args: --packages vite-hub
+          - name: workspace
+            args: --packages @vite-hub/workspace
+          - name: content and workflow
+            args: --packages @vite-hub/content,@vite-hub/workflow
+          - name: storage and delivery
+            args: --packages @vite-hub/blob,@vite-hub/box,@vite-hub/database,@vite-hub/email,@vite-hub/kv,@vite-hub/markdown-template,@vite-hub/queue
+          - name: other packages
+            args: --exclude @vite-hub/agent,vite-hub,@vite-hub/workspace,@vite-hub/content,@vite-hub/workflow,@vite-hub/blob,@vite-hub/box,@vite-hub/database,@vite-hub/email,@vite-hub/kv,@vite-hub/markdown-template,@vite-hub/queue
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - uses: ./.github/actions/setup
       - uses: ./.github/actions/setup-deno
-      - run: vp run test
+      - run: node test/run-package-task.mjs test ${{ matrix.shard.args }}
+        env:
+          VITEHUB_TEST_SHARD: ${{ matrix.shard.test-shard }}
+
+  # Keep the default success() condition, as for consumer contracts: needs
+  # alone can lose failed matrix shards after a partial rerun.
+  package-tests-success:
+    needs:
+      - package-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    permissions: {}
+    steps:
+      - run: echo 'All package test shards passed'
 
   consumer-contracts:
     name: consumer contracts (${{ matrix.shard }})
@@ -157,7 +215,6 @@ jobs:
 
   docs:
     name: docs
-    if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

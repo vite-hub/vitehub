@@ -24,7 +24,7 @@ function setup() {
   })
   const waitUntil = vi.fn((_task: Promise<unknown>) => undefined)
   const send = (body: unknown, method: "GET" | "POST" = "POST") => handleConsoleRpcRequest(new Request("http://vitehub.local/_vitehub/rpc/__call", {
-    body: JSON.stringify({ input: { agent: "history-fixture", body, method }, method: consoleRpcMethods.agentInvocations }),
+    body: JSON.stringify({ method: consoleRpcMethods.agentInvocations, input: { agent: "history-fixture", body, method } }),
     headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
     method: "POST",
   }), { waitUntil })
@@ -50,8 +50,8 @@ describe("Console invocation history", () => {
     await vi.waitFor(() => expect(fixture.run).toHaveBeenCalledOnce())
     const input = fixture.run.mock.calls[0]![0].input
     expect(input).toMatchObject({
-      messages: [...messages, expect.objectContaining({ role: "user", parts: [expect.objectContaining({ type: "text", text: "And if that is blank?" })] })],
-      prompt: "And if that is blank?",
+      messages: [...messages, expect.objectContaining({ role: "user", parts: [expect.objectContaining({ type: "text", text: " And if that is blank? " })] })],
+      prompt: " And if that is blank? ",
     })
     expect(new Set(input.messages?.map(message => message.id)).size).toBe(3)
     await vi.waitFor(async () => {

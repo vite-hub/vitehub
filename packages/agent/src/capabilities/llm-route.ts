@@ -3,6 +3,7 @@ import {
   confidence,
   decisionPrompt,
   generateDecision,
+  jevDecision,
   latestUserText,
   normalizeChoices,
   objectSchema,
@@ -17,10 +18,14 @@ import type {
 } from "../types.ts"
 import type { LlmDecisionChoiceMap } from "./llm-decision-shared.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
+import { isRuntimeString } from "../internal/runtime-value.ts"
 
 export interface LlmRouteDecision<TChoice extends string = string> {
   choice: TChoice
   confidence?: number
+  /** Probability of each choice. Only Jev decisions set it. */
+  probabilities?: Record<string, number>
+  /** The model's reason. Jev decisions have no reason. */
   reason?: string
 }
 
@@ -28,6 +33,7 @@ export interface LlmRouteOptions<TChoices extends LlmDecisionChoiceMap = LlmDeci
   choices: TChoices
   history?: boolean | number
   id?: string
+  /** Chat model for the decision. Default: the Agent model, or TypeSafe Jev when the Agent uses `driver.ask`. */
   model?: AgentModelResolver
   prompt?: string
 }
@@ -40,6 +46,14 @@ export function llmRoute<
   const id = options.id || "llm-route"
   const choices = normalizeChoices(options.choices, "llmRoute()")
   const choiceKeys = choices.map(choice => choice.key)
+
+  function toDecision(choice: unknown, details: Omit<LlmRouteDecision, "choice">): LlmRouteDecision<Extract<keyof TChoices, string>> {
+    if (!isRuntimeString(choice) || !choiceKeys.includes(choice)) {
+      throw agentDiagnostics.AGENT_R0113({ message: `[vitehub] ${id} returned an invalid route choice.` })
+    }
+    // SAFETY: choice is a configured key and the generic is derived from those keys.
+    return { choice: choice as Extract<keyof TChoices, string>, ...details }
+  }
 
   return defineCapability({
     id,
@@ -55,38 +69,38 @@ export function llmRoute<
       if (context.context.has(id)) {
         throw agentDiagnostics.AGENT_R0112({ message: `[vitehub] Invocation context value "${id}" is already set.` })
       }
-      const model = await context.model.resolve(options.model)
-      const output = await generateDecision<LlmRouteDecision<Extract<keyof TChoices, string>>>({
-        id,
-        model,
-        prompt: decisionPrompt({
-          choices,
-          history: renderHistory(messages, options.history),
-          prompt: options.prompt,
-          task: "Select exactly one route for the user request.",
-          userMessage: latestUserText(input.prompt, messages),
-        }),
-        schema: objectSchema({
-          additionalProperties: false,
-          properties: {
-            choice: { enum: choiceKeys, type: "string" },
-            confidence: { maximum: 1, minimum: 0, type: "number" },
-            reason: { type: "string" },
-          },
-          required: ["choice"],
-          type: "object",
-        }, (value) => {
-          const record = value as { choice?: unknown, confidence?: unknown, reason?: unknown }
-          if (typeof record?.choice !== "string" || !choiceKeys.includes(record.choice)) {
-            throw agentDiagnostics.AGENT_R0113({ message: `[vitehub] ${id} returned an invalid route choice.` })
-          }
-          return {
-            choice: record.choice as Extract<keyof TChoices, string>,
-            ...(confidence(record.confidence) !== undefined ? { confidence: confidence(record.confidence) } : {}),
-            ...(optionalString(record.reason) ? { reason: optionalString(record.reason) } : {}),
-          }
-        }),
-      })
+      const task = "Select exactly one route for the user request."
+      const jev = await jevDecision(context, options, { choices, task })
+      const output = jev
+        ? toDecision(jev.choice, { confidence: jev.confidence, probabilities: jev.probabilities })
+        : await generateDecision<LlmRouteDecision<Extract<keyof TChoices, string>>>({
+          id,
+          model: await context.model.resolve(options.model),
+          prompt: decisionPrompt({
+            choices,
+            history: renderHistory(messages, options.history),
+            prompt: options.prompt,
+            task,
+            userMessage: latestUserText(input.prompt, messages),
+          }),
+          schema: objectSchema({
+            additionalProperties: false,
+            properties: {
+              choice: { enum: choiceKeys, type: "string" },
+              confidence: { maximum: 1, minimum: 0, type: "number" },
+              reason: { type: "string" },
+            },
+            required: ["choice"],
+            type: "object",
+          }, (value) => {
+            // SAFETY: objectSchema validates this callback value as an object before invoking it.
+            const record = value as { choice?: unknown, confidence?: unknown, reason?: unknown }
+            return toDecision(record?.choice, {
+              ...(confidence(record?.confidence) !== undefined ? { confidence: confidence(record?.confidence) } : {}),
+              ...(optionalString(record?.reason) ? { reason: optionalString(record?.reason) } : {}),
+            })
+          }),
+        })
       context.context.set(id, output)
     },
   })

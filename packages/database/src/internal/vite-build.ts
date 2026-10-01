@@ -284,11 +284,11 @@ function createVercelOutput({ artifacts, runtimeConfig, serverFunctionName }: Pr
   }
 }
 
-function shouldCreateVercelOutput(runtimeConfig: ResolvedDBViteConfig) {
+export function shouldCreateVercelOutput(runtimeConfig: ResolvedDBViteConfig) {
   return getVercelUnsupportedDatabases(runtimeConfig).length === 0
 }
 
-function shouldCreateCloudflareOutput(runtimeConfig: ResolvedDBViteConfig, provisionState: ProvisionState) {
+export function shouldCreateCloudflareOutput(runtimeConfig: ResolvedDBViteConfig, provisionState: ProvisionState) {
   return getCloudflareUnsupportedDatabases(runtimeConfig, provisionState).length === 0
     && getCloudflareDatabasesMissingNames(runtimeConfig, provisionState).length === 0
 }

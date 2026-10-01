@@ -5,6 +5,7 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { createDefaultCloudflareOutputRoot } from "@vite-hub/internal/build/deployment-output"
+import { collectViteHubProviderOutputEntries } from "@vite-hub/internal/inspect"
 import { getCloudflareRateLimitBindingName } from "../src/integrations/cloudflare.ts"
 import { hubRateLimit } from "../src/vite.ts"
 
@@ -198,6 +199,69 @@ describe("hubRateLimit", () => {
     await runProviderOutputHooks(plugin)
 
     await expect(readFile(join(createDefaultCloudflareOutputRoot(root), "wrangler.json"), "utf8")).resolves.toContain(getCloudflareRateLimitBindingName("upload"))
+  })
+
+  it.each([
+    { declarations: true, namespace: "inspect-test", nitro: false, provider: "cloudflare", wrangler: true },
+    { declarations: true, namespace: "inspect-test", nitro: true, provider: "cloudflare", wrangler: false },
+    { declarations: true, namespace: "inspect-test", nitro: false, provider: "memory", wrangler: false },
+    { declarations: false, namespace: "inspect-test", nitro: false, provider: "cloudflare", wrangler: false },
+    { declarations: true, namespace: " ", nitro: false, provider: "cloudflare", wrangler: false },
+  ] as const)("reports only package-owned Rate Limit output: %j", async ({ declarations, namespace, nitro, provider, wrangler }) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-inspection-"))
+    roots.push(root)
+    if (declarations) await writeCloudflareDeclaration(root)
+    const plugin = hubRateLimit({ namespace, provider })
+    const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" }) => unknown
+    const configResolved = plugin.configResolved as (config: unknown) => Promise<void>
+    const userConfig = { ...(nitro ? { nitro: { preset: "cloudflare-module" } } : {}), root }
+    config(userConfig, { command: "build" })
+    await configResolved({
+      ...userConfig, build: { outDir: "dist" }, command: "build",
+      plugins: nitro ? [{ name: "nitro:main" }] : [], resolve: { alias: [] },
+    } as never)
+    if (namespace.trim()) await runProviderOutputHooks(plugin)
+    else await expect(runProviderOutputHooks(plugin)).rejects.toThrow("requires rateLimit.namespace")
+
+    const entries = await collectViteHubProviderOutputEntries([plugin])
+    const manifest = {
+      description: "Rate Limit manifest with provider and capabilities",
+      owner: "rate-limit",
+      path: join(root, ".vitehub/rate-limit/manifest.json"),
+    }
+    const wranglerPath = join(createDefaultCloudflareOutputRoot(root), "wrangler.json")
+    if (wrangler) {
+      expect(entries).toEqual([manifest, {
+        description: "Generated Cloudflare Rate Limit worker config",
+        owner: "rate-limit",
+        path: wranglerPath,
+      }])
+      await expect(readFile(wranglerPath, "utf8")).resolves.toContain(getCloudflareRateLimitBindingName("upload"))
+    }
+    else {
+      expect(entries).toEqual([manifest])
+    }
+  })
+
+  it("reports standalone Wrangler output through inspection", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-inspection-"))
+    roots.push(root)
+    await writeCloudflareDeclaration(root)
+    const plugin = hubRateLimit({ namespace: "vite-test", provider: "cloudflare" })
+    const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" }) => unknown
+    const configResolved = plugin.configResolved as (config: unknown) => Promise<void>
+    const userConfig = { root }
+
+    config(userConfig, { command: "build" })
+    await configResolved({ ...userConfig, build: { outDir: "dist" }, command: "build", plugins: [], resolve: { alias: [] } } as never)
+
+    const entries = await collectViteHubProviderOutputEntries([plugin])
+    expect(entries).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        owner: "rate-limit",
+        path: join(createDefaultCloudflareOutputRoot(root), "wrangler.json"),
+      }),
+    ]))
   })
 
   it("rejects Nitro Rate Limit declarations generated after config resolution", async () => {

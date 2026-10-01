@@ -17,6 +17,7 @@ import {
 } from "@vite-hub/internal/build/vite"
 import { loadEnv } from "vite"
 
+import { createEnvCliContributor } from "./cli.ts"
 import { formatDiagnostics } from "./core/diagnostics.ts"
 import { env, runtimeValueSchema } from "./core/declarations.ts"
 import { createRuntimeRegistry, createSourceContext, resolveBuildConfig, resolveEnvEntries, validateEnvConfigShape } from "./core/resolve.ts"
@@ -35,6 +36,7 @@ import type {
   EnvViteConfigOptions,
   EnvViteUserConfig,
 } from "./types.ts"
+import type { ViteHubCliContributor } from "@vite-hub/internal/cli"
 import type { Plugin, UserConfig } from "vite"
 import { envErrorDiagnostics } from "./error-diagnostics.ts"
 
@@ -63,7 +65,11 @@ export interface EnvVitePluginAPI {
   resolveProjectRoot: (viteRoot: string) => string
 }
 
-export type EnvVitePlugin = Plugin & { api: EnvVitePluginAPI }
+export type EnvVitePlugin = Plugin & {
+  api: EnvVitePluginAPI
+  /** Contributes `vitehub env inspect` and `vitehub env check`. */
+  vitehub: { cli: () => ViteHubCliContributor }
+}
 
 interface ResolvedEnvState {
   diagnosticsText: string | undefined
@@ -178,6 +184,9 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
       onServerEnvRegistry: handler => serverRegistryHandlers.add(handler),
       prepareTypes,
       resolveProjectRoot,
+    },
+    vitehub: {
+      cli: () => createEnvCliContributor({ resolveProjectRoot }),
     },
     async config(config, env) {
       const envConfig = (config as UserConfig & EnvViteUserConfig).env
@@ -571,6 +580,8 @@ function createServerEnvInspectionTypes(indent: number): string[] {
     `${prefix}export interface ServerEnvInspectionEntry {`,
     `${prefix}  masked: boolean`,
     `${prefix}  path?: string`,
+    `${prefix}  provider?: string`,
+    `${prefix}  required: boolean`,
     `${prefix}  source: "env" | "literal" | "provider"`,
     `${prefix}  status: "available" | "defaulted" | "error" | "invalid" | "missing"`,
     `${prefix}}`,

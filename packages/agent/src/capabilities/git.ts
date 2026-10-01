@@ -6,6 +6,7 @@ import {
 import type {
   AgentCapabilityDefinition,
   AgentCapabilityMode,
+  AgentGitHub,
   AgentToolPolicyContext,
   AgentToolPolicyDecision,
   AgentToolSet,
@@ -14,6 +15,13 @@ import type {
 import type { WorkspaceSession } from "@vite-hub/workspace"
 import type { JSONSchema7 } from "json-schema"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
+import { isRuntimeString } from "../internal/runtime-value.ts"
+import {
+  preparePullRequestCheckout,
+  pullRequestCheckoutEnvironment,
+  pullRequestCheckoutPlan,
+  shellQuote,
+} from "../internal/pull-request-checkout.ts"
 
 export type GitCapabilityToolPolicy = AgentToolPolicyDecision | ((context: AgentToolPolicyContext) => MaybePromise<AgentToolPolicyDecision>)
 
@@ -81,8 +89,6 @@ const gitEnv = {
   GIT_TERMINAL_PROMPT: "0",
   PAGER: "cat",
 }
-const githubRepositoryPattern = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/
-const gitRefPattern = /^[A-Za-z0-9._/-]+$/
 
 type GitSessionWorkspace = {
   startSession: (options?: { paths?: readonly string[] }) => Promise<WorkspaceSession>
@@ -246,15 +252,8 @@ function gitExecOptions(cwd: string, timeout: number | undefined) {
   return { cwd, env: gitEnv, timeout }
 }
 
-function gitShellExecOptions(cwd: string, timeout: number | undefined, env: Record<string, string | undefined>) {
-  return {
-    cwd,
-    env: {
-      ...gitEnv,
-      ...Object.fromEntries(Object.entries(env).filter(([, value]) => value !== undefined)),
-    },
-    timeout,
-  }
+function gitFetchExecOptions(cwd: string, timeout: number | undefined, env: Record<string, string>) {
+  return { cwd, env: { ...gitEnv, ...env }, timeout }
 }
 
 async function assertConfiguredFetchRemote(session: WorkspaceSession, cwd: string, timeout: number | undefined, args: string[]): Promise<void> {
@@ -288,170 +287,40 @@ function isGitRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
-function safeGitHubRepository(repo: unknown): string | undefined {
-  return typeof repo === "string" && githubRepositoryPattern.test(repo) ? repo : undefined
+type GitToolContext = {
+  context?: { get(key: string): unknown }
+  runtimeContext?: { githubIdentity?: AgentGitHub }
 }
 
-function safeGitRef(ref: unknown): string | undefined {
-  if (typeof ref !== "string" || !ref || ref.length > 250) return
-  if (!gitRefPattern.test(ref) || ref.includes("..") || ref.includes("//") || ref.includes("@{") || ref.endsWith(".lock") || ref.endsWith("/") || ref.startsWith("/")) return
-  return ref
-}
-
-function safeGitSha(sha: unknown): string | undefined {
-  if (typeof sha !== "string") return
-  const normalized = sha.toLowerCase()
-  return /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(normalized) ? normalized : undefined
-}
-
-function safeWorkspacePath(path: unknown, allowRoot = false): string | undefined {
-  if (typeof path !== "string" || (!path && !allowRoot)) return
-  try {
-    const workspacePath = workspacePathFromGitCwd(normalizeCwd(path))
-    return workspacePath || (allowRoot ? "" : undefined)
-  }
-  catch {
-    return
-  }
-}
-
-function gitRemoteRef(ref: string): string {
-  return ref.startsWith("refs/") ? ref : `refs/heads/${ref}`
-}
-
-function gitRemoteBranchRef(ref: string): string {
-  return ref.replace(/^refs\/heads\//, "")
-}
-
-function gitRemoteBranchTrackingRef(ref: string): string {
-  return `refs/remotes/origin/${gitRemoteBranchRef(ref)}`
-}
-
-function shellQuote(value: string): string {
-  return `'${value.replace(/'/g, "'\\''")}'`
-}
-
-function gitCommandFromArgs(args: unknown): string | undefined {
-  if (!Array.isArray(args) || !args.length || !args.every(arg => typeof arg === "string" && arg.length > 0)) return
-  const words = args[0] === "git" ? args : ["git", ...args]
-  return words.map(word => /^[A-Za-z0-9_./:@%+=,-]+$/.test(word) ? word : shellQuote(word)).join(" ")
-}
-
-async function gitHubCliToken(): Promise<string | undefined> {
-  try {
-    const { execFileSync } = await import("node:child_process")
-    return execFileSync("gh", ["auth", "token", "--hostname", "github.com"], {
-      encoding: "utf8",
-      env: Object.fromEntries(Object.entries(process.env).filter(([key]) => key !== "GITHUB_TOKEN" && key !== "GH_TOKEN" && key !== "VITEHUB_GITHUB_TOKEN")),
-      stdio: ["ignore", "pipe", "ignore"],
-      timeout: 2_000,
-    }).trim() || undefined
-  }
-  catch {
-    return
-  }
-}
-
-async function gitHubAuthHeader(): Promise<string | undefined> {
-  const token = process.env.VITEHUB_GITHUB_TOKEN || process.env.GH_TOKEN || await gitHubCliToken() || process.env.GITHUB_TOKEN
-  return token ? `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}` : undefined
-}
-
-function pullRequestGitSetup(context: { context?: { get(key: string): unknown } }) {
-  const raw = context.context?.get("pullRequest")
-  const pullRequest = isGitRecord(raw) && isGitRecord(raw.pullRequest) ? raw.pullRequest : isGitRecord(raw) ? raw : undefined
-  if (!pullRequest) return
-
-  const provider = isGitRecord(raw) ? raw.provider : undefined
-  if (typeof provider === "string" && provider !== "github") return
-
-  const source = isGitRecord(pullRequest.source) ? pullRequest.source : undefined
-  if (source?.checkout === false) return
-  const base = isGitRecord(pullRequest.base) ? pullRequest.base : undefined
-  const head = isGitRecord(pullRequest.head) ? pullRequest.head : undefined
-  const repository = isGitRecord(raw) && isGitRecord(raw.repository) ? raw.repository : undefined
-  const repo = safeGitHubRepository(source?.repo)
-    || safeGitHubRepository(isGitRecord(raw) ? raw.repository : undefined)
-    || safeGitHubRepository(repository?.fullName)
-  const mount = source && "mount" in source
-    ? safeWorkspacePath(source.mount, true)
-    : safeWorkspacePath(repository?.name)
-  const headRef = safeGitRef(source?.ref) || safeGitRef(head?.ref) || safeGitRef(pullRequest.headRef)
-  const baseRef = safeGitRef(base?.ref) || safeGitRef(pullRequest.baseRef)
-  if (!repo || mount === undefined || !headRef) return
-  const headSha = safeGitSha(head?.sha) || safeGitSha(pullRequest.headSha)
-  if (!headSha) throw agentDiagnostics.AGENT_R0069({ message: "[vitehub] GitHub pull request checkout requires an exact head SHA." })
-
-  return {
-    ...(baseRef ? { baseRef: gitRemoteRef(baseRef) } : {}),
-    headRef: gitRemoteRef(headRef),
-    headSha,
-    mount,
-    remoteUrl: `https://github.com/${repo}.git`,
-  }
-}
-
-function gitSessionWorkspacePath(cwd: string, context: { context?: { get(key: string): unknown } }): string {
+function gitSessionWorkspacePath(cwd: string, context: GitToolContext): string {
   const workspacePath = workspacePathFromGitCwd(cwd)
-  const setup = pullRequestGitSetup(context)
-  if (setup && pathContains(setup.mount, workspacePath)) return setup.mount
+  const plan = pullRequestCheckoutPlan(context.context)
+  if (plan && pathContains(plan.mount, workspacePath)) return plan.mount
   return ""
 }
 
 async function preparePullRequestGitSession(
   session: WorkspaceSession,
   workspacePath: string,
-  context: { context?: { get(key: string): unknown } },
+  context: GitToolContext,
   timeout: number | undefined,
 ): Promise<boolean> {
-  const setup = pullRequestGitSetup(context)
-  if (!setup || workspacePath !== setup.mount) return false
-
-  const cwd = setup.mount ? `/workspace/${setup.mount}` : "/workspace"
-  const existing = await session.exec("git", ["rev-parse", "--is-inside-work-tree"], gitExecOptions(cwd, timeout))
-  if (existing.exitCode === 0) {
-    const head = await session.exec("git", ["rev-parse", "HEAD"], gitExecOptions(cwd, timeout))
-    if (head.exitCode !== 0 || head.stdout.trim().toLowerCase() !== setup.headSha) {
-      throw agentDiagnostics.AGENT_R0070({ message: "[vitehub] existing pull request checkout does not match the expected SHA." })
-    }
-    return false
-  }
-
-  const baseTrackingRef = setup.baseRef ? gitRemoteBranchTrackingRef(setup.baseRef) : undefined
-  const authHeader = await gitHubAuthHeader()
-  const fetchRefspecs = [
-    `${setup.headRef}:refs/vitehub/head`,
-    ...(setup.baseRef && baseTrackingRef ? [`${setup.baseRef}:${baseTrackingRef}`] : []),
-  ].map(shellQuote).join(" ")
-  const script = [
-    "set -eu",
-    ...(setup.mount
-      ? [
-          `rm -rf -- ${shellQuote(setup.mount)}`,
-          `mkdir -p -- ${shellQuote(setup.mount)}`,
-          `cd -- ${shellQuote(setup.mount)}`,
-        ]
-      : ["cd -- ."]),
-    "git init -q",
-    `git remote add origin ${shellQuote(setup.remoteUrl)}`,
-    'if [ -n "${VITEHUB_GIT_AUTH_HEADER:-}" ]; then git config --local http.https://github.com/.extraheader "$VITEHUB_GIT_AUTH_HEADER"; fi',
-    `git fetch --depth=100 origin ${fetchRefspecs}`,
-    `test "$(git rev-parse refs/vitehub/head)" = ${shellQuote(setup.headSha)} || { echo "[vitehub] fetched pull request head does not match the expected SHA." >&2; exit 1; }`,
-    setup.mount ? "git checkout -q --detach refs/vitehub/head" : "git reset -q --hard refs/vitehub/head",
-    ...(baseTrackingRef ? [`git branch -f vitehub-base ${shellQuote(baseTrackingRef)} >/dev/null`] : []),
-    "git branch -f vitehub-head HEAD >/dev/null",
-  ].join("\n")
-  const result = await session.exec("sh", ["-lc", script], gitShellExecOptions("/workspace", timeout, {
-    VITEHUB_GIT_AUTH_HEADER: authHeader,
-  }))
-  if (result.exitCode !== 0) {
-    throw agentDiagnostics.AGENT_R0071({ message: result.stderr || result.stdout || "[vitehub] git could not prepare pull request checkout." })
-  }
-  return true
+  const plan = pullRequestCheckoutPlan(context.context)
+  if (!plan || workspacePath !== plan.mount) return false
+  return await preparePullRequestCheckout(session, plan, {
+    env: await pullRequestCheckoutEnvironment(context.runtimeContext?.githubIdentity, plan.repository, undefined, plan.headRepository),
+    timeout,
+  })
 }
 
-function defaultGitCwd(context: { context?: { get(key: string): unknown } }): string | undefined {
-  return pullRequestGitSetup(context)?.mount
+function gitCommandFromArgs(args: unknown): string | undefined {
+  if (!Array.isArray(args) || !args.length || !args.every(arg => isRuntimeString(arg) && arg.length > 0)) return
+  const words = args[0] === "git" ? args : ["git", ...args]
+  return words.map(word => /^[A-Za-z0-9_./:@%+=,-]+$/.test(word) ? word : shellQuote(word)).join(" ")
+}
+
+function defaultGitCwd(context: GitToolContext): string | undefined {
+  return pullRequestCheckoutPlan(context.context)?.mount
 }
 
 function normalizeGitCommandString(command: string): string {
@@ -521,6 +390,7 @@ function gitTools(
   options: Required<Pick<GitCapabilityOptions, "maxOutputLength">> & Pick<GitCapabilityOptions, "policy" | "timeout">,
   getSession: (cwd: string) => Promise<GitSessionHandle>,
   defaultCwd: string | undefined,
+  credentials: () => Promise<Record<string, string>>,
 ): AgentToolSet {
   async function run(rawInput: unknown, write: boolean): Promise<GitCommandResult> {
     const input = normalizeGitToolInput(rawInput, defaultCwd)
@@ -534,7 +404,9 @@ function gitTools(
     const { session } = handle
     if (write && args[0] === "fetch") await assertConfiguredFetchRemote(session, cwd, options.timeout, args)
     if (write && writeSubcommands.has(args[0]!)) await cleanWorkingTree(session, cwd, options.timeout)
-    const result = await session.exec("git", args, gitExecOptions(cwd, options.timeout))
+    const result = await session.exec("git", args, write && args[0] === "fetch"
+      ? gitFetchExecOptions(cwd, options.timeout, await credentials())
+      : gitExecOptions(cwd, options.timeout))
     if (handle.commitWrites && write && writeSubcommands.has(args[0]!) && result.exitCode === 0) {
       await session.commit({ message: `git ${args[0]}` })
     }
@@ -593,7 +465,7 @@ export function git(options: GitCapabilityOptions = {}): AgentCapabilityDefiniti
     return state
   }
 
-  function getSessionResolver(context: { context?: { get(key: string): unknown }, workspace?: unknown }): (cwd: string) => Promise<GitSessionHandle> {
+  function getSessionResolver(context: GitToolContext & { workspace?: unknown }): (cwd: string) => Promise<GitSessionHandle> {
     return async (cwd) => {
       const workspace = context.workspace
       if (!isGitSessionWorkspace(workspace)) {
@@ -646,7 +518,12 @@ export function git(options: GitCapabilityOptions = {}): AgentCapabilityDefiniti
       maxOutputLength,
       policy: options.policy,
       timeout,
-    }, getSessionResolver(context), defaultGitCwd(context)),
+    }, getSessionResolver(context), defaultGitCwd(context), async () => await pullRequestCheckoutEnvironment(
+      context.runtimeContext?.githubIdentity,
+      pullRequestCheckoutPlan(context.context)?.repository,
+      undefined,
+      pullRequestCheckoutPlan(context.context)?.headRepository,
+    )),
     close: closeSession,
   })
 }

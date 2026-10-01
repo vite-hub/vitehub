@@ -1,19 +1,31 @@
 ---
 title: Blob
-description: Expose scoped Blob read and optional edit tools to an Agent.
+description: Give an Agent a Blob read tool and, in write mode, a tool that puts or deletes objects.
 navigation.title: Blob
 navigation.order: 80
 navigation.group: Runtime primitives
 icon: i-lucide-file-box
 ---
 
-`blob()` adds model-facing tools for a configured ViteHub Blob primitive.
-It exposes object read, metadata, and list operations by default, then adds edits only in write mode.
+`blob()` gives an Agent the `blob_read` tool for get, head, and list operations. In write mode, it also gives the `blob_edit` tool for put and delete operations.
+Both tools call the configured [Blob primitive](/docs/server-primitives/blob). For Provider-backed Agents, `assetPaths` also publishes files that the final answer references.
+The Blob primitive page covers application code. This page covers the Agent tools.
 
-The Capability contributes `blob_read` for get, head, and list operations.
-When configured with write mode, it also contributes `blob_edit` for putting or deleting objects.
-`blob_edit` can upload inline content, a current input attachment through `attachmentId`, or a Workspace file through `workspacePath`.
-For Provider Agents, `assetPaths` also turns final-answer Markdown references into published delivery artifacts.
+## Configure Blob access
+
+Attach Blob in read mode until the Agent must write objects.
+
+```ts [server/agents/support.ts]
+import { defineAgent } from 'vite-hub/agent'
+import { blob } from 'vite-hub/agent/capabilities'
+
+export default defineAgent({
+  driver: { model },
+  capabilities: [
+    blob({ mode: 'read' }),
+  ],
+})
+```
 
 ## Agent-visible tool contract
 
@@ -29,67 +41,26 @@ These definitions are resolved from the real Capability during the docs build.
 ::agent-capability-tools{name="blob" variant="write"}
 ::
 
-## Configure Blob access
-
-Attach Blob in read mode until the Agent needs to write objects.
-The Blob primitive must already be configured by the app.
-
-```ts [server/agents/support.ts]
-import { defineAgent } from 'vite-hub/agent'
-import { blob } from 'vite-hub/agent/capabilities'
-
-export default defineAgent({
-  driver: { model },
-  capabilities: [
-    blob({ mode: 'read' }),
-  ],
-})
-```
-
 ## How Blob access works
 
-ViteHub selects the configured Blob store and exposes the Blob tools.
-Read mode supports one object read, metadata read, or prefix list operation per tool call.
-Write mode adds put/delete operations and allows them by default.
-Put operations accept exactly one of `attachmentId`, `body`, or `workspacePath`.
-Delete operations return `{ pathname, deleted: true }`.
+The Capability resolves the Blob store when the Agent calls a tool, not when the tools are listed. With `store`, it calls `store(name)` on the Blob handle.
 
-## Requirements
+`blob_read` runs one operation for each call:
 
-`blob()` uses the configured `blob` primitive when present, or the default export from an installed `@vite-hub/blob` package.
-Named store selection requires the Blob primitive to expose store selection.
+- `get` returns the object at `pathname`.
+- `head` returns the metadata of the object at `pathname`.
+- `list` requires a non-empty `prefix`. It passes `cursor`, `folded`, and `limit` to the Blob handle. `limit` defaults to 25. Values above 100 are reduced to 100.
 
-Writes require explicit write mode.
-Set `policy: 'require-approval'` or `policy: 'deny'` when the product needs an additional gate.
+`blob_edit` runs one operation for each call:
 
-## Driver support
+- `put` writes to `pathname` from exactly one source: inline `body`, a current input attachment (`attachmentId`), or a Workspace file (`workspacePath`). `options` passes write options, such as `contentType`, to the Blob handle. For an attachment, the attachment media type replaces `options.contentType`.
+- `delete` removes the object at `pathname` and returns `{ pathname, deleted: true }`.
 
-| Agent Driver | Support |
-| --- | --- |
-| Model-backed | Receives `blob_read` and, in write mode, `blob_edit`. |
-| Provider-backed | Receives the Capability tools. In write mode, `assetPaths` also publishes current-run files referenced by the final Markdown. |
-| Custom-run-backed | The configured primitive is available through runtime context; `driver.run` decides how to use it. |
-
-## Verify Blob access
-
-Run `vitehub agent info --agent <name> --json` and inspect the resolved tool list.
-Confirm that read mode shows only `blob_read`. Write mode also lists `blob_edit` with the configured policy.
-
-Run one invocation against a missing Blob primitive during development.
-Confirm that the Capability fails before it exposes tools.
-
-## Options
-
-| Option | Type | Default | Description |
-| --- | --- | --- | --- |
-| `mode` | `"read" \| "write"` | `"read"` | Adds `blob_edit` when set to `"write"`. |
-| `assetPaths` | `boolean \| string \| string[]` | `false` | Materializes Provider asset paths and publishes current-run files explicitly referenced by final Markdown. `true` uses `screenshots`. |
-| `store` | `string` | default store | Selects a named Blob store when the Blob primitive supports `store()`. |
-| `policy` | `AgentToolPolicyDecision \| function` | `"allow"` | Policy for `blob_edit`. |
+When the current input has attachments, the `blob_edit` description lists their IDs and media types.
 
 ## Provider artifacts
 
-Declare the directories where a Provider Agent may write public artifacts. The Agent can use its normal filesystem workflow, then reference a generated file in its final answer.
+Declare the directories where a Provider-backed Agent may write public artifacts. The Agent uses its normal filesystem workflow, then references a generated file in its final answer.
 
 ```ts [server/agents/review.ts]
 import { defineAgent } from 'vite-hub/agent'
@@ -108,16 +79,20 @@ export default defineAgent({
 })
 ```
 
-If Codex adds `![Preview](artifacts/preview.png)` to its final answer, ViteHub publishes the file through Blob, records it in `AgentRunResult.artifacts`, and rewrites that exact Markdown destination during Channel delivery.
+If Codex adds `![Preview](artifacts/preview.png)` to its final answer, ViteHub publishes the file through Blob under a `vitehub-agent-artifacts/` prefix, records it in `AgentRunResult.artifacts`, and rewrites that exact Markdown destination in the final text.
 
-Publication is deliberately bounded. ViteHub accepts only Markdown links or images under `assetPaths`, intersects them with files added or modified by the current Provider Workspace write-back, and ignores bare paths, stale files, removed files, and paths outside the declared roots. `policy` still controls the model-facing `blob_edit` tool; host-owned artifact publication does not require that tool to be enabled.
+Publication is bounded:
 
-Configure Blob serving or a Blob driver that returns public URLs. When `blob.serve` returns a route-relative URL, Agent delivery resolves it against the invocation request URL.
+- `assetPaths` applies only in write mode and only to Provider-backed Drivers. In read mode, ViteHub ignores it.
+- Each path must be Workspace-relative and must not contain `.` or `..` segments. `assetPaths: true` uses `screenshots`.
+- ViteHub accepts only Markdown links or images under `assetPaths`. It publishes only files that the current Provider Workspace write-back added or modified. It ignores bare paths, stale files, removed files, and paths outside the declared roots.
+- `policy` controls only the model-facing `blob_edit` tool. Host-owned artifact publication does not need that tool. The example sets `policy: 'deny'`, so the Agent cannot call `blob_edit`, but artifacts are still published.
+
+Configure Blob serving or a Blob driver that returns public URLs. Publication fails when `put()` returns no `url`. When `blob.serve` returns a route-relative URL, ViteHub resolves it against the Agent Invocation request URL.
 
 ## Workspace uploads
 
-Use `workspacePath` to upload a Workspace artifact written by another Capability to Blob storage.
-The path is Workspace-relative.
+Use `workspacePath` to upload a Workspace file, for example a screenshot that another Capability wrote. The path is Workspace-relative. The Capability reads from the active Agent Workspace Session first, then from the Workspace file system.
 
 ```ts [Agent tool call]
 await blob_edit({
@@ -128,7 +103,49 @@ await blob_edit({
 })
 ```
 
+## Requirements
+
+- Configure the Blob primitive. Generated Agent routes pass `blob` from `@vite-hub/blob` to the Capability when the Blob Vite integration is active.
+- Without a `blob` handle, the Capability imports `blob` from an installed `@vite-hub/blob` package. If that import fails, the first tool call fails. The tools are listed before this check.
+- `store` requires a Blob handle that exposes `store()`.
+- `workspacePath` requires a Workspace file system or an active Agent Workspace Session.
+
+## Security and approval
+
+- Read mode lets the Agent get and inspect any pathname, and list objects under any non-empty prefix, in the selected store. The `prefix` description says "developer-provided prefix", but the Capability does not enforce a prefix scope. To limit what the Agent can see, select a dedicated store with `store`.
+- Write mode lets the Agent put or delete any pathname in the selected store. It can upload current input attachments and Workspace files.
+- `policy` applies only to `blob_edit`. `blob_read` has no policy gate.
+- `policy` accepts `'allow'`, `'require-approval'`, `'deny'`, `'retryable-failure'`, or a function that receives `{ name, input }` and returns one of these values.
+- Without `policy`, `blob_edit` runs when the Agent calls it.
+- `'require-approval'` stops the call with `APPROVAL_REQUIRED` and an Approval Request. The write runs only after approval. See [Runtime policy, approvals, and traces](/docs/concepts/runtime-policy-approvals-and-traces).
+- Published artifacts get public URLs. Declare only `assetPaths` whose files may be public.
+
+## Driver support
+
+| Agent Driver | Support |
+| --- | --- |
+| Model-backed | Receives `blob_read` and, in write mode, `blob_edit`. `assetPaths` has no effect. |
+| Provider-backed | Receives the same tools through the provider MCP bridge. In write mode, `assetPaths` also publishes current-run files that the final Markdown references. |
+| Custom-run-backed | `driver.run` receives the tools in `context.tools` and decides whether to call them. `assetPaths` has no effect. |
+
+## Verify Blob access
+
+1. Start the Vite development server.
+2. Run `vitehub agent info --agent support --json`. Confirm that `tools` contains an entry with `name: "blob"`. Inspection lists one entry for each Capability, not one entry for each tool.
+3. Run `vitehub agent dev "List the objects under reports/" --agent support`. Confirm that the output shows a `[tool] blob_read` call with `operation: "list"`.
+4. For Provider artifacts, run the Agent so that it writes a file under an `assetPaths` root and links it in the final answer. Confirm that the final text contains the published URL.
+
+## Options
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `mode` | `"read" \| "write"` | `"read"` | Adds `blob_edit` when set to `"write"`. Other values fail when the Agent Definition loads. |
+| `assetPaths` | `boolean \| string \| string[]` | `false` | Write mode and Provider-backed Drivers only. Materializes these Workspace paths and publishes current-run files that the final Markdown references. `true` uses `screenshots`. |
+| `store` | `string` | default store | Selects a named Blob Store through `store()` on the Blob handle. |
+| `policy` | `AgentToolPolicyDecision \| (context) => AgentToolPolicyDecision \| Promise<AgentToolPolicyDecision>` | none (calls run) | Policy for `blob_edit`. Has no effect on artifact publication. |
+
 ## Related pages
 
 - [Blob primitive](/docs/server-primitives/blob)
 - [Official capabilities](/docs/capabilities/official-capabilities)
+- [Runtime policy, approvals, and traces](/docs/concepts/runtime-policy-approvals-and-traces)

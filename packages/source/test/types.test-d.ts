@@ -1,4 +1,5 @@
 import { describe, expectTypeOf, it } from "vitest"
+import type { AccessAuthorizeOption } from "@vite-hub/runtime"
 import * as v from "valibot"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
@@ -345,6 +346,23 @@ describe("@vite-hub/source types", () => {
         cursorSchema: v.pipe(v.string(), v.transform(Number), v.number()),
       },
     )
+  })
+
+  it("types Collection authorize callbacks", () => {
+    const collection = defineCollection(async () => [{ id: 1 }], {
+      authorize: ({ request, session, user }) => {
+        expectTypeOf(request.url).toBeString()
+        expectTypeOf(session).toEqualTypeOf<Record<string, unknown>>()
+        expectTypeOf(user.id).toBeString()
+        return user.role === "admin" || new Response("Admin access required", { status: 403 })
+      },
+      cursor: row => row.id,
+      cursorSchema: v.number(),
+    })
+    expectTypeOf(collection.authorize).toEqualTypeOf<AccessAuthorizeOption | undefined>()
+    defineCollection(async () => [{ id: 1 }], { authorize: true, cursor: row => row.id, cursorSchema: v.number() })
+    // @ts-expect-error Omit authorize for a public Collection.
+    defineCollection(async () => [{ id: 1 }], { authorize: false, cursor: row => row.id, cursorSchema: v.number() })
   })
 
   it("accepts SDK clients and transports without exposing SDK types", () => {

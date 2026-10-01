@@ -6,6 +6,7 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createLocalWorkspaceStore } from "../src/storage/local.ts"
+import { createWorkspaceStoreFromProvider } from "../src/storage/provider.ts"
 
 const permissionsFixture = vi.hoisted(() => ({ root: "" }))
 
@@ -87,6 +88,254 @@ afterEach(async () => {
 })
 
 describe("local workspace store", () => {
+  it("retains ancestor read leases while listing a directory batch", async () => {
+    const store = await createStore()
+    const root = tempDirs.at(-1)!
+    const prefix = "packages/demo/src"
+    await mkdir(`${root}/${prefix}`, { recursive: true })
+    const paths = Array.from({ length: 16 }, (_, index) => `${prefix}/file-${index}.txt`)
+    await Promise.all(paths.map(path => writeFile(`${root}/${path}`, "fixture")))
+    vi.mocked(open).mockClear()
+
+    const entries = await store.list(prefix)
+    expect(entries.map(entry => entry.path)).toEqual(paths.toSorted((a, b) => a.localeCompare(b)))
+    const ancestors = ["packages", "packages/demo", prefix].map(path => `${root}/.vitehub/locks/${createHash("sha256").update(path).digest("hex")}.gate/owner`)
+    const ancestorOpens = vi.mocked(open).mock.calls.filter(([path]) => ancestors.includes(String(path)))
+    expect(ancestorOpens).toHaveLength(ancestors.length * 2)
+    // Each file retains its own read registration and cleanup gate.
+    for (const path of paths) {
+      const gate = `${root}/.vitehub/locks/${createHash("sha256").update(path).digest("hex")}.gate/owner`
+      expect(vi.mocked(open).mock.calls.filter(([path]) => String(path) === gate)).toHaveLength(2)
+    }
+  })
+
+  it("keeps listing leaf reads protected while sibling writes proceed", async () => {
+    const store = await createStore()
+    const root = tempDirs.at(-1)!
+    await mkdir(`${root}/docs`)
+    await writeFile(`${root}/docs/a.txt`, "old-a")
+    await writeFile(`${root}/docs/b.txt`, "old-b")
+    const actualStat = vi.mocked(stat).getMockImplementation()!
+    let release!: () => void, observed!: () => void
+    const paused = new Promise<void>(resolve => { release = resolve })
+    const reached = new Promise<void>(resolve => { observed = resolve })
+    let reads = 0
+    vi.mocked(stat).mockImplementation(async (...args) => {
+      if (String(args[0]) === `${root}/docs/a.txt` && ++reads === 2) {
+        observed()
+        await paused
+      }
+      return await actualStat(...args)
+    })
+    const listing = store.list("docs")
+    try {
+      await reached
+      let written = false
+      const sameLeaf = store.writeFile("docs/a.txt", { path: "docs/a.txt", content: "new-a" }).then(() => { written = true })
+      await store.writeFile("docs/b.txt", { path: "docs/b.txt", content: "new-b" })
+      expect(written).toBe(false)
+      release()
+      await Promise.all([listing, sameLeaf])
+      expect(await readFile(`${root}/docs/a.txt`, "utf8")).toBe("new-a")
+      expect(await readFile(`${root}/docs/b.txt`, "utf8")).toBe("new-b")
+    }
+    finally {
+      release()
+      vi.mocked(stat).mockImplementation(actualStat)
+      await listing.catch(() => {})
+    }
+  })
+
+  it("releases listing batch leases when a leaf stat fails", async () => {
+    const store = await createStore()
+    const root = tempDirs.at(-1)!
+    await mkdir(`${root}/docs`)
+    await writeFile(`${root}/docs/file.txt`, "fixture")
+    const actualStat = vi.mocked(stat).getMockImplementation()!
+    let reads = 0
+    vi.mocked(stat).mockImplementation(async (...args) => {
+      if (String(args[0]) === `${root}/docs/file.txt` && ++reads === 2) throw new Error("stat failed")
+      return await actualStat(...args)
+    })
+    try {
+      await expect(store.list("docs")).rejects.toThrow("stat failed")
+    }
+    finally { vi.mocked(stat).mockImplementation(actualStat) }
+    await expect(store.rm("docs", { recursive: true })).resolves.toBeUndefined()
+  })
+
+  it("yields a slow listing batch before a queued parent writer times out", async () => {
+    const store = await createStore()
+    const root = tempDirs.at(-1)!
+    await mkdir(`${root}/docs`)
+    await writeFile(`${root}/docs/a.txt`, "a")
+    await writeFile(`${root}/docs/b.txt`, "b")
+    const actualStat = vi.mocked(stat).getMockImplementation()!
+    const actualReaddir = vi.mocked(readdir).getMockImplementation()!
+    const startedAt = Date.now()
+    let now = startedAt
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => now)
+    let release!: () => void, observed!: () => void, queued!: () => void
+    const paused = new Promise<void>(resolve => { release = resolve })
+    const reached = new Promise<void>(resolve => { observed = resolve })
+    const parentQueued = new Promise<void>(resolve => { queued = resolve })
+    const readers = `${root}/.vitehub/locks/${createHash("sha256").update("docs").digest("hex")}.readers`
+    let firstReads = 0, secondReads = 0, removed = false
+    let removing: Promise<{ error?: unknown }> | undefined
+    vi.mocked(stat).mockImplementation(async (...args) => {
+      if (String(args[0]) === `${root}/docs/a.txt` && ++firstReads === 2) {
+        observed()
+        await paused
+      }
+      if (String(args[0]) === `${root}/docs/b.txt` && ++secondReads === 2 && !removed) {
+        // A second slow entry would exhaust the writer's fixed ten-second
+        // deadline if the batch retained its common ancestor lease.
+        now = startedAt + 10_001
+        await removing
+      }
+      return await actualStat(...args)
+    })
+    vi.mocked(readdir).mockImplementation(async (...args) => {
+      const entries = await actualReaddir(...args)
+      if (String(args[0]) === readers) queued()
+      return entries
+    })
+    const listing = store.list("docs", { recursive: true })
+    try {
+      await reached
+      removing = store.rm("docs", { recursive: true }).then(() => {
+        removed = true
+        return {}
+      }, error => ({ error }))
+      await parentQueued
+      now = startedAt + 9_500
+      release()
+      await listing
+      expect((await removing).error).toBeUndefined()
+      expect(removed).toBe(true)
+    }
+    finally {
+      release()
+      await Promise.allSettled([listing, removing])
+      clock.mockRestore()
+      vi.mocked(stat).mockImplementation(actualStat)
+      vi.mocked(readdir).mockImplementation(actualReaddir)
+    }
+  })
+
+  it("gives a queued writer priority before reacquiring a listing batch", async () => {
+    const store = await createStore()
+    const root = tempDirs.at(-1)!
+    await mkdir(`${root}/docs`)
+    const paths = Array.from({ length: 12 }, (_, index) => `${root}/docs/${String(index).padStart(2, "0")}.txt`)
+    await Promise.all(paths.map(path => writeFile(path, "entry")))
+    const actualStat = vi.mocked(stat).getMockImplementation()!
+    const actualMkdir = vi.mocked(mkdir).getMockImplementation()!
+    const parentGate = `${root}/.vitehub/locks/${createHash("sha256").update("docs").digest("hex")}.gate`
+    let release!: () => void, observed!: () => void, queued!: () => void
+    const paused = new Promise<void>(resolve => { release = resolve })
+    const reached = new Promise<void>(resolve => { observed = resolve })
+    const parentQueued = new Promise<void>(resolve => { queued = resolve })
+    let now = Date.now()
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => now)
+    const reads = new Map<string, number>()
+    let removed = false, externalGateHeld = false
+    vi.mocked(stat).mockImplementation(async (...args) => {
+      const path = String(args[0])
+      if (paths.includes(path)) {
+        const count = (reads.get(path) ?? 0) + 1
+        reads.set(path, count)
+        if (count === 2) {
+          now += 1_001 // Each entry exhausts a batch; twelve batches exceed the writer budget.
+          if (path === paths[0]) {
+            observed()
+            await paused
+          }
+          else if (!removed) throw new Error("Listing reacquired ahead of the queued writer")
+        }
+      }
+      return await actualStat(...args)
+    })
+    const listing = store.list("docs", { recursive: true })
+    let removing: Promise<void> | undefined
+    try {
+      await reached
+      // Make the writer enter its polling delay while the first batch is held.
+      await actualMkdir(parentGate)
+      externalGateHeld = true
+      vi.mocked(mkdir).mockImplementation(async (...args) => {
+        try { return await actualMkdir(...args) }
+        catch (error) {
+          if (String(args[0]) === parentGate) queued()
+          throw error
+        }
+      })
+      removing = store.rm("docs", { recursive: true }).then(() => { removed = true })
+      await parentQueued
+      await rm(parentGate, { recursive: true, force: true })
+      externalGateHeld = false
+      release()
+      await Promise.all([listing, removing])
+      expect(removed).toBe(true)
+    }
+    finally {
+      release()
+      if (externalGateHeld) await rm(parentGate, { recursive: true, force: true })
+      await Promise.allSettled([listing, removing])
+      clock.mockRestore()
+      vi.mocked(stat).mockImplementation(actualStat)
+      vi.mocked(mkdir).mockImplementation(actualMkdir)
+    }
+  })
+
+  it.each(["", "docs"])("finishes listing %j while a parent removal waits", async (prefix) => {
+    const store = await createStore()
+    const root = tempDirs.at(-1)!
+    await mkdir(`${root}/docs`)
+    await writeFile(`${root}/docs/a.txt`, "a")
+    await writeFile(`${root}/docs/b.txt`, "b")
+    const actualStat = vi.mocked(stat).getMockImplementation()!
+    const actualReaddir = vi.mocked(readdir).getMockImplementation()!
+    let release!: () => void, observed!: () => void, queued!: () => void
+    const paused = new Promise<void>(resolve => { release = resolve })
+    const reached = new Promise<void>(resolve => { observed = resolve })
+    const parentQueued = new Promise<void>(resolve => { queued = resolve })
+    const readers = `${root}/.vitehub/locks/${createHash("sha256").update("docs").digest("hex")}.readers`
+    let reads = 0
+    vi.mocked(stat).mockImplementation(async (...args) => {
+      if (String(args[0]) === `${root}/docs/a.txt` && ++reads === 2) {
+        observed()
+        await paused
+      }
+      return await actualStat(...args)
+    })
+    vi.mocked(readdir).mockImplementation(async (...args) => {
+      const entries = await actualReaddir(...args)
+      if (String(args[0]) === readers) queued()
+      return entries
+    })
+    const listing = store.list(prefix, { recursive: true })
+    let removing: Promise<void> | undefined
+    let removed = false
+    try {
+      await reached
+      removing = store.rm("docs", { recursive: true }).then(() => { removed = true })
+      await parentQueued
+      expect(removed).toBe(false)
+      release()
+      const entries = await listing
+      expect(entries.filter(entry => entry.type === "file").map(entry => entry.path)).toEqual(["docs/a.txt", "docs/b.txt"])
+      await removing
+      await expect(actualStat(`${root}/docs`)).rejects.toMatchObject({ code: "ENOENT" })
+    }
+    finally {
+      release()
+      await Promise.allSettled([listing, removing])
+      vi.mocked(stat).mockImplementation(actualStat)
+      vi.mocked(readdir).mockImplementation(actualReaddir)
+    }
+  })
+
   it.each([false, true])("allows recreating a missing removal target, recursive: %s", async (recursive) => {
     const store = await createStore()
     const root = tempDirs.at(-1)!
@@ -1810,5 +2059,189 @@ describe("local workspace store", () => {
       expect.objectContaining({ path: "docs/readme.md", type: "file" }),
       expect.objectContaining({ path: "docs/guide.mdx", type: "file" }),
     ]))
+  })
+})
+
+describe("local workspace store process locks", () => {
+  async function createProcessStore() {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-store-"))
+    tempDirs.push(root)
+    return { root, store: createLocalWorkspaceStore(root, { locks: "process" }) }
+  }
+
+  it("rejects an unknown lock mode", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-store-"))
+    tempDirs.push(root)
+    // @ts-expect-error Runtime validation covers untyped configuration.
+    expect(() => createLocalWorkspaceStore(root, { locks: "shared" })).toThrow("locks must be \"filesystem\" or \"process\"")
+    expect(() => createLocalWorkspaceStore(root, { locks: "filesystem" })).not.toThrow()
+  })
+
+  it("writes and snapshots without a lock directory", async () => {
+    const { root, store } = await createProcessStore()
+    await store.writeFile("docs/readme.md", { path: "docs/readme.md", content: "hello" })
+    await store.writeFile("docs/guide.md", { path: "docs/guide.md", content: "guide" })
+    const snapshot = await store.snapshot({ name: "baseline" })
+    await store.writeFile("docs/readme.md", { path: "docs/readme.md", content: "changed" })
+    const diff = await store.diff({ from: snapshot })
+
+    expect(diff.entries).toEqual([expect.objectContaining({ path: "docs/readme.md", type: "modified" })])
+    expect((await stat(`${root}/.vitehub`)).isDirectory()).toBe(true)
+    await expect(stat(`${root}/.vitehub/locks`)).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("prepares .vitehub again when a reused root loses it", async () => {
+    const { root, store } = await createProcessStore()
+    await store.writeFile("docs/readme.md", { path: "docs/readme.md", content: "hello" })
+    await rm(`${root}/.vitehub`, { recursive: true, force: true })
+    await rm(`${root}/docs`, { recursive: true, force: true })
+
+    const reused = createLocalWorkspaceStore(root, { locks: "process" })
+    await reused.writeFile("docs/readme.md", { path: "docs/readme.md", content: "again" })
+    expect((await lstat(`${root}/.vitehub`)).isDirectory()).toBe(true)
+    await expect(reused.readFile("docs/readme.md")).resolves.toMatchObject({ path: "docs/readme.md" })
+  })
+
+  it("passes the lock mode from Workspace store options", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-store-"))
+    tempDirs.push(root)
+    const store = createWorkspaceStoreFromProvider({ name: "docs", store: { provider: "local", root, locks: "process" } })
+    await store.writeFile("docs/readme.md", { path: "docs/readme.md", content: "hello" })
+    await expect(stat(`${root}/.vitehub/locks`)).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("serializes writes to one path and lets sibling writes overlap", async () => {
+    const { root, store } = await createProcessStore()
+    const second = createLocalWorkspaceStore(root, { locks: "process" })
+    await store.writeFile("docs/page.md", { path: "docs/page.md", content: "initial" })
+    vi.mocked(writeFile).mockClear()
+    const { writeFile: actualWriteFile } = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    let release!: () => void
+    let signalWriting!: () => void
+    const writingStarted = new Promise<void>((resolve) => { signalWriting = resolve })
+    const blocked = new Promise<void>((resolve) => { release = resolve })
+    vi.mocked(writeFile).mockImplementationOnce(async (...args) => {
+      signalWriting()
+      await blocked
+      return await actualWriteFile(...args)
+    })
+
+    const first = store.writeFile("docs/page.md", { path: "docs/page.md", content: "first" })
+    await writingStarted
+    await second.writeFile("docs/sibling.md", { path: "docs/sibling.md", content: "sibling" })
+    const writesBeforeRelease = vi.mocked(writeFile).mock.calls.length
+    const next = second.writeFile("docs/page.md", { path: "docs/page.md", content: "second" })
+    let finished = false
+    void next.then(() => { finished = true })
+    await new Promise(resolve => setTimeout(resolve, 50))
+    expect(finished).toBe(false)
+    expect(vi.mocked(writeFile).mock.calls.length).toBe(writesBeforeRelease)
+
+    release()
+    await first
+    await next
+    await expect(readFile(join(root, "docs/page.md"), "utf8")).resolves.toBe("second")
+    await expect(readFile(join(root, "docs/sibling.md"), "utf8")).resolves.toBe("sibling")
+  })
+
+  it("lets a queued writer run before readers that arrive after it", async () => {
+    const { store } = await createProcessStore()
+    await store.writeFile("docs/page.md", { path: "docs/page.md", content: "initial" })
+    const { writeFile: actualWriteFile } = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    let release!: () => void
+    let signalWriting!: () => void
+    const writingStarted = new Promise<void>((resolve) => { signalWriting = resolve })
+    const blocked = new Promise<void>((resolve) => { release = resolve })
+    vi.mocked(writeFile).mockImplementationOnce(async (...args) => {
+      signalWriting()
+      await blocked
+      return await actualWriteFile(...args)
+    })
+
+    const first = store.writeFile("docs/page.md", { path: "docs/page.md", content: "first" })
+    await writingStarted
+    const queuedWriter = store.writeFile("docs/page.md", { path: "docs/page.md", content: "queued" })
+    await new Promise(resolve => setTimeout(resolve, 10))
+    const laterRead = store.readFile("docs/page.md")
+    release()
+    await Promise.all([first, queuedWriter])
+    expect(new TextDecoder().decode((await laterRead)?.content as Uint8Array)).toBe("queued")
+  })
+})
+
+describe("local workspace store Git ignore", () => {
+  async function createCheckout() {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-git-"))
+    tempDirs.push(root)
+    const { execFile } = await import("node:child_process")
+    await new Promise<void>((resolve, reject) => execFile("git", ["init", "-q", root], error => error ? reject(error) : resolve()))
+    await writeFile(join(root, ".gitignore"), "node_modules\ndist/\n")
+    await mkdir(join(root, "node_modules/pkg"), { recursive: true })
+    await writeFile(join(root, "node_modules/pkg/index.js"), "ignored")
+    await mkdir(join(root, "dist"), { recursive: true })
+    await writeFile(join(root, "dist/out.js"), "ignored")
+    await mkdir(join(root, "src"), { recursive: true })
+    await writeFile(join(root, "src/index.ts"), "tracked")
+    const nestedRoot = join(root, "vendor/repo")
+    await mkdir(nestedRoot, { recursive: true })
+    await new Promise<void>((resolve, reject) => execFile("git", ["init", "-q", nestedRoot], error => error ? reject(error) : resolve()))
+    await writeFile(join(nestedRoot, ".gitignore"), "node_modules/\nsrc/ignored/\n")
+    await mkdir(join(nestedRoot, "node_modules/pkg"), { recursive: true })
+    await writeFile(join(nestedRoot, "node_modules/pkg/index.js"), "nested ignored")
+    await mkdir(join(nestedRoot, "src/ignored"), { recursive: true })
+    await writeFile(join(nestedRoot, "src/ignored/index.ts"), "nested prefix ignored")
+    return root
+  }
+
+  it("hides .git and Git-ignored paths from listings, snapshots, and diffs", async () => {
+    const root = await createCheckout()
+    const store = createLocalWorkspaceStore(root, { ignore: "git", locks: "process" })
+    const paths = (await store.list("", { recursive: true })).map(entry => entry.path)
+    expect(paths).toContain("src/index.ts")
+    expect(paths).toContain(".gitignore")
+    expect(paths.some(path => path === ".git" || path.startsWith(".git/"))).toBe(false)
+    expect(paths.some(path => path.split("/").some(component => component.toLowerCase() === ".git"))).toBe(false)
+    expect(paths.some(path => path.startsWith("node_modules") || path.startsWith("dist"))).toBe(false)
+    expect(paths.some(path => path.startsWith("vendor/repo/node_modules"))).toBe(false)
+    expect((await store.list("vendor/repo/src", { recursive: true })).map(entry => entry.path)).not.toContain("vendor/repo/src/ignored/index.ts")
+
+    const snapshot = await store.snapshot({ name: "baseline" })
+    await writeFile(join(root, "dist/out.js"), "changed build output")
+    await store.writeFile("src/index.ts", { path: "src/index.ts", content: "changed" })
+    const diff = await store.diff({ from: snapshot })
+    expect(diff.entries.map(entry => entry.path)).toEqual(["src/index.ts"])
+  })
+
+  it("keeps ignored paths visible without the option and rejects unknown values", async () => {
+    const root = await createCheckout()
+    const paths = (await createLocalWorkspaceStore(root).list("", { recursive: true })).map(entry => entry.path)
+    expect(paths).toContain("node_modules/pkg/index.js")
+    // @ts-expect-error Runtime validation covers untyped configuration.
+    expect(() => createLocalWorkspaceStore(root, { ignore: "all" })).toThrow("ignore must be \"git\"")
+    const fromProvider = createWorkspaceStoreFromProvider({ name: "docs", store: { provider: "local", root, ignore: "git" } })
+    expect((await fromProvider.list("", { recursive: true })).map(entry => entry.path)).not.toContain("dist/out.js")
+  })
+
+  it("reports an unusable Git root instead of disabling exclusions", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-broken-git-"))
+    tempDirs.push(root)
+    await writeFile(join(root, ".git"), "gitdir: missing-worktree")
+    await writeFile(join(root, ".gitignore"), "ignored/\n")
+    await mkdir(join(root, "ignored"), { recursive: true })
+    await writeFile(join(root, "ignored/file.txt"), "ignored")
+
+    await expect(createLocalWorkspaceStore(root, { ignore: "git" }).list("", { recursive: true }))
+      .rejects.toThrow(/not a git repository|gitdir|repository/i)
+  })
+
+  it("keeps case-variant directories visible on case-sensitive filesystems", async () => {
+    if (process.platform === "win32") return
+    const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-case-variant-git-"))
+    tempDirs.push(root)
+    await mkdir(join(root, ".GIT"), { recursive: true })
+    await writeFile(join(root, ".GIT", "notes.txt"), "visible")
+
+    const paths = (await createLocalWorkspaceStore(root, { ignore: "git" }).list("", { recursive: true })).map(entry => entry.path)
+    expect(paths).toContain(".GIT/notes.txt")
   })
 })

@@ -76,9 +76,13 @@ function historyHeaders(target: LoadedChannelTarget, body: string): Headers {
   if (!registration?.secretHeader || !registration.secretToken) {
     throw agentDiagnostics.AGENT_R0524({ message: `Channel ${target.agent}/${target.channel} needs a configured webhook secret before history can be exported.` })
   }
+  const secret = registration.secretToken
+  const timestamp = Math.floor(Date.now() / 1000)
   const value = registration.signature === "github-sha256"
-    ? `sha256=${createHmac("sha256", registration.secretToken).update(body).digest("hex")}`
-    : registration.secretToken
+    ? `sha256=${createHmac("sha256", secret).update(body).digest("hex")}`
+    : registration.signature === "stripe-sha256"
+      ? `t=${timestamp},v1=${createHmac("sha256", secret).update(`${timestamp}.${body}`).digest("hex")}`
+      : secret
   return new Headers({
     "content-type": "application/json",
     [agentChannelHistoryHeader]: "1",

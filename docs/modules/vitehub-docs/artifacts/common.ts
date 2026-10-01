@@ -52,14 +52,10 @@ export function parseScalar(value: string) {
     return Number(trimmed);
   }
 
-  const inner = trimmed.startsWith("[") && trimmed.endsWith("]")
-    ? trimmed.slice(1, -1)
-    : trimmed.includes(",")
-      ? trimmed
-      : null;
-
-  if (inner !== null) {
-    return inner
+  // Only a YAML flow sequence is a list. Titles and descriptions can contain commas.
+  if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+    return trimmed
+      .slice(1, -1)
       .split(",")
       .map(item => item.trim())
       .filter(Boolean)

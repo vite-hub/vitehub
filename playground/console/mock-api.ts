@@ -100,7 +100,7 @@ const connections = new Map([
     name: "gmail",
     provider: "google",
     refreshedAt: "2026-09-29T07:58:00.000Z",
-    scopes: { declared: googleScopes, granted: googleScopes, missing: [] as string[] },
+    scopes: { declared: googleScopes, granted: googleScopes, missing: [] },
     status: "connected",
   }],
   ["calendar", {
@@ -111,7 +111,7 @@ const connections = new Map([
     provider: "google",
     scopes: {
       declared: ["https://www.googleapis.com/auth/calendar.events"],
-      granted: [] as string[],
+      granted: [],
       missing: ["https://www.googleapis.com/auth/calendar.events"],
     },
     status: "reauth_required",
@@ -120,7 +120,7 @@ const connections = new Map([
     actions: [{ highRisk: false, id: "gmail.users.threads.list", method: "GET", write: false }],
     name: "support-inbox",
     provider: "google",
-    scopes: { declared: ["https://www.googleapis.com/auth/gmail.readonly"], granted: [] as string[], missing: ["https://www.googleapis.com/auth/gmail.readonly"] },
+    scopes: { declared: ["https://www.googleapis.com/auth/gmail.readonly"], granted: [], missing: ["https://www.googleapis.com/auth/gmail.readonly"] },
     status: "disconnected",
   }],
 ])
@@ -137,7 +137,8 @@ const connectionApprovals = [
 
 // Synthetic Connections management API. It accepts the same JSON actions as `/_vitehub/connections`.
 async function handleConnections(request: IncomingMessage, response: ServerResponse): Promise<void> {
-  const input = await body(request) as { action?: string, id?: string, name?: string, status?: string }
+  // SAFETY: This synthetic API receives the fixed JSON action shapes from the Console fixture client.
+  const input = await body(request) as { action?: string, before?: string, id?: string, name?: string, status?: string }
   const approvalView = ({ input: _input, ...approval }: typeof connectionApprovals[number]) => approval
   const connection = input.name ? connections.get(input.name) : undefined
   const approval = connectionApprovals.find(entry => entry.id === input.id)
@@ -149,12 +150,20 @@ async function handleConnections(request: IncomingMessage, response: ServerRespo
       Object.assign(connection, { scopes: { ...connection.scopes, granted: [], missing: connection.scopes.declared }, status: "revoked" })
       return json(response, { connection })
     case "activity": return json(response, { activity: input.before ? [] : connectionActivity.filter(event => event.key === `connection/${input.name}`) })
-    case "approvals": return json(response, { approvals: connectionApprovals.filter(entry => (!input.name || entry.name === input.name) && (!input.status || entry.status === input.status)).map(approvalView) })
+    case "approval-counts": return json(response, { counts: Object.fromEntries([...connections.keys()].map(name => [name, connectionApprovals.filter(entry => entry.name === name && entry.status === "pending").length])) })
+    case "approvals":
+    case "approval-summaries": {
+      const approvals = connectionApprovals.filter(entry => (!input.name || entry.name === input.name) && (!input.status || entry.status === input.status))
+      return json(response, { approvals: input.action === "approval-summaries" ? approvals.map(approvalView) : approvals })
+    }
     case "approve":
+    case "approve-summary":
     case "deny":
+    case "deny-summary":
       if (!approval || approval.status !== "pending") return json(response, { error: { code: "CONNECTION_INVALID", message: "This approval is not pending." } }, 400)
-      Object.assign(approval, { decidedAt: new Date().toISOString(), decidedBy: "user:local", status: input.action === "approve" ? "executed" : "denied" })
-      return json(response, input.action === "approve" ? { approval: approvalView(approval), result: { id: "msg_synthetic" } } : { approval: approvalView(approval) })
+      Object.assign(approval, { decidedAt: new Date().toISOString(), decidedBy: "user:local", status: input.action === "approve" || input.action === "approve-summary" ? "executed" : "denied" })
+      if (input.action === "approve-summary" || input.action === "deny-summary") return json(response, { approval: approvalView(approval) })
+      return json(response, input.action === "approve" ? { approval, result: { id: "msg_synthetic" } } : { approval })
     default: return json(response, { error: { code: "CONNECTION_INVALID", message: "Invalid Connections request." } }, 400)
   }
 }
@@ -322,6 +331,31 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
 
   if (path.startsWith("/api/_vitehub/console/invocations/")) {
     const id = decodeURIComponent(path.slice("/api/_vitehub/console/invocations/".length))
+    if (request.method === "POST") {
+      let input: unknown
+      try {
+        input = await body(request)
+      }
+      catch {
+        json(response, { error: "Malformed invocation action." }, 400)
+        return true
+      }
+      if (!(input instanceof Object) || Array.isArray(input) || Object.keys(input).length !== 1 || Reflect.get(input, "action") !== "delete") {
+        json(response, { error: "Unsupported invocation action." }, 400)
+        return true
+      }
+      const outcome = await invocations.delete(id)
+      if (outcome === "not-found") {
+        json(response, { error: "Invocation not found" }, 404)
+        return true
+      }
+      if (outcome === "not-terminal") {
+        json(response, { error: "Only completed, failed, or cancelled invocations can be deleted." }, 409)
+        return true
+      }
+      json(response, { id, outcome: "deleted" })
+      return true
+    }
     const record = await invocations.get(id)
     const invocation = summary(record)
     if (!record || !invocation) {

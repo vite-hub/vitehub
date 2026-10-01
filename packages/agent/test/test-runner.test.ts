@@ -1,3 +1,4 @@
+import { channelDeliveryHandlers } from "../src/internal/channel-delivery-handlers.ts"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { adapterDefinition } from "./adapter-definition.ts"
 
@@ -125,6 +126,7 @@ describe("agent test runner", () => {
 
     const payload = workflowMock.run.mock.calls.at(-1)?.[0]
     expect(payload).toEqual({
+      callerAbortSignal: false,
       input: { context: {}, prompt: "hello" },
       run: { runId: "run-events-1" },
       runtime: "vercel",
@@ -200,7 +202,7 @@ describe("agent test runner", () => {
     const runner = createAgentTestRunner(defineAgent({
       channels: {
         portal: defineChannel("portal", {
-          effects: { reply },
+          [channelDeliveryHandlers]: { reply },
           messages: false,
         }),
       },
@@ -229,7 +231,7 @@ describe("agent test runner", () => {
     const runner = createAgentTestRunner(defineAgent({
       channels: {
         portal: defineChannel("portal", {
-          effects: { reply },
+          [channelDeliveryHandlers]: { reply },
           messages: false,
         }),
       },

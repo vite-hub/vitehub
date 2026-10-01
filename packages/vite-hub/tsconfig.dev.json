@@ -35,6 +35,8 @@
       "@vite-hub/connections/*": ["packages/connections/src/*"],
       "@vite-hub/database": ["packages/database/src/index.ts"],
       "@vite-hub/database/*": ["packages/database/src/*"],
+      "@vite-hub/connections": ["packages/connections/src/index.ts"],
+      "@vite-hub/connections/*": ["packages/connections/src/*"],
       "@vite-hub/email": ["packages/email/src/index.ts"],
       "@vite-hub/email/*": ["packages/email/src/*"],
       "@vite-hub/env": ["packages/env/src/index.ts"],
@@ -67,6 +69,7 @@
   "include": [
     "src/**/*.ts",
     "../browser/src/registry-modules.d.ts",
+    "../database/src/runtime/definition-runtime.d.ts",
     "test/**/*.ts",
     "test/**/*.test-d.ts"
   ],

@@ -1,14 +1,13 @@
 import { hasRuntimeType, isRuntimeObject, runtimeType } from "./internal/runtime-type.ts"
 import { getViteHubErrorShape } from "@vite-hub/runtime"
 import { publishedDeliveryArtifactsFromUnknown } from "./delivery-artifacts.ts"
-import { readAgentUsageMetadata } from "./internal/agent-usage-metadata.ts"
 import { isAsyncIterable } from "./internal/stream-result.ts"
 import { finalChannelOutputSelectedSymbol } from "./internal/final-channel-output.ts"
 import { synthesizedAgentOutputSymbol } from "./internal/synthesized-agent-output.ts"
 import { materializeAgentUsageCost } from "./internal/usage-pricing.ts"
 
 import type { AgentActivity, AgentMessagePhase, StreamEvent } from "./messages.ts"
-import type { AgentRunMetadata, AgentRunResult, AgentUsage, AgentUsageRecord } from "./types.ts"
+import type { AgentRunMetadata, AgentRunResult, AgentToolDefinition, AgentUsage, AgentUsageRecord } from "./types.ts"
 
 export { isAsyncIterable } from "./internal/stream-result.ts"
 
@@ -273,20 +272,6 @@ function mergedRunMetadata(...values: unknown[]): Partial<AgentRunMetadata> | un
   return Object.keys(metadata).length ? metadata : undefined
 }
 
-function credentialSourceFromMetadata(metadata: unknown): AgentUsageRecord["credentialSource"] | undefined {
-  if (!isRecord(metadata) || !isRecord(metadata.credentialSource)) return
-  const source = metadata.credentialSource.source
-  const label = metadata.credentialSource.label
-  if (source !== undefined && !hasRuntimeType(source, "string")) return
-  if (label !== undefined && !hasRuntimeType(label, "string")) return
-  if (source === undefined && label === undefined) return
-  return {
-    ...(label ? { label } : {}),
-    // SAFETY: Agent output normalization establishes the asserted stream result contract.
-    ...(source ? { source: source as NonNullable<AgentUsageRecord["credentialSource"]>["source"] } : {}),
-  }
-}
-
 function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
   return isRecord(value) && hasRuntimeType(value.then, "function")
 }
@@ -405,11 +390,9 @@ function usageRecordFromUsage(
   const modelMetadata = modelMetadataFromResult(metadataSource) ?? modelMetadataFromResult(fallbackMetadataSource)
   const response = responseFromResult(metadataSource) ?? responseFromResult(fallbackMetadataSource)
   const latency = latencyFromResult(metadataSource) ?? latencyFromResult(fallbackMetadataSource)
-  const credentialSource = credentialSourceFromMetadata(readAgentUsageMetadata(metadataSource, fallbackMetadataSource))
   const cost = providerCostFromResult(metadataSource) ?? providerCostFromResult(fallbackMetadataSource)
   return {
     ...(cost ? { cost } : {}),
-    ...(credentialSource ? { credentialSource } : {}),
     ...(latency ? { latency } : {}),
     ...modelMetadata,
     ...(response ? { response } : {}),
@@ -436,7 +419,7 @@ function withFallbackUsageMetadata(
   }
   const response = record.response ?? (compound ? undefined : responseFromResult(fallbackMetadataSource))
   const latency = record.latency ?? (compound ? undefined : latencyFromResult(fallbackMetadataSource))
-  const credentialSource = record.credentialSource ?? (compound ? undefined : credentialSourceFromMetadata(readAgentUsageMetadata(record, fallbackMetadataSource)))
+  const credentialSource = record.credentialSource
   const runMetadata = mergedRunMetadata(run, readableProperty(record, "run"))
   const provider = record.provider ?? (compound ? undefined : modelMetadata?.provider)
   return model || provider || transport || cost || response || latency || credentialSource || runMetadata
@@ -507,6 +490,23 @@ function optionalTitle(title: unknown): { title?: string } {
   return hasRuntimeType(title, "string") && title.trim() ? { title } : {}
 }
 
+type AgentToolStreamDefaults = ReadonlyMap<string, Pick<AgentToolDefinition, "activity" | "title">>
+
+/** Collect the activity and title that tool events inherit when the driver does not provide them. */
+export function agentToolStreamDefaults(tools: Readonly<Record<string, Pick<AgentToolDefinition, "activity" | "title">>> | undefined): AgentToolStreamDefaults {
+  return new Map(Object.entries(tools || {}).flatMap(([name, tool]) => tool.activity || tool.title
+    ? [[name, { ...(tool.activity ? { activity: tool.activity } : {}), ...(tool.title ? { title: tool.title } : {}) }]]
+    : []))
+}
+
+function toolTitle(value: Record<string, unknown>, defaults: Pick<AgentToolDefinition, "title"> | undefined, id: string, toolTitles?: Map<string, string>, completed = false): { title?: string } {
+  const title = optionalTitle(value.title)
+  if (title.title) toolTitles?.set(id, title.title)
+  const resolved = title.title ? title : optionalTitle(toolTitles?.get(id) ?? defaults?.title)
+  if (completed) toolTitles?.delete(id)
+  return resolved
+}
+
 function agentActivity(value: unknown): AgentActivity | undefined {
   if (!value || !hasRuntimeType(value, "object")) return
   // SAFETY: Agent output normalization establishes the asserted stream result contract.
@@ -524,8 +524,9 @@ export function toAgentStreamEvent(
   chunk: unknown,
   toolNames?: Map<string, string>,
   textPhases?: Map<string, AgentMessagePhase | "hidden">,
-  toolActivities?: ReadonlyMap<string, AgentActivity>,
+  toolDefaults?: AgentToolStreamDefaults,
   messageState?: { messageId?: string },
+  toolTitles?: Map<string, string>,
 ): StreamEvent | undefined {
   if (hasRuntimeType(chunk, "string")) {
     return { text: chunk, type: "text-delta" }
@@ -581,18 +582,20 @@ export function toAgentStreamEvent(
     const id = String(value.id || value.toolCallId)
     const name = String(value.toolName || value.name || toolNames?.get(id) || "tool")
     toolNames?.set(id, name)
-    return { ...optionalAgentActivity(value.activity ?? toolActivities?.get(name)), id, input: value.input, ...optionalMessageId(messageId), name, ...optionalTitle(value.title), type: "tool-input-start" }
+    return { ...optionalAgentActivity(value.activity ?? toolDefaults?.get(name)?.activity), id, input: value.input, ...optionalMessageId(messageId), name, ...toolTitle(value, toolDefaults?.get(name), id, toolTitles), type: "tool-input-start" }
   }
   if (type === "tool-call" || type === "tool-input-available") {
     const id = String(value.toolCallId ?? value.id)
     const name = String(value.toolName ?? value.name ?? toolNames?.get(id) ?? "tool")
     toolNames?.set(id, name)
-    return { ...optionalAgentActivity(value.activity ?? toolActivities?.get(name)), id, input: value.input ?? value.args, ...optionalMessageId(messageId), name, ...optionalTitle(value.title), type: "tool-call" }
+    return { ...optionalAgentActivity(value.activity ?? toolDefaults?.get(name)?.activity), id, input: value.input ?? value.args, ...optionalMessageId(messageId), name, ...toolTitle(value, toolDefaults?.get(name), id, toolTitles), type: "tool-call" }
   }
   if (type === "tool-result" || type === "tool-output-available") {
     const id = String(value.toolCallId ?? value.id)
     const name = String(value.toolName ?? value.name ?? toolNames?.get(id) ?? "tool")
-    return { ...optionalAgentActivity(value.activity ?? toolActivities?.get(name)), ...optionalDurationMs(readNumber(value, "durationMs", "duration")), error: hasRuntimeType(value.error, "string") ? value.error : undefined, id, ...optionalMessageId(messageId), name, output: value.output ?? value.result, ...optionalTitle(value.title), type: "tool-result" }
+    const result = { ...optionalAgentActivity(value.activity ?? toolDefaults?.get(name)?.activity), ...optionalDurationMs(readNumber(value, "durationMs", "duration")), error: hasRuntimeType(value.error, "string") ? value.error : undefined, id, ...optionalMessageId(messageId), name, output: value.output ?? value.result, ...toolTitle(value, toolDefaults?.get(name), id, toolTitles, true), type: "tool-result" } as const
+    toolNames?.delete(id)
+    return result
   }
   if (type === "tool-error" || type === "tool-output-error") {
     const id = String(value.toolCallId ?? value.id)
@@ -602,7 +605,9 @@ export function toAgentStreamEvent(
         ? value.errorText
         : String(value.error || "Unknown tool error")
     const name = String(value.toolName ?? value.name ?? toolNames?.get(id) ?? "tool")
-    return { ...optionalAgentActivity(value.activity ?? toolActivities?.get(name)), ...optionalDurationMs(readNumber(value, "durationMs", "duration")), error, id, ...optionalMessageId(messageId), name, output: value.output ?? value.result, ...optionalTitle(value.title), type: "tool-result" }
+    const result = { ...optionalAgentActivity(value.activity ?? toolDefaults?.get(name)?.activity), ...optionalDurationMs(readNumber(value, "durationMs", "duration")), error, id, ...optionalMessageId(messageId), name, output: value.output ?? value.result, ...toolTitle(value, toolDefaults?.get(name), id, toolTitles, true), type: "tool-result" } as const
+    toolNames?.delete(id)
+    return result
   }
   if (type === "approval-request") {
     return { id: String(value.id), input: value.input, ...optionalMessageId(messageId), name: String(value.name || "approval"), reason: hasRuntimeType(value.reason, "string") ? value.reason : undefined, type: "approval-request" }

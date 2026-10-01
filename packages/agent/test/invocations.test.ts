@@ -6165,3 +6165,65 @@ describe("Agent Invocations", () => {
     }
   })
 })
+
+it("persists Workflow acknowledgement without rotating the handed-off claim and preserves worker authority", async () => {
+  const store = createMemoryAgentInvocationStore()
+  const invocations = defineAgentInvocations({ store })
+  const context = runtime("workflow-logical", invocationModule.pendingAgentInvocationAnnotations({}))
+  const submitter = await bindAgentInvocations(invocations, context)
+  expect(await submitter?.prepareWorkflowDispatch({ name: "native", provider: "vercel" })).toBe(true)
+  const token = await submitter?.handoffClaim()
+  expect(token).toEqual(expect.any(String))
+  expect(await submitter?.confirmWorkflowDispatch({ name: "native", provider: "vercel", id: "physical" })).toBe(true)
+  const worker = await bindAgentInvocations(invocations, context, { replaceClaimToken: token })
+  expect(worker?.claimStatus).toBe("owned")
+  expect(await worker?.confirmWorkflowDispatch({ name: "native", provider: "vercel", id: "worker-physical" })).toBe(true)
+  expect(await submitter?.confirmWorkflowDispatch({ name: "native", provider: "vercel", id: "stale-physical" })).toBe(false)
+  const record = await invocations.getByRunId("workflow-logical")
+  expect(record?.workflow).toEqual({ name: "native", provider: "vercel", id: "worker-physical" })
+  const summary = await store.getSummary(record!.id)
+  summary!.workflow!.id = "mutated"
+  expect((await store.getSummary(record!.id))?.workflow?.id).toBe("worker-physical")
+  await worker?.finish("completed")
+})
+
+it("retains the physical Workflow ID when clearing dispatch-pending metadata fails", async () => {
+  const memory = createMemoryAgentInvocationStore()
+  const invocations = defineAgentInvocations({ store: { ...memory, update(id, input, claimId) {
+    if (input.annotations?.[invocationModule.pendingAgentInvocationAnnotation] === false) throw new Error("Confirmation unavailable")
+    return memory.update(id, input, claimId)
+  } } })
+  const journal = await bindAgentInvocations(invocations, runtime("workflow-confirmation", invocationModule.pendingAgentInvocationAnnotations({})))
+  expect(await journal?.prepareWorkflowDispatch({ name: "native", provider: "vercel" })).toBe(true)
+  await journal?.handoffClaim()
+  expect(await journal?.confirmWorkflowDispatch({ name: "native", provider: "vercel", id: "provider-accepted" })).toBe(false)
+  expect(await invocations.getByRunId("workflow-confirmation")).toMatchObject({
+    workflow: { name: "native", provider: "vercel", id: "provider-accepted" },
+    annotations: { [invocationModule.pendingAgentInvocationAnnotation]: true },
+  })
+  await journal?.releaseClaim()
+})
+
+it("persists physical Workflow identity and dispatch intent across independent libSQL stores", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "vitehub-workflow-binding-"))
+  const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
+  const writer = createLibsqlAgentInvocationStore({ client })
+  const reader = createLibsqlAgentInvocationStore({ client })
+  const invocations = defineAgentInvocations({ store: writer })
+  try {
+    const journal = await bindAgentInvocations(invocations, runtime("logical-libsql", invocationModule.pendingAgentInvocationAnnotations({})))
+    const intent = { name: "native", provider: "vercel" }
+    expect(await journal?.prepareWorkflowDispatch(intent)).toBe(true)
+    const record = await invocations.getByRunId("logical-libsql")
+    expect((await reader.getSummary(record!.id))?.workflow).toEqual(intent)
+    const token = await journal?.handoffClaim()
+    expect(await journal?.confirmWorkflowDispatch({ ...intent, id: "provider-libsql" })).toBe(true)
+    expect((await reader.getSummary(record!.id))?.workflow).toEqual({ ...intent, id: "provider-libsql" })
+    const worker = await bindAgentInvocations(defineAgentInvocations({ store: reader }), runtime("logical-libsql"), { replaceClaimToken: token })
+    expect(worker?.claimStatus).toBe("owned")
+    await worker?.finish("completed")
+  } finally {
+    client.close()
+    await rm(directory, { force: true, recursive: true })
+  }
+})

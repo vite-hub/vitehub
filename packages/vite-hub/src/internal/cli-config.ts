@@ -3,7 +3,7 @@ import { createRequire } from "node:module"
 import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
-import type { InlineConfig, ResolvedConfig } from "vite"
+import type { ConfigEnv, InlineConfig, ResolvedConfig } from "vite"
 
 const configExtensions = ["js", "mjs", "cjs", "ts", "mts", "cts"]
 
@@ -13,14 +13,14 @@ function hasConfig(rootDir: string, name: string): boolean {
 
 type ResolveViteConfig = (
   inlineConfig: InlineConfig,
-  command: "serve",
+  command: ConfigEnv["command"],
   mode: string,
 ) => Promise<Pick<ResolvedConfig, "plugins" | "root">>
 
 type LoadNuxt = (options: {
   cwd: string
-  dev: true
-  overrides: { vitehubCliDiscovery: true }
+  dev: boolean
+  overrides: { devtools: { enabled: false }, vitehubCliDiscovery: true }
   ready: true
 }) => Promise<{
   close?: () => Promise<void> | void
@@ -39,7 +39,7 @@ async function resolveNuxtLoader(rootDir: string): Promise<LoadNuxt> {
 
 async function defaultResolveViteConfig(
   inlineConfig: InlineConfig,
-  command: "serve",
+  command: ConfigEnv["command"],
   mode: string,
 ): Promise<Pick<ResolvedConfig, "plugins" | "root">> {
   const { resolveConfig } = await import("vite")
@@ -48,16 +48,18 @@ async function defaultResolveViteConfig(
 
 export async function loadViteHubCliConfig(
   rootDir: string,
+  command: ConfigEnv["command"] = "serve",
   dependencies: {
     loadNuxt?: LoadNuxt
     resolveViteConfig?: ResolveViteConfig
   } = {},
 ): Promise<Pick<ResolvedConfig, "plugins" | "root"> & { vitehubConfigResolved: true }> {
+  const mode = command === "build" ? "production" : "development"
   const resolveViteConfig = dependencies.resolveViteConfig ?? defaultResolveViteConfig
   if (!hasConfig(rootDir, "nuxt")) {
     return {
       // SAFETY: vitehubCliDiscovery is an internal marker consumed by ViteHub's plugin before Vite reads the config.
-      ...await resolveViteConfig({ root: rootDir, vitehubCliDiscovery: true } as InlineConfig, "serve", "development"),
+      ...await resolveViteConfig({ root: rootDir, vitehubCliDiscovery: true } as InlineConfig, command, mode),
       vitehubConfigResolved: true,
     }
   }
@@ -65,8 +67,8 @@ export async function loadViteHubCliConfig(
   const loadNuxt = dependencies.loadNuxt ?? await resolveNuxtLoader(rootDir)
   const nuxt = await loadNuxt({
     cwd: rootDir,
-    dev: true,
-    overrides: { vitehubCliDiscovery: true },
+    dev: command === "serve",
+    overrides: { devtools: { enabled: false }, vitehubCliDiscovery: true },
     ready: true,
   })
   try {
@@ -79,7 +81,7 @@ export async function loadViteHubCliConfig(
         configFile: false,
         root: viteRoot,
         vitehubCliDiscovery: true,
-      } as InlineConfig, "serve", "development"),
+      } as InlineConfig, command, mode),
       vitehubConfigResolved: true,
     }
   }

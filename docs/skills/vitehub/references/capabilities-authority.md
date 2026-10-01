@@ -4,7 +4,7 @@ Use this whenever an Agent receives a tool, secret-backed operation, browser, st
 
 ## Select current pages
 
-Open [Official Capabilities](https://vitehub.dev/raw/docs/capabilities/official-capabilities.md) plus the chosen Capability page. Use [Capabilities API](https://vitehub.dev/raw/docs/concepts/capabilities-api.md) for lifecycle or authority questions, and [Custom Capabilities](https://vitehub.dev/raw/docs/capabilities/custom-capabilities.md) only when no official Capability fits.
+Open [Official Capabilities](https://vitehub.dev/raw/docs/capabilities/official-capabilities.md) plus the chosen Capability page. Use [Capabilities overview](https://vitehub.dev/raw/docs/capabilities.md) for lifecycle or authority questions, and [Custom Capabilities](https://vitehub.dev/raw/docs/capabilities/custom-capabilities.md) only when no official Capability fits.
 
 ## Authority pass
 

@@ -399,6 +399,7 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
       read: options?.read,
       search: options?.search,
     },
+    sourceRequests: options?.sourceRequests,
     timeout: options?.timeout,
   })
   const tools = createTools() as WorkspaceReadToolSet
@@ -558,6 +559,7 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
         search: options?.search,
         write: writeOperations(options),
       },
+      sourceRequests: options?.sourceRequests,
       timeout: options?.timeout,
     })
     const writeTools = createWriteTools() as WorkspaceWriteToolSet

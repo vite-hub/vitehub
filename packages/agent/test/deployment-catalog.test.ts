@@ -1,6 +1,8 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { createRequire } from "node:module"
+import { pathToFileURL } from "node:url"
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { createServer } from "vite"
@@ -19,6 +21,7 @@ interface CapturedStateAdapter {
 }
 
 interface DeploymentRuntimeCapture {
+  publicUrl?: Pick<typeof import("@vite-hub/runtime"), "registerPublicUrlAgentName" | "resolvePublicUrl">
   webhookRequest?: { body: string, signature: string | null }
   denoHandler?: (request: Request) => Promise<Response>
   lastAgent?: Record<PropertyKey, unknown>
@@ -44,9 +47,13 @@ const runtimeCaptureKey = "__vitehubAgentDeploymentRuntimeCapture"
 function deploymentRuntimeModules(): Map<string, string> {
   return new Map([
     ["@vite-hub/agent/server/internal", [
+      `export { decodeColocatedAgentSkills, withColocatedAgentSkills } from ${JSON.stringify(join(import.meta.dirname, "../src/internal/colocated-agent-skills.ts"))}`,
+      `export { markDiscoveredAgentName, resetPublicUrlAgentNames } from ${JSON.stringify(join(import.meta.dirname, "../src/internal/discovered-agent-name.ts"))}`,
       `export { inheritAgentLayerOptions } from ${JSON.stringify(join(import.meta.dirname, "../src/agent-layers.ts"))}`,
+      'import { registerPublicUrlAgentName, resolvePublicUrl } from "@vite-hub/runtime"',
       "import { defineAgent } from '@vite-hub/agent'",
       `const capture = () => globalThis.${runtimeCaptureKey}`,
+      "capture().publicUrl = { registerPublicUrlAgentName, resolvePublicUrl }",
       "function assetText(agent, key) {",
       "  const source = agent[Symbol.for('vitehub.agent.colocatedSkills')]?.[key]",
       "  return source ? new TextDecoder().decode(source.content) : undefined",
@@ -203,6 +210,7 @@ async function createDeploymentRuntimeFixture(
         enforce: "pre",
         name: "vitehub-agent-deployment-runtime-fixture",
         resolveId(id) {
+          if (id === "@vite-hub/runtime") return { id: pathToFileURL(createRequire(import.meta.url).resolve(id)).href, external: true }
           return modules.has(id) ? `\0${id}` : undefined
         },
         load(id) {
@@ -337,6 +345,16 @@ describe("generated Agent deployment catalog", () => {
     await runtime?.close()
     runtime = undefined
     vi.unstubAllEnvs()
+    vi.unstubAllGlobals()
+  })
+
+  it("replaces public URL aliases when a generated catalog is reloaded", async () => {
+    vi.stubGlobal("__VITEHUB_PUBLIC_URL__", { agents: { support: "https://support.example.com" } })
+    runtime!.capture.publicUrl!.registerPublicUrlAgentName("previous-definition", "support")
+    expect(runtime!.capture.publicUrl!.resolvePublicUrl({ agentName: "previous-definition" })).toBe("https://support.example.com")
+    await runtime!.close()
+    runtime = await createDeploymentRuntimeFixture()
+    expect(runtime!.capture.publicUrl!.resolvePublicUrl({ agentName: "previous-definition" })).toBeUndefined()
   })
 
   it("dispatches aliases without router parameters and retains the original body and signature", async () => {

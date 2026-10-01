@@ -1,3 +1,4 @@
+import { runInNewContext } from "node:vm"
 import { createHash } from "node:crypto"
 import { existsSync } from "node:fs"
 import { cp, mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises"
@@ -594,6 +595,56 @@ it("installs the Email definition when the WDK flow has only named exports", asy
   const combinedFlow = await readFile(flowFile, "utf8")
   expect(combinedFlow).toContain("POST")
   expect(combinedFlow).toMatch(/globalThis\[(?:\/\*.*?\*\/\s*)?Symbol\.for\(["']vitehub\.email\.definition["']\)\]\s*=/)
+})
+
+it("applies public URL configuration to native Workflow VM and step bundles", { timeout: buildOutputTestTimeout }, async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-public-url-")
+  const workflowDir = join(rootDir, "server", "workflows")
+  await mkdir(workflowDir, { recursive: true })
+  const runtimeFile = resolve(import.meta.dirname, "../../runtime/src/public-url.ts")
+  await writeFile(join(workflowDir, "native.ts"), `
+import { resolvePublicUrl, consoleInvocationUrl } from ${JSON.stringify(runtimeFile)}
+export async function linkStep() {
+  "use step"
+  return consoleInvocationUrl(resolvePublicUrl({ agentName: "bot" }), "bot", "step")
+}
+export async function linkWorkflow() {
+  "use workflow"
+  return consoleInvocationUrl(resolvePublicUrl({ agentName: "bot" }), "bot", "flow")
+}
+`)
+  await writeFile(join(workflowDir, "links.ts"), 'import { linkWorkflow } from "./native.ts"\nexport default { handler: async () => undefined, options: { native: linkWorkflow } }\n')
+
+  await generateWorkflowProviderOutputs({
+    clientOutDir: join(rootDir, "dist"),
+    bundleDefines: {
+      __VITEHUB_PUBLIC_URL__: JSON.stringify({ agents: { bot: "https://native.example.com" } }),
+      __VITEHUB_APP_BASE_URL__: JSON.stringify("/portal/"),
+    },
+    rootDir,
+    workflow: { provider: "vercel" },
+  })
+  const output = await readFile(join(rootDir, ".vercel/output/functions/.well-known/workflow/v1/flow.func/index.mjs"), "utf8")
+  const source = output.replace(/\/\/# sourceMappingURL=.*$/gm, "")
+  // The VM code is embedded separately from the step registrations in this artifact.
+  const vmStart = source.indexOf("workflowCode =")
+  expect(vmStart).toBeGreaterThan(-1)
+  const vmLiteral = source.slice(vmStart).match(/^workflowCode = (`(?:\\[\s\S]|[^`])*`);/)?.[1]
+  expect(vmLiteral).toBeDefined()
+  const vmCode: string = runInNewContext(vmLiteral!, {})
+  const vmContext = { URL, [Symbol.for("WORKFLOW_USE_STEP")]: vi.fn(() => vi.fn()), __private_workflows: new Map<string, () => Promise<string>>() }
+  runInNewContext(vmCode, vmContext)
+  const workflow = [...vmContext.__private_workflows.entries()].find(([id]) => id.endsWith("//linkWorkflow"))?.[1]
+  expect(workflow).toBeDefined()
+  await expect(workflow!()).resolves.toBe("https://native.example.com/portal/_vitehub/agents/bot/invocations/flow")
+  const steps = source.slice(0, vmStart)
+  const vm = source.slice(vmStart)
+  for (const bundle of [steps, vm]) {
+    expect(bundle).toContain("https://native.example.com")
+    expect(bundle).toContain("/portal/")
+    expect(bundle).not.toContain("typeof __VITEHUB_PUBLIC_URL__")
+    expect(bundle).not.toContain("typeof __VITEHUB_APP_BASE_URL__")
+  }
 })
 
 it("restores prior owned native output when Email installation fails", { timeout: buildOutputTestTimeout }, async () => {

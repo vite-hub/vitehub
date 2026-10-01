@@ -1,53 +1,67 @@
 ---
 title: Markdown
-description: Render streaming assistant Markdown with compact chat typography.
+description: "Render streaming assistant Markdown with chat typography, math, and image previews."
 navigation.order: 13
 navigation.group: Chat
 icon: i-ph-markdown-logo-light
 ---
 
-`AgentMarkdown` wraps `@comark/vue` and applies the `vh-typeset vh-typeset-chat` defaults. The stylesheet uses block-start spacing, which remains stable while streaming content appends new nodes.
-
-Images render as compact thumbnails. Select an image to view it at full aspect ratio in a dark overlay. Press Escape or select Close to return to the message. Set `components.img` to replace this preview.
+`AgentMarkdown` renders Markdown with `@comark/vue` and the `vh-typeset vh-typeset-chat` styles. Spacing comes from the start of each block, so the layout stays stable while streamed text appends new nodes. Use it for assistant text, or anywhere you show Markdown from a model.
 
 ::component-preview{name="MarkdownExample"}
 ::
+
+## Usage
 
 ```vue
 <AgentMarkdown :value="part.text" :streaming="part.state === 'streaming'" />
 ```
 
-## Math
+## Examples
 
-`AgentMarkdown` renders math with KaTeX by default. Use `$...$` or `\(...\)` for inline formulas, and `$$...$$` or `\[...\]` for display formulas. Start a display formula at the beginning of a line; its closing delimiter must end the line. For example, this Markdown renders an inline exponent and a display equation:
+### Streaming
 
-```md
-The squared distance is $r^2$.
+Set `streaming` while text arrives. A formula without its closing delimiter stays text until the delimiter arrives.
 
-$$
-r = \sqrt{x^2 + y^2}
-$$
-```
+::component-preview{name="MarkdownStreamingExample" reset}
+::
 
-For dollar-delimited inline math, omit spaces immediately inside the delimiters. Math inside code spans and fenced code blocks stays literal. Incomplete formulas remain text while streaming until their closing delimiter arrives. If KaTeX rejects a formula, its content renders as readable code instead. The renderer disables trusted HTML and unsafe links.
+### Math
 
-Set `components.math` to replace the built-in renderer. Your component receives the formula as `content` and a `class` containing `block` for display math:
+KaTeX renders math by default. Use `$...$` or `\(...\)` for inline formulas and `$$...$$` or `\[...\]` for display formulas.
 
-```vue
-<AgentMarkdown :value="answer" :components="{ math: MyMath }" />
-```
+::component-preview{name="MarkdownMathExample"}
+::
+
+- Start a display formula at the beginning of a line. Its closing delimiter must end the line.
+- For dollar-delimited inline math, do not put spaces directly inside the delimiters.
+- Math inside code spans and fenced code blocks stays literal.
+- If KaTeX rejects a formula, its source renders as code.
+
+### Images
+
+Images render as compact thumbnails. Select one to open it at its full aspect ratio. Press Escape or select the close button to return. The dialog also links to the original image.
+
+::component-preview{name="MarkdownImageExample"}
+::
 
 ## Custom components
 
-Pass Comark components and parser options directly:
+Pass Comark components to replace an element or add a custom one. Set `components.img` to replace the image preview, or `components.math` to replace KaTeX. A math component receives the formula as `content` and a `class` that contains `block` for display math.
 
 ```vue
-<AgentMarkdown :value="answer" :components="{ Callout: MyCallout }" :options="{ gfm: true }" />
+<AgentMarkdown
+  :value="answer"
+  :components="{ Callout: MyCallout, math: MyMath }"
+  :options="{ gfm: true }"
+/>
 ```
+
+Comark 0.7 takes parser plugins in the top-level `plugins` prop. `options` holds parser settings only. ViteHub always sets `options.html` to `false`.
 
 ## Styling
 
-Override the package defaults globally or add a class per instance. The base rules deliberately avoid styling application chrome; they cover prose rhythm, headings, lists, links, inline code, code blocks, and blockquotes.
+Override the typography variables on one instance or globally. The base rules style prose rhythm, headings, lists, links, inline code, code blocks, and blockquotes. They do not style application chrome.
 
 ```css
 .support-answer {
@@ -56,4 +70,31 @@ Override the package defaults globally or add a class per instance. The base rul
 }
 ```
 
-Comark 0.7 uses the top-level `plugins` prop for parser plugins. Move `options.plugins` to `plugins`; `options` contains parser settings only. `AgentMarkdown` continues to accept `streaming` as a top-level boolean prop.
+Change the default class for every instance with the `markdown.class` [default](/docs/ui/installation#defaults).
+
+## API reference
+
+### AgentMarkdown
+
+#### Props
+
+| Prop         | Type                          | Default | Description                                                         |
+| ------------ | ----------------------------- | ------- | ------------------------------------------------------------------- |
+| `value`      | `string`                      | `''`    | The Markdown source.                                                |
+| `streaming`  | `boolean`                     | `false` | Parses the value as partial, streamed Markdown.                     |
+| `components` | `MarkdownProps['components']` |         | Comark components. Merged over the built-in `img` and `math` components. |
+| `options`    | `MarkdownProps['options']`    |         | Comark parser options. `html` is always `false`.                    |
+| `plugins`    | `MarkdownProps['plugins']`    |         | Comark parser plugins. Added after the built-in math plugin.        |
+
+Other attributes, for example `class`, go to the Comark root.
+
+## Accessibility
+
+- Raw HTML in the source does not render. KaTeX runs with trusted commands disabled.
+- Image thumbnails are buttons. The expanded view closes with Escape and returns focus.
+- Write meaningful image alt text in the Markdown source. It becomes the button and dialog label.
+
+## Related
+
+- [Message parts](/docs/ui/message-parts) uses `AgentMarkdown` for text parts.
+- [Installation](/docs/ui/installation#defaults) sets the default Markdown class.

@@ -1,15 +1,15 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import type { ConsoleSectionId } from "../sections";
 import { resolveConsoleRouteName } from "../console-route";
+import type { ConsoleNavigation } from "../client/sections";
 import {
-  consoleSectionDetails,
   prioritizeConsoleSectionIds,
   readLastConsoleSection,
 } from "../sections";
-import { loadConsoleNavigation } from "../client/sections";
+import { loadConsoleNavigation, resolveConsoleSectionDetails } from "../client/sections";
 import ConsoleBrand from "./console-brand.vue";
 import ConsoleFrame from "./console-frame.vue";
 import ConsolePrimitiveSwitcher from "./console-primitive-switcher.vue";
@@ -27,16 +27,17 @@ const route = useRoute();
 const router = useRouter();
 const sidebarOpen = ref(false);
 const sections = ref<ConsoleSectionId[]>([]);
+const installedNavigation = shallowRef<ConsoleNavigation>();
 const lastSection = ref<ConsoleSectionId>();
 const loading = ref(true);
 const error = ref<unknown>();
 let request = 0;
 
 const availableSections = computed(() =>
-  prioritizeConsoleSectionIds(sections.value, lastSection.value).map((section) => ({
-    id: section,
-    ...consoleSectionDetails[section],
-  })),
+  prioritizeConsoleSectionIds(sections.value, lastSection.value).flatMap((section) => {
+    const details = resolveConsoleSectionDetails(installedNavigation.value, section);
+    return details ? [{ id: section, ...details }] : [];
+  }),
 );
 const sidebarSections = computed(() =>
   availableSections.value.filter((section) => section.id !== "usage"),
@@ -53,6 +54,7 @@ async function loadSections(): Promise<void> {
     const navigation = await loadConsoleNavigation(props.sectionsBase);
     if (!navigation) throw viteHubErrorDiagnostics.VITE_HUB_R0101({ message: "The console could not load its configuration." });
     if (request !== currentRequest) return;
+    installedNavigation.value = navigation;
     sections.value = [...new Set(navigation.sections)];
     error.value = undefined;
   } catch (requestError) {

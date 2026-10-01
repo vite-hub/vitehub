@@ -18,6 +18,18 @@ function providerRegistry() {
 }
 
 describe("Server Env providers", () => {
+  it("skips empty values only when ordered environment sources request it", async () => {
+    const registry = createRuntimeRegistry({
+      token: env({ source: env.source(["PRIMARY_TOKEN", "FALLBACK_TOKEN"], { skipEmpty: true }) }),
+      unchanged: env({ source: env.source(["PRIMARY_TOKEN", "FALLBACK_TOKEN"]) }),
+    })
+
+    const event = { env: { PRIMARY_TOKEN: "", FALLBACK_TOKEN: "fallback" } }
+    expect(resolveServerEnv(registry, event)).toEqual({ token: "fallback", unchanged: "" })
+    await expect(loadServerEnv(registry, event)).resolves.toEqual({ token: "fallback", unchanged: "" })
+    expect(() => resolveServerEnv(registry, { env: { PRIMARY_TOKEN: "", FALLBACK_TOKEN: "" } }).token).toThrow(expect.objectContaining({ code: "ENV_REQUIRED_MISSING" }))
+  })
+
   it("preserves __proto__ as an own key in every snapshot", async () => {
     const registry = createRuntimeRegistry({
       ["__proto__"]: { nested: env({ source: env.source("NESTED") }) },
@@ -277,10 +289,10 @@ describe("Server Env providers", () => {
 
     const inspection = await inspectServerEnv(registry, undefined, { providers: { failed, values } })
     expect(inspection.entries).toEqual([
-      { masked: false, path: "env.server.defaulted", source: "provider", status: "defaulted" },
-      { masked: false, path: "env.server.invalid", source: "provider", status: "invalid" },
-      { masked: true, path: "env.server.missing", source: "provider", status: "missing" },
-      { masked: true, path: "env.server.failed", source: "provider", status: "error" },
+      { masked: false, path: "env.server.defaulted", provider: "values", required: true, source: "provider", status: "defaulted" },
+      { masked: false, path: "env.server.invalid", provider: "values", required: false, source: "provider", status: "invalid" },
+      { masked: true, path: "env.server.missing", provider: "values", required: false, source: "provider", status: "missing" },
+      { masked: true, path: "env.server.failed", provider: "failed", required: false, source: "provider", status: "error" },
     ])
     expect(Object.isFrozen(inspection)).toBe(true)
     expect(JSON.stringify(inspection)).not.toMatch(/remote-key|credential|example\.test|must-not-leak/)
@@ -310,7 +322,7 @@ describe("Server Env providers", () => {
     })
     const hostileInspection = await inspectServerEnv(hostile, undefined, { providers: { values } })
     expect(hostileInspection.entries).toEqual([
-      { masked: false, source: "provider", status: "missing" },
+      { masked: false, provider: "values", required: false, source: "provider", status: "missing" },
     ])
     expect(JSON.stringify(hostileInspection)).not.toMatch(/token|example\.test|remote-key/)
   })

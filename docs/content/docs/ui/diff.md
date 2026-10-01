@@ -1,28 +1,15 @@
 ---
 title: Diff
-description: Render files, patches, parsed diffs, and merge conflicts inside a Vue application.
-navigation.order: 34
+description: "Render unified patches, file comparisons, parsed diffs, and merge conflicts with Pierre."
+navigation.order: 36
 navigation.group: Agent work
 icon: i-ph-file-code-light
 ---
 
-ViteHub provides Vue lifecycle adapters for Pierre's six code and diff views. They use Nuxt UI backgrounds, borders, radius, typography, and semantic colors by default while Pierre continues to own parsing, syntax highlighting, selection, and rendering.
+The diff components are Vue adapters for Pierre's `@pierre/diffs` views. They use Nuxt UI backgrounds, borders, radius, typography, and semantic colors. Pierre owns parsing, syntax highlighting, selection, and rendering. Use them to review the changes an Agent made.
 
-::component-preview{name="DiffExample"}
+::component-preview{name="PatchDiffExample"}
 ::
-
-## Components
-
-| Component | Purpose |
-| --- | --- |
-| `AgentCodeView` | Render a virtualized list containing files and diffs. |
-| `AgentMultiFileDiff` | Compare two `FileContents` values directly. |
-| `AgentPatchDiff` | Render one file change from a unified patch string. |
-| `AgentFileDiff` | Render pre-parsed `FileDiffMetadata`. |
-| `AgentFile` | Render one syntax-highlighted file without a diff. |
-| `AgentUnresolvedFile` | Render conflict markers with resolution controls. |
-
-Nuxt registers every component automatically. In Vue with Vite, import them from `@vite-hub/ui`.
 
 ## Usage
 
@@ -32,43 +19,45 @@ Render a unified patch:
 <AgentPatchDiff :patch="patch" />
 ```
 
-Compare two files without creating a patch first:
+| Component             | Input                                   | Use it when                                          |
+| --------------------- | --------------------------------------- | ---------------------------------------------------- |
+| `AgentPatchDiff`      | A unified patch string                  | You have `git diff` output for one file.             |
+| `AgentMultiFileDiff`  | Two `FileContents` values               | You have the old and new file contents.              |
+| `AgentFileDiff`       | Parsed `FileDiffMetadata`               | You already parsed the patch, or hydrate partial diffs. |
+| `AgentUnresolvedFile` | A `FileContents` with conflict markers  | You show a merge conflict with resolution controls.  |
 
-```vue
-<AgentMultiFileDiff :old-file="before" :new-file="after" />
-```
+Nuxt registers every component. In Vue with Vite, import them from `@vite-hub/ui`. Syntax highlighting loads only when a code view first renders.
 
-Pass `null` for the missing side of an added or deleted file.
+## Examples
 
-Use a parsed diff when the application already owns parsing or partial diff hydration:
+### Compare two files
 
-```vue
-<AgentFileDiff :file-diff="fileDiff" />
-```
+Pass `null` for the missing side of an added or deleted file. Set `options.diffStyle` to `'split'` or `'unified'`.
 
-Render a mixed virtualized view. Give the component a height so it can own scrolling:
+::component-preview{name="MultiFileDiffExample"}
+::
 
-```vue
-<AgentCodeView class="h-[32rem]" :items="items" />
-```
+### Parsed diffs
 
-## Shared diff props
+Parse a multi-file patch once with `parsePatchFiles()`, then render each file from its metadata.
 
-`AgentMultiFileDiff`, `AgentPatchDiff`, and `AgentFileDiff` share these props:
+::component-preview{name="FileDiffExample"}
+::
 
-| Prop | Type | Purpose |
-| --- | --- | --- |
-| `options` | `FileDiffOptions` | Configure layout, themes, headers, interactions, and hydration. |
-| `lineAnnotations` | `DiffLineAnnotation[]` | Render application-owned content on diff lines. |
-| `selectedLines` | `SelectedLineRange \| null` | Control the selected line range. |
+### Merge conflict
 
-`AgentFile` uses `FileOptions` and `LineAnnotation[]`. `AgentUnresolvedFile` uses `UnresolvedFileOptions`. `AgentCodeView` accepts `CodeViewItem[]`, `CodeViewOptions`, and a `CodeViewLineSelection`.
+`AgentUnresolvedFile` renders conflict markers with controls to resolve each conflict.
 
-The package also exports Pierre's `getSingularPatch`, `parseDiffFromFile`, and `parsePatchFiles` helpers plus the public types used by these components.
+::component-preview{name="UnresolvedFileExample"}
+::
+
+## Helpers
+
+The package re-exports Pierre's `getSingularPatch`, `parseDiffFromFile`, and `parsePatchFiles`, and the types `FileContents`, `FileDiffMetadata`, `FileDiffOptions`, `DiffLineAnnotation`, `SelectedLineRange`, and `UnresolvedFileOptions`.
 
 ## Styling
 
-The default theme maps Pierre's inherited CSS properties to Nuxt UI's `--ui-*` properties. Override a ViteHub property on one view when a product needs a different treatment:
+The default theme maps Pierre's CSS properties to Nuxt UI's `--ui-*` properties. Override a ViteHub property on one view when a product needs a different look:
 
 ```css
 .review-diff {
@@ -77,4 +66,67 @@ The default theme maps Pierre's inherited CSS properties to Nuxt UI's `--ui-*` p
 }
 ```
 
-Pass Pierre's `theme` option when you need different syntax token colors. The surrounding backgrounds and semantic diff colors still follow the application theme.
+Pass Pierre's `theme` option for different syntax token colors. Backgrounds and diff colors still follow the application theme.
+
+## API reference
+
+The diff components accept Pierre's options and annotations. See the Pierre types for the option fields.
+
+### AgentPatchDiff
+
+#### Props
+
+| Prop              | Type                                 | Default  | Description                                    |
+| ----------------- | ------------------------------------ | -------- | ---------------------------------------------- |
+| `patch`           | `string`                             | Required | A unified patch for one file.                  |
+| `options`         | `FileDiffOptions`                    |          | Layout, themes, headers, interactions, and hydration. |
+| `lineAnnotations` | `DiffLineAnnotation[]`               |          | Application content on diff lines.             |
+| `selectedLines`   | `SelectedLineRange \| null`          |          | The selected line range. Controlled when set.  |
+
+### AgentMultiFileDiff
+
+#### Props
+
+| Prop              | Type                                 | Default  | Description                                    |
+| ----------------- | ------------------------------------ | -------- | ---------------------------------------------- |
+| `oldFile`         | `FileContents \| null`               | Required | The old file. `null` for an added file.        |
+| `newFile`         | `FileContents \| null`               | Required | The new file. `null` for a deleted file.       |
+| `options`         | `FileDiffOptions`                    |          | Layout, themes, headers, interactions, and hydration. |
+| `lineAnnotations` | `DiffLineAnnotation[]`               |          | Application content on diff lines.             |
+| `selectedLines`   | `SelectedLineRange \| null`          |          | The selected line range. Controlled when set.  |
+
+### AgentFileDiff
+
+#### Props
+
+| Prop              | Type                                 | Default  | Description                                    |
+| ----------------- | ------------------------------------ | -------- | ---------------------------------------------- |
+| `fileDiff`        | `FileDiffMetadata`                   | Required | A parsed file diff.                            |
+| `options`         | `FileDiffOptions`                    |          | Layout, themes, headers, interactions, and hydration. |
+| `lineAnnotations` | `DiffLineAnnotation[]`               |          | Application content on diff lines.             |
+| `selectedLines`   | `SelectedLineRange \| null`          |          | The selected line range. Controlled when set.  |
+
+### AgentUnresolvedFile
+
+#### Props
+
+| Prop              | Type                                 | Default  | Description                                    |
+| ----------------- | ------------------------------------ | -------- | ---------------------------------------------- |
+| `file`            | `FileContents`                       | Required | A file with conflict markers.                  |
+| `options`         | `UnresolvedFileOptions`              |          | Pierre options for the conflict view.          |
+| `lineAnnotations` | `DiffLineAnnotation[]`               |          | Application content on lines.                  |
+| `selectedLines`   | `SelectedLineRange \| null`          |          | The selected line range. Controlled when set.  |
+
+Other attributes go to the Pierre view.
+
+## Accessibility
+
+- ViteHub turns off pointer line selection. Set `selectedLines` to highlight a range from application state.
+- Diff views always expand unchanged lines, so no context hides behind collapsed hunks.
+- Keep Pierre's file header, or add your own heading, so readers know which file changed.
+
+## Related
+
+- [Code view](/docs/ui/code-view) renders full files and mixed file and diff lists.
+- [File tree](/docs/ui/file-tree) selects which file to review.
+- [Code review block](/docs/ui/blocks/code-review) combines a tree, a diff, and a trace.

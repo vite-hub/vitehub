@@ -4,6 +4,7 @@ import { normalizeAgentInvoker } from "./invoker.ts"
 
 import type {
   AgentChatAgentHookArgs,
+  AgentChatMessageHookArgs,
   AgentChatOptions,
   AgentChatSessionOptions,
   AgentChatTriggerHistory,
@@ -30,6 +31,8 @@ export type UIMessageLike = {
 export interface AgentChatMessageTriggerInput {
   abortSignal?: AbortSignal
   context?: AgentRunInput["context"]
+  /** Original inbound message, captured by generated routes before input mapping. */
+  currentMessage?: AgentChatMessageHookArgs
   invoker?: AgentInvoker
   invokerProfileId?: string
   meta?: Record<string, unknown>
@@ -45,6 +48,7 @@ export interface AgentChatMessageTriggerInput {
 }
 
 export interface ChatMessageTriggerInputResult<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
+  currentMessage: AgentChatMessageHookArgs
   hookArgs: AgentChatAgentHookArgs<TRuntimeConfig>
   input: AgentRunInput
   selectedMessages: UIMessageLike[]
@@ -55,10 +59,6 @@ const derivedChatInvokers = new WeakMap<object, AgentInvoker>()
 export function markDerivedChatTriggerInvoker(invoker: unknown, source?: AgentInvoker): void {
   // SAFETY: Agent Invokers are object records, and this branch rejects every non-object runtime value.
   if (typeof invoker === "object" && invoker !== null) derivedChatInvokers.set(invoker, source || invoker as AgentInvoker)
-}
-
-export function hasDerivedChatTriggerInvoker(invoker: unknown): boolean {
-  return derivedChatTriggerInvoker(invoker) !== undefined
 }
 
 export function derivedChatTriggerInvoker(invoker: unknown): AgentInvoker | undefined {
@@ -406,27 +406,30 @@ function selectChatHistory(messages: UIMessageLike[], triggerHistory: AgentChatT
   return selectRecentChatHistory(sessionMessages, triggerHistory).slice(-limit)
 }
 
+export function chatMessageHookArgs(message: UIMessageLike | undefined): AgentChatMessageHookArgs {
+  const metadata = metadataRecord(message)
+  return {
+    ...(message?.id !== undefined ? { id: message.id } : {}),
+    ...(metadata ? { metadata } : {}),
+    text: message ? uiMessageText(message) : "",
+  }
+}
+
 function createChatTriggerHookArgs<TRuntimeConfig extends AgentRuntimeConfig>(
   _options: AgentChatOptions<TRuntimeConfig>,
   messages: UIMessageLike[],
   run: AgentRunMetadata | undefined,
   session: AgentChatMessageTriggerInput["session"] | undefined,
 ): AgentChatAgentHookArgs<TRuntimeConfig> {
-  const message = messages.at(-1)
-  const metadata = metadataRecord(message)
   return {
     history: uiMessagesToAgentMessages(messages),
-    message: {
-      id: message?.id,
-      ...(metadata ? { metadata } : {}),
-      text: message ? uiMessageText(message) : "",
-    },
+    message: chatMessageHookArgs(messages.at(-1)),
     run,
     session,
     thread: {
       post: async () => undefined,
     },
-  } as AgentChatAgentHookArgs<TRuntimeConfig>
+  }
 }
 
 export function createChatMessageTriggerInput<TRuntimeConfig extends AgentRuntimeConfig>(
@@ -456,6 +459,7 @@ export function createChatMessageTriggerInput<TRuntimeConfig extends AgentRuntim
   const invoker = resolveChatTriggerInvoker(triggerInput)
   if (!triggerInput?.invoker) markDerivedChatTriggerInvoker(invoker)
   return {
+    currentMessage: triggerInput?.currentMessage ?? chatMessageHookArgs(messages.at(-1)),
     hookArgs,
     input: {
       abortSignal: triggerInput?.abortSignal,

@@ -93,6 +93,72 @@ afterEach(async () => {
 })
 
 describe("hubDb", () => {
+  it("inspects Database provider artifacts under the writer's nested Vite root", async () => {
+    const root = await createTempProject()
+    const appRoot = join(root, "app")
+    await writeFile(join(root, "package.json"), '{"type":"module"}')
+    await writeDefinition(appRoot, "src/report.database.ts", "report", { connection: "url: 'libsql://database.example'," })
+    await symlink(join(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), "dir")
+    const plugin = hubDb()
+    await resolveConfigResolved(plugin)({ root: appRoot, command: "build", build: { outDir: "dist" }, resolve: { alias: [] }, plugins: [] })
+    for (const hook of [plugin.buildStart, plugin.buildEnd, plugin.closeBundle]) {
+      if (hook instanceof Function) await Reflect.apply(hook, {}, [])
+      else if (hook && hook.handler instanceof Function) await Reflect.apply(hook.handler, {}, [])
+    }
+    const entries = plugin.vitehub?.inspect?.()?.providerOutput ?? []
+    expect(entries.map(entry => entry.path)).toEqual([
+      join(appRoot, "dist/app/index.js"), join(appRoot, ".vercel/output/functions/__server.func/index.mjs"),
+    ])
+    for (const entry of entries) await expect(readFile(entry.path, "utf8")).resolves.toBeTruthy()
+  })
+
+  it("does not inspect provider output without enabled Database Definitions", async () => {
+    const rootDir = await createTempProject()
+    const plugin = hubDb()
+    await resolveConfigResolved(plugin)({ root: rootDir })
+    expect(plugin.vitehub?.inspect?.()?.providerOutput).toEqual([])
+
+    await writeDefinition(rootDir, "server/databases/config.ts")
+    await resolveConfigResolved(plugin)({ database: false, root: rootDir })
+    expect(plugin.vitehub?.inspect?.()).toBeUndefined()
+  })
+
+  it.each([
+    { name: "local SQLite", connection: "url: 'file:local.db',", cloudflare: undefined, providers: [] },
+    { name: "remote libSQL", connection: "url: 'libsql://database.example',", cloudflare: undefined, providers: ["cloudflare", "vercel"] },
+    { name: "D1 binding", connection: undefined, cloudflare: "databaseId: 'database-id', databaseName: 'database-name',", providers: ["cloudflare"] },
+    { name: "D1 HTTP", connection: undefined, cloudflare: "databaseId: 'database-id', databaseName: 'database-name', http: true,", providers: ["cloudflare", "vercel"] },
+    { name: "D1 HTTP without a database name", connection: undefined, cloudflare: "databaseId: 'database-id', http: true,", providers: ["vercel"] },
+  ])("inspects supported provider output for $name", async ({ connection, cloudflare, providers }) => {
+    const rootDir = await createTempProject()
+    await writeDefinition(rootDir, "server/databases/config.ts", "notes", { connection, cloudflare })
+    const plugin = hubDb()
+    await resolveConfigResolved(plugin)({ root: rootDir })
+    expect(plugin.vitehub?.inspect?.()?.providerOutput?.map(output => output.description)).toEqual(
+      providers.map(provider => provider === "cloudflare" ? "Generated Cloudflare Database worker" : "Generated Vercel Database function"),
+    )
+  })
+
+  it("requires every Database Definition to support a provider", async () => {
+    const rootDir = await createTempProject()
+    await writeDefinition(rootDir, "server/databases/remote/config.ts", "notes", { connection: "url: 'libsql://database.example'," })
+    await writeDefinition(rootDir, "server/databases/local/config.ts", "tasks", { connection: "url: 'file:local.db'," })
+    const plugin = hubDb()
+    await resolveConfigResolved(plugin)({ root: rootDir })
+    expect(plugin.vitehub?.inspect?.()?.providerOutput).toEqual([])
+  })
+
+  it("reads provisioned D1 IDs when inspecting provider output", async () => {
+    const rootDir = await createTempProject()
+    await writeDefinition(rootDir, "server/databases/config.ts", "notes", { cloudflare: "databaseName: 'database-name'," })
+    const plugin = hubDb()
+    await resolveConfigResolved(plugin)({ root: rootDir })
+    expect(plugin.vitehub?.inspect?.()?.providerOutput).toEqual([])
+
+    await writeFile(join(rootDir, ".vitehub/provision.json"), JSON.stringify({ cloudflare: { d1: { default: "provisioned-database-id" } } }))
+    expect(plugin.vitehub?.inspect?.()?.providerOutput?.map(output => output.description)).toEqual(["Generated Cloudflare Database worker"])
+  })
+
   it("serializes shared Provider Output finalization", () => {
     expect(hubDb().closeBundle).toMatchObject({ order: "post", sequential: true })
   })

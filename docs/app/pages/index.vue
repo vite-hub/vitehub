@@ -1,7 +1,7 @@
 <script setup lang="ts">
-const title = "Agents and Server Primitives for Vite";
+const title = "Portable Agents for Vite";
 const description =
-  "Define inspectable Agents with explicit runtime boundaries, then run them across supported hosts with portable Server Primitives for Vite.";
+  "Define an Agent in one file. Choose its Driver, Workspace, and Capabilities, then run it across supported hosts.";
 
 useSeo({
   title,
@@ -32,8 +32,8 @@ useSchemaOrg([
     operatingSystem: "Cross-platform",
     downloadUrl: "https://www.npmjs.com/package/vite-hub",
     featureList: [
-      "Portable Server Primitives for Vite applications",
       "Inspectable Agent Definitions and Capabilities",
+      "Portable Server Primitives for Vite applications",
       "Provider Output for supported deployment hosts",
     ],
     offers: {
@@ -48,7 +48,8 @@ useSchemaOrg([
 <template>
   <UMain class="bg-default text-default">
     <LandingHero />
-    <LandingPaths />
+    <LandingAgentStory />
     <LandingPrimitives />
+    <LandingClosing />
   </UMain>
 </template>

@@ -17,7 +17,7 @@ import { agentInvocationCallbackContextValues } from "./invocation-context.ts"
 import { composeInstructionDocument } from "./instruction-composition.ts"
 import { agentOutputInstructions, agentOutputJsonSchema, nativeAgentOutputValidationFailure, normalizeNativeAgentOutputError, validateAgentOutput } from "./internal/agent-structured-output.ts"
 import { synthesizedAgentOutputSymbol } from "./internal/synthesized-agent-output.ts"
-import { resolveAgentUsageRecord } from "./agent-output.ts"
+import { agentToolStreamDefaults, resolveAgentUsageRecord } from "./agent-output.ts"
 import { aggregateAgentUsageCosts } from "./internal/usage-pricing.ts"
 import { materializeAgentModel } from "./internal/agent-model.ts"
 import { updateAgentTelemetryConfiguration } from "./internal/agent-telemetry.ts"
@@ -1074,7 +1074,7 @@ function arrayFrom(value: unknown): unknown[] {
   return value === undefined ? [] : [value]
 }
 
-function withViteHubTelemetry(settings: Record<string, unknown>, context: AgentAdapterRunContext): Record<string, unknown> {
+function withViteHubTelemetry(settings: Record<string, unknown>, context: AgentAdapterRunContext, tools: AgentToolSet | undefined): Record<string, unknown> {
   if (!hasAgentTraceLog(context)) return settings
   // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
   const existing = (settings.telemetry || settings.experimental_telemetry || {}) as {
@@ -1098,7 +1098,7 @@ function withViteHubTelemetry(settings: Record<string, unknown>, context: AgentA
       invoker: context.invoker,
       run: context.runtime.run,
       runtime: context.runtime,
-    }, new Map(Object.entries(context.tools || {}).flatMap(([name, tool]) => tool.activity ? [[name, tool.activity]] : [])))],
+    }, agentToolStreamDefaults(tools))],
     isEnabled: existing.isEnabled ?? true,
     recordInputs: existing.recordInputs ?? false,
     recordOutputs: existing.recordOutputs ?? false,
@@ -1308,7 +1308,7 @@ async function createAgent(
   const convertedOutputSchema = context.output && context.nativeStructuredOutput !== false ? agentOutputJsonSchema(context.output.schema) : undefined
   const outputSchema = convertedOutputSchema?.type === "object" ? convertedOutputSchema : undefined
   const nativeOutput = outputSchema ? aiSdk.Output.object({ schema: jsonSchema(outputSchema) }) : undefined
-  const commonSettings = withRuntimeContext(withViteHubTelemetry(settings, context), context)
+  const commonSettings = withRuntimeContext(withViteHubTelemetry(settings, context, resolvedTools), context)
   const repairSettings = withoutToolCallSettings(commonSettings)
   const prepareCall = commonSettings.prepareCall
   const prepareRepairCall = hasRuntimeType(prepareCall, "function")
@@ -1604,7 +1604,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         tools: Object.entries(metadataTools || {}).map(([name, tool]) => ({
           category: "workspace",
           description: tool.description,
-          icon: name === "shell" ? "i-lucide-terminal" : "i-lucide-wrench",
+          icon: tool.icon ?? (name === "shell" ? "i-lucide-terminal" : "i-lucide-wrench"),
           name,
           // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
           status: "available" as const,

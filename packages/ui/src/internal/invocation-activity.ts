@@ -1,5 +1,5 @@
 import type { TraceEventLogEntry } from "@vite-hub/runtime";
-import type { AgentInvocationView } from "../types.ts";
+import type { AgentInvocationView, AgentToolInspection } from "../types.ts";
 import { hasRuntimeType } from "./runtime-type.ts";
 
 type InvocationActivityKind =
@@ -49,6 +49,8 @@ export interface InvocationActivity {
   skills?: readonly InvocationSkillRead[];
   startedAt?: string;
   status: "running" | "completed" | "failed";
+  /** Display metadata the called tool declares in the configuration catalog. */
+  toolDisplay?: Pick<AgentToolInspection, "icon" | "label">;
   totalTokens?: number;
   truncated?: boolean;
 }
@@ -306,8 +308,18 @@ function numericAttribute(attributes: Record<string, unknown>, ...keys: string[]
   }
 }
 
+function isRecordedTool(value: unknown): value is Pick<AgentToolInspection, "icon" | "label" | "name"> {
+  const tool = record(value);
+  return hasRuntimeType(tool?.name, "string")
+    && (tool.icon === undefined || hasRuntimeType(tool.icon, "string"))
+    && (tool.label === undefined || hasRuntimeType(tool.label, "string"));
+}
+
 export function invocationActivities(invocation: AgentInvocationView): InvocationActivity[] {
   const groups = new Map<string, TraceEventLogEntry[]>();
+  // Historical journals can hold truncation markers in place of tool entries.
+  const recordedTools: readonly unknown[] = Array.isArray(invocation.configuration?.tools) ? invocation.configuration.tools : [];
+  const toolCatalog = new Map(recordedTools.flatMap(tool => isRecordedTool(tool) ? [[tool.name, tool] as const] : []));
   const traceTruncated = invocation.observationsTruncated === true
     || (invocation.observations?.some(observation => observation.attributes?.["vitehub.trace.truncated"] === true) ?? false);
   const hasAgentMessages = (invocation.observations ?? []).some(observation =>
@@ -453,6 +465,11 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
       const terminalStartedAt = !started && endedAt && durationMs !== undefined
         ? new Date(Date.parse(endedAt) - durationMs).toISOString()
         : undefined;
+      const catalogTool = kind === "tool" ? toolCatalog.get(String(attributes["tool.name"] ?? "")) : undefined;
+      const toolDisplay = {
+        ...(catalogTool?.icon ? { icon: catalogTool.icon } : {}),
+        ...(catalogTool?.label ? { label: catalogTool.label } : {}),
+      };
       const draft = {
         attributes,
         body: patches.join("") || messageBody || activityBody(attributes),
@@ -472,6 +489,7 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
           : {}),
         ...(role ? { role } : {}),
         status: failed || approvalDenied ? "failed" : completed || !started ? "completed" : unfinishedTerminalStatus ?? "running",
+        ...(Object.keys(toolDisplay).length ? { toolDisplay } : {}),
         ...(sorted.some(item => item.attributes?.["vitehub.observation.truncated"] === true)
           && !(first.name === "agent.invocation.finish" && completeAssistantTexts.has(stringAttribute(attributes, "result.text") ?? ""))
           ? { truncated: true }
@@ -506,6 +524,26 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
   return visibleActivities;
 }
 
+/** Count distinct calls per tool name. */
+export function invocationToolUsage(invocation: AgentInvocationView): ReadonlyMap<string, number> {
+  const counts = new Map<string, number>();
+  const seen = new Set<string>();
+  for (const observation of invocation.observations) {
+    const name = observation.attributes?.["tool.name"];
+    if (!hasRuntimeType(name, "string") || !name) continue;
+    const id = observation.attributes?.["tool.id"];
+    if (hasRuntimeType(id, "string") && id) {
+      const key = `${name}:${id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+    } else if (!observation.name.endsWith(".start")) {
+      continue;
+    }
+    counts.set(name, (counts.get(name) ?? 0) + 1);
+  }
+  return counts;
+}
+
 export function latestInvocationTokens(activities: readonly InvocationActivity[]): number | undefined {
   const snapshots = activities.flatMap(activity => activity.totalTokens === undefined ? [] : [activity.totalTokens]);
   return snapshots.length ? Math.max(...snapshots) : undefined;
@@ -515,7 +553,7 @@ export function invocationActivityTitle(activity: InvocationActivity): string {
   const explicit = activity.attributes["vitehub.activity.title"];
   if (hasRuntimeType(explicit, "string") && explicit.trim()) return explicit.trim();
   if (activity.name === "vitehub.observation.truncated") return "Trace content was truncated";
-  if (activity.name === "vitehub.agent.configured") return "Agent configured";
+  if (activity.name === "vitehub.agent.configured") return agentConfigurationTitle(activity);
   if (activity.skill) return `Read ${activity.skill.name} skill`;
   if (activity.kind === "preparation") return "Prepared session";
   if (activity.kind === "system") return "System configuration";
@@ -525,7 +563,7 @@ export function invocationActivityTitle(activity: InvocationActivity): string {
   if (activity.kind === "action") return String(activity.attributes["channel.effect.kind"] ?? activity.attributes["vitehub.action.name"] ?? "Product action");
   if (activity.kind === "plan") return "Updated plan";
   if (activity.kind === "change") return normalizedTitle(String(activity.attributes["tool.name"] ?? "Changed files"));
-  if (activity.kind === "tool") return normalizedTitle(String(activity.attributes["tool.title"] ?? activity.attributes["tool.name"] ?? "Used a tool"));
+  if (activity.kind === "tool") return normalizedTitle(String(activity.attributes["tool.title"] ?? activity.toolDisplay?.label ?? activity.attributes["tool.name"] ?? "Used a tool"));
   if (activity.kind === "approval") {
     if (activity.attributes["approval.approved"] === true) return "Approval granted";
     if (activity.attributes["approval.approved"] === false) return "Approval denied";
@@ -537,6 +575,16 @@ export function invocationActivityTitle(activity: InvocationActivity): string {
   return normalizedTitle(activity.name.replace(/\.(start|finish|error|decision|recorded)$/, "").replaceAll(".", " "));
 }
 
+function agentConfigurationTitle(activity: InvocationActivity): string {
+  const configuration = record(activity.attributes["vitehub.agent.configuration"]);
+  if (!configuration) return "Agent configured";
+  const agent = stringAttribute(record(configuration.agent) ?? {}, "name") ?? "Agent";
+  const capabilities = Array.isArray(configuration.capabilities) ? configuration.capabilities.length : 0;
+  return capabilities
+    ? `Configured ${agent} with ${capabilities} ${capabilities === 1 ? "capability" : "capabilities"}`
+    : `Configured ${agent}`;
+}
+
 export function agentConfigurationSummary(activity: InvocationActivity): string | undefined {
   if (activity.name !== "vitehub.agent.configured") return;
   const configuration = record(activity.attributes["vitehub.agent.configuration"]);
@@ -544,11 +592,9 @@ export function agentConfigurationSummary(activity: InvocationActivity): string 
   const driver = record(configuration.driver);
   const model = record(driver?.model);
   const modelName = stringAttribute(model ?? {}, "id") ?? stringAttribute(driver ?? {}, "provider");
-  const capabilities = Array.isArray(configuration.capabilities) ? configuration.capabilities.length : 0;
   const tools = Array.isArray(configuration.tools) ? configuration.tools.length : 0;
   return [
     modelName,
-    capabilities ? `${capabilities} ${capabilities === 1 ? "capability" : "capabilities"}` : undefined,
     tools ? `${tools} ${tools === 1 ? "tool" : "tools"}` : undefined,
   ].filter(Boolean).join(" · ") || undefined;
 }

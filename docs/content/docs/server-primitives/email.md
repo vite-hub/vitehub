@@ -323,6 +323,8 @@ export default defineConfig({
 | `driver` | `'resend' \| 'cloudflare-email'` | Required | Selects a built-in ViteHub Email driver. |
 | `options` | `EnvRuntimeConfigOptions` | `{}` | Supplies serializable non-secret literals and runtime Env declarations. Env source values resolve in the server runtime for every send; literals and non-secret defaults are included in build output, while defaults on secret declarations are rejected. |
 
+`email: true` selects the `cloudflare-email` driver. The `cloudflare-email` driver requires Cloudflare hosting and generates an `EMAIL` `send_email` Worker binding. With other presets, set `driver: 'resend'`.
+
 The integration serializes the driver name, literal options, and Env declarations into a server-only generated module. Credential values remain in the runtime environment when they are supplied through an Env source without a default.
 
 ## Troubleshoot common failures

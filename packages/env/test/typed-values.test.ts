@@ -87,8 +87,8 @@ describe("typed Server Env values", () => {
     await expect(loadServerEnv(registry, { env: {} }, { providers: settings({ enabled: "maybe", limit: "25" }) }))
       .rejects.toMatchObject({ code: "ENV_RUNTIME_VALUE_INVALID", details: { path: "env.server.enabled", source: "provider" } })
     expect((await inspectServerEnv(registry, { env: {} }, { providers: settings({ enabled: "maybe", limit: "25" }) })).entries).toEqual([
-      { masked: false, path: "env.server.enabled", source: "provider", status: "invalid" },
-      { masked: true, path: "env.server.limit", source: "provider", status: "available" },
+      { masked: false, path: "env.server.enabled", provider: "settings", required: true, source: "provider", status: "invalid" },
+      { masked: true, path: "env.server.limit", provider: "settings", required: true, source: "provider", status: "available" },
     ])
   })
 

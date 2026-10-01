@@ -9,16 +9,19 @@ import {
 } from "@vite-hub/internal/definition-catalog"
 import { resolve } from "pathe"
 
+import { CONNECTION_NAME_MAX_LENGTH } from "./types.ts"
+
 import type { DiscoveredConnectionDefinition } from "./types.ts"
 
 const connectionSuffixPattern = /\.connection\.(?:c|m)?[jt]s$/i
 
 function createDiscoveredConnectionDefinition(source: DiscoveredConnectionDefinition["source"]) {
-  return (context: { file: string, name: string }): DiscoveredConnectionDefinition => ({
-    handler: context.file,
-    name: context.name,
-    source,
-  })
+  return (context: { file: string, name: string }): DiscoveredConnectionDefinition => {
+    if (context.name.length > CONNECTION_NAME_MAX_LENGTH) {
+      throw new Error(`Connection name "${context.name}" exceeds ${CONNECTION_NAME_MAX_LENGTH} characters. Rename "${context.file}" so its Env key fits the 512-character limit.`)
+    }
+    return { handler: context.file, name: context.name, source }
+  }
 }
 
 /** Discover `server/connections/*.ts` and `*.connection.ts` files. */

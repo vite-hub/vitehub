@@ -2,9 +2,11 @@
 title: Durable pull request waits
 description: Park a pull request until structured host evidence changes.
 navigation.group: Application APIs
+navigation.lanes: [agents]
 ---
 
 Use `PullRequestInbox` from `vite-hub/agent/server/github-inbox` on a Node host.
+Every inbox method is asynchronous.
 A completed pass can persist `wait: { reason, evidenceKey }` through `finish()`.
 The inbox binds it to the claim's head. `get()` and `summary()` expose the reason
 and key after a restart. Delivery replay, pending checks, and unrelated events do
@@ -21,7 +23,7 @@ admission decision; it does not authorize merging.
 // After a pass, evaluate the claim's hydrated snapshot with host policy.
 const decision = await evaluateEvidence(claim.snapshot)
 if (decision.wait) {
-  const finished = inbox.finish(claim, {
+  const finished = await inbox.finish(claim, {
     text: 'Waiting for external evidence',
     wait: { reason: decision.reason, evidenceKey: decision.key },
   })
@@ -30,13 +32,13 @@ if (decision.wait) {
 }
 
 // Run after every verified webhook, before claiming work, and on host startup.
-inbox.ingest(deliveryId, event, verifiedPayload)
-for (const observed of inbox.all()) {
+await inbox.ingest(deliveryId, event, verifiedPayload)
+for (const observed of await inbox.all()) {
   if (!observed.wait) continue
   const decision = await evaluateEvidence(observed)
-  inbox.wake(observed, decision.key)
+  await inbox.wake(observed, decision.key)
 }
-const claims = inbox.claim(capacity)
+const claims = await inbox.claim(capacity)
 ```
 
 `evaluateEvidence` is application policy, not an exported helper. It must include

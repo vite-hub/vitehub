@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { createAuthClient } from "@vite-hub/auth/vue";
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, shallowRef } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
+import type { ConsoleNavigation } from "../client/sections";
 import type { ConsoleSectionId } from "../sections";
-import { loadConsoleNavigation } from "../client/sections";
+import { loadConsoleNavigation, resolveConsoleSectionDetails } from "../client/sections";
 import { resolveConsoleRouteName } from "../console-route";
 import { consoleSectionDetails } from "../sections";
 
@@ -18,22 +19,30 @@ const route = useRoute();
 const router = useRouter();
 const navigationFailed = ref(false);
 const sections = ref<ConsoleSectionId[]>([]);
+const installedNavigation = shallowRef<ConsoleNavigation>();
 const signedIn = ref(false);
 const signingOut = ref(false);
 const signOutFailed = ref(false);
+const accessIdentity = ref<{ label?: string; signOutURL: string }>();
 const authBase = props.sectionsBase.replace(/\/sections$/, "/auth");
 const authClientURL = props.sectionsBase.replace(/\/sections$/, "/client.js");
 const signInURL = props.sectionsBase.replace(/\/api\/_vitehub\/console\/sections$/, "/_vitehub/sign-in");
 let authClientRequest: Promise<ReturnType<typeof createAuthClient>> | undefined;
+const signOutLabel = computed(() => (accessIdentity.value?.label ? `Sign out ${accessIdentity.value.label}` : "Sign out"));
 const items = computed(() =>
   sections.value
     .filter((section) => section !== "usage" && !props.exclude?.includes(section))
-    .map((section) => ({ id: section, ...consoleSectionDetails[section] })),
+    .flatMap((section) => {
+      const details = resolveConsoleSectionDetails(installedNavigation.value, section);
+      return details ? [{ id: section, ...details }] : [];
+    }),
 );
 
 async function openSection(section: ConsoleSectionId): Promise<void> {
+  const details = resolveConsoleSectionDetails(installedNavigation.value, section);
+  if (!details) return;
   await router.push({
-    name: resolveConsoleRouteName(route.name, consoleSectionDetails[section].routeName),
+    name: resolveConsoleRouteName(route.name, details.routeName),
   });
 }
 
@@ -44,8 +53,28 @@ async function loadSections(): Promise<void> {
     navigationFailed.value = true;
     return;
   }
+  installedNavigation.value = navigation;
   sections.value = navigation.sections;
-  if (navigation.auth) void loadAuthSession();
+  if (navigation.auth === "cloudflare-access") void loadAccessIdentity();
+  else if (navigation.auth) void loadAuthSession();
+}
+
+async function loadAccessIdentity(): Promise<void> {
+  try {
+    const response = await fetch(`${authBase}/identity`, { credentials: "same-origin", headers: { accept: "application/json" } });
+    if (!response.ok) throw new Error("Identity request failed");
+    // SAFETY: Reading optional properties is safe for any JSON value; each value is validated below.
+    const identity = (await response.json()) as { commonName?: unknown; email?: unknown; signOutURL?: unknown } | null;
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The identity response is untrusted JSON, so validate the same-origin sign-out path.
+    if (typeof identity?.signOutURL !== "string" || !identity.signOutURL.startsWith("/") || identity.signOutURL.startsWith("//")) throw new Error("Invalid identity");
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The identity response is untrusted JSON, so validate each label before rendering it.
+    const label = typeof identity.email === "string" ? identity.email : typeof identity.commonName === "string" ? identity.commonName : undefined;
+    accessIdentity.value = { label, signOutURL: identity.signOutURL };
+    signedIn.value = true;
+  } catch {
+    accessIdentity.value = undefined;
+    signedIn.value = false;
+  }
 }
 
 async function consoleAuthClient(): Promise<ReturnType<typeof createAuthClient>> {
@@ -72,6 +101,10 @@ async function loadAuthSession(): Promise<void> {
 async function signOut(): Promise<void> {
   signingOut.value = true;
   signOutFailed.value = false;
+  if (accessIdentity.value) {
+    window.location.assign(accessIdentity.value.signOutURL);
+    return;
+  }
   try {
     const authClient = await consoleAuthClient();
     const { error } = await authClient.signOut();
@@ -122,9 +155,9 @@ onMounted(() => {
         />
       </UTooltip>
     </nav>
-    <UTooltip v-if="signedIn" :text="signOutFailed ? 'Could not sign out. Try again.' : 'Sign out'">
+    <UTooltip v-if="signedIn" :text="signOutFailed ? 'Could not sign out. Try again.' : signOutLabel">
       <UButton
-        :aria-label="signOutFailed ? 'Retry sign out' : 'Sign out'"
+        :aria-label="signOutFailed ? 'Retry sign out' : signOutLabel"
         :loading="signingOut"
         color="neutral"
         icon="i-lucide-log-out"

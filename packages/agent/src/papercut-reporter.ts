@@ -17,13 +17,22 @@ export interface PapercutReporterOptions {
   intervalMs?: number
   deliveryTimeoutMs?: number
   uuidNamespace?: string
-  sessionUrl?: (invocation: { agentName: string, id: string }) => string
+  sessionUrl?: (invocation: { agentName: string, id: string }) => string | undefined
   onError?: (error: unknown) => void
+}
+
+/** In-process counters since start. Undelivered reports stay in the invocation journal for replay. */
+export interface PapercutReporterStatus {
+  running: boolean
+  pending: number
+  delivered: number
+  failed: number
 }
 
 export interface PapercutReporter {
   report(input: PapercutReportEvent | PapercutDelivery): Promise<void>
   start(): void
+  status(): PapercutReporterStatus
   stop(): Promise<void>
 }
 
@@ -43,6 +52,7 @@ export function createPapercutReporter(options: PapercutReporterOptions): Paperc
   let replay: Promise<void> | undefined
   let cursor: string | undefined
   let running = false
+  const counts = { delivered: 0, failed: 0 }
 
   function reportError(error: unknown) {
     try { options.onError?.(error) }
@@ -78,7 +88,8 @@ export function createPapercutReporter(options: PapercutReporterOptions): Paperc
       if (!acknowledged?.observations.some(item => item.name === deliveredEvent && item.attributes?.["papercut.uuid"] === delivery.uuid)) {
         throw new Error("[vitehub] Papercut delivery acknowledgement was not persisted.")
       }
-    })().finally(() => active.delete(delivery.uuid))
+      counts.delivered++
+    })().catch((error: unknown) => { counts.failed++; throw error }).finally(() => active.delete(delivery.uuid))
     active.set(delivery.uuid, sending)
     return sending
   }
@@ -143,6 +154,7 @@ export function createPapercutReporter(options: PapercutReporterOptions): Paperc
       return task
     },
     start() { if (closing) throw new Error("[vitehub] Papercut reporter is closed."); if (!running) { running = true; schedule(0) } },
+    status: () => ({ running, pending: active.size, ...counts }),
     async stop() {
       closing = true
       running = false

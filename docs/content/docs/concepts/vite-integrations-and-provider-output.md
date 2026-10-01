@@ -54,8 +54,32 @@ vitehub({
 })
 ```
 
-Enabled integrations use `agent-state.sqlite`, `console.sqlite`, `kv/`, `blob/`, and `workspaces/` under this directory. Named local KV and Blob stores get separate subdirectories. Explicit paths and remote providers take precedence; disabled services stay disabled. Relative paths resolve from the configuration process's working directory.
+Enabled integrations use `agent-state.sqlite`, `console.sqlite`, `kv/`, `blob/`, and `workspaces/` under this directory. Inline Console Auth uses `console-auth.sqlite`. Named local KV and Blob stores get separate subdirectories. Explicit paths and remote providers take precedence; disabled services stay disabled. Relative paths resolve from the configuration process's working directory.
 
 The host must provide a persistent, writable filesystem at this path. The option does not create a volume or make an ephemeral filesystem durable, and it is rejected for other presets. Keep the existing provider configuration for hosted storage.
 
-Use `agent.providers.state.url`, `console.databaseUrl`, or each store's path option to preserve an existing location. Existing runtime database URL overrides still take precedence. Changing the directory does not migrate stored data.
+## Public URL
+
+Set `publicUrl` in `vitehub()` to the public origin of the deployed application. Console invocation links, GitHub activity links, telemetry `session_url` values, and the default Auth `baseURL` use it:
+
+```ts
+vitehub({
+  preset: "node",
+  publicUrl: "https://agents.example.com",
+})
+```
+
+Use a function when one build serves Agents from different origins. ViteHub calls it once per discovered Agent at build time, using its file-derived name. An explicit definition name resolves to that same origin at runtime. A shared definition discovered under several names has no implicit alias:
+
+```ts
+vitehub({
+  preset: "node",
+  publicUrl: agent => agent === "bot" ? "https://agent.example.com" : "https://agent-dev.example.com",
+})
+```
+
+Standalone provider bundles receive the public origin and application base from their own resolved build configuration. Concurrent builds do not share URL constants.
+
+The value must be an `http(s)` origin without a path. ViteHub adds the application base path. It applies to `vite build` only. During `vite dev`, request-bound Console links and Auth use the request origin. GitHub activity and evlog session links have no request-origin fallback. Set `activity.publicUrl` on the GitHub Channel or the evlog `sessionUrl` callback to supply links in development. Without `publicUrl`, request-bound links and Auth use the request origin, and links created outside a request are omitted. Auth uses the configured origin whose host matches the request host when the function form is set.
+
+Use `agent.providers.state.url`, `console.databaseUrl`, `console.auth.databasePath`, or each store's path option to preserve an existing location. Existing runtime database URL overrides still take precedence. Changing the directory does not migrate stored data.

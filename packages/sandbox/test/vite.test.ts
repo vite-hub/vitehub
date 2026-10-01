@@ -3,6 +3,8 @@ import { tmpdir } from "node:os"
 import { basename, dirname, join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
+import { collectViteHubDefinitionInspectors } from "@vite-hub/internal/inspect"
+
 import { build as esbuild } from "esbuild"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { build as viteBuild, type AliasOptions } from "vite"
@@ -117,6 +119,17 @@ afterEach(async () => {
 })
 
 describe("hubSandbox", () => {
+  it.each(["plugin", "config"] as const)("omits Sandbox Definitions disabled through %s", async (disabledBy) => {
+    const rootDir = await createViteRoot()
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox(disabledBy === "plugin" ? false : undefined)
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build", mode: string }) => Promise<unknown>
+    await configHook({ root: rootDir, ...(disabledBy === "config" ? { sandbox: false } : {}) }, { command: "build", mode: "production" })
+
+    const inspectors = await collectViteHubDefinitionInspectors([plugin])
+    expect(inspectors).toEqual([])
+  })
+
   it("exposes Vite Sandbox state", async () => {
     const rootDir = await createViteRoot(process.cwd())
     const { hubSandbox } = await import("../src/vite.ts")

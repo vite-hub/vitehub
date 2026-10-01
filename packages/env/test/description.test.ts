@@ -27,6 +27,21 @@ describe("Server Env declaration inventory", () => {
     expect(describeServerEnv(registry).entries).toEqual([{ source: "provider", provider: "vault", secret: false, required: true, hasDefault: false, type: "string" }])
     expect(describeServerEnv({})).toEqual({ entries: [] })
   })
+
+  it("uses the same paths for inventory and status inspection", async () => {
+    const { inspectServerEnv } = await import("../src/server.ts")
+    const registry = createRuntimeRegistry({
+      nested: { token: env({ source: env.source("NESTED_TOKEN") }) },
+      "nested.token": env({ source: env.source("DOTTED_TOKEN") }),
+    })
+    const inspection = await inspectServerEnv(registry, { env: { DOTTED_TOKEN: "dotted" } })
+    expect(inspection.entries.map(entry => entry.path)).toEqual(describeServerEnv(registry).entries.map(entry => entry.path))
+    // A dotted declaration key must not report its status under the nested path.
+    expect(inspection.entries).toEqual([
+      { masked: false, path: "env.server.nested.token", required: true, source: "env", status: "missing" },
+      { masked: false, required: true, source: "env", status: "available" },
+    ])
+  })
 })
 
 it("manages only declared unambiguous provider paths without resolving credentials", async () => {

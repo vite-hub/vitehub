@@ -38,6 +38,8 @@ export interface ShellNetworkRequestResult {
 }
 
 export function createJustBashProvider(options: JustBashProviderOptions): ShellExecutionProvider {
+  const commands = options.commands?.slice()
+  const networkGrants = options.networkGrants
   const boundary: ShellBoundary = {
     cwd: true,
     env: true,
@@ -45,7 +47,7 @@ export function createJustBashProvider(options: JustBashProviderOptions): ShellE
       mountPoint: "/workspace",
       writable: options.fs.writeFs,
     },
-    network: Boolean(options.networkGrants),
+    network: Boolean(networkGrants) && (!commands || commands.includes("curl")),
     processes: {
       background: false,
       interactive: false,
@@ -63,14 +65,16 @@ export function createJustBashProvider(options: JustBashProviderOptions): ShellE
     async exec(command: string, execOptions: ShellRuntimeExecOptions = {}) {
       const result = await withProviderTimeout(command, execOptions, async () => {
         const curlResult = await runControlledCurlCommand(command, {
+          commands,
           cwd: execOptions.cwd || options.cwd,
-          networkGrants: options.networkGrants,
+          networkGrants,
         })
         if (curlResult) return curlResult
 
         const { Bash } = await import("just-bash/browser")
         const bash = new Bash({
-          commands: options.commands as CommandName[] | undefined,
+          // SAFETY: Just Bash filters its built-in registry by these names; unknown names do not register commands.
+          commands: commands as CommandName[] | undefined,
           cwd: options.cwd,
           fs: options.fs,
         })
@@ -108,9 +112,12 @@ export function createJustBashProvider(options: JustBashProviderOptions): ShellE
 
 async function runControlledCurlCommand(
   command: string,
-  options: { cwd?: string, networkGrants?: ShellNetworkGrantExecutor },
+  options: { commands?: string[], cwd?: string, networkGrants?: ShellNetworkGrantExecutor },
 ): Promise<ShellObservation | undefined> {
   if (!mentionsCurlCommand(command)) return undefined
+  if (options.commands && !options.commands.includes("curl")) {
+    return policyDeniedCurl(command, options.cwd, "curl is not in the permitted commands for this shell.")
+  }
 
   const [parseError, parsed] = parseControlledCurlCommand(command)
   if (parseError) return policyDeniedCurl(command, options.cwd, parseError.message)

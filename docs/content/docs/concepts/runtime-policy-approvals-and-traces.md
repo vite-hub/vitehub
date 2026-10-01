@@ -31,4 +31,4 @@ If the host cannot satisfy an approval requirement, the operation stays pending 
 
 Inspect the invocation id, policy decision, approval request, trace event, and final result together. This shows whether work was rejected, waited, executed, or failed after execution began.
 
-Read [Runtime events](/docs/reference/runtime-events) for event fields and [Capabilities](/docs/concepts/capabilities-api) for the model-facing contribution that can trigger policy.
+Read [Runtime events](/docs/reference/runtime-events) for event fields and [Capabilities](/docs/capabilities) for the model-facing contribution that can trigger policy.

@@ -5,6 +5,8 @@ import {
   getDocsSectionsForLane,
   resolveDocsLane,
 } from "../modules/vitehub-docs/runtime/utils/docs-navigation";
+import { docsLanes } from "../modules/vitehub-docs/docs-lanes";
+import { createDocsRedirectRouteRules, docsPageRedirects } from "../modules/vitehub-docs/redirects";
 
 describe("docs lane navigation", () => {
   it("lets route-owned lanes override query and persisted state", () => {
@@ -19,7 +21,7 @@ describe("docs lane navigation", () => {
   });
 
   it("uses page metadata before persisted state for mixed sections", () => {
-    const page = getDocsPageByPath("/docs/concepts/agent-invocations");
+    const page = getDocsPageByPath("/docs/concepts/auth-users-and-agent-invokers");
 
     expect(resolveDocsLane({
       path: page!.path,
@@ -107,5 +109,39 @@ describe("docs lane navigation", () => {
       page: agentPage,
       path: agentPage!.path,
     })).toBeNull();
+  });
+
+  it("lists each topic once in a lane", () => {
+    for (const lane of docsLanes) {
+      const pathsByTitle = new Map<string, string[]>();
+
+      for (const section of getDocsSectionsForLane(docsManifest.sections, lane)) {
+        // Section overviews share a title, and UI components are named after the feature they render.
+        if (section.id === "ui") continue;
+        for (const page of section.pages.filter(page => page.navigation && page.title !== "Overview")) {
+          const title = page.title.toLowerCase();
+          pathsByTitle.set(title, [...(pathsByTitle.get(title) || []), page.path]);
+        }
+      }
+
+      const duplicates = [...pathsByTitle].filter(([, paths]) => paths.length > 1);
+      expect(duplicates, lane).toEqual([]);
+    }
+  });
+
+  it("keeps commas in frontmatter titles", () => {
+    expect(getDocsPageByPath("/docs/concepts/runtime-policy-approvals-and-traces")?.title)
+      .toBe("Runtime policy, approvals, and traces");
+  });
+
+  it("redirects each removed page and its raw Markdown copy to a published page", () => {
+    const routeRules = createDocsRedirectRouteRules();
+
+    for (const [from, to] of Object.entries(docsPageRedirects)) {
+      expect(getDocsPageByPath(from), from).toBeNull();
+      expect(getDocsPageByPath(to), to).not.toBeNull();
+      expect(routeRules[from]).toEqual({ redirect: { statusCode: 301, to } });
+      expect(routeRules[`/raw${from}.md`]).toEqual({ redirect: { statusCode: 301, to: `/raw${to}.md` } });
+    }
   });
 });

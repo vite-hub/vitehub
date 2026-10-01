@@ -2,6 +2,7 @@
 // Usage: node scripts/generate-google.ts gmail v1
 import { writeFile } from "node:fs/promises"
 import { fileURLToPath } from "node:url"
+import * as v from "valibot"
 
 interface DiscoverySchema {
   $ref?: string
@@ -41,10 +42,48 @@ interface DiscoveryDocument extends DiscoveryResource {
   version: string
 }
 
+const discoverySchema: v.GenericSchema<DiscoverySchema> = v.lazy(() => v.object({
+  $ref: v.optional(v.string()),
+  additionalProperties: v.optional(discoverySchema),
+  description: v.optional(v.string()),
+  enum: v.optional(v.array(v.string())),
+  format: v.optional(v.string()),
+  items: v.optional(discoverySchema),
+  properties: v.optional(v.record(v.string(), discoverySchema)),
+  repeated: v.optional(v.boolean()),
+  required: v.optional(v.boolean()),
+  type: v.optional(v.string()),
+}))
+const discoveryMethod: v.GenericSchema<DiscoveryMethod> = v.object({
+  description: v.optional(v.string()),
+  httpMethod: v.string(),
+  id: v.string(),
+  parameterOrder: v.optional(v.array(v.string())),
+  parameters: v.optional(v.record(v.string(), v.intersect([discoverySchema, v.object({ location: v.picklist(["path", "query"]) })]))),
+  path: v.string(),
+  request: v.optional(v.object({ $ref: v.string() })),
+  response: v.optional(v.object({ $ref: v.string() })),
+})
+const discoveryResource: v.GenericSchema<DiscoveryResource> = v.lazy(() => v.object({
+  methods: v.optional(v.record(v.string(), discoveryMethod)),
+  resources: v.optional(v.record(v.string(), discoveryResource)),
+}))
+const discoveryDocument: v.GenericSchema<DiscoveryDocument> = v.intersect([
+  discoveryResource,
+  v.object({
+    name: v.string(),
+    revision: v.string(),
+    rootUrl: v.string(),
+    schemas: v.record(v.string(), v.intersect([discoverySchema, v.object({ id: v.string() })])),
+    title: v.string(),
+    version: v.string(),
+  }),
+])
+
 const [api = "gmail", version = "v1"] = process.argv.slice(2)
 const response = await fetch(`https://${api}.googleapis.com/$discovery/rest?version=${version}`)
 if (!response.ok) throw new Error(`Discovery request failed with ${response.status}.`)
-const document = await response.json() as DiscoveryDocument
+const document = v.parse(discoveryDocument, await response.json())
 const prefix = api[0]!.toUpperCase() + api.slice(1)
 
 function summary(description: string | undefined, indent: string): string[] {
@@ -72,11 +111,16 @@ function type(schema: DiscoverySchema, indent: string): string {
   }
 }
 
+function isRequiredProperty(schema: DiscoverySchema): boolean {
+  // Gmail marks required body fields with "Required." when the Discovery flag is absent.
+  return schema.required ?? schema.description?.startsWith("Required.") ?? false
+}
+
 function objectType(properties: Record<string, DiscoverySchema>, indent: string, required: readonly string[] = []): string {
   const inner = `${indent}  `
   const lines = Object.entries(properties).flatMap(([name, schema]) => [
     ...summary(schema.description, inner),
-    `${inner}${/^[A-Za-z_$][\w$]*$/.test(name) ? name : JSON.stringify(name)}${required.includes(name) ? "" : "?"}: ${schema.repeated ? `Array<${type(schema, inner)}>` : type(schema, inner)}`,
+    `${inner}${/^[A-Za-z_$][\w$]*$/.test(name) ? name : JSON.stringify(name)}${required.includes(name) || isRequiredProperty(schema) ? "" : "?"}: ${schema.repeated ? `Array<${type(schema, inner)}>` : type(schema, inner)}`,
   ])
   return lines.length ? `{\n${lines.join("\n")}\n${indent}}` : "Record<string, never>"
 }
@@ -106,6 +150,7 @@ const output = [
     return [
       ...summary(method.description, "  "),
       `  ${JSON.stringify(localId(method))}: {`,
+      `    method: ${JSON.stringify(method.httpMethod)}`,
       `    params: ${objectType(method.parameters ?? {}, "    ", required)}`,
       `    body: ${method.request ? `${prefix}${method.request.$ref}` : "never"}`,
       `    response: ${method.response ? `${prefix}${method.response.$ref}` : "void"}`,

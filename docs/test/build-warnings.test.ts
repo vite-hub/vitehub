@@ -6,12 +6,27 @@ import {
   buildWarningBudget,
 } from "../scripts/build.mjs";
 
+const zodRegexComment = "/** Anchors a pattern source. The interpolation lives here rather than at the call site because\n * esbuild will not drop a `@__PURE__` call whose own argument interpolates a variable, but it\n * will drop `anchor(dateSource)`. Keeping it inline pinned `date` into every bundle. */";
+const annotationConclusion = "contains an annotation that Rollup cannot interpret due to the position of the comment. The comment will be removed to avoid issues.";
+
+function annotationWarning(source: string, comment: string, detailSource = source) {
+  return [
+    `[warn] ${source} (2457:0): A comment`,
+    "",
+    `"${comment}"`,
+    "",
+    `in "${detailSource}" ${annotationConclusion}`,
+  ].join("\n");
+}
+
 describe("docs build warning budget", () => {
   it("accepts every explicitly budgeted warning and known missing icon", () => {
     const warnings = [
       ...buildWarningBudget.flatMap((entry) =>
         Array.from({ length: entry.maximum }, () =>
-          entry.warningTokenRequired === false ? entry.text : `[warn] ${entry.text}`,
+          entry.comment
+            ? annotationWarning(entry.source, entry.comment)
+            : `[warn] ${entry.text}`,
         ),
       ),
       ...allowedMissingIcons.map((icon) => `WARN [Icon] failed to load icon ${icon}`),
@@ -97,6 +112,17 @@ describe("docs build warning budget", () => {
     expect(() => assertBuildWarningBudget(warnings)).not.toThrow();
   });
 
+  it("rejects incomplete wrapped Rollup annotation warnings", () => {
+    expect(() =>
+      assertBuildWarningBudget(
+        [
+          'WARN node_modules/.cache/nuxt/.nuxt/dist/server/_nuxt/dist.js (2457:0): A comment',
+          '"contains an annotation that Rollup cannot interpret"',
+        ].join("\n"),
+      ),
+    ).toThrow("unbudgeted warning");
+  });
+
   it("rejects non-timeout loading failures for known icons", () => {
     expect(() =>
       assertBuildWarningBudget(
@@ -113,6 +139,44 @@ describe("docs build warning budget", () => {
     ].join("\n");
 
     expect(() => assertBuildWarningBudget(output)).not.toThrow();
+  });
+
+  it("does not budget an annotation from an unknown dependency source", () => {
+    expect(() => assertBuildWarningBudget(
+      "[warn] unknown-package.js contains an annotation that Rollup cannot interpret",
+    )).toThrow("unbudgeted warning");
+  });
+
+  it("counts the complete CI Rollup warning once across a changing Nuxt chunk hash", () => {
+    const warning = annotationWarning("node_modules/.cache/nuxt/.nuxt/dist/server/_nuxt/dist-Dg8NDwTS.js", zodRegexComment);
+    const changedHash = annotationWarning("node_modules/.cache/nuxt/.nuxt/dist/server/_nuxt/dist-newHash.js", zodRegexComment);
+    expect(() => assertBuildWarningBudget(`${warning}\n${changedHash}`)).not.toThrow();
+    expect(() => assertBuildWarningBudget(`${warning}\n${changedHash}\n${warning}`)).toThrow("warning budget exceeded for Nuxt generated pure annotations: 3/2");
+  });
+
+  it.each([" WARN  ", "warning "])("accepts paired annotations with the plain %s logger prefix", prefix => {
+    const output = annotationWarning("node_modules/.cache/nuxt/.nuxt/dist/server/_nuxt/dist-CJ1DFSvj.js", zodRegexComment).replace("[warn] ", prefix);
+    expect(() => assertBuildWarningBudget(output)).not.toThrow();
+  });
+
+  it("rejects unmatched, mismatched, and unrelated annotation headers", () => {
+    const source = "node_modules/.cache/nuxt/.nuxt/dist/server/_nuxt/dist-Dg8NDwTS.js";
+    for (const output of [
+      `[warn] ${source} (2457:0): A comment`,
+      annotationWarning(source, zodRegexComment, "unknown-package.js"),
+      annotationWarning(source, "/** unrelated annotation */"),
+      annotationWarning("zod@4.5.5/node_modules/zod/v4/core/regexes.js", zodRegexComment),
+      annotationWarning(source, zodRegexComment).replace('"/** Anchors', '[warn] unrelated warning\n"/** Anchors'),
+    ]) expect(() => assertBuildWarningBudget(output)).toThrow("unbudgeted warning");
+  });
+
+  it("does not ignore a wrapped annotation header from an unknown source", () => {
+    const output = [
+      "[warn] unknown-package.js (1:0): A comment",
+      "\"/** unknown annotation */\"",
+      'in "unknown-package.js" contains an annotation that Rollup cannot interpret',
+    ].join("\n");
+    expect(() => assertBuildWarningBudget(output)).toThrow("unbudgeted warning");
   });
 
   it("rejects lowercase logger warnings and standard Node warnings", () => {

@@ -100,41 +100,43 @@ export async function hydrateSnapshot(inbox: PullRequestInbox, claim: Claim, rea
   if (current.hydrated && !current.refresh) {
     if (!readThreads || current.threadsHydrated && !current.feedbackRefresh) return true
     const threads = await readThreads(current.repository, current.number)
-    return inbox.hydrate(claim, { threads, threadsHydrated: true, feedbackRefresh: false })
+    return await inbox.hydrate(claim, { threads, threadsHydrated: true, feedbackRefresh: false })
   }
   const snapshot = await readSnapshot(read, current.repository, current.number, readThreads, activityAuthors)
   // CAS keeps an event received while REST requests ran from being overwritten.
-  return inbox.hydrate(claim, { ...snapshot, refresh: false })
+  return await inbox.hydrate(claim, { ...snapshot, refresh: false })
 }
 
 export async function reconcileOneSnapshot(inbox: PullRequestInbox, read: ReadGitHubSnapshot, now: number = Date.now(), readThreads?: ReadThreads, activityAuthors: readonly string[] = []): Promise<void> {
   // No more than one PR per minute, and no PR more often than every 15 minutes.
   // The first probe is delayed because bootstrap/claims already hydrate state.
   const globalKey = 'snapshot-reconcile-next'
-  const globalNext = inbox.meta(globalKey) as number | undefined
-  if (globalNext === undefined) { inbox.setMeta(globalKey, now + 15 * 60_000); return }
+  const globalNext = await inbox.metaNumber(globalKey)
+  if (globalNext === undefined) { await inbox.setMeta(globalKey, now + 15 * 60_000); return }
   if (globalNext > now) return
-  inbox.setMeta(globalKey, now + 60_000)
-  const candidates = inbox.all().filter(s => !s.lease && s.status !== 'terminal')
-    .sort((a, b) => ((inbox.meta(`snapshot-probe:${a.repository}:${a.number}`) as number | undefined) ?? 0) - ((inbox.meta(`snapshot-probe:${b.repository}:${b.number}`) as number | undefined) ?? 0))
-  const s = candidates.find(s => ((inbox.meta(`snapshot-probe:${s.repository}:${s.number}`) as number | undefined) ?? 0) <= now)
+  await inbox.setMeta(globalKey, now + 60_000)
+  const next = await inbox.nextProbe()
+  if (!next || next.probedAt > now) return
+  const s = await inbox.get(next.repository, next.number)
   if (!s) return
-  inbox.setMeta(`snapshot-probe:${s.repository}:${s.number}`, now + 15 * 60_000)
+  await inbox.setMeta(`snapshot-probe:${s.repository}:${s.number}`, now + 15 * 60_000)
   const snapshot = await readSnapshot(read, s.repository, s.number, readThreads, activityAuthors)
   // Apply only if no webhook or claim arrived while this targeted probe ran.
   // New resolution evidence wakes a waiting PR without repeated full queries
   // in every agent pass.
-  if (snapshot.threads) inbox.refreshThreads(s, snapshot.threads)
-  const ingest = (event: string, payload: GitHubDelivery) => {
+  if (snapshot.threads) await inbox.refreshThreads(s, snapshot.threads)
+  const deliveries: { id: string; event: string; value: GitHubDelivery }[] = []
+  const ingest = async (event: string, payload: GitHubDelivery) => {
     const full = { repository: { full_name: s.repository }, ...payload }
     const id = `reconcile:${createHash('sha256').update(JSON.stringify([event, full])).digest('hex')}`
-    inbox.ingest(id, event, full)
+    deliveries.push({ id, event, value: full })
   }
-  ingest('pull_request', { action: snapshot.pr.state === 'closed' ? 'closed' : 'synchronize', pull_request: snapshot.pr })
-  if (snapshot.pr.state !== 'open') return
-  for (const comment of Object.values(snapshot.comments ?? {})) ingest('issue_comment', { action: 'edited', issue: { number: s.number, pull_request: {} }, comment })
-  for (const review of Object.values(snapshot.reviews ?? {})) ingest('pull_request_review', { action: 'submitted', pull_request: snapshot.pr, review })
-  for (const comment of Object.values(snapshot.reviewComments ?? {})) ingest('pull_request_review_comment', { action: 'edited', pull_request: snapshot.pr, comment })
-  for (const check_run of Object.values(snapshot.checks ?? {})) ingest('check_run', { action: check_run.status, check_run })
-  for (const status of Object.values(snapshot.statuses ?? {}) ) ingest('status', { ...status, sha: snapshot.pr.head?.sha })
+  await ingest('pull_request', { action: snapshot.pr.state === 'closed' ? 'closed' : 'synchronize', pull_request: snapshot.pr })
+  if (snapshot.pr.state !== 'open') { await inbox.ingestMany(deliveries); return }
+  for (const comment of Object.values(snapshot.comments ?? {})) await ingest('issue_comment', { action: 'edited', issue: { number: s.number, pull_request: {} }, comment })
+  for (const review of Object.values(snapshot.reviews ?? {})) await ingest('pull_request_review', { action: 'submitted', pull_request: snapshot.pr, review })
+  for (const comment of Object.values(snapshot.reviewComments ?? {})) await ingest('pull_request_review_comment', { action: 'edited', pull_request: snapshot.pr, comment })
+  for (const check_run of Object.values(snapshot.checks ?? {})) await ingest('check_run', { action: check_run.status, check_run })
+  for (const status of Object.values(snapshot.statuses ?? {})) await ingest('status', { ...status, sha: snapshot.pr.head?.sha })
+  await inbox.ingestMany(deliveries)
 }

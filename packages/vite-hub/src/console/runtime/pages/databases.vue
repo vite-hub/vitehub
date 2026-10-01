@@ -25,7 +25,6 @@ useHead({ title: "Databases · ViteHub Console" });
         :kv-base="`${appBaseURL}/api/_vitehub/console/kv`"
         :search-base="`${appBaseURL}/api/_vitehub/console/search`"
         :sections-base="`${appBaseURL}/api/_vitehub/console/sections`"
-        section="databases"
         :view="view"
       />
     </ConsoleProvider>

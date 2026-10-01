@@ -8,6 +8,33 @@ icon: i-lucide-play-circle
 
 An Agent Invocation is one request to an Agent. ViteHub prepares its input, Actor, Capabilities, Workspace, and Driver, then returns or streams the result.
 
+## What happens during an Invocation
+
+An Agent Definition describes reusable behavior. An Invocation records one execution of that behavior.
+
+| Stage | What happens |
+| --- | --- |
+| Entry | A route, Channel, schedule, webhook, CLI command, or another caller provides input. |
+| Actor | ViteHub resolves the trusted [Agent Actor](/docs/agents/actors). |
+| Capabilities | The Definition and invocation context select the abilities for this request. |
+| Context | ViteHub prepares tools, policy, context values, and the Workspace Scope. |
+| Execution | The Agent Driver runs the prepared request. |
+| Result | ViteHub returns or streams the output and records events and usage. |
+
+The Agent can use only the Capabilities selected for that Invocation. A Capability that is not selected adds nothing to the request.
+
+| Term | Describes |
+| --- | --- |
+| Agent Definition | Reusable Agent behavior. |
+| Agent Invocation | One execution for one input. |
+| Channel | Message origin and delivery facts around an Invocation. |
+| Workflow Run | Durable work that can continue across waits or server restarts. |
+| Agent Memory | Persistent context stored outside the Invocation. |
+
+A Channel can start many Invocations, and a Workflow Run can carry an Invocation. Neither one replaces the Invocation record.
+
+Run `vitehub agent info` to inspect the resolved Agent Definition. Run `vitehub agent dev` to talk to the Agent through a running Vite development server. Read [Runtime policy, approvals, and traces](/docs/concepts/runtime-policy-approvals-and-traces) for the records produced during execution.
+
 ## Run an Agent
 
 Use `runAgent()` when the caller needs to invoke the Agent directly. Inline runtimes may return a native `Response` when the Agent produces an HTTP-shaped result. Workflow runtimes return a Workflow Run for durable inspection and control. Structured Agent outputs remain typed values, and streaming uses the separate stream contract below.
@@ -165,12 +192,16 @@ export default defineAgent({
 })
 ```
 
+When a Channel started the Invocation, both hooks also receive `event.message`. Use its methods to act on the provider message, such as a reply or a label. Set `dryRun: true` in the Invocation input to record write calls in the trace instead of calling the provider. See [Act on the Channel message in hooks](/docs/agents/channels#act-on-the-channel-message-in-hooks).
+
 Error hooks receive the raw `event.error` for protected server diagnostics and a
 sanitized `event.publicError` for logs, HTTP responses, or Channel replies. See
 [Agent public errors](/docs/reference/errors-diagnostics#agent-public-errors) for
 the stable codes and redaction rules.
 
 Every invocation also has an in-memory metadata trace through `runtime.trace` and `runtime.traceLog`. The default log is process-local and is not persisted across a Workflow boundary.
+
+Finish events set `event.invocation.cancelled` to `true` when output consumption is cancelled. Finish effects can use this field to distinguish cancellation from normal completion.
 
 Capability setup callbacks (`configure`, `prepare`, `bind`, `input`, `resolve`, `output`) and `close` emit one `agent.capability.<phase>` event when the callback settles. These events measure the callback itself with a monotonic clock, excluding before/after hooks and trace persistence. Read `agent.capability.id`, `agent.capability.phase`, `agent.capability.outcome`, and `agent.capability.durationMs` to distinguish slow integration setup from model execution. Outcomes are `success`, `error`, or `cancelled`; cancellation means the callback failed while the effective invocation input's abort signal was set.
 
@@ -235,6 +266,33 @@ Names match exactly, and matching observations keep their journal order. Other r
 
 The SQLite adapter keeps at most 10,000 terminal records from the last 30 days by default. Pending and running invocations remain available until they reach a terminal state. Set `maxAgeMs` or `maxRecords` to `false` to disable that limit. Retention runs after successful creates and terminal transitions, so a journal without either event may retain an expired record.
 
+Delete or prune terminal records on demand:
+
+```ts
+await invocations.delete(invocationId) // 'deleted' | 'not-found' | 'not-terminal'
+await invocations.prune({ olderThanMs: 7 * 24 * 60 * 60 * 1000, dryRun: true })
+await invocations.prune() // applies the store's maxAgeMs and maxRecords now
+```
+
+`delete(id)` keeps a pending or running record and returns `'not-terminal'`. `prune()` deletes completed, failed, and cancelled records last updated before `olderThanMs`. The age must be a non-negative safe integer that produces a cutoff within JavaScript's Date range. Invalid ages fail with `AGENT_R0929`. Without `olderThanMs`, it applies the store's configured retention. Both return the affected IDs, and `dryRun: true` lists them without deleting. The SQLite and D1 adapters and the memory store implement both operations. A custom store must implement `store.delete()` and `store.prune()` to support them. Deletion removes the journal record and its claim. Artifacts that a Capability wrote to Blob storage are not keyed by the journal record, so the application owns their retention.
+
+Read the recorded prompt of a finished record to start it again:
+
+```ts
+import { agentInvocationRerunInput } from 'vite-hub/agent'
+
+const record = await invocations.get(invocationId)
+const input = record ? agentInvocationRerunInput(record) : undefined
+if (input?.available) {
+  await runAgent(agent, context, {
+    prompt: input.prompt,
+    ...(input.invokerProfileId ? { context: { invokerProfileId: input.invokerProfileId } } : {}),
+  })
+}
+```
+
+The result has `available: false` and a `reason` when the record cannot reproduce its input. Pending and running records return `invocation-not-terminal`; terminal records can return: `input-not-captured` for a missing prompt, `replay-metadata-unavailable` for legacy or incomplete replay metadata, `input-has-invoker` for a direct invoker or actor identity, `input-has-data` for structured input, `input-has-options` for call options, `input-has-messages` for singular or prior Messages, `input-redacted` for changed input or Invoker Profile replay metadata, or `input-truncated` for a bounded prompt. Direct invoker identities, structured input, and call options are not replayed. A resolver-derived Invoker without a selected Invoker Profile returns `input-has-invoker`; a selected profile is resolved again when the new Invocation starts. The journal keeps `input.prompt` only when `metadataContent` or `content: 'content'` includes it. When the start observation recorded an Invoker Profile, `invokerProfileId` holds the selected profile ID, even when an invoker resolver changes the identity. Direct invocation context beyond an Invoker Profile selection, runtime run metadata beyond the run ID, and timeouts are unavailable for rerun because Console cannot reproduce them. Calls in dry-run mode are unavailable for rerun and return `input-has-dry-run`. Calls with a caller-provided cancellation signal are unavailable for rerun and return `input-has-abort-signal`. A prompt changed by a Capability or input hook is unavailable for rerun and returns `input-prompt-changed`. These cases return `input-has-context`, `input-has-run-metadata`, and `input-has-timeout`.
+
 Use `configuration: 'content'` to retain resolved instructions and tool descriptions/schemas independently of other trace content. The default is `configuration: 'metadata'`. Console journals enable configuration retention for inspection; existing records cannot recover contracts that were not saved. Recorded configuration still uses the journal's observation limits and marks truncated values.
 
 Invocation journals are metadata-only by default. Set `content: 'content'` only when the application must persist prompts, messages, reasoning, tool inputs and outputs, and result text. That opt-in stores sensitive model content in the configured durable store; apply the same access controls, retention policy, and encryption requirements as the source data.
@@ -268,7 +326,7 @@ hooks: {
 }
 ```
 
-The journal records pending, running, completed, failed, and cancelled states plus bounded invocation metadata and trace observations. Failed records retain bounded `cause` and `AggregateError.errors` trees, common status and code fields, and public ViteHub error details. Use `invocations.list()` for cursor-based summaries, `invocations.get(id)` for a stored record ID, and `invocations.getByRunId(runId, agentName?)` when starting from the source run ID. Always pass the Agent Definition name for a named Definition; the name is part of its durable invocation identity. Journal failures never change the Agent Invocation result.
+The journal records pending, running, completed, failed, and cancelled states plus bounded invocation metadata and trace observations. Failed records retain bounded `cause` and `AggregateError.errors` trees, common status and code fields, and public ViteHub error details. Use `invocations.list()` for cursor-based summaries, `invocations.get(id)` for a stored record ID, and `invocations.getByRunId(runId, agentName?)` when starting from the source run ID. Always pass the Agent Definition name for a named Definition; the name is part of its durable invocation identity. When the Console is enabled, a discovered Definition without `name` records its discovered name, such as `labeller` for `server/agents/labeller.ts`, also when server code calls `runAgent()` directly. If the same unnamed Definition is discovered under multiple names, direct calls remain unscoped because the Definition cannot identify the imported alias. Host calls still record their selected Agent name. Journal failures never change the Agent Invocation result.
 
 Use `triggeredBy` to filter persisted summaries by the person label recorded in `annotations.triggeredBy`. It matches the trimmed label exactly and composes with Agent, Capability, status, and text filters:
 
@@ -320,6 +378,16 @@ vitehub agent invocations tail INVOCATION_ID
 
 The CLI defaults to `http://localhost:5173/api/invocations`. Use `--url` or `VITEHUB_AGENT_INVOCATIONS_URL` for another local endpoint, and `--json` for automation-safe output.
 
+Delete and prune open a SQLite or libSQL journal directly:
+
+```sh
+vitehub agent invocations delete INVOCATION_ID
+vitehub agent invocations prune --older-than 30d --dry-run --json
+vitehub agent invocations prune --database file:./.data/invocations.db --older-than 12h
+```
+
+Without `--database` or `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL`, both commands use the Console journal: `VITEHUB_CONSOLE_DATABASE_URL`, or `.vitehub/data/console.sqlite` in the project root. Set `VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN` for an authenticated libSQL endpoint. Durations accept `ms`, `s`, `m`, `h`, `d`, and `w`. `--older-than` defaults to `30d`. Use `--table-prefix` when the store sets `tablePrefix`. The commands refuse a missing database file and never print URL credentials or tokens. For D1, call `invocations.prune()` from a Worker instead.
+
 Configured journals also retain failures and cancellation during Workflow preparation, before provider dispatch. Fresh manual starts get distinct invocation IDs. Durable Channel deliveries keep their delivery run ID across preparation attempts.
 
 Cloudflare and OpenWorkflow create the journal after durable recovery dispatch and reconcile failures after the generated Agent module loads but before the Agent handler starts. If that module cannot be evaluated, use Workflow inspection because the Agent-owned invocation store is unavailable.
@@ -362,7 +430,7 @@ D1 batches make creation and retention atomic. Conditional updates retry when an
 
 The adapter targets D1. It does not provide transactions for other Database providers. The database binding stays owned by the host; the store does not open or close it. Use [`redact`](#redact-stored-evidence) to remove sensitive values before they reach D1. Route authorization remains application policy.
 
-On the Cloudflare preset, the Console journal uses this store with the D1 Database binding when no Agent Definition configures `invocations`. See [Cloudflare journal](/docs/development/console#cloudflare-journal). Local D1 tests cover the SQL and concurrency contract; they do not measure production D1 limits or latency.
+On the Cloudflare preset, the Console journal uses this store with the D1 Database binding when no Agent Definition configures `invocations`. See [Cloudflare journal](/docs/development/console#know-what-the-console-stores). Local D1 tests cover the SQL and concurrency contract; they do not measure production D1 limits or latency.
 
 ## Append delivery evidence
 
@@ -398,6 +466,8 @@ Invocation tools accept JSON Schema, Valibot, and Zod schemas directly. Valibot 
 
 For a process-owned store, `createProcessAgentInvocations` from `vite-hub/agent/runtime/process` runs interrupted-invocation recovery before returning the journal. Pass the normal `defineAgentInvocations` options and a `recovery` object with a `recover(invocation)` ownership predicate. Use `recover: () => true` only when the database belongs exclusively to that service. Recovery failure rejects startup.
 
+With a libSQL Agent state provider, a persistent Nitro server runs this recovery at startup for each Agent journal, before it resumes queued webhook deliveries. It fails the Agent's pending or running invocations that started before the process, except invocations that a persisted queued delivery runs again under the same run ID. Agents with a durable Workflow runtime are skipped. A recovery failure is logged and the queue still resumes.
+
 `agentInvocationId(runId, agentName)` from `vite-hub/agent/server` resolves the canonical invocation ID before admission, allowing applications to include a live Console link in Channel activity.
 
 For GitHub-backed sessions, `createGitHubWorkspaceInspector(host)` from `@vite-hub/agent/server/github` exposes `list({ repository, revision })` and `read({ repository, revision }, path)`. It requires a full commit SHA, rejects unsafe paths, truncated trees, oversized files, and binary previews, and does not retain disposable checkouts.
@@ -405,7 +475,7 @@ For GitHub-backed sessions, `createGitHubWorkspaceInspector(host)` from `@vite-h
 ## Durable retry budgets
 
 On Node hosts, the GitHub inbox can bound repeated provider dispatches and PR work
-in its existing SQLite database. This is an explicit scheduler API; configuring it
+in its SQLite storage. Every inbox method is asynchronous. This is an explicit scheduler API; configuring it
 does not intercept Agent invocations or classify errors automatically.
 
 ```ts
@@ -426,14 +496,14 @@ are occupied. Check `providerBudget(scope)` to distinguish pending work from fou
 recorded failures.
 
 ```ts
-const token = inbox.reserveProviderAttempt('codex:primary-account')
+const token = await inbox.reserveProviderAttempt('codex:primary-account')
 if (!token) {
   // Leave the PR claim unstarted. Inspect pending attempts or exhausted failures.
   return
 }
-const claim = inbox.claim(1)[0]
+const [claim] = await inbox.claim(1)
 if (!claim) {
-  inbox.finishProviderAttempt(token, 'other-failure')
+  await inbox.finishProviderAttempt(token, 'other-failure')
   return
 }
 
@@ -443,23 +513,23 @@ try {
 } catch (error) {
   // Application-owned classification: only known retryable provider failures count.
   const retryable = isRetryableProviderFailure(error)
-  inbox.finishProviderAttempt(token, retryable ? 'retryable-failure' : 'other-failure')
-  inbox.release(claim)
+  await inbox.finishProviderAttempt(token, retryable ? 'retryable-failure' : 'other-failure')
+  await inbox.release(claim)
   throw error
 }
-inbox.finishProviderAttempt(token, 'success')
+await inbox.finishProviderAttempt(token, 'success')
 
 try {
   // Compare GitHub/provider state before and after the invocation. Do not parse prose.
   const evidence = await verifyNewProgress(claim, result)
-  inbox.finish(claim, {
+  await inbox.finish(claim, {
     text: result.text,
     retry: !evidence,
     progress: evidence ? { kind: 'verified', evidence } : { kind: 'no-progress' },
   })
 }
 catch (error) {
-  inbox.release(claim)
+  await inbox.release(claim)
   throw error
 }
 ```

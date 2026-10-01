@@ -1,5 +1,4 @@
 import { defineCapability } from "../../capability-runtime.ts"
-import { createWebSearchProviderTool } from "./model-mode.ts"
 import { createWebSearchToolSet } from "./tool-mode.ts"
 import { normalizeWebSearchProviderInput } from "./credentials.ts"
 
@@ -24,7 +23,7 @@ export function webSearch(options: WebSearchOptions): AgentCapabilityDefinition 
       id: "web-search",
       metadata: { mode: "model" },
       prepare(context) {
-        context.providerTools.add(createWebSearchProviderTool())
+        context.providerTools.add({ args: {}, id: "openai.web_search", name: "web_search" })
       },
     })
   }

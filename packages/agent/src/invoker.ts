@@ -12,10 +12,16 @@ import type {
   AgentRuntimeConfig,
 } from "./types.ts"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
+import { copyAgentInvocationCallerAbortSignal } from "./internal/invocation-input.ts"
 
 export const agentInvokerContextKey = "invoker"
 const agentActorContextKey = "actor"
 const resolvedAgentInvokerInputKey = Symbol.for("vitehub.resolvedAgentInvokerInput")
+const resolverDerivedAgentInvokers = new WeakSet<AgentInvocationContextStore>()
+
+export function hasResolverDerivedAgentInvoker(context: AgentInvocationContextStore): boolean {
+  return resolverDerivedAgentInvokers.has(context)
+}
 
 export function defineAgentInvoker<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -49,6 +55,17 @@ function contextRecord(input: unknown): Record<PropertyKey, unknown> {
 function profileIdFromSelector(value: unknown): string | undefined {
   if (hasRuntimeType(value, "string")) return stringValue(value)
   if (isRecord(value)) return stringValue(value.id)
+}
+
+/** Context that a prompt/profile rerun cannot reconstruct without changing authority. */
+export function hasUnreplayableAgentInputContext(inputContext: unknown): boolean {
+  const context = contextRecord(inputContext)
+  return Reflect.ownKeys(context).some((key) => {
+    if (!profileSelectorKeys.some(selector => selector === key)) return true
+    const value = context[key]
+    if (hasRuntimeType(value, "string")) return !profileIdFromSelector(value)
+    return !isRecord(value) || Reflect.ownKeys(value).some(key => key !== "id") || !profileIdFromSelector(value)
+  })
 }
 
 function normalizeAgentEmail(value: unknown): AgentInvoker["email"] {
@@ -165,7 +182,7 @@ export function withResolvedAgentInvokerInput<CALL_OPTIONS>(
   input: AgentRunInput<CALL_OPTIONS>,
   invoker: AgentInvoker,
 ): AgentRunInput<CALL_OPTIONS> {
-  return {
+  const resolvedInput = {
     ...input,
     context: {
       ...input.context,
@@ -174,6 +191,8 @@ export function withResolvedAgentInvokerInput<CALL_OPTIONS>(
       [resolvedAgentInvokerInputKey]: true,
     },
   }
+  copyAgentInvocationCallerAbortSignal(input, resolvedInput)
+  return resolvedInput
 }
 
 export function hasResolvedAgentInvokerInput(input: AgentRunInput): boolean {
@@ -184,7 +203,9 @@ export function withoutResolvedAgentInvokerInput<CALL_OPTIONS>(input: AgentRunIn
   if (!hasResolvedAgentInvokerInput(input)) return input
   const context = { ...input.context }
   Reflect.deleteProperty(context, resolvedAgentInvokerInputKey)
-  return { ...input, context }
+  const unresolvedInput = { ...input, context }
+  copyAgentInvocationCallerAbortSignal(input, unresolvedInput)
+  return unresolvedInput
 }
 
 export function portableResolvedAgentInvokerInput<CALL_OPTIONS>(input: AgentRunInput<CALL_OPTIONS>): AgentRunInput<CALL_OPTIONS> {
@@ -199,7 +220,7 @@ export function portableResolvedAgentInvokerInput<CALL_OPTIONS>(input: AgentRunI
   const portableMeta = isRecord(serializedMeta) ? serializedMeta : undefined
   const portableInvoker: AgentInvoker = { ...invoker }
   if (portableMeta) portableInvoker.meta = portableMeta
-  return {
+  const portableInput = {
     ...input,
     context: {
       ...Object.fromEntries(Object.entries(context)),
@@ -207,10 +228,14 @@ export function portableResolvedAgentInvokerInput<CALL_OPTIONS>(input: AgentRunI
       [agentInvokerContextKey]: portableInvoker,
     },
   }
+  copyAgentInvocationCallerAbortSignal(input, portableInput)
+  return portableInput
 }
 
 export function restoreResolvedAgentInvokerInput<CALL_OPTIONS>(input: AgentRunInput<CALL_OPTIONS>): AgentRunInput<CALL_OPTIONS> {
-  return { ...input, context: { ...input.context, [resolvedAgentInvokerInputKey]: true } }
+  const restoredInput = { ...input, context: { ...input.context, [resolvedAgentInvokerInputKey]: true } }
+  copyAgentInvocationCallerAbortSignal(input, restoredInput)
+  return restoredInput
 }
 
 function selectedProfileId(inputContext: unknown): string | undefined {
@@ -252,14 +277,19 @@ export async function resolveAgentInvoker<
   requireMatchingRequestedInvoker = false,
 ): Promise<AgentInvoker> {
   const normalizedOptions = normalizeAgentInvokerOptions(options)
+  resolverDerivedAgentInvokers.delete(invocationContext)
   const profiles = normalizedOptions?.profiles || []
+  invocationContext.set("agent.invoker.profile.id", undefined, { overwrite: true })
   const requestedInvoker = resolveInputAgentInvoker(input.context)
   if (requestedInvoker && hasResolvedAgentInvokerInput(input)) {
+    const profileId = selectedProfileId(input.context)
+    if (profileId) invocationContext.set("agent.invoker.profile.id", profileId, { overwrite: true })
     ensureAgentInvokerContext(invocationContext, requestedInvoker)
     return requestedInvoker
   }
-  const defaultInvoker = requestedInvoker || createFallbackAgentInvoker(run)
   const selectedProfile = selectAgentInvokerProfile(profiles, input.context)
+  if (selectedProfile) invocationContext.set("agent.invoker.profile.id", selectedProfile.id, { overwrite: true })
+  const defaultInvoker = requestedInvoker || createFallbackAgentInvoker(run)
   const selectedEmail = selectedProfile?.email || defaultInvoker.email
   let selectedInvoker: AgentInvoker | undefined
   if (selectedProfile) {
@@ -279,6 +309,7 @@ export async function resolveAgentInvoker<
   if (run) resolveContext.run = run
   if (selectedProfile) resolveContext.selectedProfile = selectedProfile
   const resolved = await normalizedOptions?.resolve?.(resolveContext)
+  if (resolved !== undefined && resolved !== null) resolverDerivedAgentInvokers.add(invocationContext)
   if (requireMatchingRequestedInvoker && normalizedOptions?.resolve) {
     if (!requestedInvoker || resolved === undefined || resolved === null) {
       throw agentDiagnostics.AGENT_R0644({ message: "[vitehub] Scheduled Agent turns require matching invoker reauthorization." })

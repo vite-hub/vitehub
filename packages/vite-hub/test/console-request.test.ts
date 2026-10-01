@@ -11,6 +11,7 @@ import {
   loadConsoleKVPages,
   requestConsole,
 } from "../src/console/runtime/client/request.ts"
+import { consoleScheduleRunDescription, runConsoleScheduleDefinition } from "../src/console/runtime/client/schedule-run.ts"
 import { createConsoleSectionLoader, loadConsoleNavigation } from "../src/console/runtime/client/sections.ts"
 import { consoleRpcHeader, consoleRpcMethods } from "../src/console/runtime/rpc.ts"
 
@@ -56,7 +57,7 @@ describe("Console requests", () => {
       .resolves.toEqual({ sections: ["kv"] })
     expect(fetchMock).toHaveBeenCalledOnce()
     expect(fetchMock).toHaveBeenCalledWith("/first/_vitehub/rpc/__call", {
-      body: JSON.stringify({ input: { method: "GET", query: {} }, method: consoleRpcMethods.sections }),
+      body: JSON.stringify({ method: consoleRpcMethods.sections, input: { method: "GET", query: {} } }),
       cache: "no-store",
       credentials: "same-origin",
       headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
@@ -185,6 +186,41 @@ describe("Console requests", () => {
     })
   })
 
+  it("routes Schedule runs and kebab-case operations through RPC", async () => {
+    mocks.call.mockResolvedValue({ ok: true, value: { run: { status: "succeeded" } } })
+
+    await requestConsole("/base/api/_vitehub/console/schedule-run", { body: { name: "sync" }, method: "POST" })
+    await requestConsole("/base/api/_vitehub/console/invocation-capabilities")
+
+    expect(mocks.call).toHaveBeenNthCalledWith(1, consoleRpcMethods.scheduleRun, { body: { name: "sync" }, method: "POST", query: {} })
+    expect(mocks.call).toHaveBeenNthCalledWith(2, consoleRpcMethods.invocationCapabilities, { method: "GET", query: {} })
+  })
+
+  it("reports a Schedule run result and a run that did not start", async () => {
+    mocks.call.mockResolvedValueOnce({
+      ok: true,
+      value: {
+        run: {
+          completedAt: "2026-09-29T10:00:01.250Z",
+          error: { message: "mailbox unavailable", name: "TypeError" },
+          id: "srun_manual_sync_2026-09-29T10:00:00.000Z",
+          scheduleId: "sync",
+          startedAt: "2026-09-29T10:00:00.000Z",
+          status: "failed",
+        },
+      },
+    })
+    mocks.call.mockResolvedValueOnce({ message: "Schedule run is not available.", ok: false, status: 404 })
+
+    const failed = await runConsoleScheduleDefinition("/api/_vitehub/console/schedule-run", "sync")
+    const unavailable = await runConsoleScheduleDefinition("/api/_vitehub/console/schedule-run", "nightly")
+
+    expect(failed).toEqual({ durationMs: 1_250, error: "mailbox unavailable", id: "srun_manual_sync_2026-09-29T10:00:00.000Z", status: "failed" })
+    expect(consoleScheduleRunDescription(failed)).toBe("mailbox unavailable · 1.3s · srun_manual_sync_2026-09-29T10:00:00.000Z")
+    expect(unavailable).toEqual({ error: "Schedule run is not available.", status: "unavailable" })
+    expect(consoleScheduleRunDescription({ durationMs: 42, status: "succeeded" })).toBe("42ms")
+  })
+
   it("loads every KV page using the configured base and stops repeated cursors", async () => {
     mocks.call
       .mockResolvedValueOnce({ ok: true, value: { cursor: "next", keys: ["first"] } })
@@ -271,6 +307,7 @@ describe("Console requests", () => {
       loadConsoleNavigation("/navigation-test/api/_vitehub/console/sections"),
     ).resolves.toEqual({
       auth: false,
+      contributions: {},
       projectName: "console-host",
       sections: ["kv"],
     })
@@ -282,7 +319,40 @@ describe("Console requests", () => {
 
     await expect(
       loadConsoleNavigation("/auth-navigation-test/api/_vitehub/console/sections"),
-    ).resolves.toEqual({ auth: true, sections: ["kv"] })
+    ).resolves.toEqual({ auth: true, contributions: {}, sections: ["kv"] })
+  })
+
+  it("keeps only valid contributed sections in the navigation response", async () => {
+    const view = { kind: "definition-catalog", notice: "Discovered at build time." }
+    const queues = { description: "Queue definitions.", icon: "i-ph-tray-light", id: "queues", label: "Queues", view }
+    mocks.call.mockResolvedValue({
+      ok: true,
+      value: {
+        contributions: [
+          queues,
+          { ...queues, id: "kv", label: "Shadowed KV" },
+          { ...queues, id: "Bad Id" },
+          { ...queues, id: "missing-view", view: undefined },
+        ],
+        sections: ["kv", "queues", "Bad Id", "missing-view", "not-contributed"],
+      },
+    })
+
+    await expect(
+      loadConsoleNavigation("/contributions-navigation-test/api/_vitehub/console/sections"),
+    ).resolves.toEqual({ auth: false, contributions: { queues }, sections: ["kv", "queues"] })
+  })
+
+  it("loads Cloudflare Access availability and rejects unknown auth modes", async () => {
+    mocks.call.mockResolvedValueOnce({ ok: true, value: { auth: "cloudflare-access", sections: ["kv"] } })
+    await expect(
+      loadConsoleNavigation("/access-navigation-test/api/_vitehub/console/sections"),
+    ).resolves.toEqual({ auth: "cloudflare-access", contributions: {}, sections: ["kv"] })
+
+    mocks.call.mockResolvedValueOnce({ ok: true, value: { auth: "public", sections: ["kv"] } })
+    await expect(
+      loadConsoleNavigation("/unknown-auth-navigation-test/api/_vitehub/console/sections"),
+    ).resolves.toEqual({ auth: false, contributions: {}, sections: ["kv"] })
   })
 
   it("stops waiting for an RPC result when navigation is aborted", async () => {

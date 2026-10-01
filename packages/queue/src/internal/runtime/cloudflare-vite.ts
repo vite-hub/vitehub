@@ -7,13 +7,13 @@ import { createCloudflareQueueBatchHandler } from "../../providers/cloudflare.ts
 
 import { createCloudflareRuntimeEvent, createQueueJob, runWithActiveCloudflareEnv, type CloudflareWorkerEnv, type CloudflareWorkerExecutionContext } from "../../runtime/cloudflare-shared.ts"
 import { createCloudflareQueueRuntimeClient } from "./cloudflare-client.ts"
-import type { QueueApp } from "../../runtime/_app.ts"
+import type { VitehubApp } from "@vite-hub/internal/runtime/app"
 import { loadQueueDefinition, runWithQueueRuntimeEvent, setQueueRuntimeConfig, setQueueRuntimeRegistry } from "./state.ts"
 
 import type { CloudflareQueueMessageBatch, QueueDefinitionRegistry, ResolvedQueueOptions } from "../../types.ts"
 import { queueErrorDiagnostics } from "../../error-diagnostics.ts"
 
-export type CloudflareWorkerApp = QueueApp
+export type CloudflareWorkerApp = VitehubApp
 
 export interface QueueCloudflareWorkerOptions {
   app?: CloudflareWorkerApp

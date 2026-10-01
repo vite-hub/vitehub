@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs"
 
 import { dirname, resolve } from "pathe"
 
+import { isPlainObject } from "./object.ts"
+
 import type { ProvisionState } from "./provision.ts"
 
 export const PROVISION_STATE_FILE = ".vitehub/provision.json"
@@ -54,7 +56,25 @@ export function mergeProvisionState(base: ProvisionState, next: ProvisionState):
 
 function parseProvisionState(raw: string): ProvisionState {
   const parsed: unknown = JSON.parse(raw)
-  return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as ProvisionState) : {}
+  if (!isPlainObject(parsed)) return {}
+
+  const state: ProvisionState = {}
+  for (const provider of ["cloudflare", "vercel"] as const) {
+    const categories = parsed[provider]
+    if (!isPlainObject(categories)) continue
+    const validCategories: Record<string, Record<string, string>> = {}
+    for (const [category, ids] of Object.entries(categories)) {
+      if (!isPlainObject(ids)) continue
+      const validIds: Record<string, string> = {}
+      for (const [key, id] of Object.entries(ids)) {
+        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Provisioned identifiers are untrusted JSON strings at the file boundary.
+        if (typeof id === "string") validIds[key] = id
+      }
+      if (Object.keys(validIds).length) validCategories[category] = validIds
+    }
+    if (Object.keys(validCategories).length) state[provider] = validCategories
+  }
+  return state
 }
 
 function sortState(state: ProvisionState): ProvisionState {

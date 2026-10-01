@@ -13,9 +13,13 @@ vi.mock("../src/internal/provider-runtime-packages.ts", () => ({
   resolveInstalledProviderExecutable: () => "/bin/true",
 }));
 
-import { agentWithColocatedInstructions, defineAgent } from "../src/index.ts";
+import { agentWithColocatedInstructions, defineAgent, getAgentFromRegistry } from "../src/index.ts";
 import { babysitter } from "../src/presets/babysitter.ts";
 import { createBabysitterRuntime } from "../src/presets/babysitter/server.ts";
+import { getAgentLayerOptions } from "../src/agent-layers.ts";
+import { liveMergeReadiness } from "../src/presets/babysitter/merge.ts";
+import * as githubRuns from "../src/server/github-pull-requests.ts";
+import { agentInvocationId } from "../src/invocations.ts";
 import type { GitHubHost } from "../src/server/github.ts";
 
 const roots: string[] = [];
@@ -24,7 +28,7 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
-async function fixture(autoMerge = false) {
+async function fixture(autoMerge = false, discovered = false, preset: { merge?: unknown; driver?: string; mergeableState?: string; base?: string; parents?: unknown[]; postPushGraceMs?: number; providerRetryDelayMs?: number } = {}) {
   const root = await mkdtemp(join(tmpdir(), "vitehub-babysitter-preset-"));
   roots.push(root);
   const checkout = join(root, "checkout");
@@ -35,7 +39,7 @@ async function fixture(autoMerge = false) {
   let checkoutFailure: Error | undefined;
   const checkoutController = new AbortController();
   let abortOperation = false;
-  let onAdmission: (() => void) | undefined;
+  let onAdmission: (() => void | Promise<void>) | undefined;
   const pr = () => ({
     number: 12,
     state: "open",
@@ -45,8 +49,9 @@ async function fixture(autoMerge = false) {
     user: { login: "developer" },
     labels: [{ name: "repair" }],
     head: { sha: head, ref: "fix", repo: { full_name: "acme/app" } },
-    base: { sha: "c".repeat(40), ref: "main", repo: { full_name: "acme/app" } },
+    base: { sha: "c".repeat(40), ref: preset.base ?? "main", repo: { full_name: "acme/app", default_branch: "main", owner: { login: "acme" } } },
     html_url: "https://github.com/acme/app/pull/12",
+    mergeable_state: preset.mergeableState ?? "clean",
   });
   const pageInfo = { hasNextPage: false, endCursor: null };
   const graphSnapshot = () => ({
@@ -94,9 +99,12 @@ async function fixture(autoMerge = false) {
       const data = text.includes("reviewThreads")
         ? { repository: { pullRequest: { reviewThreads: { nodes: [], pageInfo } } } }
         : graphSnapshot();
-      if (!text.includes("reviewThreads")) onAdmission?.();
+      if (!text.includes("reviewThreads")) await onAdmission?.();
       return { stdout: JSON.stringify({ data }), stderr: "" };
     }
+    if (text.includes("-X PUT") && text.includes("/merge")) return { stdout: JSON.stringify({ merged: true }), stderr: "" };
+    if (text.includes("--slurp") && text.includes("/protection/required_status_checks"))
+      return { stdout: JSON.stringify([{ contexts: [], checks: [] }]), stderr: "" };
     if (text.includes("/rules/branches/"))
       return {
         stdout: JSON.stringify([
@@ -107,7 +115,10 @@ async function fixture(autoMerge = false) {
         ]),
         stderr: "",
       };
+    if (text.includes("-X PATCH")) return { stdout: JSON.stringify(pr()), stderr: "" };
     const path = args.find((arg) => arg.startsWith("repos/")) ?? "";
+    if (path.includes("pulls?state=all&head="))
+      return { stdout: (preset.parents ?? []).map((value) => JSON.stringify(value)).join("\n"), stderr: "" };
     const data =
       path.includes("pulls?state") || path === "repos/acme/app/pulls/12"
         ? [pr()]
@@ -176,19 +187,24 @@ async function fixture(autoMerge = false) {
   };
   const errors = vi.fn();
   const agent = agentWithColocatedInstructions(defineAgent({
+    ...(discovered ? {} : { name: "babysitter" }),
     preset: "babysitter",
     presets: { babysitter },
-    options: { filter: { labels: { allow: ["repair"] } }, autoMerge },
+    // SAFETY: tests pass invalid merge values on purpose to cover runtime validation.
+    options: { filter: { labels: { allow: ["repair"] } }, autoMerge, ...(preset.merge === undefined ? {} : { merge: preset.merge as false }), ...(preset.driver ? { driver: preset.driver as "codex" } : {}) },
     driver: { env: { GH_TOKEN: "must-not-leak", OPENAI_API_KEY: "provider-only" } },
   }), "Preserve the documented API contract.");
   const runtime = createBabysitterRuntime({
-    agent,
+    agent: discovered ? await getAgentFromRegistry("babysitter", { babysitter: async () => ({ default: agent }) }) : agent,
+    ...(discovered ? { agentName: "babysitter" } : {}),
     github,
     inboxPath: join(root, "inbox.sqlite"),
     repositories: ["acme/app"],
     concurrency: 1,
     activityAuthors: ["vitehub-agent"],
     error: errors,
+    ...(preset.postPushGraceMs === undefined ? {} : { postPushGraceMs: preset.postPushGraceMs }),
+    ...(preset.providerRetryDelayMs === undefined ? {} : { providerRetryDelayMs: preset.providerRetryDelayMs }),
   });
   const passes: Array<{ tools: string[]; prompt: string; session: string; instructions: string }> = [];
   let operation: "pushRepair" | "requestAutoMerge" | "updatePullRequest" | undefined;
@@ -285,18 +301,219 @@ async function fixture(autoMerge = false) {
     pr,
     failCheckout: (error: Error) => { checkoutFailure = error },
     abortOnOperation: () => { abortOperation = true },
-    onAdmission: (callback: () => void) => { onAdmission = callback },
+    onAdmission: (callback: () => void | Promise<void>) => { onAdmission = callback },
   };
 }
 
 describe("Babysitter preset runtime", () => {
+  it("merges a ready PR directly before any model pass", async () => {
+    const f = await fixture(false, false, { merge: "direct" });
+    try {
+      await f.reconcile();
+      const merge = f.command.mock.calls.find(([args]) => args.join(" ").includes("-X PUT"));
+      expect(merge?.[0]).toEqual(expect.arrayContaining(["repos/acme/app/pulls/12/merge", "merge_method=squash", `sha=${"a".repeat(40)}`]));
+      expect(createProviderRuntime).not.toHaveBeenCalled();
+      expect((await f.runtime.inbox.get("acme/app", 12))?.status).toBe("terminal");
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it.each([
+    ["GitHub reports the PR is not clean", { merge: "direct", mergeableState: "blocked" }],
+    ["merge.ready vetoes the merge", { merge: { strategy: "direct", ready: () => "needs a maintainer approval" } }],
+  ] as const)("runs a normal pass when %s", async (_case, preset) => {
+    const f = await fixture(false, false, preset);
+    try {
+      await f.reconcile();
+      expect(f.command.mock.calls.some(([args]) => args.join(" ").includes("-X PUT"))).toBe(false);
+      expect(createProviderRuntime).toHaveBeenCalled();
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("uses the configured merge method", async () => {
+    const f = await fixture(false, false, { merge: { strategy: "direct", method: "rebase" } });
+    try {
+      await f.reconcile();
+      const merge = f.command.mock.calls.find(([args]) => args.join(" ").includes("-X PUT"));
+      expect(merge?.[0]).toContain("merge_method=rebase");
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("validates driver and merge options when the Agent is defined", () => {
+    // @ts-expect-error -- an unknown merge mode is rejected at runtime too.
+    expect(() => defineAgent({ extends: babysitter, options: { merge: "yes" } })).toThrow(/merge must be/);
+    expect(() => defineAgent({ extends: babysitter, options: { merge: "direct", autoMerge: true } })).toThrow(/deprecated/);
+    // @ts-expect-error -- only provider Drivers can repair a checkout.
+    expect(() => defineAgent({ extends: babysitter, options: { driver: "model" } })).toThrow(/driver must be/);
+    expect(() => defineAgent({ extends: babysitter, options: { merge: { strategy: "direct", method: "fast-forward" as "squash" } } })).toThrow(/merge.method/);
+  });
+
+  it("retargets a stacked PR to the default branch after its parent merged there", async () => {
+    const parents = [{ state: "closed", merged_at: "2026-10-01T00:00:00Z", head: { sha: "c".repeat(40), ref: "feat/parent", repo: { owner: { login: "acme" } } }, base: { ref: "main" } }];
+    const f = await fixture(false, false, { base: "feat/parent", parents });
+    try {
+      await f.reconcile();
+      const patch = f.command.mock.calls.find(([args]) => args.includes("PATCH"));
+      expect(patch?.[0]).toEqual(expect.arrayContaining(["repos/acme/app/pulls/12", "base=main"]));
+      expect(createProviderRuntime).not.toHaveBeenCalled();
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("keeps a stacked PR on its base while the parent is unmerged or landed elsewhere", async () => {
+    const parents = [{ state: "closed", merged_at: "2026-10-01T00:00:00Z", head: { sha: "c".repeat(40), ref: "feat/parent", repo: { owner: { login: "acme" } } }, base: { ref: "feat/grandparent" } }];
+    const f = await fixture(false, false, { base: "feat/parent", parents });
+    try {
+      await f.reconcile();
+      expect(f.command.mock.calls.some(([args]) => args.includes("PATCH"))).toBe(false);
+      expect(createProviderRuntime).toHaveBeenCalled();
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("wakes a pushed head for a new failing check, not for its pending checks", async () => {
+    const f = await fixture();
+    f.choose("pushRepair");
+    try {
+      await f.reconcile();
+      f.choose(undefined);
+      const head = f.pr().head.sha;
+      const check = (id: number, status: string, conclusion: string | null) => f.runtime.inbox.ingest(`check-${id}-${status}`, "check_run", {
+        repository: { full_name: "acme/app" }, action: status === "completed" ? "completed" : "created",
+        check_run: { id, name: "test", head_sha: head, status, conclusion, app: { id: 1 }, pull_requests: [{ number: 12 }] },
+      });
+      await f.runtime.inbox.ingest("head-pushed", "pull_request", { repository: { full_name: "acme/app" }, action: "synchronize", pull_request: f.pr() });
+      await check(2, "in_progress", null);
+      await f.reconcile();
+      expect(f.passes).toHaveLength(1);
+      await check(2, "completed", "failure");
+      await f.reconcile();
+      expect(f.passes).toHaveLength(2);
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("ends a pass that keeps running after its repair push and parks on the pushed head", async () => {
+    const f = await fixture(false, false, { postPushGraceMs: 10 });
+    f.choose("pushRepair");
+    const implementation = createProviderRuntime.getMockImplementation()!;
+    createProviderRuntime.mockImplementation(async (...args: unknown[]) => {
+      const runtime = await implementation(...args);
+      const sendTurn = runtime.sendTurn;
+      // After pushing, the worker keeps watching checks instead of returning.
+      return { ...runtime, sendTurn: async (input: unknown) => { await sendTurn(input); return await new Promise(() => {}); } };
+    });
+    try {
+      await f.reconcile();
+      expect(f.push).toHaveBeenCalledOnce();
+      const state = (await f.runtime.inbox.get("acme/app", 12))!;
+      expect(state.status).toBe("waiting");
+      expect(state.wait?.headSha).toBe("b".repeat(40));
+      expect(state.lease).toBeNull();
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("retries a provider rate limit, then blocks admission", async () => {
+    const f = await fixture(false, false, { providerRetryDelayMs: 1 });
+    createProviderRuntime.mockImplementation(async () => { throw new Error("429 Too Many Requests") });
+    try {
+      await f.reconcile().catch(() => {});
+      expect(createProviderRuntime).toHaveBeenCalledTimes(4);
+      expect(await f.runtime.inbox.metaNumber("provider-quota-blocked-until")).toBeGreaterThan(Date.now());
+      await f.runtime.inbox.ingest("new-feedback", "issue_comment", { repository: { full_name: "acme/app" }, action: "created",
+        issue: { number: 12, pull_request: {} }, comment: { id: 9, body: "Please fix", user: { login: "human", type: "User" } } });
+      createProviderRuntime.mockClear();
+      await f.reconcile().catch(() => {});
+      expect(createProviderRuntime).not.toHaveBeenCalled();
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("does not retry a provider failure after updating GitHub metadata", async () => {
+    const f = await fixture(false, false, { providerRetryDelayMs: 1 });
+    f.choose("updatePullRequest", { title: "Repaired title" });
+    const implementation = createProviderRuntime.getMockImplementation()!;
+    createProviderRuntime.mockImplementation(async (...args) => {
+      const runtime = await implementation(...args);
+      return { ...runtime, events: {
+        async *[Symbol.asyncIterator]() {
+          for await (const event of runtime.events) {
+            yield event;
+            throw new Error("429 Too Many Requests");
+          }
+        },
+      } };
+    });
+    try {
+      await f.reconcile().catch(() => {});
+      expect(f.passes).toHaveLength(1);
+      expect(f.command.mock.calls.filter(([args]) => args.includes("PATCH"))).toHaveLength(1);
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("resets the exhausted Babysitter budget only for new repair evidence", async () => {
+    const f = await fixture();
+    const feedback = (id: number) => f.runtime.inbox.ingest(`budget-feedback-${id}`, "issue_comment", {
+      repository: { full_name: "acme/app" }, action: "created", issue: { number: 12, pull_request: {} },
+      comment: { id, body: `Repair finding ${id}`, user: { login: "reviewer" } },
+    });
+    try {
+      await f.reconcile();
+      for (const id of [1, 2]) { await feedback(id); await f.reconcile(); }
+      expect((await f.runtime.inbox.get("acme/app", 12))?.progressBudget?.exhausted).toBe(true);
+      await f.runtime.inbox.ingest("budget-pending", "status", {
+        repository: { full_name: "acme/app" }, sha: f.pr().head.sha, context: "test", state: "pending",
+      });
+      await f.reconcile();
+      expect(f.passes).toHaveLength(3);
+      await feedback(3);
+      await f.reconcile();
+      expect(f.passes).toHaveLength(4);
+      expect((await f.runtime.inbox.get("acme/app", 12))?.progressBudget?.count).toBe(1);
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("never merges into a base other than the default branch", () => {
+    const head = "a".repeat(40);
+    const live = { state: "open", draft: false, mergeable_state: "clean", head: { sha: head }, base: { ref: "feat/parent", repo: { default_branch: "main" } } };
+    expect(liveMergeReadiness(live, head)).toEqual({ ready: false, reason: "base feat/parent is not the default branch" });
+    expect(liveMergeReadiness({ ...live, base: { ref: "main", repo: { default_branch: "main" } } }, head)).toEqual({ ready: true, head });
+    expect(liveMergeReadiness({ ...live, base: { ref: "main", repo: { default_branch: "main" } } }, "b".repeat(40))).toMatchObject({ ready: false, reason: "head changed" });
+  });
+
+  it("selects the Claude Code driver", () => {
+    const agent = defineAgent({ extends: babysitter, options: { driver: "claude-code" } });
+    expect(getAgentLayerOptions(agent)?.driver).toMatchObject({ kind: "claude-code", permissions: "allow-edits" });
+    expect(agent.options.driver).toBe("claude-code");
+  });
+
+  it.each([
+    { config: { url: "https://agents.example.test" }, discovered: false },
+    { config: { agents: { babysitter: "https://agents.example.test" } }, discovered: false },
+    { config: { agents: { babysitter: "https://agents.example.test" } }, discovered: true },
+  ])("links the session to the worker Agent invocation with %j", async ({ config, discovered }) => {
+    vi.stubGlobal("__VITEHUB_PUBLIC_URL__", config);
+    const createRun = vi.spyOn(githubRuns, "createGitHubPullRequestRun");
+    const f = await fixture(false, discovered);
+    try {
+      await f.reconcile();
+      expect(createRun).toHaveBeenCalledOnce();
+      const options = createRun.mock.calls[0]![2];
+      expect(options.agentName).toBe("babysitter-worker");
+      const run = await createRun.mock.results[0]!.value;
+      expect(run.activity?.links).toEqual([{
+        label: "Current session",
+        url: `https://agents.example.test/_vitehub/agents/babysitter-worker/invocations/${await agentInvocationId(options.runId, "babysitter-worker")}`,
+      }]);
+    } finally {
+      await f.runtime.inbox.close();
+      vi.unstubAllGlobals();
+      createRun.mockRestore();
+    }
+  });
+
   it("allows the metadata tool to clear the pull request body", async () => {
     const f = await fixture();
     f.choose("updatePullRequest", { body: "" });
     try {
       await f.reconcile();
       expect(f.command.mock.calls.some(([args]) => args.includes("PATCH") && args.includes("body="))).toBe(true);
-    } finally { f.runtime.inbox.close(); }
+    } finally { await f.runtime.inbox.close(); }
   });
 
   it.each(["reclaimed", "expired"])("fences an admitted push when its lease is %s", async (loss) => {
@@ -305,14 +522,14 @@ describe("Babysitter preset runtime", () => {
     f.onAdmission(() => {});
     let rejected = false;
     f.push.mockImplementationOnce(async (_target, options) => {
-      const current = f.runtime.inbox.get("acme/app", 12)!;
+      const current = (await f.runtime.inbox.get("acme/app", 12))!;
       if (loss === "reclaimed") {
-        f.runtime.inbox.release({ token: current.lease!, generation: current.generation, snapshot: current });
-        f.runtime.inbox.claim(1);
+        await f.runtime.inbox.release({ token: current.lease!, generation: current.generation, snapshot: current });
+        await f.runtime.inbox.claim(1);
       } else {
         vi.spyOn(Date, "now").mockReturnValue(current.leaseUntil);
       }
-      try { options?.beforePush?.(); }
+      try { await options?.beforePush?.(); }
       catch (error) { rejected = true; throw error; }
       return "b".repeat(40);
     });
@@ -320,7 +537,7 @@ describe("Babysitter preset runtime", () => {
       await f.reconcile();
       expect(f.push).toHaveBeenCalledOnce();
       expect(rejected).toBe(true);
-    } finally { vi.restoreAllMocks(); f.runtime.inbox.close(); }
+    } finally { vi.restoreAllMocks(); await f.runtime.inbox.close(); }
   });
 
   it("aborts an in-flight push when another owner reclaims the lease", async () => {
@@ -329,9 +546,9 @@ describe("Babysitter preset runtime", () => {
     let aborted = false;
     f.push.mockImplementationOnce(async (_target, options) => {
       if (!options?.signal) throw new Error("Missing push cancellation signal");
-      const current = f.runtime.inbox.get("acme/app", 12)!;
-      f.runtime.inbox.release({ token: current.lease!, generation: current.generation, snapshot: current });
-      f.runtime.inbox.claim(1);
+      const current = (await f.runtime.inbox.get("acme/app", 12))!;
+      await f.runtime.inbox.release({ token: current.lease!, generation: current.generation, snapshot: current });
+      await f.runtime.inbox.claim(1);
       return await new Promise<string>((_resolve, reject) => {
         options.signal!.addEventListener("abort", () => {
           aborted = true;
@@ -342,43 +559,43 @@ describe("Babysitter preset runtime", () => {
     try {
       await f.reconcile();
       expect(aborted).toBe(true);
-    } finally { f.runtime.inbox.close(); }
+    } finally { await f.runtime.inbox.close(); }
   });
 
   it.each(["pushRepair", "requestAutoMerge"] as const)("fences %s when another owner reclaims during admission", async (operation) => {
     const f = await fixture(true);
     f.choose(operation);
     let replacementToken: string | undefined;
-    f.onAdmission(() => {
+    f.onAdmission(async () => {
       if (replacementToken) return;
-      const current = f.runtime.inbox.get("acme/app", 12)!;
-      f.runtime.inbox.release({ token: current.lease!, generation: current.generation, snapshot: current });
-      replacementToken = f.runtime.inbox.claim(1)[0]!.token;
+      const current = (await f.runtime.inbox.get("acme/app", 12))!;
+      await f.runtime.inbox.release({ token: current.lease!, generation: current.generation, snapshot: current });
+      replacementToken = (await f.runtime.inbox.claim(1))[0]!.token;
     });
     try {
       await f.reconcile();
       expect(replacementToken).toBeDefined();
       expect(f.push).not.toHaveBeenCalled();
       expect(f.command.mock.calls.some(([args]) => args.join(" ").includes("enablePullRequestAutoMerge"))).toBe(false);
-      expect(f.runtime.inbox.get("acme/app", 12)?.lease).toBe(replacementToken);
-    } finally { f.runtime.inbox.close(); }
+      expect((await f.runtime.inbox.get("acme/app", 12))?.lease).toBe(replacementToken);
+    } finally { await f.runtime.inbox.close(); }
   });
 
   it.each(["pushRepair", "requestAutoMerge"] as const)("fences %s when feedback advances the claimed generation during admission", async (operation) => {
     const f = await fixture(true);
     f.choose(operation);
     let generation: number | undefined;
-    f.onAdmission(() => {
+    f.onAdmission(async () => {
       if (generation !== undefined) return;
-      const current = f.runtime.inbox.get("acme/app", 12)!;
+      const current = (await f.runtime.inbox.get("acme/app", 12))!;
       generation = current.generation;
-      f.runtime.inbox.ingest("new-inline-feedback", "pull_request_review_comment", {
+      await f.runtime.inbox.ingest("new-inline-feedback", "pull_request_review_comment", {
         repository: { full_name: "acme/app" },
         action: "created",
         pull_request: f.pr(),
         comment: { id: 99, body: "Fix this regression before merging.", user: { login: "reviewer", type: "User" } },
       });
-      const updated = f.runtime.inbox.get("acme/app", 12)!;
+      const updated = (await f.runtime.inbox.get("acme/app", 12))!;
       expect(updated.generation).toBeGreaterThan(generation);
       expect(updated.lease).toBe(current.lease);
     });
@@ -387,17 +604,17 @@ describe("Babysitter preset runtime", () => {
       expect(generation).toBeDefined();
       expect(f.push).not.toHaveBeenCalled();
       expect(f.command.mock.calls.some(([args]) => args.join(" ").includes("enablePullRequestAutoMerge"))).toBe(false);
-      const current = f.runtime.inbox.get("acme/app", 12)!;
+      const current = (await f.runtime.inbox.get("acme/app", 12))!;
       expect(current.handled).toBeLessThan(current.generation);
       expect(current.status).toBe("ready");
-    } finally { f.runtime.inbox.close(); }
+    } finally { await f.runtime.inbox.close(); }
   });
 
   it.each(["pushRepair", "requestAutoMerge"] as const)("fences %s after lease expiry without waiting for recovery", async (operation) => {
     const f = await fixture(true);
     f.choose(operation);
-    f.onAdmission(() => {
-      const current = f.runtime.inbox.get("acme/app", 12)!;
+    f.onAdmission(async () => {
+      const current = (await f.runtime.inbox.get("acme/app", 12))!;
       vi.spyOn(Date, "now").mockReturnValue(current.leaseUntil);
     });
     try {
@@ -406,7 +623,7 @@ describe("Babysitter preset runtime", () => {
       expect(f.command.mock.calls.some(([args]) => args.join(" ").includes("enablePullRequestAutoMerge"))).toBe(false);
     } finally {
       vi.restoreAllMocks();
-      f.runtime.inbox.close();
+      await f.runtime.inbox.close();
     }
   });
 
@@ -420,16 +637,18 @@ describe("Babysitter preset runtime", () => {
     f.failCheckout(error);
     await f.reconcile();
     expect(f.push).toHaveBeenCalledOnce();
-    const state = f.runtime.inbox.get("acme/app", 12)!;
+    const state = (await f.runtime.inbox.get("acme/app", 12))!;
     expect(state.status).toBe("waiting");
     expect(state.handled).toBe(state.generation);
     expect(state.attempts).toBe(0);
-    f.runtime.inbox.ingest("head-pushed", "pull_request", {
+    expect(state.wait?.headSha).toBe("b".repeat(40));
+    // The synchronize event for the repair's own push keeps the wait.
+    await f.runtime.inbox.ingest("head-pushed", "pull_request", {
       repository: { full_name: "acme/app" },
       action: "synchronize",
       pull_request: f.pr(),
     });
-    expect(f.runtime.inbox.get("acme/app", 12)?.status).toBe("ready");
+    expect((await f.runtime.inbox.get("acme/app", 12))?.status).toBe("waiting");
   });
 
   it("retries checkout failure when no repair was pushed", async () => {
@@ -437,7 +656,7 @@ describe("Babysitter preset runtime", () => {
     f.failCheckout(new Error("Checkout cleanup failed"));
     await f.reconcile();
     expect(f.push).not.toHaveBeenCalled();
-    const state = f.runtime.inbox.get("acme/app", 12)!;
+    const state = (await f.runtime.inbox.get("acme/app", 12))!;
     expect(state.status).toBe("ready");
     expect(state.handled).toBeLessThan(state.generation);
     expect(state.attempts).toBe(1);
@@ -471,22 +690,27 @@ describe("Babysitter preset runtime", () => {
     expect(f.passes).toHaveLength(1);
     expect(f.command).toHaveBeenCalledTimes(requests);
     f.choose(undefined);
-    f.runtime.inbox.ingest("head-pushed", "pull_request", {
+    // The repair's own push and its pending checks do not start another pass.
+    await f.runtime.inbox.ingest("head-pushed", "pull_request", {
       repository: { full_name: "acme/app" },
       action: "synchronize",
       pull_request: f.pr(),
     });
+    await f.runtime.inbox.ingest("check-pending", "check_run", {
+      repository: { full_name: "acme/app" }, action: "created",
+      check_run: { id: 2, name: "test", head_sha: f.pr().head.sha, status: "in_progress", conclusion: null, app: { id: 1 }, pull_requests: [{ number: 12 }] },
+    });
     await f.reconcile();
-    expect(f.passes).toHaveLength(2);
-    f.runtime.inbox.ingest("new-feedback", "pull_request_review", {
+    expect(f.passes).toHaveLength(1);
+    await f.runtime.inbox.ingest("new-feedback", "pull_request_review", {
       repository: { full_name: "acme/app" }, action: "submitted", pull_request: f.pr(),
       review: { id: 42, body: "Check this follow-up", user: { login: "another-bot[bot]", type: "Bot" }, state: "COMMENTED", commit_id: f.pr().head.sha },
     });
     await f.reconcile();
-    expect(f.passes).toHaveLength(3);
-    expect(new Set(f.passes.map(pass => pass.session)).size).toBe(3);
+    expect(f.passes).toHaveLength(2);
+    expect(new Set(f.passes.map(pass => pass.session)).size).toBe(2);
     expect(f.runtime.workload()).toEqual({ running: 0 });
-    f.runtime.inbox.close();
+    await f.runtime.inbox.close();
   });
 
   it("cancels host operations when the checkout is revoked", async () => {
@@ -496,7 +720,7 @@ describe("Babysitter preset runtime", () => {
     await f.reconcile();
     expect(f.command.mock.calls.some(([args]) => args.join(" ").includes("enablePullRequestAutoMerge"))).toBe(false);
     expect(f.runtime.workload()).toEqual({ running: 0 });
-    f.runtime.inbox.close();
+    await f.runtime.inbox.close();
   });
 
   it("enables native auto-merge only through the configured host operation", async () => {
@@ -508,6 +732,6 @@ describe("Babysitter preset runtime", () => {
       f.command.mock.calls.some(([args]) => args.join(" ").includes("enablePullRequestAutoMerge")),
     ).toBe(true);
     expect(f.command.mock.calls.some(([args]) => args.includes("merge"))).toBe(false);
-    f.runtime.inbox.close();
+    await f.runtime.inbox.close();
   });
 });

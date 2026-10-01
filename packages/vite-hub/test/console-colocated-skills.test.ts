@@ -17,7 +17,7 @@ it("loads colocated Skills into the production Console definition", async () => 
     await writeFile(join(root, "bot", "skills", "review", "references", "evidence.md"), "Use the mounted evidence.\n")
     await symlink("../bot/skills", join(root, "bot-dev", "skills"))
     const plugin = join(root, "plugin.mjs")
-    await writeConsoleNitroPlugin(plugin, root, ["agents"], [{ name: "bot-dev", handler }], { agents: [], definitions: {} }, [], [], undefined, undefined, true)
+    await writeConsoleNitroPlugin(plugin, root, ["agents"], [{ name: "bot-dev", handler }], { agents: [], content: {} }, [], [], undefined, undefined, true)
     const generated = await readFile(plugin, "utf8")
     const install = vi.fn()
     const definition = defineAgent({ driver: "codex", runtime: false, workspace: {} })

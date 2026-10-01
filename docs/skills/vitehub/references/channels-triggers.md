@@ -12,7 +12,7 @@ A Channel adapts an external conversation surface; a Trigger admits an external 
 
 Use official Channel helpers when the installed contract provides them. Create a custom Trigger only when the external event is not a conversation adapter or the official boundary cannot represent the source.
 
-Treat webhook secrets and installation tokens as server-only Env. Keep generated routes inspectable and document the exact local or deployed URL used for proof.
+Treat webhook secrets and installation tokens as server-only Env. Built-in Agent Channels declare their Env under `env.server.<channel>` when an Agent file calls the factory; check `describeServerEnv()` or the generated types before adding a declaration, and declare a field only to change its host variable name. Keep generated routes inspectable and document the exact local or deployed URL used for proof.
 
 For initial setup of a built-in Telegram Channel, discover the installed contract with `pnpm vitehub channels sync --help` after the application stage is deployed. Run `pnpm vitehub channels sync --stage <stage> --url <https-origin> --json` first; it is read-only, loads the stage-specific Vite environment, and verifies the deployed webhook route before inspecting Telegram.
 

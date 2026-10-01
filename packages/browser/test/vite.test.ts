@@ -5,6 +5,7 @@ import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
+import { collectViteHubProviderOutputEntries } from "@vite-hub/internal/inspect"
 import { afterEach, describe, expect, it } from "vitest"
 import { build } from "vite"
 
@@ -49,6 +50,19 @@ afterEach(async () => {
 })
 
 describe("hubBrowser", () => {
+  it("inspects the Browser artifact written under a nested Vite root", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-browser-inspection-root-"))
+    roots.push(root)
+    const appRoot = join(root, "app")
+    await mkdir(appRoot)
+    await writeFile(join(root, "package.json"), '{"type":"module"}')
+    const plugin = hubBrowser({ binding: "BROWSER" })
+    await runBrowserProviderOutput(plugin, { build: { outDir: "dist" }, command: "build", mode: "production", nitro: {}, root: appRoot })
+    const [entry] = await collectViteHubProviderOutputEntries([plugin])
+    expect(entry?.path).toBe(join(appRoot, "dist/app/wrangler.json"))
+    await expect(readFile(entry!.path, "utf8")).resolves.toContain("BROWSER")
+  })
+
   it("serializes shared Provider Output finalization", () => {
     expect(hubBrowser().closeBundle).toMatchObject({ order: "post", sequential: true })
   })

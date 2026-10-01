@@ -85,7 +85,7 @@ export default defineConfig({
 | Provider | Driver | Default resolution |
 | --- | --- | --- |
 | Local filesystem | `fs-lite` | Used for local/non-hosted development when no hosted env is detected. |
-| Cloudflare KV | `cloudflare-kv-binding` | Used on Cloudflare hosting. |
+| Cloudflare KV | `cloudflare-kv-binding` | Used on Cloudflare hosting when Upstash env vars are absent. |
 | Deno KV | `deno-kv` | Used on Deno hosting. |
 | Upstash | `upstash` | Used when Upstash env vars are present or when Vercel hosting is detected. |
 
@@ -151,6 +151,7 @@ if (incrementError) throw incrementError
 | `kv.increment(key, ttl)` | Atomically increments a counter on Upstash. |
 | `kv.del(key)` | Deletes one key. |
 | `kv.keys(base?)` | Lists keys under an optional base prefix. |
+| `kv.list({ limit, prefix?, cursor? })` | Lists one page of keys. Returns `{ keys, cursor? }`; an omitted `cursor` means the listing is complete. |
 | `kv.clear(base?)` | Deletes keys under an optional base prefix. |
 | `kv.store(name)` | Selects a named KV Store. |
 

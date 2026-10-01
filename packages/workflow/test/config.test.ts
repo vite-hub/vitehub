@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest"
+import { resolve } from "pathe"
+import { collectViteHubProviderOutputEntries } from "@vite-hub/internal/inspect"
+import { createDefaultVercelOutputRoot } from "@vite-hub/internal/build/deployment-output"
 
 import { normalizeWorkflowOptions } from "../src/config.ts"
 import { createCloudflareWorkflowBindings, getCloudflareWorkflowBindingName, getCloudflareWorkflowClassName, getCloudflareWorkflowName } from "../src/integrations/cloudflare.ts"
@@ -6,6 +9,15 @@ import { getVercelWorkflowName } from "../src/integrations/vercel.ts"
 import { hubWorkflow } from "../src/vite.ts"
 
 describe("workflow config", () => {
+  it("inspects the standalone Vercel function without a Nitro function name", async () => {
+    const entries = await collectViteHubProviderOutputEntries([hubWorkflow({ provider: "vercel" })])
+    expect(entries).toEqual([{
+      description: "Generated Vercel Workflow function",
+      owner: "workflow",
+      path: resolve(createDefaultVercelOutputRoot(process.cwd()), "functions/__server.func/index.mjs"),
+    }])
+  })
+
   it("serializes shared Provider Output finalization", () => {
     expect(hubWorkflow().closeBundle).toMatchObject({ order: "post", sequential: true })
   })

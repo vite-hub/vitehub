@@ -51,8 +51,8 @@ async function requestWhenReady(url: string): Promise<Response> {
   throw lastError
 }
 
-async function waitForFile(path: string, value: string): Promise<void> {
-  for (let attempt = 0; attempt < 50; attempt++) {
+async function waitForFile(path: string, value: string, attempts = 50): Promise<void> {
+  for (let attempt = 0; attempt < attempts; attempt++) {
     if (
       await readFile(path, "utf8")
         .catch(() => "")
@@ -64,7 +64,7 @@ async function waitForFile(path: string, value: string): Promise<void> {
   throw new Error(`Timed out waiting for ${JSON.stringify(value)} in ${path}`)
 }
 
-it("stops a packed Agent webhook queue through Nitro 3 Node shutdown", { timeout: 120_000 }, async () => {
+it("stops a packed Agent webhook queue through Nitro 3 Node shutdown and resumes it after restart", { timeout: 120_000 }, async () => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-agent-nitro-shutdown-"))
   const statePath = join(root, "state.sqlite")
   const proofPath = join(root, "queue-proof.log")
@@ -94,7 +94,7 @@ it("stops a packed Agent webhook queue through Nitro 3 Node shutdown", { timeout
     await writeFile(
       join(root, "server", "agents", "review.ts"),
       `
-import { appendFile } from "node:fs/promises"
+import { appendFile, readFile } from "node:fs/promises"
 import { defineAgent } from "@vite-hub/agent"
 import { github } from "@vite-hub/agent/channels"
 
@@ -118,6 +118,10 @@ export default defineAgent({
   driver: {
     async run({ input }) {
       const signal = input.abortSignal
+      if ((await readFile(input.proofPath, "utf8").catch(() => "")).includes("aborted:")) {
+        await appendFile(input.proofPath, "resumed\\n")
+        return
+      }
       await appendFile(input.proofPath, "started\\n")
       try {
         await new Promise((_resolve, reject) => signal.addEventListener("abort", () => reject(signal.reason), { once: true }))
@@ -251,13 +255,33 @@ finally {
     expect(exit).toEqual([0, null])
     await expect(readFile(proofPath, "utf8")).resolves.toContain("aborted:true")
 
+    // The restarted server resumes the re-queued delivery without an inbound request.
+    child = spawn(process.execPath, [join(root, ".output", "server", "index.mjs")], {
+      cwd: root,
+      env: {
+        ...process.env,
+        CI: undefined,
+        NITRO_PORT: String(await availablePort()),
+        TEST: undefined,
+        VITEHUB_QUEUE_PROOF: proofPath,
+      },
+      stdio: ["ignore", "ignore", "pipe"],
+    })
+    let restartedStderr = ""
+    child.stderr!.setEncoding("utf8")
+    child.stderr!.on("data", chunk => (restartedStderr += chunk))
+    const restartedExited = once(child, "exit")
+    await waitForFile(proofPath, "resumed", 300).catch(error => {
+      throw new Error(`${error}\n${restartedStderr}`)
+    })
+    await expect(readFile(proofPath, "utf8")).resolves.toBe("started\naborted:true\nresumed\n")
+    child.kill("SIGTERM")
+    await restartedExited
+
     const state = createLibsqlAgentState({ url: `file:${statePath}` })
     try {
       await state.connect()
-      await expect(state.claimWebhookDelivery("webhook:review:github:github:")).resolves.toMatchObject({
-        attempts: 0,
-        deliveryId: "shutdown-delivery",
-      })
+      await expect(state.claimWebhookDelivery("webhook:review:github:github:")).resolves.toBeNull()
     } finally {
       await state.disconnect()
     }

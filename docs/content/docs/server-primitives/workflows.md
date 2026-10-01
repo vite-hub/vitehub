@@ -80,7 +80,7 @@ The Vite config key is `workflow`.
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `workflow` | `boolean` or `WorkflowModuleOptions` | disabled | Enables Workflow discovery and provider output through `vitehub()` with `true` or an options object; `false` leaves it disabled. |
+| `workflow` | `boolean` or `WorkflowModuleOptions` | disabled, or enabled when `agent` is enabled | Enables Workflow discovery and provider output through `vitehub()` with `true` or an options object; `false` disables it. |
 | `provider` | `WorkflowProvider` | inferred | Selects `cloudflare`, `vercel`, or `openworkflow`. |
 | `binding` | `string` | provider default | Provider binding name for generated output. |
 | `name` | `string` | discovered workflow name | Provider resource name override. |
@@ -270,7 +270,7 @@ Every `ViteHubError` requires a stable `code` and public `message`. Calling `err
 | --- | --- | --- |
 | `id` | `string` | Provider or ViteHub Workflow Run id. |
 | `provider` | `WorkflowProvider` | Selected provider for the run. |
-| `status` | `WorkflowRunStatus` | `queued`, `running`, `completed`, `failed`, or `unknown`. |
+| `status` | `WorkflowRunStatus` | `queued`, `running`, `completed`, `failed`, `cancelled`, or `unknown`. |
 | `result` | `TResult` | Completed result when available. |
 | `payload` | `TPayload` | Original payload when the provider returns it. |
 | `metadata` | `unknown` | Provider metadata. |

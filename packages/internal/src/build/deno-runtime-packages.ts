@@ -25,6 +25,7 @@ const denoRuntimeTargets = [
 interface FinalizeDenoDeploymentOutputOptions {
   alias?: ViteAlias[]
   conditions?: string[]
+  define?: Record<string, string>
   extensions?: string[]
   deploymentName?: string
   hasScheduleIntegration?: boolean
@@ -1494,6 +1495,7 @@ async function finalizeStagedDenoDeploymentOutput(
       external: [...builtinModuleNames],
       alias: options.alias,
       conditions: options.conditions,
+      define: options.define,
       extensions: options.extensions,
       format: "esm",
       packages: "external",
@@ -1521,6 +1523,7 @@ async function finalizeStagedDenoDeploymentOutput(
         alias: options.alias,
         banner: "// @ts-nocheck -- generated JavaScript is emitted with a .ts entrypoint for Deno Deploy",
         conditions: options.conditions,
+        define: options.define,
         extensions: options.extensions,
         format: "esm",
         packages: "external",

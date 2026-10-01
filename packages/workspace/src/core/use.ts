@@ -115,6 +115,7 @@ export interface WorkspaceFacadeToolOptions extends WorkspaceReadOperations {
   cwd?: string
   maxShellCalls?: number
   maxOutputLength?: number
+  sourceRequests?: boolean
   timeout?: number
 }
 
@@ -124,7 +125,7 @@ type EnabledWriteCapability<Options, Key extends keyof WorkspaceWriteOperations>
   ? Value extends false ? false : true
   : true
 
-export type WorkspaceReadTools<Options = undefined> = ((ShellEnabled<Options> extends true
+export type WorkspaceReadTools<Options = undefined> = ((ShellEnabled<Options, Options extends { sourceRequests: true } ? true : false> extends true
   ? { shell: Tool<{ command: string }, WorkspaceShellResult> }
   : {}) & (Options extends { materialize: true }
     ? { materialize_sources: Tool<{ path?: string, sources?: string[] }, WorkspaceMaterializeSourcesResult> }
@@ -609,6 +610,7 @@ export function useWorkspace<Name extends WorkspaceName>(name: Name, options?: U
       maxShellCalls: opts?.maxShellCalls,
       maxOutputLength: opts?.maxOutputLength,
       operations: toWriteOperations(opts),
+      sourceRequests: opts?.sourceRequests,
       timeout: opts?.timeout,
     })
     const createReadTools = (opts?: WorkspaceFacadeToolOptions) => createWorkspaceTools(createReadonlyFs(name, workspace), {
@@ -617,6 +619,7 @@ export function useWorkspace<Name extends WorkspaceName>(name: Name, options?: U
       maxShellCalls: opts?.maxShellCalls,
       maxOutputLength: opts?.maxOutputLength,
       operations: toReadOperations(opts),
+      sourceRequests: opts?.sourceRequests,
       timeout: opts?.timeout,
     })
     const tools = createDefaultToolSet<
@@ -657,6 +660,7 @@ export function useWorkspace<Name extends WorkspaceName>(name: Name, options?: U
     maxShellCalls: opts?.maxShellCalls,
     maxOutputLength: opts?.maxOutputLength,
     operations: toReadOperations(opts),
+    sourceRequests: opts?.sourceRequests,
     timeout: opts?.timeout,
   })
   const tools = createDefaultToolSet<

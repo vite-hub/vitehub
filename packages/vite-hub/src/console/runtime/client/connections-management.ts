@@ -33,7 +33,8 @@ export const connectionApprovalSchema: v.GenericSchema<unknown, ConsoleConnectio
 export const connectionListSchema: v.GenericSchema<unknown, { connections: ConnectionInspection[] }> = v.object({ connections: v.array(connectionInspectionSchema) })
 export const connectionResultSchema: v.GenericSchema<unknown, { connection: ConnectionInspection }> = v.object({ connection: connectionInspectionSchema })
 export const connectionActivitySchema: v.GenericSchema<unknown, { activity: EnvActivity[] }> = v.object({ activity: v.array(v.object({ id: v.string(), operationId: v.string(), key: v.string(), timestamp: v.string(), actor: envActorSchema, action: v.picklist(["inspect", "preview", "replace", "resolve", "use", "grant", "revoke"]), outcome: v.picklist(["started", "succeeded", "failed", "denied"]), revision: v.optional(v.string()), target: v.optional(envActorSchema), operation: v.optional(v.string()), traceId: v.optional(v.string()), invocationId: v.optional(v.string()) })) })
-export const connectionApprovalsSchema: v.GenericSchema<unknown, { approvals: ConsoleConnectionApproval[] }> = v.object({ approvals: v.array(connectionApprovalSchema) })
+export const connectionApprovalsSchema: v.GenericSchema<unknown, { approvals: ConsoleConnectionApproval[], nextCursor?: string }> = v.object({ approvals: v.array(connectionApprovalSchema), nextCursor: v.optional(v.string()) })
+export const connectionApprovalCountsSchema: v.GenericSchema<unknown, { counts: Record<string, number> }> = v.object({ counts: v.record(v.string(), v.pipe(v.number(), v.integer(), v.minValue(0))) })
 export const connectionApprovalResultSchema: v.GenericSchema<unknown, { approval: ConsoleConnectionApproval }> = v.object({ approval: connectionApprovalSchema })
 
 const errorBodySchema = v.object({ error: v.object({ message: v.pipe(v.string(), v.minLength(1), v.maxLength(500)) }) })
@@ -66,4 +67,13 @@ export async function requestConnectionsManagement<T extends v.BaseSchema<unknow
   const response = await fetch(endpoint, { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...input, action }) })
   if (!response.ok) throw new ConsoleRequestError(response.status, await errorMessage(response))
   return v.parse(schema, await response.json())
+}
+
+/** Load pending decisions separately so recent history cannot hide older pending calls. */
+export async function loadConnectionApprovals(endpoint: string, name: string, before?: string): Promise<{ history: ConsoleConnectionApproval[], pending: ConsoleConnectionApproval[], nextCursor?: string }> {
+  const [history, waiting] = await Promise.all([
+    requestConnectionsManagement(endpoint, "approval-summaries", connectionApprovalsSchema, { name }),
+    requestConnectionsManagement(endpoint, "approval-summaries", connectionApprovalsSchema, { name, status: "pending", ...(before ? { before } : {}) }),
+  ])
+  return { history: history.approvals, pending: waiting.approvals, ...(waiting.nextCursor ? { nextCursor: waiting.nextCursor } : {}) }
 }

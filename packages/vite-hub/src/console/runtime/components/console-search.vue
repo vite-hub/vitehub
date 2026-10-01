@@ -1,17 +1,17 @@
 <script setup lang="ts">
 import { useCollection } from "vite-hub/source/client";
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import type { CommandPaletteGroup, CommandPaletteItem } from "@nuxt/ui"
 import type { Collection } from "@vite-hub/source"
 import type { AgentInvocationListItem } from "@vite-hub/ui"
-import type { ConsoleSectionId } from "../sections"
+import type { ConsoleSectionDetails, ConsoleSectionId } from "../sections"
 import { loadConsoleKVPages, requestConsole } from "../client/request"
-import { loadConsoleNavigation } from "../client/sections"
+import { loadConsoleNavigation, resolveConsoleSectionDetails } from "../client/sections"
+import type { ConsoleNavigation } from "../client/sections"
 import { relativeDuration } from "../client/time"
 import { encodeAgentRouteParam, resolveConsoleRouteName } from "../console-route"
-import { consoleDefinitionSectionIds, type ConsoleDefinitionSectionId } from "../definitions"
 import { consoleSectionDetails } from "../sections"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
 
@@ -29,9 +29,9 @@ interface ConsoleSearchItem {
 }
 
 interface ConsoleDefinitionSearchItem {
+  details: ConsoleSectionDetails
   file: string
   name: string
-  section: ConsoleDefinitionSectionId
   source: string
 }
 
@@ -64,6 +64,7 @@ const open = ref(false)
 const searchTerm = ref("")
 const debouncedSearchTerm = ref("")
 const sections = ref<ConsoleSectionId[]>([])
+const installedNavigation = shallowRef<ConsoleNavigation>()
 const discoveredAgentNames = ref<string[]>([])
 const definitionItems = ref<ConsoleDefinitionSearchItem[]>([])
 const kvItems = ref<ConsoleKVSearchItem[]>([])
@@ -114,8 +115,8 @@ const sessionItems = computed<CommandPaletteItem[]>(() =>
 )
 const definitionSearchItems = computed<CommandPaletteItem[]>(() =>
   definitionItems.value.map(item => ({
-    description: `${consoleSectionDetails[item.section].label.slice(0, -1)} · ${item.file}`,
-    icon: consoleSectionDetails[item.section].icon,
+    description: `${item.details.label.slice(0, -1)} · ${item.file}`,
+    icon: item.details.icon,
     label: item.name,
     onSelect: () => selectDefinition(item),
   })),
@@ -151,11 +152,12 @@ const groups = computed<CommandPaletteGroup[]>(() => [
         label: "All primitives",
         onSelect: () => selectPage("vitehub-console"),
       },
-      ...sections.value.map((section) => ({
-        icon: consoleSectionDetails[section].icon,
-        label: consoleSectionDetails[section].label,
-        onSelect: () => selectPage(consoleSectionDetails[section].routeName),
-      })),
+      ...sections.value.flatMap((section) => {
+        const details = resolveConsoleSectionDetails(installedNavigation.value, section)
+        return details
+          ? [{ icon: details.icon, label: details.label, onSelect: () => selectPage(details.routeName) }]
+          : []
+      }),
     ],
     label: "Pages",
   },
@@ -235,17 +237,20 @@ function strings(value: unknown): string[] {
 }
 
 async function loadContent(installed: ConsoleSectionId[], signal: AbortSignal): Promise<void> {
-  const definitionSections = installed.filter((section): section is ConsoleDefinitionSectionId =>
-    consoleDefinitionSectionIds.some(definitionSection => definitionSection === section),
-  )
-  const catalogs = await Promise.all(definitionSections.map(async (section) => ({
-    section,
+  const definitionSections = installed.flatMap((section) => {
+    const details = resolveConsoleSectionDetails(installedNavigation.value, section)
+    const catalog = section === "databases"
+      || installedNavigation.value?.contributions[section]?.view.kind === "definition-catalog"
+    return details && catalog ? [{ details, section }] : []
+  })
+  const catalogs = await Promise.all(definitionSections.map(async ({ details, section }) => ({
+    details,
     value: record(await requestConsole(props.definitionsBase, {
       query: { section },
       signal,
     })),
   })))
-  definitionItems.value = catalogs.flatMap(({ section, value }) =>
+  definitionItems.value = catalogs.flatMap(({ details, value }) =>
     Array.isArray(value?.definitions)
       ? value.definitions.flatMap((entry) => {
           const definition = record(entry)
@@ -255,7 +260,7 @@ async function loadContent(installed: ConsoleSectionId[], signal: AbortSignal): 
             && typeof definition.file === "string"
             // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
             && typeof definition.source === "string"
-            ? [{ file: definition.file, name: definition.name, section, source: definition.source }]
+            ? [{ details, file: definition.file, name: definition.name, source: definition.source }]
             : []
         })
       : [],
@@ -300,6 +305,7 @@ async function loadNavigation(discoverContent = false): Promise<void> {
     const installed = navigation.sections
     controller.signal.throwIfAborted()
     if (navigationRequest !== controller) return
+    installedNavigation.value = navigation
     sections.value = [...new Set(installed)]
 
     if (discoverContent && props.agentNames === undefined && installed.includes("agents")) {
@@ -347,7 +353,7 @@ async function selectAgent(name: string): Promise<void> {
 async function selectDefinition(item: ConsoleDefinitionSearchItem): Promise<void> {
   open.value = false
   await router.push({
-    name: resolveConsoleRouteName(route.name, consoleSectionDetails[item.section].routeName),
+    name: resolveConsoleRouteName(route.name, item.details.routeName),
     query: { definition: item.name },
   })
 }

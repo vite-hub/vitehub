@@ -19,17 +19,8 @@ import { getConsoleDefinitions, installConsoleDefinitions } from "./runtime/serv
 import { getConsoleDatabase, installConsoleDatabase } from "./runtime/server/database.ts"
 
 import type { ConsoleInvocationsDatabase } from "./runtime/server/invocations.ts"
-import type { RuntimeHostContext } from "@vite-hub/runtime"
+import { consoleInvocationUrl, resolvePublicUrl, type RuntimeHostContext } from "@vite-hub/runtime"
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
-
-declare const __VITEHUB_APP_BASE_URL__: string
-
-function consoleBaseURL(): string {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The injected host base is optional in standalone package consumers, so the runtime boundary must detect its presence.
-  const configured = typeof __VITEHUB_APP_BASE_URL__ === "undefined" ? "/" : __VITEHUB_APP_BASE_URL__
-  const segments = configured.split("/").filter(Boolean)
-  return segments.length ? `/${segments.join("/")}` : ""
-}
 
 export interface ConsoleInvocationLink {
   agentName: string
@@ -46,15 +37,14 @@ export const console = {
     return {
       invocations: getConsoleInvocationsDatabase(),
       invocationUrl(invocation) {
-        const request = context.request
-        if (!request) throw viteHubErrorDiagnostics.VITE_HUB_R0073({ message: "[vitehub] Console invocation URLs require a request context." })
         // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Invocation links accept records from external database adapters, so validate both required identities at this boundary.
         if (typeof invocation.agentName !== "string" || typeof invocation.id !== "string") {
           throw viteHubErrorDiagnostics.VITE_HUB_R0074({ message: "[vitehub] Console invocation URLs require an invocation with agentName and id." })
         }
-        const agent = encodeURIComponent(encodeAgentRouteParam(invocation.agentName))
-        const id = encodeURIComponent(invocation.id)
-        return new URL(`${consoleBaseURL()}/_vitehub/agents/${agent}/invocations/${id}`, request.url).href
+        encodeAgentRouteParam(invocation.agentName) // Reject names the Console cannot route.
+        const origin = resolvePublicUrl({ agentName: invocation.agentName, request: context.request })
+        if (!origin) throw viteHubErrorDiagnostics.VITE_HUB_R0073({ message: "[vitehub] Console invocation URLs require `vitehub({ publicUrl })` or a request context." })
+        return consoleInvocationUrl(origin, invocation.agentName, invocation.id)
       },
     }
   },

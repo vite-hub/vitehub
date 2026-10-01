@@ -56,5 +56,9 @@ export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     WORKFLOW_R0029: dynamicError,
     WORKFLOW_R0030: dynamicError,
     WORKFLOW_B0001: dynamicError,
+    WORKFLOW_B0002: {
+      why: ({ root }: { root: string }) => `[vitehub] Cannot identify the owning Workflow build for ${JSON.stringify(root)} because its environment does not uniquely match a resolved configuration.`,
+      fix: "Use a separate Workflow plugin instance per build or preserve the resolved build options in each environment config.",
+    },
   },
 })

@@ -1,4 +1,5 @@
 import type { AgentActivity, Message, StreamEvent } from "./messages.ts"
+import type { AskAnswerType, AskQuestion } from "./ask.ts"
 import type { AgentRunEventPublisher, AgentRunEvents } from "./run-events.ts"
 import type { AgentInvocationAnnotationValue, AgentInvocations } from "./invocations.ts"
 import type { StandardJSONSchemaV1, StandardSchemaV1 } from "@standard-schema/spec"
@@ -29,6 +30,7 @@ import type {
   WorkspaceSourceInput,
 } from "@vite-hub/workspace"
 import type { BoxDefinition } from "@vite-hub/box"
+import type { channelDeliveryHandlers } from "./internal/channel-delivery-handlers.ts"
 import type {
   AgentChannelOptions,
   AgentWebChatChannelOptions,
@@ -88,6 +90,19 @@ export interface AgentHostIdentity {
   readonly workspace?: WorkspaceName
 }
 
+export interface AgentGitHubAccess {
+  /** Environment for `gh` and `git`: `GH_TOKEN`, `GITHUB_TOKEN`, a Git credential helper, and the commit identity. */
+  env: Record<string, string>
+  token: string
+}
+
+/** The GitHub identity of an Agent. `createGitHubHost()` from `vite-hub/agent/server/github` returns one. */
+export interface AgentGitHub {
+  access(input?: { repository?: string, signal?: AbortSignal }): Promise<AgentGitHubAccess>
+  /** Login of the identity, when it is known. */
+  identity?(): string | undefined
+}
+
 export interface AgentRuntimeContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
   extends Omit<RuntimeHostContext<TRuntimeConfig>, "cloudflare" | "platform" | "runtime"> {
   agentIdentity?: AgentHostIdentity
@@ -95,6 +110,8 @@ export interface AgentRuntimeContext<TRuntimeConfig extends AgentRuntimeConfig =
   box?: AgentBoxContext<TRuntimeConfig>
   channelDelivery?: AgentChannelDelivery
   cloudflare?: RuntimeHostContext<TRuntimeConfig>["cloudflare"]
+  /** The Agent GitHub identity from `defineAgent({ github })`. */
+  githubIdentity?: AgentGitHub
   toolStepReporter?: (step: AgentToolStep) => MaybePromise<void>
   run?: AgentRunMetadata
   runtime: AgentRuntimeName
@@ -170,6 +187,7 @@ export interface AgentInvocationContextValues extends ViteHubAgentInvocationCont
   "channel.delivery.effects": AgentChannelDeliveryEffectIntent[]
   "channel.delivery.finishEffects": AgentChannelDeliveryFinishEffect[]
   "channel.delivery.supportsTitle": boolean
+  "channel.message": unknown
   invoker: AgentInvoker
 }
 
@@ -239,6 +257,11 @@ export interface AgentRunInput<
   data?: TData
   message?: string | Message
   messages?: Message[]
+  /**
+   * Record Channel message writes in the trace instead of calling the provider.
+   * Read methods still run.
+   */
+  dryRun?: boolean
   options?: CALL_OPTIONS
   prompt?: string | Message[]
   timeout?: number
@@ -374,9 +397,13 @@ export interface AgentToolInspection {
   /** Capability that registered this tool, when known. */
   capabilityId?: string;
   description?: string
+  /** The tool's declared `icon`. Kept when content capture is off. */
+  icon?: string
   inputSchema?: AgentInspectionValue
   name: string
   mcp?: { server: string, name: string }
+  /** The tool's declared `title`. Kept when content capture is off, like Capability inspection labels. */
+  label?: string
   outputSchema?: AgentInspectionValue
 }
 
@@ -597,6 +624,11 @@ export interface AgentTriggerRunInvokeResult<CALL_OPTIONS = unknown> {
     finishEffects?: AgentChannelDeliveryFinishEffect | readonly AgentChannelDeliveryFinishEffect[]
   }
   input: AgentRunInput<CALL_OPTIONS>
+  /**
+   * JSON data that identifies the triggering Channel message.
+   * Message methods receive it as `context.message`; hooks read it as `event.message.data`.
+   */
+  message?: unknown
   metadata?: Record<string, unknown>
   run?: AgentRunMetadata
   webhook?: AgentWebhookInvocationOwnership<CALL_OPTIONS>
@@ -632,7 +664,11 @@ export interface AgentWebhookRegistrationDefinition<TRuntimeConfig extends Agent
   method?: "POST" | (string & {})
   path?: string
   provider: string
-  signature?: "github-sha256" | (string & {}) | {
+  signature?: "github-sha256" | "stripe-sha256" | (string & {}) | {
+    preset: "stripe-sha256"
+    /** Maximum age of the signed `t` timestamp in integer seconds. Must be finite and non-negative. Defaults to 300. Future timestamps pass the age check. */
+    toleranceSeconds?: number
+  } | {
     verify: (input: {
       header: string
       rawBody: Uint8Array
@@ -789,6 +825,8 @@ export interface AgentFinishEvent<
   input: AgentRunInput<CALL_OPTIONS, AgentRunInputContextValues, TData>
   invoker: AgentInvoker
   invocation: {
+    /** True when output consumption was cancelled instead of completed. */
+    cancelled?: boolean
     durationMs: number
     resultKind?: string
     run?: AgentRunMetadata
@@ -806,8 +844,11 @@ export type AgentFinishHookEvent<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
   TOutput = unknown,
+  TMessage = AgentChannelMessage | undefined,
   TData = unknown,
 > = Omit<AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS, TOutput, TData>, "error" | "errorMessage"> & {
+  /** The Channel message that started this Invocation, or `undefined` without a Channel. */
+  message: TMessage
   reaction: (input: AgentChannelDeliveryReactionInput, options?: AgentChannelDeliveryEffectIntentOptions) => AgentChannelDeliveryEffectIntent<"reaction">
   reply: (input: AgentChannelDeliveryReplyInput, options?: AgentChannelDeliveryEffectIntentOptions) => AgentChannelDeliveryEffectIntent<"reply">
   status: (input: AgentChannelDeliveryStatusInput, options?: AgentChannelDeliveryEffectIntentOptions) => AgentChannelDeliveryEffectIntent<"status">
@@ -816,10 +857,13 @@ export type AgentFinishHookEvent<
 export type AgentErrorHookEvent<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
+  TMessage = AgentChannelMessage | undefined,
   TData = unknown,
 > = Omit<AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS, unknown, TData>, "error" | "errorMessage" | "result" | "text"> & {
   error: unknown
   errorMessage: string
+  /** The Channel message that started this Invocation, or `undefined` without a Channel. */
+  message: TMessage
   publicError: AgentPublicError
   reaction: (input: AgentChannelDeliveryReactionInput, options?: AgentChannelDeliveryEffectIntentOptions) => AgentChannelDeliveryEffectIntent<"reaction">
   reply: (input: AgentChannelDeliveryReplyInput, options?: AgentChannelDeliveryEffectIntentOptions) => AgentChannelDeliveryEffectIntent<"reply">
@@ -829,18 +873,20 @@ export type AgentErrorHookEvent<
 export type AgentErrorHook<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
+  TMessage = AgentChannelMessage | undefined,
   TData = unknown,
 > = {
-  bivarianceHack(event: AgentErrorHookEvent<TRuntimeConfig, CALL_OPTIONS, TData>): MaybePromise<void | AgentChannelDeliveryFinishEffectResult>
+  bivarianceHack(event: AgentErrorHookEvent<TRuntimeConfig, CALL_OPTIONS, TMessage, TData>): MaybePromise<void | AgentChannelDeliveryFinishEffectResult>
 }["bivarianceHack"]
 
 export type AgentFinishHook<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
   TOutput = unknown,
+  TMessage = AgentChannelMessage | undefined,
   TData = unknown,
 > = {
-  bivarianceHack(event: AgentFinishHookEvent<TRuntimeConfig, CALL_OPTIONS, TOutput, TData>): MaybePromise<void | AgentChannelDeliveryFinishEffectResult>
+  bivarianceHack(event: AgentFinishHookEvent<TRuntimeConfig, CALL_OPTIONS, TOutput, TMessage, TData>): MaybePromise<void | AgentChannelDeliveryFinishEffectResult>
 }["bivarianceHack"]
 
 export type AgentInputHook<
@@ -857,10 +903,11 @@ export interface AgentInvocationHooks<
   CALL_OPTIONS = unknown,
   TContextValues extends object = AgentInvocationContextValues,
   TOutput = unknown,
+  TMessage = AgentChannelMessage | undefined,
   TData = unknown,
 > {
-  "agent:error"?: AgentErrorHook<TRuntimeConfig, CALL_OPTIONS, TData>
-  "agent:finish"?: AgentFinishHook<TRuntimeConfig, CALL_OPTIONS, TOutput, TData>
+  "agent:error"?: AgentErrorHook<TRuntimeConfig, CALL_OPTIONS, TMessage, TData>
+  "agent:finish"?: AgentFinishHook<TRuntimeConfig, CALL_OPTIONS, TOutput, TMessage, TData>
   "agent:input"?: AgentInputHook<TRuntimeConfig, CALL_OPTIONS, TContextValues, TData>
 }
 
@@ -921,7 +968,7 @@ export type AgentToolResolverWithWorkspace<
   | ((context: AgentAdapterMetadataContext<TRuntimeConfig, Name>) => MaybePromise<unknown>)
 
 export type AgentCapabilityMode = "read" | "write"
-export type AgentDriverKind = "model" | "provider" | "run"
+export type AgentDriverKind = "ask" | "model" | "provider" | "run"
 
 export interface AgentCapabilityCliStandardSchemaResultSuccess<T = unknown> {
   issues?: undefined
@@ -1404,6 +1451,8 @@ export interface AgentProviderStatus {
   stale: boolean
   installed?: boolean
   authenticated?: boolean
+  /** Commands from `driver.requirements` that the Driver shell cannot find. Present when requirements are checked. */
+  missingCommands?: string[]
   reason?: string
   usageLimits?: AgentProviderUsageLimits
 }
@@ -1413,6 +1462,11 @@ export interface AgentProviderDriverOptions<
   TOutput = unknown,
 > {
   capacity?: AgentDriverCapacityOptions
+  /**
+   * Existing directory where the provider runs. The driver does not copy, snapshot, write back, or remove it.
+   * Workspace Sources still materialize, but no Workspace session starts. Title and progress summary runs ignore it.
+   */
+  cwd?: AgentProviderWorkingDirectoryResolver<TRuntimeConfig>
   /** Provider process environment. Every resolved value is treated as a credential in persisted diagnostics. */
   env?: AgentProviderEnvironmentResolver<TRuntimeConfig>
   execution?: {
@@ -1425,6 +1479,12 @@ export interface AgentProviderDriverOptions<
   /** Provider approval policy. Defaults to `"ask"`; `"allow-all"` requires an explicit opt-in. */
   permissions?: AgentProviderPermissions
   providerSettings?: Record<string, unknown>
+  /**
+   * Commands the Driver shell needs, such as `git`, `gh`, or `unzip`.
+   * `status()` checks them where the Driver runs. With `driver.launch`, a resolver is required
+   * and each inspection probe checks commands in its shell before starting the provider.
+   */
+  requirements?: readonly string[]
   /** SQLite file used to persist provider session cursors across process restarts. */
   sessionStorePath?: string
 }
@@ -1452,8 +1512,11 @@ export type AgentProviderEnvironment = Record<string, string | undefined>
 export type AgentProviderEnvironmentResolver<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
   MaybeResolvable<AgentProviderEnvironment, AgentProviderCredentialContext<TRuntimeConfig>>
 
+export type AgentProviderWorkingDirectoryResolver<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
+  MaybeResolvable<string, AgentProviderCredentialContext<TRuntimeConfig>>
+
 export interface AgentProviderExitContext {
-  /** Disposable provider working directory, still available during this callback. */
+  /** Provider working directory, still available during this callback. It is temporary unless `driver.cwd` is set. */
   cwd: string
   /** Independent teardown deadline. Stop all I/O when this signal aborts. */
   abortSignal: AbortSignal
@@ -1468,7 +1531,10 @@ export interface AgentProviderLaunchCommand {
 
 export interface AgentProviderLaunchContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
   extends AgentProviderCredentialContext<TRuntimeConfig> {
+  /** Executable the wrapper must start. Requirement inspection starts `sh`; invocations start the provider. */
   command: string
+  /** Original provider executable. Use this to select a provider-specific runner. */
+  providerCommand: string
   cwd: string
   environment: Readonly<AgentProviderEnvironment>
   /** Framework-owned environment names injected when the provider process starts. Filtered executors must forward them. */
@@ -1515,8 +1581,10 @@ export interface AgentModelDriver<
   CALL_OPTIONS = unknown,
   TOutput = unknown,
 > {
+  ask?: never
   capacity?: AgentDriverCapacityOptions
   credentials?: never
+  cwd?: never
   execution?: AgentModelExecutionOptions<TRuntimeConfig, CALL_OPTIONS>
   instructions?: AgentAdapterInstructions<TRuntimeConfig>
   kind?: never
@@ -1542,8 +1610,10 @@ export interface AgentRunDriver<
   TContextValues extends object = AgentInvocationContextValues,
   TOutput = unknown,
 > {
+  ask?: never
   capacity?: AgentDriverCapacityOptions
   credentials?: never
+  cwd?: never
   execution?: never
   instructions?: never
   kind?: never
@@ -1562,6 +1632,51 @@ export interface AgentRunDriver<
   workDir?: never
 }
 
+/** Jev questions whose answers form `TOutput`. Build each question with `ask.choice()`, `ask.score()`, and the other `ask` builders. */
+export type AgentAskQuestions<TOutput = Record<string, unknown>> = {
+  readonly [K in keyof TOutput]: AskQuestion & AskAnswerType<TOutput[K]>
+}
+
+export type AgentAskQuestionsResolver<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+  TContextValues extends object = AgentInvocationContextValues,
+  TOutput = Record<string, unknown>,
+> =
+  | AgentAskQuestions<TOutput>
+  | ((context: AgentRunContext<TRuntimeConfig, CALL_OPTIONS, WorkspaceName, TContextValues>) => MaybePromise<AgentAskQuestions<TOutput>>)
+
+/**
+ * Answers typed questions with TypeSafe Jev in one request. The answers are the Invocation output.
+ * Jev reads Invocation `data` when present, else the prompt, else the latest user message.
+ * Credentials and the model come from the Server Env group `typesafe`, declared with `typesafeEnv()`.
+ */
+export interface AgentAskDriver<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+  TContextValues extends object = AgentInvocationContextValues,
+  TOutput = unknown,
+> {
+  ask: AgentAskQuestionsResolver<TRuntimeConfig, CALL_OPTIONS, TContextValues, TOutput>
+  capacity?: AgentDriverCapacityOptions
+  credentials?: never
+  execution?: never
+  instructions?: never
+  kind?: never
+  launch?: never
+  model?: never
+  permissionMode?: never
+  permissions?: never
+  providerSettings?: never
+  reasoningEffort?: never
+  reasoningSummary?: never
+  sessionStorePath?: never
+  run?: never
+  sandbox?: never
+  sessionKey?: never
+  workDir?: never
+}
+
 export type AgentDriver<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
@@ -1570,6 +1685,7 @@ export type AgentDriver<
 > =
   | AgentModelDriver<TRuntimeConfig, CALL_OPTIONS, TOutput>
   | AgentRunDriver<TRuntimeConfig, CALL_OPTIONS, TContextValues, TOutput>
+  | AgentAskDriver<TRuntimeConfig, CALL_OPTIONS, TContextValues, TOutput>
   | BuiltInAgentDriver<CALL_OPTIONS, TOutput>
 
 export type CustomAgentDriver<
@@ -1580,6 +1696,7 @@ export type CustomAgentDriver<
 > =
   | AgentModelDriver<TRuntimeConfig, CALL_OPTIONS, TOutput>
   | AgentRunDriver<TRuntimeConfig, CALL_OPTIONS, TContextValues, TOutput>
+  | AgentAskDriver<TRuntimeConfig, CALL_OPTIONS, TContextValues, TOutput>
 
 export interface AgentDefinitionCliOptions {
   capabilities?: boolean
@@ -1604,6 +1721,16 @@ export type AgentUIMessageStreamProjectionResolver<
   | AgentUIMessageStreamProjection
   | ((context: AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS, TContextValues>) => MaybePromise<AgentUIMessageStreamProjection>)
 
+/** Hooks accepted by an Agent Definition. `TMessage` types `event.message` in outcome hooks. */
+export type AgentDefinitionHooks<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+  TContextValues extends object = AgentInvocationContextValues,
+  TOutput = unknown,
+  TMessage = AgentChannelMessage | undefined,
+  TData = unknown,
+> = AgentCapabilityHooks<TRuntimeConfig> & AgentHookObserverHooks & AgentInvocationHooks<TRuntimeConfig, CALL_OPTIONS, TContextValues, TOutput, TMessage, TData>
+
 type AgentSharedSettings<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
@@ -1616,6 +1743,11 @@ type AgentSharedSettings<
   TDataInput = TData,
 > = {
   box?: AgentBoxInput<TRuntimeConfig>
+  /**
+   * GitHub identity for this Agent. Provider Drivers receive its `access().env`,
+   * and the pull request checkout and `git()` use its token.
+   */
+  github?: AgentGitHub
   health?: AgentHealthDescriptor
   capabilities?: TCapabilities
   channels?: AgentChannelInputs<TRuntimeConfig>
@@ -1623,7 +1755,7 @@ type AgentSharedSettings<
   /** Standard Schema for Invocation `data`. ViteHub validates `data` before Capabilities, hooks, and the Driver run. */
   data?: StandardSchemaV1<TDataInput, TData>
   description?: string
-  hooks?: AgentCapabilityHooks<TRuntimeConfig> & AgentHookObserverHooks & AgentInvocationHooks<TRuntimeConfig, CALL_OPTIONS, TContextValues, TOutput | TIntercept, TData>
+  hooks?: AgentCapabilityHooks<TRuntimeConfig> & AgentHookObserverHooks & AgentInvocationHooks<TRuntimeConfig, CALL_OPTIONS, TContextValues, TOutput | TIntercept, AgentChannelMessage | undefined, TData>
   /** Finishes the Invocation before the Driver runs when it returns a value other than `undefined`. */
   intercept?: AgentInterceptHandler<TRuntimeConfig, CALL_OPTIONS, TContextValues, TData, TIntercept>
   invoker?: AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues>
@@ -1689,13 +1821,14 @@ export interface AgentDefinition<
 > extends AgentDataCarrier<TDataInput>, AgentDataOutputCarrier<TData>, AgentDriverOutputCarrier<TDriverOutput>, AgentInterceptOutputCarrier<TInterceptOutput> {
   [agentOutputType]?: TOutput
   box?: AgentBoxInput<TRuntimeConfig>
+  github?: AgentGitHub
   health?: AgentHealthDescriptor
   capabilities?: AgentCapabilityDefinition<TRuntimeConfig>[]
   channels?: AgentChannels<TRuntimeConfig>
   chat?: AgentChatOptions<TRuntimeConfig>
   cli?: AgentDefinitionCliOptions
   description?: string
-  hooks?: AgentCapabilityHooks<TRuntimeConfig, WorkspaceName> & AgentHookObserverHooks & AgentInvocationHooks<TRuntimeConfig, CALL_OPTIONS, TContextValues, TOutput, TData>
+  hooks?: AgentCapabilityHooks<TRuntimeConfig, WorkspaceName> & AgentHookObserverHooks & AgentInvocationHooks<TRuntimeConfig, CALL_OPTIONS, TContextValues, TOutput, AgentChannelMessage | undefined, TData>
   invoker?: AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues>
   invocations?: AgentInvocations
   messages?: AgentMessageChannelSettings<TRuntimeConfig>
@@ -1703,7 +1836,11 @@ export interface AgentDefinition<
   runtime?: AgentRuntimeBinding
   runEvents?: AgentRunEvents
   /** Inspect provider credentials and quota without creating an invocation or sending a prompt. */
-  status?(context: AgentRuntimeContext<TRuntimeConfig>, options?: { abortSignal?: AbortSignal }): Promise<AgentProviderStatus>
+  status?(context: AgentRuntimeContext<TRuntimeConfig>, options?: {
+    abortSignal?: AbortSignal
+    /** Defaults to true. Invocation preflight sets false to avoid repeating command checks. */
+    checkRequirements?: boolean
+  }): Promise<AgentProviderStatus>
   resolve(context: AgentRuntimeContext<TRuntimeConfig>): Promise<AgentAdapter<CALL_OPTIONS>>
   run?(context: AgentRunContext<TRuntimeConfig, CALL_OPTIONS, WorkspaceName, TContextValues>): MaybePromise<Response | AgentRunResult | AsyncIterable<StreamEvent> | unknown>
   uiMessageStream?: AgentUIMessageStreamProjectionResolver<TRuntimeConfig, CALL_OPTIONS, TContextValues>
@@ -1995,7 +2132,10 @@ export interface AgentMessageChannelSettings<TRuntimeConfig extends AgentRuntime
   dedupeTtlMs?: number
   delivery?: "automatic" | "manual"
   durable?: boolean
-  errorFallbackText?: string | null | ((context: AgentChatErrorHookArgs<TRuntimeConfig>) => MaybePromise<string | null | undefined>)
+  errorFallbackText?: string | null | ((context: AgentChatErrorHookArgs<TRuntimeConfig> & {
+    /** The text ViteHub sends when `errorFallbackText` is not set. */
+    defaultText: string
+  }) => MaybePromise<string | null | undefined>)
   fallbackStreamingPlaceholderText?: string | readonly string[] | null | ((context: AgentChatAgentHookArgs<TRuntimeConfig>) => MaybePromise<string | null | undefined>)
   final?: {
     delivery: "new-message"
@@ -2048,14 +2188,196 @@ export interface AgentChannelActivityDefinition<TRuntimeConfig extends AgentRunt
   update(context: AgentChannelActivityContext<TRuntimeConfig>): MaybePromise<void>
 }
 
+export interface AgentChannelMessageContext<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  TData = unknown,
+> extends AgentCallbackContext<TRuntimeConfig> {
+  channel: AgentChannelDefinition<TRuntimeConfig>
+  context: AgentInvocationContextStore
+  input: AgentRunInput
+  /** Message data returned by the Channel trigger. */
+  message: TData
+  request?: Request
+  run?: AgentRunMetadata
+  trigger?: {
+    channelId: string
+    id?: string
+    name?: string
+  }
+  workspace?: ReadonlyWorkspaceFacade | WritableWorkspaceFacade
+}
+
+export type AgentChannelMessageMethodHandler<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  TData = unknown,
+> = {
+  bivarianceHack(context: AgentChannelMessageContext<TRuntimeConfig, TData>, ...args: never[]): unknown
+}["bivarianceHack"]
+
+/**
+ * A function is a write method. A dry run records its call instead of running it.
+ * Use `{ read: true, handler }` for a method that only reads provider state.
+ */
+export type AgentChannelMessageMethod<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  TData = unknown,
+> =
+  | AgentChannelMessageMethodHandler<TRuntimeConfig, TData>
+  | { read: true, handler: AgentChannelMessageMethodHandler<TRuntimeConfig, TData> }
+
+/** `channel`, `data`, `kind`, and `then` are reserved for the handle's own properties and Promise protocol. */
+export type AgentChannelMessageMethods<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  TData = unknown,
+> = Record<string, AgentChannelMessageMethod<TRuntimeConfig, TData>> & { [TName in "channel" | "data" | "kind" | "then"]?: never }
+
+export interface AgentChannelMessageDefinition<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  TData = unknown,
+  TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = AgentChannelMessageMethods<TRuntimeConfig, TData>,
+> {
+  /** Standard Schema for the message data that Channel triggers return. */
+  data?: StandardSchemaV1<unknown, TData>
+  methods?: TMethods
+}
+
+type AgentChannelMessageMethodArgs<TMethod> =
+  TMethod extends { handler: (context: never, ...args: infer TArgs) => unknown } ? TArgs
+    : TMethod extends (context: never, ...args: infer TArgs) => unknown ? TArgs
+      : never
+
+type AgentChannelMessageMethodResult<TMethod> =
+  TMethod extends { handler: (...args: never[]) => infer TResult } ? TResult
+    : TMethod extends (...args: never[]) => infer TResult ? TResult
+      : never
+
+/** Callable form of Channel message methods, without the Channel context argument. */
+export type AgentChannelMessageCalls<TMethods> = {
+  readonly [TName in keyof TMethods]: (...args: AgentChannelMessageMethodArgs<TMethods[TName]>) => Promise<Awaited<AgentChannelMessageMethodResult<TMethods[TName]>> | (TMethods[TName] extends { read: true } ? never : undefined)>
+}
+
+/** Message methods available when Discord, Slack, Teams, or Telegram has an adapter and messages are enabled. */
+export interface AgentChannelReplyCalls {
+  readonly reply?: (input: AgentChannelDeliveryReplyInput) => Promise<void>
+}
+
+/** Message methods that the GitHub Channel provides. They exist only when the Channel has a GitHub App. */
+export interface AgentGitHubMessageCalls {
+  readonly reaction?: (input: AgentChannelDeliveryReactionInput) => Promise<void>
+  readonly reply?: (input: AgentChannelDeliveryReplyInput) => Promise<void>
+  readonly status?: (input: AgentChannelDeliveryStatusInput) => Promise<void>
+}
+
+type AgentMessageChannelKind = "discord" | "slack" | "teams" | "telegram"
+
+type AgentBuiltInChannelMessageCalls<TKind extends string> =
+  string extends TKind ? Record<never, never>
+    : TKind extends "github" ? AgentGitHubMessageCalls
+      : TKind extends AgentMessageChannelKind ? AgentChannelReplyCalls
+        : Record<never, never>
+
+/**
+ * Handle for the Channel message that started an Invocation.
+ * `channel` is the name in the Agent's `channels` map; it discriminates Agents with several Channels.
+ */
+export type AgentChannelMessage<
+  TChannel extends string = string,
+  TKind extends string = string,
+  TData = unknown,
+  TCalls = Record<never, never>,
+> = {
+  readonly channel: TChannel
+  /** Message data returned by the Channel trigger. */
+  readonly data: TData
+  readonly kind: TKind
+} & TCalls
+
+/** A Channel Definition that keeps its kind, message data, and message methods in its type. */
+export type AgentChannelDefinitionOf<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  TKind extends string = string,
+  TData = unknown,
+  TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>,
+> = Omit<AgentChannelDefinition<TRuntimeConfig>, "kind" | "message"> & {
+  readonly kind: TKind
+  readonly message?: AgentChannelMessageDefinition<TRuntimeConfig, TData, TMethods>
+}
+
+type AgentChannelInputKind<TName extends string> =
+  TName extends "webChat" ? "web-chat" : TName extends "discord" | "github" | "http" | "slack" | "teams" | "telegram" ? TName : string
+
+type AgentChannelMessageDefinitionOf<TInput> = TInput extends { message?: infer TMessage } ? NonNullable<TMessage> : never
+
+type AgentChannelMessageData<TInput> =
+  AgentChannelMessageDefinitionOf<TInput> extends { data?: infer TSchema }
+    ? NonNullable<TSchema> extends StandardSchemaV1<unknown, infer TData> ? TData : unknown
+    : unknown
+
+/** Declared methods only. The index signature of the base Channel type declares none. */
+type AgentChannelDeclaredMethods<TInput> =
+  AgentChannelMessageDefinitionOf<TInput> extends { methods?: infer TMethods }
+    ? string extends keyof NonNullable<TMethods> ? Record<never, never> : NonNullable<TMethods>
+    : Record<never, never>
+
+type AgentChannelMessageFromInput<TName extends string, TInput> =
+  TInput extends (...args: never[]) => infer TDefinition
+    ? AgentChannelMessageFromInput<TName, TDefinition>
+    : TInput extends { kind: infer TKind extends string }
+      ? AgentChannelMessage<
+        TName,
+        TKind,
+        AgentChannelMessageData<TInput>,
+        Omit<AgentBuiltInChannelMessageCalls<TKind>, keyof AgentChannelDeclaredMethods<TInput>> & AgentChannelMessageCalls<AgentChannelDeclaredMethods<TInput>>
+      >
+      : AgentChannelMessage<
+        TName,
+        AgentChannelInputKind<TName>,
+        AgentChannelMessageData<TInput>,
+        Omit<AgentBuiltInChannelMessageCalls<AgentChannelInputKind<TName>>, keyof AgentChannelDeclaredMethods<TInput>> & AgentChannelMessageCalls<AgentChannelDeclaredMethods<TInput>>
+      >
+
+/** Hook `event.message` type for an Agent's `channels` option. */
+export type AgentChannelMessageOf<TChannels> =
+  [TChannels] extends [undefined]
+    ? undefined
+    : { [TName in keyof TChannels & string]: AgentChannelMessageFromInput<TName, NonNullable<TChannels[TName]>> }[keyof TChannels & string] | undefined
+
+/** Request query for a Channel history Collection: one string or repeated strings per key. */
+export type AgentChannelHistoryQuery = Record<string, string | readonly string[] | undefined>
+
+/**
+ * The part of a `@vite-hub/source` Collection that Channel replay uses.
+ * A Collection from `defineCollection()` satisfies it.
+ */
+export interface AgentChannelHistoryCollection<TItem = unknown> {
+  page(options: { cursor?: string, limit?: number, query: object, signal?: AbortSignal }): Promise<{ items: TItem[], nextCursor: string | null }>
+  parseQuery(input: AgentChannelHistoryQuery): Promise<object>
+  readonly querySchema?: StandardSchemaV1
+}
+
+/** Past Channel messages that `replayChannel()` sends through a Channel trigger. */
+export interface AgentChannelHistory<TItem = unknown> {
+  /** Collection of past messages. Each item is the input of `trigger`. */
+  collection: AgentChannelHistoryCollection<TItem>
+  /** Returns a stable key for an item, such as the provider message ID. Replay derives the Invocation ID from it. */
+  key(item: TItem): string
+  /** Channel trigger that receives each item. Optional when the Channel has exactly one trigger. */
+  trigger?: string
+}
+
 export interface AgentChannelDefinition<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
+  /** Internal delivery handlers for built-in Channels. */
+  [channelDeliveryHandlers]?: AgentChannelDeliveryEffects<TRuntimeConfig>
   activity?: AgentChannelActivityDefinition<TRuntimeConfig>
   adapter?: AgentChatPlatformResolver<TRuntimeConfig>
   capabilities?: readonly AgentCapabilityDefinition<TRuntimeConfig>[]
-  effects?: AgentChannelDeliveryEffects<TRuntimeConfig>
+  /** Past messages that `replayChannel()` and `vitehub channels replay` send through a trigger. */
+  history?: AgentChannelHistory
   identity?: IdentityResolver
   kind: string
   listener?: { kind: "telegram-polling" }
+  /** Methods that hooks call through `event.message`. */
+  message?: AgentChannelMessageDefinition<TRuntimeConfig>
   messages?: false | AgentMessageChannelSettings<TRuntimeConfig>
   route?: unknown
   triggers?: Record<string, AgentTriggerDefinition<TRuntimeConfig, WorkspaceName, any, any, AgentChannelTriggerContext<TRuntimeConfig>>>
@@ -2136,11 +2458,15 @@ export interface AgentToolDefinition<TInput = unknown, TOutput = unknown> {
   activity?: AgentActivity
   description?: string
   execute?: (input: TInput, context?: AgentToolExecutionContext) => MaybePromise<TOutput>
+  /** Iconify icon name for inspection interfaces, for example `i-lucide-database`. The Console includes the Lucide set. */
+  icon?: string
   inputSchema?: AgentToolSchema<TInput>
   metadata?: Record<string, unknown>
   name: string
   outputSchema?: AgentToolSchema<TOutput>
   policy?: AgentToolPolicyDecision | ((context: AgentToolPolicyContext) => MaybePromise<AgentToolPolicyDecision>)
+  /** Short past-tense label for each call in traces, for example `Searched meals`. */
+  title?: string
 }
 
 export type AgentToolSet = Record<string, AgentToolDefinition>
@@ -2216,12 +2542,15 @@ export interface AgentInspectionModelExecutionMetadata {
 export interface AgentInspectionProviderMetadata {
   credentialProfile?: string
   credentials?: true
+  /** Present when driver.cwd runs the provider in an existing directory. The path is not exposed. */
+  cwd?: "dynamic" | "static"
   environment?: "dynamic" | "static"
   launch?: "dynamic" | "static"
   model?: string
   permissions: AgentProviderPermissions
   provider?: string
   providerSettings?: string[]
+  requirements?: readonly string[]
   reasoningEffort?: CodexReasoningEffort
   reasoningSummary?: CodexReasoningSummary
   sessionStore?: "sqlite"
@@ -2237,7 +2566,7 @@ export interface AgentInspectionDriverMetadata {
   }
   readonly executionAuthority: ExecutionAuthority
   execution?: AgentInspectionModelExecutionMetadata
-  kind: "model" | "provider" | "run" | "unknown"
+  kind: AgentDriverKind | "unknown"
   model?: AgentInspectionModelMetadata
   provider?: AgentInspectionProviderMetadata
 }

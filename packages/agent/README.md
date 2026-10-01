@@ -6,7 +6,7 @@
   <img alt="AI SDK" src="https://img.shields.io/badge/AI%20SDK-v7-111827?style=flat-square">
 </p>
 
-`@vite-hub/agent` defines Agents from files such as `server/agents/support/agent.ts`. Each Agent selects one Driver: an AI SDK model, a built-in coding provider, or application-owned `driver.run` logic.
+`@vite-hub/agent` defines Agents from files such as `server/agents/support/agent.ts`. Each Agent selects one Driver: an AI SDK model, a built-in coding provider, typed TypeSafe Jev questions, or application-owned `driver.run` logic.
 
 Keep the three pieces separate:
 
@@ -21,6 +21,8 @@ pnpm add @vite-hub/agent @vite-hub/workspace ai
 ```
 
 `ai` is required for model-backed drivers and AI SDK-powered capabilities such as model-backed `title()`, `chatSummary()`, `llmGate()`, and `transcribe()`. Agents with `driver.run` can bundle without installing `ai`.
+
+`driver.ask` requires the optional peer `advocaat`. ViteHub imports it only when an ask Driver or a Jev decision runs. When the application does not install it, the Agent Vite plugin keeps the import external, so other Agents still build.
 
 Add the AI SDK model provider you pass to `model`.
 
@@ -68,6 +70,30 @@ export default defineAgent({
 });
 ```
 
+## Typed questions
+
+`driver.ask` answers typed questions with TypeSafe Jev in one request. The answers are the Invocation output, and `runAgent()` infers their type from the questions:
+
+```ts
+// server/agents/labeller.ts
+import { ask, defineAgent } from "@vite-hub/agent";
+
+export default defineAgent({
+  driver: {
+    ask: {
+      label: ask.choice("Which label fits this email?", { invoice: "Bills and receipts.", none: "No label fits." }),
+      urgent: ask.if("Does it need action today?"),
+    },
+  },
+});
+```
+
+Jev reads Invocation `data` when a caller sets it, else the prompt text, else the latest user message. `ask.choice()`, `ask.switch()`, `ask.score()`, `ask.chance()`, and `ask.if()` return plain question objects. `driver.ask` also accepts a function that returns the questions for each Invocation.
+
+`ask.if()` accepts a finite threshold from `0` to `1`, inclusive. It defaults to `0.5`.
+
+Credentials come from the Server Env group `typesafe`. Declare it with `typesafe: typesafeEnv()` from `@vite-hub/env`. `llmGate()` and `llmRoute()` on an ask Driver Agent use one Jev `ask.choice()` question when they have no `model` option. Their decisions include `probabilities` and no `reason`.
+
 ## Direct invocations
 
 Use `runAgent(agent, input)` in a script to get `[null, result]` or `[Error, null]`. ViteHub creates an isolated memo cache and run ID, then drains background work before returning. Results retain their inline output or Workflow Run shape. Agents that rely on default host Workflow discovery return an error tuple. Set `runtime: false` for inline execution, configure an explicit `workflow("name")` binding, or use the three-argument form with a host context. Non-Error failures are wrapped with their original value as the cause.
@@ -83,6 +109,8 @@ Set `defineAgent({ intercept })` to finish an Invocation before the Driver runs.
 ## Custom Capability tools
 
 Custom Capability tools infer their handler input from inline Standard Schema validators. Schema transforms and optional outputs keep their types. A mismatched handler is a type error. Raw JSON Schema needs an explicit handler input type. Use `defineCapability<Config>()({...})` when you set the runtime config type. See the [custom Capability guide](https://vitehub.dev/docs/capabilities/custom-capabilities).
+
+Tools can declare `title`, a short past-tense label such as `Searched meals`, and `icon`, an Iconify name such as `i-lucide-utensils`. Tool events use `title` when the driver gives none. `inspectAgentTools()` records them as `label` and `icon`, and metadata-only journals keep both. The model does not receive them. Built-in `db`, `kv`, and `blob` tools and Workspace `materialize_sources` declare both.
 
 ## Coding provider drivers
 
@@ -120,7 +148,7 @@ export default defineAgent({
 
 The resolver remains the external source of truth, but ViteHub does not write Codex refreshes back to it. A persisted profile is a complete Codex Home, including auth, configuration, session state, and logs, so treat the whole volume as sensitive. Give each Kubernetes replica its own persistent volume; profiles do not coordinate a shared multi-writer volume across processes or pods. Agent inspection reports only that a credential source is configured and never resolves, checks, or prints it.
 
-Provider Drivers require a local Node.js host and don't accept `box`; Cloudflare Agents and Deno fail explicitly. Cloudflare Worker builds exclude the provider Driver runtime through the `workerd` and `worker` package conditions and fail with `AGENT_B0019` when a server module selects a provider Driver. Provider Workspaces additionally require a POSIX host and fail explicitly on Windows. ViteHub materializes an Agent Workspace into a temporary provider working directory, applies Workspace Scope, writes `AGENTS.md` for Codex or a literal prompt file for Claude Code, then commits successful write-mode changes through Workspace rules. Runtime sessions resume by Agent thread while the Agent Definition process remains active. Set `sessionStorePath` to keep opaque provider cursors in SQLite across restarts. Codex credentials supplied through `credentials` require a named `credentialProfile` before session persistence can be enabled because an invocation-private Codex Home is removed after each run. Dedicate each file to one provider Agent Definition on one persistent process host; it does not coordinate concurrent ownership of one thread across workers. Normalized assistant, reasoning, tool, approval, user-input, usage, warning, error, and terminal events stay behind the ViteHub Agent Invocation contract.
+Provider Drivers require a local Node.js host and don't accept `box`; Cloudflare Agents and Deno fail explicitly. Cloudflare Worker builds exclude the provider Driver runtime through the `workerd` and `worker` package conditions and fail with `AGENT_B0019` when a server module selects a provider Driver. Provider Workspaces additionally require a POSIX host and fail explicitly on Windows. ViteHub materializes an Agent Workspace into a temporary provider working directory, applies Workspace Scope, writes `AGENTS.md` for Codex or a literal prompt file for Claude Code, then commits successful write-mode changes through Workspace rules. Runtime sessions resume by Agent thread while the Agent Definition process remains active. Set `sessionStorePath` to keep opaque provider cursors in SQLite across restarts. Set `driver.cwd` to an existing directory, or a resolver that returns one, to run the provider in an application-owned checkout. ViteHub then materializes Workspace Sources but starts no Workspace session: it does not copy files, create a Git baseline, write changes back, or remove the directory. Title and progress summary runs ignore `cwd`. Codex credentials supplied through `credentials` require a named `credentialProfile` before session persistence can be enabled because an invocation-private Codex Home is removed after each run. Dedicate each file to one provider Agent Definition on one persistent process host; it does not coordinate concurrent ownership of one thread across workers. Normalized assistant, reasoning, tool, approval, user-input, usage, warning, error, and terminal events stay behind the ViteHub Agent Invocation contract.
 
 When all selected Workspace Sources materialize successfully before the provider session starts, ViteHub appends source evidence for each ready GitHub Source with an immutable commit revision. Direct, inferred shorthand, and resolved GitHub Sources are supported. If session startup must retry materialization, ViteHub omits source evidence because the mounted revision may change. The evidence gives the canonical repository URL, commit revision, configured source root, and Workspace mount so the provider can cite the mounted files without rediscovering their origin. ViteHub omits mutable or unavailable revisions, custom Sources, invalid repository metadata, and Source credentials.
 
@@ -165,7 +193,7 @@ export const agentCapacity = createProcessAgentCapacity({
 
 Import the same `agentCapacity` object into each Agent Definition that should share one process-local budget. Linux hosts use cgroup v2 memory limits, memory events, and pressure stall information when available; other hosts use Node's available-memory signal without CPU-pressure admission. Sampling failures or samples exceeding `sampleTimeoutMs` (one second by default) use `fallbackConcurrency`, which defaults to one. Custom samplers should pass `context.signal` to abortable I/O. Tune `memory.perInvocationBytes`, `memory.reserveBytes`, and the CPU or memory pressure thresholds when workload measurements justify different admission behavior.
 
-Long-lived Node process hosts can import `createGitHubHost()` from `@vite-hub/agent/server/github` to resolve GitHub App or fallback credentials, admit GraphQL work against a shared rate-limit reserve, and run against an exact pull-request head in a temporary checkout. The process-specific entry keeps Node Git and filesystem dependencies out of the portable `@vite-hub/agent/server` entry. `withPullRequestCheckout()` uses Git over HTTPS, fetches the source branch directly, verifies the requested head, and removes the checkout after success, failure, cancellation, or timeout. Checkout and push operations need Git but do not need the GitHub CLI. Generic `command()` operations still use the GitHub CLI. Include `headRepository` and `headRef` to make an ordinary `git push` target the pull request's source branch. The callback keeps base repository access for reads from `origin`; use its `push()` after long-running work so the host resolves fresh source repository credentials before pushing. Push checks that the repair descends from the last verified head and uses a lease to reject a changed source branch. It returns the pushed SHA and advances the lease for later pushes in the same callback. Pass the Agent Invocation's abort signal and use the callback signal for work inside the checkout:
+Long-lived Node process hosts can import `createGitHubHost()` from `@vite-hub/agent/server/github` to resolve GitHub App or fallback credentials, admit GraphQL work against a shared rate-limit reserve, and run against an exact pull-request head in a temporary checkout. The process-specific entry keeps Node Git and filesystem dependencies out of the portable `@vite-hub/agent/server` entry. `withPullRequestCheckout()` uses Git over HTTPS, fetches the source branch directly, verifies the requested head, and removes the checkout after success, failure, cancellation, or timeout, unless `checkouts` keeps it for reuse. Checkout and push operations need Git but do not need the GitHub CLI. Generic `command()` operations still use the GitHub CLI. Include `headRepository` and `headRef` to make an ordinary `git push` target the pull request's source branch. The callback keeps base repository access for reads from `origin`; use its `push()` after long-running work so the host resolves fresh source repository credentials before pushing. Push checks that the repair descends from the last verified head and uses a lease to reject a changed source branch. It returns the pushed SHA and advances the lease for later pushes in the same callback. Pass the Agent Invocation's abort signal and use the callback signal for work inside the checkout:
 
 ```ts
 await github.withPullRequestCheckout(pullRequest, async ({ env, path, push, signal }) => {
@@ -173,6 +201,8 @@ await github.withPullRequestCheckout(pullRequest, async ({ env, path, push, sign
   await push()
 }, { signal: invocation.abortSignal, timeout: 60_000 })
 ```
+
+Set `checkouts: { root }` on `createGitHubHost()` to reuse pull request checkouts. The host keeps a pool of checkouts under `root` for each repository and adopts the directories that a previous process left there. Reuse keeps ignored files, such as dependencies, build output, and caches. It removes Git hooks, `index.lock`, `.vitehub`, and `<checkout>.meta.json`, recreates the Git configuration, runs `git reset --hard` and `git clean -ffd`, and fetches only the new head. Git checkout runs with hooks disabled. A checkout returns to the pool only after the host verifies its head; otherwise the host removes it. Use one `root` for each process, and do not share it between processes. Without `checkouts`, each call uses a temporary directory that the host removes.
 
 For a provider that materializes a separate working directory, call `checkout.prepareWorkspace(cwd)` from the provider launch hook, then `checkout.push(cwd)` from the host after reviewing the result. The host imports the exact commit without credentials and pushes it from the original trusted clone, so provider Git configuration cannot control the authenticated push. Preparation copies the independent PR clone's Git history and push destination, removes old target metadata and saved credential/header configuration, and leaves the original clone unchanged. The standalone `prepareGitHubPullRequestWorkspace(checkoutPath, cwd, { signal })` export performs the same preparation. These helpers apply only to prepared GitHub PR checkouts; other workspace types do not receive Git metadata. Keep host credentials out of the provider environment when push authority belongs to the host.
 
@@ -210,13 +240,17 @@ Pass `--json` for the structured inspection contract.
 ## Capabilities
 
 - A `webChat()` Channel exposes the Agent through the conventional `/api/_vitehub/agents/[agent]/chat` dispatcher. Use `webChat({ route: false })` when an Agent should not answer it, or `chat()` when an app-owned trigger needs Chat History and `chat.message` behavior without Channel-owned route exposure; see the [First Agent guide](https://vitehub.dev/docs/getting-started/first-agent).
+- `defineChannel(kind, { message })` declares the methods that `agent:finish` and `agent:error` hooks call through `event.message`, typed from the Agent's `channels`. Set `dryRun: true` in the Invocation input to record write methods in the trace instead of calling the provider; see [Act on the Channel message in hooks](https://vitehub.dev/docs/agents/channels#act-on-the-channel-message-in-hooks).
+- A Channel `history` Collection lets `replayChannel()` from `@vite-hub/agent/server` and `vitehub channels replay` send past messages through the Channel trigger. Replay skips items that already have an Invocation; see [Replay Channel history](https://vitehub.dev/docs/agents/channels#replay-channel-history).
+- Built-in GitHub `webhook` and `dev` Triggers supply `{ repository, pullRequest, run, trigger }` as Channel message data. Custom `message.data` schemas must accept this pull request context.
 - `workspaceShell()` runs scoped shell/file work through [`@vite-hub/shell`](../shell/README.md).
 - `webSearch()` searches and reads the web with [Brave](https://brave.com/search/api/), [Exa](https://docs.exa.ai/), [Jina](https://jina.ai/en-US/reader/), [SearXNG](https://docs.searxng.org/dev/search_api.html), [SerpApi](https://serpapi.com/search-api), [SerpBase](https://serpbase.dev/docs), or [Tavily](https://docs.tavily.com/).
 - `openapi()` turns an allowed OpenAPI `operationId` subset into bounded HTTP tools, or into a generated Capability CLI when `cli` is set.
 - `transcribe()` uses the [AI SDK transcription API](https://ai-sdk.dev/v7/docs/reference/ai-sdk-core/transcribe); `openRouterTranscriptionModel()` provides OpenRouter transcription without consumer-owned HTTP handling.
 - `createTranscription()` composes remote asynchronous submission and completion through a provider-neutral driver; `elevenLabsScribe()` is the built-in Scribe v2 adapter.
-- `mcp()` connects tools from [Model Context Protocol](https://modelcontextprotocol.io/) servers through `@ai-sdk/mcp`. Transient transport failures skip the affected server and record `vitehub.mcp.warnings` in the Invocation input context. Authentication, configuration, cancellation, protocol, and integrity failures remain fatal. Executor failures remain fatal.
+- `mcp()` connects tools from [Model Context Protocol](https://modelcontextprotocol.io/) servers through `@ai-sdk/mcp`. Transient transport failures skip the affected server and record `vitehub.mcp.warnings` in the Invocation input context. Read them with `getMcpWarnings(input)`. Set `unavailableNotice: true` to append a notice to the final chat reply. Authentication, configuration, cancellation, protocol, and integrity failures remain fatal. Executor failures remain fatal. Outside an Invocation, `callMcpTool(server, name, args)` from `@vite-hub/agent/mcp` calls one tool on the same server entry and returns `[error, value]`.
 - `kv()`, `blob()`, `db()`, and `email()` expose [`@vite-hub/kv`](../kv/README.md), [`@vite-hub/blob`](../blob/README.md), [`@vite-hub/database`](../database/README.md), and [`@vite-hub/email`](../email/README.md).
+- `channelDelivery({ channel, options })` adds one `send_message` tool that sends through a Channel client from `useChannel()` to an application-selected recipient. Its name must be unique among Capability tools. It limits calls with `maxCalls` (default `1`) and can fail the Invocation with `required: true` when the Agent never sends.
 - `sandbox()` and `schedule()` expose [`@vite-hub/sandbox`](../sandbox/README.md) and [`@vite-hub/schedule`](../schedule/README.md).
 - `usage()` requests provider usage metadata, estimates missing cost from Models.dev, and exposes the normalized Agent Usage Record through its typed Finish Extension. Its `metadata.pricing` flag is false when `pricing: false` disables estimation.
 - `skills()`, `access()`, `memory()`, `fetch()`, `llmRoute()`, and `llmGate()` cover prompt skills, workspace scope, durable notes, HTTP reads, and pre-run decisions.
@@ -259,6 +293,12 @@ openapi({
 When `cli` is set, the operation tools are replaced by one CLI-named tool. ViteHub generates one subcommand per allowed operation, using the OpenAPI operation summary or description for command guidance.
 Capability `cli` can be a static command tree or an invocation resolver that returns `undefined` when the CLI should not be available. Generated command trees stay behind adapter-owned options such as `openapi({ cli })`, whose resolver may return `false` or `undefined` for the current invocation.
 
+## Channel Env
+
+Built-in Channels read credentials from `env.server.<channel>.<field>`. They read the host variable names only when Server Env does not declare the field. `discoverAgentChannelEnv({ rootDir, serverDirs })` from `@vite-hub/agent/vite` finds built-in Channel factory calls in Agent files and returns the fields to declare, with their host names, `secret` flag, and `required` flag. `vitehub({ agent })` passes the result to Server Env before `hubEnv()` builds the registry; application declarations win field by field. Explicit Channel options always win over Env.
+
+To give a built-in Channel Env, add its factory name and fields to `builtInChannelEnv` in `src/channel-env.ts`, then read each field with `channelEnvValue(channel, field, context)` when the option is omitted. Set `requiredUnless` to the option keys that make a field unnecessary; other fields stay optional. See the [Channel Env guide](https://vitehub.dev/docs/agents/channels#channel-env) for the current names.
+
 ## Error diagnostics
 
 ViteHub-owned Agent configuration, build, and runtime defects use stable
@@ -276,7 +316,7 @@ Public HTTP errors keep the `ViteHubError` mapping. An unrecognized diagnostic
 maps to the generic `INTERNAL` response. Approval and cancellation behavior does
 not change.
 
-See [Errors and diagnostics](https://vitehub.dev/docs/reference/diagnostics)
+See [Errors and diagnostics](https://vitehub.dev/docs/reference/errors-diagnostics)
 for the code format and an application catalog example.
 
 ## Chat state
@@ -298,6 +338,8 @@ export default defineConfig({
 ```
 
 `provider: "sqlite"` uses the built-in libSQL-compatible state backend, so `file:` URLs work for local or explicitly persistent Node deployments and hosted libSQL URLs work remotely. Cloudflare, Vercel, and Netlify production output rejects `file:` Agent state before it can write to an ephemeral filesystem.
+
+Queued webhook deliveries in this state survive a restart. A persistent Nitro server resumes them when it starts, without an inbound request. Before the queue resumes, the server fails each Agent's pending or running invocations that started before this process. An invocation that a persisted queued delivery runs again under the same run ID stays active and continues with that delivery. Agents with a durable Workflow runtime are skipped. Vercel and Netlify output resumes the queue on the first webhook request and does not recover invocations.
 
 You can also wire the adapter manually when `chat({ state })` should own the state provider:
 
@@ -322,13 +364,23 @@ Learn more at [vitehub.dev](https://vitehub.dev).
 
 ## Invocation summaries
 
+Channel history replay stores the trigger's `annotations`, `channelId`, `origin`, and `threadId` on the claimed Invocation before Driver execution or Workflow dispatch. A failed metadata write fails that item before execution. Custom stores must apply those fields and the `workflow` dispatch binding in `update()` under the supplied execution claim.
+
+Native Vercel replay retains the logical replay ID in the Invocation and stores the provider-assigned Workflow ID in `workflow`. Dispatch intent is persisted before submission. If acknowledgement is lost before a provider ID can be retained, replay reports the unknown outcome and blocks resubmission. The Workflow worker confirms its physical ID before Driver execution. Recovery and cancellation use the provider ID.
+
+A pending replay reservation for a discovery-default Workflow requires the discovered Agent identity to recover. Without that identity, replay skips the existing item, including legacy records without Workflow metadata, because a provider run may already have been accepted. Use the host runtime context for provider reconciliation. `runtime: false` permits inline retries for trigger preparation failures when no Workflow dispatch is recorded. Inline replay must persist the running state before execution. A later replay skips that Invocation if completion persistence fails. Fresh items can still execute inline without a discovered identity.
+
 `defineAgentInvocations()` returns `getSummary(id)` for metadata reads without observations. Every store must implement this method. Use `get(id)` for the full record or `get(id, { observationNames: ["agent.invocation.finish"] })` to read only observations with those exact names. An empty list returns no observations. The built-in SQL stores filter observation payloads inside the database. Custom stores can apply the same option to avoid loading unrelated payloads; the Invocations wrapper also filters their returned records. Both methods return `undefined` when the Invocation does not exist.
 
 ## GitHub pull request Workspaces
 
 GitHub pull request Channels use `pullRequest.workspace.mount` for a custom repository mount. Omitting `workspace` mounts at `portal`. Both `workspace: true` and `workspace: {}` use the Workspace root. Set `workspace: false` to disable the contribution.
 
-For GitHub Channels, `activity: { publicUrl: 'https://agent.example.com' }` links pull request webhook activity to its ViteHub Console invocation. The URL must be the Agent's public Console origin. `activity: true` keeps application-supplied links. See the [GitHub Channel guide](../../docs/content/docs/agents/channels.md#publish-agent-activity-without-opening-a-chat).
+Provider Drivers get the mount as a real Git checkout of the exact head SHA, with `origin`, the fetched base branch, and a local head branch that tracks the pull request branch. A declared GitHub Source of the same repository and scope at the same mount is replaced for the Invocation; a different repository or scope fails with an error that names the Source. Checkout setup rejects a head branch without an explicit head repository, including pull requests from deleted forks.
+
+Set `defineAgent({ github })` to a GitHub identity such as `createGitHubHost()`. Provider Drivers receive its `access().env` (`GH_TOKEN`, `GITHUB_TOKEN`, a Git credential helper, and the commit identity) before `driver.env`, and the pull request checkout and `git()` use the same credentials. `github({ app: host })` uses the identity for Channel API calls and also sets `defineAgent({ github })` when it is omitted.
+
+For GitHub Channels, `activity: true` links pull request webhook activity to its ViteHub Console invocation when `vitehub({ publicUrl })` is set. `activity: { publicUrl }` overrides the origin for one Channel. Without a public URL, the application supplies its own links. See the [GitHub Channel guide](../../docs/content/docs/agents/channels.md#publish-agent-activity-without-opening-a-chat).
 
 `pullRequest.reconcile.concurrencyLimit` sets the maximum concurrent reconciled webhook deliveries per repository and pull request. It defaults to `1`; set a positive integer such as `4` to run up to four deliveries for one PR together. Other PRs have separate limits. See the [GitHub Channel guide](../../docs/content/docs/agents/channels.md#reconcile-github-pull-requests).
 
@@ -336,7 +388,9 @@ For GitHub Channels, `activity: { publicUrl: 'https://agent.example.com' }` link
 
 `@vite-hub/agent/invocations/d1` exports `createD1AgentInvocationStore({ database })`. Pass a D1 binding or a resolver that returns the current request binding. The store creates its table with idempotent `d1AgentInvocationSchema()` statements on first use of each binding in an isolate. Set `migrate: false` to apply those statements through your own D1 migration tool instead.
 
-D1 batches and conditional writes preserve concurrent journal updates across Workers. Claims use the database clock. Terminal records use the same 30-day and 10,000-record retention defaults as the libSQL store. Pending and running records are retained. `maxAgeMs: false` and `maxRecords: false` disable each limit. An update rejects after 32 concurrent write conflicts. Use the journal's `redact` hook to remove sensitive values before any store receives them.
+D1 batches and conditional writes preserve concurrent journal updates across Workers. Claims use the database clock. Terminal records use the same 30-day and 10,000-record retention defaults as the libSQL store. Pending and running records are retained. `maxAgeMs: false` and `maxRecords: false` disable each limit. `invocations.delete(id)` and `invocations.prune({ olderThanMs, dryRun })` remove terminal records on demand in both adapters; `vitehub agent invocations delete|prune` does the same for a SQLite or libSQL journal. An update rejects after 32 concurrent write conflicts. Use the journal's `redact` hook to remove sensitive values before any store receives them.
+
+`agentInvocationRerunInput(record)` returns the recorded prompt and Invoker Profile ID of a terminal record when the journal kept the complete prompt and selected profile ID. Pending and running records return `available: false` with the reason `invocation-not-terminal`. Otherwise it returns `available: false` with the reason: `input-not-captured`, `replay-metadata-unavailable`, `input-has-invoker`, `input-has-data`, `input-has-options`, `input-has-context`, `input-has-run-metadata`, `input-has-timeout`, `input-has-abort-signal`, `input-has-dry-run`, `input-prompt-changed`, `input-has-messages`, `input-redacted`, or `input-truncated`. Records without the current replay schema and invocations with a direct invoker or actor identity cannot be replayed. A resolver-derived Invoker without a selected Invoker Profile also returns `input-has-invoker`. A selected profile is resolved again when the new Invocation starts. Structured input, call options, extra context, runtime run metadata, timeouts, cancellation signals, dry-run mode, singular message inputs, and prompts changed by input preparation are not replayed. Redaction of the prompt, input-presence flags, or selected Invoker Profile disables replay. The Console uses it for its rerun action. `invocations.supportsDelete` reports whether the configured store implements deletion.
 
 D1 caps retained observations at 1,000,000 UTF-8 bytes to fit its 2 MB row limit. The adapter checks the complete row, preserves lifecycle fields and appended evidence when it removes excess ordinary observations, and rejects a row that still cannot fit. The resolved observation budget is stored with each record.
 
@@ -364,6 +418,21 @@ The child gets a fresh runtime from the parent's configuration. `name` is not in
 Child configuration overrides parent defaults. Channels, Sources, Skills, and hooks merge by key, replacing each matching definition or callback as a whole. Static Capabilities merge by `id`: the child replaces a matching Capability and appends new ones. A Capability resolver replaces the inherited list or resolver. Other arrays replace the parent array. A child `driver.launch` replaces the entire inherited launch command or resolver, including `onExit`. If the child omits `launch`, it inherits the parent launch. Changing a Driver kind or store provider replaces that configuration.
 
 `extends` accepts one definition created by `defineAgent()` in the same package instance. It does not discover files in the parent's directory. Compose shared instruction strings in TypeScript, or import Markdown with `?raw` and assign the composed string to `driver.instructions`. References such as `@../bot/instructions.md` remain literal text. Share Skills through explicit Sources or a directory link.
+
+A definition that is not discovered, such as one created in a Schedule, uses the colocated Skills of the discovered Agent it extends. It reads them when it runs, so module import order does not matter. Use `agentWithSkills()` to add Skills to such a definition without an Agent folder:
+
+```ts [server/schedules/changelog.ts]
+import { agentWithSkills, defineAgent } from 'vite-hub/agent'
+import botDev from '../agents/bot-dev/agent'
+import changelogSkill from './changelog-skill.md?raw'
+
+const changelogAgent = agentWithSkills(
+  defineAgent({ extends: botDev, name: 'changelog' }),
+  { 'changelog-writing': changelogSkill },
+)
+```
+
+Each key is a Skill name, and each value is its `SKILL.md` content. The result keeps the inherited Skills. A Skill with the same name replaces the inherited one.
 
 ### Named presets
 
@@ -413,7 +482,11 @@ notes.options.format // "concise" | "detailed"
 
 `configure` runs synchronously when defining or extending the Agent. Return a normal Agent Definition and keep this callback free of network calls and other side effects. The callback receives its own option copy. Copies of standard built-ins preserve their own property descriptors and nested values. Custom class instances and values such as `WeakMap`, `WeakSet`, and `Error` retain their identity across option copies. Detached buffers and their views retain identity. Resizable or growable buffers and their views also retain identity, preserving resize behavior and fixed-length or length-tracking views. Ordinary Agent overrides apply after the callback and remain in effect through further extensions. An inherited Agent name is cleared on each extension. For discovered Agents, a Workspace reference object must use a statically known string `name`; `name: undefined` owns a Workspace. Opaque names require an explicit Workspace ownership marker on the configured definition. A configured Agent exposes its resolved `options` for host setup and inspection; these values do not become model instructions automatically.
 
-For folder Agents discovered from `agent.ts`, define `configure` in that file and return a discoverable `defineAgent()` call. Workspace discovery does not execute imported callbacks or opaque helper calls returned by `configure`, including computed calls such as `builders["workspace"]()` and asserted calls such as `build!()` or `(build as Factory)()`. Return `defineAgent()` directly, or declare `workspace: {}` for owned storage or a named Workspace reference on the configured Agent. It rejects an imported `configure` callback because it cannot determine the required Workspace setup. Discovery also rejects unresolved computed settings keys, quoted keys with unsupported escapes, compound `void` expressions, dynamic Workspace values such as `options.workspaceName`, opaque settings spreads such as `...importedSettings`, imported Capability options and preset registries (including object spreads), option-derived Capability lists such as `options.caps`, returned Agent members such as `agents.storage`, imported Agent parents, imported Channel maps and values, local Channel factories and opaque calls such as `github({ pullRequest: true })`, dynamic preset selections, logical Capability expressions such as `false || [storage]`, constructed Capability lists such as `Array.of(storage)` or `[plain].concat(storage)`, imported Capability values, destructured Capability bindings, and local Capability member access or calls such as `values.storage` and `values.storage()`. If these contribute an owned Workspace, add `workspace: {}` to the Agent definition. Otherwise, define the settings, parents, Channels, and Capabilities locally with direct bindings so discovery can inspect them.
+For folder Agents discovered from `agent.ts`, define `configure` in that file and return a discoverable `defineAgent()` call. Workspace discovery does not execute imported callbacks or opaque helper calls returned by `configure`, including computed calls such as `builders["workspace"]()` and asserted calls such as `build!()` or `(build as Factory)()`. Return `defineAgent()` directly, or declare `workspace: {}` for owned storage or a named Workspace reference on the configured Agent. It rejects an imported `configure` callback because it cannot determine the required Workspace setup. Discovery also rejects unresolved computed settings keys, quoted keys with unsupported escapes, compound `void` expressions, dynamic Workspace values such as `options.workspaceName`, opaque settings spreads such as `...importedSettings`, imported Capability options and preset registries (including object spreads), option-derived Capability lists such as `options.caps`, returned Agent members such as `agents.storage`, imported Agent parents, imported Channel maps, Channels imported from packages, local Channel factories and opaque calls such as `makeChannel()`, first-party Channel helper calls with opaque options such as `github(options.github)` or `github({ pullRequest: options.pullRequest })`, Channel options defined by accessors such as `get pullRequest()`, dynamic preset selections, logical Capability expressions such as `false || [storage]`, constructed Capability lists such as `Array.of(storage)` or `[plain].concat(storage)`, imported Capability values, destructured Capability bindings, and local Capability member access or calls such as `values.storage` and `values.storage()`. If these contribute an owned Workspace, add `workspace: {}` to the Agent definition. Otherwise, define the settings, parents, Channels, and Capabilities locally with direct bindings so discovery can inspect them.
+
+Discovery reads first-party Channel helper calls, such as `github({ pullRequest: false })`, without running them. It also follows a Channel imported from a relative module, such as `import portal from '../portal.github.ts'`, and inspects that module's export with the same rules. It follows re-exports from relative modules, such as `export { default } from './inner.ts'` and `export * from './channels.ts'`, and rejects re-exports from packages. `github()` owns a Workspace only when `pullRequest` is enabled and `pullRequest.workspace` is not `false`. `discord()`, `http()`, `slack()`, `teams()`, `telegram()`, and `webChat()` own a Workspace only through their `capabilities`. An Agent whose Channels own no Workspace stays a stateless Agent; do not add `workspace: {}` to it.
+
+Discovery rejects Channel option bindings that are mutated or passed to opaque calls, including local callbacks and built-in mutators such as `Object.assign`. It does not execute those calls to inspect their effects. Use unmodified local options, or add `workspace: {}` when the Channel owns a Workspace.
 
 Configured presets use the existing layer rules for capabilities, channels, and hooks. A child replaces a capability with the same ID or a channel or hook with the same key. Distinct hooks remain present; same-key hooks do not automatically compose. Option callbacks are values and are also replaced, never invoked by merging.
 
@@ -421,13 +494,15 @@ Publish the exported definition on npm and import it into `presets`. There is no
 
 
 
-## evlog integration
+## Observability
 
-Import `observability()` and `createAgentEvlog()` from `@vite-hub/agent/evlog`, not `@vite-hub/agent/capabilities`. This keeps unrelated Capabilities usable without the optional `evlog` peer. Applications can use `vite-hub/agent/evlog`. Install `evlog` when using this integration.
+Configure telemetry once with `vitehub({ observability })`. ViteHub registers the evlog Nitro module, installs one host instance, and adds its Capability to every Agent. Read it at runtime with `useObservability()` from `@vite-hub/agent/observability` (`vite-hub/agent/observability` in applications). It returns `event`, `capture`, `exception`, `capability`, `status`, and `flush`. Install `evlog`, and `posthog-node` for the PostHog exporter.
 
-`createAgentEvlog()` from `@vite-hub/agent/evlog` exports invocation lifecycle events through evlog. Add its `capability` to your Agent, connect its `drain` to the host, and await `flush()` after invocation background tasks finish. `@vite-hub/agent/evlog/posthog` adds PostHog events, Error Tracking and the official evlog log drain through optional dependencies.
+Observability currently requires Nitro-hosted Agents. Netlify and Deno standalone Agent output are rejected when observability is configured. Close the current host before installing another observability instance.
 
-`createPapercutReporter()` from `@vite-hub/agent/capabilities` journals reports in persistent Agent Invocations before delivery and replays pending reports after restart. See [evlog](../../docs/content/docs/agents/evlog.md) for delivery, privacy and shutdown contracts.
+Hosts without `vitehub()` call `installObservability(options)` from `@vite-hub/agent/observability/host` and pass the result the Nitro app. `@vite-hub/agent/observability/posthog` exports the `posthog()` exporter.
+
+`createPapercutReporter()` from `@vite-hub/agent/capabilities` journals reports in persistent Agent Invocations before delivery and replays pending reports after restart. `observability.papercuts` configures it with the Console journal. See [Observability](../../docs/content/docs/agents/observability.md) for delivery, privacy and shutdown contracts.
 
 GitHub Channels with `activity: true` keep one managed comment per pull request. A single table lists current and recent session links, status, relative start times, and completed durations. Task checkboxes and the latest result appear below; previous results are collapsed. Full transcripts stay in the linked sessions.
 
@@ -472,9 +547,22 @@ The plugin starts it and closes it with Nitro, and serves drain status at
 `/api/drain`, configurable with `drainRoute`. SIGUSR2 starts a drain.
 Use the runtime drain CLI before replacing the process.
 
+On SIGTERM or SIGINT, the plugin first calls `host.close()`. The host stops
+admission and waits only for the invocations it tracks. HTTP stays up during this
+drain, so webhooks still reach durable queues. Then the plugin runs the server's
+own signal listeners, which close HTTP, and calls `process.exit(0)`. It waits at
+most 10 seconds for HTTP to close. A second signal does not start more work.
+The Nitro Node server adds its srvx shutdown listeners after plugins run, and
+Nitro has no option to order them after a plugin. The plugin therefore detaches
+the listeners added during startup and calls them after the drain.
+
 `@vite-hub/agent/server/github-inbox` provides a SQLite PR inbox for Node hosts.
-Construct `PullRequestInbox({ path, repositories, filter })`, seed discovered PRs,
-and ingest verified webhook deliveries with `ingest(deliveryId, event, payload)`.
+Construct `PullRequestInbox({ storage, repositories, filter })` with
+`agentState.extension("babysitter")` from `@vite-hub/agent/state/sqlite` to keep
+the inbox tables in the Agent State database, or with `path` for a private
+`node:sqlite` file. `scope` separates inboxes that share one storage. Every
+method is asynchronous. Seed discovered PRs and ingest verified webhook
+deliveries with `ingest(deliveryId, event, payload)`.
 `filter` uses `GitHubPullRequestFilter` from the GitHub Channel. PR properties apply
 to discovery and claims. Actor and action rules gate new webhook admissions only;
 existing PRs still receive lifecycle evidence that can cancel their active work.
@@ -488,6 +576,10 @@ The inbox binds the wait to the current head and excludes it from claims until
 `wake(observedSnapshot, evidenceKey)` sees changed evidence. See the
 [host reconciliation contract](../../docs/content/docs/reference/github-inbox-waits.md).
 `recoverLeases()` releases expired leases only, including after a process restart.
+Claims, recovery, head matching and `summary()` read indexed columns, so they do
+not parse every stored snapshot. `pruneDeliveries()` drops delivery payloads after
+7 days and delivery IDs after 30 days. `importLegacyFile(path)` copies an older
+`node:sqlite` inbox file once, clears its leases, and leaves the file unchanged.
 `createClaimStopCheck()` checks lease, PR state, and head changes, and accepts a
 repair push only when the provider Git HEAD proves the new head. Call `close()`
 when the host stops. `snapshotPrompt()` serializes the retained feedback with
@@ -518,7 +610,7 @@ reviews. The operation never approves, merges directly, or deletes a branch.
 If automatic repository branch deletion could affect open child PRs, it blocks.
 API failures propagate without a direct-merge fallback.
 
-`host.channel({ activity: true })` shares a GitHub host's credentials and identity.
+`host.channel({ activity: true })` is `github({ activity: true, app: host })`. It shares the host's credentials and identity.
 A provider `env` resolver can call `host.environment()` inside
 `withPullRequestCheckout()`. The environment binds to that callback's checkout,
 including concurrent callbacks. Await the entire agent run before returning.
@@ -582,7 +674,7 @@ agent: {
 
 The generated `/api/_vitehub/ready` route supports GET and HEAD, returning 503 until preparation succeeds. `requireNonEmpty` rejects an empty prepared Workspace; it is opt-in. Set `route` to change the readiness path.
 
-`agentEvlogPlugin(telemetry, reporters)` from `@vite-hub/agent/evlog` owns Nitro request IDs, drain and error hooks, reporter lifecycle, and shutdown flush. See the [evlog guide](https://vitehub.dev/docs/agents/evlog) for host drain reuse and background delivery.
+The observability host plugin owns Nitro request IDs, drain and error hooks, papercut replay, and shutdown flush. See the [Observability guide](https://vitehub.dev/docs/agents/observability) for host drain reuse and background delivery.
 
 Set `transcripts: { retention: "forever" }` in `createLibsqlAgentState()` to preserve Chat transcript rows before startup expiry cleanup and ignore future transcript TTLs. Other state still expires normally. This cannot recover rows already deleted.
 
@@ -647,7 +739,8 @@ Without a template, extending instructions replaces the inherited document.
 Import `babysitter` from `@vite-hub/agent/presets/babysitter`, or
 `vite-hub/agent/presets/babysitter` in an application. It repairs selected pull
 requests, addresses human and bot review feedback, and parks while checks run.
-Its only workflow options are the GitHub Channel `filter` and `autoMerge`:
+Its workflow options are the GitHub Channel `filter`, the provider `driver`, and
+the `merge` policy:
 
 ```ts
 import { defineAgent } from "@vite-hub/agent"
@@ -658,11 +751,46 @@ export default defineAgent({
   presets: { babysitter },
   options: {
     filter: { labels: { allow: ["repair"], deny: ["do-not-touch"] } },
-    autoMerge: false,
+    driver: "codex",
+    merge: false,
   },
   driver: { model: "your-codex-model" },
 })
 ```
+
+`driver` selects the provider Driver that repairs each checkout: `"codex"` (the
+default) or `"claude-code"`. Set its model and other provider settings with the
+ordinary `driver` field. Model and custom run Drivers cannot repair a checkout.
+
+`merge` defaults to `false`:
+
+| Value | Behavior |
+| --- | --- |
+| `false` | The Babysitter never merges. |
+| `"auto"` | The worker may call `requestAutoMerge`, which requests GitHub native auto-merge. |
+| `"direct"` | Before a model pass, the host squash-merges a PR that is ready. |
+| `{ strategy: "direct", method, ready }` | Direct merge with `"squash"`, `"merge"`, or `"rebase"`, and an optional `ready` hook. |
+
+A direct merge needs passing required checks, completed and successful
+current-head checks and statuses, loaded and resolved review threads, a
+non-draft PR, and GitHub's live `mergeable_state: "clean"` on the default
+branch. The merge request pins the head SHA, so a concurrent push makes GitHub
+reject it. `ready({ repository, number, head, snapshot, requiredChecks })` can
+add a policy, such as a required approval check; return `true` or a reason. Any
+other result runs a normal repair pass. `autoMerge: true` is a deprecated alias
+for `merge: "auto"`.
+
+After a repair push, the pass may continue for 3 minutes, then ends. The PR
+waits on the pushed head. Later events on a waiting PR start a pass only when
+they need one: new human or bot feedback, a new failing check, a merge conflict,
+or an unresolved review thread. Pending checks, the pushed head's synchronize
+event, and repeated results for failures the pass already saw keep it waiting.
+With `merge: "direct"`, passing required checks also wake it, so the host can
+merge. `reviewChecks` lists check names, such as a review bot's check, that keep
+a PR waiting while they run. A PR that ends three passes on one head without a
+push waits for new evidence. A stacked PR whose parent merged into the default
+branch is retargeted to the default branch. A provider rate limit is retried
+three times; after that, the host admits no PR work for an hour.
 
 Colocated `instructions.md` fills the preset's instruction slot without adding
 headings. Explicit `driver.instructions` replaces that slot. Use
@@ -673,18 +801,22 @@ SQLite inbox, bounded GitHub discovery, claims, checkout preparation, repair
 passes and wake handling. Provide a configured Agent, GitHub host, inbox path,
 repositories and concurrency. In a ViteHub application, obtain the Agent through
 `getAgentFromRegistry("babysitter")` so discovery applies its colocated files. The Vite plugin binds `#vitehub/agent/registry` in Vite and Nitro to generated lazy loaders. Build output embeds colocated instructions and skills, so lookup works before any webhook handler loads and does not read Markdown from the deployed filesystem. Outside a ViteHub build, pass an explicit registry to `getAgentFromRegistry(name, registry)`.
+Pass `agentName: "babysitter"` to `createBabysitterRuntime` when the discovered
+definition has no explicit `name`. This selects its configured origin when
+`vitehub({ publicUrl })` uses the per-Agent function form. The runtime defaults
+to the definition's `name`; an explicit `publicUrl` takes precedence.
 Connect `reconcile` to a Process Agent Host, `inbox.ingest` to the signed GitHub
 webhook receiver, and `workload` to health inspection. Keep credentials, provider
 settings, host capacity, telemetry and deployment resources in the application.
 Configure the GitHub host identity with a login and email for repair commits.
 Only its author and committer identity fields pass to the worker; credentials do not.
 
-Each pass uses a disposable Codex workspace with edit permission. GitHub tokens
+Each pass uses a disposable provider workspace with edit permission. GitHub tokens
 stay on the host. Tools provide PR-bound log reads, repair pushes, comments,
-metadata updates and thread resolution. `autoMerge: false` omits the merge tool
-and the host rejects auto-merge operations. Enabling it requests GitHub native
-auto-merge subject to current PR admission and repository checks and reviews.
-There is no direct merge or branch-deletion fallback.
+metadata updates and thread resolution. Unless `merge` is `"auto"`, the worker
+has no merge tool and the host rejects auto-merge operations. With `"auto"`, it
+requests GitHub native auto-merge subject to current PR admission and repository
+checks and reviews. Workers never merge directly or delete branches.
 
 ### Bound repeated PR work
 

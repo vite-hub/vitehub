@@ -43,8 +43,13 @@ export function resolveConsoleRouteName(currentRouteName: string | symbol | null
     "vitehub-console-connections",
     "vitehub-console",
   ].find(
-    (routeName) => currentRouteName.startsWith(routeName),
+    (routeName) => currentRouteName === routeName || currentRouteName.startsWith(`${routeName}___`),
   )
+
+  if (!consoleRouteName && currentRouteName.startsWith("vitehub-console-")) {
+    const decoration = currentRouteName.indexOf("___")
+    return `${targetRouteName}${decoration === -1 ? "" : currentRouteName.slice(decoration)}`
+  }
 
   return `${targetRouteName}${consoleRouteName ? currentRouteName.slice(consoleRouteName.length) : ""}`
 }

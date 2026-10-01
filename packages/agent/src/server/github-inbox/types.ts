@@ -9,7 +9,8 @@ const timestampFields = {
 }
 const reference = v.object({
   sha: v.optional(v.string()), ref: v.optional(v.string()),
-  repo: v.nullish(v.object({ full_name: v.string() })),
+  // Keep owner and default_branch: stack and merge decisions read them.
+  repo: v.nullish(v.looseObject({ full_name: v.string(), default_branch: v.optional(v.string()), owner: v.nullish(v.looseObject({ login: v.optional(v.string()) })) })),
 })
 const pullRequestSchema = v.looseObject({
   number: v.pipe(v.number(), v.integer(), v.minValue(1)),
@@ -30,7 +31,7 @@ interface GitHubTimestamps {
   updated_at?: string | null; updatedAt?: string | null; created_at?: string | null; createdAt?: string | null
   submitted_at?: string | null; submittedAt?: string | null; completed_at?: string | null; started_at?: string | null
 }
-interface GitHubRef { sha?: string; ref?: string; repo?: { full_name: string } | null }
+interface GitHubRef { sha?: string; ref?: string; repo?: { [key: string]: unknown; full_name: string; default_branch?: string; owner?: { [key: string]: unknown; login?: string } | null } | null }
 export interface GitHubPullRequestRecord extends GitHubTimestamps {
   [key: string]: unknown
   number: number; user?: GitHubActor | null; author?: GitHubActor | null
@@ -62,7 +63,7 @@ const evidenceSchema = v.looseObject({
   state: v.optional(v.string()), name: v.optional(v.string()), status: v.optional(v.string()), conclusion: v.nullish(v.string()),
   head_sha: v.optional(v.string()), sha: v.optional(v.string()), context: v.optional(v.string()),
   description: v.nullish(v.string()), details_url: v.nullish(v.string()), target_url: v.nullish(v.string()),
-  app: v.nullish(v.object({ slug: v.optional(v.string()) })),
+  app: v.nullish(v.object({ id: v.optional(v.number()), slug: v.optional(v.string()) })),
   output: v.optional(v.object({ summary: v.nullish(v.string()), text: v.nullish(v.string()) })),
   pull_requests: v.optional(v.array(v.object({ number: v.pipe(v.number(), v.integer(), v.minValue(1)) }))),
   commit_id: v.optional(v.string()), original_commit_id: v.optional(v.string()), commit: v.nullish(v.object({ oid: v.string() })),
@@ -77,7 +78,7 @@ export interface GitHubEvidence extends GitHubTimestamps {
   body?: string | null; html_url?: string; url?: string; deleted?: boolean
   state?: string; name?: string; status?: string; conclusion?: string | null
   head_sha?: string; sha?: string; context?: string; description?: string | null; details_url?: string | null; target_url?: string | null
-  app?: { slug?: string } | null; output?: { summary?: string | null; text?: string | null }
+  app?: { id?: number; slug?: string } | null; output?: { summary?: string | null; text?: string | null }
   pull_requests?: { number: number }[]; commit_id?: string; original_commit_id?: string; commit?: { oid: string } | null
   pull_request_review_id?: number; in_reply_to_id?: number; path?: string; line?: number | null
   original_line?: number | null; start_line?: number | null; original_start_line?: number | null; side?: string; start_side?: string | null

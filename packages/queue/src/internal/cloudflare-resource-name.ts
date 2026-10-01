@@ -1,4 +1,4 @@
-import { encodeQueueNameHex } from "./hex.ts"
+import { encodeNameHex } from "@vite-hub/internal/integrations/hex"
 import { queueErrorDiagnostics } from "../error-diagnostics.ts"
 
 const cloudflareQueueNamePrefix = "queue--"
@@ -39,7 +39,7 @@ function createBoundedCloudflareQueueName(name: string, namePrefix: string): str
 }
 
 export function getCloudflareQueueName(name: string, namePrefix = ""): string {
-  const queueName = `${namePrefix}${cloudflareQueueNamePrefix}${encodeQueueNameHex(name)}`
+  const queueName = `${namePrefix}${cloudflareQueueNamePrefix}${encodeNameHex(name)}`
   if (!cloudflareQueueNamePattern.test(queueName)) {
     throw queueErrorDiagnostics.QUEUE_R0002({ message: `Cloudflare queue name ${JSON.stringify(queueName)} must contain only letters, numbers, and dashes, and must start and end with a letter or number.` })
   }

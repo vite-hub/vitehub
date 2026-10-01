@@ -6,13 +6,14 @@ import {
 
 import {
   contributeProviderDeploymentOutput,
+  createDefaultCloudflareOutputRoot,
   createProviderDeploymentOutputGenerationState,
   finalizeProviderDeploymentOutputs,
   isProviderJsonRecord,
   useProviderOutputCatalog,
 } from "@vite-hub/internal/build/deployment-output"
 import { getViteMode } from "@vite-hub/internal/build/mode"
-import { createNoExternalMerger, hasNitroConfigContext, isServerEnvironment, shouldSkipViteProviderBuild } from "@vite-hub/internal/build/vite"
+import { createNoExternalAddition, hasNitroConfigContext, isServerEnvironment, shouldSkipViteProviderBuild } from "@vite-hub/internal/build/vite"
 import { isPlainObject } from "@vite-hub/internal/object"
 import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
 import { resolve } from "node:path"
@@ -23,6 +24,7 @@ import { createKVCloudflareProvisionStep } from "./provision.ts"
 import type { KVViteRuntimeConfig } from "./vite-config.ts"
 import type { KVModuleOptions, ResolvedKVModuleOptions } from "./types.ts"
 import type { ProviderJsonRecord } from "@vite-hub/internal/build/deployment-output"
+import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
 import type { ViteHubCliContributor } from "@vite-hub/internal/cli"
 import type { ProvisionState } from "@vite-hub/internal/provision"
 import type { Plugin, ResolvedConfig } from "vite"
@@ -35,7 +37,7 @@ const UPSTASH_DRIVER_IMPORT_ID = "@vite-hub/kv/runtime/upstash-driver"
 const CLOUDFLARE_KV_RUNTIME_IMPORT_ID = import.meta.url.endsWith(".ts")
   ? "@vite-hub/kv/runtime/cloudflare-kv"
   : new URL("./runtime/cloudflare-kv.js", import.meta.url).href
-const mergeNoExternal = createNoExternalMerger("@vite-hub/kv")
+const noExternalAddition = createNoExternalAddition("@vite-hub/kv")
 const KV_CLOUDFLARE_BINDINGS_FILE = ".vitehub-kv-bindings.json"
 
 export { KV_VIRTUAL_CONFIG_ID, KV_VITE_PLUGIN_NAME, resolveKVViteConfig }
@@ -47,7 +49,7 @@ export interface KVVitePluginAPI {
 
 export type KVVitePlugin = Plugin & {
   api: KVVitePluginAPI
-  vitehub: { cli: () => Promise<ViteHubCliContributor> }
+  vitehub: ViteHubInspectionPluginMetadata & { cli: () => Promise<ViteHubCliContributor> }
   nitro: {
     name: string
     setup: (nitro: { options: NitroCloudflareKVTarget }) => void
@@ -260,6 +262,18 @@ export function hubKv(options?: KVModuleOptions): KVVitePlugin {
         namespaces: [],
         provision: [createKVCloudflareProvisionStep(() => configuredOptions)],
       }),
+      inspect: () => {
+        const config = getConfig()
+        if (!isCloudflareKVConfig(config.kv) || nitroOwned) return
+        const rootDir = resolved?.root ?? process.cwd()
+        return {
+          providerOutput: [{
+            description: "Generated Cloudflare KV worker config",
+            owner: "kv",
+            path: resolve(createDefaultCloudflareOutputRoot(rootDir), "wrangler.json"),
+          }],
+        }
+      },
     },
     nitro: {
       name: "@vite-hub/kv/cloudflare-bindings",
@@ -297,7 +311,7 @@ export function hubKv(options?: KVModuleOptions): KVVitePlugin {
         if (!isServerEnvironment(name, config)) return
 
         return {
-          resolve: { noExternal: mergeNoExternal(config.resolve?.noExternal) },
+          resolve: { noExternal: noExternalAddition(config.resolve?.noExternal) },
         }
       },
     },

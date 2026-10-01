@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 import { effectScope, reactive } from "vue"
-import { startConsoleAgentInvocation, useConsoleInvocationTarget } from "../src/console/runtime/client/invocation.ts"
+import { deleteConsoleInvocation, startConsoleAgentInvocation, useConsoleInvocationTarget } from "../src/console/runtime/client/invocation.ts"
 import { requestConsole } from "../src/console/runtime/client/request.ts"
 
 vi.mock("../src/console/runtime/client/request.ts", () => ({ requestConsole: vi.fn() }))
@@ -52,6 +52,12 @@ describe("Console invocation input", () => {
     } finally {
       scope.stop()
     }
+  })
+
+  it("deletes an invocation through the invocation operation", async () => {
+    vi.mocked(requestConsole).mockReset().mockResolvedValueOnce({ id: "team/run", outcome: "deleted" })
+    await deleteConsoleInvocation("/api/_vitehub/console/invocations", "team/run")
+    expect(requestConsole).toHaveBeenCalledExactlyOnceWith("/api/_vitehub/console/invocations/team%2Frun", { body: { action: "delete" }, method: "POST" })
   })
 
   it("does not start an invocation when an upload fails", async () => {

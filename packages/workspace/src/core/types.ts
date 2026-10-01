@@ -599,6 +599,17 @@ export interface Logger {
 }
 
 export interface LocalWorkspaceStoreOptions {
+  /**
+   * `"git"` hides `.git` and paths that Git ignores, such as dependencies and build output, from
+   * listings, snapshots, and diffs. The root must be a Git checkout.
+   */
+  ignore?: "git"
+  /**
+   * Path lock scope. `"filesystem"` (default) coordinates every process that shares the root
+   * through lock directories under `.vitehub/locks`. `"process"` keeps the same per-path read and
+   * write locks in memory. Use it only when one process owns the root.
+   */
+  locks?: "filesystem" | "process"
   provider?: "local"
   root?: string
 }

@@ -1,18 +1,37 @@
 ---
 title: Database
-description: Expose guarded database schema, query, and mutation tools to an Agent.
+description: Give an Agent guarded SQL query and schema tools and, in write modes, one mutation tool.
 navigation.title: Database
 navigation.order: 90
 navigation.group: Runtime primitives
 icon: i-lucide-database
 ---
 
-`db()` adds model-facing tools for a configured ViteHub Database primitive.
-It exposes read-only query and schema inspection by default, then adds SQL mutation only when write modes allow it.
-Cloudflare and Vercel hosted Agent routes receive the Database primitive automatically when the app configures `hubDb()`.
+`db()` gives an Agent the `db_query` tool for one read-only SQL statement and the `db_schema` tool for schema inspection. When `mode` or `schemaMode` is `"write"`, it also gives the `db_exec` tool for one mutation statement with a rationale.
+All tools call the configured [Database primitive](/docs/server-primitives/database).
+The Database primitive page covers application code. This page covers the Agent tools.
 
-The Capability contributes `db_query` for one read-only SQL statement and `db_schema` for schema inspection.
-When data or schema write modes allow it, it also contributes `db_exec` for one mutation statement with a rationale.
+## Configure database access
+
+Attach the Database Capability in read mode until the Agent needs guarded mutations.
+
+```ts [server/agents/support.ts]
+import { defineAgent } from 'vite-hub/agent'
+import { db } from 'vite-hub/agent/capabilities'
+
+export default defineAgent({
+  driver: { model },
+  capabilities: [
+    db({ mode: 'read' }),
+  ],
+})
+```
+
+To allow data changes but not DDL, set `mode: 'write'` and keep `schemaMode: 'read'`.
+
+```ts [server/agents/support.ts]
+db({ mode: 'write', policy: 'require-approval' })
+```
 
 ## Agent-visible tool contract
 
@@ -28,65 +47,59 @@ These definitions are resolved from the real Capability during the docs build. T
 ::agent-capability-tools{name="db" variant="write"}
 ::
 
-## Configure database access
-
-Attach DB in read mode until the Agent needs guarded mutations.
-The Database primitive must already be configured by the app.
-
-```ts [server/agents/support.ts]
-import { defineAgent } from 'vite-hub/agent'
-import { db } from 'vite-hub/agent/capabilities'
-
-export default defineAgent({
-  driver: { model },
-  capabilities: [
-    db({ mode: 'read' }),
-  ],
-})
-```
-
 ## How database access works
 
-ViteHub selects the configured database handle and enforces the single-statement SQL guardrail.
-`db_query` accepts one read-only query.
-`db_exec` rejects read-only SQL, requires a rationale, and separates data mutations from schema changes through `mode` and `schemaMode`.
+When the Agent Invocation resolves its tools, the Capability resolves the database handle. With `database`, it calls `database(name)` on the handle.
+
+- `db_query` accepts one `SELECT`, one `WITH ... SELECT`, or one read-only introspection `PRAGMA` (`table_info`, `table_xinfo`, `table_list`, `index_list`, `index_info`, `index_xinfo`, `foreign_key_list`, `foreign_key_check`). It calls `query(statement)`.
+- `db_schema` takes no input. It returns `{ database, schema }`, where `schema` comes from the `schema` value or `schema()` function on the database handle.
+- `db_exec` requires a non-empty `rationale` and exactly one statement. It rejects read-only SQL. DDL (`ALTER`, `CREATE`, `DROP`, `REINDEX`, `VACUUM`) requires `schemaMode: 'write'`. Data mutations (`INSERT`, `UPDATE`, `DELETE`, `REPLACE`) require `mode: 'write'`. It rejects other statements. It calls `exec(statement)`.
+
+The guard rejects multi-statement input before the statement reaches the database handle. `WITH` statements are classified by their final statement keyword.
 
 ## Requirements
 
-`db()` requires a configured `db` primitive.
-The primitive must expose raw string `query()` for reads and `exec()` for mutations.
+- Configure the Database primitive. Generated Agent routes pass `agentDb` from `@vite-hub/database/drizzle` to the Capability when the Database Vite integration (`hubDb()`) is active.
+- Without a `db` handle, the Capability imports `agentDb` from an installed `@vite-hub/database/drizzle` package. If that import fails, tool resolution fails and the Agent Driver does not receive Database tools.
+- The database handle must expose raw string `query()` for `db_query` and `exec()` for `db_exec`.
+- A `database` value other than `"default"` requires a handle that exposes `database()`. Otherwise the tools fail with `Database "<name>" is not available.`
 
-Mutation tools require write mode.
-DDL requires schema write mode.
-Enabled mutations are allowed by default, while the single-statement, rationale, and SQL-kind checks still apply.
-Set `policy: 'require-approval'` or `policy: 'deny'` when the product needs an additional gate.
+## Security and approval
+
+- `db_query` and `db_schema` have no policy gate. The Agent can read every table that the database handle can read.
+- `db_exec` is present only when `mode` or `schemaMode` is `"write"`. Each mode allows only its own kind of statement.
+- The guard classifies statements by their keywords. It is not a database permission system. Use database credentials with the smallest set of privileges that the Agent needs.
+- `policy` applies only to `db_exec`. The single-statement, rationale, and SQL-kind checks run also when `policy` allows the call.
+- `policy` accepts `'allow'`, `'require-approval'`, `'deny'`, `'retryable-failure'`, or a function that receives `{ name, input }` and returns one of these values.
+- Without `policy`, an enabled `db_exec` call runs when the Agent calls it.
+- `'require-approval'` stops the call with `APPROVAL_REQUIRED` and an Approval Request. The request input contains the statement and the rationale. See [Runtime policy, approvals, and traces](/docs/concepts/runtime-policy-approvals-and-traces).
 
 ## Driver support
 
 | Agent Driver | Support |
 | --- | --- |
-| Model-backed | Receives `db_query`, `db_schema`, and write tools when enabled. |
-| Provider-backed | Receives Database tools through the provider MCP bridge. |
-| Custom-run-backed | The configured primitive is available through runtime context; `driver.run` decides how to use it. |
+| Model-backed | Receives `db_query`, `db_schema`, and `db_exec` when a write mode is enabled. |
+| Provider-backed | Receives the same tools through the provider MCP bridge. |
+| Custom-run-backed | `driver.run` receives the tools in `context.tools` and decides whether to call them. |
 
 ## Verify database access
 
-Run `vitehub agent info --agent <name> --json` and inspect the resolved tool list.
-Confirm that read mode shows `db_query` and `db_schema`. A write-capable configuration also lists `db_exec` with the configured policy.
-
-Run a multi-statement SQL input during development.
-Confirm that the Capability rejects it before it reaches the Database primitive.
+1. Start the Vite development server.
+2. Run `vitehub agent info --agent support --json`. Confirm that `tools` contains an entry with `name: "db"`, and that `capabilities` contains `{ id: "db", metadata: { schemaMode: "read" } }`.
+3. Run `vitehub agent dev "How many users are there?" --agent support`. Confirm that the output shows a `[tool] db_query` call.
+4. Ask the Agent to run two statements in one `db_query` call. Confirm that the tool rejects the input before it reaches the database.
 
 ## Options
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `database` | `string` | `"default"` | Selects a named database when the DB primitive supports `database()`. |
+| `database` | `string` | `"default"` | Selects a named database through `database()` on the database handle. |
 | `mode` | `"read" \| "write"` | `"read"` | Allows data mutation through `db_exec` when set to `"write"`. |
 | `schemaMode` | `"read" \| "write"` | `"read"` | Allows DDL through `db_exec` when set to `"write"`. |
-| `policy` | `AgentToolPolicyDecision \| function` | `"allow"` | Policy for `db_exec`. |
+| `policy` | `AgentToolPolicyDecision \| (context) => AgentToolPolicyDecision \| Promise<AgentToolPolicyDecision>` | none (calls run) | Policy for `db_exec`. |
 
 ## Related pages
 
 - [Database primitive](/docs/server-primitives/database)
 - [Official capabilities](/docs/capabilities/official-capabilities)
+- [Runtime policy, approvals, and traces](/docs/concepts/runtime-policy-approvals-and-traces)

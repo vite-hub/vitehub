@@ -1,6 +1,6 @@
 import type { SandboxDefinitionOptions, VercelSandboxProviderOptions } from '../../module-types'
 import { resolveVercelBox } from '@vite-hub/box/_internal/vercel'
-import { readNonEmptyEnv } from '../../internal/shared/env'
+import { readEnv } from '@vite-hub/internal/env'
 
 type SandboxOptions = {
   local: SandboxDefinitionOptions
@@ -14,9 +14,9 @@ function readConfigCredential(value: string | undefined) {
 
 function resolveEnvCredentials() {
   const env = typeof process !== 'undefined' ? process.env : {}
-  const token = readNonEmptyEnv(env, 'VITE_SANDBOX_TOKEN', 'VERCEL_TOKEN')
-  const teamId = readNonEmptyEnv(env, 'VITE_SANDBOX_TEAM_ID', 'VERCEL_TEAM_ID')
-  const projectId = readNonEmptyEnv(env, 'VITE_SANDBOX_PROJECT_ID', 'VERCEL_PROJECT_ID')
+  const token = readEnv(env, 'VITE_SANDBOX_TOKEN', 'VERCEL_TOKEN')
+  const teamId = readEnv(env, 'VITE_SANDBOX_TEAM_ID', 'VERCEL_TEAM_ID')
+  const projectId = readEnv(env, 'VITE_SANDBOX_PROJECT_ID', 'VERCEL_PROJECT_ID')
 
   return {
     token,

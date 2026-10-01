@@ -4,6 +4,7 @@ import { dirname, join } from "node:path"
 
 import { VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { resolveConfig } from "vite"
 
 import { CHANNELS_REGISTRY_ID, hubChannels } from "../src/vite.ts"
 
@@ -36,19 +37,31 @@ describe("hubChannels", () => {
     const root = await createTempProject()
     const definition = await writeChannel(root, "server/channels/alerts.ts")
     const plugin = hubChannels()
-    const result = await (plugin.config as unknown as (config: Record<PropertyKey, unknown>) => Promise<Record<string, unknown>>)({
+    const inlineConfig = {
+      configFile: false as const,
+      logLevel: "silent" as const,
+      nitro: {
+        cloudflare: { wrangler: { secrets: { required: ["VITEHUB_TOKEN"] } } },
+        externals: { inline: ["existing-package"], trace: false },
+        plugins: ["/app/plugin.ts"],
+      },
+      plugins: [plugin],
       root,
-      nitro: { externals: { inline: ["existing-package"], trace: false } },
+      ssr: { noExternal: ["existing"] },
       [VITEHUB_NITRO_CONFIG_CONTEXT]: true,
-    })
-    const alias = (result.nitro as { alias: Record<string, string> }).alias
-    const externals = (result.nitro as { externals: { inline: string[], trace: boolean } }).externals
-    const registryFile = alias["#vitehub/channels/registry"]!
+    }
+    const resolved = await resolveConfig(inlineConfig, "build")
+    // SAFETY: Vite keeps the open `nitro` key of the inline config on its resolved config.
+    const nitro = (resolved as typeof resolved & { nitro: { alias: Record<string, string>, cloudflare: { wrangler: { secrets: { required: string[] } } }, externals: { inline: string[], trace: boolean }, plugins: string[] } }).nitro
+    const registryFile = nitro.alias["#vitehub/channels/registry"]!
 
-    expect(externals).toEqual({ inline: ["existing-package", "vite-hub", "@vite-hub/channels"], trace: false })
+    expect(nitro.externals).toEqual({ inline: ["existing-package", "vite-hub", "@vite-hub/channels"], trace: false })
+    expect(nitro.cloudflare.wrangler.secrets.required).toEqual(["VITEHUB_TOKEN"])
+    expect(nitro.plugins).toEqual(["/app/plugin.ts"])
+    expect(resolved.ssr.noExternal).toEqual(["existing", "@vite-hub/channels"])
+    expect(resolved.environments.ssr?.resolve.noExternal).toEqual(["existing", "@vite-hub/channels"])
     await expect(readFile(registryFile, "utf8")).resolves.toContain(JSON.stringify(definition))
 
-    await resolvePlugin(plugin, root)
     const addedDefinition = await writeChannel(root, "server/channels/incidents.ts")
     await (plugin.handleHotUpdate as (context: unknown) => void)({
       file: addedDefinition,

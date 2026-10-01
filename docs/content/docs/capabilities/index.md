@@ -14,6 +14,19 @@ A Capability is not a server primitive.
 Server primitives give trusted app code authority.
 Capabilities decide which operations an Agent Invocation can use.
 
+## Choose the API by its caller
+
+Installing a Server Primitive does not give an Agent access to it. Attach a Capability when the Agent needs that operation.
+
+| | Server Primitive | Capability |
+| --- | --- | --- |
+| Caller | Application server code | An Agent during an Invocation |
+| Access | A documented server import | Selected tools, policy, requirements, or context |
+| Selection | Application code calls it | The Agent Definition or invocation selects it |
+| Model access | None | Only the operations the Capability contributes |
+
+A Capability does not expose the full Runtime Context or unrestricted host access. Its tools, requirements, policy, and metadata define what the Agent can inspect and use. Application code can still call the same Server Primitives through their server APIs.
+
 ## Capability lifecycle
 
 ViteHub applies Capabilities in the order listed or returned by the Agent Definition.

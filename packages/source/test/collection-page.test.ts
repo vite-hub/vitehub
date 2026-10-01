@@ -47,6 +47,16 @@ function mealsCollection() {
 }
 
 describe("Collections", () => {
+  it("exposes the query schema that parseQuery() uses", async () => {
+    const querySchema = v.object({ day: v.optional(v.string()) })
+    const withSchema = defineCollection(async () => [], { cursor: () => 0, cursorSchema: v.number(), querySchema })
+    const withoutSchema = defineCollection(async () => [], { cursor: () => 0, cursorSchema: v.number() })
+
+    expect(withSchema.querySchema).toBe(querySchema)
+    expect(withoutSchema.querySchema).toBeUndefined()
+    await expect(withSchema.parseQuery({ day: ["a", "b"] })).rejects.toThrow()
+  })
+
   it("loads one bounded page, transforms rows, and continues from an opaque cursor", async () => {
     const { collection, load } = mealsCollection()
     const query = await collection.parseQuery({ day: "2026-08-21" })
@@ -127,6 +137,17 @@ describe("Collections", () => {
 
     expect(first.items).toEqual([{ id: "two" }])
     expect(load).toHaveBeenLastCalledWith({ cursor: 2, limit: 2, query: {}, signal: undefined })
+  })
+
+  it("exposes authorize on the Collection and validates it", () => {
+    const authorize = () => true
+    const options = { cursor: (item: { id: number }) => item.id, cursorSchema: v.number() }
+    expect(defineCollection(async () => [{ id: 1 }], { ...options, authorize }).authorize).toBe(authorize)
+    expect(defineCollection(async () => [{ id: 1 }], { ...options, authorize: true }).authorize).toBe(true)
+    expect(defineCollection(async () => [{ id: 1 }], options)).not.toHaveProperty("authorize")
+    // SAFETY: The test deliberately violates the input contract to prove the runtime guard.
+    expect(() => defineCollection(async () => [{ id: 1 }], { ...options, authorize: "yes" as never }))
+      .toThrow("Collection authorize must be true or a function.")
   })
 
   it("rejects malformed cursors and invalid definition limits", async () => {

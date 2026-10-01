@@ -6,7 +6,7 @@ import { getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-en
 import { normalizeKVOptions } from "../config.ts"
 import { kvResult } from "../errors.ts"
 import type { KVOperation, KVResult, KVStorage, KVStoreName, ResolvedKVModuleOptions } from "../types.ts"
-import { createHostedKVStorage, createNamedHostedKVStorage, KVAtomicOperationUnsupportedError, KVStoreConfigurationError, type RuntimeStorage } from "./hosted-storage.ts"
+import { createHostedKVStorage, KVAtomicOperationUnsupportedError, KVStoreConfigurationError, type RuntimeStorage } from "./hosted-storage.ts"
 import { kvErrorDiagnostics } from "../error-diagnostics.ts"
 
 const storagePromises = new Map<string, Promise<RuntimeStorage>>()
@@ -58,11 +58,7 @@ async function resolveHostedConfig(): Promise<false | ResolvedKVModuleOptions | 
 async function resolveStorage(name = "default") {
   const existing = storagePromises.get(name)
   if (existing) return existing
-  const promise = resolveHostedConfig().then(config =>
-    name === "default"
-      ? createHostedKVStorage(config)
-      : createNamedHostedKVStorage(config, name),
-  )
+  const promise = resolveHostedConfig().then(config => createHostedKVStorage(config, name))
   storagePromises.set(name, promise)
   void promise.catch(() => {
     if (storagePromises.get(name) === promise) storagePromises.delete(name)

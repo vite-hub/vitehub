@@ -48,11 +48,7 @@ function deserializeValue(value: unknown) {
   return destr(value)
 }
 
-export function createHostedKVStorage(config: false | ResolvedKVModuleOptions | undefined): RuntimeStorage {
-  return createNamedHostedKVStorage(config, "default")
-}
-
-export function createNamedHostedKVStorage(config: false | ResolvedKVModuleOptions | undefined, name: string): RuntimeStorage {
+export function createHostedKVStorage(config: false | ResolvedKVModuleOptions | undefined, name = "default"): RuntimeStorage {
   const resolved = assertHostedConfig(config)
   const stores = resolved.stores || { default: resolved.store }
   const store = stores[name]

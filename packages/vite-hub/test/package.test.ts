@@ -12,6 +12,8 @@ import * as ownerAgent from "@vite-hub/agent";
 import * as ownerCapabilities from "@vite-hub/agent/capabilities";
 import * as ownerAgentEve from "@vite-hub/agent/eve";
 import * as ownerAgentMcp from "@vite-hub/agent/mcp";
+import * as ownerBoxSsh from "@vite-hub/box/ssh";
+import * as frameworkBoxSsh from "vite-hub/box/ssh";
 import * as ownerAgentProcessRuntime from "@vite-hub/agent/runtime/process";
 import * as ownerAgentVite from "@vite-hub/agent/vite";
 import * as ownerAgentVue from "@vite-hub/agent/vue";
@@ -31,6 +33,7 @@ import * as frameworkAgentVite from "vite-hub/agent/vite";
 import * as frameworkAgentVue from "vite-hub/agent/vue";
 import { defineConsoleAuth } from "vite-hub/console/auth";
 import { defineConsoleAuthClient } from "vite-hub/console/auth/client";
+import { handleCloudflareAccessConsoleRequest } from "vite-hub/console/auth/cloudflare-access";
 import { createInlineConsoleAuth } from "vite-hub/console/auth/inline";
 import frameworkAuthHandler from "vite-hub/auth/server";
 import * as frameworkAuthVue from "vite-hub/auth/vue";
@@ -73,6 +76,7 @@ describe("Console Auth package exports", () => {
     expect(typeof defineConsoleAuth).toBe("function");
     expect(typeof defineConsoleAuthClient).toBe("function");
     expect(typeof createInlineConsoleAuth).toBe("function");
+    expect(typeof handleCloudflareAccessConsoleRequest).toBe("function");
   });
 });
 
@@ -91,7 +95,6 @@ const lowLevelOwnerExports = new Set([
   "@vite-hub/agent/server/workspace",
   "@vite-hub/blob/config",
   "@vite-hub/blob/errors",
-  "@vite-hub/box/ssh",
   "@vite-hub/database/config",
   "@vite-hub/env/seal",
   "@vite-hub/kv/errors",
@@ -99,6 +102,8 @@ const lowLevelOwnerExports = new Set([
 ]);
 
 const generatedRuntimeOwnerExports = new Set([
+  "@vite-hub/agent/observability/host",
+  "@vite-hub/agent/observability/posthog",
   "@vite-hub/agent/runtime/empty-registry",
   "@vite-hub/agent/runtime/workflow",
   "@vite-hub/blob/runtime/cloudflare-vite",
@@ -189,6 +194,8 @@ describe("framework package contract", () => {
       ownerAgentProcessRuntime.createProcessAgentCapacity,
     );
     expect(frameworkCapabilities.email).toBe(ownerCapabilities.email);
+    expect(frameworkBoxSsh.serveSsh).toBe(ownerBoxSsh.serveSsh);
+    expect(frameworkBoxSsh.sshLaunch).toBe(ownerBoxSsh.sshLaunch);
     expect(frameworkCapabilities.executor).toBe(ownerCapabilities.executor);
     expect(frameworkCapabilities.workspaceShell).toBe(ownerCapabilities.workspaceShell);
     expect(frameworkAgentMcp.remoteMcpServer).toBe(ownerAgentMcp.remoteMcpServer);
@@ -238,6 +245,7 @@ describe("framework package contract", () => {
       "./console",
       "./console/auth",
       "./console/auth/client",
+      "./console/auth/cloudflare-access",
       "./console/auth/inline",
       "./console/blob",
       "./console/database",
@@ -617,12 +625,10 @@ describe("framework package contract", () => {
       "utf8",
     );
     expect(consoleKV).toContain("loadedStore.value === store");
-    expect(existsSync(`${packageRoot}/dist/console/runtime/pages/workflows.vue`)).toBe(true);
-    expect(existsSync(`${packageRoot}/dist/console/runtime/pages/queues.vue`)).toBe(true);
-    expect(existsSync(`${packageRoot}/dist/console/runtime/pages/rate-limits.vue`)).toBe(true);
-    expect(existsSync(`${packageRoot}/dist/console/runtime/pages/schedules.vue`)).toBe(true);
-    expect(existsSync(`${packageRoot}/dist/console/runtime/pages/sandboxes.vue`)).toBe(true);
-    expect(existsSync(`${packageRoot}/dist/console/runtime/pages/workspaces.vue`)).toBe(true);
+    expect(existsSync(`${packageRoot}/dist/console/runtime/pages/section.vue`)).toBe(true);
+    for (const page of ["workflows", "queues", "rate-limits", "schedules", "sandboxes", "workspaces"]) {
+      expect(existsSync(`${packageRoot}/dist/console/runtime/pages/${page}.vue`)).toBe(false);
+    }
     expect(
       existsSync(`${packageRoot}/dist/console/runtime/components/console-definitions.vue`),
     ).toBe(true);
@@ -701,12 +707,9 @@ describe("framework package contract", () => {
     expect(consoleClient).toContain("/blob");
     expect(consoleClient).toContain("/databases");
     expect(consoleClient).toContain("/kv");
-    expect(consoleClient).toContain("/workflows");
-    expect(consoleClient).toContain("/queues");
-    expect(consoleClient).toContain("/rate-limits");
-    expect(consoleClient).toContain("/schedules");
-    expect(consoleClient).toContain("/sandboxes");
-    expect(consoleClient).toContain("/workspaces");
+    // Owner-contributed sections get their routes from the navigation response at runtime.
+    expect(consoleClient).toContain(".addRoute(");
+    expect(consoleClient).toContain(".hasRoute(");
     expect(consoleClient).toContain("currentRoute.value");
     const consoleCssFiles = globSync("dist/console/runtime/public/console/console-*.css", {
       cwd: packageRoot,
@@ -718,6 +721,17 @@ describe("framework package contract", () => {
     expect(consoleCss).toContain("vitehub-console");
     expect(consoleCss).toContain("--ui-bg:#fdfdfd");
     expect(consoleCss).toContain("--ui-text:#27272a");
+    // The blocking stylesheet and entry script exclude KaTeX fonts and the full Lucide set.
+    expect(consoleCss).not.toContain("KaTeX_");
+    expect(consoleClient).not.toContain('"alarm-clock-check":{');
+    const consoleMathCssFiles = globSync("dist/console/runtime/public/console/assets/katex-*.css", { cwd: packageRoot });
+    expect(consoleMathCssFiles).toHaveLength(1);
+    const consoleMathCss = readFileSync(`${packageRoot}/${consoleMathCssFiles[0]}`, "utf8");
+    expect(consoleMathCss).toContain("data:font/woff2;base64,");
+    expect(consoleMathCss).not.toMatch(/data:font\/(?:woff|ttf);/);
+    expect(
+      globSync("dist/console/runtime/public/console/chunks/icons-*.js", { cwd: packageRoot }).map(file => readFileSync(`${packageRoot}/${file}`, "utf8")).join(""),
+    ).toContain('"alarm-clock-check":{');
     expect(
       globSync("dist/console/runtime/public/console/chunks/*.js", { cwd: packageRoot }).length,
     ).toBeGreaterThan(0);
@@ -771,7 +785,7 @@ describe("framework package contract", () => {
       if (!Array.isArray(handlers) || !Array.isArray(publicAssets)) {
         throw new TypeError("Expected the distributed Console Nitro configuration.");
       }
-      expect(handlers).toHaveLength(7);
+      expect(handlers).toHaveLength(9);
       expect(handlers.map((registration) => Reflect.get(Object(registration), "route"))).toEqual([
         "/api/_vitehub/console/status",
         "/api/_vitehub/console/usage",
@@ -780,6 +794,8 @@ describe("framework package contract", () => {
         "/api/_vitehub/console/client.js",
         "/_vitehub/rpc/**",
         "/_vitehub/env/manage",
+        "/_vitehub/channels/replay",
+        "/_vitehub/schedules/run",
       ]);
       for (const registration of handlers) {
         const handler = Reflect.get(Object(registration), "handler");

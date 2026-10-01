@@ -281,6 +281,30 @@ describe("Capability inspection snapshots", () => {
     expect(execute).toHaveBeenCalledTimes(2)
   })
 
+  it.each(["content", "metadata"] as const)("records declared tool titles and icons in %s journals", async (mode) => {
+    const response = await model().doGenerate({ prompt: [] })
+    const languageModel = new MockLanguageModelV3({ doGenerate: [
+      { ...response, content: [{ type: "tool-call", toolCallId: "meal-call", toolName: "search_meals", input: "{}" }], finishReason: { raw: "tool_calls", unified: "tool-calls" } },
+      response,
+    ] })
+    const invocations = journal(mode)
+    await runAgent(defineAgent({ cli: { capabilities: false }, capabilities: [defineCapability({
+      id: "meals",
+      tools: { search_meals: { name: "search_meals", description: "Search logged meals.", execute: async () => "Found", icon: "i-lucide-utensils", title: "Searched meals" } },
+    })], driver: { model: languageModel }, invocations }), runtime(`tool-display-${mode}`), { prompt: "Search" })
+    const record = await invocations.getByRunId(`tool-display-${mode}`)
+    const tools = mode === "content"
+      ? [{ name: "search_meals", capabilityId: "meals", description: "Search logged meals.", icon: "i-lucide-utensils", label: "Searched meals" }]
+      : [{ name: "search_meals", capabilityId: "meals", icon: "i-lucide-utensils", label: "Searched meals" }]
+    expect(configuration(record)).toMatchObject({ tools })
+    if (mode === "metadata") expect(JSON.stringify(configuration(record))).not.toContain("Search logged meals.")
+    const toolEvents = record?.observations.filter(entry => entry.attributes?.["tool.name"] === "search_meals") ?? []
+    expect(toolEvents.length).toBeGreaterThan(0)
+    // Per-call titles can hold provider content, so the journal gates them; the catalog label stays.
+    for (const entry of toolEvents) expect(entry.attributes?.["content.omitted"]).toContain("tool.title")
+    expect(languageModel.doGenerateCalls[0]?.tools).toEqual([expect.not.objectContaining({ icon: expect.anything() })])
+  })
+
   it("keeps inspection content out of metadata-only journals", async () => {
     const invocations = journal("metadata")
     await runAgent(defineAgent({ capabilities: [title({ execute: () => "Private result" })], driver: { run: () => "Done" }, invocations }), runtime("metadata-inspection"), { prompt: "Private input" })

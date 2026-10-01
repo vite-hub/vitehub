@@ -1,5 +1,7 @@
 export { PullRequestInbox, normalizePullRequest, isFeedback, pullRequestFilterContext } from './github-inbox/store.ts'
-export type { PullRequestInboxOptions, Snapshot, SnapshotPatch, Claim } from './github-inbox/store.ts'
+export type { PullRequestInboxOptions, Snapshot, SnapshotPatch, Claim, GitHubInboxSummary } from './github-inbox/store.ts'
+export { createNodeSqliteInboxStorage } from './github-inbox/storage.ts'
+export type { PullRequestInboxStorage, PullRequestInboxExecutor, PullRequestInboxRow } from './github-inbox/storage.ts'
 export type { GitHubPullRequestRecord, GitHubEvidence, GitHubReviewThread, GitHubDelivery } from './github-inbox/types.ts'
 export { readSnapshot, hydrateSnapshot, readPullRequestThreads, reconcileOneSnapshot } from './github-inbox/snapshot-sync.ts'
 export type { ReadGitHubSnapshot, ReadThreads, ReadGraphql } from './github-inbox/snapshot-sync.ts'

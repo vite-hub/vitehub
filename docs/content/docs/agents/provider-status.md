@@ -19,6 +19,8 @@ A result includes `agent`, `provider`, `checkedAt`, `stale`, `installed`, `authe
 
 Readiness is evidence at `checkedAt`, not a guarantee that a later model request succeeds. Console shares concurrent probes for each Agent Definition, caches results for 30 seconds, and aborts probes after 15 seconds. A failed refresh preserves previous evidence with `stale: true` and `readiness: "unknown"`.
 
+The built-in Drivers also keep each probe result for 30 seconds per Agent Definition. Results are grouped by credential source when `driver.credentials` is set, and by the host account otherwise. An invocation preflight in that window reuses the result and does not start a second probe.
+
 Inspection resolves the same Driver credentials, credential profile, environment, and launcher as invocations. Provider resolvers receive `purpose: "inspection"` and no actor, invoker, or mounted Workspace. Resolvers that need those invocation fields must handle their absence. A custom launcher receives a temporary working directory and no tool environment requirements. Credential files and launcher files are released after the probe exits.
 
 Raw provider diagnostics, account emails, and credentials are excluded from Console status responses. Operational liveness endpoints remain application-owned.

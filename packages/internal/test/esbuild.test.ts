@@ -22,6 +22,57 @@ afterEach(async () => {
 })
 
 describe("bundleEsmEntry", () => {
+  it("keeps mounted Console links isolated across concurrent provider builds", async () => {
+    const { contributeProviderDeploymentOutput, finalizeProviderDeploymentOutputs, useProviderOutputCatalog } = await import("../src/build/deployment-output.ts")
+    const runtime = resolve(import.meta.dirname, "../../runtime/src/public-url.ts")
+    const builds = await Promise.all(["one", "two", "unconfigured"].map(async (name) => {
+      const root = await createTempDir()
+      const entry = resolve(root, "entry.mjs")
+      await writeFile(entry, `import { resolvePublicUrl, consoleInvocationUrl } from ${JSON.stringify(runtime)}
+export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.example.com", "bot", "run/1")
+`)
+      const catalog = useProviderOutputCatalog({
+        define: name === "unconfigured" ? {} : {
+          __VITEHUB_PUBLIC_URL__: JSON.stringify({ url: `https://${name}.example.com` }),
+          __VITEHUB_APP_BASE_URL__: JSON.stringify(`/${name}/portal/`),
+        },
+      })
+      contributeProviderDeploymentOutput(catalog, {
+        owner: "agent",
+        rootDir: root,
+        write: async ({ write }) => await write({
+          rootDir: root,
+          clientOutDir: "dist",
+          cloudflare: {
+            bundleEntry: entry,
+            bundleOptions: { format: "esm", platform: "neutral" },
+            bundleOutfileName: "index.mjs",
+            outputRoot: resolve(root, "cloudflare"),
+            wranglerConfig: { name: "agent", main: "index.mjs" },
+          },
+          vercel: {
+            bundleEntry: entry,
+            bundleOptions: { format: "esm", platform: "node" },
+            outputRoot: resolve(root, "vercel"),
+          },
+          netlify: {
+            functions: [{ bundleEntry: entry, bundleOptions: { format: "esm", platform: "node" }, functionName: "agent" }],
+          },
+        }),
+      })
+      return { name, root, catalog }
+    }))
+    await Promise.all(builds.map(async ({ catalog }) => await finalizeProviderDeploymentOutputs(catalog)))
+    for (const { name, root } of builds) {
+      const expected = name === "unconfigured"
+        ? "https://fallback.example.com/_vitehub/agents/bot/invocations/run%2F1"
+        : `https://${name}.example.com/${name}/portal/_vitehub/agents/bot/invocations/run%2F1`
+      for (const file of [".netlify/v1/functions/agent.mjs", "cloudflare/index.mjs", "vercel/functions/__server.func/index.mjs"]) {
+        expect((await import(pathToFileURL(resolve(root, file)).href)).url).toBe(expected)
+      }
+    }
+  }, 30_000)
+
   it("applies Vite replacement-string tokens in prefix aliases", async () => {
     const rootDir = await createTempDir()
     const replacementDir = resolve(rootDir, "replacement")

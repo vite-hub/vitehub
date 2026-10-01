@@ -1,10 +1,12 @@
-import { defineMcpToolCapability, sanitizeMcpMetadata } from "../internal/mcp-tool-capability.ts"
+import * as v from "valibot"
+import { defineMcpToolCapability, mcpWarningsContextKey, sanitizeMcpMetadata, withMcpInitializationCompatibility } from "../internal/mcp-tool-capability.ts"
+import { isCallableMember } from "../internal/runtime-type.ts"
 
 import type {
   AgentCapabilityDefinition,
   AgentRuntimeConfig,
 } from "../types.ts"
-import type { McpCapabilityOptions, McpClient, McpClientConfig } from "../mcp/types.ts"
+import type { McpAvailabilityWarning, McpCapabilityOptions } from "../mcp/types.ts"
 import type { WorkspaceName } from "@vite-hub/workspace"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 
@@ -14,20 +16,6 @@ function normalizeMcpToolName(serverName: string, toolName: string) {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
-}
-
-function isMcpClientConfig(value: McpClient | McpClientConfig): value is McpClientConfig {
-  return "transport" in value
-    && !("tools" in value && typeof value.tools === "function"
-      && "close" in value && typeof value.close === "function")
-}
-
-function withMcpInitializationCompatibility(connection: McpClient | McpClientConfig): McpClient | McpClientConfig {
-  if (!isMcpClientConfig(connection)) return connection
-  return {
-    ...connection,
-    protocolVersionDiscovery: connection.protocolVersionDiscovery ?? false,
-  }
 }
 
 function assertMcpIntegrityOptions(options: McpCapabilityOptions) {
@@ -45,6 +33,25 @@ function assertMcpIntegrityOptions(options: McpCapabilityOptions) {
   }
 }
 
+function defaultMcpUnavailableNotice(servers: string[]): string {
+  return `> ⚠️ ${servers.join(", ")} tools were temporarily unavailable. I answered with the remaining context.`
+}
+
+const mcpAvailabilityWarningSchema = v.object({
+  server: v.string(),
+  phase: v.picklist(["resolve", "discovery"]),
+  statusCode: v.optional(v.pipe(v.number(), v.finite())),
+})
+
+/** Read the MCP servers that were unavailable during one Invocation, for example `getMcpWarnings(event.input)`. */
+export function getMcpWarnings(input: { context?: unknown } | undefined): McpAvailabilityWarning[] {
+  const context = input?.context
+  const warnings = isRecord(context) ? context[mcpWarningsContextKey] : undefined
+  return Array.isArray(warnings)
+    ? warnings.filter((warning): warning is McpAvailabilityWarning => v.is(mcpAvailabilityWarningSchema, warning))
+    : []
+}
+
 export function mcp<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
@@ -53,8 +60,12 @@ export function mcp<
     throw agentDiagnostics.AGENT_R0117({ message: "[vitehub] mcp({ servers }) requires a server map." })
   }
   assertMcpIntegrityOptions(options)
+  const unavailableNotice = options.unavailableNotice === true
+    ? defaultMcpUnavailableNotice
+    : isCallableMember(options.unavailableNotice) ? options.unavailableNotice : undefined
   return defineMcpToolCapability({
     degradeUnavailable: true,
+    unavailableNotice,
     id: "mcp",
     inspection: {
       label: "MCP",
@@ -98,6 +109,7 @@ export function mcp<
 }
 
 export type {
+  McpAvailabilityWarning,
   McpCapabilityOptions,
   McpClient,
   McpClientConfig,

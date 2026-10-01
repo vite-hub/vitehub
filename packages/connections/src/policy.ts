@@ -1,5 +1,8 @@
 import type { EnvActor } from "@vite-hub/env/bridge"
 
+import { ConnectionError } from "./errors.ts"
+
+import { isConnectionReadMethod } from "./types.ts"
 import type { ConnectionAccessRule, ConnectionActionInfo, ConnectionApiCatalog, ConnectionDefinition } from "./types.ts"
 
 export type ConnectionDecision = "allow" | "approve" | "deny"
@@ -11,21 +14,29 @@ export function matchesPattern(id: string, pattern: string): boolean {
   return id === pattern
 }
 
-/** Map an actor string to an Env Bridge actor. */
+/** Validate an actor string and map it to an Env Bridge actor. */
 export function envActor(actor: string): EnvActor {
-  if (actor.startsWith("agent:")) return { id: actor.slice(6), kind: "agent" }
-  if (actor.startsWith("user:")) return { id: actor.slice(5), kind: "user" }
-  return { id: actor, kind: "service" }
+  const mapped: EnvActor = actor.startsWith("agent:")
+    ? { id: actor.slice(6), kind: "agent" }
+    : actor.startsWith("user:")
+      ? { id: actor.slice(5), kind: "user" }
+      : { id: actor, kind: "service" }
+  if (!mapped.id || mapped.id.length > 512 || /[\u0000-\u001f]/.test(mapped.id)) {
+    throw new ConnectionError("invalid", "Connection actor IDs must contain 1 to 512 characters and no control characters.")
+  }
+  return mapped
 }
 
 /** The provider API catalogs of a definition, by API name. */
 export function providerApis(definition: ConnectionDefinition): Readonly<Record<string, ConnectionApiCatalog>> {
+  // SAFETY: ConnectionProvider maps each named API to a ConnectionApiCatalog; the default object generic erases those keys.
   return definition.provider.apis as Readonly<Record<string, ConnectionApiCatalog>>
 }
 
 /** List the API methods that a definition exposes, as action ids. */
 export function connectionActions(definition: ConnectionDefinition): ConnectionActionInfo[] {
   const apis = providerApis(definition)
+  // SAFETY: ConnectionApiSelection maps each named API to optional string patterns; the default object generic erases those keys.
   const selection = definition.api as Readonly<Record<string, readonly string[] | undefined>> | undefined
   const actions: ConnectionActionInfo[] = []
   for (const [api, catalog] of Object.entries(apis)) {
@@ -33,7 +44,7 @@ export function connectionActions(definition: ConnectionDefinition): ConnectionA
     if (!patterns?.length) continue
     for (const [method, [httpMethod]] of Object.entries(catalog.methods)) {
       if (!patterns.some(pattern => matchesPattern(method, pattern))) continue
-      const write = httpMethod !== "GET"
+      const write = !isConnectionReadMethod(httpMethod)
       actions.push({
         highRisk: write && (catalog.highRisk ?? []).some(pattern => matchesPattern(method, pattern)),
         id: `${api}.${method}`,

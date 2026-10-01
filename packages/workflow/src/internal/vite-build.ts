@@ -15,7 +15,7 @@ import { VITEHUB_MODES, getViteMode } from "@vite-hub/internal/build/mode"
 import { createImportPath, ensureGeneratedDir } from "@vite-hub/internal/build/paths"
 import { publishProviderSourcesToDeploymentOutputs, rebasePublishedProviderSourceLinks, removeProviderOutputArtifactDir, rewriteRetainedProviderSourcePaths } from "@vite-hub/internal/build/provider-output-sources"
 import { resolveUserAppEntry } from "@vite-hub/internal/build/user-entry"
-import { buildSync } from "esbuild"
+import { buildSync, transform } from "esbuild"
 import type { Plugin } from "esbuild"
 
 import { normalizeWorkflowOptions } from "../config.ts"
@@ -126,15 +126,7 @@ const WORKFLOW_ENTRY_BASE_NAMES = ["server.ts", "server.mts", "server.js", "serv
 // SAFETY: Generated Workflow module validation establishes the asserted build record contract.
 const WORKFLOW_PRIORITY_NAMES = ["server-workflow.ts", "server-workflow.mts", "server-workflow.js", "server-workflow.mjs"] as const
 interface VercelWorkflowBuilders {
-  VercelBuildOutputAPIBuilder: new (options: {
-    buildTarget: "vercel-build-output-api"
-    dirs: string[]
-    projectRoot: string
-    stepsBundlePath: string
-    webhookBundlePath: string
-    workflowsBundlePath: string
-    workingDir: string
-  }) => { build: () => Promise<void> }
+  VercelBuildOutputAPIBuilder: typeof import("@workflow/builders").VercelBuildOutputAPIBuilder
   createSwcPlugin: (options: { mode: "workflow", projectRoot: string }) => Plugin
 }
 
@@ -472,7 +464,7 @@ function assertNoExternalCanonicalWorkflowOutput(state: VercelNativeWorkflowStat
   }
 }
 
-async function buildVercelNativeWorkflowOutput(rootDir: string, definitions: DiscoveredWorkflowDefinition[], aliases: Record<string, string> = {}, nativeFiles: string[] = [], previousState?: VercelNativeWorkflowState): Promise<void> {
+async function buildVercelNativeWorkflowOutput(rootDir: string, definitions: DiscoveredWorkflowDefinition[], aliases: Record<string, string> = {}, nativeFiles: string[] = [], previousState?: VercelNativeWorkflowState, bundleDefines: Record<string, string> = {}): Promise<void> {
   if (!hasVercelNativeWorkflowEntry(rootDir, definitions, aliases, nativeFiles)) {
     await cleanVercelNativeWorkflowOutput(rootDir)
     return
@@ -505,7 +497,28 @@ async function buildVercelNativeWorkflowOutput(rootDir: string, definitions: Dis
     ...definitions.map(definition => dirname(definition.handler)),
     ...nativeFiles.map(file => dirname(file)),
   ])]
-  const builder = new builders.VercelBuildOutputAPIBuilder({
+  // The native builder has no esbuild define option. Transform both intermediate
+  // bundles before it embeds the VM code and combines the step registrations.
+  class ConfiguredWorkflowBuilder extends builders.VercelBuildOutputAPIBuilder {
+    protected override async createStepsBundle(options: { inputFiles: string[], outfile: string }) {
+      const result = await super.createStepsBundle(options)
+      if (!Object.keys(bundleDefines).length) return result
+      const source = await readFile(options.outfile, "utf8")
+      const output = await transform(source, { define: bundleDefines, sourcefile: options.outfile, sourcemap: "inline" })
+      await writeFile(options.outfile, output.code)
+      return result
+    }
+
+    protected override async createWorkflowsBundle(options: { inputFiles: string[], outfile: string }) {
+      const result = await super.createWorkflowsBundle(options)
+      if (result.interimBundleText && Object.keys(bundleDefines).length) {
+        const output = await transform(result.interimBundleText, { define: bundleDefines, sourcefile: options.outfile, sourcemap: "inline" })
+        result.interimBundleText = output.code
+      }
+      return result
+    }
+  }
+  const builder = new ConfiguredWorkflowBuilder({
     buildTarget: "vercel-build-output-api",
     dirs: definitionDirs,
     projectRoot: rootDir,
@@ -594,6 +607,7 @@ interface GenerateProviderOutputsOptions {
   artifacts?: GeneratedWorkflowArtifacts
   agentImportBase?: string
   clientOutDir: string
+  bundleDefines?: Record<string, string>
   hosting?: string
   importBase?: string
   providerImportAliases?: Record<string, string>
@@ -1556,7 +1570,7 @@ async function generateProviderOutputsWithinLock(
             await buildVercelNativeWorkflowOutput(options.rootDir, artifacts.providerDefinitions, {
               ...options.providerImportAliases,
               ...options.providerRuntimeImportAliases?.vercel,
-            }, artifacts.vercelNativeFiles, previousNativeOutput)
+            }, artifacts.vercelNativeFiles, previousNativeOutput, options.bundleDefines)
           }
           else {
             await cleanVercelNativeWorkflowOutput(options.rootDir)

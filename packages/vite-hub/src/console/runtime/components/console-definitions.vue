@@ -2,9 +2,12 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
-import type { ConsoleDefinitionSectionId, ConsoleDefinitionSummary } from "../definitions";
+import type { ConsoleContributedSection, ConsoleDefinitionSummary, ConsoleRecord, ConsoleSectionContent } from "../definitions";
 import { requestConsole } from "../client/request";
-import { consoleSectionDetails, rememberConsoleSection } from "../sections";
+import { consoleScheduleRunDescription, runConsoleScheduleDefinition } from "../client/schedule-run";
+import type { ConsoleScheduleRunView } from "../client/schedule-run";
+import { parseConsoleSectionContent } from "../definitions";
+import { rememberConsoleSection } from "../sections";
 import ConsoleBrand from "./console-brand.vue";
 import ConsoleFrame from "./console-frame.vue";
 import ConsolePrimitiveSwitcher from "./console-primitive-switcher.vue";
@@ -14,91 +17,58 @@ import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
 const props = defineProps<{
   agentsBase: string;
   definitionsBase: string;
+  /** Descriptor of the contributed section. The owner package defines it. */
+  details: ConsoleContributedSection;
   kvBase: string;
+  scheduleRunBase?: string;
   searchBase: string;
-  section: ConsoleDefinitionSectionId;
   sectionsBase: string;
 }>();
+
+interface ConsoleSectionEntry {
+  detail: string;
+  id: string;
+}
 
 const route = useRoute();
 const router = useRouter();
 const sidebarOpen = ref(false);
-const definitions = ref<ConsoleDefinitionSummary[]>([]);
+const content = ref<ConsoleSectionContent>();
 const selectedName = ref<string>();
 const loading = ref(true);
 const error = ref<unknown>();
+const scheduleRuns = ref<Record<string, ConsoleScheduleRunView>>({});
+const runningSchedule = ref<string>();
 let request: AbortController | undefined;
 
-const sectionDetails = computed(() => consoleSectionDetails[props.section]);
-const definitionNotice = computed(
-  () =>
-    ({
-      databases:
-        "Database rows, SQL execution, migrations, and credentials are not included in this build-time Definition catalog.",
-      queues:
-        "Queue backlog, message, and delivery history are not exposed by ViteHub's provider-independent Queue contract yet.",
-      "rate-limits":
-        "Live counters and remaining quota are not included because their accuracy, scope, and availability depend on the provider.",
-      sandboxes:
-        "Running Sandboxes, files, processes, logs, ports, and lifecycle state are not included in this build-time catalog.",
-      schedules:
-        "Runtime-created Schedules and run history are not included in this build-time Definition catalog yet.",
-      workspaces:
-        "Workspace files, Sources, collections, sync state, and processes are not opened or initialized by this build-time catalog.",
-      workflows:
-        "Workflow run history is not exposed by ViteHub's provider-independent Workflow contract yet.",
-    })[props.section],
+const section = computed(() => props.details.id);
+const sectionDetails = computed(() => props.details);
+const catalogView = computed(() => props.details.view.kind === "definition-catalog");
+const recordColumns = computed(() => props.details.view.kind === "record-table" ? props.details.view.columns : []);
+const selectionQuery = computed(() => catalogView.value ? "definition" : "record");
+const itemsTitle = computed(() => catalogView.value ? `${sectionDetails.value.label} Definitions` : sectionDetails.value.label);
+const definitions = computed<readonly ConsoleDefinitionSummary[]>(() =>
+  content.value?.kind === "definition-catalog" ? content.value.definitions : [],
+);
+const records = computed<readonly ConsoleRecord[]>(() =>
+  content.value?.kind === "record-table" ? content.value.records : [],
+);
+const entries = computed<ConsoleSectionEntry[]>(() =>
+  catalogView.value
+    ? definitions.value.map((definition) => ({ detail: sourceLabel(definition.source), id: definition.name }))
+    : records.value.map((row) => ({ detail: recordSummary(row), id: row.id })),
 );
 const selectedDefinition = computed(() =>
   definitions.value.find((definition) => definition.name === selectedName.value),
 );
-
-function record(value: unknown): Record<string, unknown> | undefined {
-  return value instanceof Object && !Array.isArray(value)
-    ? Object.fromEntries(Object.entries(value))
-    : undefined;
-}
-
-function parseFields(value: unknown): ConsoleDefinitionSummary["fields"] {
-  if (!Array.isArray(value)) return [];
-  return value.flatMap((entry) => {
-    const field = record(entry);
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON, so validate definition field labels and values at this boundary.
-    return typeof field?.label === "string" && typeof field.value === "string"
-      ? [{ label: field.label, value: field.value }]
-      : [];
-  });
-}
-
-function parseDefinitions(
-  value: unknown,
-  section: ConsoleDefinitionSectionId,
-): ConsoleDefinitionSummary[] {
-  const source = record(value);
-  if (source?.section !== section || !Array.isArray(source.definitions)) {
-    throw viteHubErrorDiagnostics.VITE_HUB_R0098({ message: "The Console returned an invalid definition catalog." });
-  }
-  return source.definitions.flatMap((entry) => {
-    const definition = record(entry);
-    const valid =
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON, so validate each definition field at this boundary.
-      typeof definition?.name === "string" &&
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON, so validate each definition field at this boundary.
-      typeof definition.file === "string" &&
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON, so validate each definition field at this boundary.
-      typeof definition.source === "string";
-    return valid
-      ? [
-          {
-            fields: parseFields(definition.fields),
-            file: definition.file,
-            name: definition.name,
-            source: definition.source,
-          },
-        ]
-      : [];
-  });
-}
+const canRunSelected = computed(() =>
+  Boolean(props.scheduleRunBase && selectedDefinition.value?.runnable),
+);
+const selectedRun = computed(() =>
+  selectedName.value ? scheduleRuns.value[selectedName.value] : undefined,
+);
+const selectedRecord = computed(() => records.value.find((row) => row.id === selectedName.value));
+const selectedEntry = computed(() => entries.value.find((entry) => entry.id === selectedName.value));
 
 function errorMessage(value: unknown): string | undefined {
   return value instanceof Error
@@ -106,6 +76,18 @@ function errorMessage(value: unknown): string | undefined {
     : value
       ? "The Console could not load these definitions."
       : undefined;
+}
+
+async function runSelectedSchedule(): Promise<void> {
+  const name = selectedName.value;
+  if (!name || !props.scheduleRunBase || !canRunSelected.value || runningSchedule.value) return;
+  runningSchedule.value = name;
+  try {
+    const run = await runConsoleScheduleDefinition(props.scheduleRunBase, name);
+    scheduleRuns.value = { ...scheduleRuns.value, [name]: run };
+  } finally {
+    runningSchedule.value = undefined;
+  }
 }
 
 function sourceLabel(value: string): string {
@@ -116,28 +98,43 @@ function sourceLabel(value: string): string {
     .join(" ");
 }
 
+function recordSummary(row: ConsoleRecord): string {
+  const column = recordColumns.value[0];
+  return column ? row.cells[column.key] || "" : "";
+}
+
+function queryValue(): string | undefined {
+  const value = route.query[selectionQuery.value];
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vue Router query values require string narrowing before selection.
+  return typeof value === "string" ? value : undefined;
+}
+
 async function loadDefinitions(): Promise<void> {
   request?.abort();
   const previousSelection = selectedName.value;
-  definitions.value = [];
+  content.value = undefined;
   selectedName.value = undefined;
   const controller = new AbortController();
   request = controller;
   loading.value = true;
-  const section = props.section;
+  const current = section.value;
+  const kind = props.details.view.kind;
   try {
-    const installed = parseDefinitions(
+    const installed = parseConsoleSectionContent(
       await requestConsole(props.definitionsBase, {
-        query: { section },
+        query: { section: current },
         signal: controller.signal,
       }),
-      section,
+      current,
     );
+    if (!installed || installed.kind !== kind) {
+      throw viteHubErrorDiagnostics.VITE_HUB_R0098({ message: "The Console returned an invalid definition catalog." });
+    }
     if (request !== controller) return;
-    definitions.value = installed;
-    selectedName.value = installed.some((definition) => definition.name === previousSelection)
+    content.value = installed;
+    selectedName.value = entries.value.some((entry) => entry.id === previousSelection)
       ? previousSelection
-      : installed[0]?.name;
+      : entries.value[0]?.id;
     error.value = undefined;
   } catch (requestError) {
     if (
@@ -158,39 +155,35 @@ async function loadDefinitions(): Promise<void> {
 function selectDefinition(name: string): void {
   selectedName.value = name;
   sidebarOpen.value = false;
-  if (route.query.definition !== name) {
-    void router.replace({ query: { ...route.query, definition: name } });
+  if (route.query[selectionQuery.value] !== name) {
+    void router.replace({ query: { ...route.query, [selectionQuery.value]: name } });
   }
 }
 
 onMounted(() => {
-  rememberConsoleSection(props.section);
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vue Router query values require string narrowing before selection.
-  if (typeof route.query.definition === "string") selectedName.value = route.query.definition;
+  rememberConsoleSection(section.value);
+  selectedName.value = queryValue() ?? selectedName.value;
+  void loadDefinitions();
+});
+
+watch(section, (current) => {
+  rememberConsoleSection(current);
+  scheduleRuns.value = {};
+  content.value = undefined;
+  error.value = undefined;
+  selectedName.value = queryValue();
   void loadDefinitions();
 });
 
 watch(
-  () => props.section,
-  (section) => {
-    rememberConsoleSection(section);
-    definitions.value = [];
-    error.value = undefined;
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vue Router query values require string narrowing before selection.
-    selectedName.value = typeof route.query.definition === "string" ? route.query.definition : undefined;
-    void loadDefinitions();
-  },
-);
-
-watch(
-  () => route.query.definition,
+  () => route.query[selectionQuery.value],
   (name) => {
     if (name === undefined) {
-      selectedName.value = definitions.value[0]?.name;
+      selectedName.value = entries.value[0]?.id;
     } else if (
       // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vue Router query values require string narrowing before selection.
       typeof name === "string" &&
-      definitions.value.some((definition) => definition.name === name)
+      entries.value.some((entry) => entry.id === name)
     ) {
       selectDefinition(name);
     }
@@ -202,14 +195,14 @@ onBeforeUnmount(() => request?.abort());
 <template>
   <ConsoleFrame>
     <UDashboardSidebar
-      :id="console-navigation"
+      id="console-navigation"
       v-model:open="sidebarOpen"
       :default-size="16"
       :collapsed-size="4"
       :min-size="13"
       :max-size="26"
       :menu="{
-        title: `${sectionDetails.label} Definitions`,
+        title: itemsTitle,
         description: sectionDetails.description,
       }"
       :ui="{ body: 'gap-0 overflow-hidden p-0', footer: 'h-11 shrink-0 border-t border-default px-2 py-1.5' }"
@@ -243,44 +236,42 @@ onBeforeUnmount(() => request?.abort());
         <div v-if="collapsed" class="min-h-0 flex-1 overflow-y-auto">
           <div class="grid gap-1 px-2 py-1">
             <UTooltip
-              v-for="definition in definitions"
-              :key="definition.name"
-              :text="definition.name"
+              v-for="entry in entries"
+              :key="entry.id"
+              :text="entry.id"
               :content="{ side: 'right' }"
             >
               <UButton
                 :icon="sectionDetails.icon"
                 color="neutral"
-                :variant="selectedName === definition.name ? 'soft' : 'ghost'"
+                :variant="selectedName === entry.id ? 'soft' : 'ghost'"
                 block
-                :aria-label="definition.name"
-                @click="selectDefinition(definition.name)"
+                :aria-label="entry.id"
+                @click="selectDefinition(entry.id)"
               />
             </UTooltip>
           </div>
         </div>
-        <div v-else-if="loading && !definitions.length" class="grid gap-2 px-3">
+        <div v-else-if="loading && !entries.length" class="grid gap-2 px-3">
           <USkeleton v-for="index in 6" :key="index" class="h-11 rounded-md" />
         </div>
         <nav
-          v-else-if="definitions.length"
+          v-else-if="entries.length"
           class="min-h-0 flex-1 overflow-y-auto px-2 pb-3"
-          :aria-label="`${sectionDetails.label} Definitions`"
+          :aria-label="itemsTitle"
         >
           <UButton
-            v-for="definition in definitions"
-            :key="definition.name"
+            v-for="entry in entries"
+            :key="entry.id"
             block
             class="justify-start py-2"
             color="neutral"
-            :variant="selectedName === definition.name ? 'soft' : 'ghost'"
-            @click="selectDefinition(definition.name)"
+            :variant="selectedName === entry.id ? 'soft' : 'ghost'"
+            @click="selectDefinition(entry.id)"
           >
             <span class="grid min-w-0 gap-0.5 text-start">
-              <span class="truncate font-mono text-xs">{{ definition.name }}</span>
-              <span class="truncate text-[11px] text-muted">{{
-                sourceLabel(definition.source)
-              }}</span>
+              <span class="truncate font-mono text-xs">{{ entry.id }}</span>
+              <span class="truncate text-[11px] text-muted">{{ entry.detail }}</span>
             </span>
           </UButton>
         </nav>
@@ -288,8 +279,8 @@ onBeforeUnmount(() => request?.abort());
           v-else-if="!loading && !error && !collapsed"
           class="min-h-0 flex-1 px-4"
           :icon="sectionDetails.icon"
-          :title="`No ${sectionDetails.label} Definitions`"
-          :description="`Add a discovered ${sectionDetails.label.slice(0, -1)} Definition to this project.`"
+          :title="`No ${itemsTitle}`"
+          :description="catalogView ? `Add a discovered ${sectionDetails.label.slice(0, -1)} Definition to this project.` : 'The owner package returned no records.'"
         />
       </template>
 
@@ -328,20 +319,31 @@ onBeforeUnmount(() => request?.abort());
     >
       <template #header>
         <UDashboardNavbar
-          :toggle="{ 'aria-label': `Open ${sectionDetails.label} Definitions` }"
+          :toggle="{ 'aria-label': `Open ${itemsTitle}` }"
           :ui="{ root: 'border-b border-default' }"
         >
           <template #title>
             <span class="min-w-0">
               <p class="truncate font-mono text-xs font-medium text-highlighted">
-                {{ selectedDefinition?.name || sectionDetails.label }}
+                {{ selectedEntry?.id || sectionDetails.label }}
               </p>
-              <p v-if="selectedDefinition" class="mt-0.5 truncate text-[11px] text-muted">
-                {{ sourceLabel(selectedDefinition.source) }}
+              <p v-if="selectedEntry?.detail" class="mt-0.5 truncate text-[11px] text-muted">
+                {{ selectedEntry.detail }}
               </p>
             </span>
           </template>
           <template #right>
+            <UButton
+              v-if="canRunSelected"
+              color="neutral"
+              icon="i-ph-play-light"
+              label="Run now"
+              size="xs"
+              variant="outline"
+              :disabled="Boolean(runningSchedule)"
+              :loading="runningSchedule === selectedName"
+              @click="runSelectedSchedule"
+            />
             <UBadge color="neutral" label="Read-only" size="sm" variant="soft" />
           </template>
         </UDashboardNavbar>
@@ -349,14 +351,14 @@ onBeforeUnmount(() => request?.abort());
 
       <template #body>
         <UEmpty
-          v-if="!selectedDefinition && !loading"
+          v-if="!selectedEntry && !loading"
           class="min-h-0 flex-1"
           icon="i-ph-mouse-left-click-light"
-          title="Select a definition"
-          description="Choose a discovered definition from the sidebar to inspect its metadata."
+          :title="catalogView ? 'Select a definition' : 'Select a record'"
+          :description="catalogView ? 'Choose a discovered definition from the sidebar to inspect its metadata.' : 'Choose a record from the sidebar to inspect its fields.'"
         />
         <div
-          v-else-if="loading && !selectedDefinition"
+          v-else-if="loading && !selectedEntry"
           class="flex min-h-0 flex-1 items-center justify-center"
         >
           <UIcon name="i-ph-circle-notch-light" class="size-4 animate-spin text-muted opacity-70" />
@@ -405,10 +407,77 @@ onBeforeUnmount(() => request?.abort());
               </dl>
             </section>
             <UAlert
+              v-if="selectedRun"
+              :color="selectedRun.status === 'succeeded' ? 'success' : selectedRun.status === 'failed' || selectedRun.status === 'unavailable' ? 'error' : 'neutral'"
+              :icon="selectedRun.status === 'succeeded' ? 'i-ph-check-circle-light' : 'i-ph-warning-circle-light'"
+              :title="selectedRun.status === 'unavailable' ? 'Could not run this Schedule' : `Run ${selectedRun.status}`"
+              :description="consoleScheduleRunDescription(selectedRun)"
+              variant="subtle"
+            />
+            <UAlert
+              v-else
               color="neutral"
               icon="i-ph-info-light"
               title="Definition metadata only"
-              :description="definitionNotice"
+              :description="sectionDetails.view.notice"
+              variant="subtle"
+            />
+          </div>
+        </main>
+        <main v-else-if="selectedRecord" class="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
+          <div class="mx-auto grid w-full max-w-5xl gap-4">
+            <section class="overflow-x-auto rounded-lg border border-default bg-default">
+              <table class="w-full text-left text-xs">
+                <thead class="border-b border-default">
+                  <tr>
+                    <th
+                      v-for="column in recordColumns"
+                      :key="column.key"
+                      class="h-10 px-3 text-[10px] font-semibold uppercase tracking-[.1em] text-muted"
+                      scope="col"
+                    >
+                      {{ column.label }}
+                    </th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-default">
+                  <tr
+                    v-for="row in records"
+                    :key="row.id"
+                    class="cursor-pointer hover:bg-elevated/60"
+                    :class="{ 'bg-elevated': row.id === selectedName }"
+                    :aria-selected="row.id === selectedName"
+                    @click="selectDefinition(row.id)"
+                  >
+                    <td v-for="column in recordColumns" :key="column.key" class="break-words px-3 py-2 font-mono text-highlighted">
+                      {{ row.cells[column.key] || "" }}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </section>
+            <section class="overflow-hidden rounded-lg border border-default bg-default">
+              <div class="flex h-10 items-center border-b border-default px-3">
+                <h2 class="truncate font-mono text-xs font-medium text-highlighted">{{ selectedRecord.id }}</h2>
+              </div>
+              <dl class="divide-y divide-default">
+                <div
+                  v-for="field in selectedRecord.fields"
+                  :key="field.label"
+                  class="grid gap-1 px-4 py-3 sm:grid-cols-[9rem_1fr] sm:gap-4"
+                >
+                  <dt class="text-[10px] font-semibold uppercase tracking-[.1em] text-muted">
+                    {{ field.label }}
+                  </dt>
+                  <dd class="break-words font-mono text-xs text-highlighted">{{ field.value }}</dd>
+                </div>
+              </dl>
+            </section>
+            <UAlert
+              color="neutral"
+              icon="i-ph-info-light"
+              title="Read-only records"
+              :description="sectionDetails.view.notice"
               variant="subtle"
             />
           </div>

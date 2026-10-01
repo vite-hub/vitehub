@@ -16,6 +16,13 @@ export {
   chatSummary,
 } from "./chat-summary.ts"
 export {
+  channelDelivery,
+} from "./channel-delivery.ts"
+export type {
+  ChannelDeliveryClient,
+  ChannelDeliveryOptions,
+} from "./channel-delivery.ts"
+export {
   title,
 } from "./title.ts"
 export {
@@ -129,6 +136,7 @@ export {
   workspaceJsonlMemoryStore,
 } from "./memory.ts"
 export {
+  getMcpWarnings,
   mcp,
 } from "./mcp.ts"
 export {
@@ -357,6 +365,7 @@ export type {
   WorkspaceJsonlMemoryStoreOptions,
 } from "./memory.ts"
 export type {
+  McpAvailabilityWarning,
   McpCapabilityOptions,
   McpClient,
   McpClientConfig,

@@ -1,12 +1,12 @@
 ---
 title: Invocation
-description: Present one persisted Agent Invocation as a coding-session thread.
+description: Present one persisted Agent Invocation as a readable session thread.
 navigation.order: 31
 navigation.group: Agent work
 icon: i-ph-activity-light
 ---
 
-`AgentInvocation` turns append-only observations into a coding-session thread. Assistant prose stays unlabelled, user prompts remain visually distinct, and commands, reasoning, tool activity, and file changes expand in place.
+`AgentInvocation` turns the append-only observations of one Agent Invocation into a conversation. Messages show their role. Commands, reasoning, tool calls, and file changes collapse into one work group that expands in place. Use it to review what an Agent did, live or after the run.
 
 ::component-preview{name="InvocationExample" flush}
 ::
@@ -14,31 +14,113 @@ icon: i-ph-activity-light
 ## Usage
 
 ```vue
-<AgentInvocation :invocation="record" @inspect="openInspector($event)">
-  <template #actions>
-    <InvocationActions :invocation="record" />
+<AgentInvocation :invocation="record" @inspect="openInspector">
+  <template #actions="{ invocation }">
+    <InvocationActions :invocation="invocation" />
   </template>
 </AgentInvocation>
 ```
 
-Set `header` to `false` when the host already renders repository and session navigation above the thread.
+The component receives data that your application already loaded and authorized. Your application owns loading, polling, realtime updates, replay policy, and authorization.
 
-## Props and events
+## How the thread reads
 
-| Contract     | Type                      | Purpose                                               |
-| ------------ | ------------------------- | ----------------------------------------------------- |
-| `invocation` | `AgentInvocationView`     | Authorized invocation state and observations.         |
-| `header`     | `boolean`, default `true` | Shows the project and session breadcrumb.             |
-| `inspect`    | `'agent' \| 'workspace'`  | Requests host-owned inspection for a selected target. |
+- The prompt shows its known author. Other user messages show **You**. Replies show **Assistant**. User prompts align to the end.
+- A completed `reply` or `update` delivery with captured content is the answer the user saw. It appears as an assistant message after the work group, also when the Invocation has no visible prompt. The delivery row stays in the work group without a second copy of the text.
+- When the delivered text equals the final assistant message, only the message appears. Status updates and failed deliveries keep their text in the work group.
 
-The `title`, `actions`, and `footer` slots add host controls without changing the transcript renderer.
+## Examples
+
+### Running
+
+A running Invocation shows the activities recorded so far. Pass a new record as observations arrive.
+
+::component-preview{name="InvocationRunningExample" flush}
+::
+
+### Failed
+
+A terminal error appears above the thread with its message, its `fix` when present, and diagnostic details.
+
+::component-preview{name="InvocationFailedExample" flush}
+::
+
+### Pending with header slots
+
+An Invocation without observations shows **Waiting for the first update…**. Use the `title` and `actions` slots to change the header.
+
+::component-preview{name="InvocationPendingExample" flush}
+::
 
 ## Trace content
 
-Rich replay requires a trace log created with `{ content: "content" }`. The default metadata-only policy records activity milestones but strips prompts, message text, tool input, and tool output.
+Rich replay needs a trace log created with `{ content: "content" }`. The default metadata-only policy records activity milestones but removes prompts, message text, tool input, and tool output.
 
-Enable full-content traces only when the store and current viewer may retain and inspect that session content. Agent Invocation journals bound each content string to 64 KiB, each metadata string to 512 characters, collections to 32 items, nesting to four levels, and observations to 256 per invocation.
+Enable full-content traces only when the store and the current viewer may keep and inspect that session content. Agent Invocation journals limit each content string to 64 KiB, each metadata string to 512 characters, collections to 32 items, nesting to four levels, and observations to 256 for each Invocation.
 
-## Data ownership
+## API reference
 
-The component receives already-authorized data. The application owns loading, polling, realtime updates, replay policy, and authorization.
+### AgentInvocation
+
+#### Props
+
+| Prop                   | Type                  | Default  | Description                                                           |
+| ---------------------- | --------------------- | -------- | --------------------------------------------------------------------- |
+| `invocation`           | `AgentInvocationView` | Required | The authorized Invocation state and observations.                     |
+| `header`               | `boolean`             | `true`   | Shows the project and title header. Set `false` when the host renders its own. |
+| `selectedActivityId`   | `string`              |          | Opens the work group, scrolls to the activity, and focuses it. Use the ID from the inspector's `selectActivity` event. |
+| `workspaceInspectable` | `boolean`             | `true`   | When `false`, removes Workspace inspection targets and skill references from activities. |
+
+#### Events
+
+| Event     | Payload                                        | Description                                         |
+| --------- | ---------------------------------------------- | --------------------------------------------------- |
+| `inspect` | `target: 'agent' \| 'workspace', path?: string` | The viewer asked to inspect the Agent or a Workspace file. |
+
+#### Slots
+
+| Slot      | Scope            | Description                                                |
+| --------- | ---------------- | ---------------------------------------------------------- |
+| `title`   | `{ invocation }` | Replaces the header title. Renders only when `header` is `true`. |
+| `actions` | `{ invocation }` | Controls at the end of the header. Renders only when `header` is `true`. |
+| `footer`  | `{ invocation }` | Content after the thread.                                  |
+
+#### Types
+
+`AgentInvocationView` is the serialized Invocation record. These are its main fields:
+
+```ts
+interface AgentInvocationView {
+  id: string;
+  traceId: string;
+  status: AgentInvocationStatus;
+  createdAt: string;
+  updatedAt: string;
+  observations: readonly TraceEventLogEntry[];
+  agentName?: string;
+  title?: string;
+  annotations?: Record<string, boolean | number | string | null>;
+  configuration?: AgentInvocationConfiguration;
+  error?: RuntimeDiagnosticError;
+  usage?: { totalTokens?: number; inputTokens?: number; outputTokens?: number; cost?: { display?: string } };
+  startedAt?: string;
+  completedAt?: string;
+  failedAt?: string;
+  cancelledAt?: string;
+}
+```
+
+`invocationActivities(invocation)` returns the derived activity list that the thread renders. Use it to build your own views, for example a list of file changes.
+
+## Accessibility
+
+- The thread is a `role="log"` region named **Session thread**. It announces additions.
+- Message copy buttons announce **Message copied** or a failure through a live status.
+- A selected activity receives focus, and reduced motion replaces smooth scrolling.
+
+## Related
+
+- [Invocation list](/docs/ui/invocation-list) selects a session.
+- [Invocation inspector](/docs/ui/invocation-inspector) shows the captured configuration.
+- [Trace](/docs/ui/trace) renders a derived trace run.
+- [Invocation dashboard block](/docs/ui/blocks/invocation-dashboard) combines the list, thread, and inspector.

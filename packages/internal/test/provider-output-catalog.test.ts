@@ -5,6 +5,7 @@ import {
   contributeCloudflareProviderOutput,
   contributeProviderRuntime,
   createProviderOutputCatalog,
+  getProviderOutputCatalog,
   getProviderRuntimeModule,
   getVercelRuntimePackages,
   hasProviderRuntimeModule,
@@ -13,6 +14,21 @@ import {
 } from "../src/build/provider-output-catalog.ts"
 
 describe("Provider Output contribution catalog", () => {
+  it("reads existing catalog identity without allocating or changing bundle defines", () => {
+    const config = { define: { __VITEHUB_PUBLIC_URL__: JSON.stringify({ url: "https://first.example.com" }) } }
+    expect(getProviderOutputCatalog(config)).toBeUndefined()
+    expect(Object.getOwnPropertySymbols(config)).toEqual([])
+    const catalog = useProviderOutputCatalog(config)
+    const definitions = { ...catalog.bundleDefines }
+    const clone = { ...config, define: { __VITEHUB_PUBLIC_URL__: JSON.stringify({ url: "https://second.example.com" }) } }
+    expect(getProviderOutputCatalog(clone)).toBe(catalog)
+    expect(catalog.bundleDefines).toEqual(definitions)
+    const stripped = Object.fromEntries(Object.entries(config))
+    expect(getProviderOutputCatalog(stripped)).toBeUndefined()
+    expect(Object.getOwnPropertySymbols(stripped)).toEqual([])
+    expect(getProviderOutputCatalog(config)).toBe(catalog)
+  })
+
   it("isolates contributions by build config while sharing one catalog within a build", () => {
     const firstConfig = {}
     const secondConfig = {}

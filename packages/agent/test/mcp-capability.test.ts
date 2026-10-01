@@ -539,6 +539,57 @@ describe("mcp capability", () => {
     expect(healthy.close).toHaveBeenCalledTimes(1)
   })
 
+  it("validates optional status codes in caller-provided MCP warnings", async () => {
+    const { getMcpWarnings } = await import("../src/capabilities.ts")
+    const warnings = [
+      { server: "healthy", phase: "resolve", statusCode: 503 },
+      { server: "absent", phase: "discovery" },
+      { server: "invalid-phase", phase: "connect" },
+      { server: 123, phase: "resolve" },
+      null,
+      ...["503", null, {}, NaN, Infinity].map(statusCode => ({ server: "invalid", phase: "resolve", statusCode })),
+    ]
+    expect(getMcpWarnings({ context: { "vitehub.mcp.warnings": warnings } })).toEqual(warnings.slice(0, 2))
+  })
+
+  it("adds an opt-in unavailable notice for the final chat reply", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { getMcpWarnings, mcp } = await import("../src/capabilities.ts")
+    const unavailable = () => { throw Object.assign(new Error("fetch failed"), { statusCode: 503 }) }
+    const healthy = createClient({ lookup: { execute: vi.fn() } })
+
+    const silent = await resolveAgentCapabilities({ capabilities: [mcp({ servers: { posthog: unavailable } })] }, runtime(), {})
+    expect(silent.input.context).not.toHaveProperty("vitehub.chat.final-reply.notices")
+    await silent.close()
+
+    const defaultNotice = await resolveAgentCapabilities({
+      capabilities: [mcp({ servers: { airtable: unavailable, posthog: unavailable }, unavailableNotice: true })],
+    }, runtime(), {})
+    expect(defaultNotice.input.context?.["vitehub.chat.final-reply.notices"]).toEqual([
+      "> ⚠️ airtable, posthog tools were temporarily unavailable. I answered with the remaining context.",
+    ])
+    expect(getMcpWarnings(defaultNotice.input)).toEqual([
+      { phase: "resolve", server: "airtable", statusCode: 503 },
+      { phase: "resolve", server: "posthog", statusCode: 503 },
+    ])
+    await defaultNotice.close()
+
+    const notice = vi.fn((servers: string[]) => `Missing: ${servers.join(" and ")}`)
+    const custom = await resolveAgentCapabilities({
+      capabilities: [mcp({ servers: { healthy: () => healthy, posthog: unavailable }, unavailableNotice: notice })],
+    }, runtime(), {})
+    expect(notice).toHaveBeenCalledWith(["posthog"])
+    expect(custom.input.context?.["vitehub.chat.final-reply.notices"]).toEqual(["Missing: posthog"])
+    await custom.close()
+
+    const allHealthy = await resolveAgentCapabilities({
+      capabilities: [mcp({ servers: { healthy: () => createClient({}) }, unavailableNotice: true })],
+    }, runtime(), {})
+    expect(allHealthy.input.context?.["vitehub.chat.final-reply.notices"]).toBeUndefined()
+    expect(getMcpWarnings(allHealthy.input)).toEqual([])
+    await allHealthy.close()
+  })
+
   it("does not treat resolver failures as absent configuration", async () => {
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { mcp } = await import("../src/capabilities.ts")

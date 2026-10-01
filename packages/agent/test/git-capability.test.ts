@@ -8,7 +8,7 @@ import { describe, expect, it, vi } from "vitest"
 import { git } from "../src/capabilities.ts"
 import { applyAgentToolPolicies } from "../src/tool-runtime.ts"
 
-import type { AgentToolSet } from "../src/types.ts"
+import type { AgentGitHub, AgentToolSet } from "../src/types.ts"
 import type { WorkspaceSession } from "@vite-hub/workspace"
 
 const pullRequestHeadSha = "a".repeat(40)
@@ -41,6 +41,7 @@ async function capabilityTools(
   capability = git(),
   session = gitSession(),
   contextValues: Record<string, unknown> = {},
+  githubIdentity?: AgentGitHub,
 ): Promise<{ session: ReturnType<typeof gitSession>, startSession: ReturnType<typeof vi.fn>, tools: AgentToolSet }> {
   if (typeof capability.tools !== "function") throw new Error("git capability must expose tool resolver")
   const startSession = vi.fn(async () => session)
@@ -48,6 +49,7 @@ async function capabilityTools(
     context: {
       get: vi.fn((key: string) => contextValues[key]),
     },
+    ...(githubIdentity ? { runtimeContext: { githubIdentity } } : {}),
     workspace: {
       startSession,
     },
@@ -276,7 +278,7 @@ describe("git capability", () => {
       pullRequest: {
         pullRequest: {
           base: { ref: "main" },
-          head: { ref: "feature", sha: pullRequestHeadSha },
+          head: { ref: "feature", repo: "vite-hub/vitehub", sha: pullRequestHeadSha },
           number: 42,
           source: {
             mount: "vitehub",
@@ -298,10 +300,42 @@ describe("git capability", () => {
 
     expect(startSession).toHaveBeenCalledWith({ paths: ["vitehub"] })
     expect(session.exec).toHaveBeenNthCalledWith(1, "git", ["rev-parse", "--is-inside-work-tree"], expect.objectContaining({ cwd: "/workspace/vitehub" }))
-    expect(session.exec).toHaveBeenNthCalledWith(2, "sh", ["-lc", expect.stringContaining("git fetch --depth=100 origin 'refs/pull/42/head:refs/vitehub/head' 'refs/heads/main:refs/remotes/origin/main'")], expect.objectContaining({ cwd: "/workspace" }))
+    expect(session.exec).toHaveBeenNthCalledWith(2, "sh", ["-c", expect.stringContaining("git fetch --no-tags --depth=100 origin 'refs/pull/42/head:refs/vitehub/head' 'refs/heads/main:refs/remotes/origin/main'")], expect.objectContaining({ cwd: "/workspace" }))
     const setupScript = session.exec.mock.calls[1]?.[1]?.[1]
     expect(setupScript).toContain(`test "$(git rev-parse refs/vitehub/head)" = '${pullRequestHeadSha}'`)
     expect(session.exec).toHaveBeenNthCalledWith(3, "git", ["status", "--short"], expect.objectContaining({ cwd: "/workspace/vitehub" }))
+  })
+
+  it("uses the Agent GitHub identity for the pull request checkout and fetch", async () => {
+    const session = gitSession()
+    session.exec.mockImplementation(async (command: string, args: string[] = []) => ({
+      args,
+      command,
+      exitCode: command === "git" && args.join(" ") === "rev-parse --is-inside-work-tree" ? 1 : 0,
+      stderr: "",
+      stdout: command === "git" && args[0] === "remote" ? "origin\n" : "",
+    }))
+    const access = vi.fn(async () => ({ env: { GH_TOKEN: "installation-token" }, token: "installation-token" }))
+    const { tools } = await capabilityTools(git({ mode: "write" }), session, {
+      pullRequest: {
+        pullRequest: {
+          head: { ref: "feature", repo: "vite-hub/vitehub", sha: pullRequestHeadSha },
+          number: 42,
+          source: { mount: "vitehub", ref: "refs/pull/42/head", repo: "vite-hub/vitehub" },
+        },
+        repository: { fullName: "vite-hub/vitehub", name: "vitehub" },
+      },
+    }, { access })
+
+    await tools.shell!.execute?.({ command: "git fetch origin main" })
+
+    expect(access).toHaveBeenCalledWith({ repository: "vite-hub/vitehub" })
+    const setup = session.exec.mock.calls.find(([command]) => command === "sh")
+    expect(setup?.[2]).toMatchObject({ env: { GH_TOKEN: "installation-token", GIT_TERMINAL_PROMPT: "0" } })
+    expect(setup?.[1]?.[1]).not.toContain("extraheader")
+    expect(setup?.[1]?.[1]).toContain("git checkout -q -B 'feature'")
+    const fetch = session.exec.mock.calls.find(([command, args]) => command === "git" && args[0] === "fetch")
+    expect(fetch?.[2]).toMatchObject({ cwd: "/workspace/vitehub", env: { GH_TOKEN: "installation-token" } })
   })
 
   it("prepares explicit root pull request checkouts without deleting Workspace artifacts", async () => {
@@ -552,7 +586,7 @@ describe("git capability", () => {
     })
 
     const setupScript = session.exec.mock.calls.find(([command]) => command === "sh")?.[1]?.[1]
-    expect(setupScript).toContain("git fetch --depth=100 origin 'refs/pull/42/head:refs/vitehub/head'")
+    expect(setupScript).toContain("git fetch --no-tags --depth=100 origin 'refs/pull/42/head:refs/vitehub/head'")
     expect(setupScript).not.toContain("refs/heads/main")
     expect(setupScript).not.toContain("vitehub-base")
   })

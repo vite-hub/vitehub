@@ -48,11 +48,11 @@ interface EnvNamespace {
   number: (options?: EnvTypedVariableOptions<number>) => EnvVariableDeclaration
   packageJson: (path: string) => EnvSource
   provider: (provider: string, key: string) => EnvSource
-  source: (name: string | string[]) => EnvSource
+  source: (name: string | string[], options?: { skipEmpty?: boolean }) => EnvSource
   variable: (options?: EnvVariableOptions) => EnvVariableDeclaration
 }
 
-function source(name: string | string[]): EnvSource {
+function source(name: string | string[], options: { skipEmpty?: boolean } = {}): EnvSource {
   const names = Array.isArray(name) ? name : [name]
   if (!names.length || names.some(value => typeof value !== "string" || !value.trim())) {
     throw envErrorDiagnostics.ENV_R0002({ message: "env.source() requires one or more non-empty env variable names." })
@@ -63,6 +63,7 @@ function source(name: string | string[]): EnvSource {
     label: `env:${normalized.join("|")}`,
     name: normalized[0]!,
     ...(normalized.length > 1 ? { names: normalized } : {}),
+    ...(options.skipEmpty ? { skipEmpty: true } : {}),
     serializable: true,
   }
 }

@@ -1,7 +1,8 @@
+import { collectViteHubProvisionSteps } from "@vite-hub/internal/cli"
 import { mergeProvisionState, PROVISION_STATE_FILE, readProvisionState, writeProvisionState } from "@vite-hub/internal/provision-state"
 import { resolveCloudflareProvisionConfig, resolveVercelProvisionConfig } from "@vite-hub/internal/provision"
 
-import type { ViteHubCliContext } from "@vite-hub/internal/cli"
+import type { ViteHubCliCommandNamespace, ViteHubCliContext } from "@vite-hub/internal/cli"
 import type {
   ProvisionAction,
   ProvisionContext,
@@ -45,8 +46,6 @@ const USAGE = {
   run: "vitehub provision run --provider <cloudflare|vercel> [--dry-run] [--json]",
   status: "vitehub provision status --provider <cloudflare|vercel> [--json]",
 } as const satisfies Record<ProvisionCommand, string>
-
-export const provisionUsage = USAGE
 
 function isProvisionProvider(value: string | undefined): value is ProvisionProvider {
   return PROVISION_PROVIDERS.some(provider => provider === value)
@@ -172,7 +171,7 @@ function writeActions(actions: PlannedProvisionAction[], stdout: ProvisionFeatur
   }
 }
 
-export async function runProvision(args: string[], context: ProvisionFeatureContext, options: ProvisionFeatureOptions): Promise<number> {
+async function runProvision(args: string[], context: ProvisionFeatureContext, options: ProvisionFeatureOptions): Promise<number> {
   const parsed = parseArgs("run", args)
   const resolved = resolveProvider("run", parsed, context)
   if ("exitCode" in resolved) return resolved.exitCode
@@ -222,7 +221,7 @@ export async function runProvision(args: string[], context: ProvisionFeatureCont
   return 0
 }
 
-export async function runProvisionStatus(args: string[], context: ProvisionFeatureContext, options: ProvisionFeatureOptions): Promise<number> {
+async function runProvisionStatus(args: string[], context: ProvisionFeatureContext, options: ProvisionFeatureOptions): Promise<number> {
   const parsed = parseArgs("status", args)
   const resolved = resolveProvider("status", parsed, context)
   if ("exitCode" in resolved) return resolved.exitCode
@@ -271,4 +270,24 @@ export async function runProvisionStatus(args: string[], context: ProvisionFeatu
     ? `plan: ${pending} pending ${pending === 1 ? "action" : "actions"}. Run \`vitehub provision run --provider ${provider}\` to apply.\n`
     : "plan: no pending actions\n")
   return 0
+}
+
+/** Built-in namespace that orchestrates package-contributed Provision Steps. */
+export function createProvisionNamespace(plugins: readonly unknown[]): ViteHubCliCommandNamespace {
+  const options: ProvisionFeatureOptions = { collectSteps: () => collectViteHubProvisionSteps(plugins) }
+  return {
+    description: "Idempotently create missing provider resources.",
+    features: [{
+      description: "Create missing provider resources for the app's Definitions.",
+      name: "run",
+      run: (args, context) => runProvision(args, context, options),
+      usage: USAGE.run,
+    }, {
+      description: "Show recorded provider ids and pending plan actions.",
+      name: "status",
+      run: (args, context) => runProvisionStatus(args, context, options),
+      usage: USAGE.status,
+    }],
+    name: "provision",
+  }
 }

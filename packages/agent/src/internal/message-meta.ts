@@ -1,3 +1,4 @@
+import { copyAgentInvocationCallerAbortSignal } from "./invocation-input.ts"
 import { parseStandardSchema } from "@vite-hub/internal/http-request"
 
 import { chatTriggerUserMeta, derivedChatTriggerInvoker, markDerivedChatTriggerInvoker } from "../chat-message-input.ts"
@@ -81,19 +82,19 @@ export function restoreParsedAgentMessageMeta<TRuntimeConfig extends AgentRuntim
     if (!state.derivedInvoker) return input
     const unresolved = withoutResolvedAgentInvokerInput(input)
     if (receipt) return unresolved
-    return {
+    return copyAgentInvocationCallerAbortSignal(unresolved, {
       ...unresolved,
       context: {
         ...unresolved.context,
         actor: state.derivedInvoker,
         invoker: state.derivedInvoker,
       },
-    }
+    })
   }
-  return {
+  return copyAgentInvocationCallerAbortSignal(input, {
     ...input,
     context: { ...input.context, [parsedAgentMessageMetaContextKey]: receipt },
-  }
+  })
 }
 
 function withParsedMeta(invoker: unknown, rawMeta: unknown, meta: Record<string, unknown>, user: unknown, derived: AgentInvoker | undefined): unknown {
@@ -176,5 +177,5 @@ export async function withParsedAgentMessageMeta<TRuntimeConfig extends AgentRun
 ): Promise<AgentRunInput<CALL_OPTIONS>> {
   const invocationContext = createAgentInvocationContextStore(input.context)
   await parseAgentMessageMeta(definition, invocationContext, run)
-  return { ...input, context: { ...input.context, ...invocationContext.toJSON() } }
+  return copyAgentInvocationCallerAbortSignal(input, { ...input, context: { ...input.context, ...invocationContext.toJSON() } })
 }

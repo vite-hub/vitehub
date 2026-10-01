@@ -1,9 +1,12 @@
 import { isPlainObject, isPlainRecord } from "@vite-hub/internal/object"
+import { getCloudflareEnv, runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { inheritSharedAgentCapacityOptions } from "./agent-capacity.ts"
+import { askJev, askState } from "./ask-runtime.ts"
 import { isRuntimeFunction, isRuntimeNumber, isRuntimeString } from "./runtime-value.ts"
 
 import type {
   AgentAdapterInstructions,
+  AgentAskQuestionsResolver,
   AgentAttachmentExecutionOptions,
   AgentDriverAdaptiveCapacityOptions,
   AgentDriverCapacityOptions,
@@ -16,6 +19,7 @@ import type {
   AgentProviderLaunchCommand,
   AgentProviderLaunchResolver,
   AgentProviderPermissions,
+  AgentProviderWorkingDirectoryResolver,
   AgentRunHandler,
   AgentRuntimeConfig,
   AgentSettings,
@@ -39,6 +43,7 @@ export type NormalizedAgentDriver<
   | {
     credentialProfile?: string
     credentials?: AgentProviderCredentialResolver<TRuntimeConfig>
+    cwd?: AgentProviderWorkingDirectoryResolver<TRuntimeConfig>
     env?: AgentProviderEnvironmentResolver<TRuntimeConfig>
     execution?: { attachments?: AgentAttachmentExecutionOptions }
     instructions?: AgentAdapterInstructions<TRuntimeConfig>
@@ -51,11 +56,17 @@ export type NormalizedAgentDriver<
     providerSettings?: Record<string, unknown>
     reasoningEffort?: CodexReasoningEffort
     reasoningSummary?: CodexReasoningSummary
+    requirements?: readonly string[]
     sessionStorePath?: string
   }
   | {
     kind: "run"
     output?: AgentOutputDefinition<TOutput>
+    run: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS>
+  }
+  | {
+    kind: "ask"
+    output?: undefined
     run: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS>
   }
 )
@@ -136,8 +147,9 @@ function normalizeAgentDriverCapacity(value: unknown): AgentDriverCapacityOption
 }
 
 const modelDriverKeys = new Set(["capacity", "execution", "instructions", "maxRetries", "model", "output"])
-const providerDriverKeys = new Set(["capacity", "credentialProfile", "credentials", "env", "execution", "instructions", "kind", "launch", "model", "output", "permissions", "providerSettings", "reasoningEffort", "reasoningSummary", "sessionStorePath"])
+const providerDriverKeys = new Set(["capacity", "credentialProfile", "credentials", "cwd", "env", "execution", "instructions", "kind", "launch", "model", "output", "permissions", "providerSettings", "reasoningEffort", "reasoningSummary", "requirements", "sessionStorePath"])
 const runDriverKeys = new Set(["capacity", "output", "run"])
+const askDriverKeys = new Set(["ask", "capacity"])
 
 function isResolver(value: unknown): value is { resolve: (...args: never[]) => unknown } {
   return isPlainObject(value) && isRuntimeFunction(value.resolve)
@@ -227,6 +239,12 @@ function normalizeProviderDriver(provider: "claude-code" | "codex", value: Recor
   if (value.sessionStorePath !== undefined && (!isRuntimeString(value.sessionStorePath) || !value.sessionStorePath.trim())) {
     throw agentDiagnostics.AGENT_R0476({ message: "[vitehub] defineAgent({ driver.sessionStorePath }) must be a non-empty string." })
   }
+  if (value.requirements !== undefined && (!Array.isArray(value.requirements) || !value.requirements.every(item => isRuntimeString(item) && /^[A-Za-z0-9._+][A-Za-z0-9._+-]*$/.test(item)))) {
+    throw agentDiagnostics.AGENT_R0970({ message: "[vitehub] defineAgent({ driver.requirements }) must be a list of command names, such as [\"git\", \"gh\"]." })
+  }
+  if (Array.isArray(value.requirements) && value.requirements.length > 0 && value.launch !== undefined && !isRuntimeFunction(value.launch) && !isResolver(value.launch)) {
+    throw agentDiagnostics.AGENT_R0970({ message: "[vitehub] defineAgent({ driver.requirements }) requires a launch resolver when driver.launch is set." })
+  }
   const codexOptions = ["credentialProfile", "credentials", "reasoningEffort", "reasoningSummary"].filter(key => value[key] !== undefined)
   if (provider !== "codex" && codexOptions.length) {
     throw agentDiagnostics.AGENT_R0477({ message: `[vitehub] defineAgent({ driver: { kind: "${provider}" } }) does not support Codex option${codexOptions.length === 1 ? "" : "s"}: ${codexOptions.join(", ")}.` })
@@ -278,6 +296,9 @@ function normalizeProviderDriver(provider: "claude-code" | "codex", value: Recor
     && value.env.T3CODE_CODEX_LAUNCH_ARGS !== undefined) {
     throw agentDiagnostics.AGENT_R0489({ message: "[vitehub] Codex reasoning options cannot be combined with driver.env.T3CODE_CODEX_LAUNCH_ARGS." })
   }
+  if (value.cwd !== undefined && !isRuntimeFunction(value.cwd) && !isResolver(value.cwd) && (!isRuntimeString(value.cwd) || !value.cwd.trim())) {
+    throw agentDiagnostics.AGENT_R0938({ message: "[vitehub] defineAgent({ driver.cwd }) must be a non-empty directory path or resolver." })
+  }
   const execution = normalizeProviderExecution(value.execution)
   return {
     capacity: normalizeAgentDriverCapacity(value.capacity),
@@ -285,6 +306,8 @@ function normalizeProviderDriver(provider: "claude-code" | "codex", value: Recor
     credentialProfile: value.credentialProfile as string | undefined,
     // SAFETY: The credential input shape is validated above.
     credentials: value.credentials as AgentProviderCredentialResolver | undefined,
+    // SAFETY: cwd is either absent, a non-empty string, or a function or resolver validated above. Its resolved value is validated at invocation time.
+    cwd: value.cwd as AgentProviderWorkingDirectoryResolver | undefined,
     env: normalizeProviderEnvironment(value.env),
     execution,
     // SAFETY: normalizeProviderDriver receives the typed AgentSettings driver after validating its provider-owned fields.
@@ -300,6 +323,8 @@ function normalizeProviderDriver(provider: "claude-code" | "codex", value: Recor
     reasoningEffort: isRuntimeString(value.reasoningEffort) ? value.reasoningEffort.trim() : undefined,
     // SAFETY: reasoningSummary is either absent or validated against the Codex summary values above.
     reasoningSummary: value.reasoningSummary as CodexReasoningSummary | undefined,
+    // SAFETY: requirements is either absent or validated as a list of command names above.
+    requirements: value.requirements === undefined ? undefined : [...value.requirements as string[]],
     sessionStorePath: isRuntimeString(value.sessionStorePath) ? value.sessionStorePath.trim() : undefined,
   }
 }
@@ -307,7 +332,7 @@ function normalizeProviderDriver(provider: "claude-code" | "codex", value: Recor
 function normalizeExplicitAgentDriver(driver: unknown): NormalizedAgentDriver {
   if (isRuntimeString(driver)) {
     if (driver !== "codex" && driver !== "claude-code") {
-      throw agentDiagnostics.AGENT_R0490({ message: `[vitehub] Unknown Agent Driver "${driver}". Expected "codex", "claude-code", or a custom { model } or { run } driver.` })
+      throw agentDiagnostics.AGENT_R0490({ message: `[vitehub] Unknown Agent Driver "${driver}". Expected "codex", "claude-code", or a custom { model }, { run }, or { ask } driver.` })
     }
     return normalizeProviderDriver(driver, {})
   }
@@ -323,8 +348,27 @@ function normalizeExplicitAgentDriver(driver: unknown): NormalizedAgentDriver {
 
   const capacity = normalizeAgentDriverCapacity(driver.capacity)
   const hasModel = hasOwnDefined(driver, "model")
-  const hasRun = hasOwnDefined(driver, "run")
-  if (hasModel === hasRun) throw agentDiagnostics.AGENT_R0493({ message: "[vitehub] defineAgent({ driver }) requires exactly one of driver.model or driver.run." })
+  const hasAsk = hasOwnDefined(driver, "ask")
+  if ([hasModel, hasOwnDefined(driver, "run"), hasAsk].filter(Boolean).length !== 1) {
+    throw agentDiagnostics.AGENT_R0493({ message: "[vitehub] defineAgent({ driver }) requires exactly one of driver.model, driver.run, or driver.ask." })
+  }
+  if (hasAsk) {
+    assertNoUnsupportedOptions(driver, askDriverKeys, "defineAgent({ driver: { ask } })")
+    if (!isPlainObject(driver.ask) && !isRuntimeFunction(driver.ask)) {
+      throw agentDiagnostics.AGENT_R0495({ message: "[vitehub] defineAgent({ driver.ask }) must be an object of Jev questions or a function that returns one." })
+    }
+    // SAFETY: The typed AgentSettings boundary establishes the question map; askJev validates each question when it runs.
+    const ask = driver.ask as AgentAskQuestionsResolver
+    return {
+      capacity,
+      kind: "ask",
+      run: async context => await runWithActiveCloudflareEnv(getCloudflareEnv({ context }), async () => await askJev(
+        { abortSignal: context.input.abortSignal, event: { context } },
+        askState(context.input, context.prompt, context.messages),
+        isRuntimeFunction(ask) ? await ask(context) : ask,
+      )),
+    }
+  }
   if (hasModel) {
     assertNoUnsupportedOptions(driver, modelDriverKeys, "defineAgent({ driver: { model } })")
     if (driver.maxRetries !== undefined && (!isRuntimeNumber(driver.maxRetries) || !Number.isInteger(driver.maxRetries) || driver.maxRetries < 0)) {
@@ -371,5 +415,5 @@ export function normalizeAgentDriver<
   const record = options as Record<string, unknown>
   // SAFETY: normalizeExplicitAgentDriver validates the runtime shape; options carries the matching compile-time driver contract.
   if (hasOwnDefined(record, "driver")) return normalizeExplicitAgentDriver(record.driver) as NormalizedAgentDriver<TRuntimeConfig, CALL_OPTIONS>
-  throw agentDiagnostics.AGENT_R0497({ message: "[vitehub] Agent Driver is required. Expected a built-in driver name, tagged built-in configuration, or custom { model } or { run } driver." })
+  throw agentDiagnostics.AGENT_R0497({ message: "[vitehub] Agent Driver is required. Expected a built-in driver name, tagged built-in configuration, or custom { model }, { run }, or { ask } driver." })
 }

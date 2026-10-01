@@ -39,4 +39,16 @@ export interface McpCapabilityOptions<
 > {
   integrity?: Record<string, McpToolFingerprints>
   servers: Record<string, McpServerConfig<TRuntimeConfig, Name>>
+  /**
+   * Append a notice to the final chat reply when a server is unavailable.
+   * `true` uses the default text. A function receives the unavailable server names.
+   */
+  unavailableNotice?: boolean | ((servers: string[]) => string)
+}
+
+/** One MCP server that was unavailable during an Invocation. Read the list with `getMcpWarnings(input)`. */
+export interface McpAvailabilityWarning {
+  phase: "discovery" | "resolve"
+  server: string
+  statusCode?: number
 }

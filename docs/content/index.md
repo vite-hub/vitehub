@@ -1,13 +1,14 @@
 ---
 title: ViteHub
-description: Server APIs and portable Agents for any Vite host.
+description: Define an Agent in one file and run it on supported Vite hosts.
 ---
 
 # ViteHub
 
-ViteHub adds a server layer to Vite. Call Server Primitives from routes, handlers, jobs, and workers, or combine them into an Agent.
+Define an Agent in one file. Channels start it, a Driver runs it, a Workspace holds its files, and Capabilities add tools it can use. Provider Drivers may also retain their own native tools. Capabilities use Server Primitives that ordinary server code can also call.
 
-- [Browse docs](/docs)
-- [Use server primitives](/docs/server-primitives)
+- [Build your first Agent](/docs/getting-started/first-agent)
 - [Create agents](/docs/agents)
 - [Attach capabilities](/docs/capabilities)
+- [Use server primitives](/docs/server-primitives)
+- [Browse docs](/docs)

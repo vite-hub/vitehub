@@ -1,5 +1,7 @@
 import { createServer } from "node:http"
 
+import * as v from "valibot"
+
 import { CONNECTIONS_ROUTE } from "./route.ts"
 
 import type { ViteHubCliContext, ViteHubCliContributor, ViteHubCliFeature } from "@vite-hub/internal/cli"
@@ -34,7 +36,9 @@ function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
       positionals.push(argument)
       continue
     }
-    const [flag, inline] = argument.split(/=(.*)/s, 2) as [string, string | undefined]
+    const separator = argument.indexOf("=")
+    const flag = separator < 0 ? argument : argument.slice(0, separator)
+    const inline = separator < 0 ? undefined : argument.slice(separator + 1)
     if (flag === "-h" || flag === "--help" || flag === "--json") {
       flags.set(flag === "-h" ? "--help" : flag, true)
       continue
@@ -47,17 +51,21 @@ function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
   }
   const url = flags.get("--url")
   return {
-    confirm: typeof flags.get("--confirm") === "string" ? flags.get("--confirm") as string : undefined,
+    confirm: stringFlag(flags.get("--confirm")),
     flags,
     json: flags.has("--json"),
     positionals,
-    url: typeof url === "string" ? url : env.VITEHUB_CONNECTIONS_URL || "http://localhost:5173",
+    url: stringFlag(url) ?? (env.VITEHUB_CONNECTIONS_URL || "http://localhost:5173"),
   }
+}
+
+function stringFlag(value: string | true | undefined): string | undefined {
+  return value === true ? undefined : value
 }
 
 function flag(parsed: ParsedArgs, name: string): string | undefined {
   const value = parsed.flags.get(name)
-  return typeof value === "string" ? value : undefined
+  return stringFlag(value)
 }
 
 function appUrl(parsed: ParsedArgs): URL {
@@ -76,7 +84,27 @@ function isLoopback(url: URL): boolean {
   return url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "[::1]"
 }
 
-async function request<T>(parsed: ParsedArgs, options: ConnectionsCliOptions, body: Record<string, unknown>): Promise<T> {
+const inspectionSchema = v.looseObject({
+  account: v.optional(v.looseObject({ email: v.optional(v.string()), id: v.string() })),
+  actions: v.array(v.looseObject({ highRisk: v.boolean(), id: v.string(), method: v.string(), write: v.boolean() })),
+  name: v.string(),
+  provider: v.string(),
+  scopes: v.looseObject({ declared: v.array(v.string()), granted: v.array(v.string()), missing: v.array(v.string()) }),
+  status: v.picklist(["connected", "disconnected", "reauth_required", "revoked"]),
+})
+const approvalSchema = v.looseObject({
+  action: v.string(), actor: v.string(), createdAt: v.string(), id: v.string(), input: v.unknown(), name: v.string(),
+  status: v.picklist(["approved", "denied", "executed", "failed", "pending"]),
+})
+const connectionResponse = v.looseObject({ connection: inspectionSchema })
+const approvalResponse = v.looseObject({ approval: approvalSchema, result: v.optional(v.unknown()) })
+const authorizationResponse = v.looseObject({ state: v.string(), url: v.pipe(v.string(), v.url()) })
+const activityResponse = v.looseObject({ activity: v.array(v.looseObject({
+  action: v.string(), actor: v.looseObject({ id: v.string(), kind: v.string() }), id: v.string(),
+  operation: v.optional(v.string()), outcome: v.string(), timestamp: v.string(),
+})) })
+
+async function request<T>(parsed: ParsedArgs, options: ConnectionsCliOptions, body: Record<string, unknown>, schema: v.BaseSchema<unknown, T, v.BaseIssue<unknown>>): Promise<T> {
   const base = appUrl(parsed)
   const endpoint = new URL(CONNECTIONS_ROUTE, base)
   let response: Response
@@ -99,10 +127,13 @@ async function request<T>(parsed: ParsedArgs, options: ConnectionsCliOptions, bo
     throw new CliError(`${endpoint.href} returned ${response.status} without a Connections response. Check that the app uses Connections and that the management API is mounted.`)
   }
   if (!response.ok) {
-    const error = (value as { error?: { code?: unknown, message?: unknown } }).error
-    throw new CliError(`${typeof error?.message === "string" ? error.message : `Request failed with ${response.status}.`}${typeof error?.code === "string" ? ` (${error.code})` : ""}`)
+    const parsedError = v.safeParse(v.object({ error: v.object({ code: v.optional(v.string()), message: v.optional(v.string()) }) }), value)
+    const error = parsedError.success ? parsedError.output.error : undefined
+    throw new CliError(`${error?.message ?? `Request failed with ${response.status}.`}${error?.code ? ` (${error.code})` : ""}`)
   }
-  return value as T
+  const result = v.safeParse(schema, value)
+  if (!result.success) throw new CliError(`${endpoint.href} returned an invalid Connections response.`)
+  return result.output
 }
 
 function write(context: CliContext, parsed: ParsedArgs, value: unknown, text: () => string): void {
@@ -171,13 +202,13 @@ async function connectLoopback(name: string, parsed: ParsedArgs, context: CliCon
   const timeout = setTimeout(() => rejectCallback(new CliError("Timed out while waiting for the authorization callback.")), (options.timeout ?? 300) * 1_000)
   try {
     const address = server.address()
-    if (!address || typeof address === "string") throw new CliError("Could not start the loopback callback server.")
+    if (!address || v.is(v.string(), address)) throw new CliError("Could not start the loopback callback server.")
     const redirectUri = `http://127.0.0.1:${address.port}/callback`
-    const authorization = await request<{ state: string, url: string }>(parsed, options, { action: "authorize", name, redirectUri })
+    const authorization = await request(parsed, options, { action: "authorize", name, redirectUri }, authorizationResponse)
     expectedState = authorization.state
     context.stderr.write(`Open this URL to connect "${name}":\n\n  ${authorization.url}\n\nWaiting for ${redirectUri} ...\n`)
     const result = await callback
-    return (await request<{ connection: ConnectionInspection }>(parsed, options, { action: "complete", ...result })).connection
+    return (await request(parsed, options, { action: "complete", ...result }, connectionResponse)).connection
   }
   finally {
     clearTimeout(timeout)
@@ -192,7 +223,7 @@ const commands: Record<string, { description: string, run: Command, usage: strin
     description: "List Connections and their status.",
     usage: "vitehub connections list [--url <app>] [--json]",
     async run(parsed, context, options) {
-      const { connections } = await request<{ connections: ConnectionInspection[] }>(parsed, options, { action: "list" })
+      const { connections } = await request(parsed, options, { action: "list" }, v.looseObject({ connections: v.array(inspectionSchema) }))
       write(context, parsed, connections, () => connections.length ? connections.map(describeConnection).join("\n") : "No Connections found.")
     },
   },
@@ -200,7 +231,7 @@ const commands: Record<string, { description: string, run: Command, usage: strin
     description: "Show one Connection: account, scopes, and actions.",
     usage: "vitehub connections inspect <name> [--url <app>] [--json]",
     async run(parsed, context, options) {
-      const { connection } = await request<{ connection: ConnectionInspection }>(parsed, options, { action: "inspect", name: requireName(parsed, "inspect") })
+      const { connection } = await request(parsed, options, { action: "inspect", name: requireName(parsed, "inspect") }, connectionResponse)
       write(context, parsed, connection, () => [
         describeConnection(connection),
         `  granted scopes: ${connection.scopes.granted.join(" ") || "none"}`,
@@ -228,11 +259,11 @@ const commands: Record<string, { description: string, run: Command, usage: strin
     usage: "vitehub connections activity <name> [--before <id>] [--url <app>] [--json]",
     async run(parsed, context, options) {
       const before = flag(parsed, "--before")
-      const { activity } = await request<{ activity: Array<{ action: string, actor: { id: string, kind: string }, id: string, operation?: string, outcome: string, timestamp: string }> }>(parsed, options, {
+      const { activity } = await request(parsed, options, {
         action: "activity",
         name: requireName(parsed, "activity"),
-        ...(before ? { before } : {}),
-      })
+        before,
+      }, activityResponse)
       write(context, parsed, activity, () => activity.length
         ? activity.map(entry => `${entry.timestamp}  ${entry.outcome}  ${entry.action}${entry.operation ? `  ${entry.operation}` : ""}  ${entry.actor.kind}:${entry.actor.id}  ${entry.id}`).join("\n")
         : "No activity.")
@@ -240,28 +271,32 @@ const commands: Record<string, { description: string, run: Command, usage: strin
   },
   approvals: {
     description: "List, approve, or deny writes that wait for approval.",
-    usage: "vitehub connections approvals [approve|deny <id>] [--name <name>] [--status <status>] [--url <app>] [--json]",
+    usage: "vitehub connections approvals [approve|deny <id>] [--name <name>] [--status <status>] [--before <id>] [--url <app>] [--json]",
     async run(parsed, context, options) {
       const [subcommand, id] = parsed.positionals
       if (subcommand === "approve" || subcommand === "deny") {
         if (!id) throw new CliError(`approvals ${subcommand} requires an approval id.`)
         if (subcommand === "approve") {
-          const result = await request<{ approval: ConnectionApproval, result?: unknown }>(parsed, options, { action: "approve", id })
+          const result = await request(parsed, options, { action: "approve", id }, approvalResponse)
           write(context, parsed, result, () => describeApproval(result.approval))
           return result.approval.status === "failed" ? 1 : undefined
         }
-        const result = await request<{ approval: ConnectionApproval }>(parsed, options, { action: "deny", id })
+        const result = await request(parsed, options, { action: "deny", id }, approvalResponse)
         write(context, parsed, result, () => describeApproval(result.approval))
         return
       }
       if (subcommand) throw new CliError(`Unknown approvals command: ${subcommand}.`)
       const name = flag(parsed, "--name")
-      const { approvals } = await request<{ approvals: ConnectionApproval[] }>(parsed, options, {
+      const page = await request(parsed, options, {
         action: "approvals",
-        ...(name ? { name } : {}),
+        before: flag(parsed, "--before"),
+        name,
         status: flag(parsed, "--status") ?? "pending",
-      })
-      write(context, parsed, approvals, () => approvals.length ? approvals.map(describeApproval).join("\n") : "No approvals.")
+      }, v.looseObject({ approvals: v.array(approvalSchema), nextCursor: v.optional(v.string()) }))
+      write(context, parsed, page, () => [
+        page.approvals.length ? page.approvals.map(describeApproval).join("\n") : "No approvals.",
+        ...(page.nextCursor ? [`Next page: repeat this command with --before ${page.nextCursor}.`] : []),
+      ].join("\n"))
     },
   },
   revoke: {
@@ -270,7 +305,7 @@ const commands: Record<string, { description: string, run: Command, usage: strin
     async run(parsed, context, options) {
       const name = requireName(parsed, "revoke")
       if (parsed.confirm !== name) throw new CliError(`Pass --confirm ${name} to revoke this Connection.`)
-      const { connection } = await request<{ connection: ConnectionInspection }>(parsed, options, { action: "revoke", name })
+      const { connection } = await request(parsed, options, { action: "revoke", name }, connectionResponse)
       write(context, parsed, connection, () => `Revoked. ${describeConnection(connection)}`)
     },
   },

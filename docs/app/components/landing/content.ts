@@ -3,7 +3,7 @@ export const installOptions = {
     label: "Agent skill",
     value: "skill",
     icon: "i-lucide-bot",
-    command: "npx skills add https://vitehub.dev",
+    command: "npx skills add https://vitehub.dev --skill vitehub",
   },
   packages: [
     {
@@ -33,44 +33,62 @@ export const installOptions = {
   ],
 } as const;
 
-export const landingPaths = [
-  {
-    id: "agents",
-    name: "Agents",
-    description:
-      "Define one inspectable server actor, choose how it runs, and attach only the context and abilities it needs.",
-    tutorialPath: "/docs/getting-started/first-agent",
-    action: "Build your first Agent",
-    codeLabel: "server/agents/review.ts",
-    code: `import { defineAgent } from "vite-hub/agent"
-
-export default defineAgent({
-  description: "Reviews one repository change.",
-  driver: {
-    run({ prompt }) {
-      return { text: "Reviewing " + String(prompt ?? "the repository") + "." }
+export const agentStory = {
+  path: "server/agents/review.ts",
+  tutorialPath: "/docs/getting-started/first-agent",
+  code: [
+    'import { defineAgent } from "vite-hub/agent"',
+    'import { browser } from "vite-hub/agent/capabilities"',
+    'import { github } from "vite-hub/agent/channels"',
+    "",
+    "export default defineAgent({",
+    '  description: "Reviews pull requests.",',
+    "  channels: {",
+    '    github: github({ pullRequest: { reconcile: { events: ["opened"] } } }),',
+    "  },",
+    '  driver: "codex",',
+    '  workspace: { mode: "write" },',
+    "  capabilities: [browser()],",
+    "})",
+  ],
+  steps: [
+    {
+      id: "channel",
+      label: "Channel",
+      title: "A pull request opens",
+      description: "Channels start an Invocation from GitHub, Slack, HTTP, or web chat.",
+      lines: [2, 6, 7, 8],
+      to: "/docs/agents/channels",
     },
-  },
-})`,
-  },
-  {
-    id: "server-primitives",
-    name: "Server Primitives",
-    description:
-      "Use storage, queues, schedules, sandboxes, and more directly from ordinary server code.",
-    tutorialPath: "/docs/getting-started/first-server-primitive",
-    action: "Try a Server Primitive",
-    codeLabel: "server/api/settings.put.ts",
-    code: `import { kv } from "vite-hub/kv"
+    {
+      id: "driver",
+      label: "Driver",
+      title: "Codex takes the run",
+      description: "Use Codex, Claude Code, an AI SDK model, or your own function.",
+      lines: [9],
+      to: "/docs/agents/agent-drivers",
+    },
+    {
+      id: "workspace",
+      label: "Workspace",
+      title: "It works in a real file tree",
+      description: "A persistent Workspace holds the repository between runs.",
+      lines: [10],
+      to: "/docs/agents/workspace-context",
+    },
+    {
+      id: "capabilities",
+      label: "Capabilities",
+      title: "You add the tools it needs",
+      description: "Capabilities add tools such as the browser. Codex keeps its own tools.",
+      lines: [1, 11],
+      to: "/docs/capabilities",
+    },
+  ],
+} as const;
 
-export default defineEventHandler(async (event) => {
-  const [error] = await kv.set("settings", await readBody(event))
-  if (error) throw error
-  return { ok: true }
-})`,
-  },
-] as const;
-
+// Ordered by importance to an Agent: what it works in and calls first, supporting primitives last.
+// Realtime has only a reference page.
 export const landingPrimitives = [
   {
     id: "workspace",
@@ -79,16 +97,16 @@ export const landingPrimitives = [
     to: "/docs/server-primitives/workspace",
   },
   {
-    id: "kv",
-    name: "KV",
-    description: "State and cache",
-    to: "/docs/server-primitives/kv",
+    id: "sandbox",
+    name: "Sandbox",
+    description: "Isolated execution",
+    to: "/docs/server-primitives/sandbox",
   },
   {
-    id: "queue",
-    name: "Queue",
-    description: "Background jobs",
-    to: "/docs/server-primitives/queue",
+    id: "connections",
+    name: "Connections",
+    description: "Connected account APIs",
+    to: "/docs/server-primitives/connections",
   },
   {
     id: "workflow",
@@ -97,22 +115,28 @@ export const landingPrimitives = [
     to: "/docs/server-primitives/workflows",
   },
   {
-    id: "schedule",
-    name: "Schedule",
-    description: "Recurring work",
-    to: "/docs/server-primitives/schedule",
-  },
-  {
-    id: "sandbox",
-    name: "Sandbox",
-    description: "Isolated execution",
-    to: "/docs/server-primitives/sandbox",
+    id: "kv",
+    name: "KV",
+    description: "State and cache",
+    to: "/docs/server-primitives/kv",
   },
   {
     id: "database",
     name: "Database",
     description: "Relational data",
     to: "/docs/server-primitives/database",
+  },
+  {
+    id: "queue",
+    name: "Queue",
+    description: "Background jobs",
+    to: "/docs/server-primitives/queue",
+  },
+  {
+    id: "schedule",
+    name: "Schedule",
+    description: "Recurring work",
+    to: "/docs/server-primitives/schedule",
   },
   {
     id: "blob",
@@ -127,10 +151,16 @@ export const landingPrimitives = [
     to: "/docs/server-primitives/auth",
   },
   {
-    id: "env",
-    name: "Env",
-    description: "Typed configuration",
-    to: "/docs/server-primitives/env",
+    id: "browser",
+    name: "Browser",
+    description: "Browser operations",
+    to: "/docs/server-primitives/browser",
+  },
+  {
+    id: "shell",
+    name: "Shell",
+    description: "Command execution",
+    to: "/docs/server-primitives/shell",
   },
   {
     id: "source",
@@ -139,9 +169,33 @@ export const landingPrimitives = [
     to: "/docs/server-primitives/source",
   },
   {
-    id: "shell",
-    name: "Shell",
-    description: "Command execution",
-    to: "/docs/server-primitives/shell",
+    id: "content",
+    name: "Content",
+    description: "Parse and search",
+    to: "/docs/server-primitives/content",
+  },
+  {
+    id: "email",
+    name: "Email",
+    description: "Transactional email",
+    to: "/docs/server-primitives/email",
+  },
+  {
+    id: "env",
+    name: "Env",
+    description: "Typed configuration",
+    to: "/docs/server-primitives/env",
+  },
+  {
+    id: "rate-limit",
+    name: "Rate Limit",
+    description: "Request budgets",
+    to: "/docs/server-primitives/rate-limit",
+  },
+  {
+    id: "realtime",
+    name: "Realtime",
+    description: "Collaborative documents",
+    to: "/docs/reference/realtime",
   },
 ] as const;

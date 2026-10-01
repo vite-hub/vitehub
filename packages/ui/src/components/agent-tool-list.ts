@@ -1,4 +1,4 @@
-import { defineComponent, h, type PropType } from "vue";
+import { defineComponent, getCurrentInstance, h, type PropType } from "vue";
 import { hasRuntimeType } from "../internal/runtime-type.ts";
 import type { AgentToolInspection } from "../types.ts";
 
@@ -27,6 +27,10 @@ function schemaBlock(label: string, schema: AgentToolInspection["inputSchema"]) 
 
 export const AgentToolList = defineComponent({
   name: "AgentToolList",
+  emits: {
+    /** Emitted with a used tool's name when the viewer asks to see its calls. */
+    select: (name: string) => Boolean(name),
+  },
   props: {
     calls: {
       required: false,
@@ -39,19 +43,35 @@ export const AgentToolList = defineComponent({
       type: Array as PropType<readonly AgentToolInspection[]>,
     },
   },
-  setup(props) {
+  setup(props, { emit }) {
+    const instance = getCurrentInstance();
+    const Icon = instance?.appContext.components.UIcon;
+    const toolIcon = (tool: AgentToolInspection) => Icon && tool.icon
+      ? h("span", { "aria-hidden": "true", class: "vh-agent-tool-list__icon" }, [h(Icon, { name: tool.icon })])
+      : null;
     return () =>
       h(
         "div",
         { class: "vh-agent-tool-list" },
         props.tools.map((tool) => {
           const count = props.calls?.[tool.name];
-          const usage = props.calls
-            ? h("span", {
-                "aria-label": count ? `${count} call${count === 1 ? "" : "s"}` : "Not used",
-                class: "vh-agent-tool-list__count",
-              }, count || "—")
-            : null;
+          const calls = count ? `${count} call${count === 1 ? "" : "s"}` : undefined;
+          const usage = !props.calls
+            ? null
+            : calls && instance?.vnode.props?.onSelect
+              ? h("button", {
+                  "aria-label": `${calls}, show the first call`,
+                  class: "vh-agent-tool-list__count",
+                  onClick: (event: MouseEvent) => {
+                    // The button can sit in a disclosure summary; keep the disclosure state.
+                    event.preventDefault();
+                    event.stopPropagation();
+                    emit("select", tool.name);
+                  },
+                  title: "Show the first call",
+                  type: "button",
+                }, calls)
+              : h("span", { "aria-label": calls ?? "Not used", class: "vh-agent-tool-list__count" }, calls ?? "—");
           const attributes = {
             "data-used": props.calls ? (count ? "true" : "false") : undefined,
             key: tool.name,
@@ -61,14 +81,17 @@ export const AgentToolList = defineComponent({
           );
           if (!hasDetails) {
             return h("div", { ...attributes, class: "vh-agent-tool-list__item" }, [
+              toolIcon(tool),
               h("code", tool.name),
+              tool.label ? h("small", tool.label) : null,
               usage,
             ]);
           }
           return h("details", { ...attributes, class: "vh-agent-tool-list__disclosure" }, [
             h("summary", [
+              toolIcon(tool),
               h("code", tool.name),
-              h("small", tool.description || "Tool contract"),
+              h("small", tool.label || tool.description || "Tool contract"),
               usage,
               h(
                 "svg",

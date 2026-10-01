@@ -2,6 +2,10 @@ import { join } from "node:path"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
 
+export function addConsoleDevframeHandler(nitro: { handlers?: Array<{ handler: string; route: string }> }, consoleRuntimeRoot: string): void {
+  addConsoleRpcHandler(nitro, consoleRuntimeRoot)
+}
+
 export function addConsoleRpcHandler(nitro: { handlers?: Array<{ handler: string; route: string }> }, consoleRuntimeRoot: string): void {
   const route = "/_vitehub/rpc/**"
   const handler = join(consoleRuntimeRoot, "server/rpc.js")
@@ -16,6 +20,16 @@ export function addConsoleRpcHandler(nitro: { handlers?: Array<{ handler: string
   const managementConflict = handlers.find(candidate => candidate.route === managementRoute && candidate.handler !== managementHandler)
   if (managementConflict) throw viteHubErrorDiagnostics.VITE_HUB_R0040({ message: `Cannot mount the ViteHub Env handler at "${managementRoute}" because that route is already registered.` })
   kit.addHandler({ handler: managementHandler, method: "post", route: managementRoute })
+  const replayRoute = "/_vitehub/channels/replay"
+  const replayHandler = join(consoleRuntimeRoot, "server/channel-replay.js")
+  const replayConflict = handlers.find(candidate => candidate.route === replayRoute && candidate.handler !== replayHandler)
+  if (replayConflict) throw viteHubErrorDiagnostics.VITE_HUB_R0040({ message: `Cannot mount the ViteHub Channel replay handler at "${replayRoute}" because that route is already registered.` })
+  kit.addHandler({ handler: replayHandler, method: "post", route: replayRoute })
+  const scheduleRunRoute = "/_vitehub/schedules/run"
+  const scheduleRunHandler = join(consoleRuntimeRoot, "server/schedule-run.js")
+  const scheduleRunConflict = handlers.find(candidate => candidate.route === scheduleRunRoute && candidate.handler !== scheduleRunHandler)
+  if (scheduleRunConflict) throw viteHubErrorDiagnostics.VITE_HUB_R0040({ message: `Cannot mount the ViteHub Schedule run handler at "${scheduleRunRoute}" because that route is already registered.` })
+  kit.addHandler({ handler: scheduleRunHandler, method: "post", route: scheduleRunRoute })
   // SAFETY: The kit preserves the caller's Nitro handler array while adding the Console route.
   nitro.handlers = kit.config.handlers as Array<{ handler: string; route: string }>
 }

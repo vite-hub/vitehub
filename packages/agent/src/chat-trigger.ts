@@ -3,6 +3,7 @@ import { defineCapability } from "./capability-runtime.ts"
 import { createChatMessageTriggerInput } from "./chat-message-input.ts"
 import { readAgentErrorProperty, toAgentPublicError } from "./agent-error.ts"
 import { createReplyDeliveryEffectIntent, defineFinishEffect } from "./delivery-effects.ts"
+import { chatFinalReplyIntent, chatFinalReplyMode, chatFinalReplyNotices } from "./internal/chat-finish-delivery.ts"
 import { agentWorkflowExecutionContextKey } from "./internal/workflow-execution.ts"
 import { agentInvokerLabel } from "./invoker.ts"
 
@@ -83,18 +84,8 @@ export const CHAT_FINISH_EXTENSION_CONTEXT_KEY = "chat.finish"
 const defaultChatErrorFallbackText = "Sorry, I couldn't process that message."
 const durableChatErrorFallbackTimeoutMs = 30_000
 
-function defaultInternalChatErrorFallback(args: AgentChatErrorHookArgs): string {
-  // Provider runtimes sometimes wrap quota failures in an internal diagnostic
-  // (for example AGENT_R0726), leaving the useful reset text only on `error`.
-  // Surface that information when it is unambiguously a usage failure; keep
-  // opaque internal errors on the safe generic message.
-  const raw = hasRuntimeType(args.error, "string")
-    ? args.error
-    : (() => {
-        try { return JSON.stringify(args.error) || "" } catch { return "" }
-      })()
-  if (args.publicError.code !== "PROVIDER_QUOTA_EXHAUSTED") return defaultChatErrorFallbackText
-  const reset = raw.match(/try again at ([^.]+\.)/i)?.[1]?.trim()
+function defaultQuotaChatErrorFallback(args: Pick<AgentChatErrorHookArgs, "error" | "publicError">): string {
+  const reset = args.publicError.details?.resetText
   // Never surface arbitrary URLs embedded in serialized diagnostics. Providers
   // may opt in by supplying an explicitly named usage link on the error object.
   const usageLink = (() => {
@@ -110,7 +101,7 @@ function defaultInternalChatErrorFallback(args: AgentChatErrorHookArgs): string 
   })()
   return [
     "The AI provider usage limit has been reached.",
-    reset ? `Usage should reset ${reset}` : "Usage will reset when the provider quota renews.",
+    reset ? `Usage should reset ${reset}.` : "Usage will reset when the provider quota renews.",
     usageLink ? `Manage usage: ${usageLink}` : undefined,
   ].filter(Boolean).join(" ")
 }
@@ -127,6 +118,14 @@ export function durableChatErrorFallbackTimeout(
 
 type KnownChatWebhookPlatform = keyof typeof CHAT_WEBHOOK_DEFAULTS
 
+function defaultChatErrorFallback(args: Pick<AgentChatErrorHookArgs, "error" | "publicError">): string {
+  if (args.publicError.code === "PROVIDER_QUOTA_EXHAUSTED") return defaultQuotaChatErrorFallback(args)
+  if (args.publicError.code === "INTERNAL") return defaultChatErrorFallbackText
+  return args.publicError.requestId
+    ? `${args.publicError.error} Reference: ${args.publicError.requestId}.`
+    : args.publicError.error
+}
+
 export async function resolveChatErrorFallbackText<TRuntimeConfig extends AgentRuntimeConfig>(
   options: AgentChatOptions<TRuntimeConfig> | undefined,
   args: AgentChatErrorHookArgs<TRuntimeConfig>,
@@ -135,9 +134,10 @@ export async function resolveChatErrorFallbackText<TRuntimeConfig extends AgentR
 ): Promise<string | undefined> {
   const fallback = options?.errorFallbackText
   if (fallback === null) return
+  const defaultText = defaultChatErrorFallback(args)
   if (hasRuntimeType(fallback, "function")) {
     try {
-      const resolution = Promise.resolve(fallback(args))
+      const resolution = Promise.resolve(fallback({ ...args, defaultText }))
       // SAFETY: Chat Capability normalization establishes the asserted trigger and delivery contract.
       return await (resolveFallback ? resolveFallback(resolution) : resolution) as string || undefined
     }
@@ -145,15 +145,7 @@ export async function resolveChatErrorFallbackText<TRuntimeConfig extends AgentR
       return callbackDelivered?.() ? undefined : defaultChatErrorFallbackText
     }
   }
-  if (args.publicError.code === "PROVIDER_QUOTA_EXHAUSTED") {
-    return defaultInternalChatErrorFallback(args)
-  }
-  if (args.publicError.code !== "INTERNAL") {
-    return args.publicError.requestId
-      ? `${args.publicError.error} Reference: ${args.publicError.requestId}.`
-      : args.publicError.error
-  }
-  return hasRuntimeType(fallback, "string") ? fallback : defaultInternalChatErrorFallback(args)
+  return hasRuntimeType(fallback, "string") && args.publicError.code === "INTERNAL" ? fallback : defaultText
 }
 
 export function resolveDurableChatErrorFallbackText<TRuntimeConfig extends AgentRuntimeConfig>(
@@ -228,6 +220,21 @@ function durableChatErrorFallback<TRuntimeConfig extends AgentRuntimeConfig>(
     && Boolean((asUnknownBoundary(context) as AgentRuntimeContext & { [agentWorkflowExecutionContextKey]?: boolean })[agentWorkflowExecutionContextKey])
     && (Boolean(getAgentChatContext(context.context)) || context.context.has("channel"))
   effect.kind = "chat.error-fallback"
+  return effect
+}
+
+function chatFinalReply<TRuntimeConfig extends AgentRuntimeConfig>() {
+  const effect = defineFinishEffect<TRuntimeConfig>((context) => {
+    const text = context.text?.trim()
+    // Notices follow the final text. When the route already posted that text, they post alone.
+    const reply = [chatFinalReplyMode(context.input) === "pending" ? text : undefined, ...chatFinalReplyNotices(context.input)]
+      .filter(Boolean)
+      .join("\n\n")
+    if (!reply) return
+    return context.reply(reply, { intent: chatFinalReplyIntent })
+  })
+  effect.active = context => context.error === undefined && chatFinalReplyMode(context.input) !== undefined
+  effect.kind = chatFinalReplyIntent
   return effect
 }
 
@@ -439,10 +446,11 @@ function createChatMessageTrigger<TRuntimeConfig extends AgentRuntimeConfig>(
     output: "ui-message-stream",
     webhooks: resolveChatWebhookRegistrations(options),
     async invoke(_context, triggerInput) {
-      const { hookArgs, input } = createChatMessageTriggerInput(options, triggerInput)
+      const { currentMessage, hookArgs, input } = createChatMessageTriggerInput(options, triggerInput)
       const thinkingFallback = await resolveChatThinkingFallback(options, hookArgs)
       return {
         input,
+        message: currentMessage,
         ...(thinkingFallback !== undefined ? { metadata: { thinkingFallback } } : {}),
         run: resolveChatMessageRunMetadata(triggerInput.run, input.context?.invoker, input.messages || []),
       }
@@ -451,9 +459,10 @@ function createChatMessageTrigger<TRuntimeConfig extends AgentRuntimeConfig>(
 }
 
 export function assertChatDeliveryOptions(options: AgentChatOptions): void {
-  const manualDelivery = options.loading !== undefined || options.delivery === "manual"
-  if (manualDelivery && (options.stream === true || options.commentary !== undefined)) {
-    throw agentDiagnostics.AGENT_R0378({ message: "[vitehub] messages.delivery \"manual\" cannot be combined with messages.stream or messages.commentary." })
+  // Manual delivery and a loading message both buffer the reply until the Invocation finishes.
+  const bufferedDelivery = options.loading !== undefined || options.delivery === "manual"
+  if (bufferedDelivery && (options.stream === true || options.commentary !== undefined)) {
+    throw agentDiagnostics.AGENT_R0378({ message: "[vitehub] messages.delivery \"manual\" and messages.loading cannot be combined with messages.stream or messages.commentary." })
   }
   if (options.loading?.updates !== undefined && options.loading.updates !== "commentary") {
     throw agentDiagnostics.AGENT_R0379({ message: '[vitehub] messages.loading.updates must be "commentary".' })
@@ -467,8 +476,8 @@ export function assertChatDeliveryOptions(options: AgentChatOptions): void {
   if (options.timeout !== undefined && (!Number.isFinite(options.timeout) || options.timeout <= 0)) {
     throw agentDiagnostics.AGENT_R0382({ message: "[vitehub] messages.timeout must be a positive finite number." })
   }
-  if (options.durable && !manualDelivery) {
-    throw agentDiagnostics.AGENT_R0383({ message: "[vitehub] messages.durable requires delivery: \"manual\" so Agent finish effects own the deferred reply." })
+  if (options.durable && !bufferedDelivery) {
+    throw agentDiagnostics.AGENT_R0383({ message: "[vitehub] messages.durable requires messages.loading or delivery: \"manual\" because a durable Workflow cannot stream the reply." })
   }
   if (options.durable && options.concurrency !== undefined && options.concurrency !== "parallel" && options.concurrency !== "steer") {
     throw agentDiagnostics.AGENT_R0384({ message: `[vitehub] messages.durable cannot be combined with concurrency: ${JSON.stringify(options.concurrency)} because Workflow handoff releases the webhook lease before the Agent Invocation settles.` })
@@ -507,6 +516,8 @@ export function defineChatCapability<
       context.finish.provide(() => context.context.get(CHAT_FINISH_EXTENSION_CONTEXT_KEY))
       // SAFETY: Chat Capability normalization establishes the asserted trigger and delivery contract.
       context.delivery.finishEffect(durableChatErrorFallback(options) as never)
+      // SAFETY: Chat Capability normalization establishes the asserted trigger and delivery contract.
+      context.delivery.finishEffect(chatFinalReply() as never)
     },
     triggers: {
       message: createChatMessageTrigger(options),

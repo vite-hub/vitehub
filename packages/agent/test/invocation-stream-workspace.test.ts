@@ -1,3 +1,4 @@
+import { channelDeliveryHandlers } from "../src/internal/channel-delivery-handlers.ts"
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -207,7 +208,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
     const agent = defineAgent({
       channels: {
         github: defineChannel("github", {
-          effects: { reply: replyEffect },
+          [channelDeliveryHandlers]: { reply: replyEffect },
           messages: false,
           triggers: {
             webhook: {
@@ -602,5 +603,58 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
     })
     expect(workspaceSessionCommit).not.toHaveBeenCalled()
     expect(workspaceSessionClose).toHaveBeenCalled()
+  })
+})
+
+describe("Agent Invocation Stream Channel replay", () => {
+  it("describes and replays Channel history for vitehub channels replay", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-dev-replay-"))
+    await mkdir(join(root, "server", "agents", "support"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "support", "agent.ts"), "export default {}", "utf8")
+
+    const v = await import("valibot")
+    const { defineCollection } = await import("../../source/src/index.ts")
+    const { defineChannel } = await import("../src/channels.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
+    const label = vi.fn()
+    const history = defineCollection(async () => [{ id: "m1" }], {
+      cursor: (message: { id: string }) => message.id,
+      cursorSchema: v.string(),
+      querySchema: v.object({ folder: v.optional(v.string()) }),
+    })
+    const agent = defineAgent({
+      channels: {
+        mailbox: defineChannel("mailbox", {
+          history: { collection: history, key: message => message.id },
+          message: { methods: { label: (_context, name: string) => label(name) } },
+          messages: false,
+          triggers: { received: { invoke: (_context, message: { id: string }) => ({ input: { prompt: message.id }, message }) } },
+        }),
+      },
+      driver: { run: () => "Finance" },
+      hooks: {
+        async "agent:finish"(event) {
+          if (event.message?.channel === "mailbox") await event.message.label(String(event.text))
+        },
+      },
+      runtime: false,
+    })
+    const { handlers, server } = createFakeServer(root, { default: agent })
+    await configurePluginServer((await import("../src/vite.ts")).hubAgent(), server)
+    const headers = { "content-type": "application/json", [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue }
+
+    const description = await invokeMiddleware(handlers[0]!, { agent: "support", replay: { channel: "mailbox", describe: true } }, agentInvocationStreamRoute, headers)
+    expect(description.statusCode).toBe(200)
+    expect(JSON.parse(description.body)).toMatchObject({ channel: "mailbox", query: { type: "object" }, trigger: "received" })
+
+    const replay = await invokeMiddleware(handlers[0]!, { agent: "support", replay: { channel: "mailbox", dryRun: true } }, agentInvocationStreamRoute, headers)
+    expect(replay.statusCode).toBe(200)
+    expect(JSON.parse(replay.body)).toMatchObject({ items: [{ key: "m1", status: "completed" }], nextCursor: null, processed: 1 })
+    expect(label).not.toHaveBeenCalled()
+
+    const live = await invokeMiddleware(handlers[0]!, { agent: "support", replay: { channel: "mailbox" } }, agentInvocationStreamRoute, headers)
+    expect(live.statusCode).toBe(409)
+    expect(JSON.parse(live.body)).toMatchObject({ code: "AGENT_R0934" })
   })
 })

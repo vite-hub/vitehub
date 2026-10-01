@@ -2,11 +2,7 @@ let viteLoadEnv: ((mode: string, root: string, prefix: string) => Record<string,
 const viteModuleId = "vite"
 
 export async function resolveWorkspaceEnv(rootDir: string, name: string): Promise<string | undefined> {
-  return (await loadWorkspaceEnv(rootDir))?.[name]
-}
-
-export async function loadWorkspaceEnv(rootDir: string): Promise<Record<string, string> | undefined> {
-  return await loadViteEnv(rootDir)
+  return (await loadViteEnv(rootDir))?.[name]
 }
 
 async function loadViteEnv(rootDir: string): Promise<Record<string, string> | undefined> {

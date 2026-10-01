@@ -261,7 +261,12 @@ it("rejects a destructured option Workspace reference", async () => {
   await expect(discover('export default defineAgent({ options: { workspaceName: "shared" }, configure: ({ workspaceName }) => defineAgent({ workspace: workspaceName }) })')).rejects.toThrow("cannot inspect a dynamic Workspace value")
 })
 
-it.each([String.raw`"\x77orkspace"`, String.raw`'\u{77}orkspace'`, String.raw`["\x77orkspace"]`])("rejects unsupported escaped settings keys: %s", async (key) => {
+it.each([String.raw`"\x77orkspace"`, String.raw`'\u{77}orkspace'`, String.raw`["\x77orkspace"]`])("decodes JavaScript escapes in settings keys: %s", async (key) => {
+  const definitions = await discover(`export default defineAgent({ options: {}, configure: () => defineAgent({ ${key}: {} }) })`)
+  expect(definitions[0]?.workspace).toBe("notes")
+})
+
+it.each([String.raw`"\8workspace"`, String.raw`'\07workspace'`])("rejects invalid escaped settings keys: %s", async (key) => {
   await expect(discover(`export default defineAgent({ options: {}, configure: () => defineAgent({ ${key}: {} }) })`)).rejects.toThrow("cannot inspect an escaped settings key")
 })
 
@@ -307,6 +312,17 @@ it.each([
   ['import { github as gh } from "@vite-hub/agent/channels"', 'gh({ pullRequest: true })'],
   ['import * as channels from "vite-hub/agent/channels"', 'channels.github({ pullRequest: true })'],
   ['import { github } from "vite-hub/agent/channels"; const factory = github', 'factory({ pullRequest: true })'],
+])("infers the pull request Workspace from first-party GitHub Channel calls: %s", async (imports, value) => {
+  for (const channel of [value, "custom"]) {
+    const source = `${imports}; const custom = ${value};`
+    const definitions = await discover(`${source} export default defineAgent({ options: {}, configure: () => defineAgent({ channels: { custom: ${channel} } }) })`)
+    expect(definitions[0]?.workspace).toBe("notes")
+    const stateless = await discover(`${source.replace("pullRequest: true", "pullRequest: false")} export default defineAgent({ options: {}, configure: () => defineAgent({ channels: { custom: ${channel.replace("pullRequest: true", "pullRequest: false")} } }) })`)
+    expect(stateless[0]?.workspace).toBeUndefined()
+  }
+})
+
+it.each([
   ['import { defineChannel } from "vite-hub/agent/channels"; const options = () => ({ capabilities: [defineCapability({ workspace: {} })] })', 'defineChannel("custom", options())'],
   ['const factory = () => ({ kind: "custom", capabilities: [defineCapability({ workspace: {} })] })', 'factory()'],
 ])("requires a Workspace marker for opaque Channel calls: %s", async (imports, value) => {

@@ -403,6 +403,18 @@ describe("defineAgent workspace option", () => {
     })
   })
 
+  it("skips auto-commit resolution only when commit: false leaves no commit rule", async () => {
+    const { workspaceAutoCommitDisabled } = await import("../src/workspace-agent.ts")
+
+    expect(workspaceAutoCommitDisabled({ name: "docs", rules: { "**": { write: true } } }, false)).toBe(true)
+    expect(workspaceAutoCommitDisabled({ name: "docs" }, undefined)).toBe(false)
+    expect(workspaceAutoCommitDisabled({ name: "docs" }, true)).toBe(false)
+    expect(workspaceAutoCommitDisabled({ name: "docs", commit: "chore: docs" }, false)).toBe(false)
+    expect(workspaceAutoCommitDisabled({ name: "docs", rules: { "screenshots/**": { commit: true, write: true } } }, false)).toBe(false)
+    expect(workspaceAutoCommitDisabled({ name: "docs", plugins: [{ id: "notes", rules: { "notes/**": { commit: "chore: notes" } } }] }, false)).toBe(false)
+    expect(workspaceAutoCommitDisabled({ name: "docs", plugins: [{ id: "notes", rules: { "notes/**": { commit: "chore: notes" } } }], rules: { "notes/**": { commit: false } } }, false)).toBe(true)
+  })
+
   it("rebases file skill sources under the configured skill path", async () => {
     const { skills } = await import("../src/capabilities.ts")
     const { workspaceDefinitionFromOptions } = await import("../src/workspace-agent.ts")
@@ -610,6 +622,7 @@ describe("defineAgent workspace option", () => {
 
     await expect(agent.run!(context())).resolves.toBe("workspace_shell")
     expect(inspectTools).toHaveBeenCalledTimes(1)
+    expect(inspectTools).toHaveBeenCalledWith({ sourceRequests: true })
     expect(writeTools).not.toHaveBeenCalled()
   })
 
@@ -643,6 +656,7 @@ describe("defineAgent workspace option", () => {
 
     await expect(agent.run!(context())).resolves.toBe("workspace_write")
     expect(writeTools).toHaveBeenCalledTimes(1)
+    expect(writeTools).toHaveBeenCalledWith({ sourceRequests: true })
     expect(inspectTools).not.toHaveBeenCalled()
   })
 
@@ -1176,6 +1190,29 @@ describe("defineAgent workspace option", () => {
     })
     expect((agent as { __vitehubWorkspaceAgentOptions?: { workspace?: { sourceRootDir?: string } } }).__vitehubWorkspaceAgentOptions?.workspace?.sourceRootDir)
       .toBe(sourceRootDir)
+  })
+
+  it.each([false, true])("propagates discovery names through workspace decorations with Skills %s", async (withSkills) => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { workspaceAgentWithSourceRoot } = await import("../src/workspace-agent.ts")
+    const { withColocatedAgentSkills } = await import("../src/internal/colocated-agent-skills.ts")
+    const { markDiscoveredAgentName, readDiscoveredAgentName } = await import("../src/internal/discovered-agent-name.ts")
+    const original = defineAgent({ workspace: {}, driver: { run: () => "reviewed" } })
+    const skillsClone = withColocatedAgentSkills(original, withSkills
+      ? { review: { content: "# Review\n", workspacePath: "skills/review/SKILL.md" } }
+      : undefined)
+    const decorated = workspaceAgentWithSourceRoot(skillsClone, "/workspace")
+    expect(decorated).not.toBe(skillsClone)
+
+    markDiscoveredAgentName(decorated, "review")
+
+    expect(readDiscoveredAgentName(decorated)).toBe("review")
+    expect(readDiscoveredAgentName(skillsClone)).toBe("review")
+    expect(readDiscoveredAgentName(original)).toBe("review")
+    const child = defineAgent({ extends: decorated })
+    expect(readDiscoveredAgentName(child)).toBeUndefined()
+    markDiscoveredAgentName(child, "child")
+    expect(readDiscoveredAgentName(original)).toBe("review")
   })
 
   it("preserves own __proto__ sources and user precedence when applying discovered roots", async () => {

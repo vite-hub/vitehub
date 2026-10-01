@@ -737,28 +737,33 @@ describe("Database Nuxt integration", () => {
   })
 
   it("propagates the Nuxt D1 binding to direct definition defaults", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-binding-"))
     const { nuxt } = createNuxt({
       database: {
         binding: "CONTENT_DB",
         driver: "d1",
       },
-      rootDir: "/tmp/vitehub-db-nuxt-binding",
+      rootDir,
       vite: {},
     })
 
-    await hubDb()(undefined, nuxt)
+    try {
+      await hubDb()(undefined, nuxt)
 
-    const plugin = (nuxt.options.vite as { plugins: Plugin[] }).plugins[0]!
-    await (plugin.configResolved as (config: unknown) => Promise<void>)({
-      database: undefined,
-      root: "/tmp/vitehub-db-nuxt-binding",
-    })
-    const id = await (plugin.resolveId as (id: string) => string | undefined | Promise<string | undefined>)(
-      "#vitehub/database/definition-defaults",
-    )
-    const code = await (plugin.load as (id: string) => string | undefined | Promise<string | undefined>)(id!)
+      const plugin = (nuxt.options.vite as { plugins: Plugin[] }).plugins[0]!
+      await (plugin.configResolved as (config: unknown) => Promise<void>)({
+        database: undefined,
+        root: rootDir,
+      })
+      const id = await (plugin.resolveId as (id: string) => string | undefined | Promise<string | undefined>)(
+        "#vitehub/database/definition-defaults",
+      )
+      const code = await (plugin.load as (id: string) => string | undefined | Promise<string | undefined>)(id!)
 
-    expect(code).toContain('"binding":"CONTENT_DB"')
+      expect(code).toContain('"binding":"CONTENT_DB"')
+    } finally {
+      await rm(rootDir, { force: true, recursive: true })
+    }
   })
 
   it("keeps Database generation rooted at Nuxt projectRoot when Vite uses another root", async () => {

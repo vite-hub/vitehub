@@ -12,15 +12,18 @@ import type {
   AgentCapabilityDefinition,
   AgentCapabilityMode,
   AgentRuntimeConfig,
-  AgentToolSet,
 } from "../types.ts"
-import type { WorkspaceName } from "@vite-hub/workspace"
+import type { ReadonlyWorkspaceFacade, WritableWorkspaceFacade, WorkspaceName } from "@vite-hub/workspace"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 export interface WorkspaceShellOptions {
   commands?: string[] | "all"
   mode?: AgentCapabilityMode
   timeout?: number
+}
+
+function hasWritableTools(workspace: ReadonlyWorkspaceFacade): workspace is WritableWorkspaceFacade {
+  return "write" in workspace.tools
 }
 
 export function workspaceShell(options: WorkspaceShellOptions = {}): AgentCapabilityDefinition<AgentRuntimeConfig, WorkspaceName> {
@@ -47,9 +50,9 @@ export function workspaceShell(options: WorkspaceShellOptions = {}): AgentCapabi
       return {
         ...(driver?.kind === "provider"
           ? {}
-          : mode === "write" && "write" in workspace.tools
-            ? (workspace.tools as unknown as { write: () => AgentToolSet }).write()
-            : workspace.tools.inspect()) as AgentToolSet,
+          : mode === "write" && hasWritableTools(workspace)
+            ? workspace.tools.write({ sourceRequests: true })
+            : workspace.tools.inspect({ sourceRequests: true })),
         ...(commands ? workspaceCommandTools(commands, mode, timeout, workspace, { context }) : {}),
       }
     },

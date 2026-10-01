@@ -31,7 +31,7 @@ export interface GmailBatchModifyMessagesRequest {
 /** Field values for a classification label. */
 export interface GmailClassificationLabelFieldValue {
   /** Required. */
-  fieldId?: string
+  fieldId: string
   /** Selection choice ID for the selection option. */
   selection?: string
 }
@@ -39,7 +39,7 @@ export interface GmailClassificationLabelFieldValue {
 /** Classification Labels applied to the email message. */
 export interface GmailClassificationLabelValue {
   /** Required. */
-  labelId?: string
+  labelId: string
   /** Field values for the given classification label ID. */
   fields?: Array<GmailClassificationLabelFieldValue>
 }
@@ -552,6 +552,7 @@ export interface GmailWatchResponse {
 export interface GmailMethods {
   /** Creates a draft with the `DRAFT` label. */
   "users.drafts.create": {
+    method: "POST"
     params: {
       /** The user's email address. */
       userId: string
@@ -561,6 +562,7 @@ export interface GmailMethods {
   }
   /** Immediately and permanently deletes the specified draft. */
   "users.drafts.delete": {
+    method: "DELETE"
     params: {
       /** The ID of the draft to delete. */
       id: string
@@ -572,6 +574,7 @@ export interface GmailMethods {
   }
   /** Gets the specified draft. */
   "users.drafts.get": {
+    method: "GET"
     params: {
       /** The user's email address. */
       userId: string
@@ -585,6 +588,7 @@ export interface GmailMethods {
   }
   /** Lists the drafts in the user's mailbox. */
   "users.drafts.list": {
+    method: "GET"
     params: {
       /** Include drafts from `SPAM` and `TRASH` in the results. */
       includeSpamTrash?: boolean
@@ -602,6 +606,7 @@ export interface GmailMethods {
   }
   /** Sends the specified, existing draft to the recipients in the `To`, `Cc`, and `Bcc` headers. */
   "users.drafts.send": {
+    method: "POST"
     params: {
       /** The user's email address. */
       userId: string
@@ -611,6 +616,7 @@ export interface GmailMethods {
   }
   /** Replaces a draft's content. */
   "users.drafts.update": {
+    method: "PUT"
     params: {
       /** The user's email address. */
       userId: string
@@ -622,6 +628,7 @@ export interface GmailMethods {
   }
   /** Gets the current user's Gmail profile. */
   "users.getProfile": {
+    method: "GET"
     params: {
       /** The user's email address. */
       userId: string
@@ -631,13 +638,14 @@ export interface GmailMethods {
   }
   /** Lists the history of all changes to the given mailbox. */
   "users.history.list": {
+    method: "GET"
     params: {
       /** Only return messages with a label matching the ID. */
       labelId?: string
       /** Page token to retrieve a specific page of results in the list. */
       pageToken?: string
       /** Required. */
-      startHistoryId?: string
+      startHistoryId: string
       /** The user's email address. */
       userId: string
       /** History types to be returned by the function */
@@ -650,6 +658,7 @@ export interface GmailMethods {
   }
   /** Creates a label. */
   "users.labels.create": {
+    method: "POST"
     params: {
       /** The user's email address. */
       userId: string
@@ -659,6 +668,7 @@ export interface GmailMethods {
   }
   /** Immediately and permanently deletes the specified label and removes it from any messages and threads that it's applied to. */
   "users.labels.delete": {
+    method: "DELETE"
     params: {
       /** The user's email address. */
       userId: string
@@ -670,6 +680,7 @@ export interface GmailMethods {
   }
   /** Gets the specified label. */
   "users.labels.get": {
+    method: "GET"
     params: {
       /** The user's email address. */
       userId: string
@@ -681,6 +692,7 @@ export interface GmailMethods {
   }
   /** Lists all labels in the user's mailbox. */
   "users.labels.list": {
+    method: "GET"
     params: {
       /** The user's email address. */
       userId: string
@@ -690,6 +702,7 @@ export interface GmailMethods {
   }
   /** Patch the specified label. */
   "users.labels.patch": {
+    method: "PATCH"
     params: {
       /** The user's email address. */
       userId: string
@@ -701,6 +714,7 @@ export interface GmailMethods {
   }
   /** Updates the specified label. */
   "users.labels.update": {
+    method: "PUT"
     params: {
       /** The ID of the label to update. */
       id: string
@@ -712,6 +726,7 @@ export interface GmailMethods {
   }
   /** Gets the specified message attachment. */
   "users.messages.attachments.get": {
+    method: "GET"
     params: {
       /** The ID of the message containing the attachment. */
       messageId: string
@@ -725,6 +740,7 @@ export interface GmailMethods {
   }
   /** Deletes many messages by message ID. */
   "users.messages.batchDelete": {
+    method: "POST"
     params: {
       /** The user's email address. */
       userId: string
@@ -734,6 +750,7 @@ export interface GmailMethods {
   }
   /** Modifies the labels and the Classification Label values on the specified messages. */
   "users.messages.batchModify": {
+    method: "POST"
     params: {
       /** The user's email address. */
       userId: string
@@ -743,6 +760,7 @@ export interface GmailMethods {
   }
   /** Immediately and permanently deletes the specified message. */
   "users.messages.delete": {
+    method: "DELETE"
     params: {
       /** The ID of the message to delete. */
       id: string
@@ -754,6 +772,7 @@ export interface GmailMethods {
   }
   /** Gets the specified message. */
   "users.messages.get": {
+    method: "GET"
     params: {
       /** The ID of the message to retrieve. */
       id: string
@@ -769,6 +788,7 @@ export interface GmailMethods {
   }
   /** Imports a message into only this user's mailbox, with standard email delivery scanning and classification similar to receiving via SMTP. */
   "users.messages.import": {
+    method: "POST"
     params: {
       /** Process calendar invites in the email and add any extracted meetings to the Google Calendar for this user. */
       processForCalendar?: boolean
@@ -786,6 +806,7 @@ export interface GmailMethods {
   }
   /** Directly inserts a message into only this user's mailbox similar to `IMAP APPEND`, bypassing most scanning and classification. */
   "users.messages.insert": {
+    method: "POST"
     params: {
       /** The user's email address. */
       userId: string
@@ -799,6 +820,7 @@ export interface GmailMethods {
   }
   /** Lists the messages in the user's mailbox. */
   "users.messages.list": {
+    method: "GET"
     params: {
       /** Page token to retrieve a specific page of results in the list. */
       pageToken?: string
@@ -818,6 +840,7 @@ export interface GmailMethods {
   }
   /** Modifies the labels and the Classification Label values on the specified message. */
   "users.messages.modify": {
+    method: "POST"
     params: {
       /** The user's email address. */
       userId: string
@@ -829,6 +852,7 @@ export interface GmailMethods {
   }
   /** Sends the specified message to the recipients in the `To`, `Cc`, and `Bcc` headers. */
   "users.messages.send": {
+    method: "POST"
     params: {
       /** The user's email address. */
       userId: string
@@ -838,6 +862,7 @@ export interface GmailMethods {
   }
   /** Moves the specified message to the trash. */
   "users.messages.trash": {
+    method: "POST"
     params: {
       /** The ID of the message to Trash. */
       id: string
@@ -849,6 +874,7 @@ export interface GmailMethods {
   }
   /** Removes the specified message from the trash. */
   "users.messages.untrash": {
+    method: "POST"
     params: {
       /** The ID of the message to remove from Trash. */
       id: string
@@ -860,6 +886,7 @@ export interface GmailMethods {
   }
   /** Creates and configures a client-side encryption identity that's authorized to send mail from the user account. */
   "users.settings.cse.identities.create": {
+    method: "POST"
     params: {
       /** The requester's primary email address. */
       userId: string
@@ -869,6 +896,7 @@ export interface GmailMethods {
   }
   /** Deletes a client-side encryption identity. */
   "users.settings.cse.identities.delete": {
+    method: "DELETE"
     params: {
       /** The requester's primary email address. */
       userId: string
@@ -880,6 +908,7 @@ export interface GmailMethods {
   }
   /** Retrieves a client-side encryption identity configuration. */
   "users.settings.cse.identities.get": {
+    method: "GET"
     params: {
       /** The requester's primary email address. */
       userId: string
@@ -891,6 +920,7 @@ export interface GmailMethods {
   }
   /** Lists the client-side encrypted identities for an authenticated user. */
   "users.settings.cse.identities.list": {
+    method: "GET"
     params: {
       /** The requester's primary email address. */
       userId: string
@@ -904,6 +934,7 @@ export interface GmailMethods {
   }
   /** Associates a different key pair with an existing client-side encryption identity. */
   "users.settings.cse.identities.patch": {
+    method: "PATCH"
     params: {
       /** The requester's primary email address. */
       userId: string
@@ -915,6 +946,7 @@ export interface GmailMethods {
   }
   /** Creates and uploads a client-side encryption S/MIME public key certificate chain and private key metadata for the authenticated user. */
   "users.settings.cse.keypairs.create": {
+    method: "POST"
     params: {
       /** The requester's primary email address. */
       userId: string
@@ -926,6 +958,7 @@ export interface GmailMethods {
   }
   /** Turns off a client-side encryption key pair. */
   "users.settings.cse.keypairs.disable": {
+    method: "POST"
     params: {
       /** The requester's primary email address. */
       userId: string
@@ -937,6 +970,7 @@ export interface GmailMethods {
   }
   /** Turns on a client-side encryption key pair that was turned off. */
   "users.settings.cse.keypairs.enable": {
+    method: "POST"
     params: {
       /** The requester's primary email address. */
       userId: string
@@ -948,6 +982,7 @@ export interface GmailMethods {
   }
   /** Retrieves an existing client-side encryption key pair. */
   "users.settings.cse.keypairs.get": {
+    method: "GET"
     params: {
       /** The requester's primary email address. */
       userId: string
@@ -959,6 +994,7 @@ export interface GmailMethods {
   }
   /** Lists client-side encryption key pairs for an authenticated user. */
   "users.settings.cse.keypairs.list": {
+    method: "GET"
     params: {
       /** The requester's primary email address. */
       userId: string
@@ -972,6 +1008,7 @@ export interface GmailMethods {
   }
   /** Deletes a client-side encryption key pair permanently and immediately. */
   "users.settings.cse.keypairs.obliterate": {
+    method: "POST"
     params: {
       /** The requester's primary email address. */
       userId: string
@@ -983,6 +1020,7 @@ export interface GmailMethods {
   }
   /** Adds a delegate with its verification status set directly to `accepted`, without sending any verification email. */
   "users.settings.delegates.create": {
+    method: "POST"
     params: {
       /** User's email address. */
       userId: string
@@ -992,6 +1030,7 @@ export interface GmailMethods {
   }
   /** Removes the specified delegate (which can be of any verification status), and revokes any verification that may have been required for using it. */
   "users.settings.delegates.delete": {
+    method: "DELETE"
     params: {
       /** The email address of the user to be removed as a delegate. */
       delegateEmail: string
@@ -1003,6 +1042,7 @@ export interface GmailMethods {
   }
   /** Gets the specified delegate. */
   "users.settings.delegates.get": {
+    method: "GET"
     params: {
       /** The email address of the user whose delegate relationship is to be retrieved. */
       delegateEmail: string
@@ -1014,6 +1054,7 @@ export interface GmailMethods {
   }
   /** Lists the delegates for the specified account. */
   "users.settings.delegates.list": {
+    method: "GET"
     params: {
       /** User's email address. */
       userId: string
@@ -1023,6 +1064,7 @@ export interface GmailMethods {
   }
   /** Creates a filter. */
   "users.settings.filters.create": {
+    method: "POST"
     params: {
       /** User's email address. */
       userId: string
@@ -1032,6 +1074,7 @@ export interface GmailMethods {
   }
   /** Immediately and permanently deletes the specified filter. */
   "users.settings.filters.delete": {
+    method: "DELETE"
     params: {
       /** The ID of the filter to be deleted. */
       id: string
@@ -1043,6 +1086,7 @@ export interface GmailMethods {
   }
   /** Gets a filter. */
   "users.settings.filters.get": {
+    method: "GET"
     params: {
       /** The ID of the filter to be fetched. */
       id: string
@@ -1054,6 +1098,7 @@ export interface GmailMethods {
   }
   /** Lists the message filters of a Gmail user. */
   "users.settings.filters.list": {
+    method: "GET"
     params: {
       /** User's email address. */
       userId: string
@@ -1063,6 +1108,7 @@ export interface GmailMethods {
   }
   /** Creates a forwarding address. */
   "users.settings.forwardingAddresses.create": {
+    method: "POST"
     params: {
       /** User's email address. */
       userId: string
@@ -1072,6 +1118,7 @@ export interface GmailMethods {
   }
   /** Deletes the specified forwarding address and revokes any verification that may have been required. */
   "users.settings.forwardingAddresses.delete": {
+    method: "DELETE"
     params: {
       /** The forwarding address to be deleted. */
       forwardingEmail: string
@@ -1083,6 +1130,7 @@ export interface GmailMethods {
   }
   /** Gets the specified forwarding address. */
   "users.settings.forwardingAddresses.get": {
+    method: "GET"
     params: {
       /** The forwarding address to be retrieved. */
       forwardingEmail: string
@@ -1094,6 +1142,7 @@ export interface GmailMethods {
   }
   /** Lists the forwarding addresses for the specified account. */
   "users.settings.forwardingAddresses.list": {
+    method: "GET"
     params: {
       /** User's email address. */
       userId: string
@@ -1103,6 +1152,7 @@ export interface GmailMethods {
   }
   /** Gets the auto-forwarding setting for the specified account. */
   "users.settings.getAutoForwarding": {
+    method: "GET"
     params: {
       /** User's email address. */
       userId: string
@@ -1112,6 +1162,7 @@ export interface GmailMethods {
   }
   /** Gets IMAP settings. */
   "users.settings.getImap": {
+    method: "GET"
     params: {
       /** User's email address. */
       userId: string
@@ -1121,6 +1172,7 @@ export interface GmailMethods {
   }
   /** Gets language settings. */
   "users.settings.getLanguage": {
+    method: "GET"
     params: {
       /** User's email address. */
       userId: string
@@ -1130,6 +1182,7 @@ export interface GmailMethods {
   }
   /** Gets POP settings. */
   "users.settings.getPop": {
+    method: "GET"
     params: {
       /** User's email address. */
       userId: string
@@ -1139,6 +1192,7 @@ export interface GmailMethods {
   }
   /** Gets vacation responder settings. */
   "users.settings.getVacation": {
+    method: "GET"
     params: {
       /** User's email address. */
       userId: string
@@ -1148,6 +1202,7 @@ export interface GmailMethods {
   }
   /** Creates a custom "from" send-as alias. */
   "users.settings.sendAs.create": {
+    method: "POST"
     params: {
       /** User's email address. */
       userId: string
@@ -1157,6 +1212,7 @@ export interface GmailMethods {
   }
   /** Deletes the specified send-as alias. */
   "users.settings.sendAs.delete": {
+    method: "DELETE"
     params: {
       /** User's email address. */
       userId: string
@@ -1168,6 +1224,7 @@ export interface GmailMethods {
   }
   /** Gets the specified send-as alias. */
   "users.settings.sendAs.get": {
+    method: "GET"
     params: {
       /** User's email address. */
       userId: string
@@ -1179,6 +1236,7 @@ export interface GmailMethods {
   }
   /** Lists the send-as aliases for the specified account. */
   "users.settings.sendAs.list": {
+    method: "GET"
     params: {
       /** User's email address. */
       userId: string
@@ -1188,6 +1246,7 @@ export interface GmailMethods {
   }
   /** Patch the specified send-as alias. */
   "users.settings.sendAs.patch": {
+    method: "PATCH"
     params: {
       /** User's email address. */
       userId: string
@@ -1199,6 +1258,7 @@ export interface GmailMethods {
   }
   /** Deletes the specified S/MIME config for the specified send-as alias. */
   "users.settings.sendAs.smimeInfo.delete": {
+    method: "DELETE"
     params: {
       /** The user's email address. */
       userId: string
@@ -1212,6 +1272,7 @@ export interface GmailMethods {
   }
   /** Gets the specified S/MIME config for the specified send-as alias. */
   "users.settings.sendAs.smimeInfo.get": {
+    method: "GET"
     params: {
       /** The immutable ID for the SmimeInfo. */
       id: string
@@ -1225,6 +1286,7 @@ export interface GmailMethods {
   }
   /** Insert (upload) the given S/MIME config for the specified send-as alias. */
   "users.settings.sendAs.smimeInfo.insert": {
+    method: "POST"
     params: {
       /** The user's email address. */
       userId: string
@@ -1236,6 +1298,7 @@ export interface GmailMethods {
   }
   /** Lists S/MIME configs for the specified send-as alias. */
   "users.settings.sendAs.smimeInfo.list": {
+    method: "GET"
     params: {
       /** The user's email address. */
       userId: string
@@ -1247,6 +1310,7 @@ export interface GmailMethods {
   }
   /** Sets the default S/MIME config for the specified send-as alias. */
   "users.settings.sendAs.smimeInfo.setDefault": {
+    method: "POST"
     params: {
       /** The user's email address. */
       userId: string
@@ -1260,6 +1324,7 @@ export interface GmailMethods {
   }
   /** Updates a send-as alias. */
   "users.settings.sendAs.update": {
+    method: "PUT"
     params: {
       /** User's email address. */
       userId: string
@@ -1271,6 +1336,7 @@ export interface GmailMethods {
   }
   /** Sends a verification email to the specified send-as alias address. */
   "users.settings.sendAs.verify": {
+    method: "POST"
     params: {
       /** User's email address. */
       userId: string
@@ -1282,6 +1348,7 @@ export interface GmailMethods {
   }
   /** Updates the auto-forwarding setting for the specified account. */
   "users.settings.updateAutoForwarding": {
+    method: "PUT"
     params: {
       /** User's email address. */
       userId: string
@@ -1291,6 +1358,7 @@ export interface GmailMethods {
   }
   /** Updates IMAP settings. */
   "users.settings.updateImap": {
+    method: "PUT"
     params: {
       /** User's email address. */
       userId: string
@@ -1300,6 +1368,7 @@ export interface GmailMethods {
   }
   /** Updates language settings. */
   "users.settings.updateLanguage": {
+    method: "PUT"
     params: {
       /** User's email address. */
       userId: string
@@ -1309,6 +1378,7 @@ export interface GmailMethods {
   }
   /** Updates POP settings. */
   "users.settings.updatePop": {
+    method: "PUT"
     params: {
       /** User's email address. */
       userId: string
@@ -1318,6 +1388,7 @@ export interface GmailMethods {
   }
   /** Updates vacation responder settings. */
   "users.settings.updateVacation": {
+    method: "PUT"
     params: {
       /** User's email address. */
       userId: string
@@ -1327,6 +1398,7 @@ export interface GmailMethods {
   }
   /** Turn off push notification delivery for the given user mailbox. */
   "users.stop": {
+    method: "POST"
     params: {
       /** The user's email address. */
       userId: string
@@ -1336,6 +1408,7 @@ export interface GmailMethods {
   }
   /** Immediately and permanently deletes the specified thread. */
   "users.threads.delete": {
+    method: "DELETE"
     params: {
       /** ID of the Thread to delete. */
       id: string
@@ -1347,6 +1420,7 @@ export interface GmailMethods {
   }
   /** Gets the specified thread. */
   "users.threads.get": {
+    method: "GET"
     params: {
       /** The user's email address. */
       userId: string
@@ -1362,6 +1436,7 @@ export interface GmailMethods {
   }
   /** Lists the threads in the user's mailbox. */
   "users.threads.list": {
+    method: "GET"
     params: {
       /** Only return threads with labels that match all of the specified label IDs. */
       labelIds?: Array<string>
@@ -1381,6 +1456,7 @@ export interface GmailMethods {
   }
   /** Modifies the labels applied to the thread. */
   "users.threads.modify": {
+    method: "POST"
     params: {
       /** The ID of the thread to modify. */
       id: string
@@ -1392,6 +1468,7 @@ export interface GmailMethods {
   }
   /** Moves the specified thread to the trash. */
   "users.threads.trash": {
+    method: "POST"
     params: {
       /** The user's email address. */
       userId: string
@@ -1403,6 +1480,7 @@ export interface GmailMethods {
   }
   /** Removes the specified thread from the trash. */
   "users.threads.untrash": {
+    method: "POST"
     params: {
       /** The user's email address. */
       userId: string
@@ -1414,6 +1492,7 @@ export interface GmailMethods {
   }
   /** Set up or update a push notification watch on the given user mailbox. */
   "users.watch": {
+    method: "POST"
     params: {
       /** The user's email address. */
       userId: string

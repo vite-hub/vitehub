@@ -355,7 +355,7 @@ async function resolveSourceValue(source: EnvSource, context: EnvSourceContext):
     case "env":
       for (const name of source.names || [source.name]) {
         const value = context.env[name]
-        if (typeof value !== "undefined") {
+        if (typeof value !== "undefined" && !(source.skipEmpty && value === "")) {
           return { label: `env:${name}`, value }
         }
       }
