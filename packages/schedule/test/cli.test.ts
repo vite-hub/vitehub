@@ -38,7 +38,12 @@ describe("vitehub schedule run", () => {
     const stdout = output()
 
     const code = await runScheduleRunCli(["sync", "--url", "https://app.example/base"], {
-      env: { VITEHUB_CONSOLE_AUTHORIZATION: "Bearer console-token", VITEHUB_CONSOLE_COOKIE: "vitehub_console.session_token=abc" },
+      env: {
+        CF_ACCESS_CLIENT_ID: "client-id",
+        CF_ACCESS_CLIENT_SECRET: "client-secret",
+        VITEHUB_CONSOLE_AUTHORIZATION: "Bearer console-token",
+        VITEHUB_CONSOLE_COOKIE: "vitehub_console.session_token=abc",
+      },
       stderr: output().stream,
       stdout: stdout.stream,
     }, { fetch: recording.fetch })
@@ -49,6 +54,8 @@ describe("vitehub schedule run", () => {
     expect(request?.url).toBe("https://app.example/base/_vitehub/schedules/run")
     expect(request?.headers.get("authorization")).toBe("Bearer console-token")
     expect(request?.headers.get("cookie")).toBe("vitehub_console.session_token=abc")
+    expect(request?.headers.get("cf-access-client-id")).toBe("client-id")
+    expect(request?.headers.get("cf-access-client-secret")).toBe("client-secret")
     expect(request?.headers.get("x-vitehub-schedule-run")).toBeNull()
     await expect(request?.json()).resolves.toEqual({ name: "sync" })
   })
@@ -57,7 +64,13 @@ describe("vitehub schedule run", () => {
     const recording = recordingFetch(Response.json({ run: succeededRun }))
 
     await runScheduleRunCli(["sync"], {
-      env: { VITEHUB_CONSOLE_AUTHORIZATION: "Bearer console-token", VITEHUB_DEV_SERVER_URL: "http://localhost:4000" },
+      env: {
+        CF_ACCESS_CLIENT_ID: "client-id",
+        CF_ACCESS_CLIENT_SECRET: "client-secret",
+        VITEHUB_CONSOLE_AUTHORIZATION: "Bearer console-token",
+        VITEHUB_CONSOLE_COOKIE: "vitehub_console.session_token=abc",
+        VITEHUB_DEV_SERVER_URL: "http://localhost:4000",
+      },
       stderr: output().stream,
       stdout: output().stream,
     }, { fetch: recording.fetch })
@@ -66,6 +79,24 @@ describe("vitehub schedule run", () => {
     expect(request?.url).toBe("http://localhost:4000/__vitehub/schedule/run")
     expect(request?.headers.get("x-vitehub-schedule-run")).toBe("1")
     expect(request?.headers.get("authorization")).toBeNull()
+    expect(request?.headers.get("cookie")).toBeNull()
+    expect(request?.headers.get("cf-access-client-id")).toBeNull()
+    expect(request?.headers.get("cf-access-client-secret")).toBeNull()
+  })
+
+  it.each([
+    { args: ["sync"], env: { VITEHUB_DEV_SERVER_URL: "http://localhost:4000/app/" } },
+    { args: ["sync", "--server", "http://localhost:4000/app"], env: {} },
+  ])("keeps a Development Server base path for $args", async ({ args, env }) => {
+    const recording = recordingFetch(Response.json({ run: succeededRun }))
+
+    await runScheduleRunCli(args, {
+      env,
+      stderr: output().stream,
+      stdout: output().stream,
+    }, { fetch: recording.fetch })
+
+    expect(recording.requests[0]?.url).toBe("http://localhost:4000/app/__vitehub/schedule/run")
   })
 
   it("prints JSON and exits with 1 for a failed run", async () => {
@@ -87,7 +118,7 @@ describe("vitehub schedule run", () => {
     expect(await runScheduleRunCli(["sync", "--url", "https://app.example"], { env: {}, stderr: redirected.stream, stdout: output().stream }, { fetch: recordingFetch(new Response(null, { headers: { location: "/_vitehub/sign-in" }, status: 302 })).fetch })).toBe(1)
     expect(await runScheduleRunCli(["sync", "--url", "http://app.example"], { env: {}, stderr: insecure.stream, stdout: output().stream })).toBe(1)
 
-    expect(unauthorized.text()).toBe("Console authentication failed with HTTP 401. Set VITEHUB_CONSOLE_AUTHORIZATION or VITEHUB_CONSOLE_COOKIE.\n")
+    expect(unauthorized.text()).toBe("Console authentication failed with HTTP 401. Set VITEHUB_CONSOLE_AUTHORIZATION, VITEHUB_CONSOLE_COOKIE, or CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET.\n")
     expect(redirected.text()).toContain("Console authentication failed with HTTP 302.")
     expect(insecure.text()).toBe("--url must use HTTPS, except for localhost.\n")
   })

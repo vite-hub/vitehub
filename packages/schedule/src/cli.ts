@@ -37,7 +37,7 @@ function writeUsage(context: Pick<ViteHubCliContext, "stdout">): void {
     "Without --url, the command uses the running Vite Development Server.",
     "",
     "Options:",
-    "  --url <url>     Deployed Console URL. Requires console.invoke. Set VITEHUB_CONSOLE_AUTHORIZATION or VITEHUB_CONSOLE_COOKIE to authenticate.",
+    "  --url <url>     Deployed Console URL. Requires console.invoke. Set VITEHUB_CONSOLE_AUTHORIZATION, VITEHUB_CONSOLE_COOKIE, or CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET to authenticate.",
     "  --server <url>  Vite Development Server URL. Defaults to VITEHUB_DEV_SERVER_URL or http://localhost:5173.",
     "  --json          Print the run as JSON.",
     "  -h, --help      Show this help.",
@@ -93,6 +93,8 @@ function runTarget(parsed: ParsedScheduleRunArgs, env: NodeJS.ProcessEnv): Sched
     const base = baseUrl(parsed.url, "--url")
     if (env.VITEHUB_CONSOLE_AUTHORIZATION) headers.set("authorization", env.VITEHUB_CONSOLE_AUTHORIZATION)
     if (env.VITEHUB_CONSOLE_COOKIE) headers.set("cookie", env.VITEHUB_CONSOLE_COOKIE)
+    if (env.CF_ACCESS_CLIENT_ID) headers.set("cf-access-client-id", env.CF_ACCESS_CLIENT_ID)
+    if (env.CF_ACCESS_CLIENT_SECRET) headers.set("cf-access-client-secret", env.CF_ACCESS_CLIENT_SECRET)
     return {
       headers,
       remote: true,
@@ -101,7 +103,7 @@ function runTarget(parsed: ParsedScheduleRunArgs, env: NodeJS.ProcessEnv): Sched
   }
   const server = baseUrl(parsed.server || env.VITEHUB_DEV_SERVER_URL || "http://localhost:5173", "--server")
   headers.set(scheduleDevRunHeader, "1")
-  return { headers, remote: false, url: new URL(scheduleDevRunRoute, server).href }
+  return { headers, remote: false, url: new URL(scheduleDevRunRoute.slice(1), server.href.endsWith("/") ? server.href : `${server.href}/`).href }
 }
 
 function record(value: unknown): Record<string, unknown> | undefined {
@@ -139,7 +141,7 @@ async function sendRun(target: ScheduleRunTarget, name: string, fetchImpl: typeo
   if (target.remote && (response.status === 401 || response.status === 403 || (response.status >= 300 && response.status < 400))) {
     const text = response.status === 403 ? await response.text() : ""
     const message = stringField(record(parseJSON(text)), "message")
-    throw cliError(message ?? `Console authentication failed with HTTP ${response.status}. Set VITEHUB_CONSOLE_AUTHORIZATION or VITEHUB_CONSOLE_COOKIE.`)
+    throw cliError(message ?? `Console authentication failed with HTTP ${response.status}. Set VITEHUB_CONSOLE_AUTHORIZATION, VITEHUB_CONSOLE_COOKIE, or CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET.`)
   }
   const text = await response.text()
   const json = record(parseJSON(text))
