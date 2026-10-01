@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 
 import { validateAgentCapabilityComposition } from "../src/capability-runtime.ts"
 import { gmail } from "../src/capabilities.ts"
-import { createAgentInspectionMetadata, defineAgent } from "../src/index.ts"
+import { createAgentInspectionMetadata, defineAgent, runAgent } from "../src/index.ts"
 
 import type { AgentCapabilityDefinition, AgentToolSet } from "../src/types.ts"
 
@@ -28,7 +28,7 @@ function fakeConnections(handler: Handler) {
           users: {
             drafts: { create: method("drafts.create") },
             labels: { list: method("labels.list") },
-            messages: { get: method("messages.get"), list: method("messages.list"), modify: method("messages.modify") },
+            messages: { attachments: { get: method("messages.attachments.get") }, get: method("messages.get"), list: method("messages.list"), modify: method("messages.modify") },
           },
         },
       }
@@ -98,6 +98,40 @@ describe("gmail capability", () => {
     })
     expect(runtime.uses).toEqual([{ name: "google", options: { actor: "agent:inbox", invocationId: "inv_1" } }])
     expect(runtime.calls).toEqual([{ input: { userId: "me" }, method: "labels.list", signal: controller.signal }])
+  })
+
+  it("preserves the definition name when runAgent has no host identity", async () => {
+    const connections = fakeConnections(() => ({ labels: [] }))
+    const agent = defineAgent({
+      name: "inbox",
+      capabilities: [gmail({ connection: "google", tools: ["labels"] })],
+      driver: { run: async context => await context.tools?.gmail_labels?.execute?.({}) },
+    })
+    const result = await runAgent(agent, { capabilities: { connections: connections.primitive }, memo: (_key, create) => create(), runtime: "unknown", waitUntil: () => {} }, {})
+    expect(result).toMatchObject({ status: "ok" })
+    expect(connections.uses).toEqual([expect.objectContaining({ options: expect.objectContaining({ actor: "agent:inbox" }) })])
+  })
+
+  it("retrieves external text parts and preserves the abort signal", async () => {
+    const runtime = await capabilityTools(gmail({ connection: "google", tools: ["read"] }), (method) => method === "messages.get"
+      ? { id: "m1", payload: { mimeType: "text/plain", body: { attachmentId: "a1" } } }
+      : { data: base64Url("External body") })
+    const controller = new AbortController()
+    await expect(runtime.tools.gmail_read!.execute?.({ id: "m1" }, { abortSignal: controller.signal } as never)).resolves.toMatchObject({ message: { body: "External body" } })
+    expect(runtime.calls.at(-1)).toEqual({ method: "messages.attachments.get", input: { id: "a1", messageId: "m1", userId: "me" }, signal: controller.signal })
+  })
+
+  it("folds long Unicode draft subjects into valid encoded words", async () => {
+    const runtime = await capabilityTools(gmail({ connection: "google", tools: ["draft"] }), () => ({ id: "d1" }))
+    const subject = "Résumé 🚀".repeat(20)
+    await runtime.tools.gmail_draft!.execute?.({ body: "body", subject, to: ["a@example.com"] })
+    const message = (runtime.calls[0]!.input.requestBody as { message: { raw: string } }).message
+    const mime = Buffer.from(message.raw, "base64url").toString("utf8")
+    const header = mime.match(/Subject: ([\s\S]*?)\r\nMIME-Version:/)![1]!
+    const words = header.split(/\r\n /)
+    expect(words.length).toBeGreaterThan(1)
+    expect(words.every(word => word.length <= 75)).toBe(true)
+    expect(words.map(word => Buffer.from(word.slice(10, -2), "base64").toString("utf8")).join("")).toBe(subject)
   })
 
   it("searches with message metadata", async () => {
@@ -201,7 +235,7 @@ describe("gmail capability", () => {
     })
     const modify = (id: string) => runtime.tools.gmail_modify!.execute?.({ addLabelIds: ["Label_1"], id })
 
-    await expect(modify("m1")).resolves.toMatchObject({ approvalId: "approval_1", status: "approval_required" })
+    await expect(modify("m1")).resolves.toMatchObject({ approvalId: "approval_1", message: expect.stringContaining("vitehub connections approvals approve approval_1"), status: "approval_required" })
     await expect(modify("m2")).resolves.toMatchObject({ connection: "google", message: expect.stringContaining("vitehub connections connect google"), status: "reauth_required" })
     await expect(modify("m3")).resolves.toMatchObject({ status: "denied" })
     await expect(modify("m4")).resolves.toMatchObject({ httpStatus: 404, status: "provider_error" })

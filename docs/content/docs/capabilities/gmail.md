@@ -26,7 +26,7 @@ export default defineConnection({
   }),
   scopes: ['https://www.googleapis.com/auth/gmail.modify'],
   api: {
-    gmail: ['users.labels.list', 'users.messages.list', 'users.messages.get', 'users.messages.modify'],
+    gmail: ['users.labels.list', 'users.messages.list', 'users.messages.get', 'users.messages.attachments.get', 'users.messages.modify'],
   },
 })
 ```
@@ -51,10 +51,12 @@ export default defineAgent({
 | Tool | Gmail API method | Kind |
 | --- | --- | --- |
 | `search` | `users.messages.list`, `users.messages.get` | Read |
-| `read` | `users.messages.get` | Read |
+| `read` | `users.messages.get`, `users.messages.attachments.get` | Read |
 | `labels` | `users.labels.list` | Read |
 | `modify` | `users.messages.modify` | Write |
 | `draft` | `users.drafts.create` | Write |
+
+`read` retrieves externally stored text MIME parts through `users.messages.attachments.get`. Allow that method so large message bodies remain readable.
 
 The default is `['search', 'read']`. Each method must also be selected in the Connection `api`. There is no send tool. `draft` creates an unsent draft.
 

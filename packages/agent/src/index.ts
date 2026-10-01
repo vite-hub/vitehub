@@ -3825,7 +3825,7 @@ async function createAgentInvocationContext<
       activeChannel,
     )
     invocationContext.set(scheduledAgentChannelIdsContextKey, Object.keys(definition?.channels || {}), { overwrite: true })
-    invocationContext.set(scheduledAgentNameContextKey, context.agentIdentity?.name, { overwrite: true })
+    invocationContext.set(scheduledAgentNameContextKey, context.agentIdentity?.name ?? definition?.name, { overwrite: true })
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     const colocatedSkills = (definition as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS> | undefined)?.[colocatedAgentSkillsSymbol]
     invocationContext.set(colocatedAgentSkillsContextKey, colocatedSkills, { overwrite: true })

@@ -47,7 +47,7 @@ interface GmailDraftInput {
 
 interface GmailHeader { name?: string, value?: string }
 interface GmailMessagePart {
-  body?: { data?: string, size?: number }
+  body?: { attachmentId?: string, data?: string, size?: number }
   headers?: GmailHeader[]
   mimeType?: string
   parts?: GmailMessagePart[]
@@ -69,7 +69,7 @@ interface GmailConnectionClient {
     users: {
       drafts: { create: GmailMethod }
       labels: { list: GmailMethod }
-      messages: { get: GmailMethod, list: GmailMethod, modify: GmailMethod }
+      messages: { attachments: { get: GmailMethod }, get: GmailMethod, list: GmailMethod, modify: GmailMethod }
     }
   }
 }
@@ -225,8 +225,24 @@ function decodeBase64Url(value: string): string {
 }
 
 function encodeHeader(value: string): string {
-  // RFC 2047 encoded word for non-ASCII subjects.
-  return /^[\x20-\x7E]*$/.test(value) ? value : `=?UTF-8?B?${base64(new TextEncoder().encode(value))}?=`
+  if (/^[\x20-\x7E]*$/.test(value)) return value
+  const encoder = new TextEncoder()
+  const words: string[] = []
+  let chunk = ""
+  let length = 0
+  for (const character of value) {
+    const bytes = encoder.encode(character).length
+    // Keep encoded words within 75 characters and fold at Unicode boundaries.
+    if (length + bytes > 42) {
+      words.push(`=?UTF-8?B?${base64(encoder.encode(chunk))}?=`)
+      chunk = ""
+      length = 0
+    }
+    chunk += character
+    length += bytes
+  }
+  if (chunk) words.push(`=?UTF-8?B?${base64(encoder.encode(chunk))}?=`)
+  return words.join("\r\n ")
 }
 
 /** Build a base64url RFC 2822 message for `users.drafts.create`. */
@@ -266,7 +282,7 @@ function messageSummary(message: GmailMessage) {
 
 function findPart(part: GmailMessagePart | undefined, mimeType: string): GmailMessagePart | undefined {
   if (!part) return
-  if (part.mimeType === mimeType && part.body?.data) return part
+  if (part.mimeType === mimeType && (part.body?.data || part.body?.attachmentId)) return part
   for (const child of part.parts ?? []) {
     const found = findPart(child, mimeType)
     if (found) return found
@@ -289,11 +305,16 @@ function htmlText(html: string): string {
     .trim()
 }
 
-function messageText(message: GmailMessage): string {
+async function messageText(message: GmailMessage, gmail: GmailConnectionClient["gmail"], id: string, options: { signal?: AbortSignal }): Promise<string> {
   const plain = findPart(message.payload, "text/plain")
-  if (plain?.body?.data) return decodeBase64Url(plain.body.data)
-  const html = findPart(message.payload, "text/html")
-  return html?.body?.data ? htmlText(decodeBase64Url(html.body.data)) : ""
+  const part = plain ?? findPart(message.payload, "text/html")
+  let data = part?.body?.data
+  if (!data && part?.body?.attachmentId) {
+    const attachment = await gmail.users.messages.attachments.get({ id: part.body.attachmentId, messageId: id, userId: "me" }, options) as { data?: string }
+    data = attachment.data
+  }
+  const text = data ? decodeBase64Url(data) : ""
+  return plain ? text : htmlText(text)
 }
 
 function connectionFailure(error: unknown): ConnectionFailure | undefined {
@@ -313,7 +334,7 @@ async function withConnectionResult<T>(connection: string, run: () => Promise<T>
     const failure = connectionFailure(error)
     switch (failure?.code) {
       case "CONNECTION_APPROVAL_REQUIRED":
-        return { approvalId: failure.requestId, message: "This write waits for approval. Tell the user that an operator must approve it in the Console or with `vitehub connections approvals approve`.", status: "approval_required" as const }
+        return { approvalId: failure.requestId, message: `This write waits for approval. Tell the user that an operator must approve it in the Console or with \`vitehub connections approvals approve ${failure.requestId ?? "<id>"}\`.`, status: "approval_required" as const }
       case "CONNECTION_REAUTH_REQUIRED":
         return { connection, message: `Connection "${connection}" is not connected. Tell the user that an operator must connect it in the Console or with \`vitehub connections connect ${connection}\`.`, status: "reauth_required" as const }
       case "CONNECTION_DENIED":
@@ -370,7 +391,7 @@ async function gmailRead(gmail: GmailConnectionClient["gmail"], input: GmailRead
   const id = gmailMessageId(input?.id, "gmail_read")
   const maxChars = boundedInteger(input?.maxChars, defaultMaxChars, 100_000, "gmail_read maxChars")
   const message = await gmail.users.messages.get({ format: "full", id, userId: "me" }, options) as GmailMessage
-  const text = messageText(message)
+  const text = await messageText(message, gmail, id, options)
   return {
     message: {
       ...messageSummary(message),
