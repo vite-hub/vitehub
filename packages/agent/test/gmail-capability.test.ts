@@ -71,7 +71,7 @@ describe("gmail capability", () => {
     expect(gmail({ connection: "google", tools: ["labels"] })).toMatchObject({ mode: "read" })
 
     expect(() => gmail({} as never)).toThrow("requires a Connection name")
-    expect(() => gmail({ connection: "a b" })).toThrow("requires a Connection name")
+    expect(() => gmail({ connection: "   " })).toThrow("requires a Connection name")
     expect(() => gmail({ connection: "google", tools: [] })).toThrow("gmail({ tools })")
     expect(() => gmail({ connection: "google", tools: ["send" as never] })).toThrow("gmail({ tools })")
     await expect(Promise.resolve().then(() => (read.tools as (context: never) => unknown)({ capabilities: {} } as never)))
@@ -134,6 +134,27 @@ describe("gmail capability", () => {
     }))
     await expect(runtime.tools.gmail_read!.execute?.({ id: "m1" })).resolves.toMatchObject({ message: { body: "Email body" } })
     expect(runtime.calls).toHaveLength(1)
+  })
+
+  it.each(["team/google", "équipe/google", "a b"])("uses the discovered Connection name %s", async (name) => {
+    const runtime = await capabilityTools(gmail({ connection: name, tools: ["labels"] }), () => ({ labels: [] }))
+    await runtime.tools.gmail_labels!.execute?.({})
+    expect(runtime.uses[0]?.name).toBe(name)
+  })
+
+  it.each(["text/plain", "text/html"])("decodes the declared MIME charset for %s", async (mimeType) => {
+    const body = mimeType === "text/html" ? "<p>Résumé</p>" : "Résumé"
+    const runtime = await capabilityTools(gmail({ connection: "google", tools: ["read"] }), () => ({
+      id: "m1", payload: { mimeType, headers: [{ name: "Content-Type", value: `${mimeType}; charset=\"iso-8859-1\"` }], body: { data: Buffer.from(body, "latin1").toString("base64url") } },
+    }))
+    await expect(runtime.tools.gmail_read!.execute?.({ id: "m1" })).resolves.toMatchObject({ message: { body: "Résumé" } })
+  })
+
+  it("falls back to UTF-8 when the MIME charset is unsupported", async () => {
+    const runtime = await capabilityTools(gmail({ connection: "google", tools: ["read"] }), () => ({
+      id: "m1", payload: { mimeType: "text/plain", headers: [{ name: "Content-Type", value: "text/plain; charset=not-a-real-charset" }], body: { data: base64Url("Résumé") } },
+    }))
+    await expect(runtime.tools.gmail_read!.execute?.({ id: "m1" })).resolves.toMatchObject({ message: { body: "Résumé" } })
   })
 
   it("folds long Unicode draft subjects into valid encoded words", async () => {
