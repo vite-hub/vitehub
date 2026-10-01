@@ -72,7 +72,7 @@ async function typesafeOptions(context: AskRequestContext) {
   } as const
 }
 
-function toEntry(value: unknown): AskEntry {
+function toEntry(value: unknown): AskEntry | undefined {
   if (value === undefined || value === null) return null
   if (hasRuntimeType(value, "string")) return value
   if (hasRuntimeType(value, "number") || hasRuntimeType(value, "boolean") || hasRuntimeType(value, "bigint")) return String(value)
