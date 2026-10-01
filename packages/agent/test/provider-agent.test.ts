@@ -399,6 +399,7 @@ describe("Provider Agent Driver", () => {
     const launch = vi.fn((launchContext: { command: string, cwd: string, environment: Readonly<Record<string, string | undefined>>, requiredEnvironment: readonly string[] }) => {
       expect(launchContext).toMatchObject({
         command: "/app/node_modules/@openai/codex/bin/codex.js",
+        providerCommand: "/app/node_modules/@openai/codex/bin/codex.js",
         environment: expect.objectContaining({ LAUNCH_OUTPUT: outputPath, PROVIDER_SELECTED: "selected" }),
       })
       expect(launchContext.environment).not.toHaveProperty("PATH")

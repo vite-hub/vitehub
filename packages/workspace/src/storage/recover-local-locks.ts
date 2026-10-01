@@ -28,8 +28,8 @@ export async function recoverLocalWorkspaceLocks(options: {
   }
   let removed = 0
   for (const entry of await readdir(directory, { withFileTypes: true })) {
-    const markerName = /^[a-f0-9]{64}\.(gate|readers)$/.test(entry.name)
-    const quarantineName = /^\.recovery-[a-f0-9]{64}\.(gate|readers)-[0-9a-f-]+$/.test(entry.name)
+    const markerName = /^[a-f0-9]{64}\.(gate|readers|writers)$/.test(entry.name)
+    const quarantineName = /^\.recovery-[a-f0-9]{64}\.(gate|readers|writers)-[0-9a-f-]+$/.test(entry.name)
     if (!markerName && !quarantineName) continue
     if (markerName && (!entry.isDirectory() || entry.isSymbolicLink()))
       throw workspaceError(`[vitehub] Expected a real Workspace lock marker directory: ${entry.name}.`)

@@ -15,6 +15,38 @@ describe("built-in Agent Driver selection", () => {
     expect(() => defineAgent({ driver: { kind: "codex", launch: { command: "codex", onExit: "invalid" } } } as never)).toThrow("driver.launch.onExit");
   });
 
+  it("keeps and validates provider Driver requirements", () => {
+    expect(normalizeAgentDriver({ driver: { kind: "codex", requirements: ["git", "gh", "apply_patch"] } })).toMatchObject({
+      requirements: ["git", "gh", "apply_patch"],
+    });
+    // SAFETY: This fixture supplies a shell expression to test runtime validation.
+    expect(() => defineAgent({ driver: { kind: "codex", requirements: ["git; rm -rf /"] } } as never)).toThrow("driver.requirements");
+    expect(normalizeAgentDriver({ driver: { kind: "codex", launch: { command: "ssh", args: ["host", "codex"] }, requirements: [] } })).toMatchObject({
+      launch: { command: "ssh", args: ["host", "codex"] },
+      requirements: [],
+    });
+    expect(() => defineAgent({ driver: { kind: "codex", launch: { command: "ssh", args: ["host", "codex"] }, requirements: ["git"] } } as never)).toThrow("launch resolver");
+  });
+
+  it.each(["-v", "--", "-missing"])("rejects option-like Driver requirement %s", requirement => {
+    expect(() => defineAgent({ driver: { kind: "codex", requirements: [requirement] } })).toThrow("driver.requirements");
+  });
+
+  it("accepts callback and object launch resolvers with requirements", () => {
+    const launch = ({ command }: { command: string }) => ({ command: "ssh", args: ["host", command] });
+    for (const resolver of [launch, { resolve: launch }]) {
+      expect(normalizeAgentDriver({ driver: { kind: "codex", launch: resolver, requirements: ["git"] } })).toMatchObject({
+        launch: resolver,
+        requirements: ["git"],
+      });
+    }
+  });
+
+  it("exposes provider requirements in inspection metadata", () => {
+    const agent = defineAgent({ driver: { kind: "codex", requirements: ["git", "gh"] } });
+    expect(createAgentInspectionMetadata(agent).config?.driver.provider).toMatchObject({ requirements: ["git", "gh"] });
+  });
+
   it("normalizes the common retry setting into AI SDK call settings", () => {
     // SAFETY: This test needs only the resolver's presence; provider execution is not invoked.
     expect(normalizeAgentDriver({

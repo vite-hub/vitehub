@@ -1451,6 +1451,8 @@ export interface AgentProviderStatus {
   stale: boolean
   installed?: boolean
   authenticated?: boolean
+  /** Commands from `driver.requirements` that the Driver shell cannot find. Present when requirements are checked. */
+  missingCommands?: string[]
   reason?: string
   usageLimits?: AgentProviderUsageLimits
 }
@@ -1472,6 +1474,12 @@ export interface AgentProviderDriverOptions<
   /** Provider approval policy. Defaults to `"ask"`; `"allow-all"` requires an explicit opt-in. */
   permissions?: AgentProviderPermissions
   providerSettings?: Record<string, unknown>
+  /**
+   * Commands the Driver shell needs, such as `git`, `gh`, or `unzip`.
+   * `status()` checks them where the Driver runs. With `driver.launch`, a resolver is required
+   * and each inspection probe checks commands in its shell before starting the provider.
+   */
+  requirements?: readonly string[]
   /** SQLite file used to persist provider session cursors across process restarts. */
   sessionStorePath?: string
 }
@@ -1515,7 +1523,10 @@ export interface AgentProviderLaunchCommand {
 
 export interface AgentProviderLaunchContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
   extends AgentProviderCredentialContext<TRuntimeConfig> {
+  /** Executable the wrapper must start. Requirement inspection starts `sh`; invocations start the provider. */
   command: string
+  /** Original provider executable. Use this to select a provider-specific runner. */
+  providerCommand: string
   cwd: string
   environment: Readonly<AgentProviderEnvironment>
   /** Framework-owned environment names injected when the provider process starts. Filtered executors must forward them. */
@@ -1815,7 +1826,11 @@ export interface AgentDefinition<
   runtime?: AgentRuntimeBinding
   runEvents?: AgentRunEvents
   /** Inspect provider credentials and quota without creating an invocation or sending a prompt. */
-  status?(context: AgentRuntimeContext<TRuntimeConfig>, options?: { abortSignal?: AbortSignal }): Promise<AgentProviderStatus>
+  status?(context: AgentRuntimeContext<TRuntimeConfig>, options?: {
+    abortSignal?: AbortSignal
+    /** Defaults to true. Invocation preflight sets false to avoid repeating command checks. */
+    checkRequirements?: boolean
+  }): Promise<AgentProviderStatus>
   resolve(context: AgentRuntimeContext<TRuntimeConfig>): Promise<AgentAdapter<CALL_OPTIONS>>
   run?(context: AgentRunContext<TRuntimeConfig, CALL_OPTIONS, WorkspaceName, TContextValues>): MaybePromise<Response | AgentRunResult | AsyncIterable<StreamEvent> | unknown>
   uiMessageStream?: AgentUIMessageStreamProjectionResolver<TRuntimeConfig, CALL_OPTIONS, TContextValues>
@@ -2107,7 +2122,10 @@ export interface AgentMessageChannelSettings<TRuntimeConfig extends AgentRuntime
   dedupeTtlMs?: number
   delivery?: "automatic" | "manual"
   durable?: boolean
-  errorFallbackText?: string | null | ((context: AgentChatErrorHookArgs<TRuntimeConfig>) => MaybePromise<string | null | undefined>)
+  errorFallbackText?: string | null | ((context: AgentChatErrorHookArgs<TRuntimeConfig> & {
+    /** The text ViteHub sends when `errorFallbackText` is not set. */
+    defaultText: string
+  }) => MaybePromise<string | null | undefined>)
   fallbackStreamingPlaceholderText?: string | readonly string[] | null | ((context: AgentChatAgentHookArgs<TRuntimeConfig>) => MaybePromise<string | null | undefined>)
   final?: {
     delivery: "new-message"
@@ -2495,6 +2513,7 @@ export interface AgentInspectionProviderMetadata {
   permissions: AgentProviderPermissions
   provider?: string
   providerSettings?: string[]
+  requirements?: readonly string[]
   reasoningEffort?: CodexReasoningEffort
   reasoningSummary?: CodexReasoningSummary
   sessionStore?: "sqlite"

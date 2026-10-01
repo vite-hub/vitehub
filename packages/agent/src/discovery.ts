@@ -9,7 +9,6 @@ import {
   mergeDefinitions,
   normalizeSuffixDefinitionName,
 } from "@vite-hub/internal/definition-catalog"
-import { parse, string } from "valibot"
 
 import type { DiscoveredAgentDefinition } from "./types.ts"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
@@ -73,29 +72,184 @@ function stripComments(source: string) {
     .replace(/(^|[^:])\/\/.*$/gm, "$1")
 }
 
+function isIdentifier(token: string | undefined): boolean {
+  return !!token && /^[\p{ID_Start}$_][\p{ID_Continue}$\u200C\u200D]*$/u.test(token)
+}
+
 // Keep literals as single tokens so their punctuation cannot change object depth.
 function tokenizeAgentSource(source: string) {
   const tokens: string[] = []
   const lineBreaks = new Set<number>()
   let previousEnd = 0
-  for (const match of source.matchAll(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`|\/\*[\s\S]*?\*\/|\/\/[^\n]*|\/(?:\\.|\[(?:\\.|[^\]\\])*\]|[^/\n\\])+\/[dgimsuvy]*|[A-Za-z_$][\w$]*|[^\s]/g)) {
-    const token = match[0]
+  function closesControlCondition(index: number): boolean {
+    if (tokens[index] !== ")") return false
+    let depth = 0
+    for (let cursor = index; cursor >= 0; cursor--) {
+      if (tokens[cursor] === ")") depth++
+      else if (tokens[cursor] === "(") {
+        depth--
+        if (depth === 0) return ["if", "for", "while", "switch", "catch", "with"].includes(tokens[cursor - 1] ?? "")
+      }
+    }
+    return false
+  }
+  const tokenPattern = /"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'|`(?:\\[\s\S]|[^`\\])*`|\/\*[\s\S]*?\*\/|\/\/[^\n]*|\/(?:\\.|\[(?:\\.|[^\]\\])*\]|[^/\n\\])+\/[dgimsuvy]*|(?:0[xX][\da-fA-F_]+|0[bB][01_]+|0[oO][0-7_]+|(?:\d[\d_]*(?:\.[\d_]*)?|\.\d[\d_]*)(?:[eE][+-]?[\d_]+)?)n?|(?:[\p{ID_Start}$_]|\\u\{[\da-fA-F]+\}|\\u[\da-fA-F]{4})(?:(?:[\p{ID_Continue}$\u200C\u200D])|(?:\\u\{[\da-fA-F]+\}|\\u[\da-fA-F]{4}))*|[^\s]/gu
+  for (let match = tokenPattern.exec(source); match !== null; match = tokenPattern.exec(source)) {
+    let token = match[0]
     if (token.startsWith("//") || token.startsWith("/*")) continue
     if (/[\r\n\u2028\u2029]/.test(source.slice(previousEnd, match.index))) lineBreaks.add(tokens.length)
-    tokens.push(token)
+    const previous = tokens.at(-1)
+    const endsExpression = previous !== undefined && (
+      /^(?:\d|\.\d|["'`]|\/.)/.test(previous) || ([")", "]", "}"].includes(previous) && !closesControlCondition(tokens.length - 1))
+      || (["+", "-"].includes(previous) && tokens.at(-2) === previous)
+      || (isIdentifier(previous) && !["return", "throw", "yield", "await", "case", "else", "in", "of", "instanceof", "typeof", "void", "delete", "new"].includes(previous))
+    )
+    // A slash after an expression divides it. Expose operands that the
+    // regex-literal matcher would otherwise hide, including option writes.
+    if (token.startsWith("/") && token.length > 1 && endsExpression) {
+      token = "/"
+      tokenPattern.lastIndex = match.index + 1
+    }
+    // Identifier escapes name the same bindings and properties at runtime.
+    tokens.push(/^[\p{ID_Start}$_\\]/u.test(token)
+      ? token.replace(/\\u(?:\{([\da-fA-F]+)\}|([\da-fA-F]{4}))/g, (_escape, point: string | undefined, unit: string | undefined) => String.fromCodePoint(Number.parseInt(point ?? unit!, 16)))
+      : token)
     previousEnd = match.index + token.length
   }
   return { tokens, lineBreaks }
 }
 
-function isWorkspaceAgentDefinition(source: string): boolean {
+// Decode ESM string literals without executing the source module.
+function moduleSpecifier(token: string | undefined): string {
+  if (!token) return ""
+  const body = token.slice(1, -1)
+  // Legacy octal and decimal escapes are invalid in strict-mode modules.
+  if (/\\(?:[89]|[1-7][0-7]?|0[0-7]|0(?=[0-9]))/.test(body)) return ""
+  const escapes: Record<string, string> = { b: "\b", f: "\f", n: "\n", r: "\r", t: "\t", v: "\v", "0": "\0" }
+  return body.replace(/\\(?:u\{([\da-fA-F]+)\}|u([\da-fA-F]{4})|x([\da-fA-F]{2})|(\r\n|[\n\r\u2028\u2029])|([\s\S]))/g,
+    (_match, codePoint: string | undefined, unicode: string | undefined, hex: string | undefined, continuation: string | undefined, escaped: string | undefined) => {
+      const code = codePoint ?? unicode ?? hex
+      if (code !== undefined) return String.fromCodePoint(Number.parseInt(code, 16))
+      if (continuation !== undefined) return ""
+      return escapes[escaped!] ?? escaped!
+    })
+}
+
+function invalidModuleLiteral(token: string | undefined): boolean {
+  return !!token && /^['"]/.test(token) && /\\(?:[89]|[1-7][0-7]?|0[0-7]|0(?=[0-9]))/.test(token.slice(1, -1))
+}
+
+// First-party Channel helpers from the Agent Channel entry. Only `github()`
+// adds a Capability of its own: the pull request Workspace. The other helpers
+// contribute only the Capabilities passed in their `capabilities` option.
+const firstPartyChannelFactories = new Set(["discord", "github", "http", "slack", "teams", "telegram", "webChat"])
+const channelModuleExtensions = [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"]
+
+function importedChannelError(): Error {
+  return new Error("[vitehub] Agent Workspace discovery cannot inspect an imported Channel. Import the Channel from a relative module that exports a local Channel object or a first-party Channel helper call, or add workspace: {} to the Agent definition when the Channel owns a Workspace.")
+}
+
+// Resolves a relative Channel module like TypeScript bundler resolution,
+// including `.js` specifiers that name a `.ts` source file.
+function resolveChannelModule(importer: string, specifier: string): { file: string, source: string } | undefined {
+  if (!specifier.startsWith("./") && !specifier.startsWith("../")) return
+  const base = resolve(dirname(importer), specifier)
+  const sourceBases = [
+    base.replace(/\.(c|m)?js$/, ".$1ts"),
+    base.replace(/\.(c|m)?js$/, ".$1tsx"),
+    base.replace(/\.jsx$/, ".tsx"),
+  ].filter(candidate => candidate !== base)
+  const candidates = [
+    base,
+    ...sourceBases,
+    ...channelModuleExtensions.map(extension => `${base}${extension}`),
+    ...channelModuleExtensions.map(extension => resolve(base, `index${extension}`)),
+  ]
+  for (const file of candidates) {
+    try {
+      return { file, source: readFileSync(file, "utf8") }
+    }
+    catch {
+      continue
+    }
+  }
+}
+
+// Returns [local, exported] pairs for default and named value imports.
+function relativeImportBindings(clause: string[]): [string, string][] {
+  if (clause[0] === "type" && clause[1] !== ",") return []
+  const bindings: [string, string][] = []
+  let index = 0
+  if (isIdentifier(clause[0] ?? "")) {
+    bindings.push([clause[0]!, "default"])
+    index = clause[1] === "," ? 2 : 1
+  }
+  if (clause[index] !== "{") return bindings
+  for (let i = index + 1; i < clause.length && clause[i] !== "}"; i++) {
+    if (clause[i] === ",") continue
+    if (clause[i] === "type" && ![",", "}", "as"].includes(clause[i + 1] ?? "")) {
+      while (i < clause.length && ![",", "}"].includes(clause[i + 1] ?? "")) i++
+      continue
+    }
+    const name = exportName(clause[i])
+    const local = clause[i + 1] === "as" ? clause[i + 2] : name
+    if (clause[i + 1] === "as") i += 2
+    if (name !== undefined && local && isIdentifier(local)) bindings.push([local, name])
+  }
+  return bindings
+}
+
+function exportName(token: string | undefined): string | undefined {
+  if (!token) return
+  if (isIdentifier(token)) return token
+  if (!/^["']/.test(token)) return
+  if (invalidModuleLiteral(token)) return
+  try {
+    return moduleSpecifier(token)
+  }
+  catch {
+    return
+  }
+}
+
+// Returns [exported, imported] pairs for direct relative re-exports.
+function relativeExportBindings(clause: string[]): [string, string][] {
+  const bindings: [string, string][] = []
+  for (let index = 0; index < clause.length; index++) {
+    if (clause[index] === ",") continue
+    if (clause[index] === "type" && ![",", "}", "as"].includes(clause[index + 1] ?? "")) {
+      while (index < clause.length && ![",", "}"].includes(clause[index + 1] ?? "")) index++
+      continue
+    }
+    const name = exportName(clause[index])
+    if (name === undefined) continue
+    const exported = clause[index + 1] === "as" ? exportName(clause[index + 2]) : name
+    if (exported !== undefined) {
+      bindings.push([exported, name])
+      if (clause[index + 1] === "as") index += 2
+    }
+  }
+  return bindings
+}
+
+function isWorkspaceAgentDefinition(source: string, file: string): boolean {
+  return inspectAgentModule(source, file, new Set([file])).agentOwnsWorkspace()
+}
+
+function inspectAgentModule(source: string, file: string, modules: Set<string>) {
   const { tokens, lineBreaks } = tokenizeAgentSource(source)
+  function declarationKeyword(index: number): boolean {
+    if (["const", "let", "var"].includes(tokens[index])) return true
+    // `using` is contextual; calls and properties with this name are not declarations.
+    return tokens[index] === "using" && !lineBreaks.has(index + 1)
+      && isIdentifier(tokens[index + 1] ?? "") && ["=", ":", "of"].includes(tokens[index + 2])
+  }
   function startsStatement(index: number): boolean {
-    if (!lineBreaks.has(index) || !/^(?:[A-Za-z_$][\w$]*$|["'0-9])/.test(tokens[index] ?? "")) return false
+    if (!lineBreaks.has(index) || !(isIdentifier(tokens[index]) || /^["'0-9]/.test(tokens[index] ?? ""))) return false
     if (["in", "instanceof", "as", "satisfies"].includes(tokens[index])) return false
     const previous = tokens[index - 1]
     return [")", "]", "}"].includes(previous) ||
-      (/^[A-Za-z_$][\w$]*$/.test(previous ?? "") && !["return", "throw", "yield", "await", "new", "typeof", "void", "delete", "in", "instanceof", "as", "satisfies"].includes(previous))
+      (isIdentifier(previous ?? "") && !["return", "throw", "yield", "await", "new", "typeof", "void", "delete", "in", "instanceof", "as", "satisfies"].includes(previous))
   }
   const declarations = new Map<string, number>()
   const imported = new Set<string>()
@@ -104,6 +258,21 @@ function isWorkspaceAgentDefinition(source: string): boolean {
   const importedCapabilityBindings = new Set<string>()
   const importedChannelBindings = new Set<string>()
   const importedChannelNamespaces = new Set<string>()
+  const importedChannelFactories = new Map<string, string>()
+  // Static bindings from relative modules, keyed by local name.
+  const moduleImports = new Map<string, { specifier: string, name: string }>()
+  const moduleNamespaces = new Map<string, string>()
+  const namedExports = new Map<string, number>()
+  // Bindings re-exported from relative modules, keyed by exported name.
+  const reExports = new Map<string, { specifier: string, name: string }>()
+  // Specifiers of `export * from` declarations.
+  const starExports: string[] = []
+  // Local export clauses may appear before their declarations.
+  const pendingExports = new Map<string, string>()
+  const opaqueExports = new Set<string>()
+  const mutatedBindings = new Set<string>()
+  const assignedAliases = new Map<string, Set<string>>()
+  const loopResultBindings = new Map<number, Set<string>>()
   let exported: number | undefined
   let depth = 0
   for (let i = 0; i < tokens.length; i++) {
@@ -147,15 +316,15 @@ function isWorkspaceAgentDefinition(source: string): boolean {
                 break
               }
             }
-            const moduleName = moduleToken?.slice(1, -1)
+            const moduleName = moduleSpecifier(moduleToken)
             if (moduleName === "@vite-hub/agent" || moduleName === "vite-hub/agent") importedNamespaces.add(tokens[j + 1])
             if (moduleName === "@vite-hub/agent/channels" || moduleName === "vite-hub/agent/channels") importedChannelNamespaces.add(tokens[j + 1])
             continue
           }
-          if (!sawFrom && /^['"`]/.test(token)) { i = j; break }
+          if (!sawFrom && j === i + 1 && /^['"`]/.test(token)) { i = j; break }
           if (sawFrom) {
             if (/^["'`]/.test(token)) {
-              const moduleName = token.slice(1, -1)
+              const moduleName = moduleSpecifier(token)
               if (moduleName === "@vite-hub/agent" || moduleName === "vite-hub/agent") {
                 const bindings = tokens.slice(i + 1, j)
                 for (let b = 0; b < bindings.length; b++) {
@@ -167,20 +336,34 @@ function isWorkspaceAgentDefinition(source: string): boolean {
                 const bindings = tokens.slice(i + 1, j)
                 for (let b = 0; b < bindings.length; b++) {
                   if (bindings[b] === "defineChannel") importedChannelBindings.add(bindings[b + 1] === "as" ? bindings[b + 2] : bindings[b])
+                  if (firstPartyChannelFactories.has(bindings[b]) && bindings[b - 1] !== "as") {
+                    importedChannelFactories.set(bindings[b + 1] === "as" ? bindings[b + 2] : bindings[b], bindings[b])
+                  }
+                }
+              }
+              if (moduleName.startsWith("./") || moduleName.startsWith("../")) {
+                const clause = tokens.slice(i + 1, j - 1)
+                for (const [local, name] of relativeImportBindings(clause)) {
+                  moduleImports.set(local, { specifier: moduleName, name })
+                }
+                const star = clause.indexOf("*")
+                if (clause[0] !== "type" && star >= 0 && clause[star + 1] === "as" && isIdentifier(clause[star + 2])) {
+                  moduleNamespaces.set(clause[star + 2]!, moduleName)
                 }
               }
               i = j; break
             }
             continue
           }
-          if (/^[A-Za-z_$]/.test(token) && !["from", "as", "type"].includes(token) && tokens[j + 1] !== "as") imported.add(token)
+          if (isIdentifier(token) && !["from", "as", "type"].includes(token) && tokens[j + 1] !== "as") imported.add(token)
         }
       }
-      if (["const", "let", "var"].includes(tokens[i])) {
-        const name = tokens[i + 1]
-        let equals = i + 2
-        while (equals < tokens.length && tokens[equals] !== "=" && tokens[equals] !== ";" && tokens[equals] !== ",") equals++
-        if (name && tokens[equals] === "=") declarations.set(name, equals + 1)
+      if (declarationKeyword(i)) {
+        // Record every declarator, such as `a` and `b` in `const a = x, b = y`.
+        for (const [name, initializer] of declarators(i)) {
+          declarations.set(name, initializer)
+          if (tokens[i - 1] === "export") namedExports.set(name, initializer)
+        }
       }
       // Hoisted function declarations are valid callback bindings too. Keep
       // the reference at the `function` token so callback scanning can locate
@@ -192,10 +375,145 @@ function isWorkspaceAgentDefinition(source: string): boolean {
       if (tokens[i] === "export" && tokens[i + 1] === "{" ) {
         const local = tokens[i + 2]
         if (local && tokens[i + 3] === "as" && tokens[i + 4] === "default") exported = declarations.get(local) ?? i + 2
+        // Record local export names so an importing Agent can inspect them.
+        let close = i + 2
+        while (close < tokens.length && tokens[close] !== "}") close++
+        if (tokens[close + 1] !== "from") {
+          for (let e = i + 2; e < close; e++) {
+            if (e !== i + 2 && tokens[e - 1] !== ",") continue
+            const local = tokens[e]
+            if (!local || !isIdentifier(local)) continue
+            const name = tokens[e + 1] === "as" ? exportName(tokens[e + 2]) : local
+            if (name !== undefined) pendingExports.set(name, local)
+          }
+        } else {
+          // `export { name as alias } from "./channel"` exports the other
+          // module's binding. Package re-exports stay unresolved.
+          const specifier = moduleSpecifier(tokens[close + 2])
+          if (specifier.startsWith("./") || specifier.startsWith("../")) {
+            for (const [alias, name] of relativeExportBindings(tokens.slice(i + 2, close))) {
+              reExports.set(alias, { specifier, name })
+            }
+          }
+        }
+      }
+      if (tokens[i] === "export" && tokens[i + 1] === "*" && tokens[i + 2] === "from") {
+        starExports.push(moduleSpecifier(tokens[i + 3]))
+      }
+      if (tokens[i] === "export" && tokens[i + 1] === "*" && tokens[i + 2] === "as"
+        && isIdentifier(tokens[i + 3] ?? "") && tokens[i + 4] === "from") {
+        // `export * as name from "./module"` is a namespace binding.
+        moduleNamespaces.set(tokens[i + 3]!, moduleSpecifier(tokens[i + 5]))
+      }
+      if (tokens[i] === "export" && tokens[i + 1] === "function" && isIdentifier(tokens[i + 2] ?? "")) {
+        namedExports.set(tokens[i + 2]!, i + 2)
       }
     }
     if (["{", "(", "["].includes(tokens[i])) depth++
     if (["}", ")", "]"].includes(tokens[i])) depth--
+  }
+
+  for (const [name, local] of pendingExports) {
+    const declaration = declarations.get(local)
+    if (declaration !== undefined) {
+      if (name === "default") exported = declaration
+      else namedExports.set(name, declaration)
+      continue
+    }
+    const moduleImport = moduleImports.get(local)
+    if (moduleImport !== undefined) reExports.set(name, moduleImport)
+  }
+
+  function assignmentOperator(index: number): boolean {
+    if (tokens[index] === "=" && (["=", ">"].includes(tokens[index + 1]) || tokens[index - 1] === "=")) return false
+    const operators = [
+      ["="],
+      ["+", "="], ["-", "="], ["*", "="], ["*", "*", "="], ["/", "="], ["%", "="],
+      ["&", "="], ["&", "&", "="], ["|", "="], ["|", "|", "="], ["^", "="],
+      ["?", "?", "="], ["<", "<", "="], [">", ">", "="], [">", ">", ">", "="],
+    ]
+    return operators.some(operator => operator.every((token, offset) => tokens[index + offset] === token))
+  }
+
+  function assignmentInitializer(index: number): number | undefined {
+    if (tokens[index] === "=" && !["=", ">"].includes(tokens[index + 1]!)) return index + 1
+    if (["?", "|", "&"].includes(tokens[index]!) && tokens[index + 1] === tokens[index]
+      && tokens[index + 2] === "=") return index + 3
+  }
+
+  const declaratorInitializers = new Map<number, number>()
+  const declarationTypeTokens = new Set<number>()
+  for (let keyword = 0; keyword < tokens.length; keyword++) {
+    if (!declarationKeyword(keyword)) continue
+    for (const [, initializer, binding] of declarators(keyword)) {
+      declaratorInitializers.set(binding, initializer)
+      for (let index = binding + 1; index < initializer; index++) declarationTypeTokens.add(index)
+    }
+  }
+
+  function containerAliasTargets(index: number, containerTokens = tokens, inspectReference = false): string[] {
+    for (;;) {
+      while (containerTokens[index] === "(") index++
+      if (containerTokens[index] !== "Object" || containerTokens[index + 1] !== "."
+        || containerTokens[index + 2] !== "freeze" || containerTokens[index + 3] !== "(") break
+      index += 4
+    }
+    const opening = containerTokens[index]
+    if (opening !== "[" && opening !== "{") {
+      if (!inspectReference) return []
+      const reference = containerTokens[index]
+      if (containerTokens === tokens && isIdentifier(reference ?? "")) {
+        return [reference!]
+      }
+      return containerTokens.slice(index).filter((reference, offset) =>
+        isIdentifier(reference) && containerTokens[index + offset - 1] !== ".",
+      )
+    }
+    const closing = opening === "[" ? "]" : "}"
+    const targets: string[] = []
+    const elements: string[][] = []
+    let element: string[] = []
+    let depth = 0
+    for (let cursor = index + 1; cursor < containerTokens.length; cursor++) {
+      const token = containerTokens[cursor]
+      if (depth === 0 && token === closing) {
+        if (element.length) elements.push(element)
+        break
+      }
+      if (depth === 0 && token === ",") {
+        elements.push(element)
+        element = []
+        continue
+      }
+      element.push(token)
+      if (["{", "[", "("].includes(token)) depth++
+      else if (["}", "]", ")"].includes(token)) depth--
+    }
+    for (let value of elements) {
+      if (value.length === 0) continue
+      if (value[0] === "." && value[1] === "." && value[2] === ".") value = value.slice(3)
+      else if (opening === "{") {
+        let separator = -1
+        let nesting = 0
+        for (let cursor = 0; cursor < value.length; cursor++) {
+          const token = value[cursor]
+          if (nesting === 0 && token === ":") { separator = cursor; break }
+          if (["{", "[", "("].includes(token)) nesting++
+          else if (["}", "]", ")"].includes(token)) nesting--
+        }
+        if (separator !== -1) value = value.slice(separator + 1)
+        else if (["get", "set"].includes(value[0]!) && value.includes("{")) {
+          // Accessors can return or mutate captured values. Retain their
+          // references so writes through the container invalidate them.
+          const body = value.indexOf("{")
+          targets.push(...containerAliasTargets(0, value.slice(body + 1), true))
+          continue
+        }
+        else if (value.length !== 1) continue
+      }
+      targets.push(...containerAliasTargets(0, value, true))
+    }
+    return targets
   }
 
   // A declaration is visible only in its containing scope and descendants.
@@ -230,7 +548,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
 
   const callbackParameters: { start: number; end: number; names: Set<string> }[] = []
 
-  function callbackBindingNames(start: number, end: number): Set<string> {
+  function callbackBindingNames(start: number, end: number, initializers?: Map<number, number>): Set<string> {
     const names = new Set<string>()
     let cursor = start
     if (tokens[cursor] === "async") cursor++
@@ -278,7 +596,8 @@ function isWorkspaceAgentDefinition(source: string): boolean {
         }
         cursor++
       } else {
-        if (/^[A-Za-z_$][\w$]*$/.test(token ?? "")) names.add(token)
+        if (isIdentifier(token ?? "")) names.add(token)
+        if (tokens[cursor + 1] === "=") initializers?.set(cursor, cursor + 2)
         cursor++
       }
     }
@@ -292,25 +611,631 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     return names
   }
 
+  const functionParameterNames = new Map<number, Set<string>>()
+  const defaultParameterInitializers = new Map<number, number>()
+  for (const body of functionScopes) {
+    const arrowBody = tokens[body - 2] === "=" && tokens[body - 1] === ">"
+    const parameterEnd = arrowBody ? body - 3 : body - 1
+    const parameters = openingDelimiters.get(parameterEnd)
+    if (parameters !== undefined) {
+      functionParameterNames.set(body, callbackBindingNames(parameters, parameterEnd))
+      for (let cursor = parameters + 1; cursor < parameterEnd; cursor++) {
+        if (tokens[cursor] === "=" && !["=", ">"].includes(tokens[cursor + 1]!) && tokens[cursor - 1] !== "=") {
+          defaultParameterInitializers.set(cursor + 1, parameterEnd)
+        }
+      }
+    }
+  }
+
+  function isFunctionParameter(index: number): boolean {
+    for (let scope = tokenScopes[index]; scope !== undefined; scope = scopeParents.get(scope)) {
+      if (functionParameterNames.get(scope)?.has(tokens[index])) return true
+    }
+    return false
+  }
+
+  for (let index = 0; index < tokens.length; index++) {
+    if (tokens[index] !== "catch" || tokens[index + 1] !== "(") continue
+    const close = [...openingDelimiters].find(([, opening]) => opening === index + 1)?.[0]
+    if (close === undefined) continue
+    const body = close + 1
+    const end = [...openingDelimiters].find(([, opening]) => opening === body)?.[0]
+    if (end !== undefined && tokens[body] === "{") {
+      callbackParameters.push({ start: body, end, names: callbackBindingNames(index + 1, close) })
+    }
+  }
+
+  function patternOpening(close: number): number | undefined {
+    let depth = 0
+    for (let index = close; index >= 0; index--) {
+      if (["]", "}"].includes(tokens[index]!)) depth++
+      else if (["[", "{"].includes(tokens[index]!)) {
+        depth--
+        if (depth === 0) return index
+      }
+    }
+  }
+
+  function invalidatePatternExpression(start: number, end: number) {
+    for (let index = start; index < end; index++) {
+      if (!declarations.has(tokens[index]!) || ![".", "["].includes(tokens[index + 1]!)) continue
+      const memberEnd = memberCallEnd(index)
+      const update = ["+", "-"].includes(tokens[memberEnd] ?? "") && tokens[memberEnd + 1] === tokens[memberEnd]
+      const prefixUpdate = ["+", "-"].includes(tokens[index - 2] ?? "") && tokens[index - 1] === tokens[index - 2]
+      const deletion = tokens[index - 1] === "delete"
+      if ((assignmentOperator(memberEnd) || update || prefixUpdate || deletion) && memberEnd <= end) mutatedBindings.add(tokens[index]!)
+    }
+  }
+
+  function recordDestructuringAliases(pattern: number, end: number, value: number, failClosed = true) {
+    for (let index = pattern + 1; index < end; index++) {
+      const close = tokens[index] === "[" ? [...openingDelimiters].find(([, opening]) => opening === index)?.[0] : undefined
+      if (close !== undefined && tokens[close + 1] === ":") {
+        invalidatePatternExpression(index + 1, close)
+        index = close
+        continue
+      }
+      if (tokens[index] === "=") {
+        let depth = 0
+        const expressionStart = index + 1
+        for (index++; index < end; index++) {
+          if (depth === 0 && [",", "]", "}"].includes(tokens[index]!)) break
+          if (["(", "[", "{"].includes(tokens[index]!)) depth++
+          else if ([")", "]", "}"].includes(tokens[index]!)) depth--
+        }
+        invalidatePatternExpression(expressionStart, index)
+        index--
+        continue
+      }
+      if (declarations.has(tokens[index]!) && [".", "["].includes(tokens[index + 1]!)) {
+        mutatedBindings.add(tokens[index]!)
+        index = memberCallEnd(index) - 1
+      }
+    }
+    const names = [...callbackBindingNames(pattern, end)]
+    const targets = containerAliasTargets(value, tokens, true)
+    let source = value
+    while (tokens[source] === "(" || tokens[source] === "await") source++
+    // An identifier-backed iterable or getter may return captured values that
+    // cannot be recovered by tracing the container's literal members.
+    if (isIdentifier(tokens[source] ?? "") && !importedChannelNamespaces.has(tokens[source]!)) {
+      for (const name of names) opaqueDestructuredBindings.add(name)
+    }
+    if (names.length !== targets.length) {
+      if (!failClosed) return
+      for (const name of names) mutatedBindings.add(name)
+      return
+    }
+    for (let index = 0; index < names.length; index++) {
+      const name = names[index]!
+      const target = targets[index]
+      if (target === undefined) continue
+      const aliases = assignedAliases.get(name) ?? new Set<string>()
+      aliases.add(target)
+      assignedAliases.set(name, aliases)
+    }
+  }
+
   const destructuredBindings = new Map<number, Set<string>>()
+  const opaqueDestructuredBindings = new Set<string>()
+  const destructuredChannelHelpers = new Map<number, Map<string, { reference: number, helper: string }>>()
+  const destructuredImportedHelpers = new Map<number, Map<string, number>>()
   const variableDeclarations = new Map<number, number>()
   for (let i = 0; i < tokens.length; i++) {
-    if (!["const", "let", "var"].includes(tokens[i])) continue
+    if (!declarationKeyword(i)) continue
     variableDeclarations.set(i, i)
     const scope = tokenScopes[i]
     for (let cursor = i + 1; cursor < tokens.length; cursor++) {
       if (tokenScopes[cursor] !== scope) continue
-      if ([";", "const", "let", "var", "export", "return", "in", "of", "}", ")"].includes(tokens[cursor])) break
+      if (declarationKeyword(cursor) || [";", "export", "return", "in", "of", "}", ")"].includes(tokens[cursor])) break
       if (tokens[cursor] === "," && (["[", "{"].includes(tokens[cursor + 1])
-        || (/^[A-Za-z_$][\w$]*$/.test(tokens[cursor + 1] ?? "") && ["=", ":", "!"].includes(tokens[cursor + 2])))) {
+        || (isIdentifier(tokens[cursor + 1] ?? "") && ["=", ":", "!"].includes(tokens[cursor + 2])))) {
         variableDeclarations.set(cursor, i)
       }
     }
   }
   for (const binding of variableDeclarations.keys()) {
     if (["[", "{"].includes(tokens[binding + 1])) {
-      destructuredBindings.set(binding, callbackBindingNames(binding + 1, tokens.length))
+      const names = callbackBindingNames(binding + 1, tokens.length, declaratorInitializers)
+      destructuredBindings.set(binding, names)
+      let cursor = binding + 1
+      let nesting = 0
+      do {
+        if (["[", "{"].includes(tokens[cursor])) nesting++
+        else if (["]", "}"].includes(tokens[cursor])) nesting--
+        cursor++
+      } while (cursor < tokens.length && nesting > 0)
+      if (["=", "of"].includes(tokens[cursor])) recordDestructuringAliases(binding + 1, cursor, cursor + 1, false)
+      if (tokens[binding + 1] === "{" && tokens[cursor] === "=" && importedChannelNamespaces.has(tokens[cursor + 1]!)
+        && ([";", ",", undefined].includes(tokens[cursor + 2]) || startsStatement(cursor + 2))) {
+        const helpers = new Map<string, { reference: number, helper: string }>()
+        for (let property = binding + 2; property < cursor - 1; property++) {
+          if (tokenScopes[property] !== binding + 1 || !["{", ","].includes(tokens[property - 1]!)
+            || !firstPartyChannelFactories.has(tokens[property]!)) continue
+          const name = tokens[property + 1] === ":" ? tokens[property + 2] : tokens[property]
+          const end = tokens[property + 1] === ":" ? property + 3 : property + 1
+          // A trusted namespace always supplies this helper, so its default never runs.
+          if (name && names.has(name) && [",", "}", "="].includes(tokens[end]!)) helpers.set(name, { reference: cursor + 1, helper: tokens[property]! })
+        }
+        destructuredChannelHelpers.set(binding, helpers)
+      }
+      if (tokens[binding + 1] === "[" && tokens[cursor] === "=" && tokens[cursor + 1] === "[") {
+        const references = new Map<string, number>()
+        let value = cursor + 2
+        for (let name = binding + 2; name < cursor - 1; name += 2, value += 2) {
+          if (![",", "]"].includes(tokens[name + 1]!) || ![",", "]"].includes(tokens[value + 1]!)) break
+          if (importedChannelFactories.has(tokens[value]!) && names.has(tokens[name]!)) references.set(tokens[name]!, value)
+        }
+        destructuredImportedHelpers.set(binding, references)
+      }
+      for (let index = binding + 2; index < cursor; index++) {
+        if (tokens[index] !== "=" || ["=", ">"].includes(tokens[index + 1]) || tokens[index - 1] === "=") continue
+        const targets = containerAliasTargets(0, tokens.slice(index + 1, cursor), true)
+        if (targets.length === 0) continue
+        const name = [...names].find(candidate => tokens.slice(binding + 1, index).includes(candidate))
+        if (name === undefined) continue
+        const aliases = assignedAliases.get(name) ?? new Set<string>()
+        for (const target of targets) aliases.add(target)
+        assignedAliases.set(name, aliases)
+      }
     }
+  }
+  for (let i = 0; i < tokens.length; i++) {
+    if (declarationTypeTokens.has(i)) continue
+    if (tokens[i - 1] === "." && tokens[i - 2] !== ".") continue
+    const name = tokens[i]
+    if (!declarations.has(name) && !isIdentifier(name ?? "")) continue
+    const memberEnd = memberCallEnd(i)
+    const propertyAssignment = memberEnd > i + 1 && assignmentOperator(memberEnd)
+    const directAssignment = assignmentOperator(i + 1) && !declaratorInitializers.has(i)
+    const prefixUpdate = ["+", "-"].includes(tokens[i - 2] ?? "") && tokens[i - 1] === tokens[i - 2]
+    const postfixUpdate = ["+", "-"].includes(tokens[memberEnd] ?? "") && tokens[memberEnd + 1] === tokens[memberEnd]
+    let deletion = tokens[i - 1] === "delete"
+    for (let cursor = i - 1; !deletion && tokens[cursor] === "("; cursor--) {
+      deletion = tokens[cursor - 1] === "delete"
+    }
+    // Global member writes must invalidate Object before the generic mutation
+    // scan marks globalThis itself as mutated.
+    if (globalBindingReference(i, "globalThis")) {
+      const objectMember = memberAccess(i)
+      const freezeMember = objectMember?.name === "Object" ? memberAccess(objectMember.end - 1) : undefined
+      if (freezeMember?.name === "freeze" && assignmentOperator(freezeMember.end)) mutatedBindings.add("Object")
+    }
+    if ((propertyAssignment || directAssignment || prefixUpdate || postfixUpdate || deletion)
+      && !isFunctionParameter(i)) mutatedBindings.add(name)
+
+    let assignmentEnd = i + 1
+    for (let opening = i - 1; tokens[opening] === "(" && openingDelimiters.get(assignmentEnd) === opening; opening--) assignmentEnd++
+    const initializer = declaratorInitializers.get(i) ?? assignmentInitializer(assignmentEnd)
+    if (initializer !== undefined) {
+      const targets = containerAliasTargets(initializer)
+      const aliases = assignedAliases.get(name) ?? new Set<string>()
+      for (const target of targets) aliases.add(target)
+      if (aliases.size) assignedAliases.set(name, aliases)
+    }
+    if (initializer !== undefined) {
+      let aliasInitializer = initializer
+      while (tokens[aliasInitializer] === "(") aliasInitializer++
+      let aliasEnd = aliasInitializer
+      let nesting = 0
+      while (aliasEnd < tokens.length) {
+        const token = tokens[aliasEnd]
+        if (nesting === 0 && [";", ","].includes(token!)) break
+        if (["(", "[", "{"].includes(token!)) nesting++
+        else if ([")", "]", "}"].includes(token!)) {
+          if (nesting === 0) break
+          nesting--
+        }
+        aliasEnd++
+      }
+      if (["?", "||", "&&", "??"].some(operator => tokens.slice(aliasInitializer, aliasEnd).includes(operator))) {
+        const aliases = assignedAliases.get(name) ?? new Set<string>()
+        const possibleTargets = tokens.slice(aliasInitializer, aliasEnd).flatMap((token, offset) =>
+          isIdentifier(token) && tokens[aliasInitializer + offset - 1] !== "." ? [token] : [])
+        for (const target of possibleTargets) {
+          aliases.add(target)
+        }
+        if (aliases.size) assignedAliases.set(name, aliases)
+      }
+    }
+    if (initializer !== undefined) {
+      let aliasReference = initializer
+      while (tokens[aliasReference] === "(") aliasReference++
+      if (isIdentifier(tokens[aliasReference] ?? "")) {
+        let aliasEnd = aliasReference + 1
+        while (tokens[aliasEnd] === "." || tokens[aliasEnd] === "[") {
+          if (tokens[aliasEnd] === ".") {
+            if (!isIdentifier(tokens[aliasEnd + 1] ?? "")) break
+            aliasEnd += 2
+          }
+          else {
+            let nesting = 1
+            aliasEnd++
+            while (aliasEnd < tokens.length && nesting > 0) {
+              if (tokens[aliasEnd] === "[") nesting++
+              if (tokens[aliasEnd] === "]") nesting--
+              aliasEnd++
+            }
+            if (nesting > 0) break
+          }
+        }
+        while (tokens[aliasEnd] === "!" || tokens[aliasEnd] === "as" || tokens[aliasEnd] === "satisfies") {
+          aliasEnd = tokens[aliasEnd] === "!" ? aliasEnd + 1 : skipAssertion(aliasEnd)
+        }
+        while (tokens[aliasEnd] === ")") aliasEnd++
+        if ([";", ",", undefined].includes(tokens[aliasEnd])) {
+          const targets = assignedAliases.get(name) ?? new Set<string>()
+          targets.add(tokens[aliasReference]!)
+          assignedAliases.set(name, targets)
+        }
+      }
+    }
+  }
+  for (const [close, opening] of openingDelimiters) {
+    if (tokens[opening] === "(") {
+      const compound = tokens.slice(opening + 1, close).some((token, offset) =>
+        tokenScopes[opening + 1 + offset] === opening && ["?", "&", "|", ","].includes(token),
+      )
+      const memberEnd = memberCallEnd(close, opening)
+      const update = ["+", "-"].includes(tokens[memberEnd] ?? "") && tokens[memberEnd + 1] === tokens[memberEnd]
+      let receiver = opening
+      while (tokens[receiver - 1] === "(") receiver--
+      const prefixUpdate = ["+", "-"].includes(tokens[receiver - 2] ?? "") && tokens[receiver - 1] === tokens[receiver - 2]
+      if (compound && memberEnd > close + 1 && (assignmentOperator(memberEnd) || update || prefixUpdate || tokens[memberEnd] === "(" || tokens[receiver - 1] === "delete")) {
+        for (let reference = opening + 1; reference < close; reference++) {
+          if (visibleDeclaration(reference) !== undefined && !isFunctionParameter(reference)) mutatedBindings.add(tokens[reference]!)
+        }
+      }
+      continue
+    }
+    if (!["[", "{"].includes(tokens[opening]) || declarationTypeTokens.has(opening)) continue
+    const memberEnd = memberCallEnd(close, opening)
+    if (memberEnd <= close + 1) continue
+    let member = close + 1
+    while ([")", "!", "as", "satisfies"].includes(tokens[member])) {
+      member = ["as", "satisfies"].includes(tokens[member]) ? skipAssertion(member) : member + 1
+    }
+    if (tokens[member] === "?" && tokens[member + 1] === ".") member += tokens[member + 2] === "[" ? 2 : 1
+    let valueEnd = member
+    let targets = containerAliasTargets(opening)
+    if (tokens[member] === ".") {
+      if (tokens[opening] === "[") continue
+      const property = member + 1
+      const value = properties(opening).get(tokens[property])
+      if (value === undefined) {
+        const accessor = tokens.findIndex((token, cursor) => cursor > opening && cursor < close
+          && tokenScopes[cursor] === opening && ["get", "set"].includes(token)
+          && (tokens[cursor + 1] === "[" || propertyName(tokens[cursor + 1] ?? "") === tokens[property]))
+        if (accessor === -1) {
+          // An assignment to a previously absent property can alias a local
+          // options object. Invalidate RHS bindings so stale literals are not
+          // inspected after `holder.options = options`.
+          if (assignmentOperator(memberEnd)) {
+            for (const target of containerAliasTargets(memberEnd + 1)) mutatedBindings.add(target)
+          }
+          continue
+        }
+        // Computed accessors can select any captured value. Invalidate all
+        // references in the container rather than guessing the selected body.
+      }
+      else targets = containerAliasTargets(value, tokens, true)
+      valueEnd = property + 1
+    }
+    else if (tokens[member] === "[") {
+      let nesting = 1
+      for (valueEnd++; valueEnd < tokens.length && nesting > 0; valueEnd++) {
+        if (tokens[valueEnd] === "[") nesting++
+        else if (tokens[valueEnd] === "]") nesting--
+      }
+      if (valueEnd === member + 3) {
+        const token = tokens[resolveReference(member + 1)]
+        const key = token === undefined ? undefined : /^["'`]/.test(token) ? propertyName(token) : token
+        if (tokens[opening] === "[" && /^\d+$/.test(key ?? "")) {
+          let start = opening + 1
+          let position = 0
+          for (let cursor = start; cursor <= close; cursor++) {
+            if (cursor !== close && (tokens[cursor] !== "," || tokenScopes[cursor] !== opening)) continue
+            if (tokens[start] === "." && tokens[start + 1] === "." && tokens[start + 2] === ".") break
+            if (position === Number(key)) {
+              targets = containerAliasTargets(0, tokens.slice(start, cursor), true)
+              break
+            }
+            start = cursor + 1
+            position++
+          }
+        }
+        else if (tokens[opening] === "{" && /^["'`]/.test(token ?? "")) {
+          const value = properties(opening).get(key!)
+          targets = value === undefined ? [] : containerAliasTargets(value, tokens, true)
+        }
+      }
+    }
+    else continue
+    const assignment = assignmentOperator(memberEnd)
+    const postfixUpdate = ["+", "-"].includes(tokens[memberEnd] ?? "") && tokens[memberEnd + 1] === tokens[memberEnd]
+    let receiver = opening
+    while (tokens[receiver - 1] === "(") receiver--
+    const prefixUpdate = ["+", "-"].includes(tokens[receiver - 2] ?? "") && tokens[receiver - 1] === tokens[receiver - 2]
+    const deletion = tokens[receiver - 1] === "delete"
+    if (!assignment && !postfixUpdate && !prefixUpdate && !deletion && tokens[memberEnd] !== "(") continue
+    if (tokens[memberEnd] !== "(" && memberEnd <= valueEnd) continue
+    const referenced = new Set(targets)
+    for (let reference = opening + 1; reference < close; reference++) {
+      if (referenced.has(tokens[reference]) && tokens[reference - 1] !== "."
+        && (visibleDeclaration(reference) !== undefined || imported.has(tokens[reference])) && !isFunctionParameter(reference)) {
+        mutatedBindings.add(tokens[reference])
+      }
+    }
+  }
+  for (let index = 0; index < tokens.length; index++) {
+    if (tokens[index] === "=" && ["]", "}"].includes(tokens[index - 1] ?? "")) {
+      const pattern = patternOpening(index - 1)
+      if (pattern !== undefined && [undefined, "(", ")", ";", "{", "}", "="].includes(tokens[pattern - 1])) {
+        recordDestructuringAliases(pattern, index, index + 1)
+      }
+      continue
+    }
+    if (!["of", "in"].includes(tokens[index]!)) continue
+    // Member expressions are also assignment targets in `for...in/of`.
+    // Invalidate their local base binding before inspecting Channel options.
+    let member = index - 1
+    while (member >= 0) {
+      if (tokens[member] === "]") {
+        const opening = openingDelimiters.get(member)
+        if (opening === undefined) break
+        member = opening - 1
+      }
+      else if (member >= 2 && tokens[member - 1] === ".") {
+        member -= 2
+      }
+      else break
+    }
+    const loopHeader = tokens[member - 1] === "(" && (tokens[member - 2] === "for"
+      || (tokens[member - 2] === "await" && tokens[member - 3] === "for"))
+    if (member >= 0 && isIdentifier(tokens[member]) && loopHeader
+      && declarations.has(tokens[member]!)) {
+      mutatedBindings.add(tokens[member]!)
+      continue
+    }
+    if (isIdentifier(tokens[index - 1] ?? "")) {
+      const alias = tokens[index - 1]!
+      // A binding declared outside the loop is assigned by the `of` target.
+      // Invalidate it even though the declaration keyword is before `for`.
+      if (declarations.has(alias) && tokens[index - 2] === "(" && tokens[index - 3] === "for") {
+        mutatedBindings.add(alias)
+        continue
+      }
+      let declaration = index - 2
+      while (declaration >= 0 && !declarationKeyword(declaration) && tokens[declaration] !== "for") declaration--
+      // A predeclared `for...of` target is assigned on every iteration. Its
+      // initialiser cannot safely be used for Channel ownership inference.
+      if (!declarationKeyword(declaration)) continue
+      const loopDeclaration = tokens[declaration - 1] === "(" && (tokens[declaration - 2] === "for"
+        || (tokens[declaration - 2] === "await" && tokens[declaration - 3] === "for"))
+      if (!loopDeclaration) mutatedBindings.add(alias)
+      const targets = containerAliasTargets(index + 1, tokens, true)
+      if (targets.length) {
+        const aliases = assignedAliases.get(alias) ?? new Set<string>()
+        for (const target of targets) aliases.add(target)
+        assignedAliases.set(alias, aliases)
+      }
+      continue
+    }
+    if (!["]", "}"].includes(tokens[index - 1] ?? "")) continue
+    const pattern = patternOpening(index - 1)
+    if (pattern === undefined) continue
+    recordDestructuringAliases(pattern, index, index + 1)
+    loopResultBindings.set(index + 1, callbackBindingNames(pattern, index))
+  }
+  // A property assignment can introduce an alias into a container that had
+  // no literal property to inspect. Invalidate local RHS references so a
+  // later mutation through that property cannot use a stale initializer.
+  for (let index = 0; index + 4 < tokens.length; index++) {
+    if (declarationTypeTokens.has(index) || declarationKeyword(index)) continue
+    if (!isIdentifier(tokens[index]) && ![")", "]", "}"].includes(tokens[index]!)) continue
+    if (![".", "["].includes(tokens[index + 1]!)) continue
+    let assignment = memberCallEnd(index)
+    if (!assignmentOperator(assignment)) continue
+    while (tokens[assignment] !== "=") assignment++
+    let depth = 0
+    for (let reference = assignment + 1; reference < tokens.length; reference++) {
+      const token = tokens[reference]!
+      if (depth === 0 && ([";", ",", ")", "]", "}"].includes(token) || startsStatement(reference))) break
+      if (token === "<" && (reference === assignment + 1 || tokens[reference - 1] === "(")) {
+        reference = skipTypeArguments(reference) - 1
+        continue
+      }
+      if (["(", "[", "{"].includes(token)) depth++
+      else if ([")", "]", "}"].includes(token)) depth--
+      if (visibleDeclaration(reference) !== undefined && tokens[reference - 1] !== ".") mutatedBindings.add(token)
+    }
+  }
+  // A reassigned global freeze helper cannot be trusted for static inspection.
+  // Record direct, computed, Object.assign, Reflect.set, and property descriptor writes before recognizing any
+  // Object.freeze call as value-preserving.
+  for (let index = 0; index < tokens.length; index++) {
+    const objectEnd = intrinsicObjectEnd(index)
+    const receiverEnd = objectEnd ?? intrinsicReflectEnd(index)
+    if (receiverEnd === undefined) continue
+    const member = memberAccess(receiverEnd - 1)
+    if (objectEnd !== undefined && member?.name === "freeze" && assignmentOperator(member.end)) mutatedBindings.add("Object")
+    const call = member === undefined ? undefined : memberCallEnd(member.end - 1, index)
+    if (objectEnd !== undefined && member?.name === "assign" && call !== undefined && tokens[call] === "(") {
+      const target = resolveReference(call + 1, new Set(), true)
+      const targetEnd = intrinsicObjectEnd(target)
+      if (targetEnd !== undefined && tokens[targetEnd] === ",") mutatedBindings.add("Object")
+    }
+    if ((member?.name === "defineProperty" || (objectEnd !== undefined && member?.name === "defineProperties") || (objectEnd === undefined && member?.name === "set")) && call !== undefined && tokens[call] === "(") {
+      const target = resolveReference(call + 1, new Set(), true)
+      const targetEnd = intrinsicObjectEnd(target)
+      if (targetEnd === undefined || tokens[targetEnd] !== ",") continue
+      // Descriptor maps may be opaque or contain computed freeze properties.
+      const property = resolveReference(targetEnd + 1)
+      if (member.name === "defineProperties" || propertyName(tokens[property] ?? "") === "freeze") mutatedBindings.add("Object")
+    }
+  }
+  const opaqueCalls = new Set<number>()
+  const trustedCalls = new Set<number>()
+  const directEvalCalls = new Set<number>()
+  const parameterLists = new Set([...functionScopes].map(scope => openingDelimiters.get(scope - 1)))
+  const factories = ["defineAgent", "defineChannel", "defineCapability", "channelHelper"] as const
+  for (let index = 0; index < tokens.length; index++) {
+    if ((tokens[index] === "(" || tokens[index]?.startsWith("`"))
+      && ([")", "]"].includes(tokens[index - 1]) || tokens[index - 1]?.startsWith("`"))) opaqueCalls.add(index)
+    if (!isIdentifier(tokens[index]) || tokens[index - 1] === "function") continue
+    const call = memberCallEnd(index)
+    const tagged = tokens[call]?.startsWith("`")
+    if ((tokens[call] !== "(" && !tagged) || ["if", "for", "while", "switch", "catch", "with", "default", "return", "throw", "yield", "await", "new", "typeof", "void", "delete", "function"].includes(tokens[index])) continue
+    opaqueCalls.add(call)
+    if (!tagged && tokens[index] === "eval" && tokens[index - 1] !== ".") directEvalCalls.add(call)
+    if (call > index + 1 && visibleDeclaration(index) !== undefined) mutatedBindings.add(tokens[index])
+    if (!tagged && globalObjectReference(index) && tokens[index + 1] === "." && tokens[index + 2] === "freeze") trustedCalls.add(call)
+    if (tokens[index - 1] !== "." && factories.some(name => factoryCall(index, name) === call)) trustedCalls.add(call)
+  }
+  const opaqueResultBindings = new Set<string>(opaqueDestructuredBindings)
+  for (let binding = 0; binding < tokens.length; binding++) {
+    if (tokens[binding - 1] === "." || (!destructuredBindings.has(binding) && visibleDeclaration(binding) === undefined)) continue
+    let initializer = declaratorInitializers.get(binding)
+      ?? assignmentInitializer(binding + 1)
+    if (initializer === undefined && destructuredBindings.has(binding)) {
+      let cursor = binding + 1
+      let nesting = 0
+      do {
+        if (["[", "{"].includes(tokens[cursor]!)) nesting++
+        else if (["]", "}"].includes(tokens[cursor]!)) nesting--
+        cursor++
+      } while (cursor < tokens.length && nesting > 0)
+      if (["=", "of"].includes(tokens[cursor]!)) initializer = cursor + 1
+    }
+    if (initializer === undefined) continue
+    while (tokens[initializer] === "(" || tokens[initializer] === "await") initializer++
+    const call = memberCallEnd(initializer)
+    if (opaqueCalls.has(call) && !trustedCalls.has(call)) {
+      for (const name of destructuredBindings.get(binding) ?? [tokens[binding]!]) opaqueResultBindings.add(name)
+    }
+  }
+  // Predeclared loop targets have no destructuring declaration to record
+  // an opaque result. Keep their writes subject to captured-binding taint.
+  for (const [initializer, names] of loopResultBindings) {
+    let value = initializer
+    while (tokens[value] === "(" || tokens[value] === "await") value++
+    const call = memberCallEnd(value)
+    if (opaqueCalls.has(call) && !trustedCalls.has(call)) {
+      for (const name of names) opaqueResultBindings.add(name)
+    }
+  }
+  function invalidateCapturedBindings() {
+    for (const name of declarations.keys()) mutatedBindings.add(name)
+    for (const binding of variableDeclarations.keys()) {
+      for (const name of destructuredBindings.get(binding) ?? [tokens[binding + 1]!]) mutatedBindings.add(name)
+    }
+  }
+  // Direct eval executes in this module's lexical scope and can mutate any
+  // captured Channel options without leaving a statically visible write.
+  if (directEvalCalls.size > 0) invalidateCapturedBindings()
+  // Template interpolations execute expressions hidden inside a literal token.
+  // Their side effects cannot be inspected by this scanner.
+  if (tokens.some(token => token.startsWith("`") && /(?<!\\)(?:\\\\)*\$\{/.test(token))) {
+    invalidateCapturedBindings()
+    for (const name of imported) mutatedBindings.add(name)
+  }
+  // Invoking an extracted member of an opaque result may mutate captured
+  // options even though the invocation has no receiver or arguments.
+  const invokedBindings = new Set<string>()
+  for (let index = 0; index < tokens.length; index++) {
+    const call = memberCallEnd(index)
+    if (visibleDeclaration(index) !== undefined && opaqueCalls.has(call) && !trustedCalls.has(call)) {
+      invokedBindings.add(tokens[index]!)
+    }
+  }
+  // Defaults can alias captured options even when a helper has no arguments.
+  // Keep these references opaque when local functions are invoked.
+  if ([...opaqueCalls].some(call => !trustedCalls.has(call) && !parameterLists.has(call))) {
+    for (const [initializer, end] of defaultParameterInitializers) {
+      for (let reference = initializer; reference < end; reference++) {
+        if (visibleDeclaration(reference) !== undefined) mutatedBindings.add(tokens[reference]!)
+      }
+    }
+  }
+  for (const call of opaqueCalls) {
+    if (trustedCalls.has(call) || parameterLists.has(call)) continue
+    // A write through an opaque call result may mutate a captured options
+    // object even when the call has no arguments (`getOptions().pullRequest =
+    // true`). Invalidate local bindings so Channel ownership is not inferred
+    // from a stale initializer.
+    let close = call + 1
+    // A tagged template is one literal token, with its result immediately after it.
+    const tagged = tokens[call]?.startsWith("`")
+    let callNesting = tagged ? 0 : 1
+    for (; close < tokens.length && callNesting > 0; close++) {
+      if (["(", "[", "{"].includes(tokens[close]!)) callNesting++
+      else if ([")", "]", "}"].includes(tokens[close]!)) callNesting--
+    }
+    if (callNesting === 0) {
+      const memberEnd = memberCallEnd(close - 1, call)
+      const update = ["+", "-"].includes(tokens[memberEnd] ?? "") && tokens[memberEnd + 1] === tokens[memberEnd]
+      let receiver = call - 1
+      while (receiver >= 0) {
+        const opening = openingDelimiters.get(receiver)
+        if (opening !== undefined) { receiver = opening - 1; continue }
+        if (tokens[receiver] === "delete") break
+        if (!isIdentifier(tokens[receiver]) && ![".", "("].includes(tokens[receiver])) break
+        receiver--
+      }
+      if (memberEnd > close && (assignmentOperator(memberEnd) || update || tokens[memberEnd] === "(" || tokens[receiver] === "delete")) {
+        invalidateCapturedBindings()
+      }
+    }
+    let nesting = tagged ? 0 : 1
+    for (let argument = call + 1; argument < tokens.length && nesting > 0; argument++) {
+      if (["(", "[", "{"].includes(tokens[argument])) nesting++
+      else if ([")", "]", "}"].includes(tokens[argument])) nesting--
+      if (nesting > 0 && visibleDeclaration(argument) !== undefined) mutatedBindings.add(tokens[argument])
+    }
+  }
+  // Thrown local values can be mutated through catch bindings. Treat this
+  // escape like an opaque call instead of inferring from stale initializers.
+  for (let index = 0; index < tokens.length; index++) {
+    if (tokens[index] !== "throw" || tokens[index - 1] === "." || tokens[index + 1] === ":" || parameterLists.has(index + 1)) continue
+    // A method named `throw` may have generic parameters or a return type.
+    let parameters = index + 1
+    if (tokens[parameters] === "<") {
+      while (parameters < tokens.length && !["(", ";", "{"].includes(tokens[parameters]!)) parameters++
+    }
+    if (tokens[parameters] === "(" && [...openingDelimiters].some(([close, opening]) =>
+      opening === parameters && ["{", ":"].includes(tokens[close + 1]!))) continue
+    let nesting = 0
+    for (let reference = index + 1; reference < tokens.length; reference++) {
+      const token = tokens[reference]!
+      if (nesting === 0 && ([";", "}"].includes(token) || startsStatement(reference))) break
+      if (["(", "[", "{"].includes(token)) nesting++
+      else if ([")", "]", "}"].includes(token)) nesting--
+      if ((visibleDeclaration(reference) !== undefined || (imported.has(token) && isModuleBinding(reference)))
+        && tokens[reference - 1] !== "." && !isFunctionParameter(reference)) mutatedBindings.add(token)
+    }
+  }
+  for (let changed = true; changed;) {
+    changed = false
+    for (const [alias, targets] of assignedAliases) {
+      if (invokedBindings.has(alias)) {
+        for (const target of targets) {
+          if (invokedBindings.has(target)) continue
+          invokedBindings.add(target)
+          changed = true
+        }
+      }
+      if (!mutatedBindings.has(alias)) continue
+      for (const target of targets) {
+        if (mutatedBindings.has(target)) continue
+        mutatedBindings.add(target)
+        changed = true
+      }
+    }
+  }
+  if ([...opaqueResultBindings].some(name => mutatedBindings.has(name) || invokedBindings.has(name))) invalidateCapturedBindings()
+  for (const name of new Set([...namedExports.keys(), ...pendingExports.keys()])) {
+    const local = pendingExports.get(name) ?? name
+    if (mutatedBindings.has(local)) opaqueExports.add(name)
   }
 
   function visibleDeclaration(index: number): number | undefined {
@@ -333,6 +1258,44 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     return undefined
   }
 
+  function globalObjectReference(index: number): boolean {
+    return globalBindingReference(index, "Object")
+  }
+
+  function intrinsicObjectEnd(index: number): number | undefined {
+    if (tokens[index] === "(") {
+      const inner = intrinsicObjectEnd(index + 1)
+      if (inner !== undefined && tokens[inner] === ")") return inner + 1
+      return
+    }
+    if (globalObjectReference(index)) return index + 1
+    if (!globalBindingReference(index, "globalThis")) return
+    const member = memberAccess(index)
+    if (member?.name === "Object") return member.end
+  }
+
+  function intrinsicReflectEnd(index: number): number | undefined {
+    if (tokens[index] === "(") {
+      const inner = intrinsicReflectEnd(index + 1)
+      if (inner !== undefined && tokens[inner] === ")") return inner + 1
+      return
+    }
+    if (globalBindingReference(index, "Reflect")) return index + 1
+    if (!globalBindingReference(index, "globalThis")) return
+    const member = memberAccess(index)
+    if (member?.name === "Reflect") return member.end
+  }
+
+  function globalBindingReference(index: number, name: string): boolean {
+    if (tokens[index] !== name || tokens[index - 1] === "." || imported.has(name) || mutatedBindings.has(name) || visibleDeclaration(index) !== undefined || isFunctionParameter(index)
+      || callbackParameters.some(scope => index >= scope.start && index < scope.end && scope.names.has(name))) return false
+    for (let scope = tokenScopes[index]; ; scope = scopeParents.get(scope!)) {
+      if (tokens.some((token, declaration) => ["function", "class"].includes(token)
+        && tokens[declaration + 1] === name && tokenScopes[declaration] === scope)) return false
+      if (scope === undefined) return true
+    }
+  }
+
   function conditionalBranches(index: number): [number, number] | undefined {
     let expressionDepth = 0
     let conditionalDepth = 0
@@ -341,7 +1304,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
       const token = tokens[i]
       if (expressionDepth === 0) {
         if (i > index && conditionalDepth === 0 && startsStatement(i)) break
-        if ([";", ",", ":", "export", "const", "let", "var", ")", "}", "]"].includes(token) && conditionalDepth === 0) break
+        if ((declarationKeyword(i) || [";", ",", ":", "export", ")", "}", "]"].includes(token)) && conditionalDepth === 0) break
         if (token === "?" && tokens[i + 1] !== "." && tokens[i + 1] !== "?" && tokens[i - 1] !== "?") {
           if (conditionalDepth === 0) consequent = i + 1
           conditionalDepth++
@@ -354,6 +1317,46 @@ function isWorkspaceAgentDefinition(source: string): boolean {
       if (["}", ")", "]"].includes(token)) expressionDepth--
     }
     return undefined
+  }
+
+  function staticConditionalBranch(index: number): number | undefined {
+    const branches = conditionalBranches(index)
+    if (branches === undefined) return
+    const condition = staticBooleanValue(index, branches[0] - 1)
+    return condition === undefined ? undefined : branches[condition ? 0 : 1]
+  }
+
+  function staticBooleanValue(index: number, boundary?: number, seen = new Set<number>()): boolean | undefined {
+    let condition = index
+    while (tokens[condition] === "(") condition++
+    if (hasLogicalOperator(condition)) return
+    let end = condition + 1
+    function skipAssertions() {
+      while (tokens[end] === "as" || tokens[end] === "satisfies" || (tokens[end] === "!" && tokens[end + 1] !== "=")) {
+        end = tokens[end] === "!" ? end + 1 : skipAssertion(end)
+      }
+    }
+    skipAssertions()
+    for (let opening = condition - 1; opening >= index; opening--) {
+      if (tokens[end] !== ")" || openingDelimiters.get(end) !== opening) return
+      end++
+      skipAssertions()
+    }
+    if (boundary === undefined
+      ? ![";", ",", ")", "}", "]", undefined].includes(tokens[end]) && !startsStatement(end)
+      : end !== boundary) return
+    if (tokens[condition] === "true" || tokens[condition] === "false") return tokens[condition] === "true"
+    const binding = visibleDeclaration(condition)
+    if (binding === undefined || binding > condition || destructuredBindings.has(binding)
+      || mutatedBindings.has(tokens[condition]!) || seen.has(binding)) return
+    seen.add(binding)
+    let initializer = declaratorInitializers.get(binding + 1)
+    if (initializer === undefined) {
+      let cursor = binding + 2
+      while (cursor < condition && !["=", ";", ","].includes(tokens[cursor]!)) cursor++
+      if (tokens[cursor] === "=") initializer = cursor + 1
+    }
+    return initializer === undefined ? undefined : staticBooleanValue(initializer, undefined, seen)
   }
 
   function hasLogicalOperator(index: number): boolean {
@@ -404,12 +1407,12 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     seen.add(index)
     const branches = conditionalBranches(index)
     if (branches) return branches.some(branch => capabilityOwnsWorkspace(branch, new Set(seen)))
-    if (tokens[index] === "[") {
+    if (["[", "{"].includes(tokens[index])) {
       let end = index + 1
       let brackets = 1
       for (; end < tokens.length && brackets > 0; end++) {
-        if (tokens[end] === "[") brackets++
-        else if (tokens[end] === "]") brackets--
+        if (["[", "{", "("].includes(tokens[end])) brackets++
+        else if (["]", "}", ")"].includes(tokens[end])) brackets--
       }
       while (end < tokens.length) {
         if (tokens[end] === ")" && wrappers > 0) { end++; wrappers--; continue }
@@ -418,6 +1421,13 @@ function isWorkspaceAgentDefinition(source: string): boolean {
       }
       if ([".", "[", "?", "!"].includes(tokens[end])) {
         throw new Error("[vitehub] Agent Workspace discovery cannot inspect an opaque Capability expression. Use a literal Capability list with direct local bindings, or add workspace: {} to the Agent definition when the Capabilities own a Workspace.")
+      }
+      if (tokens[index] === "{") {
+        const options = properties(index, true, true)
+        const workspace = options.get("workspace")
+        if (workspace !== undefined && capabilityWorkspaceOwnsWorkspace(workspace)) return true
+        const nested = options.get("capabilities")
+        return nested !== undefined && capabilityOwnsWorkspace(nested, seen)
       }
       let depth = 0
       for (let i = index + 1; i < tokens.length; i++) {
@@ -440,11 +1450,11 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     if (tokens[capabilityCall] === "(") {
       const options = properties(capabilityCall + 1, false, true)
       const workspace = options.get("workspace")
-      if (workspace !== undefined && !undefinedValue(workspace)) return true
+      if (workspace !== undefined && capabilityWorkspaceOwnsWorkspace(workspace)) return true
       const nested = options.get("capabilities")
       return nested !== undefined && capabilityOwnsWorkspace(nested, seen)
     }
-    if (!/^[A-Za-z_$][\w$]*$/.test(tokens[index] ?? "")) return false
+    if (!isIdentifier(tokens[index] ?? "")) return false
     let suffix = index + 1
     while (tokens[suffix] === "!") suffix++
     if (binding !== undefined) {
@@ -456,6 +1466,9 @@ function isWorkspaceAgentDefinition(source: string): boolean {
       }
       // Later declarations shadow outer bindings before their initializer runs.
       if (binding > index) return false
+      if (mutatedBindings.has(tokens[index])) {
+        throw new Error("[vitehub] Agent Workspace discovery cannot inspect a mutable Capability binding. Use an unchanged local Capability binding, or add workspace: {} to the Agent definition when the Capability owns a Workspace.")
+      }
       let initializer = binding + 2
       while (initializer < index && !["=", ";", ","].includes(tokens[initializer])) initializer++
       return tokens[initializer] === "=" && capabilityOwnsWorkspace(initializer + 1, seen)
@@ -495,10 +1508,10 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     return end
   }
 
-  function memberCallEnd(index: number): number {
+  function memberCallEnd(index: number, receiverStart = index): number {
     let end = index + 1
     let wrappers = 0
-    for (let i = index - 1; tokens[i] === "("; i--) wrappers++
+    for (let i = receiverStart - 1; tokens[i] === "("; i--) wrappers++
     while (end < tokens.length) {
       if (tokens[end] === "!") { end++; continue }
       if (tokens[end] === "?" && tokens[end + 1] === ".") {
@@ -523,9 +1536,23 @@ function isWorkspaceAgentDefinition(source: string): boolean {
         continue
       }
       if (tokens[end] === ")" && wrappers > 0) { wrappers--; end++; continue }
+      if (tokens[end] === ")" && hasAngleAssertion(index)) { end++; continue }
       break
     }
     return end
+  }
+
+  function hasAngleAssertion(index: number): boolean {
+    if (tokens[index - 1] !== ">") return false
+    let depth = 0
+    for (let cursor = index - 1; cursor >= 0; cursor--) {
+      if (tokens[cursor] === ">") depth++
+      else if (tokens[cursor] === "<") {
+        depth--
+        if (depth === 0) return tokens[cursor - 1] === "("
+      }
+    }
+    return false
   }
 
   function resolveReference(index: number, seen = new Set<number>(), preserveCalls = false): number {
@@ -548,8 +1575,26 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     }
     const binding = visibleDeclaration(index)
     if (binding !== undefined) {
-      if (destructuredBindings.has(binding)) return index
+      if (mutatedBindings.has(tokens[index]!)) return index
+      if (destructuredBindings.has(binding)) {
+        const aliases = assignedAliases.get(tokens[index]!)
+        if (aliases?.size === 1) {
+          const target = declarations.get([...aliases][0]!)
+          if (target !== undefined) {
+            const resolved = resolveReference(target, seen, preserveCalls)
+            if (factoryCall(resolved, "channelHelper") !== undefined) return resolved
+          }
+          else {
+            const importedReference = destructuredImportedHelpers.get(binding)?.get(tokens[index]!)
+            if (importedReference !== undefined && isModuleBinding(importedReference)
+              && !mutatedBindings.has(tokens[importedReference]!)) return importedReference
+          }
+        }
+        return index
+      }
       if (binding > index) return index
+      const declaratorInitializer = declaratorInitializers.get(binding + 1)
+      if (declaratorInitializer !== undefined) return resolveReference(declaratorInitializer, seen, preserveCalls)
       let initializer = binding + 2
       while (initializer < index && !["=", ";", ","].includes(tokens[initializer])) initializer++
       return tokens[initializer] === "=" ? resolveReference(initializer + 1, seen, preserveCalls) : index
@@ -557,6 +1602,67 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     if (callbackParameters.some(scope => index >= scope.start && index < scope.end && scope.names.has(tokens[index]))) return index
     const reference = declarations.get(tokens[index])
     return reference === undefined ? index : resolveReference(reference, seen, preserveCalls)
+  }
+
+  function capabilityWorkspaceOwnsWorkspace(index: number, seen = new Set<number>()): boolean {
+    const outerBranch = staticConditionalBranch(index)
+    if (outerBranch !== undefined) return capabilityWorkspaceOwnsWorkspace(outerBranch, new Set(seen))
+    const outerBranches = conditionalBranches(index)
+    index = resolveReference(index)
+    const staticBranch = staticConditionalBranch(index)
+    if (staticBranch !== undefined) return capabilityWorkspaceOwnsWorkspace(staticBranch, new Set(seen))
+    if (outerBranches !== undefined || conditionalBranches(index) !== undefined) {
+      throw new Error("[vitehub] Agent Workspace discovery cannot inspect a conditional Capability Workspace expression. Use a statically known condition, or add workspace: {} to the Agent definition when the Capability owns a Workspace.")
+    }
+    if (seen.has(index)) throw new Error("[vitehub] Agent Workspace discovery cannot inspect a cyclic Capability Workspace expression. Use a literal Workspace value.")
+    seen.add(index)
+    if (undefinedValue(index)) return false
+    const signedNumber = ["-", "+"].includes(tokens[index])
+    const number = tokens[index + (signedNumber ? 1 : 0)]
+    const numericZero = /^(?:\d|\.\d)/.test(number ?? "") && Number(number!.replace(/_/g, "").replace(/n$/, "")) === 0
+    const numericIndex = index + (signedNumber ? 1 : 0)
+    const numericNaN = globalBindingReference(numericIndex, "NaN")
+    if (!["false", "null", '""', "''", "``"].includes(tokens[index]) && !numericZero && !numericNaN) return true
+    // A compound expression starting with a falsy literal may still return a
+    // Workspace. Numeric literals are complete tokens, including decimal and radix forms.
+    let end = index + ((numericZero || numericNaN) && signedNumber ? 2 : 1)
+    let scope = tokenScopes[index]
+    for (;;) {
+      if (tokens[end] === "as" || tokens[end] === "satisfies") { end = skipAssertion(end); continue }
+      if (tokens[end] === "!" && tokens[end + 1] !== "=") { end++; continue }
+      if (tokens[end] === ")" && openingDelimiters.get(end) === scope && tokens[scope!] === "(") {
+        end++
+        scope = scopeParents.get(scope!)
+        continue
+      }
+      break
+    }
+    if ((tokens[end] === "|" && tokens[end + 1] === "|")
+      || (tokens[end] === "?" && tokens[end + 1] === "?" && tokens[index] === "null")) {
+      return capabilityWorkspaceOwnsWorkspace(end + 2, seen)
+    }
+    if ((tokens[end] === "&" && tokens[end + 1] === "&")
+      || (tokens[end] === "?" && tokens[end + 1] === "?")) {
+      // A short-circuit conjunction or non-nullish coalescing preserves the falsy left value.
+      // Mixed logical expressions need evaluation beyond literal inference.
+      let depth = 0
+      let expressionScope = scope
+      for (let cursor = end + 2; cursor < tokens.length; cursor++) {
+        const token = tokens[cursor]
+        if (depth === 0 && token === ")" && openingDelimiters.get(cursor) === expressionScope && tokens[expressionScope!] === "(") {
+          expressionScope = scopeParents.get(expressionScope!)
+          continue
+        }
+        if (depth === 0 && [",", ";", ":", ")", "]", "}"].includes(token)) break
+        if ((token === "|" && tokens[cursor + 1] === "|") || token === "?") {
+          throw new Error("[vitehub] Agent Workspace discovery cannot inspect a compound Capability Workspace expression. Use a literal Workspace value, or add workspace: {} to the Agent definition when the Capability owns a Workspace.")
+        }
+        if (["(", "[", "{"].includes(token)) depth++
+        else if ([")", "]", "}"].includes(token)) depth--
+      }
+      return false
+    }
+    return ![",", ";", ":", ")", "]", "}"].includes(tokens[end])
   }
 
   function undefinedValue(index: number): boolean {
@@ -577,31 +1683,33 @@ function isWorkspaceAgentDefinition(source: string): boolean {
 
   function propertyName(token: string): string {
     if (!/^["'`]/.test(token)) return token
-    if (token[0] === '`') return token.slice(1, -1)
-    try {
-      const value: unknown = token[0] === '"'
-        ? JSON.parse(token)
-        : JSON.parse(`"${token.slice(1, -1).replace(/\\"/g, '\\\\"')}"`)
-      return parse(string(), value)
-    } catch {
+    if (invalidModuleLiteral(token)) {
       throw new Error("[vitehub] Agent Workspace discovery cannot inspect an escaped settings key. Use an unescaped literal key.")
     }
+    return moduleSpecifier(token)
   }
 
-  function properties(index: number, inspectChannels = false, inspectSettings = false, onOpaqueSettings?: () => void): Map<string, number> {
+  function properties(index: number, inspectChannels = false, inspectSettings = false, onOpaqueSettings?: () => void, onPrototypeSettings?: () => void): Map<string, number> {
     const result = new Map<string, number>()
     index = resolveReference(index)
     // Preserve object literals wrapped in value-preserving helpers such as
     // Object.freeze({ ... }).
-    if (tokens[index + 1] === "." && tokens[index + 2] === "freeze" && tokens[index + 3] === "(") {
+    if (globalObjectReference(index) && tokens[index + 1] === "." && tokens[index + 2] === "freeze" && tokens[index + 3] === "(") {
       index = resolveReference(index + 4)
     }
     if (inspectChannels && imported.has(tokens[index]) && visibleDeclaration(index) === undefined
       && !callbackParameters.some(scope => index >= scope.start && index < scope.end && scope.names.has(tokens[index]))) {
       let referenceEnd = index + 1
-      while (tokens[referenceEnd] === ".") referenceEnd += 2
-      if (!["(", "<"].includes(tokens[referenceEnd])) {
-        throw new Error("[vitehub] Agent Workspace discovery cannot inspect an imported Channel. Add workspace: {} to the Agent definition when the Channel owns a Workspace, or define the Channel locally so discovery can inspect it.")
+      let member = index
+      while (true) {
+        const access = memberAccess(member)
+        if (access === undefined) break
+        referenceEnd = access.end
+        member = access.end - 1
+      }
+      if (!["(", "<"].includes(tokens[referenceEnd])
+        && !(tokens[referenceEnd] === "?" && tokens[referenceEnd + 1] === "." && tokens[referenceEnd + 2] === "(")) {
+        throw importedChannelError()
       }
     }
     if (tokens[index] !== "{") {
@@ -617,7 +1725,12 @@ function isWorkspaceAgentDefinition(source: string): boolean {
       let token = tokens[i]
       if (depth === 0 && token === "}") break
       if (depth === 0 && atProperty) {
-        if (token === "." && tokens[i + 1] === "." && tokens[i + 2] === ".") {
+        if ((token === "get" || token === "set") && ![":", ",", "}", "("].includes(tokens[i + 1])) {
+          // An accessor computes its value when the Channel reads it.
+          if (inspectChannels) throw opaqueChannelError()
+          onOpaqueSettings?.()
+          atProperty = false
+        } else if (token === "." && tokens[i + 1] === "." && tokens[i + 2] === ".") {
           const spread = properties(i + 3, inspectChannels, inspectSettings, () => {
             // Opaque spreads can replace an earlier Workspace marker. A later
             // explicit field, including one inside this spread, restores it.
@@ -680,7 +1793,15 @@ function isWorkspaceAgentDefinition(source: string): boolean {
             token = tokens[i]
             atProperty = false
           }
-        } else if (tokens[i + 1] === ":") result.set(propertyName(token), i + 2)
+        } else if (tokens[i + 1] === ":") {
+          const name = propertyName(token)
+          if (name === "__proto__") {
+            if (inspectChannels) throw opaqueChannelError()
+            result.delete("workspace")
+            onOpaqueSettings?.()
+            onPrototypeSettings?.()
+          } else result.set(name, i + 2)
+        }
         else if ([",", "}"].includes(tokens[i + 1])) result.set(propertyName(token), i)
         // Object method shorthand (e.g. `configure() { ... }`) has no colon;
         // retain the method's opening parenthesis so callback discovery can
@@ -695,13 +1816,55 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     return result
   }
 
-  function factoryCall(index: number, name: "defineAgent" | "defineChannel" = "defineAgent"): number | undefined {
+  // Returns the first-party Channel helper name for a call such as
+  // `github(...)`, `channels.github(...)`, or an alias of either.
+  function memberAccess(index: number): { name: string, end: number } | undefined {
+    if (tokens[index + 1] === ".") {
+      return { name: tokens[index + 2]!, end: index + 3 }
+    }
+    if (tokens[index + 1] === "?" && tokens[index + 2] === "." && !["(", "["].includes(tokens[index + 3]!)) {
+      return { name: tokens[index + 3]!, end: index + 4 }
+    }
+    const bracketStart = tokens[index + 1] === "[" ? index + 1
+      : tokens[index + 1] === "?" && tokens[index + 2] === "." && tokens[index + 3] === "[" ? index + 3
+      : undefined
+    if (bracketStart !== undefined && tokens[bracketStart + 2] === "]" && /^['"`]/.test(tokens[bracketStart + 1] ?? "")) {
+      return { name: propertyName(tokens[bracketStart + 1]!), end: bracketStart + 3 }
+    }
+  }
+
+  function channelHelper(index: number): { call: number, helper: string } | undefined {
+    const call = factoryCall(index, "channelHelper")
+    if (call === undefined) return
     const reference = resolveReference(index)
-    if (visibleDeclaration(reference) !== undefined || callbackParameters.some(scope =>
+    const helper = destructuredChannelHelper(reference)?.helper
+      ?? importedChannelFactories.get(tokens[reference])
+      ?? memberAccess(reference)?.name
+    return helper === undefined ? undefined : { call, helper }
+  }
+
+  function destructuredChannelHelper(index: number) {
+    const binding = visibleDeclaration(index)
+    if (binding === undefined || binding > index || mutatedBindings.has(tokens[index]!)) return
+    const helper = destructuredChannelHelpers.get(binding)?.get(tokens[index]!)
+    if (!helper || visibleDeclaration(helper.reference) !== undefined || mutatedBindings.has(tokens[helper.reference]!)
+      || callbackParameters.some(scope => helper.reference >= scope.start && helper.reference < scope.end && scope.names.has(tokens[helper.reference]!))) return
+    return helper
+  }
+
+  function factoryCall(index: number, name: "defineAgent" | "defineChannel" | "defineCapability" | "channelHelper" = "defineAgent"): number | undefined {
+    const reference = resolveReference(index)
+    const destructuredHelper = name === "channelHelper" ? destructuredChannelHelper(reference) : undefined
+    if ((!destructuredHelper && visibleDeclaration(reference) !== undefined) || callbackParameters.some(scope =>
       reference >= scope.start && reference < scope.end && scope.names.has(tokens[reference]))) return undefined
     // A binding to an Agent value is not an alias of the factory itself.
-    let identityEnd = reference + 1
-    while (tokens[identityEnd] === ".") identityEnd += 2
+    let identityEnd = reference
+    while (true) {
+      const access = memberAccess(identityEnd)
+      if (access === undefined) break
+      identityEnd = access.end
+    }
+    if (identityEnd === reference) identityEnd++
     if (tokens[identityEnd] === "<") identityEnd = skipTypeArguments(identityEnd)
     if (reference !== index && tokens[identityEnd] === "(") return undefined
     let scope = tokenScopes[reference]
@@ -716,14 +1879,222 @@ function isWorkspaceAgentDefinition(source: string): boolean {
       scope = scopeParents.get(scope)
     }
     const factory = tokens[reference]
-    const bindings = name === "defineAgent" ? importedAgentBindings : importedChannelBindings
-    const namespaces = name === "defineAgent" ? importedNamespaces : importedChannelNamespaces
-    if (!(factory === name && !imported.has(factory)) && !bindings.has(factory) &&
-        !(namespaces.has(factory) && tokens[reference + 1] === "." && tokens[reference + 2] === name)) return undefined
+    if (name === "channelHelper") {
+      // Channel helpers are trusted only when imported from the Channel entry.
+      if (!destructuredHelper && !importedChannelFactories.has(factory) && !(importedChannelNamespaces.has(factory)
+        && firstPartyChannelFactories.has(memberAccess(reference)?.name ?? ""))) return undefined
+    }
+    else {
+      const bindings = name === "defineAgent" ? importedAgentBindings : name === "defineCapability" ? importedCapabilityBindings : importedChannelBindings
+      const namespaces = name === "defineChannel" ? importedChannelNamespaces : importedNamespaces
+      if (!(factory === name && !imported.has(factory)) && !bindings.has(factory) &&
+          !(namespaces.has(factory) && tokens[reference + 1] === "." && tokens[reference + 2] === name)) return undefined
+    }
     let call = index + 1
-    while (tokens[call] === ".") call += 2
+    while (true) {
+      const access = memberAccess(index)
+      if (access === undefined) break
+      call = access.end
+      index = access.end - 1
+    }
+    if (tokens[call] === "?" && tokens[call + 1] === ".") call += 2
     if (tokens[call] === "<") call = skipTypeArguments(call)
     return tokens[call] === "(" ? call : undefined
+  }
+
+  function opaqueChannelError(): Error {
+    return new Error("[vitehub] Agent Workspace discovery cannot inspect a local Channel factory or opaque Channel value or call. Use a local Channel object or a first-party Channel helper call with literal options, or add workspace: {} to the Agent definition when the Channel owns a Workspace.")
+  }
+
+  function pullRequestError(): Error {
+    return new Error("[vitehub] Agent Workspace discovery cannot inspect a dynamic GitHub pullRequest option. Use a literal pullRequest value and a literal pullRequest.workspace value, or add workspace: {} to the Agent definition when the pull request Workspace is enabled.")
+  }
+
+  function isModuleBinding(index: number): boolean {
+    return visibleDeclaration(index) === undefined
+      && !callbackParameters.some(scope => index >= scope.start && index < scope.end && scope.names.has(tokens[index]))
+  }
+
+  function channelOwnsWorkspace(channel: number, channelId?: string): boolean {
+    let channelOptions = resolveReference(channel, new Set(), true)
+    const moduleNamespace = moduleNamespaces.get(tokens[channelOptions])
+    if (moduleNamespace && isModuleBinding(channelOptions)) {
+      const member = memberAccess(channelOptions)
+      if (!member || hasLogicalOperator(channelOptions) || ["(", "<", ".", "[", "?", "!"].includes(tokens[member.end]) || mutatedBindings.has(tokens[channelOptions]!)) throw opaqueChannelError()
+      return importedChannelOwnsWorkspace(moduleNamespace, member.name, channelId)
+    }
+    const moduleImport = moduleImports.get(tokens[channelOptions])
+    const namespaceMember = memberAccess(channelOptions)
+    if (moduleImport && namespaceMember && isModuleBinding(channelOptions)
+      && !mutatedBindings.has(tokens[channelOptions]!)) {
+      if (hasLogicalOperator(channelOptions) || ["(", "<", ".", "[", "?", "!"].includes(tokens[namespaceMember.end])) throw opaqueChannelError()
+      return importedChannelOwnsWorkspace(moduleImport.specifier, moduleImport.name, channelId, namespaceMember.name)
+    }
+    if (moduleImport && isModuleBinding(channelOptions) && !["(", "<", ".", "[", "?", "!"].includes(tokens[channelOptions + 1])) {
+      if (mutatedBindings.has(tokens[channelOptions]!)) throw opaqueChannelError()
+      return importedChannelOwnsWorkspace(moduleImport.specifier, moduleImport.name, channelId)
+    }
+    const helper = channelHelper(channelOptions)
+    if (helper !== undefined) return channelHelperOwnsWorkspace(helper.call, helper.helper)
+    const channelCall = factoryCall(channelOptions, "defineChannel")
+    if (channelCall !== undefined) {
+      // defineChannel(kind, options) contributes the options of this invocation.
+      let depth = 0
+      let hasOptions = false
+      for (let i = channelCall + 1; i < tokens.length; i++) {
+        if (depth === 0 && tokens[i] === ")") break
+        if (depth === 0 && tokens[i] === ",") { channelOptions = i + 1; hasOptions = true; break }
+        if (["{", "(", "["].includes(tokens[i])) depth++
+        else if (["}", ")", "]"].includes(tokens[i])) depth--
+      }
+      if (!hasOptions || undefinedValue(channelOptions) || tokens[channelOptions] === ")") return false
+    }
+    channelOptions = resolveReference(channelOptions, new Set(), true)
+    let opaque = false
+    const channelProperties = properties(channelOptions, true, false, () => { opaque = true })
+    if (opaque) throw opaqueChannelError()
+    if (tokens[channelOptions] !== "{" || tokens[channelOptions - 1] === ")") throw opaqueChannelError()
+    const capabilities = channelProperties.get("capabilities")
+    if (capabilities !== undefined && capabilityOwnsWorkspace(capabilities)) return true
+    const pullRequest = channelProperties.get("pullRequest")
+    if (channelId !== "github" || channelCall !== undefined || pullRequest === undefined) return false
+    const kind = channelProperties.get("kind")
+    if (kind !== undefined) {
+      const value = resolveReference(kind, new Set(), true)
+      if (/^["'`]/.test(tokens[value] ?? "")) return false
+      throw opaqueChannelError()
+    }
+    return pullRequestOwnsWorkspace(pullRequest)
+  }
+
+  // Mirrors the Workspace ownership of the first-party Channel helpers:
+  // `capabilities` for every helper and the pull request Workspace for github().
+  function channelHelperOwnsWorkspace(call: number, helper: string): boolean {
+    const argument = call + 1
+    if (tokens[argument] === ")") return false
+    if (tokens[argument] === ".") throw opaqueChannelError()
+    if (undefinedValue(argument)) return false
+    let options = resolveReference(argument, new Set(), true)
+    const frozenOptions = new Set<number>()
+    while (globalObjectReference(options) && tokens[options + 1] === "." && tokens[options + 2] === "freeze" && tokens[options + 3] === "(") {
+      if (frozenOptions.has(options)) throw opaqueChannelError()
+      frozenOptions.add(options)
+      options = resolveReference(options + 4, new Set(), true)
+    }
+    if (tokens[options] !== "{" || tokens[options - 1] === ")") throw opaqueChannelError()
+    let opaque = false
+    const settings = properties(options, true, false, () => { opaque = true })
+    // An opaque spread can supply capabilities or pullRequest.
+    if (opaque) throw opaqueChannelError()
+    const capabilities = settings.get("capabilities")
+    if (capabilities !== undefined && capabilityOwnsWorkspace(capabilities)) return true
+    const pullRequest = settings.get("pullRequest")
+    return helper === "github" && pullRequest !== undefined && pullRequestOwnsWorkspace(pullRequest)
+  }
+
+  // github() adds the pull request Workspace unless pullRequest is disabled or
+  // pullRequest.workspace is false.
+  function pullRequestOwnsWorkspace(index: number, seen = new Set<number>()): boolean {
+    if (seen.has(index)) throw pullRequestError()
+    seen.add(index)
+    const staticBranch = staticConditionalBranch(index)
+    if (staticBranch !== undefined) return pullRequestOwnsWorkspace(staticBranch, new Set(seen))
+    const branches = conditionalBranches(index)
+    if (branches) return branches.some(branch => pullRequestOwnsWorkspace(branch, new Set(seen)))
+    if (hasLogicalOperator(index)) throw pullRequestError()
+    const value = resolveReference(index, new Set(), true)
+    if (value !== index) return pullRequestOwnsWorkspace(value, seen)
+    if (tokens[value] === "false" || undefinedValue(value)) return false
+    if (tokens[value] === "true") return true
+    if (tokens[value] !== "{") throw pullRequestError()
+    let opaque = false
+    let prototype = false
+    const workspace = properties(value, false, false, () => { opaque = true }, () => { prototype = true }).get("workspace")
+    if (prototype) throw pullRequestError()
+    if (workspace === undefined) {
+      if (opaque) throw pullRequestError()
+      return true
+    }
+    return pullRequestWorkspaceEnabled(workspace)
+  }
+
+  function pullRequestWorkspaceEnabled(index: number, seen = new Set<number>()): boolean {
+    if (seen.has(index)) throw pullRequestError()
+    seen.add(index)
+    const staticBranch = staticConditionalBranch(index)
+    if (staticBranch !== undefined) return pullRequestWorkspaceEnabled(staticBranch, new Set(seen))
+    const branches = conditionalBranches(index)
+    if (branches) return branches.some(branch => pullRequestWorkspaceEnabled(branch, new Set(seen)))
+    if (hasLogicalOperator(index)) throw pullRequestError()
+    const value = resolveReference(index, new Set(), true)
+    if (value !== index) return pullRequestWorkspaceEnabled(value, seen)
+    if (tokens[value] === "false") return false
+    if (tokens[value] === "true" || tokens[value] === "{" || undefinedValue(value)) return true
+    throw pullRequestError()
+  }
+
+  function importedModule(specifier: string) {
+    const module = resolveChannelModule(file, specifier)
+    if (module === undefined || modules.has(module.file)) throw importedChannelError()
+    return inspectAgentModule(module.source, module.file, new Set([...modules, module.file]))
+  }
+
+  function importedChannelOwnsWorkspace(specifier: string, name: string, channelId?: string, member?: string): boolean {
+    return importedModule(specifier).exportedChannelOwnsWorkspace(name, channelId, member)
+  }
+
+  // Returns undefined when this module does not export the name.
+  function exportOwnsWorkspace(name: string, channelId?: string, member?: string): boolean | undefined {
+    const namespace = moduleNamespaces.get(name)
+    if (namespace !== undefined) return importedModule(namespace).exportOwnsWorkspace(member ?? "default", channelId)
+    const reExport = reExports.get(name)
+    if (reExport !== undefined) return importedChannelOwnsWorkspace(reExport.specifier, reExport.name, channelId, member)
+    if (opaqueExports.has(name)) throw opaqueChannelError()
+    const index = name === "default" ? exported : namedExports.get(name)
+    if (index !== undefined) {
+      if (member !== undefined) throw opaqueChannelError()
+      return channelOwnsWorkspace(index, channelId)
+    }
+    // `export *` never re-exports the default binding.
+    if (name === "default") return
+    for (const specifier of starExports) {
+      const owns = importedModule(specifier).exportOwnsWorkspace(name, channelId, member)
+      if (owns !== undefined) return owns
+    }
+  }
+
+  // Returns [name, initializer, binding] tuples for variable and resource
+  // declarations. Declarators without an initializer are skipped.
+  function declarators(keyword: number): [string, number, number][] {
+    const result: [string, number, number][] = []
+    let name = keyword + 1
+    let initializer: number | undefined
+    let depth = 0
+    for (let k = keyword + 1; k < tokens.length; k++) {
+      const token = tokens[k]
+      if (initializer === undefined && tokens[name + 1] === ":" && token === "<") {
+        k = skipTypeArguments(k) - 1
+        continue
+      }
+      if (depth === 0) {
+        if (token === ";" || (k > keyword + 1 && (startsStatement(k)
+          || (lineBreaks.has(k) && (declarationKeyword(k) || ["export", "import", "function", "class"].includes(token)))))) break
+        if (token === "=" && initializer === undefined && tokens[k + 1] !== ">") {
+          initializer = k + 1
+          if (isIdentifier(tokens[name] ?? "")) result.push([tokens[name]!, initializer, name])
+        }
+        // A comma separates declarators after an initializer or an uninitialized
+        // binding, and only before a binding. This skips type argument commas.
+        if (token === "," && (initializer !== undefined || k === name + 1 || tokens[name + 1] === ":")
+          && isIdentifier(tokens[k + 1] ?? "") && ["=", ":", ",", ";"].includes(tokens[k + 2] ?? ";")) {
+          name = k + 1
+          initializer = undefined
+        }
+      }
+      if (["{", "(", "["].includes(token)) depth++
+      else if (["}", ")", "]"].includes(token) && --depth < 0) break
+    }
+    return result
   }
 
   function ownsWorkspace(index: number, seen = new Set<number>(), inspectParent = false): boolean {
@@ -776,29 +2147,17 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     if (capabilities !== undefined && capabilityOwnsWorkspace(capabilities)) return true
     const channels = options.get("channels")
     if (channels !== undefined) {
-      for (const channel of properties(channels, true).values()) {
-        let channelOptions = resolveReference(channel, new Set(), true)
-        const channelCall = factoryCall(channelOptions, "defineChannel")
-        if (channelCall !== undefined) {
-          // defineChannel(kind, options) contributes the options of this invocation.
-          let depth = 0
-          let hasOptions = false
-          for (let i = channelCall + 1; i < tokens.length; i++) {
-            if (depth === 0 && tokens[i] === ")") break
-            if (depth === 0 && tokens[i] === ",") { channelOptions = i + 1; hasOptions = true; break }
-            if (["{", "(", "["].includes(tokens[i])) depth++
-            else if (["}", ")", "]"].includes(tokens[i])) depth--
-          }
-          if (!hasOptions || undefinedValue(channelOptions) || tokens[channelOptions] === ")") continue
-        }
-        channelOptions = resolveReference(channelOptions, new Set(), true)
-        const channelProperties = properties(channelOptions, true)
-        if (tokens[channelOptions] !== "{" || tokens[channelOptions - 1] === ")") {
-          throw new Error("[vitehub] Agent Workspace discovery cannot inspect a local Channel factory or opaque Channel value or call. Use a local Channel object, or add workspace: {} to the Agent definition when the Channel owns a Workspace.")
-        }
-        const capabilities = channelProperties.get("capabilities")
-        if (capabilities !== undefined && capabilityOwnsWorkspace(capabilities)) return true
+      let opaque = false
+      let owns = false
+      const channelMap = resolveReference(channels)
+      const callbackChannelMap = tokens[channelMap] !== "{"
+        && callbackParameters.some(scope => channelMap >= scope.start && channelMap < scope.end && scope.names.has(tokens[channelMap]))
+      const onOpaqueChannelMap = callbackChannelMap ? undefined : () => { opaque = true }
+      for (const [channelId, channel] of properties(channels, true, false, onOpaqueChannelMap)) {
+        if (channelOwnsWorkspace(channel, channelId)) owns = true
       }
+      if (opaque) throw opaqueChannelError()
+      if (owns) return true
     }
     const inherited = options.get("extends")
     if (inherited !== undefined && ownsWorkspace(inherited, seen, true)) return true
@@ -938,9 +2297,9 @@ function isWorkspaceAgentDefinition(source: string): boolean {
         const inCallbackScope = variableScope(i) === callbackScope
         const reference = resolveReference(i, new Set(), true)
         const callEnd = memberCallEnd(reference)
-        const opaqueCall = /^[A-Za-z_$][\w$]*$/.test(tokens[reference] ?? "") && tokens[callEnd] === "("
+        const opaqueCall = isIdentifier(tokens[reference] ?? "") && tokens[callEnd] === "("
           && conditionalBranches(reference) === undefined
-        const opaqueMember = /^[A-Za-z_$][\w$]*$/.test(tokens[reference] ?? "")
+        const opaqueMember = isIdentifier(tokens[reference] ?? "")
           && conditionalBranches(reference) === undefined
           && ([".", "["].includes(tokens[reference + 1]) || (tokens[reference + 1] === "?" && tokens[reference + 2] === "."))
         if (inCallbackScope && (factoryCall(reference) !== undefined || opaqueCall || opaqueMember)) {
@@ -982,7 +2341,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
           returnGroup = { depth: Number.POSITIVE_INFINITY }
         }
         // Declarations also end a preceding semicolon-free return statement.
-        else if (callbackDepth === returnExpressionDepth && [";", "const", "let", "var"].includes(token)) returnExpression = false
+        else if (callbackDepth === returnExpressionDepth && (token === ";" || declarationKeyword(i))) returnExpression = false
         if (["{", "(", "["].includes(token)) callbackDepth++
         else if (["}", ")", "]"].includes(token)) callbackDepth--
         if (callbackDepth < returnExpressionDepth) returnExpression = false
@@ -1062,9 +2421,19 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     return entry !== undefined && ownsWorkspace(entry, seen, true)
   }
 
-  // The default export owns the folder; helper definitions and unselected presets do not.
-  if (exported !== undefined) return ownsWorkspace(exported)
-  return tokens.some((token, index) => token === "defineAgent" && ownsWorkspace(index))
+  return {
+    agentOwnsWorkspace(): boolean {
+      // The default export owns the folder; helper definitions and unselected presets do not.
+      if (exported !== undefined) return ownsWorkspace(exported)
+      return tokens.some((token, index) => token === "defineAgent" && ownsWorkspace(index))
+    },
+    exportOwnsWorkspace,
+    exportedChannelOwnsWorkspace(name: string, channelId?: string, member?: string): boolean {
+      const owns = exportOwnsWorkspace(name, channelId, member)
+      if (owns === undefined) throw importedChannelError()
+      return owns
+    },
+  }
 }
 function isAgentDefinitionSource(source: string): boolean {
   const stripped = stripComments(source)
@@ -1120,7 +2489,7 @@ function discoverFolderAgentDefinitions(scanDirs: string[]): DiscoveredAgentDefi
       const source = readFileSync(file, "utf8")
       const agent = normalizeDiscoveredAgentName(relative(agentsRoot, dirname(file)).replace(/\\/g, "/"))
       if (!agent || agent === ".") continue
-      const workspace = isWorkspaceAgentDefinition(source)
+      const workspace = isWorkspaceAgentDefinition(source, file)
       candidates.push({
         handler: file,
         name: agent,

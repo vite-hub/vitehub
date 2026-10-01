@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL, fileURLToPath } from 'node:url'
 import { build } from 'esbuild'
-import { createServer } from 'vite'
+import { createServer, mergeConfig } from 'vite'
 import { afterEach, expect, it } from 'vitest'
 import { hubAgent } from '../src/vite.ts'
 
@@ -26,7 +26,10 @@ export default defineAgent({ driver: { kind: 'codex', instructions: { template: 
   const config = { root, command: 'build', plugins: [], build: { outDir: 'dist' }, resolve: { alias: [] }, createResolver: () => async (specifier: string) => fileURLToPath(import.meta.resolve(specifier)) }
   const hook = plugin.config
   if (typeof hook !== 'function') throw new Error('Expected config hook')
-  const configured = await hook.call({} as never, { root, nitro: {} } as never, { command: 'build', mode: 'production' })
+  const userConfig = { root, nitro: {} }
+  const result = await hook.call({} as never, userConfig, { command: 'build', mode: 'production' })
+  // Vite merges the returned config into the config it passed to the hook.
+  const configured = result ? mergeConfig(userConfig, result) : userConfig
   await (plugin.configResolved as (config: unknown) => Promise<void>)(config)
   return { root, configured }
 }

@@ -108,7 +108,7 @@ These checks do not isolate the host filesystem from another process that can ch
 
 ### Recover a Local Store after a crash
 
-Local Store lock markers do not expire by age. A crashed process can leave a marker that makes later operations report `Timed out waiting to write Workspace`.
+Local Store lock markers do not expire by age. A crashed process can leave a marker that makes later operations report `Timed out waiting to read Workspace` or `Timed out waiting to write Workspace`.
 
 Stop every process using the Workspace before recovery. Prevent changes to the Store and its ancestor directories throughout the call. Then run `recoverLocalWorkspaceLocks()` with the exact directory configured as the Local Store's `root`:
 

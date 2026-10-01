@@ -3176,9 +3176,9 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       if (resolved) {
         const alias = isRecord(mergedNitro.alias) ? { ...mergedNitro.alias } : {}
         alias[agentRegistryId] = join(generatedRoot, generatedAgentRegistry)
-        mergedNitro.alias = { ...alias, ...workerAliases }
+        mergedNitro.alias = { ...workerAliases, ...alias }
       }
-      const result: UserConfig & { nitro?: NitroConfig } = {
+      const result: UserConfig = {
         define: {
           __VITEHUB_AGENT_APP_ROOT__: JSON.stringify(root),
           ...config.define,
@@ -3189,14 +3189,27 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           },
         },
       }
-      if (resolved) result.resolve = { alias: { [agentRegistryId]: join(generatedRoot, generatedAgentRegistry), ...workerAliases } }
+      if (resolved) {
+        // Vite prepends returned aliases. Append Worker fallbacks in place so user aliases match first.
+        const configuredAliases = config.resolve?.alias
+        config.resolve = {
+          ...config.resolve,
+          alias: Array.isArray(configuredAliases)
+            ? [...configuredAliases, ...Object.entries(workerAliases).map(([find, replacement]) => ({ find, replacement }))]
+            : { ...workerAliases, ...configuredAliases },
+        }
+        result.resolve = { alias: { [agentRegistryId]: join(generatedRoot, generatedAgentRegistry) } }
+      }
       if (agent !== undefined) result.agent = agent
       if (nitroHandlers.length) {
         // SAFETY: Vite's build options accept the Rolldown external field merged by this boundary.
         result.build = mergeBuildExternal(config as BuildWithRolldownOptions, optionalAgentRuntimeExternals)
       }
       if (nitroContext || nitroHandlers.length || installCloudflareState || installProcessDiscordGateway) {
-        result.nitro = mergedNitro
+        // Replace the Nitro config in place. Vite concatenates arrays when it merges a returned config,
+        // so returning the complete Nitro config would repeat every user entry, such as Wrangler secrets.
+        // SAFETY: Nitro's Vite plugin reads this open `nitro` key from the user config; mergedNitro starts from its value.
+        ;(config as { nitro?: NitroConfig }).nitro = mergedNitro
       }
       return result
     },

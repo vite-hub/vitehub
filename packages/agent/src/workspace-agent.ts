@@ -795,6 +795,7 @@ function providerMetadata(driver: {
   permissions: AgentInspectionProviderMetadata["permissions"]
   provider: string
   providerSettings?: Record<string, unknown>
+  requirements?: readonly string[]
   reasoningEffort?: AgentInspectionProviderMetadata["reasoningEffort"]
   reasoningSummary?: AgentInspectionProviderMetadata["reasoningSummary"]
   sessionStorePath?: string
@@ -812,6 +813,7 @@ function providerMetadata(driver: {
     permissions: driver.permissions,
     provider: driver.provider,
     ...(providerSettings.length ? { providerSettings } : {}),
+    ...(driver.requirements?.length ? { requirements: [...driver.requirements] } : {}),
     ...(driver.reasoningEffort ? { reasoningEffort: driver.reasoningEffort } : {}),
     ...(driver.reasoningSummary ? { reasoningSummary: driver.reasoningSummary } : {}),
     ...(driver.sessionStorePath ? { sessionStore: "sqlite" as const } : {}),

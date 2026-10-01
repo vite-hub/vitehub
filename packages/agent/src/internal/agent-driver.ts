@@ -54,6 +54,7 @@ export type NormalizedAgentDriver<
     providerSettings?: Record<string, unknown>
     reasoningEffort?: CodexReasoningEffort
     reasoningSummary?: CodexReasoningSummary
+    requirements?: readonly string[]
     sessionStorePath?: string
   }
   | {
@@ -144,7 +145,7 @@ function normalizeAgentDriverCapacity(value: unknown): AgentDriverCapacityOption
 }
 
 const modelDriverKeys = new Set(["capacity", "execution", "instructions", "maxRetries", "model", "output"])
-const providerDriverKeys = new Set(["capacity", "credentialProfile", "credentials", "env", "execution", "instructions", "kind", "launch", "model", "output", "permissions", "providerSettings", "reasoningEffort", "reasoningSummary", "sessionStorePath"])
+const providerDriverKeys = new Set(["capacity", "credentialProfile", "credentials", "env", "execution", "instructions", "kind", "launch", "model", "output", "permissions", "providerSettings", "reasoningEffort", "reasoningSummary", "requirements", "sessionStorePath"])
 const runDriverKeys = new Set(["capacity", "output", "run"])
 const askDriverKeys = new Set(["ask", "capacity"])
 
@@ -236,6 +237,12 @@ function normalizeProviderDriver(provider: "claude-code" | "codex", value: Recor
   if (value.sessionStorePath !== undefined && (!isRuntimeString(value.sessionStorePath) || !value.sessionStorePath.trim())) {
     throw agentDiagnostics.AGENT_R0476({ message: "[vitehub] defineAgent({ driver.sessionStorePath }) must be a non-empty string." })
   }
+  if (value.requirements !== undefined && (!Array.isArray(value.requirements) || !value.requirements.every(item => isRuntimeString(item) && /^[A-Za-z0-9._+][A-Za-z0-9._+-]*$/.test(item)))) {
+    throw agentDiagnostics.AGENT_R0970({ message: "[vitehub] defineAgent({ driver.requirements }) must be a list of command names, such as [\"git\", \"gh\"]." })
+  }
+  if (Array.isArray(value.requirements) && value.requirements.length > 0 && value.launch !== undefined && !isRuntimeFunction(value.launch) && !isResolver(value.launch)) {
+    throw agentDiagnostics.AGENT_R0970({ message: "[vitehub] defineAgent({ driver.requirements }) requires a launch resolver when driver.launch is set." })
+  }
   const codexOptions = ["credentialProfile", "credentials", "reasoningEffort", "reasoningSummary"].filter(key => value[key] !== undefined)
   if (provider !== "codex" && codexOptions.length) {
     throw agentDiagnostics.AGENT_R0477({ message: `[vitehub] defineAgent({ driver: { kind: "${provider}" } }) does not support Codex option${codexOptions.length === 1 ? "" : "s"}: ${codexOptions.join(", ")}.` })
@@ -309,6 +316,8 @@ function normalizeProviderDriver(provider: "claude-code" | "codex", value: Recor
     reasoningEffort: isRuntimeString(value.reasoningEffort) ? value.reasoningEffort.trim() : undefined,
     // SAFETY: reasoningSummary is either absent or validated against the Codex summary values above.
     reasoningSummary: value.reasoningSummary as CodexReasoningSummary | undefined,
+    // SAFETY: requirements is either absent or validated as a list of command names above.
+    requirements: value.requirements === undefined ? undefined : [...value.requirements as string[]],
     sessionStorePath: isRuntimeString(value.sessionStorePath) ? value.sessionStorePath.trim() : undefined,
   }
 }

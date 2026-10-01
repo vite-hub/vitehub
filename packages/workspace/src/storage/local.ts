@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto"
 import { constants, createReadStream, createWriteStream } from "node:fs"
+import { chmod, chown, copyFile, link, lstat, mkdir, open, readFile, readdir, rename, rm, rmdir, stat, utimes, writeFile } from "node:fs/promises"
 import { Readable, Transform } from "node:stream"
 import { join, relative, resolve, sep } from "node:path"
 import { pipeline } from "node:stream/promises"
@@ -41,7 +42,6 @@ function assertFileMetadata(path: string, metadata: WorkspaceFile["metadata"]) {
 }
 
 async function backupFile(path: string, backup: string): Promise<number | undefined> {
-  const { chmod, chown, copyFile, link, rm, stat, utimes } = await import("node:fs/promises")
   try {
     await link(path, backup)
   } catch (error) {
@@ -71,12 +71,10 @@ async function restoreBackup(backup: string, path: string, foreignUid: number | 
     // Keep the recovery copy, but never claim to restore a different owner's file.
     throw new AggregateError([publicationError], `[vitehub] Cannot roll back ${path} without changing owner UID ${foreignUid}. Recovery content remains at ${backup}.`)
   }
-  const { rename } = await import("node:fs/promises")
   await rename(backup, path)
 }
 
 async function reclaimBackup(path: string, retryDelay = 1000, attempts = 0): Promise<void> {
-  const { rename, rm } = await import("node:fs/promises")
   try {
     if (!path.endsWith(".committed.bak")) {
       const committed = path.replace(/\.bak$/, ".committed.bak")
@@ -97,7 +95,6 @@ async function reclaimBackup(path: string, retryDelay = 1000, attempts = 0): Pro
 }
 
 async function reclaimCommittedBackups(root: string): Promise<void> {
-  const { readdir } = await import("node:fs/promises")
   // Only the post-publication rename makes a backup eligible for a later sweep.
   // Plain .bak files may still be needed by active writers or failed rollbacks.
   const entries = await readdir(root).catch(() => [])
@@ -114,7 +111,6 @@ function assertTrustedMetadata(path: string, info: import("node:fs").Stats, root
 }
 
 async function applyMetadataPermissions(path: string, mode: number, gid: number) {
-  const { chmod, chown, stat } = await import("node:fs/promises")
   const info = await stat(path)
   if (info.gid !== gid) {
     try { await chown(path, info.uid, gid) }
@@ -136,7 +132,6 @@ async function applyMetadataPermissions(path: string, mode: number, gid: number)
 }
 
 async function validateLockDirectory(path: string) {
-  const { lstat } = await import("node:fs/promises")
   const info = await lstat(path).catch((error: NodeJS.ErrnoException) => {
     if (error.code === "ENOENT") return undefined
     throw error
@@ -147,14 +142,13 @@ async function validateLockDirectory(path: string) {
 }
 
 async function ensureLockDirectory(path: string) {
-  const { mkdir } = await import("node:fs/promises")
   await mkdir(path, { mode: 0o700 }).catch((error: NodeJS.ErrnoException) => {
     if (error.code !== "EEXIST") throw error
   })
   await validateLockDirectory(path)
 }
 
-async function withLeaseHeartbeat<T>(file: import("node:fs/promises").FileHandle, operation: () => Promise<T>): Promise<T> {
+async function withLeaseHeartbeat<T>(file: import("node:fs/promises").FileHandle, operation: () => Promise<T>, onFailure?: (error: unknown) => void): Promise<T> {
   let renewal = Promise.resolve()
   let rejectHeartbeat!: (error: unknown) => void
   const heartbeatFailure = new Promise<never>((_, reject) => { rejectHeartbeat = reject })
@@ -164,7 +158,10 @@ async function withLeaseHeartbeat<T>(file: import("node:fs/promises").FileHandle
       const now = new Date()
       await file.utimes(now, now)
     })
-    renewal.catch(rejectHeartbeat)
+    renewal.catch(error => {
+      rejectHeartbeat(error)
+      onFailure?.(error)
+    })
   }, 30_000)
   timer.unref()
   const active = Promise.resolve().then(operation)
@@ -185,7 +182,6 @@ async function withLeaseHeartbeat<T>(file: import("node:fs/promises").FileHandle
 }
 
 async function removeOwnedGate(lock: string) {
-  const { rm } = await import("node:fs/promises")
   for (let attempt = 0; ; attempt++) {
     try {
       await rm(lock, { force: true, recursive: true })
@@ -198,12 +194,11 @@ async function removeOwnedGate(lock: string) {
   }
 }
 
-async function withFilesystemLock<T>(lock: string, permissions: Pick<import("node:fs").Stats, "mode" | "gid">, description: string, operation: () => Promise<T>, timeoutMs = 10_000): Promise<T> {
-  const { mkdir, open } = await import("node:fs/promises")
+async function withFilesystemLock<T>(lock: string, permissions: Pick<import("node:fs").Stats, "mode" | "gid">, description: string, operation: () => Promise<T>, deadline?: () => number): Promise<T> {
+  const expiresAt = Date.now() + 10_000
   const owner = randomUUID()
   const ownerPath = `${lock}/owner`
   let lease: import("node:fs/promises").FileHandle | undefined
-  const deadline = Date.now() + timeoutMs
   while (true) {
     let created = false
     try {
@@ -229,7 +224,7 @@ async function withFilesystemLock<T>(lock: string, permissions: Pick<import("nod
       await validateLockDirectory(lock)
       // Marker age cannot distinguish a crashed owner from active I/O whose
       // heartbeat failed or was delayed. Only the owner may release its gate.
-      if (Date.now() >= deadline) throw workspaceError(`[vitehub] Timed out waiting to write Workspace ${description}.`)
+      if (Date.now() >= (deadline?.() ?? expiresAt)) throw workspaceError(`[vitehub] Timed out waiting to ${description}.`)
       else await delay(25)
     }
   }
@@ -243,16 +238,14 @@ async function withFilesystemLock<T>(lock: string, permissions: Pick<import("nod
   }
 }
 
-async function withFilesystemReadLock<T>(lock: string, permissions: Pick<import("node:fs").Stats, "mode" | "gid">, description: string, operation: () => Promise<T>): Promise<T> {
-  const { open, rm, rmdir } = await import("node:fs/promises")
+async function withFilesystemReadLock<T>(lock: string, permissions: Pick<import("node:fs").Stats, "mode" | "gid">, description: string, operation: () => Promise<T>, onFailure?: (error: unknown) => void): Promise<T> {
   const reader = `${lock}.readers/${randomUUID()}`
-  const lease = await withFilesystemLock(`${lock}.gate`, permissions, description, async () => {
-    await ensureLockDirectory(`${lock}.readers`)
-    if (process.platform !== "win32") await applyMetadataPermissions(`${lock}.readers`, permissions.mode & 0o770, permissions.gid)
-    return await open(reader, "wx")
-  })
+  // The admission batch already owns the gate during reader registration.
+  await ensureLockDirectory(`${lock}.readers`)
+  if (process.platform !== "win32") await applyMetadataPermissions(`${lock}.readers`, permissions.mode & 0o770, permissions.gid)
+  const lease = await open(reader, "wx")
   try {
-    return await withLeaseHeartbeat(lease, operation)
+    return await withLeaseHeartbeat(lease, operation, onFailure)
   }
   finally {
     await rm(reader, { force: true })
@@ -262,12 +255,11 @@ async function withFilesystemReadLock<T>(lock: string, permissions: Pick<import(
       await rmdir(`${lock}.readers`).catch((error: NodeJS.ErrnoException) => {
         if (!["ENOENT", "ENOTEMPTY", "EEXIST"].includes(error.code ?? "")) throw error
       })
-    }, 0).catch(() => {})
+    }, () => Date.now()).catch(() => {})
   }
 }
 
 async function withFilesystemWriteLock<T>(lock: string, permissions: Pick<import("node:fs").Stats, "mode" | "gid">, description: string, operation: () => Promise<T>): Promise<T> {
-  const { readdir, rmdir } = await import("node:fs/promises")
   return await withFilesystemLock(`${lock}.gate`, permissions, description, async () => {
     const readers = `${lock}.readers`
     const deadline = Date.now() + 10_000
@@ -283,10 +275,202 @@ async function withFilesystemWriteLock<T>(lock: string, permissions: Pick<import
       }
       // Reader markers also remain authoritative until their owners release
       // them; a failed heartbeat must never permit a concurrent writer.
-      if (Date.now() >= deadline) throw workspaceError(`[vitehub] Timed out waiting to write Workspace ${description}.`)
+      if (Date.now() >= deadline) throw workspaceError(`[vitehub] Timed out waiting to ${description}.`)
       await delay(25)
     }
   })
+}
+
+async function withFilesystemWriterIntent<T>(lock: string, permissions: Pick<import("node:fs").Stats, "mode" | "gid">, operation: () => Promise<T>): Promise<T> {
+  // Publish intent before competing for the gate. Readers that observe this
+  // marker wait, so a writer cannot lose every gate race to new admissions.
+  const intents = `${lock}.writers`
+  const intent = `${intents}/${randomUUID()}`
+  // The last writer can remove the empty parent during permission setup or
+  // child creation. Retry the full sequence to revalidate the new parent.
+  for (;;) {
+    try {
+      await ensureLockDirectory(intents)
+      if (process.platform !== "win32") await applyMetadataPermissions(intents, permissions.mode & 0o770, permissions.gid)
+      await mkdir(intent, { mode: 0o700 })
+      break
+    }
+    catch (error) {
+      if (Reflect.get(Object(error), "code") !== "ENOENT") {
+        // A failed setup can leave an empty parent that readers interpret as
+        // writer intent. Remove only an empty directory and retain the error.
+        await rmdir(intents).catch(() => {})
+        throw error
+      }
+    }
+  }
+  try {
+    return await operation()
+  }
+  finally {
+    await rm(intent, { recursive: true, force: true })
+    await rmdir(intents).catch((error: NodeJS.ErrnoException) => {
+      if (!["ENOENT", "ENOTEMPTY", "EEXIST"].includes(error.code ?? "")) throw error
+    })
+  }
+}
+
+interface SharedReadLease {
+  acquired: Promise<void>
+  failure?: { error: unknown }
+  readers: number
+  release: () => void
+  settled: Promise<void>
+}
+
+// Parallel reads below one directory all need a read lock on that directory.
+// One filesystem reader marker per path and process keeps them from polling
+// the same gate until one of them times out.
+const sharedReadLeases = new Map<string, SharedReadLease>()
+// New readers wait in memory while a writer in this process is pending. The
+// writer then waits only for active readers and does not compete with new
+// readers for the gate. Locked operations never call locked store methods, so
+// this wait cannot include the writer's own operation.
+const pendingWriters = new Map<string, { count: number, idle: Promise<void>, resolve: () => void }>()
+
+async function openSharedReadLease(lock: string, permissions: Pick<import("node:fs").Stats, "mode" | "gid">, description: string): Promise<SharedReadLease> {
+  let release!: () => void
+  const released = new Promise<void>((resolve) => { release = resolve })
+  let settled!: Promise<void>
+  const acquired = new Promise<void>((resolve, reject) => {
+    settled = withFilesystemReadLock(lock, permissions, description, async () => {
+      resolve()
+      await released
+    }, error => { lease.failure = { error } })
+    settled.catch(reject)
+  })
+  const lease: SharedReadLease = { acquired, readers: 0, release, settled }
+  settled.catch(() => {
+    if (sharedReadLeases.get(lock) === lease) sharedReadLeases.delete(lock)
+  })
+  await acquired
+  return lease
+}
+
+// Readers that arrive together share one gate acquisition. The gate protects
+// the count update as well as the filesystem registration from external writers.
+const readAdmissions = new Map<string, { count: number, deadline: number, admitted: Promise<SharedReadLease | undefined> }>()
+
+async function admitSharedReader(lock: string, permissions: Pick<import("node:fs").Stats, "mode" | "gid">, description: string, deadline: number): Promise<SharedReadLease | undefined> {
+  let admission = readAdmissions.get(lock)
+  if (!admission) {
+    admission = { count: 0, deadline, admitted: Promise.resolve(undefined) }
+    const batch = admission
+    readAdmissions.set(lock, batch)
+    let chargedLease: SharedReadLease | undefined
+    batch.admitted = withFilesystemLock(`${lock}.gate`, permissions, description, async () => {
+      readAdmissions.delete(lock)
+      if (Date.now() >= batch.deadline) throw workspaceError(`[vitehub] Timed out waiting to ${description}.`)
+      if (pendingWriters.has(lock) || await lstat(`${lock}.writers`).then(() => true).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT") return false
+        throw error
+      })) return undefined
+      let lease = sharedReadLeases.get(lock)
+      if (!lease) {
+        lease = await openSharedReadLease(lock, permissions, description)
+        sharedReadLeases.set(lock, lease)
+      }
+      lease.readers += batch.count
+      chargedLease = lease
+      return lease
+    }, () => batch.deadline).catch(async (error: unknown) => {
+      if (chargedLease) {
+        try { await releaseSharedReaders(lock, chargedLease, batch.count) }
+        catch (cleanupError) { throw new AggregateError([error, cleanupError], "Workspace reader admission and cleanup failed", { cause: error }) }
+      }
+      throw error
+    }).finally(() => {
+      if (readAdmissions.get(lock) === batch) readAdmissions.delete(lock)
+    })
+  }
+  // A reader can join after spending part of its deadline behind another writer.
+  // Keep the batch bounded by its earliest reader rather than restarting a wait.
+  admission.deadline = Math.min(admission.deadline, deadline)
+  admission.count++
+  return await admission.admitted
+}
+
+async function releaseSharedReaders(lock: string, lease: SharedReadLease, count = 1): Promise<void> {
+  lease.readers -= count
+  if (lease.readers === 0) {
+    if (sharedReadLeases.get(lock) === lease) sharedReadLeases.delete(lock)
+    lease.release()
+    // The last reader reports a failed release, as an unshared reader does.
+    await lease.settled
+  }
+  // Every affected reader reports the shared heartbeat failure, after its
+  // protected operation finishes and its registration has been released.
+  if (lease.failure) throw lease.failure.error
+}
+
+async function withSharedFilesystemReadLock<T>(lock: string, permissions: Pick<import("node:fs").Stats, "mode" | "gid">, description: string, operation: () => Promise<T>): Promise<T> {
+  const deadline = Date.now() + 10_000
+  let lease: SharedReadLease | undefined
+  while (!lease) {
+    for (let writers = pendingWriters.get(lock); writers; writers = pendingWriters.get(lock)) {
+      const remaining = deadline - Date.now()
+      if (remaining <= 0) throw workspaceError(`[vitehub] Timed out waiting to ${description}.`)
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => reject(workspaceError(`[vitehub] Timed out waiting to ${description}.`)), remaining)
+        void writers.idle.then(() => {
+          clearTimeout(timeout)
+          resolve()
+        })
+      })
+    }
+    // A writer in another process holds the gate while existing readers drain.
+    // Do not extend their shared lease while that writer is waiting.
+    const writerIntent = await lstat(`${lock}.writers`).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return undefined
+      throw error
+    })
+    const gate = await lstat(`${lock}.gate`).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return undefined
+      throw error
+    })
+    if (!writerIntent && !gate && !pendingWriters.has(lock)) {
+      lease = await admitSharedReader(lock, permissions, description, deadline)
+      if (lease) break
+    }
+    if (writerIntent) await validateLockDirectory(`${lock}.writers`)
+    if (gate) await validateLockDirectory(`${lock}.gate`)
+    if (Date.now() >= deadline) throw workspaceError(`[vitehub] Timed out waiting to ${description}.`)
+    await delay(25)
+  }
+  try {
+    await lease.acquired
+    if (Date.now() >= deadline) throw workspaceError(`[vitehub] Timed out waiting to ${description}.`)
+    if (lease.failure) throw lease.failure.error
+    return await operation()
+  }
+  finally {
+    await releaseSharedReaders(lock, lease)
+  }
+}
+
+async function withPendingWriter<T>(lock: string, operation: () => Promise<T>): Promise<T> {
+  let writers = pendingWriters.get(lock)
+  if (!writers) {
+    let resolve!: () => void
+    const idle = new Promise<void>((done) => { resolve = done })
+    writers = { count: 0, idle, resolve }
+    pendingWriters.set(lock, writers)
+  }
+  writers.count++
+  try {
+    return await operation()
+  }
+  finally {
+    if (--writers.count === 0) {
+      pendingWriters.delete(lock)
+      writers.resolve()
+    }
+  }
 }
 
 async function withWorkspacePathLock<T>(root: string, path: string, operation: () => Promise<T>, readOnly = false): Promise<T> {
@@ -294,7 +478,6 @@ async function withWorkspacePathLock<T>(root: string, path: string, operation: (
   const parts = normalized.split("/").filter(Boolean)
   const paths = parts.map((_, index) => parts.slice(0, index + 1).join("/"))
 
-  const { mkdir, stat } = await import("node:fs/promises")
   if (paths.length === 0) return await operation()
   await mkdir(root, { recursive: true })
   const permissions = await stat(root)
@@ -311,9 +494,10 @@ async function withWorkspacePathLock<T>(root: string, path: string, operation: (
     const key = createHash("sha256").update(lockedPath).digest("hex")
     const lockPath = `${root}/.vitehub/locks/${key}`
     const next = () => lock(index + 1)
+    const description = `${readOnly ? "read" : "write"} Workspace path: ${lockedPath}`
     return !readOnly && index === paths.length - 1
-      ? await withFilesystemWriteLock(lockPath, permissions, `path: ${lockedPath}.`, next)
-      : await withFilesystemReadLock(lockPath, permissions, `path: ${lockedPath}.`, next)
+      ? await withPendingWriter(lockPath, () => withFilesystemWriterIntent(lockPath, permissions, () => withFilesystemWriteLock(lockPath, permissions, description, next)))
+      : await withSharedFilesystemReadLock(lockPath, permissions, description, next)
   }
 
   return await lock(0)
@@ -326,7 +510,6 @@ async function walk(
   excluded: readonly string[] = [],
   recursive = true,
 ): Promise<WorkspaceEntry[]> {
-  const { readdir } = await import("node:fs/promises")
   const { isAbsolute, relative, sep } = await import("node:path")
   if (privatePaths.some((path) => {
     const relativePath = relative(path, current)
@@ -345,7 +528,6 @@ async function walk(
     const path = normalizeWorkspacePath(relative(root, absolute))
     if (path.split("/")[0]?.toLowerCase() === ".vitehub") continue
     if (isExcludedWorkspacePath(path, excluded)) continue
-    const { stat } = await import("node:fs/promises")
     const info = await stat(absolute).catch((error: NodeJS.ErrnoException) => {
       if (error.code === "ENOENT") return undefined
       throw error
@@ -399,7 +581,6 @@ class LocalWorkspaceStore implements WorkspaceStore {
   }
 
   async #assertNoPendingRemoval(path: string) {
-    const { lstat, stat } = await import("node:fs/promises")
     const directory = `${this.root}/.vitehub/file-removals`
     const info = await lstat(directory).catch((error: NodeJS.ErrnoException) => {
       if (error.code === "ENOENT") return undefined
@@ -420,7 +601,6 @@ class LocalWorkspaceStore implements WorkspaceStore {
   }
 
   async #readFileMetadata(path: string) {
-    const { lstat, open } = await import("node:fs/promises")
     await this.#assertNoPendingRemoval(path)
     const { root } = await this.#prepareMetadataDirectories(path, false, false)
     if (!root) return
@@ -467,7 +647,6 @@ class LocalWorkspaceStore implements WorkspaceStore {
   }
 
   async #prepareMetadataDirectories(path: string, create: boolean, repair = true) {
-    const { lstat, mkdir, rm, stat } = await import("node:fs/promises")
     const root = await stat(this.root).catch((error: NodeJS.ErrnoException) => {
       if (error.code === "ENOENT" && !create) return undefined
       throw error
@@ -500,7 +679,6 @@ class LocalWorkspaceStore implements WorkspaceStore {
 
   async #writeFileMetadata(path: string, value: Pick<WorkspaceFile, "mediaType" | "metadata">) {
     await this.#assertNoPendingRemoval(path)
-    const { lstat, rename, rm, writeFile } = await import("node:fs/promises")
     const metadataPath = resolveInside(this.#fileMetadataRoot, `${path}/metadata.json`)
     const hasMetadata = value.mediaType !== undefined || value.metadata !== undefined
     const permissions = await this.#prepareMetadataDirectories(path, hasMetadata)
@@ -541,7 +719,6 @@ class LocalWorkspaceStore implements WorkspaceStore {
   }
 
   async #readFile(path: string): Promise<WorkspaceFile | undefined> {
-    const { readFile } = await import("node:fs/promises")
     const absolute = resolveInside(this.root, path)
     await this.#assertPathComponents(path)
     const bytes = await readFile(absolute).catch((error: NodeJS.ErrnoException) => {
@@ -575,7 +752,6 @@ class LocalWorkspaceStore implements WorkspaceStore {
   async #writeFile(path: string, file: WorkspaceFile): Promise<void> {
     file = { ...file, metadata: assertFileMetadata(path, file.metadata) }
     const { dirname, relative } = await import("node:path")
-    const { mkdir, rename, rm, writeFile } = await import("node:fs/promises")
     const absolute = resolveInside(this.root, path)
     const tempRoot = `${this.root}/.vitehub/tmp`
     const temp = `${tempRoot}/${randomUUID()}.tmp`
@@ -627,7 +803,6 @@ class LocalWorkspaceStore implements WorkspaceStore {
   }
 
   async #assertPathComponents(path: string, includeTarget = true): Promise<void> {
-    const { lstat } = await import("node:fs/promises")
     const root = resolve(this.root)
     const parts = relative(root, resolveInside(root, path)).split(sep).filter(Boolean)
     if (!includeTarget) parts.pop()
@@ -653,7 +828,6 @@ class LocalWorkspaceStore implements WorkspaceStore {
     await this.#assertPathComponents(path)
     file = { ...file, metadata: assertFileMetadata(path, file.metadata) }
     const { dirname } = await import("node:path")
-    const { mkdir, rename, rm } = await import("node:fs/promises")
     const normalized = normalizeWorkspacePath(path)
     const absolute = resolveInside(this.root, path)
     const tempRoot = `${this.root}/.vitehub/tmp`
@@ -778,7 +952,6 @@ class LocalWorkspaceStore implements WorkspaceStore {
   }
 
   async #stat(path: string, includeDigest = true): Promise<WorkspaceStat | undefined> {
-    const { stat } = await import("node:fs/promises")
     const normalized = normalizeWorkspacePath(path)
     const absolute = resolveInside(this.root, normalized)
     await this.#assertPathComponents(normalized)
@@ -803,7 +976,6 @@ class LocalWorkspaceStore implements WorkspaceStore {
 
   async mkdir(path: string, options: MkdirOptions = {}): Promise<void> {
     await withWorkspacePathLock(this.root, path, async () => {
-      const { mkdir } = await import("node:fs/promises")
       await this.#assertPathComponents(path)
       await mkdir(resolveInside(this.root, path), { recursive: options.recursive ?? true })
     })
@@ -811,7 +983,6 @@ class LocalWorkspaceStore implements WorkspaceStore {
 
   async removeEmptyDirectory(path: string): Promise<void> {
     await withWorkspacePathLock(this.root, path, async () => {
-      const { lstat, rmdir } = await import("node:fs/promises")
       await this.#assertPathComponents(path, false)
       const absolute = resolveInside(this.root, path)
       const info = await lstat(absolute).catch((error: NodeJS.ErrnoException) => {
@@ -830,7 +1001,6 @@ class LocalWorkspaceStore implements WorkspaceStore {
   }
 
   async #rm(path: string, options: RmOptions = {}): Promise<void> {
-    const { lstat, mkdir, open, rm, rmdir } = await import("node:fs/promises")
     await this.#assertPathComponents(path, false)
     const normalized = normalizeWorkspacePath(path)
     const metadata = await this.#prepareMetadataDirectories(normalized, false)
@@ -878,14 +1048,12 @@ class LocalWorkspaceStore implements WorkspaceStore {
     for (const key of this.#files.keys()) {
       if (key === normalized || key.startsWith(`${normalized}/`)) this.#files.delete(key)
     }
-    const { rm: removeMetadata } = await import("node:fs/promises")
-    if (metadata.root) await removeMetadata(resolveInside(this.#fileMetadataRoot, normalized), { force: true, recursive: true })
+    if (metadata.root) await rm(resolveInside(this.#fileMetadataRoot, normalized), { force: true, recursive: true })
     await rm(marker, { force: true })
     if (missingTargetError) throw missingTargetError
   }
 
   async snapshot(options: SnapshotOptions = {}): Promise<WorkspaceSnapshot> {
-    const { mkdir } = await import("node:fs/promises")
     await mkdir(this.root, { recursive: true })
     const snapshot = await this.#createSnapshot(options.name)
     this.#baseline = snapshot
@@ -940,7 +1108,6 @@ class LocalWorkspaceStore implements WorkspaceStore {
   }
 
   async #readMeta(): Promise<Map<string, unknown>> {
-    const { readFile } = await import("node:fs/promises")
     const content = await readFile(this.#metaPath, "utf8").catch((error: NodeJS.ErrnoException) => {
       if (error.code === "ENOENT") return undefined
       throw error
@@ -953,7 +1120,6 @@ class LocalWorkspaceStore implements WorkspaceStore {
 
   async #writeMeta(metadata: Map<string, unknown>) {
     const { dirname } = await import("node:path")
-    const { mkdir, rename, rm, writeFile } = await import("node:fs/promises")
     const temp = `${this.#metaPath}.${randomUUID()}.tmp`
     await mkdir(dirname(this.#metaPath), { recursive: true })
     try {

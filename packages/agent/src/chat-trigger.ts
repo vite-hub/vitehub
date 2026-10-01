@@ -84,18 +84,8 @@ export const CHAT_FINISH_EXTENSION_CONTEXT_KEY = "chat.finish"
 const defaultChatErrorFallbackText = "Sorry, I couldn't process that message."
 const durableChatErrorFallbackTimeoutMs = 30_000
 
-function defaultInternalChatErrorFallback(args: AgentChatErrorHookArgs): string {
-  // Provider runtimes sometimes wrap quota failures in an internal diagnostic
-  // (for example AGENT_R0726), leaving the useful reset text only on `error`.
-  // Surface that information when it is unambiguously a usage failure; keep
-  // opaque internal errors on the safe generic message.
-  const raw = hasRuntimeType(args.error, "string")
-    ? args.error
-    : (() => {
-        try { return JSON.stringify(args.error) || "" } catch { return "" }
-      })()
-  if (args.publicError.code !== "PROVIDER_QUOTA_EXHAUSTED") return defaultChatErrorFallbackText
-  const reset = raw.match(/try again at ([^.]+\.)/i)?.[1]?.trim()
+function defaultQuotaChatErrorFallback(args: Pick<AgentChatErrorHookArgs, "error" | "publicError">): string {
+  const reset = args.publicError.details?.resetText
   // Never surface arbitrary URLs embedded in serialized diagnostics. Providers
   // may opt in by supplying an explicitly named usage link on the error object.
   const usageLink = (() => {
@@ -111,7 +101,7 @@ function defaultInternalChatErrorFallback(args: AgentChatErrorHookArgs): string 
   })()
   return [
     "The AI provider usage limit has been reached.",
-    reset ? `Usage should reset ${reset}` : "Usage will reset when the provider quota renews.",
+    reset ? `Usage should reset ${reset}.` : "Usage will reset when the provider quota renews.",
     usageLink ? `Manage usage: ${usageLink}` : undefined,
   ].filter(Boolean).join(" ")
 }
@@ -128,6 +118,14 @@ export function durableChatErrorFallbackTimeout(
 
 type KnownChatWebhookPlatform = keyof typeof CHAT_WEBHOOK_DEFAULTS
 
+function defaultChatErrorFallback(args: Pick<AgentChatErrorHookArgs, "error" | "publicError">): string {
+  if (args.publicError.code === "PROVIDER_QUOTA_EXHAUSTED") return defaultQuotaChatErrorFallback(args)
+  if (args.publicError.code === "INTERNAL") return defaultChatErrorFallbackText
+  return args.publicError.requestId
+    ? `${args.publicError.error} Reference: ${args.publicError.requestId}.`
+    : args.publicError.error
+}
+
 export async function resolveChatErrorFallbackText<TRuntimeConfig extends AgentRuntimeConfig>(
   options: AgentChatOptions<TRuntimeConfig> | undefined,
   args: AgentChatErrorHookArgs<TRuntimeConfig>,
@@ -136,9 +134,10 @@ export async function resolveChatErrorFallbackText<TRuntimeConfig extends AgentR
 ): Promise<string | undefined> {
   const fallback = options?.errorFallbackText
   if (fallback === null) return
+  const defaultText = defaultChatErrorFallback(args)
   if (hasRuntimeType(fallback, "function")) {
     try {
-      const resolution = Promise.resolve(fallback(args))
+      const resolution = Promise.resolve(fallback({ ...args, defaultText }))
       // SAFETY: Chat Capability normalization establishes the asserted trigger and delivery contract.
       return await (resolveFallback ? resolveFallback(resolution) : resolution) as string || undefined
     }
@@ -146,15 +145,7 @@ export async function resolveChatErrorFallbackText<TRuntimeConfig extends AgentR
       return callbackDelivered?.() ? undefined : defaultChatErrorFallbackText
     }
   }
-  if (args.publicError.code === "PROVIDER_QUOTA_EXHAUSTED") {
-    return defaultInternalChatErrorFallback(args)
-  }
-  if (args.publicError.code !== "INTERNAL") {
-    return args.publicError.requestId
-      ? `${args.publicError.error} Reference: ${args.publicError.requestId}.`
-      : args.publicError.error
-  }
-  return hasRuntimeType(fallback, "string") ? fallback : defaultInternalChatErrorFallback(args)
+  return hasRuntimeType(fallback, "string") && args.publicError.code === "INTERNAL" ? fallback : defaultText
 }
 
 export function resolveDurableChatErrorFallbackText<TRuntimeConfig extends AgentRuntimeConfig>(

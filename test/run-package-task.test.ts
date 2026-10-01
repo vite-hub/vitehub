@@ -62,6 +62,9 @@ describe("package task runner", { timeout: 60_000 }, () => {
   it.each([
     { args: ["nonexistent-task"], code: 1, message: "No workspace packages define task: nonexistent-task" },
     { args: ["test", "--packages", ", ,"], code: 2, message: "--packages must name at least one package" },
+    { args: ["test", "--exclude", ", ,"], code: 2, message: "--exclude must name at least one package" },
+    { args: ["test", "--packages", "@fixture/core", "--exclude", "@fixture/app"], code: 2, message: "--packages and --exclude cannot be combined" },
+    { args: ["test", "--exclude", "@fixture/renamed"], code: 1, message: "Unknown workspace package: @fixture/renamed" },
   ])("fails before running packages for invalid selection $args", async ({ args, code, message }) => {
     await expect(execFileAsync(process.execPath, [runner, ...args, "--workspace", fixtureRoot], {
       cwd: fixtureRoot,
@@ -152,6 +155,28 @@ describe("package task runner", { timeout: 60_000 }, () => {
       "@vite-hub/markdown-template",
       "@vite-hub/runtime",
     ])
+  })
+
+  it("runs every package except the excluded ones", async () => {
+    const log = await tempFile("events.log")
+    await writeFile(log, "")
+    const result = await execFileAsync(process.execPath, [
+      runner,
+      "test",
+      "--workspace",
+      fixtureRoot,
+      "--exclude",
+      "@fixture/app,@fixture/interrupt,@fixture/serial-a,@fixture/serial-b",
+    ], { cwd: fixtureRoot, timeout: 45_000, env: { ...process.env, VITEHUB_FIXTURE_LOG: log } })
+
+    const rows = result.stdout.split("\n").filter(line => /^(?:PASS|FAIL|SKIP) @(?:fixture|vite-hub)\//.test(line))
+    expect(rows).toEqual([
+      "PASS @fixture/core (build: passed, test: passed)",
+      "PASS @vite-hub/env (build: passed, test: passed)",
+      "PASS @vite-hub/markdown-template (build: passed, test: passed)",
+      "PASS @vite-hub/runtime (build: passed, test: passed)",
+    ])
+    expect(await readFile(log, "utf8")).not.toContain("test:start:@fixture/app")
   })
 
   it("keeps packages outside the safe allowlist serial", async () => {

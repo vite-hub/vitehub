@@ -80,7 +80,7 @@ For adapter-backed delivery, inspect the Channel-generated webhook registrations
 | `loading` | `{ text: string \| string[] \| null \| function; updates?: "commentary"; intervalMs?: number }` | none | Post a loading message and replace it with the final text when the Agent finishes. This cannot be combined with `stream` or `commentary`; see [Channels](/docs/agents/channels) for the update lifecycle. |
 | `delivery` | `"automatic" \| "manual"` | `"automatic"` | `"manual"` posts no final text; finish hooks own all replies with `event.reply()`. |
 | `final` | `{ delivery: "new-message" }` | inherited | Post the final reply as a new message before removing the loading message. |
-| `errorFallbackText` | `string \| null \| function` | inherited | Fallback message when chat handling fails. |
+| `errorFallbackText` | `string \| null \| function` | inherited | Fallback message when chat handling fails. A function receives `error`, `publicError`, and `defaultText`, the message ViteHub sends when this option is not set. |
 
 ## Related pages
 

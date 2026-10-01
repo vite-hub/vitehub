@@ -2093,6 +2093,7 @@ function defineBaseAgent<
             providerSettings: driver.providerSettings,
             reasoningEffort: driver.reasoningEffort,
             reasoningSummary: driver.reasoningSummary,
+            requirements: driver.requirements,
             sessionStorePath: driver.sessionStorePath,
           })))
         : undefined
@@ -2145,7 +2146,7 @@ function defineBaseAgent<
         context: createAgentInvocationContextStore(),
         purpose: "inspection",
         abortSignal: statusOptions?.abortSignal,
-      })
+      }, { checkRequirements: statusOptions?.checkRequirements })
     },
     async resolve(context) {
       context = withAgentIdentityOwner(definition, context)
@@ -4293,7 +4294,7 @@ async function createAgentInvocationContext<
       const readinessTimer = setTimeout(() => readinessController.abort(), 3_000)
       try {
         return await Promise.race([
-          Promise.resolve().then(() => definition.status!(context, { abortSignal: readinessSignal })).catch(() => undefined),
+          Promise.resolve().then(() => definition.status!(context, { abortSignal: readinessSignal, checkRequirements: false })).catch(() => undefined),
           new Promise<undefined>(resolve => {
             if (readinessSignal.aborted) resolve(undefined)
             else readinessSignal.addEventListener("abort", () => resolve(undefined), { once: true })
