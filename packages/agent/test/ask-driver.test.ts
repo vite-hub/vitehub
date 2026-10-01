@@ -163,6 +163,13 @@ describe("ask Driver", () => {
     }, expect.objectContaining({ apiKey: "ts-key", model: "jev-latest", provider: "typesafe" }))
   })
 
+  it("drops a root function data value like request-body serialization", async () => {
+    const agent = defineAgent({ driver: { ask: { spam: ask.if("Is it spam?") } }, runtime: false })
+
+    await expect(runAgent(agent, runtime(), { data: (() => "ignored") as never })).resolves.toEqual({ spam: true })
+    expect(askJev).toHaveBeenCalledWith(undefined, expect.any(Object), expect.any(Object))
+  })
+
   it("lets the Vercel provider run without an API key", async () => {
     mockServerEnv({ model: "typesafe-ai/jev", provider: "vercel" })
     const agent = defineAgent({ driver: { ask: { spam: ask.if("Is it spam?") } }, runtime: false })

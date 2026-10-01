@@ -77,7 +77,8 @@ function toEntry(value: unknown): AskEntry {
   if (hasRuntimeType(value, "string")) return value
   if (hasRuntimeType(value, "number") || hasRuntimeType(value, "boolean") || hasRuntimeType(value, "bigint")) return String(value)
   // JSON round trip drops functions and undefined values, like the request body would.
-  return JSON.parse(JSON.stringify(value))
+  const serialized = JSON.stringify(value)
+  return serialized === undefined ? undefined : JSON.parse(serialized)
 }
 
 function invalidQuestion(name: string) {
