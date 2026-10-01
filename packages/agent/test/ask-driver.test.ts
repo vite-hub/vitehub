@@ -163,11 +163,25 @@ describe("ask Driver", () => {
     }, expect.objectContaining({ apiKey: "ts-key", model: "jev-latest", provider: "typesafe" }))
   })
 
-  it("drops a root function data value like request-body serialization", async () => {
+  it("normalizes a root function data value to empty Jev state", async () => {
     const agent = defineAgent({ driver: { ask: { spam: ask.if("Is it spam?") } }, runtime: false })
 
     await expect(runAgent(agent, runtime(), { data: (() => "ignored") as never })).resolves.toEqual({ spam: true })
-    expect(askJev).toHaveBeenCalledWith(undefined, expect.any(Object), expect.any(Object))
+    expect(askJev).toHaveBeenCalledWith(null, expect.any(Object), expect.any(Object))
+  })
+
+  it.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])("serializes non-finite root data %s as null", async (data) => {
+    const agent = defineAgent({ driver: { ask: { spam: ask.if("Is it spam?") } }, runtime: false })
+
+    await expect(runAgent(agent, runtime(), { data })).resolves.toEqual({ spam: true })
+    expect(askJev).toHaveBeenCalledWith(null, expect.any(Object), expect.any(Object))
+  })
+
+  it("rejects root bigint data before sending a Jev request", async () => {
+    const agent = defineAgent({ driver: { ask: { spam: ask.if("Is it spam?") } }, runtime: false })
+
+    await expect(runAgent(agent, runtime(), { data: 1n as never })).rejects.toThrow(TypeError)
+    expect(askJev).not.toHaveBeenCalled()
   })
 
   it("lets the Vercel provider run without an API key", async () => {

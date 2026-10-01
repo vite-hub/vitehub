@@ -72,13 +72,15 @@ async function typesafeOptions(context: AskRequestContext) {
   } as const
 }
 
-function toEntry(value: unknown): AskEntry | undefined {
+function toEntry(value: unknown): AskEntry {
   if (value === undefined || value === null) return null
   if (hasRuntimeType(value, "string")) return value
-  if (hasRuntimeType(value, "number") || hasRuntimeType(value, "boolean") || hasRuntimeType(value, "bigint")) return String(value)
+  if (hasRuntimeType(value, "number")) return Number.isFinite(value) ? String(value) : null
+  if (hasRuntimeType(value, "boolean")) return String(value)
   // JSON round trip drops functions and undefined values, like the request body would.
   const serialized = JSON.stringify(value)
-  return serialized === undefined ? undefined : JSON.parse(serialized)
+  // advocaat uses null as empty state and does not accept undefined in its public types.
+  return serialized === undefined ? null : JSON.parse(serialized)
 }
 
 function invalidQuestion(name: string) {
