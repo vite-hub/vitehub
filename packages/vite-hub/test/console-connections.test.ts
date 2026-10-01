@@ -153,10 +153,10 @@ describe("Connections actor", () => {
       const consoleAuth = await readFile(await writeConsoleConnectionsActor(root, "console-auth"), "utf8")
       expect(consoleAuth).toContain('import { createAuthForRequest } from "#vitehub/auth/server"')
       expect(consoleAuth).toContain('import { definition } from "./auth-definition.mjs"')
-      expect(consoleAuth).toContain("consoleSessionActor(createAuthForRequest(definition, request), request)")
+      expect(consoleAuth).toContain("consoleSessionActor(createAuthForRequest(definition, event.req, undefined, event), event.req)")
 
       const appAuth = await readFile(await writeConsoleConnectionsActor(root, "app-auth"), "utf8")
-      expect(appAuth).toContain("consoleSessionActor(getAuthForRequest(request), request)")
+      expect(appAuth).toContain("consoleSessionActor(getAuthForRequest(event.req, undefined, event), event.req)")
 
       const file = await writeConsoleConnectionsActor(root, "none")
       expect(file).toBe(join(root, ".vitehub/nitro/console/connections-actor.mjs"))

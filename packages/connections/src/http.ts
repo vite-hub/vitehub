@@ -14,7 +14,7 @@ const STATE_COOKIE = "vitehub_connection_state";
 
 export interface ConnectionsHandlerOptions {
   /** Identify the person who manages Connections, from an authenticated session. Missing or invalid identities are denied. */
-  actor?: (request: Request) => string | undefined | Promise<string | undefined>;
+  actor?: (request: Request, event?: unknown) => string | undefined | Promise<string | undefined>;
   basePath?: string;
   runtime?: () => ConnectionsRuntime;
 }
@@ -142,8 +142,9 @@ async function readBody(request: Request): Promise<unknown> {
 async function managementActor(
   options: ConnectionsHandlerOptions,
   request: Request,
+  event?: unknown,
 ): Promise<string | undefined> {
-  const actor = await options.actor?.(request);
+  const actor = await options.actor?.(request, event);
   return actor && /^user:[^\s]{1,256}$/.test(actor) ? actor : undefined;
 }
 
@@ -157,14 +158,14 @@ async function managementActor(
  */
 export function createConnectionsHandler(
   options: ConnectionsHandlerOptions = {},
-): (request: Request) => Promise<Response> {
+): (request: Request, event?: unknown) => Promise<Response> {
   const runtime = () => (options.runtime ?? getConnectionsRuntime)();
   const route = options.basePath?.replace(/\/+$/, "") || CONNECTIONS_ROUTE;
-  return async (request) => {
+  return async (request, event) => {
     const url = new URL(request.url);
     const path = url.pathname.replace(/\/+$/, "");
     try {
-      const actor = await managementActor(options, request);
+      const actor = await managementActor(options, request, event);
       if (!actor)
         return json(
           {

@@ -270,16 +270,16 @@ export async function writeConsoleConnectionsActor(root: string, source: Console
     "app-auth": [
       'import { getAuthForRequest } from "#vitehub/auth/server"',
       'import { consoleSessionActor } from "vite-hub/console/auth"',
-      "export default function viteHubConsoleConnectionsActor(request) {",
-      "  return consoleSessionActor(getAuthForRequest(request), request)",
+      "export default function viteHubConsoleConnectionsActor(event) {",
+      "  return consoleSessionActor(getAuthForRequest(event.req, undefined, event), event.req)",
       "}",
     ],
     "console-auth": [
       'import { createAuthForRequest } from "#vitehub/auth/server"',
       'import { consoleSessionActor } from "vite-hub/console/auth"',
       'import { definition } from "./auth-definition.mjs"',
-      "export default function viteHubConsoleConnectionsActor(request) {",
-      "  return consoleSessionActor(createAuthForRequest(definition, request), request)",
+      "export default function viteHubConsoleConnectionsActor(event) {",
+      "  return consoleSessionActor(createAuthForRequest(definition, event.req, undefined, event), event.req)",
       "}",
     ],
     "none": [

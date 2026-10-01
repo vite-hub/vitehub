@@ -103,6 +103,7 @@ describe("hubConnections", () => {
       `import actor from ${JSON.stringify(join(root, "server/connections-auth.ts"))}`,
     );
     expect(handler).toContain("createConnectionsHandler({ actor })");
+    expect(handler).toContain("handle(event.req, event)");
     expect(handler).not.toContain("user:local");
   });
 

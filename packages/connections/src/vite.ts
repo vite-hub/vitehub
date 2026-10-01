@@ -445,7 +445,7 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
               ? "const handle = createConnectionsHandler({ actor })"
               : 'const handle = createConnectionsHandler({ actor: () => "user:local" })',
             "",
-            "export default (event: { req: Request }) => handle(event.req)",
+            "export default (event: { req: Request }) => handle(event.req, event)",
             "",
           ].join("\n"),
         );

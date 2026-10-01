@@ -659,7 +659,7 @@ describe("agent Vite plugin", () => {
 
       expect(registry).toContain("defineScheduledAgentTarget")
       expect(registry).toContain('import { blob as vitehubBlob } from "@vite-hub/blob"')
-      expect(registry).toContain('import { connections as vitehubConnections } from "@vite-hub/connections/agent"')
+      expect(registry).toContain('import { connections as vitehubConnections } from "@vite-hub/connections/server"')
       expect(registry).toContain('import { agentDb as vitehubDb } from "@vite-hub/database/drizzle"')
       expect(registry).toContain('import { email as vitehubEmail } from "@vite-hub/email/server"')
       expect(registry).toContain('import { kv as vitehubKv } from "@vite-hub/kv"')
@@ -1758,7 +1758,7 @@ describe("agent Vite plugin", () => {
         expect(route).toContain('import vitehubAgentScheduleRegistry from "#vitehub/schedule/registry"')
         expect(route).toContain('setScheduleRuntimeRegistry as vitehubSetScheduleRuntimeRegistry } from "@vite-hub/schedule/runtime"')
         expect(route).toContain("vitehubSetScheduleRuntimeRegistry(vitehubAgentScheduleRegistry)")
-        expect(route).toContain('import { connections as vitehubConnections } from "@vite-hub/connections/agent"')
+        expect(route).toContain('import { connections as vitehubConnections } from "@vite-hub/connections/server"')
         expect(route).toContain("const vitehubAgentRouteCapabilities = { connections: vitehubConnections, schedule: { schedules: vitehubSchedules } }")
         expect(route).toContain("capabilities: vitehubAgentRouteCapabilities")
       }
