@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest"
 
+import { createConnectionsRuntime } from "../src/runtime.ts"
 import { createConnectionsHandler } from "../src/http.ts"
-import { ACCESS_TOKEN, createTestRuntime, REFRESH_TOKEN } from "./helpers.ts"
+import { ACCESS_TOKEN, createTestRuntime, mailConnection, REFRESH_TOKEN } from "./helpers.ts"
 
 const origin = "http://localhost:5173"
 
@@ -20,6 +21,23 @@ describe("createConnectionsHandler", () => {
     const response = await handler(post({ action: "list" }))
     expect(response.status).toBe(200)
     expect(await response.json()).toMatchObject({ connections: [{ name: "mail", provider: "example", status: "disconnected" }] })
+  })
+
+  it.each(["team/google", "équipe/郵便 account", "nested/" + "long-name".repeat(20)])("manages discovered Connection %s", async (name) => {
+    const test = createTestRuntime()
+    const runtime = createConnectionsRuntime({ definitions: { [name]: mailConnection() }, fetch: test.provider.fetch, store: test.store })
+    const handler = createConnectionsHandler({ runtime: () => runtime })
+    expect((await handler(post({ action: "inspect", name }))).status).toBe(200)
+    const start = await handler(new Request(`${origin}/_vitehub/connections/connect/${encodeURIComponent(name)}`))
+    expect(start.status).toBe(302)
+    const state = new URL(start.headers.get("location")!).searchParams.get("state")!
+    test.provider.tokenResponses.push({ body: { access_token: ACCESS_TOKEN, expires_in: 3600, id_token: "account-1", refresh_token: REFRESH_TOKEN } })
+    const callback = await handler(new Request(`${origin}/_vitehub/connections/callback?code=code-1&state=${state}`, { headers: { cookie: `vitehub_connection_state=${state}` } }))
+    expect(callback.status).toBe(200)
+    expect(await runtime.inspect(name)).toMatchObject({ status: "connected" })
+    expect((await handler(post({ action: "revoke", name }))).status).toBe(200)
+    expect(await runtime.inspect(name)).toMatchObject({ status: "revoked" })
+    expect((await handler(post({ action: "inspect", name: `${name}/unknown` }))).status).toBe(400)
   })
 
   it("rejects cross-origin, non-JSON, and invalid requests", async () => {
