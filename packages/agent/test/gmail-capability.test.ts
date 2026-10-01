@@ -1,3 +1,6 @@
+import { execFileSync } from "node:child_process"
+
+import * as v from "valibot"
 import { describe, expect, it, vi } from "vitest"
 
 import { validateAgentCapabilityComposition } from "../src/capability-runtime.ts"
@@ -272,10 +275,20 @@ describe("gmail capability", () => {
     const modify = (id: string) => runtime.tools.gmail_modify!.execute?.({ addLabelIds: ["Label_1"], id })
 
     await expect(modify("m1")).resolves.toMatchObject({ approvalId: "approval_1", message: expect.stringContaining("vitehub connections approvals approve approval_1"), status: "approval_required" })
-    await expect(modify("m2")).resolves.toMatchObject({ connection: "google", message: expect.stringContaining("vitehub connections connect google"), status: "reauth_required" })
+    await expect(modify("m2")).resolves.toMatchObject({ connection: "google", message: expect.stringContaining("vitehub connections connect 'google'"), status: "reauth_required" })
     await expect(modify("m3")).resolves.toMatchObject({ status: "denied" })
     await expect(modify("m4")).resolves.toMatchObject({ httpStatus: 404, status: "provider_error" })
     await expect(modify("m5")).rejects.toThrow("network down")
+  })
+
+  it.each(["team/a b", "team/a'b", "team/$(printf injected)"])("quotes reauthorization for %s as one shell argument", async (connection) => {
+    const runtime = await capabilityTools(gmail({ connection, tools: ["labels"] }), () => { throw connectionError("CONNECTION_REAUTH_REQUIRED") })
+    const result = await runtime.tools.gmail_labels!.execute?.({})
+    const parsed = v.parse(v.object({ message: v.string(), status: v.literal("reauth_required") }), result)
+    const argument = parsed.message.match(/`vitehub connections connect (.*?)`/)?.[1]
+    expect(argument).toBeDefined()
+    const output = execFileSync("bash", ["-c", `set -- ${argument}; printf '%s\\n' "$#" "$1"`], { encoding: "utf8" })
+    expect(output).toBe(`1\n${connection}\n`)
   })
 
   it("uses a generic Agent actor when the Agent name is unknown", async () => {

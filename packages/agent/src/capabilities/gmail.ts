@@ -333,6 +333,7 @@ function connectionFailure(error: unknown): ConnectionFailure | undefined {
 
 /** Return Connection failures that the model can act on as tool results. */
 async function withConnectionResult<T>(connection: string, run: () => Promise<T>) {
+  const connectionArgument = "'" + connection.replace(/'/g, "'\\''") + "'"
   try {
     return await run()
   }
@@ -342,7 +343,7 @@ async function withConnectionResult<T>(connection: string, run: () => Promise<T>
       case "CONNECTION_APPROVAL_REQUIRED":
         return { approvalId: failure.requestId, message: `This write waits for approval. Tell the user that an operator must approve it in the Console or with \`vitehub connections approvals approve ${failure.requestId ?? "<id>"}\`.`, status: "approval_required" as const }
       case "CONNECTION_REAUTH_REQUIRED":
-        return { connection, message: `Connection "${connection}" is not connected. Tell the user that an operator must connect it in the Console or with \`vitehub connections connect ${connection}\`.`, status: "reauth_required" as const }
+        return { connection, message: `Connection "${connection}" is not connected. Tell the user that an operator must connect it in the Console or with \`vitehub connections connect ${connectionArgument}\`.`, status: "reauth_required" as const }
       case "CONNECTION_DENIED":
         return { message: "The Connection access rules deny this call for this Agent.", status: "denied" as const }
       case "CONNECTION_PROVIDER":
