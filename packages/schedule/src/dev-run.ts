@@ -92,8 +92,13 @@ async function handleScheduleDevRun(server: ViteDevServer, req: IncomingMessage,
 
 /** Serves `vitehub schedule run` without `--url` from the Vite Development Server. */
 export function registerScheduleDevRunEndpoint(server: ViteDevServer): void {
+  const configuredBase = new URL(server.config.base || "/", "http://localhost").pathname
+  const baseRoute = configuredBase === "/"
+    ? scheduleDevRunRoute
+    : `${configuredBase.replace(/\/$/, "")}${scheduleDevRunRoute}`
   server.middlewares.use((req, res, next) => {
-    if (new URL(req.url || "/", "http://localhost").pathname !== scheduleDevRunRoute) {
+    const pathname = new URL(req.url || "/", "http://localhost").pathname
+    if (pathname !== scheduleDevRunRoute && pathname !== baseRoute) {
       next()
       return
     }

@@ -1105,11 +1105,12 @@ describe("Vite schedule integration", () => {
 })
 
 describe("Manual Schedule runs through the Vite Development Server", () => {
-  async function startDevServer(registry: ScheduleDefinitionRegistry) {
+  async function startDevServer(registry: ScheduleDefinitionRegistry, base = "/") {
     const middlewares: Array<(req: IncomingMessage, res: ServerResponse, next: () => void) => void> = []
     const plugin = hubSchedule()
     await (plugin.configureServer as (server: unknown) => Promise<void>)({
       middlewares: { use: (handler: (typeof middlewares)[number]) => middlewares.push(handler) },
+      config: { base },
       ssrLoadModule: async (id: string) => {
         expect(id).toBe("#vitehub/schedule/registry")
         return { default: registry }
@@ -1165,6 +1166,24 @@ describe("Manual Schedule runs through the Vite Development Server", () => {
       const missing = output()
       expect(await runScheduleRunCli(["missing", "--server", server.url], { env: {}, stderr: missing.stream, stdout: output().stream })).toBe(1)
       expect(missing.text()).toContain("HTTP 404: Static Schedule Definition was not found.")
+    }
+    finally {
+      await server.close()
+      resetScheduleRuntime()
+    }
+  })
+
+  it("runs through a configured Development Server base path", async () => {
+    let calls = 0
+    const server = await startDevServer({
+      sync: async () => ({ default: defineSchedule("*/5 * * * *", () => { calls++ }, { manual: true }) }),
+    }, "/app/")
+    try {
+      const stdout = output()
+      const stderr = output()
+      const code = await runScheduleRunCli(["sync", "--server", `${server.url}/app/`], { env: {}, stderr: stderr.stream, stdout: stdout.stream })
+
+      expect({ code, stderr: stderr.text(), calls }).toEqual({ code: 0, stderr: "", calls: 1 })
     }
     finally {
       await server.close()
