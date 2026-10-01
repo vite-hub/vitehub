@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
+import { createRuntimeRegistry } from "../../env/src/core/resolve.ts"
+import { env } from "../../env/src/core/declarations.ts"
+import { typesafeEnv } from "../../env/src/presets.ts"
+import { resolveServerEnv } from "../../env/src/server.ts"
 
 import { llmGate, llmRoute } from "../src/capabilities.ts"
 import { createAgentInspectionMetadata, defineAgent, runAgent } from "../src/index.ts"
@@ -12,7 +16,7 @@ import { importServerEnvModule } from "../src/internal/server-env.ts"
 
 type FakeQuestions = Record<string, { criteria?: Record<string, unknown>, type: string }>
 
-const fake = vi.hoisted(() => ({ serverEnv: {} as Record<string, unknown>, useRequestBindings: false }))
+const fake = vi.hoisted(() => ({ serverEnv: {} as Record<string, unknown>, useRequestBindings: false, resolveEnv: undefined as (() => unknown) | undefined }))
 
 /** A fake advocaat module: no network. Each choice answers with its first label. */
 const askJev = vi.hoisted(() => vi.fn(async (_state: unknown, questions: FakeQuestions, _options?: unknown) =>
@@ -29,7 +33,7 @@ const askJev = vi.hoisted(() => vi.fn(async (_state: unknown, questions: FakeQue
 vi.mock("advocaat", () => ({ ask: askJev }))
 vi.mock("../src/internal/server-env.ts", () => ({
   importServerEnvModule: async () => ({
-    useServerEnv: (event?: unknown) => fake.useRequestBindings
+    useServerEnv: (event?: unknown) => fake.resolveEnv ? fake.resolveEnv() : fake.useRequestBindings
       ? { typesafe: { apiKey: getCloudflareEnv(event)?.TYPESAFE_API_KEY } }
       : fake.serverEnv,
   }),
@@ -51,6 +55,7 @@ function mockServerEnv(typesafe: unknown) {
 beforeEach(() => {
   askJev.mockClear()
   fake.useRequestBindings = false
+  fake.resolveEnv = undefined
   mockServerEnv({ apiKey: sealed("ts-key"), model: "jev-latest", provider: "typesafe" })
 })
 
@@ -180,6 +185,27 @@ describe("ask Driver", () => {
       code: "AGENT_R0936",
       message: expect.stringContaining("TYPESAFE_API_KEY"),
     })
+  })
+
+  it("diagnoses a missing preset key while preserving unrelated required Env failures", async () => {
+    vi.stubEnv("TYPESAFE_API_KEY", undefined)
+    const agent = defineAgent({ driver: { ask: { spam: ask.if("Is it spam?") } }, runtime: false })
+    try {
+      fake.resolveEnv = () => resolveServerEnv(createRuntimeRegistry({ typesafe: typesafeEnv() }), { env: {} })
+      await expect(runAgent(agent, runtime(), { prompt: "Win money" })).rejects.toMatchObject({
+        code: "AGENT_R0936",
+        message: expect.stringContaining("TYPESAFE_API_KEY"),
+      })
+      expect(askJev).not.toHaveBeenCalled()
+
+      fake.resolveEnv = () => resolveServerEnv(createRuntimeRegistry({ unrelated: env({ source: env.source("TYPESAFE_API_KEY") }) }), { env: {} })
+      await expect(runAgent(agent, runtime(), { prompt: "Win money" })).rejects.toMatchObject({
+        code: "ENV_REQUIRED_MISSING",
+      })
+    }
+    finally {
+      vi.unstubAllEnvs()
+    }
   })
 
   it("rejects values that are not Jev questions", async () => {

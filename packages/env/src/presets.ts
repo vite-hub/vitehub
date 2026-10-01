@@ -49,8 +49,8 @@ export function typesafeEnv(options: TypesafeEnvOptions = {}): EnvRuntimeConfigO
   const vercel = provider === "vercel"
   return {
     apiKey: env({
-      // On Vercel, the Jev client can use VERCEL_OIDC_TOKEN when AI_GATEWAY_API_KEY is not set.
-      optional: vercel,
+      // The ask Driver diagnoses a missing TypeSafe key. Vercel can use VERCEL_OIDC_TOKEN without a key.
+      optional: true,
       secret: true,
       source: env.source(vercel ? "AI_GATEWAY_API_KEY" : "TYPESAFE_API_KEY"),
     }),
