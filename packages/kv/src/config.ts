@@ -33,7 +33,11 @@ function resolveCloudflareStore(
   env: Record<string, string | undefined> = process.env,
 ): ResolvedCloudflareKVStoreConfig {
   return defu(
-    { binding: trimmed(config.binding), namespaceId: trimmed(config.namespaceId) ?? readEnv(env, "KV_NAMESPACE_ID") },
+    {
+      binding: trimmed(config.binding),
+      namespaceId: trimmed(config.namespaceId) ?? readEnv(env, "KV_NAMESPACE_ID"),
+      namespaceName: trimmed(config.namespaceName),
+    },
     { driver: "cloudflare-kv-binding" as const, binding: "KV" },
   )
 }

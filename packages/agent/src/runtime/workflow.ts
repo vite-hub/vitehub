@@ -23,6 +23,7 @@ import {
   withAgentChannelDeliveryOwnershipVerifier,
 } from "../internal/channel-delivery.ts"
 import { agentWorkflowExecutionContextKey } from "../internal/workflow-execution.ts"
+import { markParsedAgentWorkflowInput } from "../internal/workflow-parsed-input.ts"
 import { agentWorkflowRetryRegistrar } from "../internal/workflow-retry.ts"
 import { isRuntimeBoolean, isRuntimeFunction, isRuntimeNumber, isRuntimeObject, isRuntimeString, isRuntimeSymbol } from "../internal/runtime-value.ts"
 
@@ -58,6 +59,7 @@ export interface AgentWorkflowInvocationPayload<CALL_OPTIONS = unknown> {
     workflowName: string
   }
   requestUrl?: string
+  parsedInputData?: boolean
   parsedMessageMeta?: ParsedAgentMessageMetaState
   resolvedInvoker?: boolean
   run?: Partial<AgentRunMetadata>
@@ -362,7 +364,7 @@ export async function runAgentWorkflowDefinition<TRuntimeConfig extends AgentRun
         ...payload.input,
         abortSignal: payload.input?.abortSignal ? AbortSignal.any([payload.input.abortSignal, channelOwnership.abortSignal]) : channelOwnership.abortSignal,
       }
-    : (payload.input ?? {})
+    : { ...payload.input }
 
   let channelDeliveryStatus: "completed" | "failed" = "failed"
   let channelDeliveryJournaled = !channelDelivery
@@ -391,6 +393,9 @@ export async function runAgentWorkflowDefinition<TRuntimeConfig extends AgentRun
       && !hasParsedAgentMessageMeta(agent, restoredWorkflowInput, runtimeContext.run)
     if (payload.resolvedInvoker && !derivedInvokerNeedsResolution) {
       restoredWorkflowInput = restoreResolvedAgentInvokerInput(restoredWorkflowInput)
+    }
+    if (payload.parsedInputData === true) {
+      markParsedAgentWorkflowInput(restoredWorkflowInput, agent)
     }
     const inlineResult = await runAgentInline(
       agent,

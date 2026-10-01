@@ -430,7 +430,7 @@ describe("vitehub", () => {
     }
   })
 
-  it("keeps an application KV route beside the Console Devframe", async () => {
+  it("keeps an application KV route beside the Console RPC route", async () => {
     const plugin = dependencyPluginByName(
       vitehub({ console: true, kv: true, preset: "node" }),
       "vite-hub/console",

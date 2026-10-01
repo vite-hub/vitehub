@@ -135,8 +135,9 @@ function sourcePlugin() {
 }
 
 function config(plugin: Plugin) {
+  const hook = plugin.config instanceof Function ? plugin.config : plugin.config?.handler
   // SAFETY: This fixture invokes the documented Vite config hook signature.
-  return plugin.config as (config: {
+  return hook as (config: {
     base?: string
     define?: Record<string, string>
     nitro?: Record<string, unknown>

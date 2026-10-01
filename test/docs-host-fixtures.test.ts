@@ -1,9 +1,10 @@
-import { spawn } from "node:child_process"
+import { execFile, spawn, type ChildProcess } from "node:child_process"
 import { cp, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
+import { setTimeout as delay } from "node:timers/promises"
 
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, type TestContext } from "vitest"
 import { array, object, parse, picklist, string } from "valibot"
 
 const repoRoot = resolve(import.meta.dirname, "..")
@@ -42,28 +43,92 @@ function parseSnippetContracts(source: string): SnippetContract[] {
   return parse(snippetContractsSchema, JSON.parse(source))
 }
 
-async function run(command: string, args: string[], cwd = repoRoot, env: NodeJS.ProcessEnv = {}, shell = false) {
-  await new Promise<void>((resolve, reject) => {
-    const child = spawn(command, args, {
-      cwd,
-      env: { ...process.env, ...env },
-      shell,
-      stdio: ["ignore", "pipe", "pipe"],
-    })
-    let output = ""
-    child.stdout.on("data", chunk => output += chunk)
-    child.stderr.on("data", chunk => output += chunk)
-    child.once("error", reject)
-    // Use the direct process exit rather than close: a build may leave a descendant
-    // holding its inherited output pipe after the command itself has finished.
-    child.once("exit", (code, signal) => {
-      if (code === 0) resolve()
-      else reject(new Error(`${command} ${args.join(" ")} failed with ${signal ?? `code ${code}`}\n${output}`))
-    })
-  })
+type FixtureTestContext = Pick<TestContext, "onTestFinished" | "signal">
+
+function ownProcess(child: ChildProcess, context: FixtureTestContext) {
+  const closed = new Promise<void>(resolve => child.once("close", () => resolve()))
+  let stopping: Promise<void> | undefined
+  const signalGroup = (signal: NodeJS.Signals) => {
+    if (!child.pid) return false
+    try {
+      process.kill(-child.pid, signal)
+      return true
+    }
+    catch (error) {
+      if (error instanceof Error && "code" in error && error.code === "ESRCH") return false
+      throw error
+    }
+  }
+  const stop = () => stopping ||= (async () => {
+    try {
+      if (process.platform === "win32") {
+        // Windows taskkill only owns a live parent tree. Unlike a POSIX process
+        // group, it cannot reliably reclaim descendants after that parent exits.
+        // The bounded close wait below reports any inherited pipes left open.
+        if (child.pid && child.exitCode === null && child.signalCode === null) {
+          await new Promise<void>((resolve, reject) => {
+            execFile("taskkill", ["/pid", String(child.pid), "/t", "/f"], { timeout: 5_000, windowsHide: true }, (error) => {
+              if (error && child.exitCode === null && child.signalCode === null) reject(error)
+              else resolve()
+            })
+          })
+        }
+      }
+      else if (signalGroup("SIGTERM")) {
+        await new Promise(resolve => setTimeout(resolve, 250))
+        // Descendants can ignore SIGTERM after their parent has already exited.
+        signalGroup("SIGKILL")
+      }
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error(`Fixture process ${child.pid} did not close after cleanup`)), 5_000)
+        void closed.then(() => {
+          clearTimeout(timeout)
+          resolve()
+        })
+      })
+    }
+    finally {
+      context.signal.removeEventListener("abort", abort)
+    }
+  })()
+  const abort = () => { void stop().catch(() => {}) }
+  context.signal.addEventListener("abort", abort, { once: true })
+  context.onTestFinished(stop)
+  if (context.signal.aborted) abort()
+  return stop
 }
 
-async function expectDenoLauncherToStart(appRoot: string) {
+async function run(command: string, args: string[], context: FixtureTestContext, cwd = repoRoot, env: NodeJS.ProcessEnv = {}, shell = false) {
+  context.signal.throwIfAborted()
+  const child = spawn(command, args, {
+    cwd,
+    detached: process.platform !== "win32",
+    env: { ...process.env, ...env },
+    shell,
+    stdio: ["ignore", "pipe", "pipe"],
+  })
+  const stop = ownProcess(child, context)
+  let output = ""
+  child.stdout.on("data", chunk => output += chunk)
+  child.stderr.on("data", chunk => output += chunk)
+  try {
+    const result = await new Promise<{ code: number | null, signal: NodeJS.Signals | null }>((resolve, reject) => {
+      child.once("error", reject)
+      // POSIX process-group cleanup also owns descendants retaining stdout.
+      child.once("exit", (code, signal) => resolve({ code, signal }))
+    })
+    context.signal.throwIfAborted()
+    if (result.code !== 0) throw new Error(`${command} ${args.join(" ")} failed with ${result.signal ?? `code ${result.code}`}\n${output}`)
+  }
+  finally {
+    await stop()
+  }
+}
+
+async function expectDenoLauncherToStart(appRoot: string, context: FixtureTestContext) {
+  context.signal.throwIfAborted()
+  const startup = new AbortController()
+  const startupSignal = AbortSignal.any([context.signal, startup.signal])
   const port = 8000
   const child = spawn("deno", [
     "run",
@@ -75,6 +140,7 @@ async function expectDenoLauncherToStart(appRoot: string) {
     ".output/main.ts",
   ], {
     cwd: appRoot,
+    detached: process.platform !== "win32",
     env: {
       ...process.env,
       DENO_NO_UPDATE_CHECK: "1",
@@ -85,6 +151,7 @@ async function expectDenoLauncherToStart(appRoot: string) {
     },
     stdio: ["ignore", "pipe", "pipe"],
   })
+  const stop = ownProcess(child, context)
   let output = ""
   child.stdout.on("data", chunk => output += chunk)
   child.stderr.on("data", chunk => output += chunk)
@@ -92,23 +159,19 @@ async function expectDenoLauncherToStart(appRoot: string) {
     child.once("error", reject)
     child.once("exit", (code, signal) => resolve({ code, signal }))
   })
-  const waitForExit = (timeout: number) => Promise.race([
-    exit.then(() => true),
-    new Promise<false>(resolve => setTimeout(() => resolve(false), timeout)),
-  ])
-  let cleanupError: Error | undefined
-
   try {
     const started = (async () => {
       for (let attempt = 0; attempt < 100; attempt++) {
+        startupSignal.throwIfAborted()
         try {
           const response = await fetch(`http://127.0.0.1:${port}/`, {
-            signal: AbortSignal.timeout(1_000),
+            signal: AbortSignal.any([startupSignal, AbortSignal.timeout(1_000)]),
           })
           if ((await response.text()).includes("ViteHub host fixture")) return
         }
         catch {
-          await new Promise(resolve => setTimeout(resolve, 100))
+          startupSignal.throwIfAborted()
+          await delay(100, undefined, { signal: startupSignal })
         }
       }
       throw new Error(`Deno launcher did not serve its fixture on port ${port}\n${output}`)
@@ -121,47 +184,77 @@ async function expectDenoLauncherToStart(appRoot: string) {
     ])
   }
   finally {
-    if (child.exitCode === null && child.signalCode === null) {
-      child.kill("SIGTERM")
-      await waitForExit(1_000)
-      if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL")
-    }
-    if (!await waitForExit(5_000)) {
-      cleanupError = new Error(`Deno launcher did not exit after SIGKILL\n${output}`)
-    }
+    startup.abort()
+    await stop()
   }
-  if (cleanupError) throw cleanupError
 }
 
 describe("host documentation fixtures", () => {
-  it("typechecks every maintained source and configuration form", async () => {
+  it.for(["test signal aborts", "parent exits"] as const)("stops command descendants when the %s", async (finish, context) => {
+    if (finish === "parent exits" && process.platform === "win32") context.skip()
+    const root = await mkdtemp(join(tmpdir(), "vitehub-doc-host-abort-"))
+    const heartbeat = join(root, "heartbeat")
+    const controller = new AbortController()
+    const reason = new Error("fixture test expired")
+    const descendant = [
+      'const { writeFileSync } = require("node:fs")',
+      'process.on("SIGTERM", () => {})',
+      'let count = 0; const beat = () => writeFileSync(process.argv[1], String(++count))',
+      'beat(); process.send("ready", () => {}); setInterval(beat, 10)',
+      "setTimeout(() => process.exit(0), 10_000)",
+    ].join("; ")
+    const parent = [
+      'const { spawn } = require("node:child_process")',
+      `const child = spawn(process.execPath, ["-e", ${JSON.stringify(descendant)}, process.argv[1]], { stdio: ["ignore", "inherit", "inherit", "ipc"] })`,
+      ...(finish === "parent exits" ? ['child.once("message", () => process.exit(0))'] : []),
+      "setTimeout(() => process.exit(0), 10_000)",
+    ].join("; ")
+    const result = run(process.execPath, ["-e", parent, heartbeat], {
+      onTestFinished: context.onTestFinished,
+      signal: AbortSignal.any([context.signal, controller.signal]),
+    }).then(() => undefined, error => error)
+
+    try {
+      while (!/^\d+$/.test(await readFile(heartbeat, "utf8").catch(() => ""))) {
+        await delay(10, undefined, { signal: context.signal })
+      }
+      if (finish === "test signal aborts") controller.abort(reason)
+      expect(await result).toBe(finish === "test signal aborts" ? reason : undefined)
+      const stopped = await readFile(heartbeat, "utf8")
+      await new Promise(resolve => setTimeout(resolve, 100))
+      expect(await readFile(heartbeat, "utf8")).toBe(stopped)
+    }
+    finally {
+      controller.abort(reason)
+      await result
+      await rm(root, { force: true, recursive: true })
+    }
+  }, 15_000)
+
+  it("typechecks every maintained source and configuration form", async (context) => {
     const sources = (await readdir(fixturesRoot, { recursive: true }))
       .filter(path => path.endsWith(".ts") && !path.endsWith(".d.ts"))
       .sort()
 
-    for (let index = 0; index < sources.length; index += 4) {
-      await Promise.all(sources.slice(index, index + 4).map(source => run("corepack", [
-        "pnpm",
-        "exec",
-        "tsc",
-        "--ignoreConfig",
-        "--noEmit",
-        "--skipLibCheck",
-        "--module",
-        "ESNext",
-        "--moduleResolution",
-        "Bundler",
-        "--target",
-        "ES2023",
-        "--types",
-        "node",
-        join(fixturesRoot, "globals.d.ts"),
-        join(fixturesRoot, source),
-      ])))
-    }
+    await run(process.execPath, [
+      join(repoRoot, "node_modules/typescript/bin/tsc"),
+      "--ignoreConfig",
+      "--noEmit",
+      "--skipLibCheck",
+      "--module",
+      "ESNext",
+      "--moduleResolution",
+      "Bundler",
+      "--target",
+      "ES2023",
+      "--types",
+      "node",
+      join(fixturesRoot, "globals.d.ts"),
+      ...sources.map(source => join(fixturesRoot, source)),
+    ], context)
   }, 120_000)
 
-  it.each(hostFixtures)("builds the %s credential-free fixture", async (host) => {
+  it.for(hostFixtures)("builds the %s credential-free fixture", async (host, context) => {
     const root = await mkdtemp(join(tmpdir(), `vitehub-doc-host-${host}-`))
     const appRoot = join(root, host)
 
@@ -175,6 +268,7 @@ describe("host documentation fixtures", () => {
       await run(
         vpExecutable,
         ["build", appRoot, "--config", join(appRoot, "vite.config.ts")],
+        context,
         repoRoot,
         { VITEHUB_HOSTING: host === "node-self-hosted" ? "node" : host },
         process.platform === "win32",
@@ -186,7 +280,7 @@ describe("host documentation fixtures", () => {
           `${host} should emit ${artifact}`,
         ).resolves.not.toHaveLength(0)
       }
-      if (host === "deno") await expectDenoLauncherToStart(appRoot)
+      if (host === "deno") await expectDenoLauncherToStart(appRoot, context)
     }
     finally {
       await rm(root, { force: true, recursive: true })

@@ -87,5 +87,6 @@ CLI-owned argument and execution defects use stable `CLI_R####` Nostics codes. C
 - Help loads and executes the local Vite or Nuxt config. A missing dependency or config error can stop help before it prints.
 - Command effects come from the package that contributes the command. Review command-specific help before applying Database migrations, Channel registration changes, or Provider provisioning.
 - `provision run` creates missing resources but does not delete or replace existing resources. Start with `--dry-run` and pass a provider explicitly.
+- `provision status` shows recorded ids from `.vitehub/provision.json` and pending plan actions. It never applies actions. Add `--json` to `provision run` or `provision status` for one JSON document on stdout.
 
 Read the [CLI guide](https://vitehub.dev/docs/development/cli) for every public command, examples, and troubleshooting.

@@ -26,7 +26,7 @@ export default defineConfig({
 });
 ```
 
-This registers ViteHub's build integration. Your application still needs a server entry or a framework such as Nuxt. For Nuxt, use the `vite-hub/nuxt` module shown in the [installation guide](https://vitehub.dev/docs/getting-started/installation).
+This registers ViteHub's build integration. Your application still needs a server entry or a framework such as Nuxt. For Nuxt, use the `vite-hub/nuxt` module shown in the [installation guide](https://vitehub.dev/docs/getting-started/installation). With the Console enabled, the Nuxt module adds the Console icons to the `@nuxt/icon` client bundle.
 
 On a Node host with persistent storage, set `dataDir` once. Enabled Agent State, Console, KV, Blob, and Workspace integrations derive local paths from it. For example, `vitehub({ preset: "node", dataDir: "/var/lib/app", agent: true, kv: true, blob: true, workspace: true })` uses that directory without per-store environment variables. Relative paths resolve from the configuration process's working directory. The host must mount persistent storage there; `dataDir` does not create a volume. Other presets require their own storage providers.
 
@@ -145,11 +145,15 @@ The Console **Usage** page provides session history with date, Agent, status, an
 
 Set `console: { access: "auth", auth: { ... }, invoke: true }` for an independent Console session, `console: { access: "auth", invoke: true }` to reuse the Primary Auth Definition, or `console: { exposure: "host-managed", invoke: true }` when host middleware protects all `/_vitehub/**` and `/api/_vitehub/console/**` routes. Explicit access configurations keep invocation disabled by default. The development shorthand `console: true` enables invocation.
 
-The Console RPC transport accepts browser requests only from its own origin, including in development. It uses browser Fetch Metadata through reverse proxies and checks the request origin when that metadata is absent. Hosts must reconstruct the public request origin for older browsers that send `Origin` without Fetch Metadata. Requests with neither same-origin Fetch Metadata nor an `Origin` header must send `x-vitehub-console: 1`, except when reading connection metadata at `/_vitehub/rpc/__connection.json`. The built-in Console client adds this header to its SSE requests. Server clients must add it too and still require the configured authentication.
+The Console RPC transport accepts browser requests only from its own origin, including in development. It uses browser Fetch Metadata through reverse proxies and checks the request origin when that metadata is absent. Hosts must reconstruct the public request origin for older browsers that send `Origin` without Fetch Metadata. Requests with neither same-origin Fetch Metadata nor an `Origin` header must send `x-vitehub-console: 1`. The built-in Console client adds this header to its RPC calls. Server clients must add it too and still require the configured authentication. Each Console operation is one stateless `POST /_vitehub/rpc/__call` request with the JSON body `{ method, input }`, so hosts such as Cloudflare Workers can send consecutive calls to different instances.
 
 Console invocation requests accept a `prompt`, optional `invokerProfileId`, and optional prior `messages`. Use the `ConsoleAgentInvocationInput` type from `vite-hub/console`. History requires valid user or assistant Messages with unique IDs and only text, file, image, or audio parts. The Console rejects tool and approval parts, appends the new user prompt, and starts a new invocation. See the [Console guide](https://vitehub.dev/docs/development/console#start-agent-invocations) for the access and history contracts.
 
 Set `console.observations` to configure the fallback journal's observation count, string length, byte budget, and flush timeout. Discovered Agent Definitions with an explicit shared journal retain that journal's settings.
+
+On the `cloudflare` preset, production builds store the fallback journal in the D1 binding of the default or only Database Definition. Its Cloudflare config takes precedence over the `driver: "d1"` integration binding. Without a discovered Definition, the Console keeps libSQL. The D1 store creates its table on first use. Development, `console.databaseUrl`, and `VITEHUB_CONSOLE_DATABASE_URL` keep libSQL. See [Cloudflare journal](https://vitehub.dev/docs/development/console#cloudflare-journal).
+
+The D1 journal supports Drizzle queries and atomic writes through `console.resolve(context).invocations.db.batch()`. Check the returned `driver` before destructuring to narrow the D1 or libSQL database and schema types. D1 inserts require non-null `search` and `summary`; libSQL reads allow null while legacy rows await backfill. The D1 `db.transaction()` method rejects before the callback runs. Use `db.batch()` to group D1 writes.
 
 ## Console images
 

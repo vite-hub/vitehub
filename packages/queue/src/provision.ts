@@ -24,6 +24,7 @@ export function createQueueProvisionStep(resolveRootDir: () => string, resolveNa
       const config = resolveCloudflareProvisionConfig(context.env)
       if (!config) {
         context.logger.warn("queue: skipping Cloudflare queues, missing CLOUDFLARE_ACCOUNT_ID/CLOUDFLARE_API_TOKEN.")
+        context.markPlanUnchecked?.()
         return []
       }
 

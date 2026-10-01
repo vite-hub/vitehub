@@ -134,7 +134,10 @@ export type WorkspaceAgentOptions<
   TCapabilities extends AgentCapabilitiesInput<TRuntimeConfig, _Name, CALL_OPTIONS> | undefined = AgentCapabilitiesInput<TRuntimeConfig, _Name, CALL_OPTIONS> | undefined,
   TOutput = unknown,
   TDriver extends AgentDriver<TRuntimeConfig, CALL_OPTIONS, TContextValues, TOutput> = AgentDriver<TRuntimeConfig, CALL_OPTIONS, TContextValues, TOutput>,
-> = AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, TCapabilities, TOutput, TDriver> & {
+  TData = unknown,
+  TIntercept = never,
+  TDataInput = TData,
+> = AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, TCapabilities, TOutput, TDriver, TData, TIntercept, TDataInput> & {
   name?: string
   workspace: WorkspaceAgentWorkspaceConfig<_Name>
 }
@@ -147,7 +150,11 @@ export type WorkspaceAgentDefinition<
   TContextValues extends object = AgentInvocationContextValues,
   TCapabilities extends AgentCapabilitiesInput<TRuntimeConfig, Name, CALL_OPTIONS> | undefined = AgentCapabilitiesInput<TRuntimeConfig, Name, CALL_OPTIONS> | undefined,
   TOutput = unknown,
-> = AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, TOutput> & WorkspaceAgentWorkspaceOptions & {
+  TDataInput = unknown,
+  TData = unknown,
+  TDriverOutput = TOutput,
+  TInterceptOutput = TOutput,
+> = AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, TOutput, TDataInput, TDriverOutput, TData, TInterceptOutput> & WorkspaceAgentWorkspaceOptions & {
   __vitehubWorkspaceAgent: true
   __vitehubWorkspaceAgentOptions: WorkspaceAgentOptions<TRuntimeConfig, Name, CALL_OPTIONS, TInvokerProfile, TContextValues, TCapabilities, TOutput>
 }

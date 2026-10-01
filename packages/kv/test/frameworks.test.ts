@@ -166,6 +166,45 @@ describe("hubKv", () => {
     })
   })
 
+  it("reads provisioned Cloudflare KV namespace ids into Nitro-owned output", async () => {
+    const { hubKv } = await import("../src/vite.ts")
+    const root = await mkdtemp(join(tmpdir(), "vitehub-kv-nitro-provision-"))
+    try {
+      await mkdir(join(root, ".vitehub"), { recursive: true })
+      await writeFile(join(root, ".vitehub", "provision.json"), `${JSON.stringify({ cloudflare: { kv: { default: "provisioned-id" } } })}\n`)
+      const plugin = hubKv({ binding: "KV", driver: "cloudflare-kv-binding", namespaceName: "app-cache" })
+      const config = { nitro: {}, root }
+      const configure = testHook(plugin.config, (_value: typeof config): void | Promise<void> => undefined)
+
+      await configure(config)
+
+      expect(config.nitro).toHaveProperty("cloudflare.wrangler.kv_namespaces", [{ binding: "KV", id: "provisioned-id" }])
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("contributes the Cloudflare KV provision step with the configured KV options", async () => {
+    const { hubKv } = await import("../src/vite.ts")
+    const plugin = hubKv()
+    const config = { kv: { driver: "cloudflare-kv-binding" as const, namespaceName: "app-cache" }, root: "/app" }
+    const configure = testHook(plugin.config, (_value: typeof config): void | Promise<void> => undefined)
+    await configure(config)
+
+    const steps = (await plugin.vitehub.cli()).provision ?? []
+    const warnings: string[] = []
+    const actions = await steps[0]?.plan({
+      env: {},
+      fetch: async () => { throw new Error("must not call the provider API without credentials") },
+      logger: { log: () => {}, warn: message => warnings.push(message) },
+    })
+
+    expect(steps.map(step => ({ id: step.id, provider: step.provider }))).toEqual([{ id: "kv:cloudflare-kv", provider: "cloudflare" }])
+    expect(actions).toEqual([])
+    expect(warnings).toEqual(["kv: skipping Cloudflare KV, missing CLOUDFLARE_ACCOUNT_ID/CLOUDFLARE_API_TOKEN."])
+  })
+
   it("reconciles a later KV plugin override into Nitro-owned output", async () => {
     const { hubKv } = await import("../src/vite.ts")
     const nitro = {

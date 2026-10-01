@@ -199,4 +199,18 @@ describe("invocation preflight", () => {
     expect(await (result as Response).text()).toBe("handled")
     expect(status).not.toHaveBeenCalled()
   })
+
+  it("lets interception respond without checking an unavailable provider", async () => {
+    const { defineAgent, runAgentInline } = await import("../src/index.ts")
+    const agent = defineAgent({
+      runtime: false,
+      driver: { kind: "codex", model: "test" },
+      intercept: () => "handled",
+    })
+    const status = vi.spyOn(agent, "status").mockResolvedValue({ agent: "test", readiness: "unavailable", checkedAt: new Date().toISOString(), stale: false })
+    const result = await runAgentInline(agent, { runtime: "unknown", memo: (_key, create) => create(), waitUntil: task => void task.catch(() => {}) }, { prompt: "hello" })
+
+    expect(result).toBe("handled")
+    expect(status).not.toHaveBeenCalled()
+  })
 })

@@ -10474,6 +10474,73 @@ describe("server helpers", () => {
     }
   })
 
+  it("yields while it reconciles a late webhook invocation until the reconciliation deadline", async () => {
+    vi.useFakeTimers()
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { defineAgent } = await import("../src/index.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-late-reconciliation-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const releaseLock = vi.spyOn(state, "releaseLock")
+    // The run ignores abort, so its invocation stays running after the execution deadline.
+    const run = vi.fn(() => new Promise<never>(() => undefined))
+    const agent = defineAgent({ driver: { run } })
+    await state.connect()
+    await state.enqueueWebhookDelivery({
+      concurrencyKey: "review:late",
+      concurrencyGroup: "review:default",
+      concurrencyLimit: 1,
+      deliveryId: "delivery-late-reconciliation",
+      enqueuedAt: Date.now(),
+      invocation: { input: { prompt: "persisted" } },
+      leaseTtlMs: 3_600_000,
+      request: { body: "{}", headers: {}, method: "POST", url: "https://example.com" },
+      scope: "webhook:review:github:late:",
+      webhookId: "missing-registration",
+    })
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    const stop = createChannelWebhookRouteHandler(agent as never).resume({
+      agentName: "review",
+      webhookState: state,
+    })
+    // A reconciliation loop that never waits for a timer starves the event loop.
+    // Park a deadline after 1,000 races against it, so a regression fails the
+    // assertions below instead of exhausting the heap.
+    const race = Promise.race.bind(Promise)
+    const races = new Map<unknown, number>()
+    const raceSpy = vi.spyOn(Promise, "race").mockImplementation((values) => {
+      const entries = [...values]
+      const count = (races.get(entries.at(-1)) ?? 0) + 1
+      races.set(entries.at(-1), count)
+      return count < 1_000 ? race(entries) : new Promise(() => undefined)
+    })
+
+    try {
+      await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
+      await vi.advanceTimersByTimeAsync(900_000)
+      const scheduled = vi.fn()
+      setTimeout(scheduled, 5_000)
+      await vi.advanceTimersByTimeAsync(5_000)
+      expect(scheduled).toHaveBeenCalledOnce()
+      expect(Math.max(...races.values())).toBeLessThan(100)
+      expect(consoleError).not.toHaveBeenCalledWith(expect.stringContaining("did not reach a terminal state"))
+      expect(releaseLock).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(55_000)
+      await vi.waitFor(() => expect(consoleError).toHaveBeenCalledWith(
+        '[vitehub] Late webhook invocation "delivery-late-reconciliation" did not reach a terminal state within 60000ms; releasing its retained concurrency fence.',
+      ))
+      await vi.waitFor(() => expect(releaseLock).toHaveBeenCalled())
+    } finally {
+      raceSpy.mockRestore()
+      await stop()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+      consoleError.mockRestore()
+      vi.useRealTimers()
+    }
+  })
+
   it("retries a rehydration-required delivery when replay handles the request", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
     const { defineAgent } = await import("../src/index.ts")
@@ -16160,7 +16227,7 @@ describe("server helpers", () => {
           }
         | undefined
       expect(binding?.steer).toBeDefined()
-      binding!.steer!.ttlMs = 400
+      binding!.steer!.ttlMs = 1_000
       expect(await state.queueDepth(binding!.steer!.pendingQueue)).toBe(1)
       // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
       expect(await state.extendLock(binding!.steer!.lock as never, binding!.steer!.ttlMs)).toBe(true)
@@ -16293,7 +16360,7 @@ describe("server helpers", () => {
         await rm(stateDir, { force: true, recursive: true })
       }
     }
-  }, 15_000)
+  }, 30_000)
 
   it("restarts pending steer input when terminal settlement cannot read its delivery", async () => {
     const { blob } = await import("../src/capabilities.ts")

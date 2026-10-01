@@ -62,7 +62,7 @@ For Nuxt, replace the wrapper inspection command with `find .nuxt/vitehub/agent 
 
 ViteHub does not infer native Netlify providers for Queue, Workflow, or Sandbox. Disable an unused preset integration or select an explicit supported provider only when that external provider is valid from the Netlify runtime.
 
-The ViteHub Provision CLI does not create Netlify resources. It currently accepts Cloudflare and Vercel plans only.
+The ViteHub Provision CLI does not create Netlify resources. It currently accepts Cloudflare and Vercel plans only. Netlify Blobs stores need no provisioning; see [Resources without provisioning](/docs/development/provisioning#resources-without-provisioning).
 
 Netlify-specific KV Provider Output is also not provided. Configure a remote KV driver explicitly for deployed state; do not rely on the local `fs-lite` fallback in a serverless deployment.
 

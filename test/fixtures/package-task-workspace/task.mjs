@@ -1,4 +1,5 @@
-import { appendFileSync } from "node:fs"
+import { appendFileSync, readFileSync } from "node:fs"
+import { setTimeout } from "node:timers/promises"
 
 const [phase, name] = process.argv.slice(2)
 const log = process.env.VITEHUB_FIXTURE_LOG
@@ -16,23 +17,32 @@ const buildFailures = new Map(
     .map(entry => entry.split("=")),
 )
 const signals = new Set((process.env.VITEHUB_FIXTURE_SIGNALS ?? "").split(",").filter(Boolean))
+const barrier = (process.env.VITEHUB_FIXTURE_TEST_BARRIER ?? "").split(",").filter(Boolean)
 
 function record(event) {
   if (log) appendFileSync(log, `${phase}:${event}:${name}\n`)
 }
-
-record("start")
 
 process.on("SIGTERM", () => {
   record("signal")
   process.exit(143)
 })
 
-await new Promise(resolve => setTimeout(resolve, delay))
+record("start")
+
+if (phase === "test" && barrier.includes(name)) {
+  const deadline = Date.now() + 15_000
+  while (!barrier.every(peer => readFileSync(log, "utf8").includes(`test:start:${peer}\n`))) {
+    if (Date.now() >= deadline) throw new Error("Parallel package tasks did not reach the start barrier")
+    await setTimeout(10)
+  }
+}
+
+await setTimeout(delay)
 
 if (phase === "test" && signals.has(name)) {
   process.kill(process.pid, "SIGTERM")
-  await new Promise(resolve => setTimeout(resolve, 10_000))
+  await setTimeout(10_000)
 }
 
 record("end")

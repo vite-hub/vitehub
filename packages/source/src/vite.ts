@@ -60,6 +60,11 @@ interface NitroGeneratedConfig {
   modules?: unknown[]
 }
 
+interface SourceNitroHost extends NitroRouteGuard {
+  options: NitroGeneratedConfig
+  routing: { sync(): void }
+}
+
 interface NitroRouteGuard {
   hooks: { hook(name: "build:before", callback: () => void): void }
   scannedHandlers: Array<{ method?: string, route?: string }>
@@ -147,20 +152,22 @@ function generatedRouteDescription(handler: GeneratedSourceHandler): string {
   return handler.method ? `${handler.method.toUpperCase()} handler` : "handler"
 }
 
+function assertGeneratedRoutes(nitro: NitroRouteGuard, generatedHandlers: GeneratedSourceHandler[]): void {
+  for (const generatedHandler of generatedHandlers) {
+    const duplicate = nitro.scannedHandlers.some(candidate =>
+      candidate.route === generatedHandler.route
+      && methodsOverlap(candidate.method, generatedHandler.method))
+    if (duplicate) {
+      throw sourceErrorDiagnostics.SOURCE_B0001({ message: `[vitehub] Generated ${generatedRouteOwner(generatedHandler)} route ${JSON.stringify(generatedHandler.route)} conflicts with an existing ${generatedRouteDescription(generatedHandler)}. Remove the matching server route.` })
+    }
+  }
+}
+
 function generatedRouteGuard(generatedHandlers: GeneratedSourceHandler[]) {
   return {
     name: "vite-hub/generated-route-guard",
     setup(nitro: NitroRouteGuard) {
-      nitro.hooks.hook("build:before", () => {
-        for (const generatedHandler of generatedHandlers) {
-          const duplicate = nitro.scannedHandlers.some(candidate =>
-            candidate.route === generatedHandler.route
-            && methodsOverlap(candidate.method, generatedHandler.method))
-          if (duplicate) {
-            throw sourceErrorDiagnostics.SOURCE_B0001({ message: `[vitehub] Generated ${generatedRouteOwner(generatedHandler)} route ${JSON.stringify(generatedHandler.route)} conflicts with an existing ${generatedRouteDescription(generatedHandler)}. Remove the matching server route.` })
-          }
-        }
-      })
+      nitro.hooks.hook("build:before", () => assertGeneratedRoutes(nitro, generatedHandlers))
     },
   }
 }
@@ -431,7 +438,11 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
     ) => () => void
     prepareSources: (options: Omit<SourceGenerationOptions, "contentImportBase" | "importBase">) => Promise<GeneratedSourceHandler[]>
   }
+  nitro: { name: string, setup(nitro: SourceNitroHost): void }
 } {
+  let nitroHost: SourceNitroHost | undefined
+  let nitroHostContribution: NitroGeneratedConfig | undefined
+  const nitroHandlers: GeneratedSourceHandler[] = []
   let latestProjectRoot: string | undefined
   const configuredStateByRoot = new Map<string, {
     handlerKey: string
@@ -528,6 +539,14 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
     name: "@vite-hub/source/vite",
     enforce: "post",
     api: { onGeneratedHandlersChanged, prepareSources },
+    nitro: {
+      name: "@vite-hub/source/generated-routes",
+      setup(nitro) {
+        nitroHost = nitro
+        nitroHostContribution = undefined
+        generatedRouteGuard(nitroHandlers).setup(nitro)
+      },
+    },
     async config(config) {
       // SAFETY: Vite passes its user config with ViteHub's shared symbols attached.
       const viteConfig = config as SourcePluginConfig
@@ -591,12 +610,27 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
         : resolveViteHubProjectRoot(config.root)
       latestProjectRoot = projectRoot
       bindUnresolvedListenerRoots(projectRoot)
+      viteConfig.define ??= {}
+      viteConfig.define.__VITEHUB_APP_BASE_URL__ = JSON.stringify(applicationBaseURL(config.base))
       const previousTransition = configurationTransitionByRoot.get(projectRoot) ?? Promise.resolve()
       const runTransition = async () => {
         const configuredState = configuredStateByRoot.get(projectRoot)
         const serverDirs = viteConfig[VITEHUB_SERVER_DIRS] ?? configuredState?.serverDirs
         const handlers = await prepareSources({ projectRoot, serverDirs })
         const handlerKey = await generatedHandlerKey(handlers)
+        if (nitroHost && !viteConfig[VITEHUB_NITRO_CONFIG_CONTEXT]) {
+          // Nitro initializes before post-enforced config hooks. Reconcile its routes once
+          // Vite has resolved the root and server directories from all config contributions.
+          assertGeneratedRoutes(nitroHost, handlers)
+          const nitro = replaceConfiguredNitroContribution(nitroHost.options, handlers, nitroHostContribution)
+          nitroHostContribution = {
+            handlers: nitro.handlers?.filter(handler => handlers.some(generated =>
+              handler.handler === generated.handler && handler.route === generated.route && handler.method === generated.method)),
+          }
+          nitroHost.options.handlers = nitro.handlers
+          nitroHandlers.splice(0, nitroHandlers.length, ...handlers)
+          nitroHost.routing.sync()
+        }
         configuredStateByRoot.set(projectRoot, {
           handlerKey,
           nitroContribution: configuredState?.nitroContribution,

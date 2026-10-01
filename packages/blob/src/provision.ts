@@ -117,9 +117,9 @@ function parseCloudflareBucket(value: unknown): CloudflareR2Bucket {
 }
 
 function vercelConnectionState(store: VercelBlobStore, projectId: string): "absent" | "equivalent" | "mismatched" {
-  const connection = store.projectsMetadata?.find(project => project.projectId === projectId)
-  if (!connection) return "absent"
-  return VERCEL_PROJECT_ENVIRONMENTS.every(environment => connection.environments?.includes(environment))
+  const connections = store.projectsMetadata?.filter(project => project.projectId === projectId)
+  if (!connections?.length) return "absent"
+  return connections.some(connection => VERCEL_PROJECT_ENVIRONMENTS.every(environment => connection.environments?.includes(environment)))
     ? "equivalent"
     : "mismatched"
 }
@@ -185,6 +185,7 @@ export function createBlobCloudflareProvisionStep(resolveOptions: () => BlobModu
       const config = resolveCloudflareProvisionConfig(context.env)
       if (!config) {
         context.logger.warn("blob: skipping Cloudflare R2, missing CLOUDFLARE_ACCOUNT_ID/CLOUDFLARE_API_TOKEN.")
+        context.markPlanUnchecked?.()
         return []
       }
 
@@ -218,6 +219,7 @@ export function createBlobVercelProvisionStep(resolveOptions: () => BlobModuleOp
       const projectId = readEnv(context.env, "VERCEL_PROJECT_ID")
       if (!config || !projectId) {
         context.logger.warn("blob: skipping Vercel Blob, missing VERCEL_TOKEN/VERCEL_PROJECT_ID.")
+        context.markPlanUnchecked?.()
         return []
       }
 
@@ -227,11 +229,18 @@ export function createBlobVercelProvisionStep(resolveOptions: () => BlobModuleOp
         (!store.type || store.type === "blob")
         && (store.access ?? "public") === requested.access,
       )
+      const connectionState = existing?.id
+        ? vercelConnectionState(await readVercelBlobStore(request, existing.id), projectId)
+        : "absent"
+      if (connectionState === "mismatched") {
+        throw blobErrorDiagnostics.BLOB_R0020({ message: "Vercel Blob is connected to the project without all required environments." })
+      }
 
       return [{
         kind: "vercel-blob-store",
         name: existing?.name ?? VERCEL_BLOB_STORE_NAME,
         exists: Boolean(existing),
+        pending: !existing || connectionState !== "equivalent",
         apply: async () => {
           const store = existing ?? (await request("/v1/storage/stores/blob", {
             method: "POST",

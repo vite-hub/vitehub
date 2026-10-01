@@ -224,6 +224,8 @@ Read the complete [Env guide](https://vitehub.dev/docs/server-primitives/env), t
 
 `createEnvBridge` from `@vite-hub/env/bridge` adapts a secret store to Env with credential-scoped permissions and durable activity. `createDatabaseEnvStore` from `@vite-hub/env/database` supplies encrypted storage, grants, and activity using a ViteHub SQLite/Drizzle database. Keep its 32-byte encryption key in host configuration and back it up separately from the database.
 
+`@vite-hub/env/seal` exports the AES-GCM helpers that the database store uses: `importSealKey`, `seal`, `unseal`, and `sealKeyId`. Other owner packages use them to store sealed values in the same format.
+
 A bridge implements the existing `read()` provider contract. Its `replace()` operation requires the last inspected revision (or `null` to create), preventing lost updates. Existing snapshots remain unchanged; the next load resolves the replacement. A custom store returns its own activation requirement: next resolution, restart, or deployment.
 
 `inspect`, `preview`, `replace`, and `use` are separate permissions. Only a trusted administrator can modify grants or inspect activity. A verified agent token can supply a narrower permission ceiling. Context must come from authenticated server code, never an HTTP body. `loadServerEnv(undefined, { access })` forwards trusted actor and invocation attribution to providers.

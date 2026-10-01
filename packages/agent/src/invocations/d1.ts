@@ -31,6 +31,8 @@ export interface D1AgentInvocationStoreOptions {
   maxAgeMs?: false | number
   /** Maximum count of terminal records. Defaults to 10,000; false disables this limit. */
   maxRecords?: false | number
+  /** Create the table and indexes on first use of each binding in an isolate. Defaults to true. Set false when your own migrations apply `d1AgentInvocationSchema()`. */
+  migrate?: boolean
   tablePrefix?: string
 }
 
@@ -50,7 +52,7 @@ function tableName(prefix = "vitehub_agent_") {
   return table
 }
 
-/** Apply these statements through your D1 migration tool before using the store. */
+/** Idempotent statements that create the journal table. The store applies them on first use unless `migrate` is false. */
 export function d1AgentInvocationSchema(options: Pick<D1AgentInvocationStoreOptions, "tablePrefix"> = {}): readonly string[] {
   const table = tableName(options.tablePrefix)
   return [
@@ -96,7 +98,7 @@ interface RecordRow {
 
 function record(row: RecordRow): AgentInvocationRecord {
   // doctor-disable-next-line typescript/boundaries/no-unvalidated-deserialization -- The migrated table stores this adapter's serialized AgentInvocationStoreCreateInput, not caller-supplied JSON.
-  // SAFETY: The adapter reads its own JSON records from its explicitly migrated table.
+  // SAFETY: The adapter reads its own JSON records from its migrated table.
   const stored = JSON.parse(row.record) as AgentInvocationStoreCreateInput
   return { ...stored, cursor: String(row.sequence) }
 }
@@ -137,13 +139,23 @@ function fitRecord(input: AgentInvocationStoreCreateInput, append = false) {
   return { stored, values }
 }
 
-/** D1 journal with atomic batches and optimistic updates across Worker isolates. Does not create or migrate tables. */
+/** D1 journal with atomic batches and optimistic updates across Worker isolates. Creates its table on first use unless `migrate` is false. */
 export function createD1AgentInvocationStore(options: D1AgentInvocationStoreOptions): AgentInvocationStore {
   const table = tableName(options.tablePrefix)
+  const schema = d1AgentInvocationSchema(options)
   const maxAgeMs = retention(options.maxAgeMs, 30 * 24 * 60 * 60 * 1000, 8_640_000_000_000_000)
   const maxRecords = retention(options.maxRecords, 10_000)
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The public option accepts a D1 binding or a request-scoped factory; callability selects the factory member.
-  const database = async () => typeof options.database === "function" ? await options.database() : options.database
+  // Workers cannot share pending I/O between requests, so keep only completed bindings.
+  const migrated = new WeakSet<AgentInvocationD1Database>()
+  const database = async () => {
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The public option accepts a D1 binding or a request-scoped factory; callability selects the factory member.
+    const db = typeof options.database === "function" ? await options.database() : options.database
+    if (options.migrate !== false && !migrated.has(db)) {
+      await db.batch(schema.map(statement => db.prepare(statement)))
+      migrated.add(db)
+    }
+    return db
+  }
   const prune = (db: AgentInvocationD1Database) => {
     const filters: string[] = []
     const values: (string | number)[] = []

@@ -23,6 +23,18 @@ const context = { attempt: 1, driver: "fixture", meta: {} };
 const ambiguousOneClickMessages: Pick<EmailMessage, "headers" | "unsubscribe">[] = [
   {
     headers: {
+      "List-Unsubscribe": "<https://example.com/unsubscribe>, <https://example.com/other>",
+    },
+    unsubscribe: { url: "https://example.com/unsubscribe" },
+  },
+  {
+    headers: {
+      "List-Unsubscribe": "<https://example.com/unsubscribe>, <http://example.com/other>",
+    },
+    unsubscribe: { url: "https://example.com/unsubscribe" },
+  },
+  {
+    headers: {
       "List-Unsubscribe": "<https://example.com/unsubscribe>",
       "LIST-UNSUBSCRIBE-POST": "List-Unsubscribe=One-Click",
       "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",

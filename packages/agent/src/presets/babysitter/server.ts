@@ -5,7 +5,7 @@ import { resolveRuntimeValue } from "@vite-hub/runtime";
 import { hasRuntimeType } from "../../internal/runtime-type.ts";
 import type { ProcessReconcilerRunContext } from "@vite-hub/runtime/node";
 import { createMessage, defineAgent, runAgent } from "../../index.ts";
-import type { AgentDefinition, CodexDriverOptions } from "../../index.ts";
+import type { AgentInput, CodexDriverOptions } from "../../index.ts";
 import {
   createGitHubPullRequestRun,
   createGitHubPullRequestOperations,
@@ -29,7 +29,7 @@ import { getAgentLayerOptions } from "../../agent-layers.ts";
 import { repairCapability, repairEnvironment } from "./repair.ts";
 
 export interface BabysitterRuntimeOptions {
-  agent: AgentDefinition;
+  agent: AgentInput;
   github: GitHubHost;
   inboxPath: string;
   repositories: string[];
@@ -562,7 +562,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
   return { inbox: pullRequestInbox, reconcile, workload };
 }
 
-function assertBabysitterAgent(agent: AgentDefinition): asserts agent is BabysitterAgent {
+function assertBabysitterAgent(agent: AgentInput): asserts agent is BabysitterAgent {
   if (
     !getAgentLayerOptions(agent) ||
     !("options" in agent) ||

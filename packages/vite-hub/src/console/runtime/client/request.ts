@@ -1,15 +1,12 @@
-import { connectDevframe } from "devframe/client"
 import { Diagnostic } from "nostics"
 
 import { consoleRpcHeader, consoleRpcMethods } from "../rpc"
 
-import type { DevframeRpcClient } from "devframe/client"
 import type { ConsoleRpcInput, ConsoleRpcMethod } from "../rpc"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
 const consoleApiMarker = "/api/_vitehub/console/"
-const consoleDevframePath = "/_vitehub/rpc/"
-const clients = new Map<string, { promise: Promise<DevframeRpcClient> }>()
+const consoleRpcCallPath = "/_vitehub/rpc/__call"
 
 export class ConsoleRequestError extends Diagnostic {
   readonly status: number
@@ -21,11 +18,11 @@ export class ConsoleRequestError extends Diagnostic {
   }
 }
 
-function consoleDevframeBase(path: string): string {
+function consoleRpcCallURL(path: string): string {
   const url = new URL(path, "http://vitehub.local")
   const marker = url.pathname.indexOf(consoleApiMarker)
   const appBase = marker === -1 ? "" : url.pathname.slice(0, marker)
-  return `${appBase}${consoleDevframePath}`
+  return `${appBase}${consoleRpcCallPath}`
 }
 
 function consoleRpcCall(path: string): { agent?: string; id?: string; method: ConsoleRpcMethod } {
@@ -51,78 +48,6 @@ function consoleRpcCall(path: string): { agent?: string; id?: string; method: Co
   const method = Object.entries(consoleRpcMethods).find(([name]) => name === key)?.[1]
   if (!method) throw new ConsoleRequestError(404, "Console operation not found.")
   return { method }
-}
-
-function createConsoleDevframeClient(baseURL: string): { promise: Promise<DevframeRpcClient> } {
-  const entry = {
-    promise: connectDevframe({
-      baseURL,
-      otpParam: false,
-      simpleAuth: false,
-      sseOptions: {
-        fetch: (input, init) => {
-          const request = new Request(input, init)
-          request.headers.set(consoleRpcHeader, "1")
-          return fetch(request)
-        },
-      },
-      transport: "sse",
-    }).then(async (connected) => {
-      try {
-        await connected.ensureTrusted(10_000)
-        return connected
-      }
-      catch (error) {
-        connected.close?.()
-        throw error
-      }
-    }).catch((error) => {
-      if (clients.get(baseURL) === entry) clients.delete(baseURL)
-      throw error
-    }),
-  }
-  clients.set(baseURL, entry)
-  return entry
-}
-
-function cachedConsoleDevframeClient(baseURL: string): { promise: Promise<DevframeRpcClient> } {
-  return clients.get(baseURL) ?? createConsoleDevframeClient(baseURL)
-}
-
-function isTerminalDevframeClient(client: DevframeRpcClient): boolean {
-  return client.status === "disconnected" || client.status === "error"
-}
-
-async function consoleDevframeClient(baseURL: string): Promise<DevframeRpcClient> {
-  const entry = cachedConsoleDevframeClient(baseURL)
-  const client = await entry.promise
-  if (!isTerminalDevframeClient(client)) return client
-  if (clients.get(baseURL) === entry) {
-    clients.delete(baseURL)
-    client.close?.()
-  }
-  return cachedConsoleDevframeClient(baseURL).promise
-}
-
-function evictTerminalDevframeClient(baseURL: string, client: DevframeRpcClient): void {
-  const entry = clients.get(baseURL)
-  if (!entry || !isTerminalDevframeClient(client)) return
-  void entry.promise.then((cachedClient) => {
-    if (cachedClient === client && clients.get(baseURL) === entry) clients.delete(baseURL)
-  })
-}
-
-function abortable<T>(value: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
-  if (!signal) return value
-  signal.throwIfAborted()
-  return new Promise<T>((resolve, reject) => {
-    const abort = () => reject(signal.reason)
-    signal.addEventListener("abort", abort, { once: true })
-    value
-      .then(resolve, reject)
-      .finally(() => signal.removeEventListener("abort", abort))
-      .catch(() => undefined)
-  })
 }
 
 export function isRetryableConsoleRequestError(error: unknown): boolean {
@@ -153,14 +78,21 @@ export async function requestConsole(
   if (call.agent !== undefined) input.agent = call.agent
   if (call.id !== undefined) input.id = call.id
   if (options.body !== undefined) input.body = options.body
-  const baseURL = consoleDevframeBase(path)
-  const client = await abortable(consoleDevframeClient(baseURL), options.signal)
-  const response = await abortable(client.call(call.method, input), options.signal).catch((error) => {
-    evictTerminalDevframeClient(baseURL, client)
-    throw error
+  // Each call is one complete request, so hosts can route consecutive calls to different instances.
+  const response = await fetch(consoleRpcCallURL(path), {
+    body: JSON.stringify({ input, method: call.method }),
+    cache: "no-store",
+    credentials: "same-origin",
+    headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
+    method: "POST",
+    signal: options.signal,
   })
-  if (!response.ok) throw new ConsoleRequestError(response.status, response.message)
-  return response.value
+  const result = record(await response.json().catch(() => undefined))
+  if (response.ok && result?.ok === true) return result.value
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
+  const status = typeof result?.status === "number" && result.status >= 400 ? result.status : response.ok ? 502 : response.status
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
+  throw new ConsoleRequestError(status, typeof result?.message === "string" ? result.message : undefined)
 }
 
 export function appendUniqueConsoleKeys(existing: string[], page: string[]): string[] {

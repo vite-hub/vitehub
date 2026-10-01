@@ -2526,6 +2526,43 @@ cli_auth_credentials_store = "keyring"
     expect(finalText.text).toBe("First. Second.")
   })
 
+  it("returns only the latest final message from generate", async () => {
+    const threadId = "thread-final-messages"
+    runtime(threadId, [
+      event("content.delta", threadId, { contentIndex: 0, delta: "{\"disposition\":", streamKind: "assistant_text" }, { itemId: "draft", turnId: "turn-1" }),
+      event("content.delta", threadId, { contentIndex: 1, delta: "\"park\"}", streamKind: "assistant_text" }, { itemId: "draft", turnId: "turn-1" }),
+      event("content.delta", threadId, { contentIndex: 0, delta: "{\"disposition\":", streamKind: "assistant_text" }, { itemId: "answer", turnId: "turn-1" }),
+      event("content.delta", threadId, { contentIndex: 1, delta: "\"merge\"}", streamKind: "assistant_text" }, { itemId: "answer", turnId: "turn-1" }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ])
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await expect(createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId) as never)).resolves.toMatchObject({ text: "{\"disposition\":\"merge\"}" })
+  })
+
+  it("keeps spawned sub-agent messages out of the final answer", async () => {
+    const threadId = "thread-sub-agent-messages"
+    // The runtime reports a spawned sub-agent under the parent turn. Its raw notification keeps the sub-agent turn.
+    const delta = (itemId: string, turnId: string, text: string) => event("content.delta", threadId, { delta: text, streamKind: "assistant_text" }, {
+      itemId,
+      raw: { method: "item/agentMessage/delta", payload: { delta: text, itemId, threadId: turnId === "turn-1" ? "provider-root" : "provider-child", turnId }, source: "codex.app-server.notification" },
+      turnId: "turn-1",
+    })
+    const events = [
+      delta("child-answer", "child-turn", "{\"disposition\":"),
+      delta("answer", "turn-1", "{\"disposition\":"),
+      delta("child-answer", "child-turn", "\"park\"}"),
+      delta("answer", "turn-1", "\"merge\"}"),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ]
+    runtime(threadId, events)
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await expect(createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId) as never)).resolves.toMatchObject({ text: "{\"disposition\":\"merge\"}" })
+    runtime(threadId, events)
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    const streamed = await collect(await createProviderAgentAdapter({ provider: "codex" }).stream!(context(threadId) as never)) as StreamEvent[]
+    expect(streamed.filter(value => value.type === "text-delta").map(value => value.phase)).toEqual(["commentary", "final", "commentary", "final"])
+  })
+
   it("keeps assistant item phases separate and forgets completed items", async () => {
     const threadId = "thread-message-phases"
     runtime(threadId, [

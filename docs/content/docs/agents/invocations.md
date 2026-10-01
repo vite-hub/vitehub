@@ -142,6 +142,8 @@ export default defineAgent({
 
 Validate untrusted request data at the route boundary. The hook protects the Agent contract when multiple trusted callers invoke the same Definition.
 
+Set `defineAgent({ data })` when callers pass structured values. ViteHub validates `input.data` with the schema before hooks and the Driver run, and returns an error tuple from `runAgent()` for invalid data. See [Accept structured data](/docs/agents/agent-definitions#accept-structured-data).
+
 ## Observe the outcome
 
 Finish hooks receive normalized duration, result kind, and usage. Error hooks receive failed invocations.
@@ -237,6 +239,35 @@ Use `configuration: 'content'` to retain resolved instructions and tool descript
 
 Invocation journals are metadata-only by default. Set `content: 'content'` only when the application must persist prompts, messages, reasoning, tool inputs and outputs, and result text. That opt-in stores sensitive model content in the configured durable store; apply the same access controls, retention policy, and encryption requirements as the source data.
 
+### Redact stored evidence
+
+Use `redact` to rewrite or drop an observation before the store receives it. Use `redactError` to rewrite the error of a failed record:
+
+```ts [server/agents/support.ts]
+const invocations = defineAgentInvocations({
+  store,
+  redact(observation) {
+    if (observation.name === 'agent.tool.result') return undefined
+    const { 'tool.input': _input, ...attributes } = observation.attributes ?? {}
+    return { ...observation, attributes }
+  },
+  redactError: error => ({ message: error.message, name: error.name }),
+})
+```
+
+`redact` runs after the content policy and before the journal bounds the observation. It applies to observations streamed during the run, observations that the journal persists after the run finishes, and `appendObservation()` evidence. The journal calls it once for each observation, also when a write is retried. Return `undefined` to drop the observation; `appendObservation()` then returns the unchanged record. `redactError` receives the bounded error and its return value is stored as is. Return `undefined` to store no error details; the record status stays `failed`. A hook that throws drops the observation or the error details. Both hooks must be synchronous. The journal preserves its internal `vitehub.observation.id` after redaction so retries can identify evidence that was already stored. They do not change the live trace log, hook events, or OTLP export.
+
+`agent:finish` and `agent:error` hook events include `event.invocation.traceId` after journal creation confirms the stored record identity. It equals the `traceId` on that record. Hooks wait at most one second for pending creation, then proceed without this field if creation is still unresolved. This preserves the Agent result or original error:
+
+```ts
+hooks: {
+  'agent:finish': async (event) => {
+    if (event.invocation.traceId === undefined) return
+    await audit.insert({ traceId: event.invocation.traceId, text: event.text })
+  },
+}
+```
+
 The journal records pending, running, completed, failed, and cancelled states plus bounded invocation metadata and trace observations. Failed records retain bounded `cause` and `AggregateError.errors` trees, common status and code fields, and public ViteHub error details. Use `invocations.list()` for cursor-based summaries, `invocations.get(id)` for a stored record ID, and `invocations.getByRunId(runId, agentName?)` when starting from the source run ID. Always pass the Agent Definition name for a named Definition; the name is part of its durable invocation identity. Journal failures never change the Agent Invocation result.
 
 Use `triggeredBy` to filter persisted summaries by the person label recorded in `annotations.triggeredBy`. It matches the trimmed label exactly and composes with Agent, Capability, status, and text filters:
@@ -313,7 +344,9 @@ export const invocations = defineAgentInvocations({
 })
 ```
 
-Create the tables before the first request. Generate a SQL migration with `d1AgentInvocationSchema()` and apply it with your D1 migration tool:
+The store creates its table and indexes on first use of each binding in a Worker isolate. The statements use `CREATE ... IF NOT EXISTS`, so concurrent isolates and existing tables are safe. A failed creation is retried on the next operation.
+
+To manage the schema with your own migrations, set `migrate: false` and apply `d1AgentInvocationSchema()` before the first request:
 
 ```ts [scripts/invocation-schema.ts]
 import { d1AgentInvocationSchema } from '@vite-hub/agent/invocations/d1'
@@ -321,13 +354,15 @@ import { d1AgentInvocationSchema } from '@vite-hub/agent/invocations/d1'
 console.log(d1AgentInvocationSchema().join(';\n') + ';')
 ```
 
-The adapter does not run schema changes during requests. `tablePrefix` defaults to `vitehub_agent_`; pass the same prefix to the schema function and store to use another table name. These statements create a new ViteHub-owned schema. They do not convert a custom application journal or the libSQL adapter's tables. Keep an existing journal until its records have been migrated explicitly.
+`tablePrefix` defaults to `vitehub_agent_`; pass the same prefix to the schema function and store to use another table name. The table is outside your Drizzle schema, so `vitehub db generate` does not create or drop it. These statements create a new ViteHub-owned schema. They do not convert a custom application journal or the libSQL adapter's tables. Keep an existing journal until its records have been migrated explicitly.
 
 D1 batches make creation and retention atomic. Conditional updates retry when another Worker changes the record, so concurrent observations are preserved. Claims use the database clock and fence updates after ownership changes. After 32 concurrent write conflicts, an update rejects instead of overwriting another writer. The store uses the same terminal-record retention defaults and observation deduplication as the libSQL store. It supports Agent, Capability, triggering-person, status, and text filters, lists recorded person labels with `listTriggeredBy()`, and reads summaries without observation payloads. Use `get(id, { observationNames })` to select observation payloads by name.
 
 [D1 limits a row to 2 MB](https://developers.cloudflare.com/d1/platform/limits/). The adapter caps retained observations at 1,000,000 UTF-8 bytes, even when the journal requests a larger limit. Each record exposes this resolved limit in `observationLimits`. It also checks the full row, including repeated summary and search text. If that row is too large, it removes ordinary observations and marks `observationsTruncated` while keeping lifecycle fields and previously appended evidence. If the remaining row still cannot fit, the update rejects before a database write. Use another store when the complete long trace must be retained.
 
-The adapter targets D1. It does not provide transactions for other Database providers. The database binding stays owned by the host; the store does not open or close it. Application redaction and route authorization remain application policy. Local D1 tests cover the SQL and concurrency contract; they do not measure production D1 limits or latency.
+The adapter targets D1. It does not provide transactions for other Database providers. The database binding stays owned by the host; the store does not open or close it. Use [`redact`](#redact-stored-evidence) to remove sensitive values before they reach D1. Route authorization remains application policy.
+
+On the Cloudflare preset, the Console journal uses this store with the D1 Database binding when no Agent Definition configures `invocations`. See [Cloudflare journal](/docs/development/console#cloudflare-journal). Local D1 tests cover the SQL and concurrency contract; they do not measure production D1 limits or latency.
 
 ## Append delivery evidence
 
@@ -345,7 +380,7 @@ The observation ID is required, must be at most 512 characters, and makes retrie
 
 ## Inspect invocations in the console
 
-Enable the [ViteHub Console](/docs/development/console) to browse retained sessions and inspect invocation events at `/_vitehub`. The Console is opt-in. Its page, Devframe transport, plugin, and assets do not exist when `console` is omitted or set to `false`.
+Enable the [ViteHub Console](/docs/development/console) to browse retained sessions and inspect invocation events at `/_vitehub`. The Console is opt-in. Its page, RPC endpoint, plugin, and assets do not exist when `console` is omitted or set to `false`.
 
 The Console guide covers Vite and Nuxt setup, fallback storage, production limits, usage records, and route authorization. An explicit `defineAgent({ invocations })` store remains authoritative when the Console is enabled.
 

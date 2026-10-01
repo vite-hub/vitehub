@@ -38,6 +38,13 @@ function fromDenoKey(key: DenoKVKey): string | undefined {
   return key.length === 1 && typeof key[0] === "string" ? key[0] : undefined
 }
 
+function toDenoExpireIn(ttl: unknown): { expireIn: number } | undefined {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Match unstorage's TTL normalization at the write-options boundary.
+  if (typeof ttl !== "number" || !Number.isFinite(ttl) || ttl <= 0) return undefined
+  const expireIn = Math.max(1, Math.ceil(ttl * 1_000))
+  return Number.isSafeInteger(expireIn) ? { expireIn } : undefined
+}
+
 export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = { driver: "deno-kv" }): KVRuntimeDriver {
   let kvPromise: Promise<DenoKV> | undefined
 
@@ -107,10 +114,7 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
       await (await open()).delete(toDenoKey(key))
     },
     async setItem(key, value, writeOptions) {
-      const ttl = writeOptions?.ttl
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Match unstorage's Deno TTL normalization at the write-options boundary.
-      const expireIn = typeof ttl === "number" && ttl > 0 ? { expireIn: ttl * 1_000 } : undefined
-      await (await open()).set(toDenoKey(key), value, expireIn)
+      await (await open()).set(toDenoKey(key), value, toDenoExpireIn(writeOptions?.ttl))
     },
   }
 }

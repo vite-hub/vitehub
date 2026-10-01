@@ -211,6 +211,47 @@ describe("blob vercel provision step", () => {
     return { environments, projectId }
   }
 
+  it("marks the plan unchecked without fetching when the project id is missing", async () => {
+    const fetchImpl = vi.fn<typeof fetch>()
+    const markPlanUnchecked = vi.fn()
+    const warn = vi.fn()
+
+    const actions = await createBlobVercelProvisionStep(() => ({ driver: "vercel-blob" })).plan({
+      env: { VERCEL_TOKEN: "vtoken" },
+      fetch: fetchImpl,
+      logger: { log: () => {}, warn },
+      markPlanUnchecked,
+    })
+
+    expect(actions).toEqual([])
+    expect(markPlanUnchecked).toHaveBeenCalledExactlyOnceWith()
+    expect(warn).toHaveBeenCalledExactlyOnceWith("blob: skipping Vercel Blob, missing VERCEL_TOKEN/VERCEL_PROJECT_ID.")
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it("does not mark nonapplicable Blob steps unchecked", async () => {
+    const fetchImpl = vi.fn<typeof fetch>()
+    const markPlanUnchecked = vi.fn()
+    const warn = vi.fn()
+    const provisionContext: ProvisionContext = {
+      env: {},
+      fetch: fetchImpl,
+      logger: { log: () => {}, warn },
+      markPlanUnchecked,
+    }
+
+    for (const step of [
+      createBlobCloudflareProvisionStep(() => ({ driver: "fs" })),
+      createBlobVercelProvisionStep(() => ({ driver: "fs" })),
+    ]) {
+      expect(await step.plan(provisionContext)).toEqual([])
+    }
+
+    expect(markPlanUnchecked).not.toHaveBeenCalled()
+    expect(warn).not.toHaveBeenCalled()
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
   it("re-reads list entries without connection metadata before connecting", async () => {
     const requests: Array<{ method: string, url: string, body: unknown }> = []
     const fetchImpl = vi.fn<typeof fetch>(async (input, init) => {
@@ -224,6 +265,7 @@ describe("blob vercel provision step", () => {
     const actions = await createBlobVercelProvisionStep(() => ({ driver: "vercel-blob" })).plan(context(fetchImpl))
     expect(actions).toHaveLength(1)
     expect(actions[0]!.exists).toBe(true)
+    expect(actions[0]!.pending).toBe(true)
     const result = await actions[0]!.apply()
 
     expect(result.ids).toBeUndefined()
@@ -231,6 +273,7 @@ describe("blob vercel provision step", () => {
     expect(JSON.stringify(requests)).not.toContain("secret-token")
     expect(requests).toEqual([
       { body: undefined, method: "GET", url: expect.stringContaining("/v1/storage/stores") },
+      { body: undefined, method: "GET", url: expect.stringContaining("/storage/stores/store_1") },
       { body: undefined, method: "GET", url: expect.stringContaining("/storage/stores/store_1") },
       {
         body: { envVarEnvironments: requiredEnvironments, projectId: "prj_1", type: "integration" },
@@ -253,8 +296,45 @@ describe("blob vercel provision step", () => {
     const actions = await createBlobVercelProvisionStep(() => ({ access: "private", driver: "vercel-blob" })).plan(context(fetchImpl))
     expect(actions).toHaveLength(1)
     expect(actions[0]!.exists).toBe(true)
+    expect(actions[0]!.pending).toBe(false)
     await actions[0]!.apply()
 
+    expect(fetchImpl).toHaveBeenCalledTimes(3)
+  })
+
+  it.each([false, true])("accepts a complete matching connection regardless of entry order with completeFirst=%s", async (completeFirst) => {
+    const projectsMetadata = [connectedProject("prj_1", ["production"]), connectedProject()]
+    if (completeFirst) projectsMetadata.reverse()
+    const fetchImpl = vi.fn<typeof fetch>(async (input, init) => {
+      if (init?.method === "POST") throw new Error("must not reconnect an equivalent store")
+      if (String(input).includes("/storage/stores/store_1")) {
+        return jsonResponse({ store: { projectsMetadata } })
+      }
+      return jsonResponse({ stores: [{ id: "store_1", type: "blob" }] })
+    })
+
+    const actions = await createBlobVercelProvisionStep(() => ({ driver: "vercel-blob" })).plan(context(fetchImpl))
+    expect(actions[0]!.exists).toBe(true)
+    expect(actions[0]!.pending).toBe(false)
+    await expect(actions[0]!.apply()).resolves.toEqual({})
+    expect(fetchImpl).toHaveBeenCalledTimes(3)
+  })
+
+  it("does not combine incomplete matching connections", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async (input, init) => {
+      if (init?.method === "POST") throw new Error("must not create a duplicate project connection")
+      if (String(input).includes("/storage/stores/store_1")) {
+        return jsonResponse({ store: { projectsMetadata: [
+          connectedProject("prj_1", ["production"]),
+          connectedProject("prj_1", ["preview", "development"]),
+          connectedProject("prj_other"),
+        ] } })
+      }
+      return jsonResponse({ stores: [{ id: "store_1", type: "blob" }] })
+    })
+
+    await expect(createBlobVercelProvisionStep(() => ({ driver: "vercel-blob" })).plan(context(fetchImpl)))
+      .rejects.toThrow("without all required environments")
     expect(fetchImpl).toHaveBeenCalledTimes(2)
   })
 
@@ -302,6 +382,7 @@ describe("blob vercel provision step", () => {
     const actions = await createBlobVercelProvisionStep(() => ({ access: "private", driver: "vercel-blob" })).plan(context(fetchImpl))
     expect(actions).toHaveLength(1)
     expect(actions[0]!.exists).toBe(false)
+    expect(actions[0]!.pending).toBe(true)
     await actions[0]!.apply()
 
     expect(requests).toEqual([
@@ -334,9 +415,26 @@ describe("blob vercel provision step", () => {
       return jsonResponse({ stores: [{ id: "store_1", type: "blob" }] })
     })
 
-    const actions = await createBlobVercelProvisionStep(() => ({ driver: "vercel-blob" })).plan(context(fetchImpl))
-    await expect(actions[0]!.apply()).rejects.toThrow("without all required environments")
+    await expect(createBlobVercelProvisionStep(() => ({ driver: "vercel-blob" })).plan(context(fetchImpl)))
+      .rejects.toThrow("without all required environments")
     expect(fetchImpl).toHaveBeenCalledTimes(2)
+  })
+
+  it("rejects a project connection that becomes incomplete after planning", async () => {
+    let reads = 0
+    const fetchImpl = vi.fn<typeof fetch>(async (input, init) => {
+      if (init?.method === "POST") throw new Error("must not create a duplicate project connection")
+      if (String(input).includes("/storage/stores/store_1")) {
+        reads++
+        return jsonResponse({ store: { projectsMetadata: reads === 1 ? [] : [connectedProject("prj_1", ["production"])] } })
+      }
+      return jsonResponse({ stores: [{ id: "store_1", type: "blob" }] })
+    })
+
+    const actions = await createBlobVercelProvisionStep(() => ({ driver: "vercel-blob" })).plan(context(fetchImpl))
+    expect(actions[0]!.pending).toBe(true)
+    await expect(actions[0]!.apply()).rejects.toThrow("without all required environments")
+    expect(fetchImpl).toHaveBeenCalledTimes(3)
   })
 
   it("accepts a concurrent connection only after the exact store proves equivalence", async () => {
@@ -346,14 +444,14 @@ describe("blob vercel provision step", () => {
       if (init?.method === "POST") return jsonResponse({ error: { code: "already_connected" } }, 400)
       if (url.includes("/storage/stores/store_1")) {
         reads++
-        return jsonResponse({ store: { projectsMetadata: reads === 1 ? [] : [connectedProject()] } })
+        return jsonResponse({ store: { projectsMetadata: reads <= 2 ? [] : [connectedProject()] } })
       }
       return jsonResponse({ stores: [{ id: "store_1", type: "blob" }] })
     })
 
     const actions = await createBlobVercelProvisionStep(() => ({ driver: "vercel-blob" })).plan(context(fetchImpl))
     await expect(actions[0]!.apply()).resolves.toEqual({})
-    expect(reads).toBe(2)
+    expect(reads).toBe(3)
   })
 
   it("does not treat an invalid connection type or a different project as success", async () => {
@@ -394,8 +492,8 @@ describe("blob vercel provision step", () => {
       return jsonResponse({ stores: [{ id: "store_1", type: "blob" }] })
     })
 
-    const actions = await createBlobVercelProvisionStep(() => ({ driver: "vercel-blob" })).plan(context(fetchImpl))
-    await expect(actions[0]!.apply()).rejects.toThrow("GET /storage/stores/store_1 (403)")
+    await expect(createBlobVercelProvisionStep(() => ({ driver: "vercel-blob" })).plan(context(fetchImpl)))
+      .rejects.toThrow("GET /storage/stores/store_1 (403)")
     expect(fetchImpl).toHaveBeenCalledTimes(2)
   })
 })

@@ -5,7 +5,7 @@ import { array, object, optional, parse, record, string } from "valibot"
 import { describe, expect, it } from "vitest"
 import { parse as parseYaml } from "yaml"
 
-const workflow = parse(object({ jobs: record(string(), object({
+const workflow = parse(object({ permissions: record(string(), string()), jobs: record(string(), object({
   name: optional(string()),
   needs: optional(array(string())),
   if: optional(string()),
@@ -26,6 +26,10 @@ function runGate(results: Record<string, { result: string }>, event = "pull_requ
 const successfulJobs = Object.fromEntries(jobNames.map(name => [name, { result: "success" }]))
 
 describe("CI merge gate", () => {
+  it("uses read-only repository credentials for verification", () => {
+    expect(workflow.permissions).toEqual({ contents: "read" })
+  })
+
   it("waits for every verification job and runs even when a dependency fails", () => {
     expect(gate.name).toBe("ci")
     expect(gate.needs?.toSorted()).toEqual(jobNames.toSorted())
@@ -72,5 +76,11 @@ describe("CI merge gate", () => {
 
   it.each(["checks", "package-tests"])("rejects skipped required job %s", (name) => {
     expect(runGate({ ...successfulJobs, [name]: { result: "skipped" } }).status).not.toBe(0)
+  })
+
+  it("requires new verification jobs to succeed unless explicitly allowed to skip", () => {
+    const result = runGate({ ...successfulJobs, "new-verification": { result: "skipped" } })
+    expect(result.status).not.toBe(0)
+    expect(result.stderr).toContain("new-verification: skipped")
   })
 })

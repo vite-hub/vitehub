@@ -165,7 +165,10 @@ export function applyUnsubscribe(message: EmailMessage, driver = "email"): Email
   }
   if (values.length > 0 && existingListUnsubscribe === undefined)
     headers["List-Unsubscribe"] = values.join(", ");
-  if (existingListUnsubscribePost !== undefined) {
+  if (oneClickEnabled && normalizedUrl && existingListUnsubscribePost === undefined)
+    headers["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click";
+  const listUnsubscribePost = existingListUnsubscribePost ?? headers["List-Unsubscribe-Post"];
+  if (listUnsubscribePost !== undefined) {
     const listUnsubscribe = existingListUnsubscribe ?? headers["List-Unsubscribe"];
     const targets = listUnsubscribe?.match(/<([^<>]*)>/g)?.map((target) => target.slice(1, -1));
     const webTargets = targets?.flatMap((target) => {
@@ -177,7 +180,7 @@ export function applyUnsubscribe(message: EmailMessage, driver = "email"): Email
       }
     });
     if (
-      existingListUnsubscribePost.trim().toLowerCase() !== "list-unsubscribe=one-click" ||
+      listUnsubscribePost.trim().toLowerCase() !== "list-unsubscribe=one-click" ||
       webTargets?.length !== 1 ||
       webTargets[0]?.protocol !== "https:"
     ) {
@@ -188,8 +191,6 @@ export function applyUnsubscribe(message: EmailMessage, driver = "email"): Email
       );
     }
   }
-  if (oneClickEnabled && normalizedUrl && existingListUnsubscribePost === undefined)
-    headers["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click";
   return { ...message, ...(Object.keys(headers).length > 0 ? { headers } : {}) };
 }
 

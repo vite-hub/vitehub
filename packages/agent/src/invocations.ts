@@ -181,6 +181,10 @@ export interface AgentInvocationsOptions {
   content?: TraceEventContentPolicy
   metadataContent?: readonly string[]
   observations?: AgentInvocationObservationOptions
+  /** Rewrite an observation after the content policy and before the store receives it. Return undefined to drop it. A throwing hook drops the observation. */
+  redact?: (observation: AgentInvocationRecord["observations"][number]) => AgentInvocationRecord["observations"][number] | undefined
+  /** Rewrite the error stored on a failed invocation. Return undefined to store no error details. A throwing hook stores no error details. */
+  redactError?: (error: NonNullable<AgentInvocationRecord["error"]>) => AgentInvocationRecord["error"]
   store: AgentInvocationStore
 }
 
@@ -208,6 +212,10 @@ interface BoundAgentInvocations extends AgentInvocations {
 export interface AgentInvocationJournal<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   configuration?: TraceEventContentPolicy
   context: AgentRuntimeContext<TRuntimeConfig>
+  /** The stored `traceId`, available after creation confirms the record identity. */
+  traceId: string | undefined
+  /** Wait for an asynchronous create attempt to resolve its stored identity. */
+  ready(): Promise<void>
   finish(status: Extract<AgentInvocationRecordStatus, "completed" | "failed" | "cancelled">, error?: unknown): Promise<void>
   running(): Promise<void>
   setAnnotations(annotations: AgentRunMetadata["annotations"]): Promise<void>
@@ -1653,6 +1661,34 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
   if (options.metadataContent?.some(key => !isTraceContentAttributeKey(key))) {
     throw agentDiagnostics.AGENT_R0626({ message: "[vitehub] Agent Invocations metadataContent entries must name content attributes." })
   }
+  if (options.redact !== undefined && !hasRuntimeType(options.redact, "function")) {
+    throw agentDiagnostics.AGENT_R0624({ message: "[vitehub] Agent Invocations redact must be a function." })
+  }
+  if (options.redactError !== undefined && !hasRuntimeType(options.redactError, "function")) {
+    throw agentDiagnostics.AGENT_R0624({ message: "[vitehub] Agent Invocations redactError must be a function." })
+  }
+  const redact = (observation: TraceEventLogEntry): TraceEventLogEntry | undefined => {
+    if (!options.redact) return observation
+    try {
+      const redacted = options.redact(cloneObservation(observation))
+      const identity = observationIdentity(observation)
+      if (!redacted || identity === undefined) return redacted
+      return {
+        ...redacted,
+        attributes: {
+          ...redacted.attributes,
+          [AGENT_INVOCATION_OBSERVATION_ID_ATTRIBUTE]: identity,
+        },
+      }
+    }
+    catch { return undefined }
+  }
+  const redactedError = (error: unknown): AgentInvocationRecord["error"] => {
+    const details = errorDetails(error)
+    if (!details || !options.redactError) return details
+    try { return options.redactError(structuredClone(details)) }
+    catch { return undefined }
+  }
   const configuredObservationLimits = observationLimits(options.observations)
   const content = options.content || "metadata"
   const metadataContent = new Set(options.metadataContent || [])
@@ -1668,7 +1704,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       const agentName = bindOptions.agentName || context.agentIdentity?.name
       const recordId = await agentInvocationId(runId, agentName)
       const claimId = createInvocationId()
-      const traceId = await boundedIdentity(context.trace?.id || runId)
+      let traceId = await boundedIdentity(context.trace?.id || runId)
       const annotations = normalizeAnnotations(context.run?.annotations)
       let writes = Promise.resolve()
       let finished = false
@@ -1712,6 +1748,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         if (!creationTask) {
           const task = Promise.resolve().then(() => store.create(createInput)).then((result) => {
             if (result) {
+              traceId = result.record.traceId
               limits = observationLimits(result.record.observationLimits)
               observationCount = result.record.observations.length
               observationsTruncated = result.record.observationsTruncated === true
@@ -1908,9 +1945,12 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           }
         }
       }
-      const observe = (observation: TraceEventLogEntry) => {
-        if (observation.attributes?.["vitehub.auxiliary.kind"] === "title"
-          && (observation.name === "agent.message.delta" || observation.name === "vitehub.agent.configured")) return
+      const observe = (entry: TraceEventLogEntry) => {
+        if (entry.attributes?.["vitehub.auxiliary.kind"] === "title"
+          && (entry.name === "agent.message.delta" || entry.name === "vitehub.agent.configured")) return
+        // Redact once here: every streamed persistence path, including late recovery, starts from this observation.
+        const observation = redact(entry)
+        if (!observation) return
         const capabilityId = observationCapabilityId(observation)
         if (capabilityId && observedCapabilityIds.size < MAX_CAPABILITY_IDS) observedCapabilityIds.add(capabilityId)
         if (finished) {
@@ -1947,6 +1987,10 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       }
       return {
         configuration: options.configuration,
+        get traceId() { return created ? traceId : undefined },
+        async ready() {
+          if (creationTask) await boundedStoreOperation(() => creationTask!)
+        },
         context: {
           ...context,
           run: { ...context.run, runId },
@@ -1980,7 +2024,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           if (runningRequested && !runningPersisted) {
             runningPersisted = await update({ status: "running", timestamp: new Date().toISOString() })
           }
-          const failure = errorDetails(error)
+          const failure = redactedError(error)
           for (const observation of pendingOutcomes.slice(0, -1)) {
             const persisted = await update({ observation, timestamp: observation.timestamp })
             if (!persisted && recoverableOutcomeObservation(observation)
@@ -2099,10 +2143,13 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       if (!existing) return undefined
       const limits = observationLimits(existing.observationLimits)
       const metadataContentValues = captureMetadataContentValues(event, metadataContent)
-      const observation = await createTraceEventLog({ content }).append(event)
-      if (content === "metadata") restoreMetadataContentValues(observation, metadataContentValues)
+      const entry = await createTraceEventLog({ content }).append(event)
+      if (content === "metadata") restoreMetadataContentValues(entry, metadataContentValues)
+      const observation = redact(entry)
+      if (!observation) return existing
       const prepared = await boundedJournalObservation({
         ...observation,
+        ...(observation.trace ? { trace: { ...observation.trace, id: existing.traceId } } : {}),
         attributes: { ...observation.attributes, [AGENT_INVOCATION_OBSERVATION_ID_ATTRIBUTE]: appendOptions.id },
       }, limits)
       const { sequence: _sequence, ...appendObservation } = prepared
