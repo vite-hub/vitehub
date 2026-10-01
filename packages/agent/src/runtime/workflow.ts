@@ -11,7 +11,7 @@ import { markAgentInvocationCallerAbortSignal } from "../internal/invocation-inp
 import { agentInvocationRecoveryTasks } from "../internal/invocation-recovery.ts"
 import { bindAgentInvocations } from "../invocations.ts"
 import { cloneWorkflowJsonValue, workflowBytesToBase64 } from "../internal/workflow-portability.ts"
-import { restoreResolvedAgentInvokerInput } from "../invoker.ts"
+import { agentInvokerInputReplayProvenance, restoreResolvedAgentInvokerInput } from "../invoker.ts"
 import { hasParsedAgentMessageMeta, restoreParsedAgentMessageMeta } from "../internal/message-meta.ts"
 import type { ParsedAgentMessageMetaState } from "../internal/message-meta.ts"
 import { toAgentRunResult } from "../agent-output.ts"
@@ -66,6 +66,7 @@ export interface AgentWorkflowInvocationPayload<CALL_OPTIONS = unknown> {
   parsedInputData?: boolean
   parsedMessageMeta?: ParsedAgentMessageMetaState
   resolvedInvoker?: boolean
+  resolvedInvokerReplay?: ReturnType<typeof agentInvokerInputReplayProvenance>
   run?: Partial<AgentRunMetadata>
   trace?: AgentRuntimeContext["trace"]
   runtime?: AgentRuntimeName
@@ -397,7 +398,7 @@ export async function runAgentWorkflowDefinition<TRuntimeConfig extends AgentRun
     const derivedInvokerNeedsResolution = payload.parsedMessageMeta?.derivedInvoker
       && !hasParsedAgentMessageMeta(agent, restoredWorkflowInput, runtimeContext.run)
     if (payload.resolvedInvoker && !derivedInvokerNeedsResolution) {
-      restoredWorkflowInput = restoreResolvedAgentInvokerInput(restoredWorkflowInput)
+      restoredWorkflowInput = restoreResolvedAgentInvokerInput(restoredWorkflowInput, payload.resolvedInvokerReplay)
     }
     if (payload.parsedInputData === true) {
       markParsedAgentWorkflowInput(restoredWorkflowInput, agent)

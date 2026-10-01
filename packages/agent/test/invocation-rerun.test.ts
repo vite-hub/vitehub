@@ -279,6 +279,60 @@ describe("agentInvocationRerunInput", () => {
     expect(agentInvocationRerunInput(record)).toEqual({ available: true, invokerProfileId: "reviewer", prompt: "Summarize the release notes." })
   })
 
+  it.each([false, true])("preserves a selected profile for a prepared invoker with portable restore %s", async portable => {
+    let input = withResolvedAgentInvokerInput({ context: { invokerProfileId: "reviewer" }, prompt: "Hi" }, { id: "request-owner", kind: "user" })
+    if (portable) input = restoreResolvedAgentInvokerInput(portableResolvedAgentInvokerInput(input))
+    const record = await journaled(input)
+    expect(record.observations.find(observation => observation.name === "agent.invocation.start")?.attributes)
+      .toMatchObject({ "input.hasInvoker": false, "input.hasContext": false, "input.hasResolvedInvoker": false })
+    const rerun = agentInvocationRerunInput(record)
+    expect(rerun).toEqual({ available: true, invokerProfileId: "reviewer", prompt: "Hi" })
+    if (!rerun.available) throw new Error("Expected a profile rerun.")
+    const resolve = vi.fn(() => ({ id: "console-owner", kind: "user" as const, label: "Console" }))
+    const replay = await journaled({ context: { invokerProfileId: rerun.invokerProfileId }, prompt: rerun.prompt }, {}, resolve)
+    expect(resolve).toHaveBeenCalledOnce()
+    expect(replay.observations.find(observation => observation.name === "agent.invocation.start")?.attributes)
+      .toMatchObject({ "agent.invoker.id": "console-owner" })
+  })
+
+  it.each(["actor", "invoker"])("retains direct caller %s authority after trusted preparation", async key => {
+    const input = withResolvedAgentInvokerInput({ context: { [key]: { id: "caller", kind: "user" }, invokerProfileId: "reviewer" }, prompt: "Hi" }, { id: "request-owner", kind: "user" })
+    expect(agentInvocationRerunInput(await journaled(input))).toEqual({ available: false, reason: "input-has-invoker" })
+  })
+
+  it("retains custom caller context after trusted preparation", async () => {
+    const input = withResolvedAgentInvokerInput({ context: { invokerProfileId: "reviewer", tenant: "acme" }, prompt: "Hi" }, { id: "request-owner", kind: "user" })
+    expect(agentInvocationRerunInput(await journaled(input))).toEqual({ available: false, reason: "input-has-context" })
+  })
+
+  it("retains custom context added after trusted preparation", async () => {
+    const prepared = withResolvedAgentInvokerInput({ context: { invokerProfileId: "reviewer" }, prompt: "Hi" }, { id: "request-owner", kind: "user" })
+    const input = { ...prepared, context: { ...prepared.context, tenant: "acme" } }
+    expect(agentInvocationRerunInput(await journaled(input))).toEqual({ available: false, reason: "input-has-context" })
+  })
+
+  it.each(["actor", "invoker"])("blocks a cloned replacement of prepared %s authority", async key => {
+    const prepared = withResolvedAgentInvokerInput({ context: { invokerProfileId: "reviewer" }, prompt: "Hi" }, { id: "request-owner", kind: "user" })
+    const input = { ...prepared, context: { ...prepared.context, [key]: { id: "replacement", kind: "user" } } }
+    expect(agentInvocationRerunInput(await journaled(input))).toEqual({ available: false, reason: "input-has-invoker" })
+  })
+
+  it("keeps captured direct caller provenance immutable", async () => {
+    const input = withResolvedAgentInvokerInput({ context: { invokerProfileId: "reviewer", invoker: { id: "caller", kind: "user" } }, prompt: "Hi" }, { id: "request-owner", kind: "user" })
+    const provenanceKey = Object.getOwnPropertySymbols(input.context!).find(key => key.description === "resolved Agent Invoker replay provenance")
+    if (!provenanceKey) throw new Error("Expected trusted provenance.")
+    const provenance: unknown = Reflect.get(input.context!, provenanceKey)
+    if (!v.is(v.record(v.string(), v.unknown()), provenance)) throw new Error("Expected provenance metadata.")
+    expect(Object.isFrozen(provenance)).toBe(true)
+    expect(Reflect.set(provenance, "hasInvoker", false)).toBe(false)
+    expect(agentInvocationRerunInput(await journaled(input))).toEqual({ available: false, reason: "input-has-invoker" })
+  })
+
+  it("blocks an unprofiled prepared invoker", async () => {
+    const input = withResolvedAgentInvokerInput({ prompt: "Hi" }, { id: "request-owner", kind: "user" })
+    expect(agentInvocationRerunInput(await journaled(input))).toEqual({ available: false, reason: "input-has-invoker" })
+  })
+
   it("keeps prompt replay available when unrelated metadata is bounded", async () => {
     const record = await journaled({ context: { invokerProfileId: "reviewer" }, prompt: "Complete prompt." }, {}, () => ({ id: "resolved", kind: "user", label: "x".repeat(2_000) }))
     expect(agentInvocationRerunInput(record)).toEqual({ available: true, invokerProfileId: "reviewer", prompt: "Complete prompt." })

@@ -4,7 +4,7 @@ import { emitTraceEvent } from "@vite-hub/runtime"
 import { redactCredentialText } from "./internal/credential-redaction.ts"
 
 import { agentErrorDetails } from "./agent-error.ts"
-import { agentInvokerLabel, hasResolvedAgentInvokerInput, hasResolverDerivedAgentInvoker, hasUnreplayableAgentInputContext, resolveInputAgentInvoker } from "./invoker.ts"
+import { agentInvokerInputReplayProvenance, agentInvokerLabel, hasReplayableAgentInvokerProfile, hasResolvedAgentInvokerInput, hasResolverDerivedAgentInvoker } from "./invoker.ts"
 import { isAttachmentPart, type Message, type StreamEvent } from "./messages.ts"
 import type {
   AgentDriverContribution,
@@ -87,6 +87,7 @@ function invocationAttributes(
   extra: Record<string, unknown> = {},
   includeInput = false,
 ) {
+  const replayProvenance = agentInvokerInputReplayProvenance(context.input)
   return {
     "agent.invoker.id": context.invoker.id,
     "agent.invoker.profile.id": context.context.get("agent.invoker.profile.id"),
@@ -97,12 +98,11 @@ function invocationAttributes(
     "channel.delivery.provider": context.runtime.channelDelivery?.provider,
     "channel.delivery.source.id": context.runtime.channelDelivery?.sourceId,
     "input.replay.version": 5,
-    "input.hasInvoker": resolveInputAgentInvoker(context.input.context) !== undefined
-      && !(hasResolvedAgentInvokerInput(context.input) && context.context.get("agent.invoker.profile.id") !== undefined),
+    "input.hasInvoker": replayProvenance.hasInvoker,
     // A resolver-derived invoker without a selected profile cannot be reconstructed by a rerun.
     "input.hasResolvedInvoker": (hasResolvedAgentInvokerInput(context.input) || hasResolverDerivedAgentInvoker(context.context))
-      && context.context.get("agent.invoker.profile.id") === undefined,
-    "input.hasContext": hasUnreplayableAgentInputContext(context.input.context),
+      && !hasReplayableAgentInvokerProfile(context.context),
+    "input.hasContext": replayProvenance.hasContext,
     "input.hasRunMetadata": Object.entries(context.runtime.run ?? {}).some(([key, value]) => key !== "runId" && value !== undefined),
     "input.hasDryRun": context.input.dryRun === true,
     "input.hasTimeout": context.input.timeout !== undefined,
