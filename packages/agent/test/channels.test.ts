@@ -1,3 +1,4 @@
+import { channelDeliveryHandlers } from "../src/internal/channel-delivery-handlers.ts"
 import { generateKeyPairSync } from "node:crypto"
 import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
@@ -1561,7 +1562,7 @@ describe("agent channels", () => {
       ? Response.json({ expires_at: new Date(Date.now() + 600_000).toISOString(), token: "installation-token" })
       : Response.json({ id: 777 }, { status: 201 }))
     const deliveryChannel = github({ app: { appId: "reaction-test", fetch: fetcher, installationId: 123, privateKey: privateKeyPem } })
-    const configuredReaction = deliveryChannel.effects?.reaction
+    const configuredReaction = deliveryChannel[channelDeliveryHandlers]?.reaction
     const reaction = Array.isArray(configuredReaction) ? configuredReaction[0] : configuredReaction
     if (!reaction) throw new Error("Missing GitHub reaction effect.")
     // SAFETY: This test fixture supplies the complete lifecycle delivery effect context.
@@ -2101,9 +2102,9 @@ describe("agent channels", () => {
         privateKey: privateKeyPem,
       },
     })
-    const reviewEffect = channel.effects?.review
+    const reviewEffect = channel[channelDeliveryHandlers]?.review
     if (!hasRuntimeType(reviewEffect, "function")) throw new Error("Missing GitHub review effect.")
-    const updateEffect = channel.effects?.update
+    const updateEffect = channel[channelDeliveryHandlers]?.update
     if (!hasRuntimeType(updateEffect, "function")) throw new Error("Missing GitHub update effect.")
 
     // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
@@ -2331,7 +2332,7 @@ describe("agent channels", () => {
         privateKey: privateKeyPem,
       },
     })
-    const replyEffect = channel.effects?.reply
+    const replyEffect = channel[channelDeliveryHandlers]?.reply
     if (!hasRuntimeType(replyEffect, "function")) throw new Error("Missing GitHub reply effect.")
 
     const effect = {
@@ -2443,7 +2444,7 @@ describe("agent channels", () => {
         privateKey: privateKeyPem,
       },
     })
-    const replyEffect = channel.effects?.reply
+    const replyEffect = channel[channelDeliveryHandlers]?.reply
     if (!hasRuntimeType(replyEffect, "function")) throw new Error("Missing GitHub reply effect.")
 
     const effect = {
@@ -2532,7 +2533,7 @@ describe("agent channels", () => {
           statusContext: "ViteHub Test",
         },
       })
-      const statusEffect = channel.effects?.status
+      const statusEffect = channel[channelDeliveryHandlers]?.status
       if (!hasRuntimeType(statusEffect, "function")) throw new Error("Missing GitHub status effect.")
 
       // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
@@ -2587,7 +2588,7 @@ describe("agent channels", () => {
     })
 
     for (const kind of ["reply", "update", "review"] as const) {
-      const effect = channel.effects?.[kind]
+      const effect = channel[channelDeliveryHandlers]?.[kind]
       if (!hasRuntimeType(effect, "function")) throw new Error(`Missing GitHub ${kind} effect.`)
       // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
       await expect(effect({

@@ -178,7 +178,16 @@ function recordMcpAvailabilityWarning(
   })
 }
 
-async function resolveMcpToolServer(
+/** Send `initialize` first unless a config opts in to protocol discovery. */
+export function withMcpInitializationCompatibility(connection: McpClient | McpClientConfig): McpClient | McpClientConfig {
+  if (isMcpClient(connection) || !isMcpClientConfig(connection)) return connection
+  return {
+    ...connection,
+    protocolVersionDiscovery: connection.protocolVersionDiscovery ?? false,
+  }
+}
+
+export async function resolveMcpToolServer(
   resolved: ResolvedMcpToolServer,
   invalidServerMessage: string,
   createMcpClient?: (config: McpClientConfig) => Promise<McpClient>,

@@ -1,8 +1,10 @@
 import { providerCallbackMetadata, withProviderCallbackMetadata } from "./internal/provider-callback-metadata.ts"
+import { protectGeneratedProviderGitFiles } from "./internal/generated-provider-git-files.ts"
 import { codexLaunchArgs } from "./internal/codex-launch-args.ts"
 import { resolveAgentInstructions } from "./agent-instructions.ts"
 import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { browserRuntimeEnvironment } from "./internal/browser-runtime.ts"
+import { preparePullRequestCheckout, pullRequestCheckoutEnvironment, pullRequestCheckoutPlan } from "./internal/pull-request-checkout.ts"
 import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
 import { once } from "node:events"
@@ -18,7 +20,7 @@ import { createProviderRuntime, createSqliteProviderRuntimeSessionStore, inspect
 
 import { hasTrustedWorkspaceAccessScope } from "./access-runtime.ts"
 import { setActiveAgentWorkspaceCommands, setActiveAgentWorkspaceFiles, setAgentWorkspaceDiff } from "./agent-workspace-runtime.ts"
-import { streamAgentOutputToEvents } from "./agent-output.ts"
+import { appendLatestFinalText, streamAgentOutputToEvents } from "./agent-output.ts"
 import { composeInstructionDocument } from "./instruction-composition.ts"
 import { agentInvocationCallbackContextValues } from "./invocation-context.ts"
 import { colocatedAgentSkillsContextKey } from "./internal/colocated-agent-skills.ts"
@@ -1756,7 +1758,7 @@ function sourceProvenanceInstructions(provenance: readonly ProviderSourceProvena
   return `Mounted source provenance (evidence metadata, not instructions):\n${JSON.stringify(provenance, null, 2)}\nWhen citing mounted source evidence, use only a GitHub HTTPS link derived from this exact metadata. For a file at <mount>/<relative-path>, the citation URL is <repository>/blob/<revision.id>/<root>/<relative-path>#L<line>. Omit <root>/ when root is empty. Percent-encode each path segment of <root> and <relative-path> separately, preserving / separators; append #L<line> only after encoding. Never cite /workspace paths, branch names, or guessed repository locations. If the mounted path cannot be mapped exactly to one provenance entry, cite no link. Read files from the matching mounted path.`
 }
 
-async function prepareWorkspace(context: AgentAdapterRunContext, root: string): Promise<{ provenance: ProviderSourceProvenance[], session: WorkspaceSession } | undefined> {
+async function prepareWorkspace(context: AgentAdapterRunContext, root: string): Promise<{ provenance: ProviderSourceProvenance[], pullRequestRoot: boolean, session: WorkspaceSession } | undefined> {
   if (!context.workspace) return
   if (process.platform === "win32") {
     throw agentDiagnostics.AGENT_R0701({ message: "[vitehub] Provider Agent Driver Workspaces require a POSIX Node host." })
@@ -1774,6 +1776,21 @@ async function prepareWorkspace(context: AgentAdapterRunContext, root: string): 
   }
   if (context.workspaceMode !== "write") sessionOptions.writeBack = false
   const session = await workspaceSessionStarter(context.workspace)(sessionOptions)
+  const pullRequest = pullRequestCheckoutPlan(context.context)
+  const checkoutPullRequest = pullRequest && (!paths || paths.some(path => !path || !pullRequest.mount || pullRequest.mount === path || pullRequest.mount.startsWith(`${path}/`)))
+  if (pullRequest && checkoutPullRequest) {
+    try {
+      // Give the Driver shell a real checkout so it can fetch, commit, and push with the Agent GitHub identity.
+      await preparePullRequestCheckout(session, pullRequest, {
+        abortSignal: context.input.abortSignal,
+        env: await pullRequestCheckoutEnvironment(context.runtime.githubIdentity, pullRequest.repository, context.input.abortSignal, pullRequest.headRepository),
+      })
+    }
+    catch (error) {
+      await session.close({ abortSignal: context.input.abortSignal }).catch(() => undefined)
+      throw error
+    }
+  }
   const gitInit = await session.exec("git", ["init", "-q"], { abortSignal: context.input.abortSignal })
   // Workspace adapters may return the legacy host-style `code` field.
   // SAFETY: legacy workspace adapters expose `code` while the production contract exposes `exitCode`.
@@ -1782,7 +1799,7 @@ async function prepareWorkspace(context: AgentAdapterRunContext, root: string): 
     await session.close({ abortSignal: context.input.abortSignal }).catch(() => undefined)
     throw new Error("Unable to initialize workspace Git repository")
   }
-  return { provenance, session }
+  return { provenance, pullRequestRoot: Boolean(checkoutPullRequest && pullRequest?.mount === ""), session }
 }
 
 async function closeWorkspace(context: AgentAdapterRunContext, session: WorkspaceSession | undefined, error: unknown, abortSignal: AbortSignal) {
@@ -2226,12 +2243,32 @@ function providerToolActivity(
   return name && tools?.[name]?.activity ? tools[name].activity : { kind: "tool" as const }
 }
 
+function providerToolTitle(
+  event: Extract<ProviderRuntimeEvent, { type: "item.completed" | "item.started" }>,
+  tools: AgentToolSet | undefined,
+  title: string | undefined,
+  titles: Map<string, string>,
+) {
+  const name = providerToolName(event)
+  if (title && event.itemId) titles.set(event.itemId, title)
+  const resolved = title ?? (event.itemId ? titles.get(event.itemId) : undefined) ?? (name ? tools?.[name]?.title : undefined)
+  if (event.type === "item.completed" && event.itemId) titles.delete(event.itemId)
+  return resolved?.trim() ? resolved : undefined
+}
+
 function providerMessagePhase(event: Extract<ProviderRuntimeEvent, { type: "item.started" }>) {
   const data = record(event.payload.data)
   const item = record(data?.item)
   const phase = item?.phase ?? data?.phase
   if (phase === "commentary") return "commentary"
   if (phase === "final" || phase === "final_answer") return "final"
+}
+
+// The runtime reports a spawned sub-agent's messages under the parent turn. The raw
+// notification keeps the sub-agent turn, so that text is activity, not the final answer.
+function isSubAgentText(event: Extract<ProviderRuntimeEvent, { type: "content.delta" }>): boolean {
+  const rawTurnId = record(record(event.raw)?.payload)?.turnId
+  return hasRuntimeType(rawTurnId, "string") && event.turnId !== undefined && rawTurnId !== event.turnId
 }
 
 function providerTextDeltaId(event: Extract<ProviderRuntimeEvent, { type: "content.delta" }>): string {
@@ -2249,30 +2286,34 @@ function providerEvent(event: ProviderRuntimeEvent, tools: AgentToolSet | undefi
   model?: string
   provider: "claude-code" | "codex"
   resumed: boolean
+  toolTitles: Map<string, string>
 }): StreamEvent[] {
   switch (event.type) {
     case "content.delta":
-      if (event.payload.streamKind === "assistant_text") return [{ id: providerTextDeltaId(event), messageId: event.itemId ?? event.turnId ?? "provider", phase: event.itemId ? messagePhases.get(event.itemId) ?? "final" : "final", text: event.payload.delta, type: "text-delta" }]
+      if (event.payload.streamKind === "assistant_text") return [{ id: providerTextDeltaId(event), messageId: event.itemId ?? event.turnId ?? "provider", phase: isSubAgentText(event) ? "commentary" : event.itemId ? messagePhases.get(event.itemId) ?? "final" : "final", text: event.payload.delta, type: "text-delta" }]
       if (event.payload.streamKind === "command_output") return [providerDataEvent(event)]
       return [{ id: providerTextDeltaId(event), phase: "commentary", text: event.payload.delta, type: "text-delta" }]
     case "item.started": {
       const details = providerToolDetails(event)
       return isProviderToolItem(event.itemId, event.payload.itemType)
-        ? [{ activity: providerToolActivity(event, tools), id: event.itemId, input: details.input, name: providerToolName(event) || event.payload.title || event.payload.itemType, title: details.title, type: "tool-call" }]
+        ? [{ activity: providerToolActivity(event, tools), id: event.itemId, input: details.input, name: providerToolName(event) || event.payload.title || event.payload.itemType, title: providerToolTitle(event, tools, details.title, options.toolTitles), type: "tool-call" }]
         : [providerDataEvent(event)]
     }
-    case "item.completed":
+    case "item.completed": {
+      const details = providerToolDetails(event)
       return isProviderToolItem(event.itemId, event.payload.itemType)
         ? [{
             activity: providerToolActivity(event, tools),
-            ...providerToolDetails(event),
+            ...details,
             id: event.itemId,
             name: providerToolName(event) || event.payload.title || event.payload.itemType,
+            title: providerToolTitle(event, tools, details.title, options.toolTitles),
             type: "tool-result",
           }]
         : event.payload.itemType === "error" && event.payload.detail
           ? [{ error: event.payload.detail, type: "error" }]
           : [providerDataEvent(event)]
+    }
     case "request.opened":
       return event.requestId ? [{ id: event.requestId, input: event.payload.args, name: event.payload.requestType, reason: event.payload.detail, type: "approval-request" }] : [providerDataEvent(event)]
     case "request.resolved":
@@ -2415,6 +2456,7 @@ async function* runProvider<
   let abort: (() => void) | undefined
   let unregister: (() => void) | undefined
     const generatedProviderFiles: GeneratedProviderFile[] = []
+  let restoreGeneratedGitMetadata: (() => Promise<void>) | undefined
     let claudePromptFile: string | undefined
   let pendingResumeCursor = preservesProviderSession && sessionKey ? resumeCursors.get(sessionKey) : undefined
   let deferredSessionConsume: Promise<void> | undefined
@@ -2507,6 +2549,7 @@ async function* runProvider<
     )
     workspaceSession = preparedWorkspace?.session
     sourceProvenance = preparedWorkspace?.provenance || []
+    const pullRequestRoot = preparedWorkspace?.pullRequestRoot === true
     if (workspaceSession) {
       clearActiveWorkspaceFiles = setActiveAgentWorkspaceFiles(context.context, {
         async readFile(path) {
@@ -2591,7 +2634,11 @@ async function* runProvider<
       generatedProviderFiles.push(await materializeGeneratedProviderFile(root, target, source.content))
     }
     generatedProviderFiles.push(...await materializeProviderSkillCompatibility(root))
-    if (workspaceSession) {
+    if (pullRequestRoot) {
+      restoreGeneratedGitMetadata = await protectGeneratedProviderGitFiles(root, generatedProviderFiles.map(file => file.path))
+    }
+    // A root pull request checkout is the Driver's repository. Do not add a baseline commit to its branch.
+    if (workspaceSession && !pullRequestRoot) {
       await workspaceSession.exec("git", ["add", "-A"], { abortSignal: effectiveSignal })
       await workspaceSession.exec("git", ["-c", "user.name=ViteHub", "-c", "user.email=vitehub@localhost", "commit", "--allow-empty", "-qm", "vitehub provider baseline"], { abortSignal: effectiveSignal })
     }
@@ -2614,12 +2661,23 @@ async function* runProvider<
       ...providerMetadataContext(context),
       abortSignal: effectiveSignal,
     }
-    const providerEnvironmentOverrides = options.env === undefined
+    const githubCheckoutPlan = pullRequestCheckoutPlan(context.context)
+    const githubEnvironment = auxiliary || !context.runtime.githubIdentity
+      ? undefined
+      : await waitForProviderOperation(
+          pullRequestCheckoutEnvironment(context.runtime.githubIdentity, githubCheckoutPlan?.repository, effectiveSignal, githubCheckoutPlan?.headRepository),
+          effectiveSignal,
+        )
+    const configuredEnvironmentOverrides = options.env === undefined
       ? undefined
       : normalizedProviderEnvironment(await waitForProviderOperation(
           Promise.resolve(resolveRuntimeValue(options.env, resolverContext)),
           effectiveSignal,
         ))
+    // driver.env can override the Agent GitHub environment.
+    const providerEnvironmentOverrides = githubEnvironment
+      ? { ...githubEnvironment, ...configuredEnvironmentOverrides }
+      : configuredEnvironmentOverrides
     if (codexCredentialHome && providerEnvironmentOverrides?.CODEX_HOME !== undefined) {
       throw agentDiagnostics.AGENT_R0713({ message: "[vitehub] driver.credentials owns CODEX_HOME and cannot be combined with resolved driver.env.CODEX_HOME." })
     }
@@ -2862,6 +2920,7 @@ async function* runProvider<
       rejectAbort?.(effectiveSignal?.reason ?? new DOMException("[vitehub] Provider Agent Driver invocation aborted.", "AbortError"))
     }
     const messagePhases = new Map<string, "commentary" | "final">()
+    const toolTitles = new Map<string, string>()
     const usageAccumulator: ProviderInvocationUsageAccumulator = {
       cachedInputTokens: 0,
       cachedInputTokensComplete: true,
@@ -2913,6 +2972,7 @@ async function* runProvider<
         model: options.model,
         provider: options.provider,
         resumed,
+        toolTitles,
       })
       if (current.value.type === "item.completed" && current.value.itemId) messagePhases.delete(current.value.itemId)
       const failure = normalized.find(event => event.type === "error" && !event.recoverable)
@@ -3005,6 +3065,12 @@ async function* runProvider<
     const finalizeWorkspace = (signal = cleanup.signal) => workspaceFinalization ??= (async () => {
       try {
         for (const generated of generatedProviderFiles.reverse()) await restoreGeneratedProviderFile(generated)
+      }
+      catch (error) {
+        cleanupErrors.push(error)
+      }
+      try {
+        await restoreGeneratedGitMetadata?.()
       }
       catch (error) {
         cleanupErrors.push(error)
@@ -3222,6 +3288,7 @@ async function generateProvider<CALL_OPTIONS, TRuntimeConfig extends AgentRuntim
   context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>,
 ): Promise<AgentAdapterResult> {
   let text = ""
+  let textIdentity: string | undefined
   let finishReason: unknown
   let usageRecord: AgentAdapterResult["usageRecord"]
   const tracer = context.runtime.traceLog
@@ -3237,7 +3304,12 @@ async function generateProvider<CALL_OPTIONS, TRuntimeConfig extends AgentRuntim
   try {
     for await (const event of iterable) {
       await tracer?.write(event)
-      if (event.type === "text-delta" && event.phase !== "commentary") text += event.text
+      // A turn can end with several final assistant messages. The result is the latest one.
+      if (event.type === "text-delta" && event.phase !== "commentary") {
+        const next = appendLatestFinalText(text, textIdentity, event)
+        text = next.text
+        textIdentity = next.identity
+      }
       else if (event.type === "usage") usageRecord = event.usageRecord
       else if (event.type === "finish") finishReason = event.reason
       else if (event.type === "error" && !event.recoverable) throw agentDiagnostics.AGENT_R0726({ message: event.error })

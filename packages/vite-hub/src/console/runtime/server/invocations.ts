@@ -26,7 +26,7 @@ import type { Value } from "@libsql/client"
 import type { ConsoleUsageClient } from "./usage-index.ts"
 import type { AgentInvocationRecord, AgentInvocationSummary, AgentInvocations } from "@vite-hub/agent"
 import type { AgentInvocationD1Database, AgentInvocationD1Statement } from "@vite-hub/agent/invocations/d1"
-import type { AgentInvocationsOptions } from "@vite-hub/agent/server"
+import type { AgentInvocationRetentionOptions, AgentInvocationsOptions } from "@vite-hub/agent/server"
 import type { ConsoleFixture } from "../../fixture.ts"
 import type { SqliteRemoteDatabase } from "drizzle-orm/sqlite-proxy"
 import type { LibSQLDatabase } from "drizzle-orm/libsql"
@@ -121,8 +121,9 @@ const consoleInvocationDatabases = new WeakMap<AgentInvocations, ConsoleInvocati
 const consoleDatabaseConfigurations = new WeakMap<AgentInvocations, string>()
 const consoleObservationConfigurations = new WeakMap<AgentInvocations, string>()
 
-function observationConfiguration(observations: AgentInvocationsOptions["observations"]): string {
-  return JSON.stringify(observations, ["maxCount", "maxStringLength", "maxBytes", "flushTimeoutMs"]) ?? "undefined"
+function observationConfiguration(observations: AgentInvocationsOptions["observations"], retention?: AgentInvocationRetentionOptions): string {
+  const configuration = JSON.stringify(observations, ["maxCount", "maxStringLength", "maxBytes", "flushTimeoutMs"]) ?? "undefined"
+  return retention === undefined ? configuration : `${configuration}:${JSON.stringify(retention, ["maxAgeMs", "maxRecords"])}`
 }
 
 export function getConsoleInvocations(): AgentInvocations {
@@ -198,7 +199,7 @@ function isD1Database(value: unknown): value is ConsoleD1Database {
 }
 
 /** Console journal in the app's D1 database. The store creates its table on first use and keeps its default retention. */
-export function createConsoleD1Invocations(d1: ConsoleD1Journal, observations?: AgentInvocationsOptions["observations"]): AgentInvocations {
+export function createConsoleD1Invocations(d1: ConsoleD1Journal, observations?: AgentInvocationsOptions["observations"], retention?: AgentInvocationRetentionOptions): AgentInvocations {
   // Keep only completed initialization; Worker requests cannot share pending I/O.
   const migrated = new WeakSet<AgentInvocationD1Database>()
   const database = async () => {
@@ -216,7 +217,7 @@ export function createConsoleD1Invocations(d1: ConsoleD1Journal, observations?: 
     configuration: "content",
     metadataContent: consoleMetadataContent,
     observations,
-    store: createD1AgentInvocationStore({ database, migrate: false }),
+    store: createD1AgentInvocationStore({ database, migrate: false, ...retention }),
   })
   const db = drizzleRemote(async (query, parameters, method) => {
     const binding = await database()
@@ -271,11 +272,12 @@ export function createConsoleD1Invocations(d1: ConsoleD1Journal, observations?: 
     },
   })
   consoleDatabaseConfigurations.set(invocations, `d1:${d1.binding}`)
-  consoleObservationConfigurations.set(invocations, observationConfiguration(observations))
+  consoleObservationConfigurations.set(invocations, observationConfiguration(observations, retention))
   return invocations
 }
 
-export function createConsoleInvocations(projectRoot: string, observations?: AgentInvocationsOptions["observations"], databaseUrl?: string): AgentInvocations {
+/** Console journals keep every terminal record unless `retention` sets a limit. */
+export function createConsoleInvocations(projectRoot: string, observations?: AgentInvocationsOptions["observations"], databaseUrl?: string, retention?: AgentInvocationRetentionOptions): AgentInvocations {
   const database = resolveConsoleDatabaseOptions(projectRoot, databaseUrl)
   const client = createClient(database)
   let invocations: AgentInvocations
@@ -286,8 +288,8 @@ export function createConsoleInvocations(projectRoot: string, observations?: Age
       observations,
       store: createLibsqlAgentInvocationStore({
         client,
-        maxAgeMs: false,
-        maxRecords: false,
+        maxAgeMs: retention?.maxAgeMs === undefined ? false : retention.maxAgeMs,
+        maxRecords: retention?.maxRecords === undefined ? false : retention.maxRecords,
       }),
     })
   }
@@ -296,7 +298,7 @@ export function createConsoleInvocations(projectRoot: string, observations?: Age
     throw error
   }
   consoleDatabaseConfigurations.set(invocations, database.url)
-  consoleObservationConfigurations.set(invocations, observationConfiguration(observations))
+  consoleObservationConfigurations.set(invocations, observationConfiguration(observations, retention))
   consoleUsageIndexes.set(invocations, createConsoleUsageIndex(client))
   consoleInvocationDatabases.set(invocations, {
     driver: "libsql",
@@ -325,19 +327,20 @@ export function installConsoleInvocations(
   observations?: AgentInvocationsOptions["observations"],
   databaseUrl?: string,
   d1?: ConsoleD1Journal,
+  retention?: AgentInvocationRetentionOptions,
 ): AgentInvocations {
   const resolvedRoot = resolve(projectRoot)
   const identity = createConsoleInvocationsIdentity(resolvedRoot)
   const installed = resolveConsoleInvocations()
   const installedConfiguration = installed && consoleObservationConfigurations.get(installed)
   const sameConfiguration = installedConfiguration === undefined
-    ? observations === undefined
-    : installedConfiguration === observationConfiguration(observations)
+    ? observations === undefined && retention === undefined
+    : installedConfiguration === observationConfiguration(observations, retention)
   // VITEHUB_CONSOLE_DATABASE_URL still selects libSQL at runtime.
   const useD1 = d1 !== undefined && !process.env.VITEHUB_CONSOLE_DATABASE_URL?.trim()
   const databaseConfiguration = () => useD1 ? `d1:${d1.binding}` : resolveConsoleDatabaseOptions(resolvedRoot, databaseUrl).url
   if (installed && resolveConsoleInvocationsIdentity() === identity && (configuredInvocations ? installed === configuredInvocations : sameConfiguration && consoleDatabaseConfigurations.get(installed) === databaseConfiguration())) return installed
-  const invocations = configuredInvocations ?? (useD1 ? createConsoleD1Invocations(d1, observations) : createConsoleInvocations(resolvedRoot, observations, databaseUrl))
+  const invocations = configuredInvocations ?? (useD1 ? createConsoleD1Invocations(d1, observations, retention) : createConsoleInvocations(resolvedRoot, observations, databaseUrl, retention))
   installConsoleInvocationFallback(invocations, resolvedRoot, globalThis, identity)
   return invocations
 }

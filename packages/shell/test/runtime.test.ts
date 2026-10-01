@@ -117,12 +117,12 @@ describe("@vite-hub/shell just-bash runtime", () => {
     await expect(session.dispose()).resolves.toMatchObject({ event: "session_disposed" })
   })
 
-  it("runs controlled curl through the just-bash provider network boundary", async () => {
+  it.each([{ commands: ["curl"] }, { commands: undefined }])("runs controlled curl through the just-bash provider network boundary with commands $commands", async ({ commands }) => {
     const workspace = new MemoryWorkspace({})
     const executeSourceRequest = vi.fn(async () => ({ content: "ok\n" }))
     const runtime = createShellRuntime({
       provider: createJustBashProvider({
-        commands: ["curl"],
+        commands,
         cwd: workspaceMountPoint,
         fs: createReadonlyWorkspaceFs(workspace),
         networkGrants: { executeSourceRequest },
@@ -140,6 +140,49 @@ describe("@vite-hub/shell just-bash runtime", () => {
       method: "POST",
       url: "https://portal.example.com/runtime/inventory-health",
     })
+  })
+
+  it.each([{ commands: [] }, { commands: ["cat"] }])("rejects controlled curl when commands $commands do not permit it", async ({ commands }) => {
+    const executeSourceRequest = vi.fn(async () => ({ content: "private" }))
+    const runtime = createShellRuntime({
+      provider: createJustBashProvider({
+        commands,
+        fs: createReadonlyWorkspaceFs(new MemoryWorkspace({})),
+        networkGrants: { executeSourceRequest },
+      }),
+    })
+
+    expect(runtime.boundary.network).toBe(false)
+    await expect(runtime.exec("curl -X POST https://portal.example.com/action")).resolves.toMatchObject({
+      event: "policy_denied",
+      exitCode: 126,
+      stderr: expect.stringContaining("not in the permitted commands"),
+    })
+    expect(executeSourceRequest).not.toHaveBeenCalled()
+  })
+
+  it.each([true, false])("preserves the command policy after caller mutation when curl is permitted: %s", async (permitted) => {
+    const commands = permitted ? ["curl", "echo"] : ["cat"]
+    const executeSourceRequest = vi.fn(async () => ({ content: "ok\n" }))
+    const options = {
+      commands,
+      fs: createReadonlyWorkspaceFs(new MemoryWorkspace({})),
+      networkGrants: { executeSourceRequest },
+    }
+    const runtime = createShellRuntime({ provider: createJustBashProvider(options) })
+
+    commands.splice(0, commands.length, ...(permitted ? ["cat"] : ["curl", "echo"]))
+    options.commands = commands.slice()
+
+    expect(runtime.boundary.network).toBe(permitted)
+    await expect(runtime.exec("curl https://portal.example.com/action")).resolves.toMatchObject({
+      event: permitted ? "command_finished" : "policy_denied",
+      exitCode: permitted ? 0 : 126,
+    })
+    expect(executeSourceRequest).toHaveBeenCalledTimes(permitted ? 1 : 0)
+    const echo = await runtime.exec("echo hello")
+    if (permitted) expect(echo).toMatchObject({ exitCode: 0, stdout: "hello\n" })
+    else expect(echo.exitCode).not.toBe(0)
   })
 
   it("unregisters stopped long-running processes from session state", async () => {

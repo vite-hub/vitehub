@@ -128,18 +128,20 @@ export type WorkspaceToolOperations = WorkspaceReadOperations & {
   write?: true | WorkspaceWriteOperations
 }
 
-export interface WorkspaceToolOptions<Operations extends WorkspaceToolOperations | undefined = undefined> extends Pick<ShellSessionPolicy, "maxOutputLength" | "maxShellCalls" | "timeout"> {
+export interface WorkspaceToolOptions<Operations extends WorkspaceToolOperations | undefined = undefined, SourceRequests extends boolean = boolean> extends Pick<ShellSessionPolicy, "maxOutputLength" | "maxShellCalls" | "timeout"> {
   broadSearchPaths?: string[]
   cwd?: string
   executionProvider?: ShellExecutionProvider | (() => MaybePromise<ShellExecutionProvider | undefined>)
   operations?: Operations
+  sourceRequests?: SourceRequests
 }
 
 export type EnabledReadCapability<Operations, Key extends keyof WorkspaceReadOperations> = Operations extends Record<Key, infer Value>
   ? Value extends false ? false : true
   : true
 
-export type ShellEnabled<Operations> = true extends
+export type ShellEnabled<Operations, SourceRequests extends boolean = false> = true extends
+  | SourceRequests
   | EnabledReadCapability<Operations, "list">
   | EnabledReadCapability<Operations, "read">
   | EnabledReadCapability<Operations, "search">
@@ -167,7 +169,7 @@ type EnabledWriteTools<Selection> = Selection extends true
       }
     : {}
 
-export type WorkspaceTools<Operations = undefined> = ((ShellEnabled<Operations> extends true
+export type WorkspaceTools<Operations = undefined, SourceRequests extends boolean = false> = ((ShellEnabled<Operations, SourceRequests> extends true
   ? { shell: Tool<{ command: string }, WorkspaceShellResult> }
   : {}) & EnabledWriteTools<ResolvedWriteOperations<Operations>>
   & (Operations extends { materialize: true }
@@ -379,7 +381,7 @@ async function runShellCommand(
   const { createReadonlyWorkspaceFs, runWorkspaceInspectionCommand } = await loadWorkspaceShellModule() as WorkspaceShellModule
   const inspectionOptions = {
     broadSearchPaths: options.broadSearchPaths,
-    commands: networkGrants ? [...options.commands, "curl"] : options.commands,
+    commands: options.commands,
     cwd: options.cwd,
     fs: createReadonlyWorkspaceFs(input),
     maxOutputLength: options.maxOutputLength,
@@ -577,10 +579,10 @@ function createWriteTools(workspace: Workspace, enabled: ReturnType<typeof resol
   return result
 }
 
-export function createWorkspaceTools<Operations extends WorkspaceToolOperations | undefined = undefined>(
+export function createWorkspaceTools<Operations extends WorkspaceToolOperations | undefined = undefined, SourceRequests extends boolean = false>(
   input: Workspace | WorkspaceAssets,
-  options: WorkspaceToolOptions<Operations> = {},
-): WorkspaceTools<Operations> {
+  options: WorkspaceToolOptions<Operations, SourceRequests> = {},
+): WorkspaceTools<Operations, SourceRequests> {
   const resolved = {
     broadSearchPaths: options.broadSearchPaths || [],
     commands: shellCommandsFor(resolveReadOperations(options.operations)),
@@ -592,6 +594,7 @@ export function createWorkspaceTools<Operations extends WorkspaceToolOperations 
     timeout: options.timeout,
     write: resolveWriteOperations(options.operations?.write),
   }
+  if (options.sourceRequests && getWorkspaceSourceRequestExecution(input)) resolved.commands.push("curl")
   let shellCalls = 0
   const writeEnabled = Object.values(resolved.write).some(Boolean)
 
@@ -608,7 +611,7 @@ export function createWorkspaceTools<Operations extends WorkspaceToolOperations 
   if (resolved.commands.length) {
     result.shell = tool({
       description: describeShellCommands(resolved.commands, {
-        sourceRequests: Boolean(getWorkspaceSourceRequestExecution(input)),
+        sourceRequests: resolved.commands.includes("curl"),
       }),
       inputSchema: jsonSchema<{ command: string }>({
         additionalProperties: false,
@@ -639,7 +642,8 @@ export function createWorkspaceTools<Operations extends WorkspaceToolOperations 
   }
 
   if (resolved.materialize) {
-    result.materialize_sources = tool({
+    // Display metadata for Agent traces and the Console; the model does not receive it.
+    result.materialize_sources = Object.assign(tool({
       description: [
         "Materialize complete workspace source snapshots as an explicit tool step before shell inspection.",
         "This prepares whole sources, not individual files or partial limits.",
@@ -660,10 +664,12 @@ export function createWorkspaceTools<Operations extends WorkspaceToolOperations 
         type: "object",
       }),
       execute: async ({ path, sources }) => await materializeWorkspaceSourcesTool(input, { path, sources }),
-    })
+    }), { icon: "i-lucide-folder-sync", title: "Materialized Workspace sources" })
   }
 
   if (writeEnabled) Object.assign(result, createWriteTools(input as Workspace, resolved.write))
 
-  return result as WorkspaceTools<Operations>
+  // Resolved flags select the shell, materialize_sources, and write tool contracts declared by WorkspaceTools.
+  // SAFETY: These flags match its type parameters; Source requests require an executor and empty configurations throw above.
+  return result as WorkspaceTools<Operations, SourceRequests>
 }

@@ -3,11 +3,12 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { transform } from "esbuild"
-import { expect, it } from "vitest"
+import { expect, it, vi } from "vitest"
 
 import { getAgentLayerOptions, inheritAgentLayerOptions } from "../src/agent-layers.ts"
-import { defineAgent } from "../src/index.ts"
-import { colocatedAgentSkillsSymbol } from "../src/internal/colocated-agent-skills.ts"
+import { agentWithSkills, defineAgent, runAgent } from "../src/index.ts"
+import { colocatedAgentSkillsSymbol, withColocatedAgentSkills } from "../src/internal/colocated-agent-skills.ts"
+import { agentDefinitionSourceSymbol } from "../src/internal/agent-definition-source.ts"
 import { hubAgent } from "../src/vite.ts"
 import { workspaceAgentWithSourceRoot, workspaceDefinitionFromOptions } from "../src/workspace-agent.ts"
 
@@ -61,6 +62,20 @@ it("restores the discovered source root through the generated deployment helper"
   }
 })
 
+it("keeps runtime source-root decoration live before parent discovery", () => {
+  const parent = defineAgent({ driver: "codex", workspace: {} })
+  const child = workspaceAgentWithSourceRoot(defineAgent({ extends: parent }), "/child")
+  const skills = { review: { content: "Review.", workspacePath: "skills/review/SKILL.md" } }
+  withColocatedAgentSkills(parent, skills)
+  expect(Reflect.get(child, colocatedAgentSkillsSymbol)).toEqual(skills)
+  const manual = workspaceAgentWithSourceRoot(agentWithSkills(parent, { manual: "Manual." }), "/manual")
+  withColocatedAgentSkills(manual, { local: skills.review })
+  expect(Reflect.get(manual, colocatedAgentSkillsSymbol)).toMatchObject({
+    review: skills.review, local: skills.review,
+    "__vitehubAgentSkill:.agents/skills/manual/SKILL.md": { content: "Manual." },
+  })
+})
+
 it("keeps generated colocated skills available to derived definitions", async () => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-generated-skills-"))
   try {
@@ -98,12 +113,49 @@ it("keeps generated colocated skills available to derived definitions", async ()
     const discovered = decorate(base, "/discovered", undefined, encodedSkills)
     const child = defineAgent({ extends: base, description: "Child" })
 
+    const skillsClone = Reflect.get(discovered, agentDefinitionSourceSymbol)
+    expect(skillsClone).toBeDefined()
+    expect(Reflect.get(skillsClone, agentDefinitionSourceSymbol)).toBe(base)
+
     expect(Object.getOwnPropertyDescriptor(discovered, colocatedAgentSkillsSymbol)?.value).toMatchObject({
       review: { content: new TextEncoder().encode("Review.") },
     })
-    expect(Object.getOwnPropertyDescriptor(child, colocatedAgentSkillsSymbol)?.value).toEqual(
+    expect(Reflect.get(child, colocatedAgentSkillsSymbol)).toEqual(
       Object.getOwnPropertyDescriptor(discovered, colocatedAgentSkillsSymbol)?.value,
     )
+    const discoveredChild = decorate(child, "/child", undefined, undefined)
+    expect(Reflect.get(discoveredChild, colocatedAgentSkillsSymbol)).toEqual(Reflect.get(child, colocatedAgentSkillsSymbol))
+
+    const lateParent = defineAgent({ driver: "codex", workspace: {} })
+    const lateChild = defineAgent({ extends: lateParent })
+    const decoratedLateChild = decorate(lateChild, "/late-child", undefined, undefined)
+    decorate(lateParent, "/late-parent", undefined, encodedSkills)
+    expect(Reflect.get(decoratedLateChild, colocatedAgentSkillsSymbol)).toMatchObject({
+      review: { content: new TextEncoder().encode("Review.") },
+    })
+
+    const seen: unknown[] = []
+    const runnable = defineAgent({ driver: { run: ({ context }) => { seen.push(context.get("agent.colocatedSkills")); return { text: "ok" } } } })
+    const inheritedOnly = defineAgent({ extends: runnable })
+    const discoveredInheritedOnly = decorate(inheritedOnly, "/child", undefined, undefined)
+    decorate(runnable, "/parent", undefined, encodedSkills)
+    await runAgent(discoveredInheritedOnly as typeof inheritedOnly, { runtime: "unknown", memo: vi.fn(), waitUntil: vi.fn() }, { prompt: "hello" })
+    expect(seen).toEqual([Reflect.get(runnable, colocatedAgentSkillsSymbol)])
+    expect(seen[0]).toMatchObject({ review: { content: new TextEncoder().encode("Review.") } })
+    const manual = agentWithSkills(defineAgent({ driver: "codex", workspace: {} }), { manual: "Manual.", review: "Manual review." })
+    const manualDiscovered = decorate(manual, "/manual", undefined, {
+      ...encodedSkills,
+      "__vitehubAgentSkill:.agents/skills/review/SKILL.md": encodedSkills.review,
+    })
+    expect(Reflect.get(manualDiscovered, colocatedAgentSkillsSymbol)).toMatchObject({
+      review: { content: new TextEncoder().encode("Review.") },
+      "__vitehubAgentSkill:.agents/skills/manual/SKILL.md": { content: "Manual." },
+      "__vitehubAgentSkill:.agents/skills/review/SKILL.md": { content: "Manual review." },
+    })
+    expect(Reflect.get(manualDiscovered, "__vitehubWorkspaceAgentOptions").workspace.sources).toMatchObject({
+      "__vitehubAgentSkill:.agents/skills/manual/SKILL.md": { content: "Manual." },
+      "__vitehubAgentSkill:.agents/skills/review/SKILL.md": { content: "Manual review." },
+    })
     const cleared = decorate(base, "/discovered", undefined, undefined)
     expect(Object.getOwnPropertyDescriptor(cleared, colocatedAgentSkillsSymbol)).toBeUndefined()
     expect(Object.getOwnPropertyDescriptor(base, colocatedAgentSkillsSymbol)).toBeUndefined()

@@ -1305,10 +1305,10 @@ export function createAgentCliContributor(options?: false | AgentCliContributorO
       usage: "vitehub agent dev [message...] [--agent <name>]",
     },
     {
-      description: "Inspect an application's durable Agent Invocation journal.",
+      description: "Inspect, delete, and prune an application's durable Agent Invocation journal.",
       name: "invocations",
       run: async (args, context) => await runAgentInvocationsCli(args, context),
-      usage: "vitehub agent invocations <list|show|tail> [id] [--url <url>] [--json]",
+      usage: "vitehub agent invocations <list|show|tail|delete|prune> [id] [--url <url>] [--database <url>] [--older-than <duration>] [--dry-run] [--json]",
     },
   ]
   if (evalFiles.length) {

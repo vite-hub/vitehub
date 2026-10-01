@@ -42,7 +42,7 @@ vi.mock("@vite-hub/internal/build/vite", () => ({
   VITEHUB_NITRO_CONFIG_CONTEXT: "__vitehubNitroConfigContext",
   VITEHUB_SERVER_DIRS: "__vitehubServerDirs",
   collectViteHubProviderImportAliases: () => ({}),
-  createNoExternalMerger: () => (value: unknown) => value,
+  createNoExternalAddition: () => (value: unknown) => value,
   isServerEnvironment: (name: string, config: { consumer?: string }) => name === "ssr" || config.consumer === "server",
   resolveNitroVercelFunctionName: () => undefined,
   resolveViteHubProjectRoot: (root: string) => root,

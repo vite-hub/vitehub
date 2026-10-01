@@ -593,7 +593,7 @@ function message(error: unknown) {
       </div>
     </div>
 
-    <AgentCapabilityInspector v-else-if="tab === 'capabilities'" :invocation="invocation" />
+    <AgentCapabilityInspector v-else-if="tab === 'capabilities'" :invocation="invocation" @select-activity="emit('focusActivity', $event)" />
 
     <AgentInvocationInspector
       v-else-if="tab === 'details'"

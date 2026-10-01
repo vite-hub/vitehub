@@ -87,6 +87,7 @@ describe("UI server rendering", () => {
       "UChatReasoning",
       "UChatTool",
       "UCollapsible",
+      "UIcon",
     ]) {
       expect(app.component(name), name).toBeDefined();
     }
@@ -253,7 +254,7 @@ describe("UI server rendering", () => {
     expect(html).toContain("support");
     expect(html).toContain("Completed");
     expect(html).toContain("Inspecting the repository.");
-    expect(html).toContain("Assistant message");
+    expect(html).toContain('<span class="vh-invocation-message__role">Assistant</span>');
     expect(html).toContain('datetime="2026-08-22T00:00:00.100Z"');
     expect(html.indexOf("vh-invocation-session__timestamp")).toBeLessThan(html.indexOf('aria-label="Session thread"'));
     expect(html).toContain("Ran command");

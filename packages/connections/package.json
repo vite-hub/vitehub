@@ -1,0 +1,79 @@
+{
+  "name": "@vite-hub/connections",
+  "version": "0.0.4",
+  "description": "App-owned OAuth connections with governed access and activity for ViteHub.",
+  "keywords": [
+    "connections",
+    "oauth",
+    "vite",
+    "vitehub"
+  ],
+  "homepage": "https://github.com/vite-hub/vitehub#readme",
+  "bugs": "https://github.com/vite-hub/vitehub/issues",
+  "license": "Apache-2.0",
+  "author": "onmax <maximogarciamtnez@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vite-hub/vitehub.git",
+    "directory": "packages/connections"
+  },
+  "files": [
+    "dist",
+    "package.json"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "types": "./dist/index.d.ts",
+  "imports": {
+    "#vitehub/connections/runtime": {
+      "types": "./dist/runtime/empty-runtime.d.ts",
+      "default": "./dist/runtime/empty-runtime.js"
+    }
+  },
+  "exports": {
+    ".": "./dist/index.js",
+    "./agent": "./dist/agent.js",
+    "./google": "./dist/google.js",
+    "./http": "./dist/http.js",
+    "./server": "./dist/server.js",
+    "./vite": "./dist/vite.js",
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "vp pack",
+    "dev": "vp pack --watch",
+    "typecheck": "tsc --noEmit -p ./tsconfig.json",
+    "test": "vp run -t @vite-hub/connections#build && vp test"
+  },
+  "dependencies": {
+    "@vite-hub/env": "workspace:*",
+    "@vite-hub/runtime": "workspace:*",
+    "drizzle-orm": "catalog:database",
+    "nostics": "catalog:runtime",
+    "pathe": "catalog:unjs",
+    "valibot": "catalog:runtime"
+  },
+  "devDependencies": {
+    "@libsql/client": "catalog:database",
+    "@types/node": "catalog:tooling",
+    "@vite-hub/internal": "workspace:*",
+    "miniflare": "4.20260714.0",
+    "publint": "catalog:tooling",
+    "typescript": "catalog:tooling",
+    "vite": "catalog:vite",
+    "vite-plus": "catalog:tooling",
+    "vitest": "catalog:tooling"
+  },
+  "peerDependencies": {
+    "@vite-hub/database": "workspace:*",
+    "vite": "catalog:vite-compat"
+  },
+  "peerDependenciesMeta": {
+    "vite": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  }
+}

@@ -36,11 +36,13 @@ For Codex, the managed runtime disables login shells so shell profiles cannot re
 
 ## External runtime
 
-For SSH launchers, install the CLI and browser on the remote host and use `browser({ runtime: 'external' })`. The Capability still supplies workspace guidance and screenshot delivery. The remote provider owns executable discovery and browser setup.
+For SSH launchers, install the CLI and browser on the remote host. When the Driver sets `launch` and `runtime` is not set, `browser()` uses the external runtime for that invocation. An explicit `runtime: 'managed'` with `launch` fails before the provider starts. The Capability still supplies workspace guidance and screenshot delivery. The remote provider owns executable discovery and browser setup.
+
+Inspection metadata reports `runtime: 'auto'` when the runtime depends on the Driver.
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `runtime` | `"managed" \| "external"` | `"managed"` | Prepare a local runtime, or use an externally prepared one. |
+| `runtime` | `"managed" \| "external"` | `"external"` with a custom `command` or `driver.launch`, otherwise `"managed"` | Prepare a local runtime, or use an externally prepared one. |
 | `command` | `string` | `"agent-browser"` | Executable name named in the Skill. A custom command selects an external runtime unless `runtime` is explicit. |
 | `skillContent` | `string` | official installed Skill | Override the mounted Markdown guidance. |
 | `skillPath` | `string` | `".agents/skills/agent-browser/SKILL.md"` | Workspace path for the Skill. |

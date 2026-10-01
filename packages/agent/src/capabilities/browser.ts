@@ -15,7 +15,7 @@ import { agentDiagnostics } from "../agent-diagnostics.ts"
 export interface BrowserCapabilityOptions {
   /** Executable name for an external browser runtime. Defaults to `agent-browser`. */
   command?: string
-  /** Managed installs a pinned local runtime; external expects the command to be ready in the provider environment. Defaults to managed for the default command. */
+  /** Managed installs a pinned local runtime; external expects the command to be ready in the provider environment. Defaults to external for a custom command or a Driver with `launch`, otherwise managed. */
   runtime?: "external" | "managed"
   /** Skill content mounted for the provider. Managed mode defaults to the installed CLI's official discovery skill. */
   skillContent?: string
@@ -138,13 +138,14 @@ export function browser(options: BrowserCapabilityOptions = {}): AgentCapability
   }
   const skillPath = normalizeSkillPath(options.skillPath || ".agents/skills/agent-browser/SKILL.md")
   const sourceKey = options.sourceKey || "skill.browser"
-  const runtimeMode = options.runtime ?? (command === "agent-browser" ? "managed" : "external")
+  // An unset runtime with the default command is resolved per invocation: external when driver.launch runs the provider elsewhere, otherwise managed.
+  const runtimeMode = options.runtime ?? (command === "agent-browser" ? undefined : "external")
   const invocationSkillContentKey = "vitehub.browser.skill-content"
   const defaultSkillContent = options.skillContent || defaultBrowserSkillContent.replaceAll("agent-browser", command)
 
   return Object.assign(defineCapability({
     id: "browser",
-    metadata: { command, runtime: runtimeMode, skillPath, sourceKey },
+    metadata: { command, runtime: runtimeMode ?? "auto", skillPath, sourceKey },
     output(context) {
       if (context.driver?.kind === "provider") {
         context.output.final(result => attachBrowserScreenshots(result, context), { order: "last" })
@@ -156,12 +157,13 @@ export function browser(options: BrowserCapabilityOptions = {}): AgentCapability
       // Inspection also receives a synthetic invocation, so use the resolver's
       // trusted phase marker before allocating browser resources.
       if (!context.invocation || isCapabilityInspection(context)) return
-      if (runtimeMode !== "managed") {
+      const launched = isRuntimeRecord(context.agentDriver) && context.agentDriver.launch !== undefined
+      if ((runtimeMode ?? (launched ? "external" : "managed")) !== "managed") {
         provideBrowserRuntimeEnvironment(context.context, Object.freeze({ VITEHUB_BROWSER_ACTIVE: "1" }))
         return
       }
-      if (isRuntimeRecord(context.agentDriver) && context.agentDriver.launch !== undefined) {
-        throw new Error("[vitehub] Managed browser() cannot be used with driver.launch because the launcher may run on another filesystem. Use browser({ runtime: \"external\" }) with a browser runtime prepared by the launcher.")
+      if (launched) {
+        throw new Error("[vitehub] browser({ runtime: \"managed\" }) cannot be used with driver.launch because the launcher may run on another filesystem. Remove runtime, or use browser({ runtime: \"external\" }) with a browser runtime prepared by the launcher.")
       }
       const runtime = await prepareBrowserRuntime({ abortSignal: context.abortSignal })
       provideBrowserRuntimeEnvironment(context.context, Object.freeze({

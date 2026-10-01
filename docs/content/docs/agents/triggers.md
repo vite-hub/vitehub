@@ -147,6 +147,35 @@ export default defineAgent({
 
 The Trigger translates the validated event and attaches trusted context. Keep model selection, tools, and execution behavior in the Agent Definition.
 
+When the Channel declares message methods, also return `message`: JSON data that identifies the provider message. Hooks use it through `event.message`. See [Act on the Channel message in hooks](/docs/agents/channels#act-on-the-channel-message-in-hooks).
+
+### Verify webhook signatures
+
+Add `webhooks` to the Channel to receive the Trigger over HTTP. `secretHeader` names the header that carries the signature, and `secretToken` supplies the shared secret. `signature` selects how ViteHub checks the header:
+
+| `signature` | Header format |
+| --- | --- |
+| not set | The header equals `secretToken`. |
+| `'github-sha256'` | `sha256=<hex HMAC-SHA256 of the raw body>` |
+| `'stripe-sha256'` | `t=<unix seconds>,v1=<hex HMAC-SHA256 of "<t>.<raw body>">`. Any matching `v1` passes, with at most 32 candidates per header. The maximum timestamp age is 300 integer seconds. Future timestamps pass the age check. |
+| `{ preset: 'stripe-sha256', toleranceSeconds }` | The same format with another maximum age in seconds. The tolerance must be finite and non-negative. With `0`, current-second and future timestamps pass; older timestamps fail. |
+| `{ verify({ header, rawBody, request, secret }) }` | Your function returns `true` for a valid delivery. |
+
+```ts [server/agents/support.ts]
+const ticketing = defineChannel('ticketing', {
+  messages: false,
+  triggers: { /* ... */ },
+  webhooks: {
+    path: '/api/ticketing/webhook',
+    secretHeader: 'Ticketing-Signature',
+    secretToken: () => process.env.TICKETING_WEBHOOK_SECRET,
+    signature: 'stripe-sha256',
+  },
+})
+```
+
+Signatures compare in constant time. A failed check returns `401` before the Trigger runs. `vitehub channels history` signs its requests with the same scheme.
+
 ## Choose how to call the Agent
 
 | Situation | Use |

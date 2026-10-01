@@ -145,6 +145,35 @@ describe("table Collection source", () => {
     expect(finalDinnerPage.items.map(meal => meal.id)).toEqual(["z"])
   })
 
+  it("forwards authorize from a table Collection to its route", async () => {
+    const { db, schema } = await createTestDatabase()
+    const { defineCollection, table } = await import("../src/source.ts")
+    const { defineCollectionHandler } = await import("../src/source/server.ts")
+    const { H3 } = await import("h3")
+    const authorize = vi.fn(() => false)
+    const meals = defineCollection({
+      authorize,
+      source: table({
+        db,
+        orderBy: {
+          column: schema.meals.createdAt,
+          direction: "desc",
+          tieBreaker: schema.meals.id,
+        },
+        table: schema.meals,
+      }),
+      transform: meal => ({ id: meal.id }),
+    })
+    expect(meals.authorize).toBe(authorize)
+
+    const authorizeRequest = vi.fn(async () => Response.json({ error: "Unauthorized." }, { status: 401 }))
+    const app = new H3().get("/api/meals", defineCollectionHandler(meals, { authorizeRequest }))
+    const response = await app.request("/api/meals")
+
+    expect(response.status).toBe(401)
+    expect(authorizeRequest).toHaveBeenCalledWith(expect.anything(), authorize)
+  })
+
   it("rejects an unstable tie-breaker", async () => {
     const { db, schema } = await createTestDatabase()
     const { defineCollection, table } = await import("../src/source.ts")

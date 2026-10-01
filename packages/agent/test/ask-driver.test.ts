@@ -171,13 +171,13 @@ describe("ask Driver", () => {
     const agent = defineAgent({ driver: { ask: { spam: ask.if("Is it spam?") } }, runtime: false })
 
     await expect(runAgent(agent, runtime(), { prompt: "Win money" })).rejects.toMatchObject({
-      code: "AGENT_R0930",
+      code: "AGENT_R0935",
       message: expect.stringContaining("typesafe: typesafeEnv()"),
     })
 
     mockServerEnv({ provider: "typesafe" })
     await expect(runAgent(agent, runtime(), { prompt: "Win money" })).rejects.toMatchObject({
-      code: "AGENT_R0931",
+      code: "AGENT_R0936",
       message: expect.stringContaining("TYPESAFE_API_KEY"),
     })
   })
@@ -187,7 +187,7 @@ describe("ask Driver", () => {
     const agent = defineAgent({ driver: { ask: () => ({ spam: "Is it spam?" }) } as never, runtime: false })
 
     await expect(runAgent(agent, runtime(), { prompt: "Win money" })).rejects.toMatchObject({
-      code: "AGENT_R0932",
+      code: "AGENT_R0937",
       message: expect.stringContaining('Jev question "spam"'),
     })
   })
@@ -205,7 +205,7 @@ describe("ask Driver", () => {
     const agent = defineAgent({ driver: { ask: { question: question as never } }, runtime: false })
 
     await expect(runAgent(agent, runtime(), { prompt: "value" })).rejects.toMatchObject({
-      code: "AGENT_R0932",
+      code: "AGENT_R0937",
       message: expect.stringContaining(name === "if" ? "threshold must be" : `${name} criteria must have`),
     })
     expect(askJev).not.toHaveBeenCalled()

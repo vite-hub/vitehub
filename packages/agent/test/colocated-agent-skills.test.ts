@@ -4,7 +4,7 @@ import { join } from "node:path"
 
 import { afterEach, describe, expect, it } from "vitest"
 
-import { colocatedAgentSkillsSymbol, decodeColocatedAgentSkills, withColocatedAgentSkills } from "../src/internal/colocated-agent-skills.ts"
+import { agentWithSkills, colocatedAgentSkillsSymbol, decodeColocatedAgentSkills, withColocatedAgentSkills } from "../src/internal/colocated-agent-skills.ts"
 import { readColocatedAgentSkills, resolveColocatedAgentSkillsRoot } from "../src/vite/colocated-agent-skills.ts"
 
 const roots: string[] = []
@@ -55,6 +55,23 @@ describe("colocated Agent Skills", () => {
     expect(Object.getOwnPropertyDescriptor(resolved, colocatedAgentSkillsSymbol)?.value).toBe(sources)
     expect(resolved.settings).toBe("preserved")
     expect(Object.getOwnPropertyDescriptor(resolved, "settings")?.enumerable).toBe(false)
+  })
+
+  it("keeps manual Skills when discovery adds, replaces, and removes local files", () => {
+    const key = "__vitehubAgentSkill:.agents/skills/review/SKILL.md"
+    const original = { name: "review" }
+    const agent = agentWithSkills(original, { review: "Manual review." })
+    const local = { content: "Local.", workspacePath: ".agents/skills/local/SKILL.md" }
+    withColocatedAgentSkills(agent, { [key]: { ...local, content: "Discovered review." }, local })
+    expect(Reflect.get(agent, colocatedAgentSkillsSymbol)).toMatchObject({
+      [key]: { content: "Manual review." }, local,
+    })
+    withColocatedAgentSkills(agent, { replacement: local })
+    expect(Reflect.get(agent, colocatedAgentSkillsSymbol)).toMatchObject({ [key]: { content: "Manual review." }, replacement: local })
+    expect(Reflect.get(agent, colocatedAgentSkillsSymbol)).not.toHaveProperty("local")
+    withColocatedAgentSkills(agent, undefined)
+    expect(Object.keys(Reflect.get(agent, colocatedAgentSkillsSymbol))).toEqual([key])
+    expect(Reflect.get(original, colocatedAgentSkillsSymbol)).toBeUndefined()
   })
 
   it("clears source metadata when a reused definition loses its skills", () => {

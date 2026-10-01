@@ -5,7 +5,9 @@ import { normalizeAuthBasePath } from "./shared.ts"
 import { throwAuthenticationProviderError } from "./errors.ts"
 import { getAuthenticationSession } from "./session.ts"
 
+import type { AccessAuthorizeOption } from "@vite-hub/runtime"
 import type {
+  AuthAccessAuthorize,
   AuthAccessConfiguration,
   AuthAccessAuthorizationContext,
   AuthAccessRoute,
@@ -415,6 +417,23 @@ async function createSignInResponse(
   return new Response(null, { headers, status: 302 })
 }
 
+async function readRequestSession(input: AuthRequestInput, definition: AuthDefinition) {
+  const request = unwrapAuthRequest(input)
+  const options = resolveDefinitionOptionsForRequest(definition, request, undefined, input)
+  const auth = createAuthenticationProvider(createBetterAuthOptionsFromResolved(options))
+  const session = await getAuthenticationSession(auth, { headers: request.headers })
+  return { auth, options, request, session }
+}
+
+async function runAccessAuthorize(
+  authorize: AuthAccessAuthorize,
+  context: AuthAccessAuthorizationContext,
+): Promise<Response | undefined> {
+  const result = await authorize(context)
+  if (result instanceof Response) return result
+  if (result !== true) return createForbiddenResponse(context.request)
+}
+
 async function requireAuthRequest(
   input: AuthRequestInput,
   definition: AuthDefinition,
@@ -422,10 +441,7 @@ async function requireAuthRequest(
   requiredAuthorizeRouteIndexes: number[] = [],
   redirectToSignIn = true,
 ): Promise<Response | undefined> {
-  const request = unwrapAuthRequest(input)
-  const options = resolveDefinitionOptionsForRequest(definition, request, undefined, input)
-  const auth = createAuthenticationProvider(createBetterAuthOptionsFromResolved(options))
-  const session = await getAuthenticationSession(auth, { headers: request.headers })
+  const { auth, options, request, session } = await readRequestSession(input, definition)
   if (session) {
     if (routeIndexes === undefined) return
 
@@ -442,9 +458,8 @@ async function requireAuthRequest(
         return createForbiddenResponse(request)
       }
       if (!authorize) continue
-      const result = await authorize(context)
-      if (result instanceof Response) return result
-      if (result !== true) return createForbiddenResponse(request)
+      const rejection = await runAccessAuthorize(authorize, context)
+      if (rejection) return rejection
     }
     return
   }
@@ -475,6 +490,25 @@ export async function requireAuth(
   definition: AuthDefinition = resolveDefaultDefinition(),
 ): Promise<Response | undefined> {
   return requireAuthRequest(input, definition)
+}
+
+/**
+ * Authorizes one request for a resource such as a Blob serve route or a Collection.
+ * Returns `401` without a session, `403` when `authorize` returns `false`, and a custom `Response` as-is.
+ * It never redirects to sign-in, so image and fetch requests receive a status code.
+ */
+export async function authorizeRequest(
+  input: AuthRequestInput,
+  authorize: AccessAuthorizeOption,
+  definition: AuthDefinition = resolveDefaultDefinition(),
+): Promise<Response | undefined> {
+  if (authorize !== true && !(authorize instanceof Function)) {
+    throw authErrorDiagnostics.AUTH_R0014({ message: "[vitehub] `authorize` must be true or a function." })
+  }
+  const { request, session } = await readRequestSession(input, definition)
+  if (!session) return Response.json({ error: "Unauthorized." }, { status: 401 })
+  if (authorize === true) return
+  return runAccessAuthorize(authorize, { request, session: session.session, user: session.user })
 }
 
 export async function requireAuthAccessRoutes(

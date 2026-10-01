@@ -27,6 +27,7 @@ const integrationMocks = vi.hoisted(() => ({
   })),
   hubBrowser: vi.fn(() => ({ name: "@vite-hub/browser/vite" })),
   hubChannels: vi.fn(() => ({ name: "@vite-hub/channels/vite" })),
+  hubConnections: vi.fn(() => ({ name: "@vite-hub/connections/vite" })),
   hubDb: vi.fn(() => ({ name: "@vite-hub/database/vite" })),
   hubEmail: vi.fn(() => ({ name: "@vite-hub/email/vite" })),
   hubEmailOptionalPeerResolver: vi.fn(() => ({ name: "@vite-hub/email/optional-peer-resolver" })),
@@ -75,6 +76,7 @@ vi.mock("@vite-hub/blob/vite", () => ({
 }))
 vi.mock("@vite-hub/browser/vite", () => ({ hubBrowser: integrationMocks.hubBrowser }))
 vi.mock("@vite-hub/channels/vite", () => ({ hubChannels: integrationMocks.hubChannels }))
+vi.mock("@vite-hub/connections/vite", () => ({ hubConnections: integrationMocks.hubConnections }))
 vi.mock("@vite-hub/database/vite", () => ({ hubDb: integrationMocks.hubDb }))
 vi.mock("@vite-hub/email/vite", () => ({
   hubEmail: integrationMocks.hubEmail,
@@ -585,6 +587,7 @@ describe("vitehub", () => {
       database: true,
       email: { driver: "resend" },
       channels: true,
+      connections: true,
       kv: true,
       preset: "cloudflare",
       rateLimit: true,
@@ -602,6 +605,7 @@ describe("vitehub", () => {
       "@vite-hub/sandbox/vite",
       "@vite-hub/agent/vite",
       "@vite-hub/channels/vite",
+      "@vite-hub/connections/vite",
       "@vite-hub/database/vite",
       "@vite-hub/blob/vite",
       "@vite-hub/email/vite",
@@ -639,6 +643,7 @@ describe("vitehub", () => {
       },
       runtimeCapabilityImports: {
         blob: "vite-hub/_internal/blob",
+        connections: false,
         console: false,
         db: "vite-hub/database/drizzle",
         email: "vite-hub/email/server",
@@ -667,6 +672,11 @@ describe("vitehub", () => {
       runtimeEnvImport: "vite-hub/env/server",
     })
     expect(integrationMocks.hubChannels).toHaveBeenLastCalledWith(undefined)
+    expect(integrationMocks.hubConnections).toHaveBeenLastCalledWith({
+      databaseImport: "vite-hub/database/drizzle",
+      runtimeEnvImport: "vite-hub/env/server",
+    })
+    expect(() => vitehub({ connections: true, preset: "node" })).toThrow("connections requires database")
     expect(integrationMocks.hubKv).toHaveBeenLastCalledWith({ driver: "cloudflare-kv-binding" })
     expect(integrationMocks.hubSandbox).toHaveBeenLastCalledWith({
       provider: "cloudflare",

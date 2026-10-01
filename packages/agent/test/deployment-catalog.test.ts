@@ -44,6 +44,7 @@ const runtimeCaptureKey = "__vitehubAgentDeploymentRuntimeCapture"
 function deploymentRuntimeModules(): Map<string, string> {
   return new Map([
     ["@vite-hub/agent/server/internal", [
+      `export { decodeColocatedAgentSkills, withColocatedAgentSkills } from ${JSON.stringify(join(import.meta.dirname, "../src/internal/colocated-agent-skills.ts"))}`,
       `export { inheritAgentLayerOptions } from ${JSON.stringify(join(import.meta.dirname, "../src/agent-layers.ts"))}`,
       "import { defineAgent } from '@vite-hub/agent'",
       `const capture = () => globalThis.${runtimeCaptureKey}`,

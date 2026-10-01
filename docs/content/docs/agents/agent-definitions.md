@@ -90,6 +90,21 @@ Child configuration overrides parent defaults. Channels, Sources, Skills, and ho
 
 `extends` accepts one definition created by `defineAgent()` in the same package instance. It does not discover files in the parent's directory. Import shared instructions in TypeScript with `?raw` and pass them through `driver.instructions`. Share Skills through explicit Sources or a directory link.
 
+A definition that is not discovered, such as one created in a Schedule, uses the colocated Skills of the discovered Agent it extends. It reads them when it runs, so module import order does not matter. Use `agentWithSkills()` to add Skills to such a definition without an Agent folder:
+
+```ts [server/schedules/changelog.ts]
+import { agentWithSkills, defineAgent } from 'vite-hub/agent'
+import botDev from '../agents/bot-dev/agent'
+import changelogSkill from './changelog-skill.md?raw'
+
+const changelogAgent = agentWithSkills(
+  defineAgent({ extends: botDev, name: 'changelog' }),
+  { 'changelog-writing': changelogSkill },
+)
+```
+
+Each key is a Skill name, and each value is its `SKILL.md` content. The result keeps the inherited Skills. A Skill with the same name replaces the inherited one.
+
 ### Named presets
 
 Export ordinary `defineAgent()` definitions from a preset package. Consumers import them and select a local name:
@@ -255,10 +270,11 @@ With the implicit discovery-default Workflow binding, direct `runAgent()` calls 
 | `data` | Validates structured Invocation input and types `data` at call sites and in hooks. |
 | `intercept` | Finishes an Invocation with app-computed output before the Driver runs. |
 | `channels` | Declares named Agent Channels and generated routes. |
+| `github` | Sets the Agent GitHub identity, for example `createGitHubHost()`. Provider Drivers receive its `access().env`, and pull request checkouts and `git()` use its token. Defaults to the identity passed as `github({ app })`. |
 | `messages` | Applies shared delivery, streaming, concurrency, session, and transcript settings to adapter Channels. |
 | `invoker` | Configures Agent Actor profiles and resolution using the current API name. |
 | `runtime` | Selects inline or Workflow-backed hosted execution. |
-| `hooks` | Observes input, completion, failure, Capability lifecycle, or hook execution. |
+| `hooks` | Observes input, completion, failure, Capability lifecycle, or hook execution. Finish and error hooks act on the triggering Channel message through [`event.message`](/docs/agents/channels#act-on-the-channel-message-in-hooks). |
 | `runEvents` | Publishes application-owned progress for an invocation with a stable run id. |
 | `name`, `description`, `version` | Adds explicit discovery and inspection metadata. |
 | `cli.capabilities` | Enables or disables Capability-contributed CLI commands. |

@@ -13,6 +13,8 @@ export interface ConsoleDefinitionSummary {
   fields: readonly ConsoleDefinitionField[]
   file: string
   name: string
+  /** The Console can run this definition now. Only manual Schedule Definitions with Console invocation set it. */
+  runnable?: boolean
   source: string
 }
 

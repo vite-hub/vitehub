@@ -2,9 +2,12 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { describe, expect, it } from "vitest"
+import { MockLanguageModelV3 } from "ai/test"
+import { describe, expect, it, vi } from "vitest"
 
-import { agentWithColocatedInstructions, defineAgent } from "../src/index.ts"
+import { agentWithColocatedInstructions, defineAgent, runAgent } from "../src/index.ts"
+import { markDiscoveredAgentName, readDiscoveredAgentName } from "../src/internal/discovered-agent-name.ts"
+import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/server.ts"
 import { createViteWorkspaceAgentLoader, loadViteAgent } from "../src/vite/runtime-adapter.ts"
 
 import type { ViteDevServer } from "vite"
@@ -32,6 +35,28 @@ describe("colocated Agent instructions", () => {
     })
 
     expect(agentWithColocatedInstructions(agent, "Use colocated instructions.")).toBe(agent)
+  })
+
+  it.each(["original", "decorated"] as const)("records the discovered name through instructions when discovery marks the %s Definition", async (target) => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const agent = defineAgent({
+      driver: { model: new MockLanguageModelV3({ doGenerate: {
+        content: [{ type: "text", text: "done" }],
+        finishReason: { raw: "stop", unified: "stop" },
+        usage: { inputTokens: { cacheRead: 0, cacheWrite: 0, noCache: 1, total: 1 }, outputTokens: { reasoning: 0, text: 1, total: 1 } },
+        warnings: [],
+      } }) },
+      invocations,
+      runtime: false,
+    })
+    const decorated = agentWithColocatedInstructions(agent, "Label the email.")
+    markDiscoveredAgentName(target === "original" ? agent : decorated, "labeller")
+
+    await runAgent(decorated, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "Hello" })
+    const { invocations: records } = await invocations.list({ limit: 10 })
+    expect(records).toEqual([expect.objectContaining({ agentName: "labeller", status: "completed" })])
+    expect(readDiscoveredAgentName(agent)).toBe("labeller")
+    expect(readDiscoveredAgentName(defineAgent({ extends: decorated }))).toBeUndefined()
   })
 
   it("adds instructions to provider Agents without a Workspace", () => {

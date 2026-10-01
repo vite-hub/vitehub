@@ -165,12 +165,16 @@ export default defineAgent({
 })
 ```
 
+When a Channel started the Invocation, both hooks also receive `event.message`. Use its methods to act on the provider message, such as a reply or a label. Set `dryRun: true` in the Invocation input to record write calls in the trace instead of calling the provider. See [Act on the Channel message in hooks](/docs/agents/channels#act-on-the-channel-message-in-hooks).
+
 Error hooks receive the raw `event.error` for protected server diagnostics and a
 sanitized `event.publicError` for logs, HTTP responses, or Channel replies. See
 [Agent public errors](/docs/reference/errors-diagnostics#agent-public-errors) for
 the stable codes and redaction rules.
 
 Every invocation also has an in-memory metadata trace through `runtime.trace` and `runtime.traceLog`. The default log is process-local and is not persisted across a Workflow boundary.
+
+Finish events set `event.invocation.cancelled` to `true` when output consumption is cancelled. Finish effects can use this field to distinguish cancellation from normal completion.
 
 Capability setup callbacks (`configure`, `prepare`, `bind`, `input`, `resolve`, `output`) and `close` emit one `agent.capability.<phase>` event when the callback settles. These events measure the callback itself with a monotonic clock, excluding before/after hooks and trace persistence. Read `agent.capability.id`, `agent.capability.phase`, `agent.capability.outcome`, and `agent.capability.durationMs` to distinguish slow integration setup from model execution. Outcomes are `success`, `error`, or `cancelled`; cancellation means the callback failed while the effective invocation input's abort signal was set.
 
@@ -235,6 +239,16 @@ Names match exactly, and matching observations keep their journal order. Other r
 
 The SQLite adapter keeps at most 10,000 terminal records from the last 30 days by default. Pending and running invocations remain available until they reach a terminal state. Set `maxAgeMs` or `maxRecords` to `false` to disable that limit. Retention runs after successful creates and terminal transitions, so a journal without either event may retain an expired record.
 
+Delete or prune terminal records on demand:
+
+```ts
+await invocations.delete(invocationId) // 'deleted' | 'not-found' | 'not-terminal'
+await invocations.prune({ olderThanMs: 7 * 24 * 60 * 60 * 1000, dryRun: true })
+await invocations.prune() // applies the store's maxAgeMs and maxRecords now
+```
+
+`delete(id)` keeps a pending or running record and returns `'not-terminal'`. `prune()` deletes completed, failed, and cancelled records last updated before `olderThanMs`. The age must be a non-negative safe integer that produces a cutoff within JavaScript's Date range. Invalid ages fail with `AGENT_R0929`. Without `olderThanMs`, it applies the store's configured retention. Both return the affected IDs, and `dryRun: true` lists them without deleting. The SQLite and D1 adapters and the memory store implement both operations. A custom store must implement `store.delete()` and `store.prune()` to support them. Deletion removes the journal record and its claim. Artifacts that a Capability wrote to Blob storage are not keyed by the journal record, so the application owns their retention.
+
 Use `configuration: 'content'` to retain resolved instructions and tool descriptions/schemas independently of other trace content. The default is `configuration: 'metadata'`. Console journals enable configuration retention for inspection; existing records cannot recover contracts that were not saved. Recorded configuration still uses the journal's observation limits and marks truncated values.
 
 Invocation journals are metadata-only by default. Set `content: 'content'` only when the application must persist prompts, messages, reasoning, tool inputs and outputs, and result text. That opt-in stores sensitive model content in the configured durable store; apply the same access controls, retention policy, and encryption requirements as the source data.
@@ -268,7 +282,7 @@ hooks: {
 }
 ```
 
-The journal records pending, running, completed, failed, and cancelled states plus bounded invocation metadata and trace observations. Failed records retain bounded `cause` and `AggregateError.errors` trees, common status and code fields, and public ViteHub error details. Use `invocations.list()` for cursor-based summaries, `invocations.get(id)` for a stored record ID, and `invocations.getByRunId(runId, agentName?)` when starting from the source run ID. Always pass the Agent Definition name for a named Definition; the name is part of its durable invocation identity. Journal failures never change the Agent Invocation result.
+The journal records pending, running, completed, failed, and cancelled states plus bounded invocation metadata and trace observations. Failed records retain bounded `cause` and `AggregateError.errors` trees, common status and code fields, and public ViteHub error details. Use `invocations.list()` for cursor-based summaries, `invocations.get(id)` for a stored record ID, and `invocations.getByRunId(runId, agentName?)` when starting from the source run ID. Always pass the Agent Definition name for a named Definition; the name is part of its durable invocation identity. When the Console is enabled, a discovered Definition without `name` records its discovered name, such as `labeller` for `server/agents/labeller.ts`, also when server code calls `runAgent()` directly. If the same unnamed Definition is discovered under multiple names, direct calls remain unscoped because the Definition cannot identify the imported alias. Host calls still record their selected Agent name. Journal failures never change the Agent Invocation result.
 
 Use `triggeredBy` to filter persisted summaries by the person label recorded in `annotations.triggeredBy`. It matches the trimmed label exactly and composes with Agent, Capability, status, and text filters:
 
@@ -319,6 +333,16 @@ vitehub agent invocations tail INVOCATION_ID
 ```
 
 The CLI defaults to `http://localhost:5173/api/invocations`. Use `--url` or `VITEHUB_AGENT_INVOCATIONS_URL` for another local endpoint, and `--json` for automation-safe output.
+
+Delete and prune open a SQLite or libSQL journal directly:
+
+```sh
+vitehub agent invocations delete INVOCATION_ID
+vitehub agent invocations prune --older-than 30d --dry-run --json
+vitehub agent invocations prune --database file:./.data/invocations.db --older-than 12h
+```
+
+Without `--database` or `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL`, both commands use the Console journal: `VITEHUB_CONSOLE_DATABASE_URL`, or `.vitehub/data/console.sqlite` in the project root. Set `VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN` for an authenticated libSQL endpoint. Durations accept `ms`, `s`, `m`, `h`, `d`, and `w`. `--older-than` defaults to `30d`. Use `--table-prefix` when the store sets `tablePrefix`. The commands refuse a missing database file and never print URL credentials or tokens. For D1, call `invocations.prune()` from a Worker instead.
 
 Configured journals also retain failures and cancellation during Workflow preparation, before provider dispatch. Fresh manual starts get distinct invocation IDs. Durable Channel deliveries keep their delivery run ID across preparation attempts.
 
@@ -397,6 +421,8 @@ Trusted code can install tools for one inline invocation with the options argume
 Invocation tools accept JSON Schema, Valibot, and Zod schemas directly. Valibot schemas are converted to JSON Schema for model tool discovery while their Standard Schema validator still checks input before `execute`. Unsupported Valibot actions may be omitted from the model-facing schema; validation remains authoritative. Zod schemas use their Standard JSON Schema converter. Other Standard Schema implementations must provide `~standard.jsonSchema.input` for Provider Agent tools.
 
 For a process-owned store, `createProcessAgentInvocations` from `vite-hub/agent/runtime/process` runs interrupted-invocation recovery before returning the journal. Pass the normal `defineAgentInvocations` options and a `recovery` object with a `recover(invocation)` ownership predicate. Use `recover: () => true` only when the database belongs exclusively to that service. Recovery failure rejects startup.
+
+With a libSQL Agent state provider, a persistent Nitro server runs this recovery at startup for each Agent journal, before it resumes queued webhook deliveries. It fails the Agent's pending or running invocations that started before the process, except invocations that a persisted queued delivery runs again under the same run ID. Agents with a durable Workflow runtime are skipped. A recovery failure is logged and the queue still resumes.
 
 `agentInvocationId(runId, agentName)` from `vite-hub/agent/server` resolves the canonical invocation ID before admission, allowing applications to include a live Console link in Channel activity.
 

@@ -4,7 +4,7 @@ import { dirname, join } from "node:path"
 import { pathToFileURL } from "node:url"
 import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import type { Plugin } from "vite"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { consoleD1Binding, resolveConsoleJournal, withDataDir } from "../src/storage-config.ts"
 import { vitehub } from "../src/index.ts"
 
@@ -24,7 +24,7 @@ async function generatedConsolePlugin(options: ViteHubOptions, command: "build" 
     if (!config || !configResolved) throw new TypeError("Expected Console config hooks.")
     await Reflect.apply("handler" in config ? config.handler : config, {}, [{ root, [VITEHUB_SERVER_DIRS]: [join(root, "server")] }, { command, mode: command === "build" ? "production" : "development" }])
     const info: string[] = []
-    await Reflect.apply("handler" in configResolved ? configResolved.handler : configResolved, {}, [{ root, logger: { info: (message: string) => info.push(message) } }])
+    await Reflect.apply("handler" in configResolved ? configResolved.handler : configResolved, {}, [{ root, logger: { info: (message: string) => info.push(message), warn: vi.fn() } }])
     return { info, plugin: await readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8") }
   }
   finally {
@@ -42,6 +42,19 @@ describe("Node storage defaults", () => {
       blob: { driver: "fs", base: join(dataDir, "blob") },
       workspace: { root: join(dataDir, "workspaces") },
     })
+  })
+
+  it("puts the inline Console Auth database under the explicit directory", () => {
+    const dataDir = "/var/lib/app data"
+    const auth = { provider: "github" as const, org: "acme" }
+    expect(withDataDir({ preset: "node", dataDir, console: { access: "auth", auth } }).console).toMatchObject({
+      auth: { ...auth, databasePath: join(dataDir, "console-auth.sqlite") },
+    })
+    expect(withDataDir({ preset: "node", dataDir, console: { access: "auth", auth: { ...auth, databasePath: "/data/auth.sqlite" } } }).console)
+      .toMatchObject({ auth: { databasePath: "/data/auth.sqlite" } })
+    expect(withDataDir({ preset: "node", dataDir, console: { access: "auth", auth: {} } }).console).toMatchObject({ auth: {} })
+    const accessAuth = { provider: "cloudflare-access" as const, audience: "aud", teamDomain: "acme.cloudflareaccess.com" }
+    expect(withDataDir({ preset: "node", dataDir, console: { access: "auth", auth: accessAuth } }).console).toHaveProperty("auth", accessAuth)
   })
 
   it.each(["serve", "build"] as const)("preserves Vite Console shorthand with dataDir during %s", async (command) => {

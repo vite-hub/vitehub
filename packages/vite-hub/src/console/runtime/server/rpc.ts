@@ -17,6 +17,7 @@ import consoleEnvHandler from "./env.get.ts"
 import consoleKVHandler from "./kv.get.ts"
 import { consoleRequestError, consoleRequestJSON } from "./request.ts"
 import { consoleSearchCollectionHandler } from "./search.get.ts"
+import { consoleScheduleRunHandler } from "./schedule-run.ts"
 import consoleSectionsHandler from "./sections.get.ts"
 import consoleStatusHandler from "./status.get.ts"
 import consoleUsageHandler from "./usage.get.ts"
@@ -117,6 +118,7 @@ const operations = new Map<string, ConsoleOperation>(Object.entries({
     if (!response.ok) throw Object.assign(viteHubErrorDiagnostics.VITE_HUB_R0052({ message: await response.text() }), { statusCode: response.status })
     return await response.json()
   },
+  [consoleRpcMethods.scheduleRun]: (input, context) => consoleScheduleRunHandler(requestEvent("schedule-run", input, context)),
   [consoleRpcMethods.sections]: (input, context) => consoleSectionsHandler(requestEvent("sections", input, context)),
   [consoleRpcMethods.status]: (input, context) => consoleStatusHandler(requestEvent("status", input, context)),
   [consoleRpcMethods.usage]: (input, context) => consoleUsageHandler(requestEvent("usage", input, context)),

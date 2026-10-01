@@ -4,6 +4,8 @@ import { useRoute, useRouter } from "vue-router";
 
 import type { ConsoleDefinitionSectionId, ConsoleDefinitionSummary } from "../definitions";
 import { requestConsole } from "../client/request";
+import { consoleScheduleRunDescription, runConsoleScheduleDefinition } from "../client/schedule-run";
+import type { ConsoleScheduleRunView } from "../client/schedule-run";
 import { consoleSectionDetails, rememberConsoleSection } from "../sections";
 import ConsoleBrand from "./console-brand.vue";
 import ConsoleFrame from "./console-frame.vue";
@@ -15,6 +17,7 @@ const props = defineProps<{
   agentsBase: string;
   definitionsBase: string;
   kvBase: string;
+  scheduleRunBase?: string;
   searchBase: string;
   section: ConsoleDefinitionSectionId;
   sectionsBase: string;
@@ -27,6 +30,8 @@ const definitions = ref<ConsoleDefinitionSummary[]>([]);
 const selectedName = ref<string>();
 const loading = ref(true);
 const error = ref<unknown>();
+const scheduleRuns = ref<Record<string, ConsoleScheduleRunView>>({});
+const runningSchedule = ref<string>();
 let request: AbortController | undefined;
 
 const sectionDetails = computed(() => consoleSectionDetails[props.section]);
@@ -51,6 +56,12 @@ const definitionNotice = computed(
 );
 const selectedDefinition = computed(() =>
   definitions.value.find((definition) => definition.name === selectedName.value),
+);
+const canRunSelected = computed(() =>
+  Boolean(props.scheduleRunBase && selectedDefinition.value?.runnable),
+);
+const selectedRun = computed(() =>
+  selectedName.value ? scheduleRuns.value[selectedName.value] : undefined,
 );
 
 function record(value: unknown): Record<string, unknown> | undefined {
@@ -93,6 +104,7 @@ function parseDefinitions(
             fields: parseFields(definition.fields),
             file: definition.file,
             name: definition.name,
+            ...(definition.runnable === true ? { runnable: true } : {}),
             source: definition.source,
           },
         ]
@@ -106,6 +118,18 @@ function errorMessage(value: unknown): string | undefined {
     : value
       ? "The Console could not load these definitions."
       : undefined;
+}
+
+async function runSelectedSchedule(): Promise<void> {
+  const name = selectedName.value;
+  if (!name || !props.scheduleRunBase || runningSchedule.value) return;
+  runningSchedule.value = name;
+  try {
+    const run = await runConsoleScheduleDefinition(props.scheduleRunBase, name);
+    scheduleRuns.value = { ...scheduleRuns.value, [name]: run };
+  } finally {
+    runningSchedule.value = undefined;
+  }
 }
 
 function sourceLabel(value: string): string {
@@ -176,6 +200,7 @@ watch(
     rememberConsoleSection(section);
     definitions.value = [];
     error.value = undefined;
+    scheduleRuns.value = {};
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vue Router query values require string narrowing before selection.
     selectedName.value = typeof route.query.definition === "string" ? route.query.definition : undefined;
     void loadDefinitions();
@@ -202,7 +227,7 @@ onBeforeUnmount(() => request?.abort());
 <template>
   <ConsoleFrame>
     <UDashboardSidebar
-      :id="console-navigation"
+      id="console-navigation"
       v-model:open="sidebarOpen"
       :default-size="16"
       :collapsed-size="4"
@@ -342,6 +367,17 @@ onBeforeUnmount(() => request?.abort());
             </span>
           </template>
           <template #right>
+            <UButton
+              v-if="canRunSelected"
+              color="neutral"
+              icon="i-ph-play-light"
+              label="Run now"
+              size="xs"
+              variant="outline"
+              :disabled="Boolean(runningSchedule)"
+              :loading="runningSchedule === selectedName"
+              @click="runSelectedSchedule"
+            />
             <UBadge color="neutral" label="Read-only" size="sm" variant="soft" />
           </template>
         </UDashboardNavbar>
@@ -405,6 +441,15 @@ onBeforeUnmount(() => request?.abort());
               </dl>
             </section>
             <UAlert
+              v-if="selectedRun"
+              :color="selectedRun.status === 'succeeded' ? 'success' : selectedRun.status === 'failed' || selectedRun.status === 'unavailable' ? 'error' : 'neutral'"
+              :icon="selectedRun.status === 'succeeded' ? 'i-ph-check-circle-light' : 'i-ph-warning-circle-light'"
+              :title="selectedRun.status === 'unavailable' ? 'Could not run this Schedule' : `Run ${selectedRun.status}`"
+              :description="consoleScheduleRunDescription(selectedRun)"
+              variant="subtle"
+            />
+            <UAlert
+              v-else
               color="neutral"
               icon="i-ph-info-light"
               title="Definition metadata only"

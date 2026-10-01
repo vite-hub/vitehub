@@ -189,8 +189,16 @@ export const useArticles = () => useCollection("articles", {
 ViteHub discovers modules in `server/collections` and generates the collection
 registry and GET handler. The module must export a Collection with the same name
 as its filename, so `articles.ts` exports `articles` and maps to `/api/articles`.
-Everything in that directory is a public read model; keep private definitions
-elsewhere and do not repeat the route under `server/api`. Restart Nuxt after
+A Collection is a public read model unless it sets `authorize`. `authorize: true`
+requires a signed-in `@vite-hub/auth` session, and a callback receives
+`{ request, session, user }` and returns `true`, `false` for `403`, or a
+`Response`. The route checks access before it parses the query. Without a session
+it returns `401`, and `useCollection()` sets `error` to a `CollectionAccessError`
+with that `status`. Generated routes pass Auth's `authorizeRequest` when the host
+enables Auth with a discovered Auth Definition (`hubSource({ auth: true })`
+alongside `hubAuth()` outside `vite-hub`); otherwise a
+Collection with `authorize` fails closed. Do not repeat the route under
+`server/api`. Restart Nuxt after
 adding, removing, or renaming a Collection module so Nitro rebuilds its handler
 manifest.
 Callers do not repeat URL strings or generic imports. `filter` is validated by

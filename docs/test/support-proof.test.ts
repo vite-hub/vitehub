@@ -96,6 +96,7 @@ describe("support proof ledger", () => {
     expect(renderedRows).not.toContain("✓");
     const liveRow = renderedRows.split("\n").find((line) => line.startsWith("| Live Smoke |"));
     expect(liveRow).toContain("2-day freshness window");
+    expect(liveRow).toContain("**Stopped at provision** [Evidence](");
   });
 
   it("makes the Vue matrix consume the same proof projection", () => {

@@ -31,17 +31,22 @@ export {
 
 export type {
   AgentInvocationAnnotationValue,
+  AgentInvocationDeleteOutcome,
   AgentInvocationListOptions,
   AgentInvocationListResult,
   AgentInvocationObservationOptions,
+  AgentInvocationPruneOptions,
+  AgentInvocationPruneResult,
   AgentInvocationRecord,
   AgentInvocationRecordStatus,
+  AgentInvocationRetentionOptions,
   AgentInvocationSummary,
   AgentInvocations,
   AgentInvocationsOptions,
   AgentInvocationStore,
   AgentInvocationStoreCreateInput,
   AgentInvocationStoreCreateResult,
+  AgentInvocationStorePruneOptions,
   AgentInvocationStoreUpdateInput,
 } from "./invocations.ts"
 

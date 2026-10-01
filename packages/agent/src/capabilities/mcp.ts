@@ -1,10 +1,10 @@
-import { defineMcpToolCapability, sanitizeMcpMetadata } from "../internal/mcp-tool-capability.ts"
+import { defineMcpToolCapability, sanitizeMcpMetadata, withMcpInitializationCompatibility } from "../internal/mcp-tool-capability.ts"
 
 import type {
   AgentCapabilityDefinition,
   AgentRuntimeConfig,
 } from "../types.ts"
-import type { McpCapabilityOptions, McpClient, McpClientConfig } from "../mcp/types.ts"
+import type { McpCapabilityOptions } from "../mcp/types.ts"
 import type { WorkspaceName } from "@vite-hub/workspace"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 
@@ -14,20 +14,6 @@ function normalizeMcpToolName(serverName: string, toolName: string) {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
-}
-
-function isMcpClientConfig(value: McpClient | McpClientConfig): value is McpClientConfig {
-  return "transport" in value
-    && !("tools" in value && typeof value.tools === "function"
-      && "close" in value && typeof value.close === "function")
-}
-
-function withMcpInitializationCompatibility(connection: McpClient | McpClientConfig): McpClient | McpClientConfig {
-  if (!isMcpClientConfig(connection)) return connection
-  return {
-    ...connection,
-    protocolVersionDiscovery: connection.protocolVersionDiscovery ?? false,
-  }
 }
 
 function assertMcpIntegrityOptions(options: McpCapabilityOptions) {

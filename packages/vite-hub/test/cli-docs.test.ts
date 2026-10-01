@@ -5,9 +5,11 @@ import { fileURLToPath } from "node:url";
 import { createAgentCliContributor } from "@vite-hub/agent/cli";
 import { runViteHubCli } from "@vite-hub/cli";
 import { createDbCliContributor } from "@vite-hub/database/cli";
+import { hubSchedule } from "@vite-hub/schedule/vite";
 import { hubWorkspace } from "@vite-hub/workspace/vite";
 import { describe, expect, it } from "vitest";
 
+import { createBoxCliNamespace } from "../src/box-cli.ts";
 import { createConsoleCliNamespace } from "../src/console/cli.ts";
 import { viteHubTypesPlugin } from "../src/internal/types.ts";
 
@@ -33,7 +35,7 @@ function helpNames(output: string, heading: string): string[] {
 
 function documentedCommands(): string[] {
   const source = readFileSync(cliReference, "utf8");
-  return [...source.matchAll(/^\| `vitehub ([a-z0-9-]+) ([a-z0-9-]+)` \|/gm)]
+  return [...source.matchAll(/^\| `vitehub ([a-z0-9-]+) ([a-z0-9-]+)`\s+\|/gm)]
     .map((match) => `${match[1]} ${match[2]}`)
     .sort();
 }
@@ -44,27 +46,35 @@ describe("CLI documentation contract", () => {
     const database = createDbCliContributor();
     if (!agent || !database) throw new TypeError("Expected the default CLI contributors.");
     const workspacePlugin: unknown = hubWorkspace();
+    const schedulePlugin: unknown = hubSchedule();
     const typesPlugin: unknown = viteHubTypesPlugin();
     const plugins: unknown[] = [
       { vitehub: { cli: agent } },
       { vitehub: { cli: database } },
       { vitehub: { cli: { namespaces: [createConsoleCliNamespace()] } } },
+      schedulePlugin,
       workspacePlugin,
       typesPlugin,
     ];
     const loadConfig = async () => ({ plugins, root: repoRoot });
     const rootHelp = stream();
+    const runtimeNamespaces = [createBoxCliNamespace()];
 
-    await expect(runViteHubCli({ args: ["--help"], loadConfig, stdout: rootHelp })).resolves.toBe(
-      0,
-    );
+    await expect(
+      runViteHubCli({ args: ["--help"], loadConfig, runtimeNamespaces, stdout: rootHelp }),
+    ).resolves.toBe(0);
     const namespaces = helpNames(rootHelp.output(), "Available namespaces:");
     const commands: string[] = [];
 
     for (const namespace of namespaces) {
       const namespaceHelp = stream();
       await expect(
-        runViteHubCli({ args: [namespace, "--help"], loadConfig, stdout: namespaceHelp }),
+        runViteHubCli({
+          args: [namespace, "--help"],
+          loadConfig,
+          runtimeNamespaces,
+          stdout: namespaceHelp,
+        }),
       ).resolves.toBe(0);
       for (const feature of helpNames(namespaceHelp.output(), "Available features:")) {
         commands.push(`${namespace} ${feature}`);

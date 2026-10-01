@@ -146,6 +146,8 @@ export async function agentTelemetryConfigurationFingerprint(
   const facts = {
     ...value,
     capabilities: value.capabilities?.map(({ inspection: _inspection, ...capability }) => capability),
+    // Tool labels and icons are display metadata and do not change Agent behavior.
+    ...(value.tools ? { tools: value.tools.map(({ icon: _icon, label: _label, ...tool }) => tool) } : {}),
   }
   const serialized = JSON.stringify(canonicalConfigurationValue(facts))
   const redacted = JSON.stringify(canonicalConfigurationValue(redactConfigurationValue(facts)))
@@ -154,7 +156,7 @@ export async function agentTelemetryConfigurationFingerprint(
   // redactor cannot recognize; keep their fingerprints runtime-scoped.
   const freeForm = JSON.stringify({
     instructions: value.instructions,
-    tools: value.tools,
+    tools: facts.tools,
     metadata: "metadata" in value ? value.metadata : undefined,
   })
   // Public free-form configuration (for example ordinary instructions) keeps

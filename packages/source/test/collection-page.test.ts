@@ -129,6 +129,17 @@ describe("Collections", () => {
     expect(load).toHaveBeenLastCalledWith({ cursor: 2, limit: 2, query: {}, signal: undefined })
   })
 
+  it("exposes authorize on the Collection and validates it", () => {
+    const authorize = () => true
+    const options = { cursor: (item: { id: number }) => item.id, cursorSchema: v.number() }
+    expect(defineCollection(async () => [{ id: 1 }], { ...options, authorize }).authorize).toBe(authorize)
+    expect(defineCollection(async () => [{ id: 1 }], { ...options, authorize: true }).authorize).toBe(true)
+    expect(defineCollection(async () => [{ id: 1 }], options)).not.toHaveProperty("authorize")
+    // SAFETY: The test deliberately violates the input contract to prove the runtime guard.
+    expect(() => defineCollection(async () => [{ id: 1 }], { ...options, authorize: "yes" as never }))
+      .toThrow("Collection authorize must be true or a function.")
+  })
+
   it("rejects malformed cursors and invalid definition limits", async () => {
     const { collection } = mealsCollection()
     await expect(

@@ -1,4 +1,5 @@
 import { channelIcon } from "../internal/channel-icon.ts";
+import { invocationBrand, invocationBrandMark, invocationModelMaker } from "../internal/invocation-brand.ts";
 import { useMounted, useNow } from "@vueuse/core";
 import { computed, defineComponent, getCurrentInstance, h, nextTick, onBeforeUnmount, ref, type PropType, Suspense, watch } from "vue";
 import type { AgentInvocationConfiguration, AgentInvocationView } from "../types.ts";
@@ -13,6 +14,7 @@ import {
   channelDeliverySummary,
   invocationActivities,
   invocationActivityTitle,
+  invocationToolUsage,
   latestInvocationTokens,
   stringAttribute,
   terminalText,
@@ -75,72 +77,6 @@ function driverLabel(configuration: AgentInvocationConfiguration): string | unde
   ].filter(Boolean).join(" · ") || undefined;
 }
 
-interface InvocationBrand {
-  id: "fallback" | "openrouter" | "z-ai" | "codex" | "openai";
-  label: string;
-}
-
-function invocationBrand(value: string | undefined): InvocationBrand | undefined {
-  const id = value?.trim().toLocaleLowerCase();
-  if (!id) return;
-  if (id.includes("openrouter")) return { id: "openrouter", label: "OpenRouter" };
-  if (id === "z-ai" || id.includes("z-ai.")) return { id: "z-ai", label: "Z.AI" };
-  if (id === "codex") return { id: "codex", label: "Codex" };
-  if (id === "openai") return { id: "openai", label: "OpenAI" };
-  return {
-    id: "fallback",
-    label: id
-      .split(/[._-]/g)
-      .filter(Boolean)
-      .map(part => part.length <= 3 ? part.toLocaleUpperCase() : `${part[0]?.toLocaleUpperCase() ?? ""}${part.slice(1)}`)
-      .join(" "),
-  };
-}
-
-
-function invocationBrandMark(brand: InvocationBrand | undefined, className: string) {
-  if (!brand) return null;
-  if (brand.id === "z-ai") return h("svg", {
-    "aria-hidden": "true",
-    class: `vh-invocation-brand__logo ${className}`,
-    viewBox: "0 0 30 30"
-  }, [h("rect", {
-    fill: "#2d2d2d",
-    height: "28",
-    rx: "4",
-    width: "28",
-    x: "1",
-    y: "1"
-  }), h("path", {
-    d: "M15.47 7.1l-1.3 1.85c-.2.29-.54.47-.9.47h-7.1V7.09h9.3Zm8.83 0L13.14 22.91H5.7L16.86 7.1h7.44Zm-9.77 15.81 1.31-1.86c.2-.29.54-.47.9-.47h7.09v2.33h-9.3Z",
-    fill: "#fff"
-  })]);
-  if (brand.id === "openrouter") return h("svg", {
-    "aria-hidden": "true",
-    class: `vh-invocation-brand__logo ${className}`,
-    viewBox: "0 0 401.4 293.7"
-  }, [h("path", { d: "M303.9475 17.1993c42.7973 0 77.4893 34.6933 77.4893 77.4893s-34.692 77.4893-77.4893 77.4893l76.8617 76.8625c9.7637 9.7631 2.849 26.4566-10.957 26.4566H148.9688C77.642 275.497 19.82 217.675 19.82 146.348S77.642 17.199 148.9688 17.199h154.9787ZM148.9688 68.8588c-42.796 0-77.4893 34.6933-77.4893 77.4893s34.6933 77.4894 77.4893 77.4894 77.4894-34.6933 77.4894-77.4894-34.6933-77.4893-77.4894-77.4893Z" })]);
-  if (brand.id === "codex" || brand.id === "openai") return h("svg", {
-    "aria-hidden": "true",
-    class: `vh-invocation-brand__logo vh-invocation-brand__logo--openai ${className}`,
-    viewBox: "0 0 24 24"
-  }, [h("path", { d: "M22.282 9.821a6 6 0 0 0-.516-4.91a6.05 6.05 0 0 0-6.51-2.9A6.065 6.065 0 0 0 4.981 4.18a6 6 0 0 0-3.998 2.9a6.05 6.05 0 0 0 .743 7.097a5.98 5.98 0 0 0 .51 4.911a6.05 6.05 0 0 0 6.515 2.9A6 6 0 0 0 13.26 24a6.06 6.06 0 0 0 5.772-4.206a6 6 0 0 0 3.997-2.9a6.06 6.06 0 0 0-.747-7.073M13.26 22.43a4.48 4.48 0 0 1-2.876-1.04l.141-.081l4.779-2.758a.8.8 0 0 0 .392-.681v-6.737l2.02 1.168a.07.07 0 0 1 .038.052v5.583a4.504 4.504 0 0 1-4.494 4.494M3.6 18.304a4.47 4.47 0 0 1-.535-3.014l.142.085l4.783 2.759a.77.77 0 0 0 .78 0l5.843-3.369v2.332a.08.08 0 0 1-.033.062L9.74 19.95a4.5 4.5 0 0 1-6.14-1.646M2.34 7.896a4.5 4.5 0 0 1 2.366-1.973V11.6a.77.77 0 0 0 .388.677l5.815 3.354l-2.02 1.168a.08.08 0 0 1-.071 0l-4.83-2.786A4.504 4.504 0 0 1 2.34 7.872zm16.597 3.855l-5.833-3.387L15.119 7.2a.08.08 0 0 1 .071 0l4.83 2.791a4.494 4.494 0 0 1-.676 8.105v-5.678a.79.79 0 0 0-.407-.667m2.01-3.023l-.141-.085l-4.774-2.782a.78.78 0 0 0-.785 0L9.409 9.23V6.897a.07.07 0 0 1 .028-.061l4.83-2.787a4.5 4.5 0 0 1 6.68 4.66zm-12.64 4.135l-2.02-1.164a.08.08 0 0 1-.038-.057V6.075a4.5 4.5 0 0 1 7.375-3.453l-.142.08L8.704 5.46a.8.8 0 0 0-.393.681zm1.097-2.365l2.602-1.5l2.607 1.5v2.999l-2.597 1.5l-2.607-1.5Z" })]);
-  return h("svg", {
-    "aria-hidden": "true",
-    class: `vh-invocation-brand__logo ${className}`,
-    viewBox: "0 0 24 24",
-    fill: "none",
-    stroke: "currentColor",
-    "stroke-width": 1.5
-  }, [h("rect", {
-    x: 5,
-    y: 5,
-    width: 14,
-    height: 14,
-    rx: 3
-  }), h("path", { d: "M9 2v3m6-3v3M9 19v3m6-3v3M2 9h3m-3 6h3m14-6h3m-3 6h3M9 9h6v6H9z" })]);
-}
-
 function invocationModelName(value: string): string {
   const slug = value.split("/").at(-1) ?? "";
   return slug
@@ -153,25 +89,6 @@ function invocationModelName(value: string): string {
       return `${part[0]?.toLocaleUpperCase() ?? ""}${part.slice(1)}`;
     })
     .join(" ") || "Configured model";
-}
-
-function invocationToolUsage(invocation: AgentInvocationView): ReadonlyMap<string, number> {
-  const counts = new Map<string, number>();
-  const seen = new Set<string>();
-  for (const observation of invocation.observations) {
-    const name = observation.attributes?.["tool.name"];
-    if (!hasRuntimeType(name, "string") || !name) continue;
-    const id = observation.attributes?.["tool.id"];
-    if (hasRuntimeType(id, "string") && id) {
-      const key = `${name}:${id}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-    } else if (!observation.name.endsWith(".start")) {
-      continue;
-    }
-    counts.set(name, (counts.get(name) ?? 0) + 1);
-  }
-  return counts;
 }
 
 function workspaceLabel(configuration: AgentInvocationConfiguration): string | undefined {
@@ -456,7 +373,7 @@ const messageRoleLabels: Record<NonNullable<InvocationActivity["role"]>, string>
   assistant: "Assistant",
   system: "System",
   tool: "Tool",
-  user: "User",
+  user: "You",
 };
 
 interface MessageRendering {
@@ -484,6 +401,9 @@ function renderMessage(
   const copyStatus = messageRendering.copiedId === activity.id ? messageRendering.copyStatus : undefined;
   const commentary = activity.attributes["message.phase"] === "commentary";
   const hasMessageMeta = (activity.role === "user" || activity.role === "assistant") && !(insideWork && commentary);
+  // The prompt names its known author; other user messages come from the viewer.
+  const author = activity.id === messageRendering.promptId ? messageRendering.author : undefined;
+  const roleLabel = author ?? messageRoleLabels[activity.role ?? "assistant"];
   return h(
     "li",
     {
@@ -493,7 +413,9 @@ function renderMessage(
       key: activity.id,
     },
     [
-      h("span", { class: "vh-visually-hidden" }, `${messageRoleLabels[activity.role ?? "assistant"]} message`),
+      insideWork && commentary
+        ? h("span", { class: "vh-visually-hidden" }, `${roleLabel} message`)
+        : h("span", { class: "vh-invocation-message__role" }, roleLabel),
       activity.attributes["input.mode"] === "steer"
         ? h("small", { class: "vh-invocation-message__method" }, "Steered")
         : null,
@@ -514,7 +436,6 @@ function renderMessage(
         : null,
       hasMessageMeta
         ? h("footer", { class: "vh-invocation-message__meta" }, [
-            activity.id === messageRendering.promptId && messageRendering.author ? h("span", messageRendering.author) : null,
             sentAt ? h("time", { datetime: sentAt.value, title: sentAt.title }, sentAt.short) : null,
             h("button", {
               "aria-label": copyStatus === "copied" ? "Copied" : copyStatus === "failed" ? "Copy failed" : "Copy message",
@@ -635,13 +556,15 @@ const activityIconPaths: Record<ActivityIcon, readonly string[]> = {
 };
 
 function renderActivityIcon(activity: InvocationActivity) {
+  const declaredIcon = activity.toolDisplay?.icon;
+  const Icon = declaredIcon ? getCurrentInstance()?.appContext.components.UIcon : undefined;
   return h("span", {
     class: "vh-invocation-event__icon",
     "data-failed": activity.status === "failed" ? "true" : undefined,
-    "data-icon": activityIcon(activity),
+    "data-icon": Icon ? declaredIcon : activityIcon(activity),
     "aria-hidden": "true",
   }, [
-    renderActivityIconSvg(activityIcon(activity)),
+    Icon ? h(Icon, { name: declaredIcon }) : renderActivityIconSvg(activityIcon(activity)),
     activity.status === "failed"
       ? h("svg", {
           class: "vh-invocation-event__failure-icon",
@@ -989,7 +912,7 @@ function renderAgentConfigurationGroup(activities: readonly InvocationActivity[]
     h("details", { class: "vh-invocation-capabilities__details" }, [
       h("summary", { class: "vh-invocation-capabilities__summary" }, [
         renderDisclosureChevron("vh-invocation-capabilities__disclosure"),
-        h("span", "Agent configured"),
+        h("span", invocationActivityTitle(activity)),
         agentConfigurationSummary(activity) ? h("small", agentConfigurationSummary(activity)) : null,
       ]),
       h("ol", { class: "vh-invocation-capabilities__rows" }, activities.map(item => renderEvent(item, inspect))),
@@ -1254,18 +1177,15 @@ function inspectorChannels(channels: NonNullable<AgentInvocationConfiguration["c
 function inspectorExecution(configuration: AgentInvocationConfiguration) {
   const model = configuration.driver?.model;
   const modelId = model?.id;
-  const provider = invocationBrand(
-    model?.provider
-      ?? configuration.driver?.provider
-      ?? (modelId?.includes("/") ? modelId.split("/")[0] : undefined),
-  );
+  const maker = invocationModelMaker(modelId);
+  const provider = invocationBrand(model?.provider ?? configuration.driver?.provider);
   const runtime = configuration.runtime?.name;
   if (!modelId && !provider && (!runtime || runtime === "unknown")) return null;
   return h("div", { class: "vh-invocation-inspector__group vh-invocation-inspector__group--execution" }, [
     h("div", { class: "vh-invocation-inspector__group-heading" }, [h("strong", "Model")]),
     h("div", { class: "vh-invocation-execution" }, [
       modelId || provider ? h("div", { class: "vh-invocation-execution__model" }, [
-        invocationBrandMark(provider ?? { id: "fallback", label: "Model" }, "vh-invocation-execution__model-icon"),
+        invocationBrandMark(maker ?? provider ?? { id: "fallback", label: "Model" }, "vh-invocation-execution__model-icon"),
         h("div", { class: "vh-invocation-execution__details" }, [
           h("strong", modelId ? invocationModelName(modelId) : provider?.label),
           modelId && provider ? h("span", { class: "vh-invocation-execution__provider" }, [
@@ -1283,6 +1203,7 @@ function inspectorExecution(configuration: AgentInvocationConfiguration) {
 function inspectorTools(
   tools: NonNullable<AgentInvocationConfiguration["tools"]>,
   counts: ReadonlyMap<string, number>,
+  selectTool: (name: string) => void,
 ) {
   const rows = [...tools].sort((left, right) =>
     (counts.get(right.name) ?? 0) - (counts.get(left.name) ?? 0)
@@ -1294,7 +1215,7 @@ function inspectorTools(
       h("strong", "Tools"),
       h("small", `${used} of ${rows.length} used`),
     ]),
-    h(AgentToolList, { calls: Object.fromEntries(counts), tools: rows }),
+    h(AgentToolList, { calls: Object.fromEntries(counts), onSelect: selectTool, tools: rows }),
   ]);
 }
 
@@ -1317,7 +1238,12 @@ function inspectorDisclosure(
   );
 }
 
-function renderConfiguration(configuration: AgentInvocationConfiguration, invocation: AgentInvocationView, showCapabilities: boolean) {
+function renderConfiguration(
+  configuration: AgentInvocationConfiguration,
+  invocation: AgentInvocationView,
+  showCapabilities: boolean,
+  selectTool: (name: string) => void,
+) {
   const recordedTools = Array.isArray(configuration.tools) ? configuration.tools : [];
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Persisted catalogs can contain truncation markers; validate tool names at the inspector boundary.
   const tools = recordedTools.filter(tool => tool && typeof tool.name === "string");
@@ -1363,7 +1289,7 @@ function renderConfiguration(configuration: AgentInvocationConfiguration, invoca
                   h("small", tools.length ? `${tools.length} tool${tools.length === 1 ? "" : "s"}` : "Configuration"),
                   renderDisclosureChevron("vh-invocation-inspector__chevron"),
                 ]),
-                tools.length ? h(AgentToolList, { tools, calls: Object.fromEntries(invocationToolUsage(invocation)) }) : null,
+                tools.length ? h(AgentToolList, { tools, calls: Object.fromEntries(invocationToolUsage(invocation)), onSelect: selectTool }) : null,
                 capability.metadata ? h("details", { class: "vh-invocation-inspector__settings" }, [
                   h("summary", "Configuration"),
                   h("pre", JSON.stringify(capability.metadata, null, 2)),
@@ -1375,7 +1301,7 @@ function renderConfiguration(configuration: AgentInvocationConfiguration, invoca
         ])
       : null,
     configuration.tools?.some(tool => !configuration.capabilities?.some(capability => capability.id === tool.capabilityId))
-      ? inspectorTools(configuration.tools.filter(tool => !configuration.capabilities?.some(capability => capability.id === tool.capabilityId)), invocationToolUsage(invocation))
+      ? inspectorTools(configuration.tools.filter(tool => !configuration.capabilities?.some(capability => capability.id === tool.capabilityId)), invocationToolUsage(invocation), selectTool)
       : null,
     configuration.instructions?.length
       ? inspectorDisclosure(
@@ -1550,6 +1476,58 @@ function invocationPromptMetadata(invocation: AgentInvocationView, activities: r
   return { author, promptId: prompt.id, sentAt: stringAttribute(invocation.annotations ?? {}, "channel.sentAt") };
 }
 
+const answerDeliveryKinds = new Set(["reply", "update"]);
+
+function deliveryContent(activity: InvocationActivity): string | undefined {
+  const content = activity.attributes["channel.effect.content"];
+  return hasRuntimeType(content, "string") && content.trim() ? content : undefined;
+}
+
+// A delivered reply is the answer the user saw, so show it as an assistant message.
+function isDeliveredAnswer(activity: InvocationActivity): boolean {
+  return activity.kind === "delivery"
+    && activity.status === "completed"
+    && activity.attributes["channel.effect.supported"] !== false
+    && !stringAttribute(activity.attributes, "channel.effect.skipped")
+    && answerDeliveryKinds.has(stringAttribute(activity.attributes, "channel.effect.kind")?.toLocaleLowerCase() ?? "")
+    && deliveryContent(activity) !== undefined;
+}
+
+// Use the same current-turn answer selection as the conversation renderer.
+function deliveredAnswerCount(activities: readonly InvocationActivity[]): number {
+  return conversationAnswers(activities).answers.size;
+}
+
+function conversationAnswers(activities: readonly InvocationActivity[]) {
+  const orderedActivities = activities.filter(activity => activity.kind !== "message" || isVisibleMessage(activity));
+  const firstUser = promptActivityIndex(orderedActivities);
+  const lastUser = orderedActivities.findLastIndex(activity => activity.kind === "message" && activity.role === "user");
+  const lastAssistant = orderedActivities.findLastIndex((activity, index) => index > lastUser
+    && activity.kind === "message" && activity.role === "assistant" && activity.attributes["message.phase"] !== "commentary");
+  const tail = orderedActivities.slice(firstUser + 1);
+  const finalBody = lastAssistant >= 0 ? orderedActivities[lastAssistant]!.body?.trim() : undefined;
+  const answers = new Set(uniqueDeliveredAnswers(tail, new Set(finalBody ? [finalBody] : [])));
+  return { orderedActivities, firstUser, lastAssistant, tail, answers };
+}
+
+function uniqueDeliveredAnswers(activities: readonly InvocationActivity[], bodies: Set<string>): InvocationActivity[] {
+  return activities.filter(activity => {
+    if (!isDeliveredAnswer(activity)) return false;
+    const body = deliveryContent(activity)!.trim();
+    if (bodies.has(body)) return false;
+    bodies.add(body);
+    return true;
+  });
+}
+
+function deliveryReceipt(activity: InvocationActivity): InvocationActivity {
+  return { ...activity, attributes: Object.fromEntries(Object.entries(activity.attributes).filter(([key]) => key !== "channel.effect.content")) };
+}
+
+function deliveryAnswer(activity: InvocationActivity): InvocationActivity {
+  return { ...activity, body: deliveryContent(activity), id: `${activity.id}:answer`, kind: "message", role: "assistant" };
+}
+
 function renderInvocationActivities(
   activities: readonly InvocationActivity[],
   invocation: AgentInvocationView,
@@ -1560,62 +1538,39 @@ function renderInvocationActivities(
   inspect: InspectHandler,
   messageRendering: MessageRendering,
 ) {
-  const orderedActivities = activities.filter(activity => activity.kind !== "message" || isVisibleMessage(activity));
-  const firstUser = promptActivityIndex(orderedActivities);
-  const lastUser = orderedActivities.findLastIndex(activity => activity.kind === "message" && activity.role === "user");
-  let lastAssistant = -1;
-  for (let index = orderedActivities.length - 1; index >= 0; index -= 1) {
-    const activity = orderedActivities[index]!;
-    if (index > lastUser && activity.kind === "message" && activity.role === "assistant" && activity.attributes["message.phase"] !== "commentary") {
-      lastAssistant = index;
-      break;
-    }
-  }
-  if (firstUser < 0) return renderActivitySequence(orderedActivities, invocation, expanded, toggleExpanded, inspect, messageRendering);
+  const { orderedActivities, firstUser, lastAssistant, tail, answers } = conversationAnswers(activities);
+  if (firstUser < 0 && !orderedActivities.some(isDeliveredAnswer)) return renderActivitySequence(orderedActivities, invocation, expanded, toggleExpanded, inspect, messageRendering);
 
-  const history = orderedActivities.slice(0, firstUser).filter(isVisibleMessage);
-  const workBeforePrompt = orderedActivities.slice(0, firstUser).filter(activity => activity.kind !== "message");
-  const prompt = orderedActivities[firstUser]!;
-  const tail = orderedActivities.slice(firstUser + 1);
-  const finalBody = lastAssistant >= 0 ? orderedActivities[lastAssistant]!.body?.trim() : undefined;
-  const finalDelivery = tail.findLast(activity => activity.kind === "delivery"
-    && activity.status === "completed"
-    && activity.attributes["channel.effect.supported"] !== false
-    && !stringAttribute(activity.attributes, "channel.effect.skipped")
-    && stringAttribute(activity.attributes, "channel.effect.kind")?.toLocaleLowerCase() === "reply"
-    && finalBody !== undefined
-    && stringAttribute(activity.attributes, "channel.effect.content") === finalBody);
-  const finalDeliveryReceipt = finalDelivery
-    ? { ...finalDelivery, attributes: Object.fromEntries(Object.entries(finalDelivery.attributes).filter(([key]) => key !== "channel.effect.content")) }
-    : undefined;
+  const history = orderedActivities.slice(0, Math.max(firstUser, 0)).filter(isVisibleMessage);
+  const workBeforePrompt = orderedActivities.slice(0, Math.max(firstUser, 0)).filter(activity => activity.kind !== "message");
+  const prompt = orderedActivities[firstUser];
   const hasLaterCommentary = lastAssistant >= 0 && orderedActivities.slice(lastAssistant + 1).some(activity =>
     activity.kind === "message" && activity.role === "assistant" && activity.attributes["message.phase"] === "commentary");
   if (hasLaterCommentary) {
     const beforeAnswer = orderedActivities.slice(firstUser + 1, lastAssistant);
-    const work = coalesceAgentConfiguration([...workBeforePrompt, ...beforeAnswer.filter(activity => activity !== finalDelivery)]);
-    const answerAndFollowup = orderedActivities.slice(lastAssistant).map(activity =>
-      activity === finalDelivery ? finalDeliveryReceipt! : activity);
+    const followup = orderedActivities.slice(lastAssistant);
+    const work = coalesceAgentConfiguration([...workBeforePrompt, ...beforeAnswer, ...followup.filter(activity => activity.kind === "delivery")])
+      .map(activity => isDeliveredAnswer(activity) ? deliveryReceipt(activity) : activity);
+    const answerAndFollowup = followup.flatMap(activity =>
+      answers.has(activity) ? [deliveryAnswer(activity)] : activity.kind === "delivery" ? [] : [activity]);
     return [
       renderPreviousMessages(history, invocation, expanded, toggleExpanded, inspect, messageRendering),
-      renderInvocationActivity(prompt, expanded, toggleExpanded, inspect, messageRendering),
+      prompt ? renderInvocationActivity(prompt, expanded, toggleExpanded, inspect, messageRendering) : null,
       renderWorkSummary(work, invocation, expanded, workOpen, setWorkOpen, toggleExpanded, inspect, messageRendering),
-      ...(finalDeliveryReceipt && beforeAnswer.includes(finalDelivery!)
-        ? [renderInvocationActivity(finalDeliveryReceipt, expanded, toggleExpanded, inspect, messageRendering)] : []),
+      ...beforeAnswer.filter(activity => answers.has(activity))
+        .map(activity => renderInvocationActivity(deliveryAnswer(activity), expanded, toggleExpanded, inspect, messageRendering)),
       ...renderActivitySequence(answerAndFollowup, invocation, expanded, toggleExpanded, inspect, messageRendering),
     ].filter(item => item !== null);
   }
-  const work = coalesceAgentConfiguration([...workBeforePrompt, ...tail.filter((activity, offset) => {
-    if (firstUser + 1 + offset === lastAssistant) return false;
-    if (activity === finalDelivery) return false;
-    return true;
-  })]);
+  const work = coalesceAgentConfiguration([...workBeforePrompt, ...tail.filter((_, offset) => firstUser + 1 + offset !== lastAssistant)]).map(activity => isDeliveredAnswer(activity) ? deliveryReceipt(activity) : activity);
 
   return [
     renderPreviousMessages(history, invocation, expanded, toggleExpanded, inspect, messageRendering),
-    renderInvocationActivity(prompt, expanded, toggleExpanded, inspect, messageRendering),
+    prompt ? renderInvocationActivity(prompt, expanded, toggleExpanded, inspect, messageRendering) : null,
     renderWorkSummary(work, invocation, expanded, workOpen, setWorkOpen, toggleExpanded, inspect, messageRendering),
-    ...(finalDeliveryReceipt ? [renderInvocationActivity(finalDeliveryReceipt, expanded, toggleExpanded, inspect, messageRendering)] : []),
-    ...(lastAssistant >= 0 ? [renderInvocationActivity(orderedActivities[lastAssistant]!, expanded, toggleExpanded, inspect, messageRendering)] : []),
+    ...[...[...answers].map(deliveryAnswer), ...(lastAssistant >= 0 ? [orderedActivities[lastAssistant]!] : [])]
+      .sort((left, right) => left.sequence - right.sequence)
+      .map(activity => renderInvocationActivity(activity, expanded, toggleExpanded, inspect, messageRendering)),
   ].filter(item => item !== null);
 }
 
@@ -1800,12 +1755,18 @@ export const AgentInvocationInspector = defineComponent({
     let copyTimer: ReturnType<typeof setTimeout> | undefined;
     const metrics = computed(() => ({
       changes: activities.value.filter((activity) => activity.kind === "change").length,
-      messages: activities.value.filter((activity) => activity.kind === "message").length,
+      messages: activities.value.filter((activity) => activity.kind === "message").length + deliveredAnswerCount(activities.value),
       steps: activities.value.filter((activity) =>
         activity.kind !== "message" && activity.name !== "vitehub.observation.truncated"
       ).length,
       tokens: latestInvocationTokens(activities.value),
+      toolCalls: [...invocationToolUsage(props.invocation).values()].reduce((total, count) => total + count, 0),
     }));
+
+    function selectTool(name: string) {
+      const call = activities.value.find(activity => activity.attributes["tool.name"] === name);
+      if (call) emit("selectActivity", call.id);
+    }
 
     async function copyIdentifier(kind: "invocation" | "trace", value: string | undefined) {
       if (!value) return;
@@ -1861,8 +1822,9 @@ export const AgentInvocationInspector = defineComponent({
         : undefined;
       const endedAt =
         props.invocation.completedAt ?? props.invocation.failedAt ?? props.invocation.cancelledAt;
+      const totalTime = formatDuration(props.invocation.startedAt, endedAt);
       const duration =
-        formatDuration(props.invocation.startedAt, endedAt) ??
+        totalTime ??
         (props.invocation.status === "pending"
           ? "Waiting to start"
           : props.invocation.status === "running"
@@ -1930,6 +1892,8 @@ export const AgentInvocationInspector = defineComponent({
               h("dl", { class: "vh-invocation-inspector__metrics" }, [
                 h("div", [h("dt", "Messages"), h("dd", metrics.value.messages)]),
                 h("div", [h("dt", "Steps"), h("dd", metrics.value.steps)]),
+                h("div", [h("dt", "Tool calls"), h("dd", metrics.value.toolCalls)]),
+                totalTime ? h("div", [h("dt", "Total time"), h("dd", totalTime)]) : null,
                 metrics.value.changes
                   ? h("div", [h("dt", "Changes"), h("dd", metrics.value.changes)])
                   : null,
@@ -1953,7 +1917,7 @@ export const AgentInvocationInspector = defineComponent({
             props.showTimeline
               ? traceTimeline(activities.value, props.invocation, id => emit("selectActivity", id))
               : null,
-            ...(configuration ? renderConfiguration(configuration, props.invocation, props.showCapabilities) : []),
+            ...(configuration ? renderConfiguration(configuration, props.invocation, props.showCapabilities, selectTool) : []),
             slots.metadata?.({ invocation: props.invocation }),
             inspectorSection(
               "Identifiers",

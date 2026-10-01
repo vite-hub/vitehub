@@ -260,9 +260,8 @@ function withSiblingWorkspaceSourceRoot<TRuntimeConfig extends AgentRuntimeConfi
   if ("name" in options.workspace) return agent
   if (options.workspace.sourceRootDir) return agent
 
-  // These options came from an already validated Agent Definition; this pass
-  // only fills the inferred workspace source root.
-  return defineAgent({
+  // SAFETY: These validated Workspace Agent options retain their runtime, Channel, and Workspace contracts when only sourceRootDir changes.
+  return defineAgent<TRuntimeConfig>({
     ...options,
     workspace: {
       ...options.workspace,
@@ -288,7 +287,8 @@ function applyVariant<TRuntimeConfig extends AgentRuntimeConfig>(
   if (!isVariantOverride(variant)) return agent
   const settings = (agent as { __vitehubAgentSettings?: AgentSettings<TRuntimeConfig> }).__vitehubAgentSettings
   if (settings) {
-    return defineAgent({
+    // SAFETY: Variant application preserves the validated Agent and driver contracts while replacing only supported driver settings.
+    return defineAgent<TRuntimeConfig>({
       ...settings,
       driver: applyVariantToExplicitDriver(settings.driver, variant) as never,
     } as never)
@@ -299,7 +299,8 @@ function applyVariant<TRuntimeConfig extends AgentRuntimeConfig>(
 
   const options = agent.__vitehubWorkspaceAgentOptions as WorkspaceAgentOptions<TRuntimeConfig>
   const driver = (options as { driver?: unknown }).driver
-  return defineAgent({
+  // SAFETY: These validated Workspace Agent options keep their workspace and runtime contracts; variant application changes only supported driver settings.
+  return defineAgent<TRuntimeConfig>({
     ...options,
     driver: applyVariantToExplicitDriver(driver, variant) as never,
   } as never)

@@ -4,6 +4,14 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { defineAgent, runAgentInline, startAgentInvocation, workflow } from "../src/index.ts"
 import { setAgentWorkflowRuntimeLoaders } from "../src/internal/workflow-runtime-loaders.ts"
 import { runAgentWorkflowDefinition } from "../src/runtime/workflow.ts"
+import { markDiscoveredAgentName } from "../src/internal/discovered-agent-name.ts"
+import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/server.ts"
+import { useWorkspace } from "@vite-hub/workspace"
+
+vi.mock("@vite-hub/workspace", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@vite-hub/workspace")>()
+  return { ...actual, useWorkspace: vi.fn(actual.useWorkspace) }
+})
 
 vi.mock("#vitehub/agent/registry", () => ({ default: {} }))
 
@@ -15,6 +23,56 @@ afterEach(() => {
 })
 
 describe("durable Agent data handoff", () => {
+  it.each([undefined, "host-agent"])("preserves the invocation name across remote Workflow dispatch with host %s", async (hostName) => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const run = vi.fn(() => "completed")
+    const createAgent = () => defineAgent({ driver: { run }, workspace: {}, invocations, runtime: workflow("discovered-workflow") })
+    const agent = createAgent()
+    markDiscoveredAgentName(agent, "discovered-agent")
+    const runtime = {
+      memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn(),
+      ...(hostName ? { agentIdentity: { name: hostName } } : {}),
+    }
+    await runAgentInline(agent, runtime, { prompt: "Direct execution." })
+    const directWorkspaceName = vi.mocked(useWorkspace).mock.calls.at(-1)?.[0]
+    expect(directWorkspaceName).toBe(hostName ?? "workspace")
+    let payload: unknown
+    setAgentWorkflowRuntimeLoaders({
+      state: async () => ({
+        ...await import("@vite-hub/workflow/runtime/state"),
+        getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" as const }),
+      }),
+      workflow: async () => ({
+        ...await import("@vite-hub/workflow"),
+        // SAFETY: This fixture supplies the remote dispatch boundary used by the test.
+        createWorkflow: () => ({
+          run: async (input: unknown) => {
+            payload = input
+            return { id: "discovered-run", provider: "openworkflow", status: "queued" }
+          },
+        }) as never,
+      }),
+    })
+    await startAgentInvocation(agent, {
+      memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn(),
+      ...(hostName ? { agentIdentity: { name: hostName } } : {}),
+    }, { prompt: "Label this email." })
+
+    expect(payload).toMatchObject({ journalAgentName: hostName ?? "discovered-agent" })
+    if (hostName) expect(payload).toMatchObject({ agentIdentity: { name: hostName } })
+    else expect(payload).not.toHaveProperty("agentIdentity")
+    // A new Definition represents the worker isolate, which has no Console marker.
+    await expect(runAgentWorkflowDefinition(createAgent(), {
+      id: "discovered-run", name: "discovered-workflow",
+      // SAFETY: The captured payload comes from the Workflow boundary under test.
+      payload: payload as never, provider: "openworkflow",
+    }, runAgentInline)).resolves.toBe("completed")
+    expect(vi.mocked(useWorkspace).mock.calls.at(-1)?.[0]).toBe(directWorkspaceName)
+    const { invocations: records } = await invocations.list({ limit: 10 })
+    expect(records).toHaveLength(2)
+    expect(records).toEqual(expect.arrayContaining([expect.objectContaining({ origin: "workflow:openworkflow", agentName: hostName ?? "discovered-agent", status: "completed" })]))
+  })
+
   it("parses data once across preflight and the durable Workflow", async () => {
     const validate = vi.fn((value: string) => Number(value))
     const data = v.object({ count: v.pipe(v.string(), v.transform(validate)) })

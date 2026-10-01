@@ -207,7 +207,7 @@ describe("agent capability runtime", () => {
 
     await expect(resolveAgentCapabilities({ capabilities: [capability] }, runtime(), {}, workspace as never, "write", {
       driverKind: "provider", invocationKind: "run", workspaceDefinition: { ...definition, name },
-    })).rejects.toThrow('conflicts with Workspace Source "portal"')
+    })).rejects.toThrow('The GitHub pull request checkout of example/portal at "portal" conflicts with Workspace Source "portal", which has a different repository or scope.')
   })
 
   it("overlays a resolved GitHub source fingerprint when its scope matches", async () => {
@@ -960,7 +960,7 @@ describe("agent capability runtime", () => {
   it.each([
     { command: "ssh", args: ["host"] },
     () => ({ command: "custom-provider" }),
-  ])("rejects managed browser launchers before provisioning or retaining Skills: %j", async (launch) => {
+  ])("uses an external browser runtime for launchers unless managed is explicit: %j", async (launch) => {
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { browser } = await import("../src/capabilities.ts")
     const browserRuntime = await import("../src/internal/browser-runtime.ts")
@@ -970,24 +970,26 @@ describe("agent capability runtime", () => {
     const workspace = useWorkspace(workspaceName, { mode: "write" })
     const write = vi.spyOn(workspace.fs, "writeFile")
     try {
-      await expect(resolveAgentCapabilities({ capabilities: [browser()] }, runtime(), {}, workspace as never, "write", {
+      await expect(resolveAgentCapabilities({ capabilities: [browser({ runtime: "managed" })] }, runtime(), {}, workspace as never, "write", {
         driver: { kind: "provider", provider: "codex", launch },
         driverKind: "provider",
         invocationKind: "run",
         workspaceDefinition: { name: workspaceName, sources: {} },
-      })).rejects.toThrow('browser({ runtime: "external" })')
+      })).rejects.toThrow('browser({ runtime: "managed" }) cannot be used with driver.launch')
       expect(prepare).not.toHaveBeenCalled()
       expect(write).not.toHaveBeenCalled()
       await expect(workspace.fs.exists(".agents/skills/agent-browser/SKILL.md")).resolves.toBe(false)
-      const external = await resolveAgentCapabilities({ capabilities: [browser({ runtime: "external" })] }, runtime(), {}, workspace as never, "write", {
-        driver: { kind: "provider", provider: "codex", launch },
-        driverKind: "provider",
-        invocationKind: "run",
-        workspaceDefinition: { name: workspaceName, sources: {} },
-      })
-      expect(prepare).not.toHaveBeenCalled()
-      await expect(workspace.fs.exists(".agents/skills/agent-browser/SKILL.md")).resolves.toBe(true)
-      await external.close()
+      for (const capability of [browser(), browser({ runtime: "external" })]) {
+        const external = await resolveAgentCapabilities({ capabilities: [capability] }, runtime(), {}, workspace as never, "write", {
+          driver: { kind: "provider", provider: "codex", launch },
+          driverKind: "provider",
+          invocationKind: "run",
+          workspaceDefinition: { name: workspaceName, sources: {} },
+        })
+        expect(prepare).not.toHaveBeenCalled()
+        await expect(workspace.fs.exists(".agents/skills/agent-browser/SKILL.md")).resolves.toBe(true)
+        await external.close()
+      }
     }
     finally {
       prepare.mockRestore()
@@ -1258,8 +1260,8 @@ describe("agent capability runtime", () => {
 
   it("exposes the effective browser runtime in inspection metadata", async () => {
     const { browser } = await import("../src/capabilities.ts")
-    expect(browser().metadata).toMatchObject({ runtime: "managed" })
-    expect(browser({ command: "agent-browser" }).metadata).toMatchObject({ runtime: "managed" })
+    expect(browser().metadata).toMatchObject({ runtime: "auto" })
+    expect(browser({ command: "agent-browser" }).metadata).toMatchObject({ runtime: "auto" })
     expect(browser({ command: "agent-browser", runtime: "managed" }).metadata).toMatchObject({ runtime: "managed" })
     expect(browser({ command: "agent-browser", runtime: "external" }).metadata).toMatchObject({ runtime: "external" })
     expect(browser({ runtime: "external" }).metadata).toMatchObject({ runtime: "external" })

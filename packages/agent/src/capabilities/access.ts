@@ -957,6 +957,7 @@ function createScopedWorkspaceFacade<Name extends WorkspaceName>(
       read: options?.read,
       search: options?.search,
     },
+    sourceRequests: options?.sourceRequests,
     timeout: options?.timeout,
   })
   // SAFETY: Access scope normalization establishes the asserted Workspace facade contract.

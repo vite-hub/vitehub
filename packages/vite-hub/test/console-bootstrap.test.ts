@@ -32,6 +32,13 @@ it("opens the inspector on its launcher and keeps terminal session chrome quiet"
   expect(sessionNavbar).toContain('v-if="refreshable" text="Refresh session"');
 });
 
+it("copies the session link and jumps from tool rows to calls", () => {
+  expect(sessionNavbar).toContain('<UTooltip v-if="hasSelection" :text="linkCopyLabel">');
+  expect(sessionNavbar).toContain("navigator.clipboard.writeText(window.location.href)");
+  expect(sessionNavbar).toContain('role="status" aria-live="polite"');
+  expect(sessionInspector).toContain(`<AgentCapabilityInspector v-else-if="tab === 'capabilities'" :invocation="invocation" @select-activity="emit('focusActivity', $event)" />`);
+});
+
 it("keeps inspector links and metadata compact", () => {
   expect(sessionInspector).toContain('class="session-inspector__surface-launcher"');
   expect(sessionInspector).toContain('<template #identityActions>');

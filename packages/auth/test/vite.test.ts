@@ -4,7 +4,7 @@ import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { afterEach, describe, expect, it } from "vitest"
-import { createServer } from "vite"
+import { createServer, mergeConfig, resolveConfig } from "vite"
 
 import { AUTH_DEFINITION_ID, AUTH_SERVER_ID, hubAuth } from "../src/vite.ts"
 
@@ -136,7 +136,7 @@ describe("hubAuth", () => {
 
   it("marks the auth package as noExternal for Vite SSR module loading", () => {
     const plugin = hubAuth()
-    const config = plugin.config as (config: { ssr?: { noExternal?: string[] } }) => unknown
+    const config = plugin.config as (config: { server?: { watch?: { ignored?: string[] } }, ssr?: { noExternal?: string[] } }) => unknown
 
     expect(config({})).toEqual({
       server: {
@@ -148,23 +148,54 @@ describe("hubAuth", () => {
         noExternal: ["@vite-hub/auth"],
       },
     })
-    expect(config({ ssr: { noExternal: ["existing"] } })).toEqual({
+    expect(config({ server: { watch: { ignored: ["**/.vitehub/**"] } }, ssr: { noExternal: ["existing", "@vite-hub/auth"] } })).toEqual({
       server: {
         watch: {
-          ignored: ["**/.vitehub/**"],
+          ignored: undefined,
         },
       },
       ssr: {
-        noExternal: ["existing", "@vite-hub/auth"],
+        noExternal: undefined,
       },
     })
+  })
+
+  it("keeps configured entries single after Vite resolves the Auth config", async () => {
+    const root = await createTempProject()
+    await writeAuth(root)
+    const middleware = { handler: "/app/middleware.ts", middleware: true, route: "/**" }
+
+    const inlineConfig = {
+      configFile: false as const,
+      logLevel: "silent" as const,
+      nitro: {
+        cloudflare: { wrangler: { secrets: { required: ["VITEHUB_TOKEN"] } } },
+        handlers: [middleware],
+        plugins: ["/app/plugin.ts"],
+      },
+      plugins: [hubAuth()],
+      root,
+      server: { watch: { ignored: ["**/dist/**"] } },
+      ssr: { noExternal: ["existing"] },
+    }
+
+    const resolved = await resolveConfig(inlineConfig, "build")
+    // SAFETY: Vite keeps the open `nitro` key of the inline config on its resolved config.
+    const nitro = (resolved as typeof resolved & { nitro: { cloudflare: { wrangler: { secrets: { required: string[] } } }, handlers: unknown[], plugins: string[] } }).nitro
+
+    expect(nitro.cloudflare.wrangler.secrets.required).toEqual(["VITEHUB_TOKEN"])
+    expect(nitro.plugins).toEqual(["/app/plugin.ts"])
+    expect(nitro.handlers).toEqual([middleware, { handler: resolve(root, ".vitehub/auth/route.ts"), route: "/api/auth/**" }])
+    expect(resolved.server.watch?.ignored).toEqual(["**/dist/**", "**/.vitehub/**"])
+    expect(resolved.ssr.noExternal).toEqual(["existing", "@vite-hub/auth"])
+    expect(resolved.environments.ssr?.resolve.noExternal).toEqual(["existing", "@vite-hub/auth"])
   })
 
   it("registers the discovered Auth route with Nitro", async () => {
     const root = await createTempProject()
     await writeAuth(root)
     const plugin = hubAuth()
-    const config = plugin.config as (config: { root: string }) => unknown
+    const config = (input: { root: string }) => mergeConfig(input, (plugin.config as (config: { root: string }) => Record<string, unknown>)(input))
 
     expect(config({ root })).toMatchObject({
       nitro: {
@@ -189,7 +220,7 @@ describe("hubAuth", () => {
       "  },",
     ])
     const plugin = hubAuth()
-    const config = plugin.config as (config: { root: string }) => unknown
+    const config = (input: { root: string }) => mergeConfig(input, (plugin.config as (config: { root: string }) => Record<string, unknown>)(input))
 
     expect(config({ root })).toMatchObject({
       nitro: {
@@ -215,7 +246,7 @@ describe("hubAuth", () => {
       "  basePath: '/auth',",
     ])
     const plugin = hubAuth()
-    const config = plugin.config as (config: { root: string }) => unknown
+    const config = (input: { root: string }) => mergeConfig(input, (plugin.config as (config: { root: string }) => Record<string, unknown>)(input))
 
     expect(config({ root })).toMatchObject({
       nitro: {

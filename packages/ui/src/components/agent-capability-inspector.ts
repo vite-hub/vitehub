@@ -1,6 +1,7 @@
 import { Renderer, JSONUIProvider, type ComponentRegistry, type ComponentRenderProps } from "@json-render/vue";
 import type { Spec } from "@json-render/core";
 import { computed, defineComponent, h, ref, watch, type PropType, type VNodeChild } from "vue";
+import { invocationActivities, invocationToolUsage } from "../internal/invocation-activity.ts";
 import { hasRuntimeType } from "../internal/runtime-type.ts";
 import { AgentToolList } from "./agent-tool-list.ts";
 import type { AgentInvocationView } from "../types.ts";
@@ -85,12 +86,21 @@ function catalogComponent(render: (props: Record<string, unknown>, children: VNo
 
 export const AgentCapabilityInspector = defineComponent({
   name: "AgentCapabilityInspector",
+  emits: {
+    /** Emitted with the first recorded call of a tool the viewer selects. */
+    selectActivity: (id: string) => Boolean(id),
+  },
   props: {
     // SAFETY: The public Invocation view is the same serialized contract used by AgentInvocationInspector.
     invocation: { type: Object as PropType<AgentInvocationView>, required: true },
   },
-  setup(props) {
+  setup(props, { emit }) {
     const selectedId = ref<string>();
+    const calls = computed(() => Object.fromEntries(invocationToolUsage(props.invocation)));
+    function selectTool(name: string) {
+      const call = invocationActivities(props.invocation).find(activity => activity.attributes["tool.name"] === name);
+      if (call) emit("selectActivity", call.id);
+    }
     const capabilities = computed(() => props.invocation.configuration?.capabilities ?? []);
     const selected = computed(() => capabilities.value.find(capability => capability.id === selectedId.value) ?? capabilities.value[0]);
     const tools = computed(() => props.invocation.configuration?.tools?.filter(tool => tool.capabilityId === selected.value?.id) ?? []);
@@ -106,7 +116,7 @@ export const AgentCapabilityInspector = defineComponent({
         const selectedTools = tools.value.filter(tool =>
           (!Object.hasOwn(props, "names") || names?.includes(tool.name))
           && (!Object.hasOwn(props, "mcpServer") || hasRuntimeType(props.mcpServer, "string") && tool.mcp?.server === props.mcpServer));
-        return selectedTools.length ? h(AgentToolList, { tools: selectedTools }) : h("p", { class: "vh-capability-inspector__empty" }, "No tool contracts recorded.");
+        return selectedTools.length ? h(AgentToolList, { calls: calls.value, onSelect: selectTool, tools: selectedTools }) : h("p", { class: "vh-capability-inspector__empty" }, "No tool contracts recorded.");
       }),
     };
     return () => h("div", { class: "vh-capability-inspector" }, [
@@ -126,7 +136,7 @@ export const AgentCapabilityInspector = defineComponent({
               selected.value.inspection && (!selected.value.inspection.state || selected.value.inspection.view) ? h("p", { class: "vh-capability-inspector__empty" }, selected.value.inspection.view && !spec.value
                 ? "This view is unavailable. Recorded tools and data are shown below."
                 : "Inspection data was not recorded. Configuration capture may be disabled for this run.") : null,
-              tools.value.length ? h(AgentToolList, { tools: tools.value }) : null,
+              tools.value.length ? h(AgentToolList, { calls: calls.value, onSelect: selectTool, tools: tools.value }) : null,
               selected.value.inspection?.state ? h("pre", JSON.stringify(selected.value.inspection.state, null, 2)) : null,
               selected.value.metadata ? h("details", [h("summary", "Configuration"), h("pre", JSON.stringify(selected.value.metadata, null, 2))]) : null,
               !tools.value.length && !selected.value.metadata && !selected.value.inspection ? h("p", "No tools or configuration recorded.") : null,

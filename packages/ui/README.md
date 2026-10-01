@@ -20,7 +20,7 @@ The package currently declares `vue` and `ai` as required peers. Styled componen
 Add the package and its runtime peers to an existing Nuxt application:
 
 ```bash
-pnpm add @vite-hub/ui @nuxt/ui ai tailwindcss vue
+pnpm add @vite-hub/ui @nuxt/ui ai tailwindcss vue @iconify-json/lucide @iconify-json/ph
 ```
 
 Register the module:
@@ -32,7 +32,7 @@ export default defineNuxtConfig({
 });
 ```
 
-The module installs Nuxt UI, includes `@vite-hub/ui/styles.css`, and auto-imports public components such as `AgentChat`, `AgentMarkdown`, and `AgentInvocation`. No separate Vue plugin registration is needed.
+The module installs Nuxt UI, includes `@vite-hub/ui/styles.css`, and auto-imports public components such as `AgentChat`, `AgentMarkdown`, and `AgentInvocation`. It also adds the icons that these components use to the `@nuxt/icon` client bundle, because `@nuxt/icon` does not scan dependencies. The Lucide and Phosphor collections must be installed in the application. No separate Vue plugin registration is needed.
 
 ## Vue with Vite
 
@@ -121,3 +121,5 @@ The page displays **ViteHub UI is ready.** in bold. This confirms the public com
 `AgentCapabilityInspector` takes the same `invocation` prop as `AgentInvocationInspector`. It provides capability selection, recorded MCP server/tool contracts, Title generation state, and a generic tools/configuration fallback. It renders capability-contributed JSON Render specs through a bounded, read-only Vue catalog. Unsupported specs fall back to recorded data; the renderer has no tool execution or RPC handlers.
 
 `AgentInvocationInspector` keeps its embedded capability summary by default. Set `showCapabilities` to `false` when a separate Capabilities panel provides this information, as in the Console. Load the package stylesheet for both components.
+
+Both inspectors emit `selectActivity` with a tool's first call when the viewer selects its call count. `AgentToolList` emits `select` with the tool name and renders the count as a button only when a `select` listener is present. The model maker and provider marks come from [Lobe Icons](https://github.com/lobehub/lobe-icons) (MIT). `src/internal/brand-icons.ts` keeps their license notice.

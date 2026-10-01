@@ -81,12 +81,12 @@ function sourceBinding(source: WorkspaceSourceInput, mountPath: string, sourceMo
 
 function workspaceShellTools(
   mode: AgentCapabilityMode,
-  workspace: { tools: { inspect: () => AgentToolSet, write?: () => AgentToolSet } } | undefined,
+  workspace: { tools: { inspect: (options: { sourceRequests: boolean }) => AgentToolSet, write?: (options: { sourceRequests: boolean }) => AgentToolSet } } | undefined,
 ): AgentToolSet {
   if (!workspace) throw agentDiagnostics.AGENT_R0199({ message: "[vitehub] skills({ shellExecution }) requires an explicit workspace." })
   return (mode === "write" && workspace.tools.write
-    ? workspace.tools.write()
-    : workspace.tools.inspect()) as AgentToolSet
+    ? workspace.tools.write({ sourceRequests: true })
+    : workspace.tools.inspect({ sourceRequests: true }))
 }
 
 export function skills(options: SkillsCapabilityOptions = {}): AgentCapabilityDefinition {

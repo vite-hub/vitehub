@@ -2,17 +2,52 @@ import { existsSync } from "node:fs"
 import { resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
+import { env } from "@vite-hub/env"
+import { createRuntimeEnvRegistry } from "@vite-hub/env/vite"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { build } from "esbuild"
-import { consoleAuthMountBase, consoleAuthPath } from "./auth-path.ts"
-import type { InlineConsoleAuth } from "./auth-inline.ts"
+import { resolveInlineConsoleAuthGates, type InlineConsoleAuth } from "./auth-inline-config.ts"
+import { cloudflareAccessIssuer, consoleAuthMountBase, consoleAuthPath } from "./auth-path.ts"
+
+import type { EnvRuntimeRegistry } from "@vite-hub/env"
+import type { CloudflareAccessConsoleAuth } from "./auth-cloudflare-access.ts"
+import type { ConsoleAuthMode } from "./internal.ts"
 
 export interface ConsoleAuthFiles {
   server?: string
   client?: string
 }
 
-export type ConsoleAuthConfig = ConsoleAuthFiles | InlineConsoleAuth
+export type ConsoleAuthConfig = ConsoleAuthFiles | InlineConsoleAuth | CloudflareAccessConsoleAuth
+
+export interface ResolvedCloudflareAccessConsoleAuth {
+  provider: "cloudflare-access"
+  settings: EnvRuntimeRegistry
+}
+
+export type ResolvedConsoleAuthConfig = ResolvedConsoleAuthFiles | InlineConsoleAuth | ResolvedCloudflareAccessConsoleAuth
+
+export interface SessionConsoleAuthHandlers {
+  auth: true
+  client: string
+  clientSource?: string
+  clientSources: string[]
+  middleware: string
+  route: string
+  signIn: string
+}
+
+export interface CloudflareAccessConsoleAuthHandlers {
+  auth: "cloudflare-access"
+  client?: undefined
+  clientSource?: undefined
+  clientSources: string[]
+  middleware: string
+  route?: undefined
+  signIn?: undefined
+}
+
+export type ConsoleAuthHandlers = SessionConsoleAuthHandlers | CloudflareAccessConsoleAuthHandlers
 
 export interface ResolvedConsoleAuthFiles {
   server: string
@@ -48,7 +83,41 @@ export function resolveConsoleAuthFiles(root: string, config: ConsoleAuthFiles):
   return files
 }
 
-export function resolveConsoleAuthConfig(root: string, config: ConsoleAuthConfig, preset = "node"): ResolvedConsoleAuthFiles | InlineConsoleAuth {
+/** Return the Console Auth mode that the generated handlers serve. Cloudflare Access has no edge in development. */
+export function registeredConsoleAuthMode(config: ConsoleAuthConfig | undefined, development: boolean): ConsoleAuthMode | false {
+  if (!config) return false
+  if ("provider" in config && config.provider === "cloudflare-access") return development ? false : "cloudflare-access"
+  return true
+}
+
+function resolveCloudflareAccessConsoleAuth(root: string, config: CloudflareAccessConsoleAuth): ResolvedCloudflareAccessConsoleAuth {
+  if (discoverFile(root, "server")) {
+    throw new TypeError("[vitehub] Cloudflare Access Console Auth conflicts with vitehub/console/auth/server.")
+  }
+  if (discoverFile(root, "client")) {
+    throw new TypeError("[vitehub] Cloudflare Access Console Auth does not use vitehub/console/auth/client.")
+  }
+  const values = {
+    audience: config.audience ?? env({ source: env.source("CF_ACCESS_AUD") }),
+    teamDomain: config.teamDomain ?? env({ source: env.source("CF_ACCESS_TEAM_DOMAIN") }),
+  }
+  for (const [key, value] of Object.entries(values)) {
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- A setting is either a literal string or an Env declaration.
+    if (typeof value === "string") {
+      if (key === "teamDomain" ? !cloudflareAccessIssuer(value) : !value.trim()) {
+        throw new TypeError(`[vitehub] Cloudflare Access Console Auth ${key} must be ${key === "teamDomain" ? "an HTTPS team domain such as acme.cloudflareaccess.com" : "a non-empty Application Audience (AUD) tag"}.`)
+      }
+    }
+    else if (value.source?.kind === "provider") {
+      throw new TypeError(`[vitehub] Cloudflare Access Console Auth ${key} cannot use env.provider() because the Console guard resolves it for each request without loading providers.`)
+    }
+  }
+  const settings = createRuntimeEnvRegistry(values, { path: "console.auth" })
+  return { provider: "cloudflare-access", settings }
+}
+
+export function resolveConsoleAuthConfig(root: string, config: ConsoleAuthConfig, preset = "node"): ResolvedConsoleAuthConfig {
+  if ("provider" in config && config.provider === "cloudflare-access") return resolveCloudflareAccessConsoleAuth(root, config)
   if ("provider" in config) {
     if (preset !== "node") {
       throw new TypeError("[vitehub] Inline Console Auth uses node:sqlite and requires the Node deployment preset. Use a file-based Console Auth Definition for other presets.")
@@ -56,9 +125,7 @@ export function resolveConsoleAuthConfig(root: string, config: ConsoleAuthConfig
     if (discoverFile(root, "server")) {
       throw new TypeError("[vitehub] Inline Console Auth conflicts with vitehub/console/auth/server.")
     }
-    if (config.provider !== "github" || !config.allowedEmails?.length || !config.databasePath || config.databasePath === ":memory:") {
-      throw new TypeError("[vitehub] Inline Console Auth requires provider: 'github', allowedEmails, and a persistent databasePath.")
-    }
+    resolveInlineConsoleAuthGates(config)
     if (config.client && discoverFile(root, "client")) {
       throw new TypeError("[vitehub] Console Auth client is configured both by path and by vitehub/console/auth/client.")
     }
@@ -70,15 +137,26 @@ export function resolveConsoleAuthConfig(root: string, config: ConsoleAuthConfig
   return resolveConsoleAuthFiles(root, config)
 }
 
-export async function writeConsoleAuthHandlers(root: string, config: ResolvedConsoleAuthFiles | InlineConsoleAuth, mountBaseURL = "/"): Promise<{
-  client: string
-  clientSource?: string
-  clientSources: string[]
-  middleware: string
-  route: string
-  signIn: string
-}> {
+async function writeCloudflareAccessMiddleware(directory: string, config: ResolvedCloudflareAccessConsoleAuth, mountBaseURL: string): Promise<CloudflareAccessConsoleAuthHandlers> {
+  const middleware = resolve(directory, "auth-middleware.mjs")
+  await writeFileIfChanged(middleware, [
+    'import { resolveServerEnv } from "vite-hub/env/server"',
+    'import { handleCloudflareAccessConsoleRequest } from "vite-hub/console/auth/cloudflare-access"',
+    `const settings = JSON.parse(${JSON.stringify(JSON.stringify(config.settings))})`,
+    "export default function viteHubConsoleAuthMiddleware(event) {",
+    `  return handleCloudflareAccessConsoleRequest(event, () => resolveServerEnv(settings, event), ${JSON.stringify(mountBaseURL)})`,
+    "}",
+    "",
+  ].join("\n"))
+  return { auth: "cloudflare-access", clientSources: [], middleware }
+}
+
+export async function writeConsoleAuthHandlers(root: string, config: ResolvedCloudflareAccessConsoleAuth, mountBaseURL?: string): Promise<CloudflareAccessConsoleAuthHandlers>
+export async function writeConsoleAuthHandlers(root: string, config: ResolvedConsoleAuthFiles | InlineConsoleAuth, mountBaseURL?: string): Promise<SessionConsoleAuthHandlers>
+export async function writeConsoleAuthHandlers(root: string, config: ResolvedConsoleAuthConfig, mountBaseURL?: string): Promise<ConsoleAuthHandlers>
+export async function writeConsoleAuthHandlers(root: string, config: ResolvedConsoleAuthConfig, mountBaseURL = "/"): Promise<ConsoleAuthHandlers> {
   const directory = resolve(root, ".vitehub/nitro/console")
+  if ("settings" in config) return writeCloudflareAccessMiddleware(directory, config, mountBaseURL)
   const definitionFile = resolve(directory, "auth-definition.mjs")
   const route = resolve(directory, "auth-route.mjs")
   const signIn = resolve(directory, "auth-sign-in.mjs")
@@ -173,5 +251,5 @@ export async function writeConsoleAuthHandlers(root: string, config: ResolvedCon
       "",
     ].join("\n")),
   ])
-  return { client, clientSource: clientFile, clientSources, middleware, route, signIn }
+  return { auth: true, client, clientSource: clientFile, clientSources, middleware, route, signIn }
 }

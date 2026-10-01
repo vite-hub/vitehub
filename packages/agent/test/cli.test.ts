@@ -13,6 +13,7 @@ import { getAgentChannelSyncDefinition } from "../src/internal/channel-sync.ts"
 import { createAgentEvaliteConfigPath, writeAgentEvaliteConfig } from "../src/internal/evalite-config.ts"
 import { createTelegramChannelSyncProvider } from "../src/internal/telegram-channel-sync.ts"
 import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue } from "../src/invocation-stream.ts"
+import { verifyAgentWebhookRequest } from "../src/trigger-runtime.ts"
 import { telegram } from "../src/channels.ts"
 
 function stream() {
@@ -254,6 +255,42 @@ describe("agent CLI", () => {
       await expect(readFile(join(rootDir, "archives/export/media/0001-meal.jpg"))).resolves.toEqual(Buffer.from([1, 2, 3]))
       await expect(readFile(join(rootDir, "archives/export/history.json"), "utf8")).resolves.toContain('"file": "media/0001-meal.jpg"')
       await expect(readFile(join(rootDir, "archives/export/history.json"), "utf8")).resolves.toContain('"data": "preserve me"')
+    }
+    finally {
+      await rm(rootDir, { force: true, recursive: true })
+    }
+  })
+
+  it("signs stripe-sha256 Channel history requests", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-channel-history-stripe-"))
+    const registration = { id: "productlane", provider: "productlane", secretHeader: "x-test-signature", secretToken: "webhook-secret", signature: "stripe-sha256" }
+    let verified: unknown
+    try {
+      const exitCode = await runAgentChannelHistoryCli([
+        "--stage", "production",
+        "--url", "https://example.com",
+        "--output", "export",
+        "--thread", "productlane:123",
+      ], {
+        cwd: rootDir,
+        env: {},
+        rootDir: "/repo",
+        stderr: stream(),
+        stdout: stream(),
+      }, {
+        fetch: async (input, init) => {
+          if (init?.method === "HEAD") return new Response(null, { headers: { "x-vitehub-channel-provider": "productlane" }, status: 204 })
+          verified = await verifyAgentWebhookRequest([registration], new Request(String(input), init))
+          return Response.json({ messages: [], schemaVersion: 1, threadId: "productlane:123" })
+        },
+        loadTargets: async () => [{ agent: "support", channel: "productlane", mode: "webhook" as const, provider: "productlane", registration }],
+      })
+
+      expect(exitCode).toBe(0)
+      expect(verified).toMatchObject({ verified: true })
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await expect(channelRegistration("support", { kind: "http", webhooks: { id: "productlane", secretHeader: "x-test-signature", secretToken: "webhook-secret", signature: { preset: "stripe-sha256", toleranceSeconds: 600 } } } as never, {}, "productlane"))
+        .resolves.toMatchObject({ signature: "stripe-sha256" })
     }
     finally {
       await rm(rootDir, { force: true, recursive: true })

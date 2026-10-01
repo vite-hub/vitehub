@@ -1,3 +1,4 @@
+import { channelDeliveryHandlers } from "../src/internal/channel-delivery-handlers.ts"
 import { asUnknownBoundary, hasRuntimeType } from "../src/internal/runtime-type.ts"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
@@ -817,7 +818,7 @@ describe("agent chat capability discovery", () => {
       ],
       channels: {
         github: defineChannel("github", {
-          effects: { reaction: reactionEffect },
+          [channelDeliveryHandlers]: { reaction: reactionEffect },
           messages: false,
         }),
       },
@@ -1578,7 +1579,7 @@ describe("agent chat capability discovery", () => {
       ],
       channels: {
         github: defineChannel("github", {
-          effects: { reaction: reactionEffect, reply: replyEffect },
+          [channelDeliveryHandlers]: { reaction: reactionEffect, reply: replyEffect },
           messages: false,
           triggers: {
             webhook: {

@@ -11,6 +11,7 @@ import { createConsoleD1Invocations, getConsoleInvocations, getConsoleUsageIndex
 import usageHandler from "../src/console/runtime/server/usage.get.ts"
 
 import type { AgentInvocationD1Database, AgentInvocationD1Statement } from "@vite-hub/agent/invocations/d1"
+import type { AgentInvocationRetentionOptions } from "@vite-hub/agent/server"
 
 describe("Console D1 journal", () => {
   let miniflare: Miniflare
@@ -19,7 +20,7 @@ describe("Console D1 journal", () => {
   beforeAll(async () => {
     miniflare = new Miniflare({
       compatibilityDate: "2026-07-14",
-      d1Databases: ["DB", "OTHER", "USAGE", "USAGE_OTHER"],
+      d1Databases: ["DB", "OTHER", "USAGE", "USAGE_OTHER", "RETENTION"],
       modules: true,
       script: "export default { fetch() { return new Response('test') } }",
     })
@@ -63,6 +64,43 @@ describe("Console D1 journal", () => {
     await expect(query.get()).resolves.toMatchObject({ id: summary.id, status: "completed" })
     await expect(db.query.invocations.findFirst({ where: eq(schema.invocations.id, summary.id) })).resolves.toMatchObject({ id: summary.id, status: "completed" })
     expect(env).toHaveBeenCalled()
+  })
+
+  it.each(["maxAgeMs", "maxRecords"] as const)("rejects null %s before accessing the D1 binding", (limit) => {
+    const retention: AgentInvocationRetentionOptions = {}
+    Reflect.set(retention, limit, null)
+    const env = vi.fn(() => ({ DB: database }))
+    expect(() => createConsoleD1Invocations({ binding: "DB", env }, undefined, retention)).toThrow("retention limits must be positive safe integers or false")
+    expect(env).not.toHaveBeenCalled()
+  })
+
+  it("applies configured retention and terminal deletion to the D1 fallback journal", async () => {
+    const retentionDatabase = await miniflare.getD1Database("RETENTION")
+    const journal = { binding: "RETENTION", env: () => ({ RETENTION: retentionDatabase }) }
+    const retention = { maxAgeMs: 30 * 24 * 60 * 60 * 1000, maxRecords: false as const }
+    const root = "/console-d1-retention"
+    const invocations = installConsoleInvocations(root, undefined, undefined, undefined, journal, retention)
+    expect(installConsoleInvocations(root, undefined, undefined, undefined, journal, retention)).toBe(invocations)
+    const journalDatabase = consoleRuntime.resolve({ memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }).invocations
+    if (journalDatabase.driver !== "d1") throw new Error("Expected the D1 Console database.")
+    const { db, schema } = journalDatabase
+    const recent = new Date().toISOString()
+    const old = new Date(Date.now() - 40 * 24 * 60 * 60 * 1000).toISOString()
+    for (const input of [
+      { id: "old", status: "completed" as const, updatedAt: old },
+      { id: "recent", status: "completed" as const, updatedAt: recent },
+      { id: "running", status: "running" as const, updatedAt: old },
+    ]) {
+      const record = { ...input, agentName: "retention", createdAt: input.updatedAt, traceId: input.id, observations: [] }
+      await db.insert(schema.invocations).values({ ...input, agentName: record.agentName, search: "", summary: record, record }).run()
+    }
+    await expect(invocations.prune({ dryRun: true })).resolves.toEqual({ dryRun: true, ids: ["old"] })
+    await expect(invocations.prune()).resolves.toEqual({ dryRun: false, ids: ["old"] })
+    await expect(invocations.delete("running")).resolves.toBe("not-terminal")
+    await expect(invocations.delete("recent")).resolves.toBe("deleted")
+    expect((await invocations.list()).invocations.map(record => record.id)).toEqual(["running"])
+    const disabled = { maxAgeMs: false as const, maxRecords: false as const }
+    expect(installConsoleInvocations(root, undefined, undefined, undefined, journal, disabled)).not.toBe(invocations)
   })
 
   it("resolves the D1 binding per Drizzle operation and initializes each database", async () => {

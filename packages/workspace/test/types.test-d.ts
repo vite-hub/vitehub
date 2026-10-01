@@ -35,6 +35,20 @@ declare global {
 }
 
 describe("workspace types", () => {
+  it("types Source-only shell tools", () => {
+    const operations = { list: false, read: false, search: false } as const
+    const assets = createWorkspaceAssets({})
+    const direct = createWorkspaceTools(assets, { operations, sourceRequests: true })
+    const readonly = useWorkspace("typed")
+    const writable = useWorkspace("typed", { mode: "write" })
+
+    expectTypeOf(direct.shell).toEqualTypeOf<Tool<{ command: string }, WorkspaceShellResult>>()
+    expectTypeOf(readonly.tools.inspect({ ...operations, sourceRequests: true }).shell).toEqualTypeOf<Tool<{ command: string }, WorkspaceShellResult>>()
+    expectTypeOf(writable.tools.write({ ...operations, sourceRequests: true }).shell).toEqualTypeOf<Tool<{ command: string }, WorkspaceShellResult>>()
+    expectTypeOf(createWorkspaceTools(assets, { operations }).shell).toEqualTypeOf<ToolSet["shell"]>()
+    expectTypeOf(readonly.tools.inspect(operations).shell).toEqualTypeOf<ToolSet["shell"]>()
+  })
+
   it("types custom file-list sources", () => {
     const docs = custom({
       files: [{

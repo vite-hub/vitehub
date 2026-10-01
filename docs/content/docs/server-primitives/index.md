@@ -58,6 +58,7 @@ Server code calls runtime helpers directly. Agents receive only the abilities ad
 | --- | --- |
 | Public, server, build-time, runtime, or secret environment values | [Env](/docs/server-primitives/env) |
 | Application users, sessions, Better Auth routing, or guarded app routes | [Auth](/docs/server-primitives/auth) |
+| Provider accounts that the app owns, with OAuth refresh, access rules, and call activity | [Connections](/docs/server-primitives/connections) |
 | Request budgets that must be consumed before expensive server work starts | [Rate Limit](/docs/server-primitives/rate-limit) |
 | Outbound transactional messages with provider-neutral delivery | [Email](/docs/server-primitives/email) |
 | Small key-addressed values, settings, flags, cursors, or lightweight state | [KV](/docs/server-primitives/kv) |

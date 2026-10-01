@@ -29,6 +29,7 @@ import type {
   ResolvedAgentTriggerDefinition,
 } from "./types.ts"
 import { parseStandardSchema } from "@vite-hub/internal/http-request"
+import { channelMessageContextKey } from "./internal/channel-delivery-handlers.ts"
 import type { StreamEvent } from "./messages.ts"
 import type { StandardSchemaV1 } from "@standard-schema/spec"
 import type { WorkspaceName } from "@vite-hub/workspace"
@@ -293,6 +294,44 @@ async function constantTimeEqual(left: string, right: string): Promise<boolean> 
   return diff === 0
 }
 
+function stripeSignatureTolerance(signature: AgentWebhookRegistrationDefinition["signature"]): number | undefined {
+  if (signature === "stripe-sha256") return 300
+  if (isRecord(signature) && "preset" in signature && signature.preset === "stripe-sha256") return signature.toleranceSeconds ?? 300
+  return undefined
+}
+
+// Verifies `t=<unix seconds>,v1=<hex HMAC-SHA256 of "<t>.<raw body>">`. Any matching `v1` passes, as during secret rotation.
+async function verifyStripeSignature(secret: string, header: string, rawBody: Uint8Array, toleranceSeconds: number): Promise<boolean> {
+  if (!Number.isFinite(toleranceSeconds) || toleranceSeconds < 0) return false
+  let timestamp: string | undefined
+  let signatureCount = 0
+  const signatures: string[] = []
+  for (const part of header.split(",")) {
+    const separator = part.indexOf("=")
+    if (separator <= 0) continue
+    const key = part.slice(0, separator).trim()
+    const value = part.slice(separator + 1).trim()
+    if (key === "t") timestamp = value
+    else if (key === "v1") {
+      // Bound unauthenticated cryptographic work while allowing secret rotation.
+      if (++signatureCount > 32) return false
+      if (/^[a-f0-9]{64}$/.test(value)) signatures.push(value)
+    }
+  }
+  if (!timestamp || !/^\d+$/.test(timestamp) || !signatures.length) return false
+  const timestampSeconds = Number(timestamp)
+  if (!Number.isSafeInteger(timestampSeconds)) return false
+  if (Math.floor(Date.now() / 1000) - timestampSeconds > toleranceSeconds) return false
+  const prefix = new TextEncoder().encode(`${timestamp}.`)
+  const payload = new Uint8Array(prefix.length + rawBody.length)
+  payload.set(prefix)
+  payload.set(rawBody, prefix.length)
+  const expected = await hmacSha256(secret, payload.buffer)
+  let verified = false
+  for (const signature of signatures) verified = await constantTimeEqual(expected, signature) || verified
+  return verified
+}
+
 function webhookVerificationError(message: string): AgentHttpError {
   return new AgentHttpError(401, message)
 }
@@ -349,7 +388,7 @@ export async function verifyAgentWebhookRequest<TRuntimeConfig extends AgentRunt
     }))
     .filter((entry): entry is { headerValue: string | null, registration: AgentWebhookRegistrationDefinition } =>
       // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Authored verifier callbacks require runtime validation at the webhook boundary.
-      entry.headerValue !== null || (typeof entry.registration.signature === "object" && entry.registration.signature !== null && typeof entry.registration.signature.verify === "function"))
+      entry.headerValue !== null || (typeof entry.registration.signature === "object" && entry.registration.signature !== null && "verify" in entry.registration.signature && typeof entry.registration.signature.verify === "function"))
 
   if (!targeted.length) {
     return options.requireSecretHeader
@@ -363,7 +402,7 @@ export async function verifyAgentWebhookRequest<TRuntimeConfig extends AgentRunt
       return { registration, verified: true }
     }
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Webhook signature verifiers cross the user configuration boundary and require runtime validation.
-    if (typeof registration.signature === "object" && registration.signature !== null && typeof registration.signature.verify === "function") {
+    if (typeof registration.signature === "object" && registration.signature !== null && "verify" in registration.signature && typeof registration.signature.verify === "function") {
       const rawBody = options.rawBody ? Uint8Array.from(options.rawBody) : new Uint8Array(await request.clone().arrayBuffer())
       if (await registration.signature.verify({ header: headerValue ?? "", rawBody, request, secret: secretToken || "" })) {
         return { registration, verified: true }
@@ -374,6 +413,14 @@ export async function verifyAgentWebhookRequest<TRuntimeConfig extends AgentRunt
       throw webhookVerificationError(`[vitehub] Webhook registration "${registration.id || registration.provider}" declares secretHeader "${registration.secretHeader}" but no secretToken is configured. Verification requires secretToken from Server Env; secretToken: false explicitly disables verification.`)
     }
     if (headerValue === null) continue
+    const stripeTolerance = stripeSignatureTolerance(registration.signature)
+    if (stripeTolerance !== undefined) {
+      const rawBody = options.rawBody ? Uint8Array.from(options.rawBody) : new Uint8Array(await request.clone().arrayBuffer())
+      if (await verifyStripeSignature(secretToken, headerValue, rawBody, stripeTolerance)) {
+        return { registration, verified: true }
+      }
+      continue
+    }
     if (registration.signature === "github-sha256") {
       const body = options.rawBody ? Uint8Array.from(options.rawBody).buffer : await request.clone().arrayBuffer()
       const expected = `sha256=${await hmacSha256(secretToken, body)}`
@@ -398,8 +445,11 @@ function withAgentTriggerContext<CALL_OPTIONS>(
   input: AgentRunInput<CALL_OPTIONS>,
   trigger: Pick<ResolvedAgentTriggerDefinition, "capabilityId" | "channelId" | "id" | "name" | "source">,
   delivery?: AgentTriggerRunInvokeResult<CALL_OPTIONS>["delivery"],
+  message?: unknown,
 ): AgentRunInput<CALL_OPTIONS> {
   const context = { ...input.context }
+  if (message === undefined) delete context[channelMessageContextKey]
+  else context[channelMessageContextKey] = message
   const effects = delivery?.effects ? Array.isArray(delivery.effects) ? delivery.effects : [delivery.effects] : undefined
   const finishEffects = delivery?.finishEffects ? Array.isArray(delivery.finishEffects) ? delivery.finishEffects : [delivery.finishEffects] : undefined
   if (effects?.length) context[channelDeliveryEffectsContextKey] = effects as AgentChannelDeliveryEffectIntent[]
@@ -493,7 +543,7 @@ export function resolveAgentTriggerInvocationResult<
     }
   }
   return {
-    input: withAgentTriggerContext(invocation.input, trigger, invocation.delivery),
+    input: withAgentTriggerContext(invocation.input, trigger, invocation.delivery, invocation.message),
     metadata: invocation.metadata,
     run: invocation.run,
     trigger: trigger as never,

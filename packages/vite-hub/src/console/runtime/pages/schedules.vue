@@ -16,6 +16,7 @@ useHead({ title: "Schedules · ViteHub Console" });
         :agents-base="`${appBaseURL}/api/_vitehub/console/agents`"
         :definitions-base="`${appBaseURL}/api/_vitehub/console/definitions`"
         :kv-base="`${appBaseURL}/api/_vitehub/console/kv`"
+        :schedule-run-base="`${appBaseURL}/api/_vitehub/console/schedule-run`"
         :search-base="`${appBaseURL}/api/_vitehub/console/search`"
         :sections-base="`${appBaseURL}/api/_vitehub/console/sections`"
         section="schedules"

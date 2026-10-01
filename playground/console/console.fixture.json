@@ -528,7 +528,21 @@
         "runtime": { "name": "node" },
         "tools": [
           { "name": "exec_command" },
-          { "name": "browser" }
+          { "name": "browser" },
+          {
+            "capabilityId": "db",
+            "name": "db_query",
+            "label": "Queried database",
+            "icon": "i-lucide-database",
+            "description": "Run one read-only SQL query against the configured ViteHub database."
+          },
+          {
+            "capabilityId": "db",
+            "name": "db_schema",
+            "label": "Read database schema",
+            "icon": "i-lucide-table-properties",
+            "description": "Describe the configured ViteHub database schema."
+          }
         ],
         "workspace": {
           "mode": "read",
@@ -583,9 +597,22 @@
           }
         },
         {
-          "name": "agent.message.recorded",
+          "name": "agent.tool.finish",
           "type": "run",
           "sequence": 4,
+          "timestamp": "2026-08-30T14:08:05.000Z",
+          "trace": { "id": "trace_console_hierarchy" },
+          "attributes": {
+            "tool.id": "count-sections",
+            "tool.name": "db_query",
+            "tool.input": { "statement": "SELECT section, count(*) AS screens FROM console_screens GROUP BY section" },
+            "tool.output": { "rows": [{ "section": "agents", "screens": 5 }, { "section": "storage", "screens": 3 }] }
+          }
+        },
+        {
+          "name": "agent.message.recorded",
+          "type": "run",
+          "sequence": 5,
           "timestamp": "2026-08-30T14:10:58.000Z",
           "trace": { "id": "trace_console_hierarchy" },
           "attributes": {
@@ -597,7 +624,7 @@
         {
           "name": "agent.invocation.finish",
           "type": "lifecycle",
-          "sequence": 5,
+          "sequence": 6,
           "timestamp": "2026-08-30T14:11:24.000Z",
           "trace": { "id": "trace_console_hierarchy" },
           "attributes": {
@@ -615,6 +642,266 @@
                 "estimated": false,
                 "source": "provider",
                 "usd": "0.0914"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "ainv_meal_log",
+      "traceId": "trace_meal_log",
+      "agentName": "meal-logger",
+      "title": "Log breakfast",
+      "status": "completed",
+      "origin": "telegram",
+      "threadId": "telegram-fixture",
+      "annotations": {
+        "triggeredBy": "Ada"
+      },
+      "configuration": {
+        "agent": {
+          "name": "meal-logger",
+          "version": "0.9.0"
+        },
+        "capabilities": [
+          {
+            "id": "db",
+            "metadata": {
+              "mode": "write"
+            }
+          },
+          {
+            "id": "transcribe"
+          }
+        ],
+        "channels": [
+          {
+            "id": "telegram",
+            "kind": "telegram"
+          }
+        ],
+        "driver": {
+          "kind": "model",
+          "model": {
+            "id": "anthropic/claude-sonnet-4.5",
+            "provider": "openrouter"
+          }
+        },
+        "runtime": {
+          "name": "cloudflare"
+        },
+        "tools": [
+          {
+            "capabilityId": "db",
+            "name": "db_query",
+            "label": "Queried database",
+            "icon": "i-lucide-database",
+            "description": "Run one read-only SQL query against the configured ViteHub database."
+          },
+          {
+            "capabilityId": "db",
+            "name": "db_exec",
+            "label": "Changed database",
+            "icon": "i-lucide-database-zap",
+            "description": "Run one SQL mutation against the configured ViteHub database."
+          },
+          {
+            "capabilityId": "db",
+            "name": "db_schema",
+            "label": "Read database schema",
+            "icon": "i-lucide-table-properties",
+            "description": "Describe the configured ViteHub database schema."
+          }
+        ]
+      },
+      "createdAt": "2026-09-12T08:15:00.000Z",
+      "startedAt": "2026-09-12T08:15:01.000Z",
+      "updatedAt": "2026-09-12T08:15:19.000Z",
+      "completedAt": "2026-09-12T08:15:19.000Z",
+      "observations": [
+        {
+          "name": "vitehub.agent.configured",
+          "type": "lifecycle",
+          "sequence": 1,
+          "timestamp": "2026-09-12T08:15:01.000Z",
+          "trace": {
+            "id": "trace_meal_log"
+          },
+          "attributes": {
+            "vitehub.agent.configuration": {
+              "agent": {
+                "name": "meal-logger",
+                "version": "0.9.0"
+              },
+              "capabilities": [
+                {
+                  "id": "db",
+                  "metadata": {
+                    "mode": "write"
+                  }
+                },
+                {
+                  "id": "transcribe"
+                }
+              ],
+              "channels": [
+                {
+                  "id": "telegram",
+                  "kind": "telegram"
+                }
+              ],
+              "driver": {
+                "kind": "model",
+                "model": {
+                  "id": "anthropic/claude-sonnet-4.5",
+                  "provider": "openrouter"
+                }
+              },
+              "runtime": {
+                "name": "cloudflare"
+              },
+              "tools": [
+                {
+                  "capabilityId": "db",
+                  "name": "db_query",
+                  "label": "Queried database",
+                  "icon": "i-lucide-database",
+                  "description": "Run one read-only SQL query against the configured ViteHub database."
+                },
+                {
+                  "capabilityId": "db",
+                  "name": "db_exec",
+                  "label": "Changed database",
+                  "icon": "i-lucide-database-zap",
+                  "description": "Run one SQL mutation against the configured ViteHub database."
+                },
+                {
+                  "capabilityId": "db",
+                  "name": "db_schema",
+                  "label": "Read database schema",
+                  "icon": "i-lucide-table-properties",
+                  "description": "Describe the configured ViteHub database schema."
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "agent.message.recorded",
+          "type": "run",
+          "sequence": 2,
+          "timestamp": "2026-09-12T08:15:01.000Z",
+          "trace": {
+            "id": "trace_meal_log"
+          },
+          "attributes": {
+            "message.id": "user-1",
+            "message.role": "user",
+            "message.content": "Two eggs, one slice of toast with butter, and a coffee with milk."
+          }
+        },
+        {
+          "name": "agent.tool.finish",
+          "type": "run",
+          "sequence": 3,
+          "timestamp": "2026-09-12T08:15:04.000Z",
+          "trace": {
+            "id": "trace_meal_log"
+          },
+          "attributes": {
+            "tool.id": "schema",
+            "tool.name": "db_schema",
+            "tool.durationMs": 38
+          }
+        },
+        {
+          "name": "agent.tool.finish",
+          "type": "run",
+          "sequence": 4,
+          "timestamp": "2026-09-12T08:15:07.000Z",
+          "trace": {
+            "id": "trace_meal_log"
+          },
+          "attributes": {
+            "tool.id": "lookup",
+            "tool.name": "db_query",
+            "tool.durationMs": 52,
+            "tool.input": {
+              "statement": "SELECT name, kcal FROM foods WHERE name IN ('egg', 'toast', 'butter', 'coffee with milk')"
+            }
+          }
+        },
+        {
+          "name": "agent.tool.finish",
+          "type": "run",
+          "sequence": 5,
+          "timestamp": "2026-09-12T08:15:10.000Z",
+          "trace": {
+            "id": "trace_meal_log"
+          },
+          "attributes": {
+            "tool.id": "insert",
+            "tool.name": "db_exec",
+            "tool.durationMs": 44,
+            "tool.input": {
+              "rationale": "Log breakfast",
+              "statement": "INSERT INTO meals (eaten_at, kcal) VALUES ('2026-09-12T08:10', 412)"
+            }
+          }
+        },
+        {
+          "name": "agent.tool.finish",
+          "type": "run",
+          "sequence": 6,
+          "timestamp": "2026-09-12T08:15:12.000Z",
+          "trace": {
+            "id": "trace_meal_log"
+          },
+          "attributes": {
+            "tool.id": "total",
+            "tool.name": "db_query",
+            "tool.durationMs": 31,
+            "tool.input": {
+              "statement": "SELECT sum(kcal) FROM meals WHERE date(eaten_at) = '2026-09-12'"
+            }
+          }
+        },
+        {
+          "name": "agent.channel.delivery",
+          "type": "run",
+          "sequence": 7,
+          "timestamp": "2026-09-12T08:15:18.000Z",
+          "trace": {
+            "id": "trace_meal_log"
+          },
+          "attributes": {
+            "channel.delivery.provider": "telegram",
+            "channel.effect.kind": "reply",
+            "channel.effect.content": "Logged breakfast: **412 kcal**.\n\n| Item | kcal |\n| --- | --- |\n| 2 eggs | 156 |\n| Toast with butter | 186 |\n| Coffee with milk | 70 |\n\nYou have 1,588 kcal left today."
+          }
+        },
+        {
+          "name": "agent.invocation.finish",
+          "type": "lifecycle",
+          "sequence": 8,
+          "timestamp": "2026-09-12T08:15:19.000Z",
+          "trace": {
+            "id": "trace_meal_log"
+          },
+          "attributes": {
+            "usage.record": {
+              "model": "anthropic/claude-sonnet-4.5",
+              "usage": {
+                "inputTokens": 6120,
+                "outputTokens": 410,
+                "totalTokens": 6530
+              },
+              "cost": {
+                "display": "$0.0245",
+                "estimated": true,
+                "source": "catalog",
+                "usd": "0.0245"
               }
             }
           }

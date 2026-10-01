@@ -171,6 +171,8 @@ Agent Definitions run on Cloudflare through generated host output where the Agen
 
 Cloudflare can send consecutive requests from one browser to different Worker instances. The [Console](/docs/development/console) sends each operation as one stateless `POST /_vitehub/rpc/__call` request, so it does not need session affinity or in-memory state. With `access: 'auth'`, the access policy checks the session cookie on each call. Agent invocations started from the Console pass background work to the Worker's `waitUntil`. Configure a durable hosted invocation journal, as the [Console guide](/docs/development/console) describes.
 
+Protect a production Console with `console: { access: 'auth', auth: { provider: 'cloudflare-access' } }` and a Cloudflare Access application. The Worker verifies the Access token on each Console request with `CF_ACCESS_TEAM_DOMAIN` and `CF_ACCESS_AUD`. Inline GitHub Console Auth needs `node:sqlite` and is not available on Workers. See [Cloudflare Access](/docs/development/console#cloudflare-access).
+
 ## Next steps
 
 - Use [Runtime and host support](/docs/frameworks-hosts/support-matrix) for exact package and proof coverage.

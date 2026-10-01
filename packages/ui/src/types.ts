@@ -43,7 +43,11 @@ export interface AgentToolInspection {
   /** Capability that registered this tool, when known. */
   capabilityId?: string;
   description?: string;
+  /** Iconify icon name declared by the tool, for example `i-lucide-database`. */
+  icon?: string;
   inputSchema?: AgentInspectionValue;
+  /** Short past-tense label from the tool's `title`, for example `Searched meals`. */
+  label?: string;
   name: string;
   mcp?: { server: string; name: string };
   outputSchema?: AgentInspectionValue;

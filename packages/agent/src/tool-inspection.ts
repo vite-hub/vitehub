@@ -71,9 +71,13 @@ export function inspectAgentTools(tools: Record<string, unknown> | undefined): A
         ?? (!providerDefined && tool.inputSchema === undefined ? emptyToolInputSchema : undefined)
       const outputSchema = toolJsonSchema(tool.outputSchema, "output")
       const mcp = inspectMcpToolProvenance(value)
+      const title = hasRuntimeType(tool.title, "string") ? tool.title.trim() : ""
+      const icon = hasRuntimeType(tool.icon, "string") ? tool.icon.trim() : ""
       return {
         ...(description ? { description } : {}),
+        ...(icon ? { icon } : {}),
         ...(inputSchema ? { inputSchema } : {}),
+        ...(title ? { label: title } : {}),
         name: key,
         ...(mcp ? { mcp } : {}),
         ...(outputSchema ? { outputSchema } : {}),

@@ -78,6 +78,28 @@ Generic MCP client configurations default top-level `protocolVersionDiscovery` t
 
 The Capability redacts secret-shaped metadata keys before exposing MCP metadata.
 
+## Call a tool from application code
+
+Use `callMcpTool()` when application code needs one tool result outside an Agent Invocation, for example in a Channel Trigger or a Schedule. Pass the same value that you use as an `mcp({ servers })` entry, so both paths share one server definition:
+
+```ts [server/agents/support.ts]
+import { useServerEnv } from '#vitehub/env/server'
+import { callMcpTool, remoteMcpServer } from 'vite-hub/agent/mcp'
+
+export const productlaneServer = () => remoteMcpServer({
+  headers: { Authorization: `Bearer ${useServerEnv().productlane.token.unseal()}` },
+  url: 'https://productlane.com/api/mcp',
+})
+
+const [error, thread] = await callMcpTool(productlaneServer, 'threads_get', { id: threadId })
+```
+
+The call opens a client, sends `tools/call`, and closes a client that it created. A static direct client stays open. Streamable HTTP servers can answer with JSON or with Server-Sent Events.
+
+The result is a tuple. On success, the value is the tool's `structuredContent`. Without structured content, the value is the text content, parsed as JSON when it is valid JSON. A tool result with `isError`, a missing tool, or a connection failure returns `[error, null]`. A server function receives no Agent context, and `callMcpTool()` does not record `vitehub.mcp.warnings`.
+
+The optional fourth argument accepts `signal` for cancellation and `timeout` in milliseconds. The timeout bounds tool discovery and execution after the client connects. Both direct calls and fallback tool execution receive the cancellation signal.
+
 ## Pin tool definitions
 
 An MCP Server can return a different tool description, title, or input schema after its tools were reviewed.

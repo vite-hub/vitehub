@@ -1,3 +1,4 @@
+import { channelDeliveryHandlers } from "../src/internal/channel-delivery-handlers.ts"
 import { describe, expect, it } from "vitest"
 
 import { createAiSdkAdapter } from "../src/ai-sdk.ts"
@@ -234,7 +235,7 @@ describe("Channel instructions", () => {
 
   it("preserves instructions when an internal runtime wraps a Channel", () => {
     const source = telegram()
-    const wrapped = inheritMessageChannelInstructions({ ...source, effects: {} }, source)
+    const wrapped = inheritMessageChannelInstructions({ ...source, [channelDeliveryHandlers]: {} }, source)
     const context = createAgentInvocationContextStore()
 
     bindMessageChannelInstructions(context, wrapped)

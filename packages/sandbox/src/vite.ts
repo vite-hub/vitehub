@@ -1,4 +1,4 @@
-import { createNoExternalMerger, hasNitroConfigContext, isServerEnvironment } from '@vite-hub/internal/build/vite'
+import { createNoExternalAddition, hasNitroConfigContext, isServerEnvironment } from '@vite-hub/internal/build/vite'
 import { getHostingProvider } from '@vite-hub/internal/hosting'
 import { isPlainObject, isPlainRecord } from '@vite-hub/internal/object'
 import { realpath } from 'node:fs/promises'
@@ -198,7 +198,7 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
   const integrationOptions = internalOptions
     ? publicSandboxOptions(internalOptions)
     : internalOptions
-  const mergeSandboxNoExternal = createNoExternalMerger('@vite-hub/sandbox')
+  const sandboxNoExternalAddition = createNoExternalAddition('@vite-hub/sandbox')
   let generatedAliases: AliasMap = {}
   let generatedFiles: string[] = []
   let watchFiles: string[] = []
@@ -400,7 +400,7 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
             [SANDBOX_PROVIDER_LOADER_ID]: sandboxProviderLoaderFallback(),
             ...generatedAliases,
           }),
-          noExternal: mergeSandboxNoExternal(config.resolve?.noExternal),
+          noExternal: sandboxNoExternalAddition(config.resolve?.noExternal),
         },
       }
     },

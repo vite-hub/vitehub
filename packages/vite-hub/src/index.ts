@@ -12,6 +12,7 @@ import { hubAuth, resolveAuthViteConfig } from "@vite-hub/auth/vite"
 import { hubBlob, resolveBlobViteConfig } from "@vite-hub/blob/vite"
 import { hubBrowser } from "@vite-hub/browser/vite"
 import { hubChannels } from "@vite-hub/channels/vite"
+import { hubConnections } from "@vite-hub/connections/vite"
 import { hubDb } from "@vite-hub/database/vite"
 import { hubEmail, hubEmailOptionalPeerResolver } from "@vite-hub/email/vite"
 import { hubEnv } from "@vite-hub/env/vite"
@@ -40,6 +41,7 @@ import type { AuthModuleOptions } from "@vite-hub/auth"
 import type { BlobModuleOptions } from "@vite-hub/blob"
 import type { BrowserModuleOptions } from "@vite-hub/browser/vite"
 import type { ChannelsVitePluginOptions } from "@vite-hub/channels/vite"
+import type { ConnectionsVitePluginOptions } from "@vite-hub/connections/vite"
 import type { DBModulePublicOptions } from "@vite-hub/database"
 import type { EmailVitePluginOptions } from "@vite-hub/email/vite"
 import type { EnvIntegrationOptions, EnvRuntimeRegistry } from "@vite-hub/env"
@@ -85,6 +87,7 @@ const generatedOwnerPackageAccess = {
   "@vite-hub/box": true,
   "@vite-hub/channels": true,
   "@vite-hub/cli": false,
+  "@vite-hub/connections": true,
   "@vite-hub/content": true,
   "@vite-hub/database": true,
   "@vite-hub/email": true,
@@ -255,6 +258,8 @@ export interface ViteHubOptions {
   blob?: boolean | BlobModuleOptions
   browser?: boolean | BrowserModuleOptions
   channels?: boolean | ChannelsVitePluginOptions
+  /** App-owned OAuth Connections in `server/connections/`. Requires `database`. */
+  connections?: boolean | ConnectionsVitePluginOptions
   console?: boolean | ConsoleOptions
   database?: boolean | DBModulePublicOptions
   email?: true | EmailVitePluginOptions
@@ -722,6 +727,9 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   if (options.email === true && plan.preset !== "cloudflare") {
     throw viteHubErrorDiagnostics.VITE_HUB_R0089({ message: "[vitehub] email: true currently requires the Cloudflare deployment preset; configure an explicit Email driver for other presets." })
   }
+  if (options.connections && !options.database) {
+    throw viteHubErrorDiagnostics.VITE_HUB_R0122({ message: "[vitehub] connections requires database because grants and activity are stored in the app database." })
+  }
   const sandboxEnabled = options.sandbox === true && plan.services.sandbox.supported
   const blobEnabled = Boolean(options.blob) && (plan.services.blob.supported || hasExplicitBlobStore(options.blob))
   const configuredBlob = blobEnabled ? presetBlobOptions(plan, options.blob) : undefined
@@ -837,6 +845,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
       providerImportAliases,
       runtimeCapabilityImports: {
         blob: blobEnabled ? `${generatedImportBase}/blob` : false,
+        connections: options.connections ? "vite-hub/connections/agent" : false,
         console: options.console ? "vite-hub/console/server" : false,
         db: options.database ? "vite-hub/database/drizzle" : false,
         email: "vite-hub/email/server",
@@ -850,6 +859,13 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   }
   if (options.browser) plugins.push(hubBrowser(options.browser === true ? undefined : options.browser))
   if (options.channels) plugins.push(hubChannels(options.channels === true ? undefined : options.channels))
+  if (options.connections) {
+    plugins.push(hubConnections({
+      ...(options.connections === true ? {} : options.connections),
+      databaseImport: "vite-hub/database/drizzle",
+      runtimeEnvImport: "vite-hub/env/server",
+    }))
+  }
   if (options.database) plugins.push(hubDb(options.database === true ? undefined : options.database))
   if (blobEnabled) {
     plugins.push(hubBlob(
@@ -932,6 +948,13 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
     } as WorkspaceModuleOptions))
   }
   const sourcePlugin = hubSource({
+    auth: options.auth
+      ? ({ configuredAuth, projectRoot, serverDirs }) => configuredAuth !== false && Boolean(resolveAuthViteConfig(
+          options.auth === true ? undefined : options.auth,
+          projectRoot,
+          { serverDirs },
+        ))
+      : false,
     contentImportBase: "vite-hub/content",
     importBase: "vite-hub/source",
   })

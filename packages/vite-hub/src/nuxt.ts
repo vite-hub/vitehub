@@ -18,7 +18,7 @@ import { mergeConfig } from "vite"
 import { vitehub } from "./index.ts"
 import { createConsoleCliNamespace } from "./console/cli.ts"
 import { consoleFixtureEnvironmentVariable, consoleFixtureRevision, readConsoleFixture } from "./console/fixture.ts"
-import { createConsoleInvocationsIdentity } from "./console/internal.ts"
+import { createConsoleInvocationsIdentity, type ConsoleAuthMode } from "./console/internal.ts"
 import { installConsoleInvocations } from "./console/runtime/server/invocations.ts"
 import { discoverConsoleBuildCatalog } from "./console/build.ts"
 import { writeConsoleNitroPlugin } from "./console/plugin.ts"
@@ -26,12 +26,13 @@ import { installConsoleProjectName, installConsoleSections } from "./console/run
 import { resolveConsoleProjectNameFromRoot } from "./console/project.ts"
 import { resolveConsoleSectionIds, type ConsoleSectionId } from "./console/runtime/sections.ts"
 import { consoleDefinitionSectionIds } from "./console/runtime/definitions.ts"
+import { consoleIcons } from "./console/icons.ts"
 import { addConsoleRpcHandler } from "./console/nitro.ts"
-import { resolveConsoleAuthConfig, writeConsoleAuthHandlers } from "./console/auth-build.ts"
+import { registeredConsoleAuthMode, resolveConsoleAuthConfig, writeConsoleAuthHandlers } from "./console/auth-build.ts"
 import { serializeConsoleRefresh } from "./console/refresh.ts"
-import { assertConsoleProductionAccess, closeConsoleInvocationRootState, configureConsoleFixtureLifecycle, consoleInvocationRootPlugin, createConsoleInvocationRootState, generatedConsolePluginRegistration, resolveGeneratedConsolePlugin, type ConsoleInvocationRootState, updateConsoleInvocationRootState } from "./console/vite.ts"
+import { assertConsoleProductionAccess, closeConsoleInvocationRootState, consoleHostManagedCloudflareWarning, configureConsoleFixtureLifecycle, consoleInvocationRootPlugin, createConsoleInvocationRootState, generatedConsolePluginRegistration, resolveGeneratedConsolePlugin, type ConsoleInvocationRootState, updateConsoleInvocationRootState } from "./console/vite.ts"
 
-import type { AgentInvocationsOptions } from "@vite-hub/agent/server"
+import type { AgentInvocationRetentionOptions, AgentInvocationsOptions } from "@vite-hub/agent/server"
 import type { DatabaseNuxtIntegrationOptions } from "@vite-hub/database"
 import type { AuthModuleOptions } from "@vite-hub/auth"
 import type { EnvIntegrationOptions, EnvViteConfigOptions, EnvViteUserConfig } from "@vite-hub/env"
@@ -271,7 +272,8 @@ async function installConsole(
   canDiscoverDefinitions: () => boolean = () => true,
   discoveryOptions: Pick<Parameters<typeof discoverConsoleBuildCatalog>[0], "databaseDiscoveryRoot" | "rateLimitDiscoveryRoot" | "rateLimitScanDirs" | "scheduleDiscoveryRoot" | "workspaceDiscoveryRoot"> = {},
   journal?: ConsoleJournal,
-  independentAuth = false,
+  independentAuth: ConsoleAuthMode | false = false,
+  retention?: AgentInvocationRetentionOptions,
 ): Promise<string> {
   const uiModule = (await import("@vite-hub/ui/nuxt")).default
   const uiConfigured = (nuxt.options.modules ?? []).some((entry) => {
@@ -284,12 +286,19 @@ async function installConsole(
   const plugin = resolveGeneratedConsolePlugin(projectRoot, fixture, invocationRootState)
   installConsoleSections(projectRoot, sections, independentAuth)
   installConsoleProjectName(projectRoot, resolveConsoleProjectNameFromRoot(projectRoot))
-  if (installInvocations && nuxt.options.dev && sections.includes("agents") && !fixture) installConsoleInvocations(projectRoot, undefined, observations, journal && "databaseUrl" in journal ? journal.databaseUrl : undefined)
+  if (installInvocations && nuxt.options.dev && sections.includes("agents") && !fixture) installConsoleInvocations(projectRoot, undefined, observations, journal && "databaseUrl" in journal ? journal.databaseUrl : undefined, undefined, retention)
   const routeRules = (nuxt.options.routeRules ??= {})
   for (const route of ["/_vitehub", "/_vitehub/**"]) {
     const rule = (routeRules[route] ??= {})
     rule.headers = { ...rule.headers, "x-robots-tag": "noindex, nofollow" }
   }
+  // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- @nuxt/icon declares this hook, while this structural seam keeps narrow nitro-only test hosts assignable.
+  // SAFETY: @nuxt/icon calls this hook with the mutable Set of client bundle icon names.
+  const hookIcons = nuxt.hook as unknown as ((name: "icon:clientBundleIcons", callback: (icons: Set<string>) => void) => void) | undefined
+  // @nuxt/icon does not scan dependencies, so add the Console icons to its client bundle.
+  hookIcons?.("icon:clientBundleIcons", (icons) => {
+    for (const icon of consoleIcons) icons.add(icon)
+  })
   // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- Nuxt exposes hook overloads, while this structural seam keeps narrow nitro-only test hosts assignable.
   const hookPages = nuxt.hook as unknown as ((name: "pages:extend", callback: (pages: NuxtPage[]) => void) => void) | undefined
   hookPages?.("pages:extend", (pages) => {
@@ -437,6 +446,7 @@ async function installConsole(
       () => !invocationRootState?.closed,
       journal,
       independentAuth,
+      retention,
     )
     if (invocationRootState) {
       updateConsoleInvocationRootState(invocationRootState, projectRoot, identity)
@@ -755,6 +765,9 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     ...moduleOptions,
     env: envOptions,
   } as Parameters<typeof vitehub>[0])
+  if (options.connections) {
+    throw viteHubErrorDiagnostics.VITE_HUB_B0012({ message: "[vitehub] connections is not supported by the Nuxt module yet. Use the Vite plugin." })
+  }
   const plan = resolveDeploymentPlan(options.preset)
   const rootDir = nuxt.options.rootDir || process.cwd()
   const projectRoot = resolveViteHubProjectRoot(rootDir)
@@ -846,6 +859,9 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         consoleAuth: configuredConsole !== true && configuredConsole.access === "auth" && Boolean(configuredConsole.auth),
         development: Boolean(nuxt.options.dev),
       })
+    }
+    if (!nuxt.options.dev && !nuxt.options.vitehubCliDiscovery && plan.preset === "cloudflare" && configuredConsole !== true && configuredConsole.exposure === "host-managed") {
+      console.warn(consoleHostManagedCloudflareWarning)
     }
     const fixture = nuxt.options.vitehubCliDiscovery
       ? undefined
@@ -1082,8 +1098,10 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     if (options.env !== false) await envPlugin?.api?.prepareTypes?.(replayConfig.env, viteRoot)
     consoleWorkflowConfigResolved = true
     if (options.console) {
-      if (options.console !== true && options.console.access === "auth" && options.console.auth) {
-        const authConfig = resolveConsoleAuthConfig(viteRoot, options.console.auth, plan.preset)
+      const configuredConsoleAuth = options.console !== true && options.console.access === "auth" ? options.console.auth : undefined
+      const resolvedConsoleAuth = configuredConsoleAuth ? resolveConsoleAuthConfig(viteRoot, configuredConsoleAuth, plan.preset) : undefined
+      if (resolvedConsoleAuth && registeredConsoleAuthMode(configuredConsoleAuth, Boolean(nuxt.options.dev))) {
+        const authConfig = resolvedConsoleAuth
         let authHandlers = await writeConsoleAuthHandlers(viteRoot, authConfig, nuxt.options.app?.baseURL ?? "/")
         if (nuxt.options.dev && authHandlers.clientSource) {
           const clientDirectories = new Set<string>()
@@ -1122,13 +1140,13 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
             }
           })
         }
-        if (Array.isArray(config.handlers)) {
+        if (authHandlers.client && Array.isArray(config.handlers)) {
           config.handlers = config.handlers.filter((handler: { handler?: string }) => handler.handler !== join(consoleRuntimeRoot, "server/client.get.js"))
         }
         const kit = createNitroServerKit(config)
-        kit.addHandler({ handler: authHandlers.signIn, route: "/_vitehub/sign-in", method: "get" })
-        kit.addHandler({ handler: authHandlers.route, route: "/api/_vitehub/console/auth/**" })
-        kit.addHandler({ handler: authHandlers.client, route: "/api/_vitehub/console/client.js", method: "get" })
+        if (authHandlers.signIn) kit.addHandler({ handler: authHandlers.signIn, route: "/_vitehub/sign-in", method: "get" })
+        if (authHandlers.route) kit.addHandler({ handler: authHandlers.route, route: "/api/_vitehub/console/auth/**" })
+        if (authHandlers.client) kit.addHandler({ handler: authHandlers.client, route: "/api/_vitehub/console/client.js", method: "get" })
         kit.addHandler({ handler: authHandlers.middleware, middleware: true, route: "/**" })
         Object.assign(config, kit.config)
       }
@@ -1212,7 +1230,8 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         options.console === true ? undefined : options.console.observations,
         () => !consoleInvocationRootState.closed,
         replayedConsoleJournal,
-        Boolean(options.console !== true && options.console?.access === "auth" && options.console.auth),
+        registeredConsoleAuthMode(options.console !== true && options.console.access === "auth" ? options.console.auth : undefined, Boolean(nuxt.options.dev)),
+        options.console === true ? undefined : options.console.retention,
       )
     }
     Object.assign(config, mergeGeneratedSourceNitroConfig(config, generatedSourceHandlers))
@@ -1286,7 +1305,8 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         workspaceDiscoveryRoot: configuredProjectRoot(viteRoot, nuxt.options.vite.workspace ?? options.workspace),
       },
       consoleJournal,
-      Boolean(options.console !== true && options.console.access === "auth" && options.console.auth),
+      registeredConsoleAuthMode(options.console !== true && options.console.access === "auth" ? options.console.auth : undefined, Boolean(nuxt.options.dev)),
+      options.console === true ? undefined : options.console.retention,
     )
   }
 }

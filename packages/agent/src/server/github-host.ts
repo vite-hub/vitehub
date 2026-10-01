@@ -745,12 +745,12 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
     }
   }
 
-  return {
+  const host: GitHubHost = {
     identity() {
       return identity.login?.trim() || undefined
     },
     channel(channelOptions = {}) {
-      return github({ ...channelOptions, app: { token: async (_context, scope) => (await access({ repository: scope.repository })).token, ...(identity.login ? { identity: { login: identity.login } } : {}) } })
+      return github({ ...channelOptions, app: host })
     },
     async environment() {
       const current = checkoutScope.getStore()
@@ -764,4 +764,5 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
     isRateLimitError: (error: unknown) => error instanceof GitHubRateLimitError,
     withPullRequestCheckout,
   }
+  return host
 }

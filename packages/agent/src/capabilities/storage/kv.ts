@@ -62,8 +62,10 @@ function kvTools(mode: AgentCapabilityMode, options: KVCapabilityOptions): Agent
           if (typeof key === "string" && key.trim()) return storageValue(method<(key: string) => MaybePromise<unknown>>(store, "kv", "get")(key))
           return storageValue<string[]>(method<(prefix: string) => MaybePromise<string[]>>(store, "kv", "keys")(assertString(prefix, "kv_read prefix")))
         },
+        icon: "i-lucide-key-round",
         inputSchema: kvReadInputSchema,
         name: "kv_read",
+        title: "Read KV",
       }),
     }
     if (mode === "write") {
@@ -75,9 +77,11 @@ function kvTools(mode: AgentCapabilityMode, options: KVCapabilityOptions): Agent
           if (operation === "delete") return storageValue(method<(key: string) => MaybePromise<unknown>>(store, "kv", "del")(key))
           throw agentDiagnostics.AGENT_R0225({ message: `[vitehub] Unsupported kv_edit operation: ${String(operation)}` })
         },
+        icon: "i-lucide-key-round",
         inputSchema: kvEditInputSchema,
         name: "kv_edit",
         policy: options.policy,
+        title: "Changed KV",
       })
     }
     return tools

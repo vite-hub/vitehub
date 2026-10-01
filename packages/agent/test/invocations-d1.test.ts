@@ -400,10 +400,35 @@ describe("D1 Agent Invocation store", () => {
     expect(saved?.observations).toEqual([accepted])
   }, 20_000)
 
+  it("deletes terminal records and prunes by cutoff or configured retention", async () => {
+    const day = 24 * 60 * 60 * 1000
+    const ago = (milliseconds: number) => new Date(Date.now() - milliseconds).toISOString()
+    const unbounded = store({ maxAgeMs: false, maxRecords: false })
+    await unbounded.create(invocation("old-completed", { status: "completed", updatedAt: ago(40 * day) }))
+    await unbounded.create(invocation("old-failed", { status: "failed", updatedAt: ago(35 * day) }))
+    await unbounded.create(invocation("old-running", { status: "running", updatedAt: ago(40 * day) }))
+    await unbounded.create(invocation("recent", { status: "cancelled", updatedAt: ago(day) }))
+    const invocations = defineAgentInvocations({ store: unbounded })
+
+    await expect(invocations.delete("old-running")).resolves.toBe("not-terminal")
+    await expect(invocations.delete("missing")).resolves.toBe("not-found")
+    expect(await invocations.prune({ dryRun: true, olderThanMs: 36 * day })).toEqual({ dryRun: true, ids: ["old-completed"] })
+    expect(await invocations.prune({ olderThanMs: 36 * day })).toEqual({ dryRun: false, ids: ["old-completed"] })
+    await expect(invocations.prune()).resolves.toEqual({ dryRun: false, ids: [] })
+    expect(await defineAgentInvocations({ store: store({ maxAgeMs: 30 * day, maxRecords: false }) }).prune()).toEqual({ dryRun: false, ids: ["old-failed"] })
+    await expect(invocations.delete("recent")).resolves.toBe("deleted")
+    expect((await invocations.list()).invocations.map(record => record.id)).toEqual(["old-running"])
+  })
+
   it("validates table identifiers, retention, paging and leases", async () => {
     expect(() => d1AgentInvocationSchema({ tablePrefix: "unsafe;" })).toThrow(/identifier/)
     expect(() => store({ maxRecords: 0 })).toThrow(/retention/)
     expect(() => store({ maxAgeMs: Infinity })).toThrow(/retention/)
+    for (const limit of ["maxAgeMs", "maxRecords"] as const) {
+      const options: Partial<D1AgentInvocationStoreOptions> = {}
+      Reflect.set(options, limit, null)
+      expect(() => store(options)).toThrow(/retention/)
+    }
     await expect(store().list({ cursor: "01" })).rejects.toThrow(/cursor/)
     await expect(store().list({ limit: 0 })).rejects.toThrow(/limit/)
     await expect(store().list({ search: "x".repeat(257) })).rejects.toThrow(/search/)

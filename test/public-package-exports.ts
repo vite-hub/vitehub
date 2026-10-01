@@ -74,6 +74,7 @@ const declarationOnlyPeerExports = new Map<string, readonly string[]>([
   ["@vite-hub/browser/internal/chromium.workerd", ["playwright-core"]],
   ["@vite-hub/browser/vite", ["vite"]],
   ["@vite-hub/channels/vite", ["vite"]],
+  ["@vite-hub/connections/vite", ["vite"]],
   ["@vite-hub/database/vite", ["vite"]],
   ["@vite-hub/kv/vite", ["vite"]],
   ["@vite-hub/queue/vite", ["vite"]],

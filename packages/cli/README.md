@@ -36,7 +36,7 @@ Run help from the project root. The CLI loads the project config before it print
 pnpm vitehub --help
 ```
 
-Every project includes `provision`. Other namespaces appear when their Vite integrations are active.
+Every project includes `provision`. Other namespaces appear when their Vite integrations are active. A host can pass `runtimeNamespaces` to `runViteHubCli()`; these run without loading the project config. The `vite-hub` distribution uses this for `vitehub box`.
 
 ```txt
 Usage: vitehub <namespace> <feature> [args...]
@@ -52,7 +52,7 @@ pnpm vitehub agent --help
 pnpm vitehub agent invocations --help
 ```
 
-The Agent integration contributes `info`, `dev`, and `invocations`, plus `channels history` and `channels sync`. It adds `eval` only when the project contains an Agent Eval file. Database contributes `generate` and `migrate`, and Workspace contributes `dev`. The Agent and Database integrations can disable their commands through their integration options.
+The Agent integration contributes `info`, `dev`, and `invocations`, plus `channels history` and `channels sync`. It adds `eval` only when the project contains an Agent Eval file. Database contributes `generate` and `migrate`, Schedule contributes `schedule run`, and Workspace contributes `dev`. The Agent and Database integrations can disable their commands through their integration options.
 
 See the [complete command index](https://vitehub.dev/docs/development/cli#commands) for command availability and the task each command performs.
 

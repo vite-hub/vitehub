@@ -63,6 +63,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 })
 
 import { VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { hubAuth } from "@vite-hub/auth/vite"
 import { hubSource, toRuntimeModuleSpecifier, toTypeModuleSpecifier } from "@vite-hub/source/vite"
 
 import { viteHubTypesPlugin } from "../src/internal/types.ts"
@@ -119,8 +120,10 @@ function contentModule(): string {
 
 function configResolved(plugin: Plugin) {
   // SAFETY: This fixture invokes the documented Vite configResolved hook signature.
-  return plugin.configResolved as (config: {
+  return plugin.configResolved as unknown as (config: {
+    auth?: false | Record<string, never>
     nitro?: Record<string, unknown>
+    plugins?: Plugin[]
     root: string
     [VITEHUB_PROJECT_ROOT]?: string
     [VITEHUB_SERVER_DIRS]?: string[]
@@ -135,8 +138,9 @@ function sourcePlugin() {
 }
 
 function config(plugin: Plugin) {
+  const hook = plugin.config instanceof Function ? plugin.config : plugin.config?.handler
   // SAFETY: This fixture invokes the documented Vite config hook signature.
-  return plugin.config as (config: {
+  return hook as (config: {
     base?: string
     define?: Record<string, string>
     nitro?: Record<string, unknown>
@@ -574,6 +578,122 @@ describe("framework generated types", () => {
     )
   })
 
+  it("passes Auth's authorizer to generated Collection routes when Auth is enabled", async () => {
+    const { root, viteRoot } = await createNestedProject()
+    await mkdir(join(root, "server/collections"), { recursive: true })
+    await writeFile(join(root, "server/collections/meals.ts"), collectionModule("meals"))
+
+    await writeFile(join(root, "server/auth.ts"), "import { defineAuth } from '@vite-hub/auth'\nexport default defineAuth({ appName: 'ViteHub' })\n")
+    const auth = hubAuth()
+    await configResolved(auth)({ root })
+    const [source] = frameworkHubSource({ auth: true })
+    await configResolved(source!)({ plugins: [auth], root: viteRoot })
+    await (source as ReturnType<typeof sourcePlugin>).api.prepareSources({ projectRoot: root })
+
+    await expect(readFile(join(root, ".vitehub/source/routes/meals.mjs"), "utf8")).resolves.toBe(
+      [
+        `import { defineCollectionHandler } from "vite-hub/source/server"`,
+        `import { authorizeRequest } from "#vitehub/auth/server"`,
+        `import { meals as collection } from ${JSON.stringify(pathToFileURL(join(root, "server/collections/meals.ts")).href)}`,
+        ``,
+        `export default defineCollectionHandler(collection, { authorizeRequest })`,
+        ``,
+      ].join("\n"),
+    )
+  })
+
+  it.each(["server/auth.ts", "server.auth.ts"])("fails closed until standalone Auth discovery finds %s", async (authPath) => {
+    const { root } = await createNestedProject()
+    await mkdir(join(root, "server/collections"), { recursive: true })
+    await writeFile(join(root, "server/collections/meals.ts"), collectionModule("meals"))
+    const auth = hubAuth()
+    await configResolved(auth)({ root })
+    const source = hubSource({ auth: true })
+    await config(source)({ root })
+    await configResolved(source)({ plugins: [auth], root })
+    const route = join(root, ".vitehub/source/routes/meals.mjs")
+    await expect(readFile(route, "utf8")).resolves.not.toContain("authorizeRequest")
+
+    const listeners = new Map<string, (file: string) => Promise<void> | void>()
+    configureServer(source)({
+      config: { logger: { error: vi.fn() } },
+      restart: vi.fn(async () => {}),
+      watcher: { add: vi.fn(), on: (event, callback) => listeners.set(event, callback) },
+    })
+    const definition = join(root, authPath)
+    await writeFile(definition, "import { defineAuth } from '@vite-hub/auth'\nexport default defineAuth({ appName: 'ViteHub' })\n")
+    await listeners.get("add")?.(definition)
+    await expect(readFile(route, "utf8")).resolves.toContain("authorizeRequest")
+
+    await rm(definition)
+    await listeners.get("unlink")?.(definition)
+    await expect(readFile(route, "utf8")).resolves.not.toContain("authorizeRequest")
+    await source.api.prepareSources({ projectRoot: root })
+    await expect(readFile(route, "utf8")).resolves.not.toContain("authorizeRequest")
+
+    await writeFile(definition, "import { defineAuth } from '@vite-hub/auth'\nexport default defineAuth({ appName: 'ViteHub' })\n")
+    await configResolved(source)({ auth: false, plugins: [auth], root })
+    await source.api.prepareSources({ projectRoot: root })
+    await expect(readFile(route, "utf8")).resolves.not.toContain("authorizeRequest")
+    await configResolved(source)({ plugins: [], root })
+    await expect(readFile(route, "utf8")).resolves.not.toContain("authorizeRequest")
+  })
+
+  it("omits Auth's authorizer when the resolved Vite config disables Auth", async () => {
+    const { root } = await createNestedProject()
+    await mkdir(join(root, "server/collections"), { recursive: true })
+    await writeFile(join(root, "server/collections/meals.ts"), collectionModule("meals"))
+
+    const [source] = frameworkHubSource({
+      auth: ({ configuredAuth }) => configuredAuth !== false,
+    })
+    await configResolved(source!)({ auth: false, root })
+
+    await expect(readFile(join(root, ".vitehub/source/routes/meals.mjs"), "utf8")).resolves.toBe(
+      [
+        `import { defineCollectionHandler } from "vite-hub/source/server"`,
+        `import { meals as collection } from ${JSON.stringify(pathToFileURL(join(root, "server/collections/meals.ts")).href)}`,
+        ``,
+        `export default defineCollectionHandler(collection)`,
+        ``,
+      ].join("\n"),
+    )
+
+    await (source as ReturnType<typeof sourcePlugin>).api.prepareSources({ projectRoot: root })
+    await expect(readFile(join(root, ".vitehub/source/routes/meals.mjs"), "utf8")).resolves.toBe(
+      [
+        `import { defineCollectionHandler } from "vite-hub/source/server"`,
+        `import { meals as collection } from ${JSON.stringify(pathToFileURL(join(root, "server/collections/meals.ts")).href)}`,
+        ``,
+        `export default defineCollectionHandler(collection)`,
+        ``,
+      ].join("\n"),
+    )
+  })
+
+  it("keeps queued Source preparation on the latest resolved Auth setting", async () => {
+    const { root, viteRoot } = await createNestedProject()
+    await mkdir(join(root, "server/collections"), { recursive: true })
+    await writeFile(join(root, "server/collections/meals.ts"), collectionModule("meals"))
+
+    const [source] = frameworkHubSource({
+      auth: ({ configuredAuth }) => configuredAuth !== false,
+    })
+    const resolveConfig = configResolved(source!)({ auth: false, root: viteRoot })
+    const queuedPreparation = (source as ReturnType<typeof sourcePlugin>).api.prepareSources({ projectRoot: root })
+    await Promise.all([resolveConfig, queuedPreparation])
+
+    await expect(readFile(join(root, ".vitehub/source/routes/meals.mjs"), "utf8")).resolves.toBe(
+      [
+        `import { defineCollectionHandler } from "vite-hub/source/server"`,
+        `import { meals as collection } from ${JSON.stringify(pathToFileURL(join(root, "server/collections/meals.ts")).href)}`,
+        ``,
+        `export default defineCollectionHandler(collection)`,
+        ``,
+      ].join("\n"),
+    )
+  })
+
   it("serves server/content.ts through the Comark Content runtime", async () => {
     const { root } = await createNestedProject()
     await Promise.all([
@@ -882,6 +1002,74 @@ describe("framework generated types", () => {
     await writeFile(collection, collectionModule("meals"))
     await listeners.get("add")?.(collection)
     expect(restart).toHaveBeenCalledOnce()
+  })
+
+  it("refreshes generated Collection routes when Auth discovery changes", async () => {
+    const { root } = await createNestedProject()
+    const collection = join(root, "server/collections/meals.ts")
+    const auth = join(root, "server/auth.ts")
+    await mkdir(join(root, "server/collections"), { recursive: true })
+    await writeFile(collection, collectionModule("meals"))
+    await writeFile(auth, "export const auth = {}\n")
+    let authEnabled = true
+    const plugin = hubSource({
+      auth: () => authEnabled,
+      contentImportBase: "vite-hub/content",
+      importBase: "vite-hub/source",
+    })
+    await config(plugin)({ root })
+    const listeners = new Map<string, (file: string) => Promise<void> | void>()
+
+    configureServer(plugin)({
+      config: { logger: { error: vi.fn() } },
+      restart: vi.fn(async () => {}),
+      watcher: { add: vi.fn(), on: (event, callback) => listeners.set(event, callback) },
+    })
+
+    await expect(readFile(join(root, ".vitehub/source/routes/meals.mjs"), "utf8")).resolves.toContain(
+      `import { authorizeRequest } from "#vitehub/auth/server"`,
+    )
+    authEnabled = false
+    await rm(auth)
+    await listeners.get("unlink")?.(auth)
+
+    await expect(readFile(join(root, ".vitehub/source/routes/meals.mjs"), "utf8")).resolves.not.toContain(
+      `import { authorizeRequest } from "#vitehub/auth/server"`,
+    )
+  })
+
+  it("refreshes generated Collection routes when root-level Auth discovery changes", async () => {
+    const { root } = await createNestedProject()
+    const collection = join(root, "server/collections/meals.ts")
+    const auth = join(root, "server.auth.ts")
+    await mkdir(join(root, "server/collections"), { recursive: true })
+    await writeFile(collection, collectionModule("meals"))
+    await writeFile(auth, "export const auth = {}\n")
+    let authEnabled = true
+    const plugin = hubSource({
+      auth: () => authEnabled,
+      contentImportBase: "vite-hub/content",
+      importBase: "vite-hub/source",
+    })
+    await config(plugin)({ root })
+    const listeners = new Map<string, (file: string) => Promise<void> | void>()
+
+    configureServer(plugin)({
+      config: { logger: { error: vi.fn() } },
+      restart: vi.fn(async () => {}),
+      watcher: { add: vi.fn(), on: (event, callback) => listeners.set(event, callback) },
+    })
+
+    await expect(readFile(join(root, ".vitehub/source/routes/meals.mjs"), "utf8")).resolves.toContain(
+      `import { authorizeRequest } from "#vitehub/auth/server"`,
+    )
+    authEnabled = false
+    await rm(auth)
+    await listeners.get("unlink")?.(auth)
+
+    await expect(readFile(join(root, ".vitehub/source/routes/meals.mjs"), "utf8")).resolves.not.toContain(
+      `import { authorizeRequest } from "#vitehub/auth/server"`,
+    )
   })
 
   it("restarts the Vite host when a generated handler changes its source target", async () => {

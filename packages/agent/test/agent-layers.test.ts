@@ -1,6 +1,7 @@
 import { github } from "@vite-hub/workspace"
 import { describe, expect, it, vi } from "vitest"
-import { defineAgent, runAgent } from "../src/index.ts"
+import { agentWithSkills, defineAgent, runAgent } from "../src/index.ts"
+import { withColocatedAgentSkills } from "../src/internal/colocated-agent-skills.ts"
 
 describe("Agent definition layers", () => {
   it("inherits runnable behavior and composes fresh capabilities without changing the base", async () => {
@@ -103,6 +104,33 @@ describe("Agent definition layers", () => {
     const base = defineAgent({ driver: "codex", workspace: { sources: { docs: github({ repo: "owner/base" }) } } })
     const child = defineAgent({ extends: base, workspace: { name: "registered" } })
     expect(child.__vitehubWorkspaceAgentOptions.workspace).toEqual({ name: "registered" })
+  })
+
+  it("resolves colocated Skills that discovery attaches after a child extends the parent", async () => {
+    const seen: unknown[] = []
+    const base = defineAgent({
+      name: "bot",
+      driver: { run: ({ context }) => { seen.push(context.get("agent.colocatedSkills")); return { text: "ok" } } },
+    })
+    // Schedules and other modules can extend a definition before the discovery registry decorates it.
+    const development = defineAgent({ extends: base, name: "bot-dev" })
+    const changelog = defineAgent({ extends: development, description: "changelog" })
+    const review = { content: "# Review", materialize: "startup", mount: "", workspacePath: ".agents/skills/review/SKILL.md" }
+    withColocatedAgentSkills(base, { "__vitehubAgentSkill:.agents/skills/review/SKILL.md": review } as never)
+    // Empty discovery decoration must preserve the inherited getter.
+    withColocatedAgentSkills(development, undefined)
+    const withChangelog = agentWithSkills(changelog, { "customer-changelog": "# Changelog" })
+
+    const runtime = { runtime: "unknown" as const, memo: vi.fn(), waitUntil: vi.fn() }
+    await runAgent(changelog, runtime, { prompt: "hello" })
+    await runAgent(withChangelog, runtime, { prompt: "hello" })
+    expect(seen[0]).toEqual({ "__vitehubAgentSkill:.agents/skills/review/SKILL.md": review })
+    expect(seen[1]).toEqual({
+      "__vitehubAgentSkill:.agents/skills/review/SKILL.md": review,
+      "__vitehubAgentSkill:.agents/skills/customer-changelog/SKILL.md": { content: "# Changelog", materialize: "startup", mount: "", workspacePath: ".agents/skills/customer-changelog/SKILL.md" },
+    })
+    expect(Reflect.get(changelog, Symbol.for("vitehub.agent.colocatedSkills"))).toEqual(seen[0])
+    expect(() => agentWithSkills(changelog, { "../escape": "x" })).toThrow(/Invalid Skill name/)
   })
 
   it("rejects arbitrary parents instead of copying a live agent runtime", () => {

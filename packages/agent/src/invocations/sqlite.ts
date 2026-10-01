@@ -10,6 +10,7 @@ import type {
   AgentInvocationListOptions,
   AgentInvocationListResult,
   AgentInvocationRecord,
+  AgentInvocationRetentionOptions,
   AgentInvocationSummary,
   AgentInvocationStore,
   AgentInvocationStoreCreateInput,
@@ -17,7 +18,7 @@ import type {
 import type { Client } from "@libsql/client"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 
-export interface LibsqlAgentInvocationStoreOptions {
+export interface LibsqlAgentInvocationStoreOptions extends AgentInvocationRetentionOptions {
   authToken?: string
   client?: Client
   /** Maximum age of terminal invocation records. Defaults to 30 days. Set to false to disable age-based retention. */
@@ -466,28 +467,39 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
     const row = result.rows[0]
     return row ? deserializeSummary(row.summary, row.sequence) : undefined
   }
-  const pruneStatements = (now = Date.now()) => {
+  // Selects terminal records by an explicit cutoff, or by configured retention when no cutoff is given.
+  const pruneSelection = (updatedBefore?: string, now = Date.now()) => {
     const filters: string[] = []
     const args: Array<number | string> = []
     const terminalPlaceholders = terminalStatuses.map(() => "?").join(", ")
-    if (maxAgeMs !== false) {
+    if (updatedBefore !== undefined) {
       filters.push("updated_at < ?")
-      args.push(new Date(now - maxAgeMs).toISOString())
+      args.push(updatedBefore)
     }
-    if (maxRecords !== false) {
-      filters.push(`sequence NOT IN (
-        SELECT sequence FROM ${table} WHERE status IN (${terminalPlaceholders}) ORDER BY sequence DESC LIMIT ?
-      )`)
-      args.push(...terminalStatuses, maxRecords)
+    else {
+      if (maxAgeMs !== false) {
+        filters.push("updated_at < ?")
+        args.push(new Date(now - maxAgeMs).toISOString())
+      }
+      if (maxRecords !== false) {
+        filters.push(`sequence NOT IN (
+          SELECT sequence FROM ${table} WHERE status IN (${terminalPlaceholders}) ORDER BY sequence DESC LIMIT ?
+        )`)
+        args.push(...terminalStatuses, maxRecords)
+      }
     }
-    if (!filters.length) return []
-    const deleteInvocations = {
+    if (!filters.length) return
+    return {
       args: [...terminalStatuses, ...args],
-      sql: `DELETE FROM ${table} WHERE status IN (${terminalPlaceholders}) AND (${filters.join(" OR ")})`,
+      where: `status IN (${terminalPlaceholders}) AND (${filters.join(" OR ")})`,
     }
-    const deleteClaims = `DELETE FROM ${table}_claims
+  }
+  const deleteOrphanClaims = `DELETE FROM ${table}_claims
       WHERE NOT EXISTS (SELECT 1 FROM ${table} WHERE ${table}.id = ${table}_claims.id)`
-    return [deleteInvocations, deleteClaims]
+  const pruneStatements = (now = Date.now()) => {
+    const selection = pruneSelection(undefined, now)
+    if (!selection) return []
+    return [{ args: selection.args, sql: `DELETE FROM ${table} WHERE ${selection.where}` }, deleteOrphanClaims]
   }
   const prune = async (executor?: Pick<Client, "execute">) => {
     const statements = pruneStatements()
@@ -676,6 +688,42 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
           ORDER BY triggered_by`,
       })
       return result.rows.flatMap(row => hasRuntimeType(row.triggered_by, "string") ? [row.triggered_by] : [])
+    },
+    async delete(id) {
+      return write(async () => {
+        await initialize()
+        return await retrySqliteBusy(async () => {
+          const terminalPlaceholders = terminalStatuses.map(() => "?").join(", ")
+          const results = await client.batch([
+            { args: [id, ...terminalStatuses], sql: `DELETE FROM ${table} WHERE id = ? AND status IN (${terminalPlaceholders})` },
+            { args: [id, id], sql: `DELETE FROM ${table}_claims WHERE id = ? AND NOT EXISTS (SELECT 1 FROM ${table} WHERE id = ?)` },
+            { args: [id], sql: `SELECT 1 FROM ${table} WHERE id = ? LIMIT 1` },
+          ], "write")
+          if (results[0]!.rowsAffected > 0) return "deleted"
+          return results[2]!.rows.length ? "not-terminal" : "not-found"
+        })
+      })
+    },
+    async prune(pruneOptions) {
+      const dryRun = pruneOptions.dryRun === true
+      return write(async () => {
+        await initialize()
+        return await retrySqliteBusy(async () => {
+          const selection = pruneSelection(pruneOptions.updatedBefore)
+          if (!selection) return { dryRun, ids: [] }
+          const results = await client.batch([
+            {
+              args: selection.args,
+              sql: dryRun
+                ? `SELECT id FROM ${table} WHERE ${selection.where} ORDER BY sequence`
+                : `DELETE FROM ${table} WHERE ${selection.where} RETURNING id`,
+            },
+            ...(dryRun ? [] : [deleteOrphanClaims]),
+          ], "write")
+          const ids = results[0]!.rows.flatMap(row => hasRuntimeType(row.id, "string") ? [row.id] : [])
+          return { dryRun, ids }
+        })
+      })
     },
     async release(id, claimId) {
       await write(async () => {

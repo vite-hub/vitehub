@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { ViteHubError } from "@vite-hub/runtime"
 
 import { defineAuth } from "../src/index.ts"
-import { handleAuthRequest, requireAuth, requireAuthAccessRoutes } from "../src/server.ts"
+import { authorizeRequest, handleAuthRequest, requireAuth, requireAuthAccessRoutes } from "../src/server.ts"
 
 const providerMocks = vi.hoisted(() => ({
   betterAuth: vi.fn(),
@@ -223,6 +223,62 @@ describe("server authentication provider boundaries", () => {
     })
 
     await expect(requireAuthAccessRoutes(request, [0], accessDefinition)).resolves.toBe(denied)
+  })
+
+  describe("authorizeRequest", () => {
+    const imageRequest = new Request("https://example.com/photos/user-1/meal.jpg", {
+      headers: { accept: "text/html,image/avif,image/webp,*/*" },
+    })
+
+    it("returns JSON 401 without a session and never redirects to sign-in", async () => {
+      const authorize = vi.fn(() => true)
+      const signInDefinition = defineAuth({ access: { signIn: { provider: "github" } }, appName: "ViteHub" })
+      providerMocks.getSession.mockResolvedValue(null)
+
+      const response = await authorizeRequest({ req: imageRequest }, authorize, signInDefinition)
+
+      expect(response?.status).toBe(401)
+      expect(response?.headers.get("location")).toBeNull()
+      expect(await response?.json()).toEqual({ error: "Unauthorized." })
+      expect(authorize).not.toHaveBeenCalled()
+    })
+
+    it("allows any session for true", async () => {
+      providerMocks.getSession.mockResolvedValue({ session: { id: "session-1" }, user: { id: "user-1" } })
+
+      await expect(authorizeRequest(request, true, definition)).resolves.toBeUndefined()
+    })
+
+    it("runs the callback with the request, session, and user", async () => {
+      const authorize = vi.fn(({ request, user }: { request: Pick<Request, "url">, user: { id: string } }) =>
+        new URL(request.url).pathname.startsWith(`/photos/${user.id}/`))
+      providerMocks.getSession.mockResolvedValue({ session: { id: "session-1" }, user: { id: "user-1" } })
+
+      await expect(authorizeRequest(imageRequest, authorize, definition)).resolves.toBeUndefined()
+      expect(authorize).toHaveBeenCalledWith({
+        request: imageRequest,
+        session: { id: "session-1" },
+        user: { id: "user-1" },
+      })
+
+      providerMocks.getSession.mockResolvedValue({ session: { id: "session-2" }, user: { id: "user-2" } })
+      const forbidden = await authorizeRequest(request, authorize, definition)
+      expect(forbidden?.status).toBe(403)
+      expect(await forbidden?.json()).toEqual({ error: "Forbidden." })
+    })
+
+    it("returns a custom callback response as-is", async () => {
+      const denied = new Response("Not your photo", { status: 404 })
+      providerMocks.getSession.mockResolvedValue({ session: { id: "session-1" }, user: { id: "user-1" } })
+
+      await expect(authorizeRequest(request, () => denied, definition)).resolves.toBe(denied)
+    })
+
+    it("rejects an authorize value that is not true or a function", async () => {
+      // SAFETY: The test deliberately violates the input contract to prove the runtime guard.
+      await expect(authorizeRequest(request, false as never, definition)).rejects.toMatchObject({ code: "AUTH_R0014" })
+      expect(providerMocks.getSession).not.toHaveBeenCalled()
+    })
   })
 
   it("requires authorization from every matching access route", async () => {

@@ -1,3 +1,4 @@
+import { channelDeliveryHandlers } from "../src/internal/channel-delivery-handlers.ts"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { adapterDefinition } from "./adapter-definition.ts"
 
@@ -200,7 +201,7 @@ describe("agent test runner", () => {
     const runner = createAgentTestRunner(defineAgent({
       channels: {
         portal: defineChannel("portal", {
-          effects: { reply },
+          [channelDeliveryHandlers]: { reply },
           messages: false,
         }),
       },
@@ -229,7 +230,7 @@ describe("agent test runner", () => {
     const runner = createAgentTestRunner(defineAgent({
       channels: {
         portal: defineChannel("portal", {
-          effects: { reply },
+          [channelDeliveryHandlers]: { reply },
           messages: false,
         }),
       },

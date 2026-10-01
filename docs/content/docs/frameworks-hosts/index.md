@@ -18,6 +18,7 @@ Host support remains package-specific. A host can support one primitive without 
 | Need | Open |
 | --- | --- |
 | Compare current host coverage and proof maturity | [Runtime and host support](/docs/frameworks-hosts/support-matrix) |
+| Check persistence, access, retries, and recovery before rollout | [Production deployment](/docs/frameworks-hosts/production) |
 | Generate Cloudflare Worker output and bindings | [Cloudflare](/docs/frameworks-hosts/cloudflare) |
 | Generate Vercel Build Output | [Vercel](/docs/frameworks-hosts/vercel) |
 | Use package-specific Netlify functions and Blob runtime | [Netlify](/docs/frameworks-hosts/netlify) |

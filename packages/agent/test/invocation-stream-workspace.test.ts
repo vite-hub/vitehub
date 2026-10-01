@@ -1,3 +1,4 @@
+import { channelDeliveryHandlers } from "../src/internal/channel-delivery-handlers.ts"
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -207,7 +208,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
     const agent = defineAgent({
       channels: {
         github: defineChannel("github", {
-          effects: { reply: replyEffect },
+          [channelDeliveryHandlers]: { reply: replyEffect },
           messages: false,
           triggers: {
             webhook: {

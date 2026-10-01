@@ -175,8 +175,8 @@ Handoff references expire after 60 seconds by default. Set `policy.handoffTtl` o
 
 ## Production checks
 
-- Keep Browser calls in trusted server code. For Provider Agent browser work, add the `browser()` Capability. By default, it installs and validates a pinned `agent-browser` CLI and Chromium runtime, configures an isolated session in the provider shell, and closes that session after the invocation. Allow installation downloads and a writable runtime cache on the Agent host.
-- Use `browser({ runtime: "external" })` when you provision the CLI and browser yourself. A custom `command` also selects external mode by default. The Capability supplies workspace instructions for the Agent's existing shell; it does not narrow shell authority or expose this Browser primitive.
+- Keep Browser calls in trusted server code. For Provider Agent browser work, add the `browser()` Capability. With the default command, it installs and validates a pinned `agent-browser` CLI and Chromium runtime when the Driver does not set `launch`. A Driver with `launch` uses the external runtime and skips local browser installation. Allow installation downloads and a writable runtime cache on the Agent host when the managed runtime is selected.
+- Use `browser({ runtime: "external" })` when you provision the CLI and browser yourself. An unset runtime also selects external mode when the Driver has `launch`, and a custom `command` selects external mode by default. Use `browser({ runtime: "managed" })` only when the Driver does not launch work elsewhere. The Capability supplies workspace instructions for the Agent's existing shell; it does not narrow shell authority or expose this Browser primitive.
 - Inspect the generated Cloudflare `wrangler.json` before deployment. It is Provider Output, not an application import or a file to edit by hand.
 - Test the deployed Worker when the result depends on Browser Run bindings. A successful package build proves imports and generated output, not provider availability.
 - Handle `BROWSER_*` failures at the route, Queue, or Workflow that can retry, reject input, or report the failure.

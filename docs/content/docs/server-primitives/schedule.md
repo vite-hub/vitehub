@@ -55,6 +55,7 @@ export default defineSchedule({
 | `defineScheduleTarget` from `@vite-hub/schedule` | Declare a cronless target for Runtime Schedules. |
 | `schedules`, `validateRuntimeScheduleCron` from `@vite-hub/schedule` or `@vite-hub/schedule/runtime` | Manage Runtime Schedules and validate cron strings. |
 | `executeSchedule`, `executeStaticSchedule`, `executeRuntimeSchedule`, `createScheduleRun` from `@vite-hub/schedule/runtime` | Execute schedules from provider hooks or custom runtime wiring. |
+| `runSchedule` from `@vite-hub/schedule/runtime` | Run a manual Static Schedule Definition now. |
 | `createMemoryRuntimeScheduleStore`, `createKVRuntimeScheduleStore` from `@vite-hub/schedule/runtime` | Configure Runtime Schedule storage. |
 | `createMemoryScheduleRunStore`, `createKVScheduleRunStore` from `@vite-hub/schedule/runtime` | Configure Schedule Run storage. |
 | `setRuntimeScheduleStore`, `setScheduleRunStore`, `setScheduleRuntimeRegistry` from `@vite-hub/schedule/runtime` | Wire custom runtime state. |
@@ -143,12 +144,54 @@ Cron expressions use the Schedule Time Base, currently UTC. The discovered file 
 | `cron` | `string` | Yes | Five-field UTC cron expression for the Static Schedule Definition. |
 | `handler` | `ScheduleHandler` | Yes | Function called with Schedule Run Context. |
 | `allowRuntimeSchedules` | `boolean` | No | Allows Runtime Schedules to target this definition. |
+| `manual` | `boolean` | No | Allows on-demand runs through `runSchedule()`, the Console, and `vitehub schedule run`. Defaults to `false`. |
 
-Write `allowRuntimeSchedules` as a literal `true` or `false` in the directly exported definition. Discovery does not evaluate constants, spreads, computed properties, or getters. Unsupported forms fail with the source file and line instead of silently omitting a runtime target.
+Write `allowRuntimeSchedules` and `manual` as a literal `true` or `false` in the directly exported definition. Discovery does not evaluate constants, spreads, computed properties, or getters. Unsupported forms fail with the source file and line instead of silently omitting a runtime target.
 
 `ScheduleRunContext` includes `id`, `scheduledAt`, `waitUntil`, optional `attemptId`, optional `runId`, optional Runtime Schedule id, optional Runtime Schedule target, and optional Runtime Schedule `input`.
 
 Use `waitUntil(promise)` for consequential work that can outlive the handler body. Direct and local execution settles registered work before recording the Schedule Run result; a rejection fails the run with the same diagnostics as a handler rejection. An installed wake runtime instead retains registered work after the handler returns, reports rejection through its `onError` hook, and drains outstanding work when the runtime closes.
+
+## Run a Schedule on demand
+
+Cron stays the normal trigger. Set `manual: true` when a person or a script must also start the same work now, for example to process a backlog after a deploy.
+
+```ts [server/schedules/sync.ts]
+import { defineSchedule } from 'vite-hub/schedule'
+
+export default defineSchedule({
+  cron: '*/5 * * * *',
+  manual: true,
+  async handler() {
+    await syncInbox()
+  },
+})
+```
+
+Run it from the terminal. Without `--url`, the command uses the running Vite Development Server:
+
+```bash [Terminal]
+pnpm vitehub schedule run sync
+pnpm vitehub schedule run sync --url https://app.example.com
+```
+
+With `--url`, the command posts to the deployed [Console](/docs/development/console#run-schedules-on-demand), so the deployment needs `console.invoke` and a Console credential. Read [CLI](/docs/development/cli#run-a-schedule-on-demand) for the credential variables. The Console Schedules page shows a **Run now** button for the same definitions.
+
+Server code can use the Runtime Helper. In Vite server code, pass the generated registry:
+
+```ts [server/api/sync.post.ts]
+import { runSchedule } from 'vite-hub/schedule/runtime'
+import registry from '#vitehub/schedule/registry'
+
+export default defineEventHandler(async () => {
+  const run = await runSchedule('sync', { registry })
+  return { id: run.id, status: run.status }
+})
+```
+
+`runSchedule(name, options?)` loads the definition from `options.registry`, or from the registry that the Process Runtime or `setScheduleRuntimeRegistry()` installed. It rejects with `SCHEDULE_DEFINITION_NOT_FOUND` when the name is not a Static Schedule Definition, and with `SCHEDULE_MANUAL_RUN_DISABLED` when the definition does not set `manual: true`. After the handler starts, it resolves with the finished Schedule Run record. A handler failure resolves with `status: 'failed'` and `error`; it does not reject.
+
+A manual run uses the run id `srun_manual_<name>_<ISO time>_<unique suffix>`, so it never matches the id of a cron occurrence and never deduplicates another manual request. A manual run does not wait for a cron run of the same definition, and a cron run does not wait for a manual run. Make the handler safe to run twice at the same time. Use `schedules.run(id)` for Runtime Schedules; `runSchedule()` runs only Static Schedule Definitions.
 
 ## Create recurring Runtime Schedules
 

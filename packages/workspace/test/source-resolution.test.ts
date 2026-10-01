@@ -168,9 +168,9 @@ function writableFacade(workspace: ReturnType<typeof createWorkspace>): Writable
   }
 }
 
-async function runShell(workspace: ReadonlyWorkspaceFacade, command: string): Promise<WorkspaceShellResult> {
+async function runShell(workspace: ReadonlyWorkspaceFacade, command: string, sourceRequests = false): Promise<WorkspaceShellResult> {
   // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
-  return await workspace.tools.shell.execute!(
+  return await (sourceRequests ? workspace.tools.inspect({ sourceRequests: true }) : workspace.tools).shell.execute!(
     { command },
     // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
     { toolCallId: "test", messages: [] } as never,
@@ -619,7 +619,7 @@ describe("Workspace Source Resolution", () => {
       scope("support", [workspaceSourceRequestDescriptorPath("inventoryHealthSummary")]),
     )
     // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
-    const result = await workspace.tools.shell.execute!(
+    const result = await workspace.tools.inspect({ sourceRequests: true }).shell.execute!(
       { command: "curl 'https://portal.example.com/runtime/inventory-health?region=eu'" },
       // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
       { toolCallId: "test", messages: [] } as never,
@@ -627,7 +627,7 @@ describe("Workspace Source Resolution", () => {
 
     expect(result).toMatchObject({ exitCode: 0, stdout: JSON.stringify({ status: "ok" }, null, 2) })
     // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
-    const hiddenResult = await workspace.tools.shell.execute!(
+    const hiddenResult = await workspace.tools.inspect({ sourceRequests: true }).shell.execute!(
       { command: "curl 'https://portal.example.com/runtime/hidden-inventory'" },
       // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
       { toolCallId: "test", messages: [] } as never,
@@ -732,7 +732,7 @@ describe("Workspace Source Resolution", () => {
       stderr: "",
       stdout: "months_of_stock_incl_order_suggestion = stock_after_order / monthly_forecast\n",
     })
-    await expect(runShell(workspace, "curl 'https://portal.example.com/runtime/inventory-health'")).resolves.toMatchObject({
+    await expect(runShell(workspace, "curl 'https://portal.example.com/runtime/inventory-health'", true)).resolves.toMatchObject({
       event: "command_finished",
       exitCode: 0,
       stdout: JSON.stringify({ status: "ok" }, null, 2),

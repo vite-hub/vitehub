@@ -58,6 +58,10 @@
       "types": "./dist/schema.d.ts",
       "import": "./dist/schema.js"
     },
+    "./seal": {
+      "types": "./dist/seal.d.ts",
+      "import": "./dist/seal.js"
+    },
     "./secret": {
       "types": "./dist/secret.d.ts",
       "import": "./dist/secret.js"

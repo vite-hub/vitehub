@@ -53,6 +53,7 @@ export default defineAuth({
 | `handleAuth`, `handleAuthRequest`, `createAuthHandler` from `@vite-hub/auth/server` | Mount or call the Auth handler manually. |
 | `requireAuth` from `@vite-hub/auth/server` | Guard server routes with an Auth Session. |
 | `requireAuthAccessRoutes` from `@vite-hub/auth/server` | Guard selected configured access routes. |
+| `authorizeRequest` from `@vite-hub/auth/server` | Authorize one resource request with `true` or an `authorize` callback. Never redirects to sign-in. |
 | `authenticated` from `@vite-hub/auth/agent` | Map a Better Auth session into an Agent Invoker. |
 | `getViteHubErrorShape` from `@vite-hub/runtime` | Handle missing authentication and provider failures by stable Auth code. |
 | `hubAuth` from `@vite-hub/auth/vite` | Register Auth discovery, route exposure, and generated server aliases. |
@@ -176,9 +177,11 @@ export default defineAuth({
 
 The callback receives the authenticated `user`, `session`, and request. ViteHub does not define an admin role. The host maps its own role or permission model here.
 
+The same callback signature protects [Blob serve routes](/docs/server-primitives/blob#protect-served-objects) and [Collections](/docs/server-primitives/source#protect-a-collection). Their generated routes call `authorizeRequest(input, authorize)`, which returns JSON `401` without a session, `403` when `authorize` returns `false`, and a returned `Response` as-is. Unlike `requireAuth()`, it does not start a sign-in redirect, so image and fetch requests receive a status code.
+
 `requireAuthAccessRoutes(input, routeIndexes, definition, requiredAuthorizeRouteIndexes, { redirectToSignIn: false })` returns `401` for an unauthenticated browser request instead of starting the configured provider sign-in redirect. Use this when the host presents its own sign-in page and starts provider sign-in after an explicit action. The default retains the Auth Definition's `access.signIn` redirect behavior.
 
-Read [Console](/docs/development/console#protect-the-console-route) for its page, RPC endpoint, provider status route, and disabled behavior.
+Read [Console](/docs/development/console#protect-the-console-route) for its page, RPC endpoint, provider status route, and disabled behavior. The Console can also use its own Console Auth instead of these access routes. On Cloudflare Workers, the [Cloudflare Access provider](/docs/development/console#cloudflare-access) protects the Console without a Better Auth database.
 
 ## Storage placement metadata
 

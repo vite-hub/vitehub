@@ -28,7 +28,7 @@ async function loadAdvocaat(): Promise<Advocaat> {
     return await import("advocaat")
   }
   catch (error) {
-    throw agentDiagnostics.AGENT_R0929({
+    throw agentDiagnostics.AGENT_R0934({
       message: "[vitehub] TypeSafe Jev requests require the advocaat package. Install it with: pnpm add advocaat",
       cause: error,
     })
@@ -51,18 +51,18 @@ async function typesafeOptions(context: AskRequestContext) {
     module = await importServerEnvModule()
   }
   catch (error) {
-    throw agentDiagnostics.AGENT_R0930({ message: `[vitehub] TypeSafe Jev requests read the Server Env group "${typesafeEnvGroup}", but Server Env is not available. ${typesafeEnvHint}`, cause: error })
+    throw agentDiagnostics.AGENT_R0935({ message: `[vitehub] TypeSafe Jev requests read the Server Env group "${typesafeEnvGroup}", but Server Env is not available. ${typesafeEnvHint}`, cause: error })
   }
   const env = module.useServerEnv?.(context.event)
   const group = isRuntimeRecord(env) ? env[typesafeEnvGroup] : undefined
   if (!isRuntimeRecord(group)) {
-    throw agentDiagnostics.AGENT_R0930({ message: `[vitehub] TypeSafe Jev requests read the Server Env group "${typesafeEnvGroup}", but it is not declared. ${typesafeEnvHint}` })
+    throw agentDiagnostics.AGENT_R0935({ message: `[vitehub] TypeSafe Jev requests read the Server Env group "${typesafeEnvGroup}", but it is not declared. ${typesafeEnvHint}` })
   }
   const provider = group.provider === "vercel" ? "vercel" : "typesafe"
   const apiKey = optionalString(group.apiKey)
   // Without a key, the Vercel provider lets advocaat use VERCEL_OIDC_TOKEN on Vercel.
   if (!apiKey && provider === "typesafe") {
-    throw agentDiagnostics.AGENT_R0931({ message: `[vitehub] TypeSafe Jev requests require env.server.${typesafeEnvGroup}.apiKey. Set TYPESAFE_API_KEY, or use typesafeEnv({ provider: "vercel" }) with AI_GATEWAY_API_KEY.` })
+    throw agentDiagnostics.AGENT_R0936({ message: `[vitehub] TypeSafe Jev requests require env.server.${typesafeEnvGroup}.apiKey. Set TYPESAFE_API_KEY, or use typesafeEnv({ provider: "vercel" }) with AI_GATEWAY_API_KEY.` })
   }
   const model = optionalString(group.model)
   return {
@@ -81,25 +81,25 @@ function toEntry(value: unknown): AskEntry {
 }
 
 function invalidQuestion(name: string) {
-  return agentDiagnostics.AGENT_R0932({ message: `[vitehub] Jev question "${name}" must be built with ask.choice(), ask.score(), ask.chance(), ask.if(), or ask.switch().` })
+  return agentDiagnostics.AGENT_R0937({ message: `[vitehub] Jev question "${name}" must be built with ask.choice(), ask.score(), ask.chance(), ask.if(), or ask.switch().` })
 }
 
 function validateQuestionCriteria(name: string, question: AskQuestion): void {
   if (question.type === "if" && (!Number.isFinite(question.threshold) || question.threshold < 0 || question.threshold > 1)) {
-    throw agentDiagnostics.AGENT_R0932({ message: `[vitehub] Jev question "${name}" threshold must be a finite number between 0 and 1.` })
+    throw agentDiagnostics.AGENT_R0937({ message: `[vitehub] Jev question "${name}" threshold must be a finite number between 0 and 1.` })
   }
   if (question.type === "choice" || question.type === "switch") {
     const count = isRuntimeRecord(question.criteria) && !Array.isArray(question.criteria)
       ? Object.keys(question.criteria).length
       : 0
     if (count < 2 || count > 255) {
-      throw agentDiagnostics.AGENT_R0932({ message: `[vitehub] Jev question "${name}" ${question.type} criteria must have between 2 and 255 choices.` })
+      throw agentDiagnostics.AGENT_R0937({ message: `[vitehub] Jev question "${name}" ${question.type} criteria must have between 2 and 255 choices.` })
     }
   }
   else if (question.type === "score") {
     const count = Array.isArray(question.criteria) ? question.criteria.length : 0
     if (count < 2 || count > 10) {
-      throw agentDiagnostics.AGENT_R0932({ message: `[vitehub] Jev question "${name}" score criteria must have between 2 and 10 levels.` })
+      throw agentDiagnostics.AGENT_R0937({ message: `[vitehub] Jev question "${name}" score criteria must have between 2 and 10 levels.` })
     }
   }
 }
@@ -130,7 +130,7 @@ export function askState(input: AskStateInput, prompt: unknown, messages: readon
 /** Sends every question to TypeSafe Jev in one request and returns the answers under the same keys. */
 export async function askJev<const Q extends AskQuestions>(context: AskRequestContext, state: unknown, questions: Q): Promise<AskAnswers<Q>> {
   if (!isRuntimeRecord(questions) || Array.isArray(questions)) {
-    throw agentDiagnostics.AGENT_R0932({ message: "[vitehub] defineAgent({ driver.ask }) must resolve to an object of Jev questions." })
+    throw agentDiagnostics.AGENT_R0937({ message: "[vitehub] defineAgent({ driver.ask }) must resolve to an object of Jev questions." })
   }
   const wire = Object.fromEntries(Object.entries(questions).map(([name, question]) => {
     if (!isRuntimeRecord(question)) throw invalidQuestion(name)

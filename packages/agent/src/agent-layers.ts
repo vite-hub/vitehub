@@ -1,3 +1,5 @@
+import { discoveredAgentName } from "./internal/discovered-agent-name.ts"
+import { agentDefinitionSourceSymbol } from "./internal/agent-definition-source.ts"
 import { registeredWorkspaceAgentNames } from "./internal/workspace-agent-registration.ts"
 import { hasRuntimeType } from "./internal/runtime-type.ts"
 import { resolveNamedAgentPresetOptions } from "./agent-presets.ts"
@@ -31,11 +33,16 @@ function rememberLayerMetadata(value: Record<string, unknown>, metadata: AgentLa
   Object.defineProperty(value, agentLayerMetadata, { configurable: true, value: metadata })
 }
 
+// Discovery attaches colocated Skills after modules that extend a definition have run.
+// Read them from the parent when the child resolves instead of copying them now.
 function inheritColocatedSkills(parent: Record<string, unknown>, child: Record<string, unknown>): void {
-  const skills = Object.getOwnPropertyDescriptor(parent, colocatedSkills)
-  if (skills) Object.defineProperty(child, colocatedSkills, skills)
+  if (parent === child) return
+  Object.defineProperty(child, colocatedSkills, {
+    configurable: true,
+    enumerable: true,
+    get: () => Reflect.get(parent, colocatedSkills),
+  })
 }
-
 
 function record(value: unknown): value is Record<string, unknown> {
   return value !== null && hasRuntimeType(value, "object")
@@ -44,7 +51,7 @@ function record(value: unknown): value is Record<string, unknown> {
 }
 
 // These maps contain definitions and callbacks, not configuration to merge recursively.
-const opaqueOptions = new Set(["data", "messages.meta", "messages.state", "invocations", "runtime", "driver.output", "driver.model", "driver.launch"])
+const opaqueOptions = new Set(["data", "messages.meta", "messages.state", "invocations", "runtime", "github", "driver.output", "driver.model", "driver.launch"])
 const definitionMaps = new Set(["channels", "workspace.sources", "workspace.skills", "hooks"])
 
 function merge(parent: unknown, child: unknown, path: string): unknown {
@@ -148,12 +155,14 @@ export function resolveAgentLayerOptions(input: unknown, ownsWorkspace: (setting
       : discoveryDefaults
     const resolved = merge(applicableDefaults, settings, "")
     if (!record(resolved)) throw new TypeError("[vitehub] Invalid Agent layer options.")
-    inheritColocatedSkills(asMetadataTarget(parent), asMetadataTarget(resolved))
     // SAFETY: Resolved settings merge a registered definition with its overrides.
     rememberLayerMetadata(resolved, { options: resolved as AgentSettings, configured: { ...configured, options, overrides: inheritedOverrides }, defaults: inherited.defaults, parent })
     // Preserve application-owned decorations from the configure result on every reconfiguration.
     // SAFETY: resolved is the freshly merged Agent definition settings object.
     copyDefinitionDecorations(asMetadataTarget(definition), asMetadataTarget(resolved))
+    const skills = Object.getOwnPropertyDescriptor(definition, colocatedSkills)
+    if (skills) Object.defineProperty(resolved, colocatedSkills, skills)
+    else inheritColocatedSkills(asMetadataTarget(parent), asMetadataTarget(resolved))
     return resolved
   }
   const { name: _parentName, ...defaults } = layerMetadata(parent)!.options
@@ -169,8 +178,8 @@ export type DefinitionDecorationCarrier = Record<PropertyKey, unknown>
 
 export function copyDefinitionDecorations(source: DefinitionDecorationCarrier, target: DefinitionDecorationCarrier): void {
   const frameworkProperties = new Set<PropertyKey>([
-    registeredWorkspaceAgentNames, "options", "__vitehubAgentSettings", "__vitehubWorkspaceAgent", "__vitehubWorkspaceAgentOptions", agentLayerMetadata,
-    "resolve", "run", "health", "status", "box", "capabilities", "channels", "chat", "cli", "description",
+    discoveredAgentName, agentDefinitionSourceSymbol, registeredWorkspaceAgentNames, "options", "__vitehubAgentSettings", "__vitehubWorkspaceAgent", "__vitehubWorkspaceAgentOptions", agentLayerMetadata,
+    "resolve", "run", "health", "status", "box", "github", "capabilities", "channels", "chat", "cli", "description",
     "driver", "hooks", "invoker", "invocations", "messages", "name", "runtime", "runEvents", "uiMessageStream", "version", "workspace",
     "bindings", "commit", "loaders", "plugins", "publish", "rootDir", "rules", "sourceRootDir", "sources", "store", "mode",
     Symbol.for("vitehub.baseAgentResolve"), Symbol.for("vitehub.baseAgentDefinitionResolve"),
@@ -195,7 +204,9 @@ export function rememberAgentLayerOptions<T extends LayerAgentDefinition>(defini
   const metadataTarget = asMetadataTarget(definition)
   rememberLayerMetadata(metadataTarget, { options: { ...options }, configured: inherited?.configured, defaults: inherited?.defaults })
   copyDefinitionDecorations(asMetadataTarget(source), metadataTarget)
-  if (inherited?.parent) inheritColocatedSkills(asMetadataTarget(inherited.parent), asMetadataTarget(definition))
+  if (inherited?.parent && !Object.prototype.hasOwnProperty.call(definition, colocatedSkills)) {
+    inheritColocatedSkills(asMetadataTarget(inherited.parent), asMetadataTarget(definition))
+  }
   // SAFETY: Metadata stores the private configured layer shape created by this module.
   if (inherited?.configured) rememberConfiguredLayer(definition, inherited.configured as ConfiguredLayer)
   return definition
