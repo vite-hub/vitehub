@@ -121,6 +121,21 @@ describe("gmail capability", () => {
     expect(runtime.calls.at(-1)).toEqual({ method: "messages.attachments.get", input: { id: "a1", messageId: "m1", userId: "me" }, signal: controller.signal })
   })
 
+  it.each([
+    { filename: "notes.txt" },
+    { headers: [{ name: "Content-Disposition", value: "attachment; filename=notes.txt" }] },
+  ])("selects the HTML body instead of a text attachment, %j", async (attachment) => {
+    const runtime = await capabilityTools(gmail({ connection: "google", tools: ["read"] }), () => ({
+      id: "m1",
+      payload: { mimeType: "multipart/mixed", parts: [
+        { ...attachment, mimeType: "text/plain", body: { attachmentId: "a1", data: base64Url("Attached file") } },
+        { mimeType: "text/html", body: { data: base64Url("<p>Email body</p>") } },
+      ] },
+    }))
+    await expect(runtime.tools.gmail_read!.execute?.({ id: "m1" })).resolves.toMatchObject({ message: { body: "Email body" } })
+    expect(runtime.calls).toHaveLength(1)
+  })
+
   it("folds long Unicode draft subjects into valid encoded words", async () => {
     const runtime = await capabilityTools(gmail({ connection: "google", tools: ["draft"] }), () => ({ id: "d1" }))
     const subject = "Résumé 🚀".repeat(20)

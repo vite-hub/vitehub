@@ -47,6 +47,7 @@ interface GmailDraftInput {
 
 interface GmailHeader { name?: string, value?: string }
 interface GmailMessagePart {
+  filename?: string
   body?: { attachmentId?: string, data?: string, size?: number }
   headers?: GmailHeader[]
   mimeType?: string
@@ -281,7 +282,7 @@ function messageSummary(message: GmailMessage) {
 }
 
 function findPart(part: GmailMessagePart | undefined, mimeType: string): GmailMessagePart | undefined {
-  if (!part) return
+  if (!part || part.filename?.trim() || /^\s*attachment(?:\s*;|$)/i.test(headerValue(part.headers, "Content-Disposition") ?? "")) return
   if (part.mimeType === mimeType && (part.body?.data || part.body?.attachmentId)) return part
   for (const child of part.parts ?? []) {
     const found = findPart(child, mimeType)
