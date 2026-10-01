@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
+import { fileURLToPath } from "node:url"
 
 import { ask } from "../src/ask.ts"
 import { askJev } from "../src/internal/ask-runtime.ts"
@@ -23,8 +24,14 @@ describe("Agent Vite plugin", () => {
     const resolveId = hubAgent().resolveId as (...args: unknown[]) => Promise<unknown>
     const installed = { external: false, id: "/app/node_modules/advocaat/dist/index.mjs" }
 
-    await expect(resolveId.call({ resolve: async () => null }, "advocaat", "/agent.js", {})).resolves.toEqual({ external: true, id: "advocaat" })
-    await expect(resolveId.call({ resolve: async () => installed }, "advocaat", "/agent.js", {})).resolves.toBe(installed)
+    const agentImporter = "/app/node_modules/@vite-hub/agent/dist/internal/ask-runtime.js"
+    await expect(resolveId.call({ resolve: async () => null }, "advocaat", agentImporter, {})).resolves.toEqual({ external: true, id: "advocaat" })
+    await expect(resolveId.call({ resolve: async () => installed }, "advocaat", agentImporter, {})).resolves.toBe(installed)
+    await expect(resolveId.call({ resolve: async () => null }, "advocaat", "/app/src/main.ts", {})).resolves.toBeUndefined()
+    await expect(resolveId.call({ resolve: async () => null }, "advocaat", "/app/packages/agent/index.ts", {})).resolves.toBeUndefined()
+    await expect(resolveId.call({ resolve: async () => null }, "advocaat", undefined, {})).resolves.toBeUndefined()
+    await expect(resolveId.call({ resolve: async () => null }, "advocaat", fileURLToPath(new URL("../src/internal/ask-runtime.ts", import.meta.url)), {})).resolves.toEqual({ external: true, id: "advocaat" })
+    await expect(resolveId.call({ resolve: async () => null }, "advocaat", "C:\\app\\node_modules\\@vite-hub\\agent\\dist\\index.js", {})).resolves.toEqual({ external: true, id: "advocaat" })
     await expect(resolveId.call({ resolve: async () => null }, "ai", "/agent.js", {})).resolves.toBeUndefined()
   })
 })
