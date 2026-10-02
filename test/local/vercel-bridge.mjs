@@ -31,7 +31,11 @@ function nodeRequestToWebRequest(req, origin) {
 
 async function writeWebResponse(res, response) {
   res.statusCode = response.status
-  response.headers.forEach((value, key) => res.setHeader(key, value))
+  const cookies = response.headers.getSetCookie?.() ?? []
+  if (cookies.length) res.setHeader("set-cookie", cookies)
+  response.headers.forEach((value, key) => {
+    if (key !== "set-cookie") res.setHeader(key, value)
+  })
   if (!response.body) return res.end()
   for await (const chunk of response.body) res.write(chunk)
   res.end()
