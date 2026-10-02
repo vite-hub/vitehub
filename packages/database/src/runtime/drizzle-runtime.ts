@@ -1,28 +1,13 @@
-import { mkdirSync } from "node:fs"
-import { dirname } from "node:path"
-
 import { createClient } from "@libsql/client"
 import { drizzle as drizzleLibsql } from "drizzle-orm/libsql"
 
 import databaseEntries from "#vitehub/database/databases"
 
-import {
-  createDrizzleSqliteAdapter,
-  isRemoteSqliteUrl,
-} from "./drizzle-adapter.ts"
+import { createDrizzleSqliteAdapter } from "./drizzle-adapter.ts"
+import { resolveLocalSqliteUrl } from "./local-url.ts"
 
 import type { ResolvedDrizzleDatabaseConfig, RuntimeDrizzleDatabase } from "../types.ts"
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
-
-function resolveLocalSqliteUrl(url: string) {
-  if (url === ":memory:" || isRemoteSqliteUrl(url)) {
-    return url
-  }
-
-  const path = url.startsWith("file:") ? url.slice("file:".length) : url
-  mkdirSync(dirname(path), { recursive: true })
-  return url
-}
 
 interface RuntimeDatabaseModule {
   config: ResolvedDrizzleDatabaseConfig
