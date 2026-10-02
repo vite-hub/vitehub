@@ -29,9 +29,9 @@ function nodeRequestToWebRequest(req, origin) {
   return new Request(url, { body, duplex: body ? "half" : undefined, headers, method: req.method })
 }
 
-async function writeWebResponse(res, response) {
+export async function writeWebResponse(res, response) {
   res.statusCode = response.status
-  const cookies = response.headers.getSetCookie?.() ?? []
+  const cookies = response.headers.getSetCookie()
   if (cookies.length) res.setHeader("set-cookie", cookies)
   response.headers.forEach((value, key) => {
     if (key !== "set-cookie") res.setHeader(key, value)
