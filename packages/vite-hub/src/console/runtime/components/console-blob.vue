@@ -168,8 +168,9 @@ async function loadObjects(options: { append?: boolean; keepSelection?: boolean 
     cursor.value = page.cursor;
     hasMore.value = page.hasMore;
     error.value = undefined;
-    selectedPath.value = current && next.some(object => object.pathname === current)
-      ? current
+    const selection = options.append && options.keepSelection ? selectedPath.value : current;
+    selectedPath.value = selection && next.some(object => object.pathname === selection)
+      ? selection
       : next[0]?.pathname;
   } catch (cause) {
     if (cause instanceof Object && "name" in cause && cause.name === "AbortError") return;
