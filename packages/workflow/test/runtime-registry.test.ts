@@ -1,0 +1,80 @@
+import { afterEach, describe, expect, it, vi } from "vitest"
+
+import type { WorkflowDefinition } from "../src/types.ts"
+import { loadWorkflowDefinition, resetWorkflowRuntime, setWorkflowRuntimeRegistry } from "../src/runtime/state.ts"
+
+afterEach(resetWorkflowRuntime)
+
+function deferredDefinition() {
+  let resolve!: (definition: WorkflowDefinition) => void
+  let reject!: (cause: Error) => void
+  const promise = new Promise<WorkflowDefinition>((accept, fail) => {
+    resolve = accept
+    reject = fail
+  })
+  return { promise, reject, resolve }
+}
+
+describe("Workflow registry replacement", () => {
+  it("does not repopulate a reset cache when an old load finishes last", async () => {
+    const pending = deferredDefinition()
+    const current = { handler: async () => "new" }
+    setWorkflowRuntimeRegistry({ report: () => pending.promise })
+    const oldLoad = loadWorkflowDefinition("report")
+    await Promise.resolve()
+    resetWorkflowRuntime()
+    setWorkflowRuntimeRegistry({ report: async () => current })
+    await expect(loadWorkflowDefinition("report")).resolves.toBe(current)
+
+    pending.resolve({ handler: async () => "old" })
+    await oldLoad
+    await expect(loadWorkflowDefinition("report")).resolves.toBe(current)
+  })
+
+  it.each(["replace", "reset"] as const)("does not reuse pending loads after %s", async (operation) => {
+    const pending = deferredDefinition()
+    const oldDefinition = { handler: async () => "old" }
+    const newDefinition = { handler: async () => "new" }
+    const oldLoader = vi.fn(() => pending.promise)
+    const newLoader = vi.fn(async () => newDefinition)
+    setWorkflowRuntimeRegistry({ report: oldLoader })
+    const oldLoad = loadWorkflowDefinition("report")
+    await Promise.resolve()
+    expect(oldLoader).toHaveBeenCalledOnce()
+
+    if (operation === "reset") resetWorkflowRuntime()
+    setWorkflowRuntimeRegistry({ report: newLoader })
+    const newLoad = loadWorkflowDefinition("report")
+    pending.resolve(oldDefinition)
+
+    await expect(oldLoad).resolves.toBe(oldDefinition)
+    await expect(newLoad).resolves.toBe(newDefinition)
+    await expect(loadWorkflowDefinition("report")).resolves.toBe(newDefinition)
+    expect(newLoader).toHaveBeenCalledOnce()
+  })
+
+  it.each(["resolve", "reject"] as const)("keeps the replacement load when the stale load completes with %s", async (outcome) => {
+    const stale = deferredDefinition()
+    const replacement = deferredDefinition()
+    const definition = { handler: async () => "new" }
+    setWorkflowRuntimeRegistry({ report: () => stale.promise })
+    const staleLoad = loadWorkflowDefinition("report").catch(() => undefined)
+    await Promise.resolve()
+    const loader = vi.fn(() => replacement.promise)
+    setWorkflowRuntimeRegistry({ report: loader })
+    const currentLoad = loadWorkflowDefinition("report")
+    await Promise.resolve()
+
+    if (outcome === "resolve") stale.resolve({ handler: async () => "old" })
+    else stale.reject(new Error("Stale load failed"))
+    await staleLoad
+    const sharedLoad = loadWorkflowDefinition("report")
+    await Promise.resolve()
+    expect(loader).toHaveBeenCalledOnce()
+    replacement.resolve(definition)
+    await expect(currentLoad).resolves.toBe(definition)
+    await expect(sharedLoad).resolves.toBe(definition)
+    await expect(loadWorkflowDefinition("report")).resolves.toBe(definition)
+    expect(loader).toHaveBeenCalledOnce()
+  })
+})
