@@ -34,8 +34,9 @@ function page(paths: string[], hasMore = false) {
 
 describe("Console Blob selection", () => {
   it.each([true, false])("preserves the applicable selection with append=%s", async (append) => {
-    const pending = Promise.withResolvers<unknown>()
-    mocks.request.mockReset().mockResolvedValueOnce(page(["a", "b"], true)).mockReturnValueOnce(pending.promise)
+    let resolveResponse: (value: unknown) => void = () => {}
+    const pending = new Promise<unknown>(resolve => { resolveResponse = resolve })
+    mocks.request.mockReset().mockResolvedValueOnce(page(["a", "b"], true)).mockReturnValueOnce(pending)
     const app = renderer.createApp({ ...Blob, render: () => null }, {
       agentsBase: "/agents", blobBase: "/blob", definitionsBase: "/definitions",
       kvBase: "/kv", searchBase: "/search", sectionsBase: "/sections",
@@ -51,7 +52,7 @@ describe("Console Blob selection", () => {
         expect(state.loadingMore).toBe(true)
         state.selectBlob("a")
       }
-      pending.resolve(page(["b", "c"]))
+      resolveResponse(page(["b", "c"]))
       await loading
       expect(state.selectedPath).toBe(append ? "a" : "b")
       expect(state.blobs.map(blob => blob.pathname)).toEqual(append ? ["a", "b", "c"] : ["b", "c"])
