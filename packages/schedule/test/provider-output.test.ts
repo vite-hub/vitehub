@@ -1111,6 +1111,88 @@ describe("schedule provider output", () => {
     expect(JSON.parse(await readFile(cloudflareConfig, "utf8")).triggers.crons).toEqual(["0 2 * * *"])
   })
 
+  it.each([
+    "satisfies Record<string, unknown>",
+    "as Record<string, unknown>",
+    "satisfies { config: Record<string, unknown> }",
+    "satisfies (Record<string, unknown>)",
+    'satisfies import("types").Record<string, unknown>',
+    "satisfies First<string, unknown> & Second<string, unknown>",
+    "as First<string, unknown> | Second<string, unknown>",
+    "as true extends true ? Options<string, unknown> : never",
+    "as true extends true ? readonly Other<string, unknown>[] : never",
+    'as true extends true ? ScheduleDefinitionInput : `${Extract<"a" | "b", string>}`',
+    "as false extends true ? never : Options<string, unknown>",
+    "as false extends true ? never : Types.Options<string, unknown>",
+    "as true extends true ? keyof /* branch */ Types.Options<string, unknown> : never",
+    "as true extends true ? ScheduleDefinitionInput : { config: string, other: number }",
+    "as true extends true ? { config: string, other: number } : ScheduleDefinitionInput",
+    "as true extends true ? ScheduleDefinitionInput : [config: string, other: number]",
+    "as true extends true ? ScheduleDefinitionInput : ((config: string, other: number) => void)",
+    "as keyof Record<string, unknown> extends PropertyKey ? Definition : never",
+    "as unknown as typeof shape<string, unknown>",
+    "as unknown as typeof /* value */ shapes.schedule /* args */ <string, unknown>",
+    "as unknown as () => { config: Record<string, unknown> }",
+    "as unknown as new () => { config: Record<string, unknown> }",
+    "as unknown as () => [config: Record<string, unknown>, extra: string]",
+    "as unknown as new () => [config: Record<string, unknown>, extra: string]",
+    "as unknown as () => ({ config: Record<string, unknown> })",
+    "as unknown as () => (Result<string, unknown>)",
+    "as unknown as () => ((Result<string, unknown>))",
+    "as unknown as () => ((value: string) => { config: Record<string, unknown> })",
+    "as unknown as () => /* return */ { config: Record<string, unknown> }",
+    "as unknown as () => () => { config: Record<string, unknown> }",
+    "as unknown as () => Result<string, unknown>",
+    "as unknown as new () => Result<string, unknown>",
+    "as unknown as (value: unknown) => asserts value is Result<string, unknown>",
+    "as unknown as (value: unknown) => value is Result<string, unknown>",
+    "as unknown as (value: unknown) => this is Result<string, unknown>",
+    "as unknown as (callback: (value: string) => void) => Result<string, unknown>",
+    "as unknown as () => readonly Result<string, unknown>[]",
+    "as unknown as () => keyof Result<string, unknown>",
+    "as unknown as () => typeof shape<string, unknown>",
+    "as unknown as () => Result<string, unknown> & Types.Other<number, boolean>",
+    "as unknown as () => Result<string, unknown> | Other<number, boolean>",
+    "as unknown as (value: unknown) => value is Result<string, unknown> | Other<number, boolean>",
+    "as unknown as (value: unknown) => asserts value is Result<string, unknown> & Types.Other<number, boolean>",
+    "as unknown as (value: unknown) => this is Result<string, unknown> | Other<number, boolean>",
+    "as unknown as (value: unknown) => value is Result<string, unknown> | /* member */ 类型<number, boolean>",
+    "as unknown as T extends infer 类型 extends Pair<string, unknown> ? Definition : never",
+    "as unknown as T extends infer 类型 extends 命名空间.类型<string, unknown> ? Definition : never",
+    "as unknown as T extends infer R extends Pair<string, unknown> ? Definition : never",
+    "as unknown as T extends 类型<string, unknown> ? Definition : never",
+    "as unknown as T extends 命名空间.类型<string, unknown> ? Definition : never",
+    "as unknown as T extends keyof /* constraint */ 命名空间.类型<string, unknown> ? Definition : never",
+    "as unknown as T extends infer R extends 类型<string, unknown> ? Definition : never",
+    'satisfies import("types", { with: { "resolution-mode": "import" } }).Record<string, unknown>',
+    "as 𐀀Type<string, unknown>",
+    "as Type𐀀<string, unknown> | Other<string, unknown>",
+    "as unknown as T extends 𐀀Type<string, unknown> ? Definition : never",
+    "as unknown as T extends (Pair<string, unknown>) ? Definition : never",
+    "as unknown as T extends ((Pair<string, unknown>)) ? Definition : never",
+    "as unknown as T extends /* constraint */ (Pair<string, unknown>) ? Definition : never",
+    "as unknown as T extends infer 𐀀Type extends Pair<string, unknown> ? Definition : never",
+    "as unknown as (value: unknown) => value is (Result<string, unknown>)",
+    "as \\u0066oo<string, unknown>",
+    "as f\\u006Fo<string, unknown>",
+    "as foo\\u{006f}<string, unknown>",
+    "as 类型<string, unknown>",
+    "as 类型<string, unknown> | Other<string, unknown>",
+    "satisfies 类型<string, unknown> & Other<string, unknown>",
+    "as 类型<string, unknown> | Другой<string, unknown>",
+    'as import /* type */ ("types" /* module */, /* attributes */ { with: { "resolution-mode": "require" } } /* end */).Record<string, unknown>',
+    'satisfies import /* type */ ("types" /* module */).Record<string, unknown>',
+  ])("reads static provider cron from a generic assertion: %s", async (assertion) => {
+    const rootDir = await createTempProject("vitehub-schedule-output-assertion-cron-")
+    await writeFile(join(rootDir, "src", "cleanup.schedule.ts"),
+      `export default defineSchedule({ cron: '0 2 * * *', handler: () => 'ok' } ${assertion})\n`, "utf8")
+
+    await generateProviderOutputs({ clientOutDir: "dist/client", rootDir })
+
+    const cloudflareConfig = join(createDefaultCloudflareOutputRoot(rootDir), "wrangler.json")
+    expect(JSON.parse(await readFile(cloudflareConfig, "utf8")).triggers.crons).toEqual(["0 2 * * *"])
+  })
+
   it("reads static provider cron from parenthesized defineSchedule exports", async () => {
     const rootDir = await createTempProject("vitehub-schedule-output-parenthesized-cron-")
     await writeFile(join(rootDir, "src", "cleanup.schedule.ts"), [
@@ -1125,6 +1207,71 @@ describe("schedule provider output", () => {
 
     const cloudflareConfig = join(createDefaultCloudflareOutputRoot(rootDir), "wrangler.json")
     expect(JSON.parse(await readFile(cloudflareConfig, "utf8")).triggers.crons).toEqual(["0 2 * * *"])
+  })
+
+  it.each([
+    "as Foo<string> ^ (bar())",
+    "as unknown as () => { config: Record<string, unknown> } + fallback",
+    "as unknown as new () => [config: Record<string, unknown>] (argument)",
+    "as unknown as () => { config: string } ? fallback : alternate",
+    "as unknown as () => (Result<string, unknown> + fallback)",
+    "as unknown as new () => ((Result<string, unknown> || fallback))",
+    "as unknown as () => (Result<string, unknown> (argument))",
+    "as unknown as () => (Result<string, unknown> ? fallback : alternate)",
+    "as (Result<string, unknown> + fallback)",
+    "as unknown as () => (Result<string, unknown> ^ (bar()))",
+    "as unknown as () => Result<string, unknown> + fallback",
+    "as unknown as () => Result<string, unknown> || fallback",
+    "as unknown as () => Result<string, unknown> ? fallback : alternate",
+    "as unknown as () => Result<string, unknown> (argument)",
+    "as unknown as new () => Result<string, unknown> + fallback",
+    "as unknown as new () => Result<string, unknown> || fallback",
+    "as unknown as new () => Result<string, unknown> ? fallback : alternate",
+    "as unknown as new () => Result<string, unknown> (argument)",
+    "as unknown as (value: unknown) => asserts value is Result<string, unknown> + fallback",
+    "as unknown as (value: unknown) => asserts value is Result<string, unknown> || fallback",
+    "as unknown as (value: unknown) => asserts value is Result<string, unknown> ? fallback : alternate",
+    "as unknown as (value: unknown) => asserts value is Result<string, unknown> (argument)",
+    "as T extends (Pair<string, unknown> + fallback) ? Definition : never",
+    "as T extends (Pair<string, unknown>(argument)) ? Definition : never",
+    "as Definition ? fallback : fallback",
+    "as true extends true ? Definition : never ? fallback : fallback",
+    "as Definition ? { config: string, other: number } : fallback",
+    "as true extends true ? Definition : never ? (bar()) : fallback",
+  ])("rejects runtime expressions after cron assertion types: %s", async (assertion) => {
+    const rootDir = await createTempProject("vitehub-schedule-output-runtime-assertion-")
+    await writeFile(join(rootDir, "src", "cleanup.schedule.ts"),
+      `export default defineSchedule({ cron: '0 2 * * *' } ${assertion})\n`, "utf8")
+
+    await expect(generateProviderOutputs({
+      clientOutDir: "dist/client",
+      rootDir,
+    })).rejects.toThrow(/Schedule discovery requires a direct default export/)
+  })
+
+  it.each([">fallback", ">>fallback", ">>>fallback", ">=fallback", "<fallback", "<<fallback", "<=fallback"])("rejects compact relational cron assertions: %s", async (operator) => {
+    const rootDir = await createTempProject("vitehub-schedule-output-relational-assertion-")
+    await writeFile(join(rootDir, "src", "cleanup.schedule.ts"),
+      `export default defineSchedule({ cron: '0 2 * * *' } as Foo${operator})\n`, "utf8")
+
+    await expect(generateProviderOutputs({
+      clientOutDir: "dist/client",
+      rootDir,
+    })).rejects.toThrow(/Schedule discovery requires a direct default export/)
+  })
+
+  it.each([
+    "({ cron: '0 2 * * *' } as Foo) `tag`",
+    "({ cron: '0 2 * * *' } as Foo<string>) `tag`",
+  ])("rejects tagged-template expressions after cron assertions: %s", async (expression) => {
+    const rootDir = await createTempProject("vitehub-schedule-output-tagged-assertion-")
+    await writeFile(join(rootDir, "src", "cleanup.schedule.ts"),
+      `export default defineSchedule(${expression})\n`, "utf8")
+
+    await expect(generateProviderOutputs({
+      clientOutDir: "dist/client",
+      rootDir,
+    })).rejects.toThrow(/must declare a static cron string/)
   })
 
   it("rejects raw default objects for provider cron extraction", async () => {
