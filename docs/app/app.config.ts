@@ -116,6 +116,7 @@ export default defineAppConfig({
         base: "w-full justify-start rounded-none border-b border-default px-4 py-3 text-muted hover:text-highlighted",
         trailing: "ms-auto flex items-center gap-0.5",
       },
+    // SAFETY: Nuxt UI's content search button variants accept these custom slot classes.
     } as any,
     contentSearch: {
       defaultVariants: {
@@ -125,6 +126,7 @@ export default defineAppConfig({
         modal: "vitehub-content-search-modal w-[calc(100vw-1rem)] !max-w-[640px] !h-auto rounded-sm border border-default shadow-none max-h-[calc(100dvh-1rem)] sm:max-h-[70vh]",
         input: "[&>input]:h-14 [&>input]:text-lg",
       },
+    // SAFETY: Nuxt UI's content search modal variants accept these custom slot classes.
     } as any,
     contentToc: {
       defaultVariants: {
