@@ -138,6 +138,7 @@ export default defineAppConfig({
         title: "text-sm font-medium text-muted",
       },
     },
+    // SAFETY: Nuxt UI's prose variants accept these custom slot classes.
     prose: {
       a: {
         base: "font-medium underline underline-offset-4 text-default hover:text-primary transition-colors",
