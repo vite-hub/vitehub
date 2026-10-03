@@ -3,7 +3,7 @@ import { runtimeValue } from "./cloudflare-runtime.ts"
 
 import { AwsClient } from "aws4fetch"
 
-import type { BlobDriverAdapter, BlobListOptions, BlobListResult, BlobObject, BlobPutBody, BlobPutOptions, BlobSignedRequest, BlobSignOptions, ResolvedCloudflareR2BlobStoreConfig } from "../types.ts"
+import type { BlobDriverAdapter, BlobDriverMultipartUpload, BlobListOptions, BlobListResult, BlobMultipartPart, BlobObject, BlobPutBody, BlobPutOptions, BlobSignedRequest, BlobSignOptions, ResolvedCloudflareR2BlobStoreConfig } from "../types.ts"
 import { blobErrorDiagnostics } from "../error-diagnostics.ts"
 
 interface R2ObjectLike {
@@ -17,12 +17,40 @@ interface R2ObjectLike {
   uploaded?: Date
 }
 
+interface R2MultipartUploadLike {
+  key: string
+  uploadId: string
+  abort(): Promise<void>
+  complete(parts: BlobMultipartPart[]): Promise<R2ObjectLike>
+  uploadPart(partNumber: number, value: BlobPutBody): Promise<BlobMultipartPart>
+}
+
+interface R2PutOptionsLike {
+  customMetadata?: Record<string, string>
+  httpMetadata?: { contentType?: string }
+}
+
 interface R2BucketLike {
+  createMultipartUpload(key: string, options?: R2PutOptionsLike): Promise<R2MultipartUploadLike>
   delete(key: string): Promise<void>
   get(key: string): Promise<R2ObjectLike | null>
   head(key: string): Promise<R2ObjectLike | null>
   list(options?: { cursor?: string, delimiter?: string, include?: string[], limit?: number, prefix?: string }): Promise<{ cursor?: string, delimitedPrefixes?: string[], objects: R2ObjectLike[], truncated?: boolean }>
-  put(key: string, value: BlobPutBody, options?: { customMetadata?: Record<string, string>, httpMetadata?: { contentType?: string } }): Promise<R2ObjectLike>
+  put(key: string, value: BlobPutBody, options?: R2PutOptionsLike): Promise<R2ObjectLike>
+  resumeMultipartUpload(key: string, uploadId: string): R2MultipartUploadLike
+}
+
+function toDriverMultipartUpload(upload: R2MultipartUploadLike): BlobDriverMultipartUpload {
+  return {
+    pathname: upload.key,
+    uploadId: upload.uploadId,
+    abort: () => upload.abort(),
+    complete: async parts => mapObject(await upload.complete(parts)),
+    async uploadPart(partNumber, body) {
+      const part = await upload.uploadPart(partNumber, body)
+      return { etag: part.etag, partNumber: part.partNumber }
+    },
+  }
 }
 
 export function getOptionalBucket(options: ResolvedCloudflareR2BlobStoreConfig): R2BucketLike | undefined {
@@ -99,6 +127,15 @@ export function createDriver(options: ResolvedCloudflareR2BlobStoreConfig): Blob
   return {
     name: "cloudflare-r2",
     options,
+    async createMultipartUpload(pathname, multipartOptions) {
+      return toDriverMultipartUpload(await getBucket(options).createMultipartUpload(pathname, {
+        customMetadata: multipartOptions.customMetadata,
+        httpMetadata: { contentType: multipartOptions.contentType },
+      }))
+    },
+    async resumeMultipartUpload(pathname, uploadId) {
+      return toDriverMultipartUpload(getBucket(options).resumeMultipartUpload(pathname, uploadId))
+    },
     async delete(pathnames) {
       await Promise.all((Array.isArray(pathnames) ? pathnames : [pathnames]).map(pathname => getBucket(options).delete(pathname)))
     },

@@ -59,6 +59,7 @@ describe("hubBlob", () => {
       const add = vi.fn()
       await (plugin.configureServer as (server: unknown) => void)({
         config: {},
+        middlewares: { use: vi.fn() },
         restart,
         watcher: { add, on: (event: string, listener: (file: string) => void) => listeners.set(event, listener) },
       })
@@ -763,6 +764,9 @@ describe("hubBlob", () => {
       nitro: {
         plugins: [".vitehub/nitro/blob/plugin.ts"],
         handlers: [{
+          handler: expect.stringMatching(/\/\.vitehub\/nitro\/blob\/dev-handler\.ts$/),
+          route: "/_vitehub/blob/dev",
+        }, {
           handler: ".vitehub/blob/serve-route.ts",
           route: "/api/_vitehub/blob/**",
         }],

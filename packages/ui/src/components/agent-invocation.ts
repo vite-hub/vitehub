@@ -1052,6 +1052,11 @@ function inspectorRow(label: string, value: string | number | undefined) {
   return h("div", [h("dt", label), h("dd", String(value))]);
 }
 
+/** The tail of an identifier, so the row gives a visual check without disclosing the whole value. */
+function shortIdentifier(value: string): string {
+  return value.length > 8 ? `…${value.slice(-6)}` : "…";
+}
+
 function copyIcon(copied: boolean) {
   return h(
     "svg",
@@ -1659,6 +1664,8 @@ export const AgentInvocationInspector = defineComponent({
         },
         [
           h("span", { class: "vh-invocation-inspector__copy-label" }, label),
+          // The shortened value gives the reader a visual check; the full value only reaches the clipboard.
+          h("code", { "aria-hidden": "true", class: "vh-invocation-inspector__copy-value" }, shortIdentifier(value)),
           h("span", { class: "vh-invocation-inspector__copy-icon" }, [copyIcon(didCopy)]),
         ],
       );

@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs"
 import { spawn } from "node:child_process"
 import { once } from "node:events"
-import { mkdir, mkdtemp, readFile, stat, utimes, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -10,7 +10,6 @@ import { describe, expect, it, vi } from "vitest"
 import { contributeProviderDeploymentOutput, createDefaultCloudflareOutputRoot, createDefaultNetlifyOutputRoot, createDefaultVercelOutputRoot, finalizeProviderDeploymentOutputs, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { createScheduleNitroConfig, hubSchedule } from "../src/vite.ts"
-import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
 
 async function runProviderOutputHooks(plugin: ReturnType<typeof hubSchedule>) {
   if (typeof plugin.buildEnd !== "function") throw new TypeError("Expected hubSchedule buildEnd hook")
@@ -67,25 +66,6 @@ describe("Vite schedule integration", () => {
     const plugin = hubSchedule()
 
     expect(plugin.enforce).toBe("pre")
-  })
-
-  it("discovers custom server directories during CLI discovery", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-cli-server-dir-"))
-    const serverDir = join(root, "backend")
-    await mkdir(join(serverDir, "schedules"), { recursive: true })
-    await writeFile(join(serverDir, "schedules", "daily.ts"), "import { defineScheduleTarget } from '@vite-hub/schedule'\nexport default defineScheduleTarget({ handler: () => {} })\n", "utf8")
-    const plugin = hubSchedule()
-    const config = { [VITEHUB_SERVER_DIRS]: [serverDir], root, vitehubCliDiscovery: true }
-    await (plugin.config as (config: Record<PropertyKey, unknown>, env: { command: "serve", mode: string }) => unknown)(config, { command: "serve", mode: "development" })
-    await resolvePluginConfig(plugin, root)
-    const inspection = (plugin.vitehub as ViteHubInspectionPluginMetadata | undefined)?.inspect
-    if (typeof inspection !== "function") throw new TypeError("Expected Schedule inspector")
-    const contribution = await inspection()
-    expect(await contribution?.definitions?.[0]?.list()).toEqual([
-      expect.objectContaining({ file: "backend/schedules/daily.ts", name: "daily" }),
-    ])
-    expect(await readFile(join(root, ".vitehub", "schedule.d.ts"), "utf8")).toContain('"daily"')
-    expect(config).not.toHaveProperty("nitro")
   })
 
   it("invalidates registries for updates under a forwarded server directory", async () => {
@@ -466,6 +446,10 @@ describe("Vite schedule integration", () => {
     await mkdir(join(root, "dist", "client"), { recursive: true })
     await writeFile(scheduleFile, "export default defineSchedule({ cron: '0 0 * * *', handler: () => {} })\n", "utf8")
 
+    const prepareSources = async (sources: { resolve: (path: string) => string }) => {
+      const retainedFile = sources.resolve(scheduleFile)
+      await writeFile(retainedFile, `${await readFile(retainedFile, "utf8")}\n// Owner decoration.\n`)
+    }
     const plugin = hubSchedule({ providerOutput: "standalone" })
     await (plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => unknown)(
       { root },
@@ -474,11 +458,13 @@ describe("Vite schedule integration", () => {
     await (plugin.configResolved as (config: Record<string, unknown>) => Promise<void>)({
       build: { outDir: "dist/client" },
       command: "build",
+      plugins: [{ vitehub: { providerOutput: { prepareSources } } }],
       resolve: { alias: [] },
       root,
     })
     await (plugin.buildEnd as (this: never) => Promise<void>).call({} as never)
 
+    await expect(readFile(scheduleFile, "utf8")).resolves.not.toContain("Owner decoration.")
     await writeFile(scheduleFile, "export default defineSchedule({ cron: '5 0 * * *', handler: () => {} })\n", "utf8")
     await (plugin.closeBundle as { handler: (this: never) => Promise<void> }).handler.call({} as never)
 
@@ -494,10 +480,17 @@ describe("Vite schedule integration", () => {
       readFile(join(createDefaultVercelOutputRoot(root), "functions", "api", "vitehub", "schedules", "vercel", "cleanup.func", "index.mjs"), "utf8"),
     ])
     expect(providerOutputs.join("\n")).not.toContain("schedule-generations")
-    expect(providerOutputs.join("\n")).toContain(".vitehub/schedule/sources/")
+    expect(providerOutputs.join("\n")).toContain("./.vitehub/schedule/sources/")
     const retainedScheduleSpecifier = registry.match(/import\("(\.\/sources\/[^"]+\/cleanup\.schedule\.ts)"\)/)?.[1]
     expect(retainedScheduleSpecifier).toBeDefined()
     const retainedSchedulePath = retainedScheduleSpecifier!.slice(2)
+    for (const directory of [
+      join(root, ".vitehub", "schedule"),
+      join(createDefaultCloudflareOutputRoot(root), ".vitehub", "schedule"),
+      join(createDefaultVercelOutputRoot(root), "functions", "api", "vitehub", "schedules", "vercel", "cleanup.func", ".vitehub", "schedule"),
+    ]) {
+      await expect(readFile(join(directory, retainedSchedulePath), "utf8")).resolves.toContain("Owner decoration.")
+    }
     await expect(readFile(join(root, ".vitehub", "schedule", retainedSchedulePath), "utf8"))
       .resolves.toContain("cron: '0 0 * * *'")
     await expect(readFile(join(createDefaultCloudflareOutputRoot(root), ".vitehub", "schedule", retainedSchedulePath), "utf8"))
@@ -638,37 +631,19 @@ describe("Vite schedule integration", () => {
   it("adds the Schedule dev handler to Nitro only for the Development Server", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-dev-handler-"))
     const serveConfig: Record<string, unknown> = { nitro: { baseURL: "/app/" }, root }
-    const plugin = hubSchedule({ projectRoot: root })
-    await (plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => unknown)(
+    await (hubSchedule({ projectRoot: root }).config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => unknown)(
       serveConfig,
       { command: "serve", mode: "development" },
     )
 
-    const handler = (serveConfig.nitro as { handlers: { handler: string }[] }).handlers[0]!.handler
-    expect(handler).toMatch(new RegExp(`${root}/\\.vitehub/nitro/schedule/dev-handlers/[a-f0-9-]+\\.ts$`))
     expect(serveConfig.nitro).toMatchObject({
       baseURL: "/app/",
-      handlers: [{ handler, route: "/_vitehub/schedule/dev" }],
+      handlers: [{ route: "/_vitehub/schedule/dev" }],
     })
-    const source = await readFile(handler, "utf8")
+    const handler = (serveConfig.nitro as { handlers?: { handler: string }[] }).handlers?.[0]?.handler
+    expect(handler).toMatch(/\.vitehub[\\/]nitro[\\/]schedule[\\/]dev-handlers[\\/][^/\\]+\.ts$/)
+    const source = await readFile(handler!, "utf8")
     expect(source).toContain("import { handleScheduleDevRequest as handleViteHubDevRequest } from \"@vite-hub/schedule/runtime/dev\"")
-    expect(source).toContain(`"rootDir":${JSON.stringify(root)}`)
-    expect(source).toContain(`"serverId":${JSON.stringify(handler.split("/").at(-1)!.slice(0, -3))}`)
-    expect(source).not.toContain("token")
-
-    const unchangedTime = new Date("2026-01-01T00:00:00.000Z")
-    await utimes(handler, unchangedTime, unchangedTime)
-    for (const vitehubCliDiscovery of [false, true]) {
-      await (plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => unknown)(
-        { root, vitehubCliDiscovery }, { command: "serve", mode: "development" },
-      )
-      expect((await stat(handler)).mtimeMs).toBe(unchangedTime.getTime())
-    }
-    const discoveryRoot = await mkdtemp(join(tmpdir(), "vitehub-schedule-discovery-handler-"))
-    await (hubSchedule({ projectRoot: discoveryRoot }).config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => unknown)(
-      { root: discoveryRoot, vitehubCliDiscovery: true }, { command: "serve", mode: "development" },
-    )
-    expect(existsSync(join(discoveryRoot, ".vitehub", "nitro", "schedule", "dev-handlers"))).toBe(false)
 
     const buildConfig: Record<string, unknown> = { root }
     await (hubSchedule({ projectRoot: root }).config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => unknown)(

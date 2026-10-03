@@ -22,10 +22,7 @@ export function installConsoleEnv(
   inspect?: (event: ConsoleRequestEvent) => Promise<ServerEnvInspection>,
 ): ConsoleEnvInspection {
   const scope: ConsoleEnvInspection = { ...description }
-  if (inspect) {
-    // SAFETY: This callback is invoked only by getConsoleEnvStatus with a ConsoleRequestEvent.
-    scope.inspect = event => inspect(event as ConsoleRequestEvent)
-  }
+  if (inspect) scope.inspect = inspect
   if (manage) scope.manage = manage
   return installConsoleEnvScope(projectRoot, scope)
 }

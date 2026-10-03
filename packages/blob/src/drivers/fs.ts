@@ -1,9 +1,29 @@
-import { createHash } from "node:crypto"
+import { createHash, randomUUID } from "node:crypto"
 import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { dirname, relative, resolve, sep } from "node:path"
 
-import type { BlobDriverAdapter, BlobListOptions, BlobListResult, BlobObject, BlobPutBody, BlobPutOptions, ResolvedFsBlobStoreConfig } from "../types.ts"
+import type { BlobDriverAdapter, BlobDriverMultipartUpload, BlobListOptions, BlobListResult, BlobMultipartOptions, BlobObject, BlobPutBody, BlobPutOptions, ResolvedFsBlobStoreConfig } from "../types.ts"
 import { blobErrorDiagnostics } from "../error-diagnostics.ts"
+
+interface FsMultipartState {
+  contentType?: string
+  customMetadata?: Record<string, string>
+  pathname: string
+}
+
+const uploadIdPattern = /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/
+
+// Parts wait under the reserved `.vitehub` directory, which list() and user pathnames never reach.
+function resolveMultipartDir(root: string, uploadId: string) {
+  if (!uploadIdPattern.test(uploadId)) {
+    throw blobErrorDiagnostics.BLOB_R0032({ message: `Unknown multipart upload: ${uploadId}` })
+  }
+  return resolve(root, ".vitehub", "multipart", uploadId)
+}
+
+function partEtag(bytes: Uint8Array) {
+  return `"${createHash("sha1").update(bytes).digest("hex")}"`
+}
 
 interface FsBlobMetadata {
   contentType?: string
@@ -173,9 +193,73 @@ function foldedList(entries: FsBlobEntry[], options: BlobListOptions): BlobListR
 export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdapter<ResolvedFsBlobStoreConfig> {
   const root = resolveRoot(options)
 
-  return {
+  function multipartUpload(uploadId: string, state: FsMultipartState): BlobDriverMultipartUpload {
+    const dir = resolveMultipartDir(root, uploadId)
+    return {
+      pathname: state.pathname,
+      uploadId,
+      async abort() {
+        await rm(dir, { force: true, recursive: true })
+      },
+      async complete(parts) {
+        const ordered = [...parts].sort((left, right) => left.partNumber - right.partNumber)
+        const chunks = await Promise.all(ordered.map(async (part) => {
+          const bytes = await readFile(resolve(dir, String(part.partNumber))).catch((error: unknown) => {
+            if (isNotFound(error)) throw blobErrorDiagnostics.BLOB_R0032({ message: `Multipart upload ${uploadId} has no part ${part.partNumber}.` })
+            throw error
+          })
+          if (partEtag(bytes) !== part.etag) {
+            throw blobErrorDiagnostics.BLOB_R0032({ message: `Part ${part.partNumber} of multipart upload ${uploadId} does not match its etag.` })
+          }
+          return bytes
+        }))
+        const object = await driver.put(state.pathname, new Blob(chunks), {
+          contentType: state.contentType,
+          customMetadata: state.customMetadata,
+        })
+        await rm(dir, { force: true, recursive: true })
+        return object
+      },
+      async uploadPart(partNumber, body) {
+        const bytes = await bodyToBytes(body)
+        await writeFile(resolve(dir, String(partNumber)), bytes)
+        return { etag: partEtag(bytes), partNumber }
+      },
+    }
+  }
+
+  const driver: BlobDriverAdapter<ResolvedFsBlobStoreConfig> = {
     name: "fs",
     options,
+    async createMultipartUpload(pathname: string, multipartOptions: BlobMultipartOptions) {
+      resolveBlobPath(root, pathname)
+      const uploadId = randomUUID()
+      const state: FsMultipartState = {
+        contentType: multipartOptions.contentType,
+        customMetadata: multipartOptions.customMetadata,
+        pathname,
+      }
+      const dir = resolveMultipartDir(root, uploadId)
+      await mkdir(dir, { recursive: true })
+      await writeFile(resolve(dir, "state.json"), JSON.stringify(state), "utf8")
+      return multipartUpload(uploadId, state)
+    },
+    async resumeMultipartUpload(pathname: string, uploadId: string) {
+      const dir = resolveMultipartDir(root, uploadId)
+      let state: FsMultipartState
+      try {
+        // doctor-disable-next-line typescript/boundaries/no-unvalidated-deserialization,typescript/strict/require-safety-comment-for-type-assertion -- The state file is written by this driver and its pathname and upload ID are checked below.
+        state = JSON.parse(await readFile(resolve(dir, "state.json"), "utf8")) as FsMultipartState
+      }
+      catch (error) {
+        if (isNotFound(error)) throw blobErrorDiagnostics.BLOB_R0032({ message: `Unknown multipart upload: ${uploadId}` })
+        throw error
+      }
+      if (state.pathname !== pathname) {
+        throw blobErrorDiagnostics.BLOB_R0032({ message: `Multipart upload ${uploadId} belongs to another pathname.` })
+      }
+      return multipartUpload(uploadId, state)
+    },
     async delete(pathnames) {
       await Promise.all((Array.isArray(pathnames) ? pathnames : [pathnames]).map(async pathname => {
         await rm(resolveBlobPath(root, pathname), { force: true })
@@ -242,4 +326,5 @@ export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdap
       return toBlobObject(entry!)
     },
   }
+  return driver
 }

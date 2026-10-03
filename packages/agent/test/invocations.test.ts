@@ -974,7 +974,7 @@ describe("Agent Invocations", () => {
     expect(list).toHaveBeenCalledTimes(2)
   })
 
-  it("does not let a stalled store block Agent execution", async () => {
+  it("fails closed before Agent execution when creation stalls", async () => {
     const memory = createMemoryAgentInvocationStore()
     const invocations = defineAgentInvocations({
       store: {
@@ -986,12 +986,12 @@ describe("Agent Invocations", () => {
 
     const invocation = runAgent(defineAgent({ driver: { run }, invocations, runtime: false }), runtime("stalled-store"), {})
 
-    await expect(invocation).resolves.toBe("done")
-    expect(run).toHaveBeenCalledOnce()
+    await expect(invocation).rejects.toMatchObject({ code: "AGENT_R0973" })
+    expect(run).not.toHaveBeenCalled()
     await expect(invocations.getByRunId("stalled-store")).resolves.toBeUndefined()
   }, 10_000)
 
-  it.each([false, true])("bounds journal readiness before lifecycle hooks, failure: %s", async (fail) => {
+  it.each([false, true])("bounds failed startup before Driver lifecycle hooks, configured Driver failure: %s", async (fail) => {
     const memory = createMemoryAgentInvocationStore()
     const invocations = defineAgentInvocations({ store: {
       ...memory,
@@ -1000,19 +1000,19 @@ describe("Agent Invocations", () => {
     const finish = vi.fn()
     const error = vi.fn()
     const failure = new Error("driver failed")
+    const run = vi.fn(() => { if (fail) throw failure; return "done" })
     const agent = defineAgent({
-      driver: { run: () => { if (fail) throw failure; return "done" } },
+      driver: { run },
       hooks: { "agent:error": error, "agent:finish": finish },
       invocations,
       runtime: false,
     })
 
     const invocation = runAgent(agent, runtime(`stalled-store-hook-${fail}`), {})
-    if (fail) await expect(invocation).rejects.toBe(failure)
-    else await expect(invocation).resolves.toBe("done")
-    const hook = fail ? error : finish
-    expect(hook).toHaveBeenCalledOnce()
-    expect(hook.mock.calls[0]?.[0].invocation).not.toHaveProperty("traceId")
+    await expect(invocation).rejects.toMatchObject({ code: "AGENT_R0973" })
+    expect(run).not.toHaveBeenCalled()
+    expect(error).not.toHaveBeenCalled()
+    expect(finish).not.toHaveBeenCalled()
   }, 5_000)
 
   it("does not block trace appends on stalled observation writes", async () => {
@@ -1207,7 +1207,7 @@ describe("Agent Invocations", () => {
     expect(record?.observations[0]?.trace?.id).toBe(first.traceId)
   })
 
-  it.each([false, true])("omits hook trace identity when duplicate creation resolves after readiness, failure: %s", async (fail) => {
+  it.each([false, true])("fails closed without Driver lifecycle hooks when duplicate creation resolves late, configured Driver failure: %s", async (fail) => {
     const memory = createMemoryAgentInvocationStore()
     const context = { ...runtime(`late-duplicate-hook-${fail}`), trace: { id: "first-trace" } }
     const first = await bindAgentInvocations(defineAgentInvocations({ store: memory }), context, { deferClaim: true })
@@ -1228,8 +1228,9 @@ describe("Agent Invocations", () => {
     const finish = vi.fn()
     const error = vi.fn()
     const failure = new Error("driver failed")
+    const run = vi.fn(() => { if (fail) throw failure; return "done" })
     const agent = defineAgent({
-      driver: { run: () => { if (fail) throw failure; return "done" } },
+      driver: { run },
       hooks: { "agent:error": error, "agent:finish": finish },
       invocations,
       runtime: false,
@@ -1237,16 +1238,16 @@ describe("Agent Invocations", () => {
 
     const invocation = runAgent(agent, { ...context, trace: { id: "retry-trace" } }, {})
     try {
-      if (fail) await expect(invocation).rejects.toBe(failure)
-      else await expect(invocation).resolves.toBe("done")
-      const hook = fail ? error : finish
-      expect(hook).toHaveBeenCalledOnce()
-      expect(hook.mock.calls[0]?.[0].invocation).not.toHaveProperty("traceId")
+      await expect(invocation).rejects.toMatchObject({ code: "AGENT_R0973" })
+      expect(run).not.toHaveBeenCalled()
+      expect(error).not.toHaveBeenCalled()
+      expect(finish).not.toHaveBeenCalled()
 
       releaseCreate()
       await created
       expect((await invocations.getByRunId(context.run.runId))?.traceId).toBe(first.traceId)
-      expect(hook.mock.calls[0]?.[0].invocation).not.toHaveProperty("traceId")
+      expect(error).not.toHaveBeenCalled()
+      expect(finish).not.toHaveBeenCalled()
     }
     finally {
       releaseCreate()
@@ -3636,11 +3637,11 @@ describe("Agent Invocations", () => {
     const run = vi.fn(() => "done")
     const invocation = runAgent(defineAgent({ driver: { run }, invocations, runtime: false }), runtime("late-create"), {})
 
-    await vi.waitFor(() => expect(run).toHaveBeenCalledOnce(), { timeout: 2_000 })
+    await expect(invocation).rejects.toMatchObject({ code: "AGENT_R0973" })
+    expect(run).not.toHaveBeenCalled()
     releaseCreate()
-    await expect(invocation).resolves.toBe("done")
     await vi.waitFor(async () => {
-      await expect(invocations.getByRunId("late-create")).resolves.toMatchObject({ status: "completed" })
+      await expect(invocations.getByRunId("late-create")).resolves.toMatchObject({ status: "failed" })
     }, { timeout: 2_500 })
   }, 5_000)
 
@@ -4629,7 +4630,8 @@ describe("Agent Invocations", () => {
     expect(record?.observations.at(-1)).toMatchObject({ name: "agent.invocation.finish" })
     expect(record?.observations[1]?.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/)
     expect(record?.updatedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/)
-    expect(updates).toBeLessThanOrEqual(307)
+    // Driver dispatch adds one durable cancellation-state write.
+    expect(updates).toBeLessThanOrEqual(308)
   })
 
   it("retains fatal stream evidence and the lifecycle terminal beyond the durable cap", async () => {
@@ -4713,25 +4715,23 @@ describe("Agent Invocations", () => {
     expect(await invocations.getByRunId("run-1")).toMatchObject({ status: "failed" })
   })
 
-  it("never lets journal storage failures change invocation behavior", async () => {
+  it("preserves Driver output when journal writes fail after safe cancellation startup", async () => {
     const failure = new Error("journal unavailable")
+    const memory = createMemoryAgentInvocationStore()
+    let unavailable = false
+    const failingUpdate = vi.fn(() => { throw failure })
     const store: AgentInvocationStore = {
-      claim: () => true,
-      create: () => { throw failure },
-      get: () => { throw failure },
-      getSummary: () => { throw failure },
-      getClaimToken: () => { throw failure },
-      list: () => { throw failure },
-      release: () => { throw failure },
-      update: () => { throw failure },
+      ...memory,
+      update: (...args) => unavailable ? failingUpdate() : memory.update(...args),
     }
     const agent = defineAgent({
-      driver: { run: () => "done" },
+      driver: { run: () => { unavailable = true; return "done" } },
       invocations: defineAgentInvocations({ store }),
       runtime: false,
     })
 
     await expect(runAgent(agent, runtime("run-1"), {})).resolves.toBe("done")
+    expect(failingUpdate).toHaveBeenCalled()
   })
 
   it("retries the running transition after storage recovers", async () => {
@@ -4758,7 +4758,8 @@ describe("Agent Invocations", () => {
       waitUntil: promise => waitUntilTasks.push(promise),
     }, {})
 
-    await vi.waitFor(() => expect(waitUntilTasks).toHaveLength(1))
+    // Running-state recovery and custom Driver dispatch verification each register a recovery task.
+    await vi.waitFor(() => expect(waitUntilTasks).toHaveLength(2))
     await Promise.all(waitUntilTasks)
     await expect(invocations.getByRunId("recover-running")).resolves.toMatchObject({
       startedAt: expect.any(String),

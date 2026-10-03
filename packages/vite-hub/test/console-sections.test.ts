@@ -46,6 +46,8 @@ describe("Console section preferences", () => {
     expect(resolveConsoleSectionIds({ agent: true, queue: false, schedule: false, workflow: false })).toEqual(["agents", "usage"])
     expect(resolveConsoleSectionIds({})).toEqual([])
     expect(resolveConsoleSectionIds({ env: true })).toEqual(["env"])
+    expect(resolveConsoleSectionIds({ connections: true })).toEqual(["connections"])
+    expect(resolveConsoleSectionIds({ connections: false })).toEqual([])
     expect(resolveConsoleSectionIds({ env: false })).toEqual([])
   })
 

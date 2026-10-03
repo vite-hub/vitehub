@@ -120,6 +120,6 @@ export const scheduleConsoleSection: ViteHubConsoleSectionContribution<ScheduleI
       { key: "lastRun", label: "Last run" },
     ],
     kind: "record-table",
-    notice: "Runtime Schedules and runs come from the Schedule stores of this server runtime on each request. Memory stores lose data on restart. Schedules with `console.enabled: false` are hidden. The Console is read-only. Use `vitehub schedule run`, `enable`, or `disable` in development.",
+    notice: "Runtime Schedules and runs come from the Schedule stores of this server runtime on each request. Memory stores lose data on restart. Schedules with `console.enabled: false` are hidden. The Console is read-only. Use `vitehub schedule run-runtime`, `enable`, or `disable` in development.",
   },
 }

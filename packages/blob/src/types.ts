@@ -60,7 +60,7 @@ export interface BlobPutOptions {
 
 export type BlobPutBody = string | ReadableStream<unknown> | ArrayBuffer | ArrayBufferView | Blob
 
-export type BlobOperation = "del" | "get" | "head" | "list" | "put" | "serve" | "sign"
+export type BlobOperation = "del" | "get" | "head" | "list" | "multipart" | "put" | "serve" | "sign" | "upload"
 export type BlobErrorCode = "BLOB_NOT_FOUND" | "BLOB_OPERATION_FAILED"
 export type BlobErrorDetails = ViteHubErrorDetails & {
   operation: BlobOperation
@@ -80,17 +80,80 @@ export interface BlobSignedRequest {
   url: string
 }
 
+/** One uploaded part. Pass every part to `complete()` in any order. */
+export interface BlobMultipartPart {
+  etag: string
+  partNumber: number
+}
+
+/** Options for a new multipart upload. Size and type checks belong to the route that accepts the upload. */
+export type BlobMultipartOptions = Omit<BlobPutOptions, "contentLength">
+
+/** A multipart upload as a driver implements it. Methods throw on failure. */
+export interface BlobDriverMultipartUpload {
+  pathname: string
+  uploadId: string
+  abort(): Promise<void>
+  complete(parts: BlobMultipartPart[]): Promise<BlobObject>
+  uploadPart(partNumber: number, body: BlobPutBody): Promise<BlobMultipartPart>
+}
+
+/** A multipart upload. Each method returns `[error, value]`. */
+export interface BlobMultipartUpload {
+  /** Final object pathname, after `prefix` and `addRandomSuffix`. Use it to resume the upload. */
+  pathname: string
+  uploadId: string
+  abort(): Promise<BlobResult<void>>
+  complete(parts: BlobMultipartPart[]): Promise<BlobResult<BlobObject>>
+  uploadPart(partNumber: number, body: BlobPutBody): Promise<BlobResult<BlobMultipartPart>>
+}
+
 export interface BlobDriverAdapter<TOptions> {
   name: string
   options: TOptions
+  createMultipartUpload?(pathname: string, options: BlobMultipartOptions): Promise<BlobDriverMultipartUpload>
   delete(pathnames: string | string[]): Promise<void>
   get(pathname: string): Promise<Blob | null>
   getArrayBuffer(pathname: string): Promise<ArrayBuffer | null>
   head(pathname: string): Promise<BlobObject | null>
   list(options?: BlobListOptions): Promise<BlobListResult>
   put(pathname: string, body: BlobPutBody, options?: BlobPutOptions): Promise<BlobObject>
+  resumeMultipartUpload?(pathname: string, uploadId: string): Promise<BlobDriverMultipartUpload>
   sign?(pathname: string, options: BlobSignOptions): Promise<BlobSignedRequest>
 }
+
+/** The part of an H3 event that `handleUpload()` reads. */
+export interface BlobUploadEvent {
+  req: Request
+}
+
+/** The parts of an H3 event that `handleMultipartUpload()` reads: the request and the `action` and `pathname` route params. */
+export interface BlobMultipartEvent extends BlobUploadEvent {
+  context: { params?: Record<string, string | undefined> }
+}
+
+export interface BlobUploadOptions {
+  /** Form field that holds the files. Defaults to `"files"`. */
+  formKey?: string
+  /** Accept more than one file. Defaults to `true`. */
+  multiple?: boolean
+  /** Validate each file with `ensureBlob()` before it is stored. */
+  ensure?: BlobEnsureOptions
+  /** Options for each `put()`. The file name is the pathname. */
+  put?: BlobPutOptions
+}
+
+export interface BlobMultipartHandlerOptions {
+  /** Options for `createMultipartUpload()`. The client sends only the content type. */
+  create?: BlobMultipartOptions
+}
+
+/** What `handleMultipartUpload()` returns for each action. */
+export type BlobMultipartHandlerResult =
+  | { action: "abort" }
+  | { action: "complete", object: BlobObject }
+  | { action: "create", pathname: string, uploadId: string }
+  | { action: "upload", part: BlobMultipartPart }
 
 export interface BlobEnsureOptions {
   maxSize?: BlobSize
@@ -104,11 +167,19 @@ export interface BlobServeEvent {
 }
 
 export interface BlobStorage {
+  /** Start a multipart upload. Supported by the `fs`, `cloudflare-r2` (binding), and `vercel-blob` drivers. */
+  createMultipartUpload(pathname: string, options?: BlobMultipartOptions): Promise<BlobResult<BlobMultipartUpload>>
   del(pathnames: string | string[]): Promise<BlobResult<void>>
   get(pathname: string): Promise<BlobResult<Blob | null>>
+  /** Serve the `create`, `upload`, `complete`, and `abort` requests that the multipart client sends. */
+  handleMultipartUpload(event: BlobMultipartEvent, options?: BlobMultipartHandlerOptions): Promise<BlobResult<BlobMultipartHandlerResult>>
+  /** Store the files of a `multipart/form-data` request. */
+  handleUpload(event: BlobUploadEvent, options?: BlobUploadOptions): Promise<BlobResult<BlobObject[]>>
   head(pathname: string): Promise<BlobResult<BlobObject>>
   list(options?: BlobListOptions): Promise<BlobResult<BlobListResult>>
   put(pathname: string, body: BlobPutBody, options?: BlobPutOptions): Promise<BlobResult<BlobObject>>
+  /** Continue a multipart upload in a later request. */
+  resumeMultipartUpload(pathname: string, uploadId: string): Promise<BlobResult<BlobMultipartUpload>>
   sign(pathname: string, options: BlobSignOptions): Promise<BlobResult<BlobSignedRequest>>
   serve(event: BlobServeEvent, pathname: string): Promise<BlobResult<ReadableStream>>
   store(name: BlobStoreName): BlobStorage

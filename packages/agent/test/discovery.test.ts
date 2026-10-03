@@ -1777,6 +1777,49 @@ describe("agent chat capability discovery", () => {
     })
   })
 
+  it("initializes standalone Agent cancellation credentials before discovery", async () => {
+    const root = await createTempRoot("vitehub-agent-cancel-discovery-")
+    try {
+      const { hubAgent } = await import("../src/vite.ts")
+      const { agentInvocationsDevHeader, agentInvocationsDevRoute, agentInvocationsDevRuntimeRoute, agentInvocationsDevTokenServerHeader } = await import("../src/invocations-dev.ts")
+      const { readWorkspaceDevToken, workspaceDevTokenHeader, workspaceDevTokenServerId } = await import("@vite-hub/workspace/server")
+      const serverId = workspaceDevTokenServerId(3000)
+      expect(await readWorkspaceDevToken(root, { serverId })).toBeUndefined()
+      const { handlers, server } = createFakeServer(root, {})
+      const dispatchFetch = vi.fn(async (_request: Request) => Response.json({ outcome: "not-found" }))
+
+      // No Workspace plugin participates in this standalone Agent setup.
+      await configurePluginServer(hubAgent(), { ...server, environments: { nitro: { dispatchFetch } } })
+      const discovery = await invokeMiddleware(handlers[1]!, {}, agentInvocationsDevRoute, {
+        [agentInvocationsDevHeader]: "1",
+      }, "GET")
+      expect(discovery.statusCode).toBe(200)
+      expect(JSON.parse(discovery.body)).toEqual({ root, runtime: "nitro", workspaceDevTokenServerId: serverId })
+
+      const token = await readWorkspaceDevToken(root, { serverId })
+      if (!token) throw new Error("Discovery must publish a readable private token")
+      const body = { id: "ainv_missing", operation: "cancel" }
+      const headers = { "content-type": "application/json", [agentInvocationsDevHeader]: "1", [agentInvocationsDevTokenServerHeader]: serverId }
+      expect((await invokeMiddleware(handlers[1]!, body, agentInvocationsDevRoute, headers)).statusCode).toBe(403)
+      expect(dispatchFetch).not.toHaveBeenCalled()
+
+      const response = await invokeMiddleware(handlers[1]!, body, agentInvocationsDevRoute, {
+        ...headers,
+        [workspaceDevTokenHeader]: token,
+      })
+      expect(response.statusCode).toBe(200)
+      expect(JSON.parse(response.body)).toEqual({ outcome: "not-found" })
+      const request = dispatchFetch.mock.calls[0]![0]
+      expect(new URL(request.url).pathname).toBe(agentInvocationsDevRuntimeRoute)
+      expect(request.headers.get(workspaceDevTokenHeader)).toBe(token)
+      expect(request.headers.get(agentInvocationsDevTokenServerHeader)).toBe(serverId)
+      expect(await request.json()).toEqual(body)
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it("provides generated runtime Capabilities to Agent Dev Loop invocations", async () => {
     const root = await createTempRoot("vitehub-agent-dev-runtime-capabilities-")
     await mkdir(join(root, "server", "agents"), { recursive: true })
@@ -1815,6 +1858,7 @@ describe("agent chat capability discovery", () => {
         command: "serve",
         plugins: [{ name: "@vite-hub/database/vite" }, { name: "@vite-hub/schedule/vite" }],
         root,
+        server: { port: 3000 },
       } as never)
     }
     await configurePluginServer(plugin, server)

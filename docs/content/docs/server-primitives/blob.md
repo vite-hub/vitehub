@@ -394,6 +394,10 @@ Every async method returns `[error, value]`. Expected provider and storage failu
 | `blob.del(pathnames)` | Deletes one or more objects. |
 | `blob.sign(pathname, options)` | Signs a short-lived `GET` or `PUT` request for one object. |
 | `blob.serve(event, pathname)` | Serves an object stream through an H3 event. |
+| `blob.handleUpload(event, options?)` | Stores the files of a `multipart/form-data` request. Read [Upload files](#upload-files). |
+| `blob.createMultipartUpload(pathname, options?)` | Starts a multipart upload. Read [Multipart uploads](#multipart-uploads). |
+| `blob.resumeMultipartUpload(pathname, uploadId)` | Continues a multipart upload in a later request. |
+| `blob.handleMultipartUpload(event, options?)` | Serves the requests that the multipart client sends. |
 | `blob.store(name)` | Selects a named Blob Store. |
 
 Pass the cursor returned by `blob.list()` unchanged to the next list call on the same Blob Store. Keep `prefix` and `folded` unchanged. Netlify Blobs listings and folded files-sdk listings fail if they cannot decode the cursor.
@@ -408,6 +412,139 @@ Pass the cursor returned by `blob.list()` unchanged to the next list call on the
 | `access` | `BlobPutOptions['access']` | Object access policy when the driver supports it. Values: `private`, `public`. |
 | `addRandomSuffix` | `boolean` | Adds a random suffix when supported by the driver. |
 | `prefix` | `string` | Provider path prefix when supported by the driver. |
+
+## Upload files
+
+`blob.handleUpload()` reads a `multipart/form-data` request and calls `put()`
+for each file. The file name, without any directory part, is the pathname.
+It returns `[error, objects]`. A request without files, with too many files, or
+with a file that fails `ensure` throws an H3 400 error before anything is
+stored.
+
+```ts [server/api/files.post.ts]
+import { blob } from '@vite-hub/blob'
+
+export default defineEventHandler(async (event) => {
+  // Authorize the request here. The route decides who may upload.
+  const [error, objects] = await blob.handleUpload(event, {
+    formKey: 'files',
+    ensure: { maxSize: '8MB', types: ['image'] },
+    put: { prefix: 'avatars', addRandomSuffix: true },
+  })
+  if (error) throw error
+  return objects
+})
+```
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `formKey` | `"files"` | Form field that holds the files. |
+| `multiple` | `true` | Set `false` to accept one file. |
+| `ensure` | none | Options for [`ensureBlob()`](#ensureblobblob-options), checked for each file. |
+| `put` | none | [Write options](#write-options) for each `put()`. |
+
+In Vue, `useUpload()` from `@vite-hub/blob/vue` sends the form. The Nuxt module
+auto-imports it when `blob` is enabled.
+
+```vue [app/components/AvatarUpload.vue]
+<script setup lang="ts">
+const upload = useUpload('/api/files', { multiple: false })
+
+async function onChange(event: Event) {
+  const object = await upload(event.target as HTMLInputElement)
+  console.log(object?.pathname)
+}
+</script>
+
+<template>
+  <input type="file" accept="image/*" @change="onChange">
+</template>
+```
+
+`useUpload()` accepts a `File`, a `FileList`, an array of files, or an element
+with `files`. It resolves with serialized objects, where `uploadedAt` is an ISO
+string. Pass `headers` or `fetch` to add authentication.
+
+## Multipart uploads
+
+Use multipart uploads for files that are too large for one request. The client
+splits the file into parts, and the server stores each part until `complete()`
+joins them. The `fs`, `cloudflare-r2` (with the R2 binding), and `vercel-blob`
+drivers support it. Other drivers throw `BLOB_R0030`.
+
+Create one route with `action` and `pathname` params:
+
+```ts [server/api/files/multipart/[action]/[...pathname].ts]
+import { blob } from '@vite-hub/blob'
+
+export default defineEventHandler(async (event) => {
+  // Authorize the request here. The client chooses the pathname.
+  const [error, result] = await blob.handleMultipartUpload(event)
+  if (error) throw error
+  return result
+})
+```
+
+The route answers four requests:
+
+| Action | Method | Request | Result |
+| --- | --- | --- | --- |
+| `create` | `POST` | JSON `{ contentType? }` | `{ action, pathname, uploadId }` |
+| `upload` | `PUT` | `?uploadId=…&partNumber=…`, part bytes | `{ action, part }` |
+| `complete` | `POST` | `?uploadId=…`, JSON `{ parts }` | `{ action, object }` |
+| `abort` | `DELETE` | `?uploadId=…` | `{ action }` |
+
+Pass `{ create: { contentType, prefix, addRandomSuffix } }` to set the create
+options on the server. A `contentType` set here replaces the type that the
+client sends.
+
+In Vue, `useMultipartUpload()` sends the parts and tracks progress:
+
+```vue [app/components/VideoUpload.vue]
+<script setup lang="ts">
+const uploadVideo = useMultipartUpload('/api/files/multipart', { concurrency: 2 })
+const task = shallowRef<ReturnType<typeof uploadVideo>>()
+
+async function onChange(event: Event) {
+  const file = (event.target as HTMLInputElement).files?.[0]
+  if (!file) return
+  task.value = uploadVideo(file)
+  const object = await task.value.completed
+  console.log(object?.pathname)
+}
+</script>
+
+<template>
+  <input type="file" accept="video/*" @change="onChange">
+  <progress v-if="task" :value="task.progress.value" max="100" />
+</template>
+```
+
+`partSize` defaults to 10 MiB. Vercel Blob and R2 need at least 5 MiB for every
+part except the last. `task.abort()` stops the upload and sends the `abort`
+request; `completed` then resolves with `undefined`.
+
+Server code can also drive an upload directly:
+
+```ts [server/utils/copy-large-file.ts]
+import { blob } from '@vite-hub/blob'
+
+const [createError, upload] = await blob.createMultipartUpload('exports/report.csv')
+if (createError) throw createError
+const [partError, part] = await upload.uploadPart(1, firstChunk)
+if (partError) throw partError
+const [completeError, object] = await upload.complete([part])
+if (completeError) throw completeError
+```
+
+| Driver | Upload state | Notes |
+| --- | --- | --- |
+| `fs` | Parts under `<base>/.vitehub/multipart/<uploadId>/` | `complete()` checks each part's etag. `abort()` deletes the parts. |
+| `cloudflare-r2` | R2 multipart upload | Requires the R2 binding. The HTTP fallback has no multipart support. |
+| `vercel-blob` | Vercel multipart upload | The upload ID encodes the Vercel key. Access always comes from the store config. `abort()` does nothing; Vercel discards unfinished uploads. |
+
+The framework-neutral client is `@vite-hub/blob/client`, with `uploadFiles()`
+and `createMultipartUploader()`. The Vue composables use it.
 
 ## Signed requests
 
@@ -449,6 +586,20 @@ Use `ensureBlob()` at upload boundaries.
 The Blob package selects the default or named store and loads its driver. Put provider bucket names, tokens, and bindings in integration configuration or deployment setup.
 
 Application code keeps importing `blob` from `@vite-hub/blob` when you switch providers.
+
+## Read and write blobs during development
+
+`hubBlob()` contributes the `vitehub blob` CLI namespace. Start the Vite Development Server, then read and write blobs from another terminal.
+
+```bash [Terminal]
+pnpm vitehub blob list --prefix avatars/
+pnpm vitehub blob head avatars/ada.png --json
+pnpm vitehub blob put avatars/ada.png ./ada.png
+pnpm vitehub blob get avatars/ada.png --output ./copy.png
+pnpm vitehub blob del avatars/ada.png
+```
+
+The commands call the same Blob storage as the running app. Pass `--store <name>` for a named store. Each write command prints what it changed. `get` writes the bytes unchanged to a file or to stdout. `put` sends the file as base64 JSON through the dev endpoint, so it accepts files up to 8 MiB. The commands do not print blob URLs. The commands call a guarded endpoint that exists only on the Vite Development Server. Nuxt and plain Vite do not run Nitro in the Vite process, so the endpoint returns status 501 there. Read [CLI](/docs/development/cli#read-and-write-blobs) for every command and option.
 
 ## Connect Blob to Agents
 

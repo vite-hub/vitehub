@@ -159,12 +159,43 @@ export function isViteHubDevRoute(req: IncomingMessage, route: string): boolean 
   return new URL(req.url || "/", "http://localhost").pathname === route
 }
 
-async function writeResponse(res: ServerResponse, response: Response): Promise<void> {
+async function writeResponse(res: ServerResponse, response: Response, stream = false, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted || res.destroyed) {
+    await response.body?.cancel(signal?.reason)
+    return
+  }
   res.statusCode = response.status
   for (const [name, value] of response.headers) res.setHeader(name, value)
-  const body = await response.arrayBuffer()
-  if (body.byteLength) res.write(Buffer.from(body))
-  res.end()
+  if (stream && response.body) {
+    // Only Vite calls this writer. Nitro guards also load this module in Worker runtimes.
+    const { Readable } = await import("node:stream")
+    const { pipeline } = await import("node:stream/promises")
+    await pipeline(Readable.fromWeb(response.body), res, { signal })
+  }
+  else {
+    const chunks: Uint8Array[] = []
+    const reader = response.body?.getReader()
+    if (reader) {
+      const abort = () => { void reader.cancel(signal?.reason).catch(() => {}) }
+      signal?.addEventListener("abort", abort, { once: true })
+      try {
+        signal?.throwIfAborted()
+        while (true) {
+          const { done, value } = await reader.read()
+          signal?.throwIfAborted()
+          if (done) break
+          chunks.push(value)
+        }
+      }
+      finally {
+        signal?.removeEventListener("abort", abort)
+        reader.releaseLock()
+      }
+    }
+    if (signal?.aborted || res.destroyed) return
+    if (chunks.length) res.write(Buffer.concat(chunks))
+    res.end()
+  }
 }
 
 /**
@@ -224,6 +255,8 @@ export interface ViteHubNitroDevForwardOptions extends ViteHubDevEndpointGuard {
 }
 
 export interface ViteHubNitroDevEndpointOptions extends ViteHubNitroDevForwardOptions {
+  /** Stream large runtime responses with backpressure and cancellation on disconnect. */
+  streamResponse?: boolean
   /** Owner authorization before POST bodies are read or forwarded. */
   authorize?: (request: IncomingMessage) => Promise<Response | undefined>
   /** Public discovery metadata. Never include credentials. */
@@ -279,12 +312,14 @@ async function readRequestBody(req: IncomingMessage): Promise<string> {
  *
  * The request goes to `runtimeRoute` under the Nitro `baseURL`, with the JSON body, the JSON content type, and the
  * guard header. The Nitro handler must check the request again with {@link validateViteHubNitroDevRequest}. Returns
- * `501` with a clear message when the Vite process has no Nitro environment.
+ * `501` with a clear message when the Vite process has no Nitro environment. `signal` cancels runtime work when
+ * the client disconnects.
  */
 export async function forwardViteHubDevRequestToNitro(
   server: Pick<ViteHubNitroDevServer, "environments">,
   req: IncomingMessage,
   options: ViteHubNitroDevForwardOptions,
+  signal?: AbortSignal,
 ): Promise<Response> {
   const environment = findViteHubNitroDevEnvironment(server)
   if (!environment) return unavailableResponse(options)
@@ -299,6 +334,7 @@ export async function forwardViteHubDevRequestToNitro(
     body: await readRequestBody(req),
     headers,
     method: "POST",
+    signal,
   }))
 }
 
@@ -310,7 +346,7 @@ export async function forwardViteHubDevRequestToNitro(
  * `cache-control: no-store`, and forwarding errors return `500` with credentials redacted.
  */
 export function registerViteHubNitroDevEndpoint(server: ViteHubNitroDevServer, options: ViteHubNitroDevEndpointOptions): void {
-  const respond = async (req: IncomingMessage): Promise<Response> => {
+  const respond = async (req: IncomingMessage, signal: AbortSignal): Promise<Response> => {
     if (req.method === "GET") {
       return Response.json(findViteHubNitroDevEnvironment(server)
         ? { root: server.config.root, runtime: "nitro", ...options.discovery }
@@ -318,19 +354,32 @@ export function registerViteHubNitroDevEndpoint(server: ViteHubNitroDevServer, o
     }
     const rejected = await options.authorize?.(req)
     if (rejected) return rejected
-    return await forwardViteHubDevRequestToNitro(server, req, options)
+    return await forwardViteHubDevRequestToNitro(server, req, options, signal)
   }
-  const write = (res: ServerResponse, response: Response) => {
+  const write = (res: ServerResponse, response: Response, signal: AbortSignal) => {
+    if (signal.aborted || res.destroyed) return response.body?.cancel(signal.reason)
     res.setHeader("cache-control", "no-store")
-    return writeResponse(res, response)
+    return writeResponse(res, response, options.streamResponse, signal)
   }
   registerViteHubDevEndpoint(server, {
     handle: (req, res) => {
-      respond(req)
-        .then(response => write(res, response))
-        .catch(error => write(res, Response.json({
+      const controller = new AbortController()
+      const abort = () => controller.abort()
+      const close = () => {
+        if (!res.writableFinished) abort()
+      }
+      req.once("aborted", abort)
+      res.once("close", close)
+      if (req.aborted || res.destroyed) abort()
+      respond(req, controller.signal)
+        .then(response => write(res, response, controller.signal))
+        .catch(error => controller.signal.aborted || res.destroyed ? undefined : write(res, Response.json({
           error: { message: redactInspectionText(`${options.label} request failed: ${error instanceof Error ? error.message : String(error)}`) },
-        }, { status: 500 })))
+        }, { status: 500 }), controller.signal))
+        .finally(() => {
+          req.off("aborted", abort)
+          res.off("close", close)
+        })
     },
     header: options.header,
     headerValue: options.headerValue,

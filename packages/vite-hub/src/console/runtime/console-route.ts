@@ -1,5 +1,7 @@
 import { viteHubErrorDiagnostics } from "../../error-diagnostics.ts"
 import { decodeRouteSegment, encodeRouteSegment } from "@vite-hub/runtime"
+export const consoleDatabaseSchemaPath = "/database/schema/diagram"
+export const consoleDatabaseTablePath = "/database/:table?"
 export const consoleDatabasesSchemaPath = "/databases/:database/schema/diagram"
 export const consoleDatabasesTablePath = "/databases/:database?/:table?"
 /** Matches a built-in or contributed Console route name. A host suffix such as `___en` stays outside the match. */

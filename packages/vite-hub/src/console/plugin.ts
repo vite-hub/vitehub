@@ -6,6 +6,7 @@ import { readColocatedAgentSkills } from "@vite-hub/agent/vite"
 
 import type { AgentInvocationRetentionOptions, AgentInvocationsOptions } from "@vite-hub/agent/server"
 import type { ConsoleAgentEntry, ConsoleBuildCatalog } from "./build.ts"
+import type { ConsoleJournal } from "../storage-config.ts"
 import type { ConsoleSectionId } from "./runtime/sections.ts"
 
 import { consoleFixtureRevision, readConsoleFixture } from "./fixture.ts"
@@ -22,8 +23,6 @@ function renderRetentionLimit(value: number | false | undefined): string {
   // Keep invalid non-serializable limits subject to runtime validation.
   return JSON.stringify(value) ?? "null"
 }
-import type { ConsoleJournal } from "../storage-config.ts"
-
 function renderConsoleNitroPlugin(
   projectRoot: string,
   sections: readonly ConsoleSectionId[],
@@ -52,15 +51,14 @@ function renderConsoleNitroPlugin(
   const blobEnabled = sections.includes("blob")
   const databaseEnabled = sections.includes("databases")
   const kvEnabled = sections.includes("kv")
-  const contributedSections = describeConsoleContributedSections(sections)
-  const runtimeReaders = describeConsoleRuntimeReaders(sections)
-  const definitionsEnabled = databaseEnabled || contributedSections.length > 0
   const schedulesEnabled = sections.includes("schedules")
-  // Console invocation also allows manual Schedule runs. Without it, the installed registry stays empty.
   const runnableSchedules = (invoke ? catalog.manualSchedules ?? [] : [])
     .map(schedule => ` [${JSON.stringify(schedule.name)}]: () => import(${JSON.stringify(pathToFileURL(schedule.handler).href)}),`)
     .join("")
     .replace(/,$/, " ")
+  const contributedSections = describeConsoleContributedSections(sections)
+  const runtimeReaders = describeConsoleRuntimeReaders(sections)
+  const definitionsEnabled = databaseEnabled || contributedSections.length > 0
   const revision = fixtureSnapshot ? consoleFixtureRevision(fixtureSnapshot) : undefined
   const fixtureSource = fixtureSnapshot ? `JSON.parse(${JSON.stringify(JSON.stringify(fixtureSnapshot))})` : undefined
   return [

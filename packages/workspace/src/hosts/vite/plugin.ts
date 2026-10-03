@@ -4,7 +4,7 @@ import { dirname, extname, isAbsolute, relative, resolve } from "node:path"
 import { createDefaultCloudflareOutputRoot, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
-import { createNoExternalAddition, generatedViteHubWatchIgnoredAddition, isServerEnvironment, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { createNoExternalAddition, isServerEnvironment, mergeGeneratedViteHubWatchIgnored, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { registerViteHubDevEndpoint } from "@vite-hub/internal/dev-endpoint"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
@@ -43,7 +43,7 @@ const RESOLVED_WORKSPACE_REGISTRY_ID = `\0${WORKSPACE_REGISTRY_ID}`
 const generatedNitroWorkspacePlugin = ".vitehub/nitro/workspace/plugin.ts"
 const generatedNitroWorkspaceRegistry = ".vitehub/nitro/workspace/registry.js"
 const cloudflareArtifactsBindingsFileName = ".vitehub-workspace-artifacts-bindings.json"
-const noExternalAddition = createNoExternalAddition(WORKSPACE_PACKAGE_NAME)
+const mergeNoExternal = createNoExternalAddition(WORKSPACE_PACKAGE_NAME)
 const workspacesDirSegment = /[\\/](?:server[\\/])?workspaces(?:[\\/]|$)/
 
 const sourceModuleExtensions = [".ts", ".mts", ".cts", ".js", ".mjs", ".cjs", ".tsx", ".jsx"]
@@ -1665,7 +1665,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
   let resolved: ResolvedConfig | undefined
   let providerOutput: ReturnType<typeof useProviderOutputCatalog> | undefined
   const providerOutputGenerations = createProviderDeploymentOutputGenerationState()
-  let resolvedOptions: ReturnType<typeof normalizeWorkspaceOptions> | undefined
+  let resolvedOptions: ReturnType<typeof normalizeWorkspaceOptions> = false
   let projectRoot: string | undefined
   let viteRoot: string | undefined
   let assetsRegistryFile: string | undefined
@@ -1728,7 +1728,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
       const viteConfig: ViteConfigWithWorkspaceNitro = {
         server: {
           watch: {
-            ignored: generatedViteHubWatchIgnoredAddition(config.server?.watch?.ignored),
+            ignored: mergeGeneratedViteHubWatchIgnored(config.server?.watch?.ignored),
           },
         },
       }
@@ -1748,7 +1748,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
         const nitro = mergeNitroWorkspaceConfig((config as ViteConfigWithWorkspaceNitro).nitro)
         for (const artifactConfig of artifacts) configureCloudflareArtifacts(nitro, artifactConfig)
         if (usesCloudflareRuntime) configureCloudflareNitroRuntime(nitro)
-        // Replace the Nitro config in place. A returned Nitro config would repeat its arrays when Vite merges it.
+        // Replace in place so Vite does not merge the Nitro arrays into themselves.
         ;(config as ViteConfigWithWorkspaceNitro).nitro = nitro
       }
       return viteConfig
@@ -1785,13 +1785,13 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
       return {
         resolve: {
           dedupe: dedupeAddition(config.resolve?.dedupe),
-          noExternal: noExternalAddition(config.resolve?.noExternal),
+          noExternal: mergeNoExternal(config.resolve?.noExternal),
         },
       }
     },
     async buildStart() {
       providerOutputGenerations.capture(this, providerOutput)
-      if (!resolved || !resolvedOptions) return
+      if (!resolved) return
       const roots = {
         projectRoot: projectRoot || resolveViteHubProjectRoot(resolved.root),
         viteRoot: viteRoot || resolve(resolved.root),
@@ -1807,8 +1807,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
         await providerOutputGenerations.reset(this, providerOutput, error)
         return
       }
-      if (!resolved || !resolvedOptions || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
-      const workspaceOptions = resolvedOptions
+      if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
       const roots = {
         projectRoot: projectRoot || resolveViteHubProjectRoot(resolved.root),
         viteRoot: viteRoot || resolve(resolved.root),
@@ -1818,15 +1817,17 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
         rootDir: roots.projectRoot,
         write: async ({ readCloudflareState, signal, write }) => {
           const definitions = discoverDefinitions(roots, serverDirs)
-          await copyVercelFunctionRuntimePackages({
-            packages: vercelFunctionRuntimePackages(),
-            rootDir: roots.projectRoot,
-            signal,
-          })
+          if (resolvedOptions !== false) {
+            await copyVercelFunctionRuntimePackages({
+              packages: vercelFunctionRuntimePackages(),
+              rootDir: roots.projectRoot,
+              signal,
+            })
+          }
           await writeCloudflareArtifactsProviderOutput(
             roots.projectRoot,
             resolved!.build?.outDir ?? "dist/client",
-            workspaceOptions,
+            resolvedOptions,
             definitions,
             readCloudflareState,
             write,

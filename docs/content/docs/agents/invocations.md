@@ -328,7 +328,7 @@ hooks: {
 }
 ```
 
-The journal records pending, running, completed, failed, and cancelled states plus bounded invocation metadata and trace observations. Failed records retain bounded `cause` and `AggregateError.errors` trees, common status and code fields, and public ViteHub error details. Use `invocations.list()` for cursor-based summaries, `invocations.get(id)` for a stored record ID, and `invocations.getByRunId(runId, agentName?)` when starting from the source run ID. Always pass the Agent Definition name for a named Definition; the name is part of its durable invocation identity. When the Console is enabled, a discovered Definition without `name` records its discovered name, such as `labeller` for `server/agents/labeller.ts`, also when server code calls `runAgent()` directly. If the same unnamed Definition is discovered under multiple names, direct calls remain unscoped because the Definition cannot identify the imported alias. Host calls still record their selected Agent name. Journal failures never change the Agent Invocation result.
+The journal records pending, running, completed, failed, and cancelled states plus bounded invocation metadata and trace observations. Failed records retain bounded `cause` and `AggregateError.errors` trees, common status and code fields, and public ViteHub error details. Use `invocations.list()` for cursor-based summaries, `invocations.get(id)` for a stored record ID, and `invocations.getByRunId(runId, agentName?)` when starting from the source run ID. Always pass the Agent Definition name for a named Definition; the name is part of its durable invocation identity. When the Console is enabled, a discovered Definition without `name` records its discovered name, such as `labeller` for `server/agents/labeller.ts`, also when server code calls `runAgent()` directly. If the same unnamed Definition is discovered under multiple names, direct calls remain unscoped because the Definition cannot identify the imported alias. Host calls still record their selected Agent name. Observation and terminal-write failures do not replace the Driver result. Before execution starts, ViteHub requires a successful read of the journal cancellation state. A missing record, failed read, or timed-out read rejects the Invocation. A custom `run` Driver also requires durable dispatch-state metadata before it starts.
 
 Use `triggeredBy` to filter persisted summaries by the person label recorded in `annotations.triggeredBy`. It matches the trimmed label exactly and composes with Agent, Capability, status, and text filters:
 
@@ -379,6 +379,14 @@ vitehub agent invocations tail INVOCATION_ID
 ```
 
 The CLI defaults to `http://localhost:5173/api/invocations`. Use `--url` or `VITEHUB_AGENT_INVOCATIONS_URL` for another local endpoint, and `--json` for automation-safe output.
+
+To request cancellation of an active invocation, use the development endpoint:
+
+```sh
+vitehub agent invocations cancel INVOCATION_ID
+```
+
+Cancellation is available through the Vite + Nitro development runtime. Set `--url` (or `VITEHUB_AGENT_INVOCATIONS_URL`) to the invocation endpoint registered by that runtime when the default URL does not apply. The command requires the runtime's development token and reports whether cancellation was accepted; it does not delete the journal record.
 
 Delete and prune open a SQLite or libSQL journal directly:
 

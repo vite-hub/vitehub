@@ -23,7 +23,7 @@ After the move, the same KV, Blob, and Database APIs are also available to
 | `db` and `schema` from `@nuxthub/db` | `useDatabase()` from `vite-hub/database/drizzle` | Drizzle in both. ViteHub supports SQLite, libSQL, and Cloudflare D1. |
 | `hub.db: 'postgresql'` or `'mysql'` | Not supported | Keep NuxtHub or Drizzle for these databases. |
 | `hub.cache` | Nitro storage | `cachedEventHandler` and `defineCachedFunction` are Nitro APIs and keep working. |
-| `handleUpload`, multipart helpers, `useUpload` | Not available | Write an upload route with `blob.put()`. Direct uploads need driver-specific signing credentials. |
+| `handleUpload`, multipart helpers, `useUpload`, `useMultipartUpload` | Same names on `blob` and in `vite-hub/blob/vue` | Methods return `[error, value]`. Multipart works with `fs`, `cloudflare-r2` (binding), and `vercel-blob`. |
 | `hosting` auto-detection | `preset` | You must select the host. |
 | `.data/` | `.vitehub/data/` | Local development data does not move automatically. |
 | Auto-imported `kv`, `blob`, `db` | Explicit imports | Add an import to each server file. |
@@ -46,30 +46,21 @@ Replace the `hub` key with the ViteHub module and a
 [deployment preset](/docs/frameworks-hosts#choose-a-preset). Each feature is off
 until you enable it.
 
-::code-group
-
-```ts [Before: nuxt.config.ts]
-export default defineNuxtConfig({
-  modules: ["@nuxthub/core"],
-  hub: {
-    db: "sqlite",
-    kv: true,
-    blob: true,
-  },
-})
+```diff [nuxt.config.ts]
++import viteHubNuxt from "vite-hub/nuxt"
++
+ export default defineNuxtConfig({
+-  modules: ["@nuxthub/core"],
+-  hub: {
+-    db: "sqlite",
+-    kv: true,
+-    blob: true,
+-  },
++  modules: [
++    [viteHubNuxt, { preset: "cloudflare", database: true, kv: true, blob: true }],
++  ],
+ })
 ```
-
-```ts [After: nuxt.config.ts]
-import viteHubNuxt from "vite-hub/nuxt"
-
-export default defineNuxtConfig({
-  modules: [
-    [viteHubNuxt, { preset: "cloudflare", database: true, kv: true, blob: true }],
-  ],
-})
-```
-
-::
 
 Read [Nuxt](/docs/frameworks-hosts/nuxt) for the other module behavior.
 
@@ -78,25 +69,16 @@ Read [Nuxt](/docs/frameworks-hosts/nuxt) for the other module behavior.
 Import `kv` from `vite-hub/kv`. Each method returns an `[error, value]` tuple
 instead of throwing, so check the error.
 
-::code-group
-
-```ts [Before: server/api/settings.get.ts]
-export default defineEventHandler(async () => {
-  return await kv.get("settings")
-})
+```diff [server/api/settings.get.ts]
++import { kv } from "vite-hub/kv"
++
+ export default defineEventHandler(async () => {
+-  return await kv.get("settings")
++  const [error, settings] = await kv.get("settings")
++  if (error) throw error
++  return settings
+ })
 ```
-
-```ts [After: server/api/settings.get.ts]
-import { kv } from "vite-hub/kv"
-
-export default defineEventHandler(async () => {
-  const [error, settings] = await kv.get("settings")
-  if (error) throw error
-  return settings
-})
-```
-
-::
 
 `get`, `set`, `has`, `del`, `keys`, and `clear` keep their names. `set` passes
 its options, such as `ttl`, to the store driver, so TTL support depends on the
@@ -110,35 +92,31 @@ Import `blob` from `vite-hub/blob`. `put`, `get`, `head`, `list`, `del`, and
 `addRandomSuffix`, and `customMetadata` options. Each method returns an
 `[error, value]` tuple.
 
-::code-group
-
-```ts [Before: server/routes/files/[...pathname].get.ts]
-export default defineEventHandler(async (event) => {
-  const { pathname } = getRouterParams(event)
-  return blob.serve(event, pathname)
-})
+```diff [server/routes/files/[...pathname].get.ts]
++import { blob } from "vite-hub/blob"
++
+ export default defineEventHandler(async (event) => {
+   const { pathname } = getRouterParams(event)
+-  return blob.serve(event, pathname)
++  const [error, stream] = await blob.serve(event, pathname)
++  if (error) throw error
++  return stream
+ })
 ```
 
-```ts [After: server/routes/files/[...pathname].get.ts]
-import { blob } from "vite-hub/blob"
+`blob.handleUpload()` and `blob.handleMultipartUpload()` keep their names and
+return `[error, value]`. `handleUpload()` takes `formKey`, `multiple`, `ensure`,
+and `put` options. The multipart route uses an `[action]/[...pathname]` route,
+and the composables send ViteHub's request format. In Nuxt,
+`useUpload()` and `useMultipartUpload()` are auto-imported when `blob` is
+enabled, as in NuxtHub. Read [Upload files](/docs/server-primitives/blob#upload-files)
+and [Multipart uploads](/docs/server-primitives/blob#multipart-uploads).
 
-export default defineEventHandler(async (event) => {
-  const { pathname } = getRouterParams(event)
-  const [error, stream] = await blob.serve(event, pathname)
-  if (error) throw error
-  return stream
-})
-```
-
-::
-
-ViteHub has no `handleUpload()`, multipart helpers, or `useUpload()`
-composable. Validate files with `ensureBlob()` and call `blob.put()` in your own
-route. On Cloudflare, this works with the R2 binding shown below. Direct `PUT`
-uploads with `blob.sign()` also require `accountId`, `accessKeyId`,
-`secretAccessKey`, and `bucketName` at runtime; an R2 binding alone cannot sign
-requests. Read [Blob](/docs/server-primitives/blob) for signing configuration.
-To serve files without a route of your own, set `blob: { serve: true }`.
+Multipart uploads work with the `fs`, `cloudflare-r2` (binding), and
+`vercel-blob` drivers. Direct `PUT` uploads with `blob.sign()` on Cloudflare
+also require `accountId`, `accessKeyId`, `secretAccessKey`, and `bucketName`
+at runtime; an R2 binding alone cannot sign requests. To serve files without a
+route of your own, set `blob: { serve: true }`.
 
 ## Move the database
 
@@ -167,26 +145,15 @@ export default defineDatabase({
 
 Replace the `@nuxthub/db` import with `useDatabase()`. Queries do not change.
 
-::code-group
+```diff [server/api/users.get.ts]
+-import { db, schema } from "@nuxthub/db"
++import { useDatabase } from "vite-hub/database/drizzle"
 
-```ts [Before: server/api/users.get.ts]
-import { db, schema } from "@nuxthub/db"
-
-export default defineEventHandler(async () => {
-  return await db.select().from(schema.users)
-})
+ export default defineEventHandler(async () => {
++  const { db, schema } = useDatabase("default")
+   return await db.select().from(schema.users)
+ })
 ```
-
-```ts [After: server/api/users.get.ts]
-import { useDatabase } from "vite-hub/database/drizzle"
-
-export default defineEventHandler(async () => {
-  const { db, schema } = useDatabase("default")
-  return await db.select().from(schema.users)
-})
-```
-
-::
 
 ### Migrations
 

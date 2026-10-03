@@ -131,6 +131,10 @@
       "types": "./dist/runtime/empty-registry.d.ts",
       "import": "./dist/runtime/empty-registry.js"
     },
+    "./runtime/invocations-dev": {
+      "types": "./dist/runtime/invocations-dev.d.ts",
+      "import": "./dist/runtime/invocations-dev.js"
+    },
     "./runtime/process": {
       "types": "./dist/runtime/process.d.ts",
       "import": "./dist/runtime/process.js"

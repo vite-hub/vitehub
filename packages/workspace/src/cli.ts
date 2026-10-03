@@ -85,6 +85,12 @@ const workspaceDevEndpoint = {
   route: workspaceDevRoute,
 }
 
+interface WorkspaceDevDiscovery {
+  root?: unknown
+  workspaceDevTokenServerId?: unknown
+  workspaces?: Array<{ name?: unknown }>
+}
+
 const workspaceDevTargetErrors = {
   invalidInlineTimeout: (message: string) => workspaceErrorDiagnostics.WORKSPACE_R0006({ message }),
   invalidTimeout: (message: string) => workspaceErrorDiagnostics.WORKSPACE_R0005({ message }),
@@ -243,17 +249,9 @@ async function readWorkspaceDiscovery(parsed: ParsedWorkspaceDevArgs, context: W
     context.stderr.write("Missing Workspace Dev target.\n")
     return
   }
-  const server = await discoverViteHubDevServer({
+  const server = await discoverViteHubDevServer<WorkspaceDevDiscovery>({
     endpoint: workspaceDevEndpoint,
     fetch: fetchImpl,
-    parseDiscovery(value: unknown) {
-      const response = isPlainObject(value) ? value : {}
-      return {
-        root: response.root,
-        workspaceDevTokenServerId: response.workspaceDevTokenServerId,
-        workspaces: Array.isArray(response.workspaces) ? response.workspaces.filter(isPlainObject) : [],
-      }
-    },
     rootDir: context.rootDir,
     serverUrl: parsed.url,
     stderr: context.stderr,

@@ -92,38 +92,41 @@ function isoDate(value: Date | string | undefined): string | undefined {
 /** Redacts secret-named keys, then credentials inside each remaining string. */
 function redactInput(value: unknown): unknown {
   const redacted = redactInspectionValue(value)
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate opaque inspection values or request JSON fields at the dev endpoint boundary.
   if (typeof redacted === "string") return redactInspectionText(redacted)
   if (Array.isArray(redacted)) return redacted.map(redactInput)
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate opaque inspection values or request JSON fields at the dev endpoint boundary.
   if (!redacted || typeof redacted !== "object") return redacted
   return Object.fromEntries(Object.entries(redacted).map(([key, entry]) => [key, redactInput(entry)]))
 }
 
 function summarizeError(error: ScheduleRunError | undefined): ScheduleRunErrorSummary | undefined {
   if (!error) return
-  return {
-    message: redactInspectionText(error.message),
-    ...(error.name ? { name: redactInspectionText(error.name) } : {}),
-  }
+  const summary: ScheduleRunErrorSummary = { message: redactInspectionText(error.message) }
+  if (error.name) summary.name = redactInspectionText(error.name)
+  return summary
 }
 
 export function summarizeScheduleRun(run: ScheduleRunRecord): ScheduleRunSummary {
   const error = summarizeError(run.error)
   const completedAt = isoDate(run.completedAt)
   const startedAt = isoDate(run.startedAt)
-  return {
+  const summary: ScheduleRunSummary = {
     attemptCount: run.attemptCount,
-    ...(completedAt ? { completedAt } : {}),
-    ...(error ? { error } : {}),
     id: run.id,
-    ...(run.response ? { response: { status: run.response.status, statusText: redactInspectionText(run.response.statusText) } } : {}),
     scheduleId: run.scheduleId,
     scheduledAt: isoDate(run.scheduledAt) ?? "",
-    ...(startedAt ? { startedAt } : {}),
     status: run.status,
     target: run.target,
   }
+  if (completedAt) summary.completedAt = completedAt
+  if (error) summary.error = error
+  if (run.response) {
+    summary.response = {
+      status: run.response.status,
+      statusText: redactInspectionText(run.response.statusText),
+    }
+  }
+  if (startedAt) summary.startedAt = startedAt
+  return summary
 }
 
 export function summarizeScheduleRunAttempt(attempt: ScheduleRunAttemptRecord): ScheduleRunAttemptSummary {
@@ -268,7 +271,7 @@ function consoleRecord(summary: RuntimeScheduleSummary, runs: readonly ScheduleR
     {
       label: "Console dispatch",
       value: summary.console.dispatch
-        ? "Allowed by the record. The Console is read-only. Use `vitehub schedule run` in development."
+        ? "Allowed by the record. The Console is read-only. Use `vitehub schedule run-runtime` in development."
         : "Not allowed by the record.",
     },
     ...(summary.input !== undefined ? [{ label: "Input", value: formatInput(summary.input) }] : []),
@@ -281,8 +284,8 @@ function consoleRecord(summary: RuntimeScheduleSummary, runs: readonly ScheduleR
   runs.slice(0, consoleRunHistoryLimit).forEach((run, index) => {
     fields.push({ label: `Run ${index + 1}`, value: formatRun(run) })
   })
-  if (runs.length >= consoleRunHistoryLimit) {
-    fields.push({ label: "Older runs", value: `Use \`vitehub schedule runs ${summary.id}\`.` })
+  if (runs.length > consoleRunHistoryLimit) {
+    fields.push({ label: "Older runs", value: `More runs are available. Use \`vitehub schedule runs ${summary.id}\`.` })
   }
   return {
     cells: {
@@ -295,7 +298,7 @@ function consoleRecord(summary: RuntimeScheduleSummary, runs: readonly ScheduleR
       timing: summary.timeZone === "UTC" ? summary.cron : `${summary.cron} (${summary.timeZone})`,
     },
     fields,
-    id: `runtime:${summary.id}`,
+    id: summary.id,
   }
 }
 
@@ -305,14 +308,18 @@ function consoleRecord(summary: RuntimeScheduleSummary, runs: readonly ScheduleR
  */
 export async function readScheduleConsoleRecords(): Promise<ViteHubConsoleRecord[]> {
   const now = new Date()
-  const state = await readRuntimeScheduleState(consoleRunHistoryLimit, true)
+  const state = await readRuntimeScheduleState(consoleRunHistoryLimit + 1, true)
   const automaticRuns = isScheduleWakeDriverActive()
   return state.schedules
-    .map(schedule => summarizeRuntimeSchedule(schedule, state.runs.get(schedule.id) ?? [], now))
-    .filter(summary => summary.console.visible)
-    .map(summary => consoleRecord(
+    .map(schedule => {
+      const runs = state.runs.get(schedule.id) ?? []
+      const summary = summarizeRuntimeSchedule(schedule, runs, now)
+      return { runs, summary }
+    })
+    .filter(({ summary }) => summary.console.visible)
+    .map(({ runs, summary }) => consoleRecord(
       summary,
-      (state.runs.get(summary.id) ?? []).filter(run => isRuntimeScheduleRun(run, summary.id)).sort(newestFirst).map(summarizeScheduleRun),
+      runs.filter(run => isRuntimeScheduleRun(run, summary.id)).sort(newestFirst).map(summarizeScheduleRun),
       automaticRuns,
     ))
 }
@@ -352,15 +359,12 @@ function scheduleFailure(error: unknown): Response {
 
 async function readBody(request: Request): Promise<ScheduleDevRequestBody | undefined> {
   const body: unknown = await request.json().catch(() => undefined)
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate opaque inspection values or request JSON fields at the dev endpoint boundary.
   if (!body || typeof body !== "object" || Array.isArray(body)) return
   const operation: unknown = Reflect.get(body, "operation")
   const id: unknown = Reflect.get(body, "id")
   const limit: unknown = Reflect.get(body, "limit")
   if (!isScheduleDevOperation(operation)) return
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate opaque inspection values or request JSON fields at the dev endpoint boundary.
   if (id !== undefined && (typeof id !== "string" || !id)) return
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate opaque inspection values or request JSON fields at the dev endpoint boundary.
   if (limit !== undefined && (typeof limit !== "number" || !Number.isInteger(limit) || limit < 1)) return
   return {
     ...(id !== undefined ? { id } : {}),
@@ -397,7 +401,7 @@ async function runOperation(body: ScheduleDevRequestBody): Promise<Response> {
       catch (error) {
         // The handler failed after the run started. Return the stored failed run.
         const run = await getScheduleRunStore().getRun(toRunId("runtime", id, scheduledAt))
-        return run?.status === "failed" ? json({ run: summarizeScheduleRun(run) }) : scheduleFailure(error)
+        return run ? json({ run: summarizeScheduleRun(run) }) : scheduleFailure(error)
       }
     }
     case "enable":
@@ -409,13 +413,13 @@ async function runOperation(body: ScheduleDevRequestBody): Promise<Response> {
           runs = await getScheduleRunStore().listRuns({ scheduleId: id, runtimeOnly: true, limit: 1 })
         }
         catch (error) {
-          // History is optional after the Schedule mutation has persisted.
           if (error instanceof ScheduleHistoryIncompleteError) {
             return json({
               error: { code: error.code, message: redactInspectionText(error.message) },
               schedule: summarizeRuntimeSchedule(updated, []),
             }, 503)
           }
+          throw error
         }
         return json({ schedule: summarizeRuntimeSchedule(updated, runs) })
       }

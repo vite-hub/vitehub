@@ -17,7 +17,6 @@ const pages: Record<string, string> = {
   AgentFileTree: "file-tree",
   AgentInvocation: "invocation",
   AgentInvocationInspector: "invocation-inspector",
-  AgentInvocationTimeline: "timeline",
   AgentInvocationList: "invocation-list",
   AgentInvocationTimeline: "timeline",
   AgentMarkdown: "markdown",

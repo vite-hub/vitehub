@@ -64,7 +64,15 @@ function memoryBlob(stores: Record<string, BlobObject[]>): {
   const reads = vi.fn()
   const writes = vi.fn()
   function storage(name = "default"): BlobStorage {
+    const unusedWrite = (operation: string) => async () => {
+      writes(operation)
+      throw new Error(`The Console must not call ${operation}.`)
+    }
     return {
+      createMultipartUpload: unusedWrite("createMultipartUpload"),
+      handleMultipartUpload: unusedWrite("handleMultipartUpload"),
+      handleUpload: unusedWrite("handleUpload"),
+      resumeMultipartUpload: unusedWrite("resumeMultipartUpload"),
       del: async () => { writes("del"); return success(undefined) },
       get: async () => { reads("get"); return success(null) },
       head: async pathname => { reads("head"); return success(object(pathname)) },

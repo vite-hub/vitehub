@@ -3,9 +3,36 @@ import { setHeader } from "h3"
 import { toArray } from "@vite-hub/internal/arrays"
 
 import { blobError, blobResult } from "./errors.ts"
+import { handleBlobMultipartUpload, handleBlobUpload } from "./upload.ts"
 
-import type { BlobDriverAdapter, BlobListOptions, BlobPutBody, BlobPutOptions, BlobServeEvent, BlobStorage } from "./types.ts"
+// Generated provider runtime modules import the handlers from this entry.
+export { handleBlobMultipartUpload, handleBlobUpload }
+
+import type { BlobDriverAdapter, BlobDriverMultipartUpload, BlobListOptions, BlobMultipartUpload, BlobPutBody, BlobPutOptions, BlobServeEvent, BlobStorage } from "./types.ts"
 import { blobErrorDiagnostics } from "./error-diagnostics.ts"
+
+// S3, R2, and Vercel Blob all accept part numbers 1 through 10000.
+const maxPartNumber = 10_000
+
+/** Give a driver's multipart upload the `[error, value]` result contract. */
+export function toBlobMultipartUpload(upload: BlobDriverMultipartUpload, store: string): BlobMultipartUpload {
+  return {
+    pathname: upload.pathname,
+    uploadId: upload.uploadId,
+    abort: () => blobResult("multipart", store, () => upload.abort()),
+    complete: parts => blobResult("multipart", store, () => upload.complete(parts)),
+    uploadPart(partNumber, body) {
+      if (!Number.isInteger(partNumber) || partNumber < 1 || partNumber > maxPartNumber) {
+        throw blobErrorDiagnostics.BLOB_R0031({ message: `\`partNumber\` must be an integer from 1 to ${maxPartNumber}.` })
+      }
+      return blobResult("multipart", store, () => upload.uploadPart(partNumber, body))
+    },
+  }
+}
+
+function unsupportedMultipart(driver: BlobDriverAdapter<unknown>): Error {
+  return blobErrorDiagnostics.BLOB_R0030({ message: `Blob driver "${driver.name}" does not support multipart uploads. Use the fs, cloudflare-r2, or vercel-blob driver.` })
+}
 
 function setBlobResponseHeader(event: BlobServeEvent, name: string, value: string) {
   // SAFETY: BlobServeEvent exposes the response headers setHeader mutates and omits only unrelated H3 event fields.
@@ -75,7 +102,26 @@ function normalizeBlobPath(pathname: string, options: BlobPutOptions) {
 }
 
 export function createBlobStorage(driver: BlobDriverAdapter<any>, store: string = driver.name): BlobStorage {
-  return {
+  const storage: BlobStorage = {
+    async createMultipartUpload(pathname, options = {}) {
+      if (!driver.createMultipartUpload) throw unsupportedMultipart(driver)
+      const normalizedPath = normalizeBlobPath(normalizePathname(pathname), options)
+      const contentType = options.contentType || guessContentType(normalizedPath)
+      return blobResult("multipart", store, async () => toBlobMultipartUpload(
+        await driver.createMultipartUpload!(normalizedPath, { ...options, contentType }),
+        store,
+      ))
+    },
+    handleMultipartUpload: (event, options) => handleBlobMultipartUpload(storage, event, options),
+    handleUpload: (event, options) => handleBlobUpload(storage, event, options),
+    async resumeMultipartUpload(pathname, uploadId) {
+      if (!driver.resumeMultipartUpload) throw unsupportedMultipart(driver)
+      const normalizedPath = normalizePathname(pathname)
+      return blobResult("multipart", store, async () => toBlobMultipartUpload(
+        await driver.resumeMultipartUpload!(normalizedPath, uploadId),
+        store,
+      ))
+    },
     async del(pathnames: string | string[]) {
       const normalizedPathnames = toArray(pathnames).map(value => normalizePathname(value))
       return blobResult("del", store, async () => {
@@ -150,4 +196,5 @@ export function createBlobStorage(driver: BlobDriverAdapter<any>, store: string 
       throw blobErrorDiagnostics.BLOB_R0026({ message: "Named Blob stores are only available from the @vite-hub/blob runtime export." })
     },
   }
+  return storage
 }

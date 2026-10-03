@@ -3,8 +3,8 @@ import { resolve } from "node:path"
 import { installConsoleDefinitionScope, installConsoleSchedulesScope, resolveConsoleDefinitions, resolveConsoleSchedules } from "../../internal.ts"
 import { isConsoleSectionId } from "../sections.ts"
 
-import type { ScheduleDefinitionRegistry } from "@vite-hub/schedule"
 import type { ConsoleContributedSection, ConsoleDefinitionField, ConsoleRecord, ConsoleSectionCatalog, ConsoleSectionContent } from "../definitions.ts"
+import type { ScheduleDefinitionRegistry } from "@vite-hub/schedule"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
 function copyFields(fields: readonly ConsoleDefinitionField[]): ConsoleDefinitionField[] {
@@ -73,10 +73,7 @@ export function getConsoleContributedSections(): readonly ConsoleContributedSect
   return resolveConsoleDefinitions()?.sections ?? []
 }
 
-/**
- * Installs the Static Schedule Definitions that the Console may run.
- * The generated Console plugin passes only `manual: true` definitions, and only with Console invocation enabled.
- */
+/** Installs the Static Schedule Definitions that the Console may run. */
 export function installConsoleSchedules(projectRoot: string, registry: ScheduleDefinitionRegistry): ScheduleDefinitionRegistry {
   return installConsoleSchedulesScope(resolve(projectRoot), { ...registry })
 }

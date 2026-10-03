@@ -14,6 +14,7 @@ import { getAgentChannelSyncDefinition } from "../src/internal/channel-sync.ts"
 import { createAgentEvaliteConfigPath, writeAgentEvaliteConfig } from "../src/internal/evalite-config.ts"
 import { createTelegramChannelSyncProvider } from "../src/internal/telegram-channel-sync.ts"
 import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue } from "../src/invocation-stream.ts"
+import { agentInvocationsDevTokenServerHeader } from "../src/invocations-dev.ts"
 import { verifyAgentWebhookRequest } from "../src/trigger-runtime.ts"
 import { telegram } from "../src/channels.ts"
 
@@ -1432,6 +1433,79 @@ describe("agent CLI", () => {
     expect(fetchAgentInfo).toHaveBeenCalledWith("http://localhost:5173/__vitehub/agent/invocation-stream?inspect=1&agent=support", expect.anything())
   })
 
+  it.each([undefined, "http://localhost:5173/custom/api/invocations?status=running#details"])("cancels through the registered dev route with invocation URL %s", async (url) => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-agent-cancel-cli-"))
+    const serverId = `${process.pid + 1}:5173`
+    const token = await refreshWorkspaceDevToken(rootDir, { serverId })
+    try {
+      const fetchInvocations = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => Response.json(init?.method === "POST"
+        ? { id: "invocation-1", outcome: "requested" }
+        : { root: rootDir, runtime: "nitro", workspaceDevTokenServerId: serverId }))
+      const stderr = stream()
+      const exitCode = await runAgentInvocationsCli([
+        "cancel", "invocation-1", ...(url ? ["--url", url] : []),
+      ], { env: {}, rootDir, stderr, stdout: stream() }, { fetch: fetchInvocations })
+
+      expect(exitCode, stderr.output()).toBe(0)
+      expect(String(fetchInvocations.mock.calls[0]?.[0])).toBe("http://localhost:5173/__vitehub/agent/invocations/dev")
+      expect(fetchInvocations).toHaveBeenCalledWith(expect.any(URL), expect.objectContaining({
+        body: JSON.stringify({ id: "invocation-1", operation: "cancel" }),
+        headers: expect.objectContaining({ [workspaceDevTokenHeader]: token, [agentInvocationsDevTokenServerHeader]: serverId }),
+        method: "POST",
+      }))
+    }
+    finally {
+      await rm(rootDir, { force: true, recursive: true })
+    }
+  })
+
+  it.each([{}, { workspaceDevTokenServerId: 42 }, { root: "/another-project", workspaceDevTokenServerId: "other-server" }])("rejects invalid cancellation discovery %j before sending a write", async (discovery) => {
+    const fetchInvocations = vi.fn(async () => Response.json(discovery))
+    const stderr = stream()
+    expect(await runAgentInvocationsCli(["cancel", "invocation-1"], {
+      env: {}, rootDir: process.cwd(), stderr, stdout: stream(),
+    }, { fetch: fetchInvocations })).toBe(1)
+    expect(fetchInvocations).toHaveBeenCalledTimes(1)
+    expect(stderr.output()).toMatch(/No Compatible Vite Development Server|root mismatch/)
+  })
+
+  it.each(["requested", "terminal", "not-found", "unavailable", "invalid"])("reports cancellation outcome %s in human and JSON output", async (outcome) => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-agent-cancel-outcome-"))
+    const serverId = `${process.pid + 1}:5173`
+    await refreshWorkspaceDevToken(rootDir, { serverId })
+    try {
+      for (const json of [false, true]) {
+        const stdout = stream()
+        const stderr = stream()
+        const result = { id: "invocation-1", outcome }
+        const exitCode = await runAgentInvocationsCli([
+          "cancel", "invocation-1", ...(json ? ["--json"] : []),
+        ], { env: {}, rootDir, stderr, stdout }, { fetch: async (_url, init) => Response.json(init?.method === "POST"
+          ? result
+          : { root: rootDir, runtime: "nitro", workspaceDevTokenServerId: serverId }) })
+
+        expect(exitCode).toBe(outcome === "requested" || outcome === "terminal" ? 0 : 1)
+        if (outcome === "invalid") {
+          expect(stdout.output()).toBe("")
+          expect(stderr.output()).toContain("invalid outcome")
+        }
+        else if (json) {
+          expect(JSON.parse(stdout.output())).toEqual(result)
+          expect(stderr.output()).toBe("")
+        }
+        else if (outcome === "requested") expect(stdout.output()).toContain("Cancellation requested")
+        else if (outcome === "terminal") expect(stdout.output()).toContain("already terminal")
+        else {
+          expect(stdout.output()).toBe("")
+          expect(stderr.output()).toContain(outcome === "not-found" ? "was not found" : "unavailable")
+        }
+      }
+    }
+    finally {
+      await rm(rootDir, { force: true, recursive: true })
+    }
+  })
+
   it("lists durable Agent Invocations as JSON", async () => {
     const stdout = stream()
     const fetchInvocations = vi.fn(async () => Response.json({
@@ -1726,6 +1800,24 @@ describe("agent CLI", () => {
         role: "user",
       }],
     })
+  })
+
+  it("ignores malformed Agent discovery entries", async () => {
+    const stderr = stream()
+    const fetchAgentStream = vi.fn(async () => Response.json({ agents: [null], root: "/repo" }))
+
+    const exitCode = await runAgentDevCli(["-p", "hello agent"], {
+      cwd: "/repo",
+      env: {},
+      rootDir: "/repo",
+      spawn: vi.fn(),
+      stderr,
+      stdout: stream(),
+    }, { fetch: fetchAgentStream as never })
+
+    expect(exitCode).toBe(1)
+    expect(stderr.output()).toBe("No Agents discovered.\n")
+    expect(fetchAgentStream).toHaveBeenCalledTimes(1)
   })
 
   it("keeps --prompt input literal when it starts with !", async () => {

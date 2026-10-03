@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events"
 import { readFile } from "node:fs/promises"
-import { Readable } from "node:stream"
+import { Readable, Writable } from "node:stream"
 import { describe, expect, it, vi } from "vitest"
 
 import {
@@ -49,18 +49,21 @@ async function call(middleware: Middleware, init: { body?: string, headers?: Rec
   const done = new EventEmitter()
   const chunks: Buffer[] = []
   const headers: Record<string, string> = {}
-  const res = {
-    end() {
-      done.emit("end")
+  const res = Object.assign(new Writable({
+    write(chunk, _encoding, callback) {
+      chunks.push(Buffer.from(chunk))
+      callback()
     },
+    final(callback) {
+      done.emit("end")
+      callback()
+    },
+  }), {
     setHeader(name: string, value: string) {
       headers[name] = value
     },
     statusCode: 200,
-    write(chunk: Buffer) {
-      chunks.push(chunk)
-    },
-  }
+  })
   const ended = new Promise(resolve => done.once("end", resolve))
   middleware(incoming(init), res as unknown as ServerResponse, () => done.emit("end"))
   await ended
@@ -76,6 +79,138 @@ function nitroRequest(init: { headers?: Record<string, string>, method?: string 
 }
 
 describe("Nitro dev forwarding", () => {
+  it("cancels a stalled buffered response without writing after disconnect", async () => {
+    const reading = Promise.withResolvers<void>()
+    const cancelled = Promise.withResolvers<void>()
+    const cancel = vi.fn(() => cancelled.resolve())
+    const response = new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("first"))
+      },
+      pull() {
+        reading.resolve()
+        return new Promise<void>(() => {})
+      },
+      cancel,
+    }))
+    const dispatchFetch = vi.fn(async (_request: Request) => response)
+    const { server, middlewares } = fakeServer({ nitro: { dispatchFetch } })
+    registerViteHubNitroDevEndpoint(server, { ...guard, route, runtimeRoute })
+    const req = incoming({ body: "{}", headers: json, method: "POST" })
+    const res = Object.assign(new Writable(), { setHeader: vi.fn(), statusCode: 200 }) as unknown as ServerResponse
+    const write = vi.spyOn(res, "write")
+    const end = vi.spyOn(res, "end")
+    middlewares[0]!(req, res, vi.fn())
+    await reading.promise
+    expect(response.body?.locked).toBe(true)
+    res.destroy()
+    await cancelled.promise
+    await vi.waitFor(() => expect(response.body?.locked).toBe(false))
+    expect(dispatchFetch.mock.calls[0]![0].signal.aborted).toBe(true)
+    expect(cancel).toHaveBeenCalledOnce()
+    expect(write).not.toHaveBeenCalled()
+    expect(end).not.toHaveBeenCalled()
+  })
+
+  it("aborts Nitro work when the client disconnects before the response", async () => {
+    const requestStarted = Promise.withResolvers<Request>()
+    const dispatchFetch = vi.fn((request: Request) => {
+      requestStarted.resolve(request)
+      return new Promise<Response>((_resolve, reject) => request.signal.addEventListener("abort", () => reject(request.signal.reason), { once: true }))
+    })
+    const { server, middlewares } = fakeServer({ nitro: { dispatchFetch } })
+    registerViteHubNitroDevEndpoint(server, { ...guard, route, runtimeRoute, streamResponse: true })
+    const req = incoming({ body: "{}", headers: json, method: "POST" })
+    const res = new Writable() as unknown as ServerResponse
+    middlewares[0]!(req, res, vi.fn())
+    const request = await requestStarted.promise
+    res.destroy()
+    await new Promise<void>(resolve => request.signal.addEventListener("abort", () => resolve(), { once: true }))
+    expect(request.signal.aborted).toBe(true)
+  })
+
+  it("cancels a runtime response that arrives after the client disconnects", async () => {
+    const requestStarted = Promise.withResolvers<void>()
+    const runtimeResponse = Promise.withResolvers<Response>()
+    const cancelled = Promise.withResolvers<void>()
+    const cancel = vi.fn(() => cancelled.resolve())
+    const { server, middlewares } = fakeServer({ nitro: { dispatchFetch: async () => {
+      requestStarted.resolve()
+      return runtimeResponse.promise
+    } } })
+    registerViteHubNitroDevEndpoint(server, { ...guard, route, runtimeRoute, streamResponse: true })
+    const req = incoming({ body: "{}", headers: json, method: "POST" })
+    const res = new Writable() as unknown as ServerResponse
+    middlewares[0]!(req, res, vi.fn())
+    await requestStarted.promise
+    res.destroy()
+    runtimeResponse.resolve(new Response(new ReadableStream({ cancel })))
+    await cancelled.promise
+    expect(cancel).toHaveBeenCalledOnce()
+  })
+
+  it("cancels a stalled runtime stream when the client disconnects", async () => {
+    const firstChunk = Promise.withResolvers<void>()
+    const cancelled = Promise.withResolvers<void>()
+    const cancel = vi.fn(() => cancelled.resolve())
+    const pull = vi.fn(() => new Promise<void>(() => {}))
+    const response = new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("first"))
+      },
+      cancel,
+      pull,
+    }))
+    const dispatchFetch = vi.fn(async (_request: Request) => response)
+    const { server, middlewares } = fakeServer({ nitro: { dispatchFetch } })
+    registerViteHubNitroDevEndpoint(server, { ...guard, route, runtimeRoute, streamResponse: true })
+    const req = incoming({ body: "{}", headers: json, method: "POST" })
+    const res = Object.assign(new Writable({
+      write(_chunk, _encoding, callback) {
+        firstChunk.resolve()
+        callback()
+      },
+    }), { setHeader: vi.fn(), statusCode: 200 }) as unknown as ServerResponse
+    middlewares[0]!(req, res, vi.fn())
+    await firstChunk.promise
+    expect(pull).toHaveBeenCalledOnce()
+    expect(dispatchFetch.mock.calls[0]![0].signal.aborted).toBe(false)
+    res.destroy()
+    await cancelled.promise
+    expect(cancel).toHaveBeenCalledOnce()
+    expect(dispatchFetch.mock.calls[0]![0].signal.aborted).toBe(true)
+  })
+
+  it("forwards streamed bytes without buffering the response", async () => {
+    const response = new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("first"))
+        controller.enqueue(new TextEncoder().encode("second"))
+        controller.close()
+      },
+    }))
+    const buffered = vi.spyOn(response, "arrayBuffer").mockRejectedValue(new Error("must stream"))
+    const { server, middlewares } = fakeServer({ nitro: { dispatchFetch: async () => response } })
+    registerViteHubNitroDevEndpoint(server, { ...guard, route, runtimeRoute, streamResponse: true })
+    const result = await call(middlewares[0]!, { body: "{}", headers: json, method: "POST" })
+    expect(result).toMatchObject({ body: "firstsecond", status: 200 })
+    expect(buffered).not.toHaveBeenCalled()
+  })
+
+  it("buffers all response chunks until the runtime body finishes", async () => {
+    const response = new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("first"))
+        controller.enqueue(new TextEncoder().encode("second"))
+        controller.close()
+      },
+    }), { status: 201, headers: { "content-type": "text/plain" } })
+    const { server, middlewares } = fakeServer({ nitro: { dispatchFetch: async () => response } })
+    registerViteHubNitroDevEndpoint(server, { ...guard, route, runtimeRoute })
+    const result = await call(middlewares[0]!, { body: "{}", headers: json, method: "POST" })
+    expect(result).toMatchObject({ body: "firstsecond", headers: { "content-type": "text/plain" }, status: 201 })
+  })
+
   it("adds trusted runtime headers without forwarding incoming credentials", async () => {
     const dispatchFetch = vi.fn(async (_request: Request) => new Response())
     await forwardViteHubDevRequestToNitro({ environments: { nitro: { dispatchFetch } } }, incoming({ body: "{}", headers: { "x-runtime-token": "forged", authorization: "incoming-secret" }, method: "POST" }), {

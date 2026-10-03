@@ -56,20 +56,6 @@ describe("Console section contributions", () => {
     }
   })
 
-  it("preserves runnable Schedule metadata for the Console UI", () => {
-    const definition = { fields: [], file: "server/schedules/sync.ts", name: "sync", runnable: true, source: "server-schedules" }
-    const content = { definitions: [definition], kind: "definition-catalog", section: "schedules" }
-
-    expect(parseConsoleSectionContent(JSON.parse(JSON.stringify(content)), "schedules")).toEqual({
-      definitions: [definition],
-      kind: "definition-catalog",
-    })
-    expect(parseConsoleSectionContent({ ...content, definitions: [{ ...definition, runnable: "true" }] }, "schedules")).toEqual({
-      definitions: [{ ...definition, runnable: undefined }],
-      kind: "definition-catalog",
-    })
-  })
-
   it("keeps the playground descriptors equal to the owner descriptors", async () => {
     // The playground is outside this package's TypeScript root, so load it at test time.
     const { playgroundConsoleContributions } = await vi.importActual<{

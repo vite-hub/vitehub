@@ -6,7 +6,6 @@ import { consoleSectionDetails, consoleSectionRouteName, isConsoleBuiltinSection
 import { requestConsole } from "./request"
 
 export interface ConsoleNavigation {
-  /** `true` for a Console Auth session, `"cloudflare-access"` when Cloudflare Access verifies each request. */
   auth: boolean | "cloudflare-access"
   /** Descriptors of the installed sections that owner packages contribute, keyed by section id. */
   contributions: Readonly<Record<ConsoleSectionId, ConsoleContributedSection>>
@@ -30,7 +29,7 @@ function parseConsoleNavigation(value: unknown): ConsoleNavigation {
         isConsoleBuiltinSectionId(section) || (isConsoleSectionId(section) && Object.hasOwn(contributions, section)))
     : []
   return {
-    auth: response?.auth === true || response?.auth === "cloudflare-access" ? response.auth : false,
+    auth: response?.auth === "cloudflare-access" ? "cloudflare-access" : response?.auth === true,
     contributions,
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
     ...(typeof response?.projectName === "string" && response.projectName.trim()

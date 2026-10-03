@@ -233,7 +233,7 @@ export function renderBlobRuntimeModule(file: string, blobConfig: false | Resolv
     `import { setBlobRuntimeConfig, setBlobRuntimeStorage, setNamedBlobRuntimeStorage } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("runtime/state")))}`,
   ]
   if (selectedDriverModules.length > 0) {
-    imports.push(`import { createBlobStorage } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("storage")))}`)
+    imports.push(`import { createBlobStorage, handleBlobMultipartUpload, handleBlobUpload } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("storage")))}`)
     imports.push(`import { blobResult, unknownBlobStoreError } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("errors")))}`)
   }
   for (const driverModule of selectedDriverModules) {
@@ -276,6 +276,16 @@ export function renderBlobRuntimeModule(file: string, blobConfig: false | Resolv
           "  return { ...object, url: joinServedBlobUrl(serve.publicBaseUrl || \"/\", serve.route, object.pathname) }",
           "}",
           "",
+          "function withServedMultipartUrl(name, upload) {",
+          "  return {",
+          "    ...upload,",
+          "    async complete(parts) {",
+          "      const [error, object] = await upload.complete(parts)",
+          "      return error ? [error, undefined] : [null, withServedBlobUrl(name, object)]",
+          "    },",
+          "  }",
+          "}",
+          "",
           "const blobStorages = new Map()",
           "",
           "function createBlobDriver(store) {",
@@ -297,6 +307,16 @@ export function renderBlobRuntimeModule(file: string, blobConfig: false | Resolv
           "  const storage = createBlobStorage(createBlobDriver(resolveBlobStoreConfig(name)), name)",
           "  const runtimeStorage = {",
           "    ...storage,",
+          "    async createMultipartUpload(pathname, options) {",
+          "      const [error, upload] = await storage.createMultipartUpload(pathname, options)",
+          "      return error ? [error, undefined] : [null, withServedMultipartUrl(name, upload)]",
+          "    },",
+          "    handleMultipartUpload: (event, options) => handleBlobMultipartUpload(runtimeStorage, event, options),",
+          "    handleUpload: (event, options) => handleBlobUpload(runtimeStorage, event, options),",
+          "    async resumeMultipartUpload(pathname, uploadId) {",
+          "      const [error, upload] = await storage.resumeMultipartUpload(pathname, uploadId)",
+          "      return error ? [error, undefined] : [null, withServedMultipartUrl(name, upload)]",
+          "    },",
           "    async head(pathname) {",
           "      const [error, object] = await storage.head(pathname)",
           "      return error ? [error, undefined] : [null, withServedBlobUrl(name, object)]",
@@ -322,6 +342,10 @@ export function renderBlobRuntimeModule(file: string, blobConfig: false | Resolv
           "",
           "function createLazyGeneratedBlobStorage(name) {",
           "  return {",
+          "    async createMultipartUpload(pathname, options) { const [error, storage] = await resolveGeneratedBlobStorage(name, \"multipart\"); return error ? [error, undefined] : storage.createMultipartUpload(pathname, options) },",
+          "    async handleMultipartUpload(event, options) { const [error, storage] = await resolveGeneratedBlobStorage(name, \"multipart\"); return error ? [error, undefined] : storage.handleMultipartUpload(event, options) },",
+          "    async handleUpload(event, options) { const [error, storage] = await resolveGeneratedBlobStorage(name, \"upload\"); return error ? [error, undefined] : storage.handleUpload(event, options) },",
+          "    async resumeMultipartUpload(pathname, uploadId) { const [error, storage] = await resolveGeneratedBlobStorage(name, \"multipart\"); return error ? [error, undefined] : storage.resumeMultipartUpload(pathname, uploadId) },",
           "    async del(pathnames) { const [error, storage] = await resolveGeneratedBlobStorage(name, \"del\"); return error ? [error, undefined] : storage.del(pathnames) },",
           "    async get(pathname) { const [error, storage] = await resolveGeneratedBlobStorage(name, \"get\"); return error ? [error, undefined] : storage.get(pathname) },",
           "    async head(pathname) { const [error, storage] = await resolveGeneratedBlobStorage(name, \"head\"); return error ? [error, undefined] : storage.head(pathname) },",

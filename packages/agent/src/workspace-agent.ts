@@ -1,5 +1,5 @@
-import { inheritAgentLayerOptions } from "./agent-layers.ts"
 import { agentDefinitionSourceSymbol } from "./internal/agent-definition-source.ts"
+import { inheritAgentLayerOptions } from "./agent-layers.ts"
 import { registeredWorkspaceAgentNames } from "./internal/workspace-agent-registration.ts"
 import { agentInstructionSources, resolveAgentInstructions } from "./agent-instructions.ts"
 import { asUnknownBoundary, hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
@@ -38,7 +38,7 @@ import { inheritAgentCapacity, inspectAgentCapacity } from "./internal/agent-cap
 import { normalizeAgentDriver } from "./internal/agent-driver.ts"
 import { gatewayModelDescriptor } from "./internal/agent-model.ts"
 import { consumesMessageChannelInstructions, inspectMessageChannelInstructions } from "./internal/channels.ts"
-import { colocatedAgentSkillsSymbol, type ColocatedAgentSkills } from "./internal/colocated-agent-skills.ts"
+import { colocatedAgentSkillsSymbol, discoveredSkillsSetter, type ColocatedAgentSkills } from "./internal/colocated-agent-skills.ts"
 
 import type {
   AgentAdapterInstructions,
@@ -315,26 +315,14 @@ export function workspaceAgentWithSourceRoot<Agent>(agent: Agent, sourceRootDir:
     ...workspaceDefinitionFromOptions(workspaceOptions as never),
     __vitehubWorkspaceAgentOptions: workspaceOptions,
   }
+  for (const key of [colocatedAgentSkillsSymbol, discoveredSkillsSetter]) {
+    const descriptor = Object.getOwnPropertyDescriptor(workspaceAgent, key)
+    if (descriptor) Object.defineProperty(decoratedAgent, key, descriptor)
+  }
   Object.defineProperty(decoratedAgent, agentDefinitionSourceSymbol, { configurable: true, value: workspaceAgent })
   inheritAgentCapacity(workspaceAgent, decoratedAgent)
   inheritAgentLayerOptions(workspaceAgent, decoratedAgent, {
     workspace: decoratedWorkspace,
-  })
-  Object.defineProperty(decoratedAgent, colocatedAgentSkillsSymbol, {
-    configurable: true,
-    enumerable: true,
-    get: () => {
-      const inherited = Reflect.get(workspaceAgent, colocatedAgentSkillsSymbol)
-      const source = Reflect.get(workspaceAgent, agentDefinitionSourceSymbol)
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Reflect metadata is an open boundary.
-      const sourceSkills = source !== null && typeof source === "object" ? Reflect.get(source, colocatedAgentSkillsSymbol) : undefined
-      if (!hasRuntimeType(colocatedSkills, "object") && !hasRuntimeType(inherited, "object") && !hasRuntimeType(sourceSkills, "object")) return undefined
-      return {
-        ...(hasRuntimeType(colocatedSkills, "object") ? colocatedSkills : {}),
-        ...(hasRuntimeType(inherited, "object") ? inherited : {}),
-        ...(hasRuntimeType(sourceSkills, "object") ? sourceSkills : {}),
-      }
-    },
   })
   // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
   return decoratedAgent as Agent
@@ -637,7 +625,7 @@ function resolvedDriverExecutionAuthority<
   driver: ReturnType<typeof normalizeAgentDriver<TRuntimeConfig, CALL_OPTIONS>>,
   runtime?: AgentRuntimeName,
 ): ExecutionAuthority {
-  if (driver.kind === "model") return noExecutionAuthority
+  if (driver.kind === "model" || driver.kind === "ask") return noExecutionAuthority
   if (driver.kind === "provider" && (runtime === "cloudflare-agents" || runtime === "deno")) return noExecutionAuthority
   return driver.kind === "provider" ? staticDriverExecutionAuthority(driver) : unknownExecutionAuthority
 }
@@ -810,14 +798,14 @@ function providerResolverKind(value: unknown): "dynamic" | "static" {
 function providerMetadata(driver: {
   credentialProfile?: string
   credentials?: unknown
-  cwd?: unknown
   env?: unknown
+  cwd?: unknown
+  requirements?: readonly string[]
   launch?: unknown
   model?: string
   permissions: AgentInspectionProviderMetadata["permissions"]
   provider: string
   providerSettings?: Record<string, unknown>
-  requirements?: readonly string[]
   reasoningEffort?: AgentInspectionProviderMetadata["reasoningEffort"]
   reasoningSummary?: AgentInspectionProviderMetadata["reasoningSummary"]
   sessionStorePath?: string
@@ -831,13 +819,13 @@ function providerMetadata(driver: {
     ...(driver.credentialProfile ? { credentialProfile: driver.credentialProfile } : {}),
     ...(driver.credentials !== undefined ? { credentials: true } : {}),
     ...(driver.cwd !== undefined ? { cwd: providerResolverKind(driver.cwd) } : {}),
+    ...(driver.requirements?.length ? { requirements: driver.requirements } : {}),
     ...(driver.env !== undefined ? { environment: providerResolverKind(driver.env) } : {}),
     ...(driver.launch !== undefined ? { launch: providerResolverKind(driver.launch) } : {}),
     ...(driver.model ? { model: driver.model } : {}),
     permissions: driver.permissions,
     provider: driver.provider,
     ...(providerSettings.length ? { providerSettings } : {}),
-    ...(driver.requirements?.length ? { requirements: [...driver.requirements] } : {}),
     ...(driver.reasoningEffort ? { reasoningEffort: driver.reasoningEffort } : {}),
     ...(driver.reasoningSummary ? { reasoningSummary: driver.reasoningSummary } : {}),
     ...(driver.sessionStorePath ? { sessionStore: "sqlite" as const } : {}),
@@ -869,7 +857,8 @@ function staticDriverMetadata<
       provider: providerMetadata(driver),
     }
   }
-  return { executionAuthority: driver.kind === "ask" ? noExecutionAuthority : unknownExecutionAuthority, kind: driver.kind }
+  if (driver.kind === "ask") return { executionAuthority: noExecutionAuthority, kind: "ask" }
+  return { executionAuthority: unknownExecutionAuthority, kind: "run" }
 }
 
 async function resolvedDriverMetadata<
@@ -905,6 +894,7 @@ async function resolvedDriverMetadata<
       provider: providerMetadata(driver),
     }
   }
+  if (driver.kind === "ask") return { executionAuthority: noExecutionAuthority, kind: "ask" }
   return { executionAuthority: unknownExecutionAuthority, kind: "run" }
 }
 

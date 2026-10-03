@@ -55,7 +55,6 @@ export default defineSchedule({
 | `defineScheduleTarget` from `@vite-hub/schedule` | Declare a cronless target for Runtime Schedules. |
 | `schedules`, `validateRuntimeScheduleCron` from `@vite-hub/schedule` or `@vite-hub/schedule/runtime` | Manage Runtime Schedules and validate cron strings. |
 | `executeSchedule`, `executeStaticSchedule`, `executeRuntimeSchedule`, `createScheduleRun` from `@vite-hub/schedule/runtime` | Execute schedules from provider hooks or custom runtime wiring. |
-| `runSchedule` from `@vite-hub/schedule/runtime` | Run a manual Static Schedule Definition now. |
 | `createMemoryRuntimeScheduleStore`, `createKVRuntimeScheduleStore` from `@vite-hub/schedule/runtime` | Configure Runtime Schedule storage. |
 | `createMemoryScheduleRunStore`, `createKVScheduleRunStore` from `@vite-hub/schedule/runtime` | Configure Schedule Run storage. |
 | `setRuntimeScheduleStore`, `setScheduleRunStore`, `setScheduleRuntimeRegistry` from `@vite-hub/schedule/runtime` | Wire custom runtime state. |
@@ -144,54 +143,27 @@ Cron expressions use the Schedule Time Base, currently UTC. The discovered file 
 | `cron` | `string` | Yes | Five-field UTC cron expression for the Static Schedule Definition. |
 | `handler` | `ScheduleHandler` | Yes | Function called with Schedule Run Context. |
 | `allowRuntimeSchedules` | `boolean` | No | Allows Runtime Schedules to target this definition. |
-| `manual` | `boolean` | No | Allows on-demand runs through `runSchedule()`, the Console, and `vitehub schedule run`. Defaults to `false`. |
+| `manual` | `boolean` | No | Allows `vitehub schedule run` and Console invocation to run this definition outside its cron. |
 
-Write `allowRuntimeSchedules` and `manual` as a literal `true` or `false` in the directly exported definition. Discovery does not evaluate constants, spreads, computed properties, or getters. Unsupported forms fail with the source file and line instead of silently omitting a runtime target.
+Set `manual: true` to enable on-demand runs for a Static Schedule Definition:
 
-`ScheduleRunContext` includes `id`, `scheduledAt`, `waitUntil`, optional `attemptId`, optional `runId`, optional Runtime Schedule id, optional Runtime Schedule target, and optional Runtime Schedule `input`.
-
-Use `waitUntil(promise)` for consequential work that can outlive the handler body. Direct and local execution settles registered work before recording the Schedule Run result; a rejection fails the run with the same diagnostics as a handler rejection. An installed wake runtime instead retains registered work after the handler returns, reports rejection through its `onError` hook, and drains outstanding work when the runtime closes.
-
-## Run a Schedule on demand
-
-Cron stays the normal trigger. Set `manual: true` when a person or a script must also start the same work now, for example to process a backlog after a deploy.
-
-```ts [server/schedules/sync.ts]
-import { defineSchedule } from 'vite-hub/schedule'
-
+```ts [server/schedules/daily-report.ts]
 export default defineSchedule({
-  cron: '*/5 * * * *',
+  cron: '0 8 * * *',
   manual: true,
   async handler() {
-    await syncInbox()
+    await sendDailyReport()
   },
 })
 ```
 
-Run it from the terminal. Without `--url`, the command uses the running Vite Development Server:
+Run it from a ViteHub development server with `vitehub schedule run daily-report`. The command uses the discovered file name as the definition name and supports `--json`; deployments can invoke the same definition through the Console.
 
-```bash [Terminal]
-pnpm vitehub schedule run sync
-pnpm vitehub schedule run sync --url https://app.example.com
-```
+Write `allowRuntimeSchedules` as a literal `true` or `false` in the directly exported definition. Discovery does not evaluate constants, spreads, computed properties, or getters. Unsupported forms fail with the source file and line instead of silently omitting a runtime target.
 
-With `--url`, the command posts to the deployed [Console](/docs/development/cli#run-a-schedule-on-demand), so the deployment needs `console.invoke` and a Console credential. Read [CLI](/docs/development/cli#run-a-schedule-on-demand) for the credential variables. The Console Schedules page shows a **Run now** button for the same definitions.
+`ScheduleRunContext` includes `id`, `scheduledAt`, `waitUntil`, optional `attemptId`, optional `runId`, optional Runtime Schedule id, optional Runtime Schedule target, and optional Runtime Schedule `input`.
 
-Server code can use the Runtime Helper. In Vite server code, pass the generated registry:
-
-```ts [server/api/sync.post.ts]
-import { runSchedule } from 'vite-hub/schedule/runtime'
-import registry from '#vitehub/schedule/registry'
-
-export default defineEventHandler(async () => {
-  const run = await runSchedule('sync', { registry })
-  return { id: run.id, status: run.status }
-})
-```
-
-`runSchedule(name, options?)` loads the definition from `options.registry`, or from the registry that the Process Runtime or `setScheduleRuntimeRegistry()` installed. It rejects with `SCHEDULE_DEFINITION_NOT_FOUND` when the name is not a Static Schedule Definition, and with `SCHEDULE_MANUAL_RUN_DISABLED` when the definition does not set `manual: true`. After the handler starts, it resolves with the finished Schedule Run record. A handler failure resolves with `status: 'failed'` and `error`; it does not reject.
-
-A manual run uses the run id `srun_manual_<name>_<ISO time>_<unique suffix>`, so it never matches the id of a cron occurrence and never deduplicates another manual request. A manual run does not wait for a cron run of the same definition, and a cron run does not wait for a manual run. Make the handler safe to run twice at the same time. Use `schedules.run(id)` for Runtime Schedules; `runSchedule()` runs only Static Schedule Definitions.
+Use `waitUntil(promise)` for consequential work that can outlive the handler body. Direct and local execution settles registered work before recording the Schedule Run result; a rejection fails the run with the same diagnostics as a handler rejection. An installed wake runtime instead retains registered work after the handler returns, reports rejection through its `onError` hook, and drains outstanding work when the runtime closes.
 
 ## Create recurring Runtime Schedules
 
@@ -283,13 +255,11 @@ pnpm vitehub schedule runs weekday-report --limit 5 --json
 pnpm vitehub schedule run-runtime weekday-report
 ```
 
-Use `pnpm vitehub schedule get --json -- -daily` for an ID that starts with a hyphen. All options must precede `--`.
-
 The commands use the same Schedule stores and registry as the running server. The list shows the enabled state, the next due time in the Schedule time zone, and the last run. When no wake driver is installed, the output says that due times do not start runs in this runtime. Read [CLI](/docs/development/cli#inspect-and-control-runtime-schedules) for every command and option.
 
 The Console Schedules page shows the same Runtime Schedules and their run history, next to the discovered Schedule Definitions. It reads the stores on each request and is read-only. Set `console: { enabled: false }` on a Runtime Schedule to hide it in the Console.
 
-Both surfaces redact values under secret-named keys in Schedule input, and credentials in URLs, bearer tokens, and secret assignments in error names, error messages, and response status text.
+Both surfaces redact values under secret-named keys in Schedule input, and credentials in URLs, bearer tokens, and secret assignments in error messages.
 
 | Host | `vitehub schedule` | Console Schedules page |
 | --- | --- | --- |
@@ -338,8 +308,6 @@ Static provider output remains build-time configuration; selecting the Process R
 | KV Schedule Run Store | `createKVScheduleRunStore({ kvStore, prefix? })` | Persists Schedule Runs and attempts through KV-compatible storage. |
 | Custom Store | `setRuntimeScheduleStore(store)`, `setScheduleRunStore(store)` | Implement `RuntimeScheduleStore` or `ScheduleRunStore` directly. |
 
-Implement `ScheduleRunStore.listRuns({ scheduleId, runtimeOnly, limit })` with a filtered storage query. The Console requests ten runs per Runtime Schedule. CLI list and get request the latest run, and `runs --limit` passes its limit to the store. Built-in KV storage selects run keys through a persisted metadata index. When that index is unavailable, it reads at most 1,000 legacy records with at most 16 concurrent reads and throws `SCHEDULE_HISTORY_INCOMPLETE` if more unindexed records remain, rather than silently returning incomplete filtered or newest-run results. The store repairs these index entries when writes are available. Index publication is optional and a failed write preserves the authoritative run.
-
 Both KV factories require an explicit `ScheduleKVStorage`. To use ViteHub KV, pass `scheduleKVStorage` from `vite-hub/schedule/runtime/kv` (or `@vite-hub/schedule/runtime/kv` for standalone consumers). Standalone consumers must install `@vite-hub/kv` when using that adapter. Static schedules, memory stores, and custom storage do not need the package.
 
 ```ts
@@ -368,7 +336,7 @@ Static Schedule Definitions and Provider Wake output remain UTC. Runtime Schedul
 
 - Use [Queue](/docs/server-primitives/queue) when a provider-supported enqueue delay is enough.
 - Use [Workflows](/docs/server-primitives/workflows) for durable orchestration.
-- Learn trigger language in [Channels](/docs/agents/channels).
+- Learn trigger language in [Agent Channels](/docs/agents/channels).
 
 
 ## Definition-owned target inputs
@@ -393,7 +361,3 @@ When an update changes `input`, also supply `target`. When an update changes `ta
 Use `schedules.dynamic.create()` and `schedules.dynamic.update()` when names or stored input come from external data. The dynamic methods validate target eligibility and Schedule fields. They do not validate a target's business input. Validate that data in the application and again in a target that reads durable records.
 
 This is a breaking change: include the generated declarations for typed application calls, and move operational calls with unknown names to `schedules.dynamic`. There is no permissive string overload on typed creation.
-
-The KV Run Store indexes attempts by run ID before reading their payloads. `listAttempts(runId)` reads only matching indexed attempts. Legacy attempts or failed index writes require a scan with at most 16 concurrent reads; successful backfill makes later queries read only matches. Each query uses fresh index keys and sees attempts written by other runtimes.
-
-The built-in KV Run Store supports `listRunsBatch()` for several filtered histories. CLI lists and Console inspection share one fresh key snapshot per request and read each unindexed record once. Each new request sees runs written by other runtimes. Custom Run Stores can implement this optional method or keep `listRuns()`.

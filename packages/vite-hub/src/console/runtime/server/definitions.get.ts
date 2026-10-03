@@ -48,8 +48,8 @@ export default async function consoleDefinitionsHandler(event: ConsoleRequestEve
   if (section === "schedules" && content.kind === "definition-catalog") {
     const runnable = getConsoleSchedules()
     return {
+      ...content,
       definitions: content.definitions.map(definition => Object.hasOwn(runnable, definition.name) ? { ...definition, runnable: true } : definition),
-      kind: "definition-catalog",
       section,
     }
   }

@@ -1,12 +1,13 @@
 import { createBlobStorage } from "../storage.ts"
 import { Diagnostic } from "nostics"
 import { blobResult } from "../errors.ts"
+import { handleBlobMultipartUpload, handleBlobUpload } from "../upload.ts"
 import { resolveRuntimeMinioBlobStore, resolveRuntimeVercelBlobStore } from "../config.ts"
 import { createDriver as createCloudflareR2NativeDriver, getOptionalBucket } from "../drivers/cloudflare-native.ts"
 
 import { getBlobRuntimeConfig, getNamedBlobRuntimeStorage, setNamedBlobRuntimeStorage } from "./state.ts"
 
-import type { BlobDriverAdapter, BlobObject, BlobOperation, BlobResult, BlobStorage, BlobStoreName, ResolvedBlobModuleOptions, ResolvedBlobStoreConfig, ResolvedCloudflareR2BlobStoreConfig } from "../types.ts"
+import type { BlobDriverAdapter, BlobMultipartUpload, BlobObject, BlobOperation, BlobResult, BlobStorage, BlobStoreName, ResolvedBlobModuleOptions, ResolvedBlobStoreConfig, ResolvedCloudflareR2BlobStoreConfig } from "../types.ts"
 import { blobErrorDiagnostics } from "../error-diagnostics.ts"
 
 class UnknownBlobStoreError extends Diagnostic {
@@ -46,9 +47,18 @@ async function importRuntimeDriver(config: ResolvedBlobStoreConfig) {
       fallbackDriver ||= importRuntimeDriverModule(config)
       return fallbackDriver
     }
+    // Multipart uploads use the R2 binding API; the HTTP fallback has no multipart support.
+    const multipartBucket = () => {
+      if (!getOptionalBucket(config)) {
+        throw blobErrorDiagnostics.BLOB_R0030({ message: `Cloudflare R2 multipart uploads require the "${config.binding}" R2 binding.` })
+      }
+      return nativeDriver
+    }
     return {
       name: config.driver,
       options: config,
+      createMultipartUpload: async (pathname, options) => multipartBucket().createMultipartUpload!(pathname, options),
+      resumeMultipartUpload: async (pathname, uploadId) => multipartBucket().resumeMultipartUpload!(pathname, uploadId),
       delete: async pathnames => (await activeDriver()).delete(pathnames),
       get: async pathname => (await activeDriver()).get(pathname),
       getArrayBuffer: async pathname => (await activeDriver()).getArrayBuffer(pathname),
@@ -135,8 +145,33 @@ async function resolveStorageResult(operation: BlobOperation, name: string): Pro
   return result
 }
 
-function createRuntimeBlobStorage(name = "default"): BlobStorage {
+// Completed multipart objects get the served URL, like put().
+function withServedMultipartUrl(name: string, upload: BlobMultipartUpload): BlobMultipartUpload {
   return {
+    ...upload,
+    async complete(parts) {
+      const [error, object] = await upload.complete(parts)
+      return error ? [error, undefined] : [null, await withServedBlobUrl(name, object)]
+    },
+  }
+}
+
+function createRuntimeBlobStorage(name = "default"): BlobStorage {
+  const storage: BlobStorage = {
+    async createMultipartUpload(pathname, options) {
+      const [resolutionError, resolved] = await resolveStorageResult("multipart", name)
+      if (resolutionError) return [resolutionError, undefined]
+      const [error, upload] = await resolved.createMultipartUpload(pathname, options)
+      return error ? [error, undefined] : [null, withServedMultipartUrl(name, upload)]
+    },
+    handleMultipartUpload: (event, options) => handleBlobMultipartUpload(storage, event, options),
+    handleUpload: (event, options) => handleBlobUpload(storage, event, options),
+    async resumeMultipartUpload(pathname, uploadId) {
+      const [resolutionError, resolved] = await resolveStorageResult("multipart", name)
+      if (resolutionError) return [resolutionError, undefined]
+      const [error, upload] = await resolved.resumeMultipartUpload(pathname, uploadId)
+      return error ? [error, undefined] : [null, withServedMultipartUrl(name, upload)]
+    },
     async del(pathnames) {
       const [error, storage] = await resolveStorageResult("del", name)
       return error ? [error, undefined] : storage.del(pathnames)
@@ -175,6 +210,7 @@ function createRuntimeBlobStorage(name = "default"): BlobStorage {
     },
     store(storeName: BlobStoreName) { return createRuntimeBlobStorage(storeName) },
   }
+  return storage
 }
 
 export const blob: BlobStorage = createRuntimeBlobStorage()

@@ -2,12 +2,16 @@ import { existsSync } from "node:fs"
 import { resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
+import { discoverViteHubDevServer } from "@vite-hub/internal/cli"
 import { asUnknownBoundary, hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 import { isRuntimeRecord } from "./runtime-type.ts"
 import type { AgentInvocationListResult, AgentInvocationRecord, AgentInvocationStore } from "../invocations.ts"
 import type { AgentInvocationDetailResult } from "../invocations-vue.ts"
 import type { RuntimeDiagnosticError } from "@vite-hub/runtime"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
+import { isCompatibleAgentDevServerRoot } from "./agent-info-cli.ts"
+import { agentInvocationsDevHeader, agentInvocationsDevHeaderValue, agentInvocationsDevRoute, agentInvocationsDevTokenServerHeader } from "../invocations-dev.ts"
+import { readWorkspaceDevToken, workspaceDevTokenHeader } from "@vite-hub/workspace/server"
 
 interface AgentInvocationsCliContext {
   env: NodeJS.ProcessEnv
@@ -23,9 +27,9 @@ export interface AgentInvocationsCliOptions {
   timeout?: number
 }
 
-type Action = "delete" | "list" | "prune" | "show" | "tail"
+type Action = "cancel" | "delete" | "list" | "prune" | "show" | "tail"
 
-const actions = new Set<string>(["delete", "list", "prune", "show", "tail"] satisfies Action[])
+const actions = new Set<string>(["cancel", "delete", "list", "prune", "show", "tail"] satisfies Action[])
 
 function isAction(value: string): value is Action {
   return actions.has(value)
@@ -51,7 +55,7 @@ const durationUnits: Record<string, number> = { d: 86_400_000, h: 3_600_000, m: 
 
 function usage(context: AgentInvocationsCliContext): void {
   context.stdout.write([
-    "Usage: vitehub agent invocations <list|show|tail|delete|prune> [id] [options]",
+    "Usage: vitehub agent invocations <list|show|tail|cancel|delete|prune> [id] [options]",
     "",
     "list, show, and tail inspect an application's Agent Invocation journal over HTTP.",
     "delete and prune remove completed, failed, and cancelled records from a SQLite or libSQL journal.",
@@ -161,7 +165,7 @@ function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
     else if (!parsed.id && parsed.action !== "list" && parsed.action !== "prune") parsed.id = argument
     else throw agentDiagnostics.AGENT_R0505({ message: `Unexpected argument: ${redactCliArgument(argument)}.` })
   }
-  if (!parsed.help && !parsed.action) throw agentDiagnostics.AGENT_R0506({ message: "Choose list, show, tail, delete, or prune." })
+  if (!parsed.help && !parsed.action) throw agentDiagnostics.AGENT_R0506({ message: "Choose list, show, tail, cancel, delete, or prune." })
   if (!parsed.help && parsed.action !== "list" && parsed.action !== "prune" && !parsed.id) throw agentDiagnostics.AGENT_R0507({ message: `${parsed.action} requires an invocation id.` })
   if (!parsed.help && parsed.dryRun && parsed.action !== "prune") throw agentDiagnostics.AGENT_R0505({ message: "--dry-run is only supported for prune." })
   return parsed
@@ -374,6 +378,63 @@ function detailRecord(result: AgentInvocationDetailResult): AgentInvocationRecor
   return { ...result.invocation, observations: result.observations }
 }
 
+async function cancelInvocation(parsed: ParsedArgs, context: AgentInvocationsCliContext, fetchImpl: typeof fetch, timeout: number): Promise<number> {
+  const discoveryError = { value: "" }
+  const server = await discoverViteHubDevServer<{ root?: unknown, workspaceDevTokenServerId?: unknown }>({
+    endpoint: { header: agentInvocationsDevHeader, headerValue: agentInvocationsDevHeaderValue, route: agentInvocationsDevRoute },
+    fetch: fetchImpl,
+    isCompatibleRoot: isCompatibleAgentDevServerRoot,
+    rootDir: resolve(context.rootDir ?? process.cwd()),
+    serverUrl: parsed.url,
+    signal: AbortSignal.timeout(timeout),
+    stderr: { write: chunk => { discoveryError.value += String(chunk); return true } },
+  })
+  const serverId = server && hasRuntimeType(server.discovery.workspaceDevTokenServerId, "string")
+    ? server.discovery.workspaceDevTokenServerId
+    : undefined
+  if (!server || !serverId) throw new Error(discoveryError.value.trim() || "No Compatible Vite Development Server found.")
+  const target = new URL(server.url)
+  const serverRoot = hasRuntimeType(server.discovery.root, "string") ? server.discovery.root : context.rootDir ?? process.cwd()
+  const token = await readWorkspaceDevToken(serverRoot, { serverId })
+  if (!token) throw new Error("No private Agent Dev token found. Start the Compatible Vite Development Server first.")
+  target.pathname = agentInvocationsDevRoute
+  target.search = ""
+  target.hash = ""
+  const response = await fetchImpl(target, {
+    body: JSON.stringify({ id: parsed.id, operation: "cancel" }),
+    headers: {
+      "content-type": "application/json",
+      [agentInvocationsDevHeader]: agentInvocationsDevHeaderValue,
+      [agentInvocationsDevTokenServerHeader]: serverId,
+      [workspaceDevTokenHeader]: token,
+    },
+    method: "POST",
+    signal: AbortSignal.timeout(timeout),
+  })
+  const result: unknown = await response.json().catch(() => undefined)
+  if (!response.ok) {
+    const error = isRuntimeRecord(result) ? Reflect.get(result, "error") : undefined
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- HTTP error messages are untrusted JSON; only strings can enter CLI diagnostics.
+    const message = isRuntimeRecord(error) && typeof Reflect.get(error, "message") === "string"
+      // SAFETY: The record check and string check validate the message before this assertion.
+      ? Reflect.get(error, "message") as string
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- HTTP errors may also be strings; only string values can enter CLI diagnostics.
+      : typeof error === "string" ? error : undefined
+    throw new Error(message || `Agent Invocation cancel failed (${response.status}).`)
+  }
+  const outcome: unknown = isRuntimeRecord(result) ? Reflect.get(result, "outcome") : undefined
+  if (outcome !== "requested" && outcome !== "terminal" && outcome !== "not-found" && outcome !== "unavailable") {
+    throw new Error("Agent Invocation cancel returned an invalid outcome.")
+  }
+  if (parsed.json) context.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
+  else if (outcome === "requested") context.stdout.write(`Cancellation requested for ${parsed.id}.\n`)
+  else if (outcome === "terminal") context.stdout.write(`Agent Invocation ${parsed.id} is already terminal.\n`)
+  else context.stderr.write(outcome === "not-found"
+    ? `Agent Invocation ${parsed.id} was not found.\n`
+    : `Cancellation is unavailable for Agent Invocation ${parsed.id}.\n`)
+  return outcome === "requested" || outcome === "terminal" ? 0 : 1
+}
+
 export async function runAgentInvocationsCli(
   args: string[],
   context: AgentInvocationsCliContext,
@@ -396,6 +457,7 @@ export async function runAgentInvocationsCli(
   const timeout = options.timeout ?? 30_000
   try {
     if (parsed.action === "delete") return await deleteInvocation(parsed, context, parsed.id!)
+    if (parsed.action === "cancel") return await cancelInvocation(parsed, context, fetchImpl, timeout)
     if (parsed.action === "prune") return await pruneInvocations(parsed, context)
     if (parsed.action === "list") {
       const result = await request(endpoint(parsed), fetchImpl, timeout, parseInvocationList)

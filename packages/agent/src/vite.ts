@@ -12,11 +12,21 @@ import { encodeProviderOutputAliases, resolveViteHubBundleDefines } from "@vite-
 import { rebasePublishedProviderSourceLinks, removeProviderOutputArtifactDir, retainProviderOutputAliases, retainProviderOutputSources, rewriteRetainedProviderSourcePaths } from "@vite-hub/internal/build/provider-output-sources"
 import { copyNodeRuntimePackages, copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
 import { deploymentPresetFromNitro } from "@vite-hub/internal/deployment"
+import { registerViteHubNitroDevEndpoint, renderViteHubNitroDevHandler } from "@vite-hub/internal/dev-endpoint"
 import { createNoExternalAddition, hasNitroConfigContext, isServerEnvironment, generatedViteHubWatchIgnoredAddition, resolveViteHubGeneratedRoot, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { summarizeDefinitions } from "@vite-hub/internal/inspect"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
+import { validateWorkspaceDevToken, workspaceDevTokenHeader, workspaceDevTokenServerId } from "@vite-hub/workspace/server"
 
 import { registerAgentInvocationStreamEndpoint } from "./vite/invocation-stream-endpoint.ts"
+import {
+  agentInvocationsDevGuard,
+  agentInvocationsDevRoute,
+  agentInvocationsDevRuntimeRoute,
+  agentInvocationsDevRuntimeUnavailableCode,
+  agentInvocationsDevRuntimeUnavailableMessage,
+  agentInvocationsDevTokenServerHeader,
+} from "./invocations-dev.ts"
 import {
   configureCloudflareAgentState,
   defaultCloudflareAgentStateBinding,
@@ -31,11 +41,32 @@ import { agentRouteUsesParam, defaultAgentChatRoute, normalizeAgentRoute } from 
 import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 import { readColocatedAgentInstructions } from "./vite/colocated-agent-instructions.ts"
 import { readColocatedAgentSkills, resolveColocatedAgentSkillsRoot } from "./vite/colocated-agent-skills.ts"
+
+function invalidateAgentDevModules(server: ViteDevServer, ids: readonly string[], prefixes: readonly string[] = []): void {
+  const matches = (id: string | null) => {
+    const normalized = id?.replace(/\\/g, "/")
+    return normalized && (ids.includes(normalized) || prefixes.some(prefix => normalized.startsWith(prefix)))
+  }
+  for (const [id, module] of server.moduleGraph.idToModuleMap) {
+    if (matches(id) || matches(module.id)) server.moduleGraph.invalidateModule(module)
+  }
+  for (const environment of Object.values(server.environments ?? {})) {
+    let invalidated = false
+    for (const [id, module] of environment.moduleGraph.idToModuleMap) {
+      if (matches(id) || matches(module.id)) {
+        environment.moduleGraph.invalidateModule(module)
+        invalidated = true
+      }
+    }
+    if (invalidated && environment.config.consumer === "server") environment.hot.send({ type: "full-reload" })
+  }
+}
+
 export { readColocatedAgentSkills } from "./vite/colocated-agent-skills.ts"
 export { discoverAgentChannelEnv } from "./channel-env-discovery.ts"
 export type { AgentChannelEnv } from "./channel-env-discovery.ts"
 
-import type { Plugin, ResolvedConfig, UserConfig } from "vite"
+import type { Plugin, ResolvedConfig, UserConfig, ViteDevServer } from "vite"
 import type { ProviderDeploymentOutputWriter, ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import type { ViteHubDefinitionSummary, ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
 import type { CloudflareAgentStateMigration, CloudflareAgentStateRollupTarget, CloudflareAgentStateTarget } from "./cloudflare.ts"
@@ -72,13 +103,14 @@ const generatedAgentWebhookRouteHandler = "agent/chat-webhook-route.ts"
 const generatedAgentPreparationPlugin = "agent/preparation-plugin.ts"
 const generatedAgentPreparationHandler = "agent/preparation-route.ts"
 const generatedAgentWebhookQueuePlugin = "agent/webhook-queue-plugin.ts"
+const agentProcessHostDrainRoute = "/api/_vitehub/host/drain"
+const agentProcessHostHealthRoute = "/api/_vitehub/host/health"
 const generatedAgentProcessHosts = "agent/process-hosts.ts"
 const generatedAgentProcessHostsPlugin = "agent/process-hosts-plugin.ts"
 const generatedAgentProcessHostsDrain = "agent/process-hosts-drain.ts"
 const generatedAgentProcessHostsHealth = "agent/process-hosts-health.ts"
-/** Routes of the process hosts that presets such as the Babysitter contribute. */
-const agentProcessHostDrainRoute = "/api/_vitehub/host/drain"
-const agentProcessHostHealthRoute = "/api/_vitehub/host/health"
+/** Development-only Nitro handler for `vitehub agent invocations cancel`. Build output never contains it. */
+const generatedAgentInvocationsDevHandler = "agent/invocations-dev-handler.ts"
 const generatedAgentNetlifyFunction = "agent/netlify-function.mjs"
 const generatedAgentEmailRuntime = "agent/email-runtime.js"
 const generatedAgentScheduleRegistry = "agent/schedule-registry.js"
@@ -813,6 +845,27 @@ function mergeNitroHandlers(nitro: NitroConfig, handlers: Array<{ handler: strin
   return {
     ...nitro,
     handlers: [...existingHandlers, ...handlers],
+  }
+}
+
+function guardAgentDevelopmentRoutes(nitro: NitroConfig, handlers: Array<{ route: string }>): NitroConfig {
+  if (!handlers.length) return nitro
+  const modules = Array.isArray(nitro.modules) ? nitro.modules : []
+  return {
+    ...nitro,
+    modules: [...modules, {
+      name: "vite-hub/agent-development-route-guard",
+      setup(runtime: {
+        hooks: { hook: (name: "build:before", callback: () => void) => void }
+        scannedHandlers: Array<{ route?: string, middleware?: boolean }>
+      }) {
+        runtime.hooks.hook("build:before", () => {
+          const scanned = runtime.scannedHandlers.flatMap(handler =>
+            hasRuntimeType(handler.route, "string") ? [{ route: handler.route, middleware: handler.middleware }] : [])
+          for (const handler of handlers) validateAgentStaticRoute(handler.route, scanned, "development invocation")
+        })
+      },
+    }],
   }
 }
 
@@ -2838,6 +2891,15 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       agentImportBase: getAgentImportBase(agent, frameworkOptions),
       workspaceImportBase: getWorkspaceImportBase(agent, frameworkOptions),
     })
+    if (normalized && config.command === "serve" && normalized.runtime !== "deno") {
+      const handler = join(generatedRoot, generatedAgentInvocationsDevHandler)
+      await mkdir(dirname(handler), { recursive: true })
+      await writeFile(handler, renderViteHubNitroDevHandler({
+        context: { rootDir: config.root, serverId: workspaceDevTokenServerId(config.server?.port) },
+        export: "handleAgentInvocationsDevRequest",
+        module: `${getAgentImportBase(agent, frameworkOptions)}/runtime/invocations-dev`,
+      }), "utf8")
+    }
     if (normalized && hasHostedAgents) {
       if (normalized.runtime === "deno") {
         await writeAgentDenoServer(generatedRoot, {
@@ -2949,12 +3011,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
             await writeGeneratedAgentOutputs(resolved)
             const root = resolveViteHubGeneratedRoot(resolved)
             const registryPrefix = join(root, dirname(generatedAgentRegistryCatalog)).replace(/\\/g, "/") + "/"
-            for (const module of server.moduleGraph.idToModuleMap.values()) {
-              const id = module.id?.replace(/\\/g, "/")
-              if (id === join(root, generatedAgentRegistry).replace(/\\/g, "/") || id?.startsWith(registryPrefix)) {
-                server.moduleGraph.invalidateModule(module)
-              }
-            }
+            invalidateAgentDevModules(server, [join(root, generatedAgentRegistry).replace(/\\/g, "/")], [registryPrefix])
           }
         })().catch(error => server.config.logger.error(`[vitehub] Failed to refresh Agent discovery: ${String(error)}`)).finally(() => { discoveryRefresh = undefined })
       }
@@ -2974,6 +3031,23 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           runtimeCapabilities,
           schedule: hasScheduleVitePlugin(resolved ?? server.config),
           scheduleRuntimeImport: getScheduleRuntimeImport(agent, frameworkOptions),
+        })
+        // Cancel runs in the Nitro dev environment, which owns the application's journals and abort handles.
+        registerViteHubNitroDevEndpoint(server, {
+          ...agentInvocationsDevGuard,
+          nitroBaseURL: () => {
+            // SAFETY: Vite keeps unknown user config keys on the resolved config. Nitro reads the same `nitro` key.
+            const baseURL = (resolved as (ResolvedConfig & { nitro?: { baseURL?: unknown } }) | undefined)?.nitro?.baseURL
+            return hasRuntimeType(baseURL, "string") ? baseURL : process.env.NITRO_APP_BASE_URL
+          },
+          route: agentInvocationsDevRoute,
+          runtimeRoute: agentInvocationsDevRuntimeRoute,
+          discovery: { workspaceDevTokenServerId: workspaceDevTokenServerId(server.config.server.port) },
+          authorize: async req => req.headers[agentInvocationsDevTokenServerHeader] !== workspaceDevTokenServerId(server.config.server.port) || !await validateWorkspaceDevToken(server.config.root, req.headers, { serverId: workspaceDevTokenServerId(server.config.server.port) })
+            ? new Response("Forbidden Agent Invocations Dev token.", { status: 403 })
+            : undefined,
+          forwardHeaders: [workspaceDevTokenHeader, agentInvocationsDevTokenServerHeader],
+          unavailable: { code: agentInvocationsDevRuntimeUnavailableCode, message: agentInvocationsDevRuntimeUnavailableMessage },
         })
       }
     },
@@ -3019,10 +3093,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           ].map(handler => join(root, handler).replace(/\\/g, "/")))
         }
       }
-      for (const id of moduleIds) {
-        const module = context.server.moduleGraph.getModuleById(id)
-        if (module) context.server.moduleGraph.invalidateModule(module)
-      }
+      invalidateAgentDevModules(context.server, moduleIds)
     },
     async transform(code, id) {
       if (agent === false || !resolved?.root) return
@@ -3245,6 +3316,11 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
             }]
           : []),
       ]
+      // `vitehub agent invocations cancel` runs in the Nitro runtime, so it reaches the application's journals.
+      // The handler exists only for the Development Server.
+      const devNitroHandlers = resolved && !denoOutput && nitroContext && environment?.command === "serve"
+        ? [{ handler: join(generatedRoot, generatedAgentInvocationsDevHandler), route: agentInvocationsDevRuntimeRoute }]
+        : []
       const nitro = installCloudflareState
         ? mergeCloudflareAgentStateNitroConfig(
             (config as { nitro?: unknown }).nitro,
@@ -3258,7 +3334,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           if (!hasRuntimeType(target?.agent, "string") || !target.agent.trim() || !hasRuntimeType(target?.webhook, "string") || !target.webhook.trim()) {
             throw agentDiagnostics.AGENT_B0006({ message: "[vitehub] Webhook aliases require an Agent name and webhook name." })
           }
-          const route = validateAgentStaticRoute(path, [...routes, ...nitroHandlers], "webhook alias")
+          const route = validateAgentStaticRoute(path, [...routes, ...nitroHandlers, ...devNitroHandlers], "webhook alias")
           nitroHandlers.push({ handler: join(generatedRoot, generatedAgentWebhookRouteHandler), route })
         }
       }
@@ -3269,10 +3345,22 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         preparationHandler.route = validateAgentStaticRoute(preparationHandler.route, [
           ...routes,
           ...nitroHandlers.filter(handler => handler.handler !== join(generatedRoot, generatedAgentPreparationHandler)),
+          ...devNitroHandlers,
         ])
       }
+      if (devNitroHandlers.length) {
+        const existing = Array.isArray(nitro.handlers) ? nitro.handlers : []
+        const routes = existing.filter(isRecord).flatMap(handler => hasRuntimeType(handler.route, "string") ? [{ route: handler.route, middleware: handler.middleware === true }] : [])
+        for (const handler of devNitroHandlers) {
+          handler.route = validateAgentStaticRoute(handler.route, [
+            ...routes,
+            ...nitroHandlers,
+            ...devNitroHandlers.filter(candidate => candidate !== handler),
+          ], "development invocation")
+        }
+      }
       const mergedAgentNitro = (nitroContext ? mergeAgentNitroExternals : cloneNitroConfig)(mergeNitroPlugins(
-        mergeNitroHandlers(nitro, nitroHandlers),
+        guardAgentDevelopmentRoutes(mergeNitroHandlers(nitro, [...nitroHandlers, ...devNitroHandlers]), devNitroHandlers),
         [
           ...(installPreparation ? [join(generatedRoot, generatedAgentPreparationPlugin)] : []),
           ...(installWebhookQueue ? [join(generatedRoot, generatedAgentWebhookQueuePlugin)] : []),

@@ -1,4 +1,5 @@
 import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
+import { isRuntimeRecord } from "./internal/runtime-type.ts"
 import { readFile } from "node:fs/promises"
 import { resolve } from "node:path"
 
@@ -21,6 +22,7 @@ import { enrichAgentUsageCost, modelsDevPricing, type AgentUsagePricing } from "
 import { resolveAgentEvalOptions, writeAgentEvaliteConfig, type ResolvedAgentEvalOptions } from "./internal/evalite-config.ts"
 import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute, readAgentInvocationStream } from "./invocation-stream.ts"
 
+import type { AgentDevLoopDiscoveryResponse } from "./invocation-stream.ts"
 import type { AgentEvalOptions, AgentUsageRecord } from "./types.ts"
 import type { UIMessageLike } from "./chat-message-input.ts"
 import type { WorkspaceDevTokenOptions } from "@vite-hub/workspace/server"
@@ -755,23 +757,37 @@ async function loadDevPayload(payloadPath: string, rootDir: string, cwd: string)
   }
 }
 
+function parseAgentDevDiscovery(value: unknown): Partial<AgentDevLoopDiscoveryResponse> {
+  if (!isRuntimeRecord(value)) return {}
+  const agents = Array.isArray(value.agents)
+    ? value.agents.flatMap(agent => {
+      if (!isRuntimeRecord(agent) || !hasRuntimeType(agent.name, "string")) return []
+      const aliases = Array.isArray(agent.aliases)
+        ? agent.aliases.filter((alias): alias is string => hasRuntimeType(alias, "string"))
+        : undefined
+      const triggers = Array.isArray(agent.triggers)
+        ? agent.triggers.filter((trigger): trigger is string => hasRuntimeType(trigger, "string"))
+        : []
+      return [{ aliases, name: agent.name, triggers }]
+    })
+    : []
+  return {
+    agents,
+    ...(hasRuntimeType(value.root, "string") ? { root: value.root } : {}),
+    ...(hasRuntimeType(value.workspaceDevTokenServerId, "string") ? { workspaceDevTokenServerId: value.workspaceDevTokenServerId } : {}),
+  }
+}
+
 async function readDiscovery(
   parsed: ParsedDevArgs,
   context: AgentCliContext,
   fetchImpl: typeof fetch,
 ): Promise<AgentDevTarget | undefined> {
-  const server = await discoverViteHubDevServer({
+  const server = await discoverViteHubDevServer<Partial<AgentDevLoopDiscoveryResponse>>({
     endpoint: agentDevEndpoint,
     fetch: fetchImpl,
-    parseDiscovery(value: unknown) {
-      const response = isRecord(value) ? value : {}
-      return {
-        root: response.root,
-        workspaceDevTokenServerId: response.workspaceDevTokenServerId,
-        agents: Array.isArray(response.agents) ? response.agents.filter(isRecord) : [],
-      }
-    },
     isCompatibleRoot: isCompatibleAgentDevServerRoot,
+    parseDiscovery: parseAgentDevDiscovery,
     rootDir: context.rootDir,
     serverUrl: parsed.url,
     stderr: context.stderr,
@@ -1288,7 +1304,7 @@ export function createAgentCliContributor(options?: false | AgentCliContributorO
       description: "Inspect an application's durable Agent Invocation journal.",
       name: "invocations",
       run: async (args, context) => await runAgentInvocationsCli(args, context),
-      usage: "vitehub agent invocations <list|show|tail> [id] [--url <url>] [--json]",
+      usage: "vitehub agent invocations <list|show|tail|cancel> [id] [--url <url>] [--json]",
     },
   ]
   if (evalFiles.length) {
@@ -1331,12 +1347,12 @@ export function createAgentCliContributor(options?: false | AgentCliContributorO
             usage: "vitehub channels replay --agent <name> --channel <name> [--url <console-url>] [--dry-run] [--force] [--limit <n>]",
           },
           {
-            description: "Inspect and synchronize provider-owned Channel webhooks and account resources for a deployed stage.",
+            description: "Inspect and synchronize provider-owned Channel webhooks for a deployed stage.",
             name: "sync",
             run: async (args, context) => await runAgentChannelSyncCli(args, context, {
               rootDir: options?.rootDir,
             }),
-            usage: "vitehub channels sync --stage <name> [--url <https-origin>] [--apply [--confirm-origin <https-origin>]]",
+            usage: "vitehub channels sync --stage <name> --url <https-origin> [--apply --confirm-origin <https-origin>]",
           },
         ],
         name: "channels",

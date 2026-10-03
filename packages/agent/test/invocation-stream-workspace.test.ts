@@ -1,10 +1,12 @@
 import { channelDeliveryHandlers } from "../src/internal/channel-delivery-handlers.ts"
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Readable } from "node:stream"
 
 import { getWorkspaceHostedStoreLoader, setWorkspaceHostedStoreLoader } from "@vite-hub/workspace/runtime"
+import { workspaceDevTokenServerId } from "@vite-hub/workspace/server"
+import { agentInvocationsDevHeader, agentInvocationsDevHeaderValue, agentInvocationsDevRoute } from "../src/invocations-dev.ts"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { IncomingMessage, ServerResponse } from "node:http"
@@ -168,6 +170,25 @@ async function invokeMiddleware(
     handler(req, res, () => reject(new Error("middleware passed through")))
   })
 }
+
+describe("Agent Invocation cancellation discovery", () => {
+  it("publishes the server token ID through the guarded dev endpoint", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-cancel-discovery-"))
+    try {
+      const { handlers, server } = createFakeServer(root, {})
+      await configurePluginServer((await import("../src/vite.ts")).hubAgent(), server)
+      const response = await invokeMiddleware(handlers.at(-1)!, {}, agentInvocationsDevRoute, {
+        host: "localhost:3000",
+        [agentInvocationsDevHeader]: agentInvocationsDevHeaderValue,
+      }, { onRequest: req => { req.method = "GET" } })
+      expect(response.statusCode).toBe(200)
+      expect(JSON.parse(response.body)).toMatchObject({ root, workspaceDevTokenServerId: workspaceDevTokenServerId(3000) })
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+})
 
 describe("Agent Invocation Stream write workspace finish lifecycle", () => {
   afterEach(() => {

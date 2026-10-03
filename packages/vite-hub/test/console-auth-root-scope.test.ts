@@ -8,6 +8,13 @@ import {
 } from "../src/console/internal.ts"
 
 describe("Console auth root scope", () => {
+  it("preserves Cloudflare Access auth mode in its project scope", () => {
+    const scope: ConsoleInvocationScope = { process: {} }
+    installConsoleSectionScope("/access", ["agents"], scope, "cloudflare-access")
+
+    expect(resolveConsoleAuth(scope)).toBe("cloudflare-access")
+  })
+
   it.each([false, true])(
     "keeps independent auth scoped to its own realm (independent first: %s)",
     (independentFirst) => {

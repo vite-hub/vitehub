@@ -1,5 +1,4 @@
 import { createViteHubDevToken, removeViteHubDevToken, viteHubDevTokenHeader } from "@vite-hub/internal/dev-token"
-
 import { registerViteHubNitroDevEndpoint } from "@vite-hub/internal/dev-endpoint"
 
 import { scheduleDevHeader, scheduleDevHeaderValue, scheduleDevRoute, scheduleDevRuntimeRoute, scheduleDevTokenNamespace, scheduleDevTokenServerHeader } from "./dev.ts"
@@ -25,7 +24,7 @@ export interface ScheduleDevEndpointOptions {
  *
  * `GET` reports the root and whether the Nitro runtime is reachable. `POST` forwards one Schedule operation into the
  * Nitro dev environment, because the Nitro runtime owns the Schedule stores and registry. Hosts without an in-process
- * Nitro environment get `501` with a clear message. The returned cleanup also supports middleware-mode servers.
+ * Nitro environment get `501` with a clear message.
  */
 export async function registerScheduleDevEndpoint(server: ScheduleDevServer, options: ScheduleDevEndpointOptions = {}): Promise<() => Promise<void>> {
   const rootDir = server.config.root

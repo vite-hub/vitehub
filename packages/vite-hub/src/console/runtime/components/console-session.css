@@ -277,27 +277,6 @@
   padding: 0.625rem 0.875rem !important;
 }
 
-.session-inspector__details .vh-invocation-inspector__content > section:first-child {
-  padding-block-start: 0.75rem !important;
-}
-
-.session-inspector__details .vh-invocation-inspector__status small {
-  margin-inline-start: 0.35rem !important;
-}
-
-.session-inspector__details .vh-invocation-inspector__list > div {
-  gap: 1rem !important;
-  grid-template-columns: 7rem minmax(0, 1fr) !important;
-}
-
-.session-inspector__details .vh-invocation-inspector__list dd {
-  text-align: start !important;
-}
-
-.session-inspector__details .vh-invocation-inspector__identity {
-  gap: 0.25rem;
-}
-
 .session-inspector__details .vh-invocation-inspector__title-row {
   align-items: center;
   display: flex;
@@ -322,31 +301,8 @@
 .session-inspector__instructions-link:hover { background: var(--ui-bg-elevated); color: var(--ui-text); }
 .session-inspector__instructions-link svg { height: 0.75rem; width: 0.75rem; }
 
-.session-inspector__details .vh-invocation-inspector__metrics {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem 1rem;
-}
-.session-inspector__details .vh-invocation-inspector__metrics > div {
-  align-items: baseline;
-  border: 0 !important;
-  display: flex;
-  flex: 0 0 auto;
-  gap: 0.35rem;
-  padding: 0 !important;
-}
-.session-inspector__details .vh-invocation-inspector__metrics dt { font-size: 0.6875rem; }
-.session-inspector__details .vh-invocation-inspector__metrics dd { font-size: 0.75rem; }
-
-.session-inspector__details .vh-invocation-execution__model {
-  background: transparent;
-  border: 0;
-  padding: 0;
-}
-.session-inspector__details .vh-invocation-execution__workspace {
-  background: transparent;
-  border: 0;
-  padding: 0;
+.session-inspector__details .vh-invocation-inspector__content > section {
+  padding: 0.625rem 0.875rem !important;
 }
 
 

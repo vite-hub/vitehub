@@ -12,14 +12,14 @@ import * as ownerAgent from "@vite-hub/agent";
 import * as ownerCapabilities from "@vite-hub/agent/capabilities";
 import * as ownerAgentEve from "@vite-hub/agent/eve";
 import * as ownerAgentMcp from "@vite-hub/agent/mcp";
-import * as ownerBoxSsh from "@vite-hub/box/ssh";
-import * as frameworkBoxSsh from "vite-hub/box/ssh";
 import * as ownerAgentProcessRuntime from "@vite-hub/agent/runtime/process";
 import * as ownerAgentVite from "@vite-hub/agent/vite";
 import * as ownerAgentVue from "@vite-hub/agent/vue";
 import ownerAuthHandler from "@vite-hub/auth/server";
 import * as ownerAuthVue from "@vite-hub/auth/vue";
+import * as ownerBlobClient from "@vite-hub/blob/client";
 import * as ownerBlobContentType from "@vite-hub/blob/content-type";
+import * as ownerBlobVue from "@vite-hub/blob/vue";
 import { setActiveCloudflareEnv as ownerCloudflareEnvSetter } from "@vite-hub/database/runtime/cloudflare-env";
 import { setActiveCloudflareEnv as ownerDatabaseStateSetter } from "@vite-hub/database/runtime/state";
 import * as ownerRateLimit from "@vite-hub/rate-limit";
@@ -33,11 +33,12 @@ import * as frameworkAgentVite from "vite-hub/agent/vite";
 import * as frameworkAgentVue from "vite-hub/agent/vue";
 import { defineConsoleAuth } from "vite-hub/console/auth";
 import { defineConsoleAuthClient } from "vite-hub/console/auth/client";
-import { handleCloudflareAccessConsoleRequest } from "vite-hub/console/auth/cloudflare-access";
 import { createInlineConsoleAuth } from "vite-hub/console/auth/inline";
 import frameworkAuthHandler from "vite-hub/auth/server";
 import * as frameworkAuthVue from "vite-hub/auth/vue";
+import * as frameworkBlobClient from "vite-hub/blob/client";
 import * as frameworkBlobContentType from "vite-hub/blob/content-type";
+import * as frameworkBlobVue from "vite-hub/blob/vue";
 import * as frameworkRateLimit from "vite-hub/rate-limit";
 import * as frameworkRuntimeNode from "vite-hub/runtime/node";
 import { setActiveCloudflareEnv as frameworkDatabaseStateSetter } from "vite-hub/_internal/database/runtime/state";
@@ -76,7 +77,6 @@ describe("Console Auth package exports", () => {
     expect(typeof defineConsoleAuth).toBe("function");
     expect(typeof defineConsoleAuthClient).toBe("function");
     expect(typeof createInlineConsoleAuth).toBe("function");
-    expect(typeof handleCloudflareAccessConsoleRequest).toBe("function");
   });
 });
 
@@ -91,10 +91,13 @@ const lowLevelOwnerExports = new Set([
   "@vite-hub/agent/mcp/stdio",
   "@vite-hub/agent/messages",
   "@vite-hub/agent/output",
+  "@vite-hub/agent/observability/host",
+  "@vite-hub/agent/observability/posthog",
   "@vite-hub/agent/server/github",
   "@vite-hub/agent/server/workspace",
   "@vite-hub/blob/config",
   "@vite-hub/blob/errors",
+  "@vite-hub/box/ssh",
   "@vite-hub/database/config",
   "@vite-hub/env/seal",
   "@vite-hub/kv/errors",
@@ -102,11 +105,11 @@ const lowLevelOwnerExports = new Set([
 ]);
 
 const generatedRuntimeOwnerExports = new Set([
-  "@vite-hub/agent/observability/host",
-  "@vite-hub/agent/observability/posthog",
   "@vite-hub/agent/runtime/empty-registry",
+  "@vite-hub/agent/runtime/invocations-dev",
   "@vite-hub/agent/runtime/workflow",
   "@vite-hub/blob/runtime/cloudflare-vite",
+  "@vite-hub/blob/runtime/dev",
   "@vite-hub/blob/runtime/state",
   "@vite-hub/blob/runtime/vercel-vite",
   "@vite-hub/database/runtime/agent",
@@ -200,8 +203,12 @@ describe("framework package contract", () => {
       ownerAgentProcessRuntime.createProcessAgentCapacity,
     );
     expect(frameworkCapabilities.email).toBe(ownerCapabilities.email);
-    expect(frameworkBoxSsh.serveSsh).toBe(ownerBoxSsh.serveSsh);
-    expect(frameworkBoxSsh.sshLaunch).toBe(ownerBoxSsh.sshLaunch);
+    expect(Object.keys(frameworkCapabilities).sort()).toEqual(Object.keys(ownerCapabilities).sort());
+    for (const [name, capability] of Object.entries(ownerCapabilities)) {
+      // The framework narrows inputCommands to its Console Runtime context.
+      if (name === "inputCommands") continue;
+      expect(Reflect.get(frameworkCapabilities, name), name).toBe(capability);
+    }
     expect(frameworkCapabilities.workspaceShell).toBe(ownerCapabilities.workspaceShell);
     expect(frameworkAgentMcp.remoteMcpServer).toBe(ownerAgentMcp.remoteMcpServer);
     expect(frameworkAgentVite.agentHostRoutes).toBe(ownerAgentVite.agentHostRoutes);
@@ -211,6 +218,9 @@ describe("framework package contract", () => {
     expect(frameworkAuthVue.authClient).toBe(ownerAuthVue.authClient);
     expect(frameworkAuthVue.useUserSession).toBe(ownerAuthVue.useUserSession);
     expect(frameworkBlobContentType.detectContentType).toBe(ownerBlobContentType.detectContentType);
+    expect(frameworkBlobClient.createMultipartUploader).toBe(ownerBlobClient.createMultipartUploader);
+    expect(frameworkBlobVue.useUpload).toBe(ownerBlobVue.useUpload);
+    expect(frameworkBlobVue.useMultipartUpload).toBe(ownerBlobVue.useMultipartUpload);
     expect(frameworkRateLimit.requireRateLimit).toBe(ownerRateLimit.requireRateLimit);
     expect(frameworkRateLimit.createRateLimiter).toBe(ownerRateLimit.createRateLimiter);
     expect(frameworkRuntimeNode.nodeRuntimeResources).toBe(ownerRuntimeNode.nodeRuntimeResources);
@@ -726,10 +736,6 @@ describe("framework package contract", () => {
     expect(consoleCss).toContain("vitehub-console");
     expect(consoleCss).toContain("--ui-bg:#fdfdfd");
     expect(consoleCss).toContain("--ui-text:#27272a");
-    // The blocking stylesheet and entry script exclude KaTeX fonts and the full Lucide set.
-    expect(consoleCss).not.toContain("KaTeX_");
-    expect(consoleClient).not.toContain('"alarm-clock-check":{');
-    // KaTeX is loaded lazily by the runtime math component, so it is absent from the blocking assets.
     expect(
       globSync("dist/console/runtime/public/console/chunks/*.js", { cwd: packageRoot }).length,
     ).toBeGreaterThan(0);
@@ -744,7 +750,7 @@ describe("framework package contract", () => {
     expect(consolePageSource).toContain(`/_vitehub/assets/${consoleClientFile.split("/").at(-1)}`);
     expect(consolePageSource).toContain(`/_vitehub/assets/${consoleCssFile.split("/").at(-1)}`);
     expect(consolePageSource).not.toContain("__VITEHUB_CONSOLE_");
-    expect(consoleRpcSource).not.toContain("devframe");
+    expect(consoleRpcSource).not.toContain("devframe/adapters/h3");
     expect(manifest.dependencies).toHaveProperty("@cloudflare/workers-types");
     expect(manifest.dependencies).toHaveProperty("h3");
     expect(manifest.dependencies).toHaveProperty("ocache");

@@ -2,9 +2,9 @@ import { assertConsoleRequest } from "./request.ts"
 import { getConsoleContributedSections } from "./definitions.ts"
 import { getConsoleAuth, getConsoleProjectName, getConsoleSections } from "./sections.ts"
 
-import type { ConsoleAuthMode } from "../../internal.ts"
 import type { ConsoleContributedSection } from "../definitions.ts"
 import type { ConsoleRequestEvent } from "./request.ts"
+import type { ConsoleAuthMode } from "../../internal.ts"
 
 export default function consoleSectionsHandler(event: ConsoleRequestEvent): {
   auth?: ConsoleAuthMode

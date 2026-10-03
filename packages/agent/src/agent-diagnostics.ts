@@ -1437,6 +1437,8 @@ export const agentDiagnostics = defineDiagnostics({
     AGENT_R0970: dynamicError,
     AGENT_R0971: dynamicError,
     AGENT_R0972: dynamicError,
+    AGENT_R0973: dynamicError,
+    AGENT_R0974: dynamicError,
     AGENT_R0924: dynamicError,
     AGENT_R0925: dynamicError,
     AGENT_R0950: dynamicError,

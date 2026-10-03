@@ -2025,88 +2025,95 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
   align-items: center;
   border-block-end: 1px solid var(--vh-ui-border);
   display: flex;
-  gap: 0.75rem;
+  gap: 0.5rem;
   justify-content: space-between;
-  min-height: 3.5rem;
-  padding: 0.6rem 0.9rem;
+  min-height: 2.75rem;
+  padding: 0 0.75rem 0 1rem;
+}
+
+.vh-invocation-inspector > header > div {
+  align-items: baseline;
+  display: flex;
+  gap: 0.5rem;
+  min-width: 0;
 }
 
 .vh-invocation-inspector > header h3 {
-  font-size: 0.875rem;
-  font-weight: 650;
+  color: var(--vh-ui-text);
+  font-size: 0.8125rem;
+  font-weight: 500;
   line-height: 1.25;
-  margin: 0.1rem 0 0;
+  margin: 0;
+  white-space: nowrap;
 }
 
 .vh-invocation-inspector > header p {
   color: var(--vh-ui-dimmed);
-  font-size: 0.625rem;
-  font-weight: 600;
-  letter-spacing: 0.055em;
+  font-size: 0.75rem;
   margin: 0;
-  text-transform: uppercase;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .vh-invocation-inspector__content {
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior-y: contain;
-  padding: 0 1rem 2rem;
+  padding: 0 0 2rem;
   scrollbar-gutter: stable;
 }
 
 .vh-invocation-inspector__content > section {
-  padding-block: 1rem 0.2rem;
+  padding: 0.75rem 1rem;
 }
 
-.vh-invocation-inspector__content > section:first-child {
-  padding-block-start: 1rem;
+.vh-invocation-inspector__content > section + section {
+  border-block-start: 1px solid color-mix(in oklab, var(--vh-ui-border) 60%, transparent);
 }
 
 .vh-invocation-inspector__content > section > h4 {
-  color: var(--vh-ui-muted);
-  font-size: 0.625rem;
-  font-weight: 650;
-  letter-spacing: 0.075em;
-  margin: 0 0 0.6rem;
-  text-transform: uppercase;
+  color: var(--vh-ui-text);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  line-height: 1.25rem;
+  margin: 0 0 0.5rem;
 }
 
+/* The outcome line: an outline status badge, as T3 Code marks a pull request state, then the duration. */
 .vh-invocation-inspector__status {
   align-items: center;
-  background: color-mix(in oklab, var(--vh-ui-bg-elevated) 72%, transparent);
-  border: 1px solid var(--vh-ui-border);
-  border-radius: 999px;
   display: flex;
-  gap: 0.35rem;
-  min-height: 1.75rem;
-  padding: 0.2rem 0.5rem 0.2rem 0.35rem;
-  width: fit-content;
+  font-size: 0.75rem;
+  gap: 0.5rem;
+  min-height: 1.5rem;
 }
 
 .vh-invocation-inspector__status strong {
-  font-size: 0.6875rem;
-  font-weight: 650;
+  align-items: center;
+  border: 1px solid currentColor;
+  border-radius: 0.375rem;
+  display: inline-flex;
+  font-size: 0.75rem;
+  font-weight: 500;
+  gap: 0.25rem;
+  height: 1.5rem;
+  padding-inline: 0.45rem;
 }
 
 .vh-invocation-inspector__status small {
   color: var(--vh-ui-dimmed);
-  font-size: 0.625rem;
+  font-size: 0.75rem;
   font-variant-numeric: tabular-nums;
-}
-
-.vh-invocation-inspector__status small::before {
-  color: var(--vh-ui-border);
-  content: "·";
-  margin-inline-end: 0.35rem;
 }
 
 .vh-invocation-inspector__status-icon {
   align-items: center;
-  color: var(--vh-ui-muted);
   display: inline-flex;
   flex: none;
   justify-content: center;
+  order: -1;
 }
 
 .vh-invocation-inspector__status-icon svg {
@@ -2116,33 +2123,47 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
   width: 0.875rem;
 }
 
-.vh-invocation-inspector[data-status="running"] .vh-invocation-inspector__status {
-  color: color-mix(in oklab, var(--vh-ui-info) 42%, var(--vh-ui-text));
+.vh-invocation-inspector__status strong {
+  order: -1;
+}
+
+.vh-invocation-inspector[data-status="running"] .vh-invocation-inspector__status strong {
+  border-color: color-mix(in oklab, var(--vh-ui-info) 40%, transparent);
+  color: var(--vh-ui-info);
 }
 
 .vh-invocation-inspector[data-status="running"] .vh-invocation-inspector__status-icon svg {
   animation: vh-invocation-status-spin 800ms linear infinite;
 }
 
-.vh-invocation-inspector[data-status="completed"] .vh-invocation-inspector__status {
-  color: color-mix(in oklab, var(--vh-ui-success) 42%, var(--vh-ui-text));
+.vh-invocation-inspector[data-status="completed"] .vh-invocation-inspector__status strong {
+  border-color: color-mix(in oklab, var(--vh-ui-success) 40%, transparent);
+  color: var(--vh-ui-success);
 }
 
-.vh-invocation-inspector[data-status="failed"] .vh-invocation-inspector__status {
-  color: color-mix(in oklab, var(--vh-ui-error) 42%, var(--vh-ui-text));
+.vh-invocation-inspector[data-status="failed"] .vh-invocation-inspector__status strong {
+  border-color: color-mix(in oklab, var(--vh-ui-error) 40%, transparent);
+  color: var(--vh-ui-error);
 }
 
-.vh-invocation-inspector[data-status="pending"] .vh-invocation-inspector__status {
-  color: color-mix(in oklab, var(--vh-ui-warning) 42%, var(--vh-ui-text));
+.vh-invocation-inspector[data-status="pending"] .vh-invocation-inspector__status strong,
+.vh-invocation-inspector[data-status="cancelled"] .vh-invocation-inspector__status strong {
+  border-color: var(--vh-ui-border);
+  color: var(--vh-ui-muted);
+}
+
+.vh-invocation-inspector__identity {
+  display: grid;
+  gap: 0.375rem;
 }
 
 .vh-invocation-inspector__identity h4 {
   color: var(--vh-ui-text);
-  font-size: 1rem;
-  font-weight: 650;
-  letter-spacing: -0.015em;
-  line-height: 1.35;
-  margin: 0.8rem 0 0;
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.4;
+  margin: 0;
+  overflow-wrap: anywhere;
   text-transform: none;
 }
 
@@ -2156,8 +2177,8 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 .vh-invocation-inspector__identity p {
   color: var(--vh-ui-dimmed);
   font-size: 0.75rem;
-  line-height: 1.45;
-  margin: 0.25rem 0 0;
+  line-height: 1.4;
+  margin: 0;
   overflow-wrap: anywhere;
 }
 
@@ -2165,26 +2186,25 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
   align-items: center;
   color: var(--vh-ui-dimmed);
   display: flex;
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   gap: 0.35rem;
-  margin-block-start: 0.75rem;
 }
 
 .vh-invocation-inspector__agent code {
   color: var(--vh-ui-muted);
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
 }
 
 .vh-invocation-inspector__error,
 .vh-invocation-inspector__notice {
-  border: 1px solid color-mix(in oklab, currentColor 18%, transparent);
-  border-radius: calc(var(--vh-ui-radius) * 1.1);
-  margin-block-start: 0.9rem;
-  padding: 0.7rem 0.75rem;
+  border: 1px solid color-mix(in oklab, currentColor 32%, transparent);
+  border-radius: 0.75rem;
+  margin-block-start: 0.5rem;
+  padding: 0.65rem 0.875rem;
 }
 
 .vh-invocation-inspector__error {
-  background: color-mix(in oklab, var(--vh-ui-error) 7%, transparent);
+  background: color-mix(in oklab, var(--vh-ui-error) 8%, transparent);
   color: var(--vh-ui-error);
 }
 
@@ -2201,14 +2221,14 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 
 .vh-invocation-inspector__error strong,
 .vh-invocation-inspector__notice strong {
-  font-size: 0.75rem;
-  font-weight: 650;
+  font-size: 0.8125rem;
+  font-weight: 500;
 }
 
 .vh-invocation-inspector__error p,
 .vh-invocation-inspector__notice p {
   color: inherit;
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   margin: 0.2rem 0 0;
 }
 
@@ -2220,12 +2240,12 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 
 .vh-invocation-error__details summary {
   cursor: pointer;
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .vh-invocation-error__details pre {
   background: color-mix(in oklab, currentColor 6%, transparent);
-  border-radius: calc(var(--vh-ui-radius) * 0.75);
+  border-radius: 0.375rem;
   margin: 0.45rem 0 0;
   max-height: 18rem;
   overflow: auto;
@@ -2234,32 +2254,50 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
   word-break: break-word;
 }
 
+/* Run summary: a hairline grid of stat tiles, as T3 Code's diagnostics tiles. */
 .vh-invocation-inspector__metrics {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem 1rem;
+  background: color-mix(in oklab, var(--vh-ui-border) 60%, transparent);
+  border: 1px solid color-mix(in oklab, var(--vh-ui-border) 60%, transparent);
+  border-radius: 0.5rem;
+  display: grid;
+  gap: 1px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   margin: 0;
+  overflow: hidden;
 }
 
 .vh-invocation-inspector__metrics > div {
-  align-items: baseline;
-  display: flex;
-  gap: 0.35rem;
+  background: var(--vh-ui-bg);
+  display: grid;
+  gap: 0.125rem;
   min-width: 0;
+  padding: 0.5rem 0.75rem;
+}
+
+/* An odd last tile spans the row, so the grid never shows an empty cell. */
+.vh-invocation-inspector__metrics > div:last-child:nth-child(odd) {
+  grid-column: span 2;
 }
 
 .vh-invocation-inspector__metrics dt {
   color: var(--vh-ui-dimmed);
-  font-size: 0.625rem;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
   line-height: 1.2;
+  text-transform: uppercase;
 }
 
 .vh-invocation-inspector__metrics dd {
+  color: var(--vh-ui-text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 0.8125rem;
   font-variant-numeric: tabular-nums;
-  font-weight: 650;
-  margin: 0.25rem 0 0;
-  overflow-wrap: normal;
+  font-weight: 500;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .vh-invocation-timeline {
@@ -2385,97 +2423,38 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
   margin: 0;
 }
 
-.vh-invocation-inspector__groups {
-  display: grid;
-  gap: 1.1rem;
-}
-
-.vh-invocation-inspector__group {
-  border: 0;
-  min-width: 0;
-  padding: 0;
-}
-
-.vh-invocation-inspector__group + .vh-invocation-inspector__group {
-  border-block-start: 0;
-}
-
 .vh-invocation-execution {
-  background: transparent;
-  border: 0;
-  margin-block-start: 0.6rem;
-  overflow: hidden;
+  display: grid;
+  gap: 0;
 }
 
 .vh-invocation-execution__model,
 .vh-invocation-execution__workspace {
   align-items: center;
   display: flex;
-  gap: 0.75rem;
+  gap: 0.5rem;
+  min-height: 2rem;
   min-width: 0;
-  padding: 0.25rem 0;
 }
-
-.vh-invocation-execution__workspace {
-  gap: 0.75rem;
-  padding-block: 0.25rem;
-}
-
-.vh-invocation-execution > * + * {
-  border-block-start: 0;
-  margin-block-start: 0.35rem;
-}
-
-.vh-invocation-inspector__badges {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-  margin-block-start: 0.45rem;
-}
-
-.vh-invocation-inspector__badge {
-  align-items: center;
-  background: var(--vh-ui-bg-elevated);
-  border: 1px solid var(--vh-ui-border);
-  border-radius: 999px;
-  color: var(--vh-ui-muted);
-  display: inline-flex;
-  font-size: 0.6875rem;
-  gap: 0.3rem;
-  max-width: 100%;
-  min-height: 1.5rem;
-  overflow: hidden;
-  padding: 0.15rem 0.5rem;
-  text-decoration: none;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-a.vh-invocation-inspector__badge:hover {
-  border-color: var(--vh-ui-border-strong);
-  color: var(--vh-ui-text);
-}
-
-.vh-invocation-inspector__badge svg { height: 0.75rem; width: 0.75rem; }
 
 .vh-invocation-execution__details {
-  display: grid;
-  gap: 0.25rem;
+  align-items: baseline;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.5rem;
   min-width: 0;
   overflow-wrap: anywhere;
 }
 
 .vh-invocation-execution__details strong {
   color: var(--vh-ui-text);
-  font-size: 0.8125rem;
-  font-weight: 600;
-  line-height: 1.4;
+  font-size: 0.75rem;
+  font-weight: 500;
 }
 
 .vh-invocation-execution__details span {
-  color: var(--vh-ui-text-muted);
-  font-size: 0.6875rem;
-  line-height: 1.4;
+  color: var(--vh-ui-dimmed);
+  font-size: 0.75rem;
 }
 
 .vh-invocation-brand__logo {
@@ -2489,13 +2468,13 @@ a.vh-invocation-inspector__badge:hover {
 
 .vh-invocation-execution__model-icon {
   color: var(--vh-ui-text);
-  height: 1.25rem;
-  width: 1.25rem;
+  height: 1rem;
+  width: 1rem;
 }
 
 .vh-invocation-execution__provider {
   align-items: center;
-  display: flex;
+  display: inline-flex;
   gap: 0.3rem;
 }
 
@@ -2505,17 +2484,54 @@ a.vh-invocation-inspector__badge:hover {
 }
 
 .vh-invocation-execution__workspace > svg {
-  color: var(--vh-ui-text-muted);
+  color: var(--vh-ui-muted);
   flex-shrink: 0;
-  height: 1.25rem;
-  margin-inline: 0.375rem;
-  width: 1.25rem;
+  height: 1rem;
+  width: 1rem;
 }
 
 .vh-invocation-execution__runtime.vh-invocation-inspector__list {
   margin: 0;
-  padding: 0.6rem 0.9rem;
 }
+
+/* Sources and Channels: small bordered chips, as T3 Code's role chips. */
+.vh-invocation-inspector__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-block-start: 0.25rem;
+}
+
+.vh-invocation-inspector__badge {
+  align-items: center;
+  border: 1px solid color-mix(in oklab, var(--vh-ui-border) 80%, transparent);
+  border-radius: 0.25rem;
+  color: var(--vh-ui-muted);
+  display: inline-flex;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.6875rem;
+  gap: 0.3rem;
+  max-width: 100%;
+  min-height: 1.375rem;
+  overflow: hidden;
+  padding: 0 0.4rem;
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vh-invocation-inspector__badge > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+a.vh-invocation-inspector__badge:hover {
+  border-color: var(--vh-ui-muted);
+  color: var(--vh-ui-text);
+}
+
+.vh-invocation-inspector__badge svg { flex: none; height: 0.75rem; width: 0.75rem; }
 
 .vh-invocation-tool-list {
   border-block: 1px solid var(--vh-ui-border);
@@ -2577,26 +2593,40 @@ a.vh-invocation-inspector__badge:hover {
   overflow: hidden;
 }
 
+.vh-invocation-inspector__groups {
+  display: grid;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.vh-invocation-inspector__group {
+  border: 0;
+  min-width: 0;
+  padding: 0;
+}
+
 .vh-invocation-inspector__group-heading {
   align-items: center;
   color: var(--vh-ui-muted);
   display: flex;
   gap: 0.45rem;
-  min-height: 1.25rem;
+  min-height: 1.5rem;
   min-width: 0;
 }
 
 .vh-invocation-inspector__group-heading strong {
-  color: var(--vh-ui-text);
+  color: var(--vh-ui-dimmed);
   flex: 1;
-  font-size: 0.75rem;
-  font-weight: 600;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
   min-width: 0;
+  text-transform: uppercase;
 }
 
 .vh-invocation-inspector__group-heading small {
   color: var(--vh-ui-dimmed);
-  font-size: 0.625rem;
+  font-size: 0.6875rem;
   font-variant-numeric: tabular-nums;
 }
 
@@ -2613,17 +2643,18 @@ summary.vh-invocation-inspector__group-heading::-webkit-details-marker,
 
 summary.vh-invocation-inspector__group-heading:focus-visible,
 .vh-invocation-inspector__item-disclosure summary:focus-visible {
-  border-radius: calc(var(--vh-ui-radius) * 0.8);
+  border-radius: 0.375rem;
   outline: 2px solid color-mix(in oklab, var(--ui-primary, #2563eb) 55%, transparent);
   outline-offset: 2px;
 }
 
 .vh-invocation-inspector__chevron {
-  height: 0.8rem;
+  color: var(--vh-ui-dimmed);
+  height: 0.75rem;
   stroke: currentColor;
   stroke-width: 2;
   transition: transform 150ms ease;
-  width: 0.8rem;
+  width: 0.75rem;
 }
 
 .vh-invocation-inspector__disclosure[open] > summary .vh-invocation-inspector__chevron,
@@ -2631,36 +2662,39 @@ summary.vh-invocation-inspector__group-heading:focus-visible,
   transform: rotate(90deg);
 }
 
+/* Key and value rows: a 6rem label column, 32px tall, as T3 Code's pull request metadata. */
 .vh-invocation-inspector__list {
   display: grid;
-  margin: 0.45rem 0 0;
+  margin: 0;
 }
 
 .vh-invocation-inspector__list > div {
   align-items: center;
   display: grid;
-  gap: 0.5rem;
-  grid-template-columns: minmax(4.5rem, 0.7fr) minmax(0, 1.3fr);
+  gap: 0.75rem;
+  grid-template-columns: 6rem minmax(0, 1fr);
+  min-height: 2rem;
   min-width: 0;
-  padding-block: 0.35rem;
 }
 
 .vh-invocation-inspector__list dt {
   color: var(--vh-ui-dimmed);
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
 }
 
 .vh-invocation-inspector__list dd {
-  font-size: 0.6875rem;
+  color: var(--vh-ui-text);
+  font-size: 0.75rem;
   margin: 0;
   min-width: 0;
   overflow-wrap: anywhere;
-  text-align: end;
+  text-align: start;
 }
 
+/* Identifiers: a label, the shortened value in mono, and a copy mark that turns into a check. */
 .vh-invocation-inspector__copy-list {
-  display: flex;
-  gap: 0.35rem;
+  display: grid;
+  gap: 1px;
 }
 
 .vh-invocation-inspector__copy {
@@ -2668,34 +2702,39 @@ summary.vh-invocation-inspector__group-heading:focus-visible,
   appearance: none;
   background: transparent;
   border: 0;
+  border-radius: 0.375rem;
   color: var(--vh-ui-muted);
   cursor: pointer;
-  border-radius: calc(var(--vh-ui-radius) * 0.8);
-  display: inline-flex;
+  display: grid;
   font: inherit;
-  gap: 0.5rem;
-  min-height: 1.75rem;
-  padding: 0.3rem 0.45rem;
+  gap: 0.75rem;
+  grid-template-columns: 6rem minmax(0, 1fr) auto;
+  min-height: 2rem;
+  padding: 0 0.5rem;
+  margin-inline: -0.5rem;
   text-align: start;
-  transition:
-    background-color 120ms ease,
-    color 120ms ease;
-  width: auto;
-}
-
-.vh-invocation-inspector__copy + .vh-invocation-inspector__copy {
-  border-block-start: 0;
+  width: calc(100% + 1rem);
 }
 
 .vh-invocation-inspector__copy-label {
-  color: var(--vh-ui-text);
+  color: var(--vh-ui-dimmed);
   font-size: 0.75rem;
   min-width: 0;
 }
 
+.vh-invocation-inspector__copy-value {
+  color: var(--vh-ui-text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.6875rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .vh-invocation-inspector__copy:hover,
 .vh-invocation-inspector__copy:focus-visible {
-  background: color-mix(in oklab, var(--vh-ui-bg-elevated) 70%, transparent);
+  background: color-mix(in oklab, var(--vh-ui-bg-elevated) 60%, transparent);
   color: var(--vh-ui-text);
 }
 
@@ -2706,15 +2745,24 @@ summary.vh-invocation-inspector__group-heading:focus-visible,
 
 .vh-invocation-inspector__copy-icon {
   align-items: center;
+  color: var(--vh-ui-dimmed);
   display: inline-flex;
   justify-content: center;
 }
 
+.vh-invocation-inspector__copy:hover .vh-invocation-inspector__copy-icon {
+  color: var(--vh-ui-text);
+}
+
+.vh-invocation-inspector__copy[aria-label$="copied"] .vh-invocation-inspector__copy-icon {
+  color: var(--vh-ui-success);
+}
+
 .vh-invocation-inspector__copy-icon svg {
-  height: 0.875rem;
+  height: 0.75rem;
   stroke: currentColor;
-  stroke-width: 1.8;
-  width: 0.875rem;
+  stroke-width: 2;
+  width: 0.75rem;
 }
 
 .vh-invocation-inspector__stack {
@@ -2951,6 +2999,27 @@ button.vh-agent-tool-list__count:focus-visible {
 
   .vh-invocation-inspector__list dd {
     text-align: start;
+  }
+
+  .vh-invocation-inspector__copy {
+    gap: 0.25rem 0.75rem;
+    grid-template-columns: minmax(0, 1fr) auto;
+    padding-block: 0.25rem;
+  }
+
+  .vh-invocation-inspector__copy-label {
+    grid-column: 1;
+    overflow-wrap: anywhere;
+  }
+
+  .vh-invocation-inspector__copy-value {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .vh-invocation-inspector__copy-icon {
+    grid-column: 2;
+    grid-row: 1 / span 2;
   }
 }
 
