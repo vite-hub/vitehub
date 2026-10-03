@@ -192,6 +192,8 @@ export default defineAppConfig({
           root: "relative my-5 group",
           header: "flex items-center gap-1.5 border border-default bg-default border-b-0 relative rounded-none px-4 py-3",
           base: "group font-mono text-sm/6 border border-default bg-muted rounded-none px-4 py-3 whitespace-pre-wrap wrap-break-word overflow-x-auto focus:outline-none",
+          // Touch screens cannot reveal the hover-only copy button, so keep it visible and larger.
+          copy: "pointer-coarse:opacity-100 pointer-coarse:size-9 pointer-coarse:justify-center pointer-coarse:top-[5px] pointer-coarse:end-[5px]",
         },
       },
       steps: {

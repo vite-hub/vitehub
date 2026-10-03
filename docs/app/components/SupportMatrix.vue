@@ -1341,6 +1341,42 @@ a.support-matrix-host-link:hover {
   font-size: 0.8125rem;
 }
 
+/* The table scrolls sideways below 1120px, so keep row names visible while the host columns scroll. */
+@media (max-width: 1119px) {
+  .support-matrix-feature-heading,
+  .support-matrix-section-row > th,
+  .support-matrix-data-row > th {
+    position: sticky;
+    z-index: 1;
+    left: 0;
+    background: var(--ui-bg);
+    box-shadow: inset -1px 0 0 var(--ui-border);
+  }
+
+  .support-matrix-feature-heading {
+    z-index: 2;
+    background: color-mix(in srgb, var(--ui-bg-muted) 72%, var(--ui-bg));
+  }
+}
+
+/* Short landscape screens keep more rows below the sticky header and column heads. */
+@media (max-height: 30rem) {
+  .support-matrix-group-heading {
+    padding-block: 0.35rem;
+  }
+
+  .support-matrix-host-link {
+    min-height: 2.5rem;
+    flex-direction: row;
+  }
+}
+
+@media (pointer: coarse) {
+  .support-matrix-status {
+    min-height: 2.5rem;
+  }
+}
+
 /* Below lg, the header menu opens the documentation navigation. */
 @media (max-width: 1023px) {
   .support-matrix-navigation {
@@ -1386,22 +1422,6 @@ a.support-matrix-host-link:hover {
 
   .support-matrix-host-column {
     width: 6.5rem;
-  }
-
-  /* Keep row names visible while the host columns scroll. */
-  .support-matrix-feature-heading,
-  .support-matrix-section-row > th,
-  .support-matrix-data-row > th {
-    position: sticky;
-    z-index: 1;
-    left: 0;
-    background: var(--ui-bg);
-    box-shadow: inset -1px 0 0 var(--ui-border);
-  }
-
-  .support-matrix-feature-heading {
-    z-index: 2;
-    background: color-mix(in srgb, var(--ui-bg-muted) 72%, var(--ui-bg));
   }
 
   .support-matrix-data-row > th {

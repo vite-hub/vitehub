@@ -20,6 +20,9 @@ const mobileLinks = [
 
 // The docs drawer already lists Agents, Primitives, and Docs pages.
 const docsMobileLinks = mobileLinks.filter((link) => !link.to.startsWith("/docs"));
+
+// Touch screens get taller header icon buttons. The 44px header and a 320px row still fit.
+const touchIconButton = "pointer-coarse:h-10 pointer-coarse:w-9 pointer-coarse:justify-center";
 </script>
 
 <template>
@@ -27,6 +30,8 @@ const docsMobileLinks = mobileLinks.filter((link) => !link.to.startsWith("/docs"
     <UHeader
       :ui="{
         container: isDocsRoute && !isSupportMatrix ? 'max-w-(--vh-docs-width) mx-auto' : undefined,
+        right: 'pointer-coarse:gap-0.5',
+        toggle: touchIconButton,
       }"
     >
       <template #left>
@@ -65,15 +70,15 @@ const docsMobileLinks = mobileLinks.filter((link) => !link.to.startsWith("/docs"
           collapsed
           :kbds="[]"
           :ui="{
-            base: '!w-8 shrink-0 justify-center rounded-md border-0 !p-1.5 text-default hover:bg-elevated',
+            base: '!w-8 shrink-0 justify-center rounded-md border-0 !p-1.5 text-default hover:bg-elevated pointer-coarse:!h-10 pointer-coarse:!w-9',
             label: 'sr-only',
             trailing: 'hidden',
           }"
         />
         <ClientOnly>
-          <UColorModeButton />
+          <UColorModeButton :class="touchIconButton" />
           <template #fallback>
-            <div class="size-8 animate-pulse bg-muted" />
+            <div :class="['size-8 animate-pulse bg-muted', touchIconButton]" />
           </template>
         </ClientOnly>
         <UButton
@@ -83,6 +88,7 @@ const docsMobileLinks = mobileLinks.filter((link) => !link.to.startsWith("/docs"
           variant="ghost"
           color="neutral"
           aria-label="ViteHub on GitHub"
+          :class="touchIconButton"
         />
       </template>
 

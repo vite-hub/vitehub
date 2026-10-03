@@ -1438,6 +1438,19 @@ function selectHost(key: string) {
   }
 }
 
+/* Touch targets fill the 2rem code rows instead of the 24px icon size. */
+@media (pointer: coarse) {
+  .property-remove {
+    min-width: 2rem;
+    min-height: 2rem;
+    justify-content: center;
+  }
+
+  .tree-file {
+    min-height: 2.25rem;
+  }
+}
+
 @media (max-width: 639px) {
   .workbench-body {
     min-height: 0;

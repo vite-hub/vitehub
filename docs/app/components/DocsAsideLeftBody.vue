@@ -286,4 +286,12 @@ function isPageGroupOpen(section: ManifestSection, group: SidebarPageGroup, inde
   background: color-mix(in srgb, var(--ui-text-highlighted) 6%, transparent);
   color: var(--ui-text);
 }
+
+/* Match the 40px search and lane rows so touch rows are easy to hit. */
+@media (pointer: coarse) {
+  .vh-docs-sidebar-link,
+  .vh-docs-sidebar-page-group-summary {
+    min-height: 2.5rem;
+  }
+}
 </style>

@@ -129,6 +129,7 @@ function resetExample() {
           color="neutral"
           size="xs"
           variant="ghost"
+          class="component-preview-action"
           @click="resetExample"
         />
         <UButton
@@ -139,6 +140,7 @@ function resetExample() {
           color="neutral"
           size="xs"
           variant="ghost"
+          class="component-preview-action"
           @click="copy(source)"
         />
         <span class="sr-only" aria-live="polite">{{ copied ? `${fileName} copied` : "" }}</span>
@@ -199,6 +201,19 @@ function resetExample() {
 .component-preview-tab:focus-visible {
   outline: 2px solid var(--ui-border-inverted);
   outline-offset: 1px;
+}
+
+/* The 44px toolbar fits 36px touch targets without growing. */
+@media (pointer: coarse) {
+  .component-preview-tab,
+  .component-preview-action {
+    min-height: 2.25rem;
+  }
+
+  .component-preview-action {
+    min-width: 2.25rem;
+    justify-content: center;
+  }
 }
 
 .component-preview-source :deep(pre) {

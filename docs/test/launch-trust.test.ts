@@ -161,7 +161,7 @@ describe("launch documentation trust boundaries", () => {
       /@media \(max-width: 1023px\) \{\s*\.support-matrix-navigation \{\s*display: none;/,
     );
     expect(matrixComponent).toMatch(
-      /@media \(max-width: 640px\)[\s\S]*?\.support-matrix-data-row > th \{\s*position: sticky;/,
+      /@media \(max-width: 1119px\)[\s\S]*?\.support-matrix-data-row > th \{\s*position: sticky;/,
     );
     expect(matrixComponent).toContain("var(--ui-header-height) + 42px + 0.5rem");
     expect(matrixComponent).toContain(
