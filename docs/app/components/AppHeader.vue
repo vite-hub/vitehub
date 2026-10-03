@@ -17,6 +17,9 @@ const mobileLinks = [
   { label: "Home", to: "/" },
   ...navLinks,
 ];
+
+// The docs drawer already lists Agents, Primitives, and Docs pages.
+const docsMobileLinks = mobileLinks.filter((link) => !link.to.startsWith("/docs"));
 </script>
 
 <template>
@@ -24,13 +27,13 @@ const mobileLinks = [
     <UHeader
       :ui="{
         container: isDocsRoute && !isSupportMatrix ? 'max-w-(--vh-docs-width) mx-auto' : undefined,
-        toggle: isSupportMatrix ? 'hidden' : undefined,
       }"
     >
       <template #left>
         <UTooltip
           text="Just a library where I test different solutions and agents. APIs break all the time."
           :content="{ side: 'bottom', sideOffset: 8 }"
+          ignore-non-keyboard-focus
           :ui="{ content: 'h-auto max-w-64 whitespace-normal px-3 py-2 text-left leading-5' }"
         >
           <ULink to="/" class="vh-brand" aria-label="ViteHub alpha">
@@ -84,7 +87,18 @@ const mobileLinks = [
       </template>
 
       <template #body>
-        <div v-if="isDocsRoute && !isSupportMatrix" class="-mx-4 -my-2">
+        <div v-if="isDocsRoute" class="-mx-4 -my-2">
+          <nav class="flex items-center gap-1 border-b border-default px-2 py-1.5" aria-label="Site">
+            <UButton
+              v-for="link in docsMobileLinks"
+              :key="link.to"
+              :to="link.to"
+              :label="link.label"
+              color="neutral"
+              variant="ghost"
+              size="sm"
+            />
+          </nav>
           <DocsAsideLeftTop />
           <DocsAsideLeftBody />
         </div>

@@ -1341,13 +1341,21 @@ a.support-matrix-host-link:hover {
   font-size: 0.8125rem;
 }
 
+/* Below lg, the header menu opens the documentation navigation. */
+@media (max-width: 1023px) {
+  .support-matrix-navigation {
+    display: none;
+  }
+}
+
 @media (max-width: 640px) {
   .support-matrix-hero {
-    padding: 4rem 1rem 2.5rem;
+    padding: 2.5rem 1rem 2rem;
   }
 
   .support-matrix-hero h1 {
-    font-size: 2rem;
+    font-size: 1.625rem;
+    line-height: 1.2;
   }
 
   .support-matrix-main {
@@ -1358,8 +1366,41 @@ a.support-matrix-host-link:hover {
     justify-content: flex-start;
   }
 
+  .support-matrix-table {
+    min-width: 54rem;
+  }
+
+  .support-matrix-feature-column {
+    width: 8.5rem;
+  }
+
+  .support-matrix-host-column {
+    width: 6.5rem;
+  }
+
+  /* Keep row names visible while the host columns scroll. */
+  .support-matrix-feature-heading,
+  .support-matrix-section-row > th,
+  .support-matrix-data-row > th {
+    position: sticky;
+    z-index: 1;
+    left: 0;
+    background: var(--ui-bg);
+    box-shadow: inset -1px 0 0 var(--ui-border);
+  }
+
+  .support-matrix-feature-heading {
+    z-index: 2;
+    background: color-mix(in srgb, var(--ui-bg-muted) 72%, var(--ui-bg));
+  }
+
+  .support-matrix-data-row > th {
+    padding-inline: 0.625rem;
+    font-size: 0.8125rem;
+  }
+
   .support-matrix-qualifications {
-    padding-inline-start: 3.25rem;
+    padding-inline: 1rem;
   }
 
   .support-matrix-footer {

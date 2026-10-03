@@ -156,8 +156,8 @@ onBeforeUnmount(() => {
       class="group inline-flex min-h-12 w-full items-center gap-2 rounded-full border border-default bg-default px-3 py-2.5 text-left transition-[border-color,background-color] duration-200 hover:border-accented hover:bg-muted/40 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary"
       @click="copyCommand"
     >
-      <span class="font-mono text-sm text-dimmed select-none" aria-hidden="true">$</span>
-      <span class="relative min-w-0 flex-1 overflow-hidden font-mono text-sm text-highlighted">
+      <span class="font-mono text-xs text-dimmed select-none sm:text-sm" aria-hidden="true">$</span>
+      <span class="relative min-w-0 flex-1 overflow-hidden font-mono text-xs text-highlighted sm:text-sm">
         <Transition name="command-swap" mode="out-in">
           <code
             :key="activeCommand"

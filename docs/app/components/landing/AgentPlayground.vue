@@ -809,7 +809,7 @@ function selectHost(key: string) {
       <div class="editor-pane">
         <div v-if="selectedFile.path.endsWith('.ts')" class="agent-code">
           <div class="agent-code-inner">
-            <p><span class="syntax-keyword">export default</span> <span class="text-highlighted">defineAgent</span>({</p>
+            <p><span><span class="syntax-keyword">export default</span> <span class="text-highlighted">defineAgent</span>({</span></p>
 
             <div
               v-for="propertyKey in selectedAgentConfig.visiblePropertyKeys"
@@ -1440,8 +1440,18 @@ function selectHost(key: string) {
 
 @media (max-width: 639px) {
   .workbench-body {
-    grid-template-columns: 11rem minmax(18rem, 1fr);
-    overflow-x: auto;
+    min-height: 0;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .file-tree {
+    border-right: 0;
+    border-bottom: 1px solid var(--ui-border);
+  }
+
+  .agent-code,
+  .editor-code {
+    height: 22rem;
   }
 }
 </style>

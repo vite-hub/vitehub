@@ -158,7 +158,10 @@ describe("launch documentation trust boundaries", () => {
       'scroll-margin-block-start: calc(var(--ui-header-height) + 42px + 1rem)',
     );
     expect(matrixComponent).toMatch(
-      /@media \(max-width: 640px\)[\s\S]*?\.support-matrix-qualifications \{\s*padding-inline-start: 3\.25rem;/,
+      /@media \(max-width: 1023px\) \{\s*\.support-matrix-navigation \{\s*display: none;/,
+    );
+    expect(matrixComponent).toMatch(
+      /@media \(max-width: 640px\)[\s\S]*?\.support-matrix-data-row > th \{\s*position: sticky;/,
     );
     expect(matrixComponent).toContain("var(--ui-header-height) + 42px + 0.5rem");
     expect(matrixComponent).toContain(
