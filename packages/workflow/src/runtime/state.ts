@@ -48,8 +48,8 @@ export function getWorkflowRuntimeConfig(): false | ResolvedWorkflowOptions | un
 }
 
 export function setWorkflowRuntimeRegistry(registry: WorkflowDefinitionRegistry | undefined): void {
+  if (runtimeRegistry !== registry) loadingRegistryEntries.clear()
   runtimeRegistry = registry
-  loadingRegistryEntries.clear()
   loadedRegistryEntries.clear()
 }
 

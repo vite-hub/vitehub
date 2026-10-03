@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import type { WorkflowDefinition } from "../src/types.ts"
+import { createWorkflow } from "../src/runtime/client.ts"
 import { loadWorkflowDefinition, resetWorkflowRuntime, setWorkflowRuntimeRegistry } from "../src/runtime/state.ts"
 
 afterEach(resetWorkflowRuntime)
@@ -16,6 +17,60 @@ function deferredDefinition() {
 }
 
 describe("Workflow registry replacement", () => {
+  it("preserves pending loads when installing the same registry", async () => {
+    const pending = deferredDefinition()
+    const loader = vi.fn(() => pending.promise)
+    const registry = { report: loader }
+    setWorkflowRuntimeRegistry(registry)
+    const firstLoad = loadWorkflowDefinition("report")
+    await Promise.resolve()
+
+    setWorkflowRuntimeRegistry(registry)
+    const secondLoad = loadWorkflowDefinition("report")
+    pending.resolve({ handler: async () => "current" })
+
+    await expect(firstLoad).resolves.toBe(await secondLoad)
+    expect(loader).toHaveBeenCalledOnce()
+  })
+
+  it("invalidates settled definitions when installing the same registry", async () => {
+    const first = { handler: async () => "first" }
+    const second = { handler: async () => "second" }
+    const loader = vi.fn(async () => first).mockResolvedValueOnce(first).mockResolvedValueOnce(second)
+    const registry = { report: loader }
+    setWorkflowRuntimeRegistry(registry)
+    await expect(loadWorkflowDefinition("report")).resolves.toBe(first)
+
+    setWorkflowRuntimeRegistry(registry)
+    await expect(loadWorkflowDefinition("report")).resolves.toBe(second)
+    expect(loader).toHaveBeenCalledTimes(2)
+  })
+
+  it("shares an inline handle from a pending module when installing the same registry", async () => {
+    const pending = deferredDefinition()
+    const handler = async () => "current"
+    const importModule = vi.fn(async () => {
+      await pending.promise
+      return { report: createWorkflow("report", handler) }
+    })
+    let imported: ReturnType<typeof importModule> | undefined
+    const loader = vi.fn(() => imported ??= importModule())
+    const registry = { report: loader }
+    setWorkflowRuntimeRegistry(registry)
+    const firstLoad = loadWorkflowDefinition("report")
+    await Promise.resolve()
+
+    setWorkflowRuntimeRegistry(registry)
+    const secondLoad = loadWorkflowDefinition("report")
+    pending.resolve({ handler })
+
+    const [first, second] = await Promise.all([firstLoad, secondLoad])
+    expect(first?.handler).toBe(handler)
+    expect(second).toBe(first)
+    expect(loader).toHaveBeenCalledOnce()
+    expect(importModule).toHaveBeenCalledOnce()
+  })
+
   it("does not repopulate a reset cache when an old load finishes last", async () => {
     const pending = deferredDefinition()
     const current = { handler: async () => "new" }
