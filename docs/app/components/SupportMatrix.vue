@@ -1349,6 +1349,16 @@ a.support-matrix-host-link:hover {
 }
 
 @media (max-width: 640px) {
+  /* The announcement can wrap to several lines on phones. Keep anchored
+     sections below the full banner, header, and breathing room. */
+  .support-matrix-section-anchor {
+    scroll-margin-block-start: 10rem;
+  }
+
+  .support-matrix-qualifications {
+    scroll-margin-block-start: calc(var(--ui-header-height) + 6rem + 1rem);
+  }
+
   .support-matrix-hero {
     padding: 2.5rem 1rem 2rem;
   }
