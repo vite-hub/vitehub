@@ -550,6 +550,33 @@ describe("blob runtime", () => {
     })
   })
 
+  it("shares store initialization across concurrent runtime operations", async () => {
+    setBlobRuntimeConfig({ store: { bucket: "assets", driver: "s3" } })
+
+    const results = await Promise.all([blob.list(), blob.list(), blob.list()])
+
+    for (const result of results) expectBlobSuccess(result)
+    expect(filesSdkMock.s3).toHaveBeenCalledOnce()
+  })
+
+  it("invalidates default and named stores when runtime configuration changes", async () => {
+    const first = { access: "public" as const, driver: "vercel-blob" as const, token: "first-token" }
+    const second = { access: "public" as const, driver: "vercel-blob" as const, token: "second-token" }
+    setBlobRuntimeConfig({ store: first, stores: { default: first, assets: first } })
+    expectBlobSuccess(await blob.put("first.txt", "first"))
+    expectBlobSuccess(await blob.store("assets").put("first.txt", "first"))
+
+    setBlobRuntimeConfig({ store: second, stores: { default: second, assets: second } })
+    expectBlobSuccess(await blob.put("second.txt", "second"))
+    expectBlobSuccess(await blob.store("assets").put("second.txt", "second"))
+
+    expect(vercelBlobMock.put).toHaveBeenNthCalledWith(3, "second.txt", "second", expect.objectContaining({ token: "second-token" }))
+    expect(vercelBlobMock.put).toHaveBeenNthCalledWith(4, "second.txt", "second", expect.objectContaining({ token: "second-token" }))
+    setBlobRuntimeConfig(false)
+    expect((await blob.list())[0]).toMatchObject({ cause: { code: "BLOB_R0023" } })
+    expect((await blob.store("assets").list())[0]).toMatchObject({ cause: { code: "BLOB_R0023" } })
+  })
+
   it("uses the active Cloudflare binding", async () => {
     setBlobRuntimeConfig({
       store: {

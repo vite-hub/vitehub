@@ -5,7 +5,7 @@ import { handleBlobMultipartUpload, handleBlobUpload } from "../upload.ts"
 import { resolveRuntimeMinioBlobStore, resolveRuntimeVercelBlobStore } from "../config.ts"
 import { createDriver as createCloudflareR2NativeDriver, getOptionalBucket } from "../drivers/cloudflare-native.ts"
 
-import { getBlobRuntimeConfig, getNamedBlobRuntimeStorage, setNamedBlobRuntimeStorage } from "./state.ts"
+import { getBlobRuntimeConfig, resolveNamedBlobRuntimeStorage } from "./state.ts"
 
 import type { BlobDriverAdapter, BlobMultipartUpload, BlobObject, BlobOperation, BlobResult, BlobStorage, BlobStoreName, ResolvedBlobModuleOptions, ResolvedBlobStoreConfig, ResolvedCloudflareR2BlobStoreConfig } from "../types.ts"
 import { blobErrorDiagnostics } from "../error-diagnostics.ts"
@@ -120,23 +120,14 @@ async function withServedBlobUrl(name: string, object: BlobObject): Promise<Blob
   return { ...object, url: joinServedBlobUrl(serve.publicBaseUrl || "/", serve.route, object.pathname) }
 }
 
-async function resolveStorage(name = "default") {
-  const existing = getNamedBlobRuntimeStorage(name)
-  if (existing) {
-    return existing
-  }
-
-  const config = await getBlobRuntimeConfig()
-  if (!config) {
-    throw blobErrorDiagnostics.BLOB_R0023({ message: "Blob runtime is disabled." })
-  }
-
-  const stores = config.stores || { default: config.store }
-  const store = stores[name]
-  if (!store) throw new UnknownBlobStoreError(`Unknown Blob store "${name}".`)
-  const storage = await createConfiguredBlobStorage({ store, stores: { default: store, [name]: store } }, name)
-  setNamedBlobRuntimeStorage(name, storage)
-  return storage
+function resolveStorage(name = "default"): Promise<BlobStorage> {
+  return resolveNamedBlobRuntimeStorage(name, async (config) => {
+    if (!config) throw blobErrorDiagnostics.BLOB_R0023({ message: "Blob runtime is disabled." })
+    const stores = config.stores || { default: config.store }
+    const store = Object.hasOwn(stores, name) ? stores[name] : undefined
+    if (!store) throw new UnknownBlobStoreError(`Unknown Blob store "${name}".`)
+    return await createConfiguredBlobStorage({ store, stores: { default: store, [name]: store } }, name)
+  })
 }
 
 async function resolveStorageResult(operation: BlobOperation, name: string): Promise<BlobResult<BlobStorage>> {

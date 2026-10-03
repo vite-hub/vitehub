@@ -184,10 +184,10 @@ function mergeNitroBlobConfig(value: unknown, serve: BlobServeConfig | undefined
 function renderNitroBlobPlugin(blob: BlobViteRuntimeConfig["blob"], cloudflare: boolean, importBase = blobPackageName): string {
   return [
     cloudflare ? "import { env as vitehubEnv } from 'cloudflare:workers'" : undefined,
-    cloudflare ? undefined : "import './runtime.mjs'",
+    cloudflare ? undefined : "import { blobConfig } from './runtime.mjs'",
     `import { ${cloudflare ? "setActiveCloudflareEnv, " : ""}setBlobRuntimeConfig } from '${importBase}/runtime/state'`,
     "",
-    `const blobConfig = ${JSON.stringify(blob)}`,
+    cloudflare ? `const blobConfig = ${JSON.stringify(blob)}` : undefined,
     "",
     "export default function vitehubBlobPlugin() {",
     cloudflare ? "  setActiveCloudflareEnv(vitehubEnv)" : undefined,

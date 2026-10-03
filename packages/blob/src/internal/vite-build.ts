@@ -257,7 +257,7 @@ export function renderBlobRuntimeModule(file: string, blobConfig: false | Resolv
   return [
     ...imports,
     "",
-    `const blobConfig = ${JSON.stringify(blobConfig, null, 2)}`,
+    `export const blobConfig = ${JSON.stringify(blobConfig, null, 2)}`,
     "setBlobRuntimeConfig(blobConfig)",
     ...(blobConfig
       ? [
