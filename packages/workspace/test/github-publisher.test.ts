@@ -109,6 +109,22 @@ afterEach(() => {
 })
 
 describe("GitHub workspace publisher", () => {
+  it.each(["onmax/repo\\..\\other", "onmax/..", "onmax/%2e%2e"]) (
+    "rejects unsafe repository %j before making GitHub requests",
+    async repository => {
+      const workspace = createWorkspace({
+        name: "docs",
+        store: { provider: "memory" },
+        publish: [github({ branch: "main", repository, token: "token" })],
+      })
+      await workspace.writeFile("file.md", "content")
+      await expect(workspace.snapshot({ name: "publish" })).rejects.toThrow(
+        "GitHub workspace publisher requires a repository in owner/repo format",
+      )
+      expect(requests).toEqual([])
+    },
+  )
+
   it("publishes workspace snapshots as GitHub commits", async () => {
     const workspace = createWorkspace({
       name: "docs",
