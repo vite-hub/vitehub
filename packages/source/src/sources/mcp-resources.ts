@@ -294,14 +294,14 @@ async function listAllResources(client: McpResourcesClient, request: McpResource
   do {
     if (cursor !== undefined) {
       if (seenCursors.has(cursor)) {
-        throw sourceError(`[vitehub] MCP Resources server repeated pagination cursor ${JSON.stringify(cursor)}.`)
+        throw sourceError("[vitehub] mcpResources server returned the same pagination cursor twice.")
       }
       seenCursors.add(cursor)
     }
-    const page = await client.listResources(cursor ? { cursor } : undefined, request)
+    const page = await client.listResources(cursor === undefined ? undefined : { cursor }, request)
     resources.push(...page.resources)
     cursor = page.nextCursor
-  } while (cursor)
+  } while (cursor !== undefined)
   return resources
 }
 

@@ -39,6 +39,39 @@ function createClient(): McpResourcesClient {
   }
 }
 
+function createRepeatingCursorClient(): McpResourcesClient {
+  return {
+    serverInfo: { name: "repeating", version: "test" },
+    async listResources() {
+      return {
+        nextCursor: "repeat",
+        resources: [{
+          name: "resource.txt",
+          uri: "resource://repeating/resource.txt",
+        }],
+      }
+    },
+    async readResource() {
+      return { contents: [{ mimeType: "text/plain", text: "ok", uri: "resource://repeating/resource.txt" }] }
+    },
+  }
+}
+
+function createEmptyCursorClient(): McpResourcesClient {
+  return {
+    serverInfo: { name: "empty-cursor", version: "test" },
+    async listResources(options) {
+      if (options?.cursor === undefined) {
+        return { nextCursor: "", resources: [{ name: "first.txt", uri: "resource://empty/first.txt" }] }
+      }
+      return { resources: [{ name: "second.txt", uri: "resource://empty/second.txt" }] }
+    },
+    async readResource({ uri }) {
+      return { contents: [{ mimeType: "text/plain", text: uri, uri }] }
+    },
+  }
+}
+
 describe("mcpResources", () => {
   it("owns the MCP SDK as a private build dependency", async () => {
     const { default: pkg } = await import("../../package.json", { with: { type: "json" } })
@@ -56,6 +89,21 @@ describe("mcpResources", () => {
       "nuxt-com/documentation-pages.json",
       "nuxt-com/blog-posts.json",
     ])
+  })
+
+  it("rejects a repeated pagination cursor", async () => {
+    const source = mcpResources({ server: createRepeatingCursorClient() })
+
+    await expect(source.getKeys({ rootDir: "/tmp" })).rejects.toMatchObject({
+      code: "SOURCE_FAILED",
+      message: "[vitehub] mcpResources server returned the same pagination cursor twice.",
+    })
+  })
+
+  it("forwards and follows an empty pagination cursor", async () => {
+    const source = mcpResources({ server: createEmptyCursorClient() })
+
+    await expect(source.getKeys({ rootDir: "/tmp" })).resolves.toEqual(["empty/first.txt", "empty/second.txt"])
   })
 
   it("reads MCP resource contents and metadata", async () => {
