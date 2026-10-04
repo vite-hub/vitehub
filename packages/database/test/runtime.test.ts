@@ -251,6 +251,7 @@ describe("drizzle runtime", () => {
 
     expect(db).toBe(databases.default.db)
     expect((useDatabase as (name: string) => unknown)("analytics")).toBe(databases.analytics)
+    expect((useDatabase as (name: string) => unknown)("toString")).toBeUndefined()
 
     await databases.default.db.run(sql`
       create table if not exists notes (
@@ -292,6 +293,7 @@ describe("drizzle runtime", () => {
     await analytics.exec("insert into analytics_events (id, name) values (1, 'page-view')")
     await expect(analytics.query("select id, name from analytics_events")).resolves.toEqual([{ id: 1, name: "page-view" }])
     expect(() => agentDb.database("missing")).toThrow('Database "missing" is not configured.')
+    expect(() => agentDb.database("toString")).toThrow('Database "toString" is not configured.')
   })
 
   it("queries configured Cloudflare D1 over HTTP from the generated local runtime", async () => {

@@ -498,6 +498,7 @@ describe("Vite db provider outputs", () => {
     const cloudflareWorker = await readCloudflareWorker(rootDir)
     expect(cloudflareWorker).toContain("createAgentDatabase")
     expect(cloudflareWorker).toContain("useDatabase")
+    expect(cloudflareWorker).toContain("Object.hasOwn(databases, name)")
     expect(cloudflareWorker).toMatch(/["']?analytics["']?\s*:/)
     expect(cloudflareWorker).toMatch(/["']?primary["']?\s*:/)
 
