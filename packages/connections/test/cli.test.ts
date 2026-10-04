@@ -54,6 +54,26 @@ describe("vitehub connections", () => {
     expect(harness.output.stdout).toContain("https://app.example.com/_vitehub/connections/connect/mail")
   })
 
+  it("preserves the app base path for management requests and connect URLs", async () => {
+    const requests: string[] = []
+    const output = { stderr: "", stdout: "" }
+    const context = {
+      env: {},
+      stderr: { write: (chunk: string | Uint8Array) => (output.stderr += String(chunk)) },
+      stdout: { write: (chunk: string | Uint8Array) => (output.stdout += String(chunk)) },
+    }
+    const options = {
+      fetch: async (input: Parameters<typeof fetch>[0]) => {
+        requests.push(String(input))
+        return Response.json({ connections: [] })
+      },
+    }
+    expect(await runConnectionsCli("list", ["--url", "https://app.example.com/portal/"], context, options)).toBe(0)
+    expect(await runConnectionsCli("connect", ["mail", "--url", "https://app.example.com/portal/"], context, options)).toBe(0)
+    expect(requests).toEqual(["https://app.example.com/portal/_vitehub/connections"])
+    expect(output.stdout).toContain("https://app.example.com/portal/_vitehub/connections/connect/mail")
+  })
+
   it("lists, approves, and revokes", async () => {
     const harness = cli()
     await connect(harness.test)

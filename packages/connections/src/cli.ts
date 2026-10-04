@@ -83,6 +83,15 @@ function appUrl(parsed: ParsedArgs): URL {
   return url
 }
 
+function managementUrl(base: URL, suffix = ""): URL {
+  const endpoint = new URL(base)
+  const basePath = endpoint.pathname.replace(/\/+$/, "")
+  endpoint.pathname = `${basePath}${CONNECTIONS_ROUTE}${suffix}`
+  endpoint.search = ""
+  endpoint.hash = ""
+  return endpoint
+}
+
 function isLoopback(url: URL): boolean {
   return url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "[::1]"
 }
@@ -110,7 +119,7 @@ const activityResponse = v.looseObject({ activity: v.array(v.looseObject({
 
 async function request<T>(parsed: ParsedArgs, options: ConnectionsCliOptions, body: Record<string, unknown>, schema: v.BaseSchema<unknown, T, v.BaseIssue<unknown>>, redirect?: RequestInit["redirect"]): Promise<T> {
   const base = appUrl(parsed)
-  const endpoint = new URL(CONNECTIONS_ROUTE, base)
+  const endpoint = managementUrl(base)
   let response: Response
   try {
     const init: RequestInit = {
@@ -265,7 +274,7 @@ const commands: Record<string, { description: string, run: Command, usage: strin
       const name = requireName(parsed, "connect")
       const base = appUrl(parsed)
       if (!isLoopback(base)) {
-        const url = new URL(`${CONNECTIONS_ROUTE}/connect/${encodeURIComponent(name)}`, base)
+        const url = managementUrl(base, `/connect/${encodeURIComponent(name)}`)
         write(context, parsed, { url: url.href }, () => `Open this URL while signed in to the Console:\n\n  ${url.href}`)
         return
       }
@@ -354,7 +363,7 @@ function usage(): string {
     ...Object.values(commands).map(command => `  ${command.usage}`),
     "",
     "Options:",
-    "  --url <url>   App origin. Defaults to VITEHUB_CONNECTIONS_URL or http://localhost:5173.",
+    "  --url <url>   App URL, including its Vite base path. Defaults to VITEHUB_CONNECTIONS_URL or http://localhost:5173.",
     "  --port <port> Loopback callback port for connect. The OAuth client must allow http://127.0.0.1:<port>/callback.",
     "  --json        Print JSON.",
     "",
