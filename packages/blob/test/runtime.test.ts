@@ -550,6 +550,31 @@ describe("blob runtime", () => {
     })
   })
 
+  it("does not resolve inherited named stores at runtime", async () => {
+    const inheritedStores = Object.create({
+      inherited: {
+        access: "public",
+        driver: "vercel-blob",
+        token: "inherited-token",
+      },
+    }) as Record<string, { access: "public", driver: "vercel-blob", token: string }>
+    inheritedStores.default = {
+      access: "public",
+      driver: "vercel-blob",
+      token: "default-token",
+    }
+    setBlobRuntimeConfig({
+      store: inheritedStores.default,
+      stores: inheritedStores,
+    })
+
+    await expect(blob.store("inherited").get("notes/inherited.txt")).rejects.toMatchObject({
+      code: "BLOB_R0027",
+      message: "Unknown Blob store \"inherited\".",
+    })
+    expect(vercelBlobMock.get).not.toHaveBeenCalled()
+  })
+
   it("uses the active Cloudflare binding", async () => {
     setBlobRuntimeConfig({
       store: {

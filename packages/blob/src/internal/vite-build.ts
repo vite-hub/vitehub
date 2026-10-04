@@ -296,6 +296,7 @@ export function renderBlobRuntimeModule(file: string, blobConfig: false | Resolv
           "",
           "function resolveBlobStoreConfig(name) {",
           "  const stores = blobConfig.stores || { default: blobConfig.store }",
+          "  if (!Object.prototype.hasOwnProperty.call(stores, name)) throw unknownBlobStoreError(name)",
           "  const store = stores[name]",
           "  if (!store) throw unknownBlobStoreError(name)",
           "  return store",

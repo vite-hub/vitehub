@@ -132,7 +132,7 @@ async function resolveStorage(name = "default") {
   }
 
   const stores = config.stores || { default: config.store }
-  const store = stores[name]
+  const store = Object.hasOwn(stores, name) ? stores[name] : undefined
   if (!store) throw new UnknownBlobStoreError(`Unknown Blob store "${name}".`)
   const storage = await createConfiguredBlobStorage({ store, stores: { default: store, [name]: store } }, name)
   setNamedBlobRuntimeStorage(name, storage)
