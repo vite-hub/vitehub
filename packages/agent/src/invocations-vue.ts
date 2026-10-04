@@ -513,6 +513,9 @@ export function useAgentInvocations(
         cursor.value = paginationCursor;
         remainingStatuses.value = paginationRemainingStatuses;
         loadMoreError.value = null;
+        if (result.cursor && visited.has(result.cursor)) {
+          throw new Error("[vitehub] Agent Invocation pagination returned a repeated cursor.");
+        }
         if (additions.length > 0 || !result.cursor || visited.size >= maximumPaginationRequestsPerLoad) return result;
         nextCursor = result.cursor;
       }
