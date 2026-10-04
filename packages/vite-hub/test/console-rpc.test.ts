@@ -82,6 +82,19 @@ describe("Console RPC", () => {
     await expect(failure.json()).resolves.toEqual({ message: "A valid definition section is required.", ok: false, status: 400 })
   })
 
+  it("preserves upstream search status messages in RPC errors", async () => {
+    const response = await call(JSON.stringify({
+      input: { query: { search: "x".repeat(257) } },
+      method: consoleRpcMethods.search,
+    }))
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({
+      message: "Console search must be at most 256 characters.",
+      ok: false,
+      status: 400,
+    })
+  })
+
   it("rejects malformed calls before running an operation", async () => {
     const cases: Array<[Promise<Response>, number]> = [
       [handleConsoleRpcRequest(new Request(callURL, { headers: { [consoleRpcHeader]: "1" } })), 405],

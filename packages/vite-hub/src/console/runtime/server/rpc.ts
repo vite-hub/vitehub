@@ -93,6 +93,30 @@ function errorResult(error: unknown): ConsoleRpcResult {
   return { message, ok: false, status }
 }
 
+async function consoleSearchError(response: Response): Promise<Error> {
+  const text = await response.text()
+  let message = text
+  try {
+    const parsed = v.safeParse(v.object({
+      statusMessage: v.optional(v.unknown()),
+      message: v.optional(v.unknown()),
+    }), JSON.parse(text))
+    if (parsed.success) {
+      const statusMessage = v.safeParse(v.string(), parsed.output.statusMessage)
+      const responseMessage = v.safeParse(v.string(), parsed.output.message)
+      if (statusMessage.success) message = statusMessage.output
+      else if (responseMessage.success) message = responseMessage.output
+    }
+  }
+  catch {
+    // Preserve non-JSON upstream responses as-is.
+  }
+  return Object.assign(viteHubErrorDiagnostics.VITE_HUB_R0052({ message }), {
+    statusCode: response.status,
+    statusMessage: message,
+  })
+}
+
 async function result(resolve: () => unknown | Promise<unknown>): Promise<ConsoleRpcResult> {
   try {
     return { ok: true, value: await resolve() }
@@ -118,7 +142,7 @@ const operations = new Map<string, ConsoleOperation>(Object.entries({
   async [consoleRpcMethods.search](input, context) {
     const event = requestEvent("search", input, context)
     const response = await consoleSearchCollectionHandler.fetch(new Request(event.req!.url!, { method: event.method }))
-    if (!response.ok) throw Object.assign(viteHubErrorDiagnostics.VITE_HUB_R0052({ message: await response.text() }), { statusCode: response.status })
+    if (!response.ok) throw await consoleSearchError(response)
     return await response.json()
   },
   [consoleRpcMethods.scheduleRun]: (input, context) => consoleScheduleRunHandler(requestEvent("schedule-run", input, context)),
