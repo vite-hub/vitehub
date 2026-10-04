@@ -32,8 +32,10 @@ function isString(value: unknown): value is string {
 
 function decodeFoldedCursor(cursor: string | undefined): FoldedCursor {
   if (!cursor) return { index: 0 }
-  const decoded = Buffer.from(cursor, "base64url").toString("utf8")
-  const parsed: unknown = JSON.parse(decoded)
+  if (!/^[A-Za-z0-9_-]*$/.test(cursor) || cursor.length % 4 === 1) throw new TypeError("Invalid Blob cursor.")
+  const decoded = Buffer.from(cursor, "base64url")
+  if (decoded.toString("base64url") !== cursor) throw new TypeError("Invalid Blob cursor.")
+  const parsed: unknown = JSON.parse(decoded.toString("utf8"))
   if (!isPlainObject(parsed)) throw new TypeError("Invalid Blob cursor.")
   const { index, providerCursor } = parsed
   if (
