@@ -54,8 +54,9 @@ function toDriverMultipartUpload(upload: R2MultipartUploadLike): BlobDriverMulti
 }
 
 export function getOptionalBucket(options: ResolvedCloudflareR2BlobStoreConfig): R2BucketLike | undefined {
+  // SAFETY: Cloudflare installs configured R2 buckets as globals; Object.hasOwn excludes inherited values before accessing that binding.
   return getActiveCloudflareBinding<R2BucketLike>(options.binding)
-    || (globalThis as any)[options.binding]
+    || (Object.hasOwn(globalThis, options.binding) ? (globalThis as Record<string, unknown>)[options.binding] as R2BucketLike | undefined : undefined)
 }
 
 function getBucket(options: ResolvedCloudflareR2BlobStoreConfig): R2BucketLike {

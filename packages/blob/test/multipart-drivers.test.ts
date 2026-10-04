@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { createDriver as createR2Driver } from "../src/drivers/cloudflare-native.ts"
+import { createDriver as createR2Driver, getOptionalBucket } from "../src/drivers/cloudflare-native.ts"
 import { createDriver as createVercelDriver } from "../src/drivers/vercel-bundled.ts"
 import { createBlobStorage } from "../src/storage.ts"
 
@@ -34,6 +34,10 @@ afterEach(() => {
 })
 
 describe("Cloudflare R2 multipart uploads", () => {
+  it("does not treat inherited globals as R2 bindings", () => {
+    expect(getOptionalBucket({ binding: "constructor", driver: "cloudflare-r2" })).toBeUndefined()
+  })
+
   it("uses the binding's multipart API", async () => {
     const parts: Array<{ body: unknown, partNumber: number }> = []
     const upload = {
