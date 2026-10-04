@@ -62,6 +62,7 @@ describe("Auth option resolution", () => {
       baseURL: "https://request.example.com",
       trustedOrigins: ["https://request.example.com"],
     })
+    expect(resolved.providerOptions.trustedOrigins).toEqual(["https://request.example.com"])
   })
 
   it("reads static metadata only when full or provider options are needed", () => {
