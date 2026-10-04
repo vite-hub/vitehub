@@ -24,7 +24,11 @@ function getRegistry(): ChannelDefinitionRegistry {
 }
 
 function isChannelDefinition(value: unknown): value is ChannelDefinition {
-  return Boolean(value) && typeof value === "object" && Boolean((value as ChannelDefinition).connectors)
+  return value !== null
+    && typeof value === "object"
+    && !Array.isArray(value)
+    && Object.hasOwn(value, "connectors")
+    && Boolean((value as ChannelDefinition).connectors)
 }
 
 async function loadChannelDefinition(name: string): Promise<ChannelDefinition | undefined> {
@@ -33,7 +37,7 @@ async function loadChannelDefinition(name: string): Promise<ChannelDefinition | 
   if (!entry) return undefined
   const loaded = await entry()
   if (isChannelDefinition(loaded)) return loaded
-  if (loaded && typeof loaded === "object" && "default" in loaded && isChannelDefinition(loaded.default)) return loaded.default
+  if (loaded && typeof loaded === "object" && !Array.isArray(loaded) && Object.hasOwn(loaded, "default") && isChannelDefinition(loaded.default)) return loaded.default
   return undefined
 }
 

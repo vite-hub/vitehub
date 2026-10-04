@@ -240,6 +240,25 @@ describe("createChannel", () => {
     }
   })
 
+  it("rejects inherited channel definition markers", async () => {
+    const send = vi.fn(() => ({ id: "inherited" }))
+    const inherited = {
+      default: { connectors: { configured: { send } } },
+    }
+    setChannelRuntimeRegistry({
+      inherited: async () => Object.create(inherited),
+    })
+    try {
+      const [error, receipt] = await useChannel("inherited" as string).send("Build finished.", { connector: "configured" })
+      expect(error?.message).toContain('No Channel Definition was discovered for "inherited"')
+      expect(receipt).toBeNull()
+      expect(send).not.toHaveBeenCalled()
+    }
+    finally {
+      setChannelRuntimeRegistry(undefined)
+    }
+  })
+
   it("retries failed discovery on a later send", async () => {
     const info = vi.spyOn(console, "info").mockImplementation(() => {})
     const send = vi.fn(() => ({ id: "delivered" }))
