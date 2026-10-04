@@ -340,8 +340,12 @@ async function createEntries<TKey extends string>(
 }
 
 function decodeBase64(value: string) {
-  if (typeof Buffer !== "undefined") return new Uint8Array(Buffer.from(value, "base64"))
-  const binary = atob(value)
+  const normalized = value.replace(/[\t\n\f\r ]/g, "")
+  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(normalized) || normalized.length % 4 === 1 || /=[A-Za-z0-9+/]/.test(normalized)) {
+    throw sourceError("[vitehub] MCP resource returned invalid base64 content.")
+  }
+  if (globalThis.Buffer) return new Uint8Array(globalThis.Buffer.from(normalized, "base64"))
+  const binary = atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "="))
   const bytes = new Uint8Array(binary.length)
   for (let index = 0; index < binary.length; index++) {
     bytes[index] = binary.charCodeAt(index)
