@@ -7961,6 +7961,72 @@ describe("server helpers", () => {
     expect(run).not.toHaveBeenCalled()
   })
 
+  it("does not let an inherited webhook resolver disable verification", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { http } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const run = vi.fn(() => "unexpected")
+    const secretToken = Object.create({ resolve: () => false })
+    const agent = defineAgent({
+      channels: {
+        support: http({
+          // SAFETY: This fixture models an untrusted registration with an inherited resolver.
+          adapter: () => adapter as never,
+          webhooks: {
+            id: "custom-support",
+            secretHeader: "x-test-secret",
+            secretToken: secretToken as never,
+          },
+        }),
+      },
+      driver: { run },
+    })
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(
+      new Request("https://example.com/api/_vitehub/agents/support/webhooks/custom-support", {
+        body: "{}",
+        method: "POST",
+      }),
+      "custom-support",
+    )
+
+    expect(response.status).toBe(401)
+    expect(adapter.handleWebhook).not.toHaveBeenCalled()
+    expect(run).not.toHaveBeenCalled()
+  })
+
+  it("accepts class-based webhook secret resolvers", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { http } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    class SecretResolver {
+      resolve() {
+        return "secret-token"
+      }
+    }
+    const adapter = createTestChatAdapter()
+    const agent = defineAgent({
+      channels: {
+        support: http({
+          adapter: () => adapter as never,
+          webhooks: { id: "custom-support", secretHeader: "x-test-secret", secretToken: new SecretResolver() as never },
+        }),
+      },
+      driver: { run: vi.fn() },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/custom-support", {
+      body: "{}",
+      headers: { "x-test-secret": "secret-token" },
+      method: "POST",
+    }), "custom-support")
+    expect(response.status).toBe(200)
+    expect(adapter.handleWebhook).toHaveBeenCalledOnce()
+  })
+
   it("fails closed when generated chat webhook secrets resolve empty", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { http } = await import("../src/channels.ts")

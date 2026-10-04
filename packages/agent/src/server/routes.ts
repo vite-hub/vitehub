@@ -603,7 +603,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function isResolvableObject<T, TContext extends AgentRuntimeContext>(
   value: MaybeResolvable<T, TContext>,
 ): value is { resolve: (context: TContext) => T | Promise<T> } {
-  return isRecord(value) && isRuntimeFunction(value.resolve)
+  if (!isRecord(value)) return false
+  if (Object.hasOwn(value, "resolve")) return isRuntimeFunction(value.resolve)
+  let prototype = Object.getPrototypeOf(value)
+  while (prototype && prototype !== Object.prototype) {
+    if (Object.getOwnPropertyDescriptor(prototype, "resolve")) return isRuntimeFunction(value.resolve)
+    prototype = Object.getPrototypeOf(prototype)
+  }
+  return false
 }
 
 async function resolveMaybe<T, TContext extends AgentRuntimeContext>(
@@ -621,6 +628,34 @@ async function resolveMaybe<T, TContext extends AgentRuntimeContext>(
   // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
   return value as T
   // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
+}
+
+async function resolveWebhookSecret(
+  value: unknown,
+  context: AgentRuntimeContext,
+): Promise<string | false | object | undefined> {
+  if (value === undefined) return undefined
+  if (isRuntimeFunction(value)) {
+    return await (value as (context: AgentRuntimeContext) => string | false | object | Promise<string | false | object>)(context)
+  }
+  if (isRecord(value)) {
+    if (Object.hasOwn(value, "resolve") && isRuntimeFunction(value.resolve)) {
+      return await (value.resolve as (context: AgentRuntimeContext) => string | false | object | Promise<string | false | object>)(context)
+    }
+    let prototype = Object.getPrototypeOf(value)
+    while (prototype && prototype !== Object.prototype) {
+      const resolver = Object.getOwnPropertyDescriptor(prototype, "resolve")
+      if (resolver) {
+        const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+        if (isRuntimeFunction(constructor) && constructor.prototype === prototype && isRuntimeFunction(value.resolve)) {
+          return await (value.resolve as (context: AgentRuntimeContext) => string | false | object | Promise<string | false | object>)(context)
+        }
+        break
+      }
+      prototype = Object.getPrototypeOf(prototype)
+    }
+  }
+  return value as string | false | object
 }
 
 function getAgentCapabilities(agent: unknown): AgentCapabilityDefinition[] {
@@ -717,7 +752,7 @@ async function matchedWebhookRegistrationRequiresVerification(
 ): Promise<boolean> {
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Authored custom verifier objects require verification independently of shared secrets.
   if (registration.signature && typeof registration.signature === "object" && "verify" in registration.signature) return true
-  if (registration.secretToken !== undefined) return (await resolveMaybe(registration.secretToken, context)) !== false
+  if (registration.secretToken !== undefined) return (await resolveWebhookSecret(registration.secretToken, context)) !== false
   return requireConfiguredSecret && registration.secretHeader !== undefined
 }
 
@@ -7418,7 +7453,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
         })
       }
       if (request.headers.get(agentChannelHistoryHeader) === "1") {
-        const secret = await resolveMaybe(registration.secretToken, context)
+        const secret = await resolveWebhookSecret(registration.secretToken, context)
         if (!registration.secretHeader || !secret) {
           return createJsonErrorResponse(403, "Channel history export requires a configured webhook secret.")
         }
