@@ -18,10 +18,21 @@ export function parseGitHubArchive(bytes: Uint8Array) {
     const name = readTarString(header, 0, 100)
     const prefix = readTarString(header, 345, 155)
     const path = paxPath || [prefix, name].filter(Boolean).join("/")
-    const size = Number.parseInt(readTarString(header, 124, 12).trim() || "0", 8) || 0
+    const sizeField = readTarString(header, 124, 12).trim()
+    if (sizeField && !/^[0-7]+$/.test(sizeField)) {
+      throw new Error("Invalid GitHub archive entry size.")
+    }
+    const size = sizeField ? Number.parseInt(sizeField, 8) : 0
+    if (!Number.isSafeInteger(size) || size < 0) {
+      throw new Error("Invalid GitHub archive entry size.")
+    }
     const type = String.fromCharCode(header[156] || 0)
     const contentStart = offset + 512
     const contentEnd = contentStart + size
+    const entryEnd = contentStart + Math.ceil(size / 512) * 512
+    if (entryEnd > tar.length) {
+      throw new Error("Invalid GitHub archive entry size.")
+    }
     const content = tar.subarray(contentStart, contentEnd)
 
     if (type === "x") {
@@ -40,7 +51,7 @@ export function parseGitHubArchive(bytes: Uint8Array) {
       paxPath = undefined
     }
 
-    offset = contentStart + Math.ceil(size / 512) * 512
+    offset = entryEnd
   }
 
   return files
