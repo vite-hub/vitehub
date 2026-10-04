@@ -91,15 +91,24 @@ function isReadableStream(value: unknown): value is ReadableStream<Uint8Array> {
 export async function* contentStreamChunks(stream: WorkspaceContentStream): AsyncGenerator<Uint8Array> {
   if (isReadableStream(stream)) {
     const reader = stream.getReader()
+    let completed = false
     try {
       while (true) {
         const chunk = await reader.read()
-        if (chunk.done) return
+        if (chunk.done) {
+          completed = true
+          return
+        }
         yield chunk.value
       }
     }
     finally {
-      reader.releaseLock()
+      try {
+        if (!completed) await reader.cancel()
+      }
+      finally {
+        reader.releaseLock()
+      }
     }
     return
   }
