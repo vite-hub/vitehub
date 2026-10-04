@@ -38,6 +38,7 @@ export { markLiveWorkspaceSource } from "./sources/live.ts"
 export {
   attachWorkspaceSourceRequestExecution,
   getWorkspaceSourceRequestExecution,
+  workspaceSourceRequestMatches,
 } from "./sources/request-execution.ts"
 export type {
   ReadonlyWorkspaceFacade,
