@@ -218,6 +218,8 @@ Use `startSession({ attach: true, host })` only when another integration already
 
 Use `startSession({ host, writeBack: false })` for a private writable runtime that must never publish its changes. `diff()` and `commit()` are unavailable in this mode, and `close()` restores the authoritative Workspace without first scanning the runtime tree. Agent Definitions select this mode automatically for read-only Workspaces.
 
+Basic Sessions started without a host also honor `writeBack: false`. Their private overlay remains writable, while `diff()` and `commit()` are unavailable.
+
 Custom `WorkspaceSessionHost` implementations copy Workspace files serially by default. A host can set `materializationConcurrency` to a positive integer when it supports that many independent file reads and writes safely. ViteHub's local Node host uses `8`.
 
 ## MountX projection
