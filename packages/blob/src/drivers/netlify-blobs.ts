@@ -127,7 +127,10 @@ function readProperty(value: unknown, key: string) {
 
 function decodeCursor(cursor: string | undefined): FoldedCursor {
   if (!cursor) return { directoriesConsumed: false, index: 0 }
-  const parsed: unknown = JSON.parse(decodeBase64(cursor))
+  if (!/^[A-Za-z0-9_-]*$/.test(cursor) || cursor.length % 4 === 1) throw new TypeError("Invalid Blob cursor.")
+  const decoded = decodeBase64(cursor)
+  if (encodeBase64Url(decoded) !== cursor) throw new TypeError("Invalid Blob cursor.")
+  const parsed: unknown = JSON.parse(decoded)
   const directoriesConsumed = readProperty(parsed, "directoriesConsumed")
   const index = readProperty(parsed, "index")
   const providerCursor = readProperty(parsed, "providerCursor")

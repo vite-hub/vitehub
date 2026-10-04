@@ -51,6 +51,8 @@ function mockListPages(pages: Record<string, {
 }
 
 describe("Netlify Blobs driver", () => {
+  const validNetlifyCursor = btoa(JSON.stringify({ directoriesConsumed: false, index: 10 })).replaceAll("=", "")
+  const longerNetlifyCursor = btoa(JSON.stringify({ directoriesConsumed: false, index: 100 })).replaceAll("=", "")
   it("uses NETLIFY_BLOBS_CONTEXT for SDK and list requests", async () => {
     vi.stubEnv("NETLIFY_BLOBS_CONTEXT", Buffer.from(JSON.stringify({ siteID: "environment-site", token: "environment-token" })).toString("base64"))
     mockListPages({ first: { blobs: [], directories: [] } })
@@ -159,6 +161,9 @@ describe("Netlify Blobs driver", () => {
 
   it.each([
     ["invalid encoding", "!"],
+    ["padded valid cursor", `${validNetlifyCursor}=`],
+    ["nonzero pad bits with length remainder 2", `${validNetlifyCursor.slice(0, -1)}R`],
+    ["nonzero pad bits with length remainder 3", `${longerNetlifyCursor.slice(0, -1)}1`],
     ["invalid JSON", btoa("invalid JSON")],
     ["null", btoa(JSON.stringify(null))],
     ["array", btoa(JSON.stringify([]))],
