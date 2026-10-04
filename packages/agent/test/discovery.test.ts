@@ -554,6 +554,42 @@ describe("agent chat capability discovery", () => {
     expect(abortSignal).toBeInstanceOf(AbortSignal)
   }, 15_000)
 
+  it("rejects inherited Agent Trigger names", async () => {
+    const root = await createTempRoot("vitehub-agent-invocation-stream-trigger-")
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "plain.ts"), "export default {}", "utf8")
+
+    const agentRuntime = await import("../src/index.ts")
+    const { defineAgent } = agentRuntime
+    const resolveTriggerInvocation = vi.spyOn(agentRuntime, "resolveAgentTriggerInvocation")
+    const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
+    const agent = defineAgent({ driver: { run: () => "unused" } })
+    const { handlers, server } = createFakeServer(root, { default: agent })
+    const plugin = (await import("../src/vite.ts")).hubAgent()
+
+    await configurePluginServer(plugin, server)
+
+    try {
+      const response = await invokeMiddleware(handlers, {
+        trigger: "toString",
+        messages: [{ id: "user-1", parts: [{ text: "hello", type: "text" }], role: "user" }],
+      }, agentInvocationStreamRoute, {
+        "content-type": "application/json",
+        [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+      })
+      const events = response.body.trim().split("\n").map(line => JSON.parse(line))
+
+      expect(events).toEqual([
+        { code: "INTERNAL", error: "Agent Invocation Stream failed.", type: "error" },
+        { type: "done" },
+      ])
+      expect(resolveTriggerInvocation).not.toHaveBeenCalled()
+    }
+    finally {
+      resolveTriggerInvocation.mockRestore()
+    }
+  })
+
   it("passes prior chat history to second-turn Agent Dev Loop invocations", async () => {
     const root = await createTempRoot("vitehub-agent-invocation-stream-history-")
     await mkdir(join(root, "server", "agents"), { recursive: true })
