@@ -426,6 +426,29 @@ describe("env declarations", () => {
     })).toThrow("[vitehub] Env declaration is invalid.")
   })
 
+  it("does not execute inherited schema methods", () => {
+    let calls = 0
+    const inherited = {
+      safeParse: () => {
+        calls++
+        return { data: "inherited", success: true as const }
+      },
+      parse: () => {
+        calls++
+        return "inherited"
+      },
+      "~standard": {
+        validate: () => {
+          calls++
+          return { value: "inherited" }
+        },
+      },
+    }
+
+    expect(parseSchema(Object.create(inherited), "input", "env.test")).toBe("input")
+    expect(calls).toBe(0)
+  })
+
   it("accepts standard-schema results with empty issues", () => {
     expect(parseSchema({
       "~standard": {

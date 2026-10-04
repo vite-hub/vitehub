@@ -44,7 +44,8 @@ export function parseSchema(schema: unknown, value: unknown, label: string): unk
     return result.value
   }
 
-  if (isZodLike(schema) && typeof schema.safeParse === "function") {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Schema objects are untyped user input; validate the own method before invoking it.
+  if (isZodLike(schema) && Object.hasOwn(schema, "safeParse") && typeof schema.safeParse === "function") {
     const result = schema.safeParse(value)
     if (!result.success) {
       throw envErrorDiagnostics.ENV_R0017({ message: `[vitehub] Invalid ${label}: ${formatIssues(result.error)}` })
@@ -52,7 +53,7 @@ export function parseSchema(schema: unknown, value: unknown, label: string): unk
     return result.data
   }
 
-  if (isZodLike(schema) && typeof schema.parse === "function") {
+  if (isZodLike(schema) && Object.hasOwn(schema, "parse") && typeof schema.parse === "function") {
     try {
       return schema.parse(value)
     }
@@ -71,7 +72,7 @@ function isPromiseLike(value: unknown): value is Promise<unknown> {
 function isStandardSchema(schema: unknown): schema is StandardSchemaV1 {
   return typeof schema === "object"
     && schema !== null
-    && "~standard" in schema
+    && Object.hasOwn(schema, "~standard")
     && typeof (schema as StandardSchemaV1)["~standard"]?.validate === "function"
 }
 
