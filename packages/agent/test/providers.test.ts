@@ -13093,7 +13093,8 @@ describe("server helpers", () => {
     }
 
     try {
-      vi.useFakeTimers()
+      // Keep lock-contention and SQLite retry delays running while advancing renewals.
+      vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] })
       await state.connect()
       const firstResponse = handler(await serialRequest(91_010, "A"), "telegram", {
         agentName: "support",

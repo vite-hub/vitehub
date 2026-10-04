@@ -108,11 +108,10 @@ function bodyShapeMatches(request: NonNullable<WorkspaceSourceRequestDescriptor[
 }
 
 function queryFromUrl(url: URL): Record<string, unknown> | undefined {
-  const query: Record<string, unknown> = {}
-  for (const key of new Set(url.searchParams.keys())) {
+  const query = Object.fromEntries([...new Set(url.searchParams.keys())].map(key => {
     const values = url.searchParams.getAll(key)
-    query[key] = values.length > 1 ? values : values[0]
-  }
+    return [key, values.length > 1 ? values : values[0]] as const
+  }))
   return Object.keys(query).length ? query : undefined
 }
 

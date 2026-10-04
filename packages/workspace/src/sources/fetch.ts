@@ -299,12 +299,8 @@ function schemaProjection(schema: FetchSourceStandardJsonSchemaV1, option: strin
 
 function concreteQueryFromOptions(options: Pick<FetchSourceOptions<any, any>, "query" | "url">): Record<string, unknown> | undefined {
   const parsed = options.url instanceof URL ? options.url : new URL(options.url)
-  const query: Record<string, unknown> = {}
-  for (const key of new Set(parsed.searchParams.keys())) {
-    const values = parsed.searchParams.getAll(key)
-    query[key] = values.length > 1 ? values : values[0]
-  }
-  return Object.keys(query).length || options.query
+  const query = queryFromUrl(parsed)
+  return query || options.query
     ? { ...query, ...options.query }
     : undefined
 }
@@ -452,11 +448,10 @@ function requestBaseUrl(url: string | URL): URL {
 }
 
 function queryFromUrl(url: URL): Record<string, unknown> | undefined {
-  const query: Record<string, unknown> = {}
-  for (const key of new Set(url.searchParams.keys())) {
+  const query = Object.fromEntries([...new Set(url.searchParams.keys())].map(key => {
     const values = url.searchParams.getAll(key)
-    query[key] = values.length > 1 ? values : values[0]
-  }
+    return [key, values.length > 1 ? values : values[0]] as const
+  }))
   return Object.keys(query).length ? query : undefined
 }
 

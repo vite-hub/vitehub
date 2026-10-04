@@ -28,6 +28,62 @@ afterEach(() => {
 })
 
 describe("fetch sources", () => {
+  it.each(["first", "first&__proto__=second"])("preserves declared __proto__ query values %s on Source reads", async (query) => {
+    const request = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({ status: "ok" }))
+    const url = `https://status.example.com/query?__proto__=${query}`
+    const view = createWorkspaceSourceView({
+      name: "fetch-prototype-query",
+      sources: { status: fetch({ url, workspacePath: "status.json" }) },
+    }, createMemoryWorkspaceStore())
+
+    await expect(view.readFile("status.json")).resolves.toContain("ok")
+    expect(request.mock.calls[0]?.[0]).toBe(url)
+  })
+
+  it("uses __proto__ query values to distinguish declared Source requests", async () => {
+    const request = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({ status: "ok" }))
+    const execution = createWorkspaceSourceRequestExecution({
+      name: "fetch-prototype-request-match",
+      sources: {
+        first: fetch({ url: "https://status.example.com/query?__proto__=first" }),
+        second: fetch({ url: "https://status.example.com/query?__proto__=second" }),
+      },
+    })!
+
+    await expect(execution.executeSourceRequest({
+      method: "GET",
+      url: "https://status.example.com/query?__proto__=second",
+    })).resolves.toMatchObject({ status: 200 })
+    expect(request.mock.calls[0]?.[0]).toBe("https://status.example.com/query?__proto__=second")
+
+    await expect(execution.executeSourceRequest({
+      method: "GET",
+      url: "https://status.example.com/query?__proto__=undeclared",
+    })).rejects.toThrow("does not match a declared Source target")
+    expect(request).toHaveBeenCalledOnce()
+  })
+
+  it("passes __proto__ query fields to a declared request schema", async () => {
+    const request = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({ status: "ok" }))
+    const validate = vi.fn((input: unknown) => ({ value: input as Record<string, unknown> }))
+    const execution = createWorkspaceSourceRequestExecution({
+      name: "fetch-prototype-query-schema",
+      sources: { status: fetch({
+        querySchema: { "~standard": {
+          validate,
+          jsonSchema: { input: () => ({ type: "object" }) },
+        } },
+        url: "https://status.example.com/query",
+      }) },
+    })!
+    const url = "https://status.example.com/query?__proto__=first&__proto__=second"
+
+    await expect(execution.executeSourceRequest({ method: "GET", url })).resolves.toMatchObject({ status: 200 })
+    expect(validate.mock.calls[0]?.[0]).toEqual({ ["__proto__"]: ["first", "second"] })
+    expect(Object.getPrototypeOf(validate.mock.calls[0]?.[0])).toBe(Object.prototype)
+    expect(request.mock.calls[0]?.[0]).toBe(url)
+  })
+
   it("identifies explicit and resolved fetch Sources by provider", async () => {
     expect(fetch({ url: "https://status.example.com/health" })).toMatchObject({ name: "fetch" })
     expect(normalizeWorkspaceSources({ status: { url: "https://status.example.com/health" } })[0]?.source).toMatchObject({ name: "fetch" })
