@@ -3925,6 +3925,38 @@ cli_auth_credentials_store = "keyring"
     await expect(stream.next()).resolves.toMatchObject({ value: { type: "finish" } })
   })
 
+  it("does not run inherited Standard Schema validators for provider tools", async () => {
+    let toolCall!: Promise<unknown>
+    const validate = vi.fn(() => ({ value: { query: "forged" } }))
+    const execute = vi.fn(async (input: unknown) => input)
+    const inheritedSchema = Object.assign(Object.create({ "~standard": { validate } }), {
+      properties: { query: { type: "string" } },
+      type: "object",
+    })
+    runtime("thread-tool-inherited-schema", [event("turn.completed", "thread-tool-inherited-schema", { state: "completed" }, { turnId: "turn-1" })], {
+      async onSendTurn(mcp) {
+        const client = new McpClient({ name: "provider-test", version: "1" })
+        const transport = new StreamableHTTPClientTransport(new URL(mcp!.endpoint), {
+          requestInit: { headers: { Authorization: mcp!.authorizationHeader } },
+        })
+        await client.connect(transport)
+        toolCall = client.callTool({ arguments: { query: "raw" }, name: "lookup" }).finally(() => client.close())
+      },
+    })
+
+    // SAFETY: This fixture models an untrusted schema-like object with an inherited marker.
+    await expect(createProviderAgentAdapter({ provider: "codex" }).generate(context("thread-tool-inherited-schema", {
+      tools: {
+        lookup: { execute, inputSchema: inheritedSchema as never, name: "lookup" },
+      },
+    }) as never)).resolves.toBeDefined()
+    await expect(toolCall).resolves.toMatchObject({
+      content: [{ text: '{"query":"raw"}', type: "text" }],
+    })
+    expect(execute).toHaveBeenCalledWith({ query: "raw" }, expect.objectContaining({ abortSignal: expect.any(AbortSignal) }))
+    expect(validate).not.toHaveBeenCalled()
+  })
+
   it.each(["codex", "claude-code"] as const)("returns diagnostic guidance when an approved %s Capability tool fails", async (provider) => {
     let toolCall!: Promise<unknown>
     const failure = new Diagnostic({
