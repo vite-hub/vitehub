@@ -1,4 +1,8 @@
+import { createRequire } from "node:module"
+import { dirname, join } from "node:path"
+import { pathToFileURL } from "node:url"
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { H3 } from "h3"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server"
 import { getConsoleAgentDefinition, installConsoleAgentDefinitions } from "../src/console/runtime/server/agents.ts"
 import { installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
@@ -6,6 +10,7 @@ import agentInvocationsHandler from "../src/console/runtime/server/agent-invocat
 import statusHandler from "../src/console/runtime/server/status.get.ts"
 import { createAgentStatusReader } from "@vite-hub/agent/server"
 import type { AgentInput, AgentProviderStatus } from "@vite-hub/agent"
+import type { H3Config } from "h3"
 
 const ready: AgentProviderStatus = { agent: "bot", checkedAt: "2026-09-05T12:00:00.000Z", readiness: "ready", stale: false }
 const agent = (status?: AgentInput["status"]): AgentInput => ({ resolve: vi.fn(), status })
@@ -26,6 +31,30 @@ describe("Console status", () => {
     await expect(agentInvocationsHandler({ method: "POST", context: { params: { agent: "bot" } } })).rejects.toMatchObject({ statusCode: 404 })
     expect(definition.resolve).not.toHaveBeenCalled()
     expect(create).not.toHaveBeenCalled()
+  })
+
+  it("includes HTTP status messages for invalid and unavailable status requests", async () => {
+    const invalid = "a".repeat(513)
+    await expect(statusHandler({ method: "GET", req: { url: `http://localhost/api/_vitehub/console/status?agent=${invalid}` } })).rejects.toMatchObject({
+      statusCode: 400,
+      statusMessage: "Invalid Agent name.",
+    })
+    await expect(statusHandler({ method: "GET", req: { url: "http://localhost/api/_vitehub/console/status?agent=missing" } })).rejects.toMatchObject({
+      statusCode: 404,
+      statusMessage: "Agent status is unavailable.",
+    })
+
+    const require = createRequire(import.meta.url)
+    const nitroRoot = dirname(require.resolve("nitro/package.json"))
+    const { default: onError }: { default: NonNullable<H3Config["onError"]> } = await import(pathToFileURL(join(nitroRoot, "dist/runtime/internal/error/prod.mjs")).href)
+    // SAFETY: Mount the direct Nitro handler on H3 with Nitro's production error serializer.
+    const app = new H3({ onError }).get("/api/_vitehub/console/status", statusHandler as never)
+    const invalidResponse = await app.request(`/api/_vitehub/console/status?agent=${invalid}`)
+    expect(invalidResponse.status).toBe(400)
+    await expect(invalidResponse.json()).resolves.toMatchObject({ error: true, status: 400, statusText: "Invalid Agent name.", message: "Invalid Agent name." })
+    const unavailableResponse = await app.request("/api/_vitehub/console/status?agent=missing")
+    expect(unavailableResponse.status).toBe(404)
+    await expect(unavailableResponse.json()).resolves.toMatchObject({ error: true, status: 404, statusText: "Agent status is unavailable.", message: "Agent status is unavailable." })
   })
 
   it("reports the observability exporter and papercut backlog", async () => {
