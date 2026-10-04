@@ -391,6 +391,59 @@ Unavailable
     })).toBe("<policy>Use Acme.</policy>")
   })
 
+  it("rejects unsafe URLs in authored HTML tags", async () => {
+    await expect(renderMarkdownTemplate("[status](<http://[::1]/>)"))
+      .resolves.toBe("[status](http://%5B::1%5D/)")
+    await expect(renderMarkdownTemplate('<a href="https://example.com/a b">Open</a>'))
+      .resolves.toContain("https://example.com/a%20b")
+    await expect(renderMarkdownTemplate('<a href="https://example.com/?a=1&amp;b=2">Open</a>'))
+      .resolves.toContain("https://example.com/?a=1&b=2")
+    await expect(renderMarkdownTemplate('<a href="https://example.com/?x=1&copy=2">Open</a>'))
+      .resolves.toContain("https://example.com/?x=1&copy=2")
+    await expect(renderMarkdownTemplate('<a href="javascript:alert(1)">Open</a>'))
+      .rejects.toThrow("must resolve to a safe destination")
+    await expect(renderMarkdownTemplate('<a href="j&#x61;vascript:alert(1)">Open</a>'))
+      .rejects.toThrow("must resolve to a safe destination")
+    await expect(renderMarkdownTemplate('<a href="javascript&colon;alert(1)">Open</a>'))
+      .rejects.toThrow("must resolve to a safe destination")
+    await expect(renderMarkdownTemplate('<img src="data:text/html,<script>alert(1)</script>">'))
+      .rejects.toThrow("must resolve to a safe destination")
+    await expect(renderMarkdownTemplate('<img href="javascript:alert(1)">'))
+      .resolves.toContain('href="javascript:alert(1)"')
+    await expect(renderMarkdownTemplate('<object data="data:text/html,<script>alert(1)</script>"></object>'))
+      .rejects.toThrow("must resolve to a safe destination")
+    await expect(renderMarkdownTemplate('<a xlink:href="javascript:alert(1)">Open</a>'))
+      .rejects.toThrow("must resolve to a safe destination")
+    await expect(renderMarkdownTemplate('<svg><image href="javascript:alert(1)"></image></svg>'))
+      .rejects.toThrow("must resolve to a safe destination")
+    await expect(renderMarkdownTemplate('<svg><image xlink:href="javascript:alert(1)"></image></svg>'))
+      .rejects.toThrow("must resolve to a safe destination")
+    await expect(renderMarkdownTemplate('<svg><use href="data:text/html,<script>alert(1)</script>"></use></svg>'))
+      .rejects.toThrow("must resolve to a safe destination")
+    await expect(renderMarkdownTemplate('<script src="javascript:alert(1)"></script>'))
+      .rejects.toThrow("must resolve to a safe destination")
+  })
+
+  it("preserves URL-like attributes on custom tags", async () => {
+    await expect(renderMarkdownTemplate('<policy action="review now">Use it.</policy>'))
+      .resolves.toBe('<policy action="review now">Use it.</policy>')
+  })
+
+  it("validates normalized SVG image URLs through nested SVG elements", async () => {
+    for (const attribute of ["href", "xlink:href"]) {
+      await expect(renderMarkdownTemplate(`<svg><g><g><image ${attribute}="javascript:alert(1)"></image></g></g></svg>`))
+        .rejects.toThrow("must resolve to a safe destination")
+      await expect(renderMarkdownTemplate(`<svg><g><image :${attribute}="data.url"></image></g></svg>`, { data: { url: "https://example.com/a b" } }))
+        .resolves.toContain(`${attribute}="https://example.com/a%20b"`)
+      await expect(renderMarkdownTemplate(`<svg><g><image ${attribute}="https://example.com/a b"></image></g></svg>`))
+        .resolves.toContain(`${attribute}="https://example.com/a%20b"`)
+      await expect(renderMarkdownTemplate(`<svg><g></g></svg><img ${attribute}="javascript:alert(1)">`))
+        .resolves.toContain(`${attribute}="javascript:alert(1)"`)
+      await expect(renderMarkdownTemplate(`<svg><foreignObject><img ${attribute}="javascript:alert(1)"></foreignObject></svg>`))
+        .resolves.toContain(`${attribute}="javascript:alert(1)"`)
+    }
+  })
+
   it("renders scalar bindings in quoted XML attributes", async () => {
     expect(await renderMarkdownTemplate("<policy :audience=\"data.audience\" :tone=\"data.tone\">Use it.</policy>", {
       data: {

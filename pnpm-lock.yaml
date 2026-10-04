@@ -1589,6 +1589,9 @@ importers:
       comark:
         specifier: catalog:markdown
         version: 0.7.0(katex@0.17.0)(shiki@4.5.0)
+      entities:
+        specifier: 8.1.0
+        version: 8.1.0
       nostics:
         specifier: catalog:runtime
         version: 1.3.0
