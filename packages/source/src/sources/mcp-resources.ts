@@ -135,22 +135,38 @@ const mcpEffectBoundary = createEffectBoundary({
 function isMcpResourcesClient(value: unknown): value is McpResourcesClient {
   return typeof value === "object"
     && value !== null
-    && typeof (value as { listResources?: unknown }).listResources === "function"
-    && typeof (value as { readResource?: unknown }).readResource === "function"
+    && hasDeclaredFunction(value, "listResources")
+    && hasDeclaredFunction(value, "readResource")
 }
 
 function isMcpResourcesClientConfig(value: unknown): value is McpResourcesClientConfig {
   return typeof value === "object"
     && value !== null
-    && "transport" in value
+    && hasDeclaredProperty(value, "transport")
 }
 
 function isMcpTransport(value: unknown): value is McpResourcesTransport {
   return typeof value === "object"
     && value !== null
-    && typeof (value as { close?: unknown }).close === "function"
-    && typeof (value as { send?: unknown }).send === "function"
-    && typeof (value as { start?: unknown }).start === "function"
+    && hasDeclaredFunction(value, "close")
+    && hasDeclaredFunction(value, "send")
+    && hasDeclaredFunction(value, "start")
+}
+
+function hasDeclaredProperty(value: object, key: PropertyKey): boolean {
+  if (Object.hasOwn(value, key)) return true
+  let prototype = Object.getPrototypeOf(value)
+  while (prototype && prototype !== Object.prototype) {
+    if (Object.hasOwn(prototype, key)) {
+      return Object.hasOwn(prototype, "constructor") && prototype.constructor !== Object
+    }
+    prototype = Object.getPrototypeOf(prototype)
+  }
+  return false
+}
+
+function hasDeclaredFunction(value: object, key: PropertyKey): boolean {
+  return hasDeclaredProperty(value, key) && typeof Reflect.get(value, key) === "function"
 }
 
 async function createMcpTransport(config: McpResourcesTransportConfig): Promise<Transport> {
@@ -350,8 +366,8 @@ function decodeBase64(value: string) {
 }
 
 function contentToSourceContent(content: McpResourceContent): SourceContent {
-  if ("text" in content && typeof content.text === "string") return content.text
-  if ("blob" in content && typeof content.blob === "string") return decodeBase64(content.blob)
+  if (Object.hasOwn(content, "text") && typeof content.text === "string") return content.text
+  if (Object.hasOwn(content, "blob") && typeof content.blob === "string") return decodeBase64(content.blob)
   return ""
 }
 
@@ -383,7 +399,7 @@ function createResourceItem<TKey extends string>(
 }
 
 export function mcpResources<const TKey extends string = string>(options: McpResourcesSourceOptions<TKey>): FileSource<TKey> {
-  if (!options || typeof options !== "object" || !options.server) {
+  if (!options || typeof options !== "object" || !hasDeclaredProperty(options, "server") || !options.server) {
     throw sourceErrorDiagnostics.SOURCE_R0022({ message: "[vitehub] mcpResources({ server }) requires an MCP server." })
   }
 

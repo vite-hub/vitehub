@@ -211,4 +211,51 @@ describe("mcpResources", () => {
 
     await expect(source.getKeys({ rootDir: "/tmp" })).rejects.toThrow(/pagination cursor/i)
   })
+
+  it("rejects inherited MCP client and transport discriminators", async () => {
+    const inheritedClient = Object.create({
+      listResources: async () => ({ resources: [] }),
+      readResource: async () => ({ contents: [] }),
+    })
+    const clientSource = mcpResources({ server: inheritedClient })
+    await expect(clientSource.getKeys({ rootDir: "/tmp" })).rejects.toThrow(/must resolve to an MCP client or MCP client config/i)
+
+    const inheritedConfig = Object.create({ transport: { url: "not-a-url" } })
+    const configSource = mcpResources({ server: inheritedConfig })
+    await expect(configSource.getKeys({ rootDir: "/tmp" })).rejects.toThrow(/must resolve to an MCP client or MCP client config/i)
+
+    const inheritedOptions = Object.create({ server: createClient() })
+    expect(() => mcpResources(inheritedOptions)).toThrow(/requires an MCP server/i)
+  })
+
+  it("ignores inherited MCP content discriminators", async () => {
+    const content = Object.assign(Object.create({ blob: "not-base64" }), { uri: "resource://example/item" })
+    const source = mcpResources({
+      server: {
+        async listResources() {
+          return { resources: [{ name: "item", uri: content.uri }] }
+        },
+        async readResource() {
+          return { contents: [content] }
+        },
+      },
+    })
+
+    await expect(source.getItem("example/item", { rootDir: "/tmp" })).resolves.toMatchObject({ content: "" })
+  })
+
+  it("accepts MCP clients implemented with class methods", async () => {
+    class ClassClient {
+      async listResources() {
+        return { resources: [{ name: "item", uri: "resource://example/item" }] }
+      }
+
+      async readResource() {
+        return { contents: [{ text: "class client", uri: "resource://example/item" }] }
+      }
+    }
+
+    const source = mcpResources({ server: new ClassClient() })
+    await expect(source.getItem("example/item", { rootDir: "/tmp" })).resolves.toMatchObject({ content: "class client" })
+  })
 })
