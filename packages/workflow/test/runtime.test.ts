@@ -2883,6 +2883,16 @@ describe("Workflow input dispatch", () => {
     expect(onDispatch).not.toHaveBeenCalled()
   })
 
+  it("ignores inherited runtime observer callbacks", async () => {
+    const onDispatch = vi.fn()
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+    enterWorkflowRuntimeEvent(Object.create({ onDispatch }))
+    const workflow = createWorkflow("inherited-observer", async () => "done")
+
+    await expect(workflow.run()).resolves.toMatchObject({ status: "queued" })
+    expect(onDispatch).not.toHaveBeenCalled()
+  })
+
   it("dispatches once before Cloudflare submission, including retries", async () => {
     const onDispatch = vi.fn()
     const createBatch = vi.fn(async () => {

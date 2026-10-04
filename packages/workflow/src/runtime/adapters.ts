@@ -39,19 +39,27 @@ interface WorkflowRuntimeAdapter {
 
 function resolveDispatchObserver(event: unknown): (() => void) | undefined {
   if (!event || !hasRuntimeType(event, "object")) return undefined
-  const candidate = "onDispatch" in event ? event.onDispatch : undefined
+  const candidate = Object.hasOwn(event, "onDispatch")
+    ? (event as { onDispatch?: unknown }).onDispatch
+    : undefined
   // SAFETY: The runtime event member is callable and takes no provider data.
   return hasRuntimeType(candidate, "function") ? candidate as () => void : undefined
 }
 
 function resolveSettlementObserver(event: unknown): ((promise: PromiseLike<unknown>) => void) | undefined {
   if (!event || !hasRuntimeType(event, "object")) return undefined
-  const candidate = "settled" in event ? event.settled : undefined
+  const candidate = Object.hasOwn(event, "settled")
+    ? (event as { settled?: unknown }).settled
+    : undefined
   // SAFETY: hasRuntimeType establishes that the runtime event member is callable.
   if (hasRuntimeType(candidate, "function")) return candidate as (promise: PromiseLike<unknown>) => void
-  const context = "context" in event ? event.context : undefined
+  const context = Object.hasOwn(event, "context")
+    ? (event as { context?: unknown }).context
+    : undefined
   if (!context || !hasRuntimeType(context, "object")) return undefined
-  const nested = "settled" in context ? context.settled : undefined
+  const nested = Object.hasOwn(context, "settled")
+    ? (context as { settled?: unknown }).settled
+    : undefined
   // SAFETY: hasRuntimeType establishes that the nested runtime event member is callable.
   return hasRuntimeType(nested, "function") ? nested as (promise: PromiseLike<unknown>) => void : undefined
 }

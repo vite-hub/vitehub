@@ -2712,6 +2712,19 @@ describe("Agent invocation console", () => {
     })
   })
 
+  it("rejects malformed invocation URL ids with a client error", async () => {
+    installConsoleInvocationFallback(defineAgentInvocations({ store: createMemoryAgentInvocationStore() }), process.cwd())
+    const requestEvent = event("127.0.0.1")
+    const malformedURL = "http://localhost/api/_vitehub/console/invocations/%E0%A4%A"
+    requestEvent.node!.req!.url = malformedURL
+    requestEvent.req!.url = malformedURL
+
+    await expect(invocationHandler(requestEvent)).rejects.toMatchObject({
+      statusCode: 400,
+      statusMessage: "Malformed invocation id.",
+    })
+  })
+
   it("bounds each console response to the requested page size", async () => {
     const store = createMemoryAgentInvocationStore()
     for (const [index, status] of (["pending", "pending", "pending", "completed", "completed", "completed"] as const).entries()) {
