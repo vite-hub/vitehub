@@ -187,6 +187,19 @@ describe("Vercel Blob workspace store", () => {
     await expect(store.readFile("docs/readme.md")).resolves.toBeUndefined()
   })
 
+  it("removes a file and its descendants when recursive removal targets both", async () => {
+    process.env.BLOB_READ_WRITE_TOKEN = "token"
+    const { createVercelBlobWorkspaceStore } = await import("../src/providers/vercel/blob-store.ts")
+    const store = createVercelBlobWorkspaceStore({ provider: "vercel-blob", token: "token" }, "docs")
+
+    await store.writeFile("docs", { path: "docs", content: "file" })
+    await store.writeFile("docs/readme.md", { path: "docs/readme.md", content: "child" })
+    await store.rm("docs", { recursive: true })
+
+    await expect(store.readFile("docs")).resolves.toBeUndefined()
+    await expect(store.readFile("docs/readme.md")).resolves.toBeUndefined()
+  })
+
   it("recognizes not-found errors from a separately loaded Blob SDK", async () => {
     process.env.BLOB_READ_WRITE_TOKEN = "token"
     const { createVercelBlobWorkspaceStore } = await import("../src/providers/vercel/blob-store.ts")
