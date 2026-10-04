@@ -104,6 +104,32 @@ describe("cloudflare queue runtime", () => {
     expect(vercelSend).toHaveBeenCalledWith("topic", "vercel", expect.any(Object))
   })
 
+  it("rejects inherited Cloudflare binding methods", () => {
+    const inherited = {
+      send: async () => {},
+      sendBatch: async () => {},
+    }
+
+    expect(() => createCloudflareQueueClient({
+      binding: Object.create(inherited),
+      provider: "cloudflare",
+    })).toThrow("Cloudflare queue binding is invalid.")
+  })
+
+  it("accepts Cloudflare bindings implemented by a class", async () => {
+    class QueueBinding {
+      async send() {}
+      async sendBatch() {}
+    }
+
+    const client = createCloudflareQueueClient({
+      binding: new QueueBinding(),
+      provider: "cloudflare",
+    })
+
+    await expect(client.send("message")).resolves.toMatchObject({ status: "queued" })
+  })
+
   it("rejects region for single and batch sends while forwarding supported options", async () => {
     const send = vi.fn(async () => {})
     const sendBatch = vi.fn(async () => {})
