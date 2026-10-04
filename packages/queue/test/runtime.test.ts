@@ -254,6 +254,16 @@ describe("cloudflare queue runtime", () => {
     expect(JSON.stringify(error)).not.toMatch(/secret-token|queue\.example|private|https:/)
   })
 
+  it("rejects inherited Queue Definition markers", async () => {
+    const handler = vi.fn(async () => {})
+    setQueueRuntimeRegistry({
+      inherited: async () => Object.create({ default: { handler } }),
+    })
+
+    await expect(runQueue("inherited", { email: "ava@example.com" })).rejects.toMatchObject({ code: "QUEUE_DEFINITION_NOT_FOUND" })
+    expect(handler).not.toHaveBeenCalled()
+  })
+
   it("maps Queue Definition loader failures while retaining the internal cause", async () => {
     const cause = new Error("Bearer secret-token failed at https://queue.example/private")
     const name = "https://user:secret-token@queue.example/private"

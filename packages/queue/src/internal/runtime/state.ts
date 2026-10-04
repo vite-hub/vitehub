@@ -74,7 +74,11 @@ export function getOrCreateQueueClient(name: string, createClient: () => Promise
 }
 
 function isQueueDefinition(value: unknown): value is QueueDefinition {
-  return Boolean(value) && typeof value === "object" && typeof (value as QueueDefinition).handler === "function"
+  return value !== null
+    && typeof value === "object"
+    && !Array.isArray(value)
+    && Object.hasOwn(value, "handler")
+    && typeof (value as QueueDefinition).handler === "function"
 }
 
 export async function loadQueueDefinition(name: string): Promise<QueueDefinition | undefined> {
@@ -90,7 +94,7 @@ export async function loadQueueDefinition(name: string): Promise<QueueDefinition
     return loaded
   }
 
-  if (loaded && typeof loaded === "object" && "default" in loaded && isQueueDefinition(loaded.default)) {
+  if (loaded && typeof loaded === "object" && !Array.isArray(loaded) && Object.hasOwn(loaded, "default") && isQueueDefinition(loaded.default)) {
     return loaded.default
   }
 
