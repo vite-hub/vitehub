@@ -46,6 +46,7 @@ import type {
 import type { WorkspaceDevTokenOptions } from "@vite-hub/workspace/server"
 import type { ViteAgentRuntimeContext } from "./runtime-adapter.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
+import { isTriggerInputSchema } from "../trigger-runtime.ts"
 
 const capabilityCliRunSurface = Symbol.for("vitehub.capabilityCliRunSurface")
 const workspaceRegistryId = "#vitehub-workspace-registry"
@@ -404,7 +405,7 @@ function selectedTrigger(entry: AgentInvocationStreamEntry, body: AgentInvocatio
 
 function triggerInput(trigger: ResolvedAgentTriggerDefinition, body: AgentInvocationStreamBody, signal: AbortSignal, run: AgentRunMetadata): unknown {
   const payload = payloadFromBody(body)
-  if (trigger.input && "~standard" in Object(trigger.input)) {
+  if (isTriggerInputSchema(trigger.input)) {
     const prompt = promptFromBody(body)
     if (payload) return withPayloadDefaults(payload, { prompt })
     if (!prompt) throw new Response("Missing Agent Trigger payload. Pass --payload or prompt.", { status: 400 })
@@ -729,7 +730,7 @@ async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: In
         const previewAgent = withDeliveryPreviewChannels(entry.agent, event => {
           if (!signal.aborted) emit(event)
         })
-        const input = trigger.input && "~standard" in Object(trigger.input)
+        const input = isTriggerInputSchema(trigger.input)
           ? {
               ...invocation.input,
               context: {

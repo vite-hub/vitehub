@@ -1333,6 +1333,109 @@ describe("agent chat capability discovery", () => {
     ])
   })
 
+  it("treats inherited Standard Schema markers as plain Dev Loop trigger inputs", async () => {
+    const root = await createTempRoot("vitehub-agent-invocation-stream-inherited-schema-")
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "review.ts"), "export default {}", "utf8")
+
+    const { defineChannel, defineChannelTrigger } = await import("../src/channels.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
+    const triggerInputs: unknown[] = []
+    const inheritedInput = Object.create({ "~standard": { vendor: "forged" } })
+    const agent = defineAgent({
+      channels: {
+        review: defineChannel("review", {
+          messages: false,
+          triggers: {
+            requested: defineChannelTrigger({
+              // SAFETY: This fixture models an untrusted schema-like object with an inherited marker.
+              input: inheritedInput as never,
+              invoke: (_context, input) => {
+                triggerInputs.push(input)
+                return { input: { prompt: (input as { prompt?: string }).prompt } }
+              },
+            }),
+          },
+        }),
+      },
+      driver: { run: ({ input }) => input.prompt },
+    })
+    const { handlers, server } = createFakeServer(root, { default: agent })
+    const plugin = (await import("../src/vite.ts")).hubAgent()
+
+    await configurePluginServer(plugin, server)
+
+    const response = await invokeMiddleware(handlers, {
+      agent: "review",
+      payload: { value: "raw" },
+      text: "review this",
+      trigger: "review.requested",
+    }, agentInvocationStreamRoute, {
+      "content-type": "application/json",
+      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+    })
+
+    expect(triggerInputs).toHaveLength(1)
+    expect(triggerInputs[0]).toMatchObject({ value: "raw", prompt: "review this", run: expect.any(Object) })
+    expect(triggerInputs[0]).toHaveProperty("abortSignal", expect.any(AbortSignal))
+    expect(response.body).toContain("review this")
+  })
+
+  it("recognizes Standard Schema class getters in Dev Loop triggers", async () => {
+    const root = await createTempRoot("vitehub-agent-invocation-stream-class-schema-")
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "review.ts"), "export default {}", "utf8")
+
+    const { defineChannel, defineChannelTrigger } = await import("../src/channels.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
+    class ClassSchema {
+      get ["~standard"]() {
+        return {
+          vendor: "test",
+          version: 1 as const,
+          validate(value: unknown) {
+            return { value: { prompt: String((value as { prompt?: unknown }).prompt || "").trim() } }
+          },
+        }
+      }
+    }
+    const triggerInputs: unknown[] = []
+    const agent = defineAgent({
+      channels: {
+        review: defineChannel("review", {
+          messages: false,
+          triggers: {
+            requested: defineChannelTrigger({
+              input: new ClassSchema() as never,
+              invoke: (_context, input) => {
+                triggerInputs.push(input)
+                return { input: { prompt: (input as { prompt: string }).prompt } }
+              },
+            }),
+          },
+        }),
+      },
+      driver: { run: ({ input }) => input.prompt },
+    })
+    const { handlers, server } = createFakeServer(root, { default: agent })
+    const plugin = (await import("../src/vite.ts")).hubAgent()
+    await configurePluginServer(plugin, server)
+
+    const response = await invokeMiddleware(handlers, {
+      agent: "review",
+      payload: { prompt: "  review this  " },
+      trigger: "review.requested",
+    }, agentInvocationStreamRoute, {
+      "content-type": "application/json",
+      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+    })
+
+    expect(triggerInputs).toEqual([{ prompt: "review this" }])
+    expect(response.body).toContain("review this")
+  })
+
   it("validates strict typed Dev Loop payloads without runtime metadata", async () => {
     const root = await createTempRoot("vitehub-agent-invocation-stream-typed-payload-")
     await mkdir(join(root, "server", "agents"), { recursive: true })
