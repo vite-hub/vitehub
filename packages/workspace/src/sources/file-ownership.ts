@@ -32,9 +32,10 @@ async function beginWorkspaceFileCheckpoint(store: WorkspaceStore, path: string)
   const token = crypto.randomUUID()
   const current = await store.getMeta(checkpointMetaKey(path))
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Checkpoint metadata is an untyped persistence boundary.
-  const previous = current && typeof current === "object"
-    ? "committed" in current && current.committed === true && "token" in current ? current.token
-      : "previous" in current ? current.previous : undefined
+  const currentRecord = current && typeof current === "object" ? current as Record<string, unknown> : undefined
+  const previous = currentRecord
+    ? Object.hasOwn(currentRecord, "committed") && currentRecord.committed === true && Object.hasOwn(currentRecord, "token") ? currentRecord.token
+      : Object.hasOwn(currentRecord, "previous") ? currentRecord.previous : undefined
     : undefined
   await store.setMeta(checkpointMetaKey(path), { token, committed: false, previous })
   const identity = workspaceStoreIdentity(store)
@@ -76,33 +77,34 @@ export async function recordWorkspaceFileOwner(store: WorkspaceStore, path: stri
 export async function readWorkspaceFileOwner(store: WorkspaceStore, path: string, retireInvalidRemoval = false): Promise<WorkspaceFileOwner | undefined> {
   const volatile = volatileOwners.get(workspaceStoreIdentity(store))?.get(fileOwnerMetaKey(path))
   const value = volatile !== undefined ? volatile : await store.getMeta?.(fileOwnerMetaKey(path))
+  const owner = value && typeof value === "object" ? value as Record<string, unknown> : undefined
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Metadata is an untyped persistence boundary.
-  if (!value || typeof value !== "object" || !("workspace" in value) || typeof value.workspace !== "string"
-    || !("source" in value) || typeof value.source !== "string" || ("digest" in value && value.digest !== undefined && typeof value.digest !== "string")) return undefined
-  if ("checkpoint" in value && value.checkpoint !== activeCheckpoints.get(workspaceStoreIdentity(store))?.get(normalizeWorkspacePath(path))) {
+  if (!owner || !Object.hasOwn(owner, "workspace") || typeof owner.workspace !== "string"
+    || !Object.hasOwn(owner, "source") || typeof owner.source !== "string" || (Object.hasOwn(owner, "digest") && owner.digest !== undefined && typeof owner.digest !== "string")) return undefined
+  if (Object.hasOwn(owner, "checkpoint") && owner.checkpoint !== activeCheckpoints.get(workspaceStoreIdentity(store))?.get(normalizeWorkspacePath(path))) {
     const checkpoint = await store.getMeta?.(checkpointMetaKey(path))
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Checkpoint metadata is an untyped persistence boundary.
     if (!checkpoint || typeof checkpoint !== "object"
-      || !(("token" in checkpoint && checkpoint.token === value.checkpoint && "committed" in checkpoint && checkpoint.committed === true)
-        || ("previous" in checkpoint && checkpoint.previous === value.checkpoint))) {
+      || !(Object.hasOwn(checkpoint, "token") && (checkpoint as Record<string, unknown>).token === owner.checkpoint && Object.hasOwn(checkpoint, "committed") && (checkpoint as Record<string, unknown>).committed === true
+        || Object.hasOwn(checkpoint, "previous") && (checkpoint as Record<string, unknown>).previous === owner.checkpoint)) {
       if (retireInvalidRemoval) await removeWorkspaceFileOwner(store, path)
       return undefined
     }
   }
   // Recover an interrupted deletion only while the original file version remains.
-  if ("removing" in value && value.removing === true) {
+  if (Object.hasOwn(owner, "removing") && owner.removing === true) {
     const current = await store.stat(path)
-    if (current?.type === "file" && (!("revision" in value) || !value.revision || !current.revision)) {
+    if (current?.type === "file" && (!Object.hasOwn(owner, "revision") || !owner.revision || !current.revision)) {
       throw new Error(`[vitehub] Cannot retry interrupted removal without a file revision: ${path}. Inspect the file and remove it explicitly if cleanup is still needed.`)
     }
     const remaining = current?.type === "file" ? await store.readFile(path) : undefined
-    if (current?.type !== "file" || !("revision" in value) || current.revision !== value.revision || !("digest" in value) || !value.digest || !remaining || await sha256(remaining.content) !== value.digest) {
+    if (current?.type !== "file" || !Object.hasOwn(owner, "revision") || current.revision !== owner.revision || !Object.hasOwn(owner, "digest") || !owner.digest || !remaining || await sha256(remaining.content) !== owner.digest) {
       if (retireInvalidRemoval) await removeWorkspaceFileOwner(store, path)
       return undefined
     }
   }
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Normalize the optional digest from untyped Store metadata to the owner contract.
-  return { workspace: value.workspace, source: value.source, digest: "digest" in value && typeof value.digest === "string" ? value.digest : undefined }
+  return { workspace: owner.workspace as string, source: owner.source as string, digest: Object.hasOwn(owner, "digest") && typeof owner.digest === "string" ? owner.digest : undefined }
 }
 
 export async function removeWorkspaceFileOwner(store: WorkspaceStore, path: string): Promise<void> {
