@@ -122,6 +122,31 @@ describe("server authentication provider boundaries", () => {
     await expect(handleAuthRequest(definition, request)).rejects.toBe(providerError)
   })
 
+  it("does not unwrap an inherited host request property", async () => {
+    let origin = ""
+    const requestDefinition = defineAuth(({ requestOrigin }) => {
+      origin = requestOrigin
+      return {
+        baseURL: requestOrigin,
+        secret: "abcdefghijklmnopqrstuvwxyz0123456789",
+      }
+    })
+    providerMocks.getSession.mockResolvedValue(null)
+
+    const input = Object.assign(Object.create({
+      req: new Request("https://attacker.example/api/private"),
+    }), {
+      body: null,
+      headers: new Headers(),
+      method: "GET",
+      signal: undefined,
+      url: "https://example.com/api/private",
+    })
+
+    await expect(requireAuth(input as never, requestDefinition)).resolves.toMatchObject({ status: 401 })
+    expect(origin).toBe("https://example.com")
+  })
+
   it.each(["definition", "runtime"] as const)("resolves the %s callback once for an Auth request", async (kind) => {
     const resolve = vi.fn(() => ({
       baseURL: "https://example.com",

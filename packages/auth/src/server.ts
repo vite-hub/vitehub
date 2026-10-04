@@ -67,7 +67,7 @@ function toRequest(request: AuthRequest): Request {
 }
 
 function unwrapAuthRequest(input: AuthRequestInput): AuthRequest {
-  return "req" in input ? input.req : input
+  return Object.hasOwn(input, "req") ? (input as { req: AuthRequest }).req : input as AuthRequest
 }
 
 export function createAuthRequestRuntimeOptions(
