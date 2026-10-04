@@ -32,6 +32,7 @@ type BlobListItem = {
 type BlobListResult = {
   items: BlobListItem[]
   cursor?: string
+  hasMore?: boolean
 }
 
 type VercelBlobModule = {
@@ -45,6 +46,7 @@ type VercelBlobModule = {
   list(options: { cursor?: string, limit?: number, prefix: string, token?: string }): Promise<{
     blobs: Array<{ pathname: string, size?: number, uploadedAt?: Date }>
     cursor?: string
+    hasMore?: boolean
   }>
   put(key: string, body: Blob | Uint8Array | string, options: {
     access: "private" | "public"
@@ -120,6 +122,7 @@ async function createVercelBlobClient(options: VercelBlobWorkspaceStoreOptions) 
       const result = await blob.list({ ...optionsInput, ...auth(options) })
       return {
         cursor: result.cursor,
+        hasMore: result.hasMore,
         items: result.blobs.map(item => ({
           key: item.pathname,
           lastModified: item.uploadedAt?.getTime(),
@@ -310,8 +313,14 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
 
   async #listBlobs(prefix: string): Promise<BlobListItem[]> {
     const blobs: BlobListItem[] = []
+    const seenCursors = new Set<string>()
     let cursor: string | undefined
+    let hasMore = true
     do {
+      if (cursor && seenCursors.has(cursor)) {
+        throw workspaceError("[vitehub] Vercel Blob pagination returned a repeated cursor.")
+      }
+      if (cursor) seenCursors.add(cursor)
       const result = await (await this.#client()).list({
         cursor,
         limit: 1000,
@@ -319,7 +328,8 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
       }) as BlobListResult
       blobs.push(...result.items)
       cursor = result.cursor
-    } while (cursor)
+      hasMore = result.hasMore ?? Boolean(cursor)
+    } while (cursor && hasMore)
     return blobs
   }
 
