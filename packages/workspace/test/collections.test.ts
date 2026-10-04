@@ -114,6 +114,34 @@ describe("Workspace Collections", () => {
     })).resolves.toMatchObject({ items: [{ rank: 1 }, { rank: 2 }, { rank: 10 }] })
   })
 
+  it("rejects non-canonical trailing bits in emitted cursors", async () => {
+    await createCollection("collection-cursor-bits", Array.from({ length: 12 }, (_, id) => ({ id })))
+    const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+
+    for (const limit of [1, 10]) {
+      const first = await queryWorkspaceCollection({
+        path: "data/items.json",
+        query: { limit },
+        workspace: "collection-cursor-bits",
+      })
+      const cursor = first.nextCursor!
+      expect(cursor.length % 4).toBe(limit === 1 ? 2 : 3)
+      const mutated = cursor.slice(0, -1) + alphabet[alphabet.indexOf(cursor.at(-1)!) + 1]
+      expect(atob(mutated.replaceAll("-", "+").replaceAll("_", "/"))).toBe(atob(cursor.replaceAll("-", "+").replaceAll("_", "/")))
+
+      await expect(queryWorkspaceCollection({
+        path: "data/items.json",
+        query: { cursor: mutated, limit },
+        workspace: "collection-cursor-bits",
+      })).rejects.toMatchObject({ code: "WORKSPACE_COLLECTION_CURSOR_INVALID", details: { reason: "malformed" } })
+      await expect(queryWorkspaceCollection({
+        path: "data/items.json",
+        query: { cursor, limit },
+        workspace: "collection-cursor-bits",
+      })).resolves.toMatchObject({ items: [{ id: limit }, ...(limit === 10 ? [{ id: 11 }] : [])] })
+    }
+  })
+
   it("rejects malformed, query-mismatched, and content-stale cursors", async () => {
     const workspace = await createCollection("collection-cursors")
     const first = await queryWorkspaceCollection({
@@ -122,9 +150,16 @@ describe("Workspace Collections", () => {
       workspace: "collection-cursors",
     })
 
+    for (const cursor of ["not-a-cursor", "A", "AA=", "Zm9v==", "AA/AA"]) {
+      await expect(queryWorkspaceCollection({
+        path: "data/items.json",
+        query: { cursor, limit: 1, sort: { field: "slug" } },
+        workspace: "collection-cursors",
+      })).rejects.toMatchObject({ code: "WORKSPACE_COLLECTION_CURSOR_INVALID", details: { reason: "malformed" } })
+    }
     await expect(queryWorkspaceCollection({
       path: "data/items.json",
-      query: { cursor: "not-a-cursor", limit: 1, sort: { field: "slug" } },
+      query: { cursor: `${first.nextCursor}==`, limit: 1, sort: { field: "slug" } },
       workspace: "collection-cursors",
     })).rejects.toMatchObject({ code: "WORKSPACE_COLLECTION_CURSOR_INVALID", details: { reason: "malformed" } })
     await expect(queryWorkspaceCollection({
