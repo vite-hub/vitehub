@@ -32,7 +32,7 @@ describe("shared Console navigation layout", () => {
     const definitions = component("console-definitions")
     expect(definitions).toMatch(/<template #right>\s*<UButton\s+v-if="canRunSelected"[\s\S]*?label="Run now"[\s\S]*?<UBadge color="neutral" label="Read-only"/)
     expect(definitions).toContain("Boolean(props.scheduleRunBase && (selectedDefinition.value?.runnable || selectedRecord.value?.runnable))")
-    expect(readFileSync(new URL("../src/console/runtime/client/main.js", import.meta.url), "utf8")).toContain('scheduleRunBase: "/api/_vitehub/console/schedule-run"')
+    expect(readFileSync(new URL("../src/console/runtime/client/main.js", import.meta.url), "utf8")).toContain('scheduleRunBase: consolePath("/api/_vitehub/console/schedule-run")')
     expect(readFileSync(new URL("../src/console/runtime/pages/section.vue", import.meta.url), "utf8")).toContain(':schedule-run-base="`${appBaseURL}/api/_vitehub/console/schedule-run`"')
   })
 

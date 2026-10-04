@@ -3,12 +3,24 @@ import { describe, expect, it } from "vitest"
 import {
   consoleDatabasesSchemaPath,
   consoleDatabasesTablePath,
+  consoleMountBase,
+  consoleMountPath,
   decodeAgentRouteParam,
   encodeAgentRouteParam,
   resolveConsoleRouteName,
 } from "../src/console/runtime/console-route.ts"
 
 describe("Console routes", () => {
+  it.each([
+    ["/_vitehub", ""],
+    ["/portal/_vitehub", "/portal"],
+    ["/portal/nested/_vitehub/agents", "/portal/nested"],
+    ["/foo/_vitehub/_vitehub", "/foo/_vitehub"],
+  ])("derives the application mount prefix from %j", (pathname, expected) => {
+    expect(consoleMountBase(pathname)).toBe(expected)
+    expect(consoleMountPath(expected, "/api/_vitehub/console/status")).toBe(`${expected}/api/_vitehub/console/status`)
+  })
+
   it("keeps the schema view outside the table route namespace", () => {
     expect(
       consoleDatabasesTablePath.replace(":database?", "default").replace(":table?", "schema"),

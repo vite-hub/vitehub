@@ -134,6 +134,93 @@ const consoleAccessRoutes = [
   { method: "GET", route: "/api/_vitehub/console/**" },
 ] satisfies Array<{ method?: string; route: string }>
 
+function consoleMountBase(base: unknown): string {
+  if (typeof base !== "string") return ""
+  if (!base || base === "./") return ""
+  let pathname = base
+  if (/^https?:\/\//.test(pathname)) {
+    try {
+      pathname = new URL(pathname).pathname
+    }
+    catch {
+      return ""
+    }
+  }
+  if (!pathname.startsWith("/") || pathname.startsWith("//")) return ""
+  return pathname.replace(/\/+$/, "")
+}
+
+function consoleMountPath(base: unknown, path: string): string {
+  return `${consoleMountBase(base)}${path}`
+}
+
+function configureConsoleNitroRoutes(
+  nitro: ConsoleNitroConfig,
+  baseURL: string,
+  sections: readonly ConsoleSectionId[],
+  consoleAuthHandlers: ConsoleAuthHandlers | undefined,
+  previousConsoleAuthHandlers?: ConsoleAuthHandlers,
+): { kit: ReturnType<typeof createNitroServerKit>, publicAssets: NonNullable<ConsoleNitroConfig["publicAssets"]> } {
+  const runtimeHandlers = new Set([
+    join(consoleRuntimeRoot, "server/agents.get.js"),
+    join(consoleRuntimeRoot, "server/blob.get.js"),
+    join(consoleRuntimeRoot, "server/client.get.js"),
+    join(consoleRuntimeRoot, "server/database.get.js"),
+    join(consoleRuntimeRoot, "server/definitions.get.js"),
+    join(consoleRuntimeRoot, "server/invocation.get.js"),
+    join(consoleRuntimeRoot, "server/invocation-capabilities.get.js"),
+    join(consoleRuntimeRoot, "server/invocations.get.js"),
+    join(consoleRuntimeRoot, "server/kv.get.js"),
+    join(consoleRuntimeRoot, "server/page.get.js"),
+    join(consoleRuntimeRoot, "server/search.get.js"),
+    join(consoleRuntimeRoot, "server/sections.get.js"),
+    join(consoleRuntimeRoot, "server/status.get.js"),
+    join(consoleRuntimeRoot, "server/usage.get.js"),
+  ])
+  const authHandlers = new Set([
+    consoleAuthHandlers?.client,
+    consoleAuthHandlers?.middleware,
+    consoleAuthHandlers?.route,
+    consoleAuthHandlers?.signIn,
+    previousConsoleAuthHandlers?.client,
+    previousConsoleAuthHandlers?.middleware,
+    previousConsoleAuthHandlers?.route,
+    previousConsoleAuthHandlers?.signIn,
+  ].filter((handler): handler is string => typeof handler === "string"))
+  const handlers = Array.isArray(nitro.handlers)
+    ? nitro.handlers.filter(handler => !runtimeHandlers.has(handler?.handler) && !authHandlers.has(handler?.handler))
+    : []
+  const kit = createNitroServerKit({ ...nitro, handlers })
+  for (const handler of [
+    { handler: join(consoleRuntimeRoot, "server/status.get.js"), route: consoleMountPath(baseURL, "/api/_vitehub/console/status"), method: "get" },
+    // The Usage section reads the Agent invocation journal, which exists only with the Agents section.
+    ...(sections.includes("agents") && sections.includes("usage") ? [{ handler: join(consoleRuntimeRoot, "server/usage.get.js"), route: consoleMountPath(baseURL, "/api/_vitehub/console/usage"), method: "get" }] : []),
+    ...(consoleAuthHandlers?.signIn ? [{ handler: consoleAuthHandlers.signIn, route: consoleMountPath(baseURL, "/_vitehub/sign-in"), method: "get" }] : []),
+    { handler: join(consoleRuntimeRoot, "server/page.get.js"), route: consoleMountPath(baseURL, "/_vitehub") },
+    { handler: join(consoleRuntimeRoot, "server/page.get.js"), route: consoleMountPath(baseURL, "/_vitehub/**") },
+  ]) kit.addHandler(handler)
+  kit.addHandler({
+    handler: consoleAuthHandlers?.client ?? join(consoleRuntimeRoot, "server/client.get.js"),
+    route: consoleMountPath(baseURL, "/api/_vitehub/console/client.js"),
+    method: "get",
+  })
+  if (consoleAuthHandlers?.route) kit.addHandler({ handler: consoleAuthHandlers.route, route: consoleMountPath(baseURL, "/api/_vitehub/console/auth/**") })
+  if (consoleAuthHandlers) kit.addHandler({ handler: consoleAuthHandlers.middleware, middleware: true, route: "/**" })
+  addConsoleRpcHandler(kit.config, consoleRuntimeRoot, baseURL)
+  const consoleAssetsBase = consoleMountPath(baseURL, "/_vitehub/assets")
+  const publicAssets = Array.isArray(nitro.publicAssets)
+    ? nitro.publicAssets.filter(asset => asset?.dir !== consolePublicRoot)
+    : []
+  publicAssets.push({
+    baseURL: consoleAssetsBase,
+    dir: consolePublicRoot,
+    fallthrough: false,
+    // Every Console asset name contains a content hash.
+    maxAge: 60 * 60 * 24 * 365,
+  })
+  return { kit, publicAssets }
+}
+
 function authRouteProtects(
   route: ResolvedAuthViteConfig["access"]["routes"][number],
   target: { method?: string; route: string },
@@ -152,6 +239,7 @@ export function assertConsoleProductionAccess(
   options: {
     development: boolean
     auth?: ResolvedAuthViteConfig
+    base?: string
     consoleAuth?: boolean
   },
 ): void {
@@ -167,7 +255,8 @@ export function assertConsoleProductionAccess(
   if (!options.auth) {
     throw viteHubErrorDiagnostics.VITE_HUB_B0005({ message: '[vitehub] console: { access: "auth" } requires a discovered ViteHub Auth Definition.' })
   }
-  const missing = consoleAccessRoutes.filter(target => !options.auth?.access.routes.some(route => authRouteProtects(route, target)))
+  const accessRoutes = consoleAccessRoutes.map(target => ({ ...target, route: consoleMountPath(options.base, target.route) }))
+  const missing = accessRoutes.filter(target => !options.auth?.access.routes.some(route => authRouteProtects(route, target)))
   if (missing.length) {
     throw viteHubErrorDiagnostics.VITE_HUB_B0006({ message: `[vitehub] Console Auth access must configure an authorize callback for ${missing.map(target => target.route).join(" and ")}.` })
   }
@@ -204,6 +293,8 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
   let retention: AgentInvocationRetentionOptions | undefined
   let consoleAuthHandlers: ConsoleAuthHandlers | undefined
   let consoleAuthMode: true | "cloudflare-access" | false = false
+  let resolvedConsoleConfiguration: true | ConsoleOptions | undefined
+  let resolvedAppAuth: ResolvedAuthViteConfig | undefined
   let refreshConsoleAuthClient: (() => Promise<void>) | undefined
   let hostManagedCloudflareBuild = false
   let baseURL = "/"
@@ -249,6 +340,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       }
       root = resolve(config.root || process.cwd())
       const configured = options.console ?? true
+      resolvedConsoleConfiguration = configured
       // SAFETY: ViteHub Auth and server discovery extend Vite's user config with these documented keys.
       const viteConfig = config as typeof config & {
         [VITEHUB_SERVER_DIRS]?: string[]
@@ -299,8 +391,11 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       const appAuth = configured !== true && configured.access === "auth" && !configured.auth
         ? options.resolveAuthConfig?.(root, viteConfig[VITEHUB_SERVER_DIRS], viteConfig.auth)
         : undefined
+      resolvedAppAuth = appAuth
+      baseURL = config.base ?? "/"
       assertConsoleProductionAccess(configured, {
         auth: appAuth,
+        base: baseURL,
         consoleAuth: configured !== true && configured.access === "auth" && Boolean(configured.auth),
         development: environment.command !== "build",
       })
@@ -309,7 +404,6 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       const resolvedConsoleAuth = configuredConsoleAuth ? resolveConsoleAuthConfig(root, configuredConsoleAuth, options.preset) : undefined
       const consoleAuthConfig = registeredConsoleAuthMode(configuredConsoleAuth, environment.command !== "build") ? resolvedConsoleAuth : undefined
       consoleAuthMode = registeredConsoleAuthMode(configuredConsoleAuth, environment.command !== "build")
-      baseURL = config.base ?? "/"
       consoleAuthHandlers = consoleAuthConfig ? await writeConsoleAuthHandlers(root, consoleAuthConfig, baseURL) : undefined
       refreshConsoleAuthClient = consoleAuthConfig
         ? serializeConsoleRefresh(async () => { consoleAuthHandlers = await writeConsoleAuthHandlers(root!, consoleAuthConfig, baseURL) })
@@ -363,55 +457,12 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       const nitro: ConsoleNitroConfig = consoleConfig.nitro
         ? { ...consoleConfig.nitro }
         : {}
-      nitro.handlers = Array.isArray(nitro.handlers)
-        ? nitro.handlers.filter(handler => ![
-                join(consoleRuntimeRoot, "server/blob.get.js"),
-                join(consoleRuntimeRoot, "server/client.get.js"),
-                join(consoleRuntimeRoot, "server/database.get.js"),
-                join(consoleRuntimeRoot, "server/definitions.get.js"),
-                join(consoleRuntimeRoot, "server/invocation.get.js"),
-                join(consoleRuntimeRoot, "server/invocation-capabilities.get.js"),
-                join(consoleRuntimeRoot, "server/invocations.get.js"),
-                join(consoleRuntimeRoot, "server/kv.get.js"),
-                join(consoleRuntimeRoot, "server/agents.get.js"),
-                join(consoleRuntimeRoot, "server/sections.get.js"),
-                join(consoleRuntimeRoot, "server/search.get.js"),
-                join(consoleRuntimeRoot, "server/usage.get.js"),
-                join(consoleRuntimeRoot, "server/status.get.js"),
-                join(consoleRuntimeRoot, "server/page.get.js"),
-          ].includes(handler?.handler),
-          )
-        : []
-      const kit = createNitroServerKit(nitro)
-      for (const handler of [
-        { handler: join(consoleRuntimeRoot, "server/status.get.js"), route: "/api/_vitehub/console/status", method: "get" },
-        // The Usage section reads the Agent invocation journal, which exists only with the Agents section.
-        ...(sections.includes("agents") && sections.includes("usage") ? [{ handler: join(consoleRuntimeRoot, "server/usage.get.js"), route: "/api/_vitehub/console/usage", method: "get" }] : []),
-        ...(consoleAuthHandlers?.signIn ? [{ handler: consoleAuthHandlers.signIn, route: "/_vitehub/sign-in", method: "get" }] : []),
-        { handler: join(consoleRuntimeRoot, "server/page.get.js"), route: "/_vitehub" },
-        { handler: join(consoleRuntimeRoot, "server/page.get.js"), route: "/_vitehub/**" },
-      ]) kit.addHandler(handler)
-      kit.addHandler({
-        handler: consoleAuthHandlers?.client ?? join(consoleRuntimeRoot, "server/client.get.js"),
-        route: "/api/_vitehub/console/client.js",
-        method: "get",
-      })
-      if (consoleAuthHandlers?.route) kit.addHandler({ handler: consoleAuthHandlers.route, route: "/api/_vitehub/console/auth/**" })
-      if (consoleAuthHandlers) kit.addHandler({ handler: consoleAuthHandlers.middleware, middleware: true, route: "/**" })
-      addConsoleRpcHandler(kit.config, consoleRuntimeRoot)
+      const { kit, publicAssets } = configureConsoleNitroRoutes(nitro, baseURL, sections, consoleAuthHandlers)
       if (Array.isArray(kit.config.plugins)) {
         const plugins = kit.config.plugins.filter(candidate => !generatedConsolePluginRegistration(candidate))
         kit.config.plugins.splice(0, kit.config.plugins.length, ...plugins)
       }
       kit.addPlugin(generatedPlugin)
-      const publicAssets = Array.isArray(nitro.publicAssets) ? nitro.publicAssets.filter((asset) => asset?.baseURL !== "/_vitehub/assets") : []
-      publicAssets.push({
-        baseURL: "/_vitehub/assets",
-        dir: consolePublicRoot,
-        fallthrough: false,
-        // Every Console asset name contains a content hash.
-        maxAge: 60 * 60 * 24 * 365,
-      })
 
       const connectionsActor = sections.includes("connections")
         ? await writeConsoleConnectionsActor(root, consoleAuthHandlers?.auth === true ? "console-auth" : appAuth ? "app-auth" : "none")
@@ -429,7 +480,16 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       }
       if (journal && "d1Binding" in journal && sections.includes("agents")) config.logger.info(consoleD1JournalMessage(journal.d1Binding))
       root = config.root
+      const previousConsoleAuthHandlers = consoleAuthHandlers
       baseURL = config.base
+      if (resolvedConsoleConfiguration) {
+        assertConsoleProductionAccess(resolvedConsoleConfiguration, {
+          auth: resolvedAppAuth,
+          base: baseURL,
+          consoleAuth: resolvedConsoleConfiguration !== true && resolvedConsoleConfiguration.access === "auth" && Boolean(resolvedConsoleConfiguration.auth),
+          development: config.command !== "build",
+        })
+      }
       await refreshConsoleAuthClient?.()
       projectRoot ||= resolveViteHubProjectRoot(config.root)
       generatedPlugin ||= resolve(config.root, generatedConsolePlugin)
@@ -475,7 +535,8 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
         if (viteConfig.workspace) sections = [...sections, "workspaces"]
       }
       const nitro = viteConfig.nitro ??= {}
-      addConsoleRpcHandler(nitro, consoleRuntimeRoot)
+      const { kit, publicAssets } = configureConsoleNitroRoutes(nitro, baseURL, sections, consoleAuthHandlers, previousConsoleAuthHandlers)
+      viteConfig.nitro = { ...kit.config, publicAssets }
       generatedPlugin ||= resolveGeneratedConsolePlugin(config.root, fixture, options.invocationRootState)
       // SAFETY: VITEHUB_SERVER_DIRS is ViteHub-owned config state populated with string paths.
       serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS]

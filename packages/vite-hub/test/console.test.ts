@@ -46,6 +46,7 @@ import { encodeAgentRouteParam } from "../src/console/runtime/console-route.ts"
 import { installConsoleAgentDefinitions, installConsoleAgents } from "../src/console/runtime/server/agents.ts"
 import { createConsoleFixtureInvocations, createConsoleInvocations, getConsoleInvocationsDatabase, installConsoleFixtureInvocations, installConsoleInvocations, resolveConsoleDatabaseOptions } from "../src/console/runtime/server/invocations.ts"
 import { console as consoleRuntime } from "../src/console/server.ts"
+import { addConsoleRpcHandler } from "../src/console/nitro.ts"
 import invocationHandler, { cancelConsoleInvocation, getConsoleInvocationDetail } from "../src/console/runtime/server/invocation.get.ts"
 import invocationCapabilitiesHandler from "../src/console/runtime/server/invocation-capabilities.get.ts"
 import invocationsHandler from "../src/console/runtime/server/invocations.get.ts"
@@ -530,6 +531,87 @@ describe("Agent invocation console", () => {
     finally {
       await rm(root, { force: true, recursive: true })
     }
+  })
+
+  it.each(["/portal/", "https://cdn.example/portal/"])("prefixes Nitro Console routes and assets with the Vite base path %s", async (base) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-base-host-"))
+    try {
+      await writeFile(join(root, "package.json"), "{}\n")
+      const plugin = consoleVitePlugin({ console: { exposure: "host-managed" }, preset: "node", sections: ["agents", "usage"] })
+      const configHook = plugin.config
+      if (!configHook) throw new TypeError("Expected a console config hook.")
+      const configHandler = "handler" in configHook ? configHook.handler : configHook
+      const config: { base: string, nitro?: { handlers: Array<{ handler: string, route: string }>, plugins: string[], publicAssets: Array<{ baseURL: string, dir: string }> }, root: string } = { base, root }
+
+      await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
+
+      expect(config.nitro?.handlers.map(handler => handler.route)).toEqual([
+        "/portal/api/_vitehub/console/status",
+        "/portal/api/_vitehub/console/usage",
+        "/portal/_vitehub",
+        "/portal/_vitehub/**",
+        "/portal/api/_vitehub/console/client.js",
+        "/portal/_vitehub/rpc/**",
+        "/portal/_vitehub/env/manage",
+        "/portal/_vitehub/channels/replay",
+        "/portal/_vitehub/schedules/run",
+      ])
+      expect(config.nitro?.publicAssets).toEqual([expect.objectContaining({ baseURL: "/portal/_vitehub/assets" })])
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("remounts every Console route when Vite resolves a later base path", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-resolved-base-"))
+    try {
+      await writeFile(join(root, "package.json"), "{}\n")
+      const plugin = consoleVitePlugin({ console: { exposure: "host-managed" }, preset: "node", sections: ["agents", "usage"] })
+      const configHook = plugin.config
+      const configResolvedHook = plugin.configResolved
+      if (!configHook || !configResolvedHook) throw new TypeError("Expected Console Vite hooks.")
+      const configHandler = "handler" in configHook ? configHook.handler : configHook
+      const configResolvedHandler = "handler" in configResolvedHook ? configResolvedHook.handler : configResolvedHook
+      const config: { base: string, nitro?: { handlers: Array<{ handler: string, route: string }>, plugins: string[], publicAssets: Array<{ baseURL: string, dir: string }> }, root: string, vitehubCliDiscovery: true } = { base: "/early/", root, vitehubCliDiscovery: true }
+      await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
+      config.nitro?.publicAssets.push({ baseURL: "/portal/_vitehub/assets", dir: "/user-owned-assets" })
+
+      const resolvedConfig = { ...config, base: "/portal/", logger: { warn: () => undefined } }
+      await Reflect.apply(configResolvedHandler, {}, [resolvedConfig])
+
+      expect(resolvedConfig.nitro?.handlers.map(handler => handler.route)).toEqual([
+        "/portal/api/_vitehub/console/status",
+        "/portal/api/_vitehub/console/usage",
+        "/portal/_vitehub",
+        "/portal/_vitehub/**",
+        "/portal/api/_vitehub/console/client.js",
+        "/portal/_vitehub/rpc/**",
+        "/portal/_vitehub/env/manage",
+        "/portal/_vitehub/channels/replay",
+        "/portal/_vitehub/schedules/run",
+      ])
+      expect(resolvedConfig.nitro?.publicAssets).toEqual([
+        { baseURL: "/portal/_vitehub/assets", dir: "/user-owned-assets" },
+        expect.objectContaining({ baseURL: "/portal/_vitehub/assets", dir: expect.stringContaining("public/console") }),
+      ])
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("remounts Console RPC routes when a later Vite base replaces the early base", () => {
+    const config: { handlers: Array<{ handler: string, route: string }> } = { handlers: [] }
+    addConsoleRpcHandler(config, "/runtime", "/early/")
+    addConsoleRpcHandler(config, "/runtime", "/portal/")
+
+    expect(config.handlers.map(handler => handler.route)).toEqual([
+      "/portal/_vitehub/rpc/**",
+      "/portal/_vitehub/env/manage",
+      "/portal/_vitehub/channels/replay",
+      "/portal/_vitehub/schedules/run",
+    ])
   })
 
   it("registers Blob inspection without loading the Agent server graph", async () => {
@@ -1416,6 +1498,25 @@ describe("Agent invocation console", () => {
       await expect(readFile(resolve(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")).resolves.toContain(
         `installConsoleAgentDefinitions([], { projectRoot: ${JSON.stringify(root)}, invoke: true })`,
       )
+
+      const changingBaseConsole = consoleVitePlugin({
+        console: { access: "auth" },
+        preset: "node",
+        resolveAuthConfig: () => auth([
+          { authorize: true, route: "/early/_vitehub/**" },
+          { authorize: true, method: "GET", route: "/early/api/_vitehub/console/**" },
+        ]),
+        sections: ["agents"],
+      })
+      const changingBaseConfigHook = changingBaseConsole.config
+      const changingBaseResolvedHook = changingBaseConsole.configResolved
+      if (!changingBaseConfigHook || !changingBaseResolvedHook) throw new TypeError("Expected Console Vite hooks.")
+      const changingBaseHandler = "handler" in changingBaseConfigHook ? changingBaseConfigHook.handler : changingBaseConfigHook
+      const changingBaseResolvedHandler = "handler" in changingBaseResolvedHook ? changingBaseResolvedHook.handler : changingBaseResolvedHook
+      const changingBaseConfig: { base: string, nitro?: { handlers: Array<{ handler: string, route: string }>, plugins: string[], publicAssets: Array<{ baseURL: string, dir: string }> }, root: string, vitehubCliDiscovery: true } = { base: "/early/", root, vitehubCliDiscovery: true }
+      await Reflect.apply(changingBaseHandler, {}, [changingBaseConfig, { command: "build", mode: "production" }])
+      await expect(Reflect.apply(changingBaseResolvedHandler, {}, [{ ...changingBaseConfig, base: "/portal/", command: "build", logger: { warn: () => undefined } }]))
+        .rejects.toThrow("/portal/_vitehub/**")
     } finally {
       await rm(root, { force: true, recursive: true })
     }
@@ -4621,6 +4722,19 @@ describe("Agent invocation console", () => {
     expect(response.headers.get("content-security-policy")).toContain("form-action 'none'")
     expect(page).toContain('<meta name="robots" content="noindex, nofollow">')
     expect(response.headers.get("x-robots-tag")).toBe("noindex, nofollow")
+  })
+
+  it("prefixes shell assets when the application is mounted below a base path", async () => {
+    const request = event("127.0.0.1")
+    request.req = { url: "http://localhost/portal/_vitehub" }
+    request.node!.req!.url = "http://localhost/portal/_vitehub"
+    const page = await consolePageHandler(request).text()
+
+    expect(page).toContain('href="/portal/_vitehub/assets/__VITEHUB_CONSOLE_STYLE_ASSET__"')
+    expect(page).toContain('src="/portal/api/_vitehub/console/client.js"')
+    expect(page).toContain('src="/portal/_vitehub/assets/__VITEHUB_CONSOLE_SCRIPT_ASSET__"')
+    expect(page).not.toContain('href="/_vitehub/assets/')
+    expect(page).not.toContain('src="/api/_vitehub/console/client.js"')
   })
 
   it("rejects non-GET console requests", () => {

@@ -2,6 +2,24 @@ import { viteHubErrorDiagnostics } from "../../error-diagnostics.ts"
 import { decodeRouteSegment, encodeRouteSegment } from "@vite-hub/runtime"
 export const consoleDatabasesSchemaPath = "/databases/:database/schema/diagram"
 export const consoleDatabasesTablePath = "/databases/:database?/:table?"
+
+/** Return the application mount prefix before the Console route marker. */
+export function consoleMountBase(pathname: string): string {
+  const marker = "/_vitehub"
+  let markerIndex = pathname.lastIndexOf(marker)
+  while (markerIndex > 0 && pathname.length > markerIndex + marker.length && pathname[markerIndex + marker.length] !== "/") {
+    markerIndex = pathname.lastIndexOf(marker, markerIndex - 1)
+  }
+  return markerIndex > 0
+    ? pathname.slice(0, markerIndex).replace(/\/+$/, "")
+    : ""
+}
+
+/** Prefix an internal Console route with an application mount path. */
+export function consoleMountPath(base: string, path: string): string {
+  return `${base}${path}`
+}
+
 /** Matches a built-in or contributed Console route name. A host suffix such as `___en` stays outside the match. */
 const consoleRouteNamePattern = /^vitehub-console(?:-[a-z0-9]+)*/
 

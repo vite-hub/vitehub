@@ -263,6 +263,8 @@ export default defineConfig({
 
 `host-managed` is an acknowledgement, not middleware. ViteHub does not inspect or enforce the host's access policy in this mode.
 
+All Console paths in this guide include the resolved Vite `base` pathname. With `base: '/portal/'`, host middleware must authenticate and authorize `/portal/_vitehub/**` and `/portal/api/_vitehub/console/**` for every method, including assets, RPC, and invocation actions. Policies for only the root routes do not protect these mounted routes. Update host policies when changing the base or upgrading to base-aware Console routes. An absolute base such as `https://cdn.example/portal/` uses the same `/portal/` prefix. Relative bases (`''` or `'./'`) use root routes. Primary Auth access routes must also include the prefix; built-in Console Auth applies it automatically.
+
 ### Start Agent Invocations
 
 Explicit `access` and `exposure` configurations keep invocation disabled unless you set `invoke: true`. This applies to both Vite and Nuxt:
