@@ -200,6 +200,24 @@ describe("cloudflare queue runtime", () => {
     expect(report.mock.calls[0]?.[1]).toMatchObject({ queue: "image-expiry", retryable: true })
   })
 
+  it("ignores inherited Cloudflare retry directives", async () => {
+    const retry = vi.fn()
+    const onError = vi.fn(() => Object.create({ retry: { delaySeconds: 30 } }))
+    const batchHandler = createCloudflareQueueBatchHandler({
+      onError,
+      onMessage: async () => { throw new Error("boom") },
+    })
+
+    await batchHandler({
+      ackAll: vi.fn(),
+      messages: [{ ack: vi.fn(), attempts: 1, body: "fail", id: "1", retry }],
+      queue: "queue--666f6f",
+      retryAll: vi.fn(),
+    })
+
+    expect(retry).toHaveBeenCalledWith()
+  })
+
   it("maps Cloudflare send failures without exposing provider payloads", async () => {
     const cause = new Error("Bearer secret-token failed at https://queue.example/private")
     const binding = {
