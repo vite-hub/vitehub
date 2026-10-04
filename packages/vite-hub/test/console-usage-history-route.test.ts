@@ -57,7 +57,16 @@ it("validates session history filters and keeps filtered responses separate in t
   expect(await request("")).toMatchObject({ sessionCount: 2, totals: { invocations: 2 } });
   await expect(request("cursor=50")).rejects.toMatchObject({ statusCode: 400 });
   await expect(request("cursor=%25")).rejects.toMatchObject({ statusCode: 400 });
-  await expect(request("status=running")).rejects.toMatchObject({ statusCode: 400, statusMessage: "Invalid usage status" });
+  await expect(request("status=running")).rejects.toMatchObject({
+    statusCode: 400,
+    statusMessage: "Invalid usage status",
+  });
+  const rpcResponse = await handleConsoleRpcRequest(new Request("http://vitehub.local/_vitehub/rpc/__call", {
+    body: JSON.stringify({ input: { query: { status: "running" } }, method: consoleRpcMethods.usage }),
+    headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
+    method: "POST",
+  }));
+  await expect(rpcResponse.json()).resolves.toEqual({ message: "Invalid usage status", ok: false, status: 400 });
   await expect(request(`search=${"x".repeat(513)}`)).rejects.toMatchObject({ statusCode: 400, statusMessage: "Invalid usage search" });
 });
 
