@@ -102,7 +102,9 @@ function valueAt(value: unknown, path: string): unknown {
       return current.map(item => visit(item, remaining)).filter(item => item !== undefined)
     }
     if (!isRecord(current)) return
-    return visit(current[remaining[0]!], remaining.slice(1))
+    const segment = remaining[0]!
+    if (!Object.hasOwn(current, segment)) return
+    return visit(current[segment], remaining.slice(1))
   }
   return visit(value, segments)
 }

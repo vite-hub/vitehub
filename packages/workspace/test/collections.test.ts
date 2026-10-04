@@ -24,6 +24,21 @@ afterEach(() => {
 })
 
 describe("Workspace Collections", () => {
+  it("does not expose object prototype properties through query paths", async () => {
+    await createCollection("collection-own-paths", [{ title: "Guide" }])
+    Object.defineProperty(Object.prototype, "collectionLeak", { configurable: true, value: "secret" })
+    try {
+      await expect(queryWorkspaceCollection({
+        path: "data/items.json",
+        query: { filters: { "__proto__.collectionLeak": "secret" }, limit: 10 },
+        workspace: "collection-own-paths",
+      })).resolves.toMatchObject({ items: [], total: 0 })
+    }
+    finally {
+      Reflect.deleteProperty(Object.prototype, "collectionLeak")
+    }
+  })
+
   it("filters, searches, sorts, facets, projects, and paginates explicit paths", async () => {
     await createCollection("collection-query")
     const query = {
