@@ -127,6 +127,21 @@ describe("Cloudflare provider output", () => {
     expect(withoutEnvironments).not.toHaveProperty("cloudflare.wrangler.env")
   })
 
+  it("does not recreate removed prototype-named environments", () => {
+    const config = createProviderOutputCatalog()
+    contributeCloudflareProviderOutput(config, { owner: "env", requiredSecrets: ["VITEHUB_TOKEN"] })
+
+    const first = composeNitroCloudflareProviderOutput(config, {
+      cloudflare: { wrangler: { env: { ["toString"]: { name: "prototype-worker" } } } },
+    })
+    expect(first).toHaveProperty("cloudflare.wrangler.env.toString.secrets.required", ["VITEHUB_TOKEN"])
+
+    contributeCloudflareProviderOutput(config, { owner: "env" })
+    const second = composeNitroCloudflareProviderOutput(config, { cloudflare: { wrangler: {} } })
+
+    expect(second).not.toHaveProperty("cloudflare.wrangler.env.toString")
+  })
+
   it("replaces an owner's contribution without changing application policy", () => {
     const config = createProviderOutputCatalog()
     contributeCloudflareProviderOutput(config, { owner: "queue",
