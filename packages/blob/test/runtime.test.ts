@@ -9,7 +9,7 @@ import {
   setBlobRuntimeConfig,
   setBlobRuntimeStorage,
 } from "../src/runtime/state.ts"
-import type { BlobResult } from "../src/types.ts"
+import type { BlobEnsureOptions, BlobResult } from "../src/types.ts"
 
 function expectBlobSuccess<TResult>(result: BlobResult<TResult>): TResult {
   const [error, value] = result
@@ -1087,5 +1087,11 @@ describe("ensureBlob", () => {
     expect(() => ensureBlob(new Blob(["hello"], { type: "text/plain" }), {
       types: ["image"],
     })).toThrow("File type is invalid")
+  })
+
+  it("rejects fractional max sizes instead of truncating them", () => {
+    const options = { maxSize: "1.5KB" as BlobEnsureOptions["maxSize"] }
+
+    expect(() => ensureBlob(new Blob([]), options)).toThrow("Invalid file size format: 1.5KB")
   })
 })

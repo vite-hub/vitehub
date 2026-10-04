@@ -13,6 +13,7 @@ export const allowedMissingIcons = Object.freeze([
   "vscode-icons:file-type-node",
   "vscode-icons:file-type-nuxt",
   "vscode-icons:file-type-tsconfig",
+  "vscode-icons:file-type-toml",
   "vscode-icons:file-type-vue",
 ]);
 
