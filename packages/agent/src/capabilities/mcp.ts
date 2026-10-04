@@ -59,7 +59,7 @@ function withMcpInitializationCompatibility(connection: McpClient | McpClientCon
 type McpHttpTransportConfig = Extract<McpClientConfig["transport"], { url: string }>
 
 function isHttpTransportConfig(transport: McpClientConfig["transport"]): transport is McpHttpTransportConfig {
-  return "type" in transport && (transport.type === "http" || transport.type === "sse") && "url" in transport
+  return isRecord(transport) && "type" in transport && (transport.type === "http" || transport.type === "sse") && "url" in transport
 }
 
 async function readMcpRequestBody(request: Request): Promise<string> {

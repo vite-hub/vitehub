@@ -696,6 +696,20 @@ describe("mcp capability", () => {
     }, runtime(), {})).rejects.toThrow("entries must resolve to an MCP client or MCP client config")
   })
 
+  it("reports malformed Connection transport discriminators", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { mcp } = await import("../src/capabilities.ts")
+
+    await expect(resolveAgentCapabilities({
+      capabilities: [mcp({
+        servers: {
+          // SAFETY: This deliberately bypasses the public type to prove runtime validation.
+          broken: (() => ({ connection: "executor", transport: null })) as never,
+        },
+      })],
+    }, runtime(), {})).rejects.toThrow(/requires an http or sse transport config/)
+  })
+
   it("throws on duplicate normalized tool names and closes initialized clients", async () => {
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { mcp } = await import("../src/capabilities.ts")
