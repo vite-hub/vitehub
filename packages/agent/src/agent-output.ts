@@ -171,7 +171,36 @@ export function toAgentRunResult(value: unknown): AgentRunResult {
 
 function isUsageRecord(value: unknown): value is AgentUsageRecord {
   if (!isRecord(value)) return false
-  return ["calls", "cost", "credentialSource", "latency", "model", "provider", "raw", "response", "run", "transport", "usage"].some(key => key in value)
+  for (const key of ["calls", "cost", "credentialSource", "latency", "model", "provider", "raw", "response", "run", "transport", "usage"]) {
+    const visited = new WeakSet<object>()
+    let source: object | null = value
+    let own = true
+    while (source && source !== Object.prototype) {
+      if (visited.has(source)) return false
+      visited.add(source)
+      let descriptor: PropertyDescriptor | undefined
+      try {
+        descriptor = Object.getOwnPropertyDescriptor(source, key)
+      }
+      catch {
+        return false
+      }
+      if (descriptor) {
+        // Plain prototype data can be ambient or polluted. Preserve class-backed
+        // provider records, whose metadata is commonly exposed through getters.
+        if (own || "get" in descriptor) return true
+        break
+      }
+      try {
+        source = Object.getPrototypeOf(source)
+      }
+      catch {
+        return false
+      }
+      own = false
+    }
+  }
+  return false
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

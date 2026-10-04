@@ -18,6 +18,39 @@ describe("agent output helpers", () => {
     expect(toAgentRunResult(42)).toEqual({ raw: 42, text: undefined })
   })
 
+  it("does not classify a plain inherited usage marker as a usage record", () => {
+    const usageRecord = Object.create({ usage: { inputTokens: 99 } }) as object
+
+    expect(toAgentRunResult({ text: "ok", usageRecord })).toMatchObject({
+      text: "ok",
+      usage: undefined,
+      usageRecord: undefined,
+    })
+  })
+
+  it("does not loop on cyclic usage record prototypes", () => {
+    const target = {}
+    let usageRecord: object
+    usageRecord = new Proxy(target, { getPrototypeOf: (): object => usageRecord })
+
+    expect(toAgentRunResult({ usageRecord })).toMatchObject({
+      usage: undefined,
+      usageRecord: undefined,
+    })
+  })
+
+  it("accepts usage metadata exposed through class getters", () => {
+    class UsageRecord {
+      get usage() {
+        return { inputTokens: 2 }
+      }
+    }
+
+    expect(toAgentRunResult({ usageRecord: new UsageRecord() }).usageRecord).toMatchObject({
+      usage: { inputTokens: 2 },
+    })
+  })
+
   it("preserves raw metadata with text selected for a final-only Channel", () => {
     const raw = {
       artifacts: [{ path: "result.txt", url: "https://example.com/result.txt" }],
