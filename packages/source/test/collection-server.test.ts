@@ -108,6 +108,29 @@ describe("defineCollectionHandler", () => {
     expect(() => defineCollectionHandler({} as never)).toThrow("defineCollectionHandler() requires a Collection")
   })
 
+  it("rejects Collection methods inherited from an ordinary object", () => {
+    const collection = Object.create({
+      page: async () => ({ items: [], nextCursor: null }),
+      parseQuery: async () => ({}),
+    })
+
+    expect(() => defineCollectionHandler(collection as never)).toThrow("defineCollectionHandler() requires a Collection")
+  })
+
+  it("accepts Collection methods declared on a class prototype", () => {
+    class CollectionLike {
+      async page() {
+        return { items: [], nextCursor: null }
+      }
+
+      async parseQuery() {
+        return {}
+      }
+    }
+
+    expect(() => defineCollectionHandler(new CollectionLike() as never)).not.toThrow()
+  })
+
   it("serves bounded pages and forwards typed query input", async () => {
     const app = createApp()
     const firstResponse = await app.request("/items?limit=1&minimum=2")

@@ -77,11 +77,24 @@ function serializeCollectionPage(value: unknown): unknown {
   return JSON.parse(serialized)
 }
 
+function hasDeclaredMethod(value: object, key: PropertyKey): boolean {
+  if (Object.hasOwn(value, key)) return typeof Reflect.get(value, key) === "function"
+  let prototype = Object.getPrototypeOf(value)
+  while (prototype && prototype !== Object.prototype) {
+    if (Object.hasOwn(prototype, key)) {
+      return Object.hasOwn(prototype, "constructor") && prototype.constructor !== Object
+        && typeof Reflect.get(value, key) === "function"
+    }
+    prototype = Object.getPrototypeOf(prototype)
+  }
+  return false
+}
+
 function assertCollection(value: unknown): asserts value is Collection<unknown, object, object> {
   if (
     Object(value) !== value ||
-    !(Reflect.get(Object(value), "page") instanceof Function) ||
-    !(Reflect.get(Object(value), "parseQuery") instanceof Function)
+    !hasDeclaredMethod(Object(value), "page") ||
+    !hasDeclaredMethod(Object(value), "parseQuery")
   ) {
     throw sourceErrorDiagnostics.SOURCE_R0016({ message: "[vitehub] defineCollectionHandler() requires a Collection." })
   }
