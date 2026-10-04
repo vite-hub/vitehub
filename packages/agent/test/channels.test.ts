@@ -1222,7 +1222,10 @@ describe("agent channels", () => {
 
   it("accepts GitHub issue_comment payloads without delivery facts", async () => {
     const { github } = await import("../src/channels.ts")
-    const channel = github({ pullRequest: { reply: false } })
+    const channel = github({
+      app: { fetch: async () => Response.json({}) },
+      pullRequest: { reply: false },
+    })
     const trigger = channel.triggers?.webhook
     if (!trigger) throw new Error("Missing GitHub webhook trigger.")
     const context = {

@@ -78,6 +78,29 @@ describe("vitehub channels replay", () => {
     expect(stdout.chunks.join("")).toContain("Continue with --cursor c3")
   })
 
+  it("rejects a repeated server pagination cursor", async () => {
+    const stderr = output()
+    const fetcher = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>
+      const replay = (body.replay ?? body) as Record<string, unknown>
+      if (replay.describe) return Response.json({ channel: "mailbox", query: querySchema, trigger: "received" })
+      return Response.json({
+        failed: 0,
+        items: [{ key: "m1", status: "completed" }],
+        nextCursor: "repeat",
+        processed: 1,
+        skipped: 0,
+      })
+    })
+
+    await expect(runAgentChannelReplayCli(
+      ["--agent", "labeller", "--channel", "mailbox"],
+      { env: {}, stderr, stdout: output() },
+      { fetch: fetcher as typeof fetch },
+    )).resolves.toBe(1)
+    expect(stderr.chunks.join("")).toContain("Channel replay returned a repeated pagination cursor.")
+  })
+
   it("posts to the deployed Console with credentials from the environment and fails on item failures", async () => {
     const stdout = output()
     const { fetcher, requests } = replayFetch([

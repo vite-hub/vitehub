@@ -262,6 +262,7 @@ export async function runAgentChannelReplayCli(
     const totals = { failed: 0, processed: 0, skipped: 0 }
     let cursor = parsed.cursor
     let remaining = parsed.limit ?? Number.POSITIVE_INFINITY
+    const seenCursors = new Set<string>(cursor ? [cursor] : [])
     while (remaining > 0) {
       const result = await sendReplay(target, {
         channel,
@@ -276,7 +277,10 @@ export async function runAgentChannelReplayCli(
       totals.processed += count(result, "processed")
       totals.skipped += count(result, "skipped")
       remaining -= read
-      cursor = hasRuntimeType(result.nextCursor, "string") ? result.nextCursor : undefined
+      const nextCursor = hasRuntimeType(result.nextCursor, "string") ? result.nextCursor : undefined
+      if (nextCursor && seenCursors.has(nextCursor)) throw cliError("Channel replay returned a repeated pagination cursor.")
+      if (nextCursor) seenCursors.add(nextCursor)
+      cursor = nextCursor
       if (!cursor || !read) break
     }
     context.stdout.write(`Replayed ${totals.processed}, skipped ${totals.skipped}, failed ${totals.failed}.${parsed.dryRun ? " Dry run: Channel message writes were recorded, not sent." : ""}\n`)
