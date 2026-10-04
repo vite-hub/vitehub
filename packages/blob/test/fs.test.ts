@@ -97,6 +97,33 @@ describe("fs blob driver", () => {
     await expect(driver.list()).rejects.toMatchObject({ code: "ENOTDIR" })
   })
 
+  it.each([
+    ["empty cursor", ""],
+    ["invalid alphabet", "!!!"],
+    ["non-numeric payload", Buffer.from("foo").toString("base64url")],
+    ["padded numeric payload", `${Buffer.from("0").toString("base64url")}=`],
+    ["noncanonical pad bits", "MB"],
+    ["leading-zero numeric payload", Buffer.from("01").toString("base64url")],
+  ])("rejects malformed list cursors (%s)", async (_, cursor) => {
+    const base = await mkdtemp(join(tmpdir(), "vitehub-blob-fs-"))
+    tempDirs.push(base)
+    const driver = createDriver({ base, driver: "fs" })
+    await driver.put("notes/one.txt", "one")
+
+    await expect(driver.list({ cursor })).rejects.toThrow("Invalid Blob cursor.")
+    await expect(driver.list({ cursor, folded: true })).rejects.toThrow("Invalid Blob cursor.")
+  })
+
+  it.each([false, true])("rejects malformed cursors before traversing a missing base (folded: %s)", async (folded) => {
+    const base = await mkdtemp(join(tmpdir(), "vitehub-blob-fs-"))
+    tempDirs.push(base)
+    const driver = createDriver({ base: join(base, "missing"), driver: "fs" })
+
+    await expect(driver.list({ cursor: "MB", folded })).rejects.toThrow("Invalid Blob cursor.")
+    await expect(driver.list({ cursor: "", folded })).rejects.toThrow("Invalid Blob cursor.")
+    await expect(driver.list({ folded })).resolves.toEqual({ blobs: [], hasMore: false })
+  })
+
   it("returns a cursor for folded listings that stop before the end", async () => {
     const base = await mkdtemp(join(tmpdir(), "vitehub-blob-fs-"))
     tempDirs.push(base)
