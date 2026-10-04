@@ -40,8 +40,24 @@ import { agentDiagnostics } from "./agent-diagnostics.ts"
 
 function isTriggerInputSchema<TInput>(input: string | StandardSchemaV1<unknown, TInput> | undefined): input is StandardSchemaV1<unknown, TInput> {
   if (!isRuntimeRecord(input) && !hasRuntimeType(input, "function")) return false
-  if (!("~standard" in input)) return false
-  const standard = input["~standard"]
+  let standard: unknown
+  if (Object.hasOwn(input, "~standard")) {
+    standard = input["~standard"]
+  } else {
+    let prototype = Object.getPrototypeOf(input)
+    let getterFound = false
+    while (prototype !== null && prototype !== Object.prototype) {
+      const descriptor = Object.getOwnPropertyDescriptor(prototype, "~standard")
+      if (descriptor) {
+        if (typeof descriptor.get !== "function") return false
+        getterFound = true
+        break
+      }
+      prototype = Object.getPrototypeOf(prototype)
+    }
+    if (!getterFound) return false
+    standard = input["~standard"]
+  }
   return isRuntimeRecord(standard) && hasRuntimeType(standard.validate, "function")
 }
 
