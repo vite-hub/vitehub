@@ -1262,6 +1262,21 @@ describe("workspace host sessions", () => {
     await expect(docs.exists("skills/transient.md")).resolves.toBe(false)
   })
 
+  it("restores an excluded host file named __proto__", async () => {
+    const docs = workspace()
+    const host = memoryHost()
+    await host.files.write("/workspace/__proto__", new TextEncoder().encode("host state"))
+    const session = await docs.startSession({
+      host,
+      writeBack: { exclude: ["__proto__"] },
+    })
+
+    await session.close()
+
+    expect(host.readText("/workspace/__proto__")).toBe("host state")
+    await expect(docs.exists("__proto__")).resolves.toBe(false)
+  })
+
   it("discards an uncommitted basic session overlay", async () => {
     const docs = workspace()
     await docs.writeFile("README.md", "before")

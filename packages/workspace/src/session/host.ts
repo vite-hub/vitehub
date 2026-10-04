@@ -504,15 +504,17 @@ function mergeExcludedHostState(
     ...excluded.filter(root => beforePaths.some(path => path === root || path.startsWith(`${root}/`))),
     ...beforePaths.map(gitMetadataRoot).filter((path): path is string => Boolean(path)),
   ])]
-  const entries = Object.fromEntries(Object.entries(materialized.snapshot.entries)
-    .filter(([path]) => !occupiedRoots.some(root => path === root || path.startsWith(`${root}/`))))
+  const entries = Object.fromEntries([
+    ...Object.entries(materialized.snapshot.entries)
+      .filter(([path]) => !occupiedRoots.some(root => path === root || path.startsWith(`${root}/`))),
+    ...Object.entries(before.snapshot.entries),
+  ])
   const contents = new Map(materialized.contents)
   for (const root of occupiedRoots) {
     for (const path of contents.keys()) {
       if (path === root || path.startsWith(`${root}/`)) contents.delete(path)
     }
   }
-  for (const [path, entry] of Object.entries(before.snapshot.entries)) entries[path] = entry
   for (const [path, content] of before.contents) contents.set(path, content)
   return { contents, snapshot: { ...materialized.snapshot, entries } }
 }

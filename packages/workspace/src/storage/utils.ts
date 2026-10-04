@@ -26,7 +26,7 @@ export async function createCurrentSnapshotFromStore(store: WorkspaceStore, name
 }
 
 export async function createSnapshotFromEntries(entries: WorkspaceEntry[], name?: string): Promise<WorkspaceSnapshot> {
-  const snapshotEntries: WorkspaceSnapshot["entries"] = {}
+  const snapshotEntries: WorkspaceSnapshot["entries"] = Object.create(null)
   for (const entry of entries) {
     snapshotEntries[entry.path] = {
       digest: entry.digest,
@@ -48,8 +48,8 @@ export function diffSnapshots(from: WorkspaceSnapshot | undefined, to: Workspace
   const entries: WorkspaceDiff["entries"] = []
   const keys = new Set([...Object.keys(from?.entries || {}), ...Object.keys(to.entries)])
   for (const path of [...keys].sort()) {
-    const before = from?.entries[path]
-    const after = to.entries[path]
+    const before = from && Object.hasOwn(from.entries, path) ? from.entries[path] : undefined
+    const after = Object.hasOwn(to.entries, path) ? to.entries[path] : undefined
     if (!before && after) entries.push({ path, type: "added", after })
     else if (before && !after) entries.push({ path, type: "removed", before })
     else if (before && after && ((before.digest !== undefined && after.digest !== undefined && before.digest !== after.digest) || before.type !== after.type || before.size !== after.size || JSON.stringify(before.metadata) !== JSON.stringify(after.metadata))) {

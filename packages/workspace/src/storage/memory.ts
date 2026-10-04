@@ -151,8 +151,8 @@ class MemoryWorkspaceStore implements WorkspaceStore {
     const keys = new Set([...Object.keys(from?.entries || {}), ...Object.keys(to.entries)])
 
     for (const path of [...keys].sort()) {
-      const before = from?.entries[path]
-      const after = to.entries[path]
+      const before = from && Object.hasOwn(from.entries, path) ? from.entries[path] : undefined
+      const after = Object.hasOwn(to.entries, path) ? to.entries[path] : undefined
       if (!before && after) entries.push({ path, type: "added", after })
       else if (before && !after) entries.push({ path, type: "removed", before })
       else if (before && after && (before.digest !== after.digest || before.type !== after.type || before.size !== after.size || JSON.stringify(before.metadata) !== JSON.stringify(after.metadata))) {
@@ -213,7 +213,7 @@ class MemoryWorkspaceStore implements WorkspaceStore {
   }
 
   async #createSnapshot(name?: string): Promise<WorkspaceSnapshot> {
-    const entries: WorkspaceSnapshot["entries"] = {}
+    const entries: WorkspaceSnapshot["entries"] = Object.create(null)
     for (const [path, node] of this.#nodes) {
       if (!path) continue
       const entry = await this.#entry(path, node)
