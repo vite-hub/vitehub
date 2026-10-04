@@ -465,7 +465,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
           value.document.on("update", (update: Uint8Array, origin: unknown) => {
             value.mutated = true
             persistRoomUpdate(value, update)
-            if (origin && typeof origin === "object" && "publish" in origin) {
+            if (value.peers.has(origin as WebSocketPeer)) {
               (origin as WebSocketPeer).publish(value.channel, encodeSyncUpdate(update))
             }
           })
