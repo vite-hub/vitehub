@@ -24,7 +24,7 @@ export function setActiveCloudflareEnv(env: CloudflareWorkerEnv | undefined): vo
 }
 
 export function clearActiveCloudflareEnv(): void {
-  activeEnv = undefined
+  setActiveCloudflareEnv(undefined)
   delete (globalThis as { __env__?: CloudflareWorkerEnv }).__env__
 }
 
