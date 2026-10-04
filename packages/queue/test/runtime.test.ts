@@ -734,6 +734,23 @@ describe("vercel provider", () => {
     expect(JSON.stringify(error)).not.toMatch(/providerSecret|missing-message-id|cause/)
   })
 
+  it("rejects inherited Vercel SDK exports", async () => {
+    const inherited = {
+      QueueClient: class {
+        send = async () => ({ messageId: "inherited" })
+        handleCallback = () => async () => new Response("inherited")
+      },
+    }
+    Object.defineProperty(globalThis, "__vitehubVercelQueue", {
+      configurable: true,
+      value: Object.create(inherited),
+    })
+
+    await expect(createVercelQueueClient({ provider: "vercel", region: "iad1", topic: "topic--77656c636f6d65" })).rejects.toMatchObject({
+      code: "VERCEL_QUEUE_SDK_INVALID",
+    })
+  })
+
   it("redacts Vercel SDK load failures while retaining the internal cause", async () => {
     const cause = new Error("Cannot load secret-token from https://queue.example/private")
     Object.defineProperty(globalThis, "__vitehubVercelQueue", {

@@ -55,7 +55,7 @@ async function loadVercelQueueClient(region: string | undefined): Promise<Vercel
   }
 
   const { region: resolvedRegion } = resolveVercelQueueRegion(region)
-  if ("QueueClient" in module && typeof module.QueueClient === "function") {
+  if (Object.hasOwn(module, "QueueClient") && typeof module.QueueClient === "function") {
     if (!resolvedRegion) {
       throw createQueueError("VERCEL_QUEUE_REGION_REQUIRED", {
         details: { provider: "vercel" },
@@ -65,7 +65,7 @@ async function loadVercelQueueClient(region: string | undefined): Promise<Vercel
     return new (module.QueueClient as new (options: { region: string }) => VercelQueueSDK)({ region: resolvedRegion })
   }
 
-  if (typeof module.send === "function" && typeof module.handleCallback === "function") {
+  if (Object.hasOwn(module, "send") && Object.hasOwn(module, "handleCallback") && typeof module.send === "function" && typeof module.handleCallback === "function") {
     return {
       handleCallback: module.handleCallback as VercelQueueSDK["handleCallback"],
       send: module.send as VercelQueueSDK["send"],
