@@ -868,7 +868,7 @@ function withDefaultToolInputSchemas<TTools extends Record<string, unknown> | un
     }
     if (record.inputSchema != null) {
       const inputSchema = record.inputSchema
-      if (!hasRuntimeType(inputSchema, "object") || inputSchema === null || "~standard" in inputSchema || "jsonSchema" in inputSchema) {
+      if (!hasRuntimeType(inputSchema, "object") || inputSchema === null || isStandardSchemaInput(inputSchema) || Object.hasOwn(inputSchema, "jsonSchema")) {
         return [name, tool]
       }
       return [name, copyToolWithOverrides(record, {
@@ -881,6 +881,15 @@ function withDefaultToolInputSchemas<TTools extends Record<string, unknown> | un
       inputSchema: defaultToolInputSchema,
     })]
   })) as TTools
+}
+
+function isStandardSchemaInput(value: object): boolean {
+  if (Object.hasOwn(value, "~standard")) return true
+  if (!("~standard" in value)) return false
+  const marker = (value as { "~standard"?: unknown })["~standard"]
+  if (!hasRuntimeType(marker, "object") || marker === null) return false
+  const standard = marker as { version?: unknown, validate?: unknown }
+  return standard.version === 1 && hasRuntimeType(standard.validate, "function")
 }
 
 function createAiSdkRuntimeContext(context: AgentAdapterRunContext) {

@@ -2722,6 +2722,9 @@ describe("agent message protocol", () => {
       },
     }
     const wrappedJsonSchema = { jsonSchema: rawJsonSchema }
+    const inheritedJsonSchema = Object.assign(Object.create({
+      "~standard": { validate: () => ({ value: {} }) },
+    }), rawJsonSchema)
     const jsonSchema = vi.fn(schema => ({ jsonSchema: schema }))
     loadAiSdk.mockResolvedValue({
       isStepCount: vi.fn(count => ({ count })),
@@ -2762,6 +2765,12 @@ describe("agent message protocol", () => {
               inputSchema: wrappedJsonSchema as never,
               name: "wrappedJsonSchema",
             },
+            inheritedJsonSchema: {
+              execute: () => "ok",
+              // SAFETY: This fixture models an untrusted schema-like object with an inherited marker.
+              inputSchema: inheritedJsonSchema as never,
+              name: "inheritedJsonSchema",
+            },
           },
         }),
       ],
@@ -2780,6 +2789,7 @@ describe("agent message protocol", () => {
     expect(tools.rawJsonSchema!.inputSchema).toEqual({ jsonSchema: rawJsonSchema })
     expect(tools.standardSchema!.inputSchema).toBe(standardSchema)
     expect(tools.wrappedJsonSchema!.inputSchema).toBe(wrappedJsonSchema)
+    expect(tools.inheritedJsonSchema!.inputSchema).toEqual({ jsonSchema: inheritedJsonSchema })
     expect(tools.defaultSchema!.inputSchema).toEqual({
       jsonSchema: {
         additionalProperties: false,
@@ -2787,7 +2797,7 @@ describe("agent message protocol", () => {
         type: "object",
       },
     })
-    expect(jsonSchema).toHaveBeenCalledTimes(2)
+    expect(jsonSchema).toHaveBeenCalledTimes(3)
   })
 
   it("resolves provider callbacks only at model invocation with byte limits", async () => {
