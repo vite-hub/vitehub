@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest"
 
 import {
   clearActiveCloudflareEnv,
+  getActiveCloudflareBinding,
   getActiveCloudflareEnv,
   getCloudflareEnv,
   resolveWaitUntil,
@@ -12,6 +13,14 @@ import {
 afterEach(() => clearActiveCloudflareEnv())
 
 describe("Cloudflare environment context", () => {
+  it("does not expose inherited environment bindings", () => {
+    const env = Object.create({ BUCKET: "inherited-bucket" }) as Record<string, unknown>
+    setActiveCloudflareEnv(env)
+
+    expect(getActiveCloudflareEnv()).toBe(env)
+    expect(getActiveCloudflareBinding("BUCKET")).toBeUndefined()
+  })
+
   it("can read event bindings without inheriting the ambient environment", () => {
     const ambient = { name: "ambient" }
     const eventEnv = { name: "event" }

@@ -188,7 +188,7 @@ describe("Database Nuxt integration", () => {
       await hubDb()(undefined, nuxt)
       await callHook(hooks, "nitro:config", {})
 
-      ;(globalThis as typeof globalThis & { __env__?: Record<string, unknown> }).__env__ = Object.defineProperty({}, "DB", { value: "native-binding" })
+      ;(globalThis as typeof globalThis & { __env__?: Record<string, unknown> }).__env__ = Object.defineProperty(Object.create({ INHERITED: "inherited-binding" }), "DB", { value: "native-binding" })
       const middleware = (await import(`${pathToFileURL(middlewarePath).href}?t=${Date.now()}`)).default
       middleware({
         context: {
@@ -210,6 +210,9 @@ describe("Database Nuxt integration", () => {
       expect(cloudflareBridgeState.activeEnv?.DB).toBe("event-binding")
       middleware({})
       expect(cloudflareBridgeState.activeEnv?.DB).toBe("native-binding")
+      expect(Object.hasOwn(cloudflareBridgeState.activeEnv!, "DB")).toBe(true)
+      expect(Object.hasOwn(cloudflareBridgeState.activeEnv!, "INHERITED")).toBe(false)
+      expect(cloudflareBridgeState.activeEnv?.INHERITED).toBeUndefined()
       expect(cloudflareBridgeState.activeEnv).not.toHaveProperty("EVENT")
       expect(cloudflareBridgeState.activeEnv).not.toHaveProperty("REQUEST")
     }
