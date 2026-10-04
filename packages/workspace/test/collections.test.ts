@@ -24,6 +24,55 @@ afterEach(() => {
 })
 
 describe("Workspace Collections", () => {
+  it("ignores null filters and accepts cursors with omitted filters", async () => {
+    await createCollection("collection-null-filters")
+    const first = await queryWorkspaceCollection({
+      path: "data/items.json",
+      query: { filters: { title: null as never }, limit: 1 },
+      workspace: "collection-null-filters",
+    })
+
+    expect(first).toMatchObject({ items: [records[0]], total: records.length })
+    expect(first.nextCursor).toEqual(expect.any(String))
+    await expect(queryWorkspaceCollection({
+      path: "data/items.json",
+      query: { cursor: first.nextCursor!, limit: 1 },
+      workspace: "collection-null-filters",
+    })).resolves.toMatchObject({ items: [records[1]], total: records.length })
+  })
+
+  it("ignores null members in array filters and cursor fingerprints", async () => {
+    await createCollection("collection-null-array-filters")
+    const first = await queryWorkspaceCollection({
+      path: "data/items.json",
+      query: { filters: { category: [null as never, "Guide"] }, limit: 1 },
+      workspace: "collection-null-array-filters",
+    })
+
+    expect(first.items).toEqual([records[0]])
+    await expect(queryWorkspaceCollection({
+      path: "data/items.json",
+      query: { cursor: first.nextCursor!, filters: { category: ["guide"] }, limit: 1 },
+      workspace: "collection-null-array-filters",
+    })).resolves.toMatchObject({ items: [records[2]], total: 2 })
+  })
+
+  it("treats null-only array filters as omitted filters", async () => {
+    await createCollection("collection-null-only-filters")
+    const first = await queryWorkspaceCollection({
+      path: "data/items.json",
+      query: { filters: { title: [null as never, undefined as never] }, limit: 1 },
+      workspace: "collection-null-only-filters",
+    })
+
+    expect(first).toMatchObject({ items: [records[0]], total: records.length })
+    await expect(queryWorkspaceCollection({
+      path: "data/items.json",
+      query: { cursor: first.nextCursor!, limit: 1 },
+      workspace: "collection-null-only-filters",
+    })).resolves.toMatchObject({ items: [records[1]], total: records.length })
+  })
+
   it("filters, searches, sorts, facets, projects, and paginates explicit paths", async () => {
     await createCollection("collection-query")
     const query = {
