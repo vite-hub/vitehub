@@ -15209,6 +15209,18 @@ describe("agent message protocol", () => {
       }, async () => /portable/)).rejects.toMatchObject({ isRetryable: false })
     })
 
+    it("rejects provider result markers inherited from a custom prototype", async () => {
+      const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+      const result = Object.assign(Object.create({ output: "inherited provider output" }), { text: "visible text" })
+      // SAFETY: This test fixture intentionally constructs an untrusted provider result with an inherited marker.
+      await expect(runAgentWorkflowDefinition({} as never, {
+        id: "inherited-marker-result",
+        name: "inherited-marker-result",
+        payload: {},
+        provider: "vercel",
+      }, async () => result)).rejects.toMatchObject({ isRetryable: false })
+    })
+
     it("serializes Response results before Workflow completion", async () => {
       const { defineAgent, runAgent } = await import("../src/index.ts")
       const { getWorkflowRun } = await import("@vite-hub/workflow")

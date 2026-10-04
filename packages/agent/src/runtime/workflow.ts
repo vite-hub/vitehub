@@ -259,7 +259,10 @@ async function portableWorkflowResult(result: unknown): Promise<unknown> {
     const aiSdkTextResultMarkerKeys = ["_output", "steps", "totalUsage"]
     const providerResultKeys = [...providerResultMarkerKeys, "initialResponseMessages"]
     const normalizedAgentResultKeys = ["finishReason", "raw", "text", "usage", "usageRecord", "warnings"]
-    if (!result || !isRuntimeObject(result) || !agentResultKeys.some((key) => key in result)) unsupportedWorkflowResult()
+    const isAiSdkTextResult = isRuntimeObject(result)
+      && Object.hasOwn(result, "initialResponseMessages")
+      && aiSdkTextResultMarkerKeys.every(key => Object.hasOwn(result, key))
+    if (!result || !isRuntimeObject(result) || (!agentResultKeys.some(key => Object.hasOwn(result, key)) && !isAiSdkTextResult)) unsupportedWorkflowResult()
     if (!Object.keys(result).every((key) => agentResultKeys.includes(key) || providerResultKeys.includes(key))) unsupportedWorkflowResult()
     if (Object.hasOwn(result, "initialResponseMessages")) {
       const prototype = Object.getPrototypeOf(result)
@@ -270,7 +273,7 @@ async function portableWorkflowResult(result: unknown): Promise<unknown> {
       )
         unsupportedWorkflowResult()
     }
-    if (!providerResultMarkerKeys.some((key) => key in result) && !normalizedAgentResultKeys.every((key) => Object.hasOwn(result, key)))
+    if (!isAiSdkTextResult && !providerResultMarkerKeys.some(key => Object.hasOwn(result, key)) && !normalizedAgentResultKeys.every(key => Object.hasOwn(result, key)))
       unsupportedWorkflowResult()
     const normalizedResult = toAgentRunResult(result)
     if (Object.hasOwn(result, "initialResponseMessages")) {
@@ -282,7 +285,7 @@ async function portableWorkflowResult(result: unknown): Promise<unknown> {
       // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
       normalizedResult.warnings = (result as Record<string, unknown>).warnings
     }
-    const projected = "raw" in result ? portableWorkflowValue(result) : portableWorkflowValue(normalizedResult)
+    const projected = Object.hasOwn(result, "raw") ? portableWorkflowValue(result) : portableWorkflowValue(normalizedResult)
     const jsonProjected = jsonWorkflowValue(projected)
     if (jsonProjected !== unportableWorkflowValue) return jsonProjected
     const { raw: _raw, ...normalized } = toAgentRunResult(result)
