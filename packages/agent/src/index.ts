@@ -3459,9 +3459,9 @@ function mergeWorkspaceSources(
   configured: WorkspaceDefinition["sources"] | undefined,
 ): WorkspaceDefinition["sources"] | undefined {
   if (!registered && !configured) return undefined
-  const sources = { ...registered }
+  const sources = Object.assign(Object.create(null), registered) as NonNullable<WorkspaceDefinition["sources"]>
   for (const [key, source] of Object.entries(configured || {})) {
-    if (key in sources) {
+    if (Object.hasOwn(sources, key)) {
       throw agentDiagnostics.AGENT_R0431({ message: `[vitehub] Workspace source "${key}" is already defined.` })
     }
     sources[key] = source

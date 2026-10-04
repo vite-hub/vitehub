@@ -423,10 +423,10 @@ export function capabilityWorkspaceSources(
   capabilities: readonly AgentCapabilityDefinition[] | undefined,
 ): WorkspaceDefinition["sources"] | undefined {
   const normalized = normalizeCapabilities(capabilities)
-  const sources: NonNullable<WorkspaceDefinition["sources"]> = {}
+  const sources = Object.create(null) as NonNullable<WorkspaceDefinition["sources"]>
   for (const capability of normalized) {
     for (const [key, source] of Object.entries(capability.workspaceSources || {})) {
-      if (key in sources) {
+      if (Object.hasOwn(sources, key)) {
         throw agentDiagnostics.AGENT_R0323({ message: `[vitehub] Duplicate workspace source "${key}" contributed by capabilities.` })
       }
       sources[key] = source

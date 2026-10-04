@@ -142,6 +142,19 @@ function schema<T>(validate: (value: unknown) => T) {
 }
 
 describe("agent capability runtime", () => {
+  it("accepts workspace source names that shadow object prototype keys", async () => {
+    const { capabilityWorkspaceSources } = await import("../src/capability-runtime.ts")
+    const workspaceSources = {
+      ["__proto__"]: {} as never,
+      constructor: {} as never,
+    }
+
+    const result = capabilityWorkspaceSources([{ id: "sources", workspaceSources }])
+
+    expect(result).toEqual(workspaceSources)
+    expect(Object.keys(result ?? {})).toEqual(["__proto__", "constructor"])
+  })
+
   it.each(["lazy", "startup"] as const)("overlays the matching GitHub checkout for a PR invocation (%s)", async (materialize) => {
     const { resolveAgentCapabilities, trustGitHubPullRequestWorkspaceCapability } = await import("../src/capability-runtime.ts")
     const { github } = await import("@vite-hub/workspace")

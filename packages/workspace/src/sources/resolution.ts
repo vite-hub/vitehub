@@ -288,7 +288,7 @@ export async function resolveWorkspaceSources(
 ): Promise<WorkspaceDefinition> {
   if (!hasWorkspaceSourceResolvers(definition) && !options.selectedWorkspaceScope) return definition
 
-  const sources: Record<string, WorkspaceSourceInput> = {}
+  const sources: Record<string, WorkspaceSourceInput> = Object.create(null)
   for (const [key, source] of Object.entries(definition.sources || {})) {
     const resolved = await resolveWorkspaceSource(definition, key, source, options)
     if (resolved) sources[key] = resolved

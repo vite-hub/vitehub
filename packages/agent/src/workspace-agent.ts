@@ -403,9 +403,9 @@ function withCapabilityWorkspaceSources(
 ): NormalizedWorkspaceOptions {
   const contributed = capabilityWorkspaceSources(capabilities)
   if (!contributed) return workspace
-  const sources = { ...workspace.sources }
+  const sources = Object.assign(Object.create(null), workspace.sources) as NonNullable<NormalizedWorkspaceOptions["sources"]>
   for (const [key, source] of Object.entries(contributed)) {
-    if (key in sources) {
+    if (Object.hasOwn(sources, key)) {
       throw agentDiagnostics.AGENT_R0883({ message: `[vitehub] Workspace source "${key}" is already defined.` })
     }
     sources[key] = source
