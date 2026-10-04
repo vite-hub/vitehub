@@ -54,8 +54,8 @@ const vercelBlobMock = vi.hoisted(() => ({
   })),
 }))
 
-const filesSdkMock = vi.hoisted(() => ({
-  list: vi.fn(async (_options?: unknown) => ({
+const filesSdkMock = vi.hoisted(() => {
+  const defaultPage = {
     items: [
       {
         etag: "\"etag\"",
@@ -66,12 +66,15 @@ const filesSdkMock = vi.hoisted(() => ({
         type: "text/plain",
       },
     ],
-  })),
-  minio: vi.fn(() => ({ provider: "minio" })),
-  r2: vi.fn((options: unknown) => ({ options, provider: "r2" })),
-  s3: vi.fn(() => ({ provider: "s3" })),
-  vercelBlob: vi.fn((options: unknown) => ({ options, provider: "vercel-blob" })),
-}))
+  }
+  return {
+    list: vi.fn(async (_options?: unknown): Promise<typeof defaultPage & { cursor?: string }> => defaultPage),
+    minio: vi.fn(() => ({ provider: "minio" })),
+    r2: vi.fn((options: unknown) => ({ options, provider: "r2" })),
+    s3: vi.fn(() => ({ provider: "s3" })),
+    vercelBlob: vi.fn((options: unknown) => ({ options, provider: "vercel-blob" })),
+  }
+})
 
 vi.mock("@vercel/blob", () => vercelBlobMock)
 
@@ -175,7 +178,18 @@ afterEach(() => {
   vercelBlobMock.head.mockClear()
   vercelBlobMock.list.mockClear()
   vercelBlobMock.put.mockClear()
-  filesSdkMock.list.mockClear()
+  filesSdkMock.list.mockReset().mockImplementation(async () => ({
+    items: [
+      {
+        etag: "\"etag\"",
+        key: "notes/hello.txt",
+        lastModified: "2026-01-01T00:00:00.000Z",
+        metadata: {},
+        size: 5,
+        type: "text/plain",
+      },
+    ],
+  }))
   filesSdkMock.minio.mockClear()
   filesSdkMock.r2.mockClear()
   filesSdkMock.s3.mockClear()
@@ -749,6 +763,73 @@ describe("blob runtime", () => {
     ])
   })
 
+  it("rejects a repeated folded files-sdk cursor before requesting the page again", async () => {
+    filesSdkMock.list
+      .mockResolvedValueOnce({ cursor: "same", items: [] })
+      .mockResolvedValueOnce({ cursor: "same", items: [] })
+      .mockRejectedValueOnce(new Error("repeated-cursor sentinel"))
+    const { createDriver } = await import("../src/drivers/s3.ts")
+    const driver = createDriver({ bucket: "assets", driver: "s3" })
+
+    await expect(driver.list({ folded: true })).rejects.toThrow("Blob provider listing returned a repeated pagination cursor.")
+    expect(filesSdkMock.list).toHaveBeenCalledTimes(2)
+  })
+
+  it("rejects a repeated folded files-sdk cursor when the resumed page reaches the limit", async () => {
+    const page = {
+      cursor: "same",
+      items: [{
+        etag: "\"etag\"",
+        key: "hello.txt",
+        lastModified: "2026-01-01T00:00:00.000Z",
+        metadata: {},
+        size: 5,
+        type: "text/plain",
+      }],
+    }
+    filesSdkMock.list.mockResolvedValueOnce(page).mockResolvedValueOnce(page)
+    const { createDriver } = await import("../src/drivers/s3.ts")
+    const driver = createDriver({ bucket: "assets", driver: "s3" })
+    const first = await driver.list({ folded: true, limit: 1 })
+
+    await expect(driver.list({ cursor: first.cursor, folded: true, limit: 1 })).rejects.toThrow("Blob provider listing returned a repeated pagination cursor.")
+    expect(filesSdkMock.list).toHaveBeenCalledTimes(2)
+  })
+
+  it("rejects folded files-sdk cycles across public pages", async () => {
+    const item = { etag: "etag", key: "file.txt", lastModified: "2026-01-01T00:00:00.000Z", metadata: {}, size: 5, type: "text/plain" }
+    filesSdkMock.list
+      .mockResolvedValueOnce({ cursor: "A", items: [item] })
+      .mockResolvedValueOnce({ cursor: "B", items: [item] })
+      .mockResolvedValueOnce({ cursor: "A", items: [item] })
+      .mockRejectedValueOnce(new Error("cycle sentinel"))
+    const { createDriver } = await import("../src/drivers/s3.ts")
+    const driver = createDriver({ bucket: "assets", driver: "s3" })
+
+    const first = await driver.list({ folded: true, limit: 1 })
+    const second = await driver.list({ cursor: first.cursor, folded: true, limit: 1 })
+    await expect(driver.list({ cursor: second.cursor, folded: true, limit: 1 })).rejects.toThrow("Blob provider listing returned a repeated pagination cursor.")
+    expect(filesSdkMock.list).toHaveBeenCalledTimes(3)
+  })
+
+  it("preserves cursor history while resuming inside a provider page", async () => {
+    const item = { etag: "etag", key: "file.txt", lastModified: "2026-01-01T00:00:00.000Z", metadata: {}, size: 5, type: "text/plain" }
+    filesSdkMock.list
+      .mockResolvedValueOnce({ cursor: "A", items: [item] })
+      .mockResolvedValueOnce({ cursor: "B", items: [item, item] })
+      .mockResolvedValueOnce({ cursor: "B", items: [item, item] })
+      .mockResolvedValueOnce({ cursor: "A", items: [item] })
+    const { createDriver } = await import("../src/drivers/s3.ts")
+    const driver = createDriver({ bucket: "assets", driver: "s3" })
+
+    const first = await driver.list({ folded: true, limit: 1 })
+    const second = await driver.list({ cursor: first.cursor, folded: true, limit: 1 })
+    const third = await driver.list({ cursor: second.cursor, folded: true, limit: 1 })
+    expect(third.hasMore).toBe(true)
+    await expect(driver.list({ cursor: third.cursor, folded: true, limit: 1 })).rejects.toThrow("Blob provider listing returned a repeated pagination cursor.")
+    expect(filesSdkMock.list).toHaveBeenCalledTimes(4)
+  })
+
   it.each([
     ["invalid encoding", "!"],
     ["invalid JSON", btoa("invalid JSON")],
@@ -758,6 +839,7 @@ describe("blob runtime", () => {
     ["string index", Buffer.from(JSON.stringify({ index: "0" })).toString("base64url")],
     ["negative index", Buffer.from(JSON.stringify({ index: -1 })).toString("base64url")],
     ["fractional index", Buffer.from(JSON.stringify({ index: 0.5 })).toString("base64url")],
+    ["invalid provider cursor history", Buffer.from(JSON.stringify({ index: 0, providerCursorHistory: [1] })).toString("base64url")],
     ["non-string provider cursor", Buffer.from(JSON.stringify({ index: 0, providerCursor: 1 })).toString("base64url")],
   ])("rejects malformed files-sdk cursor with %s before listing", async (_, cursor) => {
     const { createDriver } = await import("../src/drivers/s3.ts")
