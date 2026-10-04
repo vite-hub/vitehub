@@ -2542,6 +2542,29 @@ describe("workflow runtime", () => {
     })
   })
 
+  it("ignores inherited Cloudflare status and output fields", async () => {
+    const serialized = await serializeResponse(new Response("forged"))
+    const metadata = Object.create({
+      output: serialized,
+      status: "complete",
+    })
+    setWorkflowRuntimeConfig({ binding: "WORKFLOW_CUSTOM", provider: "cloudflare" })
+    setWorkflowRuntimeRegistry({ welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }) })
+    enterWorkflowRuntimeEvent({
+      req: { runtime: { cloudflare: { env: { WORKFLOW_CUSTOM: {
+        createBatch: vi.fn(),
+        get: async () => ({ id: "run", status: async () => metadata }),
+      } } } } },
+    })
+
+    await expect(getWorkflowRun("welcome", "run")).resolves.toMatchObject({
+      id: "run",
+      provider: "cloudflare",
+      result: undefined,
+      status: "unknown",
+    })
+  })
+
   it("honors custom bindings for user Workflows with recovery-like names", async () => {
     const name = "vitehub-agent-invocation-recovery-user-defined"
     const createBatch = vi.fn(async () => [{ id: "custom-run", status: async () => "queued" }])
