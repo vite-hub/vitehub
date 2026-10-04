@@ -26,6 +26,19 @@ describe("Agent stream trace", () => {
     expect(traceLog.entries().at(-1)).toMatchObject({ attributes: { "tool.durationMs": 42 } })
   })
 
+  it("ignores stream event types inherited from the trace name map", async () => {
+    const traceLog = createTraceEventLog({ content: "content" })
+    // SAFETY: Stream tracing only reads the context store and runtime trace fields.
+    const context = { context: createAgentInvocationContextStore(), runtime: { traceLog } } as AgentTraceContext
+
+    const yielded: unknown[] = []
+    for await (const event of traceAgentStreamEvents((async function* () {
+      yield { type: "toString" }
+    })(), context)) yielded.push(event)
+    expect(yielded).toEqual([{ type: "toString" }])
+    expect(traceLog.entries()).toEqual([])
+  })
+
   it("measures a tool result from its observed start when the provider reports zero", () => {
     let now = 1_000
     const track = createToolDurationTracker(() => now)

@@ -553,7 +553,7 @@ export async function traceAgentStreamEvent<TRuntimeConfig extends AgentRuntimeC
     usage: "agent.usage.recorded",
   } as const
   // SAFETY: Trace normalization establishes the asserted telemetry event contract.
-  const name = streamEvent.type in names ? names[streamEvent.type as keyof typeof names] : undefined
+  const name = Object.hasOwn(names, streamEvent.type) ? names[streamEvent.type as keyof typeof names] : undefined
   if (!name) return
 
   await traceAgentEvent(context, {
