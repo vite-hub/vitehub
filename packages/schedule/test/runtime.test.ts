@@ -907,6 +907,30 @@ describe("Manual Schedule runs", () => {
     await expect(runSchedule("sync")).resolves.toMatchObject({ status: "succeeded" })
   })
 
+  it("rejects inherited definitions from the installed runtime registry", async () => {
+    const inherited = {
+      default: defineSchedule("0 9 * * *", () => {}, { manual: true }),
+    }
+    setScheduleRuntimeRegistry({
+      inherited: async () => Object.create(inherited),
+    })
+
+    await expect(runSchedule("inherited")).rejects.toMatchObject({ code: "SCHEDULE_DEFINITION_NOT_FOUND" })
+    expect(await schedules.listRuns()).toEqual([])
+  })
+
+  it("rejects inherited manual schedule definitions", async () => {
+    const inherited = {
+      default: defineSchedule("0 9 * * *", () => {}, { manual: true }),
+    }
+    const registry = {
+      inherited: async () => Object.create(inherited),
+    }
+
+    await expect(runSchedule("inherited", { registry })).rejects.toMatchObject({ code: "SCHEDULE_DEFINITION_NOT_FOUND" })
+    expect(await schedules.listRuns()).toEqual([])
+  })
+
   it("rejects definitions that do not allow manual runs", async () => {
     const registry = {
       cron: async () => defineSchedule("0 9 * * *", () => {}),

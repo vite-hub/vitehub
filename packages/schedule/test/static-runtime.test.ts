@@ -51,6 +51,26 @@ describe("Static Schedule runtime", () => {
     ])
   })
 
+  it("ignores inherited schedule definition markers", async () => {
+    const calls: string[] = []
+    const inherited = {
+      default: {
+        cron: "0 4 * * *",
+        handler: async () => calls.push("inherited"),
+      },
+    }
+    const registry: ScheduleDefinitionRegistry = {
+      inherited: async () => Object.create(inherited),
+    }
+
+    await executeMatchingStaticSchedules({
+      cron: "0 4 * * *",
+      registry,
+    })
+
+    expect(calls).toEqual([])
+  })
+
   it("executes Cloudflare scheduled events with runtime env active", async () => {
     const seen: Array<string | undefined> = []
     const deferred: Promise<unknown>[] = []

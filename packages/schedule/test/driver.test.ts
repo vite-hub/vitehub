@@ -159,6 +159,28 @@ describe("Runtime Schedule Wake Driver", () => {
     expect(reconciled[0]).toMatchObject({ cron: "0 9 * * *", target: "daily-report" })
   })
 
+  it("rejects Static Schedule definitions with an inherited cron property", async () => {
+    const inherited = { cron: "0 9 * * *" }
+    const definition = Object.assign(Object.create(inherited), { handler: vi.fn() })
+    let reconciled: RuntimeScheduleRecord[] = []
+
+    await installScheduleRuntime({
+      createDriver: () => ({
+        async reconcile(records) {
+          reconciled = [...records]
+        },
+      }),
+      registry: {},
+      runtimeScheduleStore: createMemoryRuntimeScheduleStore(),
+      scheduleRunStore: createMemoryScheduleRunStore(),
+      staticRegistry: {
+        "inherited-cron": async () => definition,
+      },
+    })
+
+    expect(reconciled).toEqual([])
+  })
+
   it("keeps Static Schedule driver identities distinct from persisted ids", async () => {
     const runtimeScheduleStore = createMemoryRuntimeScheduleStore()
     const now = new Date("2026-07-11T08:00:00.000Z")

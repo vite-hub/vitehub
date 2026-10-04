@@ -1,4 +1,4 @@
-import type { ScheduleDefinition, ScheduleDefinitionRegistry, ScheduleRegistryDefinition, ScheduleRunContext } from "../types.ts"
+import type { ScheduleDefinition, ScheduleDefinitionRegistry, ScheduleRunContext } from "../types.ts"
 import { runWithScheduleWaitUntil } from "./wait-until.ts"
 import { scheduleErrorDiagnostics } from "../error-diagnostics.ts"
 
@@ -31,8 +31,6 @@ interface CloudflareScheduledEventLike {
   cron?: string
   scheduledTime?: number | string | Date
 }
-
-type LoadedScheduleModule = ScheduleRegistryDefinition | { default?: ScheduleRegistryDefinition }
 
 export interface StaticScheduleRun extends ScheduleRunContext {
   cron: string
@@ -223,7 +221,18 @@ function readCloudflareEventEnv(event: CloudflareScheduledEventLike): Record<str
   return isRecord(runtimeCloudflare?.env) ? runtimeCloudflare.env : undefined
 }
 
-function unwrapScheduleDefinition(loaded: LoadedScheduleModule): ScheduleDefinition | undefined {
-  const definition = "default" in loaded ? loaded.default : loaded
-  return definition && "cron" in definition ? definition : undefined
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+}
+
+function isStaticScheduleDefinition(value: unknown): value is ScheduleDefinition {
+  return isObjectRecord(value)
+    && Object.hasOwn(value, "cron")
+    && Object.hasOwn(value, "handler")
+    && typeof value.handler === "function"
+}
+
+export function unwrapScheduleDefinition(loaded: unknown): ScheduleDefinition | undefined {
+  const candidate = isObjectRecord(loaded) && Object.hasOwn(loaded, "default") ? loaded.default : loaded
+  return isStaticScheduleDefinition(candidate) ? candidate : undefined
 }

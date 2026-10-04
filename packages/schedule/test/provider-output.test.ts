@@ -383,12 +383,14 @@ describe("schedule provider output", () => {
 
     expect(existsSync(cloudflareWorker)).toBe(true)
     await expect(readFile(cloudflareWorker, "utf8")).resolves.toContain("waitUntil: (promise) => ctx.waitUntil(promise)")
+    await expect(readFile(cloudflareWorker, "utf8")).resolves.toContain("unwrapScheduleDefinition")
     expect(JSON.parse(await readFile(cloudflareConfig, "utf8")).triggers.crons).toEqual(["0 0 * * *"])
     expect(JSON.parse(await readFile(vercelConfig, "utf8")).crons).toEqual([{
       path: "/api/vitehub/schedules/vercel/cleanup",
       schedule: "0 0 * * *",
     }])
     expect(await readFile(vercelFunction, "utf8")).toContain("executeStaticSchedule")
+    expect(await readFile(vercelFunction, "utf8")).toContain("unwrapScheduleDefinition")
     expect(await readFile(vercelFunction, "utf8")).not.toContain("setWorkflowRuntimeRegistry")
     expect(existsSync(join(rootDir, ".vercel", "output", "functions", "api", "vitehub", "schedules", "vercel", "agent-turn.func"))).toBe(false)
     const netlifyModule = await import(pathToFileURL(netlifyFunction).href)
@@ -397,6 +399,7 @@ describe("schedule provider output", () => {
     expect(existsSync(join(createDefaultNetlifyOutputRoot(rootDir), "functions", "vitehub-schedule-agent-turn.mjs"))).toBe(false)
     await expect(readFile(netlifyFunction, "utf8")).resolves.toContain("schedule: \"0 0 * * *\"")
     await expect(readFile(netlifyFunction, "utf8")).resolves.toContain("executeStaticSchedule")
+    await expect(readFile(netlifyFunction, "utf8")).resolves.toContain("unwrapScheduleDefinition")
     await expect(readFile(join(rootDir, ".vitehub", "schedule", "registry.mjs"), "utf8")).resolves.not.toContain("agent-turn")
   })
 
@@ -564,6 +567,7 @@ describe("schedule provider output", () => {
     expect(new Set(cronNames).size).toBe(cronNames.length)
     expect(cronNames.every(name => name.length <= 64 && /^[a-z0-9 _-]+$/i.test(name))).toBe(true)
     expect(source).toContain('from "@vite-hub/schedule/runtime/static"')
+    expect(source).toContain("unwrapScheduleDefinition")
     expect(source).not.toContain("./registry.mjs")
     expect(source).toContain("handler: () => \"ok\"")
   })

@@ -17,7 +17,10 @@ const loadingRegistryEntries = new Map<string, {
 const loadingRegistryStorage = new AsyncLocalStorage<Set<string>>()
 
 function isScheduleDefinition(value: unknown): value is ScheduleRegistryDefinition {
-  return Boolean(value) && typeof value === "object" && typeof (value as ScheduleRegistryDefinition).handler === "function"
+  return value !== null
+    && typeof value === "object"
+    && Object.hasOwn(value, "handler")
+    && typeof (value as ScheduleRegistryDefinition).handler === "function"
 }
 
 export function setScheduleRuntimeRegistry(registry: ScheduleDefinitionRegistry | undefined): void {
@@ -86,7 +89,7 @@ export async function loadScheduleDefinition(name: string): Promise<ScheduleRegi
     if (isScheduleDefinition(loaded)) {
       return loaded
     }
-    if (loaded && typeof loaded === "object" && "default" in loaded && isScheduleDefinition(loaded.default)) {
+    if (loaded && typeof loaded === "object" && Object.hasOwn(loaded, "default") && isScheduleDefinition(loaded.default)) {
       return loaded.default
     }
     return undefined

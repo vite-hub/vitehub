@@ -238,17 +238,34 @@ export async function executeStaticSchedule(options: ExecuteStaticScheduleOption
   })
 }
 
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+}
+
+function isStaticScheduleDefinition(value: unknown): value is ScheduleDefinition {
+  return isObjectRecord(value)
+    && Object.hasOwn(value, "handler")
+    && typeof value.handler === "function"
+    && Object.hasOwn(value, "cron")
+}
+
 async function loadStaticScheduleDefinition(name: string, registry: ScheduleDefinitionRegistry | undefined): Promise<ScheduleDefinition | undefined> {
-  let definition: ScheduleRegistryDefinition | undefined
+  let loaded: unknown
   if (registry) {
     const entry = Object.hasOwn(registry, name) ? registry[name] : undefined
-    const loaded = typeof entry === "function" ? await entry() : undefined
-    definition = loaded && "handler" in loaded ? loaded : loaded?.default
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate untrusted boundary values before use.
+    loaded = typeof entry === "function" ? await entry() : undefined
   }
   else {
-    definition = await loadScheduleDefinition(name)
+    loaded = await loadScheduleDefinition(name)
   }
-  return definition && typeof definition.handler === "function" && "cron" in definition ? definition : undefined
+  const record = isObjectRecord(loaded) ? loaded : undefined
+  const definition = record && isStaticScheduleDefinition(record)
+    ? record
+    : record && Object.hasOwn(record, "default") && isStaticScheduleDefinition(record.default)
+      ? record.default
+      : undefined
+  return definition
 }
 
 /** Runs a manually dispatchable static Schedule Definition immediately. */

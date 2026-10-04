@@ -193,7 +193,7 @@ function renderProviderEntry(file: string, registryFile: string, provider: "clou
   const workflowRuntime = provider === "vercel" ? workflow : undefined
   return [
     `import scheduleRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
-    `import { executeStaticSchedule, missingScheduleDefinitionError } from ${JSON.stringify(runtimeImport)}`,
+    `import { executeStaticSchedule, missingScheduleDefinitionError, unwrapScheduleDefinition } from ${JSON.stringify(runtimeImport)}`,
     ...(workflowRuntime
       ? [
           `import workflowRegistry from ${JSON.stringify(createImportPath(file, workflowRuntime.registryFile))}`,
@@ -214,7 +214,7 @@ function renderProviderEntry(file: string, registryFile: string, provider: "clou
     "  const loader = scheduleRegistry[name]",
     "  if (!loader) return undefined",
     "  const loaded = await loader()",
-    "  return loaded?.default ?? loaded",
+    "  return unwrapScheduleDefinition(loaded)",
     "}",
     "",
     "async function runSchedule(name, cron, scheduledAt) {",
@@ -282,13 +282,13 @@ function renderNetlifyScheduleFunction(file: string, registryFile: string, sched
   const runtimeImport = createImportPath(file, scheduleRuntimeEntry)
   return [
     `import scheduleRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
-    `import { executeStaticSchedule } from ${JSON.stringify(runtimeImport)}`,
+    `import { executeStaticSchedule, unwrapScheduleDefinition } from ${JSON.stringify(runtimeImport)}`,
     "",
     `const scheduleName = ${JSON.stringify(scheduleName)}`,
     "",
     "export default async function netlifyScheduleHandler(request) {",
     "  const loaded = await scheduleRegistry[scheduleName]?.()",
-    "  const definition = loaded?.default ?? loaded",
+    "  const definition = unwrapScheduleDefinition(loaded)",
     "  if (!definition) return new Response('Missing schedule definition.', { status: 404 })",
     `  await executeStaticSchedule({ cron: ${JSON.stringify(cron)}, definition, name: scheduleName, scheduledAt: new Date() })`,
     "  return new Response(null, { status: 204 })",
@@ -318,7 +318,7 @@ function renderDenoCronEntry(file: string, registryFile: string, crons: Map<stri
     })
   return [
     `import scheduleRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
-    `import { executeStaticSchedule, missingScheduleDefinitionError } from ${JSON.stringify(runtimeImport)}`,
+    `import { executeStaticSchedule, missingScheduleDefinitionError, unwrapScheduleDefinition } from ${JSON.stringify(runtimeImport)}`,
     "",
     `const scheduleCrons = ${JSON.stringify(scheduleCrons, null, 2)}`,
     "",
@@ -326,7 +326,7 @@ function renderDenoCronEntry(file: string, registryFile: string, crons: Map<stri
     "  const loader = scheduleRegistry[name]",
     "  if (!loader) return undefined",
     "  const loaded = await loader()",
-    "  return loaded?.default ?? loaded",
+    "  return unwrapScheduleDefinition(loaded)",
     "}",
     "",
     "for (const { cron, cronName, name } of scheduleCrons) {",
