@@ -7,10 +7,23 @@ import { promisify } from "node:util"
 
 import { describe, expect, it } from "vitest"
 
+import { parseGitHubArchive } from "../../src/sources/github/archive.ts"
 import { getGitSparsePatterns, loadGitArchiveFiles } from "../../src/sources/github/git.ts"
 import { createTarGz } from "./fixtures/github.ts"
 
 describe("@vite-hub/source GitHub git materialization", () => {
+  it.each(["../secret.md", "/secret.md", "C:/secret.md", "./secret.md"])("rejects unsafe full archive path %s", (path) => {
+    const files = parseGitHubArchive(createTarGz({ [path]: "secret\n", "archive-main/docs/guide.md": "safe\n" }, ""))
+
+    expect(files.map(file => file.path)).toEqual(["docs/guide.md"])
+  })
+
+  it("does not expose archive entries that escape the Source root", () => {
+    const files = parseGitHubArchive(createTarGz({ "../outside.md": "secret\n", "docs/guide.md": "safe\n" }))
+
+    expect(files.map(file => file.path)).toEqual(["docs/guide.md"])
+  })
+
   it("archives simple sparse source paths without putting auth in git arguments", async () => {
     const calls: Array<{
       args: string[]

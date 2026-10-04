@@ -23,6 +23,32 @@ afterEach(() => {
 })
 
 describe("@vite-hub/source GitHub source", () => {
+  it.each(["docs/..", "../docs", "/docs", "C:/docs", "docs\0secret"])("rejects unsafe configured root %s before any request", (root) => {
+    const fetch = vi.fn()
+    vi.stubGlobal("fetch", fetch)
+
+    expect(() => github({ ref: "main", repo: "acme/app", root })).toThrow()
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it("rejects parent traversal before requesting a GitHub file", async () => {
+    const fetch = vi.fn(async () => jsonResponse({
+      content: Buffer.from("secret").toString("base64"),
+      encoding: "base64",
+      path: "secret.md",
+      sha: "secret-sha",
+      type: "file",
+    }))
+    vi.stubGlobal("fetch", fetch)
+    const docs = github({ ref: "main", repo: "acme/app", root: "docs" })
+
+    await expect(docs.getItem("../secret.md", {
+      abortSignal: new AbortController().signal,
+      rootDir: process.cwd(),
+    })).rejects.toThrow("could not find")
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
   it("keeps credentials out of GitHub cache keys", () => {
     const key = createGitHubCacheKey({
       authScope: githubAuthenticationScope("github-secret"),
@@ -188,6 +214,17 @@ describe("@vite-hub/source GitHub source", () => {
     await expect(docs.getKeys({ rootDir: process.cwd() })).resolves.toEqual(["README.md"])
     expect(loadGitArchiveFiles).toHaveBeenCalledOnce()
     expect(vi.mocked(fetch).mock.calls.filter(([url]) => String(url).startsWith("https://codeload.github.com/"))).toHaveLength(1)
+  })
+
+  it("does not expose repeated-separator archive entries outside the configured root", async () => {
+    stubGitHubSource({
+      "docs//secret.md": "secret\n",
+      "docs/guide.md": "safe\n",
+    })
+
+    const docs = github({ ref: "main", repo: "acme/app", root: "docs" })
+
+    await expect(docs.getKeys({ rootDir: process.cwd() })).resolves.toEqual(["guide.md"])
   })
 
   it("uses the GitHub archive directly for unsupported sparse patterns", async () => {

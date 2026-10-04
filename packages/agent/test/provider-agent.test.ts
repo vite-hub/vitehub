@@ -4793,7 +4793,8 @@ cli_auth_credentials_store = "keyring"
       workspaceDefinition: {
         name: "docs",
         sources: {
-          docs: github({ repo: "vite-hub/vitehub", root: sourceRoot }),
+          // Raw inferred options exercise provenance normalization without constructing an unsafe GitHub Source.
+          docs: { repo: "vite-hub/vitehub", root: sourceRoot },
           ...(overlappingMount === undefined ? {} : {
             other: { mount: overlappingMount, source: github({ repo: "owner/other" }) },
           }),

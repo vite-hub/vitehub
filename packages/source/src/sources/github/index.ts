@@ -2,7 +2,7 @@ import { Buffer } from "node:buffer"
 import { defineCachedFunction } from "ocache"
 
 import { isSourceError, sourceError } from "../../core/errors.ts"
-import { normalizeSourcePath } from "../../core/path.ts"
+import { normalizeSafeSourcePath, normalizeSourcePath } from "../../core/path.ts"
 import { matchesAny } from "../path.ts"
 import { parseGitHubArchive } from "./archive.ts"
 import { createGitHubCacheKey, githubAuthenticationScope, normalizeGitHubCache } from "./cache.ts"
@@ -13,7 +13,8 @@ import type { FileSource, SourceContext, SourceRevision } from "../../core/types
 import type { GitHubCommitResponse, GitHubContentResponse, GitHubFile, GitHubRepositoryResponse, GitHubSourceOptions } from "./types.ts"
 
 function normalizeGitHubRoot(path = "") {
-  return normalizeSourcePath(path).split("/").filter(part => part && part !== ".").join("/")
+  const root = path.replace(/\\/g, "/").split("/").filter(part => part !== ".").join("/")
+  return normalizeSafeSourcePath(root, { allowEmpty: true, allowReserved: true }).split("/").filter(Boolean).join("/")
 }
 
 function dedupeProviderPromise<TResult>(
@@ -67,10 +68,18 @@ export function github(options: GitHubSourceOptions): FileSource<string> {
   }
 
   function keyForRepoPath(path: string) {
-    const normalized = normalizeSourcePath(path)
+    let normalized: string
+    try {
+      normalized = normalizeSafeSourcePath(path)
+    }
+    catch {
+      return
+    }
     if (!root) return normalized
     if (!normalized.startsWith(`${root}/`)) return undefined
-    return normalized.slice(root.length + 1)
+    const key = normalized.slice(root.length + 1)
+    if (!key || key.startsWith("/")) return undefined
+    return normalizeSafeSourcePath(key)
   }
 
   function repoPathForKey(key: string) {
@@ -230,7 +239,13 @@ export function github(options: GitHubSourceOptions): FileSource<string> {
   }
 
   async function loadFileMetadata(key: string, token = auth, signal?: AbortSignal, resolvedRef?: string): Promise<GitHubFile<string> | undefined> {
-    const normalizedKey = normalizeSourcePath(key)
+    let normalizedKey: string
+    try {
+      normalizedKey = normalizeSafeSourcePath(key)
+    }
+    catch {
+      return
+    }
     if (!normalizedKey || !shouldInclude(normalizedKey)) return
     const ref = resolvedRef ?? await getRef(token, signal)
     const repoPath = repoPathForKey(normalizedKey)
@@ -286,7 +301,13 @@ export function github(options: GitHubSourceOptions): FileSource<string> {
   }
 
   async function loadFile(key: string, token = auth, signal?: AbortSignal, resolvedRef?: string): Promise<GitHubFile<string>> {
-    const normalizedKey = normalizeSourcePath(key)
+    let normalizedKey: string
+    try {
+      normalizedKey = normalizeSafeSourcePath(key)
+    }
+    catch {
+      throw sourceError(`[vitehub] github(${JSON.stringify(options.repo)}) could not find ${JSON.stringify(key)}.`)
+    }
     if (!normalizedKey || !shouldInclude(normalizedKey)) {
       throw sourceError(`[vitehub] github(${JSON.stringify(options.repo)}) could not find ${JSON.stringify(key)}.`)
     }
