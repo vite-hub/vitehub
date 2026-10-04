@@ -82,6 +82,65 @@ function memoryInvocations() {
 }
 
 describe("replayChannel()", () => {
+  it("rejects a history collection that repeats a pagination cursor", async () => {
+    let page = 0
+    const history = defineCollection(async () => {
+      const email = emails[page++ === 0 ? 0 : 1]!
+      return [email, email]
+    }, {
+      cursor: () => "cycle",
+      cursorSchema: v.string(),
+      defaultLimit: 1,
+      maxLimit: 1,
+      querySchema: v.object({}),
+    })
+    const channel = defineChannel("mailbox", {
+      history: { collection: history, key: email => email.id },
+      triggers: {
+        received: defineChannelTrigger({
+          input: v.object({ folder: v.string(), id: v.string(), subject: v.string() }),
+          invoke: (_context, email) => ({ input: { prompt: email.subject }, message: { id: email.id } }),
+        }),
+      },
+    })
+    const run = vi.fn(() => "done")
+    const agent = defineAgent({ channels: { mailbox: channel }, driver: { run }, runtime: false })
+
+    await expect(replayChannel(agent, "mailbox", { force: true })).rejects.toMatchObject({
+      code: "AGENT_R0936",
+      message: '[vitehub] Channel "mailbox" history returned a repeated pagination cursor.',
+    })
+    expect(run).toHaveBeenCalledTimes(1)
+  })
+
+  it("rejects a history collection that repeats the starting cursor", async () => {
+    const history = defineCollection(async () => [emails[0]!], {
+      cursor: () => "start",
+      cursorSchema: v.string(),
+      defaultLimit: 1,
+      maxLimit: 1,
+      querySchema: v.object({}),
+    })
+    history.page = async () => ({ items: [emails[0]!], nextCursor: "start" })
+    const channel = defineChannel("mailbox", {
+      history: { collection: history, key: email => email.id },
+      triggers: {
+        received: defineChannelTrigger({
+          input: v.object({ folder: v.string(), id: v.string(), subject: v.string() }),
+          invoke: (_context, email) => ({ input: { prompt: email.subject }, message: { id: email.id } }),
+        }),
+      },
+    })
+    const run = vi.fn(() => "done")
+    const agent = defineAgent({ channels: { mailbox: channel }, driver: { run }, runtime: false })
+
+    await expect(replayChannel(agent, "mailbox", { cursor: "start", force: true })).rejects.toMatchObject({
+      code: "AGENT_R0936",
+      message: '[vitehub] Channel "mailbox" history returned a repeated pagination cursor.',
+    })
+    expect(run).not.toHaveBeenCalled()
+  })
+
   it("pages history through the Channel trigger and skips items it replayed before", async () => {
     const invocations = memoryInvocations()
     const { agent, label, load } = labeller({ invocations })
