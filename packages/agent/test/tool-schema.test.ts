@@ -27,3 +27,40 @@ it("uses Zod's Standard JSON Schema conversion directly", async () => {
   })
   expect(await schema["~standard"].validate({ message: "roast" })).toMatchObject({ value: { message: "roast" } })
 })
+
+it("ignores inherited schema discriminators", () => {
+  const schema = Object.assign(Object.create({
+    "~standard": {
+      jsonSchema: {
+        input: () => ({ type: "string" }),
+      },
+    },
+  }), {
+    properties: { message: { type: "string" } },
+    type: "object",
+  })
+
+  expect(withAgentToolJsonSchema(schema as never)).toBe(schema)
+  expect(agentToolJsonSchema(schema as never, "input")).toEqual({
+    properties: { message: { type: "string" } },
+    type: "object",
+  })
+  expect(inspectAgentTools({ send_message: { inputSchema: schema } })?.[0]?.inputSchema).toEqual({
+    properties: { message: { type: "string" } },
+    type: "object",
+  })
+})
+
+it("ignores inherited Standard JSON Schema converters", () => {
+  const inheritedJsonSchema = {
+    input: () => ({ type: "string" }),
+  }
+  const schema = Object.assign({
+    "~standard": Object.create({ jsonSchema: inheritedJsonSchema }),
+    properties: { message: { type: "string" } },
+    type: "object",
+  })
+
+  expect(agentToolJsonSchema(schema as never, "input")).toBeUndefined()
+  expect(inspectAgentTools({ send_message: { inputSchema: schema } })?.[0]?.inputSchema).toBeUndefined()
+})

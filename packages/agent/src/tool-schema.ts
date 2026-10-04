@@ -10,12 +10,12 @@ type JsonStandardSchema = AgentToolSchema & StandardJSONSchemaV1
 
 /** Add JSON Schema conversion to Valibot's Standard Schema validation contract. */
 export function withAgentToolJsonSchema<TSchema extends AgentToolSchema>(schema: TSchema): TSchema {
-  if (!("~standard" in schema)) return schema
+  if (!Object.hasOwn(schema, "~standard")) return schema
   const standard = schema["~standard"]
   if (!standard) return schema
-  if ("jsonSchema" in standard && standard.jsonSchema) return schema
+  if (Object.hasOwn(standard, "jsonSchema") && standard.jsonSchema) return schema
   if (standard.vendor !== "valibot") return schema
-  if ("async" in schema && schema.async === true) {
+  if (Object.hasOwn(schema, "async") && schema.async === true) {
     throw new Error("[vitehub] Async Valibot Agent tool schemas cannot be converted to JSON Schema.")
   }
   // SAFETY: Valibot marks its synchronous schemas with the Standard Schema vendor value used above.
@@ -33,13 +33,15 @@ export function withAgentToolJsonSchema<TSchema extends AgentToolSchema>(schema:
 export function agentToolJsonSchema(schema: AgentToolSchema | undefined, direction: "input" | "output"): Record<string, unknown> | undefined {
   if (!schema) return
   const normalized = withAgentToolJsonSchema(schema)
-  if (!("~standard" in normalized) || !normalized["~standard"]) {
+  if (!Object.hasOwn(normalized, "~standard") || !normalized["~standard"]) {
     // SAFETY: The alternate AgentToolSchema branch is a JSON Schema object.
     return normalized as Record<string, unknown>
   }
+  const standard = (normalized as JsonStandardSchema)["~standard"]
+  if (!Object.hasOwn(standard, "jsonSchema") || !standard.jsonSchema) return
   // SAFETY: Runtime feature detection checks the Standard JSON Schema method before calling it.
-  const jsonSchema = (normalized as JsonStandardSchema)["~standard"].jsonSchema?.[direction]
-  return jsonSchema?.({ target: "draft-07" })
+  const jsonSchema = standard.jsonSchema[direction]
+  return typeof jsonSchema === "function" ? jsonSchema({ target: "draft-07" }) : undefined
 }
 
 export function withAgentToolJsonSchemas<TTools extends AgentToolSet>(tools: TTools): TTools {
