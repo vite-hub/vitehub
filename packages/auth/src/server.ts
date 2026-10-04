@@ -67,6 +67,7 @@ function toRequest(request: AuthRequest): Request {
 }
 
 function unwrapAuthRequest(input: AuthRequestInput): AuthRequest {
+  // SAFETY: AuthRequestInput is a request or an own-property host wrapper; inherited req values must not replace the request.
   return Object.hasOwn(input, "req") ? (input as { req: AuthRequest }).req : input as AuthRequest
 }
 
