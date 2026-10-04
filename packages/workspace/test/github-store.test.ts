@@ -814,6 +814,21 @@ describe("GitHub workspace store", () => {
     });
   });
 
+  it("removes a file and its descendants for recursive directory removal", async () => {
+    seedRemote(".vitehub/workspaces/docs/tasks", "file\n");
+    seedRemote(".vitehub/workspaces/docs/tasks/a.md", "a\n");
+    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+    const store = createGitHubWorkspaceStore({
+      provider: "github",
+      repository: "onmax/repo",
+      token: "token",
+    }, "docs");
+
+    await store.rm("tasks", { recursive: true });
+
+    await expect(store.list("", { recursive: true })).resolves.toEqual([]);
+  });
+
   it("skips no-op snapshots after comparing the remote tree", async () => {
     seedRemote(".vitehub/workspaces/docs/README.md", "# Docs\n");
     const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
