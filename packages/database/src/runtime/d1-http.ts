@@ -21,6 +21,8 @@ interface D1HttpPayload {
   success?: boolean
 }
 
+type D1HttpResult = NonNullable<D1HttpPayload["result"]>[number]
+
 interface D1HttpErrorInfo {
   message?: string
 }
@@ -59,7 +61,20 @@ function isD1HttpPayload(value: unknown): value is D1HttpPayload {
   if (!isRecord(value)) return false
   const result = "result" in value ? value.result : undefined
   return result === undefined
-    || (Array.isArray(result) && result.every(item => isRecord(item)))
+    || (Array.isArray(result) && result.every(isD1HttpResult))
+}
+
+function isD1HttpResult(value: unknown): value is D1HttpResult {
+  if (!isRecord(value) || (value.success !== true && value.success !== false)) return false
+  // Failed queries can omit result rows, but a successful query must expose
+  // the row matrix that Drizzle's sqlite proxy expects. Treating a malformed
+  // success as an empty result would turn a provider contract failure into a
+  // valid-looking query result.
+  if (value.success === false) return true
+  const results = value.results
+  return isRecord(results)
+    && Array.isArray(results.rows)
+    && results.rows.every(Array.isArray)
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
