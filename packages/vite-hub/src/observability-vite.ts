@@ -158,6 +158,8 @@ export function observabilityVitePlugin(options: ObservabilityOptions, target: {
         }
         server.observability = { posthog: { apiKey: options.posthog.apiKey } }
       }
+      // SAFETY: ViteHub's project-root config value is an externally supplied Vite extension key.
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Narrow the optional extension value before resolving its path.
       const projectRoot = typeof viteConfig[VITEHUB_PROJECT_ROOT] === "string"
         ? resolve(viteConfig[VITEHUB_PROJECT_ROOT])
         : resolveViteHubProjectRoot(config.root || process.cwd())
