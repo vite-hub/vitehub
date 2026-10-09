@@ -1,10 +1,11 @@
 import { getConsoleInvocations } from "./invocations.ts"
+import { withConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
 import { assertConsoleRequest, consoleRequestURL } from "./request.ts"
 
 import type { ConsoleRequestEvent } from "./request.ts"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
-export default async function consoleInvocationCapabilitiesHandler(event: ConsoleRequestEvent): Promise<{
+async function consoleInvocationCapabilitiesHandler(event: ConsoleRequestEvent): Promise<{
   capabilities: readonly string[]
   triggeredBy: readonly string[]
 }> {
@@ -23,3 +24,6 @@ export default async function consoleInvocationCapabilitiesHandler(event: Consol
   ])
   return { capabilities, triggeredBy }
 }
+
+const guardedHandler: ConsoleAccessRoute<typeof consoleInvocationCapabilitiesHandler> = withConsoleAccess(consoleInvocationCapabilitiesHandler)
+export default guardedHandler

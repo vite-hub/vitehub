@@ -42,9 +42,10 @@ export default defineAppConfig({
     },
     pageAside: {
       slots: {
-        root: "hidden overflow-y-auto lg:block lg:max-h-[calc(100vh-var(--ui-header-height))] lg:sticky lg:top-(--ui-header-height) py-0 lg:ms-0 lg:ps-0 lg:pe-0",
+        root: "hidden h-[calc(100dvh-var(--ui-header-height))] overflow-hidden lg:block lg:sticky lg:top-(--ui-header-height) py-0 lg:ms-0 lg:ps-0 lg:pe-0",
+        container: "relative flex h-full min-h-0 flex-col",
         topHeader: "hidden",
-        topBody: "bg-default relative pointer-events-auto flex flex-col mx-0 px-0",
+        topBody: "bg-default relative pointer-events-auto flex h-full min-h-0 flex-col mx-0 px-0",
         topFooter: "hidden",
       },
     },
@@ -104,6 +105,7 @@ export default defineAppConfig({
         description: "mt-1 text-sm/6 text-muted",
       },
     },
+    // SAFETY: Nuxt UI's content search button variants accept these custom slot classes.
     contentSearchButton: {
       defaultVariants: {
         collapsed: false,
@@ -117,6 +119,7 @@ export default defineAppConfig({
         trailing: "ms-auto flex items-center gap-0.5",
       },
     } as any,
+    // SAFETY: Nuxt UI's content search modal variants accept these custom slot classes.
     contentSearch: {
       defaultVariants: {
         placeholder: "Search",
@@ -136,7 +139,13 @@ export default defineAppConfig({
         title: "text-sm font-medium text-muted",
       },
     },
+    // SAFETY: Nuxt UI's prose variants accept these custom slot classes.
     prose: {
+      codeIcon: {
+        js: "i-vscode-icons-file-type-js-official",
+        mjs: "i-vscode-icons-file-type-js-official",
+        txt: "i-vscode-icons-file-type-text",
+      },
       a: {
         base: "font-medium underline underline-offset-4 text-default hover:text-primary transition-colors",
       },
@@ -192,6 +201,8 @@ export default defineAppConfig({
           root: "relative my-5 group",
           header: "flex items-center gap-1.5 border border-default bg-default border-b-0 relative rounded-none px-4 py-3",
           base: "group font-mono text-sm/6 border border-default bg-muted rounded-none px-4 py-3 whitespace-pre-wrap wrap-break-word overflow-x-auto focus:outline-none",
+          // Touch screens cannot reveal the hover-only copy button, so keep it visible and larger.
+          copy: "pointer-coarse:opacity-100 pointer-coarse:size-9 pointer-coarse:justify-center pointer-coarse:top-[5px] pointer-coarse:end-[5px]",
         },
       },
       steps: {

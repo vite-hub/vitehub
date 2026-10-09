@@ -1,6 +1,6 @@
 import type { WorkspaceName } from "@vite-hub/workspace"
 import { fillInstructionSlot } from "./instruction-composition.ts"
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
+import { hasRuntimeType } from "./internal/runtime-type.ts"
 import type { AgentAdapterInstructions, AgentAdapterMetadataContext, AgentInstructionsContent, AgentRuntimeConfig } from "./types.ts"
 
 async function resolveContent<TRuntimeConfig extends AgentRuntimeConfig, Name extends WorkspaceName>(

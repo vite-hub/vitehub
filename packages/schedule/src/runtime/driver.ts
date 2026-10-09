@@ -73,16 +73,19 @@ interface SerializeOperationContext {
 
 const staticScheduleIdPrefix = "\0vitehub:static:"
 
-function isObject(value: unknown): value is object {
-  return Object(value) === value
+function isObject(value: unknown): value is Record<string, unknown> {
+  return Object(value) === value && !Array.isArray(value)
 }
 
 function isScheduleRegistryDefinition(value: unknown): value is ScheduleRegistryDefinition {
-  return isObject(value) && "handler" in value
+  return isObject(value)
+    && Object.hasOwn(value, "handler")
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Registry handlers cross module and JavaScript realm boundaries; validate callability without realm-sensitive instanceof.
+    && typeof value.handler === "function"
 }
 
 function unwrapDefinition(loaded: ScheduleRegistryDefinition | { default?: ScheduleRegistryDefinition }): ScheduleRegistryDefinition | undefined {
-  if ("default" in loaded && isScheduleRegistryDefinition(loaded.default)) return loaded.default
+  if (isObject(loaded) && Object.hasOwn(loaded, "default") && isScheduleRegistryDefinition(loaded.default)) return loaded.default
   if (isScheduleRegistryDefinition(loaded)) return loaded
   return undefined
 }
@@ -91,7 +94,7 @@ async function loadStaticDefinitions(registry: ScheduleDefinitionRegistry | unde
   if (!registry) return []
   const definitions = await Promise.all(Object.entries(registry).map(async ([name, load]) => {
     const definition = unwrapDefinition(await load())
-    return definition && "cron" in definition ? { definition, name } : undefined
+    return definition && Object.hasOwn(definition, "cron") ? { definition, name } : undefined
   }))
   return definitions.filter((definition): definition is StaticScheduleDefinitionEntry => definition !== undefined)
 }

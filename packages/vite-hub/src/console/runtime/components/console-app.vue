@@ -11,8 +11,13 @@ import { useAgentInvocation, useAgentInvocations } from "vite-hub/agent/vue";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { resolveConsoleNewChatAgent } from "./console-new-chat";
+import {
+  readConsoleAgentListOpen,
+  rememberConsoleAgentListOpen,
+  resolveConsoleAgentRows,
+} from "./console-agent-list";
 
-import type { DropdownMenuItem, SplitterItem } from "@nuxt/ui";
+import type { CommandPaletteItem, SplitterItem } from "@nuxt/ui";
 import type {
   AgentInvocationConfiguration,
   AgentInvocationListItem,
@@ -22,18 +27,19 @@ import {
   decodeAgentRouteParam,
   encodeAgentRouteParam,
   resolveConsoleRouteName,
+  resolveUsageSessionsAgent,
 } from "../console-route";
 import { isRetryableConsoleRequestError, requestConsole } from "../client/request";
 import { useConsoleConnectionUnavailable } from "./console-connection";
 import { rememberConsoleSection } from "../sections";
 import ConsoleFrame from "./console-frame.vue";
 import ConsoleConnectionState from "./console-connection-state.vue";
-import ConsolePrimitiveSwitcher from "./console-primitive-switcher.vue";
 import ConsoleInvocationComposer from "./console-invocation-composer.vue";
 import ConsoleMark from "./console-mark.vue";
 import ConsoleSessionLoading from "./console-session-loading.vue";
 import ConsoleSessionNavbar from "./console-session-navbar.vue";
 import { createConsoleInvocationDeletion } from "../client/invocation-deletion";
+import ConsoleSessionCancel from "./console-session-cancel.vue";
 import ConsoleSessionActions from "./console-session-actions.vue";
 import type { ConsoleSessionRerun } from "./console-session-actions.vue";
 import ConsoleSessionInspector from "./console-session-inspector.vue";
@@ -82,7 +88,7 @@ interface ConsoleAgentProfile {
 }
 const agentInvocationOptions = ref<Record<string, { profiles: ConsoleAgentProfile[] }>>({});
 const nowMs = ref(Date.now());
-const sessionsOpen = ref(false);
+const sessionsOpen = ref(route.query.sessions === "open");
 const detailsOpen = ref(false);
 const detailsMaximized = ref(false);
 const inspectorTab = ref<"details" | "trace" | "workspace" | "capabilities">("details");
@@ -112,6 +118,21 @@ const listPollInterval = computed(() => (sessionPollingEnabled.value ? 5_000 : f
 const isUsageRoute = computed(
   () => route.name === resolveConsoleRouteName(route.name, "vitehub-console-usage"),
 );
+
+async function openSessionsFromUsage(): Promise<void> {
+  const agent = resolveUsageSessionsAgent(route.query, selectedAgentName.value);
+  if (agent) {
+    await router.push({
+      name: resolveConsoleRouteName(route.name, "vitehub-console-agent"),
+      params: { agent: encodeAgentRouteParam(agent) },
+      query: { sessions: "open" },
+    });
+    sessionsOpen.value = true;
+    return;
+  }
+  await router.push({ name: resolveConsoleRouteName(route.name, "vitehub-console-agents"), query: { sessions: "open" } });
+  sessionsOpen.value = true;
+}
 
 const list = useAgentInvocations({
   baseURL: props.apiBase,
@@ -209,15 +230,22 @@ const selectedAgentInvocation = computed(() =>
 const newChatTargetName = computed(() =>
   resolveConsoleNewChatAgent(selectedAgentName.value, agentInvocationOptions.value),
 );
-const selectedAgentLabel = computed(
-  () => selectedAgentName.value || (agentsLoading.value ? "Loading agents" : "Agents"),
+const agentListOpen = ref(readConsoleAgentListOpen());
+const showAllAgents = ref(false);
+// The list shows a few Agents first. The selected Agent stays in it, so the panel always names the active filter.
+const agentRows = computed(() =>
+  resolveConsoleAgentRows(agentNames.value, selectedAgentName.value, showAllAgents.value),
 );
-const agentMenuItems = computed<DropdownMenuItem[]>(() =>
-  agentNames.value.map((name) => ({
-    label: name,
-    onSelect: () => selectAgent(name),
-    trailingIcon: selectedAgentName.value === name ? "i-ph-check-light" : undefined,
-  })),
+// Search shows the same New chat action as the sidebar button.
+const searchActions = computed<CommandPaletteItem[]>(() =>
+  newChatTargetName.value
+    ? [{
+        description: `Start a session with ${newChatTargetName.value}`,
+        icon: "i-ph-note-pencil-light",
+        label: "New chat",
+        onSelect: () => void startNewChat(),
+      }]
+    : [],
 );
 const activeFilterCount = computed(() => Number(Boolean(selectedCapabilityId.value)) + Number(Boolean(selectedTriggeredBy.value)));
 const capabilityOptions = computed(() => capabilityIds.value.map(id => ({ label: capabilityLabel(id), value: id })));
@@ -269,6 +297,25 @@ const selectedActions = computed(() => {
       ? { available: true, prompt, ...(invokerProfileId ? { invokerProfileId } : {}) }
       : { available: false, reason: stringValue(rerun?.reason) ?? "unavailable" }) satisfies ConsoleSessionRerun,
   };
+});
+const selectedCancel = computed(() => {
+  const invocation = invocationView.value;
+  const actions = record(record(detail.invocation.value)?.actions);
+  if (!invocation || record(actions?.cancel)?.available !== true) return;
+  const summary = record(invocation);
+  const notEnforcedBy = stringValue(summary?.cancelNotEnforcedBy);
+  const cancel: {
+    cancelRequested: boolean;
+    id: string;
+    notEnforcedBy?: string;
+    terminal: boolean;
+  } = {
+    cancelRequested: Boolean(stringValue(summary?.cancelRequestedAt)),
+    id: invocation.id,
+    terminal: invocation.status !== "pending" && invocation.status !== "running",
+  };
+  if (notEnforcedBy) cancel.notEnforcedBy = notEnforcedBy;
+  return cancel;
 });
 const selectedCost = computed(() => invocationCostDisplay(selectedDisplay.value));
 const selectedTokens = computed(() => invocationTokenDisplay(selectedDisplay.value));
@@ -547,6 +594,11 @@ function selectTriggeredBy(triggeredBy?: string): void {
   void applySessionFilters();
 }
 
+function toggleAgentList(): void {
+  agentListOpen.value = !agentListOpen.value;
+  rememberConsoleAgentListOpen(agentListOpen.value);
+}
+
 function resetSessionFilters(): void {
   if (!activeFilterCount.value) return;
   selectedCapabilityId.value = undefined;
@@ -559,21 +611,6 @@ function loadMoreSessions(): void {
   void list.loadMore();
 }
 
-async function toggleUsage(): Promise<void> {
-  sessionsOpen.value = false;
-  if (isUsageRoute.value) {
-    await router.push(
-      selectedAgentName.value
-        ? {
-            name: resolveConsoleRouteName(route.name, "vitehub-console-agent"),
-            params: { agent: encodeAgentRouteParam(selectedAgentName.value) },
-          }
-        : { name: resolveConsoleRouteName(route.name, "vitehub-console-agents") },
-    );
-    return;
-  }
-  await router.push({ name: resolveConsoleRouteName(route.name, "vitehub-console-usage") });
-}
 function clearAgentsRetry(): void {
   if (agentsRetry) clearTimeout(agentsRetry);
   agentsRetry = undefined;
@@ -905,8 +942,9 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <ConsoleFrame>
+  <ConsoleFrame :active="isUsageRoute ? 'usage' : 'agents'" :sections-base="sectionsBase">
     <UDashboardSidebar
+      v-if="!isUsageRoute"
       id="agent-sessions"
       class="vitehub-console__sessions"
       v-model:open="sessionsOpen"
@@ -918,59 +956,14 @@ onBeforeUnmount(() => {
         root: 'md:flex',
         header: 'p-0',
         body: 'gap-0 overflow-hidden p-0',
-        footer: 'px-2 py-1.5',
         content: 'md:hidden w-[calc(100vw-0.75rem)] max-w-none',
         overlay: 'md:hidden',
       }"
       resizable
     >
       <template #header>
-        <div class="flex min-w-0 flex-1 items-center gap-1 px-2">
-          <UDropdownMenu
-            v-if="hasMultipleAgents"
-            :items="agentMenuItems"
-            :content="{ align: 'start', collisionPadding: 12 }"
-            :ui="{ content: 'w-(--reka-dropdown-menu-trigger-width) min-w-48' }"
-          >
-            <UButton
-              class="vitehub-console__agent-switch h-8 min-w-0 flex-1 justify-start gap-2 rounded-md px-2 text-sm font-medium"
-              color="neutral"
-              trailing-icon="i-lucide-chevron-down"
-              size="sm"
-              variant="ghost"
-              :aria-label="`Switch Agent. ${selectedAgentLabel} selected.`"
-            >
-              <ConsoleMark class="size-4 shrink-0" />
-              <span class="min-w-0 truncate">{{ selectedAgentLabel }}</span>
-            </UButton>
-          </UDropdownMenu>
-          <div v-else class="flex h-8 min-w-0 flex-1 items-center gap-2 px-2 text-sm font-medium">
-            <ConsoleMark class="size-4 shrink-0" />
-            <span class="min-w-0 truncate">{{ selectedAgentLabel }}</span>
-          </div>
-        </div>
-      </template>
-
-      <template #default>
-        <div v-if="!connectionUnavailable && errorMessage(agentsError)" class="px-3 pb-3">
-          <UAlert
-            color="error"
-            variant="subtle"
-            icon="i-ph-cloud-slash-light"
-            title="Could not load agents"
-            :description="errorMessage(agentsError)"
-            :actions="[
-              { label: 'Try again', icon: 'i-ph-arrows-clockwise-light', onClick: loadAgents },
-            ]"
-          />
-        </div>
-        <div class="flex shrink-0 items-center gap-0.5 px-2 pb-1.5">
-          <UDashboardSearchButton
-            block
-            class="vitehub-console__search min-w-0 flex-1 rounded-md bg-transparent px-2 ring-0 hover:bg-elevated/60"
-            label="Search"
-            :ui="{ trailing: 'vitehub-console__search-shortcut' }"
-          />
+        <div class="vitehub-console__panel-title mx-2 min-w-0 flex-1">
+          <span class="min-w-0 flex-1 truncate">Agents</span>
           <UTooltip v-if="newChatTargetName" text="New chat">
             <UButton
               aria-label="New chat"
@@ -984,8 +977,8 @@ onBeforeUnmount(() => {
           </UTooltip>
           <UPopover
             v-model:open="filterOpen"
-            :content="{ align: 'start', collisionPadding: 12 }"
-            :ui="{ content: 'w-80 max-w-[calc(100vw-1.5rem)] p-3' }"
+            :content="{ align: 'end', collisionPadding: 12 }"
+            :ui="{ content: 'w-80 max-w-[calc(100vw-1.5rem)] p-0' }"
           >
             <UButton
               aria-label="Filter sessions"
@@ -996,13 +989,21 @@ onBeforeUnmount(() => {
               :variant="activeFilterCount ? 'soft' : 'ghost'"
             />
             <template #content>
-              <div class="grid gap-3">
-                <div class="flex items-start justify-between gap-3">
-                  <div>
-                    <p class="text-sm font-medium">Filter sessions</p>
-                  </div>
-                  <UBadge v-if="activeFilterCount" color="primary" size="sm" variant="subtle">{{ activeFilterCount }}</UBadge>
-                </div>
+              <div class="flex items-center gap-2 border-b border-default px-3 py-2">
+                <UIcon name="i-ph-funnel-light" class="size-4 shrink-0 text-muted" />
+                <p class="min-w-0 flex-1 truncate text-[11px] font-medium uppercase tracking-[.08em] text-muted">
+                  Filter sessions
+                </p>
+                <UBadge
+                  v-if="activeFilterCount"
+                  class="font-mono tabular-nums"
+                  color="primary"
+                  size="sm"
+                  variant="subtle"
+                  >{{ activeFilterCount }}</UBadge
+                >
+              </div>
+              <div class="grid gap-3 p-3">
                 <div
                   v-if="capabilitiesLoading"
                   class="grid gap-2 py-1"
@@ -1047,20 +1048,91 @@ onBeforeUnmount(() => {
                     No filter values recorded yet.
                   </p>
                 </template>
-                <div class="flex justify-end border-t border-default pt-2">
-                  <UButton
-                    color="neutral"
-                    label="Reset"
-                    size="xs"
-                    variant="ghost"
-                    :disabled="!activeFilterCount"
-                    @click="resetSessionFilters"
-                  />
-                </div>
+              </div>
+              <div class="flex justify-end border-t border-default px-2 py-1.5">
+                <UButton
+                  color="neutral"
+                  label="Reset"
+                  size="xs"
+                  variant="ghost"
+                  :disabled="!activeFilterCount"
+                  @click="resetSessionFilters"
+                />
               </div>
             </template>
           </UPopover>
         </div>
+      </template>
+
+      <template #default>
+        <div v-if="!connectionUnavailable && errorMessage(agentsError)" class="px-3 pb-3">
+          <UAlert
+            color="error"
+            variant="subtle"
+            icon="i-ph-cloud-slash-light"
+            title="Could not load agents"
+            :description="errorMessage(agentsError)"
+            :actions="[
+              { label: 'Try again', icon: 'i-ph-arrows-clockwise-light', onClick: loadAgents },
+            ]"
+          />
+        </div>
+        <section v-if="hasMultipleAgents" class="vitehub-console__agents shrink-0 px-1.5 pb-2">
+          <h2 class="m-0">
+            <button
+              type="button"
+              class="vitehub-console__section-label"
+              aria-controls="vitehub-console-agent-list"
+              :aria-expanded="agentListOpen"
+              @click="toggleAgentList"
+            >
+              <span>Agents</span>
+              <span class="vitehub-console__section-count">{{ agentNames.length }}</span>
+              <UIcon
+                name="i-lucide-chevron-right"
+                class="vitehub-console__section-chevron size-3 shrink-0"
+              />
+            </button>
+          </h2>
+          <ul
+            v-show="agentListOpen"
+            id="vitehub-console-agent-list"
+            class="grid max-h-48 gap-px overflow-y-auto"
+            aria-label="Agents"
+          >
+            <li v-for="name in agentRows.visible" :key="name">
+              <button
+                type="button"
+                class="vitehub-console__agent-row"
+                :aria-current="name === selectedAgentName ? 'true' : undefined"
+                :title="name"
+                @click="selectAgent(name)"
+              >
+                <span class="vitehub-console__agent-dot" aria-hidden="true" />
+                <span class="min-w-0 flex-1 truncate">{{ name }}</span>
+              </button>
+            </li>
+            <li v-if="agentRows.hidden">
+              <button
+                type="button"
+                class="vitehub-console__agent-row vitehub-console__agent-more"
+                @click="showAllAgents = true"
+              >
+                <span class="vitehub-console__agent-dot invisible" aria-hidden="true" />
+                <span>Show {{ agentRows.hidden }} more</span>
+              </button>
+            </li>
+          </ul>
+        </section>
+        <h2 class="vitehub-console__section-label vitehub-console__sessions-label m-0 shrink-0">
+          <span>Sessions</span>
+          <span v-if="selectedAgentName" class="vitehub-console__sessions-agent" :title="selectedAgentName">{{
+            selectedAgentName
+          }}</span>
+          <span v-if="activeFilterCount" class="vitehub-console__section-count">{{
+            activeFilterCount === 1 ? "1 filter" : `${activeFilterCount} filters`
+          }}</span>
+        </h2>
         <div
           v-if="errorMessage((!connectionUnavailable && list.error.value) || list.loadMoreError.value)"
           class="px-3"
@@ -1119,12 +1191,13 @@ onBeforeUnmount(() => {
             (!list.isLoading.value || invocationItems.length) &&
             (!errorMessage(list.error.value) || invocationItems.length)
           "
-          class="min-h-0 flex-1 px-1.5 pb-3"
+          class="vitehub-console__session-list min-h-0 flex-1 px-1.5 pb-3"
           :continuation-key="list.cursor.value"
           :has-more="Boolean(list.cursor.value)"
           :items="invocationItems"
           :loading="list.isLoading.value || list.isLoadingMore.value"
           :remaining-statuses="list.remainingStatuses.value"
+          group-by="recency"
           :now="nowMs"
           :selected-id="selectedInvocationId"
           @end-reached="loadMoreSessions"
@@ -1154,30 +1227,10 @@ onBeforeUnmount(() => {
         </AgentInvocationList>
       </template>
 
-      <template #footer>
-        <div class="grid min-w-0 gap-1">
-          <UButton
-            v-if="isUsageRoute"
-            block
-            class="justify-start"
-            icon="i-lucide-arrow-left"
-            label="Back"
-            color="neutral"
-            variant="ghost"
-            size="xs"
-            aria-label="Back to sessions"
-            @click="toggleUsage"
-          />
-          <ConsolePrimitiveSwitcher
-            :active="isUsageRoute ? 'usage' : 'agents'"
-            :sections-base="sectionsBase"
-            @navigate="sessionsOpen = false"
-          />
-        </div>
-      </template>
     </UDashboardSidebar>
 
     <ConsoleSearch
+      :actions="searchActions"
       :agent-names="agentNames"
       :agents-base="agentsBase"
       :definitions-base="definitionsBase"
@@ -1186,7 +1239,7 @@ onBeforeUnmount(() => {
       :sections-base="sectionsBase"
     />
 
-    <ConsoleUsage v-if="isUsageRoute" :base="usageBase" @open-sessions="sessionsOpen = true" />
+    <ConsoleUsage v-if="isUsageRoute" :base="usageBase" @open-sessions="openSessionsFromUsage" />
 
     <UDashboardPanel
       v-else
@@ -1266,13 +1319,20 @@ onBeforeUnmount(() => {
                   @refresh="refresh"
                   @toggle-details="detailsOpen = !detailsOpen"
                 >
-                  <template v-if="selectedActions" #actions>
+                  <template v-if="selectedActions || selectedCancel" #actions>
                     <ConsoleSessionActions
+                      v-if="selectedActions"
                       v-bind="selectedActions"
                       :agents-base="agentsBase"
                       :api-base="apiBase"
                       @deleted="removeDeletedInvocation"
                       @started="selectStartedInvocation"
+                    />
+                    <ConsoleSessionCancel
+                      v-if="selectedCancel"
+                      v-bind="selectedCancel"
+                      :api-base="apiBase"
+                      @cancelled="refresh"
                     />
                   </template>
                 </ConsoleSessionNavbar>
@@ -1368,13 +1428,20 @@ onBeforeUnmount(() => {
               @refresh="refresh"
               @toggle-details="detailsOpen = !detailsOpen"
             >
-              <template v-if="selectedActions" #actions>
+              <template v-if="selectedActions || selectedCancel" #actions>
                 <ConsoleSessionActions
+                  v-if="selectedActions"
                   v-bind="selectedActions"
                   :agents-base="agentsBase"
                   :api-base="apiBase"
                   @deleted="removeDeletedInvocation"
                   @started="selectStartedInvocation"
+                />
+                <ConsoleSessionCancel
+                  v-if="selectedCancel"
+                  v-bind="selectedCancel"
+                  :api-base="apiBase"
+                  @cancelled="refresh"
                 />
               </template>
             </ConsoleSessionNavbar>
@@ -1499,16 +1566,138 @@ onBeforeUnmount(() => {
   min-height: 2.75rem;
 }
 
-.vitehub-console__agent-switch {
+/* Section labels follow the Executor sidebar: small uppercase text with a quiet count. */
+.vitehub-console__section-label {
+  align-items: center;
+  color: var(--ui-text-muted);
+  display: flex;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  gap: 0.375rem;
+  height: 1.75rem;
+  letter-spacing: 0.08em;
+  min-width: 0;
+  padding-inline: 0.625rem;
+  text-transform: uppercase;
+  width: 100%;
+}
+
+button.vitehub-console__section-label {
+  border-radius: 0.375rem;
+  cursor: pointer;
+  transition: color 150ms ease;
+}
+
+button.vitehub-console__section-label:hover {
+  color: var(--ui-text);
+}
+
+.vitehub-console__section-chevron {
+  color: var(--ui-text-dimmed);
+  transition: transform 150ms ease;
+}
+
+[aria-expanded="true"] > .vitehub-console__section-chevron {
+  transform: rotate(90deg);
+}
+
+.vitehub-console__section-count {
+  color: var(--ui-text-dimmed);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.vitehub-console__sessions-label {
+  padding-inline: 1rem 1rem;
+}
+
+.vitehub-console__sessions-agent {
+  color: var(--ui-text-dimmed);
+  flex: 1;
+  letter-spacing: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-transform: none;
+  white-space: nowrap;
+}
+
+.vitehub-console__agent-row {
+  align-items: center;
+  border-radius: 0.375rem;
+  color: var(--ui-text-toned);
+  cursor: pointer;
+  display: flex;
+  font-size: 0.8125rem;
+  gap: 0.625rem;
+  height: 1.875rem;
+  padding-inline: 0.625rem;
+  text-align: start;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease;
+  width: 100%;
+}
+
+.vitehub-console__agent-row:hover {
+  background: color-mix(in oklab, var(--ui-text) 6%, transparent);
   color: var(--ui-text-highlighted);
 }
 
-.vitehub-console__search {
-  border: 0;
+.vitehub-console__agent-row[aria-current="true"] {
+  background: var(--ui-bg-accented);
+  color: var(--ui-text-highlighted);
+  font-weight: 500;
 }
 
-.vitehub-console__search-shortcut {
-  display: none;
+.dark .vitehub-console__agent-row:hover {
+  background: rgb(255 255 255 / 8%);
+}
+
+.dark .vitehub-console__agent-row[aria-current="true"] {
+  background: rgb(255 255 255 / 11%);
+}
+
+.vitehub-console__agent-row:focus-visible,
+button.vitehub-console__section-label:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--ui-primary) 52%, transparent);
+  outline-offset: -2px;
+}
+
+.vitehub-console__agent-dot {
+  background: var(--ui-text-dimmed);
+  border-radius: 999px;
+  flex: none;
+  height: 0.375rem;
+  opacity: 0.7;
+  width: 0.375rem;
+}
+
+[aria-current="true"] > .vitehub-console__agent-dot {
+  background: var(--ui-primary);
+  opacity: 1;
+}
+
+.vitehub-console__agent-more {
+  color: var(--ui-text-muted);
+  font-size: 0.75rem;
+}
+
+/* Recency headings sit under the uppercase Sessions label, so they use sentence case. */
+.vitehub-console__session-list .vh-invocation-list__group-heading {
+  color: var(--ui-text-dimmed);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  min-height: 1.5rem;
+  padding: 0.5rem 0.625rem 0.125rem;
+  text-transform: none;
+}
+
+.vitehub-console__session-list .vh-invocation-list__groups {
+  gap: 0.375rem;
 }
 
 .vitehub-console__sessions .vh-invocation-list__item[aria-current="true"] {

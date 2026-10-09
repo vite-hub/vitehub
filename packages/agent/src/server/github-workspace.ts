@@ -1,5 +1,4 @@
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
-import { isRuntimeRecord } from "../internal/runtime-type.ts"
+import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts"
 import type { GitHubHost } from "./github-host.ts"
 
 export interface GitHubWorkspaceRevision {

@@ -1,5 +1,6 @@
 import { createSourceContext, normalizeWorkspaceSources } from "./config.ts"
 import { getWorkspaceSourceRequestExecutor, workspaceSourceRequestDescriptorPath } from "./request-metadata.ts"
+import { requestJsonEqual } from "./request-json.ts"
 
 import type {
   WorkspaceDefinition,
@@ -46,12 +47,7 @@ export function createWorkspaceSourceRequestExecution(
 
   return {
     async executeSourceRequest(input) {
-      const targetMatches = sources.filter((source) => {
-        const descriptor = source.requestDescriptor
-        if (!descriptor || descriptor.method !== input.method) return false
-        return sameRequestTarget(descriptor.url, input.url)
-      })
-      const matches = targetMatches.filter(source => source.requestDescriptor && requestShapeMatches(source.requestDescriptor, input))
+      const matches = sources.filter(source => source.requestDescriptor && workspaceSourceRequestMatches(source.requestDescriptor, input))
 
       if (matches.length !== 1) {
         throw workspaceErrorDiagnostics.WORKSPACE_R0063({ message: matches.length > 1
@@ -88,6 +84,15 @@ function pathIntersects(left: string, right: string): boolean {
   return pathContains(left, right) || pathContains(right, left)
 }
 
+export function workspaceSourceRequestMatches(
+  descriptor: WorkspaceSourceRequestDescriptor,
+  input: WorkspaceSourceRequestExecutionInput,
+): boolean {
+  return descriptor.method === input.method
+    && sameRequestTarget(descriptor.url, input.url)
+    && requestShapeMatches(descriptor, input)
+}
+
 function sameRequestTarget(left: string, right: string): boolean {
   const leftUrl = new URL(left)
   const rightUrl = new URL(right)
@@ -97,22 +102,21 @@ function sameRequestTarget(left: string, right: string): boolean {
 function requestShapeMatches(descriptor: WorkspaceSourceRequestDescriptor, input: WorkspaceSourceRequestExecutionInput): boolean {
   const request = descriptor.request
   if (request?.querySchema) return bodyShapeMatches(request, input)
-  if (!jsonEqual(queryFromUrl(new URL(input.url)) || {}, serializedQuery(request?.query) || {})) return false
+  if (!requestJsonEqual(queryFromUrl(new URL(input.url)) || {}, serializedQuery(request?.query) || {})) return false
   return bodyShapeMatches(request, input)
 }
 
 function bodyShapeMatches(request: NonNullable<WorkspaceSourceRequestDescriptor["request"]> | undefined, input: WorkspaceSourceRequestExecutionInput): boolean {
   if (request?.bodySchema) return true
-  if (request && "body" in request) return jsonEqual(input.body, request.body)
+  if (request && "body" in request) return requestJsonEqual(input.body, request.body)
   return input.body === undefined
 }
 
 function queryFromUrl(url: URL): Record<string, unknown> | undefined {
-  const query: Record<string, unknown> = {}
-  for (const key of new Set(url.searchParams.keys())) {
+  const query = Object.fromEntries([...new Set(url.searchParams.keys())].map(key => {
     const values = url.searchParams.getAll(key)
-    query[key] = values.length > 1 ? values : values[0]
-  }
+    return [key, values.length > 1 ? values : values[0]] as const
+  }))
   return Object.keys(query).length ? query : undefined
 }
 
@@ -124,8 +128,4 @@ function serializedQuery(query: Record<string, unknown> | undefined): Record<str
     for (const item of values) params.append(key, String(item))
   }
   return queryFromUrl(new URL(`https://vitehub.local/?${params}`))
-}
-
-function jsonEqual(left: unknown, right: unknown): boolean {
-  return JSON.stringify(left) === JSON.stringify(right)
 }

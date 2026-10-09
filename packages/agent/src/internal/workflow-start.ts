@@ -1,4 +1,4 @@
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
+import { hasRuntimeType } from "./runtime-type.ts"
 
 export function isAmbiguousAgentWorkflowStartFailure(error: unknown): boolean {
   if (!error || !hasRuntimeType(error, "object")) return false

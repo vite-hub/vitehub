@@ -3,8 +3,12 @@ export interface SitemapEntry {
   lastmod?: string;
 }
 
-export function generateSitemap(entries: SitemapEntry[], siteUrl: string): string {
-  const origin = siteUrl.replace(/\/+$/, "");
+export interface SitemapUrl {
+  loc: string;
+  lastmod?: string;
+}
+
+export function sitemapUrls(entries: SitemapEntry[]): SitemapUrl[] {
   const urls = new Map<string, SitemapEntry>();
 
   for (const entry of entries) {
@@ -16,33 +20,13 @@ export function generateSitemap(entries: SitemapEntry[], siteUrl: string): strin
     }
   }
 
-  const body = [...urls.entries()]
+  return [...urls.entries()]
     .sort(([left], [right]) => left.localeCompare(right))
-    .map(([path, entry]) => {
-      const lastmod = entry.lastmod
-        ? `\n    <lastmod>${escapeXml(entry.lastmod.split("T")[0] || entry.lastmod)}</lastmod>`
-        : "";
-
-      return `  <url>\n    <loc>${escapeXml(`${origin}${path}`)}</loc>${lastmod}\n  </url>`;
-    })
-    .join("\n");
-
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-${body}
-</urlset>`;
+    .map(([loc, entry]) => entry.lastmod ? { loc, lastmod: entry.lastmod.split("T")[0] || entry.lastmod } : { loc });
 }
 
+// Matches the canonical URLs, which have no trailing slash.
 function normalizePath(path: string): string {
   const absolutePath = path.startsWith("/") ? path : `/${path}`;
-  return absolutePath === "/" ? absolutePath : `${absolutePath.replace(/\/+$/, "")}/`;
-}
-
-function escapeXml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&apos;");
+  return absolutePath.replace(/\/+$/, "") || "/";
 }

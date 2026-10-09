@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest"
 import { env } from "@vite-hub/env"
 import evlog from "evlog/nitro/v3"
 import { vitehub } from "../src/index.ts"
+import { hostManagedAuthorize } from "./support/console-authorize.ts"
 
 vi.mock("evlog/nitro/v3", async (importOriginal) => {
   const module = await importOriginal<typeof import("evlog/nitro/v3")>()
@@ -29,7 +30,7 @@ describe("vitehub({ observability })", () => {
       const plugin = observabilityPlugin({
         preset: "node",
         agent: true,
-        console: { exposure: "host-managed" },
+        console: { exposure: "host-managed", authorize: hostManagedAuthorize },
         observability: { service: "support", environment: "production", posthog: { apiKey, host: "https://eu.i.posthog.com" }, evlog: { pretty: false, env: { service: "other", environment: "staging", version: "1.2.3" } }, papercuts: { eventPrefix: "acme.papercut" } },
       })
       const config: ObservabilityConfig = { root }

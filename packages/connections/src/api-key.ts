@@ -55,7 +55,7 @@ export function isValidApiKeyProvider(provider: { header: string, origins: reado
 }
 
 export function isApiKeyProvider(provider: ConnectionDefinition["provider"]): provider is ConnectionApiKeyProvider {
-  return "kind" in provider && provider.kind === "api-key"
+  return Object.hasOwn(provider, "kind") && "kind" in provider && provider.kind === "api-key"
 }
 
 /** A provider for a static API key. An admin sets the key in the Console or with `vitehub connections set-key`. */

@@ -7,7 +7,48 @@ import { toResponse } from "@vite-hub/runtime"
 import type { CloudflareQueueBatchErrorAction, CloudflareQueueBatchHandlerOptions, CloudflareQueueBinding, CloudflareQueueClient, CloudflareQueueMessage, CloudflareQueueMessageBatch, CloudflareQueueProviderOptions, QueueEnqueueOptions } from "../types.ts"
 
 function isCloudflareQueueBinding(binding: unknown): binding is CloudflareQueueBinding {
-  return Boolean(binding) && typeof binding === "object" && typeof (binding as CloudflareQueueBinding).send === "function" && typeof (binding as CloudflareQueueBinding).sendBatch === "function"
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Host bindings are untyped at this boundary; validate the object before inspecting its methods.
+  if (binding === null || typeof binding !== "object" || Array.isArray(binding)) return false
+
+  const hasCallableMethod = (name: "send" | "sendBatch") => {
+    let owner: object | null = binding
+    while (owner && owner !== Object.prototype) {
+      let descriptor: PropertyDescriptor | undefined
+      try {
+        descriptor = Object.getOwnPropertyDescriptor(owner, name)
+      }
+      catch {
+        return false
+      }
+      if (descriptor) {
+        if (owner !== binding) {
+          const constructor = Object.getOwnPropertyDescriptor(owner, "constructor")
+          // doctor-disable-next-line typescript/strict/no-runtime-typeof -- A callable constructor whose prototype owns the method identifies a class-backed host binding.
+          if (!constructor || !("value" in constructor) || typeof constructor.value !== "function" || constructor.value.prototype !== owner) {
+            return false
+          }
+        }
+        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Queue methods must be callable data properties before provider operations can use them.
+        if ("value" in descriptor) return typeof descriptor.value === "function"
+        try {
+          // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Host accessors are accepted only when they return a callable queue method.
+          return typeof Reflect.get(binding, name) === "function"
+        }
+        catch {
+          return false
+        }
+      }
+      try {
+        owner = Object.getPrototypeOf(owner)
+      }
+      catch {
+        return false
+      }
+    }
+    return false
+  }
+
+  return hasCallableMethod("send") && hasCallableMethod("sendBatch")
 }
 
 function toSendOptions(options: QueueEnqueueOptions = {}) {
@@ -36,7 +77,8 @@ function resolveAction(action: CloudflareQueueBatchErrorAction | void, message: 
     return
   }
 
-  if (action && typeof action === "object" && "retry" in action) {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JavaScript error hooks can return callable values with retry properties.
+  if (action && typeof action === "object" && !Array.isArray(action) && Object.hasOwn(action, "retry")) {
     message.retry(action.retry)
     return
   }

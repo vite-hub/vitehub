@@ -4,7 +4,9 @@ vi.mock("@vite-hub/agent/server", () => ({ agentHostWorkspaceRoute: "/api/_viteh
 vi.mock("../src/console/runtime/server/invocations.ts", () => ({ getConsoleInvocations: () => ({ get: mocks.get }) }))
 vi.mock("../src/console/runtime/server/agents.ts", () => ({ getConsoleAgentDefinition: mocks.definition }))
 vi.mock("@vite-hub/workspace/runtime", () => ({ useWorkspace: mocks.useWorkspace }))
-import handler from "../src/console/runtime/server/invocation-workspace.get.ts"
+import handlerRoute from "../src/console/runtime/server/invocation-workspace.get.ts"
+import { allowed } from "./support/console-access.ts"
+const handler = allowed(handlerRoute)
 const request = (path?: string) => ({ method: "GET", context: { params: { id: "run" } }, req: { url: `http://localhost/api/_vitehub/console/invocations/run/workspace${path === undefined ? "" : `?path=${encodeURIComponent(path)}`}` } })
 beforeEach(() => {
   vi.resetAllMocks()

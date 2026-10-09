@@ -95,7 +95,8 @@
     "rollup": "catalog:tooling",
     "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
-    "vitest": "catalog:tooling"
+    "vitest": "catalog:tooling",
+    "zod": "catalog:runtime"
   },
   "peerDependencies": {
     "@cloudflare/sandbox": "catalog:sandbox",

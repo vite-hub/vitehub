@@ -30,7 +30,7 @@ jobs:
           {"provider":{"openai-compatible":{"options":{"headers":{"CF-Access-Client-Id":"{env:CF_ACCESS_CLIENT_ID}","CF-Access-Client-Secret":"{env:CF_ACCESS_CLIENT_SECRET}"}}}}}
           JSON
       - name: Run agent
-        uses: pullfrog/pullfrog@b6639f063a3017551d093eca1aeb9be12bf955b4 # v0.1.79
+        uses: pullfrog/pullfrog@ed800018463e1b84e8e3377f662173aed1da98b0 # v0.1.95
         with:
           prompt: ${{ inputs.prompt }}
           model: openai-compatible/byok

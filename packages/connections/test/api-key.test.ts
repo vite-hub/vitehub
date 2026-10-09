@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import { agentEnvAccess } from "../../env/test/agent-access.ts"
 
 import { apiKey } from "../src/api-key.ts"
 import { runConnectionsCli } from "../src/cli.ts"
@@ -202,7 +203,7 @@ describe("API key Connections", () => {
   it("applies access rules and replays approved writes with the current key", async () => {
     const test = harness(apiKey({ origins: ["https://api.example.com"] }), { "agent:support": { read: true, write: ["fetch"] } })
     await test.runtime.setKey({ key: KEY, name: "executor" })
-    const agent = test.runtime.client("executor", { actor: "agent:support" })
+    const agent = test.runtime.client("executor", { access: agentEnvAccess({ name: "support" }) })
     const error = await agent.fetch("https://api.example.com/items", { body: "{}", method: "POST" }).catch((cause: unknown) => cause)
     expect(error).toMatchObject({ code: "CONNECTION_APPROVAL_REQUIRED" })
     await expect(test.runtime.client("executor", { actor: "server" }).fetch("https://api.example.com/items")).rejects.toMatchObject({ code: "CONNECTION_DENIED" })

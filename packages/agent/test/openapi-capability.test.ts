@@ -1,9 +1,11 @@
+import { createAgentEnvIdentity } from "../src/internal/env-identity.ts"
 import { ViteHubError } from "@vite-hub/runtime"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import type { AgentToolSet } from "../src/types.ts"
 
 const runtime = () => ({
+  agentIdentity: createAgentEnvIdentity({ name: "agent" }),
   capabilities: {},
   memo: vi.fn(),
   // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
@@ -467,7 +469,7 @@ describe("openapi capability", () => {
     const [url, init] = client.fetch.mock.calls[0] ?? []
     expect(url).toBe("https://portal.example.com/runtime/customers?region=eu")
     expect(new Headers(init?.headers).get("x-hook")).toBe("yes")
-    expect(connections.client).toHaveBeenCalledWith("portal", { actor: "agent:agent" })
+    expect(connections.client).toHaveBeenCalledWith("portal", { access: expect.objectContaining({ actor: { id: "agent", kind: "agent" } }) })
     expect(tools.listCustomers.metadata).toMatchObject({ connection: { name: "portal", operation: "fetch" } })
     await resolved.close()
   })

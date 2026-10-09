@@ -32,6 +32,86 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./agent-capability-inspector": {
+      "types": "./dist/agent-capability-inspector.d.ts",
+      "import": "./dist/agent-capability-inspector.js"
+    },
+    "./agent-chat": {
+      "types": "./dist/agent-chat.d.ts",
+      "import": "./dist/agent-chat.js"
+    },
+    "./agent-chat-message": {
+      "types": "./dist/agent-chat-message.d.ts",
+      "import": "./dist/agent-chat-message.js"
+    },
+    "./agent-chat-prompt": {
+      "types": "./dist/agent-chat-prompt.d.ts",
+      "import": "./dist/agent-chat-prompt.js"
+    },
+    "./agent-code-view": {
+      "types": "./dist/agent-code-view.d.ts",
+      "import": "./dist/agent-code-view.js"
+    },
+    "./agent-file": {
+      "types": "./dist/agent-file.d.ts",
+      "import": "./dist/agent-file.js"
+    },
+    "./agent-file-diff": {
+      "types": "./dist/agent-file-diff.d.ts",
+      "import": "./dist/agent-file-diff.js"
+    },
+    "./agent-file-tree": {
+      "types": "./dist/agent-file-tree.d.ts",
+      "import": "./dist/agent-file-tree.js"
+    },
+    "./agent-invocation": {
+      "types": "./dist/agent-invocation.d.ts",
+      "import": "./dist/agent-invocation.js"
+    },
+    "./agent-invocation-inspector": {
+      "types": "./dist/agent-invocation-inspector.d.ts",
+      "import": "./dist/agent-invocation-inspector.js"
+    },
+    "./agent-invocation-list": {
+      "types": "./dist/agent-invocation-list.d.ts",
+      "import": "./dist/agent-invocation-list.js"
+    },
+    "./agent-invocation-timeline": {
+      "types": "./dist/agent-invocation-timeline.d.ts",
+      "import": "./dist/agent-invocation-timeline.js"
+    },
+    "./agent-markdown": {
+      "types": "./dist/agent-markdown.d.ts",
+      "import": "./dist/agent-markdown.js"
+    },
+    "./agent-message-parts": {
+      "types": "./dist/agent-message-parts.d.ts",
+      "import": "./dist/agent-message-parts.js"
+    },
+    "./agent-multi-file-diff": {
+      "types": "./dist/agent-multi-file-diff.d.ts",
+      "import": "./dist/agent-multi-file-diff.js"
+    },
+    "./agent-patch-diff": {
+      "types": "./dist/agent-patch-diff.d.ts",
+      "import": "./dist/agent-patch-diff.js"
+    },
+    "./agent-session": {
+      "types": "./dist/agent-session.d.ts",
+      "import": "./dist/agent-session.js"
+    },
+    "./agent-tool-list": {
+      "types": "./dist/agent-tool-list.d.ts",
+      "import": "./dist/agent-tool-list.js"
+    },
+    "./agent-trace": {
+      "types": "./dist/agent-trace.d.ts",
+      "import": "./dist/agent-trace.js"
+    },
+    "./agent-unresolved-file": {
+      "types": "./dist/agent-unresolved-file.d.ts",
+      "import": "./dist/agent-unresolved-file.js"
+    },
     "./headless": {
       "types": "./dist/headless.d.ts",
       "import": "./dist/headless.js"
@@ -39,6 +119,10 @@
     "./nuxt": {
       "types": "./dist/nuxt.d.ts",
       "import": "./dist/nuxt.js"
+    },
+    "./primitive-rail": {
+      "types": "./dist/primitive-rail.d.ts",
+      "import": "./dist/primitive-rail.js"
     },
     "./vite": {
       "types": "./dist/vite.d.ts",
@@ -61,20 +145,20 @@
     "nostics": "catalog:runtime",
     "@vueuse/core": "catalog:ui",
     "katex": "^0.17.0",
-    "@json-render/vue": "0.20.0",
-    "@json-render/core": "0.20.0"
+    "@json-render/vue": "0.21.0",
+    "@json-render/core": "0.21.0"
   },
   "devDependencies": {
     "@nuxt/ui": "catalog:nuxt",
-    "@pierre/diffs": "1.4.0",
+    "@pierre/diffs": "1.5.1",
     "@pierre/theme": "1.1.0",
     "@pierre/trees": "1.0.0-beta.6",
-    "@vitejs/plugin-vue": "^6.0.8",
+    "@vitejs/plugin-vue": "^6.0.9",
     "@vite-hub/runtime": "workspace:*",
-    "@vue/server-renderer": "3.5.40",
-    "@vue/test-utils": "2.5.0",
+    "@vue/server-renderer": "3.5.43",
+    "@vue/test-utils": "2.5.1",
     "ai": "catalog:ai",
-    "happy-dom": "20.14.0",
+    "happy-dom": "20.14.5",
     "nuxt": "catalog:nuxt",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
@@ -82,7 +166,7 @@
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling",
     "vue": "catalog:ui",
-    "@types/markdown-it": "^14.1.2",
+    "@types/markdown-it": "^14.2.0",
     "@vite-hub/agent": "workspace:*"
   },
   "peerDependencies": {

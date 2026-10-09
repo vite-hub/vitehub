@@ -8,9 +8,7 @@ import { consoleScheduleRunDescription, runConsoleScheduleDefinition } from "../
 import type { ConsoleScheduleRunView } from "../client/schedule-run";
 import { parseConsoleSectionContent } from "../definitions";
 import { rememberConsoleSection } from "../sections";
-import ConsoleBrand from "./console-brand.vue";
 import ConsoleFrame from "./console-frame.vue";
-import ConsolePrimitiveSwitcher from "./console-primitive-switcher.vue";
 import ConsoleSearch from "./console-search.vue";
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
 
@@ -195,9 +193,10 @@ onBeforeUnmount(() => request?.abort());
 </script>
 
 <template>
-  <ConsoleFrame>
+  <ConsoleFrame :active="section" :sections-base="sectionsBase">
     <UDashboardSidebar
       id="console-navigation"
+      class="vitehub-console__nav"
       v-model:open="sidebarOpen"
       :default-size="16"
       :collapsed-size="4"
@@ -207,22 +206,32 @@ onBeforeUnmount(() => request?.abort());
         title: itemsTitle,
         description: sectionDetails.description,
       }"
-      :ui="{ body: 'gap-0 overflow-hidden p-0', footer: 'shrink-0 border-t border-default px-2 py-1.5' }"
+      :ui="{ body: 'gap-0 overflow-hidden p-0' }"
       resizable
     >
       <template #header="{ collapsed }">
-        <ConsoleBrand :collapsed="collapsed" :sections-base="sectionsBase" />
+        <div v-if="!collapsed" class="vitehub-console__panel-title">
+          <span class="min-w-0 flex-1 truncate">{{ sectionDetails.label }}</span>
+          <UTooltip text="Refresh definitions">
+            <UButton
+              aria-label="Refresh definitions"
+              color="neutral"
+              icon="i-ph-arrows-clockwise-light"
+              size="xs"
+              variant="ghost"
+              :loading="loading"
+              @click="loadDefinitions"
+            />
+          </UTooltip>
+        </div>
+        <div v-else class="flex justify-center">
+          <UTooltip text="Refresh definitions">
+            <UButton aria-label="Refresh definitions" color="neutral" icon="i-ph-arrows-clockwise-light" size="xs" variant="ghost" :loading="loading" @click="loadDefinitions" />
+          </UTooltip>
+        </div>
       </template>
 
       <template #default="{ collapsed }">
-        <div class="flex shrink-0 items-center gap-1 px-[0.875rem] pb-2 pt-1">
-          <UDashboardSearchButton
-            :collapsed="collapsed"
-            block
-            class="vitehub-console__search min-w-0 flex-1 rounded-md border border-default bg-transparent px-2 ring-0 hover:bg-elevated/60"
-            label="Search console"
-          />
-        </div>
         <div v-if="!collapsed && errorMessage(error)" class="px-3">
           <UAlert
             color="error"
@@ -286,25 +295,6 @@ onBeforeUnmount(() => request?.abort());
         />
       </template>
 
-      <template #footer="{ collapsed }">
-        <ConsolePrimitiveSwitcher
-          :active="section"
-          :collapsed="collapsed"
-          :sections-base="sectionsBase"
-        />
-        <UTooltip text="Refresh definitions">
-          <UButton
-            aria-label="Refresh definitions"
-            color="neutral"
-            icon="i-ph-arrows-clockwise-light"
-            class="ml-auto"
-            size="xs"
-            variant="ghost"
-            :loading="loading"
-            @click="loadDefinitions"
-          />
-        </UTooltip>
-      </template>
     </UDashboardSidebar>
 
     <ConsoleSearch

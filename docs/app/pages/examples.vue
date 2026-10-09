@@ -1,95 +1,103 @@
 <script setup lang="ts">
 import { examples } from "~/data/examples";
 
+const availableExamples = examples.filter((example) => example.status === "published");
+const upcomingExamples = examples.filter((example) => example.status === "pending");
+
 useSeoMeta({
   title: "Examples",
   ogTitle: "Examples · ViteHub",
-  description: "Open projects built with ViteHub, ready to inspect and run.",
+  description: "Explore ViteHub apps, inspect their source, and start from a working template.",
 });
 </script>
 
 <template>
-  <main class="mx-auto w-full max-w-6xl px-4 pb-24 pt-16 sm:px-6 sm:pt-20 lg:px-8">
-    <header class="max-w-3xl pb-12 sm:pb-16">
-      <p class="font-mono text-xs font-medium uppercase tracking-[0.18em] text-primary">
-        Built with ViteHub
-      </p>
-      <h1 class="mt-4 text-4xl font-semibold leading-tight text-highlighted sm:text-5xl">
-        Examples
-      </h1>
-      <p class="mt-5 max-w-2xl text-lg leading-8 text-muted sm:text-xl">
-        Explore working applications, see which ViteHub pieces they compose, and inspect the code
-        behind them.
+  <main class="mx-auto w-full max-w-7xl px-4 py-10 sm:px-6 sm:py-12 lg:px-8">
+    <header class="mb-8 max-w-2xl">
+      <h1 class="text-balance text-3xl font-semibold text-highlighted sm:text-4xl">Examples</h1>
+      <p class="mt-3 text-pretty text-base leading-7 text-muted">
+        See what you can build with ViteHub. Open an app, read its source, or copy a template and
+        make it your own.
       </p>
     </header>
 
     <section
-      class="grid gap-px overflow-hidden rounded-xl border border-default bg-[var(--ui-border)] sm:grid-cols-2"
-      aria-label="ViteHub examples"
+      class="grid items-stretch gap-5 md:grid-cols-2 xl:grid-cols-3"
+      aria-label="Available examples"
     >
       <article
-        v-for="(example, index) in examples"
+        v-for="example in availableExamples"
         :key="example.slug"
-        class="flex min-h-[28rem] flex-col bg-default p-6 sm:p-8"
+        class="flex min-w-0 flex-col overflow-hidden rounded-lg border border-default bg-default"
       >
-        <div class="flex items-start justify-between gap-4">
-          <div class="flex flex-wrap items-center gap-2">
-            <UBadge color="neutral" variant="soft">
-              {{ example.kind === "template" ? "Template" : "Project" }}
-            </UBadge>
-            <UBadge :color="example.status === 'published' ? 'success' : 'warning'" variant="soft">
-              {{ example.status === "published" ? "Available" : "Upcoming" }}
-            </UBadge>
-          </div>
-          <span class="font-mono text-xs text-dimmed">
-            {{ String(index + 1).padStart(2, "0") }}
-          </span>
-        </div>
-
-        <h2 class="mt-8 text-3xl font-semibold tracking-tight text-highlighted">
-          {{ example.name }}
-        </h2>
-        <p class="mt-4 text-base leading-7 text-muted">
-          {{ example.description }}
-        </p>
-
-        <div class="mt-7 flex flex-wrap gap-2">
-          <UBadge
-            v-for="primitive in example.builtWith"
-            :key="primitive"
-            color="neutral"
-            variant="outline"
-          >
-            {{ primitive }}
-          </UBadge>
-        </div>
-
-        <aside class="mt-auto flex flex-col gap-3 border-t border-default pt-6">
-          <p v-if="example.status === 'pending'" class="text-sm leading-6 text-muted">
-            {{ example.publicationNote }}
+        <ExampleAppPreview :preview="example.preview" />
+        <div class="flex flex-1 flex-col p-4 sm:p-5">
+          <p class="text-xs text-muted">
+            {{ example.kind === "template" ? "Starter template" : "Open source app" }}
           </p>
-          <UButton
-            v-if="example.status === 'published'"
-            :to="example.action.to"
-            target="_blank"
-            :label="example.action.label"
-            :icon="example.kind === 'project' ? 'i-simple-icons-github' : 'i-lucide-copy'"
-            trailing-icon="i-lucide-arrow-up-right"
-            color="neutral"
-            variant="soft"
-            block
-          />
-          <UButton
-            v-else
-            :label="example.action.label"
-            icon="i-lucide-lock-keyhole"
-            color="neutral"
-            variant="outline"
-            disabled
-            block
-          />
-        </aside>
+          <h2 class="mt-1 text-xl font-semibold text-highlighted">{{ example.name }}</h2>
+          <p class="mt-3 text-pretty text-sm leading-6 text-muted">{{ example.description }}</p>
+          <dl class="mt-4 text-xs leading-5">
+            <dt class="font-medium text-highlighted">Built with</dt>
+            <dd class="mt-1 text-muted">{{ example.builtWith.join(", ") }}</dd>
+            <template v-if="example.kind === 'template'">
+              <dt class="mt-3 font-medium text-highlighted">Start in</dt>
+              <dd class="mt-1 break-all font-mono text-muted">{{ example.startPath }}</dd>
+            </template>
+          </dl>
+          <div class="mt-auto flex flex-wrap gap-2 pt-5">
+            <UButton
+              :to="example.action.to"
+              target="_blank"
+              rel="noopener noreferrer"
+              :label="example.action.label"
+              :icon="example.kind === 'project' ? 'i-simple-icons-github' : 'i-lucide-copy'"
+              color="neutral"
+              variant="outline"
+              size="sm"
+            />
+            <UButton
+              v-if="example.kind === 'template'"
+              :to="example.action.to.replace(/\/generate$/, '')"
+              target="_blank"
+              rel="noopener noreferrer"
+              label="View source"
+              color="neutral"
+              variant="ghost"
+              size="sm"
+            />
+            <UButton
+              v-if="example.website"
+              :to="example.website"
+              target="_blank"
+              rel="noopener noreferrer"
+              label="Open app"
+              trailing-icon="i-lucide-arrow-up-right"
+              color="neutral"
+              variant="ghost"
+              size="sm"
+            />
+          </div>
+        </div>
       </article>
+    </section>
+
+    <section v-if="upcomingExamples.length" class="mt-12" aria-labelledby="upcoming-examples">
+      <h2 id="upcoming-examples" class="text-lg font-semibold text-highlighted">In progress</h2>
+      <p class="mt-1 text-sm text-muted">These projects are not ready to copy or run yet.</p>
+      <dl class="mt-4 divide-y divide-default border-y border-default">
+        <div
+          v-for="example in upcomingExamples"
+          :key="example.slug"
+          class="grid gap-2 py-4 sm:grid-cols-4 sm:gap-6"
+        >
+          <dt class="text-sm font-medium text-highlighted">{{ example.name }}</dt>
+          <dd class="min-w-0 text-sm leading-6 sm:col-span-3">
+            <p class="text-muted">{{ example.description }}</p>
+            <p class="mt-1 text-xs text-dimmed">{{ example.publicationNote }}</p>
+          </dd>
+        </div>
+      </dl>
     </section>
   </main>
 </template>

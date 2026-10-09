@@ -2,7 +2,10 @@ import { mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
+import { VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite"
 import { afterEach, describe, expect, it, vi } from "vitest"
+
+import type { Plugin } from "vite"
 
 import { consoleSessionActor } from "../src/console/auth.ts"
 import { consoleConnectionsActorId, writeConsoleConnectionsActor } from "../src/console/auth-build.ts"
@@ -18,6 +21,8 @@ import {
 import { ConsoleRequestError } from "../src/console/runtime/client/request.ts"
 import type { ConsoleSectionId } from "../src/console/runtime/sections.ts"
 import { consoleVitePlugin } from "../src/console/vite.ts"
+import { vitehub } from "../src/index.ts"
+import { hostManagedAuthorize } from "./support/console-authorize.ts"
 
 const connection = {
   account: { email: "ada@example.com", id: "1" },
@@ -170,18 +175,70 @@ describe("Connections actor", () => {
   it("writes an actor module for each Console access mode", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-connections-actor-"))
     try {
+      // The Connections handler calls the policy with the Request first and the server event second.
+      // Every module checks the installed Console access policy before it names the manager.
       const consoleAuth = await readFile(await writeConsoleConnectionsActor(root, "console-auth"), "utf8")
       expect(consoleAuth).toContain('import { createAuthForRequest } from "#vitehub/auth/server"')
       expect(consoleAuth).toContain('import { definition } from "./auth-definition.mjs"')
-      expect(consoleAuth).toContain("consoleSessionActor(createAuthForRequest(definition, event.req, undefined, event), event.req)")
+      expect(consoleAuth).toContain("viteHubConsoleConnectionsActor(request, event)")
+      expect(consoleAuth).toContain("consoleConnectionsActor(event, () => consoleSessionActor(createAuthForRequest(definition, request, undefined, event), request))")
 
       const appAuth = await readFile(await writeConsoleConnectionsActor(root, "app-auth"), "utf8")
-      expect(appAuth).toContain("consoleSessionActor(getAuthForRequest(event.req, undefined, event), event.req)")
+      expect(appAuth).toContain("viteHubConsoleConnectionsActor(request, event)")
+      expect(appAuth).toContain("consoleConnectionsActor(event, () => consoleSessionActor(getAuthForRequest(request, undefined, event), request))")
 
       const file = await writeConsoleConnectionsActor(root, "none")
       expect(file).toBe(join(root, ".vitehub/nitro/console/connections-actor.mjs"))
-      const none = (await import(file) as { default: () => unknown }).default
-      expect(none()).toBeUndefined()
+      const none = await readFile(file, "utf8")
+      expect(none).toContain('import { consoleConnectionsActor } from "vite-hub/console/sections"')
+      expect(none).toContain("return consoleConnectionsActor(event)")
+      expect(none).not.toContain("user:local")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it.each([
+    { command: "serve" as const, connections: true, enabled: true },
+    { command: "build" as const, connections: true, enabled: false },
+    { command: "build" as const, connections: { management: true }, enabled: true },
+  ])("advertises Connections only with a mounted handler ($command, $enabled)", async ({ command, connections, enabled }) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-connections-sections-"))
+    try {
+      const plugin = consoleVitePlugin({
+        console: command === "serve" ? { access: "auth" } : { exposure: "host-managed", authorize: hostManagedAuthorize },
+        connections,
+        sections: ["env", "connections"],
+      })
+      const hook = plugin.config
+      if (!hook) throw new TypeError("Expected Console config hook.")
+      await Reflect.apply("handler" in hook ? hook.handler : hook, {}, [{ root }, { command, mode: command === "serve" ? "development" : "production" }])
+      const generated = await readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")
+      expect(generated.includes('"connections"')).toBe(enabled)
+      expect(generated).toContain('"env"')
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it.each([
+    { console: true, handler: 'import actor from "#vitehub/console/connections-actor"' },
+    { console: false, handler: 'actor: "development"' },
+  ])("checks development Connections routes with the Console actor module (console: $console)", async ({ console, handler }) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-connections-dev-"))
+    try {
+      // SAFETY: vitehub() returns a flat list of concrete plugins in these integration tests.
+      const plugins = vitehub({ connections: true, console, database: true, preset: "node" }) as Plugin[]
+      const connections = plugins.find(plugin => plugin.name === "@vite-hub/connections/vite")
+      const hook = connections?.config
+      if (!hook) throw new TypeError("Expected the Connections config hook.")
+      const config: { nitro: { handlers?: Array<{ handler: string }> }, root: string, [VITEHUB_NITRO_CONFIG_CONTEXT]: true } = { nitro: {}, root, [VITEHUB_NITRO_CONFIG_CONTEXT]: true }
+      await Reflect.apply("handler" in hook ? hook.handler : hook, {}, [config, { command: "serve", mode: "development" }])
+      const generated = await readFile(config.nitro.handlers![0]!.handler, "utf8")
+      expect(generated).toContain(handler)
+      expect(generated).not.toContain("user:local")
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -201,7 +258,7 @@ describe("Connections actor", () => {
       }
       const actor = await configure(["connections"])
       expect(actor).toBe(join(root, ".vitehub/nitro/console/connections-actor.mjs"))
-      expect(await readFile(actor!, "utf8")).toContain("return undefined")
+      expect(await readFile(actor!, "utf8")).toContain("return consoleConnectionsActor(event)")
       expect(await configure(["env"])).toBeUndefined()
     }
     finally {

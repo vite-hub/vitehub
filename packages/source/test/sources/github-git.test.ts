@@ -4,13 +4,49 @@ import { createServer } from "node:http"
 import { devNull, tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
+import { gzipSync } from "node:zlib"
 
 import { describe, expect, it } from "vitest"
 
+import { parseGitHubArchive } from "../../src/sources/github/archive.ts"
 import { getGitSparsePatterns, loadGitArchiveFiles } from "../../src/sources/github/git.ts"
 import { createTarGz } from "./fixtures/github.ts"
 
 describe("@vite-hub/source GitHub git materialization", () => {
+  it.each(["../secret.md", "/secret.md", "C:/secret.md", "./secret.md"])("rejects unsafe full archive path %s", (path) => {
+    const files = parseGitHubArchive(createTarGz({ [path]: "secret\n", "archive-main/docs/guide.md": "safe\n" }, ""))
+
+    expect(files.map(file => file.path)).toEqual(["docs/guide.md"])
+  })
+
+  it("does not expose archive entries that escape the Source root", () => {
+    const files = parseGitHubArchive(createTarGz({ "../outside.md": "secret\n", "docs/guide.md": "safe\n" }))
+
+    expect(files.map(file => file.path)).toEqual(["docs/guide.md"])
+  })
+
+  it("rejects archive entries with negative sizes", () => {
+    const header = Buffer.alloc(1024)
+    header.write("archive-main/bad.txt", 0)
+    header.write("-1000", 124)
+    header[156] = 48
+
+    expect(() => parseGitHubArchive(gzipSync(header))).toThrow("Invalid GitHub archive entry size")
+  })
+
+  it("rejects archive entries with truncated padding", () => {
+    const tar = Buffer.alloc(513)
+    tar.write("archive-main/small.txt", 0)
+    tar.write("1", 124)
+    tar[156] = 48
+    tar[512] = 97
+
+    expect(() => parseGitHubArchive(gzipSync(tar))).toThrow("Invalid GitHub archive entry size")
+    expect(parseGitHubArchive(gzipSync(Buffer.concat([tar, Buffer.alloc(511)])))).toEqual([
+      { content: new Uint8Array([97]), path: "small.txt" },
+    ])
+  })
+
   it("archives simple sparse source paths without putting auth in git arguments", async () => {
     const calls: Array<{
       args: string[]

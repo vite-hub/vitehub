@@ -1,18 +1,25 @@
+import { types } from "node:util"
 import { createWorkspaceTools } from "../ai.ts"
 import { workspaceError } from "../core/errors.ts"
 import { normalizeWorkspacePath } from "../core/path.ts"
+import { createWorkspaceHistory, createWorkspaceHistoryReader, forwardWorkspaceHistoryFiles } from "../core/history.ts"
+import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
 import { createWorkspaceWritePolicy } from "../core/rules.ts"
 import { appendWorkspaceFile, copyWorkspacePath } from "../fs-ops.ts"
 import { createBasicWorkspaceSession } from "../session/basic.ts"
 import { createMemoryWorkspaceStore } from "../storage/memory.ts"
+import { registerWorkspaceStoreAlias } from "../storage/identity.ts"
+import { setWorkspaceRawWriteTarget } from "../storage/raw-write-target.ts"
 import { forwardWorkspaceStoreTarget, resolveWorkspaceStoreTarget, workspaceStoreTarget, type WorkspaceStoreTargetCarrier } from "../storage/target.ts"
-import { createWorkspaceMetadataTarget, forwardWorkspaceMetadataTarget, resolveWorkspaceMetadataTarget, workspaceMetadataTarget } from "../storage/metadata-target.ts"
+import { createWorkspaceMetadataTarget, forwardWorkspaceMetadataTarget, resolveWorkspaceMetadataMutationTarget, resolveWorkspaceMetadataTarget, setWorkspaceMetadata, attachWorkspaceMetadataTarget, type WorkspaceMetadataTarget } from "../storage/metadata-target.ts"
 import { copyWorkspaceSourceMetadata, normalizeWorkspaceSource, normalizeWorkspaceSources, workspaceSourceRequestDescriptorPath } from "./config.ts"
+import { isInternalWorkspaceMetaKey } from "../storage/metadata-keys.ts"
 import { prepareWorkspaceSource } from "./preparation.ts"
 import { markLiveWorkspaceSource } from "./live.ts"
 import { attachWorkspaceSourceRequestExecution, createWorkspaceSourceRequestExecution, getWorkspaceSourceRequestExecution } from "./request-execution.ts"
 import { resolveWorkspacePath } from "./resolver.ts"
-import { createWorkspaceSourceView } from "./view.ts"
+import { createWorkspaceSourceView, type WorkspaceSourceWriteGrant } from "./view.ts"
+import { isWorkspaceSourceSyncMetaKey } from "./sync-state.ts"
 
 import type {
   ReadonlyWorkspaceFacade,
@@ -25,16 +32,22 @@ import type {
 import type {
   GlobOptions,
   ListOptions,
+  MkdirOptions,
+  RmOptions,
   Workspace,
+  WorkspaceContent,
   WorkspaceDefinition,
   WorkspaceEntry,
   WorkspaceFile,
   WorkspaceName,
+  WorkspaceRebaseOptions,
   WorkspaceSearchHit,
   WorkspaceSearchQuery,
   WorkspaceStore,
+  WorkspaceHistoryCommitOptions,
   WorkspaceSession,
   WorkspaceSessionOptions,
+  WorkspaceSessionWriteFileOptions,
   WorkspaceWriteInput,
   WorkspaceSelectedScope,
   WorkspaceSource,
@@ -42,6 +55,7 @@ import type {
   WorkspaceSourceResolutionContext,
   WorkspaceSourceResolutionInvocation,
   WorkspaceSourceResolver,
+  WriteFileOptions,
 } from "../core/types.ts"
 
 export interface WorkspaceSourceResolutionOptions {
@@ -55,17 +69,81 @@ export interface WorkspaceSourceResolutionFacade<Name extends WorkspaceName = Wo
   workspace: ReadonlyWorkspaceFacade<Name>
 }
 
-type WorkspaceMetadataTarget = {
-  getMeta?(key: string): Promise<unknown>
-  setMeta?(key: string, value: unknown): Promise<void>
-}
-
 export function hasWorkspaceSourceResolvers(definition: Pick<WorkspaceDefinition, "sources"> | undefined): boolean {
   return normalizeWorkspaceSources(definition?.sources).some(source => typeof source.source.resolve === "function")
 }
 
 function isWritableWorkspaceFacade<Name extends WorkspaceName>(workspace: ReadonlyWorkspaceFacade<Name>): workspace is WritableWorkspaceFacade<Name> {
   return typeof (workspace as WritableWorkspaceFacade<Name>).fs.writeFile === "function"
+}
+
+// Resolution lineage is private: copying a public fingerprint cannot grant
+// a replacement Source authority over an enclosing Source's files.
+const sourceBindingLineage = new WeakMap<object, WorkspaceSourceInput>()
+
+function sameWorkspaceSourceBinding(key: string, left: WorkspaceSourceInput | undefined, right: WorkspaceSourceInput | undefined): boolean {
+  if (left === right) return true
+  if (!left || !right) return false
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Only object Source definitions participate in binding lineage.
+  if (typeof left !== "object" || typeof right !== "object") return false
+  if ((sourceBindingLineage.get(left) ?? left) !== (sourceBindingLineage.get(right) ?? right)) return false
+  const leftBinding = normalizeWorkspaceSource(key, left)
+  const rightBinding = normalizeWorkspaceSource(key, right)
+  if (leftBinding.source.fingerprint === undefined || rightBinding.source.fingerprint === undefined) return false
+  return sameWorkspaceSourceValue({
+    cache: leftBinding.cache,
+    materialize: leftBinding.materialize,
+    mountPath: leftBinding.mountPath,
+    source: leftBinding.source.fingerprint,
+    sync: leftBinding.sync,
+  }, {
+    cache: rightBinding.cache,
+    materialize: rightBinding.materialize,
+    mountPath: rightBinding.mountPath,
+    source: rightBinding.source.fingerprint,
+    sync: rightBinding.sync,
+  })
+}
+
+// Within the same private lineage, only plain data can confirm unchanged options.
+// Custom serializers, accessors, cycles, and exotic objects retain the outer guard.
+function sameWorkspaceSourceValue(left: unknown, right: unknown, ancestors = new Set<object>()): boolean {
+  try {
+    // SAFETY: Fingerprints accept unknown values; only plain data is compared below.
+    if (typeof left !== "object" || left === null || typeof right !== "object" || right === null) {
+      return Object.is(left, right)
+    }
+    if (types.isProxy(left) || types.isProxy(right)) return false
+    const prototype = Object.getPrototypeOf(left)
+    if (Array.isArray(left) !== Array.isArray(right)
+      || prototype !== Object.getPrototypeOf(right)
+      || (prototype !== Object.prototype && prototype !== Array.prototype && prototype !== null)
+      || "toJSON" in left || "toJSON" in right
+      || ancestors.has(left) || ancestors.has(right)) return false
+    const leftKeys = Reflect.ownKeys(left)
+    const rightKeys = Reflect.ownKeys(right)
+    if (leftKeys.length !== rightKeys.length) return false
+    ancestors.add(left)
+    ancestors.add(right)
+    try {
+      // Preserve property order, array length, and holes. Source Sync uses JSON order.
+      return leftKeys.every((key, index) => {
+        if (key !== rightKeys[index]) return false
+        const leftProperty = Object.getOwnPropertyDescriptor(left, key)
+        const rightProperty = Object.getOwnPropertyDescriptor(right, key)
+        return !!leftProperty && !!rightProperty
+          && "value" in leftProperty && "value" in rightProperty
+          && leftProperty.enumerable === rightProperty.enumerable
+          && sameWorkspaceSourceValue(leftProperty.value, rightProperty.value, ancestors)
+      })
+    } finally {
+      ancestors.delete(left)
+      ancestors.delete(right)
+    }
+  } catch {
+    // Unknown fingerprints may contain proxies or other values that cannot be inspected.
+    return false
+  }
 }
 
 function workspaceSessionStarter<Name extends WorkspaceName>(workspace: ReadonlyWorkspaceFacade<Name>): Pick<Workspace, "startSession"> | undefined {
@@ -88,6 +166,7 @@ function writeOperations(options: WritableWorkspaceFacadeToolOptions | undefined
 function createOverlaySourceStore<Name extends WorkspaceName>(
   workspace: ReadonlyWorkspaceFacade<Name>,
   fallback: (path: string) => boolean,
+  backingMetadataTarget?: WorkspaceMetadataTarget,
 ): WorkspaceStore & WorkspaceStoreTargetCarrier & { isTombstoned(path: string): boolean } {
   const memory = createMemoryWorkspaceStore()
   const tombstones = new Set<string>()
@@ -186,22 +265,37 @@ function createOverlaySourceStore<Name extends WorkspaceName>(
         ?? await workspace.getMeta?.(key)
     },
     async setMeta(key, value) {
+      // Source Sync state must survive overlay recreation. Keep other internal
+      // metadata local to this overlay because it describes materialized files.
+      if (isInternalWorkspaceMetaKey(key) && isWorkspaceSourceSyncMetaKey(key)) {
+        const mutationTarget = backingMetadataTarget
+          ? resolveWorkspaceMetadataMutationTarget(backingMetadataTarget)
+          : undefined
+        if (mutationTarget && await setWorkspaceMetadata(mutationTarget, key, value)) return
+      }
       await memory.setMeta?.(key, value)
     },
   }
 }
 
-const sourceSyncStores = new WeakMap<WritableWorkspaceFacade, WorkspaceStore>()
+const sourceSyncStores = new WeakMap<object, (definition: WorkspaceDefinition) => WorkspaceStore>()
 
-function createWritableFacadeStore(workspace: WritableWorkspaceFacade, sourceSync = false): WorkspaceStore {
+/** Preserve internal Source Sync routing when wrapping a writable facade. */
+export function forwardWorkspaceFacade(source: WritableWorkspaceFacade, target: WritableWorkspaceFacade): void {
+  forwardWorkspaceMetadataTarget(source, target)
+  const syncStore = sourceSyncStores.get(source.fs)
+  if (syncStore) sourceSyncStores.set(target.fs, syncStore)
+}
+
+function createWritableFacadeStore(workspace: WritableWorkspaceFacade, sourceSync?: WorkspaceDefinition): WorkspaceStore {
   // Nested resolution must keep syncing to the backing Store, not a prior overlay.
-  const backingSyncStore = sourceSync ? sourceSyncStores.get(workspace) : undefined
+  const backingSyncStore = sourceSync ? sourceSyncStores.get(workspace.fs)?.(sourceSync) : undefined
   if (backingSyncStore) return backingSyncStore
   const meta = new Map<string, unknown>()
   const metadata = workspace as WritableWorkspaceFacade & WorkspaceMetadataTarget
   const store: WorkspaceStore = {
     async readFile(path) {
-      const target = sourceSync ? await resolveWorkspaceMetadataTarget(workspace) : undefined
+      const target = sourceSync ? resolveWorkspaceMetadataMutationTarget(await resolveWorkspaceMetadataTarget(workspace) ?? {}) : undefined
       if (target?.readFile) return await target.readFile(path)
       try {
         const stat = await workspace.fs.stat(path as never)
@@ -219,7 +313,7 @@ function createWritableFacadeStore(workspace: WritableWorkspaceFacade, sourceSyn
     },
     async writeFile(path, file) {
       // Source Sync owns its provenance; public writes must still enforce write policy.
-      const target = sourceSync ? await resolveWorkspaceMetadataTarget(workspace) : undefined
+      const target = sourceSync ? resolveWorkspaceMetadataMutationTarget(await resolveWorkspaceMetadataTarget(workspace) ?? {}) : undefined
       if (target?.writeFile) return await target.writeFile(path, file)
       // SAFETY: Store paths are checked by the facade at runtime; the generic facade has no statically known named Workspace paths.
       await workspace.fs.writeFile(path as never, file.content, { mediaType: file.mediaType, metadata: file.metadata })
@@ -239,12 +333,12 @@ function createWritableFacadeStore(workspace: WritableWorkspaceFacade, sourceSyn
       }
     },
     async mkdir(path, options) {
-      const target = sourceSync ? await resolveWorkspaceMetadataTarget(workspace) : undefined
+      const target = sourceSync ? resolveWorkspaceMetadataMutationTarget(await resolveWorkspaceMetadataTarget(workspace) ?? {}) : undefined
       if (target?.mkdir) return await target.mkdir(path, options)
       await workspace.fs.mkdir(path as never, options)
     },
     async rm(path, options) {
-      const target = sourceSync ? await resolveWorkspaceMetadataTarget(workspace) : undefined
+      const target = sourceSync ? resolveWorkspaceMetadataMutationTarget(await resolveWorkspaceMetadataTarget(workspace) ?? {}) : undefined
       if (target?.rm) return await target.rm(path, options)
       await workspace.fs.rm(path as never, options)
     },
@@ -262,7 +356,15 @@ function createWritableFacadeStore(workspace: WritableWorkspaceFacade, sourceSyn
       return meta.get(key)
     },
     async setMeta(key, value) {
+      // Source Sync state uses internal keys, which public setMeta rejects.
+      const target = sourceSync ? resolveWorkspaceMetadataMutationTarget(await resolveWorkspaceMetadataTarget(workspace) ?? {}) : undefined
+      if (target) {
+        if (await setWorkspaceMetadata(target, key, value)) return
+      }
       if (metadata.setMeta) {
+        if (isInternalWorkspaceMetaKey(key)) {
+          throw workspaceError("[vitehub] Source Sync cannot write internal metadata without a private metadata target.")
+        }
         await metadata.setMeta(key, value)
         return
       }
@@ -288,7 +390,7 @@ export async function resolveWorkspaceSources(
 ): Promise<WorkspaceDefinition> {
   if (!hasWorkspaceSourceResolvers(definition) && !options.selectedWorkspaceScope) return definition
 
-  const sources: Record<string, WorkspaceSourceInput> = {}
+  const sources: Record<string, WorkspaceSourceInput> = Object.create(null)
   for (const [key, source] of Object.entries(definition.sources || {})) {
     const resolved = await resolveWorkspaceSource(definition, key, source, options)
     if (resolved) sources[key] = resolved
@@ -309,15 +411,27 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
   const sourceRequestExecution = createWorkspaceSourceRequestExecution(resolvedDefinition, {
     selectedWorkspaceScope: options.selectedWorkspaceScope,
   }) ?? getWorkspaceSourceRequestExecution(workspace.fs)
-  if (!options.overlay && resolvedDefinition === definition && !sourceRequestExecution) return { definition, workspace }
+  if (!options.overlay && resolvedDefinition === definition && !sourceRequestExecution && (!options.selectedWorkspaceScope || options.selectedWorkspaceScope.all)) return { definition, workspace }
 
   const selectedWorkspaceScope = options.selectedWorkspaceScope
   const sourceViewDefinition = createScopedSourceViewDefinition(resolvedDefinition, selectedWorkspaceScope)
+  // Capture the backing target before creating the overlay. Source Sync uses a
+  // private setter, so its internal state must bypass the overlay's volatile
+  // metadata map and reach the Workspace Store even after the facade is rebuilt.
+  const backingMetadataTarget = await resolveWorkspaceMetadataTarget(workspace)
   const overlayStore = createOverlaySourceStore(workspace, path =>
     !isLazySourcePath(resolvedDefinition, path)
     || selectedScopeCanSee(selectedWorkspaceScope, path) && isUnchangedStartupSourcePath(definition, resolvedDefinition, path),
+    backingMetadataTarget,
   )
   const sourceView = createWorkspaceSourceView(sourceViewDefinition, overlayStore, { reuseStartupSnapshots: true })
+  function requireCompleteHistory() {
+    if (selectedWorkspaceScope && !selectedWorkspaceScope.all) {
+      throw workspaceErrorDiagnostics.WORKSPACE_R0069({ message: "[vitehub] Retained folder history requires access to the complete Workspace. A selected path or Source scope cannot inspect or replace its full history." })
+    }
+    return workspace.history
+  }
+  const history = createWorkspaceHistoryReader(workspace.history, !selectedWorkspaceScope || selectedWorkspaceScope.all)
   const materializeSources = async (options = {}) => await sourceView.materializeSources(options)
   const canUseBase = (path: string) => !overlayStore.isTombstoned(normalizeWorkspacePath(path))
   let readWorkspace!: Workspace
@@ -408,7 +522,10 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
 
   if (isWritableWorkspaceFacade(workspace)) {
     const writePolicy = createWorkspaceWritePolicy(resolvedDefinition)
-    const syncStore = createWritableFacadeStore(workspace, true)
+    const syncStore = createWritableFacadeStore(workspace, resolvedDefinition)
+    // Source Sync must share the overlay's mutation queue with guarded writes
+    // and materialization, even though it uses a facade Store wrapper.
+    if (!sourceSyncStores.has(workspace.fs)) registerWorkspaceStoreAlias(syncStore, overlayStore)
     let writeWorkspace!: Workspace
 
     async function previousStat(path: string) {
@@ -420,9 +537,49 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
       }
     }
 
+    // Every base write needs both the outer facade's policy and this view's
+    // Source grant. Always compose through the facade so nested resolutions
+    // retain guards established by their parent view.
+    const writes = {
+      // SAFETY: Source grant validation checks these runtime paths before forwarding to the typed facade.
+      writeFile: async (path: string, content: WorkspaceContent, options?: WriteFileOptions) =>
+        await workspace.fs.writeFile(path as never, content, options),
+      // SAFETY: The enclosing write guard validates this directory path at runtime.
+      mkdir: async (path: string, options?: MkdirOptions) =>
+        await workspace.fs.mkdir(path as never, options),
+      // SAFETY: The enclosing write guard validates this removal path at runtime.
+      rm: async (path: string, options?: RmOptions) =>
+        await workspace.fs.rm(path as never, options),
+    }
+    const baseWrites = {
+      mkdir: sourceView.requireWriteGrant(async (path, options?: MkdirOptions) => await writes.mkdir(path, options)),
+      rm: sourceView.requireWriteGrant(async (path, options?: RmOptions) => await writes.rm(path, options)),
+      writeFile: sourceView.requireWriteGrant(async (path, content: WorkspaceContent, options?: WriteFileOptions) => await writes.writeFile(path, content, options)),
+    }
+    const baseRebase = sourceView.requireRebaseGrants(async options => await workspace.history.rebase(options))
+    const resolvedHistory = createWorkspaceHistory(resolvedDefinition, {
+      ...overlayStore,
+      history: {
+        ...createWorkspaceHistoryReader(workspace.history, true),
+        commit: async options => await workspace.history.commit(forwardWorkspaceHistoryFiles(options)),
+      },
+    }, sourceView)
+
+    async function commitHistory(options: WorkspaceHistoryCommitOptions) {
+      requireCompleteHistory()
+      return await resolvedHistory.commit(options)
+    }
+
+    // A takeRemote path replaces local content, so Source-backed paths are rejected.
+    async function rebase(options?: WorkspaceRebaseOptions) {
+      const grants = []
+      for (const path of options?.takeRemote ?? []) grants.push(await sourceView.assertWritable(path))
+      await baseRebase(grants, options)
+    }
+
     async function writeWithPolicy<Result = void>(
       input: Omit<WorkspaceWriteInput, "previous" | "rule" | "workspace">,
-      write: (input: WorkspaceWriteInput) => Promise<Result>,
+      write: (input: WorkspaceWriteInput, grant: WorkspaceSourceWriteGrant) => Promise<Result>,
       preservePath = false,
     ) {
       await sourceView.assertWritable(input.path)
@@ -436,8 +593,10 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
         if (preservePath && next.path !== normalizeWorkspacePath(input.path)) {
           throw workspaceError(`[vitehub] Workspace validator cannot rewrite preserved path: ${normalizeWorkspacePath(input.path)} -> ${next.path}.`)
         }
-        await sourceView.assertWritable(next.path)
-        const result = await write(next)
+        // Recheck after the async policy hook. Source ownership may change while it runs,
+        // even when the policy keeps the path unchanged.
+        const grant = await sourceView.assertWritable(next.path)
+        const result = await write(next, grant)
         await writePolicy.after(next)
         return { input: next, result }
       }
@@ -448,25 +607,32 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
     }
 
     function withSessionSourceGuards(session: WorkspaceSession): WorkspaceSession {
+      const sessionWrites = {
+        mkdir: sourceView.requireWriteGrant(async (path, options?: MkdirOptions) => await session.mkdir(path, options)),
+        rm: sourceView.requireWriteGrant(async (path, options?: RmOptions) => await session.rm(path, options)),
+        writeFile: sourceView.requireWriteGrant(async (path, content: WorkspaceContent, options?: WorkspaceSessionWriteFileOptions) => await session.writeFile(path, content, options)),
+      }
       return {
         ...session,
         async mkdir(path, options) {
-          await sourceView.assertWritable(path)
-          await session.mkdir(path, options)
+          await sessionWrites.mkdir(await sourceView.assertWritable(path), path, options)
         },
         async rm(path, options) {
-          await sourceView.assertWritable(path)
-          await session.rm(path, options)
+          await sessionWrites.rm(await sourceView.assertWritable(path), path, options)
         },
         async writeFile(path, content, options) {
-          await sourceView.assertWritable(path)
-          await session.writeFile(path, content, options)
+          await sessionWrites.writeFile(await sourceView.assertWritable(path), path, content, options)
         },
       }
     }
 
+    // appendFile, copyPath, and movePath write through writeWorkspace, so each write gets its own grant.
+    // The early checks below reject Source paths before any partial copy.
     const writeFs: WritableWorkspaceFacade<Name>["fs"] = attachWorkspaceSourceRequestExecution({
-      appendFile: async (path, content) => await appendWorkspaceFile(writeWorkspace, path, content),
+      appendFile: async (path, content) => {
+        await sourceView.assertWritable(path)
+        await appendWorkspaceFile(writeWorkspace, path, content)
+      },
       copyPath: async (from, to, options) => {
         await sourceView.assertWritable(to)
         await copyWorkspacePath(writeWorkspace, from, to, options?.overwrite)
@@ -478,7 +644,7 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
         await writeWithPolicy({
           operation: "mkdir",
           path,
-        }, async input => await workspace.fs.mkdir(input.path as never, options))
+        }, async (input, grant) => await baseWrites.mkdir(grant, input.path, options))
       },
       movePath: async (from, to, options) => {
         await sourceView.assertWritable(from)
@@ -491,7 +657,7 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
         await writeWithPolicy({
           operation: "rm",
           path,
-        }, async input => await workspace.fs.rm(input.path as never, options))
+        }, async (input, grant) => await baseWrites.rm(grant, input.path, options))
       },
       search: fs.search,
       stat: fs.stat,
@@ -502,17 +668,18 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
           metadata: options?.metadata,
           operation: "writeFile",
           path,
-        }, async (next) => {
+        }, async (next, grant) => {
           const writeOptions = options === undefined && next.mediaType === undefined && next.metadata === undefined
             ? undefined
             : { ...options, mediaType: next.mediaType, metadata: next.metadata }
-          return await workspace.fs.writeFile(next.path as never, next.content ?? content, writeOptions)
+          return await baseWrites.writeFile(grant, next.path, next.content ?? content, writeOptions)
         }, options?.preservePath)
         return result || input.path
       },
     }, sourceRequestExecution)
     writeWorkspace = attachWorkspaceSourceRequestExecution({
       name: resolvedDefinition.name,
+      history: { ...workspace.history, ...history, commit: commitHistory },
       diff: workspace.diff,
       exists: writeFs.exists,
       glob: writeFs.glob,
@@ -524,7 +691,7 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
         const resolvedStore = createWritableFacadeStore({ ...workspace, fs: writeFs })
         await publishWorkspace(resolvedDefinition, resolvedStore, options)
       },
-      rebase: workspace.history.rebase,
+      rebase,
       readFile: writeFs.readFile,
       rm: writeFs.rm,
       search: writeFs.search,
@@ -566,10 +733,23 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
     writeTools.inspect = createTools as WorkspaceWriteToolSet["inspect"]
     writeTools.none = (() => ({})) as WorkspaceWriteToolSet["none"]
     writeTools.write = createWriteTools as WorkspaceWriteToolSet["write"]
+    // Bind delegated methods to their original receiver, including custom class instances.
+    const baseHistory = workspace.history
+    const writableHistory: WritableWorkspaceFacade["history"] = {
+      ...history,
+      commit: commitHistory,
+      checkpoint: baseHistory.checkpoint.bind(baseHistory),
+      rebase,
+    }
     const writableWorkspace: WritableWorkspaceFacade<Name> = {
       ...workspace,
+      async capabilities() {
+        const capabilities = await workspace.capabilities()
+        return { ...capabilities, retainedHistory: capabilities.retainedHistory === true && (!selectedWorkspaceScope || selectedWorkspaceScope.all) }
+      },
       diff: writeWorkspace.diff,
       fs: writeFs,
+      history: writableHistory,
       materializeSources,
       publish: writeWorkspace.publish,
       snapshot: writeWorkspace.snapshot,
@@ -577,8 +757,46 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
       sync: writeWorkspace.sync,
       tools: writeTools,
     }
-    sourceSyncStores.set(writableWorkspace, syncStore)
-    forwardWorkspaceMetadataTarget({ [workspaceMetadataTarget]: () => createWorkspaceMetadataTarget(overlayStore, resolvedDefinition.name) }, writableWorkspace)
+    setWorkspaceRawWriteTarget(writableWorkspace, writes)
+    sourceSyncStores.set(writableWorkspace.fs, (childDefinition) => {
+      // Only the same Source binding retains its sync authority through a
+      // parent view. Renamed or replaced bindings must pass the parent's guard.
+      const guardDefinition = {
+        ...sourceViewDefinition,
+        sources: Object.fromEntries(Object.entries(sourceViewDefinition.sources ?? {}).filter(([key, source]) => {
+          const resolvedSource = resolvedDefinition.sources?.[key]
+          return childDefinition.name !== resolvedDefinition.name
+            || !sameWorkspaceSourceBinding(key, resolvedSource, childDefinition.sources?.[key])
+            || !normalizeWorkspaceSource(key, resolvedSource ?? source).sync
+        })),
+      }
+      const guard = createWorkspaceSourceView(guardDefinition, overlayStore, { reuseStartupSnapshots: true })
+      const backing = createWritableFacadeStore(workspace, childDefinition)
+      // The child's sync holds the backing queue. Check every enclosing view
+      // without entering that queue again or stripping file provenance.
+      const guarded: WorkspaceStore = {
+        ...backing,
+        async readFile(path) {
+          await guard.assertWritableCurrentPath(normalizeWorkspacePath(path))
+          return await backing.readFile(path)
+        },
+        async writeFile(path, file) {
+          await guard.assertWritableCurrentPath(normalizeWorkspacePath(path))
+          await backing.writeFile(path, file)
+        },
+        async mkdir(path, options) {
+          await guard.assertWritableCurrentPath(normalizeWorkspacePath(path))
+          await backing.mkdir(path, options)
+        },
+        async rm(path, options) {
+          await guard.assertWritableCurrentPath(normalizeWorkspacePath(path))
+          await backing.rm(path, options)
+        },
+      }
+      registerWorkspaceStoreAlias(guarded, syncStore)
+      return guarded
+    })
+    attachWorkspaceMetadataTarget(writableWorkspace, () => createWorkspaceMetadataTarget(overlayStore, resolvedDefinition.name))
     forwardWorkspaceStoreTarget(workspace, writableWorkspace)
 
     return {
@@ -589,9 +807,10 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
 
   const readonlyWorkspace: ReadonlyWorkspaceFacade<Name> & Partial<Pick<Workspace, "startSession">> = {
     fs,
+    history,
     tools,
   }
-  forwardWorkspaceMetadataTarget({ [workspaceMetadataTarget]: () => createWorkspaceMetadataTarget(overlayStore, resolvedDefinition.name) }, readonlyWorkspace)
+  attachWorkspaceMetadataTarget(readonlyWorkspace, () => createWorkspaceMetadataTarget(overlayStore, resolvedDefinition.name))
   forwardWorkspaceStoreTarget(workspace, readonlyWorkspace)
   const starter = workspaceSessionStarter(workspace)
   if (starter) {
@@ -636,7 +855,7 @@ async function resolveWorkspaceSource(
   const normalized = normalizeWorkspaceSource(key, resolvedSource)
   if (!selectedScopeIntersectsSource(options.selectedWorkspaceScope, normalized)) return undefined
 
-  return copyWorkspaceSourceMetadata(resolvedSource, {
+  const result = copyWorkspaceSourceMetadata(resolvedSource, {
     ...resolvedSource,
     fingerprint: {
       source: resolvedSource.fingerprint,
@@ -653,6 +872,9 @@ async function resolveWorkspaceSource(
       },
     },
   })
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- String and callable Sources have no object-definition lineage to look up.
+  sourceBindingLineage.set(result, typeof input === "object" ? sourceBindingLineage.get(input) ?? input : input)
+  return result
 }
 
 function applyResolvedWorkspaceSourceBinding(input: WorkspaceSourceInput, source: WorkspaceSource): WorkspaceSource {

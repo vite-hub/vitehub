@@ -1,5 +1,5 @@
 import { stringAttribute, type InvocationActivity } from "./invocation-activity.ts";
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type";
+import { hasRuntimeType } from "./runtime-type.ts";
 
 export type InvocationConversation = {
   deliveredAnswerCount: number;

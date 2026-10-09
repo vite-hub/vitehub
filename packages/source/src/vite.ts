@@ -33,7 +33,7 @@ export interface GeneratedSourceHandler {
 }
 
 export interface SourceGenerationOptions {
-  /** Pass Auth's `authorizeRequest` to generated Collection routes. Requires the Auth Vite plugin. */
+  /** Pass Auth's `withAuthorization` to generated Collection routes. Requires the Auth Vite plugin. */
   auth?: boolean
   contentImportBase?: string
   importBase?: string
@@ -42,7 +42,7 @@ export interface SourceGenerationOptions {
 }
 
 export interface SourceVitePluginOptions {
-  /** Pass Auth's `authorizeRequest` to generated Collection routes when the Auth Vite plugin has a Definition. */
+  /** Pass Auth's `withAuthorization` to generated Collection routes when the Auth Vite plugin has a Definition. */
   auth?: boolean | ((input: { configuredAuth?: boolean, projectRoot: string, serverDirs?: string[] }) => boolean)
   contentImportBase?: string
   importBase?: string
@@ -326,11 +326,11 @@ async function writeCollectionArtifacts(
     const handler = resolve(routesDirectory, `${name}.mjs`)
     await writeFileIfChanged(handler, [
       `import { defineCollectionHandler } from ${JSON.stringify(`${options.importBase ?? "@vite-hub/source"}/server`)}`,
-      ...(options.auth ? [`import { authorizeRequest } from ${JSON.stringify(authServerModuleId)}`] : []),
+      ...(options.auth ? [`import { withAuthorization } from ${JSON.stringify(authServerModuleId)}`] : []),
       `import { ${exportName} as collection } from ${JSON.stringify(toRuntimeModuleSpecifier(file))}`,
       "",
       options.auth
-        ? "export default defineCollectionHandler(collection, { authorizeRequest })"
+        ? "export default defineCollectionHandler(collection, { withAuthorization })"
         : "export default defineCollectionHandler(collection)",
       "",
     ].join("\n"))

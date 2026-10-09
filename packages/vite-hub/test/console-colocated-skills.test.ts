@@ -19,6 +19,11 @@ it("loads colocated Skills into the production Console definition", async () => 
     const plugin = join(root, "plugin.mjs")
     await writeConsoleNitroPlugin(plugin, root, ["agents"], [{ name: "bot-dev", handler }], { agents: [], content: {} }, [], [], undefined, undefined, true)
     const generated = await readFile(plugin, "utf8")
+    const skillsImport = generated.match(/import \{ agentWithColocatedSkills \} from "([^"]+)"/)?.[1]
+    expect(skillsImport).toBe("vite-hub/_internal/agent/runtime/workflow")
+    if (!skillsImport) throw new Error("Expected the generated Skills import")
+    const skillsRuntime = await import(skillsImport)
+    expect(skillsRuntime.agentWithColocatedSkills).toBeTypeOf("function")
     const install = vi.fn()
     const definition = defineAgent({ driver: "codex", runtime: false, workspace: {} })
     const execute = new Function("installConsoleSections", "installConsoleProjectName", "installConsoleAgentDefinitions", "agentWithColocatedSkills", "vitehubConsoleAgent0", generated.replace(/^import .+$/gm, "").replace("export default function", "function"))

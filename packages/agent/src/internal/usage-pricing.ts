@@ -7,8 +7,7 @@ import type {
   AgentUsageRecord,
   MaybePromise,
 } from "../types.ts"
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
-import { isRuntimeRecord } from "./runtime-type.ts"
+import { hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
 
 export interface AgentUsagePricingContext {
   model?: AgentUsageRecord["model"]

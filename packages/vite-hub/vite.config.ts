@@ -73,15 +73,15 @@ export default defineConfig({
         to: "dist/console/runtime/components",
       },
       {
-        from: "src/console/runtime/components/console-brand.vue",
-        to: "dist/console/runtime/components",
-      },
-      {
         from: "src/console/runtime/components/console-app.vue",
         to: "dist/console/runtime/components",
       },
       {
         from: "src/console/runtime/components/console-new-chat.ts",
+        to: "dist/console/runtime/components",
+      },
+      {
+        from: "src/console/runtime/components/console-agent-list.ts",
         to: "dist/console/runtime/components",
       },
       {
@@ -137,7 +137,7 @@ export default defineConfig({
         to: "dist/console/runtime/components",
       },
       {
-        from: "src/console/runtime/components/console-primitive-switcher.vue",
+        from: "src/console/runtime/components/console-rail.vue",
         to: "dist/console/runtime/components",
       },
       {
@@ -150,6 +150,10 @@ export default defineConfig({
       },
       {
         from: "src/console/runtime/components/console-session-actions.vue",
+        to: "dist/console/runtime/components",
+      },
+      {
+        from: "src/console/runtime/components/console-session-cancel.vue",
         to: "dist/console/runtime/components",
       },
       {
@@ -182,6 +186,22 @@ export default defineConfig({
       },
       {
         from: "src/console/runtime/components/console-usage.vue",
+        to: "dist/console/runtime/components",
+      },
+      {
+        from: "src/console/runtime/components/console-usage-chart.vue",
+        to: "dist/console/runtime/components",
+      },
+      {
+        from: "src/console/runtime/components/console-usage-model-detail.vue",
+        to: "dist/console/runtime/components",
+      },
+      {
+        from: "src/console/runtime/components/console-usage-model.ts",
+        to: "dist/console/runtime/components",
+      },
+      {
+        from: "src/console/runtime/components/console-usage-share-bar.vue",
         to: "dist/console/runtime/components",
       },
       { from: "src/console/runtime/pages/agents.vue", to: "dist/console/runtime/pages" },
@@ -238,6 +258,7 @@ export default defineConfig({
     entry: [
       ...distributionEntries,
       "src/console/runtime/console-route.ts",
+      "src/console/runtime/client/appearance.ts",
       "src/console/runtime/client/invocation.ts",
       "src/console/runtime/client/invocation-deletion.ts",
       "src/console/runtime/client/request.ts",
@@ -276,6 +297,7 @@ export default defineConfig({
       customExports(exports) {
         delete exports["./console/runtime/console-route"];
         delete exports["./console/runtime/client/sections"];
+        delete exports["./console/runtime/client/appearance"];
         delete exports["./console/runtime/client/invocation"];
         delete exports["./console/runtime/client/invocation-deletion"];
         delete exports["./console/runtime/client/request"];

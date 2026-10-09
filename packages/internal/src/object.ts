@@ -1,12 +1,7 @@
 export function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (value === null || Object(value) !== value || Array.isArray(value)) return false
-  try {
-    Function.prototype.toString.call(value)
-    return false
-  }
-  catch {
-    return true
-  }
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This boundary must distinguish objects from functions.
+  return typeof value === "object"
 }
 
 export function isPlainRecord(value: unknown): value is Record<string, unknown> {

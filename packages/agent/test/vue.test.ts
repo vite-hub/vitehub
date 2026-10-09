@@ -230,6 +230,28 @@ describe("Agent Vue clients", () => {
     scope.stop()
   })
 
+  it("does not reconnect after immediate scope disposal", async () => {
+    vi.stubGlobal("window", {})
+    const fetch = vi.fn<typeof globalThis.fetch>(async (_input, request) => {
+      if (request?.method === "DELETE") return new Response(null, { status: 204 })
+      throw new Error("unexpected reconnect")
+    })
+    vi.stubGlobal("fetch", fetch)
+    const messages: UIMessage[] = [{ id: "user-1", parts: [{ text: "Hello", type: "text" }], role: "user" }]
+    const scope = effectScope()
+    const chat = scope.run(() => useChat(useAgent("support"), {
+      id: "chat-1",
+      messages,
+      resume: true,
+    }))!
+
+    scope.stop()
+    await new Promise<void>(resolve => queueMicrotask(resolve))
+
+    expect(fetch).not.toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ method: "GET" }))
+    expect(chat.status.value).toBe("ready")
+  })
+
   it("discards a stale replay stream after a reactive chat change", async () => {
     vi.stubGlobal("window", {})
     const responses = new Map<string, (response: Response) => void>()

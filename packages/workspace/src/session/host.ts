@@ -255,7 +255,7 @@ function toHostCwd(root: string, cwd: string | undefined) {
   const normalized = posix.normalize(cwd)
   if (normalized === root || normalized.startsWith(`${root}/`)) return normalized
   if (normalized === "/workspace" || normalized.startsWith("/workspace/"))
-    return toHostPath(root, normalized.slice("/workspace".length))
+    return toHostPath(root, normalized === "/workspace" ? "" : normalized.slice("/workspace/".length))
   throw workspaceError(`[vitehub] Workspace exec cwd must stay inside ${root}: ${cwd}.`)
 }
 
@@ -504,15 +504,17 @@ function mergeExcludedHostState(
     ...excluded.filter(root => beforePaths.some(path => path === root || path.startsWith(`${root}/`))),
     ...beforePaths.map(gitMetadataRoot).filter((path): path is string => Boolean(path)),
   ])]
-  const entries = Object.fromEntries(Object.entries(materialized.snapshot.entries)
-    .filter(([path]) => !occupiedRoots.some(root => path === root || path.startsWith(`${root}/`))))
+  const entries = Object.fromEntries([
+    ...Object.entries(materialized.snapshot.entries)
+      .filter(([path]) => !occupiedRoots.some(root => path === root || path.startsWith(`${root}/`))),
+    ...Object.entries(before.snapshot.entries),
+  ])
   const contents = new Map(materialized.contents)
   for (const root of occupiedRoots) {
     for (const path of contents.keys()) {
       if (path === root || path.startsWith(`${root}/`)) contents.delete(path)
     }
   }
-  for (const [path, entry] of Object.entries(before.snapshot.entries)) entries[path] = entry
   for (const [path, content] of before.contents) contents.set(path, content)
   return { contents, snapshot: { ...materialized.snapshot, entries } }
 }
@@ -861,7 +863,8 @@ async function materializeWorkspace(
           await host.files.write(target, contentToBytes(symlinkTarget), { signal: abortSignal })
       }
       else {
-        await host.files.write(target, contentToBytes(await workspace.readFile(entry.path, { encoding: "binary" })), { signal: abortSignal })
+        const content = contentToBytes(await workspace.readFile(entry.path, { encoding: "binary" }))
+        await host.files.write(target, content, { signal: abortSignal })
         if (entry.metadata?.gitMode === "100755") await makeHostFileExecutable(host, root, target, abortSignal)
       }
       abortSignal?.throwIfAborted()
@@ -870,9 +873,13 @@ async function materializeWorkspace(
   if (revision && await materializer?.currentRevision({ abortSignal: options?.abortSignal }) !== revision.revision) {
     throw workspaceConflict(`[vitehub] Workspace revision changed while this Session materialized: ${revision.revision}.`)
   }
-  const snapshot = options?.writeBack === false
-    ? await createSnapshotFromEntries(entries, "host-open")
-    : await snapshotHost(host, root, "host-open", abortSignal)
+  // Setup callbacks and host writes can change bytes, even without changing their size.
+  // Capture the opening baseline from the host after setup has completed.
+  const snapshot = captureSnapshot
+    ? options?.writeBack === false
+      ? await createSnapshotFromEntries(entries, "host-open")
+      : await snapshotHost(host, root, "host-open", abortSignal)
+    : undefined
   return { revision: revision?.revision, snapshot }
 }
 
@@ -923,6 +930,9 @@ export async function createHostedWorkspaceSession(
   }
   resolveHostInspectionConcurrency(host)
   resolveHostMaterializationConcurrency(host)
+  if (options.attach && options.disposableTarget) {
+    throw workspaceError("[vitehub] Workspace Session attach and disposableTarget cannot be combined.")
+  }
   const root = normalizeTarget(options.target)
   const sessionPaths = normalizeSessionPaths(options)
   const excludedWriteBackPaths = [
@@ -943,14 +953,15 @@ export async function createHostedWorkspaceSession(
       materializedExcludedState = await captureExcludedHostState(host, root, excludedWriteBackPaths, options.abortSignal)
   }
   catch (error) {
-    if (attachedState || !setupMutatedHost) throw error
+    // The caller deletes a disposable target, so restoring it only repeats the full copy.
+    if (attachedState || !setupMutatedHost || options.disposableTarget) throw error
     try {
       host.detachAbortSignal?.()
       await materializeWorkspace(workspace, host, root, {
         ...options,
         abortSignal: undefined,
         onProgress: undefined,
-      }, false)
+      }, false, undefined, false)
       await restoreExcludedHostState(host, root, excludedWriteBackPaths, existingExcludedState)
     }
     catch (restoreError) {
@@ -1167,6 +1178,11 @@ export async function createHostedWorkspaceSession(
       const abortSignal = closeOptions?.abortSignal
       abortSignal?.throwIfAborted()
       host.detachAbortSignal?.()
+      if (options.disposableTarget) {
+        // close() never writes to the Workspace. It only restores the target, which the caller deletes.
+        closed = true
+        return
+      }
       await ensureHostWorkspaceRoot(host, root, abortSignal)
       if (options.writeBack === false && !options.attach) {
         await materializeWorkspace(workspace, host, root, {
@@ -1219,7 +1235,7 @@ export async function createHostedWorkspaceSession(
             ...options,
             abortSignal,
             onProgress: undefined,
-          })
+          }, true, undefined, false)
         }
       }
       catch (error) {

@@ -933,9 +933,10 @@ onBeforeUnmount(() => clearTimeout(proofRefreshTimer));
 
 .support-matrix-navigation {
   position: fixed;
-  z-index: 40;
+  /* Keep the section menu beside the compact rail and below its expanded labels. */
+  z-index: 9;
   top: calc(var(--ui-header-height) + 42px + 0.5rem);
-  left: 0.5rem;
+  left: calc(var(--vh-rail-width) + 0.5rem);
 }
 
 .support-matrix-navigation-button,
@@ -1341,13 +1342,67 @@ a.support-matrix-host-link:hover {
   font-size: 0.8125rem;
 }
 
+/* The table scrolls sideways below 1120px, so keep row names visible while the host columns scroll. */
+@media (max-width: 1119px) {
+  .support-matrix-feature-heading,
+  .support-matrix-section-row > th,
+  .support-matrix-data-row > th {
+    position: sticky;
+    z-index: 1;
+    left: 0;
+    background: var(--ui-bg);
+    box-shadow: inset -1px 0 0 var(--ui-border);
+  }
+
+  .support-matrix-feature-heading {
+    z-index: 2;
+    background: color-mix(in srgb, var(--ui-bg-muted) 72%, var(--ui-bg));
+  }
+}
+
+/* Short landscape screens keep more rows below the sticky header and column heads. */
+@media (max-height: 30rem) {
+  .support-matrix-group-heading {
+    padding-block: 0.35rem;
+  }
+
+  .support-matrix-host-link {
+    min-height: 2.5rem;
+    flex-direction: row;
+  }
+}
+
+@media (pointer: coarse) {
+  .support-matrix-status {
+    min-height: 2.5rem;
+  }
+}
+
+/* Below lg, the header menu opens the documentation navigation. */
+@media (max-width: 1023px) {
+  .support-matrix-navigation {
+    display: none;
+  }
+}
+
 @media (max-width: 640px) {
+  /* The announcement can wrap to several lines on phones. Keep anchored
+     sections below the full banner, header, and breathing room. */
+  .support-matrix-section-anchor {
+    scroll-margin-block-start: 10rem;
+  }
+
+  .support-matrix-qualifications {
+    scroll-margin-block-start: calc(var(--ui-header-height) + 6rem + 1rem);
+  }
+
   .support-matrix-hero {
-    padding: 4rem 1rem 2.5rem;
+    padding: 2.5rem 1rem 2rem;
   }
 
   .support-matrix-hero h1 {
-    font-size: 2rem;
+    font-size: 1.625rem;
+    line-height: 1.2;
   }
 
   .support-matrix-main {
@@ -1358,8 +1413,25 @@ a.support-matrix-host-link:hover {
     justify-content: flex-start;
   }
 
+  .support-matrix-table {
+    min-width: 54rem;
+  }
+
+  .support-matrix-feature-column {
+    width: 8.5rem;
+  }
+
+  .support-matrix-host-column {
+    width: 6.5rem;
+  }
+
+  .support-matrix-data-row > th {
+    padding-inline: 0.625rem;
+    font-size: 0.8125rem;
+  }
+
   .support-matrix-qualifications {
-    padding-inline-start: 3.25rem;
+    padding-inline: 1rem;
   }
 
   .support-matrix-footer {

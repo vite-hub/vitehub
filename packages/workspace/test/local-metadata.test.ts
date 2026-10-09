@@ -68,3 +68,31 @@ it("keeps rejected writes out of metadata and permits a later write", async () =
   await store.setMeta!("ready", "updated")
   await expect(store.getMeta!("ready")).resolves.toBe("updated")
 })
+
+it("isolates nested metadata reads from the cache and later writes", async () => {
+  const { root, metadataPath, store } = await fixture()
+  const persisted = { nested: { label: "persisted" }, items: [{ count: 1 }] }
+  await store.setMeta!("object", persisted)
+  await store.setMeta!("array", persisted.items)
+
+  const first = await store.getMeta!("object") as typeof persisted
+  first.nested.label = "changed"
+  first.items[0]!.count = 2
+  const second = await store.getMeta!("object") as typeof persisted
+  expect(second).toEqual(persisted)
+  second.items.push({ count: 3 })
+
+  const array = await store.getMeta!("array") as typeof persisted.items
+  array[0]!.count = 4
+  array.push({ count: 5 })
+  await expect(store.getMeta!("array")).resolves.toEqual(persisted.items)
+  await expect(store.getMeta!("missing")).resolves.toBeUndefined()
+
+  await store.setMeta!("unrelated", "saved")
+  expect(JSON.parse(await readFile(metadataPath, "utf8"))).toEqual({
+    ready: "persisted", object: persisted, array: persisted.items, unrelated: "saved",
+  })
+  const reopened = createLocalWorkspaceStore(root)
+  await expect(reopened.getMeta!("object")).resolves.toEqual(persisted)
+  await expect(reopened.getMeta!("array")).resolves.toEqual(persisted.items)
+})

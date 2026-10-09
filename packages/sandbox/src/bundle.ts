@@ -118,7 +118,9 @@ export async function bundleSandboxDefinition(
           pluginBuild.onLoad({ filter: /.*/, namespace: SHIM_NAMESPACE }, () => ({
             contents: [
               'function hasStandardValidator(value) {',
-              '  return !!value && typeof value === "object" && !!value["~standard"] && typeof value["~standard"].validate === "function"',
+              '  if (!value || typeof value !== "object") return false',
+              '  const standard = value["~standard"]',
+              '  return Object.hasOwn(value, "~standard") && !!standard && typeof standard === "object" && typeof standard.validate === "function"',
               '}',
               '',
               'function createValidationError(cause) {',
@@ -133,7 +135,7 @@ export async function bundleSandboxDefinition(
               'export async function readValidatedPayload(payload, validate) {',
               '  if (hasStandardValidator(validate)) {',
               '    const result = await validate["~standard"].validate(payload)',
-              '    if (result.issues?.length)',
+              '    if (result.issues !== undefined)',
               '      throw createValidationError({ message: "Validation failed", issues: result.issues })',
               '    return result.value',
               '  }',

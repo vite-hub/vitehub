@@ -1,0 +1,39 @@
+diff --git a/dist/chunk-QDL6ESI2.js b/dist/chunk-QDL6ESI2.js
+index f7970c9882b80588db00527676cf9f67faf3b3f5..2eae3cce84263f827b5c65b08bfcd36ad1114fd6 100644
+--- a/dist/chunk-QDL6ESI2.js
++++ b/dist/chunk-QDL6ESI2.js
+@@ -177,7 +177,7 @@ var InvalidBlobsRegionError = class extends Error {
+ 
+ // src/retry.ts
+ import { getEnvironment as getEnvironment2 } from "@netlify/runtime-utils";
+-var DEFAULT_RETRY_DELAY = getEnvironment2().get("NODE_ENV") === "test" ? 1 : 5e3;
++var DEFAULT_RETRY_DELAY = 5e3;
+ var MIN_RETRY_DELAY = 1e3;
+ var MAX_RETRY = 5;
+ var RATE_LIMIT_HEADER = "X-RateLimit-Reset";
+diff --git a/dist/main.cjs b/dist/main.cjs
+index a917447995ed763a8da2f62e37f942a907235908..6019ff94a345d1b8198e4ebea2feb895b1f2f323 100644
+--- a/dist/main.cjs
++++ b/dist/main.cjs
+@@ -152,7 +152,7 @@ var InvalidBlobsRegionError = class extends Error {
+ 
+ // src/retry.ts
+ var import_runtime_utils4 = require("@netlify/runtime-utils");
+-var DEFAULT_RETRY_DELAY = (0, import_runtime_utils4.getEnvironment)().get("NODE_ENV") === "test" ? 1 : 5e3;
++var DEFAULT_RETRY_DELAY = 5e3;
+ var MIN_RETRY_DELAY = 1e3;
+ var MAX_RETRY = 5;
+ var RATE_LIMIT_HEADER = "X-RateLimit-Reset";
+diff --git a/dist/server.cjs b/dist/server.cjs
+index bb2212317ddd2eb8a258a22c32924dd416d42582..9f3e510bf947eb879bb15cd5e9ef29083a193f02 100644
+--- a/dist/server.cjs
++++ b/dist/server.cjs
+@@ -71,7 +71,7 @@ var decodeMetadata = (header) => {
+ 
+ // src/retry.ts
+ var import_runtime_utils3 = require("@netlify/runtime-utils");
+-var DEFAULT_RETRY_DELAY = (0, import_runtime_utils3.getEnvironment)().get("NODE_ENV") === "test" ? 1 : 5e3;
++var DEFAULT_RETRY_DELAY = 5e3;
+ 
+ // src/util.ts
+ var import_node_process = __toESM(require("process"), 1);

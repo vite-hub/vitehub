@@ -213,6 +213,41 @@ describe("kv runtime", () => {
     })
   })
 
+  it("reads Upstash runtime credentials under either env name", async () => {
+    const { resolveRuntimeKVOptions } = await import("../src/runtime/upstash.ts")
+    const masked = { store: { driver: "upstash" as const, token: "********", url: "********" } }
+
+    expect(resolveRuntimeKVOptions(masked, {
+      UPSTASH_REDIS_REST_TOKEN: "upstash-token",
+      UPSTASH_REDIS_REST_URL: "https://upstash.example.com",
+    })).toEqual({ store: { driver: "upstash", token: "upstash-token", url: "https://upstash.example.com" } })
+    expect(resolveRuntimeKVOptions(masked, {
+      KV_REST_API_TOKEN: "vercel-token",
+      KV_REST_API_URL: "https://vercel.example.com",
+      UPSTASH_REDIS_REST_TOKEN: "upstash-token",
+      UPSTASH_REDIS_REST_URL: "https://upstash.example.com",
+    })).toEqual({ store: { driver: "upstash", token: "vercel-token", url: "https://vercel.example.com" } })
+    expect(resolveRuntimeKVOptions(masked, {
+      KV_REST_API_URL: "https://stale.example.com",
+      UPSTASH_REDIS_REST_TOKEN: "upstash-token",
+      UPSTASH_REDIS_REST_URL: "https://upstash.example.com",
+    })).toEqual({ store: { driver: "upstash", token: "upstash-token", url: "https://upstash.example.com" } })
+    expect(resolveRuntimeKVOptions({ store: { driver: "upstash", token: "********", url: "https://configured.example.com" } }, {
+      KV_REST_API_TOKEN: "stale-token",
+      UPSTASH_REDIS_REST_TOKEN: "upstash-token",
+      UPSTASH_REDIS_REST_URL: "https://upstash.example.com",
+    })).toEqual({ store: { driver: "upstash", token: "upstash-token", url: "https://configured.example.com" } })
+    expect(() => resolveRuntimeKVOptions(masked, {
+      KV_REST_API_URL: "https://vercel.example.com",
+      UPSTASH_REDIS_REST_TOKEN: "upstash-token",
+    })).toThrow(
+      "Missing runtime environment variable `KV_REST_API_URL` or `UPSTASH_REDIS_REST_URL` for Upstash KV.",
+    )
+    expect(() => resolveRuntimeKVOptions(masked, {})).toThrow(
+      "Missing runtime environment variable `KV_REST_API_URL` or `UPSTASH_REDIS_REST_URL` for Upstash KV.",
+    )
+  })
+
   it("exposes atomic Upstash operations through the KV helper", async () => {
     process.env.KV_REST_API_URL = "https://upstash.example.com"
     process.env.KV_REST_API_TOKEN = "upstash-token"

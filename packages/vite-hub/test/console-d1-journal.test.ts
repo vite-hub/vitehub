@@ -8,10 +8,13 @@ import { installConsoleAgentDefinitions } from "../src/console/runtime/server/ag
 import { console as consoleRuntime } from "../src/console/server.ts"
 import { createConsoleD1Invocations, getConsoleInvocations, getConsoleUsageIndex, installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
 
-import usageHandler from "../src/console/runtime/server/usage.get.ts"
+import usageHandlerRoute from "../src/console/runtime/server/usage.get.ts"
 
 import type { AgentInvocationD1Database, AgentInvocationD1Statement } from "@vite-hub/agent/invocations/d1"
 import type { AgentInvocationRetentionOptions } from "@vite-hub/agent/server"
+import { allowed } from "./support/console-access.ts"
+
+const usageHandler = allowed(usageHandlerRoute)
 
 describe("Console D1 journal", () => {
   let miniflare: Miniflare

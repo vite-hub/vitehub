@@ -4,9 +4,13 @@ import type { ResolvedUpstashKVStoreConfig, UpstashKVStoreConfig } from "../type
 
 const maskedUpstashRuntimeValue = "********"
 
+/** Vercel names first, then the names that the Upstash console and NuxtHub use. */
+export const upstashUrlEnvNames = ["KV_REST_API_URL", "UPSTASH_REDIS_REST_URL"] as const
+export const upstashTokenEnvNames = ["KV_REST_API_TOKEN", "UPSTASH_REDIS_REST_TOKEN"] as const
+
 export function hasUpstashEnv(env: Record<string, string | undefined>): boolean {
-  const url = readEnv(env, "KV_REST_API_URL")
-  const token = readEnv(env, "KV_REST_API_TOKEN")
+  const url = readEnv(env, ...upstashUrlEnvNames)
+  const token = readEnv(env, ...upstashTokenEnvNames)
   return Boolean(url && token)
 }
 

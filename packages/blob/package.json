@@ -28,6 +28,8 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": "./dist/index.js",
+    "./cli": "./dist/cli.js",
+    "./client": "./dist/client.js",
     "./config": "./dist/config.js",
     "./content-type": "./dist/content-type.js",
     "./drivers/akamai": {
@@ -97,10 +99,12 @@
     "./ensure": "./dist/ensure.js",
     "./errors": "./dist/errors.js",
     "./runtime/cloudflare-vite": "./dist/runtime/cloudflare-vite.js",
+    "./runtime/dev": "./dist/runtime/dev.js",
     "./runtime/state": "./dist/runtime/state.js",
     "./runtime/vercel-vite": "./dist/runtime/vercel-vite.js",
     "./virtual": "./dist/virtual.js",
     "./vite": "./dist/vite.js",
+    "./vue": "./dist/vue.js",
     "./package.json": "./package.json"
   },
   "scripts": {
@@ -118,14 +122,15 @@
     "h3": "catalog:unjs",
     "mlly": "catalog:unjs",
     "nostics": "catalog:runtime",
-    "pathe": "catalog:unjs"
+    "pathe": "catalog:unjs",
+    "valibot": "catalog:runtime"
   },
   "devDependencies": {
     "@azure/identity": "catalog:storage",
     "@azure/storage-blob": "catalog:storage",
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
-    "@vite-hub/netlify-blobs-runtime": "npm:@netlify/blobs@11.0.3",
+    "@vite-hub/netlify-blobs-runtime": "npm:@netlify/blobs@11.1.3",
     "@vercel/blob": "catalog:storage",
     "files-sdk": "catalog:storage",
     "ofetch": "catalog:unjs",
@@ -133,7 +138,8 @@
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
-    "vitest": "catalog:tooling"
+    "vitest": "catalog:tooling",
+    "vue": "catalog:ui"
   },
   "peerDependencies": {
     "@aws-sdk/client-s3": "^3.700.0",
@@ -150,7 +156,8 @@
     "dropbox": "catalog:storage",
     "google-auth-library": "catalog:storage",
     "uploadthing": "catalog:storage",
-    "vite": "catalog:vite-compat"
+    "vite": "catalog:vite-compat",
+    "vue": "catalog:ui"
   },
   "peerDependenciesMeta": {
     "@aws-sdk/client-s3": {
@@ -196,6 +203,9 @@
       "optional": true
     },
     "vite": {
+      "optional": true
+    },
+    "vue": {
       "optional": true
     }
   },

@@ -26,7 +26,6 @@ function streamedPost(body: ReadableStream<Uint8Array>): Request {
 
 describe("createConnectionsHandler", () => {
   it.each([
-    undefined,
     () => undefined,
     () => "agent:worker",
     () => "user:",
@@ -63,6 +62,15 @@ describe("createConnectionsHandler", () => {
     expect(start.status).toBe(302);
     expect(new URL(start.headers.get("location")!).searchParams.get("state")).toBeTruthy();
     expect((await handler(post({ action: "inspect", name: "team//mail" }))).status).toBe(400);
+  });
+
+  it("rejects malformed encoded connection names with a client error", async () => {
+    const handler = createConnectionsHandler({ actor: () => "user:owner", runtime: () => createTestRuntime().runtime });
+
+    const response = await handler(new Request(`${origin}/_vitehub/connections/connect/%E0%A4%A`));
+
+    expect(response.status).toBe(400);
+    expect(await response.text()).toContain("Connection name is invalid");
   });
 
   it("runs JSON actions for same-origin requests", async () => {
@@ -240,6 +248,15 @@ describe("createConnectionsHandler", () => {
       new Request(`${origin}/_vitehub/connections/callback?code=code-1&state=${state}`),
     );
     expect(mismatch.status).toBe(400);
+    const sameLength = `${state.slice(0, -1)}${state.endsWith("A") ? "B" : "A"}`;
+    for (const cookieState of [state.slice(0, -1), `${state}x`, sameLength]) {
+      const wrong = await handler(
+        new Request(`${origin}/_vitehub/connections/callback?code=code-1&state=${state}`, {
+          headers: { cookie: `vitehub_connection_state=${cookieState}` },
+        }),
+      );
+      expect(wrong.status).toBe(400);
+    }
 
     test.provider.tokenResponses.push({
       body: {

@@ -6,13 +6,13 @@ import { readColocatedAgentSkills } from "@vite-hub/agent/vite"
 
 import type { AgentInvocationRetentionOptions, AgentInvocationsOptions } from "@vite-hub/agent/server"
 import type { ConsoleAgentEntry, ConsoleBuildCatalog } from "./build.ts"
+import type { ConsoleJournal } from "../storage-config.ts"
 import type { ConsoleSectionId } from "./runtime/sections.ts"
 
 import { consoleFixtureRevision, readConsoleFixture } from "./fixture.ts"
 import { createConsoleInvocationsIdentity } from "./internal.ts"
 import { resolveConsoleProjectNameFromRoot } from "./project.ts"
 import { describeConsoleContributedSections, describeConsoleRuntimeReaders } from "./contributions.ts"
-import { installConsoleFixtureInvocations } from "./runtime/server/invocations.ts"
 
 function renderRetentionLimit(value: number | false | undefined): string {
   if (value === undefined) return "undefined"
@@ -22,7 +22,46 @@ function renderRetentionLimit(value: number | false | undefined): string {
   // Keep invalid non-serializable limits subject to runtime validation.
   return JSON.stringify(value) ?? "null"
 }
-import type { ConsoleJournal } from "../storage-config.ts"
+/**
+ * The Console access policy that generated output installs. Every Console data route checks it.
+ * `check.module` is a generated Console Auth middleware that exports `checkConsoleAccess`.
+ * `check.appRoutes` lists the Primary Auth access routes that protect the Console.
+ */
+export type ConsoleAccessBuild =
+  | { mode: "local" }
+  | { mode: "auth" | "cloudflare-access", check?: { module: string } | { appRoutes: readonly { authorize: boolean, index: number, method?: string, route: string }[] } }
+  | { mode: "host-managed", authorize?: string }
+
+function renderConsoleAccess(access: ConsoleAccessBuild | undefined): { imports: string[], install: string[] } {
+  if (!access) return { imports: [], install: [] }
+  if (access.mode === "local") return { imports: [], install: ['installConsoleAccess({ mode: "local" })'] }
+  if (access.mode === "host-managed") {
+    return access.authorize
+      ? {
+          imports: [`import vitehubConsoleAuthorize from ${JSON.stringify(pathToFileURL(access.authorize).href)}`],
+          install: ['installConsoleAccess({ mode: "host-managed", authorize: vitehubConsoleAuthorize })'],
+        }
+      : { imports: [], install: ['installConsoleAccess({ mode: "host-managed" })'] }
+  }
+  const mode = JSON.stringify(access.mode)
+  if (!access.check) return { imports: [], install: [`installConsoleAccess({ mode: ${mode} })`] }
+  if ("module" in access.check) {
+    return {
+      imports: [`import { checkConsoleAccess as vitehubConsoleAccessCheck } from ${JSON.stringify(pathToFileURL(access.check.module).href)}`],
+      install: [`installConsoleAccess({ mode: ${mode}, check: vitehubConsoleAccessCheck })`],
+    }
+  }
+  const routes = JSON.stringify(access.check.appRoutes)
+  return access.check.appRoutes.length
+    ? {
+        imports: ['import { requireAuthAccessRoutes as vitehubRequireAuthAccessRoutes } from "#vitehub/auth/server"'],
+        install: [`installConsoleAccess({ mode: ${mode}, check: event => { const path = event.url.pathname; const method = (event.req?.method ?? event.request?.method ?? "GET").toUpperCase(); const matched = ${routes}.filter(route => { if (route.method && route.method !== method) return false; if (path === route.route) return true; if (!route.route.endsWith("/**")) return false; const base = route.route.slice(0, -3); return path === base || path.startsWith(base + "/") }); const indexes = matched.map(route => route.index); const required = matched.filter(route => route.authorize).map(route => route.index); return vitehubRequireAuthAccessRoutes(event, indexes, undefined, required, { redirectToSignIn: false }) } })`],
+      }
+    : {
+        imports: ['import { withAuthorization as vitehubWithAuthorization } from "#vitehub/auth/server"'],
+        install: [`installConsoleAccess({ mode: ${mode}, check: vitehubWithAuthorization(true, () => undefined) })`],
+      }
+}
 
 function renderConsoleNitroPlugin(
   projectRoot: string,
@@ -39,7 +78,9 @@ function renderConsoleNitroPlugin(
   journal?: ConsoleJournal,
   independentAuth: true | "cloudflare-access" | false = false,
   retention?: AgentInvocationRetentionOptions,
+  access?: ConsoleAccessBuild,
 ): string {
+  const accessCode = renderConsoleAccess(access)
   const definitions = agents.map((agent, index) => {
     const skills = readColocatedAgentSkills(agent.handler)
     const module = `vitehubConsoleAgent${index}`
@@ -52,19 +93,19 @@ function renderConsoleNitroPlugin(
   const blobEnabled = sections.includes("blob")
   const databaseEnabled = sections.includes("databases")
   const kvEnabled = sections.includes("kv")
-  const contributedSections = describeConsoleContributedSections(sections)
-  const runtimeReaders = describeConsoleRuntimeReaders(sections)
-  const definitionsEnabled = databaseEnabled || contributedSections.length > 0
   const schedulesEnabled = sections.includes("schedules")
-  // Console invocation also allows manual Schedule runs. Without it, the installed registry stays empty.
   const runnableSchedules = (invoke ? catalog.manualSchedules ?? [] : [])
     .map(schedule => ` [${JSON.stringify(schedule.name)}]: () => import(${JSON.stringify(pathToFileURL(schedule.handler).href)}),`)
     .join("")
     .replace(/,$/, " ")
+  const contributedSections = describeConsoleContributedSections(sections)
+  const runtimeReaders = describeConsoleRuntimeReaders(sections)
+  const definitionsEnabled = databaseEnabled || contributedSections.length > 0
   const revision = fixtureSnapshot ? consoleFixtureRevision(fixtureSnapshot) : undefined
   const fixtureSource = fixtureSnapshot ? `JSON.parse(${JSON.stringify(JSON.stringify(fixtureSnapshot))})` : undefined
   return [
-    `import { installConsoleProjectName, installConsoleSections } from "vite-hub/console/sections"`,
+    `import { ${access ? "installConsoleAccess, " : ""}installConsoleProjectName, installConsoleSections } from "vite-hub/console/sections"`,
+    ...accessCode.imports,
     ...(blobEnabled
       ? [
           `import { installConsoleBlob } from "vite-hub/console/blob"`,
@@ -72,7 +113,7 @@ function renderConsoleNitroPlugin(
         ]
       : []),
     ...(agentsEnabled
-      ? [`import { installConsoleAgentDefinitions, installConsoleFixtureInvocations } from "vite-hub/console/server"`, `import { agentWithColocatedSkills } from "@vite-hub/agent/runtime/workflow"`]
+      ? [`import { installConsoleAgentDefinitions, installConsoleFixtureInvocations } from "vite-hub/console/server"`, `import { agentWithColocatedSkills } from "vite-hub/_internal/agent/runtime/workflow"`]
       : []),
     ...(definitionsEnabled ? [`import { installConsoleDefinitions${schedulesEnabled ? ", installConsoleSchedules" : ""} } from "vite-hub/console/definitions"`] : []),
     ...(definitionsEnabled
@@ -92,6 +133,7 @@ function renderConsoleNitroPlugin(
       : []),
     ...(sections.includes("env") ? [`import { describeServerEnv } from "#vitehub/env/description"`, `import { installConsoleEnv } from "vite-hub/console/env"`] : []),
     ...agents.map((agent, index) => `import * as vitehubConsoleAgent${index} from ${JSON.stringify(pathToFileURL(agent.handler).href)}`),
+    ...accessCode.install,
     `installConsoleSections(${JSON.stringify(projectRoot)}, ${JSON.stringify(sections)}${independentAuth ? `, ${JSON.stringify(independentAuth)}` : ""})`,
     ...(blobEnabled
       ? [`installConsoleBlob(${JSON.stringify(projectRoot)}, vitehubConsoleBlob, ${JSON.stringify(blobStores)})`]
@@ -135,6 +177,7 @@ export async function writeConsoleNitroPlugin(
   journal?: ConsoleJournal,
   independentAuth: true | "cloudflare-access" | false = false,
   retention?: AgentInvocationRetentionOptions,
+  access?: ConsoleAccessBuild,
 ): Promise<string> {
   const snapshot = fixture ? readConsoleFixture(fixture) : undefined
   const identity = createConsoleInvocationsIdentity(
@@ -144,12 +187,14 @@ export async function writeConsoleNitroPlugin(
     runtimeBinding,
   )
   if (!active()) return identity
-  const contents = renderConsoleNitroPlugin(projectRoot, sections, agents, catalog, blobStores, kvStores, fixture, snapshot, runtimeBinding, invoke, observations, journal, independentAuth, retention)
+  const contents = renderConsoleNitroPlugin(projectRoot, sections, agents, catalog, blobStores, kvStores, fixture, snapshot, runtimeBinding, invoke, observations, journal, independentAuth, retention, access)
   if (await readFile(file, "utf8").catch(() => undefined) !== contents) {
     await mkdir(resolve(file, ".."), { recursive: true })
     await writeFile(file, contents, "utf8")
   }
   if (fixture && snapshot) {
+    // The invocation runtime loads Drizzle and libSQL. Load it only for a Console fixture.
+    const { installConsoleFixtureInvocations } = await import("./runtime/server/invocations.ts")
     installConsoleFixtureInvocations(projectRoot, fixture, snapshot, consoleFixtureRevision(snapshot), runtimeBinding)
   }
   return identity

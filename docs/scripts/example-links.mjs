@@ -65,6 +65,7 @@ export async function checkExampleLinks(examples, options = {}) {
     if (example.status !== "published") continue;
     const category = example.kind === "template" ? "template-action" : "catalog-url";
     const actionResponse = await check(category, example.name, example.action.to);
+    if (example.website) await check("website", example.name, example.website);
 
     const repository = githubRepository(actionResponse?.url) ?? githubRepository(example.action.to);
     if (!repository) continue;

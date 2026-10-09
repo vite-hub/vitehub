@@ -97,7 +97,7 @@ export async function readSnapshot(read: ReadGitHubSnapshot, repository: string,
 
 export async function hydrateSnapshot(inbox: PullRequestInbox, claim: Claim, read: ReadGitHubSnapshot, readThreads?: ReadThreads, activityAuthors: readonly string[] = []): Promise<boolean> {
   const { snapshot: current } = claim
-  if (current.hydrated && !current.refresh) {
+  if (current.hydrated && !current.refresh && current.pr?.mergeable !== null && current.pr?.mergeable_state !== 'unknown') {
     if (!readThreads || current.threadsHydrated && !current.feedbackRefresh) return true
     const threads = await readThreads(current.repository, current.number)
     return await inbox.hydrate(claim, { threads, threadsHydrated: true, feedbackRefresh: false })
@@ -192,6 +192,10 @@ export function openPullRequestFingerprint(pr: OpenPullRequest): string {
 
 type PendingChange = { fingerprint: string; retryAt: number }
 const pendingChangeSchema = v.object({ fingerprint: v.string(), retryAt: v.number() })
+// Webhooks can wake the reconciler concurrently. Keep the expensive open-PR
+// snapshot scan single-flight per inbox so each wake cannot reread every large
+// snapshot row before the durable minute gate is observed.
+const changeDetectionInFlight = new WeakSet<PullRequestInbox>()
 
 /**
  * Reads every open PR of each repository in one GraphQL query per 50 PRs, at most once a minute.
@@ -199,6 +203,9 @@ const pendingChangeSchema = v.object({ fingerprint: v.string(), retryAt: v.numbe
  * This recovers lost webhook deliveries without probing unchanged PRs.
  */
 export async function detectChangedPullRequests(inbox: PullRequestInbox, graphql: (repository: string) => ReadGraphql, repositories: readonly string[], now: number = Date.now(), allowSeed = true): Promise<void> {
+  if (changeDetectionInFlight.has(inbox)) return
+  changeDetectionInFlight.add(inbox)
+  try {
   if (((await inbox.metaNumber('change-detect-next')) ?? 0) > now) return
   await inbox.setMeta('change-detect-next', now + 60_000)
   const tracked = await inbox.summary()
@@ -244,6 +251,10 @@ export async function detectChangedPullRequests(inbox: PullRequestInbox, graphql
       // The next interval retries this repository; partial pages are never marked.
       continue
     }
+  }
+
+  } finally {
+    changeDetectionInFlight.delete(inbox)
   }
 }
 

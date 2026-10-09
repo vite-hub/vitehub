@@ -4,7 +4,7 @@ Use this for application-owned storage, scheduling, environment, messaging, exec
 
 ## Choose the primitive
 
-When the primitive is known, open only its raw docs page, such as `https://vitehub.dev/raw/docs/server-primitives/kv.md`. Use the [Server Primitives index](https://vitehub.dev/raw/docs/server-primitives.md) only when choosing between primitives. Confirm the selected primitive's Vite Integration, optional Definition, Runtime Helper, local driver, and host support.
+When the primitive is known, open only its raw docs page, such as `https://vitehub.dev/raw/docs/kv.md`. Use the [Server Primitives index](https://vitehub.dev/raw/docs/getting-started/server-primitives.md) only when choosing between primitives. Confirm the selected primitive's Vite Integration, optional Definition, Runtime Helper, local driver, and host support.
 
 Common composition:
 

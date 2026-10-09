@@ -7,4 +7,3 @@ export async function parseCollectionSchema<TOutput>(schema: StandardSchemaV1<un
   if (result.issues) throw sourceErrorDiagnostics.SOURCE_R0006({ message: result.issues[0]?.message ?? "Collection value is invalid." })
   return result.value
 }
-

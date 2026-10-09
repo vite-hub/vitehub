@@ -10,9 +10,9 @@ export interface ConsoleDefinitionSummary {
   fields: readonly ConsoleDefinitionField[]
   file: string
   name: string
-  /** The Console can run this definition now. Only manual Schedule Definitions with Console invocation set it. */
-  runnable?: boolean
   source: string
+  /** The Console can run this manual Schedule Definition. */
+  runnable?: boolean
 }
 
 export interface ConsoleRecordColumn {
@@ -102,9 +102,15 @@ export function parseConsoleDefinitionSummaries(value: unknown): ConsoleDefiniti
   if (!Array.isArray(value)) return []
   return value.flatMap((entry) => {
     const definition = record(entry)
-    return text(definition?.name) && text(definition.file) && text(definition.source)
-      ? [{ fields: parseConsoleDefinitionFields(definition.fields), file: definition.file, name: definition.name, runnable: definition.runnable === true ? true : undefined, source: definition.source }]
-      : []
+    if (!text(definition?.name) || !text(definition.file) || !text(definition.source)) return []
+    const parsed: ConsoleDefinitionSummary = {
+      fields: parseConsoleDefinitionFields(definition.fields),
+      file: definition.file,
+      name: definition.name,
+      source: definition.source,
+    }
+    if (definition.runnable === true) parsed.runnable = true
+    return [parsed]
   })
 }
 

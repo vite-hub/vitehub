@@ -308,7 +308,9 @@ export function renderSupportProofMarkdownRows(): string {
         const outcome = presentation.state === "failed" || presentation.state === "incomplete"
           ? `**${presentation.display}** `
           : "";
-        return `${outcome}[Evidence](${claim.evidence.url}) (${claim.evidence.observedAt.slice(0, 10)}${maxAgeDays === null ? "" : `; ${maxAgeDays}-day freshness window`})`;
+        const observed = claim.evidence.observedAt.slice(0, 10);
+        const freshness = maxAgeDays === null ? "" : `; stale after ${maxAgeDays} days`;
+        return `${outcome}[Evidence](${claim.evidence.url}) (last observed ${observed}${freshness})`;
       });
       return `| ${label} | ${cells.join(" | ")} |`;
     })

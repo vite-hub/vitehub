@@ -127,7 +127,10 @@ function readProperty(value: unknown, key: string) {
 
 function decodeCursor(cursor: string | undefined): FoldedCursor {
   if (!cursor) return { directoriesConsumed: false, index: 0 }
-  const parsed: unknown = JSON.parse(decodeBase64(cursor))
+  if (!/^[A-Za-z0-9_-]*$/.test(cursor) || cursor.length % 4 === 1) throw new TypeError("Invalid Blob cursor.")
+  const decoded = decodeBase64(cursor)
+  if (encodeBase64Url(decoded) !== cursor) throw new TypeError("Invalid Blob cursor.")
+  const parsed: unknown = JSON.parse(decoded)
   const directoriesConsumed = readProperty(parsed, "directoriesConsumed")
   const index = readProperty(parsed, "index")
   const providerCursor = readProperty(parsed, "providerCursor")
@@ -260,28 +263,47 @@ async function listPage(fetchPage: (parameters: Record<string, string>) => Promi
     throw blobErrorDiagnostics.BLOB_R0010({ message: `Netlify Blobs list failed with status ${response.status}.` })
   }
   const body: unknown = await response.json()
-  const blobs = readProperty(body, "blobs")
-  const directories = readProperty(body, "directories")
+  if (!isPlainObject(body)) {
+    throw blobErrorDiagnostics.BLOB_R0010({ message: "Netlify Blobs list returned an invalid response." })
+  }
+  const blobs = Object.hasOwn(body, "blobs") ? readProperty(body, "blobs") : []
+  const directories = Object.hasOwn(body, "directories") ? readProperty(body, "directories") : []
   const nextCursor = readProperty(body, "next_cursor")
+  if (
+    !Array.isArray(blobs)
+    || !Array.isArray(directories)
+    || (nextCursor !== undefined && !isString(nextCursor))
+  ) {
+    throw blobErrorDiagnostics.BLOB_R0010({ message: "Netlify Blobs list returned an invalid response." })
+  }
+  const normalizedBlobs: NetlifyListBlob[] = []
+  for (const value of blobs) {
+    const etag = readProperty(value, "etag")
+    const key = readProperty(value, "key")
+    if (!isString(etag) || !isString(key)) {
+      throw blobErrorDiagnostics.BLOB_R0010({ message: "Netlify Blobs list returned an invalid response." })
+    }
+    const blob: NetlifyListBlob = { etag, key }
+    const size = readProperty(value, "size")
+    if (size !== undefined && (!isNumber(size) || !Number.isFinite(size) || size < 0)) {
+      throw blobErrorDiagnostics.BLOB_R0010({ message: "Netlify Blobs list returned an invalid response." })
+    }
+    if (isNumber(size)) blob.size = size
+    for (const field of ["last_modified", "lastModified", "uploaded_at", "uploadedAt"] as const) {
+      const timestamp = readProperty(value, field)
+      if (timestamp !== undefined && !isString(timestamp)) {
+        throw blobErrorDiagnostics.BLOB_R0010({ message: "Netlify Blobs list returned an invalid response." })
+      }
+      if (isString(timestamp)) blob[field] = timestamp
+    }
+    normalizedBlobs.push(blob)
+  }
+  if (!directories.every(isString)) {
+    throw blobErrorDiagnostics.BLOB_R0010({ message: "Netlify Blobs list returned an invalid response." })
+  }
   return {
-    blobs: Array.isArray(blobs)
-      ? blobs.flatMap((value): NetlifyListBlob[] => {
-          const etag = readProperty(value, "etag")
-          const key = readProperty(value, "key")
-          if (!isString(etag) || !isString(key)) return []
-          const blob: NetlifyListBlob = { etag, key }
-          const size = readProperty(value, "size")
-          if (isNumber(size) && Number.isFinite(size) && size >= 0) blob.size = size
-          for (const field of ["last_modified", "lastModified", "uploaded_at", "uploadedAt"] as const) {
-            const timestamp = readProperty(value, field)
-            if (isString(timestamp)) blob[field] = timestamp
-          }
-          return [blob]
-        })
-      : [],
-    directories: Array.isArray(directories)
-      ? directories.filter(isString)
-      : [],
+    blobs: normalizedBlobs,
+    directories,
     next_cursor: isString(nextCursor) ? nextCursor : undefined,
   }
 }
@@ -406,6 +428,7 @@ export function createDriver(options: NetlifyBlobsStoreConfig): BlobDriverAdapte
       let hasMore = false
       let nextCursor: FoldedCursor | undefined
       let providerCursor = cursor.providerCursor
+      const seenProviderCursors = new Set<string>(providerCursor ? [providerCursor] : [])
       let startIndex = cursor.index
       let directoriesConsumed = cursor.directoriesConsumed
       while (true) {
@@ -434,6 +457,10 @@ export function createDriver(options: NetlifyBlobsStoreConfig): BlobDriverAdapte
         }
         if (hasMore) break
         if (!page.next_cursor) break
+        if (seenProviderCursors.has(page.next_cursor)) {
+          throw blobErrorDiagnostics.BLOB_R0017({ message: "Netlify Blobs listing returned a repeated pagination cursor." })
+        }
+        seenProviderCursors.add(page.next_cursor)
         providerCursor = page.next_cursor
         startIndex = 0
         directoriesConsumed = false

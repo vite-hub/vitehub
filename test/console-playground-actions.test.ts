@@ -23,28 +23,25 @@ async function invoke(body: string, id = "missing", method: "GET" | "POST" = "PO
 }
 
 describe("Console playground Invocation actions", () => {
-  it.each(["{", '{"action":"cancel"}', '{"action":"delete","extra":true}', "[]", "null", "{}"])("rejects unsupported input %s before deletion", async (body) => {
+  it.each(["{", '{"action":"rerun"}', '{"action":"cancel","extra":true}', "[]", "null", "{}"])("rejects unsupported input %s before cancellation", async (body) => {
     expect(await invoke(body, "ainv_capabilities_mcp_title")).toMatchObject({ status: 400 })
     expect(await invoke("", "ainv_capabilities_mcp_title", "GET")).toMatchObject({ status: 200 })
   })
 
-  it("accepts the strict delete action and reports a missing record", async () => {
-    expect(await invoke('{"action":"delete"}')).toMatchObject({ status: 404, body: { error: "Invocation not found" } })
+  it("accepts the strict cancel action and reports a missing record", async () => {
+    expect(await invoke('{"action":"cancel"}')).toMatchObject({ status: 404, body: { error: "Invocation not found" } })
   })
 
-  it("deletes an existing record only after the strict delete action", async () => {
-    expect(await invoke('{"action":"delete"}', "ainv_capabilities_mcp_title")).toEqual({
-      status: 200,
-      body: { id: "ainv_capabilities_mcp_title", outcome: "deleted" },
-    })
-    expect(await invoke("", "ainv_capabilities_mcp_title", "GET")).toMatchObject({ status: 404 })
-  })
-
-  it.each(["ainv_queue_visibility", "ainv_console_navigation"])("keeps %s while it is not terminal", async (id) => {
-    expect(await invoke('{"action":"delete"}', id)).toEqual({
+  it("rejects cancellation for a terminal record", async () => {
+    expect(await invoke('{"action":"cancel"}', "ainv_capabilities_mcp_title")).toEqual({
       status: 409,
-      body: { error: "Only completed, failed, or cancelled invocations can be deleted." },
+      body: { error: "Only pending or running invocations can be cancelled." },
     })
+    expect(await invoke("", "ainv_capabilities_mcp_title", "GET")).toMatchObject({ status: 200 })
+  })
+
+  it.each(["ainv_queue_visibility", "ainv_console_navigation"])("cancels %s while it is active", async (id) => {
+    expect(await invoke('{"action":"cancel"}', id)).toMatchObject({ status: 200 })
     expect(await invoke("", id, "GET")).toMatchObject({ status: 200 })
   })
 })

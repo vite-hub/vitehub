@@ -5,9 +5,14 @@ import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { loadNuxt } from "nuxt";
 
+import { componentEntryName, componentNames } from "../src/component-entries.ts";
 import { viteHubUIIcons } from "../src/icons.ts";
 
 const roots: string[] = [];
+
+function componentEntry(name: string): RegExp {
+  return new RegExp(`/dist/${componentEntryName(name)}\\.js$`);
+}
 
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { force: true, recursive: true })));
@@ -46,18 +51,11 @@ describe("ViteHub UI Nuxt module", () => {
       const components: Array<{ export?: string; filePath?: string; pascalName?: string }> = [];
       await nuxt.callHook("components:extend", components as never);
       expect(components).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({ export: "AgentChat", filePath: expect.stringMatching(/\/dist\/index\.js$/) }),
-          expect.objectContaining({ export: "AgentCodeView", filePath: expect.stringMatching(/\/dist\/index\.js$/) }),
-          expect.objectContaining({ export: "AgentFile", filePath: expect.stringMatching(/\/dist\/index\.js$/) }),
-          expect.objectContaining({ export: "AgentFileDiff", filePath: expect.stringMatching(/\/dist\/index\.js$/) }),
-          expect.objectContaining({ export: "AgentInvocationList", filePath: expect.stringMatching(/\/dist\/index\.js$/) }),
-          expect.objectContaining({ export: "AgentMultiFileDiff", filePath: expect.stringMatching(/\/dist\/index\.js$/) }),
-          expect.objectContaining({ export: "AgentPatchDiff", filePath: expect.stringMatching(/\/dist\/index\.js$/) }),
-          expect.objectContaining({ export: "AgentSession", filePath: expect.stringMatching(/\/dist\/index\.js$/) }),
-          expect.objectContaining({ export: "AgentTrace", filePath: expect.stringMatching(/\/dist\/index\.js$/) }),
-          expect.objectContaining({ export: "AgentUnresolvedFile", filePath: expect.stringMatching(/\/dist\/index\.js$/) }),
-        ]),
+        expect.arrayContaining(
+          componentNames.map((name) =>
+            expect.objectContaining({ export: name, filePath: expect.stringMatching(componentEntry(name)) }),
+          ),
+        ),
       );
 
       const icons = new Set(["app:existing"]);

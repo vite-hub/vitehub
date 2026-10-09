@@ -1,9 +1,7 @@
-import { captureWorkflowDefinitionLoader } from "./definitions.ts"
 import { getOpenWorkflowRuntime, registerOpenWorkflowDefinition } from "./openworkflow.ts"
 import { runWorkflowProviderOperation } from "./provider-operation.ts"
 import { getInlineWorkflowDefinitions, getWorkflowRuntimeConfig, getWorkflowRuntimeRegistry, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry, takeInlineWorkflowDefinitionForModule } from "./state.ts"
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
-import { isRuntimeRecord } from "../internal/runtime-type.ts"
+import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts"
 import { ViteHubError } from "@vite-hub/runtime"
 import { createWorkflowError } from "../errors.ts"
 
@@ -55,8 +53,8 @@ async function loadRegistryDefinitions(registry: WorkflowDefinitionRegistry) {
   return definitions
 }
 
-function mergeInlineDefinitions(definitions: Map<string, WorkflowDefinition>, inlineDefinitions: ReadonlyMap<string, WorkflowDefinition>) {
-  for (const [name, definition] of inlineDefinitions) {
+function mergeInlineDefinitions(definitions: Map<string, WorkflowDefinition>) {
+  for (const [name, definition] of getInlineWorkflowDefinitions()) {
     const existing = definitions.get(name)
     if (existing && existing !== definition) {
       throw workflowErrorDiagnostics.WORKFLOW_R0016({ message: `Duplicate workflow name "${name}" from inline and discovered definitions.` })
@@ -76,14 +74,9 @@ export async function createOpenWorkflowWorker(options: CreateOpenWorkflowWorker
   setWorkflowRuntimeConfig(config)
   setWorkflowRuntimeRegistry(registry)
 
-  const loadDefinitions = captureWorkflowDefinitionLoader()
-  const inlineDefinitions = new Map(getInlineWorkflowDefinitions())
   const runtime = await getOpenWorkflowRuntime(config)
-  const definitions = await loadDefinitions(async (registeredDefinitions) => {
-    const loaded = await loadRegistryDefinitions(registry)
-    mergeInlineDefinitions(loaded, new Map([...inlineDefinitions, ...registeredDefinitions]))
-    return loaded
-  })
+  const definitions = await loadRegistryDefinitions(registry)
+  mergeInlineDefinitions(definitions)
   for (const [name, definition] of definitions) {
     await registerOpenWorkflowDefinition(runtime, name, definition)
   }

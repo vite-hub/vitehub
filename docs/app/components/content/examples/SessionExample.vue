@@ -15,12 +15,30 @@ const session: ViteHubUISession<UIMessage> = {
     {
       id: "assistant-1",
       role: "assistant",
-      parts: [{ type: "text", text: "The layout fix is tested and ready for review." }],
+      parts: [
+        {
+          type: "tool-exec_command",
+          toolCallId: "call_1",
+          state: "output-available",
+          input: { command: "pnpm test invocation-ui" },
+          output: "10 tests passed",
+        },
+        {
+          type: "text",
+          state: "done",
+          text: "Each row now reports its own height. The focused tests pass, and the PR description lists the change.",
+        },
+      ],
+    },
+    {
+      id: "user-2",
+      role: "user",
+      parts: [{ type: "text", text: "Thanks. Leave the PR open for review." }],
     },
   ],
 };
 </script>
 
 <template>
-  <AgentSession :session="session" status="ready" class="h-96" />
+  <AgentSession :session="session" status="ready" class="h-[30rem]" />
 </template>

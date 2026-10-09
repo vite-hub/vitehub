@@ -4,7 +4,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import { bindAgentInvocations, defineAgentInvocations } from "../src/invocations.ts"
 import { createD1AgentInvocationStore, d1AgentInvocationSchema } from "../src/invocations/d1.ts"
 
-import type { AgentInvocationD1Database, D1AgentInvocationStoreOptions } from "../src/invocations/d1.ts"
+import type { AgentInvocationD1Database, AgentInvocationD1Result, AgentInvocationD1Statement, D1AgentInvocationStoreOptions } from "../src/invocations/d1.ts"
 import type { AgentInvocationListOptions, AgentInvocationStoreCreateInput } from "../src/invocations.ts"
 
 const timestamp = new Date().toISOString()
@@ -48,6 +48,20 @@ describe("D1 Agent Invocation store", () => {
   })
   afterAll(async () => { await miniflare?.dispose() })
 
+  it("preserves and clears pending dispatch verification", async () => {
+    const journal = store()
+    await journal.create(invocation("pending-dispatch", { cancelWarningOwnerId: "original-owner", cancelWarningPending: true }))
+    await journal.update("pending-dispatch", { cancelRequestedAt: timestamp, timestamp })
+    expect(await journal.getSummary("pending-dispatch")).toMatchObject({ cancelRequestedAt: timestamp, cancelWarningOwnerId: "original-owner", cancelWarningPending: true })
+    expect(await journal.claim("pending-dispatch", "owner", 30_000)).toBe(true)
+    await journal.update("pending-dispatch", { cancelWarningOwnerId: "replacement-owner", cancelWarningPending: true, timestamp }, "owner")
+    expect(await journal.getSummary("pending-dispatch")).toMatchObject({ cancelWarningOwnerId: "replacement-owner", cancelWarningPending: true })
+    await journal.update("pending-dispatch", { cancelNotEnforcedBy: "run", cancelWarningPending: false, status: "running", timestamp }, "owner")
+    expect(await journal.getSummary("pending-dispatch")).toMatchObject({ cancelNotEnforcedBy: "run", status: "running" })
+    expect(await journal.getSummary("pending-dispatch")).not.toHaveProperty("cancelWarningPending")
+    expect(await journal.getSummary("pending-dispatch")).not.toHaveProperty("cancelWarningOwnerId")
+  })
+
   it("preserves direct D1 list diagnostic codes", async () => {
     const journal = store()
     await expect(journal.list({ limit: 0 })).rejects.toMatchObject({ code: "AGENT_R0919" })
@@ -57,7 +71,7 @@ describe("D1 Agent Invocation store", () => {
     await expect(journal.list({ search: 1 } as unknown as AgentInvocationListOptions)).rejects.toMatchObject({ code: "AGENT_R0619" })
   })
 
-  it("requires an explicit migration when migrate is false and resolves the request binding once per operation", async () => {
+  it("requires an explicit migration and resolves the request binding once per operation", async () => {
     const resolve = vi.fn(() => database)
     const journal = store({ database: resolve, migrate: false, tablePrefix: "unmigrated_" })
     expect(resolve).not.toHaveBeenCalled()
@@ -456,6 +470,79 @@ describe("D1 Agent Invocation store", () => {
     await expect(invocations.delete("recent")).resolves.toBe("deleted")
     expect((await invocations.list()).invocations.map(record => record.id)).toEqual(["old-running"])
   })
+
+  it("bounds the rows that retention reads in a full journal", async () => {
+    const d1 = await miniflare.getD1Database("DB")
+    type Statement = ReturnType<typeof d1.prepare>
+    let rowsRead = 0
+    const read = <T>(result: AgentInvocationD1Result<T>) => {
+      rowsRead += Number(Reflect.get(result.meta, "rows_read"))
+      return result
+    }
+    const statements = new WeakMap<AgentInvocationD1Statement, Statement>()
+    const wrap = (statement: Statement): AgentInvocationD1Statement => {
+      const wrapped: AgentInvocationD1Statement = {
+        bind: (...values) => wrap(statement.bind(...values)),
+        all: async <T>() => read(await statement.all<T>()),
+      }
+      statements.set(wrapped, statement)
+      return wrapped
+    }
+    const measured: AgentInvocationD1Database = {
+      prepare: query => wrap(d1.prepare(query)),
+      batch: async <T>(batch: AgentInvocationD1Statement[]) => (await d1.batch<T>(batch.map(statement => statements.get(statement)!))).map(read),
+    }
+    const readsOf = async (operation: () => unknown) => {
+      rowsRead = 0
+      await operation()
+      return rowsRead
+    }
+    const table = `${tablePrefix}invocations`
+    const day = 24 * 60 * 60 * 1000
+    const terminalCount = async () => (await d1.prepare(`SELECT count(*) AS count FROM ${table} WHERE status IN ('completed', 'failed', 'cancelled')`).first<{ count: number }>())?.count
+    // 20 expired terminal records, 50 running records, and 10,050 recent terminal records.
+    await d1.prepare(`WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 10120)
+      INSERT INTO ${table} (id, status, agent_name, search, summary, updated_at, record)
+      SELECT 'seed-' || i, CASE WHEN i % 200 = 0 THEN 'running' WHEN i % 3 = 0 THEN 'failed' ELSE 'completed' END, 'seed', '', '{}',
+        CASE WHEN i <= 20 THEN ? ELSE ? END, '{}' FROM n`).bind(new Date(Date.now() - 40 * day).toISOString(), timestamp).run()
+    // Newer active records must not add reads to the terminal cutoff scan.
+    await d1.prepare(`WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 20000)
+      INSERT INTO ${table} (id, status, agent_name, search, summary, updated_at, record)
+      SELECT 'active-' || i, CASE WHEN i % 2 = 0 THEN 'running' ELSE 'pending' END, 'seed', '', '{}', ?, '{}' FROM n`).bind(timestamp).run()
+    const journal = store({ database: measured })
+    const invocations = defineAgentInvocations({ store: journal })
+    const random = vi.spyOn(Math, "random")
+    try {
+      // Most writes run only the age limit, which reads the expired rows it deletes.
+      random.mockReturnValue(0.99)
+      expect(await readsOf(() => journal.create(invocation("run")))).toBeLessThan(200)
+      expect(await terminalCount()).toBe(10_050)
+      expect(await readsOf(() => journal.update("run", { status: "completed", timestamp }))).toBeLessThan(100)
+      expect(await terminalCount()).toBe(10_051)
+
+      // The sampled count limit reads about maxRecords rows and keeps the newest 10,000 terminal records.
+      random.mockReturnValue(0)
+      expect(await readsOf(() => journal.create(invocation("sampled")))).toBeLessThan(10_500)
+      expect(await terminalCount()).toBe(10_000)
+      expect(await journal.get("run")).toMatchObject({ status: "completed" })
+      expect(await d1.prepare(`SELECT count(*) AS count FROM ${table} WHERE status IN ('pending', 'running')`).first("count")).toBe(20_051)
+
+      await journal.create(invocation("overflow", { status: "completed" }))
+      expect(await terminalCount()).toBe(10_000)
+      expect(await readsOf(() => invocations.prune({ dryRun: true }))).toBeLessThan(10_500)
+      expect(await readsOf(() => invocations.prune())).toBeLessThan(10_500)
+      expect(await readsOf(() => invocations.prune({ olderThanMs: 30 * day }))).toBeLessThan(100)
+
+      // A missing cutoff must stop at the last terminal row, even in an active-heavy journal.
+      await d1.prepare(`DELETE FROM ${table} WHERE status IN ('completed', 'failed', 'cancelled') AND id != 'run'`).run()
+      expect(await terminalCount()).toBe(1)
+      expect(await readsOf(() => journal.create(invocation("below-limit")))).toBeLessThan(100)
+      expect(await readsOf(() => invocations.prune({ dryRun: true }))).toBeLessThan(100)
+      expect(await readsOf(() => invocations.prune())).toBeLessThan(100)
+      expect(await journal.get("run")).toMatchObject({ status: "completed" })
+    }
+    finally { random.mockRestore() }
+  }, 30_000)
 
   it("validates table identifiers, retention, paging and leases", async () => {
     expect(() => d1AgentInvocationSchema({ tablePrefix: "unsafe;" })).toThrow(/identifier/)

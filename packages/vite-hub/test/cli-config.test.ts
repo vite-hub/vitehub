@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process"
+import { createServer } from "node:http"
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
@@ -8,6 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { runViteHubCli } from "@vite-hub/cli"
 
 import { loadViteHubCliConfig } from "../src/internal/cli-config.ts"
+import { isAgentCliEnabled } from "../src/internal/runtime-feature-guard.ts"
 
 const roots: string[] = []
 
@@ -24,6 +26,83 @@ async function createProject(config: "nuxt" | "vite") {
 }
 
 describe("ViteHub CLI config loading", () => {
+  it.each([
+    "export default { vitehub: { agent: false } }\n",
+    "export default { vitehub: { agent: { cli: false } } }\n",
+    "import { vitehub } from 'vite-hub'\nexport default { plugins: [vitehub({ agent: false })] }\n",
+    "import { vitehub } from 'vite-hub'\nexport default { plugins: [vitehub({ agent: { cli: false } })] }\n",
+    "import { vitehub as hub } from 'vite-hub'\nexport default { plugins: [hub({ agent: false })] }\n",
+    "import { vitehub as hub } from 'vite-hub'\nexport default { plugins: [hub({ agent: { cli: false } })] }\n",
+  ])("honors an Agent CLI opt-out without evaluating config", async source => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-cli-guard-"))
+    roots.push(root)
+    await writeFile(join(root, "vite.config.ts"), source, "utf8")
+    await expect(isAgentCliEnabled(root)).resolves.toBe(false)
+  })
+
+  it("handles nested Agent options and ignores comments or unrelated objects", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-cli-guard-"))
+    roots.push(root)
+    await writeFile(join(root, "vite.config.ts"), `
+      // agent: false
+      const unrelated = { agent: false }
+      export default { vitehub: { agent: { providers: { state: { provider: "memory" } }, cli: false } } }
+    `, "utf8")
+    await expect(isAgentCliEnabled(root)).resolves.toBe(false)
+  })
+
+  it("does not treat unrelated agent options in a plugin call as ViteHub config", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-cli-guard-"))
+    roots.push(root)
+    await writeFile(join(root, "vite.config.ts"), `
+      const plugin = (options: unknown) => options
+      export default { plugins: [plugin({ agent: false })] }
+    `, "utf8")
+    await expect(isAgentCliEnabled(root)).resolves.toBe(true)
+  })
+
+  it("does not treat an unrelated local vitehub function as the ViteHub plugin", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-cli-guard-"))
+    roots.push(root)
+    await writeFile(join(root, "vite.config.ts"), `
+      const vitehub = (options: unknown) => options
+      export default { plugins: [vitehub({ agent: false })] }
+    `, "utf8")
+    await expect(isAgentCliEnabled(root)).resolves.toBe(true)
+  })
+
+  it("recognizes a ViteHub import with comments around the module clause", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-cli-guard-"))
+    roots.push(root)
+    await writeFile(join(root, "vite.config.ts"), `
+      import { vitehub } /* gap */ from /* gap */ "vite-hub"
+      export default { plugins: [vitehub({ agent: { cli: false } })] }
+    `, "utf8")
+    await expect(isAgentCliEnabled(root)).resolves.toBe(false)
+  })
+
+  it("ignores import-like text in comments and strings when finding the ViteHub binding", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-cli-guard-"))
+    roots.push(root)
+    await writeFile(join(root, "vite.config.ts"), `
+      // import { vitehub } from "vite-hub"
+      const text = 'import { vitehub } from "vite-hub"'
+      const vitehub = (options: unknown) => options
+      export default { plugins: [vitehub({ agent: false })] }
+    `, "utf8")
+    await expect(isAgentCliEnabled(root)).resolves.toBe(true)
+  })
+
+  it("uses the effective Nuxt config owner for the opt-out guard", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-cli-guard-"))
+    roots.push(root)
+    await writeFile(join(root, "vite.config.ts"), "export default { vitehub: { agent: false } }\n", "utf8")
+    await writeFile(join(root, "nuxt.config.ts"), "export default { vitehub: { agent: {} } }\n", "utf8")
+    await expect(isAgentCliEnabled(root)).resolves.toBe(true)
+    await writeFile(join(root, "nuxt.config.ts"), "export default { vitehub: { agent: { cli: false } } }\n", "utf8")
+    await expect(isAgentCliEnabled(root)).resolves.toBe(false)
+  })
+
   it("loads Nuxt Vite options when Nuxt is the project config owner", async () => {
     const root = await createProject("nuxt")
     const close = vi.fn()
@@ -157,6 +236,40 @@ export default ({ command, mode }) => ({
         expect.objectContaining({ owner: "test", path: ".vitehub/production.json" }),
       ]),
     );
+  });
+
+  it("cancels an Agent Invocation through a deployed Console without loading the project config", async () => {
+    const root = await createProject("vite");
+    await writeFile(join(root, "vite.config.ts"), "throw new Error('project config loaded')\n");
+    const calls: unknown[] = [];
+    const server = createServer((request, response) => {
+      let body = "";
+      request.on("data", (chunk: Buffer) => { body += chunk.toString(); });
+      request.on("end", () => {
+        calls.push({ authorization: request.headers.authorization, body: JSON.parse(body), url: request.url });
+        response.setHeader("content-type", "application/json");
+        response.end(JSON.stringify({ ok: true, value: { id: "ainv_1", outcome: "requested", status: "running" } }));
+      });
+    });
+    await new Promise<void>(resolveListen => server.listen(0, "127.0.0.1", resolveListen));
+    try {
+      const address = server.address();
+      if (!address || typeof address === "string") throw new Error("Expected a TCP address.");
+      const { stdout } = await execFileAsync(
+        process.execPath,
+        [bin, "agent", "invocations", "cancel", "ainv_1", "--url", `http://127.0.0.1:${address.port}/_vitehub`],
+        { cwd: root, env: { ...process.env, VITEHUB_CONSOLE_AUTHORIZATION: "Bearer cli-test" } },
+      );
+      expect(stdout).toBe("ainv_1 cancel requested\n");
+      expect(calls).toEqual([{
+        authorization: "Bearer cli-test",
+        body: { input: { body: { action: "cancel" }, id: "ainv_1", method: "POST" }, method: "vitehub:console:invocation" },
+        url: "/_vitehub/rpc/__call",
+      }]);
+    }
+    finally {
+      await new Promise(resolveClose => server.close(resolveClose));
+    }
   });
 
   it("inspects production-only Nuxt output through the framework entrypoint", async () => {

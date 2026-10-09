@@ -1,0 +1,5 @@
+title: Schedule
+icon: i-lucide-calendar-clock
+order: 22
+category: Compute
+related: [workflows, queue]

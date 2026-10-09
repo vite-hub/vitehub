@@ -682,6 +682,7 @@ describe("writeDocsArtifacts", () => {
         "title: Server primitives",
         "icon: i-lucide-server-cog",
         "order: 30",
+        "category: Data",
       ].join("\n"));
       writeText(resolve(docsRoot, "content/docs/server-primitives/kv.md"), [
         "---",
@@ -708,7 +709,7 @@ describe("writeDocsArtifacts", () => {
         "",
         "Hidden content.",
       ].join("\n"));
-      writeText(resolve(docsRoot, "content/blog/1.agents.md"), "# Agents blog\n");
+      writeText(resolve(docsRoot, "content/trust/contact.md"), "# Contact ViteHub\n");
       writeText(resolve(docsRoot, "content/trust/about.md"), "# About ViteHub\n");
       writeText(resolve(outputDir, "raw/docs/removed.md"), "stale\n");
 
@@ -719,7 +720,7 @@ describe("writeDocsArtifacts", () => {
       expect(manifest.sections.map(section => section.id)).toEqual(["server-primitives"]);
       expect(manifest.sections[0]?.title).toBe("Server primitives");
       expect(manifest.sections[0]?.icon).toBe("i-lucide-server-cog");
-      expect(manifest.sections[0]?.lanes).toEqual(["agents", "server-primitives"]);
+      expect(manifest.sections[0]?.category).toBe("Data");
       expect(manifest.sections[0]?.order).toBe(30);
       expect(manifest.sections[0]?.pages.map(page => page.path)).toEqual([
         "/docs/server-primitives",
@@ -728,7 +729,6 @@ describe("writeDocsArtifacts", () => {
         "/docs/server-primitives/hidden",
       ]);
       expect(manifest.sections[0]?.pages.find(page => page.id === "kv")?.group).toBe("Storage");
-      expect(manifest.sections[0]?.pages.find(page => page.id === "kv")?.lanes).toEqual(["agents", "server-primitives"]);
       expect(manifest.sections[0]?.pages.find(page => page.id === "hidden")?.navigation).toBe(false);
       expect(readDocsArtifactsManifest(outputDir)?.sections[0]?.pages.map(page => page.path)).toEqual([
         "/docs/server-primitives",
@@ -738,7 +738,7 @@ describe("writeDocsArtifacts", () => {
       ]);
       expect(readFileSync(resolve(outputDir, "raw/docs.md"), "utf8")).toBe("# ViteHub docs\n\nStart here.\n");
       expect(readFileSync(resolve(outputDir, "raw/docs/server-primitives.md"), "utf8")).toBe("# Overview\n\nServer content.\n");
-      expect(readFileSync(resolve(outputDir, "raw/blog/agents.md"), "utf8")).toBe("# Agents blog\n");
+      expect(readFileSync(resolve(outputDir, "raw/contact.md"), "utf8")).toBe("# Contact ViteHub\n");
       expect(readFileSync(resolve(outputDir, "raw/about.md"), "utf8")).toBe("# About ViteHub\n");
       expect(existsSync(resolve(outputDir, "raw/docs/removed.md"))).toBe(false);
     } finally {
@@ -946,7 +946,7 @@ describe("writeDocsArtifacts", () => {
         "::",
         "",
         "[Rendered link](/docs/rendered) and `[literal link](/docs/literal)`.",
-        "[`skills()`](/docs/capabilities/skills) and [before `code` after](/docs/code-label).",
+        "[`skills()`](/docs/agents/capabilities/skills) and [before `code` after](/docs/code-label).",
         "\\[escaped link](/docs/escaped-link) and \\![rendered link](/docs/escaped-image).",
         "Escaped \\` delimiter and [rendered link](/docs/escaped) \\` stay outside code.",
         "`multiline literal",
@@ -1113,7 +1113,7 @@ describe("writeDocsArtifacts", () => {
       expect(raw).toContain("    ::warning\n    This nested indented code block remains literal.\n    ::");
       expect(raw).toContain("\t  ::important\n\t  This mixed-indentation code block remains literal.\n\t  ::");
       expect(raw).toContain("[Rendered link](https://vitehub.dev/docs/rendered) and `[literal link](/docs/literal)`.");
-      expect(raw).toContain("[`skills()`](https://vitehub.dev/docs/capabilities/skills) and [before `code` after](https://vitehub.dev/docs/code-label).");
+      expect(raw).toContain("[`skills()`](https://vitehub.dev/docs/agents/capabilities/skills) and [before `code` after](https://vitehub.dev/docs/code-label).");
       expect(raw).toContain("\\[escaped link](/docs/escaped-link) and \\![rendered link](https://vitehub.dev/docs/escaped-image).");
       expect(raw).toContain("Escaped \\` delimiter and [rendered link](https://vitehub.dev/docs/escaped) \\` stay outside code.");
       expect(raw).toContain("`multiline literal\n[link](/docs/multiline)` and [rendered link](https://vitehub.dev/docs/after-code).");

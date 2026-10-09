@@ -10,7 +10,7 @@
   },
   "devDependencies": {
     "@iconify-json/ph": "catalog:ui",
-    "@vitejs/plugin-vue": "^6.0.8",
+    "@vitejs/plugin-vue": "^6.0.9",
     "valibot": "catalog:runtime",
     "vite": "catalog:vite"
   },

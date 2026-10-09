@@ -1,4 +1,4 @@
-import { expect, it } from "vitest"
+import { expect, it, vi } from "vitest"
 import * as v from "valibot"
 import { z } from "zod"
 
@@ -19,6 +19,11 @@ it("converts Valibot input for provider and inspection while preserving validati
 
 it("uses Zod's Standard JSON Schema conversion directly", async () => {
   const schema = z.object({ message: z.string().min(1) })
+  expect(inspectAgentTools({ send_message: { inputSchema: schema } })?.[0]?.inputSchema).toMatchObject({
+    properties: { message: { minLength: 1, type: "string" } },
+    required: ["message"],
+    type: "object",
+  })
   expect(withAgentToolJsonSchema(schema)).toBe(schema)
   expect(agentToolJsonSchema(schema, "input")).toMatchObject({
     properties: { message: { minLength: 1, type: "string" } },
@@ -26,4 +31,59 @@ it("uses Zod's Standard JSON Schema conversion directly", async () => {
     type: "object",
   })
   expect(await schema["~standard"].validate({ message: "roast" })).toMatchObject({ value: { message: "roast" } })
+})
+
+it("ignores inherited schema discriminators", () => {
+  const schema = Object.assign(Object.create({
+    "~standard": {
+      jsonSchema: {
+        input: () => ({ type: "string" }),
+      },
+    },
+  }), {
+    properties: { message: { type: "string" } },
+    type: "object",
+  })
+
+  expect(withAgentToolJsonSchema(schema as never)).toBe(schema)
+  expect(agentToolJsonSchema(schema as never, "input")).toEqual({
+    properties: { message: { type: "string" } },
+    type: "object",
+  })
+  expect(inspectAgentTools({ send_message: { inputSchema: schema } })?.[0]?.inputSchema).toEqual({
+    properties: { message: { type: "string" } },
+    type: "object",
+  })
+})
+
+it("ignores inherited Standard JSON Schema converters", () => {
+  const inheritedJsonSchema = {
+    input: () => ({ type: "string" }),
+  }
+  const schema = Object.assign({
+    "~standard": Object.create({ jsonSchema: inheritedJsonSchema }),
+    properties: { message: { type: "string" } },
+    type: "object",
+  })
+
+  expect(agentToolJsonSchema(schema as never, "input")).toBeUndefined()
+  expect(inspectAgentTools({ send_message: { inputSchema: schema } })?.[0]?.inputSchema).toBeUndefined()
+})
+
+it.each(["getter", "proxy"])("ignores inherited marker %s access without side effects", (kind) => {
+  const read = vi.fn(() => { throw new Error("Inherited marker must not be read") })
+  const jsonSchema = { properties: { message: { type: "string" } }, type: "object" }
+  const schema = kind === "getter"
+    ? Object.assign(Object.create(Object.defineProperty({}, "~standard", { enumerable: true, get: read })), jsonSchema)
+    : new Proxy(jsonSchema, {
+        get(target, key, receiver) {
+          if (key === "~standard") return read()
+          return Reflect.get(target, key, receiver)
+        },
+      })
+
+  expect(withAgentToolJsonSchema(schema as never)).toBe(schema)
+  expect(agentToolJsonSchema(schema as never, "input")).toEqual(jsonSchema)
+  expect(inspectAgentTools({ send_message: { inputSchema: schema } })?.[0]?.inputSchema).toEqual(jsonSchema)
+  expect(read).not.toHaveBeenCalled()
 })

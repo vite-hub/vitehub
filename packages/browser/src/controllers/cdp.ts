@@ -19,6 +19,78 @@ export interface CDPControllerOptions {
   connect?: (connection: PlaywrightBrowserConnection) => Promise<CDPSocket>
 }
 
+type CDPMessage =
+  | { kind: "event", method: string, params?: unknown, sessionId?: string }
+  | { kind: "response", error?: { message: string }, id: number, result?: unknown, sessionId?: string }
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- CDP JSON is unknown until its object envelope is validated.
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+}
+
+function isString(value: unknown): value is string {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- CDP JSON fields are unknown until their protocol type is validated.
+  return typeof value === "string"
+}
+
+function isSafeInteger(value: unknown): value is number {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- CDP response ids are unknown JSON values until their numeric type is validated.
+  return typeof value === "number" && Number.isSafeInteger(value)
+}
+
+function parseMessage(data: unknown): CDPMessage {
+  const parsed: unknown = JSON.parse(String(data))
+  if (!isRecord(parsed)) throw new TypeError("CDP message must be an object")
+
+  if (Object.hasOwn(parsed, "id")) {
+    if (!isSafeInteger(parsed.id) || Object.hasOwn(parsed, "method")) {
+      throw new TypeError("CDP response id must be a safe integer")
+    }
+    const hasError = Object.hasOwn(parsed, "error")
+    const hasResult = Object.hasOwn(parsed, "result")
+    if (hasError === hasResult) throw new TypeError("CDP response must include exactly one result or error")
+    if (hasResult && !isRecord(parsed.result)) {
+      throw new TypeError("CDP response result must be an object")
+    }
+    let error: { message: string } | undefined
+    if (hasError) {
+      const candidate = parsed.error
+      if (!isRecord(candidate) || !isString(candidate.message)) {
+        throw new TypeError("CDP response error must include a message")
+      }
+      error = { message: candidate.message }
+    }
+    const sessionId = parsed.sessionId
+    if (sessionId !== undefined && !isString(sessionId)) {
+      throw new TypeError("CDP response sessionId must be a string")
+    }
+    const response: Extract<CDPMessage, { kind: "response" }> = {
+      error,
+      id: parsed.id,
+      kind: "response",
+      result: hasResult ? parsed.result : undefined,
+    }
+    if (sessionId !== undefined) response.sessionId = sessionId
+    return response
+  }
+
+  if (!isString(parsed.method) || !parsed.method) throw new TypeError("CDP event method must be a non-empty string")
+  if (Object.hasOwn(parsed, "params") && !isRecord(parsed.params)) {
+    throw new TypeError("CDP event parameters must be an object")
+  }
+  const sessionId = parsed.sessionId
+  if (sessionId !== undefined && !isString(sessionId)) {
+    throw new TypeError("CDP event sessionId must be a string")
+  }
+  const event: Extract<CDPMessage, { kind: "event" }> = {
+    kind: "event",
+    method: parsed.method,
+    params: parsed.params,
+  }
+  if (sessionId !== undefined) event.sessionId = sessionId
+  return event
+}
+
 async function cloudflareSocket(
   connection: Extract<PlaywrightBrowserConnection, { kind: "cloudflare-binding" }>,
 ): Promise<CDPSocket> {
@@ -71,21 +143,29 @@ export function cdp(options: CDPControllerOptions = {}): BrowserController<CDPCl
       let releasePromise: Promise<void> | undefined
       const pending = new Map<number, { reject(error: unknown): void, resolve(value: unknown): void }>()
       const listeners = new Map<string, Set<(params: unknown, sessionId?: string) => void>>()
+      const rejectPending = (error: unknown) => {
+        for (const request of pending.values()) request.reject(error)
+        pending.clear()
+      }
       socket.addEventListener("message", (event) => {
-        const message = JSON.parse(String((event as MessageEvent).data)) as {
-          error?: { message?: string }
-          id?: number
-          method?: string
-          params?: unknown
-          result?: unknown
-          sessionId?: string
+        let message: CDPMessage
+        try {
+          message = parseMessage("data" in event ? event.data : undefined)
         }
-        if (!message.id) {
-          if (message.method) {
-            for (const listener of listeners.get(message.method) ?? []) {
-              listener(message.params, message.sessionId)
-            }
+        catch (cause) {
+          rejectPending(browserProviderError("cdp", "parse a protocol message", { cause }))
+          return
+        }
+        if (message.kind === "event") {
+          for (const listener of listeners.get(message.method) ?? []) {
+            listener(message.params, message.sessionId)
           }
+          return
+        }
+        if (message.id < 1 || message.id > nextId) {
+          rejectPending(browserProviderError("cdp", "parse a protocol message", {
+            cause: new TypeError("CDP response id was never sent"),
+          }))
           return
         }
         const request = pending.get(message.id)
@@ -95,8 +175,7 @@ export function cdp(options: CDPControllerOptions = {}): BrowserController<CDPCl
         else request.resolve(message.result)
       })
       socket.addEventListener("close", () => {
-        for (const request of pending.values()) request.reject(browserProviderError("cdp", "complete a command before disconnect"))
-        pending.clear()
+        rejectPending(browserProviderError("cdp", "complete a command before disconnect"))
       })
 
       return {

@@ -1,10 +1,12 @@
 import { channelDeliveryHandlers } from "../src/internal/channel-delivery-handlers.ts"
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Readable } from "node:stream"
 
 import { getWorkspaceHostedStoreLoader, setWorkspaceHostedStoreLoader } from "@vite-hub/workspace/runtime"
+import { readWorkspaceDevToken, workspaceDevTokenHeader, workspaceDevTokenServerId } from "@vite-hub/workspace/server"
+import { agentInvocationsDevHeader, agentInvocationsDevHeaderValue, agentInvocationsDevRoute } from "../src/invocations-dev.ts"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { IncomingMessage, ServerResponse } from "node:http"
@@ -116,6 +118,13 @@ function createFakeServer(root: string, module: unknown) {
   return { handlers, server }
 }
 
+/** Headers with the private Agent Dev Loop token, as `vitehub agent dev` sends them. */
+async function devLoopTokenHeaders(root: string): Promise<Record<string, string>> {
+  const token = await readWorkspaceDevToken(root, { serverId: workspaceDevTokenServerId(3000) })
+  if (!token) throw new Error("The Agent Dev Loop endpoint must write its private token.")
+  return { [workspaceDevTokenHeader]: token }
+}
+
 async function configurePluginServer(plugin: { configureServer?: unknown }, server: unknown) {
   const hook = plugin.configureServer
   if (typeof hook === "function") {
@@ -127,7 +136,7 @@ async function configurePluginServer(plugin: { configureServer?: unknown }, serv
 }
 
 async function invokeMiddleware(
-  handler: Connect.NextHandleFunction,
+  handlers: readonly Connect.NextHandleFunction[],
   body: Record<string, unknown>,
   url: string,
   headers: IncomingMessage["headers"],
@@ -165,9 +174,39 @@ async function invokeMiddleware(
       },
     } as unknown as ServerResponse
 
-    handler(req, res, () => reject(new Error("middleware passed through")))
+    let nextHandler = 0
+    const next = (error?: unknown) => {
+      if (error) return reject(error)
+      const handler = handlers[nextHandler++]
+      if (!handler) return reject(new Error("middleware passed through"))
+      handler(req, res, next)
+    }
+    next()
   })
 }
+
+describe("Agent Invocation cancellation discovery", () => {
+  it("publishes the server token ID through the guarded dev endpoint", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-cancel-discovery-"))
+    try {
+      const { handlers, server } = createFakeServer(root, {})
+      const plugin = (await import("../src/vite.ts")).hubAgent()
+      if (typeof plugin.configResolved === "function") {
+        await plugin.configResolved.call({} as never, { command: "serve", root, server: { port: 3000 } } as never)
+      }
+      await configurePluginServer(plugin, server)
+      const response = await invokeMiddleware(handlers, {}, agentInvocationsDevRoute, {
+        host: "localhost:3000",
+        [agentInvocationsDevHeader]: agentInvocationsDevHeaderValue,
+      }, { onRequest: req => { req.method = "GET" } })
+      expect(response.statusCode).toBe(200)
+      expect(JSON.parse(response.body)).toMatchObject({ root, workspaceDevTokenServerId: workspaceDevTokenServerId(3000) })
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+})
 
 describe("Agent Invocation Stream write workspace finish lifecycle", () => {
   afterEach(() => {
@@ -241,13 +280,14 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
     const plugin = (await import("../src/vite.ts")).hubAgent()
     await configurePluginServer(plugin, server)
 
-    const response = await invokeMiddleware(handlers[0]!, {
+    const response = await invokeMiddleware(handlers, {
       agent: "review",
       payload: { prompt: "review" },
       trigger: "github.webhook",
     }, agentInvocationStreamRoute, {
       "content-type": "application/json",
       [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+      ...await devLoopTokenHeaders(root),
     })
     const events = response.body
       .trim()
@@ -272,7 +312,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
     expect(replyEffect).not.toHaveBeenCalled()
   })
 
-  it("requires the private token before running Agent Workspace commands", async () => {
+  it("requires the private token before Agent Workspace commands, streams, Channel replay, and inspection", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-workspace-command-token-"))
     await mkdir(join(root, "server", "agents"), { recursive: true })
     await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
@@ -288,17 +328,26 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
 
     await configurePluginServer(plugin, server)
 
-    const response = await invokeMiddleware(handlers[0]!, {
-      agent: "support",
-      workspaceCommand: { command: "pnpm", args: ["test"] },
-    }, agentInvocationStreamRoute, {
-      "content-type": "application/json",
-      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
-    })
-
-    expect(response.statusCode).toBe(403)
-    expect(response.body).toBe("Forbidden Agent Dev Loop command token.")
+    const guard = { "content-type": "application/json", [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue }
+    const { [workspaceDevTokenHeader]: token = "" } = await devLoopTokenHeaders(root)
+    const wrongToken = `${token.slice(0, -1)}${token.endsWith("0") ? "1" : "0"}`
+    const requests: Array<[Record<string, unknown>, string, IncomingMessage["headers"], string?]> = [
+      [{ agent: "support", workspaceCommand: { command: "pnpm", args: ["test"] } }, agentInvocationStreamRoute, guard],
+      [{ agent: "support", workspaceCommand: { command: "pnpm", args: ["test"] } }, agentInvocationStreamRoute, { ...guard, [workspaceDevTokenHeader]: wrongToken }],
+      [{ agent: "support", messages: [{ id: "user-1", parts: [{ text: "hello", type: "text" }], role: "user" }] }, agentInvocationStreamRoute, guard],
+      [{ agent: "support", replay: { channel: "mailbox", describe: true } }, agentInvocationStreamRoute, guard],
+      [{}, `${agentInvocationStreamRoute}?inspect=1&agent=support`, guard, "GET"],
+    ]
+    for (const [body, url, headers, method] of requests) {
+      const response = await invokeMiddleware(handlers, body, url, headers, { onRequest: (req) => { if (method) req.method = method } })
+      expect([response.statusCode, response.body]).toEqual([403, "Forbidden Agent Dev Loop token."])
+    }
     expect(useWorkspace).not.toHaveBeenCalled()
+
+    const discovery = await invokeMiddleware(handlers, {}, agentInvocationStreamRoute, guard, { onRequest: (req) => { req.method = "GET" } })
+    expect(discovery.statusCode).toBe(200)
+    expect(JSON.parse(discovery.body)).toMatchObject({ agents: [{ name: "support" }], root, workspaceDevTokenServerId: workspaceDevTokenServerId(3000) })
+    expect(discovery.body).not.toContain(token)
   })
 
   it("installs GitHub workspace stores before Agent Workspace commands", async () => {
@@ -323,7 +372,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
     const token = await readWorkspaceDevToken(root, { serverId: workspaceDevTokenServerId(3000) })
     expect(getWorkspaceHostedStoreLoader()).toBeUndefined()
 
-    const response = await invokeMiddleware(handlers[0]!, {
+    const response = await invokeMiddleware(handlers, {
       agent: "support",
       workspaceCommand: { command: "pnpm", args: ["test"] },
     }, agentInvocationStreamRoute, {
@@ -354,7 +403,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
     await configurePluginServer(plugin, server)
     const token = await readWorkspaceDevToken(root, { serverId: workspaceDevTokenServerId(3000) })
 
-    const response = await invokeMiddleware(handlers[0]!, {
+    const response = await invokeMiddleware(handlers, {
       agent: "support",
       workspaceCommand: { command: "pnpm", args: ["test"] },
     }, agentInvocationStreamRoute, {
@@ -392,7 +441,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
     await configurePluginServer(plugin, server)
     const token = await readWorkspaceDevToken(root, { serverId: workspaceDevTokenServerId(3000) })
 
-    const response = await invokeMiddleware(handlers[0]!, {
+    const response = await invokeMiddleware(handlers, {
       agent: "support",
       timeout: 1234,
       workspaceCommand: { args: ["test", "--filter", "api"], command: "pnpm" },
@@ -454,7 +503,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
     await configurePluginServer(plugin, server)
     const token = await readWorkspaceDevToken(root, { serverId: workspaceDevTokenServerId(3000) })
 
-    const response = await invokeMiddleware(handlers[0]!, {
+    const response = await invokeMiddleware(handlers, {
       agent: "support",
       workspaceCommand: { command: "ls" },
     }, agentInvocationStreamRoute, {
@@ -489,7 +538,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
     await configurePluginServer(plugin, server)
     const token = await readWorkspaceDevToken(root, { serverId: workspaceDevTokenServerId(3000) })
 
-    const response = await invokeMiddleware(handlers[0]!, {
+    const response = await invokeMiddleware(handlers, {
       agent: "support",
       workspaceCommand: { command: "ls" },
     }, agentInvocationStreamRoute, {
@@ -524,7 +573,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
     await configurePluginServer(plugin, server)
     const token = await readWorkspaceDevToken(root, { serverId: workspaceDevTokenServerId(3000) })
 
-    const response = await invokeMiddleware(handlers[0]!, {
+    const response = await invokeMiddleware(handlers, {
       agent: "support",
       workspaceCommand: { command: "ls" },
     }, agentInvocationStreamRoute, {
@@ -576,7 +625,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
     await configurePluginServer(plugin, server)
     const token = await readWorkspaceDevToken(root, { serverId: workspaceDevTokenServerId(3000) })
 
-    const response = await invokeMiddleware(handlers[0]!, {
+    const response = await invokeMiddleware(handlers, {
       agent: "support",
       workspaceCommand: { args: ["dev"], command: "pnpm" },
     }, agentInvocationStreamRoute, {
@@ -642,18 +691,18 @@ describe("Agent Invocation Stream Channel replay", () => {
     })
     const { handlers, server } = createFakeServer(root, { default: agent })
     await configurePluginServer((await import("../src/vite.ts")).hubAgent(), server)
-    const headers = { "content-type": "application/json", [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue }
+    const headers = { "content-type": "application/json", [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue, ...await devLoopTokenHeaders(root) }
 
-    const description = await invokeMiddleware(handlers[0]!, { agent: "support", replay: { channel: "mailbox", describe: true } }, agentInvocationStreamRoute, headers)
+    const description = await invokeMiddleware(handlers, { agent: "support", replay: { channel: "mailbox", describe: true } }, agentInvocationStreamRoute, headers)
     expect(description.statusCode).toBe(200)
     expect(JSON.parse(description.body)).toMatchObject({ channel: "mailbox", query: { type: "object" }, trigger: "received" })
 
-    const replay = await invokeMiddleware(handlers[0]!, { agent: "support", replay: { channel: "mailbox", dryRun: true } }, agentInvocationStreamRoute, headers)
+    const replay = await invokeMiddleware(handlers, { agent: "support", replay: { channel: "mailbox", dryRun: true } }, agentInvocationStreamRoute, headers)
     expect(replay.statusCode).toBe(200)
     expect(JSON.parse(replay.body)).toMatchObject({ items: [{ key: "m1", status: "completed" }], nextCursor: null, processed: 1 })
     expect(label).not.toHaveBeenCalled()
 
-    const live = await invokeMiddleware(handlers[0]!, { agent: "support", replay: { channel: "mailbox" } }, agentInvocationStreamRoute, headers)
+    const live = await invokeMiddleware(handlers, { agent: "support", replay: { channel: "mailbox" } }, agentInvocationStreamRoute, headers)
     expect(live.statusCode).toBe(409)
     expect(JSON.parse(live.body)).toMatchObject({ code: "AGENT_R0932" })
   })

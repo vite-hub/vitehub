@@ -19,6 +19,8 @@ export default defineConfig({
     ...ui({
       comark: false,
       nuxtUI: {
+        // Match console.vite.config.ts: the Console appearance module owns the color scheme.
+        colorMode: false,
         dts: false,
         ui: consoleAppConfig,
       },
@@ -29,6 +31,10 @@ export default defineConfig({
       {
         find: "@vite-hub/ui/styles.css",
         replacement: resolve(workspaceRoot, "packages/ui/styles.css"),
+      },
+      {
+        find: /^@vite-hub\/ui\/primitive-rail$/,
+        replacement: resolve(workspaceRoot, "packages/ui/src/primitive-rail.ts"),
       },
       {
         find: /^@vite-hub\/ui$/,

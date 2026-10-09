@@ -78,7 +78,7 @@ jobs:
           if [[ -z "$tag_sha" || "$tag_sha" == "$GITHUB_SHA" ]]; then
             echo "pending=true" >> "$GITHUB_OUTPUT"
           fi
-      - uses: danielroe/uppt/pr@7bcfb5397c37202ef882363f755423130419d28a # v0.5.5
+      - uses: danielroe/uppt/pr@6ec27140623aa835e362f866d8ab0018ab057f4d # v0.6.11
         if: steps.current.outputs.current == 'true' && steps.pending-release.outputs.pending != 'true'
         with:
           token: ${{ secrets.GITHUB_TOKEN }}

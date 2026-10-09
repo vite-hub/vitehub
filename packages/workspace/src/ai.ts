@@ -212,13 +212,42 @@ function tool<T extends Tool<any, any>>(definition: T): T {
 }
 
 function isWorkspace(input: Workspace | WorkspaceAssets): input is Workspace {
-  return "sync" in input
+  return hasOwnMethod(input, "sync")
+}
+
+function hasWriteCapabilities(workspace: Workspace, enabled: ReturnType<typeof resolveWriteOperations>): boolean {
+  const required = new Set<keyof Workspace>()
+  if (enabled.writeFile || enabled.appendFile) {
+    required.add("writeFile")
+  }
+  if (enabled.appendFile) {
+    required.add("readFile")
+  }
+  if (enabled.deletePath || enabled.movePath) {
+    required.add("rm")
+  }
+  if (enabled.makeDir || enabled.copyPath || enabled.movePath) {
+    required.add("mkdir")
+  }
+  if (enabled.copyPath || enabled.movePath) {
+    required.add("writeFile")
+    required.add("stat")
+    required.add("exists")
+    required.add("readFile")
+    required.add("list")
+  }
+  return [...required].every(key => hasOwnMethod(workspace, key))
 }
 
 function getWorkspaceSessionStarter(input: Workspace | WorkspaceAssets): WorkspaceSessionStarter | undefined {
-  return typeof (input as Partial<WorkspaceSessionStarter>).startSession === "function"
+  return hasOwnMethod(input, "startSession")
     ? input as WorkspaceSessionStarter
     : undefined
+}
+
+function hasOwnMethod(value: Workspace | WorkspaceAssets, key: PropertyKey): boolean {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Capability detection validates own callable methods at the custom Workspace boundary.
+  return Object.hasOwn(value, key) && typeof Reflect.get(value, key) === "function"
 }
 
 function createWorkspaceSessionShellProvider(starter: WorkspaceSessionStarter): ShellExecutionProvider {
@@ -415,7 +444,8 @@ async function materializeWorkspaceSourcesTool(
   input: Workspace | WorkspaceAssets,
   options: { path?: string, sources?: string[] },
 ): Promise<WorkspaceMaterializeSourcesResult> {
-  if ("materializeSources" in input && typeof input.materializeSources === "function") {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Narrow the optional materializer after validating ownership at the custom Workspace boundary.
+  if (hasOwnMethod(input, "materializeSources") && typeof input.materializeSources === "function") {
     return await input.materializeSources(options)
   }
 
@@ -602,7 +632,7 @@ export function createWorkspaceTools<Operations extends WorkspaceToolOperations 
     throw workspaceErrorDiagnostics.WORKSPACE_R0002({ message: "[vitehub] createWorkspaceTools requires at least one enabled workspace operation." })
   }
 
-  if (writeEnabled && !isWorkspace(input)) {
+  if (writeEnabled && (!isWorkspace(input) || !hasWriteCapabilities(input, resolved.write))) {
     throw workspaceErrorDiagnostics.WORKSPACE_R0003({ message: "[vitehub] Write operations require a mutable Workspace. A useWorkspace(name, { mode: \"write\" }).tools.write() call provides one." })
   }
 

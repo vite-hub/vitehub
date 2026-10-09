@@ -6,9 +6,11 @@ import { isRuntimeScheduleDue } from "./due.ts"
 import { getRuntimeScheduleStore, getScheduleRunStore, loadScheduleDefinition } from "./state.ts"
 import { runWithScheduleWaitUntil } from "./wait-until.ts"
 
-import type { RuntimeScheduleRecord, RuntimeScheduleStore, RuntimeScheduleWake, ScheduleDefinition, ScheduleDefinitionRegistry, ScheduleRegistryDefinition, ScheduleRunAttemptRecord, ScheduleRunContext, ScheduleRunError, ScheduleRunRecord, ScheduleRunStore, ScheduleTargetName } from "../types.ts"
+import type { RuntimeScheduleStore, RuntimeScheduleWake, ScheduleDefinition, ScheduleDefinitionRegistry, ScheduleRegistryDefinition, ScheduleRunAttemptRecord, ScheduleRunContext, ScheduleRunError, ScheduleRunRecord, ScheduleRunStore, ScheduleTargetName } from "../types.ts"
 
 interface ExecuteScheduleOptions {
+  /** Return the persisted failed run when the handler throws. Guards still throw. */
+  captureHandlerFailure?: boolean
   definition: ScheduleRegistryDefinition
   input?: unknown
   runStore?: ScheduleRunStore
@@ -34,7 +36,11 @@ export interface RunScheduleOptions {
 }
 
 interface ExecuteRuntimeScheduleOptions {
+  /** Return the persisted failed run when the handler throws. Guards still throw. */
+  captureHandlerFailure?: boolean
   id: string
+  /** Provider redeliveries acknowledge saved occurrences before checking current schedule state. */
+  intent?: "manual" | "provider"
   requireDue?: boolean
   runtimeScheduleStore?: RuntimeScheduleStore
   scheduledAt?: Date
@@ -222,7 +228,8 @@ export async function executeSchedule(options: ExecuteScheduleOptions): Promise<
     return await completeRun(run, attempt, response, runStore)
   }
   catch (error) {
-    await failRun(run, attempt, error, runStore)
+    const failed = await failRun(run, attempt, error, runStore)
+    if (options.captureHandlerFailure) return failed
     throw error
   }
 }
@@ -238,28 +245,39 @@ export async function executeStaticSchedule(options: ExecuteStaticScheduleOption
   })
 }
 
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return Object(value) === value && !Array.isArray(value)
+}
+
+function isStaticScheduleDefinition(value: unknown): value is ScheduleDefinition {
+  return isObjectRecord(value)
+    && Object.hasOwn(value, "handler")
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Registry handlers cross module and JavaScript realm boundaries; validate callability without realm-sensitive instanceof.
+    && typeof value.handler === "function"
+    && Object.hasOwn(value, "cron")
+}
+
 async function loadStaticScheduleDefinition(name: string, registry: ScheduleDefinitionRegistry | undefined): Promise<ScheduleDefinition | undefined> {
-  let definition: ScheduleRegistryDefinition | undefined
+  let loaded: unknown
   if (registry) {
     const entry = Object.hasOwn(registry, name) ? registry[name] : undefined
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate untrusted boundary values before use.
-    const loaded = typeof entry === "function" ? await entry() : undefined
-    definition = loaded && "handler" in loaded ? loaded : loaded?.default
+    loaded = typeof entry === "function" ? await entry() : undefined
   }
   else {
-    definition = await loadScheduleDefinition(name)
+    loaded = await loadScheduleDefinition(name)
   }
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Require an executable Static Schedule Definition from the loaded module.
-  return definition && typeof definition.handler === "function" && "cron" in definition ? definition : undefined
+  const record = isObjectRecord(loaded) ? loaded : undefined
+  const definition = record && isStaticScheduleDefinition(record)
+    ? record
+    : record && Object.hasOwn(record, "default") && isStaticScheduleDefinition(record.default)
+      ? record.default
+      : undefined
+  return definition
 }
 
-/**
- * Runs a Static Schedule Definition now, outside its cron.
- * The definition must set `manual: true`. The run id uses the `manual` source, so it never matches a cron run.
- * Resolves with the finished run record, also when the handler fails.
- */
+/** Runs a manually dispatchable static Schedule Definition immediately. */
 export async function runSchedule(name: string, options: RunScheduleOptions = {}): Promise<ScheduleRunRecord> {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate untrusted boundary values before use.
   const definition = typeof name === "string" && name ? await loadStaticScheduleDefinition(name, options.registry) : undefined
   if (!definition) {
     throw createScheduleError("SCHEDULE_DEFINITION_NOT_FOUND")
@@ -280,14 +298,6 @@ export async function runSchedule(name: string, options: RunScheduleOptions = {}
   }
 }
 
-async function loadRequiredRuntimeSchedule(id: string, store: RuntimeScheduleStore = getRuntimeScheduleStore()): Promise<RuntimeScheduleRecord> {
-  const schedule = await store.get(id)
-  if (!schedule) {
-    throw createScheduleError("SCHEDULE_NOT_FOUND")
-  }
-  return schedule
-}
-
 export async function executeRuntimeSchedule(options: ExecuteRuntimeScheduleOptions | string): Promise<ScheduleRunRecord> {
   const runtimeOptions = typeof options === "string" ? { id: options } : options
   assertRuntimeExecuteOptionsObject(runtimeOptions)
@@ -297,13 +307,18 @@ export async function executeRuntimeSchedule(options: ExecuteRuntimeScheduleOpti
   const runtimeScheduleStore = runtimeOptions.runtimeScheduleStore
   const scheduleRunStore = runtimeOptions.scheduleRunStore
   const existingRun = await (scheduleRunStore ?? getScheduleRunStore()).getRun(toRunId("runtime", id, scheduledAt))
+  if (existingRun && runtimeOptions.intent === "provider") return existingRun
+  const schedule = await (runtimeScheduleStore ?? getRuntimeScheduleStore()).get(id)
+  if (schedule && !schedule.enabled) {
+    throw createScheduleError("SCHEDULE_DISABLED")
+  }
+  // A deleted schedule can still replay its saved run. An existing disabled
+  // schedule must reject manual execution, including the same occurrence.
   if (existingRun) {
     return existingRun
   }
-
-  const schedule = await loadRequiredRuntimeSchedule(id, runtimeScheduleStore)
-  if (!schedule.enabled) {
-    throw createScheduleError("SCHEDULE_DISABLED")
+  if (!schedule) {
+    throw createScheduleError("SCHEDULE_NOT_FOUND")
   }
   if (runtimeOptions.requireDue && !isRuntimeScheduleDue(schedule, scheduledAt)) {
     throw createScheduleError("SCHEDULE_NOT_DUE")
@@ -317,6 +332,7 @@ export async function executeRuntimeSchedule(options: ExecuteRuntimeScheduleOpti
   }
 
   return await executeSchedule({
+    captureHandlerFailure: runtimeOptions.captureHandlerFailure,
     definition,
     input: schedule.input,
     runStore: scheduleRunStore,
@@ -331,6 +347,7 @@ export async function executeRuntimeSchedule(options: ExecuteRuntimeScheduleOpti
 export async function executeRuntimeScheduleWake(input: RuntimeScheduleWake, options: ExecuteRuntimeScheduleWakeOptions): Promise<void> {
   await executeRuntimeSchedule({
     id: input.scheduleId,
+    intent: "provider",
     requireDue: true,
     runtimeScheduleStore: options.runtimeScheduleStore,
     scheduledAt: input.scheduledAt,

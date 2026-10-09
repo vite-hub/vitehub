@@ -19,7 +19,7 @@ export function defaultDatabaseNotConfiguredError(): Error {
 }
 
 function requireDatabase(databases: Record<string, AgentDatabaseEntry>, name: string) {
-  const entry = databases[name]
+  const entry = Object.hasOwn(databases, name) ? databases[name] : undefined
   if (!entry) throw databaseErrorDiagnostics.DATABASE_R0006({ message: `[vitehub] Database "${name}" is not configured.` })
   return entry
 }

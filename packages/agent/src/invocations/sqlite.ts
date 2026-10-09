@@ -1,8 +1,9 @@
 import { normalizeAgentInvocationListOptions } from "./list-options.ts"
 import { createClient } from "@libsql/client"
 
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
+import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { applyAgentInvocationStoreUpdate } from "../invocations.ts"
+import { countRetentionDue } from "./retention.ts"
 import { searchableAgentInvocationText } from "./search.ts"
 import { filteredObservationRecord } from "./observation-projection.ts"
 import { sqlTrimWhitespace } from "./sql-whitespace.ts"
@@ -17,7 +18,8 @@ import type {
   AgentInvocationStoreCreateInput,
   AgentInvocationStoreUpdateInput,
 } from "../invocations.ts"
-import type { Client } from "@libsql/client"
+import type { Client, InStatement, Row } from "@libsql/client"
+import type { TraceEventLogEntry } from "@vite-hub/runtime"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 export interface LibsqlAgentInvocationStoreOptions extends AgentInvocationRetentionOptions {
@@ -25,7 +27,7 @@ export interface LibsqlAgentInvocationStoreOptions extends AgentInvocationRetent
   client?: Client
   /** Maximum age of terminal invocation records. Defaults to 30 days. Set to false to disable age-based retention. */
   maxAgeMs?: false | number
-  /** Maximum number of terminal invocation records. Defaults to 10,000. Set to false to disable count-based retention. */
+  /** Maximum number of terminal invocation records. Defaults to 10,000. Set to false to disable count-based retention. Writes apply it on about 1 in `ceil(maxRecords / 100)` prunes, so the count can exceed it by about 1%. */
   maxRecords?: false | number
   tablePrefix?: string
   url?: string
@@ -35,6 +37,7 @@ const defaultMaxAgeMs = 30 * 24 * 60 * 60 * 1000
 const defaultMaxRecords = 10_000
 const maximumDateMs = 8_640_000_000_000_000
 const backfillPageSize = 100
+const observationInsertChunkSize = 200
 const searchVersion = 3
 const terminalStatuses = ["completed", "failed", "cancelled"] as const
 
@@ -50,8 +53,70 @@ function numberValue(value: unknown): number {
   return typeof value === "bigint" ? Number(value) : Number(value)
 }
 
+function stringify(value: unknown): string {
+  // A replacer runs for every value. Use it only when a BigInt makes plain serialization fail.
+  try {
+    return JSON.stringify(value)
+  }
+  catch {
+    return JSON.stringify(value, (_key, item: unknown) => hasRuntimeType(item, "bigint") ? String(item) : item)
+  }
+}
+
 function serialize(record: Omit<AgentInvocationRecord, "cursor">): string {
-  return JSON.stringify(record, (_key, value) => typeof value === "bigint" ? String(value) : value)
+  return stringify(record)
+}
+
+function parsedObservation(value: unknown): TraceEventLogEntry | undefined {
+  if (!hasRuntimeType(value, "string")) return
+  const parsed: unknown = JSON.parse(value)
+  if (parsed === null || !hasRuntimeType(parsed, "object") || !("name" in parsed) || !hasRuntimeType(parsed.name, "string")) return
+  // SAFETY: Observation rows are written from records that applyAgentInvocationStoreUpdate() produced.
+  return parsed as TraceEventLogEntry
+}
+
+interface ObservationRow {
+  observation: TraceEventLogEntry
+  position: number
+}
+
+function observationRows(rows: readonly Row[]): ObservationRow[] {
+  return rows.flatMap((row) => {
+    const observation = parsedObservation(row.observation)
+    return observation ? [{ observation, position: numberValue(row.position) }] : []
+  })
+}
+
+function withObservationRows(record: AgentInvocationRecord, rows: readonly Row[]): AgentInvocationRecord {
+  if (!rows.length) return record
+  return { ...record, observations: [...record.observations, ...observationRows(rows).map(row => row.observation)] }
+}
+
+/**
+ * Returns the row changes when an update kept the record's observations and the order of existing rows.
+ * Appends and evictions of appended observations qualify. Any other change returns undefined.
+ */
+function observationRowChanges(
+  inRecord: readonly TraceEventLogEntry[],
+  rows: readonly ObservationRow[],
+  observations: readonly TraceEventLogEntry[],
+): { added: TraceEventLogEntry[], removed: number[] } | undefined {
+  if (observations.length < inRecord.length || inRecord.some((observation, index) => observations[index] !== observation)) return
+  const positions = new Map(rows.map(row => [row.observation, row.position]))
+  const kept = new Set<number>()
+  const added: TraceEventLogEntry[] = []
+  let lastPosition = -1
+  for (const observation of observations.slice(inRecord.length)) {
+    const position = positions.get(observation)
+    if (position === undefined) {
+      added.push(observation)
+      continue
+    }
+    if (added.length || position <= lastPosition) return
+    lastPosition = position
+    kept.add(position)
+  }
+  return { added, removed: rows.flatMap(row => kept.has(row.position) ? [] : [row.position]) }
 }
 
 function parsedRecord(value: unknown): Omit<AgentInvocationRecord, "cursor"> | undefined {
@@ -93,7 +158,7 @@ function storedRecord(record: AgentInvocationRecord): Omit<AgentInvocationRecord
   return stored
 }
 
-function capabilityIdsProjection() {
+function capabilityIdsProjection(table: string) {
   return `(SELECT json_group_array(capability_id) FROM (
     SELECT trim(capability.value) AS capability_id
       FROM json_each(CASE WHEN json_valid(record) THEN record ELSE '{}' END, '$.capabilityIds') AS capability
@@ -103,6 +168,12 @@ function capabilityIdsProjection() {
       FROM json_each(CASE WHEN json_valid(record) THEN record ELSE '{}' END, '$.observations') AS observation
       WHERE json_type(observation.value, '$."attributes"."capability.id"') = 'text'
         AND trim(json_extract(observation.value, '$."attributes"."capability.id"')) <> ''
+    UNION
+    SELECT trim(json_extract(appended.observation, '$."attributes"."capability.id"')) AS capability_id
+      FROM ${table}_observations AS appended
+      WHERE appended.invocation_sequence = ${table}.sequence AND json_valid(appended.observation)
+        AND json_type(appended.observation, '$."attributes"."capability.id"') = 'text'
+        AND trim(json_extract(appended.observation, '$."attributes"."capability.id"')) <> ''
   ))`
 }
 
@@ -115,7 +186,7 @@ function triggeredByProjection() {
 
 function serializedSummary(record: Omit<AgentInvocationRecord, "cursor">): string {
   const { observations: _observations, ...summary } = record
-  return JSON.stringify(summary, (_key, value) => typeof value === "bigint" ? String(value) : value)
+  return stringify(summary)
 }
 
 function agentNameRecord(record: Omit<AgentInvocationRecord, "cursor">): string {
@@ -135,14 +206,18 @@ function retentionValue(value: false | number | undefined, fallback: number, nam
   return value
 }
 
-function isSqliteBusy(error: unknown): boolean {
+function hasSqliteCode(error: unknown, code: string): boolean {
   let current = error
   while (current instanceof Error) {
     // SAFETY: libSQL errors extend Error with the conventional SQLite error code.
-    if ((current as Error & { code?: unknown }).code === "SQLITE_BUSY") return true
+    if ((current as Error & { code?: unknown }).code === code) return true
     current = current.cause
   }
   return false
+}
+
+function isSqliteBusy(error: unknown): boolean {
+  return hasSqliteCode(error, "SQLITE_BUSY")
 }
 
 async function retrySqliteBusy<T>(operation: () => Promise<T>): Promise<T> {
@@ -173,9 +248,35 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
     url: options.url!,
   })
   const table = tableName(options.tablePrefix)
+  const observationTable = `${table}_observations`
+  const insertObservationRows = (sequence: number, observations: readonly TraceEventLogEntry[]): InStatement[] => {
+    const statements: InStatement[] = []
+    for (let start = 0; start < observations.length; start += observationInsertChunkSize) {
+      const chunk = observations.slice(start, start + observationInsertChunkSize)
+      statements.push({
+        args: chunk.flatMap(observation => [sequence, stringify(observation)]),
+        sql: `INSERT INTO ${observationTable} (invocation_sequence, observation) VALUES ${chunk.map(() => "(?, ?)").join(", ")}`,
+      })
+    }
+    return statements
+  }
+  /** Reads the observation rows of one invocation in the order that they extend its record. */
+  const observationRowsStatement = (id: string, observationNames?: string): InStatement => ({
+    args: observationNames === undefined ? [id] : [id, observationNames],
+    sql: `SELECT position, observation FROM ${observationTable}
+      WHERE invocation_sequence = (SELECT sequence FROM ${table} WHERE id = ?)${observationNames === undefined
+        ? ""
+        : " AND json_extract(observation, '$.name') IN (SELECT value FROM json_each(?))"} ORDER BY position`,
+  })
   const maxAgeMs = retentionValue(options.maxAgeMs, defaultMaxAgeMs, "maxAgeMs", maximumDateMs)
   const maxRecords = retentionValue(options.maxRecords, defaultMaxRecords, "maxRecords")
   let initialized: Promise<void> | undefined
+  let synchronousNormal = false
+  // synchronous is a per-connection setting, and libSQL opens pooled connections on demand.
+  // Each write sets it on the idle connection that the write borrows next.
+  const prepareWrite = async () => {
+    if (synchronousNormal) await client.execute("PRAGMA synchronous = NORMAL")
+  }
   let searchBackfill: Promise<void> | undefined
   let summaryBackfill: Promise<void> | undefined
   let writes = Promise.resolve()
@@ -192,20 +293,27 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
   const applyUpdateBatch = async (id: string, claimId: string | undefined, inputs: AgentInvocationStoreUpdateInput[]): Promise<Array<AgentInvocationRecord | Error | undefined>> => {
     await initialize()
     return await retrySqliteBusy(async () => {
+      await prepareWrite()
       const transaction = await client.transaction("write")
       try {
         const result = await transaction.execute({
           args: claimId === undefined ? [id] : [id, id, claimId],
-          sql: `SELECT sequence, record FROM ${table} WHERE id = ?${claimId === undefined
+          sql: `SELECT sequence, search_version, record FROM ${table} WHERE id = ?${claimId === undefined
             ? ""
             : ` AND EXISTS (SELECT 1 FROM ${table}_claims WHERE id = ? AND claim_id = ?)`} LIMIT 1`,
         })
         const row = result.rows[0]
-        const record = row ? deserialize(row.record, row.sequence) : undefined
-        if (!record) {
+        const stored = row ? deserialize(row.record, row.sequence) : undefined
+        if (!row || !stored) {
           await transaction.commit()
           return inputs.map(() => undefined)
         }
+        const sequence = numberValue(row.sequence)
+        const rows = observationRows((await transaction.execute({
+          args: [sequence],
+          sql: `SELECT position, observation FROM ${observationTable} WHERE invocation_sequence = ? ORDER BY position`,
+        })).rows)
+        const record = rows.length ? { ...stored, observations: [...stored.observations, ...rows.map(row => row.observation)] } : stored
         let updated = record
         const results = inputs.map((input) => {
           try {
@@ -220,16 +328,42 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
           await transaction.commit()
           return results
         }
-        const stored = storedRecord(updated)
-        await transaction.execute({
-          args: [id],
-          sql: `UPDATE ${table} SET search_version = -1, summary = NULL WHERE id = ?`,
-        })
-        await transaction.execute({
-          args: [updated.status, agentNameRecord(stored), searchableAgentInvocationText(stored), searchVersion, serializedSummary(stored), updated.updatedAt, serialize(stored), id],
-          sql: `UPDATE ${table} SET status = ?, agent_name = ?, search = ?, search_version = ?, summary = ?, updated_at = ?, record = ? WHERE id = ?`,
-        })
-        if (updated.status === "completed" || updated.status === "failed" || updated.status === "cancelled") {
+        const next = storedRecord(updated)
+        const terminal = updated.status === "completed" || updated.status === "failed" || updated.status === "cancelled"
+        // SQLite rewrites the whole row for every UPDATE. A running record keeps appended observations
+        // in their own rows, so an append writes one small row and a record row that does not grow.
+        // A terminal record holds every observation in its record column, as readers of that column expect.
+        // Changes other than appends and evictions of appended rows move every observation to rows once.
+        const changes = terminal ? undefined : observationRowChanges(stored.observations, rows, updated.observations)
+        const recordRow = { ...next, observations: terminal ? next.observations : changes ? stored.observations : [] }
+        // Search text reads every observation. Running updates mark it stale; the next search
+        // list and the terminal update rebuild it. Writing the current version again would fire the
+        // stale-search trigger, so a terminal record that already has it is also marked stale.
+        const freshSearch = terminal && numberValue(row.search_version) !== searchVersion
+        await transaction.execute(freshSearch
+          ? {
+              args: [updated.status, agentNameRecord(next), searchableAgentInvocationText(next), searchVersion, serializedSummary(next), updated.updatedAt, serialize(recordRow), id],
+              sql: `UPDATE ${table} SET status = ?, agent_name = ?, search = ?, search_version = ?, summary = ?, updated_at = ?, record = ?, capability_ids = NULL WHERE id = ?`,
+            }
+          : {
+              args: [updated.status, agentNameRecord(next), serializedSummary(next), updated.updatedAt, serialize(recordRow), id],
+              sql: `UPDATE ${table} SET status = ?, agent_name = ?, search_version = 0, summary = ?, updated_at = ?, record = ?, capability_ids = NULL WHERE id = ?`,
+            })
+        if (changes) {
+          if (changes.removed.length) {
+            await transaction.execute({
+              args: [JSON.stringify(changes.removed)],
+              sql: `DELETE FROM ${observationTable} WHERE position IN (SELECT value FROM json_each(?))`,
+            })
+          }
+        }
+        else if (rows.length) {
+          await transaction.execute({ args: [sequence], sql: `DELETE FROM ${observationTable} WHERE invocation_sequence = ?` })
+        }
+        for (const statement of insertObservationRows(sequence, terminal ? [] : changes ? changes.added : updated.observations)) {
+          await transaction.execute(statement)
+        }
+        if (terminal) {
           await prune(transaction)
         }
         await transaction.commit()
@@ -245,17 +379,35 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
     })
   }
   const backfillSearch = async () => {
-    let backfillSequence = 0
     while (true) {
-      const missingSearch = await client.execute({
-        args: [searchVersion, backfillSequence, backfillPageSize],
-        sql: `SELECT sequence, record FROM ${table}
-          WHERE (search IS NULL OR search_version < ?) AND sequence > ? ORDER BY sequence LIMIT ?`,
-      })
-      if (!missingSearch.rows.length) break
-      const searchUpdates = missingSearch.rows.flatMap((row) => {
-        backfillSequence = Math.max(backfillSequence, numberValue(row.sequence))
-          const record = deserialize(row.record, row.sequence)
+      let backfillSequence = 0
+      let projected = false
+      while (true) {
+        const missingSearch = await client.execute({
+          args: [searchVersion, backfillSequence, backfillPageSize],
+          sql: `SELECT sequence, record FROM ${table}
+            WHERE (search IS NULL OR search_version < ?) AND sequence > ? ORDER BY sequence LIMIT ?`,
+        })
+        if (!missingSearch.rows.length) break
+        const appended = await client.execute({
+          args: [JSON.stringify(missingSearch.rows.map(row => numberValue(row.sequence)))],
+          sql: `SELECT invocation_sequence, position, observation FROM ${observationTable}
+            WHERE invocation_sequence IN (SELECT value FROM json_each(?)) ORDER BY position`,
+        })
+        const appendedRows = new Map<number, Row[]>()
+        for (const row of appended.rows) {
+          const sequence = numberValue(row.invocation_sequence)
+          const group = appendedRows.get(sequence)
+          if (group) group.push(row)
+          else appendedRows.set(sequence, [row])
+        }
+        const searchUpdates = missingSearch.rows.flatMap((row) => {
+          backfillSequence = Math.max(backfillSequence, numberValue(row.sequence))
+          const rows = appendedRows.get(numberValue(row.sequence)) ?? []
+          const stored = deserialize(row.record, row.sequence)
+          const record = stored && withObservationRows(stored, rows)
+          // An append can keep the record column unchanged, so the guard also compares the observation rows.
+          // Positions are never reused, so the count and the last position identify the rows that were read.
           return record
             ? [{
                 args: [
@@ -264,13 +416,24 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
                   numberValue(row.sequence),
                   searchVersion,
                   String(row.record),
+                  numberValue(row.sequence),
+                  `${rows.length}:${rows.length ? numberValue(rows.at(-1)!.position) : 0}`,
                 ],
                 sql: `UPDATE ${table} SET search = ?, search_version = ?
-                  WHERE sequence = ? AND search_version < ? AND record = ?`,
+                  WHERE sequence = ? AND (search IS NULL OR search_version < ?) AND record = ?
+                    AND (SELECT count(*) || ':' || COALESCE(max(position), 0) FROM ${observationTable} WHERE invocation_sequence = ?) = ?`,
               }]
             : []
-      })
-      if (searchUpdates.length) await client.batch(searchUpdates, "write")
+        })
+        if (searchUpdates.length) {
+          await client.batch(searchUpdates, "write")
+          projected = true
+        }
+      }
+      // Revisit earlier rows, including guarded updates that lost a race and rows
+      // invalidated by another writer after their page completed. Invalid records
+      // are skipped without keeping the backfill alive.
+      if (!projected) break
     }
   }
   const ensureSearchBackfill = () => {
@@ -309,6 +472,17 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
   }
   const initialize = async () => {
     if (!initialized) initialized = (async () => {
+      // libSQL reports "file" for local and in-memory databases. Remote libSQL and D1 manage their own journal.
+      if (client.protocol === "file") {
+        // WAL appends each commit instead of copying pages to a rollback journal, and readers do not block the writer.
+        // NORMAL then syncs at checkpoints instead of at every commit: a power loss can drop the latest commits,
+        // but the database stays consistent. A read-only file keeps its mode, so read-only inspection still works.
+        const mode = await retrySqliteBusy(async () => await client.execute("PRAGMA journal_mode = WAL")).catch((error: unknown) => {
+          if (hasSqliteCode(error, "SQLITE_READONLY")) return undefined
+          throw error
+        })
+        synchronousNormal = mode?.rows[0]?.journal_mode === "wal"
+      }
       await client.execute(`CREATE TABLE IF NOT EXISTS ${table} (
         sequence INTEGER PRIMARY KEY AUTOINCREMENT,
         id TEXT NOT NULL UNIQUE,
@@ -367,11 +541,15 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
           if (!currentColumns.rows.some(row => row.name === "capability_ids")) throw error
         }
       }
-      await client.execute(`CREATE TRIGGER IF NOT EXISTS ${table}_capability_ids_update
+      // Updates clear capability_ids in the same statement. The trigger clears it only for
+      // writers that change record alone, so it does not rewrite the row a second time.
+      await client.execute(`CREATE TRIGGER IF NOT EXISTS ${table}_capability_ids_update_v2
         AFTER UPDATE OF record ON ${table}
+        WHEN NEW.capability_ids IS NOT NULL
         BEGIN
           UPDATE ${table} SET capability_ids = NULL WHERE sequence = NEW.sequence;
         END`)
+      await client.execute(`DROP TRIGGER IF EXISTS ${table}_capability_ids_update`)
       if (!columns.rows.some(row => row.name === "updated_at")) {
         try {
           await client.execute(`ALTER TABLE ${table} ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''`)
@@ -397,12 +575,14 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
           WHERE sequence = NEW.sequence;
         END`)
       await client.execute(`DROP TRIGGER IF EXISTS ${table}_legacy_updated_at_update`)
-      await client.execute(`CREATE TRIGGER IF NOT EXISTS ${table}_stale_legacy_search_update
+      // Version 0 is already stale, so marking it stale again would only rewrite the row.
+      await client.execute(`CREATE TRIGGER IF NOT EXISTS ${table}_stale_legacy_search_update_v2
         AFTER UPDATE OF search, record ON ${table}
-        WHEN NEW.search_version = OLD.search_version
+        WHEN NEW.search_version = OLD.search_version AND NEW.search_version <> 0
         BEGIN
           UPDATE ${table} SET search_version = 0 WHERE sequence = NEW.sequence;
         END`)
+      await client.execute(`DROP TRIGGER IF EXISTS ${table}_stale_legacy_search_update`)
       await client.execute(`CREATE TRIGGER IF NOT EXISTS ${table}_legacy_summary_insert
         AFTER INSERT ON ${table}
         WHEN NEW.summary IS NULL
@@ -505,6 +685,22 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
           SET claimed_at = CAST(unixepoch('subsec') * 1000 AS INTEGER), claim_token = lower(hex(randomblob(16)))
           WHERE id = NEW.id;
         END`)
+      // Observations appended to a running Invocation. They follow the observations in its record column
+      // in position order. The terminal update moves them back into the record column.
+      // AUTOINCREMENT keeps positions unique over time, so a position identifies one row version.
+      await client.execute(`CREATE TABLE IF NOT EXISTS ${observationTable} (
+        position INTEGER PRIMARY KEY AUTOINCREMENT,
+        invocation_sequence INTEGER NOT NULL,
+        observation TEXT NOT NULL
+      )`)
+      await client.execute(`CREATE INDEX IF NOT EXISTS ${observationTable}_invocation
+        ON ${observationTable} (invocation_sequence, position)`)
+      // Deletes from any writer, including retention and older versions, remove the rows of the deleted Invocation.
+      await client.execute(`CREATE TRIGGER IF NOT EXISTS ${observationTable}_delete
+        AFTER DELETE ON ${table}
+        BEGIN
+          DELETE FROM ${observationTable} WHERE invocation_sequence = OLD.sequence;
+        END`)
       startSearchBackfill()
       startSummaryBackfill()
     })().catch((error) => {
@@ -515,12 +711,18 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
   }
   const read: AgentInvocationStore["get"] = async (id, options) => {
     await initialize()
-    const result = await client.execute({
-      args: options?.observationNames ? [JSON.stringify(options.observationNames), id] : [id],
-      sql: `SELECT sequence, ${options?.observationNames ? filteredObservationRecord : "record"} AS record FROM ${table} WHERE id = ? LIMIT 1`,
-    })
-    const row = result.rows[0]
-    return row ? deserialize(row.record, row.sequence) : undefined
+    const observationNames = options?.observationNames ? JSON.stringify(options.observationNames) : undefined
+    // One read transaction keeps the record and its observation rows consistent with a concurrent terminal update.
+    const [result, rows] = await client.batch([
+      {
+        args: observationNames === undefined ? [id] : [observationNames, id],
+        sql: `SELECT sequence, ${observationNames === undefined ? "record" : filteredObservationRecord} AS record FROM ${table} WHERE id = ? LIMIT 1`,
+      },
+      observationRowsStatement(id, observationNames),
+    ], "read")
+    const row = result!.rows[0]
+    const record = row ? deserialize(row.record, row.sequence) : undefined
+    return record && withObservationRows(record, rows!.rows)
   }
   const readSummary = async (id: string): Promise<AgentInvocationSummary | undefined> => {
     await initialize()
@@ -533,53 +735,44 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
     const row = result.rows[0]
     return row ? deserializeSummary(row.summary, row.sequence) : undefined
   }
+  const terminalPlaceholders = terminalStatuses.map(() => "?").join(", ")
+  // Each selection uses one index. An OR across updated_at and sequence makes SQLite read every terminal row.
+  const ageSelection = (updatedBefore: string) => ({
+    args: [...terminalStatuses, updatedBefore],
+    where: `status IN (${terminalPlaceholders}) AND updated_at < ?`,
+  })
+  // Merge the three ordered status-index scans, stopping at maxRecords without reading active rows.
+  const countSelection = (limit: number) => ({
+    args: [...terminalStatuses, ...terminalStatuses, limit - 1],
+    where: `status IN (${terminalPlaceholders}) AND sequence < (
+      ${terminalStatuses.map(() => `SELECT sequence FROM ${table} WHERE status = ?`).join(" UNION ALL ")}
+      ORDER BY sequence DESC LIMIT 1 OFFSET ?
+    )`,
+  })
   // Selects terminal records by an explicit cutoff, or by configured retention when no cutoff is given.
-  const pruneSelection = (updatedBefore?: string, now = Date.now()) => {
-    const filters: string[] = []
-    const args: Array<number | string> = []
-    const terminalPlaceholders = terminalStatuses.map(() => "?").join(", ")
-    if (updatedBefore !== undefined) {
-      filters.push("updated_at < ?")
-      args.push(updatedBefore)
-    }
-    else {
-      if (maxAgeMs !== false) {
-        filters.push("updated_at < ?")
-        args.push(new Date(now - maxAgeMs).toISOString())
-      }
-      if (maxRecords !== false) {
-        filters.push(`sequence NOT IN (
-          SELECT sequence FROM ${table} WHERE status IN (${terminalPlaceholders}) ORDER BY sequence DESC LIMIT ?
-        )`)
-        args.push(...terminalStatuses, maxRecords)
-      }
-    }
-    if (!filters.length) return
-    return {
-      args: [...terminalStatuses, ...args],
-      where: `status IN (${terminalPlaceholders}) AND (${filters.join(" OR ")})`,
-    }
+  // The count limit runs first, so both limits select from the same terminal records.
+  const pruneSelections = (count: boolean, updatedBefore?: string, now = Date.now()) => {
+    if (updatedBefore !== undefined) return [ageSelection(updatedBefore)]
+    return [
+      ...(count && maxRecords !== false ? [countSelection(maxRecords)] : []),
+      ...(maxAgeMs !== false ? [ageSelection(new Date(now - maxAgeMs).toISOString())] : []),
+    ]
   }
   const deleteOrphanClaims = `DELETE FROM ${table}_claims
       WHERE NOT EXISTS (SELECT 1 FROM ${table} WHERE ${table}.id = ${table}_claims.id)`
-  const pruneStatements = (now = Date.now()) => {
-    const selection = pruneSelection(undefined, now)
-    if (!selection) return []
-    return [{ args: selection.args, sql: `DELETE FROM ${table} WHERE ${selection.where}` }, deleteOrphanClaims]
+  const pruneStatements = (count: boolean, now = Date.now()) => {
+    const selections = pruneSelections(count, undefined, now)
+    if (!selections.length) return []
+    return [...selections.map(selection => ({ args: selection.args, sql: `DELETE FROM ${table} WHERE ${selection.where}` })), deleteOrphanClaims]
   }
-  const prune = async (executor?: Pick<Client, "execute">) => {
-    const statements = pruneStatements()
-    if (!statements.length) return
-    if (executor) {
-      for (const statement of statements) await executor.execute(statement)
-      return
-    }
-    await client.batch(statements, "write")
+  const prune = async (executor: Pick<Client, "execute">) => {
+    for (const statement of pruneStatements(countRetentionDue(maxRecords))) await executor.execute(statement)
   }
   return {
     async claim(id, claimId, leaseMs, options) {
       return write(async () => {
         await initialize()
+        await prepareWrite()
         const claimToken = globalThis.crypto.randomUUID()
         const expectedClaimIds = options?.expectedClaimIds === undefined ? null : JSON.stringify(options.expectedClaimIds)
         const result = await client.execute({
@@ -598,10 +791,12 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       return write(async () => {
         await initialize()
         return await retrySqliteBusy(async () => {
+          await prepareWrite()
           const retentionNow = Date.now()
-          const prePrune = pruneStatements(retentionNow)
+          const count = countRetentionDue(maxRecords)
+          const prePrune = pruneStatements(count, retentionNow)
           const insertIndex = prePrune.length
-          const statements = [
+          const statements: InStatement[] = [
             ...prePrune,
             {
               args: [input.id, input.status, agentNameRecord(input), searchableAgentInvocationText(input), searchVersion, serializedSummary(input), input.updatedAt, serialize(input)],
@@ -609,15 +804,16 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
             }
           ]
           if (input.status === "completed" || input.status === "failed" || input.status === "cancelled") {
-            statements.push(...pruneStatements(retentionNow))
+            statements.push(...pruneStatements(count, retentionNow))
           }
           statements.push({
             args: [input.id],
             sql: `SELECT sequence, record FROM ${table} WHERE id = ? LIMIT 1`,
-          })
+          }, observationRowsStatement(input.id))
           const results = await client.batch(statements, "write")
-          const row = results.at(-1)?.rows[0]
-          const record = row ? deserialize(row.record, row.sequence) : undefined
+          const row = results.at(-2)?.rows[0]
+          const stored = row ? deserialize(row.record, row.sequence) : undefined
+          const record = stored && withObservationRows(stored, results.at(-1)?.rows ?? [])
           if (!record) throw agentDiagnostics.AGENT_R0634({ message: `[vitehub] SQLite Agent Invocation ${JSON.stringify(input.id)} was removed by retention.` })
           return { created: results[insertIndex]!.rowsAffected > 0, record }
         })
@@ -674,8 +870,11 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
           WHERE capability.value = ?)
           OR EXISTS (SELECT 1
           FROM json_each(CASE WHEN json_valid(record) THEN record ELSE '{}' END, '$.observations') AS observation
-          WHERE json_extract(observation.value, '$."attributes"."capability.id"') = ?))`)
-        args.push(capabilityId, capabilityId)
+          WHERE json_extract(observation.value, '$."attributes"."capability.id"') = ?)
+          OR EXISTS (SELECT 1 FROM ${observationTable} AS appended
+          WHERE appended.invocation_sequence = ${table}.sequence AND json_valid(appended.observation)
+            AND json_extract(appended.observation, '$."attributes"."capability.id"') = ?))`)
+        args.push(capabilityId, capabilityId, capabilityId)
       }
       const triggeredBy = listOptions.triggeredBy?.trim()
       if (triggeredBy) {
@@ -730,7 +929,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       // including writes from older clients that do not know about this column.
       await write(async () => await retrySqliteBusy(async () => await client.execute({
         args,
-        sql: `UPDATE ${table} SET capability_ids = ${capabilityIdsProjection()}
+        sql: `UPDATE ${table} SET capability_ids = ${capabilityIdsProjection(table)}
           WHERE capability_ids IS NULL AND ${filter}`,
       })))
       // A writer can invalidate the cache between these statements. Resolve those rows
@@ -738,11 +937,11 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       // Cached IDs come from the covering index. Only legacy rows without agent_name read the row.
       const rows = selectedAgent
         ? `SELECT capability_ids AS ids FROM ${table} WHERE agent_name = ? AND capability_ids IS NOT NULL
-          UNION ALL SELECT ${capabilityIdsProjection()} FROM ${table} WHERE agent_name = ? AND capability_ids IS NULL
-          UNION ALL SELECT COALESCE(capability_ids, ${capabilityIdsProjection()}) FROM ${table}
+          UNION ALL SELECT ${capabilityIdsProjection(table)} FROM ${table} WHERE agent_name = ? AND capability_ids IS NULL
+          UNION ALL SELECT COALESCE(capability_ids, ${capabilityIdsProjection(table)}) FROM ${table}
             WHERE (agent_name IS NULL OR agent_name = '') AND json_extract(record, '$.agentName') = ?`
         : `SELECT capability_ids AS ids FROM ${table} WHERE capability_ids IS NOT NULL
-          UNION ALL SELECT ${capabilityIdsProjection()} FROM ${table} WHERE capability_ids IS NULL`
+          UNION ALL SELECT ${capabilityIdsProjection(table)} FROM ${table} WHERE capability_ids IS NULL`
       const result = await client.execute({
         args: selectedAgent ? [selectedAgent, selectedAgent, selectedAgent] : [],
         sql: `SELECT DISTINCT capability.value AS capability_id
@@ -775,6 +974,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       return write(async () => {
         await initialize()
         return await retrySqliteBusy(async () => {
+          await prepareWrite()
           const terminalPlaceholders = terminalStatuses.map(() => "?").join(", ")
           const results = await client.batch([
             { args: [id, ...terminalStatuses], sql: `DELETE FROM ${table} WHERE id = ? AND status IN (${terminalPlaceholders})` },
@@ -791,18 +991,18 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       return write(async () => {
         await initialize()
         return await retrySqliteBusy(async () => {
-          const selection = pruneSelection(pruneOptions.updatedBefore)
-          if (!selection) return { dryRun, ids: [] }
-          const results = await client.batch([
-            {
-              args: selection.args,
-              sql: dryRun
-                ? `SELECT id FROM ${table} WHERE ${selection.where} ORDER BY sequence`
-                : `DELETE FROM ${table} WHERE ${selection.where} RETURNING id`,
-            },
-            ...(dryRun ? [] : [deleteOrphanClaims]),
-          ], "write")
-          const ids = results[0]!.rows.flatMap(row => hasRuntimeType(row.id, "string") ? [row.id] : [])
+          const selections = pruneSelections(true, pruneOptions.updatedBefore)
+          if (!selections.length) return { dryRun, ids: [] }
+          const results = await client.batch(dryRun
+            ? [{
+                args: selections.flatMap<number | string>(selection => selection.args),
+                sql: `${selections.map(selection => `SELECT id, sequence FROM ${table} WHERE ${selection.where}`).join(" UNION ")} ORDER BY sequence`,
+              }]
+            : [
+                ...selections.map(selection => ({ args: selection.args, sql: `DELETE FROM ${table} WHERE ${selection.where} RETURNING id` })),
+                deleteOrphanClaims,
+              ], "write")
+          const ids = results.slice(0, selections.length).flatMap(result => result.rows.flatMap(row => hasRuntimeType(row.id, "string") ? [row.id] : []))
           return { dryRun, ids }
         })
       })
@@ -810,6 +1010,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
     async release(id, claimId) {
       await write(async () => {
         await initialize()
+        await prepareWrite()
         await client.execute({
           args: [id, claimId],
           sql: `DELETE FROM ${table}_claims WHERE id = ? AND claim_id = ?`,

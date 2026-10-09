@@ -1,9 +1,12 @@
+import { createAgentEnvIdentity } from "../src/internal/env-identity.ts"
 import { describe, expect, it, vi } from "vitest"
 
 import type { Mock } from "vitest"
 import type { JSONRPCMessage, MCPClient, MCPTransport } from "@ai-sdk/mcp"
+import type { McpToolInputSchema } from "../src/mcp/types.ts"
 
 const runtime = () => ({
+  agentIdentity: createAgentEnvIdentity({ name: "agent" }),
   capabilities: {},
   memo: vi.fn(),
   runtime: "unknown" as const,
@@ -170,6 +173,109 @@ describe("mcp capability", () => {
     expect(client.close).not.toHaveBeenCalled()
   })
 
+  it("applies application-owned tool contract overrides after MCP discovery", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { mcp } = await import("../src/capabilities.ts")
+    const execute = vi.fn(async () => "ok")
+    const client = createClient({
+      threads_get: {
+        description: "Read a thread.",
+        execute,
+        inputSchema: {
+          additionalProperties: false,
+          properties: {},
+          type: "object",
+        },
+      },
+    })
+    const inputSchema: McpToolInputSchema = {
+      additionalProperties: false,
+      properties: { id: { type: "string" } },
+      required: ["id"],
+      type: "object",
+    }
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [mcp({
+        servers: { productlane: client },
+        toolOverrides: {
+          productlane: {
+            threads_get: {
+              description: "Read one Productlane thread by id.",
+              inputSchema,
+            },
+          },
+        },
+      })],
+    }, runtime(), {})
+
+    expect(resolved.tools?.mcp_productlane_threads_get).toMatchObject({
+      description: "Read one Productlane thread by id.",
+      inputSchema,
+      metadata: { mcpServer: "productlane", originalName: "threads_get" },
+    })
+    expect(resolved.tools?.mcp_productlane_threads_get?.execute).toBe(execute)
+    await expect(resolved.tools?.mcp_productlane_threads_get?.execute?.({ id: "thread-1" })).resolves.toBe("ok")
+    expect(execute).toHaveBeenCalledWith({ id: "thread-1" })
+    await resolved.close()
+  })
+
+  it.each(["string", "array"])("rejects %s input override roots", async (type) => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { mcp } = await import("../src/capabilities.ts")
+    await expect(resolveAgentCapabilities({ capabilities: [mcp({
+      servers: { docs: createClient({ read: { execute: vi.fn() } }) },
+      toolOverrides: { docs: { read: { inputSchema: { type } as McpToolInputSchema } } },
+    })] }, runtime(), {})).rejects.toMatchObject({
+      code: "AGENT_R0983",
+      message: expect.stringContaining("object JSON Schema"),
+    })
+  })
+
+  it("rejects transform-capable override schemas at runtime", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { mcp } = await import("../src/capabilities.ts")
+    const { z } = await import("zod")
+    await expect(resolveAgentCapabilities({ capabilities: [mcp({
+      servers: { docs: createClient({ read: { execute: vi.fn() } }) },
+      toolOverrides: { docs: { read: {
+        // @ts-expect-error MCP overrides accept only non-transforming JSON Schema.
+        inputSchema: z.object({ id: z.string().default("changed") }),
+      } } },
+    })] }, runtime(), {})).rejects.toMatchObject({
+      code: "AGENT_R0983",
+      message: expect.stringContaining("plain JSON Schema"),
+    })
+  })
+
+  it.each(["server", "tool"])("rejects unmatched %s override keys", async (kind) => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { mcp } = await import("../src/capabilities.ts")
+    const client = createClient({ read: { execute: vi.fn() } })
+    const resolved = resolveAgentCapabilities({ capabilities: [mcp({
+      servers: { docs: client },
+      toolOverrides: { [kind === "server" ? "typo" : "docs"]: { typo: { description: "Pinned" } } },
+    })] }, runtime(), {})
+    const { isAgentTypeDiagnostic } = await import("../src/agent-diagnostics.ts")
+    await expect(resolved.catch(isAgentTypeDiagnostic)).resolves.toBe(true)
+    await expect(resolved).rejects.toMatchObject({
+      code: kind === "server" ? "AGENT_R0981" : "AGENT_R0982",
+    })
+  })
+
+  it("allows overrides for skipped and unavailable servers", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { mcp } = await import("../src/capabilities.ts")
+    const resolved = await resolveAgentCapabilities({ capabilities: [mcp({
+      servers: { skipped: false, offline: () => { throw new TypeError("fetch failed") } },
+      toolOverrides: {
+        skipped: { read: { description: "Pinned" } },
+        offline: { read: { description: "Pinned" } },
+      },
+    })] }, runtime(), {})
+    await resolved.close()
+  })
+
   it("keeps a static direct client usable across invocations", async () => {
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { mcp } = await import("../src/capabilities.ts")
@@ -266,10 +372,10 @@ describe("mcp capability", () => {
       expect(config).not.toHaveProperty("connection")
       const transport = config?.transport as { fetch: typeof globalThis.fetch, type: string, url: string }
       expect(transport).toMatchObject({ type: "http", url: "https://executor.test/mcp" })
-      expect(connections.client).toHaveBeenCalledWith("executor", { actor: "agent:agent", rejectApprovals: true })
       const controller = new AbortController()
       const body = JSON.stringify({ id: 1, jsonrpc: "2.0", method: "tools/call", params: { arguments: {}, name: "search" } })
       await transport.fetch("https://executor.test/mcp", { body, method: "POST" })
+      expect(connections.client).toHaveBeenCalledWith("executor", { access: expect.objectContaining({ actor: { id: "agent", kind: "agent" } }), rejectApprovals: true })
       await transport.fetch(new URL("https://executor.test/mcp"), { method: "GET" })
       await transport.fetch(new Request("https://executor.test/mcp", { body, headers: { "mcp-session-id": "s1" }, method: "POST", signal: controller.signal }), { headers: { "mcp-session-id": "s2" }, redirect: "manual" })
       expect(client.fetch.mock.calls.map(([url]) => String(url))).toEqual(Array(3).fill("https://executor.test/mcp"))
@@ -694,6 +800,20 @@ describe("mcp capability", () => {
         },
       })],
     }, runtime(), {})).rejects.toThrow("entries must resolve to an MCP client or MCP client config")
+  })
+
+  it("reports malformed Connection transport discriminators", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { mcp } = await import("../src/capabilities.ts")
+
+    await expect(resolveAgentCapabilities({
+      capabilities: [mcp({
+        servers: {
+          // SAFETY: This deliberately bypasses the public type to prove runtime validation.
+          broken: (() => ({ connection: "executor", transport: null })) as never,
+        },
+      })],
+    }, runtime(), {})).rejects.toThrow(/requires an http or sse transport config/)
   })
 
   it("throws on duplicate normalized tool names and closes initialized clients", async () => {

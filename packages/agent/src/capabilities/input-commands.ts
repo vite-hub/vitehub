@@ -1,7 +1,7 @@
 import { getCapability, resolveRuntimeValue } from "@vite-hub/runtime"
 
 import { agentInvocationId } from "../invocations.ts"
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
+import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { defineCapability } from "../capability-runtime.ts"
 import {
   getMessageText,
@@ -196,6 +196,29 @@ export function findInputCommandInvocation(
   }
 }
 
+interface InputCommandInvocationCounts {
+  byName: Map<string, number>
+  total: number
+}
+
+function countInputCommandInvocations(
+  text: string,
+  trigger: string,
+  commands: Record<string, InputCommand>,
+): InputCommandInvocationCounts {
+  const byName = new Map<string, number>()
+  let total = 0
+  let cursor = 0
+  while (cursor <= text.length) {
+    const invocation = findInputCommandInvocation(text, trigger, commands, cursor)
+    if (!invocation) break
+    total++
+    byName.set(invocation.name, (byName.get(invocation.name) || 0) + 1)
+    cursor = Math.max(invocation.end, invocation.start + 1)
+  }
+  return { byName, total }
+}
+
 function latestUserMessageIndex(messages: Message[]): number {
   for (let index = messages.length - 1; index >= 0; index--) {
     if (messages[index]?.role === "user") return index
@@ -290,6 +313,19 @@ function commandReplacementText(targetText: string, invocation: InputCommandInvo
     return replacement
   }
   return invocation.text
+}
+
+// An empty replacement also removes the whitespace after the command, or before
+// it at the end of the text. Otherwise each removed command leaves a separator,
+// and a long expansion grows the text that every later step must copy and scan.
+function commandReplacementRange(targetText: string, invocation: InputCommandInvocation, replacement: string): { start: number, end: number } {
+  if (replacement) return { start: invocation.start, end: invocation.end }
+  let end = invocation.end
+  while (end < targetText.length && /\s/.test(targetText[end]!)) end++
+  if (end > invocation.end) return { start: invocation.start, end }
+  let start = invocation.start
+  while (start > 0 && /\s/.test(targetText[start - 1]!)) start--
+  return { start, end }
 }
 
 function mergeInputCommandResult(input: AgentRunInput, result: Partial<AgentRunInput>): AgentRunInput {
@@ -432,6 +468,18 @@ function scheduleInputCommandFinishHook(
   })
 }
 
+function inputCommandNumericDepth(args: string | undefined): number | undefined {
+  const match = args?.match(/^\s*(\d+)(?:\s|$)/)
+  if (!match) return
+  const depth = Number(match[1])
+  return Number.isSafeInteger(depth) ? depth : undefined
+}
+
+// Keep a finite resource bound for numeric chains, while allowing chains whose
+// decreasing measure is larger than the ordinary command budget.
+const MAX_NUMERIC_EXPANSION_DEPTH = 1_000_000
+const MAX_NUMERIC_EXPANSION_WORK = 1_000_000
+
 export function inputCommands(options: InputCommandsOptions): AgentCapabilityDefinition {
   const commands = normalizeInputCommands(options)
   const trigger = normalizeInputCommandTrigger(options.trigger)
@@ -454,8 +502,241 @@ export function inputCommands(options: InputCommandsOptions): AgentCapabilityDef
       let text = target.text
       let cursor = 0
       let runs = 0
+      let numericExpansionWork = 0
       let maxRuns = Math.max(1_000, text.length + 1)
+      const creditedGrowth = new Set<string>()
+      const blockedTransitions = new Set<string>()
+      const transitionGraph = new Map<string, Set<string>>()
+      const creditedCyclicTransitions = new Set<string>()
+      const numericTransitionDepths = new Map<string, number>()
+      let transitionLineage: string[] = []
+      let budgetText: string | undefined
+      let budgetCommand: string | undefined
+      let budgetArgs: string | undefined
+      let budgetInvocationRange: { start: number, end: number } | undefined
+      let budgetReplacementRange: { start: number, end: number } | undefined
+      const invocationCounts = new Map<string, InputCommandInvocationCounts>()
+      const cacheInvocationCounts = (value: string, counts: InputCommandInvocationCounts): void => {
+        invocationCounts.set(value, counts)
+        // Keep the budget, current, and next snapshots available for reuse.
+        if (invocationCounts.size > 3) invocationCounts.delete(invocationCounts.keys().next().value!)
+      }
+      const getInvocationCounts = (value: string): InputCommandInvocationCounts => {
+        const cached = invocationCounts.get(value)
+        if (cached) return cached
+        const counts = countInputCommandInvocations(value, trigger, commands)
+        cacheInvocationCounts(value, counts)
+        return counts
+      }
+      const updateInvocationCounts = (previous: string, next: string): void => {
+        const previousCounts = getInvocationCounts(previous)
+        let start = 0
+        while (start < previous.length && start < next.length && previous[start] === next[start]) start++
+        let previousEnd = previous.length
+        let nextEnd = next.length
+        while (previousEnd > start && nextEnd > start && previous[previousEnd - 1] === next[nextEnd - 1]) {
+          previousEnd--
+          nextEnd--
+        }
+        // A changed slice can split a token when a mutation edits inside a
+        // command. Fall back to a complete count in that case.
+        const boundarySafe = (value: string, begin: number, end: number): boolean =>
+          (begin === 0 || /\s/.test(value[begin - 1]!))
+          && (end === value.length || /\s/.test(value[end]!))
+        if (!boundarySafe(previous, start, previousEnd) || !boundarySafe(next, start, nextEnd)) {
+          cacheInvocationCounts(next, countInputCommandInvocations(next, trigger, commands))
+          return
+        }
+        const removed = countInputCommandInvocations(previous.slice(start, previousEnd), trigger, commands)
+        const added = countInputCommandInvocations(next.slice(start, nextEnd), trigger, commands)
+        const byName = new Map(previousCounts.byName)
+        for (const [name, count] of removed.byName) byName.set(name, (byName.get(name) || 0) - count)
+        for (const [name, count] of added.byName) byName.set(name, (byName.get(name) || 0) + count)
+        cacheInvocationCounts(next, { byName, total: previousCounts.total - removed.total + added.total })
+      }
+      const canReenterLineage = (value: string): boolean => {
+        if (!transitionLineage.length) return false
+        const reachesLineage = (name: string, seen: Set<string>): boolean => {
+          if (transitionLineage.includes(name)) return true
+          if (seen.has(name)) return false
+          seen.add(name)
+          return [...(transitionGraph.get(name) || [])].some(successor => reachesLineage(successor, seen))
+        }
+        let invocation = findInputCommandInvocation(value, trigger, commands)
+        while (invocation) {
+          if (reachesLineage(invocation.name, new Set())) return true
+          invocation = findInputCommandInvocation(value, trigger, commands, Math.max(invocation.end, invocation.start + 1))
+        }
+        return false
+      }
       while (cursor <= text.length) {
+        // Each registered command can credit growth or a new rewrite stage only once.
+        // Repeated or alternating recursive handlers cannot keep raising the allowance.
+        if (budgetText !== undefined && text !== budgetText) {
+          const nextCounts = getInvocationCounts(text)
+          const previousCounts = getInvocationCounts(budgetText)
+          const nextRuns = nextCounts.total
+          const previousRuns = previousCounts.total
+          const addedRuns = Math.max(0, nextRuns - previousRuns)
+          if (budgetCommand !== undefined) {
+            const previousOwnRuns = previousCounts.byName.get(budgetCommand) || 0
+            const nextOwnRuns = nextCounts.byName.get(budgetCommand) || 0
+            const advancesStage = nextOwnRuns < previousOwnRuns && nextRuns - nextOwnRuns > previousRuns - previousOwnRuns
+            const finiteStage = nextOwnRuns === 0 && addedRuns > 0
+            const ownGrowth = nextOwnRuns > previousOwnRuns && !creditedGrowth.has(budgetCommand)
+            // Only record transitions into rewritten command tokens. Unchanged
+            // siblings can move when a replacement changes the prompt length.
+            let nextInvocation = findInputCommandInvocation(text, trigger, commands, cursor)
+            // Channel-skipped tokens must not hide the next executable rewrite.
+            // SAFETY: Parsed invocations are registered command names.
+            while (nextInvocation && !commandAllowsCurrentChannel(commands[nextInvocation.name]!, context as AgentCapabilityRuntimeContext)) {
+              nextInvocation = findInputCommandInvocation(text, trigger, commands, nextInvocation.end)
+            }
+            let changedRange = budgetReplacementRange
+            let revealsBoundaryCommand = false
+            if (nextInvocation && nextInvocation.name !== budgetCommand && !changedRange) {
+              let start = 0
+              while (start < budgetText.length && start < text.length && budgetText[start] === text[start]) start++
+              let previousEnd = budgetText.length
+              let end = text.length
+              while (previousEnd > start && end > start && budgetText[previousEnd - 1] === text[end - 1]) {
+                previousEnd--
+                end--
+              }
+              changedRange = { start, end }
+              // The changed separator can reveal a command in the unchanged suffix.
+              revealsBoundaryCommand = previousEnd > 0 && !/\s/.test(budgetText[previousEnd - 1]!)
+                && end > 0 && /\s/.test(text[end - 1]!)
+            }
+            // Every generated child must decrease the numeric measure. Checking
+            // only the first child misses a recursive sibling with unchanged depth.
+            let finiteSameCommandGrowth = false
+            const depth = inputCommandNumericDepth(budgetArgs)
+            if (depth !== undefined && budgetCommand === nextInvocation?.name && budgetInvocationRange) {
+              let replacementRange = budgetReplacementRange
+              if (!replacementRange) {
+                const prefix = budgetText.slice(0, budgetInvocationRange.start)
+                const suffix = budgetText.slice(budgetInvocationRange.end)
+                if (text.startsWith(prefix) && text.endsWith(suffix) && text.length >= prefix.length + suffix.length) {
+                  replacementRange = { start: prefix.length, end: text.length - suffix.length }
+                }
+              }
+              // For broader input mutations, check the whole input conservatively.
+              const replacement = replacementRange ? text.slice(replacementRange.start, replacementRange.end) : text
+              let child = findInputCommandInvocation(replacement, trigger, commands)
+              finiteSameCommandGrowth = child !== undefined
+              while (child) {
+                const childDepth = inputCommandNumericDepth(child.args)
+                if (child.name !== budgetCommand || childDepth === undefined || childDepth >= depth) {
+                  finiteSameCommandGrowth = false
+                  break
+                }
+                child = findInputCommandInvocation(replacement, trigger, commands, Math.max(child.end, child.start + 1))
+              }
+            }
+            const introducesNextInvocation = nextInvocation && nextInvocation.name !== budgetCommand && changedRange
+              && (nextInvocation.start < changedRange.end || (nextInvocation.start === changedRange.end
+                && revealsBoundaryCommand))
+              && nextInvocation.start + trigger.length + nextInvocation.name.length > changedRange.start
+            let cycleDetected = false
+            let numericTransitionBlocked = false
+            let generatedNumericDecrease = false
+            const budgetDepth = inputCommandNumericDepth(budgetArgs)
+            const nextDepth = inputCommandNumericDepth(nextInvocation?.args)
+            let advancesNumericStage = Boolean(
+              budgetDepth !== undefined && nextDepth !== undefined && nextDepth < budgetDepth
+              // Same-command fan-out must decrease every child, including siblings.
+              && (nextInvocation?.name !== budgetCommand || finiteSameCommandGrowth || generatedNumericDecrease),
+            )
+            // Keep every generated edge after leading commands finish and are removed.
+            // A cyclic edge can receive credit once, but cannot renew it indefinitely.
+            let graphCreditBlocked = false
+            if (budgetDepth !== undefined && budgetDepth > MAX_NUMERIC_EXPANSION_DEPTH) {
+              graphCreditBlocked = true
+            } else if (budgetDepth !== undefined && nextDepth !== undefined && (nextDepth >= budgetDepth || (nextDepth === 0 && nextRuns <= 1))) {
+              graphCreditBlocked = true
+            }
+            if (changedRange) {
+              const generatedNames = new Set<string>()
+              const generatedText = text.slice(changedRange.start, changedRange.end)
+              generatedNumericDecrease = budgetDepth !== undefined
+              let generatedSameCommand = false
+              let generated = findInputCommandInvocation(generatedText, trigger, commands)
+              while (generated) {
+                const generatedDepth = inputCommandNumericDepth(generated.args)
+                if (generated.name === budgetCommand) {
+                  generatedSameCommand = true
+                  if (generatedDepth === undefined || budgetDepth === undefined || generatedDepth >= budgetDepth) generatedNumericDecrease = false
+                }
+                // SAFETY: Input command parsing only yields registered command names.
+                if (generated.name !== budgetCommand && commandAllowsCurrentChannel(commands[generated.name]!, context as AgentCapabilityRuntimeContext)) {
+                  generatedNames.add(generated.name)
+                  const successors = transitionGraph.get(budgetCommand) || new Set<string>()
+                  successors.add(generated.name)
+                  transitionGraph.set(budgetCommand, successors)
+                }
+                generated = findInputCommandInvocation(generatedText, trigger, commands, Math.max(generated.end, generated.start + 1))
+              }
+              if (!generatedSameCommand) generatedNumericDecrease = false
+              const reachesBudget = (name: string, seen: Set<string>): boolean => {
+                if (name === budgetCommand) return true
+                if (seen.has(name)) return false
+                seen.add(name)
+                return [...(transitionGraph.get(name) || [])].some(successor => reachesBudget(successor, seen))
+              }
+              for (const successor of generatedNames) {
+                if (!reachesBudget(successor, new Set())) continue
+                const transition = `${budgetCommand}->${successor}`
+                if (creditedCyclicTransitions.has(transition) && !advancesNumericStage && !generatedNumericDecrease) graphCreditBlocked = true
+                creditedCyclicTransitions.add(transition)
+              }
+            }
+            advancesNumericStage = Boolean(
+              budgetDepth !== undefined && nextDepth !== undefined && nextDepth < budgetDepth
+              && (nextInvocation?.name !== budgetCommand || finiteSameCommandGrowth || generatedNumericDecrease),
+            )
+            if (introducesNextInvocation && nextInvocation) {
+              if (!transitionLineage.length) transitionLineage.push(budgetCommand)
+              const transition = `${budgetCommand}->${nextInvocation.name}`
+              if (advancesNumericStage && nextInvocation.name !== budgetCommand) {
+                const previousDepth = numericTransitionDepths.get(transition)
+                if (previousDepth !== undefined && budgetDepth! >= previousDepth) {
+                  numericTransitionBlocked = true
+                } else {
+                  numericTransitionDepths.set(transition, budgetDepth!)
+                }
+              }
+              const transitionWasBlocked = blockedTransitions.has(transition)
+              const cycleStart = transitionLineage.indexOf(nextInvocation.name)
+              if (cycleStart >= 0 && !transitionWasBlocked) {
+                cycleDetected = true
+                for (let index = cycleStart; index < transitionLineage.length - 1; index++) {
+                  blockedTransitions.add(`${transitionLineage[index]}->${transitionLineage[index + 1]}`)
+                }
+                blockedTransitions.add(transition)
+              } else {
+                transitionLineage.push(nextInvocation.name)
+              }
+            } else if (!finiteSameCommandGrowth) {
+              transitionLineage = []
+              blockedTransitions.clear()
+              creditedCyclicTransitions.clear()
+              numericTransitionDepths.clear()
+            }
+            if (!graphCreditBlocked && !numericTransitionBlocked && (!nextInvocation || cycleDetected || advancesNumericStage
+              || !blockedTransitions.has(`${budgetCommand}->${nextInvocation.name}`))
+              && (finiteStage || advancesStage || ownGrowth || finiteSameCommandGrowth || advancesNumericStage)) {
+              // Credit the rewritten invocation too, which may consume the base allowance.
+              maxRuns += (addedRuns > 0 ? addedRuns : nextRuns) + 1
+              if (ownGrowth) creditedGrowth.add(budgetCommand)
+            }
+          }
+        }
+        budgetText = undefined
+        budgetCommand = undefined
+        budgetArgs = undefined
+        budgetInvocationRange = undefined
+        budgetReplacementRange = undefined
         const invocation = findInputCommandInvocation(text, trigger, commands, cursor)
         if (!invocation) break
         if (++runs > maxRuns) throw agentDiagnostics.AGENT_R0103({ message: "[vitehub] inputCommands exceeded the maximum command expansion depth." })
@@ -465,6 +746,17 @@ export function inputCommands(options: InputCommandsOptions): AgentCapabilityDef
         if (!commandAllowsCurrentChannel(command, context as AgentCapabilityRuntimeContext)) {
           cursor = invocation.end
           continue
+        }
+        if (inputCommandNumericDepth(invocation.args) !== undefined
+          && ++numericExpansionWork > MAX_NUMERIC_EXPANSION_WORK) {
+          throw agentDiagnostics.AGENT_R0103({ message: "[vitehub] inputCommands exceeded the maximum command expansion depth." })
+        }
+        budgetText = text
+        budgetCommand = invocation.name
+        budgetArgs = invocation.args
+        budgetInvocationRange = { start: invocation.start, end: invocation.end }
+        if (transitionLineage.length && transitionLineage[transitionLineage.length - 1] !== invocation.name) {
+          transitionLineage = []
         }
         const result = await inputCommandCall(command)({
           args: invocation.args,
@@ -485,7 +777,6 @@ export function inputCommands(options: InputCommandsOptions): AgentCapabilityDef
         target = getInputCommandTarget(input)
         if (!target) return
         text = target.text
-        maxRuns = Math.max(maxRuns, text.length + 1)
 
         if (hasRuntimeType(result, "string")) {
           if (text.slice(invocation.start, invocation.end) !== invocation.text) {
@@ -493,19 +784,36 @@ export function inputCommands(options: InputCommandsOptions): AgentCapabilityDef
             continue
           }
           const replacement = commandReplacementText(text, invocation, result)
-          text = `${text.slice(0, invocation.start)}${replacement}${text.slice(invocation.end)}`
+          const range = commandReplacementRange(text, invocation, replacement)
+          const nextText = `${text.slice(0, range.start)}${replacement}${text.slice(range.end)}`
+          if (budgetText === text && nextText !== text) {
+            budgetReplacementRange = { start: range.start, end: range.start + replacement.length }
+            // The invocation has whitespace boundaries, so only its replacement
+            // can add or remove commands. Preserve counts for unchanged siblings.
+            const previousCounts = getInvocationCounts(text)
+            const replacementCounts = countInputCommandInvocations(replacement, trigger, commands)
+            const byName = new Map(previousCounts.byName)
+            byName.set(invocation.name, (byName.get(invocation.name) || 0) - 1)
+            for (const [name, count] of replacementCounts.byName) {
+              byName.set(name, (byName.get(name) || 0) + count)
+            }
+            cacheInvocationCounts(nextText, {
+              byName,
+              total: previousCounts.total - 1 + replacementCounts.total,
+            })
+          }
+          text = nextText
           input = replaceTargetText(input, target, text, {
-            end: invocation.end,
+            end: range.end,
             replacement,
-            start: invocation.start,
+            start: range.start,
           })
           context.input.set(input)
           target = getInputCommandTarget(input)
           if (!target) return
-          maxRuns = Math.max(maxRuns, text.length + 1)
           // SAFETY: Input command parsing establishes the asserted command contract.
           await runInputCommandInputHook(command, context as AgentCapabilityRuntimeContext, invocation)
-          cursor = replacement === invocation.text ? invocation.end : invocation.start
+          cursor = replacement === invocation.text ? invocation.end : range.start
           continue
         }
 
@@ -516,8 +824,8 @@ export function inputCommands(options: InputCommandsOptions): AgentCapabilityDef
           target = getInputCommandTarget(input)
           if (!target) return
           text = target.text
-          maxRuns = Math.max(maxRuns, text.length + 1)
           if (text !== previousText) {
+            updateInvocationCounts(previousText, text)
             // SAFETY: Input command parsing establishes the asserted command contract.
             await runInputCommandInputHook(command, context as AgentCapabilityRuntimeContext, invocation)
             cursor = 0
@@ -532,14 +840,36 @@ export function inputCommands(options: InputCommandsOptions): AgentCapabilityDef
         }
 
         if (text.slice(invocation.start, invocation.end) === invocation.text) {
+          if (text === previousText && !command.hooks?.["agent:input"]) {
+            budgetText = undefined
+            budgetCommand = undefined
+          }
           input = removeInputCommandText(input, target, invocation)
           context.input.set(input)
           target = getInputCommandTarget(input)
           if (!target) return
+          const previousCounts = invocationCounts.get(text)
+          if (previousCounts) {
+            const byName = new Map(previousCounts.byName)
+            byName.set(invocation.name, (byName.get(invocation.name) || 0) - 1)
+            cacheInvocationCounts(target.text, { byName, total: previousCounts.total - 1 })
+          }
           text = target.text
-          maxRuns = Math.max(maxRuns, text.length + 1)
           // SAFETY: Input command parsing establishes the asserted command contract.
           await runInputCommandInputHook(command, context as AgentCapabilityRuntimeContext, invocation)
+          input = context.input.get()
+          target = getInputCommandTarget(input)
+          if (!target) return
+          text = target.text
+          // Preserve recursive tracking while a remaining sibling can re-enter
+          // the active lineage. Reset only at a proven independent boundary,
+          // after the hook has had a chance to mutate the input.
+          if (!canReenterLineage(text)) {
+            transitionLineage = []
+            blockedTransitions.clear()
+            creditedCyclicTransitions.clear()
+            numericTransitionDepths.clear()
+          }
           cursor = 0
           continue
         }

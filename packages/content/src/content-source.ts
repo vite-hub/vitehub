@@ -13,6 +13,7 @@ export interface ContentSourceOptions {
 }
 
 type ContentSourceItem = SourceItem<string, unknown, object>
+type RuntimeObject = Record<string, unknown>
 type ContentSourceFactory = {
   create(options?: ContentSourceOptions): ComarkContentSource
 }
@@ -75,8 +76,36 @@ function isRuntimeFunction(value: unknown): value is Function {
   }
 }
 
-function isRuntimeObject(value: unknown): value is object {
+function isRuntimeObject(value: unknown): value is RuntimeObject {
   return value !== null && Object(value) === value && !isRuntimeFunction(value)
+}
+
+function isConstructorPrototype(prototype: RuntimeObject): boolean {
+  if (!Object.hasOwn(prototype, "constructor")) return false
+  const constructor = prototype.constructor
+  return isRuntimeFunction(constructor)
+    && Object.getOwnPropertyDescriptor(constructor, "prototype")?.value === prototype
+    // Object constructors have the same native representation across realms.
+    // Exclude their prototypes while allowing classes that extend null.
+    && Function.prototype.toString.call(constructor) !== Function.prototype.toString.call(Object)
+}
+
+function hasCallableMethod(value: RuntimeObject, key: string): boolean {
+  if (Object.hasOwn(value, key)) {
+    return isRuntimeFunction(value[key])
+  }
+
+  // Native class-based Sources keep their methods on a prototype. Treat a
+  // prototype-backed object as a Source only when its immediate prototype is
+  // an intentional constructor prototype. A plain object supplied through
+  // Object.create({ ... }) has no own constructor and must not inherit a
+  // Source marker from that object (or from any realm's Object.prototype).
+  let prototype = Object.getPrototypeOf(value)
+  while (prototype && isConstructorPrototype(prototype)) {
+    if (Object.hasOwn(prototype, key)) return isRuntimeFunction(value[key])
+    prototype = Object.getPrototypeOf(prototype)
+  }
+  return false
 }
 
 function isSourceName(input: ContentSourceInput): input is SourceName {
@@ -86,22 +115,17 @@ function isSourceName(input: ContentSourceInput): input is SourceName {
 function isComarkContentSource(input: ContentSourceInput): input is ComarkContentSource {
   return (
     isRuntimeObject(input)
-    && "getItem" in input
-    && isRuntimeFunction(input.getItem)
-    && "getItemRaw" in input
-    && isRuntimeFunction(input.getItemRaw)
-    && "keys" in input
-    && isRuntimeFunction(input.keys)
+    && hasCallableMethod(input, "getItem")
+    && hasCallableMethod(input, "getItemRaw")
+    && hasCallableMethod(input, "keys")
   )
 }
 
 function isSourceDefinition(input: ContentSourceInput): input is Source<string, unknown, object> {
   return (
     isRuntimeObject(input)
-    && "getKeys" in input
-    && isRuntimeFunction(input.getKeys)
-    && "getItem" in input
-    && isRuntimeFunction(input.getItem)
+    && hasCallableMethod(input, "getKeys")
+    && hasCallableMethod(input, "getItem")
   )
 }
 
@@ -255,4 +279,3 @@ export function createContentInstance(name: string, input: ContentSourceInput, o
   instance.get = ((key: string, opts?: ContentGetOptions) => loads.run(factory.create(), () => get(key, opts))) as typeof instance.get
   return instance
 }
-

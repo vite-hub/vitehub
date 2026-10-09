@@ -1,6 +1,7 @@
 @import "tailwindcss";
 @import "@nuxt/ui";
 @source "../components";
+@source "../../app.config.ts";
 
 :root {
   color-scheme: light;
@@ -15,6 +16,10 @@
   --ui-text-muted: #71717a;
   --ui-text-dimmed: #71717a;
   --ui-text-highlighted: #18181b;
+  /* Popovers, menus, and tooltips use a translucent surface over the page. */
+  --vitehub-console-floating: rgb(255 255 255 / 86%);
+  --vitehub-console-scrollbar: #d4d4d8;
+  --vitehub-console-scrollbar-hover: #a1a1aa;
   background: var(--ui-bg);
   color: var(--ui-text);
   font-family:
@@ -40,6 +45,10 @@
   --ui-text-muted: #a1a1aa;
   --ui-text-dimmed: #71717a;
   --ui-text-highlighted: #fafafa;
+  /* Dark floating surfaces sit one step above the page instead of matching it. */
+  --vitehub-console-floating: rgb(24 24 27 / 84%);
+  --vitehub-console-scrollbar: rgb(255 255 255 / 12%);
+  --vitehub-console-scrollbar-hover: rgb(255 255 255 / 22%);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -56,6 +65,9 @@
     --ui-text-muted: #a1a1aa;
     --ui-text-dimmed: #71717a;
     --ui-text-highlighted: #fafafa;
+    --vitehub-console-floating: rgb(24 24 27 / 84%);
+    --vitehub-console-scrollbar: rgb(255 255 255 / 12%);
+    --vitehub-console-scrollbar-hover: rgb(255 255 255 / 22%);
   }
 }
 
@@ -81,4 +93,28 @@ body {
 button,
 a {
   -webkit-tap-highlight-color: transparent;
+}
+
+/* Thin scrollbars keep dense lists from showing a wide system gutter. */
+* {
+  scrollbar-color: var(--vitehub-console-scrollbar) transparent;
+  scrollbar-width: thin;
+}
+
+::-webkit-scrollbar {
+  height: 6px;
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--vitehub-console-scrollbar);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--vitehub-console-scrollbar-hover);
 }

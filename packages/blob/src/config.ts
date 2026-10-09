@@ -62,12 +62,13 @@ function resolveCloudflareStore(
 
 function resolveVercelStore(
   config: Partial<VercelBlobStoreConfig> = {},
+  env: Record<string, string | undefined> = process.env,
 ): ResolvedVercelBlobStoreConfig {
   return {
     ...config,
     access: config.access ?? "public",
     driver: "vercel-blob",
-    token: trimmed(config.token) ?? MASKED_BLOB_RUNTIME_VALUE,
+    token: resolveBuildRuntimeValue(config.token, env, "BLOB_READ_WRITE_TOKEN") ?? MASKED_BLOB_RUNTIME_VALUE,
   }
 }
 
@@ -121,7 +122,7 @@ function resolveExplicitStore(
     case "netlify-blobs":
       return resolveNetlifyStore(store)
     case "vercel-blob":
-      return resolveVercelStore(store)
+      return resolveVercelStore(store, env)
     case "akamai":
     case "azure":
     case "box":
@@ -181,7 +182,7 @@ function assertServeStore(
   serve: ResolvedBlobModuleOptions["serve"],
   stores: Record<string, ResolvedBlobModuleOptions["store"]>,
 ): void {
-  if (!serve || serve.store in stores) return
+  if (!serve || Object.hasOwn(stores, serve.store)) return
   throw blobErrorDiagnostics.BLOB_C0006({ message: `\`blob.serve.store\` must reference a configured Blob store: ${JSON.stringify(serve.store)}.` })
 }
 
@@ -197,7 +198,9 @@ function createResolvedConfig(
 }
 
 function hasStoresConfig(options: BlobModuleOptions | undefined): options is BlobStoresConfig {
-  return !!options && "stores" in options && isPlainObject((options as { stores?: unknown }).stores)
+  if (!options || !Object.hasOwn(options, "stores")) return false
+  // SAFETY: The own-property check above establishes that this read cannot come from an inherited prototype.
+  return isPlainObject((options as { stores?: unknown }).stores)
 }
 
 export function hasVercelBlobEnv(env: Record<string, string | undefined>): boolean {
@@ -246,11 +249,11 @@ export function normalizeBlobOptions(
   }
 
   if (hasVercelBlobEnv(env)) {
-    return createResolvedConfig(resolveVercelStore(), undefined, serve)
+    return createResolvedConfig(resolveVercelStore({}, env), undefined, serve)
   }
 
   if (hosting.includes("vercel")) {
-    return createResolvedConfig(resolveVercelStore(), undefined, serve)
+    return createResolvedConfig(resolveVercelStore({}, env), undefined, serve)
   }
 
   return createResolvedConfig(resolveFsStore({}, env), undefined, serve)

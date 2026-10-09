@@ -1,6 +1,5 @@
 import { defineCapability } from "../capability-runtime.ts"
-import { asUnknownBoundary, hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
-import { isRuntimeRecord } from "../internal/runtime-type.ts"
+import { asUnknownBoundary, hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts"
 import { otlpHttpJson } from "../telemetry.ts"
 
 import type {

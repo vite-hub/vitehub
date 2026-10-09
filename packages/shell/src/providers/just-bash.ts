@@ -63,10 +63,11 @@ export function createJustBashProvider(options: JustBashProviderOptions): ShellE
     analyze: analyzeShellCommand,
     boundary,
     async exec(command: string, execOptions: ShellRuntimeExecOptions = {}) {
-      const result = await withProviderTimeout(command, execOptions, async () => {
+      const cwd = execOptions.cwd ?? options.cwd ?? "/workspace"
+      const result = await withProviderTimeout(command, { ...execOptions, cwd }, async () => {
         const curlResult = await runControlledCurlCommand(command, {
           commands,
-          cwd: execOptions.cwd || options.cwd,
+          cwd,
           networkGrants,
         })
         if (curlResult) return curlResult
@@ -75,20 +76,20 @@ export function createJustBashProvider(options: JustBashProviderOptions): ShellE
         const bash = new Bash({
           // SAFETY: Just Bash filters its built-in registry by these names; unknown names do not register commands.
           commands: commands as CommandName[] | undefined,
-          cwd: options.cwd,
+          cwd,
           fs: options.fs,
         })
         const signal = typeof execOptions.timeout === "number"
           ? AbortSignal.timeout(execOptions.timeout)
           : undefined
         return await bash.exec(command, {
-          cwd: execOptions.cwd,
+          cwd,
           env: execOptions.env,
           signal,
         })
           .then(result => ({
             command,
-            cwd: execOptions.cwd,
+            cwd,
             event: "command_finished",
             exitCode: result.exitCode,
             stderr: result.stderr,
@@ -99,7 +100,7 @@ export function createJustBashProvider(options: JustBashProviderOptions): ShellE
       execOptions.onStderr?.(result.stderr)
       return {
         command: result.command ?? command,
-        cwd: result.cwd ?? execOptions.cwd,
+        cwd: result.cwd ?? cwd,
         event: result.timedOut ? "command_timed_out" : result.event,
         exitCode: result.exitCode,
         stderr: result.stderr,

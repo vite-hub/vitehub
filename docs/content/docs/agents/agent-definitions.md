@@ -149,6 +149,25 @@ const notes = defineAgent({
 notes.options.format // "concise" | "detailed"
 ```
 
+Configured presets can declare a `configKey` to expose a module-style configuration block. The block keeps the preset's option names visible at the call site:
+
+```ts
+const notes = defineAgent({
+  configKey: 'notetaker',
+  options: { format: 'concise' as 'concise' | 'detailed' },
+  configure: ({ format }) => defineAgent({
+    driver: { kind: 'codex', instructions: `Write ${format} notes.` },
+  }),
+})
+
+const detailed = defineAgent({
+  extends: notes,
+  notetaker: { format: 'detailed' },
+})
+```
+
+Use `extends: [notes, options]` when options belong beside the selected preset, for example `defineAgent({ extends: [notes, { format: 'detailed' }] })`. The named block and tuple can be combined; tuple values take precedence when both provide the same key. The legacy `extends` plus `options` form remains available, but a definition cannot mix it with a named block or tuple.
+
 `options` must be a plain record and uses nested defaults. Built-in instance roots are rejected by the types. Custom class roots are rejected at runtime because TypeScript cannot distinguish their structure from plain records with callbacks. Child values replace parent values, including `false`, empty arrays, and callbacks. Arrays never concatenate. Nested values with required methods, including class instances, require complete replacements. Omitted or `undefined` values retain their defaults. Annotate optional fields and literal unions in the defaults to describe the accepted configuration. TypeScript checks options against the selected preset. If options come from untyped input, validate them in `configure`.
 
 `configure` runs synchronously when defining or extending the Agent. Return a normal Agent Definition and keep this callback free of network calls and other side effects. The callback receives its own option copy. Copies of standard built-ins preserve their own property descriptors and nested values. Custom class instances and values such as `WeakMap`, `WeakSet`, and `Error` retain their identity across option copies. Detached buffers and their views retain identity. Resizable or growable buffers and their views also retain identity, preserving resize behavior and fixed-length or length-tracking views. Ordinary Agent overrides apply after the callback and remain in effect through further extensions. An inherited Agent name is cleared on each extension. For discovered Agents, a Workspace reference object must use a statically known string `name`; `name: undefined` owns a Workspace. Opaque names require an explicit Workspace ownership marker on the configured definition. A configured Agent exposes its resolved `options` for host setup and inspection; these values do not become model instructions automatically.
@@ -207,6 +226,10 @@ Hooks and Capabilities receive the parsed output, but changed data is validated 
 ## Finish before the Driver
 
 Set `intercept` when app code can answer some Invocations without the Driver. The handler receives the same context as an `agent:input` hook plus the parsed `data`. Return `undefined` to continue to the Driver. Return another value to finish the Invocation with that value as its output. Throw to fail the Invocation.
+
+Without an Agent `data` schema, `intercept.data` uses `input.data` when it exists. Otherwise, a Channel-triggered Invocation uses the Trigger's message, validated by the Channel's `message.data` schema. The value stays typed as `unknown`, since direct Invocations and explicit trigger data can have another shape. Use an Agent `data` schema when interception needs a known type.
+
+A Capability trigger that selects a Channel can omit its message. Without an Agent `data` schema or explicit `input.data`, `intercept.data` stays `undefined`.
 
 ```ts [server/agents/labeller.ts]
 import * as v from 'valibot'

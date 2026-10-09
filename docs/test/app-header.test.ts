@@ -13,6 +13,22 @@ describe("docs header", () => {
       'text="Just a library where I test different solutions and agents. APIs break all the time."',
     );
     expect(header).toContain('aria-label="ViteHub alpha"');
+    // The brand opens the product catalog on docs routes and the home page elsewhere.
+    expect(header).toContain(":to=\"isDocsRoute ? '/docs' : '/'\"");
     expect(header).toContain('<span class="vh-brand-alpha">alpha</span>');
+    // The mobile menu focuses the brand link on open; the tooltip must not cover the menu.
+    expect(header).toContain("ignore-non-keyboard-focus");
+  });
+
+  it("keeps site links and docs navigation in the mobile docs menu", async () => {
+    const header = await readFile(
+      new URL("../app/components/AppHeader.vue", import.meta.url),
+      "utf8",
+    );
+
+    expect(header).not.toContain("toggle: isSupportMatrix");
+    expect(header).toContain('<div v-if="isDocsRoute" class="vh-docs-menu -mx-4 -my-2">');
+    expect(header).toContain('v-for="link in docsMobileLinks"');
+    expect(header).toContain('mobileLinks.filter((link) => !link.to.startsWith("/docs"))');
   });
 });

@@ -150,6 +150,25 @@ describe("blob config", () => {
     })
   })
 
+  it.each(["single", "named"] as const)("masks an env-backed token in a %s Vercel Blob store", (form) => {
+    const store = { driver: "vercel-blob", token: "build-token" } as const
+    const config = normalizeBlobOptions(form === "named" ? { stores: { default: store } } : store, {
+      env: { BLOB_READ_WRITE_TOKEN: "build-token" },
+    })
+
+    expect(config?.store).toEqual({ access: "public", driver: "vercel-blob", token: "********" })
+    if (config?.store.driver !== "vercel-blob") throw new Error("Expected a Vercel Blob store.")
+    expect(resolveRuntimeVercelBlobStore(config.store, {
+      BLOB_READ_WRITE_TOKEN: "runtime-token",
+    }).token).toBe("runtime-token")
+  })
+
+  it("preserves a Vercel Blob token that differs from the default env token", () => {
+    expect(normalizeBlobOptions({ driver: "vercel-blob", token: "store-token" }, {
+      env: { BLOB_READ_WRITE_TOKEN: "default-token" },
+    })?.store).toEqual({ access: "public", driver: "vercel-blob", token: "store-token" })
+  })
+
   it("defaults Netlify hosting to Netlify Blobs", () => {
     expect(normalizeBlobOptions({}, {
       env: { BLOB_READ_WRITE_TOKEN: "vercel-token" },
@@ -336,6 +355,15 @@ describe("blob config", () => {
     })).toThrow("`blob.serve.store` must reference a configured Blob store: \"media\".")
   })
 
+  it("rejects inherited names when serving from a single Blob store", () => {
+    expect(() => normalizeBlobOptions({
+      driver: "fs",
+      serve: {
+        store: "constructor",
+      },
+    })).toThrow("`blob.serve.store` must reference a configured Blob store: \"constructor\".")
+  })
+
   it("normalizes named stores with a required default store", () => {
     expect(normalizeBlobOptions({
       stores: {
@@ -430,6 +458,21 @@ describe("blob config", () => {
         },
       },
     })).toThrow("`blob.stores.default` is required when using named Blob stores.")
+  })
+
+  it("ignores named stores inherited from an untrusted prototype", () => {
+    const options = Object.create({
+      stores: {
+        default: { base: ".inherited", driver: "fs" },
+      },
+    })
+
+    expect(normalizeBlobOptions(options, { env: {}, hosting: "" })).toEqual({
+      store: {
+        base: ".vitehub/data/blob",
+        driver: "fs",
+      },
+    })
   })
 
   it("rehydrates the Vercel token at runtime", () => {

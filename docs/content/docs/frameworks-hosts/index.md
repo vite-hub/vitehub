@@ -24,6 +24,9 @@ Both integrations use Nitro to build the server output.
 [Nitro and UnJS](/docs/frameworks-hosts/nitro-unjs) explains where ViteHub
 packages register Nitro handlers.
 
+To move a Nuxt application from NuxtHub, read
+[Migrate from NuxtHub](/docs/getting-started/migrate-from-nuxthub).
+
 ## Choose a preset
 
 `preset` is required. It selects the host, the Nitro preset, and the provider

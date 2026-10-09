@@ -4,7 +4,7 @@ import { dirname, extname, isAbsolute, relative, resolve } from "node:path"
 import { createDefaultCloudflareOutputRoot, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
-import { createNoExternalAddition, generatedViteHubWatchIgnoredAddition, isServerEnvironment, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { createNoExternalAddition, isServerEnvironment, generatedViteHubWatchIgnoredAddition, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { registerViteHubDevEndpoint } from "@vite-hub/internal/dev-endpoint"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
@@ -21,6 +21,7 @@ import { installHostedVercelBlobWorkspaceRuntime } from "../../hosted-vercel-blo
 import { inspectWorkspaceDefinitions } from "../../inspect.ts"
 import { configureCloudflareArtifacts } from "../../integrations/cloudflare.ts"
 import { ensureWorkspaceDevToken, refreshWorkspaceDevToken, runWorkspaceDevCommand, validateWorkspaceDevToken, workspaceDevHeader, workspaceDevHeaderValue, workspaceDevRoute, workspaceDevTokenServerId } from "../../server.ts"
+import { isWorkspaceStore } from "../../storage/provider.ts"
 
 import type { AliasOptions, HmrContext, Plugin, ResolvedConfig, UserConfig, ViteDevServer } from "vite"
 import type { CloudflareProviderDeploymentOutputStateReader, ProviderDeploymentOutputWriter } from "@vite-hub/internal/build/deployment-output"
@@ -1066,7 +1067,7 @@ async function resolveDefinitionCloudflareArtifactsConfigs(
       loaded = { store }
     }
     const workspace = normalizeWorkspaceDefinition(definition.name, loaded)
-    if (!workspace.store || "readFile" in workspace.store) continue
+    if (!workspace.store || isWorkspaceStore(workspace.store)) continue
     const config = normalizeWorkspaceOptions({ store: workspace.store }, {
       dev: false,
       env: resolution?.env || process.env,
@@ -1475,7 +1476,7 @@ function runtimeWorkspaceConfig(
 ): false | ResolvedWorkspaceModuleOptions {
   if (!cloudflareRuntime || !config || config.store.provider !== "github" || !options) return config
   const store = options.store
-  if (!store || "readFile" in store || store.provider !== "github") return config
+  if (!store || isWorkspaceStore(store) || store.provider !== "github") return config
   const runtimeStore = { ...config.store }
   const isAbsent = (value: unknown) => typeof value === "undefined" || (typeof value === "string" && value.trim().length === 0)
   for (const key of ["branch", "root", "token"] as const) {

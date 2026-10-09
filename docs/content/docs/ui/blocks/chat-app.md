@@ -1,15 +1,17 @@
 ---
 title: Chat App
 description: "A complete chat layout with a session list, streamed replies, and a prompt with attachments."
-navigation.order: 50
-navigation.group: Blocks
+navigation.order: 10
+navigation.group: Console
 icon: i-ph-chats-teardrop-light
 ---
 
-This block combines a session list, [`AgentSession`](/docs/ui/session), and [`AgentChatPrompt`](/docs/ui/chat-prompt) with attachments. Select a session, send a message, or attach a log file. The reply streams from a local function, so the block works without a model or a network.
+This block combines a session list, [`AgentSession`](/docs/ui/session), and [`AgentChatPrompt`](/docs/ui/chat-prompt) with attachments. Select a session, send a message, or attach a log file. The sessions and streamed replies are synthetic. No model runs and no network requests leave the page.
 
 ::component-preview{name="ChatAppBlock" flush reset}
 ::
+
+The session list moves above the chat when the block is narrower than 42rem. Sending a message, stopping a reply, and switching sessions all work in the preview.
 
 ## Connect a real transport
 

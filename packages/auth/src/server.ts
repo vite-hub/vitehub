@@ -5,6 +5,7 @@ import { normalizeAuthBasePath } from "./shared.ts"
 import { resolveAuthOptions } from "./runtime-options.ts"
 import { throwAuthenticationProviderError } from "./errors.ts"
 import { getAuthenticationSession } from "./session.ts"
+import { getAuthRuntimeState } from "./runtime-state.ts"
 
 import type { AccessAuthorizeOption, PublicUrlConfig } from "@vite-hub/runtime"
 import type {
@@ -12,8 +13,10 @@ import type {
   AuthAccessConfiguration,
   AuthAccessAuthorizationContext,
   AuthAccessRoute,
+  AuthAuthorization,
   AuthBetterAuthRuntimeOptions,
   AuthDefinition,
+  AuthGuardedHandler,
   AuthRequest,
   AuthRequestInput,
   AuthRuntimeOptions,
@@ -22,6 +25,8 @@ import type {
   ViteHubAuth,
 } from "./types.ts"
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
+
+export { resetAuth } from "./runtime-state.ts"
 
 declare const __VITEHUB_PUBLIC_URL__: PublicUrlConfig | undefined
 
@@ -67,7 +72,8 @@ function toRequest(request: AuthRequest): Request {
 }
 
 function unwrapAuthRequest(input: AuthRequestInput): AuthRequest {
-  return "req" in input ? input.req : input
+  // SAFETY: AuthRequestInput is a request or an own-property host wrapper; inherited req values must not replace the request.
+  return Object.hasOwn(input, "req") ? (input as { req: AuthRequest }).req : input as AuthRequest
 }
 
 export function createAuthRequestRuntimeOptions(
@@ -77,21 +83,6 @@ export function createAuthRequestRuntimeOptions(
   event?: unknown,
 ): AuthRuntimeOptions {
   return resolveAuthOptions(definition, { request, runtimeOptions, event, env: authRuntimeEnvResolver }).requestRuntimeOptions
-}
-
-const authRuntimeStateKey = Symbol.for("vitehub.auth.runtime")
-
-interface AuthRuntimeState {
-  auth?: ViteHubAuth
-  definition?: AuthDefinition
-}
-
-function getAuthRuntimeState(): AuthRuntimeState {
-  const globalScope = globalThis as typeof globalThis & {
-    [authRuntimeStateKey]?: AuthRuntimeState
-  }
-  globalScope[authRuntimeStateKey] ??= {}
-  return globalScope[authRuntimeStateKey]
 }
 
 function resolveDefaultDefinition(): AuthDefinition {
@@ -147,12 +138,6 @@ export function createAuthHandler(
   runtimeOptions?: AuthRuntimeOptions,
 ): ViteHubAuth["handler"] {
   return createAuth(definition, runtimeOptions).handler
-}
-
-export function resetAuth(): void {
-  const state = getAuthRuntimeState()
-  state.auth = undefined
-  state.definition = undefined
 }
 
 export function getAuthForDefinition(
@@ -282,6 +267,14 @@ async function readRequestSession(input: AuthRequestInput, definition: AuthDefin
   return { auth, options, request, session }
 }
 
+type AuthCheck =
+  | { authorization: AuthAuthorization, response?: undefined }
+  | { authorization?: undefined, response: Response }
+
+function reject(response: Response): AuthCheck {
+  return { response }
+}
+
 async function runAccessAuthorize(
   authorize: AuthAccessAuthorize,
   context: AuthAccessAuthorizationContext,
@@ -291,81 +284,109 @@ async function runAccessAuthorize(
   if (result !== true) return createForbiddenResponse(context.request)
 }
 
-async function requireAuthRequest(
+async function checkAuthRequest(
   input: AuthRequestInput,
   definition: AuthDefinition,
   routeIndexes?: number[],
   requiredAuthorizeRouteIndexes: number[] = [],
   redirectToSignIn = true,
-): Promise<Response | undefined> {
+): Promise<AuthCheck> {
   const { auth, options, request, session } = await readRequestSession(input, definition)
   if (session) {
-    if (routeIndexes === undefined) return
-
-    const context: AuthAccessAuthorizationContext = {
+    const authorization: AuthAuthorization = Object.freeze({
       request,
       session: session.session,
       user: session.user,
-    }
+    })
+    if (routeIndexes === undefined) return { authorization }
+
     const requiredAuthorizeRoutes = new Set(requiredAuthorizeRouteIndexes)
     const routes = authAccessRoutes(options, routeIndexes)
     for (const [index, route] of routes.entries()) {
       const authorize = route instanceof Object ? route.authorize : undefined
       if (!authorize && requiredAuthorizeRoutes.has(routeIndexes[index]!)) {
-        return createForbiddenResponse(request)
+        return reject(createForbiddenResponse(request))
       }
       if (!authorize) continue
-      const rejection = await runAccessAuthorize(authorize, context)
-      if (rejection) return rejection
+      const rejection = await runAccessAuthorize(authorize, authorization)
+      if (rejection) return reject(rejection)
     }
-    return
+    return { authorization }
   }
 
   if (!wantsHtml(request)) {
-    return Response.json({ error: "Unauthorized." }, { status: 401 })
+    return reject(Response.json({ error: "Unauthorized." }, { status: 401 }))
   }
 
   if (!redirectToSignIn) {
-    return Response.json({ error: "Unauthorized." }, { status: 401 })
+    return reject(Response.json({ error: "Unauthorized." }, { status: 401 }))
   }
 
   if (new URL(request.url).searchParams.has("auth_error")) {
-    return new Response("Unauthorized.", {
+    return reject(new Response("Unauthorized.", {
       headers: { "content-type": "text/plain; charset=utf-8" },
       status: 403,
-    })
+    }))
   }
 
   const signIn = (options as { access?: AuthAccessConfiguration }).access?.signIn
-  return signIn
+  return reject(signIn
     ? await createSignInResponse(auth, options, signIn)
-    : Response.json({ error: "Unauthorized." }, { status: 401 })
+    : Response.json({ error: "Unauthorized." }, { status: 401 }))
 }
 
-export async function requireAuth(
+async function checkAuthorizeRequest(
   input: AuthRequestInput,
-  definition: AuthDefinition = resolveDefaultDefinition(),
-): Promise<Response | undefined> {
-  return requireAuthRequest(input, definition)
+  authorize: AccessAuthorizeOption,
+  definition: AuthDefinition,
+): Promise<AuthCheck> {
+  const { request, session } = await readRequestSession(input, definition)
+  if (!session) return reject(Response.json({ error: "Unauthorized." }, { status: 401 }))
+  const authorization: AuthAuthorization = Object.freeze({ request, session: session.session, user: session.user })
+  if (authorize === true) return { authorization }
+  const rejection = await runAccessAuthorize(authorize, authorization)
+  return rejection ? reject(rejection) : { authorization }
 }
 
 /**
- * Authorizes one request for a resource such as a Blob serve route or a Collection.
+ * Wraps a server handler so it runs only with a signed-in Auth Session.
+ * The handler receives the checked `authorization`. Otherwise the wrapper returns `401`, or starts `access.signIn` for HTML requests.
+ */
+export function withAuth<TInput extends AuthRequestInput, TResult>(
+  handler: AuthGuardedHandler<TInput, TResult>,
+  definition?: AuthDefinition,
+): (input: TInput) => Promise<TResult | Response> {
+  if (!(handler instanceof Function)) {
+    throw authErrorDiagnostics.AUTH_R0015({ message: "[vitehub] withAuth() requires a handler function." })
+  }
+  return async (input) => {
+    const check = await checkAuthRequest(input, definition ?? resolveDefaultDefinition())
+    if (check.response) return check.response
+    return handler(input, check.authorization)
+  }
+}
+
+/**
+ * Wraps a resource handler, such as a Blob serve route or a Collection, so it runs only after `authorize` accepts the request.
  * Returns `401` without a session, `403` when `authorize` returns `false`, and a custom `Response` as-is.
  * It never redirects to sign-in, so image and fetch requests receive a status code.
  */
-export async function authorizeRequest(
-  input: AuthRequestInput,
+export function withAuthorization<TInput extends AuthRequestInput, TResult>(
   authorize: AccessAuthorizeOption,
-  definition: AuthDefinition = resolveDefaultDefinition(),
-): Promise<Response | undefined> {
+  handler: AuthGuardedHandler<TInput, TResult>,
+  definition?: AuthDefinition,
+): (input: TInput) => Promise<TResult | Response> {
   if (authorize !== true && !(authorize instanceof Function)) {
     throw authErrorDiagnostics.AUTH_R0014({ message: "[vitehub] `authorize` must be true or a function." })
   }
-  const { request, session } = await readRequestSession(input, definition)
-  if (!session) return Response.json({ error: "Unauthorized." }, { status: 401 })
-  if (authorize === true) return
-  return runAccessAuthorize(authorize, { request, session: session.session, user: session.user })
+  if (!(handler instanceof Function)) {
+    throw authErrorDiagnostics.AUTH_R0015({ message: "[vitehub] withAuthorization() requires a handler function." })
+  }
+  return async (input) => {
+    const check = await checkAuthorizeRequest(input, authorize, definition ?? resolveDefaultDefinition())
+    if (check.response) return check.response
+    return handler(input, check.authorization)
+  }
 }
 
 /** Bind discovered access routes to a Web Request or host request handler. */
@@ -389,12 +410,13 @@ export function createAuthAccessHandler(
       && (pathname === rule.path || (rule.recursive && pathname.startsWith(`${rule.path}/`))))
     if (matched.length === 0) return
 
-    return requireAuthRequest(
+    const { response } = await checkAuthRequest(
       input,
       definition ?? resolveDefaultDefinition(),
       matched.map(rule => rule.index),
       matched.filter(rule => rule.authorize).map(rule => rule.index),
     )
+    return response
   }
 }
 
@@ -411,7 +433,8 @@ export async function requireAuthAccessRoutes(
   if (!Array.isArray(requiredAuthorizeRouteIndexes) || requiredAuthorizeRouteIndexes.some(routeIndex => !Number.isSafeInteger(routeIndex) || routeIndex < 0)) {
     throw authErrorDiagnostics.AUTH_R0010({ message: "[vitehub] Required Auth authorize route indexes must be an array of non-negative integers." })
   }
-  return requireAuthRequest(input, definition, routeIndexes, requiredAuthorizeRouteIndexes, options.redirectToSignIn !== false)
+  const { response } = await checkAuthRequest(input, definition, routeIndexes, requiredAuthorizeRouteIndexes, options.redirectToSignIn !== false)
+  return response
 }
 
 export default handleAuth

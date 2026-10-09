@@ -13,8 +13,11 @@ import {
   consoleDatabaseRequestQuery,
   parseConsoleDatabase,
 } from "../src/console/runtime/components/console-database-model.ts";
-import consoleDatabaseHandler from "../src/console/runtime/server/database.get.ts";
+import consoleDatabaseHandlerRoute from "../src/console/runtime/server/database.get.ts";
 import { installConsoleDatabase } from "../src/console/runtime/server/database.ts";
+import { allowed } from "./support/console-access.ts";
+
+const consoleDatabaseHandler = allowed(consoleDatabaseHandlerRoute);
 
 const users = sqliteTable("users", {
   id: integer("id").primaryKey({ autoIncrement: true }),

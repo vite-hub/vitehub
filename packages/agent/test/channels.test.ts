@@ -7,8 +7,7 @@ import { join } from "node:path"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { encodeRouteSegment, resetPublicUrlAgentNames } from "@vite-hub/runtime"
 
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
-import { isRuntimeRecord } from "../src/internal/runtime-type.ts"
+import { hasRuntimeType, isRuntimeRecord } from "../src/internal/runtime-type.ts"
 import { defineAgent } from "../src/index.ts"
 import { agentInvocationId } from "../src/invocations.ts"
 import { resolveAgentTriggers } from "../src/trigger-runtime.ts"
@@ -116,7 +115,7 @@ describe("agent channels", () => {
       const channel = github({ activity: true })
       const update = channel.activity?.update
       if (!update) throw new Error("Missing GitHub Agent activity updater.")
-      const context = (runId: string, status: "completed" | "running", agentName = "reviewer") => ({
+      const context = (runId: string, status: "completed" | "running", agentName = "reviewer", summary = "Review complete.") => ({
         activity: {
           agentName,
           links: [{ label: "Session", url: `https://console.test/invocations/${runId}` }, { label: "Logs | Raw\n[report]", url: "https://console.test/logs|raw" }, { label: "[".repeat(100), url: "https://console.test/boundary" }],
@@ -124,7 +123,7 @@ describe("agent channels", () => {
           startedAt: "2026-09-05T12:00:00.000Z",
           updatedAt: "2026-09-05T12:02:35.000Z",
           status,
-          ...(status === "completed" ? { summary: "Review complete." } : {}),
+          ...(status === "completed" ? { summary } : {}),
           tasks: [
             { status: status === "completed" ? "completed" : "in-progress", title: "Review changes" },
             { status: "pending", title: "Untrusted\n# [link](https://example.com) *text*" },
@@ -158,11 +157,23 @@ describe("agent channels", () => {
       expect(stored?.body).toContain("- [ ] Untrusted \\# \\[link\\]\\(https://example.com\\) \\*text\\*")
       expect(stored?.body).not.toContain("\n# [link]")
       expect(stored?.body).toContain("https://console.test/invocations/run-2")
-      expect(stored?.body).toContain("<summary>Previous results</summary>")
+      expect(stored?.body).toContain("<summary>Final answers</summary>")
       expect(stored?.body).toContain("Review complete.")
+      expect(stored?.body.match(/Latest answer/g)).toHaveLength(1)
       expect(stored?.body).toContain("<relative-time datetime=")
       expect(stored?.body).toContain("https://console.test/invocations/run-1")
+      expect(stored?.body).toContain("[View session](<https://console.test/invocations/run-1>)")
       expect(stored?.body.match(/vitehub-agent-activity:/g)).toHaveLength(1)
+
+      // A large answer archive must not hide the newest answer while a run is active.
+      const longAnswer = "Previous answer. ".repeat(140)
+      for (let index = 0; index < 40; index++) {
+        // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
+        await update(context(`history-${index}`, "completed", "reviewer", longAnswer) as never)
+      }
+      // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
+      await update(context("history-running", "running") as never)
+      expect(stored?.body).toContain("Previous answer.")
 
       // Agent identity keeps equal provider run IDs as separate activity sessions.
       // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
@@ -233,6 +244,233 @@ describe("agent channels", () => {
       vi.unstubAllGlobals()
       vi.unstubAllEnvs()
     }
+  })
+
+  it("starts each GitHub activity request deadline after its target queue", async () => {
+    const { github } = await import("../src/channels.ts")
+    let release!: () => void
+    let entered!: () => void
+    const blocked = new Promise<void>(resolve => { release = resolve })
+    const started = new Promise<void>(resolve => { entered = resolve })
+    let storedBody = "", identityReads = 0
+    const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(hasRuntimeType(input, "string") || input instanceof URL ? input : input.url)
+      if (url.pathname === "/user") {
+        if (++identityReads === 1) { entered(); await blocked }
+        return Response.json({ login: "deadline-worker" })
+      }
+      if (!init?.method || init.method === "GET") return Response.json(storedBody
+        ? [{ body: storedBody, id: 7, user: { login: "deadline-worker" } }] : [])
+      const payload: unknown = JSON.parse(String(init.body))
+      if (!isRuntimeRecord(payload) || !hasRuntimeType(payload.body, "string")) throw new Error("Invalid comment body")
+      storedBody = payload.body
+      return Response.json({ id: 7 }, { status: init.method === "POST" ? 201 : 200 })
+    })
+    const timeout = AbortSignal.timeout.bind(AbortSignal)
+    vi.spyOn(AbortSignal, "timeout").mockImplementation(ms => timeout(ms === 30_000 ? 50 : ms))
+    vi.stubEnv("GITHUB_TOKEN", "target-queue-deadline-test-token")
+    vi.stubGlobal("fetch", fetcher)
+    try {
+      const channel = github({ activity: true })
+      const update = channel.activity?.update
+      if (!update) throw new Error("Missing activity updater")
+      const context = (status: "queued" | "running", abortSignal?: AbortSignal) => ({
+        activity: { agentName: "deadline-reviewer", links: [], runId: "deadline-run", status, tasks: [] },
+        abortSignal, channel, memo: vi.fn(), run: { runId: "deadline-run" },
+        runtime: "unknown", target: { repository: "acme/deadline", issue: 999 }, waitUntil: vi.fn(),
+      })
+      // SAFETY: These fixtures supply all activity callback fields consumed by the GitHub updater.
+      let firstError: unknown
+      const first = Promise.resolve(update(context("queued", new AbortController().signal) as never)).catch(error => { firstError = error })
+      await started
+      // SAFETY: These fixtures supply all activity callback fields consumed by the GitHub updater.
+      const second = update(context("running") as never)
+      await new Promise(resolve => setTimeout(resolve, 120))
+      release()
+      await Promise.all([first, second])
+      expect(firstError).toBeInstanceOf(DOMException)
+      expect(storedBody).toContain("| Running |")
+    } finally { release(); vi.restoreAllMocks(); vi.unstubAllEnvs(); vi.unstubAllGlobals() }
+  })
+
+  it.each(["App", "resolver", "separate resolver"] as const)("serializes GitHub %s activity even when authentication mints different tokens", async credentialKind => {
+    const { github } = await import("../src/channels.ts")
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
+    let release!: () => void
+    let entered!: () => void
+    const blocked = new Promise<void>(resolve => { release = resolve })
+    const started = new Promise<void>(resolve => { entered = resolve })
+    let tokens = 0
+    let writes = 0
+    let activeWrites = 0
+    let maxActiveWrites = 0
+    let storedBody = "<!-- vitehub-agent-activity:e30 -->"
+    const fetcher: typeof fetch = async (input, init) => {
+      const url = new URL(hasRuntimeType(input, "string") || input instanceof URL ? input : input.url)
+      if (url.pathname.endsWith("/access_tokens")) return Response.json({ expires_at: new Date(Date.now() + 600_000).toISOString(), token: `rotating-activity-token-${++tokens}` })
+      if (url.pathname === "/user") return Response.json({ login: "activity-app-bot" })
+      if (!init?.method || init.method === "GET") return Response.json([{ id: 7, body: storedBody, user: { login: "activity-app-bot" } }])
+      activeWrites++
+      maxActiveWrites = Math.max(maxActiveWrites, activeWrites)
+      try {
+        if (++writes === 1) { entered(); await blocked }
+        const payload: unknown = JSON.parse(String(init.body))
+        if (!isRuntimeRecord(payload) || !hasRuntimeType(payload.body, "string")) throw new Error("Invalid comment body")
+        storedBody = payload.body
+        return Response.json({ id: 7 })
+      } finally { activeWrites-- }
+    }
+    const makeChannel = () => github({ activity: true, app: {
+      appId: "rotating-activity-app", installationId: 987, fetch: fetcher,
+      privateKey: privateKey.export({ format: "pem", type: "pkcs1" }).toString(),
+      token: credentialKind !== "App" ? () => `rotating-resolver-token-${++tokens}` : undefined,
+    } })
+    const channel = makeChannel()
+    const otherChannel = credentialKind === "separate resolver" ? makeChannel() : channel
+    const update = channel.activity?.update
+    if (!update) throw new Error("Missing activity updater")
+    const context = (status: "running" | "completed", channel: ReturnType<typeof github>) => ({
+      activity: { agentName: "app-reviewer", links: [], runId: "app-run", status, tasks: [] },
+      channel, memo: vi.fn(), run: { runId: "app-run" }, runtime: "unknown",
+      target: { repository: "acme/rotating-activity", issue: 42 }, waitUntil: vi.fn(),
+    })
+    // SAFETY: These fixtures supply all activity callback fields consumed by the GitHub updater.
+    const first = update(context("running", channel) as never)
+    await started
+    // SAFETY: These fixtures supply all activity callback fields consumed by the GitHub updater.
+    const second = otherChannel.activity!.update(context("completed", otherChannel) as never)
+    try { await new Promise(resolve => setTimeout(resolve, 50)) }
+    finally { release(); await Promise.all([first, second]) }
+    expect(tokens).toBe(credentialKind === "App" ? 1 : 2)
+    expect(maxActiveWrites).toBe(1)
+    expect(storedBody).toContain("| Completed |")
+  })
+
+  it.each(["credentials", "comment lookup"])("releases the PR queue when independent %s ignore cancellation", async phase => {
+    const { github } = await import("../src/channels.ts")
+    let release!: () => void, entered!: () => void
+    const barrier = new Promise<void>(resolve => { release = resolve })
+    const started = new Promise<void>(resolve => { entered = resolve })
+    let storedBody = "", writes = 0
+    const timeout = AbortSignal.timeout.bind(AbortSignal)
+    vi.spyOn(AbortSignal, "timeout").mockImplementation(ms => timeout(ms === 30_000 ? 50 : ms))
+    const makeChannel = (stalled: boolean) => github({ activity: true, app: {
+      token: async () => {
+        if (stalled && phase === "credentials") { entered(); await barrier }
+        return stalled ? "stalled-token" : "healthy-token"
+      },
+      identity: { login: "bounded-queue-bot" },
+      fetch: async (_input, init) => {
+        if (!init?.method || init.method === "GET") {
+          if (stalled && phase === "comment lookup") { entered(); await barrier }
+          return Response.json(storedBody ? [{ id: 7, body: storedBody, user: { login: "bounded-queue-bot" } }] : [])
+        }
+        writes++
+        const payload: unknown = JSON.parse(String(init.body))
+        if (!isRuntimeRecord(payload) || !hasRuntimeType(payload.body, "string")) throw new Error("Invalid comment body")
+        storedBody = payload.body
+        return Response.json({ id: 7 })
+      },
+    } })
+    const firstChannel = makeChannel(true), nextChannel = makeChannel(false)
+    const context = (channel: ReturnType<typeof github>, status: "running" | "completed") => ({
+      activity: { agentName: "bounded-queue", links: [], runId: "bounded-run", status, tasks: [] },
+      abortSignal: new AbortController().signal, channel, memo: vi.fn(), run: { runId: "bounded-run" },
+      runtime: "unknown", target: { repository: `acme/bounded-${phase.replaceAll(" ", "-")}`, issue: 431 }, waitUntil: vi.fn(),
+    })
+    let failure: unknown
+    // SAFETY: These fixtures supply all activity callback fields consumed by GitHub.
+    const first = Promise.resolve(firstChannel.activity!.update(context(firstChannel, "running") as never)).catch(error => { failure = error })
+    await started
+    // SAFETY: These fixtures supply all activity callback fields consumed by GitHub.
+    const next = Promise.resolve(nextChannel.activity!.update(context(nextChannel, "completed") as never))
+    let published = false
+    try { published = await Promise.race([next.then(() => true), new Promise<boolean>(resolve => setTimeout(() => resolve(false), 250))]) }
+    finally { release(); await Promise.all([first, next]); vi.restoreAllMocks() }
+    expect(published).toBe(true)
+    expect(failure).toBeInstanceOf(DOMException)
+    expect(writes).toBe(1)
+    expect(storedBody).toContain("| Completed |")
+  })
+
+  it.each(["POST", "PATCH"])("retains target ownership until a non-cancelling %s settles", async method => {
+    const { github } = await import("../src/channels.ts")
+    let release!: () => void, entered!: () => void
+    const barrier = new Promise<void>(resolve => { release = resolve })
+    const started = new Promise<void>(resolve => { entered = resolve })
+    let storedBody = method === "PATCH" ? "<!-- vitehub-agent-activity:e30 -->" : ""
+    let writes = 0, firstSettled = false
+    const timeout = AbortSignal.timeout.bind(AbortSignal)
+    vi.spyOn(AbortSignal, "timeout").mockImplementation(ms => timeout(ms === 30_000 ? 50 : ms))
+    const channel = github({ activity: true, app: {
+      token: "write-ownership-token", identity: { login: "write-ownership-bot" },
+      fetch: async (_input, init) => {
+        if (!init?.method || init.method === "GET") return Response.json(storedBody ? [{ id: 7, body: storedBody, user: { login: "write-ownership-bot" } }] : [])
+        if (++writes === 1) { expect(init.method).toBe(method); entered(); await barrier }
+        const payload: unknown = JSON.parse(String(init.body))
+        if (!isRuntimeRecord(payload) || !hasRuntimeType(payload.body, "string")) throw new Error("Invalid comment body")
+        storedBody = payload.body
+        return Response.json({ id: 7 })
+      },
+    } })
+    const context = (status: "running" | "completed") => ({
+      activity: { agentName: "write-ownership", links: [], runId: "write-ownership-run", status, tasks: [] },
+      abortSignal: new AbortController().signal, channel, memo: vi.fn(), run: { runId: "write-ownership-run" },
+      runtime: "unknown", target: { repository: `acme/write-ownership-${method}`, issue: 432 }, waitUntil: vi.fn(),
+    })
+    let failure: unknown
+    // SAFETY: These fixtures supply all activity callback fields consumed by GitHub.
+    const first = Promise.resolve(channel.activity!.update(context("running") as never)).catch(error => { failure = error }).finally(() => { firstSettled = true })
+    await started
+    // SAFETY: These fixtures supply all activity callback fields consumed by GitHub.
+    const next = Promise.resolve(channel.activity!.update(context("completed") as never))
+    let ownedAfterDeadline = false
+    try {
+      await new Promise(resolve => setTimeout(resolve, 150))
+      ownedAfterDeadline = !firstSettled && writes === 1
+    } finally { release(); await Promise.all([first, next]); vi.restoreAllMocks() }
+    expect(ownedAfterDeadline).toBe(true)
+    expect(failure).toBeInstanceOf(DOMException)
+    expect(writes).toBe(2)
+    expect(storedBody).toContain("| Completed |")
+  })
+
+  it("serializes separate activity channels created from the same GitHub host", async () => {
+    const { github } = await import("../src/channels.ts")
+    const { createGitHubHost } = await import("../src/server/github.ts")
+    let release!: () => void, entered!: () => void
+    const blocked = new Promise<void>(resolve => { release = resolve })
+    const started = new Promise<void>(resolve => { entered = resolve })
+    let tokens = 0, writes = 0, activeWrites = 0, maxActiveWrites = 0
+    let storedBody = "<!-- vitehub-agent-activity:e30 -->"
+    vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(hasRuntimeType(input, "string") || input instanceof URL ? input : input.url)
+      if (url.pathname === "/user") return Response.json({ id: 789, login: "shared-host-bot" })
+      if (!init?.method || init.method === "GET") return Response.json([{ id: 7, body: storedBody, user: { login: "shared-host-bot" } }])
+      activeWrites++; maxActiveWrites = Math.max(maxActiveWrites, activeWrites)
+      try {
+        if (++writes === 1) { entered(); await blocked }
+        const payload: unknown = JSON.parse(String(init.body))
+        if (!isRuntimeRecord(payload) || !hasRuntimeType(payload.body, "string")) throw new Error("Invalid comment body")
+        storedBody = payload.body
+        return Response.json({ id: 7 })
+      } finally { activeWrites-- }
+    })
+    const host = createGitHubHost({ cacheMs: 0, credentials: () => ({ token: `shared-host-token-${++tokens}` }), identity: { login: "shared-host-bot" } })
+    const channels = [github({ activity: true, app: host }), github({ activity: true, app: host })]
+    const context = (channel: typeof channels[number], status: "waiting" | "running") => ({
+      activity: { agentName: "shared-reviewer", links: [], runId: "shared-run", status, tasks: [], summary: "Shared status" },
+      channel, memo: vi.fn(), run: { runId: "shared-run" }, runtime: "unknown", target: { repository: "acme/shared-host", issue: 42 }, waitUntil: vi.fn(),
+    })
+    // SAFETY: The fixture supplies the activity callback fields consumed by GitHub.
+    const first = channels[0]!.activity!.update(context(channels[0]!, "waiting") as never)
+    await started
+    // SAFETY: The fixture supplies the activity callback fields consumed by GitHub.
+    const second = channels[1]!.activity!.update(context(channels[1]!, "running") as never)
+    try { await new Promise(resolve => setTimeout(resolve, 50)) }
+    finally { release(); await Promise.all([first, second]); vi.unstubAllGlobals() }
+    expect(maxActiveWrites).toBe(1)
+    expect(storedBody).toContain("| Running |")
   })
 
   it("creates queued GitHub activity when a pull request opens", async () => {
@@ -392,10 +630,9 @@ describe("agent channels", () => {
       waitUntil: vi.fn(),
     } as never)
 
-    expect(fetcher).toHaveBeenCalledWith("https://api.github.test/app", expect.objectContaining({
-      headers: expect.objectContaining({ authorization: expect.stringMatching(/^Bearer .+\..+\..+$/) }),
-      method: "GET",
-    }))
+    const appCall = fetcher.mock.calls.find(([input]) => input === "https://api.github.test/app")
+    expect(appCall?.[1]?.method).toBe("GET")
+    expect(new Headers(appCall?.[1]?.headers).get("authorization")).toMatch(/^Bearer .+\..+\..+$/)
     expect(fetcher).toHaveBeenCalledWith("https://api.github.test/repos/acme/app/issues/comments/7", expect.objectContaining({ method: "PATCH" }))
   })
 
@@ -1196,6 +1433,8 @@ describe("agent channels", () => {
 
     expect(rewriteDeliveryArtifactMarkdown([
       "![Preview](./artifacts/preview.png)",
+      "![Spaced preview](<artifacts/my preview.png>)",
+      "![Pending preview](<artifacts/pending preview.png>)",
       "![Absolute](/workspace/codex-session/artifacts/preview.png)",
       "![Nested absolute](/workspace/codex-session/tmp/artifacts/preview.png)",
       "[Report](artifacts/report.pdf)",
@@ -1207,10 +1446,18 @@ describe("agent channels", () => {
       path: "artifacts/preview.png",
       url: "https://assets.example/preview.png",
     }, {
+      path: "artifacts/my preview.png",
+      url: "https://assets.example/my-preview.png",
+    }, {
+      channelAttachmentId: "upload-1",
+      path: "artifacts/pending preview.png",
+    }, {
       path: "artifacts/report.pdf",
       url: "https://assets.example/report.pdf",
     }])).toBe([
       "![Preview](<https://assets.example/preview.png>)",
+      "![Spaced preview](<https://assets.example/my-preview.png>)",
+      "![Pending preview](<artifacts/pending preview.png>)",
       "![Absolute](<https://assets.example/preview.png>)",
       "![Nested absolute](/workspace/codex-session/tmp/artifacts/preview.png)",
       "[Report](<https://assets.example/report.pdf>)",
@@ -1223,7 +1470,10 @@ describe("agent channels", () => {
 
   it("accepts GitHub issue_comment payloads without delivery facts", async () => {
     const { github } = await import("../src/channels.ts")
-    const channel = github({ pullRequest: { reply: false } })
+    const channel = github({
+      app: { fetch: async () => Response.json({}) },
+      pullRequest: { reply: false },
+    })
     const trigger = channel.triggers?.webhook
     if (!trigger) throw new Error("Missing GitHub webhook trigger.")
     const context = {
@@ -1320,7 +1570,12 @@ describe("agent channels", () => {
     })
     if (mentioned instanceof Response) throw new Error("Expected GitHub mention invocation.")
     expect(mentioned.input.context?.github).toMatchObject({ args: "Please, review this", command: "@AgEnT", event: "issue_comment" })
-    expect(mentioned.webhook).toEqual({ concurrencyGroup: "acme/app#42", concurrencyLimit: 1, deliveryId: "mention-delivery" })
+    expect(mentioned.webhook).toEqual({
+      concurrencyGroup: "acme/app#42",
+      concurrencyLimit: 1,
+      deliveryId: "mention-delivery",
+      rehydrate: expect.any(Function),
+    })
 
     // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
     const botMention = await trigger.invoke(context as never, {
@@ -1424,7 +1679,7 @@ describe("agent channels", () => {
       command: "/comment",
       event: "pull_request_review",
     })
-    expect(review.webhook).toEqual({ concurrencyGroup: "acme/app#42", concurrencyLimit: 1, deliveryId: "review-delivery" })
+    expect(review.webhook).toEqual({ concurrencyGroup: "acme/app#42", concurrencyLimit: 1, deliveryId: "review-delivery", rehydrate: expect.any(Function) })
 
     const approvedChannel = github({ pullRequest: { reconcile: { comments: { reviewStates: ["approved"] } }, reply: false } })
     const approvedTrigger = approvedChannel.triggers?.webhook
@@ -1517,7 +1772,7 @@ describe("agent channels", () => {
     } finally {
       await queue.disconnect()
     }
-  })
+  }, 30_000)
 
   it("reconciles configured pull request lifecycle events with invocation ownership", async () => {
     const { github } = await import("../src/channels.ts")
@@ -1547,7 +1802,7 @@ describe("agent channels", () => {
     })
     expect(result.input.prompt).toContain("Request: Keep this pull request healthy.")
     expect(result.input.prompt).not.toContain("specifically this comment")
-    expect(result.webhook).toEqual({ concurrencyGroup: "acme/app#42", concurrencyLimit: 1, deliveryId: "delivery-1" })
+    expect(result.webhook).toEqual({ concurrencyGroup: "acme/app#42", concurrencyLimit: 1, deliveryId: "delivery-1", rehydrate: expect.any(Function) })
     expect(result.run?.activity).toEqual({ links: [], target: { installationId: 123, issue: 42, repository: "acme/app" } })
 
     const concurrentChannel = github({ pullRequest: { reconcile: { concurrencyLimit: 4 }, reply: false } })
@@ -1559,7 +1814,7 @@ describe("agent channels", () => {
       payload: githubPullRequestPayload("reopened"),
     })
     if (concurrent instanceof Response) throw new Error("Expected GitHub reconciliation invocation.")
-    expect(concurrent.webhook).toEqual({ concurrencyGroup: "acme/app#42", concurrencyLimit: 4, deliveryId: "delivery-2" })
+    expect(concurrent.webhook).toEqual({ concurrencyGroup: "acme/app#42", concurrencyLimit: 4, deliveryId: "delivery-2", rehydrate: expect.any(Function) })
 
     const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
     const privateKeyPem = privateKey.export({ format: "pem", type: "pkcs1" }).toString()
@@ -1725,13 +1980,18 @@ describe("agent channels", () => {
     }
   })
 
-  it("uses token fallback to fetch GitHub PR metadata", async () => {
+  it.each([
+    { apiBaseUrl: "https://api.github.test", webhookBaseUrl: "https://api.github.test" },
+    { apiBaseUrl: undefined, webhookBaseUrl: "https://github.enterprise.test/api/v3" },
+    { apiBaseUrl: "https://api.github.test", webhookBaseUrl: "https://github.enterprise.test/api/v3" },
+  ])("uses token fallback to fetch GitHub PR metadata ($apiBaseUrl, $webhookBaseUrl)", async ({ apiBaseUrl, webhookBaseUrl }) => {
     const { github } = await import("../src/channels.ts")
     const previousToken = process.env.VITEHUB_GITHUB_TOKEN
     process.env.VITEHUB_GITHUB_TOKEN = "metadata-token"
     try {
       const fetcher = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
         const href = String(url)
+        expect(href).toMatch(`${apiBaseUrl ?? webhookBaseUrl}/repos/acme/app/`)
         expect(init?.headers).toMatchObject({ authorization: "Bearer metadata-token" })
         if (href.endsWith("/pulls/42")) {
           return Response.json({
@@ -1752,7 +2012,7 @@ describe("agent channels", () => {
       })
       const channel = github({
         app: {
-          apiBaseUrl: "https://api.github.test",
+          apiBaseUrl,
           // SAFETY: This test fixture intentionally supplies a Fetch-compatible mock.
           fetch: fetcher as typeof fetch,
         },
@@ -1761,12 +2021,15 @@ describe("agent channels", () => {
       const trigger = channel.triggers?.webhook
       if (!trigger) throw new Error("Missing GitHub webhook trigger.")
 
+      const payload = githubIssueCommentPayload()
+      payload.issue.pull_request.url = `${webhookBaseUrl}/repos/acme/app/pulls/42`
+
       // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
       const result = await trigger.invoke({
         capabilities: [],
         channel,
         trigger: { channelId: "github", id: "github.webhook", name: "webhook", source: "channel" },
-      } as never, { payload: githubIssueCommentPayload() })
+      } as never, { payload })
       if (result instanceof Response) throw new Error("Expected GitHub webhook invocation.")
 
       expect(result.input.context?.pullRequest).toMatchObject({
@@ -2216,8 +2479,8 @@ describe("agent channels", () => {
       "https://api.github.test/repos/vite-hub/vitehub/pulls/42/reviews",
       expect.objectContaining({
         body: JSON.stringify({
-          body: "Review body\n\n![Login badge](<https://assets.example/review/screenshots/login.png>)",
           event: "COMMENT",
+          body: "Review body\n\n![Login badge](<https://assets.example/review/screenshots/login.png>)",
         }),
         headers: expect.objectContaining({ authorization: "Bearer installation-token" }),
         method: "POST",

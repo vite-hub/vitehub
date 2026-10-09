@@ -2,7 +2,7 @@
 
 `@vite-hub/queue` discovers background job handlers during a Vite build and connects `runQueue()` to Cloudflare Queues or Vercel Queues. A successful enqueue means the provider accepted the job. It does not mean the handler finished.
 
-Applications that already use the `vite-hub` framework distribution should enable Queue in `vitehub()` and import from `vite-hub/queue`. Install this owner package directly when you are building a custom composition, another framework integration, or package-level tooling. The [Queue guide](https://vitehub.dev/docs/server-primitives/queue) covers the framework-distribution setup.
+Applications that already use the `vite-hub` framework distribution should enable Queue in `vitehub()` and import from `vite-hub/queue`. Install this owner package directly when you are building a custom composition, another framework integration, or package-level tooling. The [Queue guide](https://vitehub.dev/docs/queue) covers the framework-distribution setup.
 
 ## Install the owner package
 
@@ -104,7 +104,7 @@ type QueueSendResult = {
 };
 ```
 
-The optional message ID is provider-specific. Vercel returns the ID from its enqueue response. Cloudflare returns the input's `id`, generating one locally when omitted; it does not send that ID to Cloudflare, and the later delivery has a different Cloudflare message ID. In both cases, `status: "queued"` is the portable acceptance signal. Queue handlers run later and return no value to the producer. Use a [Workflow](https://vitehub.dev/docs/server-primitives/workflows) when the caller needs a tracked run, durable steps, waits, or progress.
+The optional message ID is provider-specific. Vercel returns the ID from its enqueue response. Cloudflare returns the input's `id`, generating one locally when omitted; it does not send that ID to Cloudflare, and the later delivery has a different Cloudflare message ID. In both cases, `status: "queued"` is the portable acceptance signal. Queue handlers run later and return no value to the producer. Use a [Workflow](https://vitehub.dev/docs/workflows) when the caller needs a tracked run, durable steps, waits, or progress.
 
 `deferQueue()` does not wait for provider acceptance. It schedules enqueue work through the current request's `waitUntil`, logs dispatch failures, and calls the Queue Definition's `onDispatchError` hook when present.
 
@@ -112,7 +112,7 @@ Providers can retry failed delivery, so handlers must tolerate another invocatio
 
 On Cloudflare, successful handlers acknowledge the message. Failed handlers retry by default unless ViteHub identifies a non-retryable built-in error or `onError` returns an explicit acknowledge or retry action. On Vercel, `callbackOptions.retry` can return an explicit directive; returning nothing preserves provider behavior. Application error codes do not choose retry policy.
 
-Queue operations use the shared `ViteHubError` contract. Public `code` and JSON-safe `details` may appear in delivery reports. Put credentials, provider responses, and private resource locations in `cause`; serialized errors and Queue reports omit it. See the [Queue error and retry reference](https://vitehub.dev/docs/server-primitives/queue#errors) for built-in codes and provider callbacks.
+Queue operations use the shared `ViteHubError` contract. Public `code` and JSON-safe `details` may appear in delivery reports. Put credentials, provider responses, and private resource locations in `cause`; serialized errors and Queue reports omit it. See the [Queue error and retry reference](https://vitehub.dev/docs/queue/limits-and-errors#errors) for built-in codes and provider callbacks.
 
 ## Public imports
 
@@ -127,9 +127,9 @@ Queue operations use the shared `ViteHubError` contract. Public `code` and JSON-
 
 ## Go deeper
 
-- [Queue guide](https://vitehub.dev/docs/server-primitives/queue)
+- [Queue guide](https://vitehub.dev/docs/queue)
 - [Runtime and host support](https://vitehub.dev/docs/frameworks-hosts/support-matrix)
-- [Definitions and discovery](https://vitehub.dev/docs/concepts/definitions-and-discovery)
+- [Definitions and discovery](https://vitehub.dev/docs/development/definition-discovery)
 - [Public import paths](https://vitehub.dev/docs/reference/import-paths)
 
 

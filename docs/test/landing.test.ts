@@ -1,12 +1,21 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
-import { agentStory, installOptions, landingPrimitives } from "../app/components/landing/content";
+import {
+  agentStory,
+  installOptions,
+  landingPrimitives,
+  nuxtHubMigration,
+  sharedApi,
+} from "../app/components/landing/content";
+import { primitiveLandings } from "../app/data/primitive-landings";
 
 const landingFiles = [
   "Hero.vue",
   "InstallCommand.vue",
   "AgentStory.vue",
+  "SharedApi.vue",
   "Primitives.vue",
+  "NuxtHubMigration.vue",
   "Closing.vue",
   "PrimitiveMotion.vue",
   "content.ts",
@@ -41,6 +50,33 @@ describe("landing page", () => {
     }
   });
 
+  it("shows one primitive called from a route and from an Agent Capability", () => {
+    const [route, agent] = sharedApi.panes;
+    const routeCode = route.code.join("\n");
+    const agentCode = agent.code.join("\n");
+
+    expect(routeCode).toContain('import { kv } from "vite-hub/kv"');
+    expect(routeCode).toContain("kv.get(");
+    expect(agentCode).toContain('import { kv } from "vite-hub/agent/capabilities"');
+    expect(agentCode).toContain("capabilities: [kv(");
+    expect(`${routeCode}\n${agentCode}`).not.toContain("@vite-hub/");
+    expect(sharedApi.primitiveTo).toBe("/docs/kv");
+    expect(sharedApi.capabilityTo).toBe("/docs/kv/agent-capability");
+  });
+
+  it("links NuxtHub users to a migration guide with real import paths", async () => {
+    const guide = await readFile(
+      new URL("../content/docs/getting-started/migrate-from-nuxthub.md", import.meta.url),
+      "utf8",
+    );
+
+    expect(nuxtHubMigration.to).toBe("/docs/getting-started/migrate-from-nuxthub");
+    for (const entry of nuxtHubMigration.imports) {
+      expect(guide).toContain(entry.from);
+      expect(guide).toContain(entry.to);
+    }
+  });
+
   it("offers one-click skill and package commands in the hero", () => {
     expect(installOptions.skill.command).toBe("npx skills add https://vitehub.dev --skill vitehub");
     expect(installOptions.packages.map((option) => option.value)).toEqual([
@@ -68,6 +104,9 @@ describe("landing page", () => {
     const normalizedSource = source.replace(/\s+/g, " ");
 
     expect(source).toContain("Any agent, anywhere.");
+    expect(source).toContain("The server layer for Vite apps");
+    expect(source).toContain("Server pieces, Agents, and UI in one place.");
+    expect(source).toContain("Coming from NuxtHub?");
     expect(normalizedSource).toContain(
       "Bring any model or coding provider, compose your own Capabilities around a persistent Workspace",
     );
@@ -92,6 +131,8 @@ describe("landing page", () => {
     );
 
     expect(landingPrimitives.map((primitive) => primitive.id)).toEqual([
+      "agent",
+      "ui",
       "workspace",
       "sandbox",
       "connections",
@@ -107,6 +148,7 @@ describe("landing page", () => {
       "source",
       "content",
       "email",
+      "channels",
       "env",
       "rate-limit",
       "realtime",
@@ -114,6 +156,15 @@ describe("landing page", () => {
     for (const primitive of landingPrimitives) {
       expect(primitiveMotion).toContain(`name === '${primitive.id}'`);
       expect(primitive.to).toMatch(/^\/docs\//);
+    }
+  });
+
+  it("keeps the package selector aligned with docs section paths", () => {
+    expect(Object.keys(primitiveLandings).sort()).toContain("channels");
+    for (const landing of Object.values(primitiveLandings)) {
+      expect(landing.docsTo, landing.slug).toMatch(/^\/docs\//);
+      expect(landing.docsTo, landing.slug).not.toContain("/docs/server-primitives");
+      expect(landing.docsTo, landing.slug).not.toContain("/docs/reference/realtime");
     }
   });
 
@@ -132,12 +183,14 @@ describe("landing page", () => {
 
     expect(reducedMotion).toContain("animation: none;");
     expect(primitiveMotion).toContain(".primitive-motion:not(.is-playing) .a {\n  animation-play-state: paused;");
-    expect(primitiveMotion).toContain("animation-iteration-count: 1;");
+    expect(primitiveMotion).toContain("animation-iteration-count: infinite;");
     const primitives = await readFile(
       new URL("../app/components/landing/Primitives.vue", import.meta.url),
       "utf8",
     );
-    expect(primitives).toContain("Replay scenes");
+    expect(primitives).not.toContain("Replay scenes");
+    expect(primitives).toContain(':play="visible"');
+    expect(primitives).toContain("useIntersectionObserver(");
     expect(installCommand).toContain(
       `:class="activeTab === 'package' ? 'w-[16.5rem]' : 'w-0'"`,
     );
@@ -147,6 +200,11 @@ describe("landing page", () => {
   it("wires landing-page metadata through Docus", async () => {
     const source = await readFile(new URL("../app/pages/index.vue", import.meta.url), "utf8");
 
+    expect(source).toContain("<LandingPrimitives />");
+    expect(source).toContain("<LandingHero />");
+    expect(source.indexOf("<LandingPrimitives />")).toBeLessThan(source.indexOf("<LandingHero />"));
+    expect(source).not.toContain("<LandingSharedApi />");
+    expect(source).not.toContain("<LandingNuxtHubMigration />");
     expect(source).toContain("useSeo({");
     expect(source).toContain('type: "website"');
     expect(source).toContain('defineOgImage("Landing"');

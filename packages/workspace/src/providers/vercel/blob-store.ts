@@ -32,6 +32,49 @@ type BlobListItem = {
 type BlobListResult = {
   items: BlobListItem[]
   cursor?: string
+  hasMore?: boolean
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vercel Blob responses cross an untrusted provider boundary.
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+}
+
+function invalidBlobListResponse(): never {
+  throw workspaceErrorDiagnostics.WORKSPACE_R0033({ message: "Unexpected Vercel Blob list response." })
+}
+
+function parseBlobListResponse(value: unknown): BlobListResult {
+  if (!isRecord(value) || !Array.isArray(value.blobs)) invalidBlobListResponse()
+  const items = value.blobs.map((item: unknown): BlobListItem => {
+    if (!isRecord(item)) invalidBlobListResponse()
+    const pathname = item.pathname
+    const size = item.size
+    const uploadedAt = item.uploadedAt
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- List item fields cross the Vercel Blob provider boundary.
+    if (typeof pathname !== "string" || !pathname) invalidBlobListResponse()
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- List item fields cross the Vercel Blob provider boundary.
+    if (size !== undefined && (typeof size !== "number" || !Number.isFinite(size) || size < 0)) invalidBlobListResponse()
+    if (uploadedAt !== undefined && (!(uploadedAt instanceof Date) || Number.isNaN(uploadedAt.getTime()))) invalidBlobListResponse()
+    return {
+      key: pathname,
+      lastModified: uploadedAt instanceof Date ? uploadedAt.getTime() : undefined,
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- List item fields cross the Vercel Blob provider boundary.
+      size: typeof size === "number" ? size : undefined,
+    }
+  })
+  const cursor = value.cursor
+  const hasMore = value.hasMore
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Pagination fields cross the Vercel Blob provider boundary.
+  if (cursor !== undefined && typeof cursor !== "string") invalidBlobListResponse()
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Pagination fields cross the Vercel Blob provider boundary.
+  if (hasMore !== undefined && typeof hasMore !== "boolean") invalidBlobListResponse()
+  if (hasMore === true && !cursor) invalidBlobListResponse()
+  return {
+    cursor: cursor === undefined ? undefined : cursor,
+    hasMore: hasMore === undefined ? undefined : hasMore,
+    items,
+  }
 }
 
 type VercelBlobModule = {
@@ -45,6 +88,7 @@ type VercelBlobModule = {
   list(options: { cursor?: string, limit?: number, prefix: string, token?: string }): Promise<{
     blobs: Array<{ pathname: string, size?: number, uploadedAt?: Date }>
     cursor?: string
+    hasMore?: boolean
   }>
   put(key: string, body: Blob | Uint8Array | string, options: {
     access: "private" | "public"
@@ -117,14 +161,10 @@ async function createVercelBlobClient(options: VercelBlobWorkspaceStoreOptions) 
       }
     },
     async list(optionsInput: { cursor?: string, limit?: number, prefix: string }): Promise<BlobListResult> {
-      const result = await blob.list({ ...optionsInput, ...auth(options) })
+      const result: unknown = await blob.list({ ...optionsInput, ...auth(options) })
+      const parsed = parseBlobListResponse(result)
       return {
-        cursor: result.cursor,
-        items: result.blobs.map(item => ({
-          key: item.pathname,
-          lastModified: item.uploadedAt?.getTime(),
-          size: item.size,
-        })),
+        ...parsed,
       }
     },
     async upload(key: string, body: Blob | Uint8Array | string, uploadOptions: { contentType?: string } = {}): Promise<void> {
@@ -268,7 +308,7 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
     const targets: string[] = []
     const current = await client.head(this.#fileKey(normalized))
     if (current) targets.push(this.#fileKey(normalized))
-    else if (options.recursive) {
+    if (options.recursive) {
       for (const blob of await this.#listBlobs(`${this.#fileKey(normalized)}/`)) {
         targets.push(blob.key)
       }
@@ -310,8 +350,14 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
 
   async #listBlobs(prefix: string): Promise<BlobListItem[]> {
     const blobs: BlobListItem[] = []
+    const seenCursors = new Set<string>()
     let cursor: string | undefined
+    let hasMore = true
     do {
+      if (cursor && seenCursors.has(cursor)) {
+        throw workspaceError("[vitehub] Vercel Blob pagination returned a repeated cursor.")
+      }
+      if (cursor) seenCursors.add(cursor)
       const result = await (await this.#client()).list({
         cursor,
         limit: 1000,
@@ -319,7 +365,8 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
       }) as BlobListResult
       blobs.push(...result.items)
       cursor = result.cursor
-    } while (cursor)
+      hasMore = result.hasMore ?? Boolean(cursor)
+    } while (cursor && hasMore)
     return blobs
   }
 

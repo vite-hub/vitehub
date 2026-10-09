@@ -50,6 +50,7 @@ export interface RateLimitDriverInput extends RateLimitConsumeInput {
 export interface RateLimitDriverResult {
   allowed: boolean
   remaining?: number
+  /** Positive Unix timestamp in milliseconds, at most `8.64e15`. */
   resetAt?: number
   retryAfter?: number
   used?: number
@@ -92,7 +93,7 @@ export interface RateLimitDriverCapabilities {
 
 /** Counter state that a driver reads without consuming a token. */
 export interface RateLimitDriverPeekResult {
-  /** End of the current window. Omit it when the key has no active counter. */
+  /** Positive window-end timestamp in milliseconds, at most `8.64e15`. Omit it when no counter is active. */
   resetAt?: number
   /** Tokens consumed in the current window. `0` when the key has no active counter. */
   used: number

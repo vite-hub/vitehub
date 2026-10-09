@@ -116,7 +116,7 @@ export function defineContent<
   // Preserve custom plugin methods; Comark's hub owns cross-source search, query and media.
   for (const instance of instances) {
     for (const [key, value] of Object.entries(instance)) {
-      if (!(key in runtime)) Object.defineProperty(runtime, key, { enumerable: true, value })
+      if (!Object.hasOwn(runtime, key)) Object.defineProperty(runtime, key, { enumerable: true, value })
     }
   }
   // SAFETY: The instances install the declared plugin methods and the hub composes built-in methods.

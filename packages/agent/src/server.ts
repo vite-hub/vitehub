@@ -12,7 +12,10 @@ export type {
 export {
   createDiscordGatewayRouteHandler,
   createTelegramPollingRouteHandler,
+  drainInlineChatInvocations,
 } from "./server/routes.ts"
+export type { DrainInlineChatInvocationsOptions, DrainInlineChatInvocationsResult } from "./server/routes.ts"
+export { webhookQueueShutdown } from "./internal/webhook-queue.ts"
 
 export {
   failInterruptedAgentInvocations,

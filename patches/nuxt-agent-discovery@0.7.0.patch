@@ -1,0 +1,51 @@
+diff --git a/dist/module.mjs b/dist/module.mjs
+index 3a3172b4ba720367c9f2cfe99e956e7370ba40af..97db79f2f75a16bbab733d28d430c6fb738ef861 100644
+--- a/dist/module.mjs
++++ b/dist/module.mjs
+@@ -525,6 +525,38 @@ function setupVercelPreset(nitro, config, collectCachedRoutes) {
+   });
+ }
+ 
++function cloudflareWorkerFirstPatterns(config, current) {
++  const patterns = new Set(current);
++  for (const route of config.routes) {
++    const wildcard = route.path.split("/").findIndex((segment) => /[*:]/.test(segment));
++    if (wildcard === -1) {
++      patterns.add(route.path);
++      if (route.path !== "/") {
++        patterns.add(`${withoutTrailingSlash(route.path)}/`);
++      }
++      continue;
++    }
++    const prefix = route.path.split("/").slice(0, wildcard).join("/");
++    patterns.add(`${prefix}/*`);
++  }
++  // Wrangler rejects a rule that another `/*` rule already covers.
++  const wildcards = [...patterns].filter((pattern) => !pattern.startsWith("!") && pattern.endsWith("/*")).map((pattern) => pattern.slice(0, -1));
++  return [...patterns].filter((pattern) => pattern.startsWith("!") || !wildcards.some((base) => pattern !== `${base}*` && pattern.startsWith(base)));
++}
++function setupCloudflarePreset(nitro, config) {
++  if (nitro.options.dev || nitro.options.static || !nitro.options.preset.includes("cloudflare-module")) {
++    return;
++  }
++  const cloudflare = nitro.options.cloudflare ||= {};
++  const wrangler = cloudflare.wrangler ||= {};
++  const assets = wrangler.assets ||= {};
++  if (assets.run_worker_first === true) {
++    return;
++  }
++  const current = Array.isArray(assets.run_worker_first) ? assets.run_worker_first : [];
++  assets.run_worker_first = cloudflareWorkerFirstPatterns(config, current);
++}
++
+ function hasActiveNuxtModule(nuxt, name, configKey) {
+   if (!hasNuxtModule(name, nuxt)) {
+     return false;
+@@ -1087,6 +1119,7 @@ export {}
+       });
+       nuxt.hook("nitro:init", (nitro) => {
+         setupVercelPreset(nitro, config, collectCachedRoutes);
++        setupCloudflarePreset(nitro, config);
+         nitro.hooks.hook("prerender:generate", (route) => {
+           if (!isRawPath(config, route.route)) {
+             return;

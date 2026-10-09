@@ -55,10 +55,10 @@
     "lib0": "catalog:realtime",
     "marked": "catalog:realtime",
     "nostics": "catalog:runtime",
-    "pathe": "catalog:unjs",
     "y-protocols": "catalog:realtime",
     "y-websocket": "catalog:realtime",
-    "yjs": "catalog:realtime"
+    "yjs": "catalog:realtime",
+    "@vite-hub/runtime": "workspace:*"
   },
   "devDependencies": {
     "@types/json-schema": "catalog:ai",

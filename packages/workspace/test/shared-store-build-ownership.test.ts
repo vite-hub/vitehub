@@ -397,6 +397,55 @@ it("retains directory cleanup authority after a removal failure", async () => {
   await expect(store.stat("parent")).resolves.toBeUndefined()
 })
 
+it.each(["memory", "filesystem"])("retains build metadata when %s directory removal races with a new child", async (provider) => {
+  const store = createMemoryWorkspaceStore()
+  const empty = { name: "racing-mount", sources: {} }
+  await syncWorkspaceDefinition({ name: "racing-mount", sources: {
+    docs: custom({ materialize: "build", mount: "docs", files: [] }),
+  } }, store)
+  const remove = store.removeEmptyDirectory!.bind(store)
+  let raced = false
+  store.removeEmptyDirectory = async (path) => {
+    if (!raced) {
+      raced = true
+      await store.writeFile(`${path}/user.md`, { path: `${path}/user.md`, content: "user" })
+      if (provider === "filesystem") throw Object.assign(new Error("directory became non-empty"), { code: "ENOTEMPTY" })
+      // The memory case exercises the real provider error.
+    }
+    await remove(path)
+  }
+
+  await expect(syncWorkspaceDefinition(empty, store)).resolves.toBeUndefined()
+  await expect(store.readFile("docs/user.md")).resolves.toMatchObject({ content: "user" })
+  await expect(store.getMeta!("workspace:racing-mount:build-directories")).resolves.toEqual(["docs"])
+
+  await store.rm("docs/user.md")
+  await syncWorkspaceDefinition(empty, store)
+  await expect(store.stat("docs")).resolves.toBeUndefined()
+})
+
+it.each(["EACCES", "EIO", "WORKSPACE_FAILED", undefined])("does not hide %s removal failures when a child remains", async (code) => {
+  const store = createMemoryWorkspaceStore()
+  const remove = store.removeEmptyDirectory!.bind(store)
+  const failure = Object.assign(new Error("remove failed"), { code })
+  await syncWorkspaceDefinition({ name: "failed-race", sources: {
+    docs: custom({ materialize: "build", mount: "docs", files: [] }),
+  } }, store)
+  store.removeEmptyDirectory = async (path) => {
+    await store.writeFile(`${path}/user.md`, { path: `${path}/user.md`, content: "user" })
+    throw failure
+  }
+
+  const empty = { name: "failed-race", sources: {} }
+  await expect(syncWorkspaceDefinition(empty, store)).rejects.toBe(failure)
+  await expect(store.readFile("docs/user.md")).resolves.toMatchObject({ content: "user" })
+  await expect(store.getMeta!("workspace:failed-race:build-directories")).resolves.toEqual(["docs"])
+  store.removeEmptyDirectory = remove
+  await store.rm("docs/user.md")
+  await syncWorkspaceDefinition(empty, store)
+  await expect(store.stat("docs")).resolves.toBeUndefined()
+})
+
 it("rechecks a directory replaced during cleanup inspection", async () => {
   const store = createMemoryWorkspaceStore()
   await syncWorkspaceDefinition({ name: "replaced-mount", sources: {

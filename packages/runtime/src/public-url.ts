@@ -36,6 +36,10 @@ function applicationBasePath(): string {
   return segments.length ? `/${segments.join("/")}` : ""
 }
 
+function configuredAgentUrl(config: PublicUrlConfig, name: string): string | undefined {
+  return config.agents && Object.hasOwn(config.agents, name) ? config.agents[name] : undefined
+}
+
 /**
  * Resolve the public origin of this deployment.
  *
@@ -49,7 +53,7 @@ export function resolvePublicUrl(options: { agentName?: string, request?: Pick<R
   const config = publicUrlConfig()
   const discoveredName = options.agentName ? publicUrlAgentNames.get(options.agentName) : undefined
   const agentUrl = options.agentName
-    ? config.agents?.[options.agentName] ?? (discoveredName ? config.agents?.[discoveredName] : undefined)
+    ? configuredAgentUrl(config, options.agentName) ?? (discoveredName ? configuredAgentUrl(config, discoveredName) : undefined)
     : undefined
   if (agentUrl) return agentUrl
   if (config.url) return config.url
