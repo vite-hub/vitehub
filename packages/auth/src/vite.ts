@@ -324,8 +324,7 @@ export function hubAuth(options?: AuthModuleOptions, internalOptions: InternalAu
       const hasNitroHandlers = Boolean(authConfig && (authConfig.route !== false || authConfig.access.routes.length > 0))
       if (hasNitroHandlers) {
         // Replace Nitro in place because Vite concatenates arrays from returned config hooks.
-        // SAFETY: Nitro extends Vite config with this optional field; the merge above produces its replacement value.
-        ;(config as { nitro?: unknown }).nitro = nitro
+        Object.assign(config, { nitro })
       }
       return {
         ssr: {
