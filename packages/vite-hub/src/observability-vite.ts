@@ -3,6 +3,7 @@ import { dirname, resolve } from "node:path"
 
 import { getHostingProvider } from "@vite-hub/internal/hosting"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
+import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 
 import type { EnvVariableDeclaration } from "@vite-hub/env"
 import type { Plugin } from "vite"
@@ -153,7 +154,7 @@ export function observabilityVitePlugin(options: ObservabilityOptions, target: {
         }
         server.observability = { posthog: { apiKey: options.posthog.apiKey } }
       }
-      const plugin = resolve(config.root || process.cwd(), generatedObservabilityPlugin)
+      const plugin = resolve(resolveViteHubProjectRoot(config.root || process.cwd()), generatedObservabilityPlugin)
       await writeIfChanged(plugin, renderObservabilityNitroPlugin(normalizedOptions))
       const kit = createNitroServerKit(viteConfig.nitro)
       kit.addPlugin(plugin)

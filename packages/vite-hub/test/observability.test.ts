@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import type { Plugin } from "vite"
@@ -68,6 +68,24 @@ describe("vitehub({ observability })", () => {
       expect(source).toContain('"service":"support","environment":"production"')
     }
     finally { vi.unstubAllEnvs(); await rm(root, { force: true, recursive: true }) }
+  })
+
+  it("writes the host plugin at the project root when Vite runs from app/", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-observability-project-root-"))
+    try {
+      const appRoot = join(root, "app")
+      await mkdir(appRoot)
+      await writeFile(join(root, "package.json"), "{}")
+      const plugin = observabilityPlugin({ preset: "node", observability: { service: "support" } })
+      const config: ObservabilityConfig = { root: appRoot }
+      const hook = plugin.config as (config: ObservabilityConfig) => Promise<void>
+      await hook(config)
+
+      const generated = join(root, ".vitehub/nitro/observability/plugin.mjs")
+      expect(config.nitro?.plugins).toEqual([generated])
+      await expect(readFile(generated, "utf8")).resolves.toContain("installObservability")
+    }
+    finally { await rm(root, { force: true, recursive: true }) }
   })
 
   it.each([
