@@ -246,6 +246,7 @@ describe("hubRateLimit", () => {
         plugins: ["server/plugin.ts"],
       },
       rateLimit: { projectRoot: ".", provider: "memory" },
+      root,
     }
     expect(config(userConfig)).toBeUndefined()
     expect(userConfig).toMatchObject({
@@ -253,7 +254,7 @@ describe("hubRateLimit", () => {
         handlers: [
           { handler: "server/middleware.ts", middleware: true, route: "/**" },
         ],
-        plugins: [".vitehub/nitro/rate-limit/plugin.ts", "server/plugin.ts"],
+        plugins: [join(root, ".vitehub/nitro/rate-limit/plugin.ts"), "server/plugin.ts"],
       },
     })
 
@@ -352,7 +353,7 @@ describe("hubRateLimit", () => {
     const buildConfig: Record<string, unknown> = { root }
     const buildPlugin = hubRateLimit({ provider: "memory" })
     ;(buildPlugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" }) => unknown)(buildConfig, { command: "build" })
-    expect(JSON.stringify(buildConfig.nitro ?? {})).not.toContain("dev-handler")
+    expect(buildConfig.nitro).toMatchObject({ handlers: [] })
   })
 
   it.each([false, true])("does not create or rewrite the dev token during CLI discovery with existing handler %s", async existing => {

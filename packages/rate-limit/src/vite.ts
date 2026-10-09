@@ -259,7 +259,9 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
     },
     transform(code, id) {
       if (provider !== "cloudflare" || !resolved?.build.ssr || !declarationFiles.has(id.split("?", 1)[0]!)) return
-      return `import ${JSON.stringify(normalizePath(resolve(projectRoot, generatedRuntimeModule)))}\n${code}`
+      const rootDir = projectRoot
+      if (!rootDir) return
+      return `import ${JSON.stringify(normalizePath(resolve(rootDir, generatedRuntimeModule)))}\n${code}`
     },
     buildStart() {
       providerOutputGenerations.capture(this, composedOutput)
@@ -283,11 +285,13 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
         }
         const namespace = resolveRateLimitNamespace(rateLimit.namespace)
         const config = resolved
+        const rootDir = projectRoot
+        if (!rootDir) return
         const contributionDeclarations = declarations
         const contributionPreviousDeclarations = previousDeclarations
         contributeProviderDeploymentOutput(composedOutput, {
           owner: "rate-limit",
-          rootDir: projectRoot,
+          rootDir,
           write: async ({ signal, write }) => {
             await writeRateLimitProviderOutput({
               clientOutDir: config.build.outDir,
@@ -296,7 +300,7 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
               namespace,
               previousDeclarations: contributionPreviousDeclarations,
               provider,
-              rootDir: projectRoot,
+              rootDir,
               signal,
             }, write)
             signal.throwIfAborted()
