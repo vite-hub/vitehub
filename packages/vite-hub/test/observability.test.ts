@@ -76,6 +76,7 @@ describe("vitehub({ observability })", () => {
       const appRoot = join(root, "app")
       await mkdir(appRoot)
       await writeFile(join(root, "package.json"), "{}")
+      await writeFile(join(appRoot, "package.json"), "{}")
       const plugin = observabilityPlugin({ preset: "node", observability: { service: "support" } })
       const config: ObservabilityConfig = { root: appRoot, __vitehubProjectRoot: root }
       const hook = plugin.config as (config: ObservabilityConfig) => Promise<void>

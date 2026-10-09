@@ -144,7 +144,11 @@ export function observabilityVitePlugin(options: ObservabilityOptions, target: {
         throw viteHubErrorDiagnostics.VITE_HUB_B0012({ message: "[vitehub] vitehub({ observability }) requires the evlog package. Install evlog." })
       })
       // SAFETY: ViteHub Env and Nitro extend Vite's user config with these documented top-level keys.
-      const viteConfig = config as typeof config & { env?: { server?: Record<string, unknown> }, nitro?: Record<string, unknown> }
+      const viteConfig = config as typeof config & {
+        [VITEHUB_PROJECT_ROOT]?: string
+        env?: { server?: Record<string, unknown> }
+        nitro?: Record<string, unknown>
+      }
       if (options.posthog) {
         const env = viteConfig.env ??= {}
         const server = env.server ??= {}
@@ -154,8 +158,8 @@ export function observabilityVitePlugin(options: ObservabilityOptions, target: {
         }
         server.observability = { posthog: { apiKey: options.posthog.apiKey } }
       }
-      const projectRoot = typeof config[VITEHUB_PROJECT_ROOT] === "string"
-        ? resolve(config[VITEHUB_PROJECT_ROOT])
+      const projectRoot = typeof viteConfig[VITEHUB_PROJECT_ROOT] === "string"
+        ? resolve(viteConfig[VITEHUB_PROJECT_ROOT])
         : resolveViteHubProjectRoot(config.root || process.cwd())
       const plugin = resolve(projectRoot, generatedObservabilityPlugin)
       await writeIfChanged(plugin, renderObservabilityNitroPlugin(normalizedOptions))
