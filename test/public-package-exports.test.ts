@@ -130,9 +130,11 @@ describe("public package export contracts", () => {
       expect(manifest.dependencies?.[dependency], `realtime should install ${dependency}`).toEqual(expect.any(String))
       expect(manifest.devDependencies?.[dependency]).toBeUndefined()
     }
-    expect(packConfig).not.toContain("/^@tiptap\\/extension-collaboration/")
-    expect(packConfig).not.toContain("/^@tiptap\\/y-tiptap/")
-    expect(packConfig).not.toContain("/^prosemirror-transform$/")
+    // @tiptap/y-tiptap imports prosemirror-transform without declaring it.
+    // Keep this runtime closure self-contained for isolated consumers while
+    // leaving the shared ProseMirror and Yjs peer constructors external.
+    expect(packConfig).toContain("/^@tiptap\\/y-tiptap/")
+    expect(packConfig).toContain("prosemirror-(?:model|state|transform|view)")
   })
 
   it("publishes Better Auth host declarations in its dependency closure", () => {

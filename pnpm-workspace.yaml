@@ -81,6 +81,10 @@ catalogs:
     "@tiptap/y-tiptap": ^3.0.9
     lib0: ^0.2.119
     marked: 17.0.6
+    prosemirror-model: ^1.25.12
+    prosemirror-state: ^1.4.4
+    prosemirror-transform: ^1.12.2
+    prosemirror-view: ^1.42.3
     y-protocols: ^1.0.7
     y-websocket: ^3.1.0
     yjs: ^13.6.33
