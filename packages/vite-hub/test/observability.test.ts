@@ -13,7 +13,7 @@ vi.mock("evlog/nitro/v3", async (importOriginal) => {
   return { ...module, default: vi.fn(module.default) }
 })
 
-type ObservabilityConfig = { root: string, env?: { server?: Record<string, unknown> }, nitro?: { modules?: unknown[], plugins?: string[] } }
+type ObservabilityConfig = { root: string, __vitehubProjectRoot?: string, env?: { server?: Record<string, unknown> }, nitro?: { modules?: unknown[], plugins?: string[] } }
 
 function observabilityPlugin(options: Parameters<typeof vitehub>[0]): Plugin {
   const plugin = vitehub(options)
@@ -77,7 +77,7 @@ describe("vitehub({ observability })", () => {
       await mkdir(appRoot)
       await writeFile(join(root, "package.json"), "{}")
       const plugin = observabilityPlugin({ preset: "node", observability: { service: "support" } })
-      const config: ObservabilityConfig = { root: appRoot }
+      const config: ObservabilityConfig = { root: appRoot, __vitehubProjectRoot: root }
       const hook = plugin.config as (config: ObservabilityConfig) => Promise<void>
       await hook(config)
 
