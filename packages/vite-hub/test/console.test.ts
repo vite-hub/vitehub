@@ -1338,6 +1338,7 @@ describe("Agent invocation console", () => {
       await callPluginHook(plugin.config, {}, [config, { command: "build", mode: "production" }])
       await callPluginHook(plugin.configResolved, {}, [withViteLogger(config)])
 
+      expect(config.nitro?.plugins).toEqual([join(projectRoot, ".vitehub/nitro/console/plugin.mjs")])
       const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
       expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(projectRoot)}`)
       expect(generated).toContain(`"file":"src/api.ts","name":"api","source":"require-rate-limit"`)
