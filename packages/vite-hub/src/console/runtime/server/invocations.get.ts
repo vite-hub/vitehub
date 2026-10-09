@@ -1,4 +1,5 @@
 import { getConsoleInvocations } from "./invocations.ts"
+import { withConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
 import { assertConsoleRequest, consoleRequestURL } from "./request.ts"
 import { invocationUsage } from "./usage.ts"
 
@@ -283,4 +284,5 @@ const invocationsHandler: (event: ConsoleRequestEvent) => Promise<AgentInvocatio
   return result
 }
 
-export default invocationsHandler
+const guardedHandler: ConsoleAccessRoute<typeof invocationsHandler> = withConsoleAccess(invocationsHandler)
+export default guardedHandler

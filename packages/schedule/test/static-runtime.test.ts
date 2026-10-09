@@ -2,7 +2,7 @@ import { runInNewContext } from "node:vm"
 
 import { describe, expect, it } from "vitest"
 
-import { executeCloudflareStaticSchedules, executeMatchingStaticSchedules, executeStaticSchedule, missingScheduleDefinitionError } from "../src/runtime/static.ts"
+import { executeCloudflareStaticSchedules, executeMatchingStaticSchedules, executeStaticSchedule, missingScheduleDefinitionError, unwrapScheduleDefinition } from "../src/runtime/static.ts"
 
 import type { ScheduleDefinitionRegistry } from "../src/types.ts"
 
@@ -49,6 +49,40 @@ describe("Static Schedule runtime", () => {
       "cleanup:2026-06-12T04:00:00.000Z",
       "report:2026-06-12T04:00:00.000Z",
     ])
+  })
+
+  it("executes and unwraps static definitions with cross-realm handlers", async () => {
+    const calls: string[] = []
+    const handler = runInNewContext('() => calls.push("cross-realm")', { calls }) as () => void
+    const definition = { cron: "0 4 * * *", handler }
+    expect(handler).not.toBeInstanceOf(Function)
+    expect(unwrapScheduleDefinition({ default: definition })).toBe(definition)
+
+    await executeMatchingStaticSchedules({
+      cron: definition.cron,
+      registry: { report: async () => definition },
+    })
+    expect(calls).toEqual(["cross-realm"])
+  })
+
+  it("ignores inherited schedule definition markers", async () => {
+    const calls: string[] = []
+    const inherited = {
+      default: {
+        cron: "0 4 * * *",
+        handler: async () => calls.push("inherited"),
+      },
+    }
+    const registry: ScheduleDefinitionRegistry = {
+      inherited: async () => Object.create(inherited),
+    }
+
+    await executeMatchingStaticSchedules({
+      cron: "0 4 * * *",
+      registry,
+    })
+
+    expect(calls).toEqual([])
   })
 
   it("executes Cloudflare scheduled events with runtime env active", async () => {

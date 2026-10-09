@@ -2,6 +2,7 @@ import { createHmac } from "node:crypto"
 import { execFile } from "node:child_process"
 import { glob, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
+import { runInNewContext } from "node:vm"
 import { dirname, join, relative, resolve } from "node:path"
 import { clearTimeout as clearNodeTimeout, setTimeout as setNodeTimeout } from "node:timers"
 import { pathToFileURL } from "node:url"
@@ -16,8 +17,9 @@ import type { ConfigEnv, UserConfig } from "vite"
 import { describe, expect, it, vi } from "vitest"
 
 import { title } from "../src/capabilities.ts"
-import { http, telegram } from "../src/channels.ts"
+import { http, telegram, webChat } from "../src/channels.ts"
 import { defineAgent } from "../src/index.ts"
+import { agentChatApprovedTools } from "../src/internal/chat-approvals.ts"
 import { isRuntimeFunction, isRuntimeNumber, isRuntimeObject, isRuntimeString } from "../src/internal/runtime-value.ts"
 import { createChannelWebhookRouteHandler } from "../src/server/internal.ts"
 import { createLibsqlAgentState } from "../src/state/sqlite.ts"
@@ -94,6 +96,10 @@ async function withDeadline<T>(promise: Promise<T>, timeoutMs: number, message: 
   }
 }
 
+function chatApprovedTools(context: AgentRunContext): string[] {
+  return [...agentChatApprovedTools(context, context.input.context?.["chat.sessionId"])]
+}
+
 function isTestRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && Object(value) === value && !Array.isArray(value)
 }
@@ -122,6 +128,7 @@ const hostedAgentRoot = join(import.meta.dirname, "../../../fixtures/tutorials/a
 function agentProviderOutputAliases(extra: Array<{ find: string; replacement: string }> = []) {
   return [
     ...extra,
+    { find: "@vite-hub/agent/server/registry", replacement: resolve(import.meta.dirname, "../src/server/registry.ts") },
     { find: "@vite-hub/agent/server/internal", replacement: resolve(import.meta.dirname, "../src/server/internal.ts") },
     { find: "@vite-hub/agent/server/workspace", replacement: resolve(import.meta.dirname, "../src/server/workspace.ts") },
     { find: "@vite-hub/agent/state/sqlite", replacement: resolve(import.meta.dirname, "../src/state/sqlite.ts") },
@@ -451,6 +458,7 @@ describe("agent Vite plugin", () => {
           handlers: [
             { handler: generatedRoute, route: "/api/_vitehub/agents/:agent/chat" },
             { handler: generatedRoute, route: "/api/_vitehub/agents/:agent/webhooks/:webhook" },
+            { handler: join(generatedRoot, "agent", "declared-webhook-route.ts"), middleware: true, route: "/**" },
           ],
           plugins: [generatedQueue],
         },
@@ -813,6 +821,9 @@ describe("agent Vite plugin", () => {
       expect(providerRegistry).toBe(registry)
       expect(windowsProviderRegistry).toBe(registry)
       expect(nitroRegistry).toBe(registry)
+      if (!registry || !providerRegistry) throw new Error("Expected generated workflow registries")
+      expect(await transform(providerRegistry, "/virtual/.vitehub/workflow/registry.mjs")).toBe(registry)
+      expect(plugin.vitehub?.agent?.transformWorkflowRegistry(registry, join(root, ".vitehub", "workflow", "registry.mjs"))).toBe(registry)
     } finally {
       await rm(root, { force: true, recursive: true })
     }
@@ -848,6 +859,8 @@ describe("agent Vite plugin", () => {
       expect(registry).toContain('import { setAgentChannelDeliveryWorkflowStateResolver } from "@vite-hub/agent/server/internal"')
       expect(registry).toContain('const viteHubChatStateOptions = {"url":"libsql://state.example.test"}')
       expect(registry).toContain("setAgentChannelDeliveryWorkflowStateResolver(() => ({ state: viteHubChatStateResolver }))")
+      if (!registry) throw new Error("Expected a libSQL workflow registry")
+      expect(await transform(registry, "/virtual/.vitehub/workflow/registry.mjs")).toBe(registry)
 
       const cloudflarePlugin = hubAgent()
       const cloudflareConfigResolvedHook: unknown = cloudflarePlugin.configResolved
@@ -868,6 +881,8 @@ describe("agent Vite plugin", () => {
       expect(cloudflareRegistry).toContain('import { createCloudflareAgentState, getActiveCloudflareEnv } from "@vite-hub/agent/cloudflare"')
       expect(cloudflareRegistry).toContain("(context.cloudflare?.env || getActiveCloudflareEnv())?.CHAT_STATE")
       expect(cloudflareRegistry).toContain("setAgentChannelDeliveryWorkflowStateResolver(context =>")
+      if (!cloudflareRegistry) throw new Error("Expected a Cloudflare workflow registry")
+      expect(await cloudflareTransform(cloudflareRegistry, "/virtual/.vitehub/workflow/registry.mjs")).toBe(cloudflareRegistry)
 
       await cloudflareConfigResolved({
         command: "build",
@@ -924,6 +939,11 @@ describe("agent Vite plugin", () => {
         [join(root, ".vitehub/nitro/schedule/runtime-registry.js"), nitroRegistryModule],
         [join(root, ".vitehub/agent/chat-webhook-route.ts"), generatedRouteModule],
       ])
+      const nitroAgentRegistry = { id: join(root, ".vitehub/agent/registry.mjs") }
+      const nitroModules = new Map([[nitroAgentRegistry.id, nitroAgentRegistry]])
+      const invalidateNitroModule = vi.fn()
+      const reloadNitro = vi.fn()
+      const environments = { nitro: { config: { consumer: "server" }, hot: { send: reloadNitro }, moduleGraph: { idToModuleMap: nitroModules, invalidateModule: invalidateNitroModule } } }
       const getModuleById = vi.fn((id: string) => modules.get(id))
       const invalidateModule = vi.fn()
       // SAFETY: The plugin under test produced this hook, so the test invokes its documented callable shape.
@@ -931,9 +951,11 @@ describe("agent Vite plugin", () => {
 
       await handleHotUpdate({
         file: join(root, "backend/agents/digest.ts"),
-        server: { config: { root }, moduleGraph: { idToModuleMap: modules, getModuleById, invalidateModule } },
+        server: { environments, config: { root }, moduleGraph: { idToModuleMap: modules, getModuleById, invalidateModule } },
       })
 
+      expect(invalidateNitroModule).toHaveBeenCalledWith(nitroAgentRegistry)
+      expect(reloadNitro).toHaveBeenCalledWith({ type: "full-reload" })
       expect(invalidateModule).toHaveBeenCalledWith(registryModule)
       expect(invalidateModule).toHaveBeenCalledWith(targetsModule)
       expect(invalidateModule).toHaveBeenCalledWith(nitroRegistryModule)
@@ -941,7 +963,7 @@ describe("agent Vite plugin", () => {
       invalidateModule.mockClear()
       await handleHotUpdate({
         file: join(root, "backend/agents/digest/skills/review/SKILL.md"),
-        server: { config: { root }, moduleGraph: { idToModuleMap: modules, getModuleById, invalidateModule } },
+        server: { environments, config: { root }, moduleGraph: { idToModuleMap: modules, getModuleById, invalidateModule } },
       })
 
       expect(invalidateModule).toHaveBeenCalledWith(registryModule)
@@ -1079,12 +1101,57 @@ describe("agent Vite plugin", () => {
     }
   })
 
+  it("rejects wrong Discord Gateway secrets in the generated Netlify function", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const previousHosting = process.env.VITEHUB_HOSTING
+    const previousSecret = process.env.VITEHUB_DISCORD_GATEWAY_SECRET
+    process.env.VITEHUB_HOSTING = "netlify"
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-netlify-gateway-secret-"))
+    try {
+      await mkdir(join(root, "server", "agents"), { recursive: true })
+      await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
+      const plugin = hubAgent({ providers: { state: { provider: "memory" } }, routes: { discordGateway: true } })
+      // SAFETY: hubAgent installs configResolved as an async Vite hook.
+      const configResolved = plugin.configResolved as (config: {
+        build?: { outDir?: string }
+        command: "build"
+        resolve: { alias: Array<{ find: string; replacement: string }> }
+        root: string
+      }) => Promise<void>
+      await configResolved({ build: { outDir: "dist/client" }, command: "build", resolve: { alias: agentProviderOutputAliases() }, root })
+      await runProviderOutputHooks(plugin)
+
+      const wrapper = await readFile(join(root, ".vitehub/agent/netlify-function.mjs"), "utf8")
+      expect(wrapper).toContain("!isViteHubBearerSecretEqual(request.headers.get('authorization'), secret)")
+      expect(wrapper).not.toContain("!== secret")
+
+      process.env.VITEHUB_DISCORD_GATEWAY_SECRET = "gateway-secret"
+      const generated: { default: (request: Request, context: { params: Record<string, string> }) => Promise<Response> } = await import(pathToFileURL(join(root, ".netlify/v1/functions/vitehub-agent.mjs")).href)
+      const gateway = (authorization?: string) => generated.default(
+        new Request("https://example.com/api/_vitehub/agents/support/discord/gateway", authorization ? { headers: { authorization } } : {}),
+        { params: { agent: "support" } },
+      )
+      for (const authorization of [undefined, "Bearer gateway", "Bearer gateway-secret-", "Bearer gateway-secreT", "Basic gateway-secret"]) {
+        expect((await gateway(authorization)).status).toBe(401)
+      }
+      expect((await gateway("Bearer gateway-secret")).status).not.toBe(401)
+    } finally {
+      if (isRuntimeString(previousHosting)) process.env.VITEHUB_HOSTING = previousHosting
+      else delete process.env.VITEHUB_HOSTING
+      if (isRuntimeString(previousSecret)) process.env.VITEHUB_DISCORD_GATEWAY_SECRET = previousSecret
+      else delete process.env.VITEHUB_DISCORD_GATEWAY_SECRET
+      await rm(root, { force: true, recursive: true })
+    }
+}, 60_000)
+
   it("publishes retained folder Agent Workspace sources before generation cleanup", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const previousHosting = process.env.VITEHUB_HOSTING
     process.env.VITEHUB_HOSTING = "netlify"
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-netlify-workspace-sources-"))
     const agentRoot = join(root, "server", "agents", "support")
+    // Bound this consumer independently of Git metadata above the temporary root.
+    await mkdir(join(root, ".git"))
     try {
       await mkdir(join(agentRoot, "workspace"), { recursive: true })
       await Promise.all([
@@ -1369,6 +1436,7 @@ describe("agent Vite plugin", () => {
         route: "/api/_vitehub/agents/:agent/chat",
       },
       webhook,
+      { handler: join(hostedAgentRoot, ".vitehub/agent/declared-webhook-route.ts"), middleware: true, route: "/**" },
     ])
   })
 
@@ -1416,6 +1484,33 @@ describe("agent Vite plugin", () => {
       },
     })
   })
+
+  it("adds the Agent Invocations dev handler to Nitro only for the Development Server", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-dev-"))
+    try {
+      const configFor = async (command: "build" | "serve") => {
+        const plugin = hubAgent()
+        // SAFETY: This fixture supplies the private Nitro config context consumed by the plugin.
+        const config = { [VITEHUB_NITRO_CONFIG_CONTEXT]: true, root } as never
+        // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+        if (isRuntimeFunction(plugin.config)) await plugin.config.call({} as never, config, { command, mode: command === "serve" ? "development" : "production" })
+        return JSON.stringify(config)
+      }
+      const handler = join(root, ".vitehub", "agent", "invocations-dev-handler.ts")
+      expect(await configFor("serve")).toContain(JSON.stringify({ handler, route: "/_vitehub/agent/invocations/dev" }))
+      expect(await configFor("build")).not.toContain("invocations-dev-handler")
+
+      const configResolvedHook: unknown = hubAgent().configResolved
+      // SAFETY: hubAgent installs configResolved as an async Vite hook.
+      const configResolved = configResolvedHook as (config: { command: "build" | "serve", plugins: Array<{ name: string }>, root: string }) => Promise<void>
+      await configResolved({ command: "serve", plugins: [], root })
+      expect(await readFile(handler, "utf8")).toContain("import { handleAgentInvocationsDevRequest as handleViteHubDevRequest } from \"@vite-hub/agent/runtime/invocations-dev\"")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+   }, 30_000)
 
   it("replaces the Agent app root in Nitro server code without overriding user replacements", async () => {
     const { hubAgent } = await import("../src/vite.ts")
@@ -1612,6 +1707,146 @@ describe("agent Vite plugin", () => {
     ]) } })
   })
 
+  it.each(["webhook alias", "readiness", "inspection"] as const)("reserves the dev invocation route against %s collisions", async (kind) => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const route = "/_vitehub/agent/invocations/dev"
+    const plugin = hubAgent(kind === "webhook alias"
+      ? { routes: { aliases: { [route]: { agent: "support", webhook: "github" } } } }
+      : kind === "inspection" ? { routes: { inspection: route } } : { preparation: { route, workspace: "docs" } })
+    const configHook = plugin.config
+    if (!isRuntimeFunction(configHook)) throw new Error("Expected an Agent config hook")
+    // SAFETY: This fixture supplies the private Nitro config context read by the hook.
+    const config = { [VITEHUB_NITRO_CONFIG_CONTEXT]: true, root: hostedAgentRoot } as never
+    expect(() => configHook.call({} as never, config, { command: "serve", mode: "development" })).toThrow(`${kind === "inspection" ? "development invocation" : kind} route conflicts`)
+    expect(() => configHook.call({} as never, config, { command: "build", mode: "production" })).not.toThrow()
+  })
+
+  it.each([
+    { label: "Discord Gateway", routes: { discordGateway: "/_vitehub/agent/invocations/dev" } },
+    { label: "parameterized generated gateway", routes: { discordGateway: "/_vitehub/agent/[agent]/[action]" } },
+    { label: "exact application handler", handlers: [{ route: "/_vitehub/agent/invocations/dev", handler: "/app/handler.ts" }] },
+    { label: "wildcard application handler", handlers: [{ route: "/_vitehub/agent/**", handler: "/app/handler.ts" }] },
+    { label: "parameterized application handler", handlers: [{ route: "/_vitehub/agent/:agent/:action", handler: "/app/handler.ts" }] },
+  ])("reserves the development invocation route against $label", async ({ routes, handlers }) => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const plugin = hubAgent({ routes })
+    const configHook = plugin.config
+    if (!isRuntimeFunction(configHook)) throw new Error("Expected an Agent config hook")
+    // SAFETY: This fixture supplies the private Nitro context and configured handlers read by the hook.
+    const config = { [VITEHUB_NITRO_CONFIG_CONTEXT]: true, root: hostedAgentRoot, nitro: { handlers } } as never
+    expect(() => configHook.call({} as never, config, { command: "serve", mode: "development" })).toThrow("development invocation route conflicts")
+    expect(() => configHook.call({} as never, config, { command: "build", mode: "production" })).not.toThrow()
+  })
+
+  it("registers the development invocation route next to the Console page and an application fallback", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const handlers = [{ route: "/_vitehub/**", handler: "/console/page.get.js" }, { route: "/**", handler: "/app/fallback.ts" }]
+    const result = await resolveAgentViteConfig(hubAgent({}), { [VITEHUB_NITRO_CONFIG_CONTEXT]: true, root: hostedAgentRoot, nitro: { handlers } }, { command: "serve", mode: "development" })
+    expect(result).toMatchObject({ nitro: { handlers: expect.arrayContaining([...handlers, expect.objectContaining({ route: "/_vitehub/agent/invocations/dev" })]) } })
+  })
+
+  it("does not install the development invocation Nitro route during CLI discovery", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const result = await resolveAgentViteConfig(hubAgent(), {
+      [VITEHUB_NITRO_CONFIG_CONTEXT]: true,
+      root: hostedAgentRoot,
+      vitehubCliDiscovery: true,
+      nitro: { handlers: [{ route: "/_vitehub/**", handler: "/app/console.ts" }] },
+    }, { command: "serve", mode: "development" })
+    expect(result).toMatchObject({ nitro: { handlers: expect.arrayContaining([expect.objectContaining({ route: "/_vitehub/**" })]) } })
+    expect(result).not.toMatchObject({ nitro: { handlers: expect.arrayContaining([expect.objectContaining({ route: "/_vitehub/agent/invocations/dev" })]) } })
+  })
+
+  it("does not install the development invocation Nitro route in a Vite middleware stage", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const result = await resolveAgentViteConfig(hubAgent(), {
+      [VITEHUB_NITRO_CONFIG_CONTEXT]: true,
+      root: hostedAgentRoot,
+      server: { middlewareMode: true },
+      nitro: { handlers: [{ route: "/_vitehub/**", handler: "/app/console.ts" }] },
+    }, { command: "serve", mode: "production" })
+    expect(result).not.toMatchObject({ nitro: { handlers: expect.arrayContaining([expect.objectContaining({ route: "/_vitehub/agent/invocations/dev" })]) } })
+  })
+
+  it.each([
+    { version: 2, file: "routes/_vitehub/agent/invocations/dev.ts", command: "serve", conflict: true },
+    { version: 3, file: "routes/_vitehub/agent/invocations/dev.ts", command: "serve", conflict: true },
+    { version: 3, file: "routes/_vitehub/agent/[agent]/[action].ts", command: "serve", conflict: true },
+    { version: 3, file: "routes/_vitehub/agent/[...path].ts", command: "serve", conflict: true },
+    { version: 3, file: "middleware/log.ts", command: "serve", conflict: false },
+    { version: 3, file: "routes/health.ts", command: "serve", conflict: false },
+    { version: 3, file: "routes/_vitehub/agent/invocations/dev.ts", command: "build", conflict: false },
+  ] as const)("guards the development invocation route after Nitro $version scans $file during $command", { timeout: 30_000 }, async ({ version, file, command, conflict }) => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-dev-route-scan-"))
+    const serverDir = join(root, "server")
+    const existingModule = { setup: vi.fn() }
+    let close: (() => Promise<void>) | undefined
+    try {
+      const filename = join(serverDir, file)
+      await mkdir(dirname(filename), { recursive: true })
+      await writeFile(filename, "export default () => new Response('application route')")
+      const plugin = hubAgent()
+      if (!isRuntimeFunction(plugin.config)) throw new Error("Expected an Agent config hook")
+      // SAFETY: This fixture supplies the private Nitro context and existing modules read by the hook.
+      const config = {
+        [VITEHUB_NITRO_CONFIG_CONTEXT]: true,
+        root: hostedAgentRoot,
+        nitro: { modules: [existingModule] },
+      } as never
+      await plugin.config.call({} as never, config, { command, mode: command === "serve" ? "development" : "production" })
+      // SAFETY: The Agent config hook preserves Nitro module and handler configuration.
+      const generated = (config as { nitro: { modules: unknown[], handlers: unknown[] } }).nitro
+      const options = {
+        rootDir: root,
+        ...(version === 2 ? { srcDir: serverDir } : { serverDir }),
+        scanDirs: [serverDir],
+        dev: command === "serve",
+        compatibilityDate: "2026-01-01" as const,
+        imports: false as const,
+        logLevel: 0,
+        // SAFETY: The hook emits Nitro modules and handlers accepted by both supported builders.
+        modules: generated.modules as NonNullable<Parameters<typeof import("nitropack").createNitro>[0]>["modules"] & NonNullable<Parameters<typeof import("nitro/builder").createNitro>[0]>["modules"],
+        handlers: generated.handlers as Array<{ handler: string, route: string }>,
+      }
+      const scan = version === 2
+        ? await (async () => {
+            const { createNitro } = await import("nitropack")
+            const nitro = await createNitro(options)
+            return { scannedHandlers: nitro.scannedHandlers, close: () => nitro.close(), check: () => nitro.hooks.callHook("build:before", nitro) }
+          })()
+        : await (async () => {
+            const { createNitro } = await import("nitro/builder")
+            const nitro = await createNitro(options)
+            return { scannedHandlers: nitro.scannedHandlers, close: () => nitro.close(), check: () => nitro.hooks.callHook("build:before", nitro) }
+          })()
+      close = scan.close
+      expect(existingModule.setup).toHaveBeenCalledOnce()
+      expect(scan.scannedHandlers).toContainEqual(expect.objectContaining({ handler: filename }))
+      const check = Promise.resolve().then(scan.check)
+      if (conflict) await expect(check).rejects.toThrow("development invocation route conflicts")
+      else await expect(check).resolves.toBeUndefined()
+    } finally {
+      await close?.()
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("preserves Nitro middleware alongside the development invocation route", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const plugin = hubAgent()
+    const configHook = plugin.config
+    if (!isRuntimeFunction(configHook)) throw new Error("Expected an Agent config hook")
+    const middleware = { route: "/**", handler: "/app/middleware.ts", middleware: true }
+    // SAFETY: This fixture supplies the private Nitro context and configured middleware read by the hook.
+    const config = { [VITEHUB_NITRO_CONFIG_CONTEXT]: true, root: hostedAgentRoot, nitro: { handlers: [middleware] } } as never
+    configHook.call({} as never, config, { command: "serve", mode: "development" })
+    expect(config).toMatchObject({ nitro: { handlers: expect.arrayContaining([
+      middleware,
+      expect.objectContaining({ route: "/_vitehub/agent/invocations/dev", handler: expect.stringContaining("invocations-dev-handler.ts") }),
+    ]) } })
+  })
+
   it.each([
     { runtime: "deno", message: "require a Nitro host" },
     { nitro: { preset: "netlify" }, message: "require a Nitro host" },
@@ -1672,9 +1907,13 @@ describe("agent Vite plugin", () => {
       expect(gatewayRoute).toContain("runtimeEnvValue(cloudflare, 'VITEHUB_DISCORD_GATEWAY_WEBHOOK_URL')")
       expect(gatewayRoute).toContain('const webhookRoute = "/api/_vitehub/agents/:agent/webhooks/:webhook"')
       expect(gatewayRoute).toContain("routePath(webhookRoute, { agent, webhook })")
+      expect(gatewayRoute).toContain("Object.hasOwn(values, key)")
       expect(gatewayRoute).toContain(".replace(/(^|\\/):([^/]+)/g")
       expect(gatewayRoute).toContain("process.env.NODE_ENV === 'development'")
       expect(gatewayRoute).toContain("Discord Gateway route requires VITEHUB_DISCORD_GATEWAY_SECRET.")
+      expect(gatewayRoute).toContain('import { isViteHubBearerSecretEqual } from "@vite-hub/agent/server/internal"')
+      expect(gatewayRoute).toContain("!isViteHubBearerSecretEqual(getRequestHeader(event, 'authorization'), secret)")
+      expect(gatewayRoute).not.toContain("!== secret")
       expect(gatewayRoute).toContain("runtime: 'vite'")
       expect(gatewayRoute).toContain("waitUntil: waitUntilFromEvent(event)")
       expect(gatewayRoute).toContain("webhookUrl")
@@ -1814,6 +2053,7 @@ describe("agent Vite plugin", () => {
       expect(netlifyFunction).toContain('import vitehubAgentScheduleRegistry from "./schedule-registry.js"')
       expect(netlifyFunction).toContain("vitehubSetScheduleRuntimeRegistry(vitehubAgentScheduleRegistry)")
       expect(netlifyFunction).toContain("capabilities: vitehubAgentRouteCapabilities")
+      expect(netlifyFunction).toContain("Object.hasOwn(values, key)")
     } finally {
       if (isRuntimeString(previousHosting)) process.env.VITEHUB_HOSTING = previousHosting
       else delete process.env.VITEHUB_HOSTING
@@ -2388,7 +2628,7 @@ describe("agent Vite plugin", () => {
     expect(incomplete.signal.reason).toMatchObject({ name: "AbortError" })
   })
 
-  it("writes generated Nitro handlers that compile under strict TypeScript", async () => {
+  it("writes generated Nitro handlers that compile with checked indexed access", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(import.meta.dirname, ".vitehub-agent-routes-types-"))
     try {
@@ -2423,6 +2663,8 @@ export default defineAgent({
         `${JSON.stringify(
           {
             extends: resolve(import.meta.dirname, "../tsconfig.json"),
+            // Consumers check generated code against the published declarations, not package sources.
+            compilerOptions: { noUncheckedIndexedAccess: true, paths: {} },
             include: [".vitehub/agent/chat-webhook-route.ts", "server/agents/**/*.ts"],
           },
           null,
@@ -2437,9 +2679,9 @@ export default defineAgent({
           stateProvider === "libsql"
             ? {
                 providers: { state: { provider: "libsql" } },
-                routes: { inspection: true },
+                routes: { inspection: true, aliases: { "/api/telegram/webhook": { agent: "calories", webhook: "telegram" } } },
               }
-            : { routes: { inspection: true } },
+            : { routes: { inspection: true, aliases: { "/api/telegram/webhook": { agent: "calories", webhook: "telegram" } } } },
         )
         if (isRuntimeFunction(plugin.configResolved)) {
           // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
@@ -2863,7 +3105,7 @@ export default defineAgent({
       }])
 
       expect(denoServer).toContain(
-        'createChannelChatRouteHandler, createChannelWebhookRouteHandler, hasChannelChatRoute } from "@vite-hub/agent/server/internal"',
+        'createChannelChatRouteHandler, createChannelWebhookRouteHandler, hasChannelChatRoute, resolvePublicUrl } from "@vite-hub/agent/server/internal"',
       )
       expect(denoServer).not.toContain('import { setWorkspaceRuntimeRegistry } from "@vite-hub/workspace/runtime"')
       expect(denoServer).toContain('await import("../schedule/deno-cron.mjs").catch')
@@ -3295,7 +3537,8 @@ describe("server helpers", () => {
     const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
     const { createAgentUIMessageStreamResponse } = await import("../src/stream-output.ts")
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
-    const run = vi.fn(({ input, messages }) => {
+    const run = vi.fn((runContext: AgentRunContext) => {
+      const { messages } = runContext
       const hasApproval = messages.some((message: { parts?: Array<{ type?: string }> }) => message.parts?.some((part) => part.type === "approval-decision"))
       if (hasApproval) {
         expect(messages[0]?.parts).toEqual(
@@ -3319,7 +3562,7 @@ describe("server helpers", () => {
           ]),
         )
       }
-      return input.context?.["vitehub.eve.approvedTools"] ? "approved" : "fresh"
+      return chatApprovedTools(runContext).length ? "approved" : "fresh"
     })
     const approvalResponse = createAgentUIMessageStreamResponse({
       headers: { "x-agent": "approval" },
@@ -3437,7 +3680,7 @@ describe("server helpers", () => {
         expect.objectContaining({ approved: true, id: "approval-1", toolCallId: "call-1" }),
         60_000,
       )
-      expect(run.mock.calls[0]?.[0].input.context?.["vitehub.eve.approvedTools"]).toEqual(["github__createOrUpdateFile"])
+      expect(chatApprovedTools(run.mock.calls[0]![0])).toEqual(["github__createOrUpdateFile"])
       const selectedChatSessionId = run.mock.calls[0]?.[0].input.context?.["chat.sessionId"]
       expect(selectedChatSessionId).toMatch(/^http:support:portal-thread:chat-session:session-1:manual:/)
 
@@ -3462,7 +3705,7 @@ describe("server helpers", () => {
       })
       expect(freshSession.status).toBe(200)
       await expect(freshSession.text()).resolves.toContain("fresh")
-      expect(run.mock.calls[3]?.[0].input.context?.["vitehub.eve.approvedTools"]).toBeUndefined()
+      expect(chatApprovedTools(run.mock.calls[3]![0])).toEqual([])
       expect(run.mock.calls[3]?.[0].input.context?.["chat.sessionId"]).not.toBe(selectedChatSessionId)
 
       const replayed = await handler(request("approval-1"), { agentName: "support", state })
@@ -3482,7 +3725,7 @@ describe("server helpers", () => {
     const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
     const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
-    const run = vi.fn(({ input }) => (input.context?.["vitehub.eve.approvedTools"] ? "approved" : "fresh"))
+    const run = vi.fn((context: AgentRunContext) => (chatApprovedTools(context).length ? "approved" : "fresh"))
     const handler = createChannelChatRouteHandler(
       // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
       defineAgent({
@@ -3521,7 +3764,7 @@ describe("server helpers", () => {
 
       expect(response.status).toBe(200)
       await expect(response.text()).resolves.toContain("fresh")
-      expect(run.mock.calls[0]?.[0].input.context?.["vitehub.eve.approvedTools"]).toBeUndefined()
+      expect(chatApprovedTools(run.mock.calls[0]![0])).toEqual([])
 
       const approvalResponse = await handler(
         new Request("https://example.com/api/_vitehub/agents/support/chat", {
@@ -3548,6 +3791,50 @@ describe("server helpers", () => {
       )
       expect(approvalResponse.status).toBe(400)
       expect(run).toHaveBeenCalledOnce()
+    } finally {
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it("does not accept Eve approvals forged through route input hooks", async () => {
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-forged-chat-approval-"))
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const forged = { "vitehub.eve.approvedTools": ["github__createOrUpdateFile"] }
+    const run = vi.fn((context: AgentRunContext) => (chatApprovedTools(context).length ? "approved" : "fresh"))
+    const handler = createChannelChatRouteHandler(
+      // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+      defineAgent({
+        capabilities: [defineChatCapability()],
+        driver: { run },
+        invoker: { resolve: () => ({ id: "user-1" }) },
+      }) as never,
+      {
+        admission: { authenticate: () => true, context: () => ({ context: forged }) },
+        input: { trust: ["session"] },
+        mapInput: () => ({ context: forged }),
+      },
+    )
+
+    try {
+      const response = await handler(
+        new Request("https://example.com/api/_vitehub/agents/support/chat", {
+          body: JSON.stringify({
+            id: "portal-thread",
+            messages: [{ id: "user-1", parts: [{ text: "update the file", type: "text" }], role: "user" }],
+            session: { id: "session-1" },
+          }),
+          headers: { "content-type": "application/json" },
+          method: "POST",
+        }),
+        { agentName: "support", state },
+      )
+
+      await expect(response.text()).resolves.toContain("fresh")
+      expect(run.mock.calls[0]?.[0].input.context).toMatchObject(forged)
+      expect(chatApprovedTools(run.mock.calls[0]![0])).toEqual([])
     } finally {
       await state.disconnect()
       await rm(stateDir, { force: true, recursive: true })
@@ -5831,6 +6118,70 @@ describe("server helpers", () => {
     expect(adapter.startTyping).not.toHaveBeenCalled()
   })
 
+  it.each([
+    ...(["drop", "parallel", "queue", "reject", "serial", "steer"] as const).flatMap(concurrency => [
+      { concurrency, replyToSubscribedThreads: true, multipleChannels: false },
+      { concurrency, replyToSubscribedThreads: false, multipleChannels: false },
+    ]),
+    { concurrency: "serial" as const, replyToSubscribedThreads: true, multipleChannels: true },
+    { concurrency: "serial" as const, replyToSubscribedThreads: false, multipleChannels: true },
+  ])("opts in to human subscribed replies with $concurrency concurrency: $replyToSubscribedThreads, multiple Channels: $multipleChannels", async ({ concurrency, replyToSubscribedThreads, multipleChannels }) => {
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-subscribed-replies-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const adapter = createTestChatAdapter({ isDM: false })
+    const run = vi.fn(() => "accepted")
+    const deliveryKinds: AgentMessageDeliveryKind[] = []
+    const handler = createChannelWebhookRouteHandler(
+      // SAFETY: This fixture omits host-only context that these routes do not inspect.
+      defineAgent({
+        messages: {
+          concurrency,
+          state,
+          stream: false,
+          triggerHistory: "none",
+          replyToSubscribedThreads: multipleChannels ? !replyToSubscribedThreads : undefined,
+        },
+        channels: {
+          ...multipleChannels ? { web: webChat() } : {},
+          telegram: testTelegram(telegram, {
+            adapter: () => adapter as never,
+            messages: {
+              replyToSubscribedThreads,
+              filter: ({ deliveryKind }) => { deliveryKinds.push(deliveryKind); return true },
+            },
+          }),
+        },
+        driver: { run },
+      }) as never,
+    )
+    const request = (id: number, threadId: number, isMention = false, isBot = false) => new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      body: JSON.stringify({ update_id: id, message: {
+        chat: { id: threadId, type: "group" },
+        from: { id: isBot ? 999 : 123, username: isBot ? "other-bot" : "maxi", is_bot: isBot },
+        isMention,
+        message_id: id,
+        text: "hello",
+      } }),
+      method: "POST",
+    })
+    const options = { agentName: "support" }
+    try {
+      await handler(request(2100, 789), "telegram", options)
+      expect(run).not.toHaveBeenCalled()
+      await handler(request(2101, 789, true), "telegram", options)
+      await handler(request(2102, 789), "telegram", options)
+      expect(run).toHaveBeenCalledTimes(replyToSubscribedThreads ? 2 : 1)
+      expect(deliveryKinds).toEqual(replyToSubscribedThreads ? ["mention", "subscribed"] : ["mention"])
+      await handler(request(2103, 790), "telegram", options)
+      await handler(request(2104, 789, false, true), "telegram", options)
+      expect(run).toHaveBeenCalledTimes(replyToSubscribedThreads ? 2 : 1)
+      expect(deliveryKinds).toEqual(replyToSubscribedThreads ? ["mention", "subscribed"] : ["mention"])
+    } finally {
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
   it("settles ignored serial messages without rejecting the active request", async () => {
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-ignored-serial-"))
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
@@ -7814,6 +8165,77 @@ describe("server helpers", () => {
     expect(run).not.toHaveBeenCalled()
   })
 
+  it("does not let an inherited webhook resolver disable verification", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { http } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const run = vi.fn(() => "unexpected")
+    const resolve = vi.fn(() => false)
+    function ForgedResolver() {}
+    const prototype = { resolve, constructor: ForgedResolver }
+    ForgedResolver.prototype = prototype
+    const secretToken = Object.create(prototype)
+    const agent = defineAgent({
+      channels: {
+        support: http({
+          // SAFETY: This fixture models an untrusted registration with an inherited resolver.
+          adapter: () => adapter as never,
+          webhooks: {
+            id: "custom-support",
+            secretHeader: "x-test-secret",
+            secretToken: secretToken as never,
+          },
+        }),
+      },
+      driver: { run },
+    })
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(
+      new Request("https://example.com/api/_vitehub/agents/support/webhooks/custom-support", {
+        body: "{}",
+        method: "POST",
+      }),
+      "custom-support",
+    )
+
+    expect(response.status).toBe(401)
+    expect(resolve).not.toHaveBeenCalled()
+    expect(adapter.handleWebhook).not.toHaveBeenCalled()
+    expect(run).not.toHaveBeenCalled()
+  })
+
+  it("rejects prototype-based webhook secret resolvers", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { http } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    class SecretResolver {
+      resolve() {
+        return "secret-token"
+      }
+    }
+    const adapter = createTestChatAdapter()
+    const agent = defineAgent({
+      channels: {
+        support: http({
+          adapter: () => adapter as never,
+          webhooks: { id: "custom-support", secretHeader: "x-test-secret", secretToken: new SecretResolver() as never },
+        }),
+      },
+      driver: { run: vi.fn() },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/custom-support", {
+      body: "{}",
+      headers: { "x-test-secret": "secret-token" },
+      method: "POST",
+    }), "custom-support")
+    expect(response.status).toBe(401)
+    expect(adapter.handleWebhook).not.toHaveBeenCalled()
+  })
+
   it("fails closed when generated chat webhook secrets resolve empty", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { http } = await import("../src/channels.ts")
@@ -8331,11 +8753,14 @@ describe("server helpers", () => {
     const { github } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     let releaseRun!: () => void
+    let markRunStarted!: () => void
+    const runStarted = new Promise<void>(resolve => { markRunStarted = resolve })
     let completed = false
     const runFinished = new Promise<void>((resolve) => {
       releaseRun = resolve
     })
     const run = vi.fn(async () => {
+      markRunStarted()
       await runFinished
       completed = true
       return "accepted"
@@ -8371,6 +8796,7 @@ describe("server helpers", () => {
       "github",
       { waitUntil: (task) => waitUntilTasks.push(task) },
     )
+    await runStarted
     const response = await Promise.race([responsePromise, new Promise<"blocked">((resolve) => setTimeout(() => resolve("blocked"), 25))])
 
     if (response === "blocked") {
@@ -8959,6 +9385,105 @@ describe("server helpers", () => {
     }
   })
 
+  it.each([
+    { filterLocation: "pullRequest", event: "issue_comment" },
+    { filterLocation: "comments", event: "issue_comment" },
+    { filterLocation: "triggers", event: "issue_comment" },
+    { filterLocation: "comments", event: "pull_request_review" },
+    { filterLocation: "comments", event: "pull_request_review_comment" },
+  ] as const)("refreshes a queued GitHub $event after its $filterLocation draft filter stops matching", async ({ filterLocation, event }) => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { github } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-github-queued-head-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const complete = vi.spyOn(state, "completeWebhookDelivery")
+    let draft = true
+    let head = "a".repeat(40)
+    let releaseFirst!: () => void
+    const first = new Promise<void>(resolve => { releaseFirst = resolve })
+    let calls = 0
+    const run = vi.fn(async (_args: { input: AgentRunInput }) => {
+      if (++calls === 1) await first
+      return "accepted"
+    })
+    const fetcher = vi.fn(async (input: string | URL | Request) => Response.json(
+      String(input).endsWith("/pulls/42")
+        ? { draft, head: { ref: "fix", sha: head, repo: { full_name: "acme/app" } } }
+        : String(input).includes("/comments")
+          ? [{ id: 10, body: draft ? "old marker" : "new marker", user: { login: "mona" } }]
+          : draft ? [{ filename: "removed.ts" }] : [],
+      { headers: { link: "" } },
+    ))
+    const agent = defineAgent({
+      channels: {
+        github: github({
+          app: { fetch: fetcher, token: "test-token" },
+          pullRequest: {
+            ...(filterLocation === "pullRequest" ? { filter: { draft: { allow: ["true"] } } } : {}),
+            reconcile: filterLocation === "triggers"
+              ? { triggers: [{ events: ["issue_comment"], filter: { draft: { allow: ["true"] } } }] }
+              : { comments: filterLocation === "comments" ? { filter: { draft: { allow: ["true"] } } } : true },
+            reply: false,
+          },
+          webhooks: { secretToken: false },
+        }),
+      },
+      driver: { run },
+    })
+    // SAFETY: This fixture supplies the generated route contract exercised by the webhook queue.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const stop = handler.resume({ agentName: "review", webhookState: state })
+    const request = (id: number) => new Request("https://example.com/api/github/webhook", {
+      body: JSON.stringify({
+        action: event === "pull_request_review" ? "submitted" : "created",
+        ...(event !== "issue_comment" ? {
+          pull_request: { draft, number: 42, url: "https://api.github.test/repos/acme/app/pulls/42" },
+        } : {}),
+        ...(event === "pull_request_review" ? {
+          review: { body: "Please fix this PR", id, state: "changes_requested", user: { login: "mona", type: "User" } },
+        } : {}),
+        ...(event !== "pull_request_review" ? {
+          comment: { body: "Please fix this PR", id, user: { login: "mona", type: "User" } },
+        } : {}),
+        ...(event === "issue_comment" ? {
+          issue: { number: 42, pull_request: { url: "https://api.github.test/repos/acme/app/pulls/42" } },
+        } : {}),
+        repository: { full_name: "acme/app" },
+      }),
+      headers: { "content-type": "application/json", "x-github-delivery": `delivery-${id}`, "x-github-event": event },
+      method: "POST",
+    })
+    try {
+      expect((await handler(request(1), "github", { agentName: "review", webhookState: state })).status).toBe(200)
+      await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
+      expect((await handler(request(2), "github", { agentName: "review", webhookState: state })).status).toBe(200)
+      expect(run).toHaveBeenCalledOnce()
+      fetcher.mockClear()
+      draft = false
+      head = "b".repeat(40)
+      releaseFirst()
+      await vi.waitFor(() => expect(complete).toHaveBeenCalledTimes(2), { timeout: 5_000 })
+      await Promise.all(complete.mock.results.map(result => result.value))
+      expect(fetcher).toHaveBeenCalledTimes(3)
+      expect(run.mock.calls[1]?.[0].input.context?.github).toMatchObject({ deliveryId: "delivery-2", event })
+      expect(run.mock.calls[1]?.[0].input.context?.pullRequest).toMatchObject({
+        pullRequest: { head: { sha: head }, comments: [expect.objectContaining({ body: "new marker" })] },
+      })
+      expect(run.mock.calls[1]?.[0].input.context?.pullRequest?.pullRequest.files).toBeUndefined()
+      expect(run.mock.calls[1]?.[0].input.prompt).toContain(head)
+      const filtered = await handler(request(3), "github", { agentName: "review", webhookState: state })
+      await expect(filtered.json()).resolves.toMatchObject({ accepted: false })
+      expect(run).toHaveBeenCalledTimes(2)
+    } finally {
+      releaseFirst()
+      await stop()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
   it("rehydrates queued webhook invocations before running the agent", async () => {
     const { getActiveCloudflareEnv } = await import("@vite-hub/internal/runtime/cloudflare-env")
     const { defineAgent } = await import("../src/index.ts")
@@ -9023,7 +9548,7 @@ describe("server helpers", () => {
       )
 
       expect(response.status).toBe(200)
-      expect(enqueue.mock.calls[0]?.[0].invocation).toBeUndefined()
+      expect(enqueue.mock.calls[0]?.[0].invocation).toMatchObject({ input: { prompt: "stale source data" } })
       await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
       expect(rehydrate).toHaveBeenCalledOnce()
       expect(run).toHaveBeenCalledWith(
@@ -9031,6 +9556,405 @@ describe("server helpers", () => {
           input: expect.objectContaining({ prompt: "fresh source data" }),
         }),
       )
+    } finally {
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it.each([204, 302, 400, 403])("settles handled webhook rehydration with status %s without Invocation evidence", async status => {
+    const { github } = await import("../src/channels.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-rehydrate-response-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const enqueue = vi.spyOn(state, "enqueueWebhookDelivery")
+    const complete = vi.spyOn(state, "completeWebhookDelivery")
+    const retry = vi.spyOn(state, "retryWebhookDelivery")
+    const deferredWork = vi.fn()
+    let releaseDeferredWork!: () => void
+    const deferred = new Promise<void>((resolve) => {
+      releaseDeferredWork = resolve
+    }).then(deferredWork)
+    const run = vi.fn(() => "unexpected saved invocation")
+    const rehydrate = vi.fn((context: { waitUntil: (task: Promise<unknown>) => void }) => {
+      context.waitUntil(deferred)
+      return new Response(null, { status })
+    })
+    const agent = defineAgent({
+      channels: {
+        github: github({
+          triggers: {
+            webhook: {
+              invoke: context => ({
+                input: { prompt: "saved source data" },
+                webhook: {
+                  concurrencyLimit: 1,
+                  deliveryId: "delivery-rehydrate-response",
+                  rehydrate: () => rehydrate(context),
+                },
+              }),
+            },
+          },
+          webhooks: { secretToken: false },
+        }),
+      },
+      driver: { run },
+    })
+    await state.connect()
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const options = { agentName: "review", webhookState: state }
+    const stop = handler.resume(options)
+
+    try {
+      const response = await handler(new Request("https://example.com/api/github/webhook", {
+        body: "{}",
+        headers: {
+          "content-type": "application/json",
+          "x-github-delivery": "delivery-rehydrate-response",
+          "x-github-event": "pull_request",
+        },
+        method: "POST",
+      }), "github", options)
+
+      expect(response.status).toBe(200)
+      expect(enqueue.mock.calls[0]?.[0]).toMatchObject({
+        invocation: { input: { prompt: "saved source data" } },
+        rehydrate: true,
+      })
+      await vi.waitFor(() => expect(rehydrate).toHaveBeenCalledOnce())
+      expect(complete).not.toHaveBeenCalled()
+      expect(run).not.toHaveBeenCalled()
+      releaseDeferredWork()
+      await vi.waitFor(() => expect(complete).toHaveBeenCalledOnce())
+      await Promise.all(complete.mock.results.map(result => result.value))
+      expect(rehydrate).toHaveBeenCalledOnce()
+      expect(deferredWork).toHaveBeenCalledOnce()
+      expect(retry).not.toHaveBeenCalled()
+      expect(run).not.toHaveBeenCalled()
+      const deliveries = await handler.deliveries(new Request("https://example.com/api/github/webhook"), "github", options)
+      const delivery = deliveries.find(item => item.sourceId === "delivery-rehydrate-response")
+      expect(delivery?.status).toBe(status === 204 ? "completed" : "rejected")
+      expect(delivery?.events.filter(event => event.type.startsWith("invocation."))).toEqual([])
+    } finally {
+      releaseDeferredWork()
+      await stop()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it.each(["stream", "503", "body error", "exhausted", "timeout", "recovery"] as const)("observes handled webhook rehydration %s within durable custody", async kind => {
+    const { github } = await import("../src/channels.ts")
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-rehydrate-outcome-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const complete = vi.spyOn(state, "completeWebhookDelivery")
+    if (kind === "recovery") complete.mockRejectedValueOnce(new Error("completion outage"))
+    const retry = vi.spyOn(state, "retryWebhookDelivery")
+    const failed = vi.fn()
+    const run = vi.fn(() => "unexpected saved invocation")
+    let streamController!: ReadableStreamDefaultController<Uint8Array>
+    const cancelBody = vi.fn()
+    const streamingResponse = new Response(new ReadableStream<Uint8Array>({
+      start(controller) { streamController = controller },
+      cancel: cancelBody,
+    }))
+    const rehydrate = vi.fn((): Response => {
+      if (kind === "stream" || kind === "timeout") return streamingResponse
+      if (kind === "exhausted" || kind === "recovery" || (kind === "503" && rehydrate.mock.calls.length === 1)) return new Response(null, { status: 503 })
+      if (kind === "body error" && rehydrate.mock.calls.length === 1) return new Response(new ReadableStream({
+        start(controller) { controller.error(new Error("handled response body failed")) },
+      }))
+      return new Response(null, { status: 204 })
+    })
+    const agent = defineAgent({
+      channels: {
+        github: github({
+          triggers: {
+            webhook: {
+              failed,
+              invoke: () => ({
+                input: { prompt: "saved source data", ...(kind === "timeout" ? { timeout: 500 } : {}) },
+                run: { runId: "saved-rehydration-run" },
+                webhook: { concurrencyLimit: 1, deliveryId: "delivery-rehydrate-outcome", rehydrate },
+              }),
+            },
+          },
+          webhooks: { secretToken: false },
+        }),
+      },
+      driver: { run },
+    })
+    await state.connect()
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const options = { agentName: "review", webhookState: state }
+    const stop = handler.resume(options)
+    let stopRecovery: (() => Promise<void>) | undefined
+    let recoveryState: ReturnType<typeof createLibsqlAgentState> | undefined
+    let clock: ReturnType<typeof vi.spyOn> | undefined
+    const request = () => new Request("https://example.com/api/github/webhook", {
+      body: "{}",
+      headers: {
+        "content-type": "application/json",
+        "x-github-delivery": "delivery-rehydrate-outcome",
+        "x-github-event": "pull_request",
+      },
+      method: "POST",
+    })
+    try {
+      expect((await handler(request(), "github", options)).status).toBe(200)
+      await vi.waitFor(() => expect(rehydrate).toHaveBeenCalled())
+      if (kind === "stream") {
+        await vi.waitFor(() => expect(streamingResponse.body?.locked).toBe(true))
+        expect(complete).not.toHaveBeenCalled()
+        streamController.enqueue(new TextEncoder().encode("handled"))
+        streamController.close()
+      }
+      // Exhaustion includes two exponential retry delays plus queue and SQLite work.
+      await vi.waitFor(() => expect(complete).toHaveBeenCalledOnce(), { timeout: 15_000 })
+      if (kind === "recovery") {
+        await expect(complete.mock.results[0]?.value).rejects.toThrow("completion outage")
+        expect(failed).toHaveBeenCalledOnce()
+        await stop()
+        const [scope] = await state.webhookDeliveryScopes()
+        const [pending] = await state.webhookDeliveries(scope!)
+        expect(pending?.failure).toMatchObject({ invocationStarted: false, notificationStarted: true })
+        clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() + pending!.leaseTtlMs + 1)
+        recoveryState = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+        await recoveryState.connect()
+        stopRecovery = handler.resume({ ...options, webhookState: recoveryState })
+        await vi.waitFor(async () => expect(await recoveryState!.webhookDeliveries(scope!)).toEqual([]), { timeout: 5_000 })
+      } else await Promise.all(complete.mock.results.map(result => result.value))
+      const expectedAttempts = kind === "exhausted" || kind === "recovery" ? 3 : kind === "503" || kind === "body error" ? 2 : 1
+      expect(rehydrate).toHaveBeenCalledTimes(expectedAttempts)
+      expect(retry).toHaveBeenCalledTimes(kind === "timeout" ? 0 : expectedAttempts - 1)
+      expect(failed).toHaveBeenCalledTimes(kind === "exhausted" || kind === "timeout" || kind === "recovery" ? 1 : 0)
+      if (failed.mock.calls.length) {
+        expect(failed.mock.calls[0]?.[0]).not.toHaveProperty("invocation")
+        expect(failed.mock.calls[0]?.[0]).not.toHaveProperty("run")
+      }
+      if (kind === "timeout") expect(cancelBody).toHaveBeenCalledOnce()
+      expect(run).not.toHaveBeenCalled()
+      const delivery = (await handler.deliveries(request(), "github", options)).find(item => item.sourceId === "delivery-rehydrate-outcome")
+      expect(delivery?.status).toBe(kind === "exhausted" || kind === "timeout" || kind === "recovery" ? "failed" : "completed")
+      expect(delivery?.events.filter(event => event.type.startsWith("invocation."))).toEqual([])
+      expect(delivery?.events.filter(event => event.type === "retrying").every(event => event.runId === undefined)).toBe(true)
+    } finally {
+      if (kind === "timeout" && !cancelBody.mock.calls.length) streamController.close()
+      clock?.mockRestore()
+      await stopRecovery?.()
+      await stop()
+      await recoveryState?.disconnect()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+      consoleError.mockRestore()
+    }
+  }, 20_000)
+
+  it("recovers handled webhook rehydration failure without adding Invocation evidence", async () => {
+    const { github } = await import("../src/channels.ts")
+    const { openAgentChannelDelivery } = await import("../src/internal/channel-delivery.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-rehydrate-failure-recovery-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const failed = vi.fn()
+    const run = vi.fn()
+    const agent = defineAgent({
+      channels: { github: github({ triggers: { webhook: { failed, invoke: () => new Response(null, { status: 204 }) } }, webhooks: { secretToken: false } }) },
+      driver: { run },
+    })
+    await state.connect()
+    const scope = "webhook:review:github:github:"
+    const sourceId = "delivery-rehydrate-failure-recovery"
+    const channelDelivery = await openAgentChannelDelivery(state, { agentName: "review", channelId: "github", provider: "github", scope, sourceId })
+    const request = () => new Request("https://example.com/api/github/webhook", {
+      body: "{}",
+      headers: { "content-type": "application/json", "x-github-delivery": sourceId, "x-github-event": "pull_request" },
+      method: "POST",
+    })
+    const persistedFailure = { attempts: 3, error: "handled response failed", invocationStarted: false as const, notificationStarted: true as const }
+    await state.enqueueWebhookDelivery({
+      channelDeliveryId: channelDelivery.delivery.id,
+      concurrencyGroup: "review:default",
+      concurrencyLimit: 1,
+      deliveryId: sourceId,
+      enqueuedAt: Date.now(),
+      failure: persistedFailure,
+      invocation: { input: { prompt: "saved" }, run: { runId: "never-started" } },
+      leaseTtlMs: 30_000,
+      rehydrate: true,
+      request: { body: "{}", headers: Object.fromEntries(request().headers), method: "POST", url: request().url },
+      scope,
+      webhookId: "github",
+    })
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const options = { agentName: "review", webhookState: state }
+    const stop = handler.resume(options)
+    try {
+      await vi.waitFor(async () => expect(await state.webhookDeliveries(scope)).toEqual([]), { timeout: 5_000 })
+      const delivery = (await handler.deliveries(request(), "github", options)).find(item => item.sourceId === sourceId)
+      expect(delivery?.status).toBe("failed")
+      expect(delivery?.events.filter(event => event.type.startsWith("invocation."))).toEqual([])
+      expect(failed).not.toHaveBeenCalled()
+      expect(run).not.toHaveBeenCalled()
+    } finally {
+      await stop()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it.each(["foreign abort", "foreign canceled", "dom abort", "plain abort", "tagged abort", "hostile tag", "unrelated", "unrequested foreign abort", "remote abort", "remote canceled", "remote dom abort"] as const)("settles queued webhook cancellation from its journal for %s", async failureKind => {
+    const { defineAgent, defineCapability } = await import("../src/index.ts")
+    const { github } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { agentInvocationId, createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/invocations.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-journal-cancel-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const complete = vi.spyOn(state, "completeWebhookDelivery")
+    const retry = vi.spyOn(state, "retryWebhookDelivery")
+    const backing = createMemoryAgentInvocationStore()
+    let releaseOwner!: () => void
+    let reportWarningCommitted!: () => void
+    const ownerResponses = new Promise<void>(resolve => { releaseOwner = resolve })
+    const warningCommitted = new Promise<void>(resolve => { reportWarningCommitted = resolve })
+    let holdOwner = false
+    const ownerStore = {
+      ...backing,
+      async getSummary(id: string) {
+        const snapshot = await backing.getSummary(id)
+        if (holdOwner) await ownerResponses
+        return snapshot
+      },
+      async update(...args: Parameters<typeof backing.update>) {
+        const snapshot = await backing.update(...args)
+        if (failureKind.startsWith("remote") && args[1].cancelNotEnforcedBy === "run") {
+          holdOwner = true
+          reportWarningCommitted()
+        }
+        if (holdOwner) await ownerResponses
+        return snapshot
+      },
+    }
+    const invocations = defineAgentInvocations({ store: ownerStore })
+    const remote = defineAgentInvocations({ store: { ...backing } })
+    const id = await agentInvocationId("journal-webhook-invocation", "review")
+    const run = vi.fn(async (context: { input: { abortSignal?: AbortSignal } }) => {
+      if (failureKind.startsWith("remote")) {
+        await warningCommitted
+        await remote.cancel(id)
+        expect((await backing.getSummary(id))?.cancelRequestedAt).toEqual(expect.any(String))
+        expect(context.input.abortSignal?.aborted).toBe(false)
+      }
+      else if (failureKind !== "unrequested foreign abort") await invocations.cancel(id)
+      if (failureKind === "foreign abort" || failureKind === "unrequested foreign abort" || failureKind === "remote abort") throw runInNewContext("Object.assign(new Error('Provider aborted'), { name: 'AbortError' })")
+      if (failureKind === "foreign canceled" || failureKind === "remote canceled") throw runInNewContext("Object.assign(new Error('Provider cancelled'), { name: 'CanceledError' })")
+      if (failureKind === "dom abort" || failureKind === "remote dom abort") throw new DOMException("Provider aborted", "AbortError")
+      if (failureKind === "plain abort") throw { name: "AbortError", message: "Plain abort-shaped record" }
+      if (failureKind === "tagged abort") throw { name: "AbortError", [Symbol.toStringTag]: "Error" }
+      if (failureKind === "hostile tag") {
+        const error = { name: "AbortError" }
+        Object.defineProperty(error, Symbol.toStringTag, { get() { throw new Error("Unreadable error tag") } })
+        throw error
+      }
+      throw new Error("Independent failure")
+    })
+    const agent = defineAgent({
+      name: "review",
+      invocations,
+      capabilities: [defineCapability({ id: "release-owner-responses", close: () => { releaseOwner() } })],
+      channels: { github: github({
+        triggers: { webhook: { invoke: () => ({
+          input: { prompt: "Review the pull request." },
+          run: { runId: "journal-webhook-invocation" },
+          webhook: { concurrencyLimit: 1, deliveryId: "delivery-journal-cancel" },
+        }) } },
+        webhooks: { secretToken: false },
+      }) },
+      driver: { run },
+    })
+    const cancelled = ["foreign abort", "foreign canceled", "dom abort"].includes(failureKind)
+    try {
+      const response = await createChannelWebhookRouteHandler(agent as never)(new Request("https://example.com/api/github/webhook", {
+        body: "{}", method: "POST", headers: { "content-type": "application/json", "x-github-delivery": "delivery-journal-cancel", "x-github-event": "pull_request" },
+      }), "github", { agentName: "review", webhookState: state })
+      expect(response.status).toBe(200)
+      await vi.waitFor(() => expect(run).toHaveBeenCalledOnce(), { timeout: 10_000 })
+      await vi.waitFor(() => expect(cancelled ? complete : retry).toHaveBeenCalledOnce(), { timeout: 1_000 })
+      expect(run).toHaveBeenCalledOnce()
+      expect(cancelled ? retry : complete).not.toHaveBeenCalled()
+      expect((await invocations.getSummary(id))?.status).toBe(cancelled ? "cancelled" : "failed")
+    }
+    finally {
+      releaseOwner()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it.each(["own", "child", "wrapped child", "aggregate own", "aggregate child", "foreign wrapped own", "foreign wrapped child", "foreign aggregate own", "foreign aggregate child"] as const)("scopes queued webhook cancellation to its %s invocation", async cancellationScope => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { github } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { agentInvocationId } = await import("../src/invocations.ts")
+    const { createAgentInvocationCancellationError } = await import("../src/internal/invocation-cancellation.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-cancel-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const complete = vi.spyOn(state, "completeWebhookDelivery")
+    const retry = vi.spyOn(state, "retryWebhookDelivery")
+    const ownCancellation = cancellationScope === "own" || cancellationScope.endsWith(" own")
+    const cancelledId = await agentInvocationId(ownCancellation ? "queued-webhook-invocation" : "child-invocation", ownCancellation ? "review" : "child")
+    const run = vi.fn(() => {
+      const cancelled = createAgentInvocationCancellationError(cancelledId)
+      if (cancellationScope.startsWith("foreign wrapped")) throw runInNewContext("new Error('Foreign lifecycle failure', { cause: cancelled })", { cancelled })
+      if (cancellationScope.startsWith("foreign aggregate")) throw runInNewContext("new AggregateError([new Error('Cleanup failed'), cancelled], 'Foreign lifecycle failure')", { cancelled })
+      if (cancellationScope === "aggregate own" || cancellationScope === "aggregate child") {
+        throw new AggregateError([cancelled, new Error("Finish lifecycle failed")], "Invocation lifecycle failed")
+      }
+      throw cancellationScope === "wrapped child" ? new Error("Child invocation failed", { cause: cancelled }) : cancelled
+    })
+    const agent = defineAgent({
+      channels: {
+        github: github({
+          triggers: {
+            webhook: {
+              invoke: () => ({
+                input: { prompt: "Review the pull request." },
+                run: { runId: "queued-webhook-invocation" },
+                webhook: { concurrencyLimit: 1, deliveryId: "delivery-cancel" },
+              }),
+            },
+          },
+          webhooks: { secretToken: false },
+        }),
+      },
+      driver: { run },
+    })
+
+    try {
+      // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+      const response = await createChannelWebhookRouteHandler(agent as never)(
+        new Request("https://example.com/api/github/webhook", {
+          body: "{}",
+          headers: {
+            "content-type": "application/json",
+            "x-github-delivery": "delivery-cancel",
+            "x-github-event": "pull_request",
+          },
+          method: "POST",
+        }),
+        "github",
+        { agentName: "review", webhookState: state },
+      )
+
+      expect(response.status).toBe(200)
+      const settled = ownCancellation ? complete : retry
+      await vi.waitFor(() => expect(settled).toHaveBeenCalledOnce(), { timeout: 1_000 })
+      expect(run).toHaveBeenCalledOnce()
+      expect(ownCancellation ? retry : complete).not.toHaveBeenCalled()
     } finally {
       await state.disconnect()
       await rm(stateDir, { force: true, recursive: true })
@@ -9312,6 +10236,70 @@ describe("server helpers", () => {
       await rm(stateDir, { force: true, recursive: true })
     }
   }, 15_000)
+
+  it("retries an unrelated webhook failure after a historical cancellation request", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { github } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/server.ts")
+    const { agentInvocationId } = await import("../src/invocations.ts")
+    const store = createMemoryAgentInvocationStore()
+    const invocations = defineAgentInvocations({ store })
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-cancel-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const complete = vi.spyOn(state, "completeWebhookDelivery")
+    const retry = vi.spyOn(state, "retryWebhookDelivery")
+    const run = vi.fn(async () => {
+      const id = await agentInvocationId("historical-cancel", "review")
+      await store.update(id, { cancelRequestedAt: new Date().toISOString(), timestamp: new Date().toISOString() })
+      throw new Error("Unrelated provider failure")
+    })
+    const agent = defineAgent({
+      channels: {
+        github: github({
+          triggers: {
+            webhook: {
+              invoke: () => ({
+                input: { prompt: "Review the pull request." },
+                run: { runId: "historical-cancel" },
+                webhook: { concurrencyLimit: 1, deliveryId: "delivery-cancel" },
+              }),
+            },
+          },
+          webhooks: { secretToken: false },
+        }),
+      },
+      driver: { run },
+      invocations,
+      name: "review",
+    })
+
+    try {
+      // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+      const response = await createChannelWebhookRouteHandler(agent as never)(
+        new Request("https://example.com/api/github/webhook", {
+          body: "{}",
+          headers: {
+            "content-type": "application/json",
+            "x-github-delivery": "delivery-cancel",
+            "x-github-event": "pull_request",
+          },
+          method: "POST",
+        }),
+        "github",
+        { agentName: "review", webhookState: state },
+      )
+
+      expect(response.status).toBe(200)
+      await vi.waitFor(() => expect(retry).toHaveBeenCalledOnce(), { timeout: 10_000 })
+      expect(run).toHaveBeenCalledOnce()
+      expect(complete).not.toHaveBeenCalled()
+    } finally {
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
 
   it("scopes active webhook steering to the resolved state backend", async () => {
     const { defineAgent } = await import("../src/index.ts")
@@ -9993,6 +10981,258 @@ describe("server helpers", () => {
     }
   }, 30_000)
 
+  async function failedTriggerFixture(options: {
+    failed: (event: unknown) => void | Promise<void>
+    run: (...args: unknown[]) => Promise<unknown>
+    startAttempts?: number
+  }) {
+    const { defineAgent } = await import("../src/index.ts")
+    const { github } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-failed-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const claim = state.claimWebhookDelivery.bind(state)
+    // Start from a later attempt so the test reaches the terminal branch without retry delays.
+    vi.spyOn(state, "claimWebhookDelivery").mockImplementation(async (scope) => {
+      const lease = await claim(scope)
+      return lease && options.startAttempts ? { ...lease, attempts: Math.max(lease.attempts, options.startAttempts) } : lease
+    })
+    const complete = vi.spyOn(state, "completeWebhookDelivery")
+    const retry = vi.spyOn(state, "retryWebhookDelivery")
+    const agent = defineAgent({
+      channels: {
+        github: github({
+          triggers: {
+            webhook: {
+              failed: options.failed,
+              invoke: () => ({
+                input: { prompt: "Review the pull request." },
+                run: { runId: "failed-webhook-run" },
+                webhook: { concurrencyLimit: 1, deliveryId: "delivery-failed" },
+              }),
+            },
+          },
+          webhooks: { secretToken: false },
+        }),
+      },
+      driver: { run: options.run },
+    })
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const request = () => new Request("https://example.com/api/github/webhook", {
+      body: "{}",
+      headers: { "content-type": "application/json", "x-github-delivery": "delivery-failed", "x-github-event": "pull_request" },
+      method: "POST",
+    })
+    return {
+      complete,
+      state,
+      resume: (webhookState: typeof state) => handler.resume({ agentName: "review", webhookState }),
+      stateUrl: `file:${join(stateDir, "state.sqlite")}`,
+      deliveries: () => handler.deliveries(request(), "github", { agentName: "review", webhookState: state }),
+      retry,
+      send: () => handler(request(), "github", { agentName: "review", webhookState: state }),
+      async cleanup() {
+        await state.disconnect()
+        await rm(stateDir, { force: true, recursive: true })
+      },
+    }
+  }
+
+  it.each(["last attempt", "execution leases"] as const)("calls the trigger failed callback once after the %s", async (terminal) => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    vi.stubGlobal("__VITEHUB_PUBLIC_URL__", { agents: { review: "https://agents.example.test" } })
+    const { agentInvocationId } = await import("../src/invocations.ts")
+    const failed = vi.fn()
+    const run = vi.fn(async () => {
+      throw new Error("persistent failure")
+    })
+    const fixture = await failedTriggerFixture({ failed, run, startAttempts: terminal === "last attempt" ? 2 : 3 })
+    try {
+      await expect(fixture.send()).resolves.toMatchObject({ status: 200 })
+      await vi.waitFor(() => expect(fixture.complete).toHaveBeenCalledOnce(), { timeout: 10_000 })
+      await vi.waitFor(() => expect(failed).toHaveBeenCalledOnce())
+      expect(fixture.retry).not.toHaveBeenCalled()
+      expect(run).toHaveBeenCalledTimes(terminal === "last attempt" ? 1 : 0)
+      const id = await agentInvocationId("failed-webhook-run", "review")
+      expect(failed).toHaveBeenCalledWith({
+        attempts: 3,
+        deliveryId: "delivery-failed",
+        error: expect.objectContaining({ message: terminal === "last attempt" ? "persistent failure" : expect.stringContaining("exhausted 3 execution leases") }),
+        input: expect.objectContaining({ prompt: "Review the pull request." }),
+        invocation: { consoleUrl: `https://agents.example.test/_vitehub/agents/review/invocations/${encodeURIComponent(id)}`, id },
+        publicError: expect.objectContaining({ code: "INTERNAL" }),
+        run: expect.objectContaining({ runId: "failed-webhook-run" }),
+      })
+    }
+    finally {
+      consoleError.mockRestore()
+      vi.unstubAllGlobals()
+      await fixture.cleanup()
+    }
+  })
+
+  it.each(["last attempt", "execution leases", "recovered"] as const)("durably fences the %s failure callback beyond lease expiry", async (terminal) => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    let settle!: () => void
+    const blocked = new Promise<void>(resolve => { settle = resolve })
+    const failed = vi.fn(() => blocked)
+    const fixture = await failedTriggerFixture({
+      failed,
+      run: vi.fn(async () => { throw new Error("persistent failure") }),
+      startAttempts: terminal === "execution leases" ? 3 : 2,
+    })
+    const otherWorker = createLibsqlAgentState({ url: fixture.stateUrl })
+    let stopRecovery: (() => Promise<void>) | undefined
+    let clock: ReturnType<typeof vi.spyOn> | undefined
+    try {
+      if (terminal === "recovered") vi.spyOn(fixture.state, "beginWebhookFailureNotification").mockResolvedValueOnce(false)
+      await fixture.send()
+      if (terminal === "recovered") {
+        await vi.waitFor(async () => {
+          const [scope] = await fixture.state.webhookDeliveryScopes()
+          const [pending] = await fixture.state.webhookDeliveries(scope!)
+          expect(pending?.failure).toBeDefined()
+        })
+        expect(failed).not.toHaveBeenCalled()
+        const [scope] = await fixture.state.webhookDeliveryScopes()
+        const [pending] = await fixture.state.webhookDeliveries(scope!)
+        clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() + pending!.leaseTtlMs + 1)
+        await otherWorker.connect()
+        vi.spyOn(otherWorker, "completeWebhookDelivery").mockImplementation(fixture.complete)
+        stopRecovery = fixture.resume(otherWorker)
+      }
+      await vi.waitFor(() => expect(failed).toHaveBeenCalledOnce(), { timeout: 10_000 })
+      const scopes = await fixture.state.webhookDeliveryScopes()
+      const scope = scopes[0]!
+      const [delivery] = await fixture.state.webhookDeliveries(scope)
+      expect(delivery?.failure?.notificationStarted).toBe(true)
+      const expired = Date.now() + delivery!.leaseTtlMs + 1
+      clock = vi.spyOn(Date, "now").mockReturnValue(expired)
+      await otherWorker.connect()
+      // A separate state connection has no access to process-local callback guards.
+      const finalizer = (await otherWorker.claimWebhookDelivery(scope))!
+      expect(finalizer.failure?.notificationStarted).toBe(true)
+      await expect(otherWorker.beginWebhookFailureNotification(scope, finalizer.deliveryId, finalizer.leaseToken)).resolves.toBe(false)
+      expect(failed).toHaveBeenCalledOnce()
+      expect(fixture.complete).not.toHaveBeenCalled()
+      await expect(otherWorker.completeWebhookDelivery(scope, finalizer.deliveryId, finalizer.leaseToken)).resolves.toBe(true)
+      const completedBeforeSettlement = fixture.complete.mock.calls.length
+      settle()
+      await vi.waitFor(() => expect(fixture.complete).toHaveBeenCalledTimes(completedBeforeSettlement + 1))
+      await expect(fixture.complete.mock.results.at(-1)?.value).resolves.toBe(false)
+      await expect(otherWorker.claimWebhookDelivery(scope)).resolves.toBeNull()
+      await expect(otherWorker.webhookDeliveries(scope)).resolves.toEqual([])
+      expect(failed).toHaveBeenCalledOnce()
+    }
+    finally {
+      settle()
+      clock?.mockRestore()
+      await stopRecovery?.()
+      await otherWorker.disconnect()
+      await fixture.cleanup()
+      consoleError.mockRestore()
+    }
+  })
+
+  it.each([
+    { terminal: "last attempt", completion: "reject", startAttempts: 2 },
+    { terminal: "last attempt", completion: "false", startAttempts: 2 },
+    { terminal: "execution leases", completion: "reject", startAttempts: 3 },
+    { terminal: "execution leases", completion: "false", startAttempts: 3 },
+  ])("recovers $terminal finalization after a $completion completion without replaying failed", async ({ completion, startAttempts }) => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const failed = vi.fn()
+    const run = vi.fn(async () => { throw new Error("persistent failure") })
+    const fixture = await failedTriggerFixture({ failed, run, startAttempts })
+    const otherWorker = createLibsqlAgentState({ url: fixture.stateUrl })
+    let stopRecovery: (() => Promise<void>) | undefined
+    let clock: ReturnType<typeof vi.spyOn> | undefined
+    try {
+      // Keep the original worker from finalizing so a new connection must recover it.
+      fixture.complete.mockImplementation(async () => {
+        if (completion === "reject") throw new Error("temporary completion outage")
+        return false
+      })
+      await fixture.send()
+      await vi.waitFor(() => expect(fixture.complete).toHaveBeenCalled(), { timeout: 10_000 })
+      expect(failed).toHaveBeenCalledOnce()
+      const [scope] = await fixture.state.webhookDeliveryScopes()
+      const [pending] = await fixture.state.webhookDeliveries(scope!)
+      expect(pending?.failure?.notificationStarted).toBe(true)
+      clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() + pending!.leaseTtlMs + 1)
+      await otherWorker.connect()
+      stopRecovery = fixture.resume(otherWorker)
+      await vi.waitFor(async () => {
+        await expect(otherWorker.webhookDeliveries(scope!)).resolves.toEqual([])
+        await expect(fixture.deliveries()).resolves.toEqual([
+          expect.objectContaining({ sourceId: "delivery-failed", status: "failed", events: expect.arrayContaining([
+            expect.objectContaining({ type: "invocation.failed", attempt: 3 }),
+            expect.objectContaining({ type: "failed", attempt: 3 }),
+          ]) }),
+        ])
+      }, { timeout: 10_000 })
+      expect(failed).toHaveBeenCalledOnce()
+      expect(run).toHaveBeenCalledTimes(startAttempts === 2 ? 1 : 0)
+    }
+    finally {
+      clock?.mockRestore()
+      await stopRecovery?.()
+      await otherWorker.disconnect()
+      await fixture.cleanup()
+      consoleError.mockRestore()
+    }
+  }, 20_000)
+
+  it("does not call the trigger failed callback for a retried delivery", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const failed = vi.fn()
+    const run = vi.fn().mockRejectedValueOnce(new Error("temporary failure")).mockResolvedValue("accepted")
+    const fixture = await failedTriggerFixture({ failed, run })
+    try {
+      await expect(fixture.send()).resolves.toMatchObject({ status: 200 })
+      await vi.waitFor(() => expect(fixture.retry).toHaveBeenCalledOnce(), { timeout: 10_000 })
+      await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(2), { timeout: 10_000 })
+      await vi.waitFor(() => expect(fixture.complete).toHaveBeenCalledOnce())
+      expect(failed).not.toHaveBeenCalled()
+    }
+    finally {
+      consoleError.mockRestore()
+      await fixture.cleanup()
+    }
+  }, 15_000)
+
+  it("keeps the terminal delivery outcome when the trigger failed callback throws", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const failed = vi.fn(async () => {
+      throw new Error("callback failure")
+    })
+    const run = vi.fn(async () => {
+      throw new Error("persistent failure")
+    })
+    const fixture = await failedTriggerFixture({ failed, run, startAttempts: 2 })
+    try {
+      await expect(fixture.send()).resolves.toMatchObject({ status: 200 })
+      await vi.waitFor(() => expect(failed).toHaveBeenCalledOnce(), { timeout: 10_000 })
+      await expect(fixture.complete.mock.results[0]?.value).resolves.toBe(true)
+      expect(fixture.retry).not.toHaveBeenCalled()
+      await vi.waitFor(() => expect(consoleError).toHaveBeenCalledWith(
+        expect.stringContaining('The failed callback of webhook delivery "delivery-failed" threw an error.'),
+        expect.objectContaining({ message: "callback failure" }),
+      ))
+      await expect(fixture.deliveries()).resolves.toEqual([
+        expect.objectContaining({ sourceId: "delivery-failed", status: "failed" }),
+      ])
+    }
+    finally {
+      consoleError.mockRestore()
+      await fixture.cleanup()
+    }
+  })
+
   it("retries a failed queued webhook delivery without the startup pump", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
     const { defineAgent } = await import("../src/index.ts")
@@ -10543,7 +11783,13 @@ describe("server helpers", () => {
     }
   })
 
-  it("expires a queued webhook invocation that exceeds the execution deadline", async () => {
+  it.each([
+    { timeout: undefined, inputTimeout: undefined, deadline: 900_000 },
+    { timeout: 1_800_000, inputTimeout: undefined, deadline: 1_800_000 },
+    { timeout: 1_800_000, inputTimeout: 1_200_000, deadline: 1_200_000 },
+    { timeout: 2_147_483_648, inputTimeout: undefined, deadline: 900_000 },
+    { timeout: 1_800_000, inputTimeout: 2_147_483_648, deadline: 900_000 },
+  ])("expires a queued webhook invocation at its configured deadline $deadline", async ({ timeout, inputTimeout, deadline }) => {
     vi.useFakeTimers()
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
     const { defineAgent } = await import("../src/index.ts")
@@ -10558,7 +11804,7 @@ describe("server helpers", () => {
         input.abortSignal?.addEventListener("abort", () => reject(input.abortSignal?.reason), { once: true })
       })
     })
-    const agent = defineAgent({ driver: { run } })
+    const agent = defineAgent({ driver: { run }, messages: timeout === undefined ? undefined : { timeout } })
     await state.connect()
     await state.enqueueWebhookDelivery({
       concurrencyKey: "review:timeout",
@@ -10566,7 +11812,7 @@ describe("server helpers", () => {
       concurrencyLimit: 1,
       deliveryId: "delivery-execution-timeout",
       enqueuedAt: Date.now(),
-      invocation: { input: { prompt: "persisted" } },
+      invocation: { input: { prompt: "persisted", timeout: inputTimeout } },
       leaseTtlMs: 3_600_000,
       request: { body: "{}", headers: {}, method: "POST", url: "https://example.com" },
       scope: "webhook:review:github:timeout:",
@@ -10580,9 +11826,100 @@ describe("server helpers", () => {
 
     try {
       await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
-      await vi.advanceTimersByTimeAsync(900_000)
+      await vi.advanceTimersByTimeAsync(899_000)
+      expect(complete).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(1_000)
+      if (deadline > 900_000) {
+        expect(complete).not.toHaveBeenCalled()
+        await vi.advanceTimersByTimeAsync(deadline - 900_000)
+      }
       await vi.waitFor(() => expect(complete).toHaveBeenCalled())
       expect(retry).not.toHaveBeenCalled()
+    } finally {
+      await stop()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+      consoleError.mockRestore()
+      vi.useRealTimers()
+    }
+  })
+
+  it.each([
+    { rehydrate: true, deadline: 1_800_000, setupMs: 60_000 },
+    { rehydrate: true, deadline: 120_000, setupMs: 60_000 },
+    { rehydrate: false, deadline: 1_800_000, setupMs: 60_000 },
+    { rehydrate: false, deadline: 120_000, setupMs: 60_000 },
+    { rehydrate: true, deadline: 30_000, setupMs: 60_000 },
+  ])("honors replayed webhook timeout $deadline after $setupMs setup (rehydrate: $rehydrate)", async ({ rehydrate, deadline, setupMs }) => {
+    vi.useFakeTimers()
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { defineAgent } = await import("../src/index.ts")
+    const { github } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-replay-timeout-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const complete = vi.spyOn(state, "completeWebhookDelivery")
+    const retry = vi.spyOn(state, "retryWebhookDelivery")
+    let replayStartedAt = 0
+    const replay = () => {
+      replayStartedAt = Date.now()
+      vi.setSystemTime(replayStartedAt + setupMs)
+      return {
+        input: { prompt: "fresh", timeout: deadline },
+        webhook: { concurrencyLimit: 1, deliveryId: "delivery-replay-timeout" },
+      }
+    }
+    const run = vi.fn(async ({ input }: { input: { abortSignal?: AbortSignal } }) => {
+      await new Promise<never>((_resolve, reject) => {
+        input.abortSignal?.addEventListener("abort", () => reject(input.abortSignal?.reason), { once: true })
+      })
+    })
+    const agent = defineAgent({
+      channels: {
+        github: github({
+          triggers: {
+            webhook: {
+              invoke: () => rehydrate
+                ? { input: { prompt: "stale" }, webhook: { concurrencyLimit: 1, deliveryId: "delivery-replay-timeout", rehydrate: replay } }
+                : replay(),
+            },
+          },
+          webhooks: { secretToken: false },
+        }),
+      },
+      driver: { run },
+    })
+    await state.connect()
+    await state.enqueueWebhookDelivery({
+      concurrencyGroup: "review:default",
+      concurrencyLimit: 1,
+      deliveryId: "delivery-replay-timeout",
+      enqueuedAt: Date.now(),
+      leaseTtlMs: 3_600_000,
+      ...(rehydrate ? { rehydrate: true as const } : {}),
+      request: {
+        body: "{}",
+        headers: { "content-type": "application/json", "x-github-event": "pull_request", "x-github-delivery": "delivery-replay-timeout" },
+        method: "POST",
+        url: "https://example.com/api/github/webhook",
+      },
+      scope: "webhook:review:github:replay-timeout:",
+      webhookId: "github",
+    })
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    const stop = createChannelWebhookRouteHandler(agent as never).resume({ agentName: "review", webhookState: state })
+    try {
+      if (deadline > setupMs) {
+        await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
+        await vi.advanceTimersByTimeAsync(replayStartedAt + deadline - Date.now() - 1_000)
+        expect(complete).not.toHaveBeenCalled()
+        await vi.advanceTimersByTimeAsync(1_000)
+      }
+      await vi.waitFor(() => expect(complete).toHaveBeenCalled())
+      if (deadline <= setupMs) expect(run).not.toHaveBeenCalled()
+      expect(retry).not.toHaveBeenCalled()
+      expect(consoleError.mock.calls.flat().map(String).join(" ")).toContain(`timed out after ${deadline}ms`)
     } finally {
       await stop()
       await state.disconnect()
@@ -11365,7 +12702,8 @@ describe("server helpers", () => {
     })
   })
 
-  it("releases failed title delivery claims for finish and later webhook retries", async () => {
+  // Two complete webhooks persist title claims and transcripts to SQLite.
+  it("releases failed title delivery claims for finish and later webhook retries", { timeout: 15_000 }, async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { title } = await import("../src/capabilities.ts")
     const { http } = await import("../src/channels.ts")
@@ -12142,6 +13480,45 @@ describe("server helpers", () => {
     expect(adapter.stream).toHaveBeenCalledOnce()
   })
 
+  it.each([
+    ...[false, true].flatMap(native => ["text", "array", "resolver"].flatMap(form => (native ? ["fallback"] : ["loading", "fallback"]).map(option => ({ native, form, option })))),
+  ])("formats citation-bearing loading text, native=$native form=$form option=$option", async ({ native, form, option }) => {
+    const adapter = createTestChatAdapter()
+    if (native) adapter.stream = vi.fn(async (threadId: string, chunks: AsyncIterable<string | StreamChunk>) => {
+      for await (const _chunk of chunks) { /* consume the final reply */ }
+      return { id: "streamed", threadId, raw: {} }
+    })
+    const started = deferred<void>()
+    const finish = deferred<void>()
+    const text = "Working. citeturn0view0"
+    const configuredText = form === "array" ? [text] : form === "resolver" ? () => text : text
+    const agent = defineAgent({
+      channels: { telegram: testTelegram(telegram, {
+        // SAFETY: The fixture supplies the Chat SDK adapter used by placeholder delivery.
+        adapter: () => adapter as never,
+        messages: {
+          ...(native ? { stream: true } : { delivery: "manual", stream: false }),
+          ...(option === "loading" ? { loading: { text: configuredText } } : { fallbackStreamingPlaceholderText: configuredText }),
+        },
+      }) },
+      driver: { run: async () => { started.resolve(); await finish.promise; return "Done" } },
+      hooks: native ? {} : { "agent:finish": event => event.reply(event.text!) },
+    })
+    // SAFETY: This fixture supplies the normalized Agent contract used by the route handler.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const response = handler(chatWebhookRequest(91_400 + Number(native) * 10 + ["text", "array", "resolver"].indexOf(form) * 2 + Number(option === "fallback")), "telegram")
+    try {
+      await started.promise
+      await vi.waitFor(() => expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "Working. [source link unavailable]"))
+      expect(JSON.stringify(adapter.postMessage.mock.calls)).not.toContain("cite")
+      finish.resolve()
+      expect((await response).status).toBe(200)
+    } finally {
+      finish.resolve()
+      await response.catch(() => undefined)
+    }
+  })
+
   it("hands the configured fallback back to Chat SDK when native streaming declines", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { defineChatCapability } = await import("../src/chat-trigger.ts")
@@ -12501,6 +13878,248 @@ describe("server helpers", () => {
     }
   })
 
+  it.each(["normal", "citation notice", "cutoff", "initialize failure", "retry failure", "slow persistence", "second restart", "concurrent recovery", "expired recovery lease", "claim lease loss", "cleanup lease loss", "replacement recovery owner", "index contention"])("tells the thread about a host restart and retries the interrupted inline chat once: %s", async (scenario) => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
+    const { drainInlineChatInvocations } = await import("../src/server.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-inline-chat-restart-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const persistenceGate = deferred<void>()
+    const originalMutate = state.mutateWithLock.bind(state)
+    let delayedWrite = false
+    let expireMutation = false
+    let observeMutation: (() => void) | undefined
+    const setSpy = vi.spyOn(state, "mutateWithLock").mockImplementation(async (lock, mutations) => {
+      if (scenario === "slow persistence" && mutations.some(mutation => mutation.key.endsWith("vitehub:interrupted-chat")) && !delayedWrite) {
+        delayedWrite = true
+        await persistenceGate.promise
+      }
+      if (expireMutation && mutations.some(mutation => mutation.key.endsWith("vitehub:interrupted-chat") && (scenario === "claim lease loss" || mutation.type === "delete"))) {
+        expireMutation = false
+        await state.forceReleaseLock(lock.threadId)
+      }
+      const committed = await originalMutate(lock, mutations)
+      observeMutation?.()
+      return committed
+    })
+    const processStartedAt = Date.now()
+    const prompts: string[] = []
+    const createAgent = (adapter: ReturnType<typeof createTestChatAdapter>) => defineAgent({
+      name: "support",
+      ...(scenario === "citation notice" ? { channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: The fixture supplies the Chat SDK adapter used by restart recovery.
+          adapter: () => adapter as never,
+          messages: {
+            errorFallbackText: ({ publicError, defaultText }) => publicError.code === "HOST_RESTARTED"
+              ? "Restarted. citeturn0view0"
+              : defaultText,
+          },
+        }),
+      } } : { capabilities: [
+        defineChatCapability({
+          // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+          platforms: { telegram: () => adapter as never },
+          webhooks: { telegram: {} },
+        }),
+      ] }),
+      driver: {
+        run: async ({ input }: { input: { abortSignal?: AbortSignal } }) => {
+          prompts.push(JSON.stringify(input))
+          // The first attempt runs until the host restarts.
+          if (prompts.length === 1 || (scenario === "second restart" && prompts.length === 2)) {
+            await new Promise<never>((_resolve, reject) => {
+              input.abortSignal?.addEventListener("abort", () => reject(input.abortSignal?.reason), { once: true })
+            })
+          }
+          return "done"
+        },
+      },
+    })
+    const firstAdapter = createTestChatAdapter({ deferMessageProcessing: true })
+    const waitUntilTasks: Promise<unknown>[] = []
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    const firstHandler = createChannelWebhookRouteHandler(createAgent(firstAdapter) as never)
+    let stop: (() => Promise<void>) | undefined
+
+    try {
+      await state.connect()
+      const response = await firstHandler(
+        new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+          body: JSON.stringify({
+            update_id: 2001,
+            message: {
+              chat: { id: 2001456, type: "private" },
+              date: 1781092800,
+              from: { first_name: "Maxi", id: 123, username: "maxi" },
+              message_id: 2001,
+              text: "review the pull request",
+            },
+          }),
+          method: "POST",
+        }),
+        "telegram",
+        { agentIdentity: { name: "support" }, state, waitUntil: task => waitUntilTasks.push(task) },
+      )
+      expect(response.status).toBe(200)
+      await vi.waitFor(() => expect(prompts).toHaveLength(1), { timeout: 10_000 })
+
+      if (scenario === "cutoff") {
+        // Work admitted by this process must not be recovered at its startup cutoff.
+        stop = firstHandler.resume({ agentIdentity: { name: "support" }, recoverInterruptedBefore: processStartedAt, state, webhookState: state })
+        await new Promise(resolveWait => setTimeout(resolveWait, 250))
+        expect(prompts).toHaveLength(1)
+        await stop()
+      }
+      const drain = drainInlineChatInvocations({ timeoutMs: 0 })
+      if (scenario === "slow persistence") {
+        let settled = false
+        void drain.then(() => { settled = true })
+        await Promise.allSettled(waitUntilTasks)
+        await new Promise(resolveWait => setTimeout(resolveWait, 50))
+        expect(delayedWrite).toBe(true)
+        expect(settled).toBe(false)
+        persistenceGate.resolve()
+      }
+      await expect(drain).resolves.toEqual({ active: 1, interrupted: 1, unsettled: 0 })
+      await Promise.allSettled(waitUntilTasks)
+      const restartNotice = scenario === "citation notice" ? "Restarted. [source link unavailable]" : "The server restarted while I was working on this. I'll retry it automatically."
+      expect([...firstAdapter.postMessage.mock.calls, ...firstAdapter.editMessage.mock.calls].flat()).toContainEqual(expect.stringContaining(restartNotice))
+
+      if (scenario === "concurrent recovery" || scenario === "expired recovery lease" || scenario === "claim lease loss" || scenario === "cleanup lease loss" || scenario === "replacement recovery owner" || scenario === "index contention") {
+        const indexKey = setSpy.mock.calls.flatMap(([, mutations]) => mutations).find(mutation => mutation.key.endsWith("vitehub:interrupted-chat"))!.key
+        const originalRecord = await state.get(indexKey)
+        expireMutation = scenario === "claim lease loss" || scenario === "cleanup lease loss"
+        const replayGate = deferred<void>()
+        const dispatch = vi.spyOn(Chat.prototype, "processMessage").mockImplementation(() => replayGate.promise)
+        const initialize = vi.spyOn(Chat.prototype, "initialize")
+        const acquire = state.acquireLock.bind(state)
+        let replacement: unknown
+        const acquireSpy = vi.spyOn(state, "acquireLock").mockImplementation(async (key, ttl) => {
+          if (scenario === "index contention" && key === `${indexKey}:lock`) return null
+          const lock = await acquire(key, ttl)
+          if (lock && scenario === "replacement recovery owner" && key === `${indexKey}:lock` && dispatch.mock.calls.length) {
+            const current = await state.get<Record<string, Record<string, unknown>>>(indexKey)
+            replacement = Object.fromEntries(Object.entries(current ?? {}).map(([id, record]) => [id, { ...record, recoveryToken: "replacement" }]))
+            await state.set(indexKey, replacement)
+          }
+          return lock
+        })
+        const stops: (() => Promise<void>)[] = []
+        try {
+          for (let index = 0; index < (scenario === "concurrent recovery" ? 2 : 1); index++) {
+            // SAFETY: The test Agent supplies the route contract through defineAgent.
+            stops.push(createChannelWebhookRouteHandler(createAgent(createTestChatAdapter({ deferMessageProcessing: true })) as never).resume({
+              agentIdentity: { name: "support" }, recoverInterruptedBefore: Date.now(), state, webhookState: state,
+            }))
+          }
+          await vi.waitFor(() => expect(initialize).toHaveBeenCalledTimes(stops.length))
+          if (scenario !== "index contention" && scenario !== "claim lease loss") await vi.waitFor(() => expect(dispatch).toHaveBeenCalled())
+          await new Promise(resolveWait => setTimeout(resolveWait, 250))
+          expect(dispatch).toHaveBeenCalledTimes(scenario === "index contention" || scenario === "claim lease loss" ? 0 : 1)
+          if (scenario === "expired recovery lease") {
+            const records = await state.get<Record<string, { runId: string }>>(indexKey)
+            for (const record of Object.values(records ?? {})) await state.forceReleaseLock(`${indexKey}:recovery:${record.runId}`)
+            // A different startup arrives while the original dispatch is still running.
+            // SAFETY: The test Agent supplies the route contract through defineAgent.
+            stops.push(createChannelWebhookRouteHandler(createAgent(createTestChatAdapter({ deferMessageProcessing: true })) as never).resume({
+              agentIdentity: { name: "support" }, recoverInterruptedBefore: Date.now() + 1, state, webhookState: state,
+            }))
+            await vi.waitFor(() => expect(initialize).toHaveBeenCalledTimes(2))
+            await new Promise(resolveWait => setTimeout(resolveWait, 250))
+            expect(dispatch).toHaveBeenCalledTimes(1)
+          }
+          const beforeCleanup = await state.get(indexKey)
+          const cleanupCommitted = deferred<void>()
+          if (scenario === "replacement recovery owner") observeMutation = () => cleanupCommitted.resolve()
+          replayGate.resolve()
+          if (scenario === "replacement recovery owner") {
+            await cleanupCommitted.promise
+            expect(replacement).toBeDefined()
+            expect(await state.get(indexKey)).toEqual(replacement)
+            return
+          }
+          if (scenario === "claim lease loss" || scenario === "cleanup lease loss") {
+            await vi.waitFor(() => expect(consoleError.mock.calls.some(call => call.some(value => value instanceof Error && value.message.includes("Lost the interrupted chat index lock")))).toBe(true))
+            expect(await state.get(indexKey)).toEqual(scenario === "claim lease loss" ? originalRecord : beforeCleanup)
+            return
+          }
+          if (scenario === "index contention") {
+            await vi.waitFor(() => expect(consoleError.mock.calls.some(call => call.some(value => value instanceof Error && value.message.includes("interrupted chat index lock")))).toBe(true), { timeout: 8_000 })
+            expect(await state.get(indexKey)).toEqual(originalRecord)
+          }
+          else {
+            await vi.waitFor(async () => expect(await state.get(indexKey)).toBeNull())
+            return
+          }
+        }
+        finally {
+          replayGate.resolve()
+          await Promise.all(stops.map(stop => stop()))
+          acquireSpy.mockRestore()
+          initialize.mockRestore()
+          dispatch.mockRestore()
+        }
+      }
+      if (scenario === "initialize failure" || scenario === "retry failure") {
+        const failure = new Error("temporary recovery failure")
+        const method = scenario === "initialize failure" ? "initialize" : "processMessage"
+        const failing = vi.spyOn(Chat.prototype, method).mockRejectedValueOnce(failure)
+        // SAFETY: The test Agent supplies the route contract through defineAgent.
+        stop = createChannelWebhookRouteHandler(createAgent(createTestChatAdapter({ deferMessageProcessing: true })) as never).resume({
+          agentIdentity: { name: "support" }, recoverInterruptedBefore: Date.now(), state, webhookState: state,
+        })
+        await vi.waitFor(() => expect(consoleError.mock.calls.some(call => call.includes(failure))).toBe(true))
+        await stop()
+        failing.mockRestore()
+        expect(prompts).toHaveLength(1)
+      }
+      const secondAdapter = createTestChatAdapter({ deferMessageProcessing: true })
+      // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+      stop = createChannelWebhookRouteHandler(createAgent(secondAdapter) as never).resume({
+        agentIdentity: { name: "support" },
+        recoverInterruptedBefore: Date.now(),
+        state,
+        webhookState: state,
+      })
+
+      await vi.waitFor(() => expect(prompts).toHaveLength(2), { timeout: 10_000 })
+      expect(prompts[1]).toContain("[Retry after interruption]")
+      expect(prompts[1]).toContain("review the pull request")
+      expect([...secondAdapter.postMessage.mock.calls, ...secondAdapter.editMessage.mock.calls].flat()).toContainEqual(expect.stringContaining(restartNotice))
+      if (scenario === "second restart") {
+        await drainInlineChatInvocations({ timeoutMs: 0 })
+      }
+      // A completed retry clears recovery; an interrupted retry only posts the exhausted notice.
+      await stop()
+      const thirdAdapter = createTestChatAdapter({ deferMessageProcessing: true })
+      // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+      stop = createChannelWebhookRouteHandler(createAgent(thirdAdapter) as never).resume({
+        agentIdentity: { name: "support" },
+        recoverInterruptedBefore: Date.now(),
+        state,
+        webhookState: state,
+      })
+      await new Promise(resolveWait => setTimeout(resolveWait, 500))
+      expect(prompts).toHaveLength(2)
+      if (scenario === "second restart") {
+        expect([...thirdAdapter.postMessage.mock.calls, ...thirdAdapter.editMessage.mock.calls].flat()).toContainEqual(expect.stringContaining("The server restarted twice"))
+      }
+    } finally {
+      // Release a run that a failed assertion left blocked, so it cannot hold the thread lock for later tests.
+      persistenceGate.resolve()
+      setSpy.mockRestore()
+      await drainInlineChatInvocations({ timeoutMs: 0 })
+      await stop?.()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+      consoleError.mockRestore()
+    }
+  }, 30_000)
+
   it("posts the sanitized rate-limit message to chat", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
     const { defineAgent } = await import("../src/index.ts")
@@ -12722,7 +14341,8 @@ describe("server helpers", () => {
     }
 
     try {
-      vi.useFakeTimers()
+      // Keep lock-contention and SQLite retry delays running while advancing renewals.
+      vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] })
       await state.connect()
       const firstResponse = handler(await serialRequest(91_010, "A"), "telegram", {
         agentName: "support",
@@ -13609,7 +15229,9 @@ describe("server helpers", () => {
         telegram: testTelegram(telegram, {
           // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
           adapter: () => adapter as never,
-          messages: { loading: { text: "Loading…" }, state },
+          // The durable handoff refreshes typing until this timeout, 28 seconds
+          // by default. The test awaits that waitUntil task.
+          messages: { loading: { text: "Loading…" }, state, timeout: 1_000 },
         }),
       },
       driver: { run: () => "Durable answer" },
@@ -15732,6 +17354,66 @@ describe("server helpers", () => {
     }
   })
 
+  it.each([true, false])("passes the failed Invocation to Chat error replies (errorConsoleLink: %s)", async (errorConsoleLink) => {
+    vi.stubGlobal("__VITEHUB_PUBLIC_URL__", { agents: { support: "https://agents.example.test" } })
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { agentInvocationId } = await import("../src/invocations.ts")
+    const adapter = createTestChatAdapter({ deferMessageProcessing: true })
+    // Each case needs its own message, because the Chat SDK drops duplicate message IDs.
+    const messageId = errorConsoleLink ? 7731 : 7732
+    const waitUntilTasks: Promise<unknown>[] = []
+    const errorFallbackText = vi.fn((_context: { invocation?: { consoleUrl?: string, id: string }, run?: { runId: string } }) => "It failed.")
+    const agent = defineAgent({
+      name: "support",
+      capabilities: [
+        defineChatCapability({
+          // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+          platforms: { telegram: () => adapter as never },
+          errorConsoleLink,
+          errorFallbackText,
+          webhooks: { telegram: {} },
+        }),
+      ],
+      driver: {
+        run: () => {
+          throw new Error("private failure")
+        },
+      },
+    })
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    try {
+      const response = await handler(
+        new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+          body: JSON.stringify({
+            update_id: messageId,
+            message: { chat: { id: 456, type: "private" }, date: 1781092800, from: { first_name: "Maxi", id: 123, username: "maxi" }, message_id: messageId, text: "hello" },
+          }),
+          method: "POST",
+        }),
+        "telegram",
+        { waitUntil: (task) => waitUntilTasks.push(task) },
+      )
+      expect(response.status).toBe(200)
+      await Promise.all(waitUntilTasks)
+
+      expect(errorFallbackText).toHaveBeenCalledOnce()
+      const args = errorFallbackText.mock.calls[0]![0]
+      const id = await agentInvocationId(args.run!.runId, "support")
+      const consoleUrl = `https://agents.example.test/_vitehub/agents/support/invocations/${encodeURIComponent(id)}`
+      expect(args.invocation).toEqual({ consoleUrl, id })
+      expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", errorConsoleLink ? `It failed.\n\nDetails: ${consoleUrl}` : "It failed.")
+    }
+    finally {
+      consoleError.mockRestore()
+      vi.unstubAllGlobals()
+    }
+  })
+
   it("does not settle merged steer deliveries after ownership is reclaimed", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { agentChannelDeliveryWorkflowContextKey, resumeAgentChannelDeliveryWorkflowOwnership } = await import("../src/internal/channel-delivery.ts")
@@ -16347,12 +18029,12 @@ describe("server helpers", () => {
       await blocked
       return "internal output"
     })
-    const createBatch = vi.fn(async ([{ params }]: Array<{ params: { input?: AgentRunInput } }>) => {
+    const createBatch = vi.fn(async ([{ id, params }]: Array<{ id: string; params: { input?: AgentRunInput } }>) => {
       workflowPayloads.push(params)
       if (createBatch.mock.calls.length === 3) {
         recoveredRetryStarted.resolve()
         await recoveredRetryBlocked
-        return [{ id: "recovered-retry", status: async () => ({ status: "queued" }) }]
+        return [{ id, status: async () => ({ status: "queued" }) }]
       }
       throw new Error("provider response was lost")
     })
@@ -17316,13 +18998,17 @@ describe("server helpers", () => {
     }
     try {
       await state.connect()
+      vi.useFakeTimers()
       pending.push(ownerHandler(request(91_120), "telegram", context))
       await vi.waitFor(() => expect(runs).toBe(1))
       pending.push(handler(request(91_121), "telegram", context))
       await vi.waitFor(() => expect(sendInput).toHaveBeenCalledTimes(1))
+      // Expire the 1ms delivery dedupe window before the duplicate starts.
+      await vi.advanceTimersByTimeAsync(2)
       pending.push(handler(request(91_121), "telegram", context))
       await vi.waitFor(() => expect(admitted).toHaveBeenCalledTimes(3))
       expect(sendInput).toHaveBeenCalledTimes(1)
+      await vi.advanceTimersByTimeAsync(500)
       await Promise.all(pending.slice(1))
       expect(runs).toBe(1)
       acceptance.resolve()
@@ -17340,6 +19026,7 @@ describe("server helpers", () => {
       released.resolve()
       await Promise.allSettled(pending)
       await Promise.allSettled(reconciliation)
+      vi.useRealTimers()
       await state.disconnect()
       await rm(stateDir, { force: true, recursive: true })
     }
@@ -18912,6 +20599,40 @@ describe("server helpers", () => {
     expect(adapter.postMessage.mock.invocationCallOrder[1]).toBeLessThan(adapter.deleteMessage.mock.invocationCallOrder[0]!)
   })
 
+  it.each(["final", "loading", "manual", "stream"] as const)("delivers readable citations through the %s webhook path", async (delivery) => {
+    const adapter = createTestChatAdapter()
+    const text = "Answer. citeturn228505view0turn395856view0 See [the PR](https://github.com/acme/portal/pull/1188)."
+    const expected = "Answer. [source link unavailable] See [the PR](https://github.com/acme/portal/pull/1188)."
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: The fixture supplies the Chat SDK adapter used by the webhook handler.
+          adapter: () => adapter as never,
+          messages: delivery === "loading" ? { loading: { text: "Loading…" } }
+            : delivery === "manual" ? { delivery: "manual" }
+              : { stream: delivery === "stream", fallbackStreamingPlaceholderText: null },
+        }),
+      },
+      driver: { run: () => delivery === "stream" ? {
+        fullStream: (async function* () {
+          for (const character of text) yield { text: character, type: "text-delta" }
+          yield { type: "finish", finishReason: "stop" }
+        })(),
+      } : text },
+      hooks: {
+        "agent:finish": event => event.reply(event.text!),
+      },
+    })
+    // SAFETY: This fixture supplies the normalized Agent contract used by the route handler.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const response = await handler(chatWebhookRequest(91_300 + ["final", "loading", "manual", "stream"].indexOf(delivery)), "telegram")
+    expect(response.status).toBe(200)
+    const sent = [...adapter.postMessage.mock.calls, ...adapter.editMessage.mock.calls]
+    expect(JSON.stringify(sent)).not.toContain("")
+    const answers = sent.filter(call => JSON.stringify(call).includes(expected))
+    expect(answers).toHaveLength(1)
+  })
+
   it("does not repeat the final text when a finish hook replies with it after streaming", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
@@ -19297,6 +21018,35 @@ describe("server helpers", () => {
         },
       ])
       expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "Your meal was saved, but the final reply failed.")
+    } finally {
+      consoleError.mockRestore()
+    }
+  })
+
+  it.each([false, true])("formats citations in error fallback delivery, manual=%s", async (manual) => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const adapter = createTestChatAdapter()
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: The fixture implements the Chat SDK adapter used by the webhook handler.
+          adapter: () => adapter as never,
+          messages: {
+            stream: false,
+            errorFallbackText: "Read [the source](https://example.com). citeturn0view0",
+            ...(manual ? { delivery: "manual", loading: { text: "Loading…" } } : {}),
+          },
+        }),
+      },
+      driver: { run: () => { throw new Error("model timeout") } },
+    })
+    // SAFETY: This fixture supplies the normalized Agent contract used by the route handler.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    try {
+      await expect(handler(chatWebhookRequest(manual ? 91_311 : 91_310), "telegram")).rejects.toThrow("model timeout")
+      const delivered = [...adapter.postMessage.mock.calls, ...adapter.editMessage.mock.calls].flat()
+      expect(delivered).toContainEqual("Read [the source](https://example.com). [source link unavailable]")
+      expect(JSON.stringify(delivered)).not.toContain("cite")
     } finally {
       consoleError.mockRestore()
     }

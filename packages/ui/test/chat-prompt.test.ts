@@ -57,7 +57,7 @@ describe("AgentSession", () => {
         components: {
           UChatMessage: defineComponent({
             setup(_props, { slots }) {
-              return () => h("article", [slots.header?.(), slots.body?.()]);
+              return () => h("article", [slots.header?.(), slots.body?.() ?? slots.content?.()]);
             },
           }),
         },

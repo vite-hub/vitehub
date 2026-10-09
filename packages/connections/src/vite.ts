@@ -17,6 +17,7 @@ import { createNitroServerKit } from "@vite-hub/internal/nitro-kit";
 import { discoverConnectionDefinitions } from "./discovery.ts";
 import { withConnectionsTypesLock } from "./internal/types-lock.ts";
 
+import type { NitroServerHandler } from "@vite-hub/internal/nitro-kit";
 import type { ViteHubCliContributor } from "@vite-hub/internal/cli";
 import type { Plugin, ResolvedConfig } from "vite";
 import type { DiscoveredConnectionDefinition } from "./types.ts";
@@ -227,14 +228,20 @@ async function recordGeneratedOwners(projectRoot: string, origin: string, hash: 
 }
 
 export interface ConnectionsVitePluginOptions {
+  /**
+   * Module whose default export is the access policy of the management API, in development and
+   * production. Export a function that authenticates the `Request` and returns `user:<id>`, or
+   * `undefined` to deny it. Export `"development"` to allow the development server without Auth.
+   * Without this module, development uses `"development"`.
+   */
+  actor?: string;
   /** Module that exports the ViteHub Database as `db`. Set `false` when the app has no database. */
   database?: string | false;
   /** Package that the generated handler imports from. */
   importBase?: string;
   /**
    * Mount the management API in production. The development server always mounts it.
-   * Production requires an actor module whose default export authenticates each Request
-   * and returns `user:<id>` or `undefined` to deny access.
+   * Production requires an actor module, from `actor` or `management.actor`.
    */
   management?: boolean | { actor: string };
   projectRoot?: string;
@@ -249,6 +256,10 @@ export interface ConnectionsVitePluginAPI {
 export type ConnectionsVitePlugin = Plugin<ConnectionsVitePluginAPI> & {
   api: ConnectionsVitePluginAPI;
   vitehub: { cli: () => Promise<ViteHubCliContributor> };
+  nitro: {
+    name: string;
+    setup: (nitro: { options: { handlers: NitroServerHandler[] }; routing: { sync: () => void } }) => void;
+  };
 };
 
 function renderRegistry(
@@ -287,6 +298,15 @@ function renderRegistryTypes(definitions: DiscoveredConnectionDefinition[]): str
   ].join("\n");
 }
 
+function connectionMountBase(base: unknown): string {
+  const parsed = v.safeParse(v.pipe(v.string(), v.regex(/^\/(?!\/)/)), base);
+  return parsed.success ? parsed.output.replace(/\/+$/, "") : "";
+}
+
+function connectionManagementRoute(base: unknown): string {
+  return `${connectionMountBase(base)}/_vitehub/connections`
+}
+
 function isConnectionDefinitionFile(
   file: string,
   projectRoot: string,
@@ -310,6 +330,8 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
   let projectRoot = process.cwd();
   const generationSession = randomUUID();
   let nitroRegistryFile: string | undefined;
+  let nitroInstance: Parameters<ConnectionsVitePlugin["nitro"]["setup"]>[0] | undefined;
+  let refreshManagement: ((config: ResolvedConfig) => Promise<void>) | undefined;
 
   function refresh(): DiscoveredConnectionDefinition[] {
     defaultProjectRoot = resolveViteHubProjectRoot(resolve(resolved?.root ?? process.cwd()))
@@ -371,6 +393,12 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
       getDefinitions: () => definitions,
       refresh,
     },
+    nitro: {
+      name: "@vite-hub/connections/management",
+      setup(nitro) {
+        nitroInstance = nitro;
+      },
+    },
     vitehub: {
       cli: async () => {
         const { createConnectionsCliContributor } = await import("./cli.ts");
@@ -427,31 +455,74 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
 
       if (environment.command === "serve" || options.management) {
         const actorModule =
-          options.management && options.management !== true ? options.management.actor : undefined;
+          (options.management && options.management !== true ? options.management.actor : undefined) ?? options.actor;
         if (environment.command !== "serve" && !actorModule?.trim()) {
           throw new Error(
             "Connections management in production requires management: { actor: <authentication module> }.",
           );
         }
         const actorImport = actorModule?.startsWith(".") ? resolve(root, actorModule) : actorModule;
-        await writeFileIfChanged(
+        const writeManagementHandler = async (managementRoute: string) => await writeFileIfChanged(
           handlerFile,
           [
             `import { createConnectionsHandler } from ${JSON.stringify(`${importBase}/server`)}`,
+            `import type { IncomingMessage } from "node:http"`,
             "",
             ...(actorModule ? [`import actor from ${JSON.stringify(actorImport)}`] : []),
             "",
+            // Without an actor module, only a development server allows management.
             actorModule
-              ? "const handle = createConnectionsHandler({ actor })"
-              : 'const handle = createConnectionsHandler({ actor: () => "user:local" })',
+              ? `const handle = createConnectionsHandler({ actor, basePath: ${JSON.stringify(managementRoute)} })`
+              : `const handle = createConnectionsHandler({ actor: "development", basePath: ${JSON.stringify(managementRoute)} })`,
             "",
-            "export default (event: { req: Request }) => handle(event.req, event)",
+            "export default (event: { req?: Request, node?: { req?: IncomingMessage & { socket: { encrypted?: boolean } } } }) => {",
+            "  const raw = event.req ?? event.node?.req",
+            "  if (!raw) return handle(new Request('http://localhost/'), event)",
+            "  if (raw instanceof Request) return handle(raw, event)",
+            "  const headers = new Headers()",
+            "  for (const [name, value] of Object.entries(raw.headers ?? {})) { if (typeof value === 'string') headers.set(name, value); else if (Array.isArray(value)) for (const item of value) headers.append(name, item) }",
+            "  const firstHeader = (name: string) => headers.get(name)?.split(',')[0]?.trim()",
+            "  const host = firstHeader('x-forwarded-host') ?? firstHeader('host') ?? 'localhost'",
+            "  const protocol = firstHeader('x-forwarded-proto') ?? (raw.socket?.encrypted ? 'https' : 'http')",
+            "  const method = raw.method ?? 'GET'",
+            "  const init: RequestInit & { duplex?: 'half' } = { method, headers }",
+            "  if (method !== 'GET' && method !== 'HEAD') {",
+            "    const iterator = raw[Symbol.asyncIterator]()",
+            "    init.body = new ReadableStream({ async pull(controller) { try { const next = await iterator.next(); if (next.done) controller.close(); else controller.enqueue(next.value) } catch (error) { controller.error(error) } } })",
+            "    init.duplex = 'half'",
+            "  }",
+            "  const request = new Request(new URL(raw.url ?? '/', `${protocol === 'https' ? 'https' : 'http'}://${host}`), init)",
+            "  return handle(request, event)",
+            "}",
             "",
           ].join("\n"),
         );
+        const managementRoute = connectionManagementRoute(Reflect.get(config, "base"));
+        await writeManagementHandler(managementRoute);
+        refreshManagement = async (config) => {
+          const route = connectionManagementRoute(config.base);
+          const updateHandlers = (value: unknown) => {
+            const kit = createNitroServerKit(value);
+            if (Array.isArray(kit.config.handlers)) {
+              kit.config.handlers.splice(0, kit.config.handlers.length, ...kit.config.handlers.filter(handler =>
+                !v.is(v.looseObject({ handler: v.literal(handlerFile) }), handler),
+              ));
+            }
+            kit.addHandler({ handler: handlerFile, route });
+            kit.addHandler({ handler: handlerFile, route: `${route}/**` });
+            return kit.config;
+          };
+          Reflect.set(config, "nitro", updateHandlers(Reflect.get(config, "nitro")));
+          // Nitro initializes during config hooks, before Vite resolves its final base.
+          if (nitroInstance) {
+            Object.assign(nitroInstance.options, updateHandlers(nitroInstance.options));
+            nitroInstance.routing.sync();
+          }
+          await writeManagementHandler(route);
+        };
         const kit = createNitroServerKit(nitro);
-        kit.addHandler({ handler: handlerFile, route: "/_vitehub/connections" });
-        kit.addHandler({ handler: handlerFile, route: "/_vitehub/connections/**" });
+        kit.addHandler({ handler: handlerFile, route: managementRoute });
+        kit.addHandler({ handler: handlerFile, route: `${managementRoute}/**` });
         Object.assign(nitro, kit.config);
       }
       Reflect.set(config, "nitro", nitro);
@@ -459,6 +530,7 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
     },
     async configResolved(config) {
       resolved = config;
+      await refreshManagement?.(config);
       refresh();
       await refreshGeneratedFiles();
     },

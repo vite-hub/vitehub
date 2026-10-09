@@ -237,11 +237,11 @@ export default {
 
 Public Env and `env.define` values are compiled into client bundles. Never put credentials in either section. The host still owns secret storage and injection; Env owns declarations, resolution, generated accessors, validation, and default redaction.
 
-Read the complete [Env guide](https://vitehub.dev/docs/server-primitives/env), the [host support matrix](https://vitehub.dev/docs/frameworks-hosts/support-matrix), and the project's [pre-1.0 security policy](https://github.com/vite-hub/vitehub/blob/main/SECURITY.md).
+Read the complete [Env guide](https://vitehub.dev/docs/env), the [host support matrix](https://vitehub.dev/docs/frameworks-hosts/support-matrix), and the project's [pre-1.0 security policy](https://github.com/vite-hub/vitehub/blob/main/SECURITY.md).
 
 ### Declaration inventory
 
-`describeServerEnv()` from `#vitehub/env/server` returns declaration metadata without reading host values or calling providers. It includes the declaration path, source kind, provider alias, secret and required flags, default presence, and the parsed value type. Values, defaults, host variable names and provider storage keys are omitted. Use `inspectServerEnv()` only when a status check that loads providers is intended. Its entries add the provider alias, required flag, and `available`, `defaulted`, `missing`, `invalid`, or `error` status, and never include values. `isBlockingServerEnvEntry(entry)` from `@vite-hub/env` returns `true` when the entry makes `loadServerEnv()` fail.
+`describeServerEnv()` from `#vitehub/env/server` returns declaration metadata without reading host values or calling providers. It includes the declaration path, the canonical variable name of env declarations, source kind, provider alias, secret and required flags, default presence, and the parsed value type. Values, defaults, conventional host variable names and provider storage keys are omitted. Use `inspectServerEnv()` only when a status check that loads providers is intended. Its entries add the provider alias, required flag, and `available`, `defaulted`, `missing`, `invalid`, or `error` status, and never include values. Env entries also report `via: "canonical" | "conventional"` and `conflict: true` when the canonical and a conventional name hold different values. `isBlockingServerEnvEntry(entry)` from `@vite-hub/env` returns `true` when the entry makes `loadServerEnv()` fail.
 
 `hubEnv()` contributes two CLI commands:
 
@@ -260,8 +260,20 @@ Both commands load the Vite config in the selected stage mode, including `.env.<
 
 A bridge implements the existing `read()` provider contract. Its `replace()` operation requires the last inspected revision (or `null` to create), preventing lost updates. Existing snapshots remain unchanged; the next load resolves the replacement. A custom store returns its own activation requirement: next resolution, restart, or deployment.
 
-`inspect`, `preview`, `replace`, and `use` are separate permissions. Only a trusted administrator can modify grants or inspect activity. A verified agent token can supply a narrower permission ceiling. Context must come from authenticated server code, never an HTTP body. `loadServerEnv(undefined, { access })` forwards trusted actor and invocation attribution to providers.
+`inspect`, `preview`, `replace`, and `use` are separate permissions. Only a trusted administrator can modify grants or inspect activity. A verified agent token can supply a narrower permission ceiling.
+
+Env creates every `EnvAccessContext`. Each producer gets only the identity that it can prove:
+
+- `createEnvBridge({ runtimeActor })`: the runtime reads with its own fixed actor, on that bridge only. `runtimeAttribution` can add trace and invocation IDs.
+- `createEnvAuthenticator()`: the authenticated user, or the Agent of a verified Agent token. It creates an administrator context only when the application's `isAdmin` policy returns `true`.
+- The ViteHub Agent runtime: `agent:<name>` for the Agent Definition that runs, through Connections.
+
+The bridge rejects any context that Env did not create, including a literal such as `{ actor }`, a spread copy, or a JSON copy, with `ENV_BRIDGE_UNTRUSTED`. TypeScript also rejects a context that application code builds. Use `EnvAccessContext` as a type, and pass the value that Env gave you. `loadServerEnv(undefined, { access })` forwards that context to providers.
+
+Migration: replace `runtimeContext: () => ({ actor })` with `runtimeActor: actor`. Get request contexts from `createEnvAuthenticator()`. A custom `authenticate` must return the context from `createEnvAuthenticator()`.
 
 `bridge.use(context, key, operation, callback)` runs a trusted operation with a `SecretEnv` and records its outcome. The callback also receives `{ revision }` for the secret read when the store supplies a revision. Use that revision to fence related writes; a later inspection can refer to a replacement token. Ordinary provider reads record `resolve`, which does not claim to observe later use of copied plaintext. Activity is persisted before release or mutation and after completion. An interrupted operation can retain a `started` record; a remote store and the activity database do not share a transaction. Failed audit persistence blocks release. The optional `emit` callback exports persisted events to evlog or another sink; exporter failures do not erase durable activity.
 
 Database previews are opt-in. Short and structured values have no preview. Previews remain protected metadata and are excluded from activity. The database adapter uses AES-256-GCM with per-write IVs and authenticates the namespace, key, and revision. Host administration and database backup security remain application responsibilities.
+
+The Agent integration verifies the exact identity object registered during Agent Definition resolution. A name, a copied identity, or an authenticated Agent token cannot establish Agent runtime authority. The optional Agent peer is used only by this integration; the Env bridge and HTTP authenticator do not load it.

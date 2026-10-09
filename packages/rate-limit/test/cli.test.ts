@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events"
-import { Readable } from "node:stream"
+import { Readable, Writable } from "node:stream"
 
 import { mockEvent } from "h3"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -384,19 +384,21 @@ async function call(middleware: Middleware, init: { body?: string, headers?: Rec
   const done = new EventEmitter()
   const chunks: Buffer[] = []
   const headers: Record<string, string> = {}
-  const res = {
-    end(chunk?: string) {
-      if (chunk) chunks.push(Buffer.from(chunk))
-      done.emit("end")
+  const res = Object.assign(new Writable({
+    write(chunk, _encoding, callback) {
+      chunks.push(Buffer.from(chunk))
+      callback()
     },
+    final(callback) {
+      done.emit("end")
+      callback()
+    },
+  }), {
     setHeader(name: string, value: string) {
       headers[name] = value
     },
     statusCode: 200,
-    write(chunk: Buffer) {
-      chunks.push(chunk)
-    },
-  }
+  })
   const ended = new Promise(resolve => done.once("end", resolve))
   middleware(req, res as unknown as ServerResponse, () => done.emit("end"))
   await ended

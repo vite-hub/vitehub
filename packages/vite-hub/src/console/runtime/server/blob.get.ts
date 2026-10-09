@@ -1,3 +1,4 @@
+import { withConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
 import { assertConsoleRequest, consoleRequestURL } from "./request.ts"
 import { getConsoleBlob } from "./blob.ts"
 
@@ -74,7 +75,7 @@ function serializeBlob(object: BlobObject): ConsoleBlobObject {
   return serialized
 }
 
-export default async function consoleBlobHandler(event: ConsoleRequestEvent): Promise<ConsoleBlobPage> {
+async function consoleBlobHandler(event: ConsoleRequestEvent): Promise<ConsoleBlobPage> {
   assertConsoleRequest(event)
   const url = consoleRequestURL(event)
   const inspection = getConsoleBlob()
@@ -94,3 +95,6 @@ export default async function consoleBlobHandler(event: ConsoleRequestEvent): Pr
   if (page.cursor) result.cursor = page.cursor
   return result
 }
+
+const guardedHandler: ConsoleAccessRoute<typeof consoleBlobHandler> = withConsoleAccess(consoleBlobHandler)
+export default guardedHandler

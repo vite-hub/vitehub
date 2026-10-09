@@ -92,10 +92,10 @@ describe("support proof ledger", () => {
       .join("\n");
 
     expect(renderedRows).toBe(renderSupportProofMarkdownRows());
-    expect(renderedRows).toContain("30-day freshness window");
+    expect(renderedRows).toContain("last observed 2026-08-26; stale after 30 days");
     expect(renderedRows).not.toContain("✓");
     const liveRow = renderedRows.split("\n").find((line) => line.startsWith("| Live Smoke |"));
-    expect(liveRow).toContain("2-day freshness window");
+    expect(liveRow).toContain("last observed 2026-08-26; stale after 2 days");
     expect(liveRow).toContain("**Stopped at provision** [Evidence](");
   });
 

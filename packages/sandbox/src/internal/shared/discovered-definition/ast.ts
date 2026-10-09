@@ -1,11 +1,9 @@
-import { createRequire } from 'node:module'
-
 import { join as joinPath } from 'pathe'
 import type { Import } from 'unimport'
 import type ts from 'typescript'
 
-const require = createRequire(import.meta.url)
-const typescript: typeof import('typescript') = require('typescript')
+import { loadTypeScript } from '../../typescript'
+
 const filesystemModuleSpecifiers = new Set([
   'child_process',
   'fs',
@@ -29,6 +27,7 @@ export function resolveImportLocalName(entry: Import) {
 }
 
 function getScriptKind(id: string) {
+  const typescript = loadTypeScript()
   // SAFETY: older supported TypeScript releases may omit the MTS and CTS enum members.
   const scriptKind = typescript.ScriptKind as typeof typescript.ScriptKind & {
     MTS?: typeof typescript.ScriptKind.TS
@@ -52,15 +51,18 @@ function getScriptKind(id: string) {
 }
 
 function createSourceFile(id: string, source: string) {
+  const typescript = loadTypeScript()
   return typescript.createSourceFile(id, source, typescript.ScriptTarget.Latest, true, getScriptKind(id))
 }
 
 function hasModifier(node: ts.Node, kind: ts.SyntaxKind) {
+  const typescript = loadTypeScript()
   return typescript.canHaveModifiers(node)
     && (typescript.getModifiers(node)?.some(modifier => modifier.kind === kind) ?? false)
 }
 
 export function hasExportedType(source: string, id: string, name: string) {
+  const typescript = loadTypeScript()
   const sourceFile = createSourceFile(id, source)
   return sourceFile.statements.some((statement) => {
     if (
@@ -76,6 +78,7 @@ export function hasExportedType(source: string, id: string, name: string) {
 }
 
 function collectRuntimeModuleSpecifiers(source: string, id: string) {
+  const typescript = loadTypeScript()
   const sourceFile = createSourceFile(id, source)
   const specifiers: Array<{ node: ts.StringLiteralLike, specifier: string }> = []
   let hasNonLiteralDynamicImport = false
@@ -139,6 +142,7 @@ export function hasNonLiteralDynamicImport(source: string, id: string) {
 }
 
 export function findFilesystemPathReferences(source: string, id: string): FilesystemPathReference[] {
+  const typescript = loadTypeScript()
   const sourceFile = createSourceFile(id, source)
   const directBindings = new Set<string>()
   const directBindingOperations = new Map<string, string>()
@@ -477,6 +481,7 @@ export function findFilesystemPathReferences(source: string, id: string): Filesy
 }
 
 function propertyAccessRoot(expression: ts.Expression) {
+  const typescript = loadTypeScript()
   const properties: string[] = []
   let current = expression
   while (typescript.isPropertyAccessExpression(current) || typescript.isElementAccessExpression(current)) {
@@ -506,6 +511,7 @@ type CommonJSModuleSpecifier = {
 }
 
 export function findCommonJSImportEqualsSpecifiers(source: string, id: string) {
+  const typescript = loadTypeScript()
   const sourceFile = createSourceFile(id, source)
   const specifiers: CommonJSModuleSpecifier[] = []
 
@@ -531,6 +537,7 @@ export function findCommonJSImportEqualsSpecifiers(source: string, id: string) {
 }
 
 function isExecutableIdentifierReference(node: ts.Identifier) {
+  const typescript = loadTypeScript()
   const parent = node.parent
   if (
     typescript.isImportClause(parent) ||
@@ -562,6 +569,7 @@ function isExecutableIdentifierReference(node: ts.Identifier) {
 }
 
 export function findExecutableCommonJSModuleSpecifiers(sources: ReadonlyMap<string, string>) {
+  const typescript = loadTypeScript()
   const executableSources = new Map(
     [...sources].map(([path, source]) => [`/${path.replace(/^[/]+/, '')}`, source]),
   )
@@ -729,6 +737,7 @@ export function rewriteRuntimeRelativeModuleSpecifiers(
 }
 
 function collectExplicitImportNames(sourceFile: ts.SourceFile) {
+  const typescript = loadTypeScript()
   const names = new Set<string>()
 
   for (const statement of sourceFile.statements) {
@@ -759,6 +768,7 @@ function collectExplicitImportNames(sourceFile: ts.SourceFile) {
 }
 
 function collectDeclaredTypeNames(sourceFile: ts.SourceFile) {
+  const typescript = loadTypeScript()
   const names = new Set<string>()
 
   function visit(node: ts.Node) {
@@ -794,6 +804,7 @@ function collectDeclaredTypeNames(sourceFile: ts.SourceFile) {
 }
 
 function collectTypeReferenceNames(sourceFile: ts.SourceFile) {
+  const typescript = loadTypeScript()
   const names = new Set<string>()
 
   function addEntityName(name: ts.EntityName) {
@@ -849,6 +860,7 @@ function stringifyTypeImport(entry: Import) {
 }
 
 export function injectTypeImports(source: string, imports: Import[], id: string) {
+  const typescript = loadTypeScript()
   if (!imports.length)
     return source
 

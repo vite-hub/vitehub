@@ -1,6 +1,6 @@
 import { createViteHubDevToken, removeViteHubDevToken, viteHubDevTokenHeader } from "@vite-hub/internal/dev-token"
-
 import { registerViteHubNitroDevEndpoint } from "@vite-hub/internal/dev-endpoint"
+import { isViteHubSecretEqual } from "@vite-hub/internal/secret"
 
 import { scheduleDevHeader, scheduleDevHeaderValue, scheduleDevRoute, scheduleDevRuntimeRoute, scheduleDevTokenNamespace, scheduleDevTokenServerHeader } from "./dev.ts"
 
@@ -25,7 +25,7 @@ export interface ScheduleDevEndpointOptions {
  *
  * `GET` reports the root and whether the Nitro runtime is reachable. `POST` forwards one Schedule operation into the
  * Nitro dev environment, because the Nitro runtime owns the Schedule stores and registry. Hosts without an in-process
- * Nitro environment get `501` with a clear message. The returned cleanup also supports middleware-mode servers.
+ * Nitro environment get `501` with a clear message.
  */
 export async function registerScheduleDevEndpoint(server: ScheduleDevServer, options: ScheduleDevEndpointOptions = {}): Promise<() => Promise<void>> {
   const rootDir = server.config.root
@@ -39,8 +39,8 @@ export async function registerScheduleDevEndpoint(server: ScheduleDevServer, opt
   server.httpServer?.once("close", () => { void close().catch(() => {}) })
   try {
     registerViteHubNitroDevEndpoint(server, {
-      authorize: async request => request.headers[viteHubDevTokenHeader] === activeToken
-        && request.headers[scheduleDevTokenServerHeader] === serverId
+      authorize: async ({ headers }) => isViteHubSecretEqual(Array.isArray(headers[viteHubDevTokenHeader]) ? undefined : headers[viteHubDevTokenHeader], activeToken)
+        && headers[scheduleDevTokenServerHeader] === serverId
         ? undefined : new Response("Forbidden Schedule Dev token.", { status: 403 }),
       discovery: { root: rootDir, scheduleDevTokenServerId: serverId },
       forwardHeaders: [viteHubDevTokenHeader, scheduleDevTokenServerHeader],

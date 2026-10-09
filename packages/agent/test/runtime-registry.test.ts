@@ -5,12 +5,108 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL, fileURLToPath } from 'node:url'
 import { build } from 'esbuild'
+import { H3 } from 'h3'
 import { createServer, mergeConfig } from 'vite'
-import { afterEach, expect, it } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
+import { VITEHUB_NITRO_CONFIG_CONTEXT } from '@vite-hub/internal/build/vite'
 import { hubAgent } from '../src/vite.ts'
 
 const roots: string[] = []
 afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))) })
+
+async function declaredWebhookServer(names = ['support'], aliases = {}) {
+  const { root } = await fixture(false)
+  const packageRoot = fileURLToPath(new URL('..', import.meta.url))
+  await mkdir(join(root, 'node_modules/@vite-hub'), { recursive: true })
+  await symlink(packageRoot, join(root, 'node_modules/@vite-hub/agent'), 'dir')
+  await symlink(join(packageRoot, '../workspace'), join(root, 'node_modules/@vite-hub/workspace'), 'dir')
+  await symlink(join(packageRoot, '../../node_modules/h3'), join(root, 'node_modules/h3'), 'dir')
+  await mkdir(join(root, 'server/agents'), { recursive: true })
+  const source = `import { defineAgent } from '@vite-hub/agent'
+import { defineChannel, defineChannelTrigger } from '@vite-hub/agent/channels'
+export default defineAgent({ runtime: false, driver: { run: () => 'unused' }, channels: {
+  productlane: defineChannel('productlane', {
+    messages: false,
+    history: { key: item => item.id, collection: {
+      parseQuery: async query => query,
+      page: async () => ({ items: [{ id: 'm1' }], nextCursor: null }),
+    } },
+    triggers: { webhook: defineChannelTrigger({ invoke: () => Response.json({ ok: true }) }) },
+    webhooks: { path: '/api/productlane/webhook', secretHeader: 'x-test-secret', secretToken: 'secret' },
+  }),
+} })`
+  await Promise.all(names.map(name => writeFile(join(root, `server/agents/${name}.ts`), source)))
+  return await createServer({ root, configFile: false, appType: 'custom', logLevel: 'silent', plugins: [hubAgent({ routes: { aliases } })],
+    resolve: { alias: { '@vite-hub/agent/server/internal': join(packageRoot, 'src/server/internal.ts') } },
+    server: { middlewareMode: true, watch: null } })
+}
+
+async function declaredWebhookApp(server: Awaited<ReturnType<typeof createServer>>) {
+  const handlers = (server.config as unknown as { nitro: { handlers: Array<{ handler: string, middleware?: boolean, route: string }> } }).nitro.handlers
+  const middleware = handlers.find(handler => handler.middleware && handler.handler.endsWith('/declared-webhook-route.ts'))
+  expect(middleware).toMatchObject({ route: '/**' })
+  const module = await server.ssrLoadModule(middleware!.handler)
+  const app = new H3().use(async (event, next) => (await module.default(event)) ?? next())
+  for (const handler of handlers.filter(handler => !handler.middleware)) {
+    app.all(handler.route, (await server.ssrLoadModule(handler.handler)).default)
+  }
+  return app.post('/unrelated', event => event.req.text())
+}
+
+it('serves declared webhook paths through Nitro middleware with HEAD, authentication, and history', async () => {
+  const server = await declaredWebhookServer()
+  try {
+    const app = await declaredWebhookApp(server)
+    for (const path of ['/api/productlane/webhook', '/api/productlane/webhook/', '/api/_vitehub/agents/support/webhooks/productlane']) {
+      const head = await app.request(path, { method: 'HEAD' })
+      expect(head.status).toBe(204)
+      expect(head.headers.get('x-vitehub-channel-provider')).toBe('productlane')
+      expect((await app.request(path, { method: 'POST', body: '{}' })).status).toBe(401)
+      expect((await app.request(path, { method: 'GET' })).status).toBe(405)
+      const delivered = await app.request(path, { method: 'POST', body: '{}', headers: { 'x-test-secret': 'secret' } })
+      expect(delivered.status).toBe(200)
+      expect(await delivered.json()).toEqual({ ok: true })
+      const history = await app.request(path, { method: 'POST', body: '{}', headers: { 'x-test-secret': 'secret', 'x-vitehub-channel-history': '1' } })
+      expect(history.status).toBe(200)
+      expect(await history.json()).toMatchObject({ items: [{ key: 'm1', item: { id: 'm1' } }] })
+    }
+    expect(await (await app.request('/unrelated', { method: 'POST', body: 'untouched' })).text()).toBe('untouched')
+    expect((await app.request('/missing')).status).toBe(404)
+  } finally { await server.close() }
+}, 30_000)
+
+it('selects a shared declared webhook path by public origin and rejects unresolved ownership', async () => {
+  const server = await declaredWebhookServer(['bot', 'bot-dev'])
+  const global = globalThis as typeof globalThis & { __VITEHUB_PUBLIC_URL__?: unknown }
+  const previous = global.__VITEHUB_PUBLIC_URL__
+  global.__VITEHUB_PUBLIC_URL__ = { agents: { bot: 'https://agent.example.com', 'bot-dev': 'https://agent-dev.example.com' } }
+  try {
+    const app = await declaredWebhookApp(server)
+    for (const [origin, agent] of [['https://agent.example.com', 'bot'], ['https://agent-dev.example.com', 'bot-dev'], ['http://agent-dev.example.com', 'bot-dev']]) {
+      const response = await app.request(`${origin}/api/productlane/webhook`, { method: 'POST', body: '{}', headers: { 'x-test-secret': 'secret', 'x-vitehub-channel-history': '1' } })
+      expect(response.status).toBe(200)
+      expect(await response.json()).toMatchObject({ agent })
+    }
+    expect((await app.request('/api/productlane/webhook', { method: 'HEAD' })).status).toBe(409)
+  } finally {
+    if (previous === undefined) delete global.__VITEHUB_PUBLIC_URL__
+    else global.__VITEHUB_PUBLIC_URL__ = previous
+    await server.close()
+  }
+}, 30_000)
+
+it('lets an explicit webhook alias select the owner of a shared declared path', async () => {
+  const server = await declaredWebhookServer(['bot', 'bot-dev'], { '/api/productlane/webhook': { agent: 'bot-dev', webhook: 'productlane' } })
+  try {
+    const app = await declaredWebhookApp(server)
+    const response = await app.request('/api/productlane/webhook', { method: 'POST', body: '{}', headers: { 'x-test-secret': 'secret', 'x-vitehub-channel-history': '1' } })
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ agent: 'bot-dev' })
+    const repeated = await app.request('/api/productlane/webhook//', { method: 'POST', body: '{}', headers: { 'x-test-secret': 'secret', 'x-vitehub-channel-history': '1' } })
+    expect(repeated.status).toBe(200)
+    expect(await repeated.json()).toMatchObject({ agent: 'bot-dev' })
+  } finally { await server.close() }
+}, 30_000)
 
 async function fixture(withAgent = true, withWorkspace = false, name = 'review') {
   const root = await mkdtemp(join(tmpdir(), 'vitehub-agent-registry-'))
@@ -46,6 +142,8 @@ it.each(['review', '__proto__'])('bundles the published runtime lookup for %s wi
   const aliases = (configured as { resolve: { alias: Record<string, string> } }).resolve.alias
   const registry = aliases['#vitehub/agent/registry']!
   expect(configured).toMatchObject({ nitro: { alias: { '#vitehub/agent/registry': registry } } })
+  expect(await readFile(registry, 'utf8')).toContain('import { resetPublicUrlAgentNames } from "@vite-hub/agent/server/registry"')
+  expect(await readFile(registry, 'utf8')).toContain('\nresetPublicUrlAgentNames()\n')
   expect(await readFile(registry, 'utf8')).toContain('await import(')
   const entry = join(root, 'entry.ts')
   await writeFile(entry, `import { getAgentFromRegistry } from '@vite-hub/agent'
@@ -115,6 +213,34 @@ export async function inspect() {
   } finally { await server.close() }
 }, 30_000)
 
+it('clears external runtime aliases on each internal-first Vite SSR load', async () => {
+  const { root } = await fixture(false)
+  const packageRoot = fileURLToPath(new URL('..', import.meta.url))
+  const probe = join(root, 'runtime-probe.mjs')
+  await writeFile(probe, "export { registerPublicUrlAgentName, resolvePublicUrl } from '@vite-hub/runtime'")
+  await mkdir(join(root, 'node_modules/@vite-hub'), { recursive: true })
+  await symlink(packageRoot, join(root, 'node_modules/@vite-hub/agent'), 'dir')
+  await symlink(join(packageRoot, '../workspace'), join(root, 'node_modules/@vite-hub/workspace'), 'dir')
+  await symlink(join(packageRoot, '../runtime'), join(root, 'node_modules/@vite-hub/runtime'), 'dir')
+  vi.stubGlobal('__VITEHUB_PUBLIC_URL__', { agents: { review: 'https://review.example' } })
+  try {
+    for (let load = 0; load < 2; load++) {
+      const server = await createServer({ root, configFile: false, appType: 'custom', logLevel: 'silent', plugins: [hubAgent()], server: { middlewareMode: true, watch: null } })
+      try {
+        const runtime = await server.ssrLoadModule(probe)
+        runtime.registerPublicUrlAgentName('removed-agent', 'review')
+        expect(runtime.resolvePublicUrl({ agentName: 'removed-agent' })).toBe('https://review.example')
+        const internal = await server.ssrLoadModule(join(packageRoot, 'dist/server/internal.js'))
+        expect(typeof internal.resetPublicUrlAgentNames).toBe('function')
+        expect((await server.ssrLoadModule(join(root, '.vitehub/agent/registry.mjs'))).default).toEqual({})
+        expect(runtime.resolvePublicUrl({ agentName: 'removed-agent' })).toBeUndefined()
+      } finally { await server.close() }
+    }
+  } finally {
+    vi.unstubAllGlobals()
+  }
+}, 30_000)
+
 
 it('preserves earlier aliases across lazy loads and clears aliases when the parent registry is replaced', async () => {
   const { root, plugin, config } = await fixture()
@@ -178,5 +304,22 @@ it('refreshes discovered agents and their first instructions when files are adde
     await rm(definition)
     server.watcher.emit('unlink', definition)
     await expect.poll(async () => Object.keys((await server.ssrLoadModule(registryPath)).default)).toEqual([])
+  } finally { await server.close() }
+}, 30_000)
+
+it('starts a real Vite dev server with the Console catch-all and the reserved invocation route', async () => {
+  const { root } = await fixture()
+  const server = await createServer(mergeConfig({ root, configFile: false, appType: 'custom', logLevel: 'silent', plugins: [hubAgent()], server: { port: 0, watch: null } }, {
+    [VITEHUB_NITRO_CONFIG_CONTEXT]: true,
+    nitro: { handlers: [{ route: '/_vitehub/**', handler: '/console/page.get.js' }] },
+  }))
+  try {
+    await server.listen()
+    const handlers = (server.config as unknown as { nitro: { handlers: Array<{ route: string }> } }).nitro.handlers
+    expect(handlers).toEqual(expect.arrayContaining([
+      expect.objectContaining({ route: '/_vitehub/**' }),
+      expect.objectContaining({ route: '/_vitehub/agent/invocations/dev' }),
+    ]))
+    expect(server.resolvedUrls?.local.length).toBeGreaterThan(0)
   } finally { await server.close() }
 }, 30_000)

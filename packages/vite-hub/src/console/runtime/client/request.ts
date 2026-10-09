@@ -8,6 +8,15 @@ import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 const consoleApiMarker = "/api/_vitehub/console/"
 const consoleRpcCallPath = "/_vitehub/rpc/__call"
 
+function decodeConsoleId(value: string): string {
+  try {
+    return decodeURIComponent(value)
+  }
+  catch {
+    throw new ConsoleRequestError(400, "Malformed invocation id.")
+  }
+}
+
 export class ConsoleRequestError extends Diagnostic {
   readonly status: number
 
@@ -37,10 +46,10 @@ function consoleRpcCall(path: string): { agent?: string; id?: string; method: Co
     }
   }
   const workspaceMatch = /^invocations\/([^/]+)\/workspace$/.exec(operation)
-  if (workspaceMatch) return { id: decodeURIComponent(workspaceMatch[1]!), method: consoleRpcMethods.invocationWorkspace }
+  if (workspaceMatch) return { id: decodeConsoleId(workspaceMatch[1]!), method: consoleRpcMethods.invocationWorkspace }
   if (operation.startsWith("invocations/")) {
     return {
-      id: decodeURIComponent(operation.slice("invocations/".length)),
+      id: decodeConsoleId(operation.slice("invocations/".length)),
       method: consoleRpcMethods.invocation,
     }
   }

@@ -17,6 +17,7 @@ import {
 
 import type { WorkspaceDevTokenOptions } from "./server.ts"
 import { workspaceErrorDiagnostics } from "./error-diagnostics.ts"
+import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 
 interface WorkspaceCliContext {
   cwd: string
@@ -83,6 +84,12 @@ const workspaceDevEndpoint = {
   header: workspaceDevHeader,
   headerValue: workspaceDevHeaderValue,
   route: workspaceDevRoute,
+}
+
+interface WorkspaceDevDiscovery {
+  root?: unknown
+  workspaceDevTokenServerId?: unknown
+  workspaces?: Array<{ name?: unknown }>
 }
 
 const workspaceDevTargetErrors = {
@@ -243,24 +250,18 @@ async function readWorkspaceDiscovery(parsed: ParsedWorkspaceDevArgs, context: W
     context.stderr.write("Missing Workspace Dev target.\n")
     return
   }
-  const server = await discoverViteHubDevServer({
+  const server = await discoverViteHubDevServer<WorkspaceDevDiscovery>({
     endpoint: workspaceDevEndpoint,
     fetch: fetchImpl,
-    parseDiscovery(value: unknown) {
-      const response = isPlainObject(value) ? value : {}
-      return {
-        root: response.root,
-        workspaceDevTokenServerId: response.workspaceDevTokenServerId,
-        workspaces: Array.isArray(response.workspaces) ? response.workspaces.filter(isPlainObject) : [],
-      }
-    },
     rootDir: context.rootDir,
     serverUrl: parsed.url,
     stderr: context.stderr,
   })
   if (!server) return
   const { discovery, url } = server
-  const workspaces = (discovery.workspaces || []).flatMap(workspace => typeof workspace.name === "string" ? [workspace.name] : [])
+  const workspaces = Array.isArray(discovery.workspaces)
+    ? discovery.workspaces.flatMap(workspace => isPlainObject(workspace) && hasRuntimeType(workspace.name, "string") ? [workspace.name] : [])
+    : []
   if (!workspaces.includes(parsed.workspace)) {
     context.stderr.write(`Unknown Workspace Dev target: ${parsed.workspace}\n`)
     return

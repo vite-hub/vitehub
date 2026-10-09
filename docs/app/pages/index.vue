@@ -47,9 +47,9 @@ useSchemaOrg([
 
 <template>
   <UMain class="bg-default text-default">
+    <LandingPrimitives />
     <LandingHero />
     <LandingAgentStory />
-    <LandingPrimitives />
     <LandingClosing />
   </UMain>
 </template>

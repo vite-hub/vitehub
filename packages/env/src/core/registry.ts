@@ -7,7 +7,7 @@ export interface RuntimeEnvEntry {
   required: boolean
   schema?: EnvValueSchema
   secret: boolean
-  source: { kind: "env", label: string, name: string, names?: string[], skipEmpty?: boolean }
+  source: { canonical?: string | false, kind: "env", label: string, name: string, names?: string[], skipEmpty?: boolean }
 }
 
 export interface RuntimeProviderEntry {

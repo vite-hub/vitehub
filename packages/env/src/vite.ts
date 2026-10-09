@@ -564,7 +564,7 @@ function createViteTypes(
 function createServerEnvInspectionTypes(indent: number): string[] {
   const prefix = " ".repeat(indent)
   return [
-    `${prefix}export interface ServerEnvDescriptionEntry { path?: string; source: "env" | "literal" | "provider"; provider?: string; secret: boolean; required: boolean; hasDefault: boolean; type?: string }`,
+    `${prefix}export interface ServerEnvDescriptionEntry { path?: string; canonicalName?: string; source: "env" | "literal" | "provider"; provider?: string; secret: boolean; required: boolean; hasDefault: boolean; type?: string }`,
     `${prefix}export interface ServerEnvDescription { entries: readonly ServerEnvDescriptionEntry[] }`,
     `${prefix}export function describeServerEnv(): ServerEnvDescription`,
     `${prefix}export function manageServerEnv(request: Request): Promise<Response>`,
@@ -575,6 +575,8 @@ function createServerEnvInspectionTypes(indent: number): string[] {
     `${prefix}  required: boolean`,
     `${prefix}  source: "env" | "literal" | "provider"`,
     `${prefix}  status: "available" | "defaulted" | "error" | "invalid" | "missing"`,
+    `${prefix}  via?: "canonical" | "conventional"`,
+    `${prefix}  conflict?: true`,
     `${prefix}}`,
     `${prefix}export interface ServerEnvInspection {`,
     `${prefix}  entries: readonly ServerEnvInspectionEntry[]`,

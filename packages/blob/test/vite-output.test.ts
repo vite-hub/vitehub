@@ -995,6 +995,13 @@ describe("Vite provider outputs", () => {
       message: "Unknown Blob store \"missing\".",
     })
 
+    fetchMock.mockClear()
+    await expect(runtimeModule.blob.store("constructor").put("notes/constructor.txt", "hello")).rejects.toMatchObject({
+      code: "BLOB_R0028",
+      message: "Unknown Blob store \"constructor\".",
+    })
+    expect(fetchMock).not.toHaveBeenCalled()
+
     const runtimeContents = await readFile(join(rootDir, ".vitehub", "blob", "vercel-runtime.mjs"), "utf8")
     expect(runtimeContents).toContain("store: storeName => createGeneratedBlobStorage(storeName)")
     expect(runtimeContents).toContain("export const blob = createLazyGeneratedBlobStorage(\"default\")")

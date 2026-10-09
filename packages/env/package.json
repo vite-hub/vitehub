@@ -46,6 +46,14 @@
       "types": "./dist/http.d.ts",
       "import": "./dist/http.js"
     },
+    "./internal/agent": {
+      "types": "./dist/internal/agent.d.ts",
+      "import": "./dist/internal/agent.js"
+    },
+    "./internal/connections": {
+      "types": "./dist/internal/connections.d.ts",
+      "import": "./dist/internal/connections.js"
+    },
     "./presets": {
       "types": "./dist/presets.d.ts",
       "import": "./dist/presets.js"
@@ -92,6 +100,7 @@
     "valibot": "catalog:runtime"
   },
   "devDependencies": {
+    "zod": "catalog:runtime",
     "@vite-hub/internal": "workspace:*",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
@@ -103,13 +112,17 @@
   },
   "peerDependencies": {
     "vite": "catalog:vite-compat",
-    "drizzle-orm": "catalog:database"
+    "drizzle-orm": "catalog:database",
+    "@vite-hub/agent": "^0.0.4"
   },
   "peerDependenciesMeta": {
     "vite": {
       "optional": true
     },
     "drizzle-orm": {
+      "optional": true
+    },
+    "@vite-hub/agent": {
       "optional": true
     }
   },

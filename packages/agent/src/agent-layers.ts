@@ -1,8 +1,8 @@
 import { discoveredAgentName } from "./internal/discovered-agent-name.ts"
 import { agentDefinitionSourceSymbol } from "./internal/agent-definition-source.ts"
 import { registeredWorkspaceAgentNames } from "./internal/workspace-agent-registration.ts"
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
-import { resolveNamedAgentPresetOptions } from "./agent-presets.ts"
+import { hasRuntimeType } from "./internal/runtime-type.ts"
+import { resolveAgentPresetExtension } from "./agent-presets.ts"
 import type { AgentDefinition, AgentInterceptOutputCarrier, AgentSettings } from "./types.ts"
 
 type LayerAgentDefinition = Omit<AgentDefinition, keyof AgentInterceptOutputCarrier> & AgentInterceptOutputCarrier
@@ -11,6 +11,7 @@ interface ConfiguredLayer {
   options: Record<string, unknown>
   configure: (options: Record<string, unknown>) => unknown
   overrides: Record<string, unknown>
+  configKey?: string
 }
 
 interface AgentLayerMetadata {
@@ -118,8 +119,8 @@ function merge(parent: unknown, child: unknown, path: string): unknown {
 }
 
 /** Rebuild a definition from configuration. Never copy a parent's bound runtime or invocation state. */
-export function resolveAgentLayerOptions(input: unknown, ownsWorkspace: (settings: AgentSettings) => boolean): unknown {
-  input = resolveNamedAgentPresetOptions(input)
+export function resolveAgentLayerOptions(input: unknown, ownsWorkspace: (settings: AgentSettings) => boolean, resolvePreset: (name: string) => unknown): unknown {
+  input = resolveAgentPresetExtension(input, resolvePreset, mergePresetOptions)
   if (!record(input)) return input
   if (!("extends" in input)) {
     if ("options" in input) throw new TypeError("[vitehub] Agent options require a preset with options and configure.")
@@ -181,7 +182,7 @@ export type DefinitionDecorationCarrier = Record<PropertyKey, unknown>
 
 export function copyDefinitionDecorations(source: DefinitionDecorationCarrier, target: DefinitionDecorationCarrier): void {
   const frameworkProperties = new Set<PropertyKey>([
-    discoveredAgentName, agentDefinitionSourceSymbol, registeredWorkspaceAgentNames, "options", "__vitehubAgentSettings", "__vitehubWorkspaceAgent", "__vitehubWorkspaceAgentOptions", agentLayerMetadata,
+    discoveredAgentName, agentDefinitionSourceSymbol, registeredWorkspaceAgentNames, "options", "configKey", "__vitehubAgentSettings", "__vitehubWorkspaceAgent", "__vitehubWorkspaceAgentOptions", agentLayerMetadata,
     "resolve", "run", "health", "status", "box", "github", "capabilities", "channels", "chat", "cli", "description",
     "driver", "hooks", "invoker", "invocations", "messages", "name", "runtime", "runEvents", "uiMessageStream", "version", "workspace",
     "bindings", "commit", "loaders", "plugins", "publish", "rootDir", "rules", "sourceRootDir", "sources", "store", "mode",
@@ -420,9 +421,14 @@ function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>()
 export function createConfiguredAgentDefinition(input: unknown, create: (options: AgentSettings) => LayerAgentDefinition): LayerAgentDefinition | undefined {
   if (!record(input) || !("configure" in input)) return undefined
   if (!record(input.options) || !hasRuntimeType(input.configure, "function")
-    || Object.keys(input).some(key => key !== "options" && key !== "configure")) {
+    || Object.keys(input).some(key => key !== "options" && key !== "configure" && key !== "configKey")) {
     throw new TypeError("[vitehub] A configured Agent requires only options defaults and a configure callback.")
   }
+  if (input.configKey !== undefined && (!hasRuntimeType(input.configKey, "string") || !/^[a-z][a-zA-Z0-9]*$/.test(input.configKey)
+    || ["extends", "preset", "presets", "options", "configure", "driver", "workspace", "channels", "capabilities", "name", "description", "hooks", "data", "intercept", "github", "runtime", "invoker", "invocations", "messages", "box", "version", "resolve", "run", "health", "status", "chat", "cli", "configKey", "constructor", "prototype"].includes(input.configKey))) {
+    throw new TypeError("[vitehub] Agent configKey must be a non-reserved configuration key.")
+  }
+  const configKey = hasRuntimeType(input.configKey, "string") ? input.configKey : undefined
   const callback = input.configure
   const configure = (options: Record<string, unknown>): unknown => callback(options)
   const options = mergePresetOptions({}, input.options)
@@ -433,7 +439,7 @@ export function createConfiguredAgentDefinition(input: unknown, create: (options
   copyDefinitionDecorations(asMetadataTarget(definition), asMetadataTarget(configured))
   inheritColocatedSkills(asMetadataTarget(definition), asMetadataTarget(configured))
   inheritAgentLayerOptions(asMetadataTarget(definition), asMetadataTarget(configured))
-  rememberConfiguredLayer(configured, { options, configure, overrides: {} })
+  rememberConfiguredLayer(configured, { options, configure, overrides: {}, configKey })
   return configured
 }
 
@@ -446,6 +452,7 @@ function rememberConfiguredLayer(definition: LayerAgentDefinition, configured: C
   // SAFETY: Agent definitions are mutable metadata carriers owned by this package.
   const metadataTarget = asMetadataTarget(definition)
   rememberLayerMetadata(metadataTarget, { ...layerMetadata(definition)!, configured })
+  if (configured.configKey) Object.defineProperty(definition, "configKey", { value: configured.configKey, enumerable: true, configurable: true })
   Object.defineProperty(definition, "options", {
     value: Object.freeze(mergePresetOptions({}, configured.options)),
     enumerable: true,

@@ -3,12 +3,11 @@ import { supportsSkillPersistence } from "./internal/skill-persistence.ts"
 import { markCapabilityInspection } from "./internal/capability-inspection.ts"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
 import { hostObservability, isHostObservabilityCapability } from "./internal/observability-host.ts"
-import { asUnknownBoundary, hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
-import { isRuntimeRecord } from "./internal/runtime-type.ts"
+import { asUnknownBoundary, hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { resolveRuntimeValue, ViteHubError } from "@vite-hub/runtime"
 import type { StandardSchemaV1 } from "@standard-schema/spec"
 
-import { applyWorkspaceAccessWrapper, hasTrustedWorkspaceAccessScope, hasTrustedWorkspaceSourceResolutionDefinition, isTrustedSourceFreeInspection, workspaceOverrideSymbol } from "./access-runtime.ts"
+import { applyWorkspaceAccessWrapper, grantWorkspaceAccessScope, hasTrustedWorkspaceSourceResolutionDefinition, isTrustedSourceFreeInspection, trustedWorkspaceAccessScope, workspaceOverrideSymbol } from "./access-runtime.ts"
 import {
   assertCapabilityCliContribution,
   createCapabilityCliTool,
@@ -87,7 +86,7 @@ export function trustGitHubPullRequestWorkspaceCapability<T extends object>(capa
   trustedGitHubPullRequestWorkspaceCapabilities.add(capability)
   return capability
 }
-export const capabilityFinishDeliveryEffectSymbol: unique symbol = Symbol("vitehub.agent.capabilityFinishDeliveryEffect")
+export const capabilityFinishDeliveryEffectSymbol: unique symbol = Symbol.for("vitehub.agent.capabilityFinishDeliveryEffect")
 export const eagerFinishExtensionSymbol: unique symbol = Symbol("vitehub.agent.eagerFinishExtension")
 type InternalAgentCapabilityDefinition<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -424,10 +423,11 @@ export function capabilityWorkspaceSources(
   capabilities: readonly AgentCapabilityDefinition[] | undefined,
 ): WorkspaceDefinition["sources"] | undefined {
   const normalized = normalizeCapabilities(capabilities)
-  const sources: NonNullable<WorkspaceDefinition["sources"]> = {}
+  // SAFETY: The empty null-prototype map receives only typed workspace source inputs below.
+  const sources = Object.create(null) as NonNullable<WorkspaceDefinition["sources"]>
   for (const capability of normalized) {
     for (const [key, source] of Object.entries(capability.workspaceSources || {})) {
-      if (key in sources) {
+      if (Object.hasOwn(sources, key)) {
         throw agentDiagnostics.AGENT_R0323({ message: `[vitehub] Duplicate workspace source "${key}" contributed by capabilities.` })
       }
       sources[key] = source
@@ -801,9 +801,7 @@ async function assertResolvedWorkspaceContributionSources(
 }
 
 function selectedWorkspaceScopeFromContext(context: AgentInvocationContextStore): WorkspaceSelectedScope | undefined {
-  if (!hasTrustedWorkspaceAccessScope(context)) return
-  const access = context.get("access")
-  const scope = access?.workspaceScope
+  const scope = trustedWorkspaceAccessScope(context)
   if (!scope?.scope) return
   return {
     all: scope.all === true,
@@ -815,19 +813,15 @@ function selectedWorkspaceScopeFromContext(context: AgentInvocationContextStore)
 }
 
 function setSelectedWorkspaceScopeContext(context: AgentInvocationContextStore, scope: WorkspaceSelectedScope | undefined) {
-  if (!scope || !hasTrustedWorkspaceAccessScope(context)) return
-  const access = context.get("access")
-  context.set("access", {
-    ...access,
-    workspaceScope: {
-      ...access?.workspaceScope,
-      all: scope.all,
-      paths: scope.paths,
-      role: scope.role,
-      scope: scope.name,
-      sources: scope.sources,
-    },
-  }, { overwrite: true })
+  const current = trustedWorkspaceAccessScope(context)
+  if (!scope || !current) return
+  grantWorkspaceAccessScope(context, {
+    all: scope.all,
+    paths: scope.paths ?? current.paths,
+    role: scope.role ?? current.role,
+    scope: scope.name,
+    sources: scope.sources ?? current.sources,
+  })
 }
 
 function mergeSelectedWorkspaceScopePaths(scope: WorkspaceSelectedScope | undefined, paths: readonly string[]): WorkspaceSelectedScope | undefined {
@@ -1377,7 +1371,7 @@ export async function resolveAgentCapabilities<
         && (invocationOptions.invocationKind === "run" || invocationOptions.invocationKind === "stream"),
     }, workspaceMode, workspace || currentWorkspace, invocationOptions.workspaceDefinition)
     if (workspaceContribution) {
-      currentWorkspace = hasTrustedWorkspaceAccessScope(invocationContext)
+      currentWorkspace = trustedWorkspaceAccessScope(invocationContext)
         ? applyWorkspaceAccessWrapper(invocationContext, workspaceContribution.workspace)
         : workspaceContribution.workspace
       currentWorkspaceDefinition = workspaceContribution.definition

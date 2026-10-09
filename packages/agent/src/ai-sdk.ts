@@ -1,5 +1,5 @@
 import { resolveAgentInstructions } from "./agent-instructions.ts"
-import { asUnknownBoundary, hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
+import { asUnknownBoundary, hasRuntimeType } from "./internal/runtime-type.ts"
 import { formatRuntimeDiagnosticError } from "@vite-hub/runtime"
 import { readAgentErrorProperty } from "./agent-error.ts"
 import { getMessageText, isAttachmentData, isAttachmentPart, resolveAttachmentData } from "./messages.ts"
@@ -868,7 +868,7 @@ function withDefaultToolInputSchemas<TTools extends Record<string, unknown> | un
     }
     if (record.inputSchema != null) {
       const inputSchema = record.inputSchema
-      if (!hasRuntimeType(inputSchema, "object") || inputSchema === null || "~standard" in inputSchema || "jsonSchema" in inputSchema) {
+      if (!hasRuntimeType(inputSchema, "object") || inputSchema === null || isStandardSchemaInput(inputSchema) || Object.hasOwn(inputSchema, "jsonSchema")) {
         return [name, tool]
       }
       return [name, copyToolWithOverrides(record, {
@@ -881,6 +881,29 @@ function withDefaultToolInputSchemas<TTools extends Record<string, unknown> | un
       inputSchema: defaultToolInputSchema,
     })]
   })) as TTools
+}
+
+function isStandardSchemaInput(value: unknown): boolean {
+  if (!hasRuntimeType(value, "object") || value === null) return false
+  if (Object.hasOwn(value, "~standard")) return true
+  if (!("~standard" in value)) return false
+  const marker = value["~standard"]
+  if (!hasRuntimeType(marker, "object") || marker === null) return false
+  const versionDescriptor = Object.getOwnPropertyDescriptor(marker, "version")
+  const validateDescriptor = Object.getOwnPropertyDescriptor(marker, "validate")
+  let version: unknown
+  let validate: unknown
+  try {
+    version = versionDescriptor && ("value" in versionDescriptor
+      ? versionDescriptor.value
+      : versionDescriptor.get?.call(marker))
+    validate = validateDescriptor && ("value" in validateDescriptor
+      ? validateDescriptor.value
+      : validateDescriptor.get?.call(marker))
+  } catch {
+    return false
+  }
+  return version === 1 && hasRuntimeType(validate, "function")
 }
 
 function createAiSdkRuntimeContext(context: AgentAdapterRunContext) {

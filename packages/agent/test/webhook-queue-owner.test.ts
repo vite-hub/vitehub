@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { createAgentWebhookQueue } from "../src/internal/webhook-queue.ts"
+import { createAgentWebhookQueue, webhookQueueShutdown } from "../src/internal/webhook-queue.ts"
 
 import type { AgentWebhookQueueLease, AgentWebhookQueueStateAdapter } from "../src/internal/webhook-queue.ts"
 
@@ -74,6 +74,61 @@ describe("Agent webhook queue owner", () => {
     await queue.stop()
 
     expect(stopped).toHaveBeenCalledTimes(2)
+  })
+
+  it("lets active deliveries finish within VITEHUB_SHUTDOWN_DRAIN_MS before it aborts them", async () => {
+    vi.stubEnv("VITEHUB_SHUTDOWN_DRAIN_MS", "1000")
+    const finished = vi.fn()
+    const aborted = vi.fn()
+    let release!: () => void
+    const execute = vi.fn(async ({ lifecycleSignal }: { lifecycleSignal: AbortSignal }) => {
+      lifecycleSignal.addEventListener("abort", aborted, { once: true })
+      await new Promise<void>((resolve) => { release = resolve })
+      finished()
+      return Date.now()
+    })
+    const queue = createAgentWebhookQueue({ execute, resolveWaitUntil: async () => undefined })
+    try {
+      await queue.register({ backendId: "backend", options: {}, scope: "scope", state: queueState([delivery("one")]).state })
+      await vi.waitFor(() => expect(execute).toHaveBeenCalledOnce())
+
+      const stopped = queue.stop()
+      const shutdown = webhookQueueShutdown()
+      setTimeout(() => release(), 50)
+      await stopped
+      await shutdown
+
+      expect(finished).toHaveBeenCalledOnce()
+      expect(aborted).not.toHaveBeenCalled()
+    }
+    finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it("aborts deliveries that outlast VITEHUB_SHUTDOWN_DRAIN_MS", async () => {
+    vi.stubEnv("VITEHUB_SHUTDOWN_DRAIN_MS", "50")
+    const aborted = vi.fn()
+    const execute = vi.fn(async ({ lifecycleSignal }: { lifecycleSignal: AbortSignal }) => {
+      await new Promise<void>((resolve) => lifecycleSignal.addEventListener("abort", () => {
+        aborted()
+        resolve()
+      }, { once: true }))
+      return Date.now()
+    })
+    const queue = createAgentWebhookQueue({ execute, resolveWaitUntil: async () => undefined })
+    try {
+      await queue.register({ backendId: "backend", options: {}, scope: "scope", state: queueState([delivery("one")]).state })
+      await vi.waitFor(() => expect(execute).toHaveBeenCalledOnce())
+
+      await queue.stop()
+      await webhookQueueShutdown()
+
+      expect(aborted).toHaveBeenCalledOnce()
+    }
+    finally {
+      vi.unstubAllEnvs()
+    }
   })
 
   it("rediscovers every persisted scope when registration wins startup", async () => {

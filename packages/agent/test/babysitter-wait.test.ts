@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { PullRequestInbox, type Snapshot } from "../src/server/github-inbox.ts";
-import { createCheckWait, isExternalWaitResult, shouldKeepWaiting, wakeReasons, type BabysitterWaitPolicy } from "../src/presets/babysitter/wait.ts";
+import { createCheckWait, hasPendingChecks, reviewCheckRunning, shouldKeepWaiting, wakeReasons, type BabysitterWaitPolicy } from "../src/presets/babysitter/wait.ts";
 import { snapshotCheckEvidence } from "../src/presets/babysitter/merge.ts";
 import { stackRetargetBase } from "../src/presets/babysitter/stack.ts";
 import { evaluateGitHubRequiredChecks } from "../src/server/github-required-checks.ts";
@@ -89,10 +89,74 @@ describe("Babysitter check waits", () => {
     expect(shouldKeepWaiting(await parked(s => { s.wait = { ...s.wait!, headSha: "b".repeat(40) } }), "unknown", policy)).toBe(true);
   });
 
-  it("recognizes external gates in a park result", () => {
-    expect(isExternalWaitResult("Checks are still running.")).toBe(true);
-    expect(isExternalWaitResult("Waiting for review webhooks.")).toBe(true);
-    expect(isExternalWaitResult("Looks good to me.")).toBe(false);
+  it("infers waits from check evidence rather than result prose", async () => {
+    expect(hasPendingChecks(await parked(), policy)).toBe(false);
+    expect(hasPendingChecks(await parked(s => { s.checks["queued"] = { id: 8, name: "test", status: "queued", head_sha: head, app: { id: 5 } } }), policy)).toBe(true);
+  });
+  it.each(["failure", "in_progress"])("ignores superseded %s runs when recording and waking waits", async state => {
+    const snapshot = await parked(s => {
+      s.checks = {};
+      s.wait = { headSha: head, ...createCheckWait(s, policy) };
+      s.checks.old = { id: 1, name: "lint", head_sha: head, status: state === "failure" ? "completed" : state, conclusion: state === "failure" ? state : null, app: { id: 5 } };
+      s.checks.new = { id: 2, name: "lint", head_sha: head, status: "completed", conclusion: "success", app: { id: 5 } };
+    });
+    expect(createCheckWait(snapshot, policy).knownFailures).toEqual([]);
+    expect(hasPendingChecks(snapshot, policy)).toBe(false);
+    expect(wakeReasons(snapshot, "pending", policy)).toEqual([]);
+    snapshot.wait!.defer = "checks";
+    expect(wakeReasons(snapshot, "pending", policy)).toEqual([]);
+    expect(wakeReasons(snapshot, "passed", policy)).toEqual(["gates-settled"]);
+  });
+
+  it("holds reproduced manual blockers through green checks and existing threads", async () => {
+    const snapshot = await parked(s => { s.threads = [{ id: "T1", isResolved: false, comments: [] }]; });
+    const checkWait = createCheckWait(snapshot, policy);
+    snapshot.wait = { headSha: head, ...checkWait, kind: "external", reason: "Credential denied; maintainer must restore service access" };
+    expect(wakeReasons(snapshot, "passed", { ...policy, wakeWhenReady: true })).toEqual([]);
+    snapshot.checks["new"] = { id: 55, name: "optional", status: "completed", conclusion: "failure", head_sha: head, app: { id: 5 } };
+    expect(wakeReasons(snapshot, "failed", policy)).toEqual([]);
+    snapshot.comments["manual"] = { id: 56, body: "Service access restored, please retry", user: { login: "dev" } };
+    expect(wakeReasons(snapshot, "passed", policy)).toEqual(["feedback-changed"]);
+  });
+  it("holds a deferred pass while gates run, then wakes once they settle", async () => {
+    const deferred = (update: (snapshot: Snapshot) => void = () => {}) => parked(s => {
+      s.checks = { "check_run:1": { id: 1, name: "lint", head_sha: head, status: "in_progress", app: { id: 5 } } };
+      s.wait = { headSha: head, ...createCheckWait(s, policy), defer: "checks" };
+      update(s);
+    });
+    const feedback = (s: Snapshot) => { s.comments["9"] = { id: 9, body: "Please fix", user: { login: "reviewer" } } };
+    expect(wakeReasons(await deferred(feedback), "pending", policy)).toEqual([]);
+    expect(wakeReasons(await deferred(s => { s.checks["check_run:3"] = { id: 3, name: "review-bot", head_sha: head, status: "in_progress", app: { id: 6 } } }), "passed", policy)).toEqual([]);
+    expect(wakeReasons(await deferred(s => { s.pr!.mergeable_state = "dirty" }), "pending", policy)).toEqual(["merge-conflict"]);
+    expect(wakeReasons(await deferred(s => { s.checks["check_run:2"] = { id: 2, name: "test", head_sha: head, status: "completed", conclusion: "failure", app: { id: 5 } } }), "pending", policy)).toEqual(["new-failure"]);
+    // The deferral recorded no assessment, so it wakes without new evidence once the gates stop.
+    expect(wakeReasons(await deferred(feedback), "passed", policy)).toEqual(["gates-settled"]);
+    expect(wakeReasons(await deferred(), "unknown", policy)).toEqual(["gates-settled"]);
+  });
+
+  it("ignores an abandoned earlier run of a review check", async () => {
+    const review = (id: number, status: string) => ({ id, name: "review-bot", head_sha: head, status, app: { id: 6 } });
+    const snapshot = await parked(s => { s.checks["check_run:3"] = review(3, "in_progress"); s.checks["check_run:4"] = review(4, "completed") });
+    expect(reviewCheckRunning(snapshot, policy)).toBe(false);
+    expect(wakeReasons(snapshot, "passed", { ...policy, wakeWhenReady: true })).toEqual(["ready-to-merge"]);
+    snapshot.checks["check_run:5"] = review(5, "queued");
+    expect(reviewCheckRunning(snapshot, policy)).toBe(true);
+  });
+
+  it("does not wake for configured feedback authors", async () => {
+    const preview = { id: 15, body: "Preview deployed", user: { login: "preview[bot]" } };
+    const ignoring = { ...policy, ignoreFeedbackAuthors: new Set(["preview[bot]"]) };
+    expect(wakeReasons(await parked(s => { s.comments["15"] = preview }), "pending", policy)).toEqual(["feedback-changed"]);
+    const snapshot = await parked();
+    snapshot.wait = { headSha: head, ...createCheckWait(snapshot, ignoring) };
+    snapshot.comments["15"] = preview;
+    expect(wakeReasons(snapshot, "pending", ignoring)).toEqual([]);
+    snapshot.reviews["16"] = { ...preview, id: 16, state: "CHANGES_REQUESTED" };
+    expect(wakeReasons(snapshot, "pending", ignoring)).toEqual(["feedback-changed"]);
+  });
+
+  it("holds an external dependency through an unrelated green PR check", async () => {
+    expect(wakeReasons(await parked(s => { s.wait!.wake = { kind: "checks", repository, headSha: "b".repeat(40) }; s.wait!.reason = "base CI"; }), "passed", { ...policy, wakeWhenReady: true })).toEqual([]);
   });
 });
 

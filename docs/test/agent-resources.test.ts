@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 const docsRoot = resolve(import.meta.dirname, "..");
 const contentRoot = resolve(docsRoot, "content/docs");
-const aiResourcesRoot = resolve(contentRoot, "ai-resources");
+const aiResourcesRoot = resolve(contentRoot, "getting-started", "ai-resources");
 const skillRoot = resolve(docsRoot, "skills/vitehub");
 
 function listFiles(root: string): string[] {

@@ -62,8 +62,11 @@ describe("built-in deployment plans", () => {
       const manifest = JSON.parse(await readFile(resolve(rootDir, plan.output.directory, "deployment.json"), "utf8"))
       expect(manifest).toMatchObject({ host: plan.host, output: plan.output, preset, runtime: plan.runtime, services: plan.services })
       if (preset === "netlify") {
-        await expect(readFile(resolve(rootDir, ".netlify", "functions", "server.mjs"), "utf8"))
-          .resolves.toBe('export { default } from "../../functions-internal/server/main.mjs"\n')
+        const wrapper = await readFile(resolve(rootDir, ".netlify", "functions", "server.mjs"), "utf8")
+        expect(wrapper).toBe('export { default } from "../functions-internal/server/server.mjs"\n')
+        const target = wrapper.match(/from "([^"]+)"/)?.[1]
+        expect(target).toBeDefined()
+        expect(resolve(rootDir, ".netlify", "functions", target!)).toBe(entry)
       }
     }
   })
@@ -107,7 +110,10 @@ describe("built-in deployment plans", () => {
 
     const manifest = JSON.parse(await readFile(resolve(rootDir, "custom-netlify", "deployment.json"), "utf8"))
     expect(manifest.output.directory).toBe("custom-netlify")
-    await expect(readFile(resolve(rootDir, "custom-netlify", "functions", "server.mjs"), "utf8"))
-      .resolves.toBe('export { default } from "../../functions-internal/server/main.mjs"\n')
+    const wrapper = await readFile(resolve(rootDir, "custom-netlify", "functions", "server.mjs"), "utf8")
+    expect(wrapper).toBe('export { default } from "../functions-internal/server/server.mjs"\n')
+    const target = wrapper.match(/from "([^"]+)"/)?.[1]
+    expect(target).toBeDefined()
+    expect(resolve(rootDir, "custom-netlify", "functions", target!)).toBe(resolve(rootDir, "custom-netlify", plan.output.entry!))
   })
 })

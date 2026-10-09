@@ -16,15 +16,15 @@ export interface CollectionHandlerEvent {
   req: { signal: AbortSignal }
 }
 
-/** Authorizes one Collection request. Return a `Response` to reject it. */
-export type CollectionRequestAuthorizer = (
-  event: { req: Request },
+/** Wraps a Collection handler so it runs only after the request is authorized. Return a `Response` to reject the request. */
+export type CollectionAuthorizationGuard = <TEvent extends { req: Request }, TResult>(
   authorize: AccessAuthorizeOption,
-) => Promise<Response | undefined>
+  handler: (event: TEvent) => Promise<TResult>,
+) => (event: TEvent) => Promise<TResult | Response>
 
 export interface CollectionHandlerOptions {
-  /** Required when the Collection declares `authorize`. Generated routes pass Auth's `authorizeRequest`. */
-  authorizeRequest?: CollectionRequestAuthorizer
+  /** Required when the Collection declares `authorize`. Generated routes pass Auth's `withAuthorization`. */
+  withAuthorization?: CollectionAuthorizationGuard
 }
 
 function queryValue(query: Record<string, string | string[] | undefined>, key: string): string | undefined {
@@ -77,11 +77,35 @@ function serializeCollectionPage(value: unknown): unknown {
   return JSON.parse(serialized)
 }
 
+function isCallable(value: unknown): value is (...args: never[]) => unknown {
+  try {
+    Reflect.apply(Function.prototype.toString, value, [])
+    return true
+  } catch {
+    return false
+  }
+}
+
+function hasDeclaredMethod(value: unknown, key: PropertyKey): boolean {
+  const object = Object(value)
+  if (Object.hasOwn(object, key)) return isCallable(Reflect.get(object, key))
+  let prototype = Object.getPrototypeOf(object)
+  while (prototype && prototype !== Object.prototype) {
+    if (Object.hasOwn(prototype, key)) {
+      const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+      return isCallable(constructor) && constructor !== Object && constructor.prototype === prototype
+        && isCallable(Reflect.get(object, key))
+    }
+    prototype = Object.getPrototypeOf(prototype)
+  }
+  return false
+}
+
 function assertCollection(value: unknown): asserts value is Collection<unknown, object, object> {
   if (
     Object(value) !== value ||
-    !(Reflect.get(Object(value), "page") instanceof Function) ||
-    !(Reflect.get(Object(value), "parseQuery") instanceof Function)
+    !hasDeclaredMethod(Object(value), "page") ||
+    !hasDeclaredMethod(Object(value), "parseQuery")
   ) {
     throw sourceErrorDiagnostics.SOURCE_R0016({ message: "[vitehub] defineCollectionHandler() requires a Collection." })
   }
@@ -93,17 +117,12 @@ export function defineCollectionHandler<TItem, TQuery extends object, TQueryInpu
 ): CollectionHandler {
   assertCollection(collection)
   const { authorize } = collection
-  const { authorizeRequest } = options
-  if (authorize && !authorizeRequest) {
+  const { withAuthorization } = options
+  if (authorize && !withAuthorization) {
     // Fail closed: without Auth, the route cannot read a session.
     throw sourceErrorDiagnostics.SOURCE_R0025({ message: "[vitehub] Collection authorize requires Auth. Enable Auth and add `server/auth.ts`." })
   }
-  // SAFETY: CollectionHandler preserves the callable and fetch contracts exposed by H3's handler.
-  return defineEventHandler(async (event: H3Event) => {
-    if (authorize && authorizeRequest) {
-      const rejection = await authorizeRequest(event, authorize)
-      if (rejection) return rejection
-    }
+  const handlePage = async (event: H3Event) => {
     const requestQuery = getQuery(event)
     let cursor: string | undefined
     let limit: number | undefined
@@ -122,5 +141,7 @@ export function defineCollectionHandler<TItem, TQuery extends object, TQueryInpu
       if (cause instanceof CollectionCursorError) invalidRequest(cause)
       throw cause
     }
-  }) as CollectionHandler
+  }
+  // SAFETY: CollectionHandler preserves the callable and fetch contracts exposed by H3's handler.
+  return defineEventHandler(authorize && withAuthorization ? withAuthorization(authorize, handlePage) : handlePage) as CollectionHandler
 }

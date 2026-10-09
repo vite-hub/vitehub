@@ -532,3 +532,71 @@ it.each(["refresh", "removal"])("cleans verified pending files on a metadata-dro
   await materializeWorkspaceSources(operation === "refresh" ? changed : { ...changed, sources: {} }, store)
   await expect(store.readFile("docs/removed.txt")).resolves.toBeUndefined()
 })
+
+it("keeps inline binary source fingerprints compact without losing cache invalidation", async () => {
+  const content = new Uint8Array(512 * 1024).fill(255)
+  const definition = {
+    name: "binary-source-fingerprint",
+    sources: {
+      skill: { content, materialize: "startup" as const, mount: "", workspacePath: ".agents/skills/coding/SKILL.md" },
+    },
+  }
+  const [source] = normalizeWorkspaceSources(definition.sources)
+  expect(JSON.stringify(source.source.fingerprint).length).toBeLessThan(512)
+
+  const store = createMemoryWorkspaceStore()
+  await materializeWorkspaceSources(definition, store)
+  await expect(hasCurrentSourceSnapshot(store, definition.name, source)).resolves.toBe(true)
+  const file = await store.readFile(".agents/skills/coding/SKILL.md")
+  expect(file?.content).toEqual(content)
+
+  content[0] = 0
+  await expect(hasCurrentSourceSnapshot(store, definition.name, source)).resolves.toBe(false)
+  await materializeWorkspaceSources(definition, store)
+  await expect(hasCurrentSourceSnapshot(store, definition.name, source)).resolves.toBe(true)
+  expect((await store.readFile(".agents/skills/coding/SKILL.md"))?.content).toEqual(content)
+})
+
+it("does not inspect unrelated root-mounted inline Sources when listing a directory", async () => {
+  const store = createMemoryWorkspaceStore()
+  const skillPath = ".agents/skills/coding/SKILL.md"
+  const definition = {
+    name: "inline-source-listing",
+    sources: {
+      skill: { content: "coding instructions", materialize: "startup" as const, mount: "", workspacePath: skillPath },
+    },
+  }
+  await materializeWorkspaceSources(definition, store)
+  await store.writeFile("portal/index.ts", { path: "portal/index.ts", content: "export {}" })
+  const stat = vi.spyOn(store, "stat")
+  const view = createWorkspaceSourceView(definition, store, { reuseStartupSnapshots: true })
+
+  expect((await view.list("portal", { recursive: true })).map(({ path }) => path)).toEqual(["portal/index.ts"])
+  expect(stat.mock.calls.map(([path]) => path)).not.toContain(skillPath)
+
+  expect((await view.list(".agents/skills/coding", { recursive: true })).map(({ path }) => path)).toEqual([skillPath])
+  expect(stat.mock.calls.map(([path]) => path)).toContain(skillPath)
+})
+
+it.each([false, true])("reconciles moved inline Source paths and preserves user edits=%s", async (edited) => {
+  const store = createMemoryWorkspaceStore()
+  const definition = (workspacePath: string) => ({
+    name: "moved-inline-source",
+    sources: { skill: { content: "instructions", workspacePath, mount: "", materialize: "startup" as const } },
+  })
+  await materializeWorkspaceSources(definition("old/SKILL.md"), store)
+  if (edited) await store.writeFile("old/SKILL.md", { path: "old/SKILL.md", content: "user edit" })
+  const view = createWorkspaceSourceView(definition("new/SKILL.md"), store, { reuseStartupSnapshots: true })
+
+  expect((await view.list("old", { recursive: true })).map(({ path }) => path)).toEqual(edited ? ["old/SKILL.md"] : [])
+  expect((await store.readFile("new/SKILL.md"))?.content).toEqual("instructions")
+})
+
+it("retires an inline Source removed during a path and key change before a targeted listing", async () => {
+  const store = createMemoryWorkspaceStore()
+  const source = (workspacePath: string) => ({ content: "instructions", workspacePath, mount: "", materialize: "startup" as const })
+  await materializeWorkspaceSources({ name: "renamed-inline-source", sources: { old: source("old/SKILL.md") } }, store)
+  const view = createWorkspaceSourceView({ name: "renamed-inline-source", sources: { current: source("new/SKILL.md") } }, store, { reuseStartupSnapshots: true })
+
+  expect((await view.list("old", { recursive: true })).map(({ path }) => path)).toEqual([])
+})

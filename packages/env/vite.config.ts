@@ -14,7 +14,7 @@ export default defineConfig({
       },
     }],
     deps: {
-      neverBundle: ["vite"],
+      neverBundle: ["vite", "@vite-hub/agent/env-identity"],
       alwaysBundle: [/^@vite-hub\/internal/],
       onlyBundle: false,
     },
@@ -23,6 +23,8 @@ export default defineConfig({
       "src/bridge.ts",
       "src/auth.ts",
       "src/http.ts",
+      "src/internal/agent.ts",
+      "src/internal/connections.ts",
       "src/database.ts",
       "src/presets.ts",
       "src/provider.ts",

@@ -77,10 +77,9 @@ function isIdentifier(token: string | undefined): boolean {
 }
 
 // Keep literals as single tokens so their punctuation cannot change object depth.
-export function tokenizeAgentSource(source: string): { tokens: string[], lineBreaks: Set<number> } {
-  const tokens: string[] = []
-  const lineBreaks = new Set<number>()
-  let previousEnd = 0
+const agentTokenPattern = /"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'|`(?:\\[\s\S]|[^`\\])*`|\/\*[\s\S]*?\*\/|\/\/[^\n]*|\/(?:\\.|\[(?:\\.|[^\]\\])*\]|[^/\n\\])+\/[dgimsuvy]*|(?:0[xX][\da-fA-F_]+|0[bB][01_]+|0[oO][0-7_]+|(?:\d[\d_]*(?:\.[\d_]*)?|\.\d[\d_]*)(?:[eE][+-]?[\d_]+)?)n?|(?:[\p{ID_Start}$_]|\\u\{[\da-fA-F]+\}|\\u[\da-fA-F]{4})(?:(?:[\p{ID_Continue}$\u200C\u200D])|(?:\\u\{[\da-fA-F]+\}|\\u[\da-fA-F]{4}))*|[^\s]/gu
+
+function endsAgentExpression(tokens: string[]): boolean {
   function closesControlCondition(index: number): boolean {
     if (tokens[index] !== ")") return false
     let depth = 0
@@ -93,17 +92,92 @@ export function tokenizeAgentSource(source: string): { tokens: string[], lineBre
     }
     return false
   }
-  const tokenPattern = /"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'|`(?:\\[\s\S]|[^`\\])*`|\/\*[\s\S]*?\*\/|\/\/[^\n]*|\/(?:\\.|\[(?:\\.|[^\]\\])*\]|[^/\n\\])+\/[dgimsuvy]*|(?:0[xX][\da-fA-F_]+|0[bB][01_]+|0[oO][0-7_]+|(?:\d[\d_]*(?:\.[\d_]*)?|\.\d[\d_]*)(?:[eE][+-]?[\d_]+)?)n?|(?:[\p{ID_Start}$_]|\\u\{[\da-fA-F]+\}|\\u[\da-fA-F]{4})(?:(?:[\p{ID_Continue}$\u200C\u200D])|(?:\\u\{[\da-fA-F]+\}|\\u[\da-fA-F]{4}))*|[^\s]/gu
+  const previous = tokens.at(-1)
+  return previous !== undefined && (
+    /^(?:\d|\.\d|["'`]|\/.)/.test(previous) || ([")", "]", "}"].includes(previous) && !closesControlCondition(tokens.length - 1))
+    || (["+", "-"].includes(previous) && tokens.at(-2) === previous)
+    || (isIdentifier(previous) && !["return", "throw", "yield", "await", "case", "else", "in", "of", "instanceof", "typeof", "void", "delete", "new"].includes(previous))
+  )
+}
+
+// Read nested templates as one token and expose only their executable regions.
+function readAgentTemplate(source: string, start: number): { end: number, expressions: string[] } {
+  const expressions: string[] = []
+  let cursor = start + 1
+  while (cursor < source.length) {
+    if (source[cursor] === "\\") {
+      cursor += 2
+      continue
+    }
+    if (source[cursor] === "`") return { end: cursor + 1, expressions }
+    if (source[cursor] !== "$" || source[cursor + 1] !== "{") {
+      cursor++
+      continue
+    }
+    const expressionStart = cursor + 2
+    const pattern = new RegExp(agentTokenPattern.source, agentTokenPattern.flags)
+    pattern.lastIndex = expressionStart
+    let depth = 1
+    const expressionTokens: string[] = []
+    for (let match = pattern.exec(source); match !== null; match = pattern.exec(source)) {
+      let token = match[0]
+      if (token.startsWith("//") || token.startsWith("/*")) continue
+      if (token.startsWith("/") && token.length > 1 && endsAgentExpression(expressionTokens)) {
+        token = "/"
+        pattern.lastIndex = match.index + 1
+      }
+      expressionTokens.push(token)
+      if (token.startsWith("`")) {
+        pattern.lastIndex = readAgentTemplate(source, match.index).end
+      }
+      else if (token === "{") depth++
+      else if (token === "}") depth--
+      if (depth === 0) {
+        expressions.push(source.slice(expressionStart, match.index))
+        cursor = pattern.lastIndex
+        break
+      }
+    }
+    if (depth !== 0) return { end: source.length, expressions }
+  }
+  return { end: source.length, expressions }
+}
+
+function templateReferences(template: string, lineBreaks = new Set<number>()): string[] {
+  const references: string[] = []
+  for (const expression of readAgentTemplate(template, 0).expressions) {
+    const parsed = tokenizeAgentSource(expression)
+    for (let index = 0; index < parsed.tokens.length; index++) {
+      if (parsed.lineBreaks.has(index)) lineBreaks.add(references.length)
+      const token = parsed.tokens[index]!
+      references.push(token)
+      if (token.startsWith("`")) {
+        references.push(";", "(")
+        const nestedBreaks = new Set<number>()
+        const nested = templateReferences(token, nestedBreaks)
+        for (const boundary of nestedBreaks) lineBreaks.add(references.length + boundary)
+        references.push(...nested, ")")
+      }
+    }
+    references.push(";")
+  }
+  return references
+}
+
+export function tokenizeAgentSource(source: string): { tokens: string[], lineBreaks: Set<number> } {
+  const tokens: string[] = []
+  const lineBreaks = new Set<number>()
+  let previousEnd = 0
+  const tokenPattern = new RegExp(agentTokenPattern.source, agentTokenPattern.flags)
   for (let match = tokenPattern.exec(source); match !== null; match = tokenPattern.exec(source)) {
     let token = match[0]
+    if (token.startsWith("`")) {
+      tokenPattern.lastIndex = readAgentTemplate(source, match.index).end
+      token = source.slice(match.index, tokenPattern.lastIndex)
+    }
     if (token.startsWith("//") || token.startsWith("/*")) continue
     if (/[\r\n\u2028\u2029]/.test(source.slice(previousEnd, match.index))) lineBreaks.add(tokens.length)
-    const previous = tokens.at(-1)
-    const endsExpression = previous !== undefined && (
-      /^(?:\d|\.\d|["'`]|\/.)/.test(previous) || ([")", "]", "}"].includes(previous) && !closesControlCondition(tokens.length - 1))
-      || (["+", "-"].includes(previous) && tokens.at(-2) === previous)
-      || (isIdentifier(previous) && !["return", "throw", "yield", "await", "case", "else", "in", "of", "instanceof", "typeof", "void", "delete", "new"].includes(previous))
-    )
+    const endsExpression = endsAgentExpression(tokens)
     // A slash after an expression divides it. Expose operands that the
     // regex-literal matcher would otherwise hide, including option writes.
     if (token.startsWith("/") && token.length > 1 && endsExpression) {
@@ -143,7 +217,7 @@ function invalidModuleLiteral(token: string | undefined): boolean {
 // adds a Capability of its own: the pull request Workspace. The other helpers
 // contribute only the Capabilities passed in their `capabilities` option.
 const firstPartyCapabilityFactories = new Set(["blob", "db", "usage", "transcribe"])
-const firstPartyChannelFactories = new Set(["discord", "github", "http", "slack", "teams", "telegram", "webChat"])
+const firstPartyChannelFactories = new Set(["discord", "github", "gitlab", "forgejo", "http", "slack", "teams", "telegram", "webChat"])
 const channelModuleExtensions = [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"]
 
 function importedChannelError(): Error {
@@ -271,7 +345,7 @@ function inspectAgentModule(source: string, file: string, modules: Set<string>) 
     if (!lineBreaks.has(index) || !(isIdentifier(tokens[index]) || /^["'0-9]/.test(tokens[index] ?? ""))) return false
     if (["in", "instanceof", "as", "satisfies"].includes(tokens[index])) return false
     const previous = tokens[index - 1]
-    return [")", "]", "}"].includes(previous) ||
+    return [")", "]", "}"].includes(previous) || /^(?:\d|\.\d|["'`]|\/.)/.test(previous ?? "") ||
       (isIdentifier(previous ?? "") && !["return", "throw", "yield", "await", "new", "typeof", "void", "delete", "in", "instanceof", "as", "satisfies"].includes(previous))
   }
   const declarations = new Map<string, number>()
@@ -460,15 +534,15 @@ function inspectAgentModule(source: string, file: string, modules: Set<string>) 
     if (moduleImport !== undefined) reExports.set(name, moduleImport)
   }
 
-  function assignmentOperator(index: number): boolean {
-    if (tokens[index] === "=" && (["=", ">"].includes(tokens[index + 1]) || tokens[index - 1] === "=")) return false
+  function assignmentOperator(index: number, sequence = tokens): boolean {
+    if (sequence[index] === "=" && (["=", ">"].includes(sequence[index + 1]) || sequence[index - 1] === "=")) return false
     const operators = [
       ["="],
       ["+", "="], ["-", "="], ["*", "="], ["*", "*", "="], ["/", "="], ["%", "="],
       ["&", "="], ["&", "&", "="], ["|", "="], ["|", "|", "="], ["^", "="],
       ["?", "?", "="], ["<", "<", "="], [">", ">", "="], [">", ">", ">", "="],
     ]
-    return operators.some(operator => operator.every((token, offset) => tokens[index + offset] === token))
+    return operators.some(operator => operator.every((token, offset) => sequence[index + offset] === token))
   }
 
   function assignmentInitializer(index: number): number | undefined {
@@ -584,63 +658,63 @@ function inspectAgentModule(source: string, file: string, modules: Set<string>) 
 
   const callbackParameters: { start: number; end: number; names: Set<string> }[] = []
 
-  function callbackBindingNames(start: number, end: number, initializers?: Map<number, number>): Set<string> {
+  function callbackBindingNames(start: number, end: number, initializers?: Map<number, number>, sequence = tokens): Set<string> {
     const names = new Set<string>()
     let cursor = start
-    if (tokens[cursor] === "async") cursor++
-    if (tokens[cursor] === "function") cursor = tokens.indexOf("(", cursor)
+    if (sequence[cursor] === "async") cursor++
+    if (sequence[cursor] === "function") cursor = sequence.indexOf("(", cursor)
     // Method callbacks may point at their body after parameter scanning.
-    if (tokens[cursor] === "{" && tokens[cursor - 1] === ")") {
+    if (sequence[cursor] === "{" && sequence[cursor - 1] === ")") {
       let depth = 1
       cursor -= 2
       while (cursor >= 0 && depth) {
-        if (tokens[cursor] === ")") depth++
-        else if (tokens[cursor] === "(") depth--
+        if (sequence[cursor] === ")") depth++
+        else if (sequence[cursor] === "(") depth--
         if (depth) cursor--
       }
     }
     function skipValue(close: string) {
       let depth = 0
-      let type = tokens[cursor] === ":" || tokens[cursor] === "?"
+      let type = sequence[cursor] === ":" || sequence[cursor] === "?"
       for (; cursor < end; cursor++) {
-        const token = tokens[cursor]
+        const token = sequence[cursor]
         if (depth === 0 && (token === "," || token === close)) return
         if (depth === 0 && token === "=") type = false
         if (["(", "[", "{"].includes(token) || (type && token === "<")) depth++
-        else if ([")", "]", "}"].includes(token) || (type && token === ">" && tokens[cursor - 1] !== "=")) depth--
+        else if ([")", "]", "}"].includes(token) || (type && token === ">" && sequence[cursor - 1] !== "=")) depth--
       }
     }
     function binding() {
-      if (tokens[cursor] === "." && tokens[cursor + 1] === "." && tokens[cursor + 2] === ".") cursor += 3
-      const token = tokens[cursor]
+      if (sequence[cursor] === "." && sequence[cursor + 1] === "." && sequence[cursor + 2] === ".") cursor += 3
+      const token = sequence[cursor]
       if (token === "{" || token === "[") {
         const close = token === "{" ? "}" : "]"
         cursor++
-        while (cursor < end && tokens[cursor] !== close) {
-          if (tokens[cursor] === ",") { cursor++; continue }
-          if (token === "{" && tokens[cursor] === "[") {
+        while (cursor < end && sequence[cursor] !== close) {
+          if (sequence[cursor] === ",") { cursor++; continue }
+          if (token === "{" && sequence[cursor] === "[") {
             // Computed property expressions do not introduce bindings.
             let depth = 1
             for (cursor++; cursor < end && depth; cursor++) {
-              if (tokens[cursor] === "[") depth++
-              else if (tokens[cursor] === "]") depth--
+              if (sequence[cursor] === "[") depth++
+              else if (sequence[cursor] === "]") depth--
             }
-            if (tokens[cursor] === ":") cursor++
-          } else if (token === "{" && tokens[cursor + 1] === ":") cursor += 2
+            if (sequence[cursor] === ":") cursor++
+          } else if (token === "{" && sequence[cursor + 1] === ":") cursor += 2
           binding()
           skipValue(close)
         }
         cursor++
       } else {
         if (isIdentifier(token ?? "")) names.add(token)
-        if (tokens[cursor + 1] === "=") initializers?.set(cursor, cursor + 2)
+        if (sequence[cursor + 1] === "=") initializers?.set(cursor, cursor + 2)
         cursor++
       }
     }
-    if (tokens[cursor] !== "(") { binding(); return names }
+    if (sequence[cursor] !== "(") { binding(); return names }
     cursor++
-    while (cursor < end && tokens[cursor] !== ")") {
-      if (tokens[cursor] === ",") { cursor++; continue }
+    while (cursor < end && sequence[cursor] !== ")") {
+      if (sequence[cursor] === ",") { cursor++; continue }
       binding()
       skipValue(")")
     }
@@ -663,9 +737,25 @@ function inspectAgentModule(source: string, file: string, modules: Set<string>) 
     }
   }
 
-  function isFunctionParameter(index: number): boolean {
+  const expressionArrowParameters: { start: number; end: number; names: Set<string> }[] = []
+  for (let arrow = 0; arrow + 2 < tokens.length; arrow++) {
+    if (tokens[arrow] !== "=" || tokens[arrow + 1] !== ">" || tokens[arrow + 2] === "{") continue
+    const parameters = openingDelimiters.get(arrow - 1) ?? arrow - 1
+    const names = callbackBindingNames(parameters, arrow)
+    let end = arrow + 2
+    let depth = 0
+    for (; end < tokens.length; end++) {
+      const token = tokens[end]!
+      if (depth === 0 && ([";", ",", ")", "]", "}"].includes(token) || startsStatement(end))) break
+      if (["(", "[", "{"].includes(token)) depth++
+      else if ([")", "]", "}"].includes(token)) depth--
+    }
+    expressionArrowParameters.push({ start: arrow + 2, end, names })
+  }
+
+  function isFunctionParameter(index: number, name = tokens[index]): boolean {
     for (let scope = tokenScopes[index]; scope !== undefined; scope = scopeParents.get(scope)) {
-      if (functionParameterNames.get(scope)?.has(tokens[index])) return true
+      if (functionParameterNames.get(scope)?.has(name)) return true
     }
     return false
   }
@@ -856,7 +946,7 @@ function inspectAgentModule(source: string, file: string, modules: Set<string>) 
       let nesting = 0
       while (aliasEnd < tokens.length) {
         const token = tokens[aliasEnd]
-        if (nesting === 0 && [";", ","].includes(token!)) break
+        if (nesting === 0 && ([";", ","].includes(token!) || startsStatement(aliasEnd))) break
         if (["(", "[", "{"].includes(token!)) nesting++
         else if ([")", "]", "}"].includes(token!)) {
           if (nesting === 0) break
@@ -1170,10 +1260,472 @@ function inspectAgentModule(source: string, file: string, modules: Set<string>) 
   // captured Channel options without leaving a statically visible write.
   if (directEvalCalls.size > 0) invalidateCapturedBindings()
   // Template interpolations execute expressions hidden inside a literal token.
-  // Their side effects cannot be inspected by this scanner.
-  if (tokens.some(token => token.startsWith("`") && /(?<!\\)(?:\\\\)*\$\{/.test(token))) {
-    invalidateCapturedBindings()
-    for (const name of imported) mutatedBindings.add(name)
+  // Track referenced captures and keep opaque calls conservative.
+  for (let templateIndex = 0; templateIndex < tokens.length; templateIndex++) {
+    const template = tokens[templateIndex]!
+    if (!template.startsWith("`") || !/(?<!\\)(?:\\\\)*\$\{/.test(template)) continue
+    const referenceLineBreaks = new Set<number>()
+    const references = templateReferences(template, referenceLineBreaks)
+    // Template locals shadow names only within their own scope.
+    const templateLocalBindings: { start: number; end: number; names: Set<string> }[] = []
+    const referenceOpenings = new Map<number, number>()
+    const referenceStack: number[] = []
+    for (let index = 0; index < references.length; index++) {
+      if (["(", "[", "{"].includes(references[index]!)) referenceStack.push(index)
+      else if ([")", "]", "}"].includes(references[index]!)) {
+        const opening = referenceStack.pop()
+        if (opening !== undefined) referenceOpenings.set(index, opening)
+      }
+    }
+    const referenceClosings = new Map([...referenceOpenings].map(([closing, opening]) => [opening, closing]))
+    for (let arrow = 0; arrow < references.length; arrow++) {
+      if (references[arrow] !== "=" || references[arrow + 1] !== ">") continue
+      const start = referenceOpenings.get(arrow - 1) ?? arrow - 1
+      const names = new Set(references.slice(start, arrow).filter(isIdentifier))
+      let end = arrow + 2
+      let depth = 0
+      for (; end < references.length; end++) {
+        const token = references[end]!
+        // An unparenthesized arrow in a conditional only owns the consequent.
+        // Stop before the alternate branch so its references are not treated
+        // as parameters of the arrow.
+        if (depth === 0 && [";", ",", ":", ")", "]", "}"].includes(token)) break
+        if (["(", "[", "{"].includes(token)) depth++
+        else if ([")", "]", "}"].includes(token)) depth--
+      }
+      templateLocalBindings.push({ start, end, names })
+    }
+    const methodKey = (index: number) => {
+      if (["if", "for", "while", "switch", "catch", "with"].includes(references[index] ?? "")) return false
+      if (references[index + 1] !== "(") return false
+      const closing = referenceClosings.get(index + 1)
+      if (closing === undefined || references[closing + 1] !== "{") return false
+      const previous = references[index - 1]
+      if (["{", ",", ";", "}"].includes(previous ?? "")) return true
+      return ["get", "set", "async", "*"].includes(previous ?? "")
+        && ["{", ",", ";", "}", "async"].includes(references[index - 2] ?? "")
+        || previous === "static"
+        || ["get", "set", "async", "*"].includes(previous ?? "")
+          && references[index - 2] === "static"
+        || previous === "*" && references[index - 2] === "async"
+    }
+    // Function expressions create a local name and parameter scope. Their
+    // declaration syntax also contains a parenthesized token sequence that
+    // must not be mistaken for an opaque call.
+    const functionExpression = (index: number) => {
+      if (references[index] !== "function") return undefined
+      let cursor = index + 1
+      if (references[cursor] === "*") cursor++
+      const name = isIdentifier(references[cursor] ?? "") ? references[cursor++] : undefined
+      if (references[cursor] !== "(") return undefined
+      const close = referenceClosings.get(cursor)
+      if (close === undefined || references[close + 1] !== "{") return undefined
+      const bodyClose = referenceClosings.get(close + 1)
+      if (bodyClose === undefined) return undefined
+      return { name, parameters: cursor, parameterClose: close, bodyOpen: close + 1, bodyClose }
+    }
+    const uncalledFunctionBodies: { start: number; end: number }[] = []
+    // An arrow expression created inside an interpolation is not invoked by
+    // evaluating the template. Ignore calls in its body, just like function
+    // expressions, while retaining immediately invoked arrows.
+    for (let arrow = 0; arrow + 1 < references.length; arrow++) {
+      if (references[arrow] !== "=" || references[arrow + 1] !== ">") continue
+      const start = arrow + 2
+      let end = start
+      if (references[start] === "{") {
+        end = referenceClosings.get(start) ?? start
+      } else {
+        let depth = 0
+        for (; end < references.length; end++) {
+          const token = references[end]!
+          if (depth === 0 && ([";", ",", ")", "]", "}"].includes(token) || referenceLineBreaks.has(end))) break
+          if (["(", "[", "{"].includes(token)) depth++
+          else if ([")", "]", "}"].includes(token)) depth--
+        }
+        end--
+      }
+      // An immediately invoked arrow wrapped in parentheses is followed by
+      // the grouping closers before its call, for example `(() => value)()`.
+      // Skip those closers when deciding whether the body executes.
+      // Consume the single grouping delimiter that wraps an immediately
+      // invoked arrow. Do not skip delimiters belonging to an enclosing call:
+      // `consume(() => value)()` invokes `consume`, not the callback arrow.
+      let invocation = end + 1
+      if ([")", "]", "}"].includes(references[invocation] ?? "")) {
+        // A closing delimiter can belong to the argument list of an
+        // enclosing call. In `consume(() => value)()`, the following call
+        // invokes consume's result, not the callback arrow. Parenthesized
+        // IIFEs have no callee immediately before their grouping delimiter.
+        const groupingOpen = referenceOpenings.get(invocation)
+        const groupingCallee = groupingOpen === undefined ? undefined : references[groupingOpen - 1]
+        if (groupingCallee === undefined || !isIdentifier(groupingCallee)) invocation++
+      }
+      if (end >= start && references[invocation] !== "(") uncalledFunctionBodies.push({ start, end })
+    }
+    const functionExpressionCall = (index: number) => {
+      for (let cursor = Math.max(0, index - 3); cursor <= index; cursor++) {
+        const expression = functionExpression(cursor)
+        if (expression && expression.parameters === index + 1) return true
+      }
+      return false
+    }
+    for (let index = 0; index < references.length; index++) {
+      const expression = functionExpression(index)
+      if (expression === undefined) continue
+      const names = callbackBindingNames(expression.parameters, expression.parameterClose, undefined, references)
+      if (expression.name !== undefined) names.add(expression.name)
+      templateLocalBindings.push({ start: index, end: expression.bodyClose, names })
+      // Constructing a function only stringifies its source. Calls in an
+      // uninvoked function body cannot execute while evaluating the template.
+      // Keep immediately invoked function expressions conservative.
+      const afterBody = references[expression.bodyClose + 1]
+      if (!['(', '.', '?.'].includes(afterBody ?? '')) {
+        uncalledFunctionBodies.push({ start: expression.bodyOpen, end: expression.bodyClose })
+      }
+    }
+    // Method parameters shadow module bindings throughout their method body.
+    // Keep these names local to the template interpolation so an unrelated
+    // method such as `render(portal) { return portal.id }` cannot taint an
+    // imported `portal` binding.
+    for (let index = 0; index < references.length; index++) {
+      if (!methodKey(index)) continue
+      const parameterOpen = index + 1
+      const parameterClose = referenceClosings.get(parameterOpen)
+      if (parameterClose === undefined || references[parameterClose + 1] !== "{") continue
+      const bodyOpen = parameterClose + 1
+      const bodyClose = referenceClosings.get(bodyOpen)
+      if (bodyClose === undefined) continue
+      const names = callbackBindingNames(parameterOpen, parameterClose, undefined, references)
+      templateLocalBindings.push({ start: parameterOpen, end: bodyClose, names })
+    }
+    // Class static blocks have their own lexical scope. Track the block so
+    // declarations inside it cannot be mistaken for imported captures.
+    for (let index = 0; index < references.length; index++) {
+      if (references[index] !== "static" || references[index + 1] !== "{") continue
+      const end = referenceClosings.get(index + 1)
+      if (end !== undefined) templateLocalBindings.push({ start: index, end, names: new Set() })
+    }
+    // Resolve body declarations in their lexical block, or function for var.
+    // Do not let a method local hide imported reads in another interpolation.
+    const templateFunctionScopes = [...templateLocalBindings]
+    for (let index = 0; index < references.length; index++) {
+      if (references[index] !== "catch" || references[index + 1] !== "(") continue
+      const close = referenceClosings.get(index + 1)
+      if (close === undefined || references[close + 1] !== "{") continue
+      const end = referenceClosings.get(close + 1)
+      if (end !== undefined) {
+        const names = callbackBindingNames(index + 1, close, undefined, references)
+        templateLocalBindings.push({ start: index + 1, end, names })
+      }
+    }
+    const templateStatementEnd = (start: number): number => {
+      const token = references[start]
+      if (token === "{") return (referenceClosings.get(start) ?? start) + 1
+      if (["for", "if", "while", "with", "switch"].includes(token ?? "")) {
+        const parameters = token === "for" && references[start + 1] === "await" ? start + 2 : start + 1
+        const close = referenceClosings.get(parameters)
+        if (close !== undefined) {
+          const end = templateStatementEnd(close + 1)
+          return token === "if" && references[end] === "else" ? templateStatementEnd(end + 1) : end
+        }
+      }
+      for (let cursor = start; cursor < references.length; cursor++) {
+        if (["}", ")", "]"].includes(references[cursor]!)) return cursor
+        if (references[cursor] === ";") return cursor + 1
+        if (cursor > start && referenceLineBreaks.has(cursor)
+          && endsAgentExpression(references.slice(start, cursor))) return cursor
+        cursor = referenceClosings.get(cursor) ?? cursor
+      }
+      return references.length
+    }
+    for (let index = 0; index < references.length; index++) {
+      const keyword = references[index]!
+      const declarationStart = keyword === "function" && references[index - 1] === "async" ? index - 1 : index
+      const loopOpen = references[index - 1] === "(" && (references[index - 2] === "for"
+        || references[index - 2] === "await" && references[index - 3] === "for") ? index - 1 : undefined
+      if (!["const", "let", "var", "function", "class"].includes(keyword)
+        || loopOpen === undefined && !["{", ";", "}"].includes(references[declarationStart - 1] ?? "") && !referenceLineBreaks.has(declarationStart)) continue
+      const owner = templateFunctionScopes.filter(scope => index > scope.start && index < scope.end)
+        .sort((a, b) => b.start - a.start)[0]
+      if (!owner) continue
+      const block = [...referenceClosings].filter(([opening, closing]) =>
+        references[opening] === "{" && opening < index && closing > index)
+        .sort(([a], [b]) => b - a)[0]
+      if (!block) continue
+      const loopClose = loopOpen === undefined ? undefined : referenceClosings.get(loopOpen)
+      const start = keyword === "var" ? owner.start : loopOpen ?? block[0]
+      const end = keyword === "var" ? owner.end : loopClose === undefined ? block[1] : templateStatementEnd(loopClose + 1)
+      // Statement declarations bind their name throughout the containing
+      // block. A named expression instead binds only inside its own body.
+      if (keyword === "function" || keyword === "class") {
+        const name = keyword === "function" ? functionExpression(index)?.name : references[index + 1]
+        if (name !== undefined && isIdentifier(name)) templateLocalBindings.push({ start, end, names: new Set([name]) })
+        continue
+      }
+      const names = new Set<string>()
+      let binding = index + 1
+      while (binding < end) {
+        for (const name of callbackBindingNames(binding, end, undefined, references)) names.add(name)
+        let cursor = (referenceClosings.get(binding) ?? binding) + 1
+        for (; cursor < end; cursor++) {
+          const token = references[cursor]!
+          if ([",", ";", "}"].includes(token)
+            || loopOpen !== undefined && ["of", "in", ")"].includes(token)
+            || referenceLineBreaks.has(cursor) && endsAgentExpression(references.slice(binding, cursor))) break
+          cursor = referenceClosings.get(cursor) ?? cursor
+        }
+        if (references[cursor] !== ",") break
+        binding = cursor + 1
+      }
+      templateLocalBindings.push({ start, end, names })
+    }
+    const classFieldKeys = new Set<number>()
+    const instanceFieldInitializers = new Set<number>()
+    const classExpressionNames = new Set<number>()
+    for (let index = 0; index < references.length; index++) {
+      if (references[index] !== "class" || references[index - 1] === "." || [":", "("].includes(references[index + 1] ?? "")) continue
+      if (isIdentifier(references[index + 1])
+        && ["extends", "{"].includes(references[index + 2] ?? "")) classExpressionNames.add(index + 1)
+      let body = index + 1
+      while (body < references.length && references[body] !== "{") {
+        body = (referenceClosings.get(body) ?? body) + 1
+      }
+      const end = referenceClosings.get(body)
+      if (end === undefined) continue
+      // Only member starts name fields. Initializers and computed keys still
+      // read bindings, including assignments to an imported Channel.
+      let memberStart = true
+      let memberStatic = false
+      for (let cursor = body + 1; cursor < end; cursor++) {
+        const token = references[cursor]!
+        if (referenceLineBreaks.has(cursor) && endsAgentExpression(references.slice(0, cursor))) memberStart = true
+        if (token === ";") { memberStart = true; memberStatic = false; continue }
+        if (memberStart && token === "static") { memberStatic = true; continue }
+        if (memberStart && ["readonly", "declare", "public", "private", "protected", "abstract", "override", "accessor"].includes(token)) continue
+        if (memberStart && token === "#" && isIdentifier(references[cursor + 1])) continue
+        if (memberStart && isIdentifier(token)
+          && (["=", ";", "}"].includes(references[cursor + 1] ?? "")
+            || references[cursor + 1] === ":"
+            || references[cursor + 1] === "?"
+            || references[cursor + 1] === "!"
+              && [":", "=", ";", "}"].includes(references[cursor + 2] ?? "")
+              || referenceLineBreaks.has(cursor + 1) && (isIdentifier(references[cursor + 1]) || ["[", "#"].includes(references[cursor + 1] ?? "")))) {
+          classFieldKeys.add(cursor)
+          // Instance field initializers run only when an instance is created,
+          // after the class expression itself has been evaluated. Do not let
+          // captures in those initializers taint imported Channels. Static
+          // fields execute during class evaluation and remain inspectable.
+          if (!memberStatic && references[cursor + 1] === "=") {
+            let initializer = cursor + 2
+            let depth = 0
+            for (; initializer < end; initializer++) {
+              const value = references[initializer]!
+              if (["(", "[", "{"].includes(value)) depth++
+              else if ([")", "]", "}"].includes(value)) {
+                if (depth === 0) break
+                depth--
+              }
+              if (depth === 0 && value === ";") break
+              if (depth === 0 && referenceLineBreaks.has(initializer)
+                && endsAgentExpression(references.slice(cursor + 2, initializer))) break
+              instanceFieldInitializers.add(initializer)
+            }
+          }
+        }
+        const closing = referenceClosings.get(cursor)
+        if (closing !== undefined) {
+          cursor = closing
+        }
+        memberStart = false
+      }
+    }
+    const bindingReference = (index: number) => isIdentifier(references[index])
+      && ![".", "#"].includes(references[index - 1] ?? "")
+      && !(references[index + 1] === ":" && ["{", ","].includes(references[index - 1] ?? ""))
+      && !methodKey(index)
+      && !classFieldKeys.has(index)
+      && !instanceFieldInitializers.has(index)
+      && !classExpressionNames.has(index)
+      && !templateLocalBindings.some(scope => index >= scope.start && index < scope.end && scope.names.has(references[index]!))
+    const reassignedGlobalConversions = new Set<string>()
+    // Template references are tokenized separately from the outer program,
+    // so direct global conversion writes inside an interpolation must be
+    // included in the same conservative reassignment set.
+    for (let index = 0; index + 3 < references.length; index++) {
+      if (references[index] !== "globalThis") continue
+      let member = index + 1
+      if (references[member] === ".") {
+        const name = references[member + 1]
+        if (["String", "Number", "Boolean"].includes(name ?? "")
+          && assignmentOperator(member + 2, references)) reassignedGlobalConversions.add(name!)
+      } else if (references[member] === "[" && references[member + 2] === "]"
+        && ["String", "Number", "Boolean"].includes(references[member + 1] ?? "")
+        && assignmentOperator(member + 3, references)) {
+        reassignedGlobalConversions.add(references[member + 1]!)
+      }
+    }
+    for (let index = 0; index < tokens.length; index++) {
+      const objectEnd = intrinsicObjectEnd(index)
+      const reflectEnd = intrinsicReflectEnd(index)
+      const receiverEnd = objectEnd ?? reflectEnd
+      if (receiverEnd === undefined) continue
+      const member = memberAccess(receiverEnd - 1)
+      const call = member === undefined ? undefined : memberCallEnd(member.end - 1, index)
+      if (member !== undefined && tokens[call!] !== "(") continue
+      if (member?.name === "setPrototypeOf") {
+        reassignedGlobalConversions.add("String")
+        reassignedGlobalConversions.add("Number")
+        reassignedGlobalConversions.add("Boolean")
+        continue
+      }
+      if (member?.name !== "defineProperty" && member?.name !== "defineProperties" && member?.name !== "set" && member?.name !== "assign") continue
+      const callEnd = memberCallEnd(member.end - 1, index)
+      if (tokens[callEnd] !== "(") continue
+      const target = callEnd + 1
+      let targetEnd = target
+      let depth = 0
+      for (; targetEnd < tokens.length; targetEnd++) {
+        const token = tokens[targetEnd]!
+        if (depth === 0 && token === ",") break
+        if (["(", "[", "{"].includes(token)) depth++
+        else if ([")", "]", "}"].includes(token)) depth--
+      }
+      if (!globalThisReceiver(target) || tokens[targetEnd] !== ",") continue
+      // Bulk writes can replace any of the built-in conversion helpers without
+      // exposing a direct member assignment.
+      // Keep all conversions opaque because the source object may contain
+      // computed or otherwise non-static property names.
+      if (member.name === "assign" || member.name === "defineProperties") {
+        reassignedGlobalConversions.add("String")
+        reassignedGlobalConversions.add("Number")
+        reassignedGlobalConversions.add("Boolean")
+        continue
+      }
+      const property = resolveReference(target + 2)
+      const name = propertyName(tokens[property] ?? "")
+      if (["String", "Number", "Boolean"].includes(name)) reassignedGlobalConversions.add(name)
+    }
+    // Calls through aliases of intrinsic mutation methods have the same
+    // effect as their literal receivers. Keep conversion calls conservative
+    // when a trusted writer is assigned to a local, for example
+    // `const define = Object.defineProperty; define(globalThis, "String", …)`.
+    // The alias may be shadowed in a nested scope, so only use this as a
+    // fail-closed signal when any invocation is present.
+    const intrinsicWriterBindings = new Set<number>()
+    for (const [binding, initializer] of declaratorInitializers) {
+      if (!isIdentifier(tokens[binding] ?? "")) continue
+      const objectEnd = intrinsicObjectEnd(initializer)
+      const reflectEnd = intrinsicReflectEnd(initializer)
+      const receiverEnd = objectEnd ?? reflectEnd
+      if (receiverEnd === undefined) continue
+      const member = memberAccess(receiverEnd - 1)
+      if (member && ["defineProperty", "defineProperties", "set", "assign"].includes(member.name)) {
+        const declaration = visibleDeclaration(binding)
+        if (declaration !== undefined) intrinsicWriterBindings.add(declaration)
+      }
+    }
+    // A writer alias can also be introduced by a later assignment (`let
+    // define; define = Object.defineProperty`). Resolve that assignment to
+    // its lexical binding so unrelated same-named calls stay independent.
+    for (let index = 0; index < tokens.length; index++) {
+      if (!isIdentifier(tokens[index] ?? "") || !assignmentOperator(index + 1)) continue
+      const initializer = assignmentInitializer(index + 1)
+      if (initializer === undefined) continue
+      const objectEnd = intrinsicObjectEnd(initializer)
+      const reflectEnd = intrinsicReflectEnd(initializer)
+      const receiverEnd = objectEnd ?? reflectEnd
+      if (receiverEnd === undefined) continue
+      const member = memberAccess(receiverEnd - 1)
+      if (!member || !["defineProperty", "defineProperties", "set", "assign"].includes(member.name)) continue
+      const declaration = visibleDeclaration(index)
+      if (declaration !== undefined) intrinsicWriterBindings.add(declaration)
+    }
+    for (let index = 0; index < tokens.length; index++) {
+      if (tokens[index - 1] === ".") continue
+      const declaration = visibleDeclaration(index)
+      if (declaration === undefined || !intrinsicWriterBindings.has(declaration)) continue
+      const call = memberCallEnd(index)
+      if (tokens[call] !== "(") continue
+      reassignedGlobalConversions.add("String")
+      reassignedGlobalConversions.add("Number")
+      reassignedGlobalConversions.add("Boolean")
+    }
+    // Computed member assignments can replace a global conversion without
+    // exposing the property name as an identifier token (for example,
+    // `globalThis["String"] = replacement`). Treat these as opaque too.
+    for (let index = 0; index < tokens.length; index++) {
+      // Member writes mark globalThis and its aliases mutated. Follow their
+      // direct initializers and helpers with an exact globalThis return.
+      // Reads through these receivers do not reassign conversions.
+      const call = globalHelperCallEnd(index)
+      const helperGlobal = call !== undefined
+      if (!globalThisReceiver(index) && !helperGlobal) continue
+      const member = call !== undefined ? memberAccess(call) : memberAccess(index)
+      const memberEnd = memberCallEnd(call ?? index)
+      if (member && ["String", "Number", "Boolean"].includes(member.name) && assignmentOperator(member.end)) {
+        reassignedGlobalConversions.add(member.name)
+      }
+      else if (!member && memberEnd > (call ?? index) + 1 && assignmentOperator(memberEnd)) {
+        // Unknown computed writes may replace a conversion helper. A bare
+        // alias declaration or assignment does not write a member.
+        reassignedGlobalConversions.add("String")
+        reassignedGlobalConversions.add("Number")
+        reassignedGlobalConversions.add("Boolean")
+      }
+    }
+    // Only unshadowed global conversions are known calls. Nested opaque calls
+    // and imported arguments still invalidate imported Channels.
+    const conversionCall = (index: number) => {
+      // Optional calls tokenize as `name`, `?`, `.`, `(`. Treat them like
+      // ordinary calls while still resolving the conversion's binding.
+      const nameIndex = references[index - 1] === "." && references[index - 2] === "?"
+        ? index - 3
+        : index - 1
+      const name = references[nameIndex]!
+      return references[index] === "(" && bindingReference(nameIndex)
+        && ["String", "Number", "Boolean"].includes(name)
+        && globalBindingAvailable(templateIndex, name)
+        && !expressionArrowParameters.some(scope => templateIndex >= scope.start && templateIndex < scope.end && scope.names.has(name))
+        && !reassignedGlobalConversions.has(name)
+        && ![tokens, references].some(sequence => sequence.some((token, cursor) =>
+          token === name && (assignmentOperator(cursor + 1, sequence) || ["+", "-"].includes(sequence[cursor + 1] ?? ""))
+          && ![".", "?"].includes(sequence[cursor - 1] ?? "")
+          && (sequence !== tokens || globalBindingUnshadowed(cursor, name))))
+    }
+    const hiddenCode = references.some((token, index) =>
+      !uncalledFunctionBodies.some(body => index >= body.start && index < body.end)
+      && ((bindingReference(index) && (token === "eval" || token === "import" && references[index + 1] !== "."))
+      || ((token === "(" || token.startsWith("`"))
+        && (isIdentifier(references[index - 1]) || [")", "]", ">", "."].includes(references[index - 1] ?? ""))
+        && !methodKey(index - 1)
+        && !functionExpressionCall(index - 1)
+        && !(token === "(" && ![".", "?"].includes(references[index - 2] ?? "")
+          && (["for", "if", "while", "switch", "catch", "with"].includes(references[index - 1] ?? "")
+          || references[index - 1] === "await" && references[index - 2] === "for"))
+        && !conversionCall(index))))
+      // A tagged template also calls its tag. The tag is outside the
+      // interpolation token stream, so treat it as opaque
+      // to avoid trusting captured imported Channels that it may mutate.
+      || opaqueCalls.has(templateIndex)
+    if (hiddenCode) {
+      invalidateCapturedBindings()
+      for (const name of imported) mutatedBindings.add(name)
+    }
+    for (let index = 0; index < references.length; index++) {
+      const name = references[index]!
+      if (!bindingReference(index) || isFunctionParameter(templateIndex, name)
+        || callbackParameters.some(scope => templateIndex >= scope.start && templateIndex < scope.end && scope.names.has(name))
+        || expressionArrowParameters.some(scope => templateIndex >= scope.start && templateIndex < scope.end && scope.names.has(name))) continue
+      const binding = visibleDeclaration(templateIndex, name)
+      // A local capture with the same name cannot mutate the module import or
+      // declaration. Keep the module-wide taint set tied to its resolved binding.
+      if (binding !== undefined && (imported.has(name) || declarations.has(name))) {
+        const declaration = variableDeclarations.get(binding)!
+        const scope = tokens[declaration] === "var" ? variableScope(declaration) : tokenScopes[declaration]
+        if (scope !== undefined) continue
+      }
+      if (imported.has(name) || declarations.has(name) || binding !== undefined) mutatedBindings.add(name)
+    }
   }
   // Invoking an extracted member of an opaque result may mutate captured
   // options even though the invocation has no receiver or arguments.
@@ -1274,16 +1826,16 @@ function inspectAgentModule(source: string, file: string, modules: Set<string>) 
     if (mutatedBindings.has(local)) opaqueExports.add(name)
   }
 
-  function visibleDeclaration(index: number): number | undefined {
+  function visibleDeclaration(index: number, name = tokens[index]): number | undefined {
     const visibleScopes: (number | undefined)[] = []
     for (let scope = tokenScopes[index]; scope !== undefined; scope = scopeParents.get(scope)) visibleScopes.push(scope)
     visibleScopes.push(undefined)
-    const parameterScope = callbackParameters.findLast(scope => index >= scope.start && index < scope.end && scope.names.has(tokens[index]))
+    const parameterScope = callbackParameters.findLast(scope => index >= scope.start && index < scope.end && scope.names.has(name))
     for (const scope of visibleScopes) {
       let binding: number | undefined
       for (const [i, declaration] of variableDeclarations) {
         if (i < (parameterScope?.start ?? 0)
-          || (tokens[i + 1] !== tokens[index] && !destructuredBindings.get(i)?.has(tokens[index]))) continue
+          || (tokens[i + 1] !== name && !destructuredBindings.get(i)?.has(name))) continue
         const bindingScope = tokens[declaration] === "var" ? variableScope(declaration) : tokenScopes[declaration]
         if (bindingScope !== scope) continue
         if (binding === undefined || i < index) binding = i
@@ -1323,8 +1875,147 @@ function inspectAgentModule(source: string, file: string, modules: Set<string>) 
   }
 
   function globalBindingReference(index: number, name: string): boolean {
-    if (tokens[index] !== name || tokens[index - 1] === "." || imported.has(name) || mutatedBindings.has(name) || visibleDeclaration(index) !== undefined || isFunctionParameter(index)
-      || callbackParameters.some(scope => index >= scope.start && index < scope.end && scope.names.has(name))) return false
+    return tokens[index] === name && tokens[index - 1] !== "." && globalBindingAvailable(index, name)
+  }
+
+  function globalThisReceiver(index: number, seen = new Set<number>()): boolean {
+    while (tokens[index] === "(") index++
+    if (!isIdentifier(tokens[index]) || seen.has(index) || tokens[index - 1] === ".") return false
+    seen.add(index)
+    if (tokens[index] === "globalThis") return globalBindingUnshadowed(index, "globalThis")
+    if (isFunctionParameter(index) || callbackParameters.some(scope => index >= scope.start && index < scope.end && scope.names.has(tokens[index]!))) return false
+
+    // A local helper can return the intrinsic global object without having an
+    // initializer for this traversal to follow (for example,
+    // `function globals() { return globalThis }`). Treat only a direct,
+    // unmodified function declaration with that exact return expression as an
+    // alias; arbitrary helper calls remain opaque.
+    if (!mutatedBindings.has(tokens[index]!) && globalHelperCallEnd(index) !== undefined) return true
+    const binding = visibleDeclaration(index)
+    const initializer = binding === undefined ? undefined : declaratorInitializers.get(binding + 1)
+    if (initializer === undefined) return false
+    let value = initializer
+    while (tokens[value] === "(") value++
+    // Member writes mark the receiver mutated, but do not sever its alias.
+    // Follow only direct initializers so unrelated global properties stay local.
+    // TypeScript assertions can follow an aliased global object expression.
+    // Keep the assertion attached to the same expression while rejecting
+    // actual member access or opaque helper results.
+    if (![";", ",", ")", undefined, "!", "as", "satisfies"].includes(tokens[value + 1]) && !startsStatement(value + 1)) return false
+    return globalThisReceiver(value, seen)
+  }
+
+  function globalHelperCallEnd(index: number): number | undefined {
+    const member = memberAccess(index)
+    const indirect = member && ["call", "apply", "bind"].includes(member.name)
+    const call = indirect ? member.end : index + 1
+    if (tokens[call] !== "(") return undefined
+    if (!functionGlobalHelper(index) && !arrowGlobalHelper(index)) return undefined
+    const boundEnd = [...openingDelimiters].find(([, opening]) => opening === call)?.[0]
+    if (boundEnd === undefined) return undefined
+    // A bound helper is invoked by calling the function returned from bind,
+    // so follow the second call as well (for example globals.bind(null)()).
+    if (member?.name === "bind") {
+      const invocation = boundEnd + 1
+      if (tokens[invocation] !== "(") return undefined
+      return [...openingDelimiters].find(([, opening]) => opening === invocation)?.[0]
+    }
+    return boundEnd
+  }
+
+  function functionGlobalHelper(reference: number): boolean {
+    const name = tokens[reference]!
+    if (isFunctionParameter(reference) || callbackParameters.some(scope =>
+      reference >= scope.start && reference < scope.end && scope.names.has(name))
+      || expressionArrowParameters.some(scope => reference >= scope.start && reference < scope.end && scope.names.has(name))) return false
+    // A nearer variable binding shadows an outer function declaration with
+    // the same name. Only the binding visible at the call site may qualify.
+    if (visibleDeclaration(reference) !== undefined) return false
+    // Resolve the helper in the invocation's lexical scope. A name-only scan
+    // can accidentally use a top-level helper when a local declaration shadows
+    // it and returns an unrelated object.
+    const visibleScopes: (number | undefined)[] = []
+    for (let scope = tokenScopes[reference]; ; scope = scopeParents.get(scope!)) {
+      visibleScopes.push(scope)
+      if (scope === undefined) break
+    }
+    const declarations = visibleScopes.flatMap(scope => tokens.flatMap((token, index) =>
+      token === "function" && tokens[index + 1] === name && tokenScopes[index] === scope ? [index] : []))
+    const declaration = declarations[0]
+    if (declaration === undefined) return false
+    if (tokens[declaration - 1] === "async") return false
+    const parameters = declaration + 2
+    if (tokens[parameters] !== "(") return false
+    const parameterEnd = [...openingDelimiters].find(([, opening]) => opening === parameters)?.[0]
+    const body = parameterEnd === undefined ? undefined : parameterEnd + 1
+    const bodyEnd = body === undefined ? undefined : [...openingDelimiters].find(([, opening]) => opening === body)?.[0]
+    if (body === undefined || bodyEnd === undefined || tokens[body] !== "{") return false
+    let cursor = body + 1
+    while (cursor < bodyEnd && tokens[cursor] === ";") cursor++
+    if (tokens[cursor] !== "return") return false
+    cursor++
+    while (tokens[cursor] === "(") cursor++
+    if (tokens[cursor] !== "globalThis" || !globalBindingUnshadowed(cursor, "globalThis")) return false
+    cursor++
+    while (tokens[cursor] === ")") cursor++
+    while (tokens[cursor] === ";") cursor++
+    if (cursor === bodyEnd) return true
+    return false
+  }
+
+  function arrowGlobalHelper(reference: number): boolean {
+    const name = tokens[reference]!
+    if (isFunctionParameter(reference) || callbackParameters.some(scope =>
+      reference >= scope.start && reference < scope.end && scope.names.has(name))
+      || expressionArrowParameters.some(scope => reference >= scope.start && reference < scope.end && scope.names.has(name))) return false
+    for (let index = 0; index + 4 < tokens.length; index++) {
+      if (tokens[index] !== name || tokens[index + 1] !== "=") continue
+      // Match the lexical binding at the call site. This covers both a
+      // declarator initializer and a later assignment (`let globals; globals
+      // = () => globalThis`) without conflating shadowed names.
+      if (visibleDeclaration(reference) !== visibleDeclaration(index)) continue
+      const parameters = index + 2
+      const parameterEnd = tokens[parameters] === "("
+        ? [...openingDelimiters].find(([, opening]) => opening === parameters)?.[0]
+        : isIdentifier(tokens[parameters]) ? parameters : undefined
+      if (parameterEnd === undefined || tokens[parameterEnd + 1] !== "=" || tokens[parameterEnd + 2] !== ">") continue
+      let cursor = parameterEnd + 3
+      const parentheses: number[] = []
+      while (tokens[cursor] === "(") parentheses.push(cursor++)
+      if (tokens[cursor] === "{") {
+        const bodyEnd = [...openingDelimiters].find(([, opening]) => opening === cursor)?.[0]
+        if (bodyEnd === undefined) continue
+        cursor++
+        while (tokens[cursor] === ";") cursor++
+        if (tokens[cursor] !== "return") continue
+        cursor++
+        while (tokens[cursor] === "(") cursor++
+        if (tokens[cursor] !== "globalThis" || !globalBindingUnshadowed(cursor, "globalThis")) continue
+        cursor++
+        while (tokens[cursor] === ")") cursor++
+        while (tokens[cursor] === ";") cursor++
+        if (cursor === bodyEnd) return true
+        continue
+      }
+      if (tokens[cursor] !== "globalThis" || !globalBindingUnshadowed(cursor, "globalThis")) continue
+      cursor++
+      while (parentheses.length > 0 && openingDelimiters.get(cursor) === parentheses.at(-1)) {
+        parentheses.pop()
+        cursor++
+      }
+      if (parentheses.length === 0 && ([";", ",", ")", "]", "}", undefined].includes(tokens[cursor]) || startsStatement(cursor))) return true
+    }
+    return false
+  }
+
+  function globalBindingAvailable(index: number, name: string): boolean {
+    return !mutatedBindings.has(name) && globalBindingUnshadowed(index, name)
+  }
+
+  function globalBindingUnshadowed(index: number, name: string): boolean {
+    if (imported.has(name) || visibleDeclaration(index, name) !== undefined || isFunctionParameter(index, name)
+      || callbackParameters.some(scope => index >= scope.start && index < scope.end && scope.names.has(name))
+      || expressionArrowParameters.some(scope => index >= scope.start && index < scope.end && scope.names.has(name))) return false
     for (let scope = tokenScopes[index]; ; scope = scopeParents.get(scope!)) {
       if (tokens.some((token, declaration) => ["function", "class"].includes(token)
         && tokens[declaration + 1] === name && tokenScopes[declaration] === scope)) return false
@@ -1882,14 +2573,38 @@ function inspectAgentModule(source: string, file: string, modules: Set<string>) 
   // Returns the first-party Channel helper name for a call such as
   // `github(...)`, `channels.github(...)`, or an alias of either.
   function memberAccess(index: number): { name: string, end: number } | undefined {
-    if (tokens[index + 1] === ".") {
-      return { name: tokens[index + 2]!, end: index + 3 }
+    // TypeScript assertions can appear between a receiver and its member,
+    // for example `(globalThis as object).String` or `(globalThis!).String`.
+    let receiverEnd = index + 1
+    let wrapped = tokens[index - 1] === "("
+    while (receiverEnd < tokens.length) {
+      if (tokens[receiverEnd] === "!") {
+        wrapped = true
+        receiverEnd++
+        continue
+      }
+      if (tokens[receiverEnd] === "as" || tokens[receiverEnd] === "satisfies") {
+        wrapped = true
+        // Type assertions can contain qualified names, arrays, and nested
+        // function types. Skip the full type before resolving the member.
+        receiverEnd = skipAssertion(receiverEnd)
+        if (tokens[receiverEnd] === ")") receiverEnd++
+        continue
+      }
+      if (tokens[receiverEnd] === ")" && wrapped) {
+        receiverEnd++
+        continue
+      }
+      break
     }
-    if (tokens[index + 1] === "?" && tokens[index + 2] === "." && !["(", "["].includes(tokens[index + 3]!)) {
-      return { name: tokens[index + 3]!, end: index + 4 }
+    if (tokens[receiverEnd] === ".") {
+      return { name: tokens[receiverEnd + 1]!, end: receiverEnd + 2 }
     }
-    const bracketStart = tokens[index + 1] === "[" ? index + 1
-      : tokens[index + 1] === "?" && tokens[index + 2] === "." && tokens[index + 3] === "[" ? index + 3
+    if (tokens[receiverEnd] === "?" && tokens[receiverEnd + 1] === "." && !["(", "["].includes(tokens[receiverEnd + 2]!)) {
+      return { name: tokens[receiverEnd + 2]!, end: receiverEnd + 3 }
+    }
+    const bracketStart = tokens[receiverEnd] === "[" ? receiverEnd
+      : tokens[receiverEnd] === "?" && tokens[receiverEnd + 1] === "." && tokens[receiverEnd + 2] === "[" ? receiverEnd + 2
       : undefined
     if (bracketStart !== undefined && tokens[bracketStart + 2] === "]" && /^['"`]/.test(tokens[bracketStart + 1] ?? "")) {
       return { name: propertyName(tokens[bracketStart + 1]!), end: bracketStart + 3 }
@@ -2173,6 +2888,13 @@ function inspectAgentModule(source: string, file: string, modules: Set<string>) 
     seen.add(index)
     const branches = conditionalBranches(index)
     if (branches) return branches.some(branch => ownsWorkspace(branch, new Set(seen), inspectParent))
+    // Extension tuples inherit ownership from their parent, not their option block.
+    if (inspectParent && tokens[index] === "[") {
+      const parent = tokens[index + 1] === "." && tokens[index + 2] === "." && tokens[index + 3] === "."
+        ? index + 4
+        : index + 1
+      return ownsWorkspace(parent, seen, true)
+    }
     const call = factoryCall(index)
     if (call === undefined) {
       if (inspectParent && imported.has(tokens[index]) && visibleDeclaration(index) === undefined

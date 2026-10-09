@@ -1,7 +1,7 @@
 ---
 title: Code View
 description: "Render syntax-highlighted files, and virtualized lists that mix files and diffs."
-navigation.order: 37
+navigation.order: 38
 navigation.group: Agent work
 icon: i-ph-code-light
 ---

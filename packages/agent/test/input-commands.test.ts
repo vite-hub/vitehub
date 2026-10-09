@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
+import type { InputCommand } from "../src/capabilities/input-commands.ts"
 import { createMessage, getMessageText } from "../src/messages.ts"
 
 const runtime = () => ({
@@ -11,6 +12,656 @@ const runtime = () => ({
 })
 
 describe("inputCommands", () => {
+  it.each(["replacement", "result"] as const)("bounds growing command expansion through %s", async (mode) => {
+    const { inputCommands } = await import("../src/capabilities.ts")
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    let calls = 0
+    const capability = inputCommands({
+      commands: {
+        loop: {
+          call({ text }) {
+            if (++calls > 1_500) throw new Error("Expansion did not stop")
+            const prompt = `${text} x`
+            if (mode === "replacement") return prompt
+            return { prompt }
+          },
+        },
+      },
+    })
+
+    await expect(resolveAgentCapabilities({ capabilities: [capability] }, runtime(), { prompt: "/loop" }))
+      .rejects.toThrow("maximum command expansion depth")
+    expect(calls).toBe(1_000)
+  })
+
+  it.each(["replacement", "result", "mutation"] as const)("allows a finite expansion through %s", async (mode) => {
+    const { inputCommands } = await import("../src/capabilities.ts")
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    let calls = 0
+    const capability = inputCommands({
+      commands: {
+        seed: {
+          call({ context }) {
+            const prompt = Array.from({ length: 1_001 }, () => "/mark").join(" ")
+            if (mode === "replacement") return prompt
+            if (mode === "mutation") {
+              context.input.set({ prompt })
+              return
+            }
+            return { prompt }
+          },
+        },
+        mark: { call() { calls++ } },
+      },
+    })
+
+    await resolveAgentCapabilities({ capabilities: [capability] }, runtime(), { prompt: "/seed" })
+    expect(calls).toBe(1_001)
+  })
+
+  it.each(["replacement", "result", "mutation"] as const)("allows finite equal-size rewrite stages through %s", async (mode) => {
+    const { inputCommands } = await import("../src/capabilities.ts")
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    let calls = 0
+    const capability = inputCommands({
+      commands: {
+        a: { call: () => Array.from({ length: 1_000 }, () => "/b").join(" ") },
+        b: {
+          call({ context }) {
+            calls++
+            if (mode === "replacement") return "/c"
+            const prompt = context.input.get().prompt
+            if (typeof prompt !== "string") throw new Error("Expected a string prompt")
+            const next = prompt.replace("/b", "/c")
+            if (mode === "mutation") {
+              context.input.set({ prompt: next })
+              return
+            }
+            return { prompt: next }
+          },
+        },
+        c: { call() { calls++ } },
+      },
+    })
+
+    const resolved = await resolveAgentCapabilities({ capabilities: [capability] }, runtime(), { prompt: "/a" })
+    expect(resolved.input.prompt).toBe("")
+    expect(calls).toBe(2_000)
+  })
+
+  it.each(["replacement", "result", "mutation"] as const)("allows finite command fan-out through %s", async (mode) => {
+    const { inputCommands } = await import("../src/capabilities.ts")
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    let markCalls = 0
+    let doneCalls = 0
+    const capability = inputCommands({
+      commands: {
+        seed: { call: () => Array.from({ length: 1_000 }, () => "/mark").join(" ") },
+        mark: {
+          call({ context }) {
+            markCalls++
+            if (mode === "replacement") return "/done /done"
+            const prompt = context.input.get().prompt
+            if (typeof prompt !== "string") throw new Error("Expected a string prompt")
+            const next = prompt.replace("/mark", "/done /done")
+            if (mode === "mutation") context.input.set({ prompt: next })
+            else return { prompt: next }
+          },
+        },
+        done: { call: () => { doneCalls++ } },
+      },
+    })
+    await resolveAgentCapabilities({ capabilities: [capability] }, runtime(), { prompt: "/seed" })
+    expect(markCalls).toBe(1_000)
+    expect(doneCalls).toBe(2_000)
+  })
+
+  it("allows finite void mutations that retain the invoked command", async () => {
+    const { inputCommands } = await import("../src/capabilities.ts")
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    let calls = 0
+    const capability = inputCommands({
+      commands: {
+        seed: {
+          call({ context }) {
+            context.input.set({ prompt: `/seed ${Array.from({ length: 1_001 }, () => "/mark").join(" ")}` })
+          },
+        },
+        mark: { call() { calls++ } },
+      },
+    })
+
+    const resolved = await resolveAgentCapabilities({ capabilities: [capability] }, runtime(), { prompt: "/seed" })
+    expect(resolved.input.prompt).toBe("")
+    expect(calls).toBe(1_001)
+  })
+
+  it("bounds alternating handlers that introduce more commands", async () => {
+    const { inputCommands } = await import("../src/capabilities.ts")
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    let calls = 0
+    const expand = (next: string) => () => {
+      if (++calls > 1_500) throw new Error("Expansion did not stop")
+      return `${next} ${next}`
+    }
+    const capability = inputCommands({
+      commands: {
+        first: { call: expand("/second") },
+        second: { call: expand("/first") },
+      },
+    })
+
+    await expect(resolveAgentCapabilities({ capabilities: [capability] }, runtime(), { prompt: "/first" }))
+      .rejects.toThrow("maximum command expansion depth")
+    expect(calls).toBe(1_004)
+  })
+
+  it("bounds alternating equal-size rewrite stages", async () => {
+    const { inputCommands } = await import("../src/capabilities.ts")
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    let calls = 0
+    const rewrite = (next: string) => () => {
+      if (++calls > 1_500) throw new Error("Expansion did not stop")
+      return next
+    }
+    const capability = inputCommands({
+      commands: {
+        first: { call: rewrite("/second") },
+        second: { call: rewrite("/first") },
+      },
+    })
+
+    await expect(resolveAgentCapabilities({ capabilities: [capability] }, runtime(), { prompt: "/first" }))
+      .rejects.toThrow("maximum command expansion depth")
+    expect(calls).toBe(1_004)
+  })
+
+  it.each(["replacement", "result", "mutation"] as const)("bounds cycles through executable commands with %s", async (mode) => {
+    const { inputCommands } = await import("../src/capabilities.ts")
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    let calls = 0
+    const rewrite = (next: string): InputCommand["call"] => ({ context, text }) => {
+      if (++calls > 1_500) throw new Error("Expansion did not stop")
+      const replacement = `/done ${next}`
+      if (mode === "replacement") return replacement
+      const current = context.input.get().prompt
+      if (typeof current !== "string") throw new Error("Expected a string prompt")
+      const prompt = current.replace(text, replacement)
+      if (mode === "mutation") {
+        context.input.set({ prompt })
+        return
+      }
+      return { prompt }
+    }
+    const capability = inputCommands({
+      commands: {
+        a: { call: rewrite("/b") },
+        b: { call: rewrite("/a") },
+        done: { call() {} },
+      },
+    })
+
+    await expect(resolveAgentCapabilities({ capabilities: [capability] }, runtime(), { prompt: "/a" }))
+      .rejects.toThrow("maximum command expansion depth")
+    expect(calls).toBeLessThanOrEqual(1_004)
+  })
+
+  it.each(["replacement", "result", "mutation"] as const)("scopes cyclic credits to each command lineage through %s", async (mode) => {
+    const { inputCommands } = await import("../src/capabilities.ts")
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    let aCalls = 0
+    let bCalls = 0
+    const capability = inputCommands({
+      commands: {
+        a: {
+          call({ context, text }) {
+            aCalls++
+            const replacement = ""
+            if (mode === "replacement") return replacement
+            const prompt = context.input.get().prompt
+            if (typeof prompt !== "string") throw new Error("Expected a string prompt")
+            const rewritten = prompt.replace(text, replacement)
+            if (mode === "mutation") context.input.set({ prompt: rewritten })
+            else return { prompt: rewritten }
+          },
+        },
+        b: {
+          call({ context, text }) {
+            bCalls++
+            const replacement = bCalls === 1 ? "" : Array.from({ length: 1_001 }, () => "/a").join(" ")
+            if (mode === "replacement") return replacement
+            const prompt = context.input.get().prompt
+            if (typeof prompt !== "string") throw new Error("Expected a string prompt")
+            const rewritten = prompt.replace(text, replacement)
+            if (mode === "mutation") context.input.set({ prompt: rewritten })
+            else return { prompt: rewritten }
+          },
+        },
+      },
+    })
+
+    await resolveAgentCapabilities({ capabilities: [capability] }, runtime(), { prompt: "/a /b /b" })
+    expect(aCalls).toBe(1_002)
+    expect(bCalls).toBe(2)
+  })
+
+  it.each(["replacement", "result", "mutation"] as const)("clears cyclic credits after a completed lineage through %s", async (mode) => {
+    const { inputCommands } = await import("../src/capabilities.ts")
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    let aCalls = 0
+    let bCalls = 0
+    const capability = inputCommands({
+      commands: {
+        a: {
+          call({ context, text }) {
+            aCalls++
+            const replacement = aCalls === 1 ? "/b" : aCalls === 2 ? "" : Array.from({ length: 1_004 }, () => "/b").join(" ")
+            if (mode === "replacement") return replacement
+            const prompt = context.input.get().prompt
+            if (typeof prompt !== "string") throw new Error("Expected a string prompt")
+            const rewritten = prompt.replace(text, replacement)
+            if (mode === "mutation") context.input.set({ prompt: rewritten })
+            else return { prompt: rewritten }
+          },
+        },
+        b: {
+          call({ context, text }) {
+            bCalls++
+            const replacement = bCalls === 1 ? "/a" : ""
+            if (mode === "replacement") return replacement
+            const prompt = context.input.get().prompt
+            if (typeof prompt !== "string") throw new Error("Expected a string prompt")
+            const rewritten = prompt.replace(text, replacement)
+            if (mode === "mutation") context.input.set({ prompt: rewritten })
+            else return { prompt: rewritten }
+          },
+        },
+      },
+    })
+
+    await resolveAgentCapabilities({ capabilities: [capability] }, runtime(), { prompt: "/a /a" })
+    expect(aCalls).toBe(3)
+    expect(bCalls).toBe(1_005)
+  })
+
+  it("does not renew a recursive cycle when removing a sibling", async () => {
+    const { inputCommands } = await import("../src/capabilities.ts")
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    let calls = 0
+    const capability = inputCommands({
+      commands: {
+        a: { call: () => { calls++; return "/b /remove" } },
+        b: { call: () => "/a" },
+        remove: { call() {} },
+      },
+    })
+
+    await expect(resolveAgentCapabilities({ capabilities: [capability] }, runtime(), { prompt: "/a /remove" }))
+      .rejects.toThrow("maximum command expansion depth")
+    expect(calls).toBeLessThan(1_500)
+  })
+
+  it("bounds cycles longer than two commands that introduce more commands", async () => {
+    const { inputCommands } = await import("../src/capabilities.ts")
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    let calls = 0
+    const expand = (next: string) => () => {
+      if (++calls > 1_500) throw new Error("Expansion did not stop")
+      return `${next} ${next}`
+    }
+    const capability = inputCommands({
+      commands: {
+        first: { call: expand("/second") },
+        second: { call: expand("/third") },
+        third: { call: expand("/first") },
+      },
+    })
+
+    await expect(resolveAgentCapabilities({ capabilities: [capability] }, runtime(), { prompt: "/first" }))
+      .rejects.toThrow("maximum command expansion depth")
+    expect(calls).toBeLessThan(1_500)
+  })
+
+  it.each(["replacement", "result", "mutation"] as const)("bounds recursive stages after leading text through %s", async (mode) => {
+    const { inputCommands } = await import("../src/capabilities.ts")
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    let calls = 0
+    const rewrite = (next: string): InputCommand["call"] => ({ context }) => {
+      if (++calls > 1_500) throw new Error("Expansion did not stop")
+      if (mode === "replacement") return `x ${next}`
+      const prompt = context.input.get().prompt
+      if (typeof prompt !== "string") throw new Error("Expected a string prompt")
+      const rewritten = prompt.replace(/\/(first|second)/, `x ${next}`)
+      if (mode === "mutation") context.input.set({ prompt: rewritten })
+      else return { prompt: rewritten }
+    }
+    const capability = inputCommands({
+      commands: {
+        first: { call: rewrite("/second") },
+        second: { call: rewrite("/first") },
+      },
+    })
+
+    await expect(resolveAgentCapabilities({ capabilities: [capability] }, runtime(), { prompt: "/first" }))
+      .rejects.toThrow("maximum command expansion depth")
+    expect(calls).toBeLessThan(1_500)
+  })
+
+  it.each(["replacement", "result", "mutation"] as const)("bounds recursive stages after channel-skipped commands through %s", async (mode) => {
+    const { inputCommands } = await import("../src/capabilities.ts")
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    let calls = 0
+    const rewrite = (next: string): InputCommand["call"] => ({ context }) => {
+      if (++calls > 1_500) throw new Error("Expansion did not stop")
+      if (mode === "replacement") return next
+      const prompt = `/skip ${next}`
+      if (mode === "mutation") context.input.set({ prompt })
+      else return { prompt }
+    }
+    const capability = inputCommands({
+      commands: {
+        skip: { channels: ["other"], call() { throw new Error("Skipped command ran") } },
+        a: { call: rewrite("/b") },
+        b: { call: rewrite("/a") },
+      },
+    })
+
+    await expect(resolveAgentCapabilities({ capabilities: [capability] }, runtime(), { prompt: "/skip /a" }))
+      .rejects.toThrow("maximum command expansion depth")
+    expect(calls).toBeLessThan(1_500)
+  })
+
+  it.each(["replacement", "result", "mutation"] as const)("bounds mixed same-command recursive expansion through %s", async (mode) => {
+    const { inputCommands } = await import("../src/capabilities.ts")
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    let calls = 0
+    const capability = inputCommands({
+      commands: {
+        same: {
+          call({ args, context, text }) {
+            if (++calls > 1_500) throw new Error("Expansion did not stop")
+            const replacement = Number(args) > 0 ? "/same 0 /same 1" : ""
+            if (mode === "replacement") return replacement
+            const prompt = context.input.get().prompt
+            if (typeof prompt !== "string") throw new Error("Expected a string prompt")
+            const rewritten = prompt.replace(text, replacement)
+            if (mode === "mutation") context.input.set({ prompt: rewritten })
+            else return { prompt: rewritten }
+          },
+        },
+      },
+    })
+
+    await expect(resolveAgentCapabilities({ capabilities: [capability] }, runtime(), { prompt: "/same 1" }))
+      .rejects.toThrow("maximum command expansion depth")
+    expect(calls).toBeLessThan(1_500)
+  })
+
+  it.each(["result", "mutation"] as const)("bounds cycles revealed at a rewrite boundary through %s", async (mode) => {
+    const { inputCommands } = await import("../src/capabilities.ts")
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    let calls = 0
+    const rewrite = (prompt: string): InputCommand["call"] => ({ context }) => {
+      if (++calls > 1_500) throw new Error("Expansion did not stop")
+      if (mode === "mutation") context.input.set({ prompt })
+      else return { prompt }
+    }
+    const capability = inputCommands({
+      commands: {
+        a: { call: rewrite(" /_  /b y/a") },
+        b: { call: rewrite(" /_ x/b  /a") },
+      },
+    })
+
+    await expect(resolveAgentCapabilities({ capabilities: [capability] }, runtime(), { prompt: " /_  /b y/a" }))
+      .rejects.toThrow("maximum command expansion depth")
+    expect(calls).toBeLessThan(1_500)
+  })
+
+  it.each(["2001", "9".repeat(400), "9007199254740991", "9007199254740992"])("bounds cycles with an unsafe numeric argument %s", async (depth) => {
+    const { inputCommands } = await import("../src/capabilities.ts")
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    let calls = 0
+    const rewrite = (next: string) => () => {
+      if (++calls > 1_500) throw new Error("Expansion did not stop")
+      return { prompt: `/${next} ${depth}` }
+    }
+    const capability = inputCommands({
+      commands: {
+        a: { call: rewrite("b") },
+        b: { call: rewrite("a") },
+      },
+    })
+
+    await expect(resolveAgentCapabilities({ capabilities: [capability] }, runtime(), { prompt: `/a ${depth}` }))
+      .rejects.toThrow("maximum command expansion depth")
+    expect(calls).toBeLessThan(1_500)
+  })
+
+  it("allows a bounded decreasing numeric cycle", async () => {
+    const { inputCommands } = await import("../src/capabilities.ts")
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    let calls = 0
+    const rewrite = (next: string): InputCommand["call"] => ({ args }) => {
+      calls++
+      const depth = Number(args.split(" ")[0])
+      return depth > 0 ? { prompt: `/${next} ${depth - 1}` } : undefined
+    }
+    const capability = inputCommands({
+      commands: {
+        a: { call: rewrite("b") },
+        b: { call: rewrite("a") },
+      },
+    })
+
+    await resolveAgentCapabilities({ capabilities: [capability] }, runtime(), { prompt: "/a 2001" })
+    expect(calls).toBe(2002)
+  })
+
+  it("bounds numeric cycles that restore their depth", async () => {
+    const { inputCommands } = await import("../src/capabilities.ts")
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    let calls = 0
+    const capability = inputCommands({
+      commands: {
+        a: { call: ({ args }) => {
+          calls++
+          return { prompt: `/b ${Number(args) - 1}` }
+        } },
+        b: { call: ({ args }) => {
+          calls++
+          return { prompt: `/a ${Number(args) + 1}` }
+        } },
+      },
+    })
+
+    await expect(resolveAgentCapabilities({ capabilities: [capability] }, runtime(), { prompt: "/a 1" }))
+      .rejects.toThrow("maximum command expansion depth")
+    expect(calls).toBeLessThan(1_500)
+  })
+
+  it("bounds positive-depth numeric oscillation cycles", async () => {
+    const { inputCommands } = await import("../src/capabilities.ts")
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    let calls = 0
+    const capability = inputCommands({
+      commands: {
+        a: { call: ({ args }) => {
+          calls++
+          return { prompt: `/b ${Number(args) - 1}` }
+        } },
+        b: { call: ({ args }) => {
+          calls++
+          return { prompt: `/a ${Number(args) + 1}` }
+        } },
+      },
+    })
+
+    await expect(resolveAgentCapabilities({ capabilities: [capability] }, runtime(), { prompt: "/a 2" }))
+      .rejects.toThrow("maximum command expansion depth")
+    expect(calls).toBeLessThan(1_500)
+  })
+
+  it("resets numeric transition depth tracking between independent branches", async () => {
+    const { inputCommands } = await import("../src/capabilities.ts")
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    let leaves = 0
+    const capability = inputCommands({
+      commands: {
+        root: { call: () => "/a 1 /a 2" },
+        a: { call: ({ args }) => `/b ${Number(args) - 1}` },
+        b: { call: () => Array.from({ length: 1_001 }, () => "/leaf").join(" ") },
+        leaf: { call: () => { leaves++ } },
+      },
+    })
+
+    await resolveAgentCapabilities({ capabilities: [capability] }, runtime(), { prompt: "/root" })
+    expect(leaves).toBe(2_002)
+  })
+
+  it.each(["replacement", "result", "mutation"] as const)("allows decreasing same-command fan-out with options through %s", async (mode) => {
+    const { inputCommands } = await import("../src/capabilities.ts")
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    let calls = 0
+    const capability = inputCommands({
+      commands: {
+        same: {
+          call({ args, context, text }) {
+            calls++
+            const depth = Number(args.split(" ")[0])
+            const replacement = depth > 0 ? `/same ${depth - 1} --format brief /same ${depth - 1} --format brief` : ""
+            if (mode === "replacement") return replacement
+            const prompt = context.input.get().prompt
+            if (typeof prompt !== "string") throw new Error("Expected a string prompt")
+            const rewritten = prompt.replace(text, replacement)
+            if (mode === "mutation") context.input.set({ prompt: rewritten })
+            else return { prompt: rewritten }
+          },
+        },
+      },
+    })
+
+    await resolveAgentCapabilities({ capabilities: [capability] }, runtime(), { prompt: "/same 9 --format brief" })
+    expect(calls).toBe(1_023)
+  })
+
+  it("allows finite decreasing binary fan-out through zero-depth leaves", async () => {
+    const { inputCommands } = await import("../src/capabilities.ts")
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    let calls = 0
+    const capability = inputCommands({
+      commands: {
+        a: {
+          call({ args }) {
+            calls++
+            const depth = Number(args)
+            return depth > 0 ? `/a ${depth - 1} /a ${depth - 1}` : ""
+          },
+        },
+      },
+    })
+
+    await resolveAgentCapabilities({ capabilities: [capability] }, runtime(), { prompt: "/a 11" })
+    expect(calls).toBe(4_095)
+  })
+
+  // This regression executes the full million-command budget. It takes seconds
+  // when each step stays small, so the timeout also catches quadratic growth.
+  it("caps cumulative work for numeric fan-out", async () => {
+    const { inputCommands } = await import("../src/capabilities.ts")
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    let calls = 0
+    const capability = inputCommands({
+      commands: {
+        same: {
+          call({ args }) {
+            calls++
+            const depth = Number(args)
+            return depth > 0 ? `/same ${depth - 1} /same ${depth - 1}` : ""
+          },
+        },
+      },
+    })
+
+    await expect(resolveAgentCapabilities({ capabilities: [capability] }, runtime(), { prompt: "/same 21" }))
+      .rejects.toThrow("maximum command expansion depth")
+    expect(calls).toBeLessThanOrEqual(1_000_001)
+  }, 60_000)
+
+  it("allows finite same-command fan-out", async () => {
+    const { inputCommands } = await import("../src/capabilities.ts")
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    let calls = 0
+    const capability = inputCommands({
+      commands: {
+        same: {
+          call({ args }) {
+            calls++
+            const depth = Number(args)
+            return depth > 0 ? `/same ${depth - 1} /same ${depth - 1}` : ""
+          },
+        },
+      },
+    })
+
+    await resolveAgentCapabilities({ capabilities: [capability] }, runtime(), { prompt: "/same 9" })
+    expect(calls).toBe(1_023)
+  })
+
+  it.each(["replacement", "result", "mutation"] as const)("does not treat untouched sibling commands as a recursive cycle through %s", async (mode) => {
+    const { inputCommands } = await import("../src/capabilities.ts")
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    let marks = 0
+    let aCalls = 0
+    const rewrite = (replacement: () => string): InputCommand["call"] => ({ context, text }) => {
+      const value = replacement()
+      if (mode === "replacement") return value
+      const prompt = context.input.get().prompt
+      if (typeof prompt !== "string") throw new Error("Expected a string prompt")
+      const rewritten = prompt.replace(text, value)
+      if (mode === "mutation") context.input.set({ prompt: rewritten })
+      else return { prompt: rewritten }
+    }
+    const capability = inputCommands({
+      commands: {
+        a: { call: rewrite(() => ++aCalls === 1 ? "text" : Array.from({ length: 1_001 }, () => "/mark").join(" ")) },
+        b: { call: rewrite(() => "text") },
+        mark: { call: () => { marks++ } },
+      },
+    })
+
+    const resolved = await resolveAgentCapabilities({ capabilities: [capability] }, runtime(), { prompt: "/a /b /a" })
+    expect(resolved.input.prompt).toBe("text text")
+    expect(marks).toBe(1_001)
+  })
+
+  it.each(["replacement", "result", "mutation"] as const)("allows delayed finite expansion by the same command through %s", async (mode) => {
+    const { inputCommands } = await import("../src/capabilities.ts")
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    let calls = 0
+    const capability = inputCommands({
+      commands: {
+        same: {
+          call({ context }) {
+            calls++
+            if (calls > 1_000) return
+            const prompt = calls === 1_000 ? "/same /same" : `/same ${calls}`
+            if (mode === "replacement") return prompt
+            if (mode === "mutation") {
+              context.input.set({ prompt })
+              return
+            }
+            return { prompt }
+          },
+        },
+      },
+    })
+
+    const resolved = await resolveAgentCapabilities({ capabilities: [capability] }, runtime(), { prompt: "/same start" })
+    expect(resolved.input.prompt).toBe("")
+    expect(calls).toBe(1_002)
+  })
+
   it("leaves inherited command names as ordinary input", async () => {
     const { inputCommands } = await import("../src/capabilities.ts")
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
@@ -192,6 +843,49 @@ describe("inputCommands", () => {
     }, runtime(), { messages: [createMessage({ role: "user", text: "/review" })] })
 
     expect(resolved.input.messages?.map(message => getMessageText(message))).toEqual(["/review"])
+  })
+
+  it.each([
+    ["/drop\n/fill", "second"],
+    ["first\n/drop\n/fill", "first\nsecond"],
+    ["first /drop", "first"],
+    ["first /drop   ", "first"],
+    ["first /drop /drop /fill", "first second"],
+  ])("removes one separator with an empty string replacement in %j", async (prompt, expected) => {
+    const { inputCommands } = await import("../src/capabilities.ts")
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const capability = inputCommands({ commands: { drop: { call: () => "" }, fill: { call: () => "second" } } })
+
+    const resolved = await resolveAgentCapabilities({ capabilities: [capability] }, runtime(), { prompt })
+    expect(resolved.input.prompt).toBe(expected)
+
+    const fromMessage = await resolveAgentCapabilities({ capabilities: [capability] }, runtime(), {
+      messages: [createMessage({ role: "user", text: prompt })],
+    })
+    expect(fromMessage.input.messages?.map(message => getMessageText(message))).toEqual([expected])
+  })
+
+  it("keeps the text size bounded while empty replacements remove fan-out leaves", async () => {
+    const { inputCommands } = await import("../src/capabilities.ts")
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    let longest = 0
+    const capability = inputCommands({
+      commands: {
+        same: {
+          call({ args, context }) {
+            longest = Math.max(longest, String(context.input.get().prompt).length)
+            const depth = Number(args)
+            return depth > 0 ? `/same ${depth - 1} /same ${depth - 1}` : ""
+          },
+        },
+      },
+    })
+
+    // Each removed leaf used to leave its separator, so 4,095 calls grew the
+    // prompt to about 2,000 characters and made every later step slower.
+    const resolved = await resolveAgentCapabilities({ capabilities: [capability] }, runtime(), { prompt: "/same 11" })
+    expect(resolved.input.prompt).toBe("/same 0")
+    expect(longest).toBeLessThanOrEqual(100)
   })
 
   it("replaces command text from an initial message", async () => {

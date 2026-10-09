@@ -46,8 +46,8 @@ describe("provider Agent Driver types", () => {
 
     expectTypeOf(defaultCodex.kind).toEqualTypeOf<"codex">()
     expectTypeOf(defaultClaude.kind).toEqualTypeOf<"claude-code">()
-    expectTypeOf(fullAccessCodex.permissions).toEqualTypeOf<"ask" | "allow-edits" | "allow-all" | undefined>()
-    expectTypeOf(fullAccessClaude.permissions).toEqualTypeOf<"ask" | "allow-edits" | "allow-all" | undefined>()
+    expectTypeOf(fullAccessCodex.permissions).toEqualTypeOf<"ask" | "allow-edits" | "allow-edits-unattended" | "allow-all" | undefined>()
+    expectTypeOf(fullAccessClaude.permissions).toEqualTypeOf<"ask" | "allow-edits" | "allow-edits-unattended" | "allow-all" | undefined>()
     expectTypeOf(configuredCodex.reasoningSummary).toEqualTypeOf<"auto" | "concise" | "detailed" | "none" | undefined>()
     expectTypeOf(configuredCodex.sessionStorePath).toEqualTypeOf<string | undefined>()
     claudeCodeDriver({ sessionStorePath: ".vitehub/claude-sessions.sqlite" })

@@ -20,8 +20,8 @@ const inspectTools = vi.fn(() => ({}))
 const writeTools = vi.fn(() => ({}))
 const createWorkspaceTools = vi.fn(() => ({}))
 const createWorkspaceSourceResolutionFacade = vi.fn(async (workspace: ReadonlyWorkspaceFacade | WritableWorkspaceFacade, definition: unknown) => ({ definition, workspace }))
-const getWorkspaceSourceRequestDescriptor = vi.fn((_: unknown): { method: string, url: string } | undefined => undefined)
-const isWorkspaceSourceRequestOnly = vi.fn((_: unknown): boolean => false)
+const getWorkspaceSourceRequestDescriptor = vi.fn((): { method: string, url: string } | undefined => undefined)
+const isWorkspaceSourceRequestOnly = vi.fn((): boolean => false)
 const resolveRegisteredWorkspaceDefinition = vi.fn()
 const resolveWorkspaceAutoCommit = vi.fn()
 const workspaceSourceRequestDescriptorPath = vi.fn((source: string) => `.vitehub/sources/${source}.json`)
@@ -527,6 +527,31 @@ describe("defineAgent workspace option", () => {
       }),
       mode: "write",
     })
+  })
+
+  it("accepts prototype-named capability sources on shared workspaces", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { skills } = await import("../src/capabilities.ts")
+    const workspaceName = `review-${Math.random().toString(36).slice(2)}`
+    const registeredDefinition = { name: workspaceName, sources: {}, store: { provider: "memory" as const } }
+    resolveRegisteredWorkspaceDefinition.mockResolvedValueOnce(registeredDefinition)
+    exists.mockResolvedValue(true)
+
+    const agent = defineAgent({
+      capabilities: [skills({
+        path: "skills/prototype",
+        sourceKey: "__proto__",
+        source: { materialize: "build", repo: "vercel/vercel-plugin", root: "skills/prototype" } as never,
+      })],
+      driver: { model: {} as never },
+      workspace: { name: workspaceName, mode: "write" },
+    })
+
+    await agent.run!(context())
+
+    const options = useWorkspace.mock.calls.at(-1)?.[1] as { definition?: { sources?: Record<string, unknown> }, mode?: string } | undefined
+    expect(options?.mode).toBe("write")
+    expect(Object.keys(options?.definition?.sources ?? {})).toContain("__proto__")
   })
 
   it("attaches skill sources before validating the required skill path", async () => {

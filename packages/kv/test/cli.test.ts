@@ -2,7 +2,7 @@ import { EventEmitter } from "node:events"
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { Readable } from "node:stream"
+import { Readable, Writable } from "node:stream"
 
 import { describe, expect, it, vi } from "vitest"
 
@@ -184,7 +184,7 @@ describe("KV review regressions", () => {
 
   it.each(["", "hello", "hello\n", "hello\n\n", "first\nsecond", "héllo"])("prints strings unchanged: %j", async value => {
     const output = context()
-    await expect(runKVCli(["get", "a"], output.context, { fetch: devServer({ found: true, key: "a", store: "default", value }) })).resolves.toBe(0)
+    await expect(runKVCli(["get", "a"], output.context, { fetch: devServer({ found: true, key: "a", store: "default", type: "string", value }) })).resolves.toBe(0)
     expect(output.stdout.output()).toBe(value)
     expect(output.stderr.output()).toBe("")
   })
@@ -195,6 +195,12 @@ describe("KV review regressions", () => {
     await expect(runKVCli(["set", "--json-value", "--json", "--", "a", value], output.context, { fetch })).resolves.toBe(0)
     expect(sentBody(fetch)).toMatchObject({ value: Number(value) })
     expect(output.stderr.output()).toBe("")
+  })
+
+  it("rejects a found get response without type or value", async () => {
+    const output = context()
+    await expect(runKVCli(["get", "key", "--json"], output.context, { fetch: devServer({ found: true, key: "key", store: "default" }) })).resolves.toBe(1)
+    expect(JSON.parse(output.stdout.output())).toEqual({ error: { message: "The KV Dev response has an invalid result shape." } })
   })
 
   it("reports invalid binary payloads without throwing", async () => {
@@ -208,6 +214,16 @@ describe("KV review regressions", () => {
     await expect(runKVCli(["list", ...(json ? ["--json"] : [])], output.context, { fetch: devServer({ keys: "invalid", store: "default" }) })).resolves.toBe(1)
     if (json) expect(JSON.parse(output.stdout.output())).toEqual({ error: { message: "The KV Dev response has an invalid result shape." } })
     else expect(output.stderr.output()).toContain("invalid result shape")
+  })
+
+  it.each([
+    ["has", { key: "a", store: "default", exists: "yes" }],
+    ["set", { key: "a", store: "default", created: true, type: 1 }],
+    ["del", { key: "a", store: "default", deleted: "yes" }],
+  ] as const)("rejects malformed %s responses", async (operation, result) => {
+    const output = context()
+    await expect(runKVCli([operation, "a", ...(operation === "set" ? ["value"] : []), "--json"], output.context, { fetch: devServer(result) })).resolves.toBe(1)
+    expect(JSON.parse(output.stdout.output())).toEqual({ error: { message: "The KV Dev response has an invalid result shape." } })
   })
 
   it("emits JSON for discovery failures", async () => {
@@ -428,18 +444,21 @@ async function call(middleware: Middleware, init: { body?: string, headers?: Rec
   const done = new EventEmitter()
   const chunks: Buffer[] = []
   const headers: Record<string, string> = {}
-  const res = {
-    end() {
-      done.emit("end")
+  const res = Object.assign(new Writable({
+    write(chunk, _encoding, callback) {
+      chunks.push(Buffer.from(chunk))
+      callback()
     },
+    final(callback) {
+      done.emit("end")
+      callback()
+    },
+  }), {
     setHeader(name: string, value: string) {
       headers[name] = value
     },
     statusCode: 200,
-    write(chunk: Buffer) {
-      chunks.push(chunk)
-    },
-  }
+  })
   const ended = new Promise(resolve => done.once("end", resolve))
   middleware(req, res as unknown as ServerResponse, () => done.emit("end"))
   await ended

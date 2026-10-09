@@ -148,6 +148,34 @@ describe("colocated Agent instructions", () => {
     expect(agentWithColocatedInstructions(runAgent, "Run instructions.")).toBe(runAgent)
   })
 
+  it.each([true, false])("binds the Console journal without reconfiguring a preset (explicit: %s)", async (explicit) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-preset-"))
+    try {
+      const handler = join(root, "agent.ts")
+      await writeFile(handler, "export default {}", "utf8")
+      const fallback = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+      const configure = vi.fn(() => defineAgent({ driver: { run: () => "done" }, runtime: false,
+        ...(explicit ? { invocations: defineAgentInvocations({ store: createMemoryAgentInvocationStore() }) } : {}),
+      }))
+      const authored = defineAgent({ options: {}, configure })
+      const original = authored.invocations
+      const facade = vi.fn((options: Parameters<typeof defineAgent>[0]) => {
+        const agent = defineAgent(options as never)
+        if (agent.invocations === undefined) Object.defineProperty(agent, "invocations", { configurable: true, get: () => fallback })
+        return agent
+      })
+      const server = { config: { plugins: [{ name: "vite-hub/console" }] },
+        ssrLoadModule: async (id: string) => id === "vite-hub/agent" ? { defineAgent: facade } : { default: authored },
+      } as unknown as ViteDevServer
+      const loaded = await loadViteAgent(server, { name: "support", handler })
+      expect(configure).toHaveBeenCalledOnce()
+      expect(loaded?.agent.invocations).toBe(explicit ? original : fallback)
+      if (explicit) expect(facade).not.toHaveBeenCalled()
+      else expect(facade).toHaveBeenCalledWith({ driver: { run: expect.any(Function) }, runtime: false })
+    }
+    finally { await rm(root, { force: true, recursive: true }) }
+  })
+
   it("loads instructions in the Vite Agent Dev Loop", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-colocated-instructions-"))
     const handler = join(root, "reviewer", "agent.ts")
@@ -157,6 +185,7 @@ describe("colocated Agent instructions", () => {
       await writeFile(join(root, "reviewer", "instructions.md"), "Review the local invocation.\n", "utf8")
       const agent = defineAgent({ driver: { model }, runtime: false })
       const server = {
+        config: { plugins: [] },
         ssrLoadModule: async () => ({ default: agent }),
       } as unknown as ViteDevServer
 
@@ -199,7 +228,7 @@ describe("colocated Agent instructions", () => {
           path: "instructions.md",
         })
       }
-      const server = { ssrLoadModule: async () => ({ default: agent }) } as unknown as ViteDevServer
+      const server = { config: { plugins: [] }, ssrLoadModule: async () => ({ default: agent }) } as unknown as ViteDevServer
 
       const loaded = await createViteWorkspaceAgentLoader(server, { handler, name: "support", workspace: "support" } as DiscoveredAgentDefinition)()
       const sources = loaded.default.sources as Record<string, { content: string | Uint8Array, materialize: string, workspacePath: string }>

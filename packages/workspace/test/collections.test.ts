@@ -24,6 +24,70 @@ afterEach(() => {
 })
 
 describe("Workspace Collections", () => {
+  it("ignores null filters and accepts cursors with omitted filters", async () => {
+    await createCollection("collection-null-filters")
+    const first = await queryWorkspaceCollection({
+      path: "data/items.json",
+      query: { filters: { title: null as never }, limit: 1 },
+      workspace: "collection-null-filters",
+    })
+
+    expect(first).toMatchObject({ items: [records[0]], total: records.length })
+    expect(first.nextCursor).toEqual(expect.any(String))
+    await expect(queryWorkspaceCollection({
+      path: "data/items.json",
+      query: { cursor: first.nextCursor!, limit: 1 },
+      workspace: "collection-null-filters",
+    })).resolves.toMatchObject({ items: [records[1]], total: records.length })
+  })
+
+  it("ignores null members in array filters and cursor fingerprints", async () => {
+    await createCollection("collection-null-array-filters")
+    const first = await queryWorkspaceCollection({
+      path: "data/items.json",
+      query: { filters: { category: [null as never, "Guide"] }, limit: 1 },
+      workspace: "collection-null-array-filters",
+    })
+
+    expect(first.items).toEqual([records[0]])
+    await expect(queryWorkspaceCollection({
+      path: "data/items.json",
+      query: { cursor: first.nextCursor!, filters: { category: ["guide"] }, limit: 1 },
+      workspace: "collection-null-array-filters",
+    })).resolves.toMatchObject({ items: [records[2]], total: 2 })
+  })
+
+  it("treats null-only array filters as omitted filters", async () => {
+    await createCollection("collection-null-only-filters")
+    const first = await queryWorkspaceCollection({
+      path: "data/items.json",
+      query: { filters: { title: [null as never, undefined as never] }, limit: 1 },
+      workspace: "collection-null-only-filters",
+    })
+
+    expect(first).toMatchObject({ items: [records[0]], total: records.length })
+    await expect(queryWorkspaceCollection({
+      path: "data/items.json",
+      query: { cursor: first.nextCursor!, limit: 1 },
+      workspace: "collection-null-only-filters",
+    })).resolves.toMatchObject({ items: [records[1]], total: records.length })
+  })
+
+  it("does not expose object prototype properties through query paths", async () => {
+    await createCollection("collection-own-paths", [{ title: "Guide" }])
+    Object.defineProperty(Object.prototype, "collectionLeak", { configurable: true, value: "secret" })
+    try {
+      await expect(queryWorkspaceCollection({
+        path: "data/items.json",
+        query: { filters: { "__proto__.collectionLeak": "secret" }, limit: 10 },
+        workspace: "collection-own-paths",
+      })).resolves.toMatchObject({ items: [], total: 0 })
+    }
+    finally {
+      Reflect.deleteProperty(Object.prototype, "collectionLeak")
+    }
+  })
+
   it("filters, searches, sorts, facets, projects, and paginates explicit paths", async () => {
     await createCollection("collection-query")
     const query = {
@@ -114,6 +178,34 @@ describe("Workspace Collections", () => {
     })).resolves.toMatchObject({ items: [{ rank: 1 }, { rank: 2 }, { rank: 10 }] })
   })
 
+  it("rejects non-canonical trailing bits in emitted cursors", async () => {
+    await createCollection("collection-cursor-bits", Array.from({ length: 12 }, (_, id) => ({ id })))
+    const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+
+    for (const limit of [1, 10]) {
+      const first = await queryWorkspaceCollection({
+        path: "data/items.json",
+        query: { limit },
+        workspace: "collection-cursor-bits",
+      })
+      const cursor = first.nextCursor!
+      expect(cursor.length % 4).toBe(limit === 1 ? 2 : 3)
+      const mutated = cursor.slice(0, -1) + alphabet[alphabet.indexOf(cursor.at(-1)!) + 1]
+      expect(atob(mutated.replaceAll("-", "+").replaceAll("_", "/"))).toBe(atob(cursor.replaceAll("-", "+").replaceAll("_", "/")))
+
+      await expect(queryWorkspaceCollection({
+        path: "data/items.json",
+        query: { cursor: mutated, limit },
+        workspace: "collection-cursor-bits",
+      })).rejects.toMatchObject({ code: "WORKSPACE_COLLECTION_CURSOR_INVALID", details: { reason: "malformed" } })
+      await expect(queryWorkspaceCollection({
+        path: "data/items.json",
+        query: { cursor, limit },
+        workspace: "collection-cursor-bits",
+      })).resolves.toMatchObject({ items: [{ id: limit }, ...(limit === 10 ? [{ id: 11 }] : [])] })
+    }
+  })
+
   it("rejects malformed, query-mismatched, and content-stale cursors", async () => {
     const workspace = await createCollection("collection-cursors")
     const first = await queryWorkspaceCollection({
@@ -122,9 +214,16 @@ describe("Workspace Collections", () => {
       workspace: "collection-cursors",
     })
 
+    for (const cursor of ["not-a-cursor", "A", "AA=", "Zm9v==", "AA/AA"]) {
+      await expect(queryWorkspaceCollection({
+        path: "data/items.json",
+        query: { cursor, limit: 1, sort: { field: "slug" } },
+        workspace: "collection-cursors",
+      })).rejects.toMatchObject({ code: "WORKSPACE_COLLECTION_CURSOR_INVALID", details: { reason: "malformed" } })
+    }
     await expect(queryWorkspaceCollection({
       path: "data/items.json",
-      query: { cursor: "not-a-cursor", limit: 1, sort: { field: "slug" } },
+      query: { cursor: `${first.nextCursor}==`, limit: 1, sort: { field: "slug" } },
       workspace: "collection-cursors",
     })).rejects.toMatchObject({ code: "WORKSPACE_COLLECTION_CURSOR_INVALID", details: { reason: "malformed" } })
     await expect(queryWorkspaceCollection({

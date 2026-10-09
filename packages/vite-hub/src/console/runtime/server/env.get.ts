@@ -1,3 +1,4 @@
+import { withConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
 import { assertConsoleRequest, consoleRequestURL } from "./request.ts"
 import { getConsoleSections } from "./sections.ts"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
@@ -10,7 +11,7 @@ function consoleEnvError(statusCode: number, statusMessage: string) {
 }
 
 /** Returns declaration metadata. `?status=1` adds status from `inspectServerEnv()`, which may call providers. */
-export default async function consoleEnvHandler(event: ConsoleRequestEvent): Promise<ConsoleEnvResponse> {
+async function consoleEnvHandler(event: ConsoleRequestEvent): Promise<ConsoleEnvResponse> {
   assertConsoleRequest(event)
   if (!getConsoleSections().includes("env")) throw consoleEnvError(404, "Env section not found.")
   if (consoleRequestURL(event).searchParams.get("status") !== "1") return getConsoleEnv()
@@ -25,3 +26,6 @@ export default async function consoleEnvHandler(event: ConsoleRequestEvent): Pro
   if (!result) throw consoleEnvError(503, "Env status is unavailable.")
   return result
 }
+
+const guardedHandler: ConsoleAccessRoute<typeof consoleEnvHandler> = withConsoleAccess(consoleEnvHandler)
+export default guardedHandler

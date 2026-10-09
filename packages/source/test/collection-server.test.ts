@@ -6,7 +6,7 @@ import { defineCollection } from "../src/index.ts"
 import { defineCollectionHandler } from "../src/server.ts"
 
 import type { AccessAuthorizeOption } from "@vite-hub/runtime"
-import type { CollectionRequestAuthorizer } from "../src/server.ts"
+import type { CollectionAuthorizationGuard } from "../src/server.ts"
 
 function createApp() {
   const collection = defineCollection(
@@ -43,14 +43,14 @@ describe("defineCollectionHandler", () => {
       }
     }
 
-    // Mirrors Auth's authorizeRequest contract: the Auth package tests the real session lookup.
-    const authorizeRequest: CollectionRequestAuthorizer = async (event, authorize) => {
+    // Mirrors Auth's withAuthorization contract: the Auth package tests the real session lookup.
+    const withAuthorization: CollectionAuthorizationGuard = (authorize, handler) => async (event) => {
       const user = event.req.headers.get("cookie") === "session=u1" ? { id: "u1" } : undefined
       if (!user) return Response.json({ error: "Unauthorized." }, { status: 401 })
-      if (authorize === true) return
-      const result = await authorize({ request: event.req, session: {}, user })
+      const result = authorize === true || await authorize({ request: event.req, session: {}, user })
       if (result instanceof Response) return result
       if (result !== true) return Response.json({ error: "Forbidden." }, { status: 403 })
+      return handler(event)
     }
 
     it("fails closed when the route has no Auth authorizer", () => {
@@ -60,7 +60,7 @@ describe("defineCollectionHandler", () => {
 
     it("returns 401 before parsing the query or loading rows", async () => {
       const { collection, load } = privateCollection(true)
-      const app = new H3().get("/meals", defineCollectionHandler(collection, { authorizeRequest }))
+      const app = new H3().get("/meals", defineCollectionHandler(collection, { withAuthorization }))
 
       const response = await app.request("/meals?limit=invalid")
 
@@ -71,13 +71,13 @@ describe("defineCollectionHandler", () => {
 
     it("returns 403 when authorize returns false and a custom response as-is", async () => {
       const denied = privateCollection(() => false)
-      const deniedApp = new H3().get("/meals", defineCollectionHandler(denied.collection, { authorizeRequest }))
+      const deniedApp = new H3().get("/meals", defineCollectionHandler(denied.collection, { withAuthorization }))
       const forbidden = await deniedApp.request("/meals", { headers: { cookie: "session=u1" } })
       expect(forbidden.status).toBe(403)
       expect(denied.load).not.toHaveBeenCalled()
 
       const custom = privateCollection(() => new Response("Upgrade required", { status: 402 }))
-      const customApp = new H3().get("/meals", defineCollectionHandler(custom.collection, { authorizeRequest }))
+      const customApp = new H3().get("/meals", defineCollectionHandler(custom.collection, { withAuthorization }))
       const payment = await customApp.request("/meals", { headers: { cookie: "session=u1" } })
       expect(payment.status).toBe(402)
       expect(await payment.text()).toBe("Upgrade required")
@@ -85,7 +85,7 @@ describe("defineCollectionHandler", () => {
 
     it("serves the page after authorization", async () => {
       const { collection } = privateCollection(({ user }) => user.id === "u1")
-      const app = new H3().get("/meals", defineCollectionHandler(collection, { authorizeRequest }))
+      const app = new H3().get("/meals", defineCollectionHandler(collection, { withAuthorization }))
 
       const response = await app.request("/meals", { headers: { cookie: "session=u1" } })
 
@@ -95,8 +95,12 @@ describe("defineCollectionHandler", () => {
 
     it("keeps public Collections public when an authorizer is present", async () => {
       const collection = defineCollection(async () => [{ id: 1 }], { cursor: item => item.id, cursorSchema: v.number() })
-      const authorizer = vi.fn(authorizeRequest)
-      const response = await new H3().get("/meals", defineCollectionHandler(collection, { authorizeRequest: authorizer })).request("/meals")
+      const authorizer = vi.fn()
+      const guard: CollectionAuthorizationGuard = (authorize, handler) => {
+        authorizer()
+        return withAuthorization(authorize, handler)
+      }
+      const response = await new H3().get("/meals", defineCollectionHandler(collection, { withAuthorization: guard })).request("/meals")
 
       expect(response.status).toBe(200)
       expect(authorizer).not.toHaveBeenCalled()
@@ -106,6 +110,39 @@ describe("defineCollectionHandler", () => {
   it("rejects a non-Collection before accepting requests", () => {
     // SAFETY: The test deliberately violates the input contract to prove the runtime guard.
     expect(() => defineCollectionHandler({} as never)).toThrow("defineCollectionHandler() requires a Collection")
+  })
+
+  it("rejects Collection methods inherited from an ordinary object", () => {
+    const collection = Object.create({
+      page: async () => ({ items: [], nextCursor: null }),
+      parseQuery: async () => ({}),
+    })
+
+    expect(() => defineCollectionHandler(collection as never)).toThrow("defineCollectionHandler() requires a Collection")
+  })
+
+  it("rejects inherited Collection methods with a forged constructor", () => {
+    const collection = Object.create({
+      constructor: function Fake() {},
+      page: async () => ({ items: [], nextCursor: null }),
+      parseQuery: async () => ({}),
+    })
+
+    expect(() => defineCollectionHandler(collection as never)).toThrow("defineCollectionHandler() requires a Collection")
+  })
+
+  it("accepts Collection methods declared on a class prototype", () => {
+    class CollectionLike {
+      async page() {
+        return { items: [], nextCursor: null }
+      }
+
+      async parseQuery() {
+        return {}
+      }
+    }
+
+    expect(() => defineCollectionHandler(new CollectionLike() as never)).not.toThrow()
   })
 
   it("serves bounded pages and forwards typed query input", async () => {

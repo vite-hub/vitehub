@@ -12,6 +12,7 @@ export async function failInterruptedAgentInvocations(
     claimLeaseMs?: number
     limit?: number
     message?: string
+    agentName?: string
     recoveryTimeoutMs?: number
     recover: (invocation: AgentInvocationSummary) => boolean | Promise<boolean>
   },
@@ -40,7 +41,7 @@ export async function failInterruptedAgentInvocations(
     }
   }
   do {
-    const records = await store.list({ cursor, limit, status: ["pending", "running"] })
+    const records = await store.list({ cursor, limit, status: ["pending", "running"], ...(options.agentName ? { agentName: options.agentName } : {}) })
     for (const invocation of records.invocations) {
       const startedAt = Date.parse(invocation.startedAt || invocation.createdAt)
       if (!Number.isFinite(startedAt) || startedAt >= before) continue
@@ -82,12 +83,13 @@ export function summarizeAgentInvocationWorkload(
 export async function readAgentInvocationWorkload(
   invocations: Pick<AgentInvocations, "list">,
   processStartedAt: number,
+  options: { agentName?: string } = {},
 ): Promise<{ active: number, completed: number, failed: number, stale: number, total: number }> {
-  const recent = await invocations.list({ limit: 100 })
+  const recent = await invocations.list({ limit: 100, ...(options.agentName ? { agentName: options.agentName } : {}) })
   const records = new Map(recent.invocations.map(invocation => [invocation.id, invocation]))
   let cursor: string | undefined
   do {
-    const active = await invocations.list({ cursor, limit: 100, status: ["pending", "running"] })
+    const active = await invocations.list({ cursor, limit: 100, status: ["pending", "running"], ...(options.agentName ? { agentName: options.agentName } : {}) })
     for (const invocation of active.invocations) records.set(invocation.id, invocation)
     cursor = active.cursor
   } while (cursor)

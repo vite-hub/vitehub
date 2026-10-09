@@ -11,12 +11,10 @@ import { parse as parseYaml } from "yaml";
 
 const siteOrigin = "https://vitehub.dev";
 const contentCollectionPrefixes = new Map([
-  ["blog", "blog"],
   ["docs", "docs"],
   ["trust", ""],
 ]);
 const contentCollectionExtensions = new Map([
-  ["blog", new Set([".md"])],
   ["docs", new Set([".md", ".yml", ".yaml"])],
   ["trust", new Set([".md"])],
 ]);
@@ -748,6 +746,7 @@ function applicationInventory(docsRoot, contentRoutes) {
     "/llms.txt",
     "/llms-full.txt",
     "/mcp",
+    "/sitemap.xml", // Provided by @nuxtjs/sitemap through Docus.
   ]) routeAnchors.set(route, new Set());
   const matrixAnchors = supportMatrixAnchors(docsRoot);
   if (matrixAnchors) routeAnchors.set("/docs/frameworks-hosts/support-matrix", matrixAnchors);

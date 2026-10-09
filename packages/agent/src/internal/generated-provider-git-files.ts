@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process"
 import { randomUUID } from "node:crypto"
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises"
 import { dirname, relative, resolve } from "node:path"
 import { promisify } from "node:util"
 
@@ -13,7 +13,7 @@ export async function protectGeneratedProviderGitFiles(root: string, paths: read
     env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GIT_LITERAL_PATHSPECS: "1" },
   })).stdout
   const top = (await git(["rev-parse", "--show-toplevel"])).trim()
-  if (resolve(top) !== resolve(root)) throw new Error("Generated provider files require the pull request repository root.")
+  if (await realpath(top) !== await realpath(root)) throw new Error("Generated provider files require the pull request repository root.")
   const names = [...new Set(paths.map(path => relative(root, path).replaceAll("\\", "/")))]
   if (names.some(name => /[\r\n]/.test(name))) throw new Error("Generated provider Git paths must not contain line breaks.")
   const entries = (await git(["ls-files", "-v", "-z", "--", ...names])).split("\0").filter(Boolean)

@@ -82,120 +82,187 @@ export const agentStory = {
       title: "You add the tools it needs",
       description: "Capabilities add tools such as the browser. Codex keeps its own tools.",
       lines: [1, 11],
-      to: "/docs/capabilities",
+      to: "/docs/agents/capabilities",
     },
   ],
 } as const;
 
-// Ordered by importance to an Agent: what it works in and calls first, supporting primitives last.
+// One KV store, read from a route and from an Agent. Both panes must use the same primitive.
+export const sharedApi = {
+  primitiveTo: "/docs/kv",
+  capabilityTo: "/docs/kv/agent-capability",
+  panes: [
+    {
+      id: "route",
+      label: "Route",
+      path: "server/api/notes.get.ts",
+      caption: "Your route calls kv.get().",
+      code: [
+        'import { kv } from "vite-hub/kv"',
+        "",
+        "export default defineEventHandler(async () => {",
+        '  const [error, notes] = await kv.get("notes")',
+        "  if (error) throw error",
+        "  return notes",
+        "})",
+      ],
+    },
+    {
+      id: "agent",
+      label: "Agent",
+      path: "server/agents/support.ts",
+      caption: "The Agent gets a kv_read tool for the same store.",
+      code: [
+        'import { defineAgent } from "vite-hub/agent"',
+        'import { kv } from "vite-hub/agent/capabilities"',
+        "",
+        "export default defineAgent({",
+        '  description: "Answers support questions.",',
+        '  driver: "codex",',
+        '  capabilities: [kv({ mode: "read" })],',
+        "})",
+      ],
+    },
+  ],
+} as const;
+
+export const nuxtHubMigration = {
+  to: "/docs/getting-started/migrate-from-nuxthub",
+  imports: [
+    { from: "@nuxthub/kv", to: "vite-hub/kv" },
+    { from: "@nuxthub/blob", to: "vite-hub/blob" },
+    { from: "@nuxthub/db", to: "vite-hub/database/drizzle" },
+  ],
+} as const;
+
+// The Agent leads because it composes the other primitives through Capabilities.
+// The rest are ordered by importance to an Agent: what it works in and calls first, supporting primitives last.
 // Realtime has only a reference page.
 export const landingPrimitives = [
+  {
+    id: "agent",
+    name: "Agent",
+    description: "A model with tools and files",
+    to: "/docs/agents",
+  },
+  {
+    id: "ui",
+    name: "UI",
+    description: "Agent interfaces",
+    to: "/docs/ui",
+  },
   {
     id: "workspace",
     name: "Workspace",
     description: "Persistent file trees",
-    to: "/docs/server-primitives/workspace",
+    to: "/docs/workspace",
   },
   {
     id: "sandbox",
     name: "Sandbox",
     description: "Isolated execution",
-    to: "/docs/server-primitives/sandbox",
+    to: "/docs/sandbox",
   },
   {
     id: "connections",
     name: "Connections",
     description: "Connected account APIs",
-    to: "/docs/server-primitives/connections",
+    to: "/docs/connections",
   },
   {
     id: "workflow",
     name: "Workflow",
     description: "Durable orchestration",
-    to: "/docs/server-primitives/workflows",
+    to: "/docs/workflows",
   },
   {
     id: "kv",
     name: "KV",
     description: "State and cache",
-    to: "/docs/server-primitives/kv",
+    to: "/docs/kv",
   },
   {
     id: "database",
     name: "Database",
     description: "Relational data",
-    to: "/docs/server-primitives/database",
+    to: "/docs/database",
   },
   {
     id: "queue",
     name: "Queue",
     description: "Background jobs",
-    to: "/docs/server-primitives/queue",
+    to: "/docs/queue",
   },
   {
     id: "schedule",
     name: "Schedule",
     description: "Recurring work",
-    to: "/docs/server-primitives/schedule",
+    to: "/docs/schedule",
   },
   {
     id: "blob",
     name: "Blob",
     description: "Files and uploads",
-    to: "/docs/server-primitives/blob",
+    to: "/docs/blob",
   },
   {
     id: "auth",
     name: "Auth",
     description: "Users and sessions",
-    to: "/docs/server-primitives/auth",
+    to: "/docs/auth",
   },
   {
     id: "browser",
     name: "Browser",
     description: "Browser operations",
-    to: "/docs/server-primitives/browser",
+    to: "/docs/browser",
   },
   {
     id: "shell",
     name: "Shell",
     description: "Command execution",
-    to: "/docs/server-primitives/shell",
+    to: "/docs/shell",
   },
   {
     id: "source",
     name: "Source",
     description: "Read-only content",
-    to: "/docs/server-primitives/source",
+    to: "/docs/source",
   },
   {
     id: "content",
     name: "Content",
     description: "Parse and search",
-    to: "/docs/server-primitives/content",
+    to: "/docs/content",
   },
   {
     id: "email",
     name: "Email",
     description: "Transactional email",
-    to: "/docs/server-primitives/email",
+    to: "/docs/email",
+  },
+  {
+    id: "channels",
+    name: "Channels",
+    description: "Named message delivery",
+    to: "/docs/channels",
   },
   {
     id: "env",
     name: "Env",
     description: "Typed configuration",
-    to: "/docs/server-primitives/env",
+    to: "/docs/env",
   },
   {
     id: "rate-limit",
     name: "Rate Limit",
     description: "Request budgets",
-    to: "/docs/server-primitives/rate-limit",
+    to: "/docs/rate-limit",
   },
   {
     id: "realtime",
     name: "Realtime",
     description: "Collaborative documents",
-    to: "/docs/reference/realtime",
+    to: "/docs/realtime",
   },
 ] as const;

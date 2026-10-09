@@ -8,7 +8,7 @@ const input = ref("");
 const status = ref<ChatStatus>("ready");
 let timeout: ReturnType<typeof setTimeout> | undefined;
 
-// A local echo replaces the transport. In an application, call `sendMessage()` from `useChat()`.
+// The preview uses a local reply. In an application, call `sendMessage()` from `useChat()`.
 function submit({ text }: AgentChatPromptSubmit) {
   messages.value = [
     ...messages.value,
@@ -22,7 +22,7 @@ function submit({ text }: AgentChatPromptSubmit) {
       {
         id: `assistant-${messages.value.length}`,
         role: "assistant",
-        parts: [{ type: "text", text: `You asked: **${text}**\n\nThis preview has no model, so it repeats the prompt.` }],
+        parts: [{ type: "text", text: `I would look for **${text}** in the selected Agent run and link the relevant activity here.\n\nThis fixture keeps the transport out of the component example.` }],
       },
     ];
     status.value = "ready";
@@ -41,12 +41,12 @@ onBeforeUnmount(() => clearTimeout(timeout));
   <AgentChat :messages="messages" :status="status" class="h-[26rem]">
     <template #composer>
       <p v-if="messages.length === 0" class="mb-3 text-center text-sm text-muted">
-        Send a message to start the conversation.
+        Ask about the selected run, a file, or the next action.
       </p>
       <AgentChatPrompt
         v-model="input"
         :status="status"
-        placeholder="Ask the Agent…"
+        placeholder="Ask about this run…"
         @submit="submit"
         @stop="stop"
       />

@@ -108,6 +108,29 @@ export function pullRequestCheckoutPlan(context: ContextStore): PullRequestCheck
   return plan
 }
 
+/**
+ * Repositories a GitHub pull request run acts on, even when it opts out of the
+ * managed checkout. Babysitter supplies flat repository fields for its prepared
+ * checkout. Credentials stay scoped so multi-installation GitHub Apps can resolve access.
+ */
+export function pullRequestRepositories(context: ContextStore): { headRepository?: string, repository: string } | undefined {
+  const raw = context?.get("pullRequest")
+  const pullRequest = isRecord(raw) && isRecord(raw.pullRequest) ? raw.pullRequest : isRecord(raw) ? raw : undefined
+  const provider = isRecord(raw) ? raw.provider : undefined
+  if (isRuntimeString(provider) && provider !== "github") return
+  const source = isRecord(pullRequest?.source) ? pullRequest.source : undefined
+  const head = isRecord(pullRequest?.head) ? pullRequest.head : undefined
+  const repositoryRecord = isRecord(raw) && isRecord(raw.repository) ? raw.repository : undefined
+  const repository = safeRepository(source?.repo)
+    || safeRepository(isRecord(raw) ? raw.repository : undefined)
+    || safeRepository(repositoryRecord?.fullName)
+    || safeRepository(context?.get("pullRequestRepository"))
+  if (!repository) return
+  const headRepository = safeRepository(head?.repo)
+    || safeRepository(context?.get("pullRequestSourceRepository"))
+  return headRepository && headRepository.toLowerCase() !== repository.toLowerCase() ? { headRepository, repository } : { repository }
+}
+
 /** Resolve base access and add environment-only credentials for a fork push remote. */
 export async function pullRequestCheckoutEnvironment(
   github: AgentGitHub | undefined,
@@ -159,6 +182,72 @@ export async function preparePullRequestCheckout(
     if (head.exitCode !== 0 || head.stdout.trim().toLowerCase() !== plan.headSha) {
       throw agentDiagnostics.AGENT_R0070({ message: "[vitehub] existing pull request checkout does not match the expected SHA." })
     }
+    const origin = await session.exec("git", ["remote", "get-url", "origin"], execOptions)
+    const expectedOrigin = `https://github.com/${plan.repository}.git`
+    if (origin.exitCode !== 0 || normalizeGitRemote(origin.stdout) !== normalizeGitRemote(expectedOrigin)) {
+      throw agentDiagnostics.AGENT_R0070({ message: "[vitehub] existing pull request checkout has the wrong origin remote." })
+    }
+    if (plan.headBranch) {
+      const config = async (key: string) => {
+        const result = await session.exec("git", ["config", "--get", key], execOptions)
+        return result.exitCode === 0 ? result.stdout.trim() : undefined
+      }
+      const [branch, remote, merge, branchPushRemote, defaultPushRemote] = await Promise.all([
+        session.exec("git", ["branch", "--show-current"], execOptions),
+        config(`branch.${plan.headBranch}.remote`),
+        config(`branch.${plan.headBranch}.merge`),
+        config(`branch.${plan.headBranch}.pushRemote`),
+        config("remote.pushDefault"),
+      ])
+      const expectedRemote = plan.headRepository ? "head" : "origin"
+      const expectedBranch = `refs/heads/${plan.headBranch}`
+      if (branch.exitCode !== 0 || branch.stdout.trim() !== plan.headBranch
+        || (remote !== undefined && (remote !== expectedRemote || merge !== expectedBranch))
+        || (remote === undefined && merge !== undefined)) {
+        throw agentDiagnostics.AGENT_R0070({ message: "[vitehub] existing pull request checkout has the wrong branch tracking metadata." })
+      }
+      const pushRemote = branchPushRemote || defaultPushRemote || remote || "origin"
+      if (pushRemote !== "origin" && pushRemote !== "head") {
+        throw agentDiagnostics.AGENT_R0070({ message: "[vitehub] existing pull request checkout has the wrong push remote." })
+      }
+      if (remote === "head" || pushRemote === "head") {
+        const headRemote = await session.exec("git", ["remote", "get-url", "head"], execOptions)
+        if (headRemote.exitCode !== 0 || normalizeGitRemote(headRemote.stdout) !== normalizeGitRemote(`https://github.com/${plan.headRepository}.git`)) {
+          throw agentDiagnostics.AGENT_R0070({ message: "[vitehub] existing pull request checkout has the wrong head remote." })
+        }
+      }
+      const pushUrls = await session.exec("git", ["remote", "get-url", "--push", "--all", pushRemote], execOptions)
+      const expectedPushUrl = normalizeGitRemote(`https://github.com/${plan.headRepository || plan.repository}.git`)
+      const destinations = pushUrls.stdout.trim().split(/\r?\n/)
+      // The GitHub host disables pushes when the head repository is unavailable.
+      // Reuse that checkout without changing its non-pushable destination.
+      const pushDisabled = !plan.headRepository && pushRemote === "origin" && destinations.length === 1
+        && destinations[0] === "disabled://pull-request-head-repository-unavailable"
+      if (pushUrls.exitCode !== 0 || !pushUrls.stdout.trim()
+        || (!pushDisabled && destinations.some(url => normalizeGitRemote(url) !== expectedPushUrl))) {
+        throw agentDiagnostics.AGENT_R0070({ message: "[vitehub] existing pull request checkout has the wrong push destination." })
+      }
+      if (pushDisabled) return false
+      const push = await session.exec("git", ["config", "--get-all", `remote.${pushRemote}.push`], execOptions)
+      const mirror = await session.exec("git", ["config", "--bool", "--get", `remote.${pushRemote}.mirror`], execOptions)
+      if (mirror.exitCode === 0 && mirror.stdout.trim() === "true") {
+        throw agentDiagnostics.AGENT_R0070({ message: "[vitehub] existing pull request checkout has the wrong push refspec." })
+      }
+      if (push.exitCode === 0) {
+        // The GitHub host uses an explicit refspec without upstream metadata.
+        const refspecs = push.stdout.trim().split(/\r?\n/)
+        const normalizedRefspec = refspecs.length === 1 ? normalizePushRefspec(refspecs[0]!, plan.headBranch) : undefined
+        if (!normalizedRefspec || normalizedRefspec !== expectedBranch) {
+          throw agentDiagnostics.AGENT_R0070({ message: "[vitehub] existing pull request checkout has the wrong push refspec." })
+        }
+      }
+      else {
+        const mode = await config("push.default")
+        if (remote === undefined || (mode !== undefined && !["simple", "upstream", "current"].includes(mode))) {
+          throw agentDiagnostics.AGENT_R0070({ message: "[vitehub] existing pull request checkout has the wrong default push configuration." })
+        }
+      }
+    }
     return false
   }
 
@@ -203,4 +292,21 @@ export async function preparePullRequestCheckout(
     throw agentDiagnostics.AGENT_R0071({ message: result.stderr || result.stdout || "[vitehub] git could not prepare pull request checkout." })
   }
   return true
+}
+
+function normalizeGitRemote(value: string): string {
+  return value.trim().replace(/\.git$/, "").replace(/^git@github\.com:/, "https://github.com/").replace(/^https?:\/\/github\.com\//, "https://github.com/").toLowerCase()
+}
+
+function normalizePushRefspec(value: string, branch: string): string | undefined {
+  const refspec = value.trim()
+  if (refspec.startsWith("+")) return
+  const [source, destination, ...extra] = refspec.split(":")
+  if (!source || extra.length) return
+  const expected = `refs/heads/${branch}`
+  const sourceRef = source === "HEAD" ? expected : remoteRef(source)
+  // A source-only push updates that source's ref on the remote.
+  const destinationRef = destination === undefined ? sourceRef : remoteRef(destination)
+  if (sourceRef === expected && destinationRef === expected) return expected
+  return
 }

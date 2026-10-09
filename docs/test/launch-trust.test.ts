@@ -81,7 +81,7 @@ describe("launch documentation trust boundaries", () => {
     expect(matrix).toContain("**Local-only**");
     expect(matrix).toContain("**Not provided**");
     expect(matrix).toContain("[Evidence]");
-    expect(matrix).toContain("30-day freshness window");
+    expect(matrix).toContain("last observed 2026-08-26; stale after 30 days");
     expect(matrix).not.toContain("✓ Current");
     expect(matrix).toContain("**Not published**");
     for (const primitive of [
@@ -158,7 +158,10 @@ describe("launch documentation trust boundaries", () => {
       'scroll-margin-block-start: calc(var(--ui-header-height) + 42px + 1rem)',
     );
     expect(matrixComponent).toMatch(
-      /@media \(max-width: 640px\)[\s\S]*?\.support-matrix-qualifications \{\s*padding-inline-start: 3\.25rem;/,
+      /@media \(max-width: 1023px\) \{\s*\.support-matrix-navigation \{\s*display: none;/,
+    );
+    expect(matrixComponent).toMatch(
+      /@media \(max-width: 1119px\)[\s\S]*?\.support-matrix-data-row > th \{\s*position: sticky;/,
     );
     expect(matrixComponent).toContain("var(--ui-header-height) + 42px + 0.5rem");
     expect(matrixComponent).toContain(
@@ -177,7 +180,7 @@ describe("launch documentation trust boundaries", () => {
     expect(docsLayout).toMatch(
       /v-if="isSupportMatrix"[\s\S]*<AnnouncementBanner \/>[\s\S]*<slot \/>/,
     );
-    expect(appHeader).toContain("isDocsRoute && !isSupportMatrix");
+    expect(appHeader).toContain("container: isDocsRoute ? 'max-w-none' : undefined");
   });
 
   it("keeps launch-facing docs free from stale version and internal process prose", () => {

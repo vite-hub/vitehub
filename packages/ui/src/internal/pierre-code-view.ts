@@ -46,10 +46,13 @@ function accessibleOptions<
 function accessibleDiffOptions(
   options: FileDiffOptions<unknown, unknown> | undefined,
   selectedLines: unknown,
+  fileDiff: FileDiffMetadata,
 ): FileDiffOptions<unknown, unknown> {
+  const expandUnchanged = !fileDiff.isPartial || options?.loadDiffFiles !== undefined;
   return {
     ...accessibleOptions(options, selectedLines),
-    expandUnchanged: true,
+    expandUnchanged,
+    ...(!expandUnchanged && { hunkSeparators: "metadata" }),
   };
 }
 
@@ -112,7 +115,7 @@ export const PierreDiff = defineComponent({
         instance = undefined;
         return;
       }
-      const options = accessibleDiffOptions(props.options, props.selectedLines);
+      const options = accessibleDiffOptions(props.options, props.selectedLines, fileDiff.value);
       if (!instance) instance = new PierreFileDiffModel(options, undefined, true);
       instance.setOptions(options);
       instance.render({

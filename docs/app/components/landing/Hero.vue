@@ -9,9 +9,12 @@ import AgentPlayground from "./AgentPlayground.vue"
       class="mx-auto grid min-h-[calc(100svh-var(--ui-header-height))] max-w-[90rem] items-center gap-10 px-4 py-12 sm:px-8 sm:py-16 lg:grid-cols-[minmax(23rem,0.76fr)_minmax(0,1.24fr)] lg:gap-14 lg:px-12 lg:py-16"
     >
       <div class="vh-landing-reveal min-w-0">
-        <h1 class="vh-hero-title max-w-[9ch] font-semibold text-highlighted text-balance">
+        <p class="mb-6 font-mono text-sm text-muted">
+          The server layer for Vite apps
+        </p>
+        <h2 class="vh-hero-title max-w-[9ch] font-semibold text-highlighted text-balance">
           Any agent, anywhere.
-        </h1>
+        </h2>
         <p class="mt-7 max-w-[44ch] text-lg/8 text-muted text-pretty sm:text-xl/8">
           Bring any model or coding provider, compose your own Capabilities around a persistent Workspace,
           and deploy the same Agent across supported hosts.

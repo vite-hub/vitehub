@@ -1,13 +1,16 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
+import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server"
 import { inspectServerEnv } from "@vite-hub/env"
 import { installConsoleEnv } from "../src/console/runtime/server/env.ts"
+import { consoleInvocationsIdentityKey, consoleInvocationsIdentityRootKey, consoleInvocationsKey, consoleInvocationsRegistryKey, consoleInvocationsRootIdentityRegistryKey, consoleInvocationsRootKey, installConsoleInvocationFallback } from "../src/console/internal.ts"
 
 import { requestConsole } from "../src/console/runtime/client/request.ts"
 import { consoleRpcHeader, consoleRpcMethods } from "../src/console/runtime/rpc.ts"
-import consoleRpcHandler, { handleConsoleRpcRequest } from "../src/console/runtime/server/rpc.ts"
+import consoleRpcHandler from "../src/console/runtime/server/rpc.ts"
 import { installConsoleProjectName, installConsoleSections } from "../src/console/runtime/server/sections.ts"
+import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
 
 const callURL = "http://vitehub.local/_vitehub/rpc/__call"
 
@@ -22,9 +25,23 @@ function call(body: string, init: RequestInit = {}): Promise<Response> {
 
 afterEach(() => {
   vi.unstubAllGlobals()
+  for (const key of [consoleInvocationsKey, consoleInvocationsRootKey, consoleInvocationsIdentityKey, consoleInvocationsIdentityRootKey, consoleInvocationsRegistryKey, consoleInvocationsRootIdentityRegistryKey]) {
+    Reflect.deleteProperty(globalThis, key)
+    Reflect.deleteProperty(process, key)
+  }
 })
 
 describe("Console RPC", () => {
+  it.each(["team/run", "team%2Frun", "%E0%A4%A"])("preserves decoded invocation ids: %s", async (id) => {
+    const store = createMemoryAgentInvocationStore()
+    const timestamp = "2026-08-23T12:00:00.000Z"
+    await store.create({ id, createdAt: timestamp, updatedAt: timestamp, status: "completed", observations: [], traceId: "trace-rpc-encoded" })
+    installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
+    const response = await call(JSON.stringify({ method: consoleRpcMethods.invocation, input: { id } }))
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toMatchObject({ ok: true, value: { invocation: { id } } })
+  })
+
   it("preserves request bindings through Env status inspection", async () => {
     installConsoleSections("/console-rpc-env", ["env"])
     const binding = "request-only-secret"
@@ -80,6 +97,19 @@ describe("Console RPC", () => {
     const failure = await call(JSON.stringify({ method: consoleRpcMethods.definitions }))
     expect(failure.status).toBe(400)
     await expect(failure.json()).resolves.toEqual({ message: "A valid definition section is required.", ok: false, status: 400 })
+  })
+
+  it("preserves upstream search status messages in RPC errors", async () => {
+    const response = await call(JSON.stringify({
+      input: { query: { search: "x".repeat(257) } },
+      method: consoleRpcMethods.search,
+    }))
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({
+      message: "Console search must be at most 256 characters.",
+      ok: false,
+      status: 400,
+    })
   })
 
   it("rejects malformed calls before running an operation", async () => {

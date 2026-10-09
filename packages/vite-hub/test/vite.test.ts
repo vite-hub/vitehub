@@ -114,6 +114,7 @@ import { resolveConfig, type Plugin, type PluginOption } from "vite"
 import { contributeProviderDeploymentOutput, useProviderOutputCatalog } from "../../internal/src/build/deployment-output.ts"
 import frameworkPackageManifest from "../package.json" with { type: "json" }
 import { vitehub } from "../src/index.ts"
+import { hostManagedAuthorize } from "./support/console-authorize.ts"
 
 const deniedGeneratedOwnerPackageNames = new Set(["@vite-hub/cli"])
 const generatedOwnerPackageCases = Object.keys(frameworkPackageManifest.dependencies)
@@ -349,7 +350,7 @@ describe("vitehub", () => {
 
   it("allows a host-managed Console on Cloudflare", async () => {
     const plugin = dependencyPluginByName(
-      vitehub({ agent: true, console: { exposure: "host-managed" }, preset: "cloudflare" }),
+      vitehub({ agent: true, console: { exposure: "host-managed", authorize: hostManagedAuthorize }, preset: "cloudflare" }),
       "vite-hub/console",
     )
 
@@ -517,7 +518,7 @@ describe("vitehub", () => {
     )
 
     await expect(callHook(plugin.config, [{}, { command: "build", mode: "production" }]))
-      .rejects.toThrow("/api/_vitehub/console/**")
+      .rejects.toThrow("/api/_vitehub/console/status")
   })
 
   it("rejects Auth-backed production Console when top-level Auth is disabled", async () => {
@@ -536,7 +537,7 @@ describe("vitehub", () => {
     try {
       await writeFile(join(root, "package.json"), "{}\n")
       const implicit = dependencyPluginByName(
-        vitehub({ agent: true, console: { exposure: "host-managed" }, preset: "netlify" }),
+        vitehub({ agent: true, console: { exposure: "host-managed", authorize: hostManagedAuthorize }, preset: "netlify" }),
         "vite-hub/console",
       )
       const implicitConfig: { nitro?: { handlers?: Array<{ route?: string }> }; root: string } = { root }
@@ -553,7 +554,7 @@ describe("vitehub", () => {
       const explicit = dependencyPluginByName(
         vitehub({
           agent: true,
-          console: { exposure: "host-managed" },
+          console: { exposure: "host-managed", authorize: hostManagedAuthorize },
           preset: "netlify",
           workflow: { provider: "vercel" },
         }),
@@ -577,10 +578,12 @@ describe("vitehub", () => {
 
   it("keeps coherent defaults and opt-in integrations", () => {
     expect(pluginNames(vitehub({ preset: "node" }))).toEqual([
+      "vite-hub/doctor",
       "@vite-hub/markdown-template/vite",
       "vite-hub/deployment-preset",
       "vite-hub/deployment-output",
       "vite-hub/public-url",
+      "vite-hub/database-disabled",
       "vite-hub/dependencies",
       "@vite-hub/env/vite",
       "@vite-hub/connections/types-cleanup",
@@ -605,6 +608,7 @@ describe("vitehub", () => {
       workflow: true,
       workspace: true,
     }))).toEqual([
+      "vite-hub/doctor",
       "@vite-hub/markdown-template/vite",
       "vite-hub/agent-channel-env",
       "vite-hub/deployment-preset",
@@ -1019,6 +1023,7 @@ describe("vitehub", () => {
     expect(aliases).not.toHaveProperty("vite-hub")
     expect(aliases).not.toHaveProperty("unstorage/drivers/upstash")
     expect(aliases).not.toHaveProperty("@vite-hub/kv/runtime/upstash-driver")
+    expect(aliases["vite-hub/_internal/agent/server/registry"]).toMatch(/packages\/vite-hub\/dist\/_internal\/agent\/server\/registry\.js$/)
     expect(aliases["vite-hub/_internal/agent/server/internal"]).toMatch(/packages\/vite-hub\/dist\/_internal\/agent\/server\/internal\.js$/)
     expect(aliases["vite-hub/_internal/sandbox/runtime/state"]).toMatch(/packages\/vite-hub\/dist\/_internal\/sandbox\/runtime\/state\.js$/)
     expect(aliases["vite-hub/shell/workspace"]).toMatch(/packages\/vite-hub\/dist\/shell\/workspace\.js$/)
@@ -1098,6 +1103,49 @@ describe("vitehub", () => {
         rollupConfig: { output: { chunkFileNames: "chunks/[name].mjs", entryFileNames: "index.mjs" } },
       })
     }
+  })
+
+  it.each([
+    ["cloudflare", { binding: "CACHE", driver: "cloudflare-kv-binding" }],
+    ["vercel", { driver: "vercel-runtime-cache" }],
+    ["deno", { base: "cache", driver: "deno-kv" }],
+    ["node", { base: ".vitehub/data/cache", driver: "fs-lite" }],
+  ] as const)("mounts Nitro cache storage for the %s preset", async (preset, storage) => {
+    const config = await applyDeploymentConfig(
+      { cache: preset === "cloudflare" ? { driver: "cloudflare-kv-binding", namespaceId: "cache-id" } : true, preset },
+    )
+
+    expect(config.nitro).toMatchObject({
+      devStorage: { cache: { base: ".vitehub/data/cache", driver: "fs-lite" } },
+      storage: { cache: storage },
+    })
+    if (preset === "cloudflare") {
+      expect(config.nitro).toHaveProperty("cloudflare.wrangler.kv_namespaces", [{ binding: "CACHE", id: "cache-id" }])
+    }
+  })
+
+  it("keeps an application cache mount and other KV namespaces", async () => {
+    const config = await applyDeploymentConfig(
+      { cache: true, preset: "cloudflare" },
+      { nitro: { cloudflare: { wrangler: { kv_namespaces: [{ binding: "KV", id: "kv-id" }] } }, storage: { cache: { driver: "memory" } } } },
+    )
+
+    expect(config.nitro).toHaveProperty("storage.cache", { driver: "memory" })
+    expect(config.nitro).toHaveProperty("cloudflare.wrangler.kv_namespaces", [{ binding: "KV", id: "kv-id" }])
+  })
+
+  it("stores the Node cache under dataDir", async () => {
+    const config = await applyDeploymentConfig({ cache: true, dataDir: "/tmp/vitehub-data", preset: "node" })
+
+    expect(config.nitro).toMatchObject({
+      devStorage: { cache: { base: "/tmp/vitehub-data/cache", driver: "fs-lite" } },
+      storage: { cache: { base: "/tmp/vitehub-data/cache", driver: "fs-lite" } },
+    })
+  })
+
+  it("rejects a cache store that the preset cannot provide", () => {
+    expect(() => vitehub({ cache: true, preset: "netlify" })).toThrow("`cache: true` has no default store for the netlify preset.")
+    expect(() => vitehub({ cache: { driver: "fs-lite" }, preset: "cloudflare" })).toThrow("`cache.driver: \"fs-lite\"` requires the node preset, but the preset is cloudflare.")
   })
 
   it("preserves an explicit Cloudflare WASM loading mode", async () => {

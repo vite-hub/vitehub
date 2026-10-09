@@ -44,6 +44,8 @@ const gmail = useConnection("google", { actor: "schedule:gmail" }).gmail;
 const { labels = [] } = await gmail.users.labels.list({ userId: "me" });
 ```
 
+Server code cannot pass an `agent:` actor. That call fails with `CONNECTION_INVALID`. An Agent actor comes only from the Env access context that the ViteHub Agent runtime creates for the Agent Definition that runs. Agents call Connections through their Connection capabilities, for example `gmail()`, `mcp()`, and `openapi()`.
+
 The client exposes only the methods selected in `api`. GET, HEAD, and OPTIONS methods are reads and other methods are writes. Denied calls throw `ConnectionError` with code `CONNECTION_DENIED`. Dry-run clients keep read responses non-optional; only skipped writes add `undefined` to the result. Custom typed catalogs can include a `method` field in each method signature to preserve this distinction. Writes that need approval throw `CONNECTION_APPROVAL_REQUIRED` and create an approval.
 
 Typed catalog methods and `useConnection().fetch()` can send the Connection token only to provider catalog origins or declared API key origins. A catalog path or reserved path parameter that resolves to another origin fails with `CONNECTION_INVALID` before a provider call or approval is created. `ConnectionFetchInit` accepts `method`, `headers`, `redirect`, `signal`, and a string `body` for approval replay. `useConnection(name, { rejectApprovals: true })` rejects approval-gated calls with `CONNECTION_DENIED` without storing a replay request. Use it for protocols that need the response in the active session, such as MCP. It does not bypass access policy. Encode form parameters with `URLSearchParams.toString()` and set the form content type.
@@ -100,7 +102,7 @@ An expired unresolved lease blocks every token revision. A replacement token can
 
 Custom stores must implement atomic `refreshLeases.claim()` and owner-fenced `refreshLeases.release()`. The name remains for compatibility, but the lease covers all token mutations. `claim()` returns `acquired`, `busy`, or `expired`; it must never replace an expired unresolved lease, even when the token revision changed. A lost refresh response or failed token write requires reconnecting rather than reusing the old grant. An unconfirmed callback exchange or revoke keeps its lease until the provider outcome is confirmed and the store is repaired. A successful callback exchange stays fenced through account extraction and token/state persistence. Failures during those steps quarantine the current token revision as `reauth_required`.
 
-A custom Connections store must supply the token revision as the second `bridge.use()` callback argument. Revocation requires a provider `revocationEndpoint` and uses that revision to replace the token with a revoked marker. A provider without that endpoint rejects revocation and keeps the stored grant. The default Env Bridge supplies it.
+A custom Connections store must supply the token revision as the second `bridge.use()` callback argument. Revocation requires a provider `revocationEndpoint` and uses that revision to replace the token with a revoked marker. A provider without that endpoint rejects revocation and keeps the stored grant. The default Env Bridge supplies it. Connections has no standing administrator access to its bridge. For each call, Env gives it a context for one Connection token and one permission.
 
 ## Vite integration
 
@@ -108,12 +110,27 @@ A custom Connections store must supply the token revision as the second `bridge.
 
 | Option | Default | Meaning |
 | --- | --- | --- |
-| `actor` | none | Module whose default export receives the server event and returns `user:<id>`. Management actions record this actor. Without it, they record `user:local`. `vite-hub` sets it to the signed-in Console user. |
+| `actor` | none | Module whose default export is the access policy of the management API, in development and production. `vite-hub` sets it to the Console actor module when the Console shows Connections. |
 | `database` | `false` | Module that exports the SQLite Drizzle database as `db`. |
-| `management` | `false` | Use `{ actor: "./server/connections-auth.ts" }` to mount the production API with an authentication module. `true` is supported only in development. |
+| `management` | `false` | Mount the management API in production. Production requires an actor module, from `actor` or `management: { actor }`. |
 | `projectRoot` | Vite root | Project root for discovery. |
 
-The actor module must default-export a function that authenticates the `Request` and returns `user:<id>` for an authorized manager. Return `undefined` to reject the request. Relative module paths resolve from the project root. The handler checks every API request and OAuth callback. Console authentication does not protect these routes automatically.
+The actor module default-exports one of these policies:
+
+- A function `(request, event) => string | undefined`. It authenticates the `Request` and returns `user:<id>` for an authorized manager, or `undefined` to reject the request (`403`). Relative module paths resolve from the project root.
+- The string `"development"`. It allows every request as `user:local`, but only when `NODE_ENV` is `development`. Any other runtime returns `500` with `CONNECTION_AUTH_REQUIRED`.
+
+Without an actor module, the development server uses `"development"`. A production build without an actor module fails.
+
+With `vite-hub` and the Console, the policy is the Console access policy of the data routes. The Connections routes first run the same check, then name the manager:
+
+| Console access | Check | Manager |
+| --- | --- | --- |
+| Console Auth (`console: { access: "auth", auth: { ... } }`) | The Console Auth session and its `authorize` callback. | The signed-in user, `user:<id>`. |
+| Primary Auth (`console: { access: "auth" }` with an Auth Definition) | The app Auth access routes that protect the Console. | The signed-in user, `user:<id>`. |
+| Cloudflare Access (`auth: { provider: "cloudflare-access" }`) | The Cloudflare Access token. | `user:cloudflare-access`. |
+| `exposure: "host-managed"` | The host `console.authorize` function. | `user:host-managed`. |
+| `console: true` | Development server only. Production returns `403`. | `user:local`. |
 
 ```ts
 import { hubConnections } from "@vite-hub/connections/vite";
@@ -121,13 +138,31 @@ import { hubConnections } from "@vite-hub/connections/vite";
 hubConnections({ management: { actor: "./server/connections-auth.ts" } });
 ```
 
-Development uses `user:local` when no actor module is configured. A directly mounted `createConnectionsHandler()` also requires an `actor` callback and denies requests by default.
+### Management routes
+
+`createConnectionsHandler({ actor, basePath, runtime })` from `@vite-hub/connections/http` serves these routes. `actor` is required.
+
+| Route | Use |
+| --- | --- |
+| `POST /_vitehub/connections` | Run one JSON action, for example `list`, `revoke`, `set-key`, or `approve`. Same-origin JSON only. |
+| `GET /_vitehub/connections/connect/:name` | Start the OAuth flow, set the `state` cookie, and redirect to the provider. Cross-site requests get `403`. |
+| `GET /_vitehub/connections/callback` | Complete the OAuth flow. |
+
+Every route runs the access policy itself, before the route body. Middleware, such as Console Auth, is an extra layer and not the only check. A route body gets the Connections runtime only from the access that the policy creates for the current request.
+
+The OAuth callback is reached by a browser redirect from the provider. It completes the flow only when all of these are true:
+
+- The `state` query value is equal to the `state` cookie that the start request set in this browser.
+- The `state` is known and not expired. The store deletes it when the callback reads it, so a `state` works one time only.
+- The access policy accepts the callback request, and returns the same manager that started the flow. A `state` that another manager started returns `403` and is consumed.
+
+`runtime.complete({ actor, code, state })` applies the same manager check. `actor` defaults to `user:local`, as in `runtime.authorize()`.
 
 ## Generate API catalogs
 
 `pnpm --dir packages/connections run generate` reads the Google Discovery document and writes `src/google/gmail.ts`.
 
-See the [Connections documentation](https://vitehub.dev/docs/server-primitives/connections).
+See the [Connections documentation](https://vitehub.dev/docs/connections).
 
 Connection stores must implement `state.putForToken(state, revision)` as an atomic write that succeeds only while the encrypted token has that revision. A `null` revision requires the token to be absent. OAuth, refresh, and revocation use this check so older work cannot replace newer Connection metadata.
 

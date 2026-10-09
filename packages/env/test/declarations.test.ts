@@ -1,11 +1,73 @@
 import { describe, expect, it } from "vitest"
+import { z } from "zod"
 
 import { env } from "../src/index.ts"
 import { defaultStringSchema } from "../src/core/declarations.ts"
-import { createRuntimeRegistry, createSourceContext, resolveEnvSource, validateEnvConfigShape } from "../src/core/resolve.ts"
+import { createRuntimeRegistry, createSourceContext, resolveBuildConfig, resolveEnvEntries, resolveEnvSource, validateEnvConfigShape } from "../src/core/resolve.ts"
 import { parseSchema } from "../src/schema.ts"
 
 describe("env declarations", () => {
+  it("rejects public and nested define canonical collisions before resolving sources", async () => {
+    const input = {
+      context: createSourceContext({ env: {}, mode: "build", rootDir: process.cwd() }),
+      timing: "test",
+    }
+    const declarations = { apiKey: env({ mode: "build" }), api_key: env({ mode: "build" }) }
+    await expect(resolveEnvEntries(declarations, { ...input, exposure: "build public", section: "env.public" }))
+      .rejects.toMatchObject({ code: "ENV_DECLARATION_INVALID" })
+    await expect(resolveBuildConfig({ nested: declarations }, { ...input, exposure: "compile-time replacement", section: "env.define" }))
+      .rejects.toMatchObject({ code: "ENV_DECLARATION_INVALID" })
+    await expect(resolveBuildConfig({ nestedApiKey: env({ mode: "build" }), nested: { apiKey: env({ mode: "build" }) } }, {
+      ...input, exposure: "compile-time replacement", section: "env.define", prefix: "APP_",
+    })).rejects.toMatchObject({ code: "ENV_DECLARATION_INVALID" })
+  })
+
+  it("suppresses build canonical names for unsafe keys and their descendants", async () => {
+    const input = {
+      context: createSourceContext({ env: {
+        VITEHUB_PUBLIC_API_KEY: "canonical", PUBLIC_API_KEY: "conventional",
+        VITEHUB_DEFINE_NESTED_TOKEN: "canonical", DEFINE_NESTED_TOKEN: "conventional",
+        VITEHUB_DEFINE_API_KEY_TOKEN: "canonical", DEFINE_API_KEY_TOKEN: "conventional",
+      }, mode: "build", rootDir: process.cwd() }),
+      timing: "test",
+    }
+    const result = await resolveEnvEntries({ "api-key": env({ mode: "build" }) }, {
+      ...input, exposure: "build public", section: "env.public",
+    })
+    expect(result.entries[0]?.value).toBe("conventional")
+    const defined = await resolveBuildConfig({
+      "nested.token": env({ mode: "build" }),
+      "api-key": { token: env({ mode: "build" }) },
+    }, { ...input, exposure: "compile-time replacement", section: "env.define" })
+    expect(defined.values).toEqual({ "nested.token": "conventional", "api-key": { token: "conventional" } })
+  })
+
+  it("allows build collisions when canonical names are disabled", async () => {
+    const input = {
+      context: createSourceContext({ env: { PUBLIC_API_KEY: "public", DEFINE_API_KEY: "define" }, mode: "build", rootDir: process.cwd() }),
+      prefix: false as const,
+      timing: "test",
+    }
+    const declarations = { apiKey: env({ mode: "build" }), api_key: env({ mode: "build" }) }
+    const result = await resolveEnvEntries(declarations, { ...input, exposure: "build public", section: "env.public" })
+    expect(result.entries.map(entry => entry.value)).toEqual(["public", "public"])
+    const defined = await resolveBuildConfig(declarations, { ...input, exposure: "compile-time replacement", section: "env.define" })
+    expect(defined.values).toEqual({ apiKey: "define", api_key: "define" })
+  })
+
+  it("rejects sparse build arrays whose values only exist on the prototype", async () => {
+    const sparse: string[] = []
+    sparse.length = 1
+    Object.setPrototypeOf(sparse, { 0: "inherited" })
+
+    await expect(resolveBuildConfig({ values: sparse }, {
+      context: createSourceContext({ env: {}, mode: "runtime", rootDir: process.cwd() }),
+      exposure: "compile-time replacement",
+      section: "env.define",
+      timing: "test",
+    })).rejects.toThrow("[vitehub] Env declaration is invalid.")
+  })
+
   it("defaults env variable declarations to required runtime strings", () => {
     expect(env()).toMatchObject({
       kind: "env-variable",
@@ -63,33 +125,46 @@ describe("env declarations", () => {
     })).toThrow("cannot use both optional and required")
   })
 
-  it("infers env sources from config paths and prefixes", () => {
+  it("reads the canonical name before the inferred path name", () => {
     expect(resolveEnvSource(env(), "env.telegram.botToken")).toMatchObject({
+      canonical: "VITEHUB_TELEGRAM_BOT_TOKEN",
       kind: "env",
-      label: "env:TELEGRAM_BOT_TOKEN",
+      label: "env:VITEHUB_TELEGRAM_BOT_TOKEN|TELEGRAM_BOT_TOKEN",
       name: "TELEGRAM_BOT_TOKEN",
+      names: ["VITEHUB_TELEGRAM_BOT_TOKEN", "TELEGRAM_BOT_TOKEN"],
     })
-    expect(resolveEnvSource(env(), "env.define.__APP_VERSION__", "VITEHUB_")).toMatchObject({
-      kind: "env",
-      label: "env:VITEHUB_DEFINE_APP_VERSION",
-      name: "VITEHUB_DEFINE_APP_VERSION",
+    expect(resolveEnvSource(env(), "env.define.__APP_VERSION__", "APP_")).toMatchObject({
+      canonical: "APP_DEFINE_APP_VERSION",
+      name: "DEFINE_APP_VERSION",
+      names: ["APP_DEFINE_APP_VERSION", "DEFINE_APP_VERSION"],
     })
+    const disabled = resolveEnvSource(env(), "env.telegram.botToken", false)
+    expect(disabled).toMatchObject({ label: "env:TELEGRAM_BOT_TOKEN", name: "TELEGRAM_BOT_TOKEN" })
+    expect(disabled).not.toHaveProperty("canonical")
+    expect(disabled).not.toHaveProperty("names")
   })
 
-  it("keeps explicit env source overrides", () => {
+  it("reads the canonical name before explicit env sources", () => {
     expect(resolveEnvSource(env({ source: env.source("CUSTOM_NAME") }), "env.telegram.botToken")).toMatchObject({
+      canonical: "VITEHUB_TELEGRAM_BOT_TOKEN",
       kind: "env",
-      label: "env:CUSTOM_NAME",
       name: "CUSTOM_NAME",
+      names: ["VITEHUB_TELEGRAM_BOT_TOKEN", "CUSTOM_NAME"],
     })
+    expect(resolveEnvSource(env({ source: env.source("VITEHUB_TELEGRAM_BOT_TOKEN") }), "env.telegram.botToken")).toMatchObject({
+      canonical: "VITEHUB_TELEGRAM_BOT_TOKEN",
+      name: "VITEHUB_TELEGRAM_BOT_TOKEN",
+    })
+    expect(resolveEnvSource(env({ source: env.gitSha() }), "env.release")).not.toHaveProperty("canonical")
+    expect(resolveEnvSource(env({ source: env.source("TOKEN", { canonical: false }) }), "env.token")).toHaveProperty("canonical", false)
   })
 
   it("supports ordered env source aliases", () => {
     expect(resolveEnvSource(env({ source: env.source(["OPENWORKFLOW_POSTGRES_URL", "DATABASE_URL"]) }), "env.openWorkflow.postgresUrl")).toMatchObject({
       kind: "env",
-      label: "env:OPENWORKFLOW_POSTGRES_URL|DATABASE_URL",
+      label: "env:VITEHUB_OPEN_WORKFLOW_POSTGRES_URL|OPENWORKFLOW_POSTGRES_URL|DATABASE_URL",
       name: "OPENWORKFLOW_POSTGRES_URL",
-      names: ["OPENWORKFLOW_POSTGRES_URL", "DATABASE_URL"],
+      names: ["VITEHUB_OPEN_WORKFLOW_POSTGRES_URL", "OPENWORKFLOW_POSTGRES_URL", "DATABASE_URL"],
     })
     expect(() => env.source([])).toThrow("one or more non-empty")
   })
@@ -200,7 +275,7 @@ describe("env declarations", () => {
       telegram: {
         botToken: env({ secret: true }),
       },
-    }, { prefix: "VITEHUB_" })).toMatchObject({
+    })).toMatchObject({
       teams: {
         appType: {
           kind: "literal",
@@ -210,12 +285,24 @@ describe("env declarations", () => {
       telegram: {
         botToken: {
           source: {
-            label: "env:VITEHUB_TELEGRAM_BOT_TOKEN",
-            name: "VITEHUB_TELEGRAM_BOT_TOKEN",
+            canonical: "VITEHUB_TELEGRAM_BOT_TOKEN",
+            name: "TELEGRAM_BOT_TOKEN",
+            names: ["VITEHUB_TELEGRAM_BOT_TOKEN", "TELEGRAM_BOT_TOKEN"],
           },
         },
       },
     })
+  })
+
+  it("rejects declarations that share a canonical name and skips keys without one", () => {
+    expect(() => createRuntimeRegistry({
+      apiKey: env(),
+      api_key: env(),
+    })).toThrow("[vitehub] Env declaration is invalid.")
+    const registry = createRuntimeRegistry({ "nested.token": env(), nested: { token: env() } })
+    expect(registry).toMatchObject({ nested: { token: { source: { canonical: "VITEHUB_NESTED_TOKEN" } } } })
+    expect((registry as Record<string, { source: Record<string, unknown> }>)["nested.token"]!.source).not.toHaveProperty("canonical")
+    expect(createRuntimeRegistry({ apiKey: env(), api_key: env() }, { prefix: false })).toMatchObject({ apiKey: { source: { name: "API_KEY" } } })
   })
 
   it("accepts default string schemas after config cloning", () => {
@@ -413,11 +500,86 @@ describe("env declarations", () => {
     })).toThrow("[vitehub] Env declaration is invalid.")
   })
 
+  it("does not execute inherited schema methods", () => {
+    let calls = 0
+    const inherited = {
+      safeParse: () => {
+        calls++
+        return { data: "inherited", success: true as const }
+      },
+      parse: () => {
+        calls++
+        return "inherited"
+      },
+      "~standard": {
+        validate: () => {
+          calls++
+          return { value: "inherited" }
+        },
+      },
+    }
+
+    expect(parseSchema(Object.create(inherited), "input", "env.test")).toBe("input")
+    expect(calls).toBe(0)
+  })
+
   it("accepts standard-schema results with empty issues", () => {
     expect(parseSchema({
       "~standard": {
         validate: () => ({ issues: [], value: "ok" }),
       },
     }, "ok", "env.test")).toBe("ok")
+  })
+
+  it("validates and transforms normal Zod 4 schemas", () => {
+    const schema = z.string().min(3)
+    expect(Object.hasOwn(schema, "safeParse")).toBe(false)
+    expect(() => parseSchema(schema, "x", "env.test")).toThrow("Invalid env.test")
+    expect(parseSchema(schema, "valid", "env.test")).toBe("valid")
+    expect(parseSchema(z.string().transform(value => value.length), "valid", "env.test")).toBe(5)
+  })
+
+  it("preserves Zod 4 safeParse and parse fallbacks", () => {
+    for (const method of ["safeParse", "parse"] as const) {
+      const schema = z.string().min(3).transform(value => value.length)
+      Object.defineProperty(schema, "~standard", { value: undefined })
+      if (method === "parse") {
+        Object.defineProperty(schema, "safeParse", { value: undefined })
+      }
+      expect(() => parseSchema(schema, "x", "env.test")).toThrow("Invalid env.test")
+      expect(parseSchema(schema, "valid", "env.test")).toBe(5)
+    }
+  })
+
+  it("does not accept an inherited Zod identity", () => {
+    expect(parseSchema(Object.create(z.string().min(3)), "x", "env.test")).toBe("x")
+  })
+
+  it("does not execute inherited validators with forged Zod traits", () => {
+    let calls = 0
+    const validators = {
+      safeParse: () => {
+        calls++
+        return { data: "inherited", success: true as const }
+      },
+      parse: () => {
+        calls++
+        return "inherited"
+      },
+      "~standard": {
+        validate: () => {
+          calls++
+          return { value: "inherited" }
+        },
+      },
+    }
+    const metadata = [{ traits: new Set(["ZodType"]) }, z.string()._zod]
+    for (const _zod of metadata) {
+      for (const method of ["safeParse", "parse", "~standard"] as const) {
+        const schema = Object.assign(Object.create({ [method]: validators[method] }), { _zod })
+        expect(parseSchema(schema, "input", "env.test")).toBe("input")
+      }
+    }
+    expect(calls).toBe(0)
   })
 })

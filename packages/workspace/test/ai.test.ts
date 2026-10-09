@@ -63,6 +63,79 @@ afterEach(() => {
 })
 
 describe("createWorkspaceTools", () => {
+  it("does not treat inherited asset methods as mutable workspace capabilities", () => {
+    const writeFile = vi.fn()
+    const assets = Object.assign(Object.create({ sync: async () => {}, writeFile }), createAssets({ "README.md": "# Docs\n" }))
+
+    expect(() => createWorkspaceTools(assets, { operations: { write: true } })).toThrow(/require a mutable Workspace/)
+    expect(writeFile).not.toHaveBeenCalled()
+  })
+
+  it("does not expose inherited mutation methods when sync is own", () => {
+    const writeFile = vi.fn()
+    const assets = Object.assign(Object.create({ writeFile }), createAssets({ "README.md": "# Docs\n" }), {
+      sync: async () => {},
+    })
+
+    expect(() => createWorkspaceTools(assets, { operations: { write: { writeFile: true } } })).toThrow(/require a mutable Workspace/)
+    expect(writeFile).not.toHaveBeenCalled()
+  })
+
+  it("requires own writeFile for copy and move operations", () => {
+    const writeFile = vi.fn()
+    const assets = Object.assign(Object.create({ writeFile }), createAssets({ "README.md": "# Docs\n" }), {
+      sync: async () => {},
+      stat: async () => ({ type: "file", size: 0, mtime: 0 }),
+      exists: async () => true,
+      readFile: async () => "# Docs\n",
+      list: async () => [],
+      mkdir: async () => {},
+      rm: async () => {},
+    })
+
+    expect(() => createWorkspaceTools(assets, { operations: { write: { copyPath: true } } })).toThrow(/require a mutable Workspace/)
+    expect(() => createWorkspaceTools(assets, { operations: { write: { movePath: true } } })).toThrow(/require a mutable Workspace/)
+    expect(writeFile).not.toHaveBeenCalled()
+  })
+
+  it.each([null, Object, function ForgedWorkspace() {}])("rejects inherited capabilities with constructor %s", async (constructor) => {
+    const writeFile = vi.fn()
+    const startSession = vi.fn()
+    const materializeSources = vi.fn()
+    const assets = Object.assign(Object.create({ constructor, sync: async () => {}, writeFile, startSession, materializeSources }), createAssets({ "README.md": "# Docs\n" }))
+
+    expect(() => createWorkspaceTools(assets, { operations: { write: true } })).toThrow(/require a mutable Workspace/)
+    const tools = createWorkspaceTools(assets, { operations: { materialize: true } })
+    await expect(runShell(tools, "cat README.md")).resolves.toMatchObject({ exitCode: 0, stdout: "# Docs\n" })
+    await expect(tools.materialize_sources.execute!({}, { toolCallId: "test", messages: [] } as never)).resolves.toMatchObject({ files: 1, sources: [] })
+    expect(writeFile).not.toHaveBeenCalled()
+    expect(startSession).not.toHaveBeenCalled()
+    expect(materializeSources).not.toHaveBeenCalled()
+  })
+
+  it("requires class capabilities to be explicitly bound as own methods", async () => {
+    class WorkspaceLike {
+      sync() {}
+      writeFile = vi.fn()
+    }
+    const workspace = Object.assign(new WorkspaceLike(), createAssets({ "README.md": "# Docs\n" }))
+
+    expect(() => createWorkspaceTools(workspace, { operations: { write: { writeFile: true } } })).toThrow(/require a mutable Workspace/)
+    Object.assign(workspace, { sync: workspace.sync.bind(workspace) })
+    const tools = createWorkspaceTools(workspace, { operations: { write: { writeFile: true } } })
+    await tools.writeFile.execute!({ path: "README.md", content: "updated" }, { toolCallId: "test", messages: [] } as never)
+    expect(workspace.writeFile).toHaveBeenCalledWith("README.md", "updated", { mediaType: undefined })
+  })
+
+  it("does not call inherited asset materializers", async () => {
+    const materializeSources = vi.fn(async () => ({ bytes: 0, directories: 0, durationMs: 0, files: 0, path: "", sources: ["polluted"] }))
+    const assets = Object.assign(Object.create({ materializeSources }), createAssets({ "README.md": "# Docs\n" }))
+    const tools = createWorkspaceTools(assets, { operations: { materialize: true } })
+
+    await expect(tools.materialize_sources.execute!({}, { toolCallId: "test", messages: [] } as never)).resolves.toMatchObject({ files: 1, sources: [] })
+    expect(materializeSources).not.toHaveBeenCalled()
+  })
+
   it("uses configured generated-host shell loaders", async () => {
     const createReadonlyWorkspaceFs = vi.fn(() => ({}))
     const runWorkspaceInspectionCommand = vi.fn(async () => ({

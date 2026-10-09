@@ -16,8 +16,15 @@ const loadingRegistryEntries = new Map<string, {
 }>()
 const loadingRegistryStorage = new AsyncLocalStorage<Set<string>>()
 
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return Object(value) === value && !Array.isArray(value)
+}
+
 function isScheduleDefinition(value: unknown): value is ScheduleRegistryDefinition {
-  return Boolean(value) && typeof value === "object" && typeof (value as ScheduleRegistryDefinition).handler === "function"
+  return isObjectRecord(value)
+    && Object.hasOwn(value, "handler")
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Registry handlers cross module and JavaScript realm boundaries; validate callability without realm-sensitive instanceof.
+    && typeof Reflect.get(value, "handler") === "function"
 }
 
 export function setScheduleRuntimeRegistry(registry: ScheduleDefinitionRegistry | undefined): void {
@@ -86,8 +93,9 @@ export async function loadScheduleDefinition(name: string): Promise<ScheduleRegi
     if (isScheduleDefinition(loaded)) {
       return loaded
     }
-    if (loaded && typeof loaded === "object" && "default" in loaded && isScheduleDefinition(loaded.default)) {
-      return loaded.default
+    if (isObjectRecord(loaded) && Object.hasOwn(loaded, "default")) {
+      const definition = Reflect.get(loaded, "default")
+      if (isScheduleDefinition(definition)) return definition
     }
     return undefined
   }))

@@ -1,10 +1,11 @@
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } from "../invocation-stream.ts"
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
-import { isRuntimeRecord } from "./runtime-type.ts"
+import { readAgentDevLoopTokenHeaders } from "./agent-info-cli.ts"
+import { hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
 
 interface ChannelReplayCliContext {
   env: NodeJS.ProcessEnv
+  rootDir: string
   stderr: { write: (chunk: string | Uint8Array) => unknown }
   stdout: { write: (chunk: string | Uint8Array) => unknown }
 }
@@ -21,6 +22,7 @@ interface ParsedChannelReplayArgs {
   filters: Array<[string, string]>
   force: boolean
   help: boolean
+  label?: string
   limit?: number
   queryFlags: Array<[string, string]>
   server?: string
@@ -36,7 +38,7 @@ interface ReplayTarget {
 
 /** Items per request. A small batch keeps each request within host time limits and reports progress often. */
 const replayBatchSize = 10
-const valueOptions = new Set(["--agent", "--channel", "--cursor", "--filter", "--limit", "--server", "--url"])
+const valueOptions = new Set(["--agent", "--channel", "--cursor", "--filter", "--label", "--query", "--limit", "--server", "--url"])
 
 function cliError(message: string): Error {
   return agentDiagnostics.AGENT_R0934({ message })
@@ -44,7 +46,7 @@ function cliError(message: string): Error {
 
 function writeUsage(context: ChannelReplayCliContext, queryHelp: string[] = []): void {
   context.stdout.write([
-    "Usage: vitehub channels replay --agent <name> --channel <name> [--url <console-url>] [--dry-run] [--force] [--limit <n>] [--cursor <cursor>] [--filter <key=value>]... [--<query-key> <value>]...",
+    "Usage: vitehub channels replay --agent <name> --channel <name> [--url <console-url>] [--dry-run] [--force] [--limit <n>] [--cursor <cursor>] [--label <label>] [--query <key=value>]... [--filter <key=value>]... [--<query-key> <value>]...",
     "",
     "Send past Channel messages from the Channel's history Collection through its trigger.",
     "Without --url, the command uses the running Vite Development Server.",
@@ -56,6 +58,8 @@ function writeUsage(context: ChannelReplayCliContext, queryHelp: string[] = []):
     "  --force              Replay items that already have an Invocation.",
     "  --limit <n>          Read at most n history items.",
     "  --cursor <cursor>    Continue from the cursor that an earlier replay printed.",
+    "  --label <label>      Label retained Invocations. Non-empty, at most 512 characters.",
+    "  --query <key=value>  Add a history query value. Repeatable, like --filter.",
     "  --filter <key=value> Add a history query value. The server validates it with the query schema.",
     ...(queryHelp.length ? ["", "History query:", ...queryHelp] : []),
     "",
@@ -97,6 +101,10 @@ export function parseChannelReplayArgs(args: string[]): ParsedChannelReplayArgs 
     else if (name === "--cursor") parsed.cursor = value
     else if (name === "--server") parsed.server = value
     else if (name === "--url") parsed.url = value
+    else if (name === "--label") {
+      if (!value.trim() || value.length > 512) throw cliError("--label must be a non-empty string of at most 512 characters.")
+      parsed.label = value
+    }
     else if (name === "--limit") {
       const limit = Number(value)
       if (!Number.isSafeInteger(limit) || limit < 1) throw cliError("--limit must be a positive integer.")
@@ -104,7 +112,7 @@ export function parseChannelReplayArgs(args: string[]): ParsedChannelReplayArgs 
     }
     else {
       const equals = value.indexOf("=")
-      if (equals < 1) throw cliError("--filter expects key=value.")
+      if (equals < 1) throw cliError(`${name} expects key=value.`)
       parsed.filters.push([value.slice(0, equals), value.slice(equals + 1)])
     }
   }
@@ -201,7 +209,7 @@ export function channelReplayQueryHelp(schema: unknown): string[] {
       property.type === "array" ? "repeatable" : undefined,
       hasRuntimeType(property.description, "string") ? property.description : undefined,
     ].filter(Boolean).join(", ")
-    return `  --${name} <${values}>${notes ? `  ${notes}` : ""}`
+    return `  ${valueOptions.has(`--${name}`) ? `--query ${name}=<${values}>` : `--${name} <${values}>`}${notes ? `  ${notes}` : ""}`
   })
 }
 
@@ -254,6 +262,12 @@ export async function runAgentChannelReplayCli(
     if (!channel) throw cliError("channels replay requires --channel <name>.")
     const fetchImpl = options.fetch || globalThis.fetch
     const target = replayTarget({ ...parsed, agent }, context.env)
+    if (!target.remote) {
+      const tokenHeaders = await readAgentDevLoopTokenHeaders(target.url, context.rootDir, fetchImpl, AbortSignal.timeout(30_000)).catch(() => {
+        throw cliError(`No Compatible Vite Development Server found at ${new URL(target.url).origin}.`)
+      })
+      for (const [name, value] of Object.entries(tokenHeaders)) target.headers.set(name, value)
+    }
     const description = await sendReplay(target, { channel, describe: true }, fetchImpl)
     if (parsed.help) {
       writeUsage(context, channelReplayQueryHelp(description.query))
@@ -263,12 +277,14 @@ export async function runAgentChannelReplayCli(
     const totals = { failed: 0, processed: 0, skipped: 0 }
     let cursor = parsed.cursor
     let remaining = parsed.limit ?? Number.POSITIVE_INFINITY
+    const seenCursors = new Set<string>(cursor ? [cursor] : [])
     while (remaining > 0) {
       const result = await sendReplay(target, {
         channel,
         ...(cursor ? { cursor } : {}),
         ...(parsed.dryRun ? { dryRun: true } : {}),
         ...(parsed.force ? { force: true } : {}),
+        ...(parsed.label !== undefined ? { label: parsed.label } : {}),
         limit: Math.min(remaining, replayBatchSize),
         ...(Object.keys(query).length ? { query } : {}),
       }, fetchImpl)
@@ -277,7 +293,10 @@ export async function runAgentChannelReplayCli(
       totals.processed += count(result, "processed")
       totals.skipped += count(result, "skipped")
       remaining -= read
-      cursor = hasRuntimeType(result.nextCursor, "string") ? result.nextCursor : undefined
+      const nextCursor = hasRuntimeType(result.nextCursor, "string") ? result.nextCursor : undefined
+      if (nextCursor && seenCursors.has(nextCursor)) throw cliError("Channel replay returned a repeated pagination cursor.")
+      if (nextCursor) seenCursors.add(nextCursor)
+      cursor = nextCursor
       if (!cursor || !read) break
     }
     context.stdout.write(`Replayed ${totals.processed}, skipped ${totals.skipped}, failed ${totals.failed}.${parsed.dryRun ? " Dry run: Channel message writes were recorded, not sent." : ""}\n`)

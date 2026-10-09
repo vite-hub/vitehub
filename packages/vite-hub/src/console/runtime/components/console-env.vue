@@ -7,9 +7,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { indexEnvStatuses } from "../client/env-status";
 import { requestConsole } from "../client/request";
 import { rememberConsoleSection } from "../sections";
-import ConsoleBrand from "./console-brand.vue";
 import ConsoleFrame from "./console-frame.vue";
-import ConsolePrimitiveSwitcher from "./console-primitive-switcher.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleEnvDetails from "./console-env-details.vue";
 
@@ -45,7 +43,6 @@ const props = defineProps<{
   searchBase: string;
   sectionsBase: string;
 }>();
-const sidebarOpen = ref(false);
 const entries = ref<readonly ServerEnvDescriptionEntry[]>([]);
 const search = ref("");
 const source = ref("all");
@@ -151,40 +148,7 @@ onBeforeUnmount(() => request?.abort());
 </script>
 
 <template>
-  <ConsoleFrame>
-    <UDashboardSidebar
-      id="console-navigation"
-      v-model:open="sidebarOpen"
-      :default-size="16"
-      :min-size="13"
-      :max-size="26"
-      :menu="{ title: 'Env', description: 'Server environment.' }"
-      :ui="{
-        body: 'gap-0 overflow-hidden p-0',
-        footer: 'shrink-0 border-t border-default px-2 py-1.5',
-      }"
-      resizable
-    >
-      <template #header="{ collapsed }"
-        ><ConsoleBrand :collapsed="collapsed" :sections-base="sectionsBase"
-      /></template>
-      <template #default="{ collapsed }">
-        <div class="flex shrink-0 items-center gap-1 px-[0.875rem] pb-2 pt-1">
-          <UDashboardSearchButton
-            :collapsed="collapsed"
-            block
-            class="vitehub-console__search min-w-0 flex-1 rounded-md border border-default bg-transparent px-2 ring-0 hover:bg-elevated/60"
-            label="Search console"
-          />
-        </div>
-      </template>
-      <template #footer="{ collapsed }"
-        ><ConsolePrimitiveSwitcher
-          active="env"
-          :collapsed="collapsed"
-          :sections-base="sectionsBase"
-      /></template>
-    </UDashboardSidebar>
+  <ConsoleFrame active="env" :sections-base="sectionsBase">
     <ConsoleSearch
       :agents-base="agentsBase"
       :definitions-base="definitionsBase"
@@ -194,7 +158,7 @@ onBeforeUnmount(() => request?.abort());
     />
     <UDashboardPanel id="env" :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }">
       <template #header>
-        <UDashboardNavbar title="Env" :toggle="{ 'aria-label': 'Open sidebar' }">
+        <UDashboardNavbar title="Env" :toggle="false">
           <template #right>
             <UButton
               color="neutral"

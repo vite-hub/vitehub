@@ -9,6 +9,7 @@ import type { H3Event } from "h3"
 
 afterEach(() => {
   setRateLimitRuntimeConfig({ provider: "memory" })
+  vi.restoreAllMocks()
 })
 
 function requestEvent(clientAddress?: string, headers?: Headers | Record<string, string>): H3Event {
@@ -82,6 +83,7 @@ describe("managed Rate Limit guard", () => {
   })
 
   it("shares named policy counters between guard, inspection, and reset", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(30_000)
     const event = requestEvent("192.0.2.20")
     const name = 'uploads:["tenant"]'
     await Promise.all([

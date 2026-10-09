@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from "vitest"
 
 import { consoleContributedSections, consoleRuntimeReaderModule, describeConsoleContributedSections, describeConsoleRuntimeReaders, isConsoleContributedSectionId } from "../src/console/contributions.ts"
 import { parseConsoleContributedSection, parseConsoleSectionContent } from "../src/console/runtime/definitions.ts"
-import { consoleBuiltinSectionIds, consoleSectionRouteName, isConsoleBuiltinSectionId, isConsoleSectionId, resolveConsoleSectionIds } from "../src/console/runtime/sections.ts"
+import { consoleBuiltinSectionIds, consolePrimitives, consoleSectionRouteName, isConsoleBuiltinSectionId, isConsoleSectionId, resolveConsoleSectionIds } from "../src/console/runtime/sections.ts"
 
 describe("Console section contributions", () => {
   it("registers the owner sections with valid ids that do not replace built-in sections", () => {
@@ -50,24 +50,24 @@ describe("Console section contributions", () => {
     }
   })
 
+  it("preserves manual Schedule run metadata when parsing section content", () => {
+    const definition = { fields: [], file: "sync.ts", name: "sync", runnable: true, source: "server-schedules" }
+    expect(parseConsoleSectionContent({ definitions: [definition], kind: "definition-catalog", section: "schedules" }, "schedules")).toEqual({ definitions: [definition], kind: "definition-catalog" })
+    const record = { cells: {}, fields: [], id: "definition:sync", runnable: true }
+    expect(parseConsoleSectionContent({ records: [record], kind: "record-table", section: "schedules" }, "schedules")).toEqual({ records: [record], kind: "record-table" })
+  })
+
+  it("accepts runnable metadata only when it is true", () => {
+    const definition = { fields: [], file: "sync.ts", name: "sync", source: "server-schedules" }
+    for (const runnable of [false, "true", 1, undefined]) {
+      expect(parseConsoleSectionContent({ definitions: [{ ...definition, runnable }], kind: "definition-catalog", section: "schedules" }, "schedules")).toEqual({ definitions: [definition], kind: "definition-catalog" })
+    }
+  })
+
   it("serializes descriptors that the Console UI can parse", () => {
     for (const descriptor of describeConsoleContributedSections([...consoleContributedSections.keys()])) {
       expect(parseConsoleContributedSection(JSON.parse(JSON.stringify(descriptor)))).toEqual(descriptor)
     }
-  })
-
-  it("preserves runnable Schedule metadata for the Console UI", () => {
-    const definition = { fields: [], file: "server/schedules/sync.ts", name: "sync", runnable: true, source: "server-schedules" }
-    const content = { definitions: [definition], kind: "definition-catalog", section: "schedules" }
-
-    expect(parseConsoleSectionContent(JSON.parse(JSON.stringify(content)), "schedules")).toEqual({
-      definitions: [definition],
-      kind: "definition-catalog",
-    })
-    expect(parseConsoleSectionContent({ ...content, definitions: [{ ...definition, runnable: "true" }] }, "schedules")).toEqual({
-      definitions: [{ ...definition, runnable: undefined }],
-      kind: "definition-catalog",
-    })
   })
 
   it("keeps the playground descriptors equal to the owner descriptors", async () => {
@@ -93,6 +93,28 @@ describe("Console section contributions", () => {
     }
     finally {
       await rm(root, { force: true, recursive: true })
+    }
+  })
+})
+
+describe("Console primitive catalog", () => {
+  it("lists every built-in and contributed section once, with the owner label and icon", () => {
+    const ids = consolePrimitives.map(entry => entry.id)
+    expect(new Set(ids).size).toBe(ids.length)
+    expect([...ids].sort()).toEqual([...consoleBuiltinSectionIds, ...consoleContributedSections.keys()].sort())
+    // The Overview shows primitives that are not enabled, so the catalog repeats the owner descriptor.
+    for (const [id, section] of consoleContributedSections) {
+      const entry = consolePrimitives.find(primitive => primitive.id === id)
+      expect(entry?.label).toBe(section.descriptor.label)
+      expect(entry?.icon).toBe(section.descriptor.icon)
+    }
+  })
+
+  it("links each primitive to its documentation and setup guide", () => {
+    for (const entry of consolePrimitives) {
+      expect(entry.docs).toMatch(/^https:\/\/vitehub\.dev\/docs\/[a-z/-]+$/)
+      expect(entry.setup).toMatch(/^https:\/\/vitehub\.dev\/docs\/[a-z/-]+$/)
+      expect(entry.pitch.length).toBeGreaterThan(20)
     }
   })
 })

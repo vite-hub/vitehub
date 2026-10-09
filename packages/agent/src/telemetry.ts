@@ -1,7 +1,7 @@
 import type { OpenTelemetryLogRecordView, OpenTelemetrySpanView } from "@vite-hub/runtime"
 
 import type { AgentRuntimeConfig, AgentTelemetry, AgentTelemetryExportContext, MaybePromise } from "./types.ts"
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
+import { hasRuntimeType } from "./internal/runtime-type.ts"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
 
 export type OtlpResourceAttributes = Record<string, boolean | number | string>

@@ -455,50 +455,45 @@ async function addOptionalPeers(appDir: string) {
 async function typecheckPackageExports(packageName: string, runnerDir: string, includeOptionalPeers: boolean) {
   const manifest = await readManifest(join(runnerDir, "node_modules", ...packageName.split("/"), "package.json"))
   const declaredTypes = packageTypeDependencies(manifest)
-  const modules = publicPackageExportContracts.filter(contract =>
-    contract.packageName === packageName
-    && isJavaScriptModule(contract.target)
-    && (includeOptionalPeers || contract.optionalDeclarationPeers.length === 0),
-  )
-  for (const [index, contract] of modules.entries()) {
-    await typecheckPackageModule(
+  const modules = publicPackageExportContracts
+    .filter(contract =>
+      contract.packageName === packageName
+      && isJavaScriptModule(contract.target)
+      && (includeOptionalPeers || contract.optionalDeclarationPeers.length === 0),
+    )
+    .map((contract, index) => ({ contract, index }))
+  // Every export of a package shares one declaration closure. One program per
+  // compiler configuration checks that closure once instead of once per export.
+  const groups = Map.groupBy(modules, ({ contract }) => {
+    // Virtual exports load ambient module declarations. Keep them isolated so
+    // a sibling export cannot make a missing declaration appear available.
+    const isolation = contract.specifier.endsWith("/virtual") ? contract.specifier : "shared"
+    return `${usesNodeDeclarationTypes(contract)}:${usesCloudflareHost(contract)}:${isolation}`
+  })
+  for (const group of groups.values()) {
+    const diagnostics = await packageModulesDiagnostics(
       packageName,
       runnerDir,
-      contract,
-      index,
-      contract.specifier.endsWith("/cloudflare/state"),
+      group,
+      usesCloudflareHost(group[0]!.contract),
       declaredTypes,
     )
+    expect(
+      ts.formatDiagnosticsWithColorAndContext(diagnostics, {
+        getCanonicalFileName: file => file,
+        getCurrentDirectory: () => runnerDir,
+        getNewLine: () => "\n",
+      }),
+      `${packageName} should expose valid declarations with its own dependency closure: ${group.map(({ contract }) => contract.specifier).join(", ")}`,
+    ).toBe("")
   }
 }
 
-async function typecheckPackageModule(
-  packageName: string,
-  runnerDir: string,
-  contract: (typeof publicPackageExportContracts)[number],
-  index: number,
-  withCloudflareHost: boolean,
-  declaredTypes: readonly string[] = [],
-) {
-  const diagnostics = await packageModuleDiagnostics(
-    packageName,
-    runnerDir,
-    contract,
-    index,
-    withCloudflareHost,
-    declaredTypes,
-  )
-  expect(
-    ts.formatDiagnosticsWithColorAndContext(diagnostics, {
-      getCanonicalFileName: file => file,
-      getCurrentDirectory: () => runnerDir,
-      getNewLine: () => "\n",
-    }),
-    `${packageName} should expose valid declarations with its own dependency closure`,
-  ).toBe("")
+function usesCloudflareHost(contract: (typeof publicPackageExportContracts)[number]) {
+  return contract.specifier.endsWith("/cloudflare/state")
 }
 
-async function packageModuleDiagnostics(
+function packageModuleDiagnostics(
   packageName: string,
   runnerDir: string,
   contract: (typeof publicPackageExportContracts)[number],
@@ -507,27 +502,43 @@ async function packageModuleDiagnostics(
   declaredTypes: readonly string[] = [],
   includeDependencyDiagnostics = false,
 ) {
+  return packageModulesDiagnostics(packageName, runnerDir, [{ contract, index }], withCloudflareHost, declaredTypes, includeDependencyDiagnostics)
+}
+
+async function packageModulesDiagnostics(
+  packageName: string,
+  runnerDir: string,
+  modules: readonly { contract: (typeof publicPackageExportContracts)[number], index: number }[],
+  withCloudflareHost: boolean,
+  declaredTypes: readonly string[] = [],
+  includeDependencyDiagnostics = false,
+) {
+  const nodeDeclarationTypes = new Set(modules.map(({ contract }) => usesNodeDeclarationTypes(contract)))
+  if (nodeDeclarationTypes.size !== 1) throw new Error(`${packageName} modules must share one declaration types configuration`)
   const ambientModules: Record<string, readonly string[]> = {
     "@vite-hub/blob": ["#vitehub/blob/config"],
     "@vite-hub/database": ["#vitehub/database/schema", "#vitehub/database/databases", "#vitehub/database/definition-defaults"],
     "@vite-hub/env": ["#vitehub/env/public", "#vitehub/env/server"],
     "@vite-hub/kv": ["#vitehub/kv/config"],
   }
-  const ambientModuleSpecifiers = contract.specifier === `${packageName}/virtual`
-    ? ambientModules[packageName] || []
-    : []
-  const source = [
-    `import type * as PackageExport from ${JSON.stringify(contract.specifier)}`,
-    "declare const packageExport: typeof PackageExport",
-    "void packageExport",
-    ...ambientModuleSpecifiers.map((specifier, ambientIndex) => [
-      `import type * as AmbientModule${ambientIndex} from ${JSON.stringify(specifier)}`,
-      `void (undefined as unknown as typeof AmbientModule${ambientIndex})`,
-    ].join("\n")),
-  ].join("\n")
-  const sourcePath = join(runnerDir, `export-${index}.ts`)
-  await writeFile(sourcePath, `${source}\n`, "utf8")
-  const rootNames = [sourcePath]
+  const rootNames: string[] = []
+  for (const { contract, index } of modules) {
+    const ambientModuleSpecifiers = contract.specifier === `${packageName}/virtual`
+      ? ambientModules[packageName] || []
+      : []
+    const source = [
+      `import type * as PackageExport from ${JSON.stringify(contract.specifier)}`,
+      "declare const packageExport: typeof PackageExport",
+      "void packageExport",
+      ...ambientModuleSpecifiers.map((specifier, ambientIndex) => [
+        `import type * as AmbientModule${ambientIndex} from ${JSON.stringify(specifier)}`,
+        `void (undefined as unknown as typeof AmbientModule${ambientIndex})`,
+      ].join("\n")),
+    ].join("\n")
+    const sourcePath = join(runnerDir, `export-${index}.ts`)
+    await writeFile(sourcePath, `${source}\n`, "utf8")
+    rootNames.push(sourcePath)
+  }
   let hostTypesPath: string | undefined
   if (withCloudflareHost) {
     hostTypesPath = join(runnerDir, "cloudflare-workers.d.ts")
@@ -556,7 +567,7 @@ async function packageModuleDiagnostics(
     target: ts.ScriptTarget.ESNext,
     typeRoots: typeDependencies.roots,
     types: [...new Set([
-      ...(usesNodeDeclarationTypes(contract) ? ["node"] : []),
+      ...(nodeDeclarationTypes.has(true) ? ["node"] : []),
       ...declaredTypes.map(dependency => dependency.replace(/^@types\//, "")),
     ])],
   }

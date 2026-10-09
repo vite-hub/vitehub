@@ -14,6 +14,7 @@ import { createCloudflareAccessVerifier, handleCloudflareAccessConsoleRequest, t
 import { resolveConsoleAuthConfig, writeConsoleAuthHandlers } from "../src/console/auth-build.ts"
 import { cloudflareAccessIssuer } from "../src/console/auth-path.ts"
 import { consoleVitePlugin } from "../src/console/vite.ts"
+import { hostManagedAuthorize } from "./support/console-authorize.ts"
 
 const packageRoot = resolve(import.meta.dirname, "..")
 const teamDomain = "acme.cloudflareaccess.com"
@@ -114,28 +115,30 @@ describe("Cloudflare Access Console Auth", () => {
   })
 
   it("refreshes Access keys immediately after signing-key rotation", async () => {
-    const fetch = certsFetch()
-    const verify = createCloudflareAccessVerifier({ fetch })
-    await expect(verify(await accessToken(), { audience, issuer })).resolves.toEqual({ email: "maintainer@example.com" })
-
     const originalJwks = jwks
-    const rotated = await generateKeyPair("RS256", { extractable: true })
-    jwks = { keys: [{ ...(await exportJWK(rotated.publicKey)), alg: "RS256", kid: "rotated-key", use: "sig" }] }
-    const rotatedToken = await new SignJWT({ email: "maintainer@example.com" })
-      .setProtectedHeader({ alg: "RS256", kid: "rotated-key" })
-      .setIssuer(issuer)
-      .setAudience(audience)
-      .setIssuedAt()
-      .setExpirationTime("5m")
-      .sign(rotated.privateKey)
-
+    vi.useFakeTimers()
     try {
-      await new Promise((resolve) => setTimeout(resolve, 1_100))
+      const fetch = certsFetch()
+      const verify = createCloudflareAccessVerifier({ fetch })
+      await expect(verify(await accessToken(), { audience, issuer })).resolves.toEqual({ email: "maintainer@example.com" })
+
+      const rotated = await generateKeyPair("RS256", { extractable: true })
+      jwks = { keys: [{ ...(await exportJWK(rotated.publicKey)), alg: "RS256", kid: "rotated-key", use: "sig" }] }
+      const rotatedToken = await new SignJWT({ email: "maintainer@example.com" })
+        .setProtectedHeader({ alg: "RS256", kid: "rotated-key" })
+        .setIssuer(issuer)
+        .setAudience(audience)
+        .setIssuedAt()
+        .setExpirationTime("5m")
+        .sign(rotated.privateKey)
+
+      await vi.advanceTimersByTimeAsync(1_100)
       await expect(verify(rotatedToken, { audience, issuer })).resolves.toEqual({ email: "maintainer@example.com" })
       expect(fetch).toHaveBeenCalledTimes(2)
     }
     finally {
       jwks = originalJwks
+      vi.useRealTimers()
     }
   })
 
@@ -406,7 +409,7 @@ describe("Cloudflare Access Console Auth", () => {
     try {
       await writeFile(join(root, "package.json"), "{}\n")
       const run = async (preset: string) => {
-        const plugin = consoleVitePlugin({ console: { exposure: "host-managed" }, preset })
+        const plugin = consoleVitePlugin({ console: { exposure: "host-managed", authorize: hostManagedAuthorize }, preset })
         const configHook = plugin.config
         const resolvedHook = plugin.configResolved
         if (!configHook || !resolvedHook) throw new TypeError("Expected Console config hooks.")

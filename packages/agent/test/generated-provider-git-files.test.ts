@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process"
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
@@ -77,4 +77,16 @@ it("restores the original Git exclude when a provider removes or replaces it", a
   await writeFile(excludePath, "provider replacement\n")
   await restoreAfterReplace()
   expect(await readFile(excludePath, "utf8")).toBe(originalExclude)
+})
+
+it("accepts repository roots through a symlinked ancestor", async () => {
+  const parent = await mkdtemp(join(tmpdir(), "vitehub-generated-link-"))
+  roots.push(parent)
+  const physical = join(parent, "physical")
+  await mkdir(join(physical, "repo"), { recursive: true })
+  await symlink(physical, join(parent, "linked"))
+  const root = join(parent, "linked/repo")
+  await execute("git", ["-C", root, "init", "-q"])
+  const restore = await protectGeneratedProviderGitFiles(root, [join(root, "AGENTS.md")])
+  await restore()
 })

@@ -1,0 +1,5 @@
+title: Queue
+icon: i-lucide-list-ordered
+order: 20
+category: Compute
+related: [workflows, schedule]

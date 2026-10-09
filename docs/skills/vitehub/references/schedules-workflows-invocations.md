@@ -4,7 +4,7 @@ Use this for wake timing, durable orchestration, Agent Invocation context, retri
 
 ## Select one current page
 
-Open [Schedule](https://vitehub.dev/raw/docs/server-primitives/schedule.md) for wake timing or [Workflows](https://vitehub.dev/raw/docs/server-primitives/workflows.md) for durable multi-step orchestration. Agent Invocation syntax belongs to [Agent Definitions and Drivers](agent-definitions.md); do not load this reference for a direct invocation alone.
+Open [Schedule](https://vitehub.dev/raw/docs/schedule.md) for wake timing or [Workflows](https://vitehub.dev/raw/docs/workflows.md) for durable multi-step orchestration. Agent Invocation syntax belongs to [Agent Definitions and Drivers](agent-definitions.md); do not load this reference for a direct invocation alone.
 
 ## Ownership
 

@@ -14,6 +14,30 @@ import type { RenderMarkdownTemplateInternalOptions, RenderMarkdownTemplateOptio
 
 const parserOptions = { autoClose: false, autoUnwrap: false, linkify: false, plugins: [binding()] }
 const literalHtmlTags = new Set(["code", "pre", "script", "style", "textarea", "kbd", "samp", "var"])
+const urlAttributesByTag = new Map([
+  ["a", new Set(["href"])],
+  ["area", new Set(["href"])],
+  ["audio", new Set(["src"])],
+  ["base", new Set(["href"])],
+  ["blockquote", new Set(["cite"])],
+  ["button", new Set(["formaction"])],
+  ["del", new Set(["cite"])],
+  ["embed", new Set(["src"])],
+  ["form", new Set(["action"])],
+  ["iframe", new Set(["src"])],
+  ["img", new Set(["src"])],
+  ["input", new Set(["formaction", "src"])],
+  ["ins", new Set(["cite"])],
+  ["link", new Set(["href"])],
+  ["object", new Set(["data"])],
+  ["q", new Set(["cite"])],
+  ["script", new Set(["src"])],
+  ["source", new Set(["src"])],
+  ["track", new Set(["src"])],
+  ["video", new Set(["poster", "src"])],
+])
+// Comark normalizes SVG image tags to img nodes.
+const svgUrlAttributes = new Set(["a", "animate", "feimage", "image", "use"])
 
 export async function renderMarkdownTemplate(template: string, options: RenderMarkdownTemplateOptions = {}): Promise<string> {
   return await renderMarkdownTemplateInternal(template, options)
@@ -66,29 +90,56 @@ export async function renderMarkdownTemplateInternal(template: string, options: 
         return await renderNodes(fragment.nodes, literalState(state), parent)
       },
       A: async (node, state, parent) => {
-        if (!Object.hasOwn(node[1], ":href")) return await state.handlers.a!(node, state, parent)
         const props = resolveScalarTemplateAttributes(node[1], renderData(state))
-        const href = await safeLinkDestination(resolveScalarTemplateBinding({ ":value": node[1][":href"] }, renderData(state)), String(node[1][":href"]))
+        const authoredHtml = node[1].$?.html === 1
+        const sanitized = authoredHtml ? await sanitizeUrlAttributes("a", props, node[1]) : props
+        const href = Object.hasOwn(node[1], ":href")
+          ? await safeLinkDestination(resolveScalarTemplateBinding({ ":value": node[1][":href"] }, renderData(state)), String(node[1][":href"]))
+          : authoredHtml ? sanitized.href : undefined
+        if (href === undefined) return await state.handlers.a!(node, state, parent)
         // SAFETY: Preserve the element tag and children, replacing only its resolved attributes.
-        return await state.handlers.a!([node[0], { ...props, href }, ...node.slice(2)] as ElementNode, state, parent)
+        return await state.handlers.a!([node[0], { ...sanitized, href }, ...node.slice(2)] as ElementNode, state, parent)
       },
       Html: {
-        match: node => node[1].$?.html === 1 && !literalHtmlTags.has(node[0]),
+        match: node => node[1].$?.html === 1,
         handler: async (node, state, parent) => {
           const [tag, attrs, ...children] = node
           const props = resolveScalarTemplateAttributes(attrs, renderData(state))
-          const escaped = Object.fromEntries(Object.entries(props).map(([key, value]) =>
+          const sanitized = await sanitizeUrlAttributes(tag, props, attrs, state.context.svg === true)
+          const escaped = Object.fromEntries(Object.entries(sanitized).map(([key, value]) =>
             // doctor-disable-next-line typescript/strict/no-runtime-typeof -- String XML attributes need escaping; Comark serializes boolean and numeric attributes.
             [key, typeof value === "string" ? escapeHtml(value) : value]))
           // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Only raw text children of block HTML need Markdown parsing; parsed nodes are rendered directly.
-          const content = attrs.$?.block === 1 && children.every(child => typeof child === "string")
+          const content = attrs.$?.block === 1 && !literalHtmlTags.has(tag) && children.every(child => typeof child === "string")
             ? (await parseMarkdown(children.join(""), parseOptions)).nodes
             : children
-          return await state.handlers.html!([tag, { ...escaped, $: attrs.$ }, ...content], state, parent)
+          // Preserve SVG ancestry across descendants; foreignObject children use HTML semantics.
+          const revert = state.applyContext({ svg: tag.toLowerCase() === "svg" || state.context.svg === true && tag.toLowerCase() !== "foreignobject" })
+          try {
+            return await state.handlers.html!([tag, { ...escaped, $: attrs.$ }, ...content], state, parent)
+          }
+          finally {
+            state.applyContext(revert)
+          }
         },
       },
     },
   })).trim())
+}
+
+async function sanitizeUrlAttributes(tag: string, props: Record<string, unknown>, source: Record<string, unknown>, svgContext = false): Promise<Record<string, unknown>> {
+  const sanitized = { ...props }
+  for (const [key, value] of Object.entries(props)) {
+    const attribute = key.toLowerCase()
+    const isUrl = urlAttributesByTag.get(tag.toLowerCase())?.has(attribute)
+      || (attribute === "href" || attribute === "xlink:href")
+        && (svgUrlAttributes.has(tag.toLowerCase()) || tag.toLowerCase() === "img" && svgContext)
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Comark attributes include booleans and numbers; only string URL values need destination validation.
+    if (typeof value !== "string" || !isUrl) continue
+    const binding = source[`:${key}`]
+    sanitized[key] = await safeLinkDestination(value, String(binding ?? key), { decodeHtmlEntities: binding === undefined })
+  }
+  return sanitized
 }
 
 function literalState(state: State): State {

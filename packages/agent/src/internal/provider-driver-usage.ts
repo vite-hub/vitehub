@@ -1,5 +1,4 @@
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
-import { isRuntimeRecord } from "./runtime-type.ts"
+import { hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
 
 const providerPackageNames = new Set(["@vite-hub/agent", "vite-hub/agent"])
 const capabilityPackageNames = new Set(["@vite-hub/agent/capabilities", "vite-hub/agent/capabilities"])

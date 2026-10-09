@@ -75,7 +75,7 @@ function escapeRedisGlob(value: string): string {
 
 export default function createUpstashKVDriver(options: ResolvedUpstashKVStoreConfig): KVRuntimeDriver {
   // SAFETY: The unstorage Upstash driver exposes getInstance and this adapter installs listKeys before returning.
-  const driver = createDriver(options) as KVRuntimeDriver & { getInstance: () => UpstashClient }
+  const driver = createDriver(options) as KVRuntimeDriver & { getInstance: () => Promise<UpstashClient> }
   const maximumContinuationBytes = 1024 * 1024
   const expired = () => Object.assign(kvErrorDiagnostics.KV_R0011({ message: "Invalid or expired Upstash KV cursor." }), { code: "KV_CURSOR_EXPIRED" })
   const continuations = createKVContinuations<UpstashContinuation>({ expired, maximumBytes: maximumContinuationBytes })
@@ -85,9 +85,9 @@ export default function createUpstashKVDriver(options: ResolvedUpstashKVStoreCon
     finally { await dispose?.call(driver) }
   }
 
-  driver.getAndDeleteItem = async key => driver.getInstance().getdel(key)
+  driver.getAndDeleteItem = async key => (await driver.getInstance()).getdel(key)
   driver.incrementItem = async (key, ttl) => {
-    const value = Number(await driver.getInstance().eval(incrementScript, [key], [String(normalizeTTL(ttl))]))
+    const value = Number(await (await driver.getInstance()).eval(incrementScript, [key], [String(normalizeTTL(ttl))]))
     if (!Number.isSafeInteger(value)) throw kvErrorDiagnostics.KV_R0009({ message: "Atomic KV increment exceeds the JavaScript safe integer range." })
     return value
   }
@@ -115,7 +115,7 @@ export default function createUpstashKVDriver(options: ResolvedUpstashKVStoreCon
     else {
       const state = decodeCursor(cursor)
       providerCursor = state.cursor
-      const scanned = await driver.getInstance().scan(providerCursor, {
+      const scanned = await (await driver.getInstance()).scan(providerCursor, {
         count: limit,
         match: `${escapeRedisGlob(prefix)}*`,
       })

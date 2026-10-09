@@ -12,7 +12,7 @@ The Channel owns the Gmail plumbing: push authentication, the history cursor, th
 
 On hosts that supply `waitUntil`, the Channel acknowledges an authenticated notification before Gmail API work. Without `waitUntil`, the webhook drains its background work before returning. The first notification verifies the OAuth mailbox in background work before changing the history cursor or handling messages. Later notifications reuse that identity while the configured OAuth credentials are unchanged. Custom `client` functions can rotate credentials behind the same function, so each notification verifies their current mailbox in background work. An authenticated notification for another mailbox is discarded before state or message changes; if the mailbox from configured OAuth credentials is already cached, the webhook rejects it with HTTP 400.
 
-The Channel calls the Gmail REST API with `fetch` and a Google OAuth refresh token. It runs on Node.js, Cloudflare Workers, and Vercel. It is separate from the [`gmail()` Capability](/docs/capabilities/gmail) from `vite-hub/agent/capabilities`, which gives an Agent search and draft tools through the `gog` CLI.
+The Channel calls the Gmail REST API with `fetch` and a Google OAuth refresh token. It runs on Node.js, Cloudflare Workers, and Vercel. It is separate from the [`gmail()` Capability](/docs/agents/capabilities/gmail) from `vite-hub/agent/capabilities`, which gives an Agent search and draft tools through the `gog` CLI.
 
 ## Label new email
 
@@ -191,7 +191,7 @@ The first command prints the plan. The Gmail Channel does not need `--url`, beca
 
 Gmail permits one active watch per mailbox. `channels sync` reads the mailbox profile and rejects multiple selected Gmail Channels for that mailbox before creating labels or renewing watches, even when the Channels use different credentials.
 
-Gmail stops the watch seven days after the last renewal. The push route renews it when the stored expiration is less than a day away, but a quiet mailbox sends no pushes. Renew it from a daily [Schedule](/docs/server-primitives/schedule) with `syncGmailChannel()`, which runs the same logic as `channels sync`:
+Gmail stops the watch seven days after the last renewal. The push route renews it when the stored expiration is less than a day away, but a quiet mailbox sends no pushes. Renew it from a daily [Schedule](/docs/schedule) with `syncGmailChannel()`, which runs the same logic as `channels sync`:
 
 ```ts [server/schedules/gmail-watch.ts]
 import { defineSchedule } from 'vite-hub/schedule'

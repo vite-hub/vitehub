@@ -1,9 +1,10 @@
-import { asUnknownBoundary, hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
+import { asUnknownBoundary, hasRuntimeType } from "./internal/runtime-type.ts"
 import { defineCapability } from "./capability-runtime.ts"
 import { createChatMessageTriggerInput } from "./chat-message-input.ts"
 import { readAgentErrorProperty, toAgentPublicError } from "./agent-error.ts"
 import { createReplyDeliveryEffectIntent, defineFinishEffect } from "./delivery-effects.ts"
 import { chatFinalReplyIntent, chatFinalReplyMode, chatFinalReplyNotices, setChatFinalReplyText } from "./internal/chat-finish-delivery.ts"
+import { formatChannelCitationText } from "./internal/channel-citations.ts"
 import { agentWorkflowExecutionContextKey } from "./internal/workflow-execution.ts"
 import { agentInvokerLabel } from "./invoker.ts"
 
@@ -13,7 +14,6 @@ import type {
   AgentChatAgentHookArgs,
   AgentChatErrorHookArgs,
   AgentChatCapabilityOptions,
-  AgentChatFinishExtension,
   AgentChatOptions,
   AgentChatPlatformResolver,
   AgentChannelDeliveryEffectIntent,
@@ -127,6 +127,19 @@ function defaultChatErrorFallback(args: Pick<AgentChatErrorHookArgs, "error" | "
 }
 
 export async function resolveChatErrorFallbackText<TRuntimeConfig extends AgentRuntimeConfig>(
+  options: AgentChatOptions<TRuntimeConfig> | undefined,
+  args: AgentChatErrorHookArgs<TRuntimeConfig>,
+  callbackDelivered?: () => boolean,
+  resolveFallback?: (fallback: Promise<unknown>) => Promise<unknown>,
+): Promise<string | undefined> {
+  const originalText = await resolveChatErrorFallbackBody(options, args, callbackDelivered, resolveFallback)
+  const text = originalText === undefined ? undefined : formatChannelCitationText(originalText)
+  // `errorConsoleLink` applies to the default text and to custom `errorFallbackText` results.
+  const consoleUrl = options?.errorConsoleLink ? args.invocation?.consoleUrl : undefined
+  return text && consoleUrl && !text.includes(consoleUrl) ? `${text}\n\nDetails: ${consoleUrl}` : text
+}
+
+async function resolveChatErrorFallbackBody<TRuntimeConfig extends AgentRuntimeConfig>(
   options: AgentChatOptions<TRuntimeConfig> | undefined,
   args: AgentChatErrorHookArgs<TRuntimeConfig>,
   callbackDelivered?: () => boolean,
@@ -302,13 +315,14 @@ async function resolveChatThinkingFallback<TRuntimeConfig extends AgentRuntimeCo
   if (hasRuntimeType(fallback, "function")) {
     const resolved = await fallback(args)
     if (resolved === null) return null
-    return hasRuntimeType(resolved, "string") ? resolved : undefined
+    return hasRuntimeType(resolved, "string") ? formatChannelCitationText(resolved) : undefined
   }
   if (Array.isArray(fallback)) {
     if (fallback.length === 0) return null
-    return fallback[Math.floor(Math.random() * fallback.length)]
+    const selected = fallback[Math.floor(Math.random() * fallback.length)]
+    return selected === undefined ? undefined : formatChannelCitationText(selected)
   }
-  if (hasRuntimeType(fallback, "string")) return fallback
+  if (hasRuntimeType(fallback, "string")) return formatChannelCitationText(fallback)
   return undefined
 }
 

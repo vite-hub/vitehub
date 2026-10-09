@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest"
 
 import { normalizeWorkspaceOptions, normalizeWorkspaceStoreOptions, resolveRuntimeVercelBlobWorkspaceStore } from "../src/config.ts"
 import { defineWorkspace } from "../src/core/define.ts"
+import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
+import { createWorkspaceStoreFromProvider } from "../src/storage/provider.ts"
 
 describe("workspace config", () => {
   it("rejects unknown workspace definition options", () => {
@@ -71,6 +73,21 @@ describe("workspace config", () => {
     expect(config && config.store).toEqual({
       provider: "memory",
     })
+  })
+
+  it("does not treat an inherited readFile as a complete workspace store", () => {
+    const store = Object.create({ readFile: async () => undefined })
+
+    expect(normalizeWorkspaceStoreOptions(store as never, {
+      env: {},
+      hosting: "cloudflare_module",
+    })).toEqual({ provider: "memory" })
+  })
+
+  it("preserves class-based workspace stores", () => {
+    const store = createMemoryWorkspaceStore()
+
+    expect(createWorkspaceStoreFromProvider({ name: "memory", store })).toBe(store)
   })
 
   it("defaults to memory on Cloudflare hosting", () => {

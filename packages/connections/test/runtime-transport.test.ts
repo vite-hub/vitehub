@@ -1,4 +1,5 @@
 import { expect, it } from "vitest"
+import { agentEnvAccess } from "../../env/test/agent-access.ts"
 
 import { apiKey } from "../src/api-key.ts"
 import { defineConnection } from "../src/definition.ts"
@@ -20,7 +21,7 @@ it.each(["oauth2", "api-key"] as const)("confines %s catalog requests to credent
   else await connect(test)
   test.provider.valid.add("stored-key")
   const before = test.provider.calls.length
-  const client = test.runtime.client("mail", { actor: "agent:worker" })
+  const client = test.runtime.client("mail", { access: agentEnvAccess({ name: "worker" }) })
   for (const resource of ["https://foreign.example.com/items", "//foreign.example.com/items"]) {
     for (const action of ["resources.get", "resources.update"]) {
       await expect(client.call(action, { resource })).rejects.toMatchObject({ code: "CONNECTION_INVALID" })

@@ -8,12 +8,15 @@ import {
   installConsoleBlobScope,
   resolveConsoleBlob,
 } from "../src/console/internal.ts"
-import blobHandler from "../src/console/runtime/server/blob.get.ts"
+import blobHandlerRoute from "../src/console/runtime/server/blob.get.ts"
 import { installConsoleBlob } from "../src/console/runtime/server/blob.ts"
 
 import type { BlobListOptions, BlobObject, BlobResult, BlobStorage } from "@vite-hub/blob"
 import type { ConsoleInvocationScope } from "../src/console/internal.ts"
 import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.ts"
+import { allowed } from "./support/console-access.ts"
+
+const blobHandler = allowed(blobHandlerRoute)
 
 // SAFETY: ConsoleInvocationScope only adds optional symbol-keyed test state to the global object.
 const scope = globalThis as ConsoleInvocationScope
@@ -64,7 +67,15 @@ function memoryBlob(stores: Record<string, BlobObject[]>): {
   const reads = vi.fn()
   const writes = vi.fn()
   function storage(name = "default"): BlobStorage {
+    const unusedWrite = (operation: string) => async () => {
+      writes(operation)
+      throw new Error(`The Console must not call ${operation}.`)
+    }
     return {
+      createMultipartUpload: unusedWrite("createMultipartUpload"),
+      handleMultipartUpload: unusedWrite("handleMultipartUpload"),
+      handleUpload: unusedWrite("handleUpload"),
+      resumeMultipartUpload: unusedWrite("resumeMultipartUpload"),
       del: async () => { writes("del"); return success(undefined) },
       get: async () => { reads("get"); return success(null) },
       head: async pathname => { reads("head"); return success(object(pathname)) },

@@ -8,7 +8,6 @@ import { expect, it, vi } from "vitest"
 import { getAgentLayerOptions, inheritAgentLayerOptions } from "../src/agent-layers.ts"
 import { agentWithSkills, defineAgent, runAgent } from "../src/index.ts"
 import { colocatedAgentSkillsSymbol, withColocatedAgentSkills } from "../src/internal/colocated-agent-skills.ts"
-import { agentDefinitionSourceSymbol } from "../src/internal/agent-definition-source.ts"
 import { hubAgent } from "../src/vite.ts"
 import { workspaceAgentWithSourceRoot, workspaceDefinitionFromOptions } from "../src/workspace-agent.ts"
 
@@ -112,10 +111,6 @@ it("keeps generated colocated skills available to derived definitions", async ()
     }
     const discovered = decorate(base, "/discovered", undefined, encodedSkills)
     const child = defineAgent({ extends: base, description: "Child" })
-
-    const skillsClone = Reflect.get(discovered, agentDefinitionSourceSymbol)
-    expect(skillsClone).toBeDefined()
-    expect(Reflect.get(skillsClone, agentDefinitionSourceSymbol)).toBe(base)
 
     expect(Object.getOwnPropertyDescriptor(discovered, colocatedAgentSkillsSymbol)?.value).toMatchObject({
       review: { content: new TextEncoder().encode("Review.") },

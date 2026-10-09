@@ -74,9 +74,9 @@ export interface ShellBoundary {
 }
 
 export interface ShellProcess {
-  id: string
-  command: string
-  cwd?: string
+  readonly id: string
+  readonly command: string
+  readonly cwd?: string
   stop(): Promise<ShellObservation>
 }
 

@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest"
 import { mergeConfig } from "vite"
 
 import {
+  createNoExternalMerger,
   createNoExternalAddition,
   generatedViteHubWatchIgnoredAddition,
   hasNitroConfigContext,
@@ -17,6 +18,14 @@ import {
 } from "../src/build/vite.ts"
 
 describe("Vite provider builds", () => {
+  it("merges a package into existing noExternal values", () => {
+    const merge = createNoExternalMerger("@vite-hub/blob")
+    expect(merge(undefined)).toEqual(["@vite-hub/blob"])
+    expect(merge("existing")).toEqual(["existing", "@vite-hub/blob"])
+    expect(merge(["existing", "@vite-hub/blob"])).toEqual(["existing", "@vite-hub/blob"])
+    expect(merge(true)).toBe(true)
+  })
+
   it("preserves scalar and array noExternal entries across plugin config merges", () => {
     const existingPattern = /existing/
     for (const noExternal of [undefined, "existing", existingPattern, ["existing", existingPattern]]) {

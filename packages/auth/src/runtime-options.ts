@@ -99,10 +99,10 @@ export function resolveAuthOptions(
   } as AuthRuntimeOptions & Record<string, unknown>
   if (request) {
     const baseURL = requestRuntimeOptions.baseURL || resolvePublicUrl({ request })
-    const staticTrustedOrigins = !callback && "trustedOrigins" in declared
+    const staticTrustedOrigins = !callback && Object.hasOwn(declared, "trustedOrigins")
     // SAFETY: Origin defaults preserve the runtime options shape and add only supported Better Auth fields.
     requestRuntimeOptions = {
-      ...(!("trustedOrigins" in requestRuntimeOptions) && !staticTrustedOrigins ? { trustedOrigins: [baseURL] } : {}),
+      ...(!Object.hasOwn(requestRuntimeOptions, "trustedOrigins") && !staticTrustedOrigins ? { trustedOrigins: [baseURL] } : {}),
       ...requestRuntimeOptions,
       baseURL,
     } as AuthRuntimeOptions & Record<string, unknown>

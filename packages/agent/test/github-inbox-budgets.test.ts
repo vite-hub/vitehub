@@ -132,6 +132,26 @@ test('exhausted same-head deliveries persist feedback and closure without queuei
   assert.equal((await inbox.claim(1)).length, 0)
 })
 
+test('a person commenting on an exhausted head resets its budget; bots do not', async t => {
+  const inbox = memory(t); await inbox.seed(repository, pr())
+  for (let index = 0; index < 3; index++) {
+    await wake(inbox, index)
+    await inbox.finish((await inbox.claim(1))[0]!, { text: 'waiting', progress: { kind: 'no-progress' } })
+  }
+  const comment = (id: number, login: string, type: string) => inbox.ingest(`comment-${id}`, 'issue_comment', {
+    repository: { full_name: repository }, issue: { number: 7, pull_request: {} }, sender: { login, type },
+    comment: { id, body: `feedback ${id}`, user: { login, type } },
+  })
+  assert.deepEqual((await comment(20, 'review-bot[bot]', 'Bot')).queued, [])
+  assert.equal((await inbox.claim(1)).length, 0)
+  assert.deepEqual((await comment(21, 'maintainer', 'User')).queued, [7])
+  const budget = (await inbox.get(repository, 7))?.progressBudget
+  assert.equal(budget?.exhausted, false)
+  assert.equal(budget?.count, 0)
+  assert.equal(budget?.resetReason, 'issue_comment:maintainer')
+  assert.equal((await inbox.claim(1)).length, 1)
+})
+
 test('new heads get a fresh budget and stale completions cannot charge them', async t => {
   const inbox = memory(t); await inbox.seed(repository, pr())
   const old = (await inbox.claim(1))[0]!
@@ -293,4 +313,34 @@ test('stale wait completion releases its claim without charging progress', async
   assert.equal((await inbox.get(repository, 7))!.progressBudget, undefined)
   assert.equal((await inbox.get(repository, 7))!.wait, undefined)
   assert.equal((await inbox.claim(1)).length, 1)
+})
+
+
+test('CI recovery admission survives restart without admitting unrelated exhausted work', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'inbox-recovery-'))
+  const path = join(directory, 'inbox.sqlite')
+  let inbox = new PullRequestInbox({ path, repositories: [repository], budgets: { noProgress: 1 } })
+  t.onTestFinished(async () => { await inbox.close(); rmSync(directory, { recursive: true, force: true }) })
+  const wait = { reason: 'Failed CI', evidenceKey: 'checks:failed' }
+  for (const number of [7, 8]) {
+    await inbox.seed(repository, { ...pr(), number })
+    const claim = (await inbox.claim(1))[0]!
+    await inbox.finish(claim, { text: 'No progress', progress: { kind: 'no-progress' }, wait })
+  }
+  assert.equal(await inbox.wake((await inbox.get(repository, 7))!, 'ci-recovery:a', { recovery: true }), true)
+  assert.equal(await inbox.wake((await inbox.get(repository, 8))!, 'new-feedback'), true)
+  await inbox.close()
+  inbox = new PullRequestInbox({ path, repositories: [repository], budgets: { noProgress: 1 } })
+  assert.equal((await inbox.claim(2)).length, 0)
+  const recoveryOptions = { includeBlocked: true, only: (snapshot: import('../src/server/github-inbox.ts').Snapshot) => Boolean(snapshot.recoveryHead && snapshot.recoveryHead === snapshot.pr?.head?.sha) }
+  let claims = await inbox.claim(1, recoveryOptions)
+  assert.deepEqual(claims.map(claim => claim.snapshot.number), [7])
+  assert.equal(claims[0]!.snapshot.refresh, true)
+  await inbox.release(claims[0]!)
+  claims = await inbox.claim(1, recoveryOptions)
+  assert.equal(claims.length, 1)
+  await inbox.finish(claims[0]!, { text: 'Waiting', wait })
+  await inbox.wake((await inbox.get(repository, 7))!, 'new-feedback')
+  assert.equal((await inbox.claim(2, recoveryOptions)).length, 0)
+  assert.equal((await inbox.claim(2)).length, 0)
 })

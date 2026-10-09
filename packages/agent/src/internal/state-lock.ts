@@ -19,7 +19,7 @@ export function requireAtomicAgentStateLock(state: StateAdapter): AtomicAgentSta
   // SAFETY: The State contract may include optional extension methods, checked below before use.
   const candidate = state as Partial<AtomicAgentStateLockAdapter>
   if (!isRuntimeFunction(candidate.mutateWithLock)) {
-    throw new Error("[vitehub] Gmail mailbox synchronization requires State with atomic lease-fenced cache mutations (mutateWithLock).")
+    throw new Error("[vitehub] This operation requires State with atomic lease-fenced cache mutations (mutateWithLock).")
   }
   // SAFETY: The adapter explicitly implements the atomic mutation contract checked above.
   return candidate as AtomicAgentStateLockAdapter

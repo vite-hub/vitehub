@@ -1,5 +1,5 @@
 import { defineComponent, getCurrentInstance, h, type PropType } from "vue";
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
+import { hasRuntimeType } from "../internal/runtime-type.ts";
 import type { AgentToolInspection } from "../types.ts";
 
 function schemaBlock(label: string, schema: AgentToolInspection["inputSchema"]) {

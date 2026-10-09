@@ -3,7 +3,7 @@ import { defineConfig } from "vite-plus";
 export default defineConfig({
   pack: {
     tsconfig: "tsconfig.build.json",
-    entry: ["src/drain.ts", "src/index.ts", "src/node.ts", "src/internal/runtime-type.ts"],
+    entry: ["src/drain.ts", "src/index.ts", "src/node.ts", "src/internal/grant.ts", "src/internal/runtime-type.ts"],
     exports: {
       bin: {
         "vitehub-drain": "src/drain.ts",

@@ -78,6 +78,17 @@ beforeEach(() => {
 })
 
 describe("Sandbox runtime lifecycle", () => {
+  it("rejects inherited runtime registry definitions", async () => {
+    setSandboxRuntimeConfig({ provider: "cloudflare" })
+    setSandboxRuntimeRegistry(Object.create({ inherited: definition }))
+    runtimeMocks.executeSandboxDefinition.mockResolvedValue({ ok: true })
+
+    const result = await runSandboxRuntime("inherited")
+
+    expect(result.ok).toBe(false)
+    expect(await result.json()).toMatchObject({ error: { code: "SANDBOX_R0053" } })
+    expect(runtimeMocks.executeSandboxDefinition).not.toHaveBeenCalled()
+  })
   it("creates unique valid default Cloudflare identities and preserves overrides", () => {
     const first = createCloudflareExecutionSandboxId("tools/release-notes")
     const second = createCloudflareExecutionSandboxId("tools/release-notes")

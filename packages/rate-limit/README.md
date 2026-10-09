@@ -2,7 +2,7 @@
 
 `@vite-hub/rate-limit` gives server code one atomic consume-and-decide operation for fixed-window request budgets. It keeps policy separate from the driver that stores and updates each counter.
 
-Install this owner package when you need a direct Rate Limiter, a custom driver, or the standalone Vite integration. If your application already uses the `vite-hub` framework distribution, enable Rate Limit there and import from `vite-hub/rate-limit` instead. See the [Rate Limit guide](https://vitehub.dev/docs/server-primitives/rate-limit) for that application setup.
+Install this owner package when you need a direct Rate Limiter, a custom driver, or the standalone Vite integration. If your application already uses the `vite-hub` framework distribution, enable Rate Limit there and import from `vite-hub/rate-limit` instead. See the [Rate Limit guide](https://vitehub.dev/docs/rate-limit) for that application setup.
 
 ## Install the owner package
 
@@ -41,6 +41,10 @@ node rate-limit.mjs
 ```
 
 The first two calls consume the budget. The third call returns a limited decision.
+
+The window must resolve to finite milliseconds greater than zero, up to JavaScript's timestamp limit of `8.64e15` milliseconds. Invalid policies fail when you create the limiter.
+
+Reset timestamps must also be positive and at most `8.64e15`. The memory driver rejects a fixed window whose end exceeds that range before it stores a counter. It preserves the configured duration. Custom driver timestamps outside that range throw regardless of the failure policy.
 
 ```text
 1: allowed
@@ -128,7 +132,7 @@ For managed guards, `peekRateLimit(id, key)` and `resetRateLimit(id, key)` use t
 
 ## Go deeper
 
-- [Rate Limit guide](https://vitehub.dev/docs/server-primitives/rate-limit)
-- [Rate Limit Capability for Agents](https://vitehub.dev/docs/capabilities/rate-limit)
+- [Rate Limit guide](https://vitehub.dev/docs/rate-limit)
+- [Rate Limit Capability for Agents](https://vitehub.dev/docs/rate-limit/agent-capability)
 - [Runtime and host support](https://vitehub.dev/docs/frameworks-hosts/support-matrix)
 - [Public import paths](https://vitehub.dev/docs/reference/import-paths)

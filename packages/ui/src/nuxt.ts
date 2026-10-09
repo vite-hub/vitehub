@@ -6,34 +6,13 @@ import {
   installModule,
 } from "@nuxt/kit";
 import type { ViteHubUIOptions } from "./config.ts";
+import { componentEntryName, componentNames } from "./component-entries.ts";
 import { viteHubUIIcons } from "./icons.ts";
 
 export interface ViteHubUINuxtModule {
   (inlineOptions: ViteHubUIOptions, nuxt: never): unknown;
   getMeta?: () => Promise<Record<string, unknown>>;
 }
-
-const componentNames = [
-  "AgentCapabilityInspector",
-  "AgentChat",
-  "AgentChatMessage",
-  "AgentChatPrompt",
-  "AgentCodeView",
-  "AgentFile",
-  "AgentFileDiff",
-  "AgentFileTree",
-  "AgentInvocation",
-  "AgentInvocationInspector",
-  "AgentInvocationList",
-  "AgentMarkdown",
-  "AgentMessageParts",
-  "AgentMultiFileDiff",
-  "AgentPatchDiff",
-  "AgentSession",
-  "AgentToolList",
-  "AgentTrace",
-  "AgentUnresolvedFile",
-] as const;
 
 const viteHubUINuxtModule: ViteHubUINuxtModule = defineNuxtModule<ViteHubUIOptions>({
   meta: { configKey: "viteHubUI", name: "@vite-hub/ui" },
@@ -45,7 +24,7 @@ const viteHubUINuxtModule: ViteHubUINuxtModule = defineNuxtModule<ViteHubUIOptio
     nuxt.options.runtimeConfig.public.viteHubUI = options;
     addPlugin(resolver.resolve("./runtime/nuxt-plugin.js"));
     for (const name of componentNames)
-      addComponent({ export: name, filePath: resolver.resolve("./index.js"), name });
+      addComponent({ export: name, filePath: resolver.resolve(`./${componentEntryName(name)}.js`), name });
     // @nuxt/icon does not scan dependencies, so add the icons these components use to its client bundle.
     nuxt.hook("icon:clientBundleIcons", (icons) => {
       for (const icon of viteHubUIIcons) icons.add(icon);

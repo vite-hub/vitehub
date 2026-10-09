@@ -1,7 +1,6 @@
 import type { WorkspaceDefinition } from "@vite-hub/workspace"
 import { normalizeWorkspaceSourcesMetadata } from "@vite-hub/workspace/source-metadata"
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
-import { isRuntimeRecord } from "./runtime-type.ts"
+import { hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
 import { redactCredentialText } from "./credential-redaction.ts"
 import { agentInvocationConfigurationUpdatedContextKey } from "../invocation-context.ts"
 import type {

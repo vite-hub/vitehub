@@ -120,15 +120,19 @@ describe("public package export contracts", () => {
     expect(realtimeManifest.peerDependenciesMeta?.["@types/json-schema"]?.optional, "realtime should require @types/json-schema").not.toBe(true)
   })
 
-  it("publishes Realtime's Tiptap peer bundle in its runtime closure", () => {
+  it("publishes Realtime's shared Tiptap dependencies in its runtime closure", () => {
     const manifest = readPackageManifest("realtime")
     const packConfig = readFileSync(join(packageDir("realtime"), "vite.config.ts"), "utf8")
 
     expect(manifest.dependencies?.["@tiptap/pm"]).toEqual(expect.any(String))
     expect(manifest.devDependencies?.["@tiptap/pm"]).toBeUndefined()
-    expect(packConfig).toContain("/^@tiptap\\/extension-collaboration/")
-    expect(packConfig).toContain("/^@tiptap\\/y-tiptap/")
-    expect(packConfig).toContain("/^prosemirror-transform$/")
+    for (const dependency of ["@tiptap/core", "@tiptap/extension-collaboration", "@tiptap/y-tiptap"]) {
+      expect(manifest.dependencies?.[dependency], `realtime should install ${dependency}`).toEqual(expect.any(String))
+      expect(manifest.devDependencies?.[dependency]).toBeUndefined()
+    }
+    expect(packConfig).not.toContain("/^@tiptap\\/extension-collaboration/")
+    expect(packConfig).not.toContain("/^@tiptap\\/y-tiptap/")
+    expect(packConfig).not.toContain("/^prosemirror-transform$/")
   })
 
   it("publishes Better Auth host declarations in its dependency closure", () => {

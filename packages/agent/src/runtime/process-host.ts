@@ -11,18 +11,22 @@ import {
 import { normalizeRuntimeDiagnosticError } from "@vite-hub/runtime";
 import { createLibsqlAgentInvocationStore } from "../invocations/sqlite.ts";
 import { readAgentInvocationWorkload } from "../server/invocation-health.ts";
+import { recoverInterruptedAgentInvocations, type AgentInvocations } from "../invocations.ts";
 import {
   createProcessAgentCapacity,
   createProcessAgentInvocations,
   type ProcessAgentCapacityOptions,
 } from "./process.ts";
-import type { AgentInvocations } from "../invocations.ts";
 import type { AgentDriverCapacityOptions } from "../types.ts";
 
 export interface ProcessAgentHostOptions {
   /** Exclusively owned by this process. Do not share with another running host. */
   dataDir?: string;
   name?: string
+  /** Use the journal assigned to the discovered Agent, for example the ViteHub Console journal. */
+  invocations?: AgentInvocations;
+  /** Agent name used to scope recovery and health when `invocations` is shared. */
+  invocationAgentName?: string;
   providerCommand?: string;
   capacity: ProcessAgentCapacityOptions;
   intervalMs?: number;
@@ -65,7 +69,10 @@ export async function createProcessAgentHost(
   await mkdir(dataDir, { recursive: true });
   const startedAt = Date.now();
   const capacity = createProcessAgentCapacity(options.capacity);
-  const invocations = await createProcessAgentInvocations({
+  const invocationAgentName = options.invocations
+    ? options.invocationAgentName ?? options.name
+    : undefined;
+  const invocations = options.invocations ?? await createProcessAgentInvocations({
     content: "content",
     store: createLibsqlAgentInvocationStore({
       maxRecords: 5_000,
@@ -73,6 +80,13 @@ export async function createProcessAgentHost(
     }),
     recovery: { before: startedAt, recover: () => true },
   });
+  if (options.invocations && invocationAgentName) {
+    await recoverInterruptedAgentInvocations(invocations, {
+      before: startedAt,
+      agentName: invocationAgentName,
+      recover: invocation => invocation.agentName === invocationAgentName,
+    });
+  }
   let reconciler: ProcessReconciler | undefined;
   let accepting = false;
   let closed = false;
@@ -121,7 +135,7 @@ export async function createProcessAgentHost(
     },
     status: () => reconciler?.status() ?? "starting",
     async health() {
-      const workload = await readAgentInvocationWorkload(invocations, startedAt);
+      const workload = await readAgentInvocationWorkload(invocations, startedAt, { agentName: invocationAgentName });
       const diagnostics: ProcessAgentDiagnostic[] = [
         { label: "Runtime", status: "ok", value: `Node ${process.version}`, detail: `Up for ${Math.floor(process.uptime() / 60)}m` },
         { label: "Invocation state", status: workload.stale ? "warning" : "ok", value: workload.stale ? `${workload.stale} stale` : "Reconciled", detail: "Process-owned invocation recovery" },

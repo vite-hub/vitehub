@@ -3,6 +3,7 @@ import type {
   AgentRuntimeConfig,
   MaybePromise,
 } from "../types.ts"
+import type { JSONSchema7 } from "json-schema"
 import type { WorkspaceName } from "@vite-hub/workspace"
 import type { MCPClientConfig as AiSdkMcpClientConfig } from "@ai-sdk/mcp"
 
@@ -39,11 +40,37 @@ export type McpServerConfig<
 
 export type McpToolFingerprints = Record<string, string>
 
+/** Object JSON Schema accepted for an MCP input override. Standard Schema transforms are not supported. */
+export type McpToolInputSchema = JSONSchema7 & { type: "object", "~standard"?: never }
+
+/**
+ * Application-owned corrections to a remote MCP tool contract.
+ *
+ * MCP servers are authoritative for execution, but an application may need to
+ * pin a description or schema when a server publishes an incomplete contract.
+ * Overrides are applied after discovery and before the tool reaches a Driver.
+ */
+export interface McpToolOverride {
+  description?: string
+  /** JSON Schema describes the arguments sent to the remote server unchanged. */
+  inputSchema?: McpToolInputSchema
+  title?: string
+}
+
+/** Tool overrides keyed by configured server name and original MCP tool name. */
+export type McpToolOverrides = Record<string, Record<string, McpToolOverride>>
+
 export interface McpCapabilityOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
 > {
   integrity?: Record<string, McpToolFingerprints>
+  /**
+   * Application-owned descriptions and schemas for discovered tools. Use this
+   * when an MCP server's advertised contract is incomplete or unstable. The
+   * override does not change the arguments sent to the remote server.
+   */
+  toolOverrides?: McpToolOverrides
   servers: Record<string, McpServerConfig<TRuntimeConfig, Name>>
   /**
    * Append a notice to the final chat reply when a server is unavailable.

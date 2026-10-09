@@ -1,5 +1,6 @@
 ---
 title: Installation
+navigation.title: Installation
 description: Install the ViteHub framework distribution, select a deployment preset, or choose a direct owner package for advanced composition.
 navigation.order: 2
 icon: i-lucide-download
@@ -68,6 +69,11 @@ import { defineAgent } from "vite-hub/agent"
 import { access } from "vite-hub/agent/capabilities"
 import { requireRateLimit } from "vite-hub/rate-limit"
 import { defineWorkspace } from "vite-hub/workspace"
+
+void defineAgent
+void access
+void requireRateLimit
+void defineWorkspace
 ```
 
 ## Install in Nuxt
@@ -151,6 +157,6 @@ The two first-success guides include complete build and runtime commands:
 
 ## Next steps
 
-- Read [Vite Integrations and Provider Output](/docs/concepts/vite-integrations-and-provider-output) to understand integration ownership.
-- Open [Server Primitives](/docs/server-primitives) to choose infrastructure.
+- Read [Vite Integrations and Provider Output](/docs/development/integrations-and-output) to understand integration ownership.
+- Open [Server Primitives](/docs/getting-started/server-primitives) to choose infrastructure.
 - Open [Agents](/docs/agents) to choose an Agent Driver and Capabilities.

@@ -5,10 +5,17 @@ import {
   type AgentInvocationListItem,
   type AgentInvocationView,
 } from "@vite-hub/ui";
-import { computed, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
+
+// Replace the server-rendered clock after hydration so static pages stay current.
+const now = useState("ui-dashboard-clock", () => Date.now());
+onMounted(() => {
+  now.value = Date.now();
+});
+const time = (secondsAgo: number) => new Date(now.value - secondsAgo * 1_000).toISOString();
 
 // Synthetic, already-authorized records. In an application, load them from your Invocation store.
-const invocations: AgentInvocationView[] = [
+const invocations = computed<AgentInvocationView[]>(() => [
   {
     agentName: "reviewer",
     annotations: { "github.pullRequest": 1011, "github.repository": "vite-hub/vitehub" },
@@ -20,15 +27,19 @@ const invocations: AgentInvocationView[] = [
       tools: [{ name: "exec_command", label: "Ran command", icon: "i-lucide-terminal" }],
       workspace: { mode: "write", name: "vitehub", sources: ["repository"] },
     },
-    completedAt: "2026-08-23T09:04:12.000Z",
-    createdAt: "2026-08-23T09:00:00.000Z",
+    completedAt: time(948),
+    createdAt: time(1200),
     id: "ainv_overflow",
     observations: [
       {
-        attributes: { "message.content": "Fix the error row overflow in the session list.", "message.id": "u1", "message.role": "user" },
+        attributes: {
+          "message.content": "Fix the error row overflow in the session list.",
+          "message.id": "u1",
+          "message.role": "user",
+        },
         name: "agent.message.recorded",
         sequence: 1,
-        timestamp: "2026-08-23T09:00:05.000Z",
+        timestamp: time(1195),
         trace: { id: "trace_overflow" },
         type: "run",
       },
@@ -36,67 +47,94 @@ const invocations: AgentInvocationView[] = [
         attributes: {
           "tool.id": "tests",
           "tool.name": "exec_command",
-          "tool.output": { item: { aggregatedOutput: "10 tests passed\n", command: "pnpm test invocation-ui", exitCode: 0 } },
+          "tool.output": {
+            item: {
+              aggregatedOutput: "10 tests passed\n",
+              command: "pnpm test invocation-ui",
+              exitCode: 0,
+            },
+          },
         },
         name: "agent.tool.finish",
         sequence: 2,
-        timestamp: "2026-08-23T09:03:30.000Z",
+        timestamp: time(990),
         trace: { id: "trace_overflow" },
         type: "run",
       },
       {
-        attributes: { "message.role": "assistant", "result.text": "Each row now reports its height. The focused tests pass." },
+        attributes: {
+          "message.role": "assistant",
+          "result.text": "Each row now reports its height. The focused tests pass.",
+        },
         name: "agent.message.recorded",
         sequence: 3,
-        timestamp: "2026-08-23T09:04:10.000Z",
+        timestamp: time(950),
         trace: { id: "trace_overflow" },
         type: "run",
       },
     ],
-    startedAt: "2026-08-23T09:00:01.000Z",
+    startedAt: time(1199),
     status: "completed",
     title: "Fix invocation list overflow",
     traceId: "trace_overflow",
-    updatedAt: "2026-08-23T09:04:12.000Z",
+    updatedAt: time(948),
   },
   {
     agentName: "interface-engineer",
-    createdAt: "2026-08-23T09:10:00.000Z",
+    createdAt: time(600),
     id: "ainv_navigation",
     observations: [
       {
-        attributes: { "message.content": "Tighten the navigation spacing at mobile widths.", "message.id": "u2", "message.role": "user" },
+        attributes: {
+          "message.content": "Tighten the navigation spacing at mobile widths.",
+          "message.id": "u2",
+          "message.role": "user",
+        },
         name: "agent.message.recorded",
         sequence: 1,
-        timestamp: "2026-08-23T09:10:05.000Z",
+        timestamp: time(595),
+        trace: { id: "trace_navigation" },
+        type: "run",
+      },
+      {
+        attributes: {
+          "progress.label": "Checking the session list at 390px",
+          "progress.value": 0.62,
+        },
+        name: "agent.progress",
+        sequence: 2,
+        timestamp: time(300),
         trace: { id: "trace_navigation" },
         type: "run",
       },
     ],
-    startedAt: "2026-08-23T09:10:01.000Z",
+    startedAt: time(599),
     status: "running",
     title: "Polish Console navigation",
     traceId: "trace_navigation",
-    updatedAt: "2026-08-23T09:15:00.000Z",
+    updatedAt: time(300),
   },
   {
     agentName: "release-engineer",
-    createdAt: "2026-08-23T08:40:00.000Z",
-    error: { code: "ECONNRESET", message: "The package registry closed the connection before upload completed." },
-    failedAt: "2026-08-23T08:42:00.000Z",
+    createdAt: time(2400),
+    error: {
+      code: "ECONNRESET",
+      message: "The package registry closed the connection before upload completed.",
+    },
+    failedAt: time(2280),
     id: "ainv_release",
     observations: [],
-    startedAt: "2026-08-23T08:40:02.000Z",
+    startedAt: time(2398),
     status: "failed",
     title: "Fix flaky release job",
     traceId: "trace_release",
-    updatedAt: "2026-08-23T08:42:00.000Z",
+    updatedAt: time(2280),
   },
-];
+]);
 
 // Map full records to list summaries with the display helpers the Console uses.
 const items = computed<AgentInvocationListItem[]>(() =>
-  invocations.map((invocation) => ({
+  invocations.value.map((invocation) => ({
     agent: invocation.agentName,
     context: agentInvocationContext(invocation),
     description: invocation.error?.message,
@@ -107,8 +145,10 @@ const items = computed<AgentInvocationListItem[]>(() =>
     updatedAt: invocation.updatedAt,
   })),
 );
-const selectedId = ref(invocations[0]!.id);
-const selected = computed(() => invocations.find((invocation) => invocation.id === selectedId.value)!);
+const selectedId = ref(invocations.value[0]!.id);
+const selected = computed(() =>
+  invocations.value.find((invocation) => invocation.id === selectedId.value)!,
+);
 const selectedActivityId = ref<string>();
 const detailsOpen = ref(true);
 
@@ -128,7 +168,7 @@ function select(item: AgentInvocationListItem) {
       <AgentInvocationList
         :items="items"
         :selected-id="selectedId"
-        :now="Date.parse('2026-08-23T09:20:00.000Z')"
+        :now="now"
         class="min-h-0 border-b border-default @2xl:border-e @2xl:border-b-0"
         @select="select"
       />

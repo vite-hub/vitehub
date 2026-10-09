@@ -70,6 +70,7 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
   const streamedParts = shallowRef<AgentChatStreamedPart[]>([])
   const invocationId = shallowRef<string>()
   const reconnecting = shallowRef(false)
+  const stopped = shallowRef(false)
   let resumableMessageId = initialOptions.messages?.at(-1)?.id
   let reconnectGeneration = 0
   let reconnectStatusGeneration = 0
@@ -113,6 +114,7 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
       reconnectGeneration++
       reconnectStatusGeneration++
       reconnecting.value = false
+      stopped.value = false
       invocationId.value = undefined
       resumableMessageId = args[0].messageId ?? args[0].messages.at(-1)?.id
       return resolveTransport().sendMessages(...args)
@@ -162,10 +164,12 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
   })
   if (initialOptions.resume && isBrowserRuntime()) queueMicrotask(reconnect)
   onScopeDispose(() => {
-    void chat.stop()
+    void stop()
   }, true)
 
   async function stop(): Promise<void> {
+    stopped.value = true
+    reconnectGeneration++
     await chat.stop()
     if (!latestOptions.value.resume || latestOptions.value.transport || !isBrowserRuntime()) return
     if (!resumableMessageId) return
@@ -177,10 +181,13 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
   }
 
   async function reconnect(): Promise<void> {
+    if (stopped.value) return
+    const reconnectGenerationAtStart = reconnectGeneration
     const messages = latestOptions.value.messages ?? chat.messages.value
-    if (!messages.length) return
+    if (!messages.length || reconnectGenerationAtStart !== reconnectGeneration || stopped.value) return
     const generation = ++reconnectStatusGeneration
     reconnecting.value = true
+    stopped.value = false
     try {
       await chat.resumeStream()
     } finally {
@@ -190,7 +197,7 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
 
   return {
     ...chat,
-    status: computed(() => reconnecting.value && chat.status.value === "ready" ? "submitted" : chat.status.value),
+    status: computed(() => stopped.value ? "ready" : reconnecting.value && chat.status.value === "ready" ? "submitted" : chat.status.value),
     stop,
     data: computed(() => createAgentChatData([
       ...chat.messages.value.flatMap(message => message.parts),

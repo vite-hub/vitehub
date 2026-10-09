@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import type { WorkflowDefinition } from "../src/types.ts"
-import { createWorkflow } from "../src/runtime/client.ts"
-import { loadWorkflowDefinition, resetWorkflowRuntime, setWorkflowRuntimeRegistry } from "../src/runtime/state.ts"
+import { createWorkflow, runWorkflow } from "../src/runtime/client.ts"
+import { getInlineWorkflowDefinitions, loadWorkflowDefinition, resetWorkflowRuntime, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from "../src/runtime/state.ts"
 
 afterEach(resetWorkflowRuntime)
 
@@ -15,6 +15,42 @@ function deferredDefinition() {
   })
   return { promise, reject, resolve }
 }
+
+describe("Workflow registry entries", () => {
+  it.each(["constructor", "toString", "__proto__"])("allows an inline Workflow named %s with an empty registry", async (name) => {
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeRegistry({})
+    const workflow = createWorkflow(name, async () => "inline")
+
+    const run = await workflow.run()
+    expect(run).toMatchObject({ provider: "vercel", status: "queued" })
+    await vi.waitFor(async () => {
+      await expect(workflow.getRun(run.id)).resolves.toMatchObject({ result: expect.any(Response), status: "completed" })
+    })
+  })
+
+  it.each(["constructor", "toString", "__proto__"])("reports a missing Workflow named %s", async (name) => {
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeRegistry({})
+
+    await expect(runWorkflow(name)).rejects.toMatchObject({ code: "WORKFLOW_DEFINITION_NOT_FOUND" })
+  })
+
+  it("does not load inherited definitions", async () => {
+    setWorkflowRuntimeRegistry(Object.setPrototypeOf({}, {
+      inherited: async () => ({ handler: async () => "inherited" }),
+    }))
+
+    await expect(loadWorkflowDefinition("inherited")).resolves.toBeUndefined()
+  })
+
+  it.each(["constructor", "toString", "__proto__"])("loads an own discovered definition named %s", async (name) => {
+    const definition = { handler: async () => "discovered" }
+    setWorkflowRuntimeRegistry({ [name]: async () => definition })
+
+    await expect(loadWorkflowDefinition(name)).resolves.toBe(definition)
+  })
+})
 
 describe("Workflow registry replacement", () => {
   it("preserves pending loads when installing the same registry", async () => {
@@ -131,5 +167,19 @@ describe("Workflow registry replacement", () => {
     await expect(sharedLoad).resolves.toBe(definition)
     await expect(loadWorkflowDefinition("report")).resolves.toBe(definition)
     expect(loader).toHaveBeenCalledOnce()
+  })
+
+  it("clears inline definitions when a module loader rejects", async () => {
+    const definition = { handler: async () => "inline" }
+    const failure = new Error("load failed")
+    setWorkflowRuntimeRegistry({
+      report: () => {
+        createWorkflow("report", definition.handler)
+        return Promise.reject(failure)
+      },
+    })
+
+    await expect(loadWorkflowDefinition("report")).rejects.toBe(failure)
+    expect(getInlineWorkflowDefinitions().size).toBe(0)
   })
 })

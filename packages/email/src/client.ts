@@ -18,7 +18,7 @@ const errorCodes: Record<EmailProviderErrorCode, "EMAIL_AUTHENTICATION" | "EMAIL
 }
 
 export function createEmail(options: EmailDefinition): EmailClient {
-  if (!options || typeof options !== "object" || !("driver" in options)) throw emailErrorDiagnostics.EMAIL_R0004({ message: "`createEmail()` expects an object with a driver." })
+  if (!options || typeof options !== "object" || !Object.hasOwn(options, "driver")) throw emailErrorDiagnostics.EMAIL_R0004({ message: "`createEmail()` expects an object with a driver." })
   const resolveDriver = createEmailDriverResolver(options.driver)
 
   return {

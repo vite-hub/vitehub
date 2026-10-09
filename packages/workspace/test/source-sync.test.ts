@@ -9,6 +9,7 @@ import { resetWorkspaceRegistry, useRegisteredWorkspace } from "../src/core/regi
 import { createLocalWorkspaceStore } from "../src/storage/local.ts"
 import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
 import { createWorkspaceSourceResolutionFacade } from "../src/sources/resolution.ts"
+import { readWorkspaceSourceSyncState, sourceSyncMetaKey } from "../src/sources/sync-state.ts"
 import type { WritableWorkspaceFacade } from "../src/core/use.ts"
 import { registerWorkspace } from "../src/test.ts"
 
@@ -288,6 +289,124 @@ describe("Workspace Source Sync", () => {
 
     expect(result.sources[0]?.counts.removed).toBe(1)
     await expect(workspace.exists("docs/stale.md")).resolves.toBe(false)
+  })
+
+  it.each([
+    [false, false, false], [true, false, false],
+    [false, true, false], [true, true, false],
+    [false, false, true], [true, false, true],
+  ])("retains same-path claims across mount changes, reverse=%s, refresh=%s, edited=%s", async (reverse, refresh, edited) => {
+    const store = createMemoryWorkspaceStore()
+    const rootItems = new Map([["docs/a.md", "original"]])
+    const docsItems = new Map([["a.md", "updated"]])
+    const create = async (mount: string, items: Map<string, string>) => {
+      registerWorkspace("overlapping-sync", defineWorkspace({
+        store,
+        sources: { docs: {
+          mount: { path: mount },
+          sync: { stale: "remove" },
+          async getKeys() { return [...items.keys()] },
+          async getItem(key: string) { return { key, content: items.get(key)! } },
+        } },
+      }))
+      return await useRegisteredWorkspace("overlapping-sync")
+    }
+    const root = await create("", rootItems)
+    const docs = await create("docs", docsItems)
+    const first = reverse ? docs : root
+    const second = reverse ? root : docs
+    expect((await first.sync({ sources: ["docs"] })).status).toBe("ready")
+    expect((await second.sync({ sources: ["docs"] })).status).toBe("ready")
+    expect((await store.readFile("docs/a.md"))?.content).toBe(reverse ? "original" : "updated")
+    const metaKey = sourceSyncMetaKey("docs", "overlapping-sync")
+    expect(readWorkspaceSourceSyncState(await store.getMeta!(metaKey))?.claims?.["docs/a.md"]).toHaveLength(2)
+
+    // Recreate views to verify claims survive beyond the original facade objects.
+    const restoredRoot = await create("", rootItems)
+    const restoredDocs = await create("docs", docsItems)
+    const dropping = reverse ? restoredRoot : restoredDocs
+    const retained = reverse ? restoredDocs : restoredRoot
+    if (edited) await store.writeFile("docs/a.md", { path: "docs/a.md", content: "user edit" })
+    ;(reverse ? rootItems : docsItems).clear()
+    expect((await dropping.sync({ sources: ["docs"] })).status).toBe("ready")
+    expect(await store.readFile("docs/a.md")).toBeDefined()
+    // Cleanup also works without refreshing the surviving owner first.
+    if (refresh) expect((await retained.sync({ sources: ["docs"] })).status).toBe("ready")
+    ;(reverse ? docsItems : rootItems).clear()
+    expect((await retained.sync({ sources: ["docs"] })).sources[0]?.counts.removed).toBe(edited ? 0 : 1)
+    if (edited) expect((await store.readFile("docs/a.md"))?.content).toBe("user edit")
+    else expect(await store.readFile("docs/a.md")).toBeUndefined()
+    expect(readWorkspaceSourceSyncState(await store.getMeta!(metaKey))?.paths).toEqual({})
+  })
+
+  it.each([false, true].flatMap(reverse => [false, true].flatMap(releaseFirstWriter => [false, true].map(edited => ({ reverse, releaseFirstWriter, edited })))))(
+    "uses the latest write for shared cleanup: reverse=$reverse, firstWriterReleases=$releaseFirstWriter, edited=$edited",
+    async ({ reverse, releaseFirstWriter, edited }) => {
+      const store = workspaceStoreWithoutFileMetadata(createMemoryWorkspaceStore())
+      const firstMount = reverse ? "docs" : ""
+      const secondMount = reverse ? "" : "docs"
+      const firstItems = new Map([[firstMount ? "a.md" : "docs/a.md", "original"]])
+      const secondItems = new Map([[secondMount ? "a.md" : "docs/a.md", "updated"]])
+      const create = async (mount: string, items: Map<string, string>) => {
+        registerWorkspace("historical-claim", defineWorkspace({
+          store,
+          sources: { docs: {
+            mount: { path: mount },
+            sync: { stale: "remove" },
+            async getKeys() { return [...items.keys()] },
+            async getItem(key: string) { return { key, content: items.get(key)! } },
+          } },
+        }))
+        return await useRegisteredWorkspace("historical-claim")
+      }
+      expect((await (await create(firstMount, firstItems)).sync({ sources: ["docs"] })).status).toBe("ready")
+      expect((await (await create(secondMount, secondItems)).sync({ sources: ["docs"] })).status).toBe("ready")
+      if (edited) await store.writeFile("docs/a.md", { path: "docs/a.md", content: "original" })
+      const releases = releaseFirstWriter
+        ? [[firstMount, firstItems], [secondMount, secondItems]] as const
+        : [[secondMount, secondItems], [firstMount, firstItems]] as const
+      for (const [index, [mount, items]] of releases.entries()) {
+        items.clear()
+        const result = await (await create(mount, items)).sync({ sources: ["docs"] })
+        expect(result.status).toBe("ready")
+        expect(result.sources[0]?.counts.removed).toBe(index === 1 && !edited ? 1 : 0)
+        if (index === 0 || edited) expect((await store.readFile("docs/a.md"))?.content).toBe(edited ? "original" : "updated")
+        else expect(await store.readFile("docs/a.md")).toBeUndefined()
+      }
+    },
+  )
+
+  it.each(["archive", ""])("retains legacy ownership when a Source moves to mount %j", async (mountPath) => {
+    const store = createMemoryWorkspaceStore()
+    const items = new Map([["file.md", "# File\n"]])
+    const source = () => ({
+      mount: { path: "docs" },
+      sync: { stale: "remove" as const },
+      async getKeys() { return [...items.keys()] },
+      async getItem(key: string) { return { key, content: items.get(key) || "" } },
+    })
+
+    registerWorkspace("legacy-mount", defineWorkspace({ store, sources: { docs: source() } }))
+    await (await useRegisteredWorkspace("legacy-mount")).sync({ sources: ["docs"] })
+
+    const key = sourceSyncMetaKey("docs", "legacy-mount")
+    const state = readWorkspaceSourceSyncState(await store.getMeta!(key))!
+    for (const metadata of Object.values(state.paths)) delete metadata.mountPath
+    await store.setMeta!(key, state)
+
+    registerWorkspace("legacy-mount", defineWorkspace({ store, sources: { docs: { ...source(), mount: { path: mountPath } } } }))
+    await (await useRegisteredWorkspace("legacy-mount")).sync({ sources: ["docs"] })
+
+    const migrated = readWorkspaceSourceSyncState(await store.getMeta!(key))!
+    expect(migrated.paths["docs/file.md"]).toMatchObject({ mountPath: "docs" })
+    // A later sync must not reinterpret the retained entry using the new top-level mount.
+    await (await useRegisteredWorkspace("legacy-mount")).sync({ sources: ["docs"] })
+    expect(readWorkspaceSourceSyncState(await store.getMeta!(key))!.paths["docs/file.md"]).toMatchObject({ mountPath: "docs" })
+    items.clear()
+    registerWorkspace("legacy-mount", defineWorkspace({ store, sources: { docs: source() } }))
+    await (await useRegisteredWorkspace("legacy-mount")).sync({ sources: ["docs"] })
+    await expect(store.readFile("docs/file.md")).resolves.toBeUndefined()
+    await expect(store.readFile(mountPath ? `${mountPath}/file.md` : "file.md")).resolves.toBeDefined()
   })
 
   it("prunes empty source directories from local stores", async () => {

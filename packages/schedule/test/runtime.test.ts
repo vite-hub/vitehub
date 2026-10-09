@@ -1,3 +1,5 @@
+import { runInNewContext } from "node:vm"
+
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { deserializeResponse, serializeResponse, ViteHubError } from "@vite-hub/runtime"
@@ -41,6 +43,24 @@ function createDelayedHasKVStore(): ScheduleKVStorage & { releaseHas: () => void
     releaseHas() {
       releaseHas?.()
     },
+  }
+}
+
+function createDelayedGetKVStore(): ScheduleKVStorage & { releaseGet: () => void } {
+  const store = createTestKVStore()
+  let reads = 0
+  let releaseGet!: () => void
+  const gate = new Promise<void>(resolve => { releaseGet = resolve })
+  return {
+    ...store,
+    async get(key) {
+      if (key.includes("/schedule-runs/") || key.includes("/schedule-run-attempts/")) {
+        reads++
+        if (reads <= 2) await gate
+      }
+      return await store.get(key)
+    },
+    releaseGet,
   }
 }
 
@@ -633,11 +653,15 @@ describe("Schedule Run bookkeeping", () => {
       }),
     })
     await schedules.dynamic.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
+    const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
+    const first = await schedules.run("schedule-1", { scheduledAt })
     await schedules.disable("schedule-1")
 
-    await expect(schedules.run("schedule-1")).rejects.toMatchObject({
+    await expect(schedules.run("schedule-1", { scheduledAt })).rejects.toMatchObject({
       code: "SCHEDULE_DISABLED",
     })
+    await schedules.enable("schedule-1")
+    await expect(schedules.run("schedule-1", { scheduledAt })).resolves.toEqual(first)
   })
 
   it("returns an existing run before revalidating a Runtime Schedule", async () => {
@@ -887,6 +911,43 @@ describe("Manual Schedule runs", () => {
     })
 
     await expect(runSchedule("sync")).resolves.toMatchObject({ status: "succeeded" })
+  })
+
+  it("runs cross-realm handlers from installed and supplied registries", async () => {
+    const calls: string[] = []
+    const handler = runInNewContext('() => calls.push("cross-realm")', { calls }) as () => void
+    const definition = { cron: "0 9 * * *", handler, options: { manual: true } }
+    const registry = { report: async () => ({ default: definition }) }
+    expect(handler).not.toBeInstanceOf(Function)
+    setScheduleRuntimeRegistry(registry)
+
+    await runSchedule("report")
+    await runSchedule("report", { registry })
+    expect(calls).toEqual(["cross-realm", "cross-realm"])
+  })
+
+  it("rejects inherited definitions from the installed runtime registry", async () => {
+    const inherited = {
+      default: defineSchedule("0 9 * * *", () => {}, { manual: true }),
+    }
+    setScheduleRuntimeRegistry({
+      inherited: async () => Object.create(inherited),
+    })
+
+    await expect(runSchedule("inherited")).rejects.toMatchObject({ code: "SCHEDULE_DEFINITION_NOT_FOUND" })
+    expect(await schedules.listRuns()).toEqual([])
+  })
+
+  it("rejects inherited manual schedule definitions", async () => {
+    const inherited = {
+      default: defineSchedule("0 9 * * *", () => {}, { manual: true }),
+    }
+    const registry = {
+      inherited: async () => Object.create(inherited),
+    }
+
+    await expect(runSchedule("inherited", { registry })).rejects.toMatchObject({ code: "SCHEDULE_DEFINITION_NOT_FOUND" })
+    expect(await schedules.listRuns()).toEqual([])
   })
 
   it("rejects definitions that do not allow manual runs", async () => {
@@ -1351,6 +1412,41 @@ describe("KV Schedule Run Store", () => {
     expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1)
     expect(results.filter(result => result.status === "rejected")).toHaveLength(1)
     await expect(store.getAttempt("attempt/1")).resolves.toMatchObject({ id: "attempt/1" })
+  })
+
+  it("serializes concurrent updates for the same KV schedule run and attempt keys", async () => {
+    const kvStore = createDelayedGetKVStore()
+    const store = createKVScheduleRunStore({ kvStore, prefix: "tests/update-lock" })
+    const createdAt = new Date("2026-05-23T09:00:00.000Z")
+    await store.createRun({
+      attemptCount: 0,
+      createdAt,
+      id: "run/1",
+      scheduleId: "schedule/1",
+      scheduledAt: createdAt,
+      status: "pending",
+      target: "daily/report",
+      updatedAt: createdAt,
+    })
+    await store.createAttempt({
+      createdAt,
+      id: "attempt/1",
+      runId: "run/1",
+      startedAt: createdAt,
+      status: "running",
+      updatedAt: createdAt,
+    })
+
+    const runStatus = store.updateRun("run/1", { status: "succeeded", updatedAt: new Date("2026-05-23T09:01:00.000Z") })
+    const runAttempts = store.updateRun("run/1", { attemptCount: 1, updatedAt: new Date("2026-05-23T09:02:00.000Z") })
+    const attemptStatus = store.updateAttempt("attempt/1", { status: "succeeded", updatedAt: new Date("2026-05-23T09:03:00.000Z") })
+    const attemptError = store.updateAttempt("attempt/1", { error: { message: "late" }, updatedAt: new Date("2026-05-23T09:04:00.000Z") })
+    await flushAsyncWork()
+    kvStore.releaseGet()
+    await Promise.all([runStatus, runAttempts, attemptStatus, attemptError])
+
+    await expect(store.getRun("run/1")).resolves.toMatchObject({ status: "succeeded", attemptCount: 1 })
+    await expect(store.getAttempt("attempt/1")).resolves.toMatchObject({ status: "succeeded", error: { message: "late" } })
   })
 })
 

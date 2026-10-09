@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
+import { InMemoryFs } from "just-bash"
 
 import {
   analyzeShellCommand,
@@ -16,6 +17,7 @@ import { createCloudflareShellProvider } from "../src/providers/cloudflare.ts"
 
 import type {
   ShellExecutionProvider,
+  ShellObservation,
   ShellProcess,
 } from "../src/index.ts"
 import type {
@@ -117,13 +119,117 @@ describe("@vite-hub/shell just-bash runtime", () => {
     await expect(session.dispose()).resolves.toMatchObject({ event: "session_disposed" })
   })
 
+  it.each([undefined, 4])("retains class-based observations with max output length %s", async (maxOutputLength) => {
+    class ProviderObservation implements ShellObservation {
+      get command() { return "report" }
+      get cwd() { return "/workspace" }
+      get durationMs() { return 12 }
+      get event() { return "command_finished" as const }
+      get exitCode() { return 3 }
+      get stderr() { return "error-message" }
+      get stdout() { return "output-message" }
+      get timedOut() { return false }
+      get maxOutputLength() { return 100 }
+      get outputTruncated() { return true }
+      get workspaceGuardrail() { return { kind: "no_match" as const, path: "docs" } }
+    }
+    const runtime = createShellRuntime({
+      policy: { maxOutputLength },
+      provider: {
+        boundary: {
+          cwd: true,
+          env: true,
+          filesystem: { writable: false },
+          network: false,
+          processes: { background: false, interactive: false },
+          streaming: false,
+          timeout: { enforcedBy: "runtime", supported: true },
+        },
+        async exec() { return new ProviderObservation() },
+      },
+    })
+
+    await expect(runtime.exec("run-report")).resolves.toMatchObject({
+      command: "report",
+      cwd: "/workspace",
+      durationMs: 12,
+      event: "command_finished",
+      exitCode: 3,
+      stderr: maxOutputLength ? "erro\n[output truncated to 4 characters]\n" : "error-message",
+      stdout: maxOutputLength ? "outp\n[output truncated to 4 characters]\n" : "output-message",
+      timedOut: false,
+      maxOutputLength: maxOutputLength ?? 100,
+      outputTruncated: true,
+      workspaceGuardrail: { kind: "no_match", path: "docs" },
+    })
+  })
+
+  it("retains class-based background process metadata for inspection", async () => {
+    class BackgroundProcess implements ShellProcess {
+      #command = "worker"
+      get id() { return "process-1" }
+      get command() { return this.#command }
+      get cwd() { return "/workspace" }
+      async stop() { return stoppedProcessObservation(this.#command) }
+    }
+    const process = new BackgroundProcess()
+    const stop = vi.spyOn(process, "stop")
+    const session = createShellRuntime({ provider: createBackgroundProvider(async () => process) }).createSession()
+
+    const tracked = await session.startProcess("worker")
+
+    expect(tracked).toMatchObject({ id: "process-1", command: "worker", cwd: "/workspace" })
+    expect(await session.listProcesses()).toEqual([tracked])
+    await session.dispose()
+    expect(stop).toHaveBeenCalledOnce()
+  })
+
+  it("keeps process cleanup available when a metadata getter throws", async () => {
+    const metadataError = new Error("process metadata unavailable")
+    const stop = vi.fn(async () => stoppedProcessObservation("worker"))
+    const process: ShellProcess = {
+      get id(): string { throw metadataError },
+      command: "worker",
+      stop,
+    }
+    const session = createShellRuntime({ provider: createBackgroundProvider(async () => process) }).createSession()
+
+    const tracked = await session.startProcess("worker")
+
+    expect(() => tracked.id).toThrow(metadataError)
+    expect((await session.listProcesses())[0]).toBe(tracked)
+    await expect(session.dispose()).resolves.toMatchObject({ event: "session_disposed" })
+    expect(stop).toHaveBeenCalledOnce()
+    expect(await session.listProcesses()).toHaveLength(0)
+  })
+
+  it("disposes a pending process without reading its metadata", async () => {
+    let release!: (process: ShellProcess) => void
+    const stop = vi.fn(async () => stoppedProcessObservation("worker"))
+    const process: ShellProcess = {
+      get id(): string { throw new Error("process metadata unavailable") },
+      command: "worker",
+      stop,
+    }
+    const provider = createBackgroundProvider(() => new Promise(resolve => { release = resolve }))
+    const session = createShellRuntime({ provider }).createSession()
+    const starting = session.startProcess("worker")
+    const disposing = session.dispose()
+    const rejected = expect(starting).rejects.toThrow("Shell session is disposed")
+
+    release(process)
+
+    await expect(disposing).resolves.toMatchObject({ event: "session_disposed" })
+    await rejected
+    expect(stop).toHaveBeenCalledOnce()
+  })
+
   it.each([{ commands: ["curl"] }, { commands: undefined }])("runs controlled curl through the just-bash provider network boundary with commands $commands", async ({ commands }) => {
     const workspace = new MemoryWorkspace({})
     const executeSourceRequest = vi.fn(async () => ({ content: "ok\n" }))
     const runtime = createShellRuntime({
       provider: createJustBashProvider({
         commands,
-        cwd: workspaceMountPoint,
         fs: createReadonlyWorkspaceFs(workspace),
         networkGrants: { executeSourceRequest },
       }),
@@ -131,6 +237,7 @@ describe("@vite-hub/shell just-bash runtime", () => {
 
     expect(runtime.boundary.network).toBe(true)
     await expect(runtime.exec("curl -d '{\"region\":\"eu\"}' https://portal.example.com/runtime/inventory-health")).resolves.toMatchObject({
+      cwd: workspaceMountPoint,
       event: "command_finished",
       exitCode: 0,
       stdout: "ok\n",
@@ -154,6 +261,7 @@ describe("@vite-hub/shell just-bash runtime", () => {
 
     expect(runtime.boundary.network).toBe(false)
     await expect(runtime.exec("curl -X POST https://portal.example.com/action")).resolves.toMatchObject({
+      cwd: workspaceMountPoint,
       event: "policy_denied",
       exitCode: 126,
       stderr: expect.stringContaining("not in the permitted commands"),
@@ -451,6 +559,158 @@ describe("@vite-hub/shell just-bash runtime", () => {
     await expect(workspace.exists("copy/opy")).resolves.toBe(false)
   })
 
+  it.each([
+    { source: "/workspace/README.md", destination: "/workspace/models/../README.md" },
+    { source: "/workspace/models", destination: "/workspace/models/./" },
+    { source: "/workspace/models/", destination: "/workspace/models" },
+  ])("preserves Workspace content when moving $source to the same path", async ({ source, destination }) => {
+    const workspace = new MemoryWorkspace({ "README.md": "# Docs\n", "models/orders.sql": "select * from orders\n" })
+    const fs = createWritableWorkspaceFs(workspace)
+
+    await fs.mv(source, destination)
+
+    await expect(workspace.readFile("README.md")).resolves.toBe("# Docs\n")
+    await expect(workspace.readFile("models/orders.sql")).resolves.toBe("select * from orders\n")
+  })
+
+  it.each(["/workspace/models", "/workspace/models/", "/workspace", "/workspace/"])("rejects moving %s into a descendant before changing content", async (source) => {
+    const workspace = new MemoryWorkspace({ "README.md": "# Docs\n", "models/orders.sql": "select * from orders\n" })
+    const fs = createWritableWorkspaceFs(workspace)
+
+    await expect(fs.mv(source, "/workspace/models/archive")).rejects.toThrow("into itself")
+
+    await expect(workspace.readFile("README.md")).resolves.toBe("# Docs\n")
+    await expect(workspace.readFile("models/orders.sql")).resolves.toBe("select * from orders\n")
+    await expect(workspace.exists("models/archive")).resolves.toBe(false)
+  })
+
+  it("rejects moving a missing Workspace source to the same path", async () => {
+    const fs = createWritableWorkspaceFs(new MemoryWorkspace({}))
+
+    await expect(fs.mv("/workspace/missing", "/workspace/missing")).rejects.toThrow("does not exist")
+  })
+
+  it("moves Workspace directories to a sibling with a shared name prefix", async () => {
+    const workspace = new MemoryWorkspace({ "models/orders.sql": "select * from orders\n" })
+    const fs = createWritableWorkspaceFs(workspace)
+
+    await fs.mv("/workspace/models", "/workspace/models-copy")
+
+    await expect(workspace.exists("models")).resolves.toBe(false)
+    await expect(workspace.readFile("models-copy/orders.sql")).resolves.toBe("select * from orders\n")
+  })
+
+  it("preserves existing Workspace content when an append read fails", async () => {
+    const workspace = new MemoryWorkspace({ "notes.md": "saved content\n" })
+    const readFile = workspace.readFile.bind(workspace)
+    const failure = new Error("Remote read failed.")
+    vi.spyOn(workspace, "readFile").mockRejectedValue(failure)
+    const writeFile = vi.spyOn(workspace, "writeFile")
+
+    await expect(createWritableWorkspaceFs(workspace).appendFile("/workspace/notes.md", "new content\n")).rejects.toBe(failure)
+
+    expect(writeFile).not.toHaveBeenCalled()
+    await expect(readFile("notes.md")).resolves.toBe("saved content\n")
+  })
+
+  it("propagates a redirected append read failure without changing Workspace content", async () => {
+    const workspace = new MemoryWorkspace({ "notes.md": "saved content\n" })
+    const readFile = workspace.readFile.bind(workspace)
+    const failure = new Error("EIO: temporary read failure")
+    vi.spyOn(workspace, "readFile").mockRejectedValue(failure)
+    const shell = createShellRuntime({ provider: createJustBashProvider({
+      commands: ["printf"],
+      cwd: "/workspace",
+      fs: createWritableWorkspaceFs(workspace),
+    }) })
+
+    await expect(shell.exec("printf 'new content\\n' >> notes.md")).rejects.toBe(failure)
+    await expect(readFile("notes.md")).resolves.toBe("saved content\n")
+  })
+
+  it("creates an absent Workspace file on append", async () => {
+    const workspace = new MemoryWorkspace({})
+
+    await createWritableWorkspaceFs(workspace).appendFile("/workspace/notes.md", "new content\n")
+
+    await expect(workspace.readFile("notes.md")).resolves.toBe("new content\n")
+  })
+
+  it.each([
+    { encoding: "binary", content: "\u0000\u0080\u00ff" },
+    { encoding: "latin1", content: "\u0000\u0080\u00ff" },
+    { encoding: "hex", content: "0080ff" },
+    { encoding: "base64", content: "AID/" },
+  ] as const)("honors $encoding encoding in Workspace file writes and appends", async ({ encoding, content }) => {
+    const fs = createWritableWorkspaceFs(new MemoryWorkspace({}))
+
+    await fs.writeFile("/workspace/data.bin", content, encoding)
+    await fs.appendFile("/workspace/data.bin", content, { encoding })
+
+    expect(Array.from(await fs.readFileBuffer("/workspace/data.bin"))).toEqual([0, 128, 255, 0, 128, 255])
+  })
+
+  it.each([
+    { encoding: "ascii", content: "\u0080é" },
+    { encoding: "utf8", content: "\u0080é" },
+    { encoding: "utf-8", content: "\u0080é" },
+    { encoding: "binary", content: "\u0000\u0080\u00ff" },
+    { encoding: "latin1", content: "\u0000\u0080\u00ff" },
+    { encoding: "binary", content: "🙂" },
+    { encoding: "latin1", content: "🙂" },
+    { encoding: "binary", content: "x".repeat(65536) + "🙂" },
+    { encoding: "latin1", content: "x".repeat(65536) + "🙂" },
+    { encoding: "hex", content: "0080ff" },
+    { encoding: "hex", content: "ff0" },
+    { encoding: "hex", content: "fgzz80" },
+    { encoding: "base64", content: "AID/" },
+    { encoding: "base64", content: " AID/\n" },
+    { encoding: "base64", content: "A" },
+    { encoding: "base64", content: "AA!=" },
+    { encoding: "base64", content: "__8=" },
+  ] as const)("matches Just Bash writes for $encoding case %#", async ({ encoding, content }) => {
+    for (const method of ["writeFile", "appendFile"] as const) {
+      const path = "/workspace/data.bin"
+      const fs = createWritableWorkspaceFs(new MemoryWorkspace({ "data.bin": "prefix" }))
+      const reference = new InMemoryFs({ [path]: "prefix" })
+      const options = method === "writeFile" ? encoding : { encoding }
+      const results = await Promise.allSettled([
+        reference[method](path, content, options),
+        fs[method](path, content, options),
+      ])
+      expect(results[1]).toEqual(results[0])
+      expect(Array.from(await fs.readFileBuffer(path))).toEqual(Array.from(await reference.readFileBuffer(path)))
+    }
+  })
+
+  it.each(["utf8", "utf-8", "ascii", "binary", "latin1", "hex", "base64"] as const)("matches Just Bash %s reads", async (encoding) => {
+    const bytes = new Uint8Array([0, 128, 255, 195, 169])
+    const fs = createWritableWorkspaceFs(new MemoryWorkspace({ "data.bin": bytes }))
+    const reference = new InMemoryFs({ "/workspace/data.bin": bytes })
+
+    expect(await fs.readFile("/workspace/data.bin", { encoding })).toBe(await reference.readFile("/workspace/data.bin", { encoding }))
+  })
+
+  it.each(["binary", "latin1"] as const)("reads Workspace bytes with %s encoding", async (encoding) => {
+    const fs = createWritableWorkspaceFs(new MemoryWorkspace({ "data.bin": new Uint8Array([0, 128, 255]) }))
+
+    await expect(fs.readFile("/workspace/data.bin", { encoding })).resolves.toBe("\u0000\u0080\u00ff")
+  })
+
+  it.each(["> data.bin", ">> data.bin", "| tee data.bin"])("preserves binary command bytes through %s", async (destination) => {
+    const workspace = new MemoryWorkspace({})
+    const shell = createShellRuntime({ provider: createJustBashProvider({
+      commands: ["printf", "base64", "tee"],
+      cwd: "/workspace",
+      fs: createWritableWorkspaceFs(workspace),
+    }) })
+
+    const result = await shell.exec(`printf '%s' 'AID/' | base64 -d ${destination}`)
+
+    expect(result.exitCode).toBe(0)
+    expect(Array.from(await workspace.readFile("data.bin", { encoding: "binary" }) as Uint8Array)).toEqual([0, 128, 255])
+  })
+
   it("does not refresh workspace paths when creating a shell filesystem", () => {
     const workspace = new MemoryWorkspace({
       "README.md": "# Docs\n",
@@ -473,6 +733,7 @@ describe("@vite-hub/shell just-bash runtime", () => {
       fs: createReadonlyWorkspaceFs(workspace),
       timeout: 5,
     })).resolves.toMatchObject({
+      cwd: workspaceMountPoint,
       event: "command_timed_out",
       exitCode: null,
       stderr: "[vitehub] Workspace shell command timed out after 5ms.",

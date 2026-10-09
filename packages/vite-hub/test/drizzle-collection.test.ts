@@ -166,12 +166,12 @@ describe("table Collection source", () => {
     })
     expect(meals.authorize).toBe(authorize)
 
-    const authorizeRequest = vi.fn(async () => Response.json({ error: "Unauthorized." }, { status: 401 }))
-    const app = new H3().get("/api/meals", defineCollectionHandler(meals, { authorizeRequest }))
+    const withAuthorization = vi.fn(() => async () => Response.json({ error: "Unauthorized." }, { status: 401 }))
+    const app = new H3().get("/api/meals", defineCollectionHandler(meals, { withAuthorization }))
     const response = await app.request("/api/meals")
 
     expect(response.status).toBe(401)
-    expect(authorizeRequest).toHaveBeenCalledWith(expect.anything(), authorize)
+    expect(withAuthorization).toHaveBeenCalledWith(authorize, expect.any(Function))
   })
 
   it("rejects an unstable tie-breaker", async () => {

@@ -3,8 +3,8 @@ import { resolve } from "node:path"
 import { installConsoleDefinitionScope, installConsoleSchedulesScope, resolveConsoleDefinitions, resolveConsoleSchedules } from "../../internal.ts"
 import { isConsoleSectionId } from "../sections.ts"
 
-import type { ScheduleDefinitionRegistry } from "@vite-hub/schedule"
 import type { ConsoleContributedSection, ConsoleDefinitionField, ConsoleRecord, ConsoleSectionCatalog, ConsoleSectionContent } from "../definitions.ts"
+import type { ScheduleDefinitionRegistry } from "@vite-hub/schedule"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
 function copyFields(fields: readonly ConsoleDefinitionField[]): ConsoleDefinitionField[] {
@@ -25,7 +25,17 @@ function copyContent(content: ConsoleSectionContent): ConsoleSectionContent {
 
 /** Copies request-time records so that the reader cannot change the response after it returns. */
 export function copyConsoleRecords(records: readonly ConsoleRecord[]): ConsoleRecord[] {
-  return records.map(record => ({ cells: { ...record.cells }, fields: copyFields(record.fields), id: record.id, runnable: record.runnable }))
+  return records.map((record) => {
+    const copied: ConsoleRecord = {
+      cells: { ...record.cells },
+      fields: copyFields(record.fields),
+      id: record.id,
+    }
+    if (record.runnable === true) {
+      copied.runnable = true
+    }
+    return copied
+  })
 }
 
 function copySection(section: ConsoleContributedSection): ConsoleContributedSection {
@@ -73,10 +83,7 @@ export function getConsoleContributedSections(): readonly ConsoleContributedSect
   return resolveConsoleDefinitions()?.sections ?? []
 }
 
-/**
- * Installs the Static Schedule Definitions that the Console may run.
- * The generated Console plugin passes only `manual: true` definitions, and only with Console invocation enabled.
- */
+/** Installs the Static Schedule Definitions that the Console may run. */
 export function installConsoleSchedules(projectRoot: string, registry: ScheduleDefinitionRegistry): ScheduleDefinitionRegistry {
   return installConsoleSchedulesScope(resolve(projectRoot), { ...registry })
 }

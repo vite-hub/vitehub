@@ -18,6 +18,43 @@ export type RealtimeStatus = "connected" | "connecting" | "disconnected"
 
 const workspaceChangeFlushIntervalMs = 11
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Check the untrusted checkpoint JSON representation before reading fields.
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+function isString(value: unknown): value is string {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Error fields cross an untyped provider boundary.
+  return typeof value === "string"
+}
+
+function isRealtimeCheckpoint(value: unknown): value is RealtimeCheckpoint {
+  if (!isRecord(value) || !isRecord(value.snapshot)) return false
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Check the untrusted checkpoint content before returning it.
+  if (typeof value.content !== "string") return false
+  const snapshot = value.snapshot
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Snapshot identifiers and timestamps cross the JSON boundary as unknown values.
+  if (typeof snapshot.id !== "string" || typeof snapshot.createdAt !== "string") return false
+  if (snapshot.name !== undefined) {
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Optional snapshot names are untrusted JSON values.
+    if (typeof snapshot.name !== "string") return false
+  }
+  if (!isRecord(snapshot.entries)) return false
+  return Object.values(snapshot.entries).every((entry) => {
+    if (!isRecord(entry) || (entry.type !== "file" && entry.type !== "directory")) return false
+    if (entry.digest !== undefined) {
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Optional entry digests are untrusted JSON values.
+      if (typeof entry.digest !== "string") return false
+    }
+    if (entry.metadata !== undefined && !isRecord(entry.metadata)) return false
+    if (entry.size !== undefined) {
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Optional entry sizes are untrusted JSON values.
+      if (typeof entry.size !== "number" || !Number.isFinite(entry.size)) return false
+    }
+    return true
+  })
+}
+
 export interface UseRealtimeTiptapOptions {
   enabled?: MaybeRefOrGetter<boolean>
 }
@@ -127,13 +164,25 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
           body: Uint8Array.from(Y.encodeStateAsUpdate(current)).buffer,
           method: "POST",
         })
-        if (response.ok) return await response.json() as RealtimeCheckpoint
-        const data = await response.json().catch(() => undefined) as { data?: { code?: string }, message?: string, statusMessage?: string } | undefined
-        if (response.status === 409 && isRetryableRealtimeCheckpointCode(data?.data?.code) && attempt < 20) {
+        if (response.ok) {
+          const result: unknown = await response.json().catch(() => undefined)
+          if (isRealtimeCheckpoint(result)) return result
+          throw Object.assign(realtimeErrorDiagnostics.REALTIME_R0012({ message: "The realtime checkpoint response was invalid." }), {
+            data: result,
+            statusCode: response.status,
+          })
+        }
+        const data: unknown = await response.json().catch(() => undefined)
+        const errorData = isRecord(data) ? data : undefined
+        const nestedData = isRecord(errorData?.data) ? errorData.data : undefined
+        const message = isString(errorData?.statusMessage) && errorData.statusMessage
+          ? errorData.statusMessage
+          : isString(errorData?.message) ? errorData.message : undefined
+        if (response.status === 409 && isRetryableRealtimeCheckpointCode(isString(nestedData?.code) ? nestedData.code : undefined) && attempt < 20) {
           await new Promise(resolve => setTimeout(resolve, 50))
           continue
         }
-        throw Object.assign(realtimeErrorDiagnostics.REALTIME_R0012({ message: data?.statusMessage || data?.message || "Could not create the realtime checkpoint." }), {
+        throw Object.assign(realtimeErrorDiagnostics.REALTIME_R0012({ message: message || "Could not create the realtime checkpoint." }), {
           data,
           statusCode: response.status,
         })

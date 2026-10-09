@@ -1,4 +1,7 @@
 node_modules
+/.agents/
+/.claude/
+/.codex/
 .vite-hooks
 .zed
 dist

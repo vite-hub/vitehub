@@ -241,7 +241,7 @@ export function formatRuntimeDiagnosticError(error: unknown): string {
   if (normalized.code === undefined && !normalized.fix && !normalized.docs && !normalized.sources?.length) {
     return normalized.message
   }
-  return formatDiagnostic(new Diagnostic({
+  return formatDiagnostic(new Diagnostic<undefined>({
     code: normalized.code === undefined ? normalized.name || "Error" : String(normalized.code),
     docs: normalized.docs,
     fix: normalized.fix,
