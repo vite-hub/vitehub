@@ -605,7 +605,9 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       const nitro = viteConfig.nitro ??= {}
       const { kit, publicAssets } = configureConsoleNitroRoutes(nitro, baseURL, sections, consoleAuthHandlers, previousConsoleAuthHandlers)
       viteConfig.nitro = { ...kit.config, publicAssets }
-      generatedPlugin ||= resolveGeneratedConsolePlugin(projectRoot, fixture, options.invocationRootState)
+      generatedPlugin = fixture && generatedPlugin
+        ? generatedPlugin
+        : resolveGeneratedConsolePlugin(projectRoot, fixture, options.invocationRootState)
       // SAFETY: VITEHUB_SERVER_DIRS is ViteHub-owned config state populated with string paths.
       serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS]
       if (!cliDiscovery && !fixture) await refreshConsoleCatalog()
