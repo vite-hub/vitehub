@@ -42,6 +42,10 @@ const projectRootDirectoryMarkers = [
 ]
 const projectRootFileMarkers = [
   ["package.json"],
+  ["nuxt.config.ts"],
+  ["nuxt.config.mts"],
+  ["nuxt.config.js"],
+  ["nuxt.config.mjs"],
 ]
 
 export const VITEHUB_ENV_PUBLIC_ID = "#vitehub/env/public" as const
@@ -133,7 +137,7 @@ export function resolveViteHubProjectRoot(root: string, options: { projectRoot?:
 
   if (basename(resolvedRoot) === "app") {
     const parent = dirname(resolvedRoot)
-    if (parent !== sharedTemporaryRoot && hasProjectRootDirectoryMarker(parent)) return parent
+    if (parent !== sharedTemporaryRoot && (hasProjectRootDirectoryMarker(parent) || hasProjectRootFileMarker(parent, ["nuxt.config.ts", "nuxt.config.mts", "nuxt.config.js", "nuxt.config.mjs"]))) return parent
   }
 
   let current = resolvedRoot
@@ -170,9 +174,14 @@ function hasProjectRootDirectoryMarker(root: string): boolean {
 
 function hasProjectRootMarker(root: string): boolean {
   if (hasProjectRootDirectoryMarker(root)) return true
-  for (const marker of projectRootFileMarkers) {
+  return hasProjectRootFileMarker(root, projectRootFileMarkers.flat())
+}
+
+function hasProjectRootFileMarker(root: string, markers: string[][] | string[]): boolean {
+  for (const marker of markers) {
+    const path = Array.isArray(marker) ? marker : [marker]
     try {
-      if (statSync(resolve(root, ...marker)).isFile()) return true
+      if (statSync(resolve(root, ...path)).isFile()) return true
     }
     catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error

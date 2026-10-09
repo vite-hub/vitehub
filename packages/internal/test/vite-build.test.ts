@@ -121,6 +121,24 @@ describe("Vite provider builds", () => {
     }
   })
 
+  it("prefers a Nuxt project root when app has its own package marker", async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-nuxt-app-root-"))
+    const appRoot = join(projectRoot, "app")
+    try {
+      await mkdir(appRoot)
+      await Promise.all([
+        writeFile(join(projectRoot, "package.json"), '{"private":true}\n'),
+        writeFile(join(projectRoot, "nuxt.config.ts"), "export default {}\n"),
+        writeFile(join(appRoot, "package.json"), '{"private":true}\n'),
+      ])
+
+      expect(resolveViteHubProjectRoot(appRoot)).toBe(projectRoot)
+    }
+    finally {
+      await rm(projectRoot, { force: true, recursive: true })
+    }
+  })
+
   it("resolves generated artifacts at the project root for nested Vite apps", async () => {
     const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-generated-root-"))
     const appRoot = join(projectRoot, "app")
