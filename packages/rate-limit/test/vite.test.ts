@@ -1,4 +1,4 @@
-import { access, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
+import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -32,6 +32,25 @@ async function writeCloudflareDeclaration(root: string): Promise<void> {
 }
 
 describe("hubRateLimit", () => {
+  it("writes generated files at the project root when Vite runs from app/", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-project-root-"))
+    roots.push(root)
+    await mkdir(join(root, "app"), { recursive: true })
+    await writeFile(join(root, "package.json"), "{}")
+    const plugin = hubRateLimit({ provider: "memory" })
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({
+      build: { outDir: "dist" },
+      command: "serve",
+      plugins: [],
+      resolve: { alias: [] },
+      root: join(root, "app"),
+    } as never)
+
+    await expect(readFile(join(root, ".vitehub", "nitro", "rate-limit", "plugin.ts"), "utf8")).resolves.toContain("setRateLimitRuntimeConfig")
+    await expect(readFile(join(root, ".vitehub", "rate-limit", "manifest.json"), "utf8")).resolves.toContain('"schemaVersion"')
+    await expect(readFile(join(root, "app", ".vitehub", "nitro", "rate-limit", "plugin.ts"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
   it("serializes shared Provider Output finalization", () => {
     expect(hubRateLimit().closeBundle).toMatchObject({ order: "post", sequential: true })
   })

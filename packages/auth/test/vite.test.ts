@@ -93,6 +93,19 @@ describe("hubAuth", () => {
     await expect(readFile(join(root, ".vitehub", "types", "auth.d.ts"), "utf8")).resolves.toContain("declare module \"#vitehub/auth/server\"")
   })
 
+  it("writes generated files at the project root when Vite runs from app/", async () => {
+    const root = await createTempProject()
+    await mkdir(join(root, "app"))
+    await writeAuth(root)
+
+    const plugin = hubAuth()
+    await resolvePluginConfig(plugin, join(root, "app"))
+
+    await expect(readFile(join(root, ".vitehub", "types", "auth.d.ts"), "utf8")).resolves.toContain("declare module \"#vitehub/auth/server\"")
+    await expect(readFile(join(root, ".vitehub", "auth", "route.ts"), "utf8")).resolves.toContain("#vitehub/auth/server")
+    await expect(readFile(join(root, "app", ".vitehub", "auth", "route.ts"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
   it("uses a configured package base in generated Auth runtime and type imports", async () => {
     const root = await createTempProject()
     await writeAuth(root)

@@ -287,7 +287,7 @@ export function hubAuth(options?: AuthModuleOptions, internalOptions: InternalAu
 
   function refreshRuntimeConfig(): ResolvedAuthViteConfig | undefined {
     if (!resolved) return
-    runtimeConfig = resolveAuthViteConfig(resolvedOptions(), resolved.root, { serverDirs })
+    runtimeConfig = resolveAuthViteConfig(resolvedOptions(), resolveViteHubProjectRoot(resolved.root), { serverDirs })
     resetAuth()
     return runtimeConfig
   }
@@ -315,7 +315,7 @@ export function hubAuth(options?: AuthModuleOptions, internalOptions: InternalAu
       },
     },
     config(config) {
-      const configRoot = config.root || process.cwd()
+      const configRoot = resolveViteHubProjectRoot(config.root || process.cwd())
       serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? serverDirs
       const authConfig = resolveAuthViteConfig((config as { auth?: AuthModuleOptions }).auth ?? options, configRoot, { serverDirs })
       const hasNitroHandlers = Boolean(authConfig && (authConfig.route !== false || authConfig.access.routes.length > 0))
@@ -339,7 +339,7 @@ export function hubAuth(options?: AuthModuleOptions, internalOptions: InternalAu
       resolved = config
       serverEnv = hasServerEnvIntegration(config)
       const runtimeConfig = refreshRuntimeConfig()
-      await refreshAuthGeneratedFiles(config.root, runtimeConfig, { importBase, serverEnv })
+      await refreshAuthGeneratedFiles(resolveViteHubProjectRoot(config.root), runtimeConfig, { importBase, serverEnv })
     },
     configEnvironment(name, config) {
       if (!isServerEnvironment(name, config)) {
