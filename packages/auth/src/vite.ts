@@ -317,6 +317,7 @@ export function hubAuth(options?: AuthModuleOptions, internalOptions: InternalAu
     config(config) {
       const configRoot = config.root || process.cwd()
       serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? serverDirs
+      // SAFETY: Vite config may include the Auth module options supplied by the integration.
       const authOptions = (config as { auth?: AuthModuleOptions }).auth ?? options
       const authConfig = resolveAuthViteConfig(authOptions, configRoot, { serverDirs })
         ?? resolveAuthViteConfig(authOptions, resolveViteHubProjectRoot(configRoot), { serverDirs })
