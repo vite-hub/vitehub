@@ -322,7 +322,7 @@ export function hubKv(options?: KVModuleOptions, internalOptions: KVVitePluginIn
       handler(config) {
         resolved = config
         configuredOptions = config.kv ?? options
-        projectRoot = resolveViteHubProjectRoot(config.root)
+        projectRoot = resolveViteHubProjectRoot(config.root || process.cwd())
         providerOutput = useProviderOutputCatalog(config)
         runtimeConfig = resolveKVViteConfig(config.kv ?? options)
         const provisionState = readProvisionStateSync(projectRoot)
