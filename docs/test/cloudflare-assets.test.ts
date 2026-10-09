@@ -14,4 +14,9 @@ describe("Cloudflare prerendered page middleware", () => {
     expect(shouldServePrerenderedAsset({ ...input, userAgent: "GPTBot" })).toBe(false);
     expect(shouldServePrerenderedAsset({ ...input, accept: "text/markdown;q=0.1,text/html;q=1" })).toBe(true);
   });
+
+  it("normalizes media types and quality parameter names", () => {
+    expect(shouldServePrerenderedAsset({ ...input, accept: "text/markdown;Q=0,*/*;q=1" })).toBe(true);
+    expect(shouldServePrerenderedAsset({ ...input, accept: "text/markdown ; q=1,text/html;q=0" })).toBe(false);
+  });
 });
