@@ -89,6 +89,7 @@ function optionalPeersForExport(specifier: string, subpath: string) {
   const usage: Record<string, OptionalPeerUsage> = { ...optionalPeerUsage.get(specifier) }
   if (/(?:^|\/)vite$/.test(subpath)) usage.vite ??= "both"
   if (/(?:^|\/)vue$/.test(subpath)) usage.vue ??= "both"
+  if (specifier === "vite-hub/ui" || specifier.startsWith("vite-hub/ui/")) usage.vue ??= "both"
   const entries = Object.entries(usage)
   return {
     optionalDeclarationPeers: entries.filter(([, mode]) => mode !== "runtime").map(([peer]) => peer),

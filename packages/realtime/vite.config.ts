@@ -5,7 +5,7 @@ export default defineConfig({
     tsconfig: "tsconfig.build.json",
     deps: {
       // Editor dependencies must share their ProseMirror and Yjs constructors.
-      alwaysBundle: [/^@tiptap\/y-tiptap/, /^@vite-hub\/internal/],
+      alwaysBundle: [/^@tiptap\/(?:extension-collaboration|y-tiptap)/, /^@vite-hub\/internal/],
       neverBundle: ["vite", /^prosemirror-(?:model|state|transform|view)$/],
       onlyBundle: false,
     },
