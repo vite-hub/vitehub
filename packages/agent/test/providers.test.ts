@@ -484,8 +484,9 @@ describe("agent Vite plugin", () => {
 
   it("keeps the Deno cron import pointed at project-owned Schedule output", async () => {
     const { hubAgent } = await import("../src/vite.ts")
-    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-deno-generated-root-"))
-    const generatedRoot = join(root, ".nuxt", "vitehub")
+    const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-agent-deno-generated-root-"))
+    const root = join(projectRoot, "app")
+    const generatedRoot = join(projectRoot, ".nuxt", "vitehub")
     try {
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
@@ -502,9 +503,9 @@ describe("agent Vite plugin", () => {
       })
 
       const denoServer = await readFile(join(generatedRoot, "agent", "deno-server.ts"), "utf8")
-      expect(denoServer).toContain('await import("../../../.vitehub/schedule/deno-cron.mjs").catch')
+      expect(denoServer).toContain('await import("../schedule/deno-cron.mjs").catch')
     } finally {
-      await rm(root, { force: true, recursive: true })
+      await rm(projectRoot, { force: true, recursive: true })
     }
   })
 

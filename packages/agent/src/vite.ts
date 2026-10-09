@@ -2934,7 +2934,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           agentImportBase: getAgentImportBase(agent, frameworkOptions),
           denoCronImport: moduleImportSpecifier(
             join(generatedRoot, generatedAgentDenoServer),
-            join(config.root, ".vitehub", "schedule", "deno-cron.mjs"),
+            join(generatedRoot, "schedule", "deno-cron.mjs"),
           ),
           inspectionRoute: normalized.routes.inspection,
           libsqlState: resolveLibsqlAgentState(normalized, config),
