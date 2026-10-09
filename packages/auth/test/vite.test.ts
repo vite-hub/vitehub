@@ -20,6 +20,7 @@ async function createTempProject(): Promise<string> {
 async function createWorkspaceTempProject(): Promise<string> {
   const rootDir = await mkdtemp(join(workspaceRoot, ".tmp-vitehub-auth-vite-"))
   tempDirs.push(rootDir)
+  await writeFile(join(rootDir, "package.json"), "{}")
   return rootDir
 }
 
