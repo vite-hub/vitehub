@@ -493,7 +493,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       observations = configured === true ? undefined : configured.observations
       retention = configured === true ? undefined : configured.retention
       invoke = !fixture && (configured === true || configured.invoke === true)
-      generatedPlugin = resolveGeneratedConsolePlugin(root, fixture, options.invocationRootState)
+      generatedPlugin = resolveGeneratedConsolePlugin(projectRoot, fixture, options.invocationRootState)
       if (fixture && options.invocationRootState) {
         configureConsoleFixtureLifecycle(options.invocationRootState, generatedPlugin, refreshConsoleCatalog)
       }
