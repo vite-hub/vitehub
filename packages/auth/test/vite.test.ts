@@ -108,6 +108,26 @@ describe("hubAuth", () => {
     await expect(readFile(join(root, "app", ".vitehub", "auth", "route.ts"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
   })
 
+  it.each(["server/auth.ts", "server.auth.ts"])("discovers app/%s while generating project-root handlers", async (path) => {
+    const root = await createTempProject()
+    const appRoot = join(root, "app")
+    await writeFile(join(root, "package.json"), "{}")
+    const definition = await writeAuth(appRoot, path, ["  access: { routes: ['/private/**'] },"])
+    const plugin = hubAuth()
+    const config = await resolveConfig({ configFile: false, plugins: [plugin], root: appRoot }, "serve")
+
+    expect(loadAuthDefinition(plugin)).toContain(JSON.stringify(definition))
+    expect(plugin.api.refresh()?.definition.handler).toBe(definition)
+    expect(config).toMatchObject({
+      nitro: { handlers: expect.arrayContaining([
+        { handler: join(root, ".vitehub/auth/route.ts"), route: "/api/auth/**" },
+        { handler: join(root, ".vitehub/auth/access-middleware.ts"), middleware: true, route: "/**" },
+      ]) },
+    })
+    await expect(readFile(join(root, ".vitehub/auth/access-middleware.ts"), "utf8")).resolves.toContain("/private/**")
+    await expect(readFile(join(appRoot, ".vitehub/auth/route.ts"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
   it("uses a configured package base in generated Auth runtime and type imports", async () => {
     const root = await createTempProject()
     await writeAuth(root)
