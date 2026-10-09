@@ -153,7 +153,7 @@ export function resolveViteHubGeneratedRoot(config: {
 }): string {
   return config[VITEHUB_GENERATED_ROOT]
     ? resolve(config[VITEHUB_GENERATED_ROOT])
-    : resolve(config.root ?? process.cwd(), ".vitehub")
+    : resolve(resolveViteHubProjectRoot(config.root ?? process.cwd()), ".vitehub")
 }
 
 function hasProjectRootDirectoryMarker(root: string): boolean {
