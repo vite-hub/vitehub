@@ -96,6 +96,7 @@ describe("hubAuth", () => {
   it("writes generated files at the project root when Vite runs from app/", async () => {
     const root = await createTempProject()
     await mkdir(join(root, "app"))
+    await writeFile(join(root, "package.json"), "{}")
     await writeAuth(root)
 
     const plugin = hubAuth()
