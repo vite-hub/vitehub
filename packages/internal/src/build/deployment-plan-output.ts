@@ -40,6 +40,7 @@ export function describeDeploymentPlanOutput(plan: DeploymentPlan, rootDir: stri
   }
   if (plan.preset === "netlify") {
     entries.push({ description: "Nitro Netlify server functions", owner: "vite-hub", path: resolve(rootDir, outputDir ?? resolve(outputRoot, "functions-internal")) })
+    entries.push({ description: "Netlify function entrypoint", owner: "vite-hub", path: resolve(outputRoot, "functions/server.mjs") })
   }
   return entries
 }
@@ -69,4 +70,9 @@ export async function finalizeDeploymentPlanOutput(options: FinalizeDeploymentPl
   const manifestPath = resolve(outputRoot, "deployment.json")
   await mkdir(dirname(manifestPath), { recursive: true })
   await writeFile(manifestPath, JSON.stringify(manifest, null, 2) + "\n", "utf8")
+  if (options.plan.preset === "netlify") {
+    const functionEntry = resolve(outputRoot, "functions/server.mjs")
+    await mkdir(dirname(functionEntry), { recursive: true })
+    await writeFile(functionEntry, 'export { default } from "../../functions-internal/server/main.mjs"\n', "utf8")
+  }
 }

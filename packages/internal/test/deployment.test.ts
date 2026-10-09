@@ -61,6 +61,10 @@ describe("built-in deployment plans", () => {
       await finalizeDeploymentPlanOutput({ plan, rootDir })
       const manifest = JSON.parse(await readFile(resolve(rootDir, plan.output.directory, "deployment.json"), "utf8"))
       expect(manifest).toMatchObject({ host: plan.host, output: plan.output, preset, runtime: plan.runtime, services: plan.services })
+      if (preset === "netlify") {
+        await expect(readFile(resolve(rootDir, ".netlify", "functions", "server.mjs"), "utf8"))
+          .resolves.toBe('export { default } from "../../functions-internal/server/main.mjs"\n')
+      }
     }
   })
   it("validates and records a resolved custom output directory", async () => {
@@ -103,5 +107,7 @@ describe("built-in deployment plans", () => {
 
     const manifest = JSON.parse(await readFile(resolve(rootDir, "custom-netlify", "deployment.json"), "utf8"))
     expect(manifest.output.directory).toBe("custom-netlify")
+    await expect(readFile(resolve(rootDir, "custom-netlify", "functions", "server.mjs"), "utf8"))
+      .resolves.toBe('export { default } from "../../functions-internal/server/main.mjs"\n')
   })
 })
