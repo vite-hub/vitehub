@@ -12,24 +12,21 @@
         </p>
       </div>
 
-      <div class="w-full max-w-[38rem] lg:w-[28rem]">
-        <LandingInstallCommand />
-        <div class="mt-5 flex flex-wrap items-center gap-x-6 gap-y-3">
-          <UButton
-            to="/docs/getting-started/first-server-primitive"
-            label="Build your first primitive"
-            trailing-icon="i-lucide-arrow-right"
-            color="neutral"
-            size="lg"
-            class="closing-cta rounded-md px-4"
-          />
-          <NuxtLink
-            to="/docs/frameworks-hosts"
-            class="inline-flex min-h-10 items-center text-muted transition-colors hover:text-default focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary"
-          >
-            See supported hosts
-          </NuxtLink>
-        </div>
+      <div class="flex flex-wrap items-center gap-x-6 gap-y-3">
+        <UButton
+          to="/docs/getting-started/first-server-primitive"
+          label="Build your first primitive"
+          trailing-icon="i-lucide-arrow-right"
+          color="neutral"
+          size="lg"
+          class="closing-cta rounded-md px-4"
+        />
+        <NuxtLink
+          to="/docs/frameworks-hosts"
+          class="inline-flex min-h-10 items-center text-muted transition-colors hover:text-default focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary"
+        >
+          See supported hosts
+        </NuxtLink>
       </div>
     </div>
   </section>

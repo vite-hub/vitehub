@@ -1,15 +1,18 @@
 <template>
   <section class="border-b border-default bg-default">
-    <div class="mx-auto max-w-[90rem] px-4 py-12 sm:px-8 sm:py-16 lg:px-12 lg:py-20">
+    <div class="mx-auto max-w-[90rem] px-4 py-12 sm:px-8 sm:py-16 lg:px-12">
       <div class="vh-landing-reveal grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(22rem,0.8fr)] lg:items-center lg:gap-20">
-        <h1 class="vh-hero-title max-w-[13ch] font-semibold text-highlighted text-balance">
-          The server layer for Vite apps.
-        </h1>
         <div class="min-w-0">
-          <p class="max-w-[42ch] text-lg/7 text-muted text-pretty">
+          <h1 class="vh-hero-title max-w-[13ch] font-semibold text-highlighted text-balance">
+            The server layer for Vite apps.
+          </h1>
+          <p class="mt-5 max-w-[42ch] text-lg/7 text-muted text-pretty">
             Storage, queues, workflows, and more. Use one API in your app and deploy it to your
             choice of cloud.
           </p>
+        </div>
+        <div class="min-w-0">
+          <LandingInstallCommand />
           <div class="mt-5 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
             <UButton
               to="/docs/getting-started/first-server-primitive"
@@ -29,7 +32,7 @@
         </div>
       </div>
 
-      <LandingPrimitives class="vh-landing-reveal vh-landing-reveal-delay mt-12 lg:mt-16" />
+      <LandingPrimitives class="vh-landing-reveal vh-landing-reveal-delay mt-12" />
     </div>
   </section>
 </template>

@@ -1,14 +1,15 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from "vue";
+import { motion, MotionConfig } from "motion-v";
 import { installOptions } from "./content";
 
 const commandTabs = [
   {
     ...installOptions.skill,
-    label: "Agent skill",
+    label: "For Agents",
   },
   {
-    label: "Package",
+    label: "For humans",
     value: "package",
     icon: "i-lucide-package",
   },
@@ -83,7 +84,7 @@ onBeforeUnmount(() => {
         aria-label="Install ViteHub"
       >
         <span
-          class="pointer-events-none absolute top-1 bottom-1 left-1 w-[calc((100%_-_0.75rem)/2)] rounded-full bg-default ring-1 ring-accented transition-transform duration-[220ms] ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transition-none"
+          class="pointer-events-none absolute top-1 bottom-1 left-1 w-[calc((100%_-_0.75rem)/2)] rounded-full bg-default ring-1 ring-accented transition-transform duration-200 ease-out motion-reduce:transition-none"
           :style="{
             transform:
               activeTab === 'package' ? 'translateX(calc(100% + 0.25rem))' : 'translateX(0)',
@@ -111,42 +112,46 @@ onBeforeUnmount(() => {
         aria-label="Package manager"
         :aria-hidden="activeTab !== 'package'"
       >
-        <div
-          class="package-managers absolute top-0 right-0 flex items-center gap-1 rounded-full bg-muted/80 p-1 text-sm ring-1 ring-default"
-          :class="activeTab === 'package' ? 'package-managers-visible' : 'package-managers-hidden'"
-          :aria-hidden="activeTab !== 'package'"
-        >
-          <button
-            v-for="option in installOptions.packages"
-            :key="option.value"
-            type="button"
-            :tabindex="activeTab === 'package' ? 0 : -1"
-            :aria-pressed="activePackageManager === option.value"
-            :aria-label="option.label"
-            class="relative inline-flex h-8 items-center justify-center gap-1.5 overflow-hidden rounded-full font-medium transition-[width,color,background-color,padding] duration-[220ms] ease-[cubic-bezier(0.23,1,0.32,1)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary motion-reduce:transition-none"
-            :class="
-              activePackageManager === option.value
-                ? 'w-[7.75rem] bg-default px-3 text-highlighted ring-1 ring-accented'
-                : 'w-10 px-0 text-muted grayscale hover:text-default'
-            "
-            @click="activePackageManager = option.value"
+        <MotionConfig reduced-motion="user">
+          <div
+            class="package-managers absolute top-0 right-0 flex items-center gap-1 rounded-full bg-muted/80 p-1 text-sm ring-1 ring-default"
+            :class="activeTab === 'package' ? 'package-managers-visible' : 'package-managers-hidden'"
+            :aria-hidden="activeTab !== 'package'"
           >
-            <UIcon
-              :name="option.icon"
-              class="size-3.5 shrink-0"
-              aria-hidden="true"
-            />
-            <span
-              class="package-manager-label max-w-0 overflow-hidden whitespace-nowrap text-sm opacity-0"
+            <motion.button
+              v-for="option in installOptions.packages"
+              :key="option.value"
+              type="button"
+              :tabindex="activeTab === 'package' ? 0 : -1"
+              :aria-pressed="activePackageManager === option.value"
+              :aria-label="option.label"
+              layout
+              :transition="{ layout: { duration: 0.2, ease: 'easeOut' } }"
+              :style="{ borderRadius: '999px' }"
+              class="relative inline-flex h-8 items-center justify-center gap-1.5 overflow-hidden rounded-full font-medium transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary motion-reduce:transition-none"
               :class="
-                activePackageManager === option.value ? 'max-w-16 opacity-100' : ''
+                activePackageManager === option.value
+                  ? 'w-[7.75rem] bg-default px-3 text-highlighted ring-1 ring-accented'
+                  : 'w-10 px-0 text-muted grayscale hover:text-default'
               "
-              aria-hidden="true"
+              @click="activePackageManager = option.value"
             >
-              {{ option.label }}
-            </span>
-          </button>
-        </div>
+              <motion.span layout="position" class="inline-flex shrink-0" aria-hidden="true">
+                <UIcon :name="option.icon" class="size-3.5" />
+              </motion.span>
+              <motion.span
+                layout="position"
+                class="package-manager-label max-w-0 overflow-hidden whitespace-nowrap text-sm opacity-0"
+                :class="
+                  activePackageManager === option.value ? 'max-w-16 opacity-100' : ''
+                "
+                aria-hidden="true"
+              >
+                {{ option.label }}
+              </motion.span>
+            </motion.button>
+          </div>
+        </MotionConfig>
       </div>
     </div>
 
@@ -189,9 +194,9 @@ onBeforeUnmount(() => {
 <style scoped>
 .package-managers {
   transition:
-    opacity 220ms cubic-bezier(0.23, 1, 0.32, 1),
-    transform 220ms cubic-bezier(0.23, 1, 0.32, 1),
-    visibility 0s linear 220ms;
+    opacity 200ms ease-out,
+    transform 200ms ease-out,
+    visibility 0s linear 200ms;
 }
 
 .package-managers-visible {
@@ -209,9 +214,7 @@ onBeforeUnmount(() => {
 }
 
 .package-manager-label {
-  transition:
-    max-width 220ms cubic-bezier(0.23, 1, 0.32, 1),
-    opacity 220ms cubic-bezier(0.23, 1, 0.32, 1);
+  transition: opacity 200ms ease-out;
 }
 
 .command-swap-enter-active,
