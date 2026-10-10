@@ -87,6 +87,7 @@
     "./agent/evlog/posthog": "./dist/agent/evlog/posthog.js",
     "./agent/gateways": "./dist/agent/gateways.js",
     "./agent/invocations/d1": "./dist/agent/invocations/d1.js",
+    "./agent/invocations/database": "./dist/agent/invocations/database.js",
     "./agent/invocations/sqlite": "./dist/agent/invocations/sqlite.js",
     "./agent/mcp": "./dist/agent/mcp.js",
     "./agent/observability": "./dist/agent/observability.js",

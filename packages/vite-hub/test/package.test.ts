@@ -262,6 +262,7 @@ describe("framework package contract", () => {
       "./_internal/kv/runtime/disabled-upstash",
       "./agent",
       "./agent/capabilities",
+      "./agent/invocations/database",
       "./console",
       "./console/auth",
       "./console/auth/client",
