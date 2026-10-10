@@ -9,7 +9,7 @@ icon: i-lucide-circle-alert
 ## Limits
 
 - One timeout bounds one execution attempt after provider startup, including package preparation, staging, and execution. Queueing, Box startup, and retry delays can make the full `runSandbox()` call take longer.
-- Callers cannot pass an `AbortSignal` to `runSandbox()`. A disconnected request does not cancel the run. Set a Definition timeout.
+- Pass an `AbortSignal` to `runSandbox()` when the caller owns a cancellation boundary. Cancellation stops cancellable provider work and preserves the caller's abort reason. The Definition timeout remains an independent per-attempt limit, and queueing or provider startup can make the full call take longer.
 - Vercel closes each Box session after success or failure. Cloudflare creates and closes a unique Box for each run unless you set `sandboxId`.
 - A Cloudflare `sandboxId` shares one Box. ViteHub deletes invocation-local files after each attempt, caches prepared projects by digest, and serializes runs with the same ID in one isolate. Separate Worker isolates can still enter the Box at the same time.
 

@@ -22,6 +22,7 @@ import type { SandboxExecutionBox } from './execution-box'
 import type { SandboxDefinitionOptions } from '../module-types'
 
 export interface SandboxDefinitionExecutionLifecycle {
+  onExecution?: (execution: Promise<unknown>) => void
   onHandlerStart?: () => void
 }
 
@@ -53,10 +54,10 @@ async function executeSandboxDefinitionOnce<TPayload>(
   const files = createExecutionFiles(definitionName)
   const throwIfAborted = () => {
     if (signal?.aborted)
-      throw createTimeoutError(sandbox.provider, definitionOptions?.timeout || 0)
+      throw signal.reason ?? new DOMException('The Sandbox invocation was aborted.', 'AbortError')
   }
 
-  await sandbox.mkdir(files.baseDir, { recursive: true })
+  await sandbox.mkdir(files.baseDir, { recursive: true, signal })
   try {
     throwIfAborted()
     let inputJson = bundle.project
@@ -82,8 +83,8 @@ async function executeSandboxDefinitionOnce<TPayload>(
     const definitionPath = resolveSandboxModulePath(prepared.directory, bundle.entry)
     throwIfAborted()
     await Promise.all([
-      sandbox.writeFile(files.entryPath, createEntrySource(definitionPath, bundle.execution)),
-      sandbox.writeFile(files.inputPath, inputJson),
+      sandbox.writeFile(files.entryPath, createEntrySource(definitionPath, bundle.execution), { signal }),
+      sandbox.writeFile(files.inputPath, inputJson, { signal }),
     ])
     throwIfAborted()
 
@@ -100,17 +101,18 @@ async function executeSandboxDefinitionOnce<TPayload>(
         signal,
         timeout: definitionOptions?.timeout,
       })
-      outputRaw = await readExecOutputWithRecovery(sandbox, files.outputPath, execution, definitionOptions?.timeout, execution)
+      outputRaw = await readExecOutputWithRecovery(sandbox, files.outputPath, execution, definitionOptions?.timeout, execution, signal)
     }
     catch (error) {
+      throwIfAborted()
       if (readSandboxErrorMetadata(error)?.details?.operation === 'createSession')
         throw error
 
       if (execution) {
-        outputRaw = await readExecOutputWithRecovery(sandbox, files.outputPath, error, definitionOptions?.timeout, execution)
+        outputRaw = await readExecOutputWithRecovery(sandbox, files.outputPath, error, definitionOptions?.timeout, execution, signal)
       }
       else {
-        const recoveredOutput = await recoverExecOutput(sandbox, files.outputPath, error, definitionOptions?.timeout, execution)
+        const recoveredOutput = await recoverExecOutput(sandbox, files.outputPath, error, definitionOptions?.timeout, execution, signal)
         if (recoveredOutput == null)
           throw error
 
@@ -129,7 +131,7 @@ async function executeSandboxDefinitionOnce<TPayload>(
     }
 
     if (output.ok)
-      return await decodeSandboxValue(sandbox, output.result, files.outputAssetsDir, 'result')
+      return await decodeSandboxValue(sandbox, output.result, files.outputAssetsDir, 'result', signal)
 
     throw createHandlerError(output.error?.message || 'Sandbox definition failed.', sandbox.provider, {
       name: output.error?.name,
@@ -154,47 +156,51 @@ export async function executeSandboxDefinition<TPayload>(
   payload?: TPayload,
   context?: Record<string, unknown>,
   lifecycle?: SandboxDefinitionExecutionLifecycle,
+  externalSignal?: AbortSignal,
 ): Promise<unknown> {
   const timeout = definitionOptions?.timeout
-  if (timeout === undefined || timeout <= 0) {
-    return await executeSandboxDefinitionOnce(
-      sandbox,
-      definitionName,
-      definitionOptions,
-      source,
-      payload,
-      context,
-      undefined,
-      lifecycle,
-    )
+  const execute = (signal?: AbortSignal) => {
+    const execution = executeSandboxDefinitionOnce(sandbox, definitionName, definitionOptions, source, payload, context, signal, lifecycle)
+    lifecycle?.onExecution?.(execution)
+    return execution
+  }
+  if ((timeout === undefined || timeout <= 0) && !externalSignal) {
+    return await execute()
   }
 
+  externalSignal?.throwIfAborted()
   let timeoutId: ReturnType<typeof setTimeout> | undefined
   const abortController = new AbortController()
+  const signal = timeout === undefined || timeout <= 0
+    ? externalSignal!
+    : externalSignal
+      ? AbortSignal.any([externalSignal, abortController.signal])
+      : abortController.signal
+  let externalAbort: (() => void) | undefined
 
   try {
-    return await Promise.race([
-      executeSandboxDefinitionOnce(
-        sandbox,
-        definitionName,
-        definitionOptions,
-        source,
-        payload,
-        context,
-        abortController.signal,
-        lifecycle,
-      ),
-      new Promise<never>((_, reject) => {
+    const races: Array<Promise<unknown>> = [execute(signal)]
+    if (externalSignal) {
+      races.push(new Promise<never>((_, reject) => {
+        externalAbort = () => reject(externalSignal.reason ?? new DOMException('The Sandbox invocation was aborted.', 'AbortError'))
+        externalSignal.addEventListener('abort', externalAbort, { once: true })
+      }))
+    }
+    if (timeout !== undefined && timeout > 0) {
+      races.push(new Promise<never>((_, reject) => {
         timeoutId = setTimeout(() => {
           const timeoutError = createTimeoutError(sandbox.provider, timeout)
           abortController.abort(timeoutError)
           reject(timeoutError)
         }, timeout)
-      }),
-    ])
+      }))
+    }
+    return await Promise.race(races)
   }
   finally {
     if (timeoutId)
       clearTimeout(timeoutId)
+    if (externalAbort)
+      externalSignal?.removeEventListener('abort', externalAbort)
   }
 }
