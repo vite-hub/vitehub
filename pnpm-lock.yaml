@@ -476,6 +476,9 @@ patchedDependencies:
   '@vercel/blob@2.8.0':
     hash: 015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25
     path: patches/@vercel__blob@2.8.0.patch
+  docus@5.13.0:
+    hash: 1705889b386ca987bc0f1a10b86252e036b3e07eed8f0ac604452c04ebd980e7
+    path: patches/docus@5.13.0.patch
   nitro@3.0.260903-beta:
     hash: e755d40c7b68a5a47e937a85112ebd7b955521d973a26f16115c8161a302962b
     path: patches/nitro@3.0.260903-beta.patch
@@ -643,7 +646,7 @@ importers:
         version: 7.0.130(zod@4.6.5)
       docus:
         specifier: catalog:nuxt
-        version: https://pkg.pr.new/docus@c229a86(de9404d628931b9441e2b1aba9e4d5a8)
+        version: https://pkg.pr.new/docus@c229a86(patch_hash=1705889b386ca987bc0f1a10b86252e036b3e07eed8f0ac604452c04ebd980e7)(de9404d628931b9441e2b1aba9e4d5a8)
       h3:
         specifier: catalog:h3-v1-compat
         version: 1.15.11
@@ -26647,7 +26650,7 @@ snapshots:
       - bufferutil
       - utf-8-validate
 
-  docus@https://pkg.pr.new/docus@c229a86(de9404d628931b9441e2b1aba9e4d5a8):
+  docus@https://pkg.pr.new/docus@c229a86(patch_hash=1705889b386ca987bc0f1a10b86252e036b3e07eed8f0ac604452c04ebd980e7)(de9404d628931b9441e2b1aba9e4d5a8):
     dependencies:
       '@ai-sdk/gateway': 4.0.103(zod@4.6.5)
       '@ai-sdk/mcp': 2.0.66(zod@4.6.5)
