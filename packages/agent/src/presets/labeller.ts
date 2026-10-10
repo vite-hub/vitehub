@@ -75,6 +75,19 @@ function patternList(value: LabellerPattern | undefined): readonly string[] | un
   return values
 }
 
+function validatePattern(value: string): void {
+  const regex = /^\/(.*)\/([a-z]*)$/.exec(value)
+  if (!regex) return
+  if (regex[1]!.length > maxPatternLength || /[^imsu]/.test(regex[2]!)) {
+    throw new TypeError("[vitehub] Labeller regex patterns use only bounded syntax and the i, m, s, and u flags.")
+  }
+  if (/[\\()[\]{}*+?]/.test(regex[1]!)) {
+    throw new TypeError("[vitehub] Labeller regex patterns may not use repetition or grouping.")
+  }
+  try { new RegExp(regex[1]!, regex[2]!) }
+  catch { throw new TypeError("[vitehub] Labeller regex pattern is invalid.") }
+}
+
 function matchesText(value: string | readonly string[], pattern: LabellerPattern | undefined): boolean {
   const patterns = patternList(pattern)
   if (!patterns) return true
@@ -82,7 +95,7 @@ function matchesText(value: string | readonly string[], pattern: LabellerPattern
   return values.some(item => patterns.some(candidate => {
     const regex = /^\/(.*)\/([a-z]*)$/.exec(candidate)
     if (!regex) return item.toLowerCase().includes(candidate.toLowerCase())
-    if (regex[1]!.length > maxPatternLength || /[^imsu]/.test(regex[2]!)) return false
+    if (regex[1]!.length > maxPatternLength || /[^imsu]/.test(regex[2]!) || /[\\()[\]{}*+?]/.test(regex[1]!)) return false
     try {
       return new RegExp(regex[1]!, regex[2]!).test(item)
     }
@@ -126,10 +139,12 @@ function selectedConfidence(result: LabellerResult): number | undefined {
 function validateRule(name: string, rule: LabellerRule, labels: Readonly<Record<string, LabellerLabel>>, depth = 0): void {
   if (depth > 8) throw new TypeError("[vitehub] Labeller rules may nest at most eight not clauses.")
   if (!rule || typeof rule !== "object") throw new TypeError(`[vitehub] Labeller rule "${name}" must be an object.`)
-  for (const field of [rule.from, rule.to, rule.subject, rule.body, rule.listId, rule.hasLabel]) patternList(field)
+  for (const field of [rule.from, rule.to, rule.subject, rule.body, rule.listId, rule.hasLabel]) {
+    for (const pattern of patternList(field) || []) validatePattern(pattern)
+  }
   for (const [header, value] of Object.entries(rule.header || {})) {
     if (!header.trim() || header.length > maxHeaderValueLength) throw new TypeError(`[vitehub] Labeller rule "${name}" has an invalid header name.`)
-    patternList(value)
+    for (const pattern of patternList(value) || []) validatePattern(pattern)
   }
   if (rule.label !== undefined && (!Object.hasOwn(labels, rule.label) || !rule.label.trim())) {
     throw new TypeError(`[vitehub] Labeller rule "${name}" refers to an undeclared label.`)
@@ -142,6 +157,8 @@ function validateRule(name: string, rule: LabellerRule, labels: Readonly<Record<
 
 function validateOptions(options: LabellerOptions): void {
   validateLabels(options.labels)
+  const labelCount = Object.keys(options.labels).length
+  if (labelCount < 1 || labelCount > 254) throw new TypeError("[vitehub] Labeller labels must contain between 1 and 254 labels.")
   if (!Number.isSafeInteger(options.bodyLimit) || options.bodyLimit < 1 || options.bodyLimit > maxBodyLimit) {
     throw new TypeError(`[vitehub] Labeller bodyLimit must be an integer from 1 to ${maxBodyLimit}.`)
   }
@@ -182,8 +199,8 @@ export const labeller: LabellerAgent = defineAgent({
   configure: options => {
     validateOptions(options)
     const { labels, rules, actions, bodyLimit, minConfidence, trashEnabled, client } = options
-    // Replay callers choose dry-run per invocation; do not force it at the channel level.
-    const channel = gmail({ labels, bodyLimit, client })
+    // Push deliveries inherit the safe default; replay callers still choose dry-run per invocation.
+    const channel = gmail({ labels, bodyLimit, client, ...(options.dryRun ? { dryRun: true } : {}) })
     return defineAgent({
       description: "Label Gmail messages with ordered rules, then a constrained Jev choice.",
       channels: { gmail: channel },

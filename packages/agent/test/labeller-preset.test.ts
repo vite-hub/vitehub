@@ -31,7 +31,7 @@ describe("labeller preset", () => {
       receipts: { subject: "invoice", label: "Receipts", archive: true },
       work: { from: "example.test", label: "Work" },
     } })
-    const intercept = agent.intercept as unknown as (context: { context: { get: (key: string) => unknown } }) => unknown
+    const intercept = (agent as unknown as { intercept: (context: { context: { get: (key: string) => unknown } }) => unknown }).intercept
     expect(await intercept({ context: { get: () => message } })).toEqual({ label: "Receipts", rule: "receipts" })
   })
 
