@@ -47,7 +47,9 @@ function toDenoExpireIn(ttl: unknown): { expireIn: number } | undefined {
 
 export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = { driver: "deno-kv" }): KVRuntimeDriver {
   let kvPromise: Promise<DenoKV> | undefined
-  const seenCursors = new Map<string, Set<string>>()
+  // Keep history with the continuation cursor that carries it. Consuming the
+  // entry before awaiting Deno lets concurrent traversals remain independent.
+  const cursorHistories = new Map<string, Set<string>>()
 
   function open(): Promise<DenoKV> {
     if (kvPromise) return kvPromise
@@ -101,7 +103,9 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
       return (await matchingKeys(base)).flatMap(key => fromDenoKey(key) ?? []).sort()
     },
     async listKeys({ cursor, limit, prefix = "" }: KVListOptions) {
-      if (!cursor) seenCursors.delete(prefix)
+      const stateKey = (value: string) => `${prefix}\u0000${value}`
+      const cursors = cursor ? cursorHistories.get(stateKey(cursor)) ?? new Set<string>() : new Set<string>()
+      if (cursor) cursorHistories.delete(stateKey(cursor))
       const iterator = (await open()).list({ prefix: [] }, { cursor, limit })
       const keys: string[] = []
       for await (const entry of iterator) {
@@ -109,12 +113,11 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
         if (key?.startsWith(prefix)) keys.push(key)
       }
       if (!iterator.cursor) return { keys }
-      const cursors = seenCursors.get(prefix) ?? new Set<string>()
       if (cursors.has(iterator.cursor)) {
         throw kvErrorDiagnostics.KV_R0024({ message: "Deno KV list returned a repeated pagination cursor." })
       }
       cursors.add(iterator.cursor)
-      seenCursors.set(prefix, cursors)
+      cursorHistories.set(stateKey(iterator.cursor), cursors)
       return { keys, cursor: iterator.cursor }
     },
     async hasItem(key) {
