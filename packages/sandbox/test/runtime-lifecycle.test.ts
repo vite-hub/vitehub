@@ -173,6 +173,39 @@ describe("Sandbox runtime lifecycle", () => {
     expect(runtimeMocks.open).toHaveBeenNthCalledWith(2, { id: "per-run" })
   })
 
+  it("forwards an invocation signal to Box startup and execution", async () => {
+    setSandboxRuntimeConfig({ provider: "cloudflare" })
+    setSandboxRuntimeRegistry({ example: definition })
+    runtimeMocks.executeSandboxDefinition.mockResolvedValue({ ok: true })
+    const signal = new AbortController().signal
+
+    const result = await runSandboxRuntime("example", undefined, { signal })
+
+    expect(result.ok).toBe(true)
+    expect(runtimeMocks.open).toHaveBeenCalledWith({ id: expect.any(String), signal })
+    expect(runtimeMocks.executeSandboxDefinition).toHaveBeenCalledWith(
+      expect.anything(),
+      "example",
+      undefined,
+      definition.bundle,
+      undefined,
+      undefined,
+      expect.objectContaining({ onHandlerStart: expect.any(Function) }),
+      signal,
+    )
+  })
+
+  it("preserves an external abort reason", async () => {
+    setSandboxRuntimeConfig({ provider: "cloudflare" })
+    setSandboxRuntimeRegistry({ example: definition })
+    const controller = new AbortController()
+    const reason = new DOMException("request disconnected", "AbortError")
+    controller.abort(reason)
+
+    await expect(runSandboxRuntime("example", undefined, { signal: controller.signal })).rejects.toBe(reason)
+    expect(runtimeMocks.open).not.toHaveBeenCalled()
+  })
+
   it("runs default Cloudflare executions in distinct Boxes", async () => {
     setSandboxRuntimeConfig({ provider: "cloudflare" })
     setSandboxRuntimeRegistry({ example: definition })
@@ -191,6 +224,36 @@ describe("Sandbox runtime lifecycle", () => {
     await Promise.all([first, second])
 
     expect(runtimeMocks.close).toHaveBeenCalledTimes(2)
+  })
+
+  it("keeps an aborted queued run from releasing a shared Box slot early", async () => {
+    setSandboxRuntimeConfig({ provider: "cloudflare", sandboxId: "shared" })
+    setSandboxRuntimeRegistry({ example: definition })
+    const releases: Array<() => void> = []
+    runtimeMocks.executeSandboxDefinition.mockImplementation(async () => await new Promise(resolve => {
+      releases.push(() => resolve({ ok: true }))
+    }))
+
+    const runner = await resolveSandboxRunner("example")
+    const first = runner.run()
+    await vi.waitFor(() => expect(runtimeMocks.open).toHaveBeenCalledOnce())
+    expect(runtimeMocks.open).toHaveBeenCalledWith({ id: "shared" })
+
+    const controller = new AbortController()
+    const second = runner.run(undefined, { signal: controller.signal })
+    const reason = new DOMException("request disconnected", "AbortError")
+    controller.abort(reason)
+    await expect(second).rejects.toBe(reason)
+
+    const third = runner.run()
+    await Promise.resolve()
+    expect(runtimeMocks.open).toHaveBeenCalledOnce()
+
+    releases.shift()?.()
+    await expect(first).resolves.toEqual({ ok: true })
+    await vi.waitFor(() => expect(runtimeMocks.open).toHaveBeenCalledTimes(2))
+    releases.shift()?.()
+    await expect(third).resolves.toEqual({ ok: true })
   })
 
   it("closes the Box session after failed definitions", async () => {

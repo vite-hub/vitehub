@@ -206,6 +206,28 @@ function createFakeSandbox(options: { execError?: Error, execResult?: SandboxExe
 }
 
 describe("executeSandboxDefinition", () => {
+  it("preserves an external abort reason while execution is running", async () => {
+    const { sandbox } = createFakeSandbox({ holdExecution: true })
+    const controller = new AbortController()
+    const reason = new DOMException("request disconnected", "AbortError")
+    const run = executeSandboxDefinition(
+      sandbox,
+      "release-notes",
+      undefined,
+      {
+        entry: "definition.mjs",
+        modules: { "definition.mjs": "export default async () => true" },
+      },
+      undefined,
+      undefined,
+      undefined,
+      controller.signal,
+    )
+
+    controller.abort(reason)
+    await expect(run).rejects.toBe(reason)
+  })
+
   it("does not cross the handler boundary when Definition staging fails", async () => {
     const { sandbox } = createFakeSandbox({ provider: "cloudflare" })
     const onHandlerStart = vi.fn()

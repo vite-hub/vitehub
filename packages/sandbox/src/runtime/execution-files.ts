@@ -49,7 +49,7 @@ function normalizeSandboxBundlePath(path: string) {
   return parts.join('/')
 }
 
-export async function writeSandboxDefinitionBundle(sandbox: SandboxExecutionBox, baseDir: string, bundle: SandboxDefinitionBundle) {
+export async function writeSandboxDefinitionBundle(sandbox: SandboxExecutionBox, baseDir: string, bundle: SandboxDefinitionBundle, signal?: AbortSignal) {
   const files = Object.entries({
     ...(bundle.project
       ? Object.fromEntries(Object.entries(bundle.project.files).map(([path, file]) => [path, Uint8Array.from(Buffer.from(file.contents, file.encoding))]))
@@ -59,14 +59,17 @@ export async function writeSandboxDefinitionBundle(sandbox: SandboxExecutionBox,
   const modes = Object.entries(bundle.project?.files || {})
     .filter(([, file]) => Boolean(file.mode))
     .map(([path, file]) => ({ mode: file.mode!, path: normalizeSandboxBundlePath(path) }))
-  await sandbox.files.remove(baseDir, { recursive: true })
-  await sandbox.files.mkdir(baseDir, { recursive: true })
+  await sandbox.files.remove(baseDir, { recursive: true, signal })
+  await sandbox.files.mkdir(baseDir, { recursive: true, signal })
   await Promise.all(files.map(async ({ path, source }) => {
     const parent = dirname(path)
-    if (parent !== '.') await sandbox.files.mkdir(`${baseDir}/${parent}`, { recursive: true })
-    await sandbox.files.write(`${baseDir}/${path}`, typeof source === 'string' ? new TextEncoder().encode(source) : source)
+    if (parent !== '.') await sandbox.files.mkdir(`${baseDir}/${parent}`, { recursive: true, signal })
+    await sandbox.files.write(`${baseDir}/${path}`, typeof source === 'string' ? new TextEncoder().encode(source) : source, { signal })
   }))
   await Promise.all(modes.map(async ({ mode, path }) => {
-    await sandbox.exec('chmod', [mode.toString(8), `${baseDir}/${path}`])
+    if (signal)
+      await sandbox.exec('chmod', [mode.toString(8), `${baseDir}/${path}`], { signal })
+    else
+      await sandbox.exec('chmod', [mode.toString(8), `${baseDir}/${path}`])
   }))
 }
