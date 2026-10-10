@@ -435,6 +435,7 @@ async function withProviderTimeout(
 function boundOutput(content: string, maxLength?: number): { content: string, truncated: boolean } {
   const limit = maxLength === undefined
     ? undefined
+    : maxLength === Number.POSITIVE_INFINITY ? undefined
     : Number.isFinite(maxLength) ? Math.max(0, Math.floor(maxLength)) : 0
   if (limit === undefined || content.length <= limit) return { content, truncated: false }
   return {

@@ -67,6 +67,7 @@ export async function runWorkspaceInspectionCommand(
 
 function normalizeOutputLength(value: number | undefined): number | undefined {
   if (value === undefined) return undefined
+  if (value === Number.POSITIVE_INFINITY) return undefined
   return Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0
 }
 

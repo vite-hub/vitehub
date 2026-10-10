@@ -131,6 +131,7 @@ describe("@vite-hub/shell just-bash runtime", () => {
 
   it.each([
     { maxOutputLength: undefined, stderr: "error-message", stdout: "output-message", limit: 100 },
+    { maxOutputLength: Number.POSITIVE_INFINITY, stderr: "error-message", stdout: "output-message", limit: 100 },
     { maxOutputLength: 0, stderr: "\n[output truncated to 0 characters]\n", stdout: "\n[output truncated to 0 characters]\n", limit: 0 },
     { maxOutputLength: -1, stderr: "\n[output truncated to 0 characters]\n", stdout: "\n[output truncated to 0 characters]\n", limit: 0 },
     { maxOutputLength: Number.NaN, stderr: "\n[output truncated to 0 characters]\n", stdout: "\n[output truncated to 0 characters]\n", limit: 0 },
