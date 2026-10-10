@@ -150,8 +150,15 @@ async function runControlledCurlCommand(
       body: parsed.body,
       method: parsed.method,
       url: parsed.url,
-      ...(options.signal ? { signal: options.signal } : {}),
     }
+    // Keep the cancellation signal on the request without changing the
+    // enumerable request shape used by Source descriptor matching and
+    // existing integrations.
+    if (options.signal) Object.defineProperty(request, "signal", {
+      configurable: true,
+      enumerable: false,
+      value: options.signal,
+    })
     const result = await options.networkGrants.executeSourceRequest(request)
     const stdout = typeof result.content === "string" ? result.content : new TextDecoder().decode(result.content)
     const bounded = boundOutput(stdout, options.maxOutputLength)
@@ -410,7 +417,6 @@ async function withProviderTimeout(
     if (typeof options.timeout === "number") {
       races.push(new Promise<ShellObservation>((resolve) => {
         timeout = setTimeout(() => {
-          controller.abort(new Error("Shell command timed out."))
           resolve({
             command,
             cwd: options.cwd,
@@ -420,6 +426,11 @@ async function withProviderTimeout(
             stdout: "",
             timedOut: true,
           })
+          // Resolve the structured timeout observation before aborting the
+          // provider. Some providers reject their running promise when the
+          // signal is aborted; resolving first ensures that rejection cannot
+          // win the race and replace the documented timeout result.
+          controller.abort(new Error("Shell command timed out."))
         }, options.timeout)
       }))
     }
