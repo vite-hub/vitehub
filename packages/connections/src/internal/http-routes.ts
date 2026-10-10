@@ -11,6 +11,7 @@ import type { ConnectionsAccess } from "./http-access.ts";
 
 const MAX_BODY_BYTES = 64 * 1024;
 const STATE_COOKIE = "vitehub_connection_state";
+const MAX_APPROVAL_COUNT_PAGES = 10_000;
 
 // Discovery preserves filesystem-valid characters, including symbols such as `+`.
 // Keep management validation in step with the generated registry.
@@ -285,11 +286,16 @@ const action: ConnectionsRoute = {
           const seenCursors = new Set<string>();
           const seenApprovalIds = new Set<string>();
           let count = 0;
+          let pageCount = 0;
           do {
             const result = await connections.approvals({ name: connection.name, status: "pending", before });
+            pageCount++;
             count += result.approvals.length;
             if (result.nextCursor && seenCursors.has(result.nextCursor)) {
               throw new ConnectionError("invalid", "Connections approval pagination did not advance.");
+            }
+            if (result.nextCursor && pageCount >= MAX_APPROVAL_COUNT_PAGES) {
+              throw new ConnectionError("invalid", "Connections approval pagination did not terminate.");
             }
             if (
               result.nextCursor &&

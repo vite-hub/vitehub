@@ -243,6 +243,37 @@ describe("createConnectionsHandler", () => {
     expect(approvals).toHaveBeenCalledTimes(1)
   })
 
+  it("rejects approval counts when a store returns endlessly distinct pages", async () => {
+    const test = createTestRuntime()
+    const approvals = vi.spyOn(test.runtime, "approvals").mockImplementation(async ({ before } = {}) => {
+      const index = before ? Number(before) + 1 : 0
+      return {
+        approvals: [{
+          action: "mail.messages.modify",
+          actor: "agent:test",
+          createdAt: new Date().toISOString(),
+          id: `approval-${index}`,
+          input: {},
+          name: "mail",
+          status: "pending",
+        }],
+        nextCursor: String(index),
+      }
+    })
+    const handler = createConnectionsHandler({ actor: () => "user:local", runtime: () => test.runtime })
+
+    const response = await handler(post({ action: "approval-counts" }))
+
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({
+      error: {
+        code: "CONNECTION_INVALID",
+        message: "Connections approval pagination did not terminate.",
+      },
+    })
+    expect(approvals).toHaveBeenCalledTimes(10_000)
+  })
+
   it("counts approval pages beyond the old pagination limit", async () => {
     const test = createTestRuntime()
     const approvals = vi.spyOn(test.runtime, "approvals").mockImplementation(async ({ before } = {}) => {
