@@ -10,8 +10,14 @@ import { hasRuntimeType, isRuntimeRecord } from "../../internal/runtime-type.ts"
 import { registerAgentProcessHostIntake, type AgentProcessHostContext, type AgentProcessHostInstance } from "../../agent-process-host.ts";
 import { createProcessAgentHost } from "../../runtime/process-host.ts";
 import { createGitHubAppCredentials, createGitHubHost, type GitHubAppEnvironment } from "../../server/github-host.ts";
+import { createBabysitterPreflight } from "./preflight.ts";
+import { babysitterQueueHealth } from "./queue-health.ts";
+import { agentBuildRevision } from "../../internal/build-revision.ts";
+import { fileURLToPath } from "node:url";
 import { createBabysitterRuntime } from "./server.ts";
 import { createBabysitterAdmission, resolveBabysitterAdmissionLimits, type BabysitterAdmissionOptions } from "./admission.ts";
+
+declare const __VITEHUB_AGENT_BUILD_REVISION__: string;
 
 /** Reads a plain or sealed Server Env value. */
 export function envString(value: unknown): string | undefined {
@@ -126,7 +132,7 @@ export async function sweepBabysitterWorkspaces(root = tmpdir(), startedAt = per
 /** Builds the GitHub host, process host, inbox, and reconciler for one discovered Babysitter Agent. */
 export async function createBabysitterProcessHost(context: AgentProcessHostContext): Promise<AgentProcessHostInstance> {
   // SAFETY: the Babysitter preset attaches this contribution only to its own configured definitions.
-  const agent = context.agent as AgentInput & { options: { filter: unknown; concurrency: number; driver?: string; admission: BabysitterAdmissionOptions; capacity?: import("../babysitter.ts").BabysitterOptions["capacity"] } };
+  const agent = context.agent as AgentInput & { options: { filter: unknown; concurrency: number; driver?: string; admission: BabysitterAdmissionOptions; install?: import("../babysitter.ts").BabysitterInstall; capacity?: import("../babysitter.ts").BabysitterOptions["capacity"] } };
   const repositories = babysitterRepositories(agent.options.filter);
   await cleanupLegacyBabysitterCheckouts(context.dataDir);
   const app = await readGitHubAppEnvironment();
@@ -153,10 +159,12 @@ export async function createBabysitterProcessHost(context: AgentProcessHostConte
     intervalMs: 10_000,
     run: async (reason, run, accepting) => await runtime?.reconcile(reason, run, accepting),
   });
+  const preflight = createBabysitterPreflight(agent.options.install ?? true);
+  const buildRevision = typeof __VITEHUB_AGENT_BUILD_REVISION__ === "undefined" ? agentBuildRevision(fileURLToPath(new URL("../../../", import.meta.url))) : __VITEHUB_AGENT_BUILD_REVISION__;
   const admission = createBabysitterAdmission({
     invocations: host.invocations,
     limits: resolveBabysitterAdmissionLimits(agent.options.admission),
-    check: agent.options.admission?.check,
+    check: async () => (await preflight()).pause ?? await agent.options.admission?.check?.(),
   });
   // Workers share the assigned journal and keep provider sessions in the host directory.
   const worker = defineAgent({
@@ -212,18 +220,16 @@ export async function createBabysitterProcessHost(context: AgentProcessHostConte
       const queue = await inbox.summary();
       const guard = await admission.health();
       const lastSkip = await inbox.meta("admission-skipped");
-      return { ...health, release: agent.version, concurrency: agent.options.concurrency, repositories, queue: {
-        working: queue.filter(item => item.status === "working").length,
-        ready: queue.filter(item => item.status === "ready" && item.dirty && !item.stackBlocked).length,
-        stackBlocked: queue.filter(item => item.stackBlocked).length,
-        waiting: queue.filter(item => item.status === "waiting").length,
-      }, admission: {
+      const prerequisites = await preflight();
+      return { ...health, status: prerequisites.pause ? "degraded" as const : health.status, diagnostics: [...health.diagnostics, ...prerequisites.diagnostics], release: agent.version, framework: { buildRevision }, concurrency: agent.options.concurrency, repositories, queue: babysitterQueueHealth(queue), admission: {
         accepting: guard.accepting,
         hostOnly: guard.hostOnly,
         reason: guard.reason,
         retryAt: guard.retryAt,
         detail: guard.detail,
+        // Retained for existing clients. lastSkip is historical; accepting is current.
         lastSkip,
+        history: { lastSkip },
       }, budget: {
         accounting: guard.accounting,
         observedAt: new Date(guard.observedAt).toISOString(),

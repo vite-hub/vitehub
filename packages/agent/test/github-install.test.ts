@@ -119,6 +119,7 @@ it("reports the trusted host Corepack prerequisite when Node does not provide it
   const root = await fixture();
   vi.stubEnv("PATH", join(root, "missing-host-tools"));
   await expect(installGitHubPullRequestWorkspace(root)).rejects.toThrow(/requires Corepack in PATH/);
+  await expect(installGitHubPullRequestWorkspace(root)).rejects.toMatchObject({ retryable: false, kind: "prerequisite" });
   expect(JSON.parse(await readFile(join(root, ".git", "vitehub-install.json"), "utf8"))).toMatchObject({ status: "failed" });
 });
 
@@ -471,7 +472,7 @@ mkdir -p node_modules
     for (let n = 0; n < 10; n++) await readFile(join(second, "package.json"));
     await vi.advanceTimersByTimeAsync(2 * 60_000 + 1);
     expect(settled).toBe(true);
-    expect(await observed).toBeInstanceOf(GitHubWorkspaceInstallError);
+    expect(await observed).toMatchObject({ retryable: true, kind: "capacity" });
     await expect(readFile(join(second, ".git", "args.txt"))).rejects.toThrow();
   } finally {
     vi.useRealTimers();

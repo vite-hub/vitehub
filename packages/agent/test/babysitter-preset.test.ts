@@ -1488,6 +1488,34 @@ describe("Babysitter preset runtime", () => {
     } finally { install.mockRestore(); await f.runtime.inbox.close(); }
   });
 
+  it("records installer capacity as preparation waiting without spending the model budget", async () => {
+    const f = await fixture(false, false, { gitWorkspace: true });
+    await writeFile(join(f.checkout, "package.json"), "{}");
+    const install = vi.spyOn(githubInstalls, "installGitHubPullRequestWorkspace")
+      .mockRejectedValueOnce(new githubInstalls.GitHubWorkspaceInstallError(new Error("Installer capacity is busy"), true, "capacity"));
+    try {
+      await f.reconcile();
+      const waiting = await f.runtime.inbox.get("acme/app", 12);
+      expect(waiting?.wait).toMatchObject({ kind: "external", reasonCode: "install-capacity", retryAt: expect.any(Number) });
+      expect(waiting?.progressBudget?.count ?? 0).toBe(0);
+      expect(f.passes).toHaveLength(0);
+      expect(f.errors).not.toHaveBeenCalled();
+      expect(f.events).toHaveBeenCalledWith("babysitter.install.waiting", expect.objectContaining({ reason: "install-capacity" }));
+    } finally { install.mockRestore(); await f.runtime.inbox.close(); }
+  });
+
+  it("keeps durable intake while a host prerequisite blocks model admission", async () => {
+    const f = await fixture(false, false, { admission: async () => ({ accepting: false, hostOnly: true, reason: "host-prerequisite", detail: "Install Corepack" }) });
+    try {
+      await f.reconcile();
+      expect(f.passes).toHaveLength(0);
+      await f.runtime.inbox.ingest("feedback-during-preflight", "issue_comment", { repository: { full_name: "acme/app" }, action: "created", issue: { number: 12, pull_request: {} }, comment: { id: 99, body: "Please fix this", user: { login: "maintainer" } } });
+      await f.reconcile();
+      expect(f.passes).toHaveLength(0);
+      expect((await f.runtime.inbox.get("acme/app", 12))?.comments["99"]?.body).toBe("Please fix this");
+    } finally { await f.runtime.inbox.close(); }
+  });
+
   it("parks a malformed lockfile without retrying unchanged installation inputs", async () => {
     const f = await fixture(false, false, { gitWorkspace: true });
     await writeFile(join(f.checkout, "package.json"), "{}");

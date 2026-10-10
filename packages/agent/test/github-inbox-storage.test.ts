@@ -62,7 +62,7 @@ it('keeps summaries equal to the stored snapshots after every mutation', async (
     const snapshots = await inbox.all()
     expect(await inbox.summary()).toEqual(snapshots.map(s => ({ repository: s.repository, number: s.number, head: s.pr?.head?.sha,
       generation: s.generation, handled: s.handled, status: s.status, reasons: s.reasons, wait: s.wait, dirty: s.generation > s.handled,
-      attempts: s.attempts, nextAt: s.nextAt, lastResult: s.lastResult, progressBudget: s.progressBudget })))
+      attempts: s.attempts, nextAt: s.nextAt, lastResult: s.lastResult, progressBudget: s.progressBudget, state: s.pr?.state ?? '', dirtyAt: s.dirtyAt })))
   }
   await inbox.seed(repository, pr(7)); await consistent()
   const [claim] = await inbox.claim(1); await consistent()
