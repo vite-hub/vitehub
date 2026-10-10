@@ -191,6 +191,14 @@ describe("Email development outbox", () => {
     expect(getEmailOutbox()?.list()[0]).toMatchObject({ delivery: { id: "re_1", status: "sent" }, id: "outbox-1", provider: "resend" })
   })
 
+  it("does not record malformed provider ids as sent", async () => {
+    const driver = providerDriver(() => ({ data: { at: new Date(), driver: "resend", id: "" }, error: null }))
+    const email = createEmail({ driver: () => createEmailDevOutboxDriver({ deliver: true, driver, provider: "resend" }) })
+
+    await expect(email.send(message)).rejects.toMatchObject({ code: "EMAIL_PROVIDER_FAILED" })
+    expect(getEmailOutbox()?.list()[0]?.delivery).toEqual({ error: { message: "Email driver returned an invalid message id." }, status: "failed" })
+  })
+
   it("resolves and initializes a provider for every generated factory send", async () => {
     const initialize = vi.fn()
     const factory = vi.fn(() => ({ ...providerDriver(), initialize }))
