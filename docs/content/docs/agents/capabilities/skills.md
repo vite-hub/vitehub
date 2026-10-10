@@ -96,6 +96,42 @@ Put model-facing guidance for a Skill in Agent Driver Instructions or in determi
 2. Check `warnings` for an `instruction-coverage:skill:<path>` entry. Add a `::skill{path="<path>"}` block to clear it.
 3. Remove the Skill file and run the Agent. Confirm that it fails before model execution with a Workspace path requirement error.
 
+Use a local Workspace to exercise both checks without changing the Agent's code. With the default Local Store, create `.vitehub/workspaces/support/skills/review/SKILL.md` and use this Agent:
+
+```ts [server/agents/support.ts]
+import { defineAgent } from 'vite-hub/agent'
+import { skills } from 'vite-hub/agent/capabilities'
+
+export default defineAgent({
+  driver: {
+    model: 'openai/gpt-5.1-mini',
+    instructions: '::skill{path="skills/review"}\nUse the review Skill.',
+  },
+  workspace: { name: 'support' },
+  capabilities: [
+    skills({ path: 'skills/review' }),
+  ],
+})
+```
+
+Start the Vite Development Server and inspect the Capability:
+
+```bash [Terminal]
+pnpm vitehub agent info --agent support --json \
+  | jq '.capabilities[] | select(.id == "skills") | .metadata'
+```
+
+The output includes the normalized paths:
+
+```json
+{
+  "path": "skills/review",
+  "skillPath": "skills/review/SKILL.md"
+}
+```
+
+Delete `.vitehub/workspaces/support/skills/review/SKILL.md`, then run `pnpm vitehub agent dev --agent support --prompt "check"`. The invocation must stop before model execution with `skills() requires workspace path skills/review/SKILL.md`.
+
 ## Options
 
 | Option | Type | Default | Description |

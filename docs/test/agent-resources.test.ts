@@ -6,6 +6,7 @@ const docsRoot = resolve(import.meta.dirname, "..");
 const contentRoot = resolve(docsRoot, "content/docs");
 const aiResourcesRoot = resolve(contentRoot, "getting-started", "ai-resources");
 const skillRoot = resolve(docsRoot, "skills/vitehub");
+const skillsCapabilityPage = resolve(contentRoot, "agents", "capabilities", "skills.md");
 
 function listFiles(root: string): string[] {
   return readdirSync(root)
@@ -104,5 +105,16 @@ describe("public ViteHub skill", () => {
       const sectionIndexPath = resolve(contentRoot, rawPath.replace(/\.md$/, "/index.md"));
       expect(existsSync(directPath) || existsSync(sectionIndexPath), rawPath).toBe(true);
     }
+  });
+});
+
+describe("skills() documentation", () => {
+  it("documents an inspectable path and missing-file smoke test", () => {
+    const page = readFileSync(skillsCapabilityPage, "utf8");
+
+    expect(page).toContain("pnpm vitehub agent info --agent support --json");
+    expect(page).toContain("select(.id == \"skills\") | .metadata");
+    expect(page).toContain('"skillPath": "skills/review/SKILL.md"');
+    expect(page).toContain("skills() requires workspace path skills/review/SKILL.md");
   });
 });
