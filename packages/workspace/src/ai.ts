@@ -646,7 +646,7 @@ export function createWorkspaceTools<Operations extends WorkspaceToolOperations 
   const result: Record<string, Tool<any, any>> = {}
 
   if (resolved.commands.length) {
-    result.shell = tool({
+    result.shell = Object.assign(tool({
       description: describeShellCommands(resolved.commands, {
         sourceRequests: resolved.commands.includes("curl"),
       }),
@@ -675,7 +675,7 @@ export function createWorkspaceTools<Operations extends WorkspaceToolOperations 
         shellCalls += 1
         return await runShellCommand(input, command, resolved)
       },
-    })
+    }), { metadata: { vitehubExecutionBudget: "handled" } })
   }
 
   if (resolved.materialize) {
