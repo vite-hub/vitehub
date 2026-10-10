@@ -3,6 +3,7 @@ import { createStorage } from "unstorage"
 import createDriver from "unstorage/drivers/cloudflare-kv-binding"
 import { normalizeKVListPrefix } from "./list-prefix.ts"
 import { kvErrorDiagnostics } from "../error-diagnostics.ts"
+import { createCursorHistory } from "./cursor-history.ts"
 
 import type { KVListOptions, KVListPage } from "../types.ts"
 import type { KVRuntimeDriver } from "./driver.ts"
@@ -47,20 +48,27 @@ function createCloudflareDriver(options: Record<string, unknown>): KVRuntimeDriv
     : options
   // SAFETY: The unstorage Cloudflare driver exposes getInstance and this adapter installs listKeys before returning.
   const driver = createDriver(driverOptions) as KVRuntimeDriver & { getInstance: () => CloudflareKVNamespace }
+  // Continuation state is keyed by the cursor that carries it. Consuming the
+  // state before awaiting the provider keeps concurrent traversals independent.
+  const cursorHistories = createCursorHistory()
   driver.listKeys = async ({ cursor, limit, prefix = "" }: KVListOptions): Promise<KVListPage> => {
     const listOptions: { cursor?: string; limit: number; prefix?: string } = { limit }
     if (cursor) listOptions.cursor = cursor
     if (prefix) listOptions.prefix = prefix
+    const continuation = cursor ? cursorHistories.take(cursor) : { providerCursor: undefined, history: new Set<string>() }
+    if (continuation.providerCursor) listOptions.cursor = continuation.providerCursor
+    const cursors = continuation.history
     const page = await driver.getInstance().list(listOptions)
     if (!isCloudflareKVListPage(page)) {
       throw kvErrorDiagnostics.KV_R0022({ message: "[vitehub] Cloudflare KV list returned an invalid page." })
     }
     const result: KVListPage = { keys: page.keys.map((key: { name: string }) => key.name) }
     if (!page.list_complete) {
-      if (cursor && page.cursor === cursor) {
-        throw kvErrorDiagnostics.KV_R0025({ message: "ViteHub rejected a non-progressing pagination cursor." })
+      if (cursors.has(page.cursor!)) {
+        throw kvErrorDiagnostics.KV_R0025({ message: "ViteHub rejected a repeated pagination cursor." })
       }
-      result.cursor = page.cursor
+      cursors.add(page.cursor!)
+      result.cursor = cursorHistories.store(page.cursor!, cursors)
     }
     return result
   }

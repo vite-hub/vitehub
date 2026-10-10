@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process"
-import { realpathSync } from "node:fs"
+import { existsSync, realpathSync } from "node:fs"
 import { cp, lstat, mkdir, mkdtemp, readFile, readlink, rename, rm, symlink, writeFile } from "node:fs/promises"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { tmpdir } from "node:os"
@@ -700,6 +700,35 @@ it("preserves workspace-relative imports from generated sources without their ow
 
   await expect(import(pathToFileURL(retained.resolve(entry)).href)).resolves.toMatchObject({ value: "retained" })
   await expect(readFile(retained.resolve(unrelatedOutput), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+})
+
+it("retains pnpm package roots referenced by generated Provider Output", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "vitehub-provider-pnpm-output-"))
+  tempDirs.push(workspace)
+  const rootDir = join(workspace, "app")
+  const packageRoot = join(rootDir, "node_modules", "parent", "node_modules", ".pnpm", "@vite-hub+database@fixture", "node_modules", "@vite-hub", "database")
+  const runtime = join(packageRoot, "dist", "runtime", "agent.js")
+  const entry = join(rootDir, ".vitehub", "database-generations", "one", "output", "cloudflare-runtime.mjs")
+  const outfile = join(workspace, "bundle.mjs")
+  await Promise.all([mkdir(dirname(entry), { recursive: true }), mkdir(dirname(runtime), { recursive: true })])
+  await Promise.all([
+    writeFile(join(rootDir, "package.json"), '{"type":"module"}\n'),
+    writeFile(join(packageRoot, "package.json"), '{"name":"@vite-hub/database","type":"module"}\n'),
+    writeFile(runtime, 'export const runtime = "retained"\n'),
+    writeFile(entry, `export { runtime } from ${JSON.stringify(relative(dirname(entry), runtime))}\n`),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "workflow-generations", "one", "sources"),
+    paths: [entry],
+    roots: [rootDir],
+  })
+  const retainedEntry = retained.resolve(entry)
+  const retainedPackageRoot = join(dirname(retainedEntry), "../../../../node_modules/parent/node_modules/.pnpm/@vite-hub+database@fixture")
+
+  expect(existsSync(retainedPackageRoot)).toBe(true)
+  await bundleEsmEntry(retainedEntry, outfile, { platform: "node" })
+  await expect(import(pathToFileURL(outfile).href)).resolves.toMatchObject({ runtime: "retained" })
 })
 
 it("retains only the requested UUID generation for a generated runtime alias", async () => {

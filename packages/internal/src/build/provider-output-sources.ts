@@ -706,6 +706,26 @@ function packageMetadataSourcesForPath(root: string, path: string): string[] {
   return sources
 }
 
+/**
+ * Generated Provider Output can import a package by the physical pnpm store path
+ * that Vite resolved during the source build. Retained source trees do not copy
+ * `node_modules/.pnpm`, so keep only the store package directories that the
+ * traced source graph actually references.
+ */
+function pnpmStorePackageRoot(root: string, source: string): string | undefined {
+  const segments = relative(root, source).split(sep)
+  let nodeModulesIndex = -1
+  for (let index = segments.length - 2; index >= 0; index -= 1) {
+    if (segments[index] === "node_modules" && segments[index + 1] === ".pnpm") {
+      nodeModulesIndex = index
+      break
+    }
+  }
+  if (nodeModulesIndex === -1) return
+  const packageName = segments[nodeModulesIndex + 2]
+  return packageName ? resolve(root, ...segments.slice(0, nodeModulesIndex + 3)) : undefined
+}
+
 function parseJsonWithComments(source: string): unknown {
   let output = ""
   let blockComment = false
@@ -1008,6 +1028,17 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
       for (const dependencies of dependencyRoots(root)) {
         await linkDependencies(dependencies, resolve(retainedRoot, "node_modules"), resolveRetainedDependencyTarget)
       }
+      const retainedPnpmPackages = new Set<string>()
+      for (const source of materializedSources) {
+        const packageRoot = pnpmStorePackageRoot(root, source)
+        if (packageRoot && existsSync(packageRoot)) retainedPnpmPackages.add(packageRoot)
+      }
+      await Promise.all([...retainedPnpmPackages].map(async (source) => {
+        const target = resolve(retainedRoot, relative(root, source))
+        if (existsSync(target)) return
+        await mkdir(dirname(target), { recursive: true })
+        await cp(realpathSync(source), target, { recursive: true })
+      }))
       for (const source of escapedMaterializedSources) {
         const sourceDirectory = statSync(source).isDirectory() ? source : dirname(source)
         for (const dependencies of dependencyRoots(sourceDirectory)) {

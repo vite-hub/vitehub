@@ -823,17 +823,29 @@ describe("kv runtime", () => {
     const driver = createDenoKVDriver()
 
     const first = await driver.listKeys({ limit: 2, prefix: "match" })
-    expect(first).toEqual({
-      keys: [],
-      cursor: "deno-next",
-    })
+    expect(first).toMatchObject({ keys: [], cursor: expect.any(String) })
     await expect(driver.listKeys({ cursor: first.cursor, limit: 2, prefix: "match" })).resolves.toEqual({
       keys: ["match-1", "match-2"],
-      cursor: "deno-after",
+      cursor: expect.any(String),
     })
     expect(list).toHaveBeenNthCalledWith(1, { prefix: [] }, { cursor: undefined, limit: 2 })
     expect(list).toHaveBeenNthCalledWith(2, { prefix: [] }, { cursor: "deno-next", limit: 2 })
     expect(list).toHaveBeenCalledTimes(2)
+  })
+
+  it("keeps Deno KV cursor history when a continuation changes prefix", async () => {
+    const list = vi.fn((_selector: { prefix: [] }, options: { cursor?: string; limit?: number } = {}) => {
+      const iterator = (async function* () { yield { key: ["match"], value: null } })()
+      return Object.assign(iterator, { cursor: options.cursor || "deno-next" })
+    })
+    ;(globalThis as typeof globalThis & { Deno?: unknown }).Deno = {
+      openKv: async () => ({ delete: vi.fn(), get: vi.fn(), list, set: vi.fn() }),
+    }
+    const { default: createDenoKVDriver } = await import("../src/runtime/deno-kv.ts")
+    const driver = createDenoKVDriver()
+
+    const first = await driver.listKeys({ limit: 1, prefix: "match" })
+    await expect(driver.listKeys({ cursor: first.cursor, limit: 1, prefix: "" })).rejects.toThrow("repeated pagination cursor")
   })
 
   it("rejects a Deno KV list cursor that does not advance", async () => {
