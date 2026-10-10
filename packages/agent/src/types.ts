@@ -11,6 +11,8 @@ import type {
   MaybePromise,
   MaybeResolvable,
   ExecutionAuthority,
+  ExecutionBudget,
+  ExecutionBudgetOptions,
   Resolvable,
   RuntimeCapabilities,
   RuntimeCapabilityHandle,
@@ -20,6 +22,7 @@ import type {
   OpenTelemetryLogRecordView,
   OpenTelemetrySpanView,
 } from "@vite-hub/runtime"
+
 import type {
   ReadonlyWorkspaceFacade,
   WritableWorkspaceFacade,
@@ -41,6 +44,8 @@ import type {
 } from "./channels.ts"
 
 export type {
+  ExecutionBudget,
+  ExecutionBudgetOptions,
   MaybePromise,
   MaybeResolvable,
   Resolvable,
@@ -234,6 +239,8 @@ export interface AgentRunInput<
   TData = unknown,
 > {
   abortSignal?: AbortSignal
+  /** Invocation-owned execution limits. The runtime creates one shared budget for the run. */
+  executionBudget?: Omit<ExecutionBudgetOptions, "signal">
   context?: TContext
   /**
    * Structured Invocation input. `defineAgent({ data })` validates it before Capabilities, hooks, and the Driver run.
@@ -1121,6 +1128,8 @@ export interface AgentCapabilityContext<
   Name extends WorkspaceName = WorkspaceName,
 > extends AgentAdapterMetadataContext<TRuntimeConfig, Name> {
   abortSignal?: AbortSignal
+  /** Shared limits owned by the enclosing Agent Invocation. */
+  executionBudget?: ExecutionBudget
   invocation?: { input: AgentCapabilityInputContext, kind?: "run" | "stream" }
   mode?: AgentCapabilityMode
   runtimeContext?: ResolvedAgentRuntimeContext
@@ -2802,6 +2811,7 @@ export interface AgentAdapterRunContext<
   context: AgentInvocationContextStore
   toolStepReporter?: AgentRuntimeContext<TRuntimeConfig>["toolStepReporter"]
   driverContributions?: AgentDriverContribution[]
+  executionBudget?: ExecutionBudget
   hasCapabilityCleanup?: boolean
   input: AgentRunInput<TOptions>
   instructions?: string

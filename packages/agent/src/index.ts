@@ -38,7 +38,7 @@ import {
 } from "./delivery-effects.ts"
 
 export { defineFinishEffect } from "./delivery-effects.ts"
-import { createExecutionContext, createRuntimeContext, createTraceEventLog, deriveTraceRuns, getViteHubErrorShape, isTraceContentAttributeKey, normalizeRuntimeDiagnosticError, traceEventsToOpenTelemetryLogRecords, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime"
+import { createExecutionBudget, createExecutionContext, createRuntimeContext, createTraceEventLog, deriveTraceRuns, getViteHubErrorShape, isTraceContentAttributeKey, normalizeRuntimeDiagnosticError, traceEventsToOpenTelemetryLogRecords, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime"
 import { isAmbiguousAgentWorkflowStartFailure } from "./internal/workflow-start.ts"
 import { agentTelemetryWorkspaceSources, getAgentTelemetryConfiguration, safeAgentTelemetryMetadata, setAgentTelemetryConfiguration } from "./internal/agent-telemetry.ts"
 import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
@@ -3420,6 +3420,7 @@ type AgentInvocationContext<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
 > = AgentRunContext<TRuntimeConfig, CALL_OPTIONS> & {
+  executionBudget: ReturnType<typeof createExecutionBudget>
   activity?: ActiveAgentActivity
   channels?: AgentChannels<TRuntimeConfig>
   close: () => Promise<void>
@@ -4360,6 +4361,11 @@ async function createAgentInvocationContext<
   invocationKind: "run" | "stream" = "run",
   invocationJournal?: AgentInvocationJournal<TRuntimeConfig>,
   invocationTools?: AgentToolSet,
+  executionBudget: ReturnType<typeof createExecutionBudget> = createExecutionBudget({
+    ...(input.executionBudget || {}),
+    ...(input.timeout !== undefined && input.executionBudget?.deadlineAt === undefined ? { deadlineAt: Date.now() + input.timeout } : {}),
+    signal: input.abortSignal,
+  }),
 ): Promise<AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS>> {
   const startedAt = Date.now()
   const replayHasContext = hasUnreplayableAgentInputContext(input.context)
@@ -4639,6 +4645,7 @@ async function createAgentInvocationContext<
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     const preparingCapabilities = resolveAgentCapabilities(capabilityOptions, runtimeContext, input, workspace as never, workspaceMode, {
       context: invocationContext,
+      executionBudget,
       deferPreparation: Boolean(internalDefinition?.[baseAgentIntercept]),
       driverKind,
       driver: agentDriver,
@@ -4647,6 +4654,7 @@ async function createAgentInvocationContext<
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       model: agentModel as never,
       resolveCapabilityCli,
+      executionBudget,
       workspaceDefinition: resolvedWorkspaceDefinition,
     })
     const knownUnavailable = (capabilities: Awaited<typeof preparingCapabilities>) => resolveReadiness().then(status => {
@@ -4873,6 +4881,7 @@ async function createAgentInvocationContext<
       channels: definition?.channels,
       close: capabilities.close,
       context: invocationContext,
+      executionBudget,
       deliveryEffectIntents: capabilities.registries.deliveryEffectIntents,
       durableErrorFallbackTimeout: (() => {
         const options = getChatCapabilityOptions(definition?.capabilities || [])
@@ -6911,9 +6920,10 @@ async function createAgentInvocationContextWithWorkflowFailureDelivery<
   kind: "run" | "stream",
   invocationJournal?: AgentInvocationJournal<TRuntimeConfig>,
   invocationTools?: AgentToolSet,
+  executionBudget?: ReturnType<typeof createExecutionBudget>,
 ): Promise<AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS>> {
   try {
-    return await createAgentInvocationContext(definition, context, input, kind, invocationJournal, invocationTools)
+    return await createAgentInvocationContext(definition, context, input, kind, invocationJournal, invocationTools, executionBudget)
   }
   catch (error) {
     try {
@@ -6938,6 +6948,7 @@ async function executeAgentInvocationWithCapacityLease<
   preparedInvocation?: AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS>,
   invocationJournal?: AgentInvocationJournal<TRuntimeConfig>,
   activity?: ActiveAgentActivity,
+  executionBudget?: ReturnType<typeof createExecutionBudget>,
 ): Promise<Response | AsyncIterable<StreamEvent> | unknown> {
   const customRun = hasCustomRun<TRuntimeConfig, CALL_OPTIONS>(agent)
   const definition = hasAgentDefinition(agent)
@@ -6945,7 +6956,7 @@ async function executeAgentInvocationWithCapacityLease<
     ? asUnknownBoundary(agent) as AgentDefinition<TRuntimeConfig, CALL_OPTIONS, any, any, TOutput>
     : undefined
   const invocation = preparedInvocation
-    ?? await createAgentInvocationContextWithWorkflowFailureDelivery(definition, context, input, options.kind, invocationJournal, options.tools)
+    ?? await createAgentInvocationContextWithWorkflowFailureDelivery(definition, context, input, options.kind, invocationJournal, options.tools, executionBudget)
   invocation.activity = activity
   const shouldHoldInvocationOutput = () => options.holdCapacity === true || shouldWrapInvocationOutput(invocation)
   const lifecycle = await openAgentInvocationLifecycle<AgentInvocationFinishOutcome>(
@@ -8046,6 +8057,11 @@ async function executeAgentInvocation<
     }
     markAgentInvocationCallerAbortSignal(input, callerAbortSignal)
   }
+  const executionBudget = createExecutionBudget({
+    ...(input.executionBudget || {}),
+    ...(input.timeout !== undefined && input.executionBudget?.deadlineAt === undefined ? { deadlineAt: Date.now() + input.timeout } : {}),
+    signal: input.abortSignal,
+  })
   let preparedInvocation: AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS> | undefined
   let release: (() => void) | undefined
   try {
@@ -8060,6 +8076,7 @@ async function executeAgentInvocation<
         options.kind,
         invocationJournal,
         options.tools,
+        executionBudget,
       )
     }
     if (preparedInvocation?.handledResponse) {
@@ -8067,7 +8084,7 @@ async function executeAgentInvocation<
       input.abortSignal?.throwIfAborted()
       if (invocationJournal && !runningPersisted && !invocationJournal.reusedTerminal) throw new Error("Could not persist the Invocation running state.")
       await activity?.update("running")
-      return await executeAgentInvocationWithCapacityLease(agent, context, input, options, preparedInvocation, invocationJournal, activity)
+      return await executeAgentInvocationWithCapacityLease(agent, context, input, options, preparedInvocation, invocationJournal, activity, executionBudget)
     }
     release = definition
       ? await acquireAgentCapacity(definition, input.abortSignal)
@@ -8091,7 +8108,7 @@ async function executeAgentInvocation<
       if (invocationJournal && !runningPersisted && !invocationJournal.reusedTerminal) throw new Error("Could not persist the Invocation running state.")
       await activity?.update("running")
       input.abortSignal?.throwIfAborted()
-      return await executeAgentInvocationWithCapacityLease(agent, context, input, options, preparedInvocation, invocationJournal, activity)
+      return await executeAgentInvocationWithCapacityLease(agent, context, input, options, preparedInvocation, invocationJournal, activity, executionBudget)
     }
     catch (error) {
       const status = invocationFailureWasCancelled(error, input.abortSignal) ? "cancelled" : "failed"
@@ -8124,7 +8141,7 @@ async function executeAgentInvocation<
           releaseOnce()
         }
       },
-    }, preparedInvocation, invocationJournal, activity)
+    }, preparedInvocation, invocationJournal, activity, executionBudget)
   }
   catch (error) {
     const status = invocationFailureWasCancelled(error, input.abortSignal) ? "cancelled" : "failed"

@@ -46,6 +46,7 @@ import type {
   AgentDriverContribution,
   AgentDriverContributionKind,
   AgentDriverKind,
+  ExecutionBudget,
   AgentFinishEvent,
   AgentFinishExtensionProvider,
   AgentHookObserverHooks,
@@ -169,6 +170,7 @@ export interface AgentCapabilityInvocationOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
 > {
+  executionBudget?: ExecutionBudget
   context?: AgentInvocationContextStore
   driverKind?: AgentDriverKind
   driver?: unknown
@@ -1354,6 +1356,7 @@ export async function resolveAgentCapabilities<
       ...agentInvocationCallbackContextValues(invocationContext),
       ...runtimeContext,
       abortSignal: currentInput.abortSignal,
+      executionBudget: invocationOptions.executionBudget,
       actor: invoker,
       context: invocationContext,
       driver: { kind: driverKind },
@@ -1391,6 +1394,7 @@ export async function resolveAgentCapabilities<
           ...agentInvocationCallbackContextValues(invocationContext),
           ...runtimeContext,
           abortSignal: currentInput.abortSignal,
+          executionBudget: invocationOptions.executionBudget,
           actor: invoker,
           context: invocationContext,
           driver: { kind: driverKind },

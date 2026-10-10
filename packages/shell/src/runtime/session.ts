@@ -76,12 +76,18 @@ class RuntimeShellSession implements ShellSession {
     }
 
     this.#shellCalls += 1
+    options.budget?.recordToolCall(new TextEncoder().encode(command).byteLength)
     const started = Date.now()
+    const signal = options.budget && options.signal
+      ? AbortSignal.any([options.signal, options.budget.signal])
+      : options.budget?.signal ?? options.signal
     const result = await this.provider.exec(command, {
       ...options,
       env: { ...this.env, ...options.env },
+      signal,
       timeout: options.timeout ?? this.policy.timeout,
     })
+    options.budget?.recordOutputBytes(new TextEncoder().encode(result.stdout).byteLength + new TextEncoder().encode(result.stderr).byteLength)
 
     const timedOut = result.timedOut
     return applyOutputLimit({

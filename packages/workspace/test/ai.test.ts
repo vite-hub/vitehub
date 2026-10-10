@@ -9,6 +9,7 @@ import { createWorkspace } from "../src/core/workspace.ts"
 
 import type { WorkspaceSession } from "../src/core/types.ts"
 import type { ShellExecutionProvider } from "@vite-hub/shell"
+import { createExecutionBudget } from "@vite-hub/runtime"
 
 function createAssets(files: Record<string, string | Uint8Array>) {
   return createWorkspaceAssets(Object.fromEntries(
@@ -217,14 +218,15 @@ describe("createWorkspaceTools", () => {
       close,
       exec,
     } as unknown as WorkspaceSession))
-    const tools = createWorkspaceTools(workspace)
+    const budget = createExecutionBudget()
+    const tools = createWorkspaceTools(workspace, { executionBudget: budget })
 
     await expect(runShell(tools, "rg orders models")).resolves.toMatchObject({
       exitCode: 0,
       stdout: "session:sh -lc rg orders models /workspace\n",
     })
     expect(workspace.startSession).toHaveBeenCalledWith({ paths: ["models"] })
-    expect(exec).toHaveBeenCalledWith("sh", ["-lc", "rg orders models"], expect.objectContaining({ cwd: "/workspace" }))
+    expect(exec).toHaveBeenCalledWith("sh", ["-lc", "rg orders models"], expect.objectContaining({ abortSignal: budget.signal, cwd: "/workspace" }))
     await expect(runShell(tools, "cat $(python -c 'print(\"models/orders.sql\")')")).resolves.toMatchObject({
       event: "policy_denied",
       exitCode: 126,
@@ -324,6 +326,15 @@ describe("createWorkspaceTools", () => {
     await expect(runShell(tools, "cat large.txt")).resolves.toMatchObject({
       stdout: "0123\n[output truncated to 4 characters]\n",
     })
+  })
+
+  it("spends one Invocation budget across Workspace Shell calls", async () => {
+    const tools = createWorkspaceTools(createAssets({ "README.md": "# Docs\n" }), {
+      executionBudget: createExecutionBudget({ maxToolCalls: 1 }),
+    })
+
+    await expect(runShell(tools, "cat README.md")).resolves.toMatchObject({ exitCode: 0 })
+    await expect(runShell(tools, "cat README.md")).rejects.toThrow("toolCalls")
   })
 
   it("accepts shell timeout through workspace tools", async () => {
