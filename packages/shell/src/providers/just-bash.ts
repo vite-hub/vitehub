@@ -30,6 +30,7 @@ export interface ShellNetworkGrantExecutor {
 export interface ShellNetworkRequest {
   body?: unknown
   method: "GET" | "HEAD" | "POST"
+  signal?: AbortSignal
   url: string
 }
 
@@ -69,6 +70,7 @@ export function createJustBashProvider(options: JustBashProviderOptions): ShellE
           commands,
           cwd,
           networkGrants,
+          signal: execOptions.signal,
         })
         if (curlResult) return curlResult
 
@@ -79,9 +81,12 @@ export function createJustBashProvider(options: JustBashProviderOptions): ShellE
           cwd,
           fs: options.fs,
         })
-        const signal = typeof execOptions.timeout === "number"
+        const timeoutSignal = typeof execOptions.timeout === "number"
           ? AbortSignal.timeout(execOptions.timeout)
           : undefined
+        const signal = timeoutSignal && execOptions.signal
+          ? AbortSignal.any([execOptions.signal, timeoutSignal])
+          : timeoutSignal ?? execOptions.signal
         return await bash.exec(command, {
           cwd,
           env: execOptions.env,
@@ -113,7 +118,7 @@ export function createJustBashProvider(options: JustBashProviderOptions): ShellE
 
 async function runControlledCurlCommand(
   command: string,
-  options: { commands?: string[], cwd?: string, networkGrants?: ShellNetworkGrantExecutor },
+  options: { commands?: string[], cwd?: string, networkGrants?: ShellNetworkGrantExecutor, signal?: AbortSignal },
 ): Promise<ShellObservation | undefined> {
   if (!mentionsCurlCommand(command)) return undefined
   if (options.commands && !options.commands.includes("curl")) {
@@ -130,6 +135,7 @@ async function runControlledCurlCommand(
     const result = await options.networkGrants.executeSourceRequest({
       body: parsed.body,
       method: parsed.method,
+      signal: options.signal,
       url: parsed.url,
     })
     return {
