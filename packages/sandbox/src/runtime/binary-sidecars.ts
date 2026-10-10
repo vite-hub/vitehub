@@ -207,12 +207,12 @@ export async function decodeSandboxValue(
       return Object.fromEntries(entries)
     }
 
-  if (descriptor.tag !== 'binary'
-    || !Number.isSafeInteger(descriptor.id)
-    || Object.is(descriptor.id, -0)
-    || (descriptor.id as number) < 0
-    || (descriptor.kind !== 'blob' && descriptor.kind !== 'buffer' && descriptor.kind !== 'uint8array')
-    || (typeof descriptor.type !== 'undefined' && typeof descriptor.type !== 'string')) {
+    if (descriptor.tag !== 'binary'
+      || !Number.isSafeInteger(descriptor.id)
+      || Object.is(descriptor.id, -0)
+      || (descriptor.id as number) < 0
+      || (descriptor.kind !== 'blob' && descriptor.kind !== 'buffer' && descriptor.kind !== 'uint8array')
+      || (typeof descriptor.type !== 'undefined' && typeof descriptor.type !== 'string')) {
       throw serializationError(`Sandbox ${label} contains an invalid binary sidecar descriptor.`, { label })
   }
 
