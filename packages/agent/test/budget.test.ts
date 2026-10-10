@@ -8,6 +8,66 @@ const runtime = () => ({
 })
 
 describe("budget Capability", () => {
+  it("accepts provider usage records backed by getters on a prototype", async () => {
+    const { budget } = await import("../src/capabilities.ts")
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    class ProviderUsageRecord {
+      get usage() {
+        return { inputTokens: 8, outputTokens: 4, totalTokens: 12 }
+      }
+
+      get cost() {
+        return { display: "$0.02", estimated: false, source: "provider", usd: "0.02" }
+      }
+    }
+    const agent = defineAgent({
+      capabilities: [budget({ tokens: 10, usd: "0.01", pricing: false })],
+      driver: {
+        run: () => ({ text: "ok", usageRecord: new ProviderUsageRecord() }),
+      },
+      hooks: { "agent:finish": finish },
+    })
+
+    await runAgent(agent, runtime(), { prompt: "hello" })
+    expect(finish.mock.calls[0]![0].extensions.get("budget")).toMatchObject({
+      exceeded: [
+        { metric: "totalTokens", actual: 12, limit: 10 },
+        { metric: "usd", actual: "0.02", limit: "0.01" },
+      ],
+    })
+  })
+
+  it("normalizes frozen records from a custom accessor prototype", async () => {
+    const { budget } = await import("../src/capabilities.ts")
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const prototype = {
+      get usage() {
+        return { inputTokens: 6, outputTokens: 6, totalTokens: 12 }
+      },
+      get cost() {
+        return { display: "$0.03", estimated: false, source: "provider", usd: "0.03" }
+      },
+    }
+    const usageRecord = Object.freeze(Object.create(prototype))
+    const agent = defineAgent({
+      capabilities: [budget({ tokens: { total: 11 }, usd: "0.02", pricing: false })],
+      driver: {
+        run: () => ({ text: "ok", usageRecord }),
+      },
+      hooks: { "agent:finish": finish },
+    })
+
+    await runAgent(agent, runtime(), { prompt: "hello" })
+    expect(finish.mock.calls[0]![0].extensions.get("budget")).toMatchObject({
+      exceeded: [
+        { metric: "totalTokens", actual: 12, limit: 11 },
+        { metric: "usd", actual: "0.03", limit: "0.02" },
+      ],
+    })
+  })
+
   it("reports token and provider cost exceedance", async () => {
     const { budget } = await import("../src/capabilities.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")
