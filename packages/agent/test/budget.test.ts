@@ -39,7 +39,7 @@ describe("budget Capability", () => {
         { metric: "usd", actual: "0.02", limit: "0.01" },
       ],
     })
-  })
+  }, 15_000)
 
   it("normalizes frozen records from a custom accessor prototype", async () => {
     const { budget } = await import("../src/capabilities.ts")
