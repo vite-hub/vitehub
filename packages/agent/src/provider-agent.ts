@@ -1381,12 +1381,15 @@ function providerReadinessCheck(value: unknown): AgentProviderReadinessCheck | u
   }
 }
 
-function providerModelCompatibility(snapshot: unknown, configuredModel: string | undefined): AgentProviderReadinessCheck | undefined {
+function providerModelCompatibility(snapshot: unknown, configuredModel: string | undefined, allowCatalog = true): AgentProviderReadinessCheck | undefined {
   if (!configuredModel) return undefined
   // SAFETY: provider-runtime snapshots are structurally extended with optional readiness evidence.
   const value = snapshot as ProviderReadinessSnapshot
   const explicit = providerReadinessCheck(value.modelCompatibility)
   if (explicit) return explicit
+  // Gateway endpoints may accept models that are absent from the runtime's
+  // built-in catalogue. Only explicit provider evidence can reject them.
+  if (!allowCatalog) return { status: "unknown", reason: "Provider does not report configured model compatibility." }
   if (!Array.isArray(value.models)) return { status: "unknown", reason: "Provider does not report configured model compatibility." }
   const model = value.models.find(model => {
     if (!isRuntimeRecord(model) || !hasRuntimeType(model.slug, "string")) return false
@@ -1501,7 +1504,7 @@ export async function inspectAgentProvider<TRuntimeConfig extends AgentRuntimeCo
     const requirementsUnknown = requirements.length > 0 && missingCommands === undefined
     const authenticated = snapshot.auth.status === "unknown" ? undefined : snapshot.auth.status === "authenticated"
     const exhausted = snapshot.usageLimits?.windows.some(window => window.usedPercent >= 100)
-    const modelCompatibility = providerModelCompatibility(snapshot, options.model)
+    const modelCompatibility = providerModelCompatibility(snapshot, options.model, options.gateway === undefined)
     // SAFETY: provider-runtime snapshots may expose the optional workspace-capacity evidence.
     const workspaceCapacity = providerReadinessCheck((snapshot as ProviderReadinessSnapshot).workspaceCapacity)
     const signalUnavailable = modelCompatibility?.status === "unavailable" || workspaceCapacity?.status === "unavailable"
@@ -1509,8 +1512,10 @@ export async function inspectAgentProvider<TRuntimeConfig extends AgentRuntimeCo
       || workspaceCapacity?.status === "unknown" || workspaceCapacity?.status === "unsupported"
     const unavailable = !snapshot.enabled || !snapshot.installed || authenticated === false || snapshot.status === "error" || exhausted || Boolean(missingCommands?.length) || signalUnavailable
     const readiness = unavailable ? "unavailable" : signalUnknown ? "unknown" : !requirementsUnknown && authenticated === true && snapshot.status === "ready" && snapshot.usageLimits && !snapshot.usageLimits.unavailable ? "ready" : "unknown"
-    const signalReason = modelCompatibility?.status === "unavailable" ? modelCompatibility.reason
-      : workspaceCapacity?.status === "unavailable" ? workspaceCapacity.reason
+    const signalReason = modelCompatibility?.status === "unavailable"
+      ? modelCompatibility.reason || "Configured model is unavailable."
+      : workspaceCapacity?.status === "unavailable"
+        ? workspaceCapacity.reason || "Workspace capacity is unavailable."
         : undefined
     const result: AgentProviderStatus = {
       agent: context.agentIdentity?.name ?? "agent", provider: options.provider,

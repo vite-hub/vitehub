@@ -87,6 +87,14 @@ const providerStatusSchema = v.object({
       checkedAt: v.string(),
       stale: v.boolean(),
       reason: v.optional(v.string()),
+      modelCompatibility: v.optional(v.object({
+        status: v.picklist(["ready", "unavailable", "unknown", "unsupported"]),
+        reason: v.optional(v.string()),
+      })),
+      workspaceCapacity: v.optional(v.object({
+        status: v.picklist(["ready", "unavailable", "unknown", "unsupported"]),
+        reason: v.optional(v.string()),
+      })),
       installed: v.optional(v.boolean()),
       authenticated: v.optional(v.boolean()),
       usageLimits: v.optional(
@@ -932,6 +940,12 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
                 >
               </div>
               <p v-if="status.reason" class="text-xs text-muted">{{ status.reason }}</p>
+              <p v-if="status.modelCompatibility" class="text-xs text-muted">
+                Model compatibility: {{ status.modelCompatibility.reason || status.modelCompatibility.status }}
+              </p>
+              <p v-if="status.workspaceCapacity" class="text-xs text-muted">
+                Workspace capacity: {{ status.workspaceCapacity.reason || status.workspaceCapacity.status }}
+              </p>
               <div class="flex flex-wrap gap-3 text-xs text-muted">
                 <span v-if="status.authenticated !== undefined"
                   >Account: {{ status.authenticated ? "Signed in" : "Signed out" }}</span
