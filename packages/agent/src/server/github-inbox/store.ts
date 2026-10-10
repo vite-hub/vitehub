@@ -38,6 +38,7 @@ export interface GitHubInboxSummary {
   repository: string; number: number; head?: string; generation: number; handled: number; status: Snapshot['status']; reasons: string[]
   wait?: PullRequestWait
   dirty: boolean; attempts: number; nextAt: number; lastResult?: string; progressBudget?: ProgressBudget
+  state?: string; dirtyAt?: number
   stackBlocked?: boolean; stackParent?: { number: number; state: string }
 }
 export type Claim = { token: string; generation: number; snapshot: Snapshot; runId?: string; startedAt?: number; activity?: AgentRunActivity }
@@ -1237,13 +1238,13 @@ export class PullRequestInbox {
   async summary(): Promise<GitHubInboxSummary[]> {
     if (!this.repositories.length) return []
     const repositories = this.repositoryFilter()
-    const rows = await this.read(`SELECT p.summary, (SELECT parent.number FROM ${this.tables.pullRequests} parent
+    const rows = await this.read(`SELECT p.summary, p.state, p.dirty_at, (SELECT parent.number FROM ${this.tables.pullRequests} parent
       WHERE parent.scope=p.scope AND parent.repository=p.repository AND parent.number<>p.number
         AND parent.state='open' AND parent.head_ref=p.base_ref
         AND json_extract(parent.value, '$.pr.head.repo.full_name') = COALESCE(json_extract(p.value, '$.pr.base.repo.full_name'), p.repository) COLLATE NOCASE ORDER BY parent.number LIMIT 1) AS stack_parent
       FROM ${this.tables.pullRequests} p WHERE p.scope=? AND p.${repositories.sql} ORDER BY p.repository, p.number`, [this.scope, ...repositories.args])
     return rows.map(row => {
-      const summary = parseSummary(JSON.parse(stringValue(row.summary)))
+      const summary = { ...parseSummary(JSON.parse(stringValue(row.summary))), state: stringValue(row.state), dirtyAt: Number(row.dirty_at) }
       if (summary.status !== 'ready' || !summary.dirty || row.stack_parent === null || row.stack_parent === undefined) return summary
       return { ...summary, stackBlocked: true, stackParent: { number: Number(row.stack_parent), state: 'open' } }
     })

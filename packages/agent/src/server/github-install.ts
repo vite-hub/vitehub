@@ -16,7 +16,7 @@ const exists = async (path: string) => await access(path).then(() => true, () =>
 const isSystemError = (error: unknown) => v.safeParse(systemError, error).success;
 
 export class GitHubWorkspaceInstallError extends Error {
-  constructor(cause: unknown, readonly retryable = true) { super(`Frozen dependency installation failed: ${cause instanceof Error ? cause.message : String(cause)}`, { cause }); }
+  constructor(cause: unknown, readonly retryable = true, readonly kind: "capacity" | "prerequisite" | "input" | "command" | "filesystem" = "command") { super(`Frozen dependency installation failed: ${cause instanceof Error ? cause.message : String(cause)}`, { cause }); }
 }
 
 /** Trusted host hook for dependency caching; commands and inputs have already been validated. */
@@ -43,7 +43,7 @@ export async function installGitHubPullRequestWorkspace(target: string, signal?:
     await Promise.race([
       previous,
       new Promise<never>((_resolve, reject) => {
-        queueTimeout = setTimeout(() => reject(new GitHubWorkspaceInstallError(new Error("Dependency installer capacity remained busy for two minutes; retry when capacity is available."))), 2 * 60_000);
+        queueTimeout = setTimeout(() => reject(new GitHubWorkspaceInstallError(new Error("Dependency installer capacity remained busy for two minutes; retry when capacity is available."), true, "capacity")), 2 * 60_000);
       }),
       new Promise<never>((_resolve, reject) => {
         abort = () => reject(signal?.reason ?? new DOMException("Installation cancelled.", "AbortError"));
@@ -77,6 +77,7 @@ async function installWorkspace(target: string, signal?: AbortSignal, run?: GitH
   let yarnConfig: string | undefined;
   let snapshot: Awaited<ReturnType<typeof createGitHubInstallSnapshot>> | undefined;
   let retryable = false;
+  let kind: GitHubWorkspaceInstallError["kind"] = "input";
   try {
     snapshot = await createGitHubInstallSnapshot(target);
     const source = snapshot.directory;
@@ -131,12 +132,15 @@ async function installWorkspace(target: string, signal?: AbortSignal, run?: GitH
     // Input validation needs changed PR evidence. Commands can fail while the
     // registry or host is temporarily unavailable and retain their retry path.
     retryable = true;
+    kind = "command";
     try {
       if (run) runMetadata = await run({ cwd: source, command: [command, ...args], env, fingerprint });
       else await exec(command, args, { cwd: source, env, signal, timeout: 10 * 60_000, maxBuffer: 4 * 1024 * 1024 });
     }
     catch (error) {
       if (error instanceof Error && "code" in error && error.code === "ENOENT" && command === "corepack") {
+        retryable = false;
+        kind = "prerequisite";
         throw new Error("Babysitter host installation requires Corepack in PATH. Install Corepack on the trusted host; Node 25 and newer do not bundle it.", { cause: error });
       }
       throw error;
@@ -155,7 +159,7 @@ async function installWorkspace(target: string, signal?: AbortSignal, run?: GitH
     await writeFile(record, JSON.stringify({ status: "failed", command: command ? [command, ...args] : undefined, at: new Date().toISOString(), reason })).catch(() => undefined);
     if (signal?.aborted) throw error;
     // Filesystem errors remain recoverable even when they occur during input validation.
-    throw new GitHubWorkspaceInstallError(error, retryable || isSystemError(error));
+    throw new GitHubWorkspaceInstallError(error, retryable || isSystemError(error), isSystemError(error) ? "filesystem" : kind);
   } finally {
     try {
       try { if (yarnConfig) await rm(yarnConfig, { force: true }); }

@@ -1479,9 +1479,11 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
             const wait = createCheckWait(inboxClaim.snapshot, waitPolicy);
             wait.kind = "external";
             wait.reason = error.message;
+            wait.reasonCode = `install-${error.kind}`;
             if (error.retryable) wait.retryAt = Date.now() + 300_000;
             await pullRequestInbox.finish(inboxClaim, { text: error.message, wait });
-            schedulerError("babysitter.install.failed", error, owner);
+            if (error.kind === "capacity") schedulerEvent("babysitter.install.waiting", { ...owner, reason: "install-capacity", retryAt: wait.retryAt });
+            else schedulerError("babysitter.install.failed", error, { ...owner, reason: wait.reasonCode });
             return;
           }
           if (pushedHead && (await pullRequestInbox.get(repository, number))?.status !== "terminal") {
