@@ -168,15 +168,15 @@ describe("runtime preflight", () => {
     let checkSignal: AbortSignal | undefined
     const late = new Promise<never>((_, reject) => { rejectLate = reject })
     const manifest = await runRuntimePreflight({
-      // Leave enough scheduling headroom for the callback to start before the
+      // Leave a wide scheduling margin for the callback to start before the
       // timeout while keeping the synchronous work over budget.
-      timeoutMs: 10,
+      timeoutMs: 100,
       checks: [{
         id: "command:blocking-promise",
         kind: "command",
         check: ({ signal }) => {
           checkSignal = signal
-          const until = Date.now() + 15
+          const until = Date.now() + 150
           while (Date.now() < until) {}
           return late
         },
