@@ -215,6 +215,26 @@ describe("createConnectionsHandler", () => {
     expect(approvals).toHaveBeenCalledTimes(2)
   })
 
+  it("rejects approval counts when a store never terminates pagination", async () => {
+    const test = createTestRuntime()
+    const approvals = vi.spyOn(test.runtime, "approvals").mockImplementation(async ({ before } = {}) => ({
+      approvals: [],
+      nextCursor: `${before ?? "cursor"}-next`,
+    }))
+    const handler = createConnectionsHandler({ actor: () => "user:local", runtime: () => test.runtime })
+
+    const response = await handler(post({ action: "approval-counts" }))
+
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({
+      error: {
+        code: "CONNECTION_INVALID",
+        message: "Connections approval pagination exceeded the page limit.",
+      },
+    })
+    expect(approvals).toHaveBeenCalledTimes(1_000)
+  })
+
   it("rejects cross-origin, non-JSON, and invalid requests", async () => {
     const test = createTestRuntime();
     const handler = createConnectionsHandler({
