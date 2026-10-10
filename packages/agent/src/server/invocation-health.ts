@@ -25,6 +25,7 @@ export async function failInterruptedAgentInvocations(
   let failed = 0
   const blocked: (AgentInvocationSummary & { blockedClaimToken: string })[] = []
   const seenCursors = new Set<string>()
+  let paginationError: Error | undefined
   const fail = async (invocation: AgentInvocationSummary, replaceClaimToken?: string): Promise<boolean> => {
     const claimId = `recovery_${globalThis.crypto.randomUUID()}`
     if (!await store.claim(invocation.id, claimId, claimLeaseMs,
@@ -44,7 +45,8 @@ export async function failInterruptedAgentInvocations(
   do {
     const records = await store.list({ cursor, limit, status: ["pending", "running"], ...(options.agentName ? { agentName: options.agentName } : {}) })
     if (records.cursor && seenCursors.has(records.cursor)) {
-      throw new Error("[vitehub] Agent Invocation listing returned a repeated pagination cursor.")
+      paginationError = new Error("[vitehub] Agent Invocation listing returned a repeated pagination cursor.")
+      break
     }
     if (records.cursor) seenCursors.add(records.cursor)
     for (const invocation of records.invocations) {
@@ -65,6 +67,7 @@ export async function failInterruptedAgentInvocations(
         && await options.recover(current) && await fail(current, invocation.blockedClaimToken)) failed += 1
     }
   }
+  if (paginationError) throw paginationError
   return failed
 }
 
