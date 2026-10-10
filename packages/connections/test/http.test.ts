@@ -195,6 +195,111 @@ describe("createConnectionsHandler", () => {
     expect(await counts.json()).toEqual({ counts: { mail: 1 } })
   })
 
+  it("rejects approval counts when a store repeats a pagination cursor", async () => {
+    const test = createTestRuntime()
+    const approvals = vi.spyOn(test.runtime, "approvals").mockResolvedValue({
+      approvals: [{
+        action: "mail.messages.modify",
+        actor: "agent:test",
+        createdAt: new Date().toISOString(),
+        id: "same-approval",
+        input: {},
+        name: "mail",
+        status: "pending",
+      }],
+      nextCursor: "same-cursor",
+    })
+    const handler = createConnectionsHandler({ actor: () => "user:local", runtime: () => test.runtime })
+
+    const response = await handler(post({ action: "approval-counts" }))
+
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({
+      error: {
+        code: "CONNECTION_INVALID",
+        message: "Connections approval pagination did not advance.",
+      },
+    })
+    expect(approvals).toHaveBeenCalledTimes(2)
+  })
+
+  it("rejects approval counts when a store never terminates pagination", async () => {
+    const test = createTestRuntime()
+    const approvals = vi.spyOn(test.runtime, "approvals").mockImplementation(async ({ before } = {}) => ({
+      approvals: [],
+      nextCursor: `${before ?? "cursor"}-next`,
+    }))
+    const handler = createConnectionsHandler({ actor: () => "user:local", runtime: () => test.runtime })
+
+    const response = await handler(post({ action: "approval-counts" }))
+
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({
+      error: {
+        code: "CONNECTION_INVALID",
+        message: "Connections approval pagination did not advance.",
+      },
+    })
+    expect(approvals).toHaveBeenCalledTimes(1)
+  })
+
+  it("rejects approval counts when a store returns endlessly distinct pages", async () => {
+    const test = createTestRuntime()
+    const approvals = vi.spyOn(test.runtime, "approvals").mockImplementation(async ({ before } = {}) => {
+      const index = before ? Number(before) + 1 : 0
+      return {
+        approvals: [{
+          action: "mail.messages.modify",
+          actor: "agent:test",
+          createdAt: new Date().toISOString(),
+          id: `approval-${index}`,
+          input: {},
+          name: "mail",
+          status: "pending",
+        }],
+        nextCursor: String(index),
+      }
+    })
+    const handler = createConnectionsHandler({ actor: () => "user:local", runtime: () => test.runtime })
+
+    const response = await handler(post({ action: "approval-counts" }))
+
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({
+      error: {
+        code: "CONNECTION_INVALID",
+        message: "Connections approval pagination did not terminate.",
+      },
+    })
+    expect(approvals).toHaveBeenCalledTimes(10_000)
+  })
+
+  it("counts approval pages beyond the old pagination limit", async () => {
+    const test = createTestRuntime()
+    const approvals = vi.spyOn(test.runtime, "approvals").mockImplementation(async ({ before } = {}) => {
+      const index = before ? Number(before) + 1 : 0
+      return {
+        approvals: [{
+          action: "mail.messages.modify",
+          actor: "agent:test",
+          createdAt: new Date().toISOString(),
+          id: String(index),
+          input: {},
+          name: "mail",
+          status: "pending",
+        }],
+        ...(index < 1_000 ? { nextCursor: String(index) } : {}),
+      }
+    })
+    const handler = createConnectionsHandler({ actor: () => "user:local", runtime: () => test.runtime })
+
+    const response = await handler(post({ action: "approval-counts" }))
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ counts: { mail: 1_001 } })
+    expect(approvals).toHaveBeenCalledTimes(1_001)
+  })
+
   it("rejects cross-origin, non-JSON, and invalid requests", async () => {
     const test = createTestRuntime();
     const handler = createConnectionsHandler({
