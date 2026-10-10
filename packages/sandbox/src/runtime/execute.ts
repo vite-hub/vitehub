@@ -101,7 +101,7 @@ async function executeSandboxDefinitionOnce<TPayload>(
         signal,
         timeout: definitionOptions?.timeout,
       })
-      outputRaw = await readExecOutputWithRecovery(sandbox, files.outputPath, execution, definitionOptions?.timeout, execution)
+      outputRaw = await readExecOutputWithRecovery(sandbox, files.outputPath, execution, definitionOptions?.timeout, execution, signal)
     }
     catch (error) {
       throwIfAborted()
@@ -109,10 +109,10 @@ async function executeSandboxDefinitionOnce<TPayload>(
         throw error
 
       if (execution) {
-        outputRaw = await readExecOutputWithRecovery(sandbox, files.outputPath, error, definitionOptions?.timeout, execution)
+        outputRaw = await readExecOutputWithRecovery(sandbox, files.outputPath, error, definitionOptions?.timeout, execution, signal)
       }
       else {
-        const recoveredOutput = await recoverExecOutput(sandbox, files.outputPath, error, definitionOptions?.timeout, execution)
+        const recoveredOutput = await recoverExecOutput(sandbox, files.outputPath, error, definitionOptions?.timeout, execution, signal)
         if (recoveredOutput == null)
           throw error
 
@@ -131,7 +131,7 @@ async function executeSandboxDefinitionOnce<TPayload>(
     }
 
     if (output.ok)
-      return await decodeSandboxValue(sandbox, output.result, files.outputAssetsDir, 'result')
+      return await decodeSandboxValue(sandbox, output.result, files.outputAssetsDir, 'result', signal)
 
     throw createHandlerError(output.error?.message || 'Sandbox definition failed.', sandbox.provider, {
       name: output.error?.name,
