@@ -139,7 +139,7 @@ function invocationDatabase(database: RuntimeDatabase): InvocationDatabase {
 /** Agent Invocation store backed by a ViteHub SQLite database. It creates its table on first use. */
 export function createDatabaseAgentInvocationStore(options: DatabaseAgentInvocationStoreOptions = {}): AgentInvocationStore {
   const { database: name = "default", ...storeOptions } = options
-  let adapter: InvocationDatabase | undefined
+  const adapters = new WeakMap<object, InvocationDatabase>()
   return createD1AgentInvocationStore({
     ...storeOptions,
     async database() {
@@ -149,8 +149,13 @@ export function createDatabaseAgentInvocationStore(options: DatabaseAgentInvocat
       const runtime = entry.db
       // Runtime proxies can change drivers between requests; validate each operation before any writes.
       for (const rows of await runBatch(runtime, [sql`SELECT 1 AS vitehub_probe`])) statementResult(rows)
-      adapter ??= invocationDatabase(runtime)
-      if (!adapter) throw new TypeError("[vitehub] Database Agent Invocation adapter was not initialized.")
+      const client = runtime.$client
+      const identity = isRecord(client) ? client : runtime
+      let adapter = adapters.get(identity)
+      if (!adapter) {
+        adapter = invocationDatabase(runtime)
+        adapters.set(identity, adapter)
+      }
       return adapter
     },
   })
