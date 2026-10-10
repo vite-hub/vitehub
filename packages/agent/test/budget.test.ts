@@ -7,6 +7,9 @@ const runtime = () => ({
   waitUntil: vi.fn(),
 })
 
+const record = (value: unknown): Record<string, unknown> | undefined =>
+  value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined
+
 describe("budget Capability", () => {
   it("accepts provider usage records backed by getters on a prototype", async () => {
     const { budget } = await import("../src/capabilities.ts")
@@ -108,8 +111,10 @@ describe("budget Capability", () => {
 
     const error = await runAgent(agent, runtime(), { prompt: "hello" }).catch(error => error)
     expect(error).toMatchObject({ code: "AGENT_BUDGET_EXCEEDED", details: { limits: { tokens: { total: 10 } } } })
-    expect(Object.hasOwn(error.details.limits.tokens, "input")).toBe(false)
-    expect(Object.hasOwn(error.details.limits.tokens, "output")).toBe(false)
+    const limits = record(record(error)?.details)?.limits
+    const tokens = record(limits)?.tokens
+    expect(Object.hasOwn(record(tokens) || {}, "input")).toBe(false)
+    expect(Object.hasOwn(record(tokens) || {}, "output")).toBe(false)
   })
 
   it("accepts numeric USD limits that use scientific notation", async () => {
