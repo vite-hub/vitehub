@@ -1132,6 +1132,62 @@ describe("Babysitter preset runtime", () => {
     } finally { vi.useRealTimers(); await f.runtime.inbox.close(); }
   });
 
+  it("observes normalization in the provider schema and retains verified publication", async () => {
+    const f = await fixture(false, false, {
+      result: {
+        disposition: "park",
+        text: "Repair published",
+        wait: { kind: "checks" },
+        reviewedHead: "invalid",
+      },
+    });
+    f.choose("pushRepair");
+    try {
+      await f.reconcile();
+      expect(f.events).toHaveBeenCalledWith(
+        "babysitter.result.normalized",
+        expect.objectContaining({ code: "invalid-wait", field: "wait" }),
+      );
+      expect(f.events).toHaveBeenCalledWith(
+        "babysitter.result.normalized",
+        expect.objectContaining({ code: "invalid-reviewed-head" }),
+      );
+      expect((await f.runtime.inbox.get("acme/app", 12))?.wait?.headSha).toBe("b".repeat(40));
+      expect(f.passes).toHaveLength(1);
+      await f.reconcile();
+      expect(f.passes).toHaveLength(1);
+    } finally {
+      await f.runtime.inbox.close();
+    }
+  });
+
+  it("reports a valid stale assessment even when the pass records an external wait", async () => {
+    const f = await fixture(false, false, { result: {
+      disposition: "park", text: "Waiting on permission",
+      reviewedHead: "c".repeat(40),
+      wait: { kind: "external", reason: "Actions permission", wake: ["comment"] },
+    } });
+    try {
+      await f.reconcile();
+      expect(f.events).toHaveBeenCalledWith("babysitter.result.stale_assessment", expect.objectContaining({ reviewed_head: "c".repeat(40), head_sha: "a".repeat(40) }));
+      expect((await f.runtime.inbox.get("acme/app", 12))?.status).toBe("waiting");
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("records a park without assessment or wake as an observable retry", async () => {
+    const f = await fixture();
+    try {
+      await f.reconcile();
+      expect(f.events).toHaveBeenCalledWith(
+        "babysitter.result.unqualified_park",
+        expect.objectContaining({ head_sha: "a".repeat(40) }),
+      );
+      expect((await f.runtime.inbox.get("acme/app", 12))?.status).toBe("ready");
+    } finally {
+      await f.runtime.inbox.close();
+    }
+  });
+
   it("preserves the dependency installation opt-out in the configured preset", () => {
     const agent = defineAgent({ extends: babysitter, options: { install: false } });
     expect(agent.install).toBe(false);

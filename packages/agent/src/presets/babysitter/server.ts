@@ -40,13 +40,14 @@ import type { Claim, PullRequestInboxStorage, ReadGraphql, Snapshot } from "../.
 import { hydrateFailedCiEvidence } from "../../server/github-inbox/ci-evidence.ts";
 import type { PullRequestWake } from "../../server/github-inbox/wait-state.ts";
 import { createHash } from "node:crypto";
-import { babysitterPassResultSchema, resolveBabysitterLifecycleFilter } from "../babysitter.ts";
+import { resolveBabysitterLifecycleFilter } from "../babysitter.ts";
 import type { BabysitterAgent, BabysitterPassResult } from "../babysitter.ts";
 import { asMetadataTarget, copyDefinitionDecorations, getAgentLayerOptions } from "../../agent-layers.ts";
 import { importBoxCommit } from "./box-commit.ts";
 import { createProviderHeadReader } from "./checkout-watch.ts";
 import { importBoxRepairFiles, importBoxRepairWorkspace, publishBoxDependencies } from "./box-repair.ts";
 import { activeProviderBox } from "../../internal/provider-box.ts";
+import { createBabysitterPassResultSchema } from "./result.ts";
 import { repairCapability, repairEnvironment } from "./repair.ts";
 import { createGitHubRequiredCheckPolicyReader, evaluateGitHubRequiredChecks } from "../../server/github-required-checks.ts";
 import { directMergeReadiness, feedbackFingerprints, liveMergeReadiness, resolveBabysitterMerge, snapshotCheckEvidence, mergeReviewEvidenceKey } from "./merge.ts";
@@ -805,6 +806,9 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
         let disposition: BabysitterPassResult["disposition"] | undefined;
         let resultText = "";
         let passResult: BabysitterPassResult | undefined;
+        const passResultSchema = createBabysitterPassResultSchema(diagnostic => {
+          schedulerEvent("babysitter.result.normalized", { ...owner, ...diagnostic });
+        });
         let pushSucceeded = false;
         let pushedHead: string | undefined;
         const verifiedPushHeads = new Set<string>();
@@ -1339,6 +1343,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                 capabilities: workerCapabilities as never,
                 driver: {
                   ...workerDriver,
+                  output: { ...workerDriver.output, schema: passResultSchema },
                   // Match the preset: unattended passes cannot escalate native
                   // permissions. Repair tools remain authorized by the host.
                   permissions: "allow-edits-unattended" as const,
@@ -1418,10 +1423,11 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                   { schedule: { ...schedule, runId }, output: "drained" },
                 );
               }, abortSignal);
-              const validated = babysitterPassResultSchema["~standard"].validate(result);
+              const validated = passResultSchema["~standard"].validate(result);
               if ("issues" in validated)
                 throw new Error("Babysitter returned an invalid pass result.");
               passResult = validated.value;
+              if (passResult?.reviewedHead && passResult.reviewedHead !== pullRequest.headRefOid) schedulerEvent("babysitter.result.stale_assessment", { ...owner, reviewed_head: passResult.reviewedHead, head_sha: pullRequest.headRefOid });
               disposition = validated.value.disposition;
               resultText = validated.value.text;
             },
@@ -1458,6 +1464,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
             outcome = "waiting";
             recorded = await pullRequestInbox.finish(inboxClaim, { text: resultText, wait: { ...createCheckWait(inboxClaim.snapshot, waitPolicy), headSha: pullRequest.headRefOid, ...(assessed && merge.mode === "direct" ? { retryAt: Date.now() + 120_000 } : {}) } });
           } else {
+            if (disposition === "park") schedulerEvent("babysitter.result.unqualified_park", { ...owner, head_sha: pullRequest.headRefOid });
             // A park that names no external gate still consumed a pass without progress.
             outcome = "retry";
             recorded = await pullRequestInbox.finish(inboxClaim, { text: resultText, retry: true, progress: { kind: "no-progress" } });
