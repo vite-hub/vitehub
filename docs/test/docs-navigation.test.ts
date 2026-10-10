@@ -193,6 +193,8 @@ describe("docs product navigation", () => {
 
     expect(routeRules["/databases"]).toEqual({ redirect: { statusCode: 301, to: "/database" } });
     expect(routeRules["/rate-limits/"]).toEqual({ redirect: { statusCode: 301, to: "/rate-limit" } });
+    expect(routeRules["/blog"]).toEqual({ redirect: { statusCode: 301, to: "/tutorials" } });
+    expect(routeRules["/guides/"]).toEqual({ redirect: { statusCode: 301, to: "/tutorials" } });
 
     expect(docsPageRedirects["/docs/server-primitives/kv"]).toBe("/docs/kv");
     expect(docsPageRedirects["/blog/server-primitives"]).toBe("/docs/getting-started/server-primitives");

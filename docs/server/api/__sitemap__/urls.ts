@@ -8,7 +8,13 @@ export default defineEventHandler(async (event) => {
     queryCollection(event, "docs").all(),
     queryCollection(event, "trust").all(),
   ]);
-  const entries: SitemapEntry[] = [{ path: "/" }, { path: "/guides" }, { path: "/examples" }];
+  const entries: SitemapEntry[] = [
+    { path: "/" },
+    { path: "/tutorials" },
+    { path: "/examples" },
+    { path: "/projects" },
+    { path: "/templates" },
+  ];
 
   for (const page of [...docs, ...trust]) {
     if (page.sitemap === false) continue;
