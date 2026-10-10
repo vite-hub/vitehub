@@ -706,7 +706,7 @@ it("retains pnpm package roots referenced by generated Provider Output", async (
   const workspace = await mkdtemp(join(tmpdir(), "vitehub-provider-pnpm-output-"))
   tempDirs.push(workspace)
   const rootDir = join(workspace, "app")
-  const packageRoot = join(rootDir, "node_modules", ".pnpm", "@vite-hub+database@fixture", "node_modules", "@vite-hub", "database")
+  const packageRoot = join(rootDir, "node_modules", "parent", "node_modules", ".pnpm", "@vite-hub+database@fixture", "node_modules", "@vite-hub", "database")
   const runtime = join(packageRoot, "dist", "runtime", "agent.js")
   const entry = join(rootDir, ".vitehub", "database-generations", "one", "output", "cloudflare-runtime.mjs")
   const outfile = join(workspace, "bundle.mjs")
@@ -724,7 +724,7 @@ it("retains pnpm package roots referenced by generated Provider Output", async (
     roots: [rootDir],
   })
   const retainedEntry = retained.resolve(entry)
-  const retainedPackageRoot = join(dirname(retainedEntry), "../../../../node_modules/.pnpm/@vite-hub+database@fixture")
+  const retainedPackageRoot = join(dirname(retainedEntry), "../../../../node_modules/parent/node_modules/.pnpm/@vite-hub+database@fixture")
 
   expect(existsSync(retainedPackageRoot)).toBe(true)
   await bundleEsmEntry(retainedEntry, outfile, { platform: "node" })

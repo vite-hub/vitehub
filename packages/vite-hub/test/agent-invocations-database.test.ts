@@ -79,6 +79,43 @@ describe("createDatabaseAgentInvocationStore", () => {
     client.close()
   })
 
+  it("reinitializes when a runtime proxy switches its database client", async () => {
+    const dialect = new SQLiteAsyncDialect()
+    const createDatabase = (client: object) => {
+      const queries: string[] = []
+      const db = {
+        $client: client,
+        all: vi.fn(async (query) => {
+          const text = dialect.sqlToQuery(query).sql
+          queries.push(text)
+          if (/^INSERT\b/i.test(text)) return [{ vitehub_changed: 1 }]
+          if (/^SELECT sequence, record, revision/i.test(text)) return [{ sequence: 1, record: JSON.stringify(input), revision: 0 }]
+          return []
+        }),
+        batch: vi.fn(async (statements: Promise<unknown>[]) => Promise.all(statements)),
+        queries,
+      }
+      return db
+    }
+    const clients = [{}, {}]
+    const databases = [createDatabase(clients[0]), createDatabase(clients[1])]
+    let active = 0
+    const runtime = {
+      get $client() { return databases[active].$client },
+      all: (query: unknown) => databases[active].all(query),
+      batch: (statements: Promise<unknown>[]) => databases[active].batch(statements),
+    }
+    useDatabase.mockReturnValue({ db: runtime })
+
+    const { createDatabaseAgentInvocationStore } = await import("../src/agent/invocations/database.ts")
+    const store = createDatabaseAgentInvocationStore({ maxAgeMs: false, maxRecords: false })
+    await expect(store.create(input)).resolves.toMatchObject({ created: true })
+    active = 1
+    await expect(store.create({ ...input, id: "invocation-2" })).resolves.toMatchObject({ created: true })
+    expect(databases[0].queries.filter(query => /^CREATE TABLE/i.test(query))).toHaveLength(1)
+    expect(databases[1].queries.filter(query => /^CREATE TABLE/i.test(query))).toHaveLength(1)
+  })
+
   it("persists records through the native D1 Drizzle adapter", async () => {
     const miniflare = new Miniflare({
       compatibilityDate: "2026-07-14",

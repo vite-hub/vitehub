@@ -135,51 +135,19 @@ export const nuxtHubMigration = {
   ],
 } as const;
 
-// The Agent leads because it composes the other primitives through Capabilities.
-// The rest are ordered by importance to an Agent: what it works in and calls first, supporting primitives last.
-// Realtime has only a reference page.
+// Start with the primitives most Vite apps reach for. Agent stays in the catalog without taking over the page.
 export const landingPrimitives = [
-  {
-    id: "agent",
-    name: "Agent",
-    description: "A model with tools and files",
-    to: "/docs/agents",
-  },
-  {
-    id: "ui",
-    name: "UI",
-    description: "Agent interfaces",
-    to: "/docs/ui",
-  },
-  {
-    id: "workspace",
-    name: "Workspace",
-    description: "Persistent file trees",
-    to: "/docs/workspace",
-  },
-  {
-    id: "sandbox",
-    name: "Sandbox",
-    description: "Isolated execution",
-    to: "/docs/sandbox",
-  },
-  {
-    id: "connections",
-    name: "Connections",
-    description: "Connected account APIs",
-    to: "/docs/connections",
-  },
-  {
-    id: "workflow",
-    name: "Workflow",
-    description: "Durable orchestration",
-    to: "/docs/workflows",
-  },
   {
     id: "kv",
     name: "KV",
     description: "State and cache",
     to: "/docs/kv",
+  },
+  {
+    id: "blob",
+    name: "Blob",
+    description: "Files and uploads",
+    to: "/docs/blob",
   },
   {
     id: "database",
@@ -194,22 +162,40 @@ export const landingPrimitives = [
     to: "/docs/queue",
   },
   {
+    id: "workflow",
+    name: "Workflow",
+    description: "Durable orchestration",
+    to: "/docs/workflows",
+  },
+  {
     id: "schedule",
     name: "Schedule",
     description: "Recurring work",
     to: "/docs/schedule",
   },
   {
-    id: "blob",
-    name: "Blob",
-    description: "Files and uploads",
-    to: "/docs/blob",
-  },
-  {
     id: "auth",
     name: "Auth",
     description: "Users and sessions",
     to: "/docs/auth",
+  },
+  {
+    id: "connections",
+    name: "Connections",
+    description: "Connected account APIs",
+    to: "/docs/connections",
+  },
+  {
+    id: "workspace",
+    name: "Workspace",
+    description: "Persistent file trees",
+    to: "/docs/workspace",
+  },
+  {
+    id: "sandbox",
+    name: "Sandbox",
+    description: "Isolated execution",
+    to: "/docs/sandbox",
   },
   {
     id: "browser",
@@ -264,5 +250,87 @@ export const landingPrimitives = [
     name: "Realtime",
     description: "Collaborative documents",
     to: "/docs/realtime",
+  },
+  {
+    id: "agent",
+    name: "Agent",
+    description: "Portable automation",
+    to: "/docs/agents",
+  },
+  {
+    id: "ui",
+    name: "UI",
+    description: "Agent interfaces",
+    to: "/docs/ui",
+  },
+] as const;
+
+export const portabilityExamples = [
+  {
+    id: "storage",
+    label: "Store data",
+    path: "server/api/notes.get.ts",
+    description: "Read a value with the same KV helper on every supported host.",
+    code: [
+      'import { defineEventHandler } from "h3"',
+      'import { kv } from "vite-hub/kv"',
+      "",
+      "export default defineEventHandler(async () => {",
+      '  const [error, notes] = await kv.get("notes")',
+      "  if (error) throw error",
+      "  return notes",
+      "})",
+    ],
+    hosts: [
+      { name: "Cloudflare", icon: "i-simple-icons-cloudflare", provider: "Workers KV" },
+      { name: "Vercel", icon: "i-simple-icons-vercel", provider: "Upstash Redis" },
+      { name: "Deno", icon: "i-simple-icons-deno", provider: "Deno KV" },
+      { name: "Node", icon: "i-simple-icons-nodedotjs", provider: "Local filesystem or Upstash" },
+    ],
+    to: "/docs/kv",
+  },
+  {
+    id: "queue",
+    label: "Queue work",
+    path: "server/api/welcome.post.ts",
+    description: "Send a job to Cloudflare or Vercel without importing their SDKs.",
+    code: [
+      'import { defineEventHandler, readBody } from "h3"',
+      'import { runQueue } from "vite-hub/queue"',
+      "",
+      "export default defineEventHandler(async (event) => {",
+      "  const payload = await readBody<{ email: string }>(event)",
+      '  return runQueue("welcome-email", payload)',
+      "})",
+    ],
+    hosts: [
+      { name: "Cloudflare", icon: "i-simple-icons-cloudflare", provider: "Cloudflare Queues" },
+      { name: "Vercel", icon: "i-simple-icons-vercel", provider: "Vercel Queues" },
+    ],
+    to: "/docs/queue",
+  },
+  {
+    id: "schedule",
+    label: "Run on a schedule",
+    path: "server/schedules/daily-report.ts",
+    description: "One definition becomes a native cron trigger where supported, or runs on a process runtime.",
+    code: [
+      'import { defineSchedule } from "vite-hub/schedule"',
+      'import { sendDailyReport } from "../reports"',
+      "",
+      "export default defineSchedule({",
+      '  cron: "0 9 * * *",',
+      "  async handler({ scheduledAt }) {",
+      "    await sendDailyReport(scheduledAt)",
+      "  },",
+      "})",
+    ],
+    hosts: [
+      { name: "Cloudflare", icon: "i-simple-icons-cloudflare", provider: "Cron triggers" },
+      { name: "Vercel", icon: "i-simple-icons-vercel", provider: "Cron Jobs" },
+      { name: "Netlify", icon: "i-simple-icons-netlify", provider: "Scheduled functions" },
+      { name: "Node", icon: "i-simple-icons-nodedotjs", provider: "Process runtime" },
+    ],
+    to: "/docs/schedule",
   },
 ] as const;

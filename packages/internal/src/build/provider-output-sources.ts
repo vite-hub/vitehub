@@ -714,8 +714,14 @@ function packageMetadataSourcesForPath(root: string, path: string): string[] {
  */
 function pnpmStorePackageRoot(root: string, source: string): string | undefined {
   const segments = relative(root, source).split(sep)
-  const nodeModulesIndex = segments.indexOf("node_modules")
-  if (nodeModulesIndex === -1 || segments[nodeModulesIndex + 1] !== ".pnpm") return
+  let nodeModulesIndex = -1
+  for (let index = segments.length - 2; index >= 0; index -= 1) {
+    if (segments[index] === "node_modules" && segments[index + 1] === ".pnpm") {
+      nodeModulesIndex = index
+      break
+    }
+  }
+  if (nodeModulesIndex === -1) return
   const packageName = segments[nodeModulesIndex + 2]
   return packageName ? resolve(root, ...segments.slice(0, nodeModulesIndex + 3)) : undefined
 }
@@ -1031,7 +1037,7 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
         const target = resolve(retainedRoot, relative(root, source))
         if (existsSync(target)) return
         await mkdir(dirname(target), { recursive: true })
-        await symlink(realpathSync(source), target, process.platform === "win32" ? "junction" : "dir")
+        await cp(realpathSync(source), target, { recursive: true })
       }))
       for (const source of escapedMaterializedSources) {
         const sourceDirectory = statSync(source).isDirectory() ? source : dirname(source)

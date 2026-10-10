@@ -34,8 +34,8 @@ icon: i-lucide-bot
   `runAgent()` returns a result; the Console shows every step.
   :::
 
-  :::product-feature-item{title="Start from a working harness" icon="i-lucide-git-pull-request" to="/docs/agents/babysitter"}
-  Babysitter repairs pull requests, waits for checks, merges, and can score repeatable Evals.
+  :::product-feature-item{title="Start from a reusable Agent preset" icon="i-lucide-copy" to="/docs/agents/presets"}
+  Babysitter maintains pull requests. Workspace reads Sources and supplies citation instructions. Configure the preset for your application.
   :::
 
 ::

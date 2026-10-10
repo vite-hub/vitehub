@@ -47,19 +47,24 @@ function createCloudflareDriver(options: Record<string, unknown>): KVRuntimeDriv
     : options
   // SAFETY: The unstorage Cloudflare driver exposes getInstance and this adapter installs listKeys before returning.
   const driver = createDriver(driverOptions) as KVRuntimeDriver & { getInstance: () => CloudflareKVNamespace }
+  const seenCursors = new Map<string, Set<string>>()
   driver.listKeys = async ({ cursor, limit, prefix = "" }: KVListOptions): Promise<KVListPage> => {
     const listOptions: { cursor?: string; limit: number; prefix?: string } = { limit }
     if (cursor) listOptions.cursor = cursor
     if (prefix) listOptions.prefix = prefix
+    if (!cursor) seenCursors.delete(prefix)
     const page = await driver.getInstance().list(listOptions)
     if (!isCloudflareKVListPage(page)) {
       throw kvErrorDiagnostics.KV_R0022({ message: "[vitehub] Cloudflare KV list returned an invalid page." })
     }
     const result: KVListPage = { keys: page.keys.map((key: { name: string }) => key.name) }
     if (!page.list_complete) {
-      if (cursor && page.cursor === cursor) {
-        throw kvErrorDiagnostics.KV_R0025({ message: "ViteHub rejected a non-progressing pagination cursor." })
+      const cursors = seenCursors.get(prefix) ?? new Set<string>()
+      if (cursors.has(page.cursor!)) {
+        throw kvErrorDiagnostics.KV_R0025({ message: "ViteHub rejected a repeated pagination cursor." })
       }
+      cursors.add(page.cursor!)
+      seenCursors.set(prefix, cursors)
       result.cursor = page.cursor
     }
     return result

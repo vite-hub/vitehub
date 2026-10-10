@@ -101,8 +101,8 @@ async function runBatch(database: RuntimeDatabase, queries: readonly SQL[]): Pro
 function d1Client(value: unknown): RuntimeD1Client | undefined {
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This boundary checks the optional native D1 client methods before use.
   if (!isRecord(value) || typeof Reflect.get(value, "prepare") !== "function" || typeof Reflect.get(value, "batch") !== "function") return
-  // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- The shape guard establishes the methods used by this adapter.
   // SAFETY: The runtime shape check verifies the D1 prepare and batch methods used by this adapter.
+  // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- The shape guard establishes the methods used by this adapter.
   return value as unknown as RuntimeD1Client
 }
 
@@ -139,7 +139,7 @@ function invocationDatabase(database: RuntimeDatabase): InvocationDatabase {
 /** Agent Invocation store backed by a ViteHub SQLite database. It creates its table on first use. */
 export function createDatabaseAgentInvocationStore(options: DatabaseAgentInvocationStoreOptions = {}): AgentInvocationStore {
   const { database: name = "default", ...storeOptions } = options
-  let adapter: InvocationDatabase | undefined
+  const adapters = new WeakMap<object, InvocationDatabase>()
   return createD1AgentInvocationStore({
     ...storeOptions,
     async database() {
@@ -149,8 +149,13 @@ export function createDatabaseAgentInvocationStore(options: DatabaseAgentInvocat
       const runtime = entry.db
       // Runtime proxies can change drivers between requests; validate each operation before any writes.
       for (const rows of await runBatch(runtime, [sql`SELECT 1 AS vitehub_probe`])) statementResult(rows)
-      adapter ??= invocationDatabase(runtime)
-      if (!adapter) throw new TypeError("[vitehub] Database Agent Invocation adapter was not initialized.")
+      const client = runtime.$client
+      const identity = isRecord(client) ? client : runtime
+      let adapter = adapters.get(identity)
+      if (!adapter) {
+        adapter = invocationDatabase(runtime)
+        adapters.set(identity, adapter)
+      }
       return adapter
     },
   })

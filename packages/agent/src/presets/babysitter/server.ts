@@ -9,7 +9,7 @@ import * as v from "valibot";
 import { join } from "node:path";
 import { readAsyncMerge, requestAsyncMerge } from "./async-merge.ts";
 import { prepareGitHubRepairBase } from "../../server/github-repair.ts";
-import { assertGitHubDependenciesCurrent, GitHubWorkspaceInstallError, installGitHubPullRequestWorkspace } from "../../server/github-install.ts";
+import { assertGitHubDependenciesCurrent, GitHubWorkspaceInstallError, hasCurrentGitHubDependencies, installGitHubPullRequestWorkspace } from "../../server/github-install.ts";
 import { resolvePublicUrl, resolveRuntimeValue } from "@vite-hub/runtime";
 import { hasRuntimeType, isRuntimeRecord } from "../../internal/runtime-type.ts";
 import { resolveRegisteredWorkspaceDefinition } from "@vite-hub/workspace";
@@ -40,7 +40,7 @@ import type { Claim, PullRequestInboxStorage, ReadGraphql, Snapshot } from "../.
 import { hydrateFailedCiEvidence } from "../../server/github-inbox/ci-evidence.ts";
 import type { PullRequestWake } from "../../server/github-inbox/wait-state.ts";
 import { createHash } from "node:crypto";
-import { babysitterPassResultSchema } from "../babysitter.ts";
+import { babysitterPassResultSchema, resolveBabysitterLifecycleFilter } from "../babysitter.ts";
 import type { BabysitterAgent, BabysitterPassResult } from "../babysitter.ts";
 import { asMetadataTarget, copyDefinitionDecorations, getAgentLayerOptions } from "../../agent-layers.ts";
 import { importBoxCommit } from "./box-commit.ts";
@@ -112,6 +112,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
   const baseAgent = options.agent;
   assertBabysitterAgent(baseAgent);
   const presetOptions = baseAgent.options;
+  const filter = resolveBabysitterLifecycleFilter(presetOptions.filter, presetOptions.lifecycle);
   const merge = resolveBabysitterMerge(presetOptions.merge, presetOptions.autoMerge);
   const github = options.github;
   const hostIdentity = github.identity()?.trim();
@@ -126,7 +127,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
   const pullRequestInbox = new PullRequestInbox({
     ...(options.inboxStorage ? { storage: options.inboxStorage, scope: options.inboxScope ?? options.agentName ?? baseAgent.name ?? "babysitter" } : { path: options.inboxPath }),
     repositories: options.repositories,
-    filter: presetOptions.filter,
+    filter,
     activityAuthors,
     budgets: noProgressBudget === false ? {} : { noProgress: noProgressBudget },
   });
@@ -696,7 +697,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     // Event-scoped filters cannot be established from the pull-request REST
     // listing alone.  Seeding those entries would admit PRs that have never
     // produced an allowed event (for example, `action: synchronize`).
-    const eventScopedBootstrap = Boolean(presetOptions.filter?.actor || presetOptions.filter?.action);
+    const eventScopedBootstrap = Boolean(filter.actor || filter.action);
     // Bootstrap once per repository and persist even an empty successful list.
     // Failed reads stay retryable; they must never masquerade as empty success.
     for (const repository of repositories) {
@@ -1138,7 +1139,10 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                   if (!providerDirectory) throw new Error("The repair workspace is not prepared.");
                   await assertLease();
                   await assertRepairBase();
-                  if (presetOptions.install !== false) await installDependencies(providerDirectory, abortSignal, owner, undefined);
+                  const customInstaller = isRuntimeRecord(installOption) && Boolean(installOption.command);
+                  if (presetOptions.install !== false && (customInstaller || !await hasCurrentGitHubDependencies(providerDirectory))) {
+                    await installDependencies(providerDirectory, abortSignal, owner, undefined);
+                  }
                   await assertLease();
                 },
                 commitRepair: async (input) => {
@@ -1298,7 +1302,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               copyDefinitionDecorations(asMetadataTarget(baseAgent), asMetadataTarget(workerSettings));
               const workerChannel = { ...github.channel({
                 activity: activityEnabled,
-                pullRequest: { filter: presetOptions.filter, workspace: false },
+                pullRequest: { filter, workspace: false },
               }) };
               // Preserve host-owned activity and delivery closures without
               // exposing their identity to provider credential resolution.
