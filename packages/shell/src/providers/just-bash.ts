@@ -64,7 +64,7 @@ export function createJustBashProvider(options: JustBashProviderOptions): ShellE
     },
     resources: {
       output: {
-        enforcedBy: "provider",
+        enforcedBy: "unsupported",
         unit: "characters",
       },
     },
@@ -119,6 +119,8 @@ export function createJustBashProvider(options: JustBashProviderOptions): ShellE
         cwd: result.cwd ?? cwd,
         event: result.timedOut ? "command_timed_out" : result.event,
         exitCode: result.exitCode,
+        maxOutputLength: result.maxOutputLength,
+        outputTruncated: result.outputTruncated,
         stderr: result.stderr,
         stdout: result.stdout,
         timedOut: result.timedOut,
@@ -390,18 +392,21 @@ async function withProviderTimeout(
   const runOptions = options.signal || typeof options.timeout === "number"
     ? { ...options, signal: controller.signal }
     : options
-  const running = run(runOptions)
-  if (typeof options.timeout !== "number" && !options.signal) return await running
   let timeout: ReturnType<typeof setTimeout> | undefined
-  let onAbort!: () => void
+  let onAbort: (() => void) | undefined
+  const aborted = options.signal
+    ? new Promise<never>((_resolve, reject) => {
+        const handleAbort = () => reject(options.signal?.reason)
+        onAbort = handleAbort
+        options.signal?.addEventListener("abort", handleAbort, { once: true })
+        if (options.signal?.aborted) handleAbort()
+      })
+    : undefined
   try {
+    const running = run(runOptions)
+    if (typeof options.timeout !== "number" && !aborted) return await running
     const races: Array<Promise<ShellObservation> | Promise<never>> = [running]
-    if (options.signal) {
-      races.push(new Promise<never>((_resolve, reject) => {
-        onAbort = () => reject(options.signal?.reason)
-        options.signal?.addEventListener("abort", onAbort, { once: true })
-      }))
-    }
+    if (aborted) races.push(aborted)
     if (typeof options.timeout === "number") {
       races.push(new Promise<ShellObservation>((resolve) => {
         timeout = setTimeout(() => {
