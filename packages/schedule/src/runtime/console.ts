@@ -3,7 +3,6 @@ import { redactInspectionText, redactInspectionValue } from "@vite-hub/internal/
 import { ViteHubError } from "@vite-hub/runtime"
 
 import { isScheduleDevOperation, scheduleDevHeader, scheduleDevHeaderValue } from "../dev.ts"
-import { createScheduleError } from "../errors.ts"
 import { schedules } from "./client.ts"
 import { nextRuntimeScheduleRunAt } from "./due.ts"
 import { executeRuntimeSchedule } from "./execute.ts"
