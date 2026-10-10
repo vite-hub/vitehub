@@ -1097,10 +1097,14 @@ export class PullRequestInbox {
         // provider records its wait. Accept the whole owned chain, but only
         // when no feedback or check evidence changed while the claim ran.
         const settledChecks = (checks: Snapshot['checks']) => Object.fromEntries(
-          Object.entries(checks).filter(([, check]) => check.status === 'completed' || check.conclusion),
+          Object.entries(checks).filter(([, check]) =>
+            (check.status === 'completed' || check.conclusion) && !published.has(check.head_sha ?? ''),
+          ),
         )
         const settledStatuses = (statuses: Snapshot['statuses']) => Object.fromEntries(
-          Object.entries(statuses).filter(([, status]) => status.state !== 'pending'),
+          Object.entries(statuses).filter(([, status]) =>
+            status.state !== 'pending' && !published.has(status.sha ?? ''),
+          ),
         )
         const evidenceUnchanged = digest([
           s.comments, s.reviews, s.reviewComments, settledChecks(s.checks), settledStatuses(s.statuses), s.threads,
