@@ -46,7 +46,10 @@ describe("budget Capability", () => {
       },
     })
 
-    await expect(runAgent(agent, runtime(), { prompt: "hello" })).rejects.toMatchObject({ code: "AGENT_BUDGET_EXCEEDED" })
+    const error = await runAgent(agent, runtime(), { prompt: "hello" }).catch(error => error)
+    expect(error).toMatchObject({ code: "AGENT_BUDGET_EXCEEDED", details: { limits: { tokens: { total: 10 } } } })
+    expect(Object.hasOwn(error.details.limits.tokens, "input")).toBe(false)
+    expect(Object.hasOwn(error.details.limits.tokens, "output")).toBe(false)
   })
 
   it("accepts numeric USD limits that use scientific notation", async () => {

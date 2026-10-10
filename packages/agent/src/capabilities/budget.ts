@@ -1,7 +1,8 @@
 import { defineCapability, eagerFinishExtensionSymbol } from "../capability-runtime.ts"
 import { enrichAgentUsageCost, modelsDevPricing } from "../internal/usage-pricing.ts"
 import { ViteHubError } from "@vite-hub/runtime"
-import type { ViteHubErrorDetail, ViteHubErrorDetails } from "@vite-hub/runtime"
+import type { ViteHubErrorDetail } from "@vite-hub/runtime"
+import { hasRuntimeType } from "../internal/runtime-type.ts"
 
 import type {
   AgentBudgetExceeded,
@@ -29,7 +30,7 @@ function assertFiniteLimit(value: number | undefined, name: string): void {
 
 function normalizeTokens(value: AgentBudgetOptions["tokens"]): AgentBudgetTokenLimits {
   if (value === undefined) return {}
-  if (typeof value === "number") {
+  if (hasRuntimeType(value, "number")) {
     assertFiniteLimit(value, "tokens")
     return { total: value }
   }
@@ -74,14 +75,16 @@ function validateOptions(options: AgentBudgetOptions): { tokens: AgentBudgetToke
   const tokens = normalizeTokens(options.tokens)
   let usd: number | string | undefined
   if (options.usd !== undefined) {
-    if (typeof options.usd === "number") assertFiniteLimit(options.usd, "usd")
+    if (hasRuntimeType(options.usd, "number")) assertFiniteLimit(options.usd, "usd")
     decimalParts(options.usd)
     usd = options.usd
   }
   if (!Object.keys(tokens).length && usd === undefined) {
     throw new TypeError("[vitehub] budget requires tokens or usd.")
   }
-  return { tokens, ...(usd === undefined ? {} : { usd }) }
+  const result: { tokens: AgentBudgetTokenLimits, usd?: number | string } = { tokens }
+  if (usd !== undefined) result.usd = usd
+  return result
 }
 
 function budgetExceeded(usage: AgentUsage | undefined, cost: AgentUsageRecord["cost"], limits: ReturnType<typeof validateOptions>): AgentBudgetExceeded[] {
@@ -111,22 +114,20 @@ export function budget(options: AgentBudgetOptions): AgentCapabilityDefinition {
   const pricing = options.pricing === false ? undefined : options.pricing || modelsDevPricing()
   const mode = options.mode || "observe"
 
+  const metadata = { kind: "budget", mode, tokens: limits.tokens }
+  if (limits.usd !== undefined) Object.assign(metadata, { usd: limits.usd })
+
   return Object.assign(defineCapability({
     id,
     instructionCoverage: false,
-    metadata: {
-      kind: "budget",
-      mode,
-      ...(limits.usd === undefined ? {} : { usd: limits.usd }),
-      tokens: limits.tokens,
-    },
+    metadata,
     configure(context) {
       const maxOutputTokens = outputTokenLimit(limits.tokens)
       if (maxOutputTokens === undefined) return
       context.modelExecution.instrument({
         callSettings: ({ callSettings }) => {
           const current = callSettings.maxOutputTokens
-          if (typeof current === "number" && current <= maxOutputTokens) return
+          if (hasRuntimeType(current, "number") && current <= maxOutputTokens) return
           return { maxOutputTokens }
         },
       })
@@ -143,19 +144,15 @@ export function budget(options: AgentBudgetOptions): AgentCapabilityDefinition {
         }
       }
       const exceeded = budgetExceeded(usage?.usage, usage?.cost, limits)
-      const snapshot: AgentBudgetSnapshot = {
-        exceeded,
-        limits: options,
-        ...(usage ? { usage } : {}),
-      }
+      const snapshot: AgentBudgetSnapshot = { exceeded, limits: options }
+      if (usage) snapshot.usage = usage
       if (mode === "enforce" && exceeded.length) {
-        const detailTokens = {
-          input: limits.tokens.input,
-          output: limits.tokens.output,
-          total: limits.tokens.total,
-        }
-        const detailLimits: Record<string, ViteHubErrorDetail | undefined> = { tokens: detailTokens as ViteHubErrorDetails }
-        if (limits.usd !== undefined) detailLimits.usd = limits.usd
+        const detailTokens: Record<string, ViteHubErrorDetail> = {}
+        if (limits.tokens.input !== undefined) detailTokens.input = limits.tokens.input
+        if (limits.tokens.output !== undefined) detailTokens.output = limits.tokens.output
+        if (limits.tokens.total !== undefined) detailTokens.total = limits.tokens.total
+        const detailLimits = { tokens: detailTokens }
+        if (limits.usd !== undefined) Object.assign(detailLimits, { usd: limits.usd })
         throw new ViteHubError("AGENT_BUDGET_EXCEEDED", "Agent budget exceeded.", {
           details: {
             exceeded: exceeded.map(({ actual, limit, metric }) => ({ actual, limit, metric })),
