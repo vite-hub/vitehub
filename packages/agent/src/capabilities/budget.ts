@@ -40,6 +40,7 @@ function normalizeTokens(value: AgentBudgetOptions["tokens"]): AgentBudgetTokenL
   assertFiniteLimit(limits.input, "tokens.input")
   assertFiniteLimit(limits.output, "tokens.output")
   assertFiniteLimit(limits.total, "tokens.total")
+  if (limits.input === undefined && limits.output === undefined && limits.total === undefined) return {}
   return limits
 }
 
@@ -148,7 +149,13 @@ export function budget(options: AgentBudgetOptions): AgentCapabilityDefinition {
       }
       if (mode === "enforce" && exceeded.length) {
         throw new ViteHubError("AGENT_BUDGET_EXCEEDED", "Agent budget exceeded.", {
-          details: { exceeded, limits: options },
+          details: {
+            exceeded: exceeded.map(({ actual, limit, metric }) => ({ actual, limit, metric })),
+            limits: {
+              tokens: limits.tokens,
+              ...(limits.usd === undefined ? {} : { usd: limits.usd }),
+            },
+          },
         })
       }
       return snapshot
