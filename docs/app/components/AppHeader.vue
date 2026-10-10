@@ -6,8 +6,9 @@ const isDocsRoute = computed(() => route.path.startsWith("/docs"));
 // Agents is one product in the docs rail and catalog, so the header links only to site areas.
 const navLinks = [
   { label: "Docs", to: "/docs" },
-  { label: "Examples", to: "/examples" },
-  { label: "Guides", to: "/guides" },
+  { label: "Tutorials", to: "/tutorials" },
+  { label: "Projects", to: "/projects" },
+  { label: "Templates", to: "/templates" },
 ];
 
 const mobileLinks = [
@@ -55,7 +56,7 @@ const touchIconButton = "pointer-coarse:h-10 pointer-coarse:w-9 pointer-coarse:j
           </ULink>
         </UTooltip>
 
-        <nav class="hidden items-center gap-1 lg:flex" aria-label="Primary">
+        <nav v-if="!isDocsRoute" class="hidden items-center gap-1 lg:flex" aria-label="Primary">
           <UButton
             v-for="link in navLinks"
             :key="link.to"

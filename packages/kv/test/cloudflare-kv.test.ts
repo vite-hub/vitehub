@@ -62,7 +62,7 @@ describe("Cloudflare KV binding", () => {
 
     const first = await runWithActiveCloudflareEnv({ KV: namespace }, () => storage.listKeys({ limit: 10 }))
     await expect(runWithActiveCloudflareEnv({ KV: namespace }, () => storage.listKeys({ cursor: first.cursor, limit: 10 }))).rejects.toThrow(
-      "Cloudflare KV list returned a repeated pagination cursor.",
+      "ViteHub rejected a non-progressing pagination cursor.",
     )
   })
 })

@@ -58,7 +58,7 @@ function createCloudflareDriver(options: Record<string, unknown>): KVRuntimeDriv
     const result: KVListPage = { keys: page.keys.map((key: { name: string }) => key.name) }
     if (!page.list_complete) {
       if (cursor && page.cursor === cursor) {
-        throw kvErrorDiagnostics.KV_R0025({ message: "Cloudflare KV list returned a repeated pagination cursor." })
+        throw kvErrorDiagnostics.KV_R0025({ message: "ViteHub rejected a non-progressing pagination cursor." })
       }
       result.cursor = page.cursor
     }
