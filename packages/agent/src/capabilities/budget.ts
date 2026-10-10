@@ -112,9 +112,8 @@ export function budget(options: AgentBudgetOptions): AgentCapabilityDefinition {
       context.modelExecution.instrument({
         callSettings: ({ callSettings }) => {
           const current = callSettings.maxOutputTokens
-          return typeof current === "number" && current >= maxOutputTokens
-            ? { maxOutputTokens }
-            : { maxOutputTokens }
+          if (typeof current === "number" && current <= maxOutputTokens) return
+          return { maxOutputTokens }
         },
       })
     },
@@ -146,4 +145,3 @@ export function budget(options: AgentBudgetOptions): AgentCapabilityDefinition {
     [eagerFinishExtensionSymbol]: true,
   })
 }
-
