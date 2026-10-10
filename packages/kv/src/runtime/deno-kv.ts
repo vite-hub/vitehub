@@ -3,6 +3,7 @@ import type { KVRuntimeDriver } from "./driver.ts"
 import { kvErrorDiagnostics } from "../error-diagnostics.ts"
 
 type DenoKVKey = [unknown, ...unknown[]]
+type DenoKVPrefix = [] | DenoKVKey
 type ViteHubDenoKVKey = [string]
 
 interface DenoKVEntry<T = unknown> {
@@ -16,7 +17,7 @@ interface DenoKV {
   delete: (key: DenoKVKey) => Promise<void>
   // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- This models Deno KV's caller-typed get contract.
   get: <T = unknown>(key: DenoKVKey) => Promise<DenoKVEntry<T>>
-  list: <T = unknown>(selector: { prefix: [] }, options?: { cursor?: string; limit?: number }) => AsyncIterable<DenoKVEntry<T>> & { cursor?: string }
+  list: <T = unknown>(selector: { prefix: DenoKVPrefix }, options?: { cursor?: string; limit?: number }) => AsyncIterable<DenoKVEntry<T>> & { cursor?: string }
   set: <T = unknown>(key: DenoKVKey, value: T, options?: { expireIn: number }) => Promise<unknown>
 }
 
@@ -31,6 +32,10 @@ function getDenoRuntime(): DenoRuntime | undefined {
 
 function toDenoKey(key: string): ViteHubDenoKVKey {
   return [key]
+}
+
+function toDenoPrefix(prefix: string): DenoKVPrefix {
+  return prefix ? [prefix] : []
 }
 
 function fromDenoKey(key: DenoKVKey): string | undefined {
@@ -68,8 +73,8 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
     const kv = await open()
     const keys: DenoKVKey[] = []
 
-    // ponytail: Deno KV lists structured keys; scan/filter keeps ViteHub string-prefix keys correct.
-    for await (const entry of kv.list({ prefix: [] })) {
+    // Deno KV supports structured key prefixes; keep filtering to guard against non-string keys.
+    for await (const entry of kv.list({ prefix: toDenoPrefix(base) })) {
       const key = fromDenoKey(entry.key)
       if (key?.startsWith(base)) keys.push(entry.key)
     }
@@ -100,7 +105,7 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
       return (await matchingKeys(base)).flatMap(key => fromDenoKey(key) ?? []).sort()
     },
     async listKeys({ cursor, limit, prefix = "" }: KVListOptions) {
-      const iterator = (await open()).list({ prefix: [] }, { cursor, limit })
+      const iterator = (await open()).list({ prefix: toDenoPrefix(prefix) }, { cursor, limit })
       const keys: string[] = []
       for await (const entry of iterator) {
         const key = fromDenoKey(entry.key)
