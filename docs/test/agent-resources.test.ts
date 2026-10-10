@@ -114,6 +114,8 @@ describe("skills() documentation", () => {
 
     expect(page).toContain("pnpm vitehub agent info --agent support --json");
     expect(page).toContain("select(.id == \"skills\") | .metadata");
+    expect(page).toContain("'::skill{path=\"skills/review\"}'");
+    expect(page).toContain("'::'");
     expect(page).toContain('"skillPath": "skills/review/SKILL.md"');
     expect(page).toContain("skills() requires workspace path skills/review/SKILL.md");
   });

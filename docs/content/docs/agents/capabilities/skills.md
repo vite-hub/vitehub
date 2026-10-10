@@ -105,7 +105,11 @@ import { skills } from 'vite-hub/agent/capabilities'
 export default defineAgent({
   driver: {
     model: 'openai/gpt-5.1-mini',
-    instructions: '::skill{path="skills/review"}\nUse the review Skill.',
+    instructions: [
+      '::skill{path="skills/review"}',
+      'Use the review Skill.',
+      '::',
+    ],
   },
   workspace: { name: 'support' },
   capabilities: [
