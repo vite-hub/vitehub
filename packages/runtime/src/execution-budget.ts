@@ -61,7 +61,6 @@ interface BudgetState {
   readonly controller: AbortController
   readonly limits: ExecutionBudgetLimits
   readonly usage: ExecutionBudgetUsage
-  timer?: ReturnType<typeof setTimeout>
 }
 
 export function createExecutionBudget(options: ExecutionBudgetOptions = {}): ExecutionBudget {
@@ -77,12 +76,20 @@ export function createExecutionBudget(options: ExecutionBudgetOptions = {}): Exe
     if (options.signal.aborted) abortFromExternal()
     else options.signal.addEventListener("abort", abortFromExternal, { once: true })
   }
-  if (limits.deadlineAt !== undefined) {
-    const remaining = limits.deadlineAt - Date.now()
-    if (remaining <= 0) controller.abort(new DOMException("Execution budget deadline exceeded.", "TimeoutError"))
-    else state.timer = setTimeout(() => controller.abort(new DOMException("Execution budget deadline exceeded.", "TimeoutError")), remaining)
-  }
+  if (limits.deadlineAt !== undefined) scheduleDeadline(controller, limits.deadlineAt)
   return createBudget(state, limits, controller)
+}
+
+function scheduleDeadline(controller: AbortController, deadlineAt: number) {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const schedule = () => {
+    if (controller.signal.aborted) return
+    const remaining = deadlineAt - Date.now()
+    if (remaining <= 0) controller.abort(new DOMException("Execution budget deadline exceeded.", "TimeoutError"))
+    else timer = setTimeout(schedule, Math.min(remaining, 2_147_483_647))
+  }
+  controller.signal.addEventListener("abort", () => clearTimeout(timer), { once: true })
+  schedule()
 }
 
 function createBudget(state: BudgetState, limits: ExecutionBudgetLimits, controller: AbortController): ExecutionBudget {
@@ -113,11 +120,7 @@ function createBudget(state: BudgetState, limits: ExecutionBudgetLimits, control
         else options.signal.addEventListener("abort", () => abortChild(options.signal?.reason), { once: true })
       }
       const deadlineAt = minDefined(limits.deadlineAt, childLimits.deadlineAt)
-      if (deadlineAt !== undefined) {
-        const remaining = deadlineAt - Date.now()
-        if (remaining <= 0) abortChild(new DOMException("Execution budget deadline exceeded.", "TimeoutError"))
-        else setTimeout(() => abortChild(new DOMException("Execution budget deadline exceeded.", "TimeoutError")), remaining)
-      }
+      if (deadlineAt !== undefined) scheduleDeadline(childController, deadlineAt)
       return createBudget(state, {
         deadlineAt,
         maxInputBytes: minDefined(limits.maxInputBytes, childLimits.maxInputBytes),

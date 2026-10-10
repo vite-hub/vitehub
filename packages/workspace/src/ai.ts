@@ -22,6 +22,7 @@ interface ShellRuntimeExecOptions {
   env?: Record<string, string>
   onStderr?: (chunk: string) => void
   onStdout?: (chunk: string) => void
+  signal?: AbortSignal
   stdin?: string
   timeout?: number
   workspacePaths?: string[]
@@ -280,6 +281,7 @@ function createWorkspaceSessionShellProvider(starter: WorkspaceSessionStarter): 
         const result = await session.exec("sh", ["-lc", command], {
           cwd: execOptions.cwd || workspaceMountPoint,
           env: execOptions.env,
+          abortSignal: execOptions.signal,
           timeout: execOptions.timeout,
         })
         execOptions.onStdout?.(result.stdout)
