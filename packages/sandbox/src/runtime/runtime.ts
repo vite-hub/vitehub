@@ -30,7 +30,10 @@ const cloudflareRunQueues = new Map<string, Promise<void>>()
 
 async function awaitWithAbort<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
   if (!signal) return await promise
-  if (signal.aborted) throw signal.reason
+  if (signal.aborted) {
+    void promise.catch(() => {})
+    throw signal.reason
+  }
   return await new Promise<T>((resolve, reject) => {
     const onAbort = () => {
       signal.removeEventListener('abort', onAbort)
@@ -159,17 +162,21 @@ async function createSandboxRunner(
         : 1
 
       options.signal?.throwIfAborted()
-      return await serializeCloudflareRun(cloudflareSandboxId, async () => {
+      const run = serializeCloudflareRun(cloudflareSandboxId, async () => {
         for (let attempt = 0; attempt < attempts; attempt++) {
           let sandbox: SandboxExecutionBox | undefined
           let handlerMayHaveStarted = false
           let runError: Error | undefined
+          let executionSettled: Promise<void> | undefined
           try {
             const session = options.signal
               ? await box.open({ id: cloudflareSandboxId, signal: options.signal })
               : await box.open({ id: cloudflareSandboxId })
             sandbox = createSandboxExecutionBox(session, provider.provider)
             const lifecycle = {
+              onExecution(execution: Promise<unknown>) {
+                executionSettled = execution.then(() => undefined, () => undefined)
+              },
               onHandlerStart() {
                 handlerMayHaveStarted = true
               },
@@ -199,7 +206,8 @@ async function createSandboxRunner(
               await sleep(CLOUDFLARE_SANDBOX_RETRY_DELAYS_MS[attempt])
           }
           finally {
-            if (provider.closeAfterRun !== false || (provider.provider === 'cloudflare' && !options.sandboxId && !provider.sandboxId)) {
+            await executionSettled
+            if (options.signal?.aborted || readSandboxErrorMetadata(runError)?.code === 'SANDBOX_TIMEOUT' || provider.closeAfterRun !== false || (provider.provider === 'cloudflare' && !options.sandboxId && !provider.sandboxId)) {
               try {
                 await sandbox?.close()
               }
@@ -223,6 +231,7 @@ async function createSandboxRunner(
           provider: provider.provider,
         })
       }, options.signal)
+      return await awaitWithAbort(run, options.signal)
     },
   }
 }

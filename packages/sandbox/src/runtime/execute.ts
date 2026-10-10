@@ -22,6 +22,7 @@ import type { SandboxExecutionBox } from './execution-box'
 import type { SandboxDefinitionOptions } from '../module-types'
 
 export interface SandboxDefinitionExecutionLifecycle {
+  onExecution?: (execution: Promise<unknown>) => void
   onHandlerStart?: () => void
 }
 
@@ -158,17 +159,13 @@ export async function executeSandboxDefinition<TPayload>(
   externalSignal?: AbortSignal,
 ): Promise<unknown> {
   const timeout = definitionOptions?.timeout
+  const execute = (signal?: AbortSignal) => {
+    const execution = executeSandboxDefinitionOnce(sandbox, definitionName, definitionOptions, source, payload, context, signal, lifecycle)
+    lifecycle?.onExecution?.(execution)
+    return execution
+  }
   if ((timeout === undefined || timeout <= 0) && !externalSignal) {
-    return await executeSandboxDefinitionOnce(
-      sandbox,
-      definitionName,
-      definitionOptions,
-      source,
-      payload,
-      context,
-      externalSignal,
-      lifecycle,
-    )
+    return await execute()
   }
 
   externalSignal?.throwIfAborted()
@@ -182,16 +179,7 @@ export async function executeSandboxDefinition<TPayload>(
   let externalAbort: (() => void) | undefined
 
   try {
-    const races: Array<Promise<unknown>> = [executeSandboxDefinitionOnce(
-      sandbox,
-      definitionName,
-      definitionOptions,
-      source,
-      payload,
-      context,
-      signal,
-      lifecycle,
-    )]
+    const races: Array<Promise<unknown>> = [execute(signal)]
     if (externalSignal) {
       races.push(new Promise<never>((_, reject) => {
         externalAbort = () => reject(externalSignal.reason ?? new DOMException('The Sandbox invocation was aborted.', 'AbortError'))

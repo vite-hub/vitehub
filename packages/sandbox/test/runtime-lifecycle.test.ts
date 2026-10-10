@@ -256,6 +256,45 @@ describe("Sandbox runtime lifecycle", () => {
     await expect(third).resolves.toEqual({ ok: true })
   })
 
+  it("holds an actively cancelled shared Box until execution and destruction settle", async () => {
+    setSandboxRuntimeConfig({ provider: "cloudflare", sandboxId: "active-cancellation" })
+    setSandboxRuntimeRegistry({ example: definition })
+    let finishExecution!: () => void
+    const execution = new Promise<void>(resolve => { finishExecution = resolve })
+    let finishDestruction!: () => void
+    const destruction = new Promise<void>(resolve => { finishDestruction = resolve })
+    runtimeMocks.close.mockImplementationOnce(async () => await destruction)
+    runtimeMocks.executeSandboxDefinition
+      .mockImplementationOnce(async (...args) => {
+        const lifecycle = args[6] as { onExecution: (execution: Promise<unknown>) => void }
+        const signal = args[7] as AbortSignal
+        lifecycle.onExecution(execution)
+        await new Promise<never>((_, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason), { once: true })
+        })
+      })
+      .mockResolvedValueOnce({ ok: true })
+
+    const runner = await resolveSandboxRunner("example")
+    const controller = new AbortController()
+    const first = runner.run(undefined, { signal: controller.signal })
+    await vi.waitFor(() => expect(runtimeMocks.executeSandboxDefinition).toHaveBeenCalledOnce())
+    const reason = new DOMException("request disconnected", "AbortError")
+    controller.abort(reason)
+    await expect(first).rejects.toBe(reason)
+
+    const next = runner.run()
+    await Promise.resolve()
+    expect(runtimeMocks.open).toHaveBeenCalledOnce()
+    expect(runtimeMocks.close).not.toHaveBeenCalled()
+    finishExecution()
+    await vi.waitFor(() => expect(runtimeMocks.close).toHaveBeenCalledOnce())
+    expect(runtimeMocks.open).toHaveBeenCalledOnce()
+    finishDestruction()
+    await expect(next).resolves.toEqual({ ok: true })
+    expect(runtimeMocks.open).toHaveBeenCalledTimes(2)
+  })
+
   it("closes the Box session after failed definitions", async () => {
     setSandboxRuntimeConfig({ provider: "vercel" })
     setSandboxRuntimeRegistry({ example: definition })
