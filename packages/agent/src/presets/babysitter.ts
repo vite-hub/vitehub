@@ -260,13 +260,13 @@ function lifecycleLabels(labels: unknown): GitHubPullRequestFilterRules {
   }
   const requiredLabels = require ?? [];
   const deniedLabels = deny ?? [];
-  if (requiredLabels.some(label => typeof label !== "string" || !label.trim()) || deniedLabels.some(label => typeof label !== "string" || !label.trim())) {
+  if (requiredLabels.some(label => !hasRuntimeType(label, "string") || !label.trim()) || deniedLabels.some(label => !hasRuntimeType(label, "string") || !label.trim())) {
     throw new TypeError("[vitehub] Babysitter lifecycle labels must contain non-empty strings.");
   }
-  return {
-    ...(requiredLabels.length ? { allow: [...requiredLabels] } : {}),
-    ...(deniedLabels.length ? { deny: [...deniedLabels] } : {}),
-  };
+  const rules: GitHubPullRequestFilterRules = {};
+  if (requiredLabels.length) rules.allow = [...requiredLabels];
+  if (deniedLabels.length) rules.deny = [...deniedLabels];
+  return rules;
 }
 
 /** Combines explicit lifecycle labels with the shared GitHub PR filter. */
@@ -310,6 +310,7 @@ export const babysitter: BabysitterAgent = defineAgent({
     concurrency: 1,
     // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- The empty default widens to the documented admission options.
     admission: {} as BabysitterAdmissionOptions,
+    // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- The empty default widens to the documented lifecycle options.
     lifecycle: {} as BabysitterLifecycleOptions,
     autoMerge: false,
   },
