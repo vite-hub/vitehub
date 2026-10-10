@@ -819,6 +819,8 @@ describe("@vite-hub/shell just-bash runtime", () => {
       cwd: workspaceMountPoint,
       event: "command_timed_out",
       exitCode: null,
+      maxOutputLength: 30_000,
+      outputTruncated: false,
       stderr: "[vitehub] Workspace shell command timed out after 5ms.",
       stdout: "",
       timedOut: true,

@@ -160,6 +160,7 @@ async function runControlledCurlCommand(
       value: options.signal,
     })
     const result = await options.networkGrants.executeSourceRequest(request)
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Source responses intentionally support text and binary content at this boundary.
     const stdout = typeof result.content === "string" ? result.content : new TextDecoder().decode(result.content)
     const bounded = boundOutput(stdout, options.maxOutputLength)
     return {
@@ -396,6 +397,7 @@ async function withProviderTimeout(
   const controller = new AbortController()
   const abortListener = options.signal ? () => controller.abort(options.signal?.reason) : undefined
   if (abortListener) options.signal?.addEventListener("abort", abortListener, { once: true })
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Timeout is an optional public numeric execution control.
   const runOptions = options.signal || typeof options.timeout === "number"
     ? { ...options, signal: controller.signal }
     : options
@@ -411,9 +413,11 @@ async function withProviderTimeout(
     : undefined
   try {
     const running = run(runOptions)
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Timeout is an optional public numeric execution control.
     if (typeof options.timeout !== "number" && !aborted) return await running
     const races: Array<Promise<ShellObservation> | Promise<never>> = [running]
     if (aborted) races.push(aborted)
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Timeout is an optional public numeric execution control.
     if (typeof options.timeout === "number") {
       races.push(new Promise<ShellObservation>((resolve) => {
         timeout = setTimeout(() => {
@@ -422,6 +426,8 @@ async function withProviderTimeout(
             cwd: options.cwd,
             event: "command_timed_out",
             exitCode: null,
+            maxOutputLength: options.maxOutputLength,
+            outputTruncated: false,
             stderr: `[vitehub] Workspace shell command timed out after ${options.timeout}ms.`,
             stdout: "",
             timedOut: true,
