@@ -5,7 +5,6 @@ import { getConsoleAuth, getConsoleProjectName, getConsoleSections } from "./sec
 
 import type { ConsoleContributedSection } from "../definitions.ts"
 import type { ConsoleRequestEvent } from "./request.ts"
-import type { ConsoleAuthMode } from "../../internal.ts"
 
 function consoleSectionsHandler(event: ConsoleRequestEvent): {
   auth?: true
