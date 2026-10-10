@@ -24,6 +24,8 @@ export async function failInterruptedAgentInvocations(
   let cursor: string | undefined
   let failed = 0
   const blocked: (AgentInvocationSummary & { blockedClaimToken: string })[] = []
+  const seenCursors = new Set<string>()
+  let paginationError: Error | undefined
   const fail = async (invocation: AgentInvocationSummary, replaceClaimToken?: string): Promise<boolean> => {
     const claimId = `recovery_${globalThis.crypto.randomUUID()}`
     if (!await store.claim(invocation.id, claimId, claimLeaseMs,
@@ -42,6 +44,11 @@ export async function failInterruptedAgentInvocations(
   }
   do {
     const records = await store.list({ cursor, limit, status: ["pending", "running"], ...(options.agentName ? { agentName: options.agentName } : {}) })
+    if (records.cursor && seenCursors.has(records.cursor)) {
+      paginationError = new Error("[vitehub] Agent Invocation listing returned a repeated pagination cursor.")
+      break
+    }
+    if (records.cursor) seenCursors.add(records.cursor)
     for (const invocation of records.invocations) {
       const startedAt = Date.parse(invocation.startedAt || invocation.createdAt)
       if (!Number.isFinite(startedAt) || startedAt >= before) continue
@@ -60,6 +67,7 @@ export async function failInterruptedAgentInvocations(
         && await options.recover(current) && await fail(current, invocation.blockedClaimToken)) failed += 1
     }
   }
+  if (paginationError) throw paginationError
   return failed
 }
 
@@ -88,9 +96,14 @@ export async function readAgentInvocationWorkload(
   const recent = await invocations.list({ limit: 100, ...(options.agentName ? { agentName: options.agentName } : {}) })
   const records = new Map(recent.invocations.map(invocation => [invocation.id, invocation]))
   let cursor: string | undefined
+  const seenCursors = new Set<string>()
   do {
     const active = await invocations.list({ cursor, limit: 100, status: ["pending", "running"], ...(options.agentName ? { agentName: options.agentName } : {}) })
     for (const invocation of active.invocations) records.set(invocation.id, invocation)
+    if (active.cursor && seenCursors.has(active.cursor)) {
+      throw new Error("[vitehub] Agent Invocation listing returned a repeated pagination cursor.")
+    }
+    if (active.cursor) seenCursors.add(active.cursor)
     cursor = active.cursor
   } while (cursor)
   return summarizeAgentInvocationWorkload([...records.values()], processStartedAt)
