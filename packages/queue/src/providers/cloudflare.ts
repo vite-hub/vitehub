@@ -121,15 +121,17 @@ export function createCloudflareQueueBatchHandler<TPayload = unknown>(options: C
           } as const
           reportQueueDeliveryError(error, reportContext)
           let action: CloudflareQueueBatchErrorAction | void = undefined
+          let hookFailed = false
           if (options.onError) {
             try {
               action = await options.onError(error, message, batch)
             }
             catch (hookError) {
+              hookFailed = true
               reportQueueDeliveryError(hookError, reportContext)
             }
           }
-          resolveAction(action, message, isNonRetryableQueueError(error) ? "ack" : "retry")
+          resolveAction(action, message, hookFailed || !isNonRetryableQueueError(error) ? "retry" : "ack")
         }
       }
     }
