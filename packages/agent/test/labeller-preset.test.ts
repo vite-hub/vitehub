@@ -53,4 +53,22 @@ describe("labeller preset", () => {
     expect(enabled.options.trashEnabled).toBe(true)
     expect(enabled.options.dryRun).toBe(false)
   })
+
+  it("only writes for allowlisted labels with finite confidence", async () => {
+    const calls: string[] = []
+    const message = {
+      channel: "gmail",
+      label: async (name: string) => { calls.push(`label:${name}`) },
+      archive: async () => { calls.push("archive") },
+      markRead: async () => { calls.push("read") },
+      star: async () => { calls.push("star") },
+      trash: async () => { calls.push("trash") },
+    }
+    const agent = configured({ actions: { Work: { archive: true, trash: true } }, trashEnabled: false })
+    const finish = agent.hooks?.["agent:finish"] as unknown as (event: { message: unknown, result: unknown }) => Promise<void>
+    await finish({ message, result: { label: { choice: "Work", probabilities: { Work: Number.NaN } } } })
+    await finish({ message, result: { label: { choice: "Unknown", probabilities: { Unknown: 1 } } } })
+    await finish({ message, result: { label: { choice: "Work", probabilities: { Work: 0.9 } } } })
+    expect(calls).toEqual(["label:Work", "archive"])
+  })
 })
