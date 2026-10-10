@@ -195,6 +195,26 @@ describe("createConnectionsHandler", () => {
     expect(await counts.json()).toEqual({ counts: { mail: 1 } })
   })
 
+  it("rejects approval counts when a store repeats a pagination cursor", async () => {
+    const test = createTestRuntime()
+    const approvals = vi.spyOn(test.runtime, "approvals").mockResolvedValue({
+      approvals: [],
+      nextCursor: "same-cursor",
+    })
+    const handler = createConnectionsHandler({ actor: () => "user:local", runtime: () => test.runtime })
+
+    const response = await handler(post({ action: "approval-counts" }))
+
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({
+      error: {
+        code: "CONNECTION_INVALID",
+        message: "Connections approval pagination did not advance.",
+      },
+    })
+    expect(approvals).toHaveBeenCalledTimes(2)
+  })
+
   it("rejects cross-origin, non-JSON, and invalid requests", async () => {
     const test = createTestRuntime();
     const handler = createConnectionsHandler({

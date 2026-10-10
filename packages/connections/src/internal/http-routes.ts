@@ -2,7 +2,7 @@ import * as v from "valibot";
 
 import { isViteHubSecretEqual } from "@vite-hub/internal/secret";
 
-import { isConnectionError } from "../errors.ts";
+import { ConnectionError, isConnectionError } from "../errors.ts";
 import { CONNECTION_NAME_MAX_LENGTH } from "../types.ts";
 import { connectionsRuntimeFor } from "./http-access.ts";
 
@@ -282,11 +282,16 @@ const action: ConnectionsRoute = {
         const counts: Record<string, number> = {};
         for (const connection of await connections.list()) {
           let before: string | undefined;
+          const seenCursors = new Set<string>();
           let count = 0;
           do {
             const result = await connections.approvals({ name: connection.name, status: "pending", before });
             count += result.approvals.length;
+            if (result.nextCursor && seenCursors.has(result.nextCursor)) {
+              throw new ConnectionError("invalid", "Connections approval pagination did not advance.");
+            }
             before = result.nextCursor;
+            if (before) seenCursors.add(before);
           } while (before);
           counts[connection.name] = count;
         }
