@@ -59,7 +59,7 @@ function toJson(value: unknown, label: string, maximum: number) {
     return serialized
   }
   catch (error) {
-    if (error && typeof error === 'object' && 'code' in error && String((error as { code?: unknown }).code).startsWith('SANDBOX_'))
+    if (readSandboxErrorMetadata(error)?.code?.startsWith('SANDBOX_'))
       throw error
     throw sandboxError(`Sandbox ${label} must be JSON-serializable.`, {
       code: 'SANDBOX_SERIALIZATION_ERROR',

@@ -1,4 +1,5 @@
 import { deserializeResponse, isSerializedResponse } from '@vite-hub/runtime'
+import { hasRuntimeType } from '@vite-hub/runtime/internal/runtime-type'
 import { isSandboxError, sandboxError } from '../sandbox/errors'
 import type { SandboxExecutionBox } from './execution-box'
 
@@ -149,6 +150,7 @@ export async function encodeSandboxValue(
     catch (error) {
       throw serializationError(`Sandbox ${label} must be JSON-serializable.`, { label }, error)
     }
+    // SAFETY: Object.entries returns string keys and the encoder preserves that pair shape.
     const entries = await Promise.all(sourceEntries.map(async ([entryKey, item]) => [entryKey, await encode(item, nextAncestors, entryKey, true, depth + 1)] as [string, unknown]))
     return hasMarker(entry) ? tagged({ entries, tag: 'object' }) : Object.fromEntries(entries)
   }
@@ -190,7 +192,7 @@ export async function decodeSandboxValue(
     }
 
     const descriptor = entry[SANDBOX_VALUE_MARKER]
-    if (!isPlainObject(descriptor) || typeof descriptor.tag !== 'string')
+    if (!isPlainObject(descriptor) || !hasRuntimeType(descriptor.tag, 'string'))
       throw serializationError(`Sandbox ${label} contains an invalid binary sidecar descriptor.`, { label })
 
     if (descriptor.tag === 'response') {
@@ -200,7 +202,7 @@ export async function decodeSandboxValue(
     }
 
     if (descriptor.tag === 'object') {
-      if (!Array.isArray(descriptor.entries) || !descriptor.entries.every(entry => Array.isArray(entry) && entry.length === 2 && typeof entry[0] === 'string'))
+      if (!Array.isArray(descriptor.entries) || !descriptor.entries.every(entry => Array.isArray(entry) && entry.length === 2 && hasRuntimeType(entry[0], 'string')))
         throw serializationError(`Sandbox ${label} contains an invalid binary sidecar descriptor.`, { label })
       const entries: Array<[string, unknown]> = []
       for (const [key, item] of descriptor.entries) entries.push([key, await decode(item, depth + 1)])
@@ -210,9 +212,10 @@ export async function decodeSandboxValue(
     if (descriptor.tag !== 'binary'
       || !Number.isSafeInteger(descriptor.id)
       || Object.is(descriptor.id, -0)
+      // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- Number.isSafeInteger above establishes the numeric descriptor invariant.
       || (descriptor.id as number) < 0
       || (descriptor.kind !== 'blob' && descriptor.kind !== 'buffer' && descriptor.kind !== 'uint8array')
-      || (typeof descriptor.type !== 'undefined' && typeof descriptor.type !== 'string')) {
+      || (descriptor.type !== undefined && !hasRuntimeType(descriptor.type, 'string'))) {
       throw serializationError(`Sandbox ${label} contains an invalid binary sidecar descriptor.`, { label })
   }
 

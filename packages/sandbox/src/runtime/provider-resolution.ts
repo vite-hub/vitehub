@@ -118,7 +118,7 @@ export function assertSandboxDefinitionOptions(local: SandboxDefinitionOptions) 
   }
   const transfer = local.transfer
   if (transfer === undefined) return
-  if (!transfer || typeof transfer !== 'object' || Array.isArray(transfer))
+  if (!transfer || Array.isArray(transfer))
     throw sandboxErrorDiagnostics.SANDBOX_R0071({ message: '[vitehub] Sandbox transfer must be an object.' })
   const invalidTransferKeys = Object.keys(transfer).filter(key => !transferLimitKeys.has(key))
   if (invalidTransferKeys.length > 0)
