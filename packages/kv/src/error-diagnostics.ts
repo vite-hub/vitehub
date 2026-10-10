@@ -33,5 +33,6 @@ export const kvErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     KV_R0020: dynamicError,
     KV_R0021: dynamicError,
     KV_R0022: dynamicError,
+    KV_R0025: dynamicError,
   },
 })

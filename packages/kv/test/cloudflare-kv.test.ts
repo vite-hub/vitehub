@@ -50,4 +50,19 @@ describe("Cloudflare KV binding", () => {
       "Cloudflare KV list returned an invalid page.",
     )
   })
+
+  it("rejects an incomplete page whose cursor does not advance", async () => {
+    const storage = createCloudflareKVStorage({ binding: "KV", driver: "cloudflare-kv-binding" }) as RuntimeStorage
+    const namespace = createNamespace()
+    namespace.list = async ({ cursor }: { prefix?: string, cursor?: string }) => ({
+      cursor: cursor || "next",
+      keys: [{ name: "smoke" }],
+      list_complete: false,
+    })
+
+    const first = await runWithActiveCloudflareEnv({ KV: namespace }, () => storage.listKeys({ limit: 10 }))
+    await expect(runWithActiveCloudflareEnv({ KV: namespace }, () => storage.listKeys({ cursor: first.cursor, limit: 10 }))).rejects.toThrow(
+      "Cloudflare KV list returned a repeated pagination cursor.",
+    )
+  })
 })

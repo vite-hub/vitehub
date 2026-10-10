@@ -56,7 +56,12 @@ function createCloudflareDriver(options: Record<string, unknown>): KVRuntimeDriv
       throw kvErrorDiagnostics.KV_R0022({ message: "[vitehub] Cloudflare KV list returned an invalid page." })
     }
     const result: KVListPage = { keys: page.keys.map((key: { name: string }) => key.name) }
-    if (!page.list_complete) result.cursor = page.cursor
+    if (!page.list_complete) {
+      if (cursor && page.cursor === cursor) {
+        throw kvErrorDiagnostics.KV_R0025({ message: "Cloudflare KV list returned a repeated pagination cursor." })
+      }
+      result.cursor = page.cursor
+    }
     return result
   }
   return driver
