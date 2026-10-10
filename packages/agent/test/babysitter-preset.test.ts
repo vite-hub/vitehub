@@ -1161,6 +1161,19 @@ describe("Babysitter preset runtime", () => {
     }
   });
 
+  it("reports a valid stale assessment even when the pass records an external wait", async () => {
+    const f = await fixture(false, false, { result: {
+      disposition: "park", text: "Waiting on permission",
+      reviewedHead: "c".repeat(40),
+      wait: { kind: "external", reason: "Actions permission", wake: ["comment"] },
+    } });
+    try {
+      await f.reconcile();
+      expect(f.events).toHaveBeenCalledWith("babysitter.result.stale_assessment", expect.objectContaining({ reviewed_head: "c".repeat(40), head_sha: "a".repeat(40) }));
+      expect((await f.runtime.inbox.get("acme/app", 12))?.status).toBe("waiting");
+    } finally { await f.runtime.inbox.close(); }
+  });
+
   it("records a park without assessment or wake as an observable retry", async () => {
     const f = await fixture();
     try {
