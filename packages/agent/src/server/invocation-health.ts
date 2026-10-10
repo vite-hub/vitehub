@@ -43,6 +43,10 @@ export async function failInterruptedAgentInvocations(
   }
   do {
     const records = await store.list({ cursor, limit, status: ["pending", "running"], ...(options.agentName ? { agentName: options.agentName } : {}) })
+    if (records.cursor && seenCursors.has(records.cursor)) {
+      throw new Error("[vitehub] Agent Invocation listing returned a repeated pagination cursor.")
+    }
+    if (records.cursor) seenCursors.add(records.cursor)
     for (const invocation of records.invocations) {
       const startedAt = Date.parse(invocation.startedAt || invocation.createdAt)
       if (!Number.isFinite(startedAt) || startedAt >= before) continue
@@ -51,10 +55,6 @@ export async function failInterruptedAgentInvocations(
       if (await fail(invocation)) failed += 1
       else if (blockedClaimToken !== undefined) blocked.push({ ...invocation, blockedClaimToken })
     }
-    if (records.cursor && seenCursors.has(records.cursor)) {
-      throw new Error("[vitehub] Agent Invocation listing returned a repeated pagination cursor.")
-    }
-    if (records.cursor) seenCursors.add(records.cursor)
     cursor = records.cursor
   } while (cursor)
   if (blocked.length > 0) {

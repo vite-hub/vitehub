@@ -1242,6 +1242,30 @@ describe("Agent Invocation host recovery", () => {
     await expect(Promise.resolve(store.get("provider-owned"))).resolves.toMatchObject({ status: "running" })
   })
 
+  it("rejects repeated recovery cursors before processing the repeated page", async () => {
+    const store = createMemoryAgentInvocationStore()
+    const createdAt = "2026-08-30T10:00:00.000Z"
+    store.create({ createdAt, id: "interrupted", observations: [], status: "running", traceId: "trace", updatedAt: createdAt })
+    const invocation = {
+      cursor: "interrupted",
+      createdAt,
+      id: "interrupted",
+      status: "running" as const,
+      traceId: "trace",
+      updatedAt: createdAt,
+    }
+    const list = vi.spyOn(store, "list").mockResolvedValue({ cursor: "same", invocations: [invocation] })
+    const recover = vi.fn(() => true)
+
+    await expect(failInterruptedAgentInvocations(store, {
+      before: Date.parse("2026-08-30T11:00:00.000Z"),
+      recover,
+    })).rejects.toThrow("Agent Invocation listing returned a repeated pagination cursor")
+    expect(list).toHaveBeenCalledTimes(2)
+    expect(recover).toHaveBeenCalledOnce()
+    await expect(Promise.resolve(store.get("interrupted"))).resolves.toMatchObject({ status: "failed" })
+  })
+
   it("summarizes current and stale work", () => {
     expect(summarizeAgentInvocationWorkload([
       { createdAt: "2026-08-30T09:00:00.000Z", status: "running" },
