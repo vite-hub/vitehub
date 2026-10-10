@@ -181,8 +181,9 @@ export const labeller: LabellerAgent = defineAgent({
   },
   configure: options => {
     validateOptions(options)
-    const { labels, rules, actions, bodyLimit, dryRun, minConfidence, trashEnabled, client } = options
-    const channel = gmail({ labels, bodyLimit, dryRun, client })
+    const { labels, rules, actions, bodyLimit, minConfidence, trashEnabled, client } = options
+    // Replay callers choose dry-run per invocation; do not force it at the channel level.
+    const channel = gmail({ labels, bodyLimit, client })
     return defineAgent({
       description: "Label Gmail messages with ordered rules, then a constrained Jev choice.",
       channels: { gmail: channel },
