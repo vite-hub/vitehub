@@ -54,7 +54,7 @@ Use [`workspaceShell()`](/docs/workspace/agent-capability) for Workspace inspect
 
 ## Security and approval
 
-- The allowlist checks the executable name exactly. The tool also requires string arguments, keeps argument and environment sizes bounded, accepts the provider's `cwd` format unchanged, and requires a positive timeout no greater than `2_147_483_647` milliseconds.
+- The allowlist checks the executable name exactly. The tool also requires string arguments, keeps argument and environment sizes bounded, accepts the provider's `cwd` format unchanged, and requires a positive integer timeout no greater than `2_147_483_647` milliseconds.
 - Environment keys must be valid names. `PATH`, `NODE_OPTIONS`, `NODE_PATH`, `LD_*`, and `DYLD_*` are reserved so a tool call cannot replace command resolution or inject a loader.
 - Reserved-name checks run at execution time and are case-insensitive.
 - An allowlisted executable such as `node` or `pnpm` can run any code that its arguments select. The isolation of the Sandbox primitive is the security boundary.

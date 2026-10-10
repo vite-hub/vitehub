@@ -27,7 +27,7 @@ describe("sandbox capability", () => {
     const exec = vi.fn(async () => ({ code: 0, ok: true, stderr: "", stdout: "" }))
     const tools = await capabilityTools(capability, exec)
     expect(tools.sandbox_exec?.inputSchema).toMatchObject({
-      properties: { command: { enum: ["node"] } },
+      properties: { command: { enum: ["node"] }, timeout: { type: "integer" } },
     })
     return expect(tools.sandbox_exec?.execute?.({ command: "sh" })).rejects.toThrow("not allowed")
   })
@@ -43,8 +43,9 @@ describe("sandbox capability", () => {
     await expect(tools.sandbox_exec?.execute?.({ command: "node", env: { PATH: "/tmp" } })).rejects.toThrow("cannot override PATH")
     await expect(tools.sandbox_exec?.execute?.({ command: "node", env: { NODE_OPTIONS: "--require loader" } })).rejects.toThrow("cannot override PATH")
     await expect(tools.sandbox_exec?.execute?.({ command: "node", env: { LD_PRELOAD: "loader.so" } })).rejects.toThrow("cannot override PATH")
-    await expect(tools.sandbox_exec?.execute?.({ command: "node", timeout: 0 })).rejects.toThrow("timeout must be a positive number")
-    await expect(tools.sandbox_exec?.execute?.({ command: "node", timeout: 2_147_483_648 })).rejects.toThrow("timeout must be a positive number")
+    await expect(tools.sandbox_exec?.execute?.({ command: "node", timeout: 0 })).rejects.toThrow("timeout must be a positive integer")
+    await expect(tools.sandbox_exec?.execute?.({ command: "node", timeout: 0.5 })).rejects.toThrow("timeout must be a positive integer")
+    await expect(tools.sandbox_exec?.execute?.({ command: "node", timeout: 2_147_483_648 })).rejects.toThrow("timeout must be a positive integer")
     await expect(tools.sandbox_exec?.execute?.({ command: "node", cwd: 42 })).rejects.toThrow("cwd must be a string")
 
     await expect(tools.sandbox_exec?.execute?.({
@@ -69,6 +70,16 @@ describe("sandbox capability", () => {
     })
     await tools.sandbox_exec?.execute?.({ command: "node", args })
     expect(exec).toHaveBeenLastCalledWith("node", ["--version", "--inspect"], {})
+
+    let reportedLength = 0
+    const unstableArgs = new Proxy(Array.from({ length: 129 }, () => "--version"), {
+      get(target, property, receiver) {
+        if (property === "length") return reportedLength++ === 0 ? 1 : target.length
+        return Reflect.get(target, property, receiver)
+      },
+    })
+    await tools.sandbox_exec?.execute?.({ command: "node", args: unstableArgs })
+    expect(exec).toHaveBeenLastCalledWith("node", ["--version"], {})
 
     const env: Record<string, string> = {}
     Object.defineProperty(env, "NO_COLOR", {

@@ -52,11 +52,15 @@ function validateSandboxCommands(commands: unknown): string[] {
 
 function validateSandboxArgs(value: unknown): string[] {
   if (value === undefined) return []
-  if (!Array.isArray(value) || value.length > maxSandboxArgs) {
+  if (!Array.isArray(value)) {
+    throw agentDiagnostics.AGENT_R0998({ message: `[vitehub] sandbox_exec args must be an array of no more than ${maxSandboxArgs} strings, each no longer than ${maxSandboxArgLength} characters.` })
+  }
+  const length = value.length
+  if (!Number.isInteger(length) || length < 0 || length > maxSandboxArgs) {
     throw agentDiagnostics.AGENT_R0998({ message: `[vitehub] sandbox_exec args must be an array of no more than ${maxSandboxArgs} strings, each no longer than ${maxSandboxArgLength} characters.` })
   }
   const args: string[] = []
-  for (let index = 0; index < value.length; index++) {
+  for (let index = 0; index < length; index++) {
     if (!Object.hasOwn(value, index)) {
       throw agentDiagnostics.AGENT_R0998({ message: `[vitehub] sandbox_exec args must be an array of no more than ${maxSandboxArgs} strings, each no longer than ${maxSandboxArgLength} characters.` })
     }
@@ -108,8 +112,8 @@ function validateSandboxEnvironment(value: unknown): Record<string, string> | un
 function validateSandboxTimeout(value: unknown): number | undefined {
   if (value === undefined) return undefined
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Tool input is untrusted and timeout validation defines the execution contract.
-  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0 || value > maxSandboxTimeout) {
-    throw agentDiagnostics.AGENT_R1004({ message: `[vitehub] sandbox_exec timeout must be a positive number no greater than ${maxSandboxTimeout}.` })
+  if (typeof value !== "number" || !Number.isInteger(value) || value <= 0 || value > maxSandboxTimeout) {
+    throw agentDiagnostics.AGENT_R1004({ message: `[vitehub] sandbox_exec timeout must be a positive integer no greater than ${maxSandboxTimeout}.` })
   }
   return value
 }
@@ -127,7 +131,7 @@ function sandboxExecInputSchema(commands: readonly string[]): AgentToolSchema {
         propertyNames: { pattern: "^[A-Za-z_][A-Za-z0-9_]*$" },
         type: "object",
       },
-      timeout: { maximum: maxSandboxTimeout, exclusiveMinimum: 0, type: "number" },
+      timeout: { maximum: maxSandboxTimeout, exclusiveMinimum: 0, type: "integer" },
     },
     required: ["command"],
     type: "object",
