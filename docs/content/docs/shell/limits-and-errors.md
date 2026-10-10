@@ -19,3 +19,5 @@ icon: i-lucide-circle-alert
 Configure command, filesystem, network, process, streaming, and timeout access before running commands. A Shell Network Grant permits only the network access it names.
 
 Use a read-only Workspace filesystem unless the caller must write. Set `maxOutputLength` and `timeout` for every runtime that handles untrusted input.
+
+Use an `AbortSignal` tied to the owning request or Agent Invocation. Shell providers must carry it into provider-owned work; the Just Bash controlled `curl` path forwards it to the Source Request executor and preserves the caller's abort reason.

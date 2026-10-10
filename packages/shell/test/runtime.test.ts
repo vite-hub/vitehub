@@ -98,6 +98,16 @@ describe("@vite-hub/shell just-bash runtime", () => {
         background: false,
         interactive: false,
       },
+      execution: {
+        isolation: "in_process",
+        model: "virtual",
+      },
+      resources: {
+        output: {
+          enforcedBy: "provider",
+          unit: "characters",
+        },
+      },
     })
     await expect(runtime.exec("pwd")).resolves.toMatchObject({
       command: "pwd",
@@ -247,6 +257,47 @@ describe("@vite-hub/shell just-bash runtime", () => {
       method: "POST",
       url: "https://portal.example.com/runtime/inventory-health",
     })
+  })
+
+  it("bounds controlled Source output before it reaches the Shell observation", async () => {
+    const executeSourceRequest = vi.fn(async () => ({ content: "0123456789" }))
+    const runtime = createShellRuntime({
+      policy: { maxOutputLength: 4 },
+      provider: createJustBashProvider({
+        commands: ["curl"],
+        fs: createReadonlyWorkspaceFs(new MemoryWorkspace({})),
+        networkGrants: { executeSourceRequest },
+      }),
+    })
+
+    await expect(runtime.exec("curl https://portal.example.com/action")).resolves.toMatchObject({
+      event: "command_finished",
+      outputTruncated: true,
+      stdout: "0123\n[output truncated to 4 characters]\n",
+    })
+  })
+
+  it("forwards Shell cancellation to a controlled Source request", async () => {
+    const controller = new AbortController()
+    const executeSourceRequest = vi.fn(async (input: { signal?: AbortSignal }) => {
+      await new Promise<void>((resolve, reject) => {
+        input.signal?.addEventListener("abort", () => reject(input.signal?.reason), { once: true })
+        if (input.signal?.aborted) reject(input.signal.reason)
+      })
+      return { content: "never" }
+    })
+    const runtime = createShellRuntime({
+      provider: createJustBashProvider({
+        commands: ["curl"],
+        fs: createReadonlyWorkspaceFs(new MemoryWorkspace({})),
+        networkGrants: { executeSourceRequest },
+      }),
+    })
+
+    const pending = runtime.exec("curl https://portal.example.com/action", { signal: controller.signal })
+    await vi.waitFor(() => expect(executeSourceRequest).toHaveBeenCalledOnce())
+    controller.abort(new Error("request disconnected"))
+    await expect(pending).rejects.toThrow("request disconnected")
   })
 
   it.each([{ commands: [] }, { commands: ["cat"] }])("rejects controlled curl when commands $commands do not permit it", async ({ commands }) => {

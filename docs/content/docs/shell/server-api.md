@@ -32,6 +32,8 @@ Writable Workspace filesystems create absent files on append. A read failure for
 
 Custom providers can return Shell Observations as class instances. Sessions preserve every declared observation field, including fields exposed through getters.
 
+`runtime.boundary.execution` identifies the provider execution model (`in_process`, `process`, or `provider_managed`) and `model` (`virtual`, `host`, or `unknown`). `runtime.boundary.resources.output` identifies whether output limits are enforced by the provider or the Shell runtime.
+
 ## Use Shell sessions
 
 A Shell Session keeps policy across repeated commands: call budget, output size, timeouts, and process budget.
@@ -89,6 +91,8 @@ Analysis is not sandbox enforcement. The Execution Provider and caller policy co
 | `outputTruncated` | `boolean` | Whether `maxOutputLength` truncated output. |
 | `timedOut` | `boolean` | Whether timeout ended command execution. |
 | `workspaceGuardrail` | `object` | Workspace inspection feedback: `broad_search`, `missing_path`, `no_match`, or `timeout`. |
+
+Pass `signal` to `runtime.exec()` or `session.exec()` to cancel provider work. A controlled `curl` request forwards that signal to its Source Request executor.
 
 ## Workspace filesystem
 

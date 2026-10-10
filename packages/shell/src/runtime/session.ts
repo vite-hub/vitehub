@@ -77,9 +77,15 @@ class RuntimeShellSession implements ShellSession {
 
     this.#shellCalls += 1
     const started = Date.now()
+    const maxOutputLength = options.maxOutputLength === undefined
+      ? this.policy.maxOutputLength
+      : this.policy.maxOutputLength === undefined
+        ? options.maxOutputLength
+        : Math.min(options.maxOutputLength, this.policy.maxOutputLength)
     const result = await this.provider.exec(command, {
       ...options,
       env: { ...this.env, ...options.env },
+      maxOutputLength,
       timeout: options.timeout ?? this.policy.timeout,
     })
 
@@ -96,7 +102,7 @@ class RuntimeShellSession implements ShellSession {
       stdout: result.stdout,
       timedOut,
       workspaceGuardrail: result.workspaceGuardrail,
-    }, this.policy.maxOutputLength)
+    }, maxOutputLength)
   }
 
   async startProcess(command: string, options: ShellRuntimeExecOptions = {}) {

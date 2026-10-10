@@ -18,8 +18,10 @@ type ShellObservationEvent =
 interface ShellRuntimeExecOptions {
   cwd?: string
   env?: Record<string, string>
+  maxOutputLength?: number
   onStderr?: (chunk: string) => void
   onStdout?: (chunk: string) => void
+  signal?: AbortSignal
   stdin?: string
   timeout?: number
   workspacePaths?: string[]
@@ -81,6 +83,16 @@ interface ShellBoundary {
   timeout: {
     enforcedBy: "provider" | "runtime" | "unsupported"
     supported: boolean
+  }
+  execution?: {
+    isolation: "in_process" | "process" | "provider_managed" | "unknown"
+    model: "virtual" | "host" | "unknown"
+  }
+  resources?: {
+    output: {
+      enforcedBy: "provider" | "runtime" | "unsupported"
+      unit: "characters"
+    }
   }
 }
 
@@ -277,6 +289,7 @@ function createWorkspaceSessionShellProvider(starter: WorkspaceSessionStarter): 
         const result = await session.exec("sh", ["-lc", command], {
           cwd: execOptions.cwd || workspaceMountPoint,
           env: execOptions.env,
+          ...(execOptions.signal ? { abortSignal: execOptions.signal } : {}),
           timeout: execOptions.timeout,
         })
         execOptions.onStdout?.(result.stdout)
