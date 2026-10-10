@@ -103,6 +103,32 @@ describe("provider inspection", () => {
     expect(JSON.stringify(result)).not.toContain("secret diagnostic")
   })
 
+  it("rejects a configured model before preparation when the provider model catalogue excludes it", async () => {
+    inspectProvider.mockResolvedValue({ ...ready(), models: [{ slug: "gpt-5", aliases: ["latest"] }] })
+    const result = await inspectAgentProvider({ provider: "codex", model: "gpt-6-astra" }, context())
+    expect(result).toMatchObject({
+      readiness: "unavailable",
+      modelCompatibility: { status: "unavailable" },
+      reason: "Provider does not support configured model gpt-6-astra.",
+    })
+  })
+
+  it("keeps model compatibility unknown when the provider does not expose a catalogue", async () => {
+    inspectProvider.mockResolvedValue(ready())
+    const result = await inspectAgentProvider({ provider: "codex", model: "gpt-6-astra" }, context())
+    expect(result).toMatchObject({ readiness: "unknown", modelCompatibility: { status: "unknown" } })
+  })
+
+  it("rejects an authoritative workspace capacity failure before preparation", async () => {
+    inspectProvider.mockResolvedValue({ ...ready(), workspaceCapacity: { status: "unavailable", reason: "Workspace spending limit reached." } })
+    const result = await inspectAgentProvider({ provider: "codex" }, context())
+    expect(result).toMatchObject({
+      readiness: "unavailable",
+      workspaceCapacity: { status: "unavailable" },
+      reason: "Workspace spending limit reached.",
+    })
+  })
+
   it("reports the provider message when the status check fails", async () => {
     inspectProvider.mockResolvedValue({ ...ready(), status: "error", message: "Codex App Server process exited with code 1" })
     expect(await inspectAgentProvider({ provider: "codex" }, context())).toMatchObject({
@@ -460,6 +486,18 @@ describe("invocation preflight", () => {
     expect(status).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ checkRequirements: false }))
     expect(prepare).not.toHaveBeenCalled()
     expect(close).not.toHaveBeenCalled()
+  })
+
+  it("rejects an incompatible configured model before capability preparation", async () => {
+    const { defineAgent, defineCapability, runAgentInline } = await import("../src/index.ts")
+    inspectProvider.mockResolvedValue({ ...ready(), models: [{ slug: "gpt-5" }] })
+    const prepare = vi.fn(() => { throw new Error("unexpected runtime installation") })
+    const agent = defineAgent({ runtime: false, driver: { kind: "codex", model: "gpt-6-astra" }, capabilities: [defineCapability({
+      id: "runtime-preparation", prepare,
+    })] })
+    await expect(runAgentInline(agent, { runtime: "unknown", memo: (_key, create) => create(), waitUntil: task => void task.catch(() => {}) }, { prompt: "hello" }))
+      .rejects.toMatchObject({ code: "AGENT_R0726", fix: expect.stringContaining("configured model") })
+    expect(prepare).not.toHaveBeenCalled()
   })
 
   it("applies the provider deadline during capability preparation", async () => {

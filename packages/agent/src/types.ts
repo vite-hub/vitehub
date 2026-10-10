@@ -1492,6 +1492,12 @@ export interface AgentProviderUsageLimits {
   unavailable?: { reason: "unsupported" | "probeFailed" }
 }
 
+/** A provider-owned readiness dimension. Unknown means the provider did not expose evidence. */
+export interface AgentProviderReadinessCheck {
+  status: "ready" | "unavailable" | "unknown" | "unsupported"
+  reason?: string
+}
+
 export interface AgentProviderStatus {
   /** Opaque scope for deduplicating shared limits. Never contains the credential itself. */
   account?: { id: string, kind: "credential" | "account" }
@@ -1506,6 +1512,10 @@ export interface AgentProviderStatus {
   missingCommands?: string[]
   reason?: string
   usageLimits?: AgentProviderUsageLimits
+  /** Evidence for the configured model, when the provider reports its model catalogue. */
+  modelCompatibility?: AgentProviderReadinessCheck
+  /** Evidence for workspace or project spending capacity, when the provider reports it. */
+  workspaceCapacity?: AgentProviderReadinessCheck
 }
 
 export interface AgentProviderDriverOptions<

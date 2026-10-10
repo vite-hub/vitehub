@@ -60,6 +60,7 @@ import type {
   AgentProviderCredentialContext,
   AgentProviderStatus,
   AgentProviderCredentialResolver,
+  AgentProviderReadinessCheck,
   AgentDriverGateway,
   AgentProviderEnvironment,
   AgentProviderEnvironmentResolver,
@@ -1364,6 +1365,38 @@ const providerStatusCacheMs = 30_000
 const providerStatusStderrMaxLength = 1_500
 const recentProviderQuotaFailures = new Map<string, { message: string, expiresAt: number }>()
 
+type ProviderReadinessSnapshot = {
+  modelCompatibility?: unknown
+  workspaceCapacity?: unknown
+  models?: unknown
+}
+
+function providerReadinessCheck(value: unknown): AgentProviderReadinessCheck | undefined {
+  if (!isRuntimeRecord(value) || !hasRuntimeType(value.status, "string")) return undefined
+  const status = value.status
+  if (status !== "ready" && status !== "unavailable" && status !== "unknown" && status !== "unsupported") return undefined
+  return {
+    status,
+    ...(hasRuntimeType(value.reason, "string") && value.reason ? { reason: value.reason } : {}),
+  }
+}
+
+function providerModelCompatibility(snapshot: unknown, configuredModel: string | undefined): AgentProviderReadinessCheck | undefined {
+  if (!configuredModel) return undefined
+  const value = snapshot as ProviderReadinessSnapshot
+  const explicit = providerReadinessCheck(value.modelCompatibility)
+  if (explicit) return explicit
+  if (!Array.isArray(value.models)) return { status: "unknown", reason: "Provider does not report configured model compatibility." }
+  const model = value.models.find(model => {
+    if (!isRuntimeRecord(model) || !hasRuntimeType(model.slug, "string")) return false
+    if (model.slug === configuredModel) return true
+    return Array.isArray(model.aliases) && model.aliases.some(alias => alias === configuredModel)
+  })
+  return model
+    ? { status: "ready" }
+    : { status: "unavailable", reason: `Provider does not support configured model ${configuredModel}.` }
+}
+
 /** Uses the invocation credential and launcher paths, without opening a provider session. */
 /** A gateway replaces Codex sign-in, so its adapter never prepares a credential home. */
 function withoutReplacedCredentials<TOptions extends ProviderAgentAdapterOptions<never, never>>(options: TOptions): TOptions {
@@ -1452,7 +1485,7 @@ export async function inspectAgentProvider<TRuntimeConfig extends AgentRuntimeCo
     signal?.throwIfAborted()
     const snapshot = await inspectProvider({
       provider: options.provider, environment, signal,
-      settings: { ...options.providerSettings, ...(binaryPath ? { binaryPath } : {}), ...(home ? { homePath: home.homePath } : {}), ...(launchArgs ? { launchArgs } : {}) },
+      settings: { ...options.providerSettings, ...(binaryPath ? { binaryPath } : {}), ...(home ? { homePath: home.homePath } : {}), ...(launchArgs ? { launchArgs } : {}), ...(options.model ? { model: options.model } : {}) },
     })
     // A custom launcher records the child's stderr. Without it, a failed probe reports only the exit code.
     const launchFailure = snapshot.status === "error"
@@ -1467,19 +1500,29 @@ export async function inspectAgentProvider<TRuntimeConfig extends AgentRuntimeCo
     const requirementsUnknown = requirements.length > 0 && missingCommands === undefined
     const authenticated = snapshot.auth.status === "unknown" ? undefined : snapshot.auth.status === "authenticated"
     const exhausted = snapshot.usageLimits?.windows.some(window => window.usedPercent >= 100)
-    const unavailable = !snapshot.enabled || !snapshot.installed || authenticated === false || snapshot.status === "error" || exhausted || Boolean(missingCommands?.length)
-    const readiness = unavailable ? "unavailable" : !requirementsUnknown && authenticated === true && snapshot.status === "ready" && snapshot.usageLimits && !snapshot.usageLimits.unavailable ? "ready" : "unknown"
+    const modelCompatibility = providerModelCompatibility(snapshot, options.model)
+    const workspaceCapacity = providerReadinessCheck((snapshot as ProviderReadinessSnapshot).workspaceCapacity)
+    const signalUnavailable = modelCompatibility?.status === "unavailable" || workspaceCapacity?.status === "unavailable"
+    const signalUnknown = modelCompatibility?.status === "unknown" || modelCompatibility?.status === "unsupported"
+      || workspaceCapacity?.status === "unknown" || workspaceCapacity?.status === "unsupported"
+    const unavailable = !snapshot.enabled || !snapshot.installed || authenticated === false || snapshot.status === "error" || exhausted || Boolean(missingCommands?.length) || signalUnavailable
+    const readiness = unavailable ? "unavailable" : signalUnknown ? "unknown" : !requirementsUnknown && authenticated === true && snapshot.status === "ready" && snapshot.usageLimits && !snapshot.usageLimits.unavailable ? "ready" : "unknown"
+    const signalReason = modelCompatibility?.status === "unavailable" ? modelCompatibility.reason
+      : workspaceCapacity?.status === "unavailable" ? workspaceCapacity.reason
+        : undefined
     const result: AgentProviderStatus = {
       agent: context.agentIdentity?.name ?? "agent", provider: options.provider,
       ...(home?.scope ? { account: { id: home.scope, kind: "credential" as const } } : {}),
       checkedAt: snapshot.checkedAt, stale: false, installed: snapshot.installed, authenticated, readiness,
       ...(requirements.length && missingCommands !== undefined ? { missingCommands } : {}),
-      reason: missingCommands?.length ? `Driver commands are missing: ${missingCommands.join(", ")}.` : exhausted ? "Subscription quota is exhausted." : !snapshot.installed ? "Provider executable is unavailable." : authenticated === false ? "Provider is signed out." : unavailable ? `Provider status check failed${failureMessage ? `: ${failureMessage}` : "."}` : requirementsUnknown ? "Driver requirements could not be verified." : readiness === "unknown" ? "Provider readiness could not be fully verified." : "Reported subscription quota is available. Workspace spending limits are not reported by this provider probe.",
+      reason: missingCommands?.length ? `Driver commands are missing: ${missingCommands.join(", ")}.` : signalReason || (exhausted ? "Subscription quota is exhausted." : !snapshot.installed ? "Provider executable is unavailable." : authenticated === false ? "Provider is signed out." : unavailable ? `Provider status check failed${failureMessage ? `: ${failureMessage}` : "."}` : requirementsUnknown ? "Driver requirements could not be verified." : readiness === "unknown" ? "Provider readiness could not be fully verified." : "Reported subscription quota is available. Workspace spending limits are not reported by this provider probe."),
       ...(snapshot.usageLimits ? { usageLimits: {
         checkedAt: snapshot.usageLimits.checkedAt,
         windows: snapshot.usageLimits.windows,
         ...(snapshot.usageLimits.unavailable ? { unavailable: { reason: snapshot.usageLimits.unavailable.reason } } : {}),
       } } : {}),
+      ...(modelCompatibility ? { modelCompatibility } : {}),
+      ...(workspaceCapacity ? { workspaceCapacity } : {}),
     }
     if (statusKey !== undefined) {
       const cache = providerStatusCache.get(options) ?? new Map<string, AgentProviderStatus>()
