@@ -19,4 +19,12 @@ describe("memory Workspace mkdir", () => {
     await expect(store.mkdir("nested", { recursive: false })).rejects.toThrow("Workspace path already exists")
     await store.mkdir("nested/notes", { recursive: false })
   })
+
+  it("rejects recursive creation below an existing file", async () => {
+    const store = createMemoryWorkspaceStore()
+    await store.writeFile("notes", { path: "notes", content: "keep" })
+
+    await expect(store.mkdir("notes/child")).rejects.toThrow("Workspace parent is not a directory")
+    await expect(store.readFile("notes")).resolves.toMatchObject({ content: "keep" })
+  })
 })

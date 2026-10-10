@@ -217,7 +217,9 @@ class MemoryWorkspaceStore implements WorkspaceStore {
     const parts = normalizeWorkspacePath(path).split("/").filter(Boolean)
     for (let index = 1; index < parts.length; index++) {
       const dir = parts.slice(0, index).join("/")
-      if (!this.#nodes.has(dir)) this.#nodes.set(dir, { type: "directory", mtime: now() })
+      const node = this.#nodes.get(dir)
+      if (node?.type === "file") throw workspaceError(`[vitehub] Workspace parent is not a directory: ${path}.`)
+      if (!node) this.#nodes.set(dir, { type: "directory", mtime: now() })
     }
   }
 
