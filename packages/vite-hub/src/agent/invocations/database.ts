@@ -15,7 +15,7 @@ interface RuntimeConnection {
 }
 
 type RuntimeDatabase = RuntimeConnection & {
-  transaction?<T>(callback: (connection: RuntimeConnection) => Promise<T>): Promise<T>
+  batch?(queries: readonly SQL[]): Promise<unknown[]>
 }
 
 interface InvocationResult<T extends Record<string, unknown> = Record<string, unknown>> {
@@ -56,12 +56,22 @@ function statementResult<T extends Record<string, unknown>>(rows: T[]): Invocati
 }
 
 async function runBatch(database: RuntimeDatabase, queries: readonly SQL[]): Promise<Record<string, unknown>[][]> {
+  if (database.batch) {
+    const results = await database.batch(queries)
+    return results.map(result => {
+      if (Array.isArray(result)) return result as Record<string, unknown>[]
+      if (result && typeof result === "object" && "results" in result && Array.isArray(result.results)) {
+        return result.results as Record<string, unknown>[]
+      }
+      throw new TypeError("[vitehub] Database Agent Invocation batch returned an invalid result.")
+    })
+  }
   const execute = async (connection: RuntimeConnection) => {
     const results: Record<string, unknown>[][] = []
     for (const query of queries) results.push(await connection.all(query))
     return results
   }
-  return database.transaction ? database.transaction(execute) : execute(database)
+  return execute(database)
 }
 
 function invocationDatabase(database: RuntimeDatabase): InvocationDatabase {

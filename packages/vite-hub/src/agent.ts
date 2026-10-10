@@ -13,7 +13,7 @@ import type { AgentInvocations, DefineAgent } from "@vite-hub/agent"
 let databaseInvocations: AgentInvocations | undefined
 
 function defaultDatabaseInvocations(): AgentInvocations | undefined {
-  if (!Object.keys(databases.default?.schema ?? {}).length) return
+  if (!databases.default) return
   return databaseInvocations ??= defineAgentInvocations({ store: createDatabaseAgentInvocationStore() })
 }
 
