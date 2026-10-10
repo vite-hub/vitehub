@@ -17,7 +17,7 @@ interface DenoKV {
   delete: (key: DenoKVKey) => Promise<void>
   // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- This models Deno KV's caller-typed get contract.
   get: <T = unknown>(key: DenoKVKey) => Promise<DenoKVEntry<T>>
-  list: <T = unknown>(selector: { prefix: DenoKVPrefix }, options?: { cursor?: string; limit?: number }) => AsyncIterable<DenoKVEntry<T>> & { cursor?: string }
+  list: (selector: { prefix: DenoKVPrefix }, options?: { cursor?: string; limit?: number }) => AsyncIterable<DenoKVEntry> & { cursor?: string }
   set: <T = unknown>(key: DenoKVKey, value: T, options?: { expireIn: number }) => Promise<unknown>
 }
 
