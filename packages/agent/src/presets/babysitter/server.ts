@@ -1283,7 +1283,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                     repository, number, assignedHead: pullRequest.headRefOid, observedHead: current.pr?.head?.sha,
                     assignedBase: pullRequest.baseRefOid, publishedHead: pushedHead,
                     claim: { current: true, generation: current.generation, revision: current.revision ?? 0 },
-                    dependencies: isRuntimeRecord(dependencies) ? { status: dependencies.status ?? (dependencies.ok ? "installed" : "failed"), fingerprint: dependencies.fingerprint, command: dependencies.command, reason: dependencies.reason } : { status: presetOptions.install === false ? "disabled" : "not-recorded" },
+                    dependencies: isRuntimeRecord(dependencies) ? { status: dependencies.status ?? (dependencies.ok ? "installed" : "failed"), fingerprint: dependencies.fingerprint, command: dependencies.command, reason: dependencies.reason } : { status: installOption === false ? "disabled" : "not-recorded" },
                   };
                 },
                 beforeRepair: async (context, paths) => {
