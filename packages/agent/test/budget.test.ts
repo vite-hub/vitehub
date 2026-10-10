@@ -126,7 +126,34 @@ describe("budget Capability", () => {
       },
     })
 
-    await expect(runAgent(agent, runtime(), { prompt: "hello" })).rejects.toMatchObject({ code: "AGENT_BUDGET_EXCEEDED" })
+    const error = await runAgent(agent, runtime(), { prompt: "hello" }).catch(error => error)
+    expect(error).toMatchObject({ code: "AGENT_BUDGET_EXCEEDED", details: { limits: { tokens: { total: 10 } } } })
+    expect(Object.hasOwn(error.details.limits.tokens, "input")).toBe(false)
+    expect(Object.hasOwn(error.details.limits.tokens, "output")).toBe(false)
+  })
+
+  it("accepts numeric USD limits that use scientific notation", async () => {
+    const { budget } = await import("../src/capabilities.ts")
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const agent = defineAgent({
+      capabilities: [budget({ usd: 1e-7, pricing: false })],
+      driver: {
+        run: () => ({
+          text: "ok",
+          usageRecord: {
+            cost: { display: "$0.00000011", estimated: false, source: "provider", usd: "0.00000011" },
+            usage: {},
+          },
+        }),
+      },
+      hooks: { "agent:finish": finish },
+    })
+
+    await runAgent(agent, runtime(), { prompt: "hello" })
+    expect(finish.mock.calls[0]![0].extensions.get("budget")).toMatchObject({
+      exceeded: [{ metric: "usd", actual: "0.00000011", limit: 1e-7 }],
+    })
   })
 
   it("rejects an empty budget", async () => {
