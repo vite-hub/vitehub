@@ -50,6 +50,8 @@ export interface ExecutionBudget {
   readonly signal: AbortSignal
   child(options?: ExecutionBudgetOptions): ExecutionBudget
   consume(counter: ExecutionBudgetCounter, amount?: number): void
+  /** Release timers and abort listeners owned by this budget and its children. */
+  dispose(): void
   recordInputBytes(amount: number): void
   recordOutputBytes(amount: number): void
   recordRetry(): void
@@ -61,7 +63,43 @@ interface BudgetState {
   readonly controller: AbortController
   readonly limits: ExecutionBudgetLimits
   readonly usage: ExecutionBudgetUsage
-  timer?: ReturnType<typeof setTimeout>
+  readonly node: BudgetNode
+}
+
+interface BudgetNode {
+  readonly cleanups: Set<() => void>
+  readonly children: Set<BudgetNode>
+  readonly parent?: BudgetNode
+  disposed: boolean
+}
+
+function createBudgetNode(parent?: BudgetNode): BudgetNode {
+  const node: BudgetNode = {
+    cleanups: new Set(),
+    children: new Set(),
+    ...(parent ? { parent } : {}),
+    disposed: false,
+  }
+  parent?.children.add(node)
+  return node
+}
+
+function registerBudgetCleanup(node: BudgetNode, cleanup: () => void): void {
+  if (node.disposed) {
+    cleanup()
+    return
+  }
+  node.cleanups.add(cleanup)
+}
+
+function disposeBudgetNode(node: BudgetNode): void {
+  if (node.disposed) return
+  node.disposed = true
+  for (const child of [...node.children]) disposeBudgetNode(child)
+  node.children.clear()
+  for (const cleanup of [...node.cleanups]) cleanup()
+  node.cleanups.clear()
+  node.parent?.children.delete(node)
 }
 
 export function createExecutionBudget(options: ExecutionBudgetOptions = {}): ExecutionBudget {
@@ -71,21 +109,28 @@ export function createExecutionBudget(options: ExecutionBudgetOptions = {}): Exe
     controller,
     limits,
     usage: { inputBytes: 0, outputBytes: 0, retries: 0, toolCalls: 0 },
+    node: createBudgetNode(),
   }
   const abortFromExternal = () => controller.abort(options.signal?.reason)
   if (options.signal) {
     if (options.signal.aborted) abortFromExternal()
-    else options.signal.addEventListener("abort", abortFromExternal, { once: true })
+    else {
+      options.signal.addEventListener("abort", abortFromExternal, { once: true })
+      registerBudgetCleanup(state.node, () => options.signal?.removeEventListener("abort", abortFromExternal))
+    }
   }
   if (limits.deadlineAt !== undefined) {
     const remaining = limits.deadlineAt - Date.now()
     if (remaining <= 0) controller.abort(new DOMException("Execution budget deadline exceeded.", "TimeoutError"))
-    else state.timer = setTimeout(() => controller.abort(new DOMException("Execution budget deadline exceeded.", "TimeoutError")), remaining)
+    else {
+      const timer = setTimeout(() => controller.abort(new DOMException("Execution budget deadline exceeded.", "TimeoutError")), remaining)
+      registerBudgetCleanup(state.node, () => clearTimeout(timer))
+    }
   }
-  return createBudget(state, limits, controller)
+  return createBudget(state, limits, controller, state.node)
 }
 
-function createBudget(state: BudgetState, limits: ExecutionBudgetLimits, controller: AbortController): ExecutionBudget {
+function createBudget(state: BudgetState, limits: ExecutionBudgetLimits, controller: AbortController, node: BudgetNode): ExecutionBudget {
   function assertAvailable(counter: ExecutionBudgetCounter, amount: number) {
     state.controller.signal.throwIfAborted()
     controller.signal.throwIfAborted()
@@ -102,21 +147,36 @@ function createBudget(state: BudgetState, limits: ExecutionBudgetLimits, control
 
   return {
     signal: controller.signal,
+    dispose() {
+      disposeBudgetNode(node)
+    },
     child(options = {}) {
       const childLimits = normalizeLimits(options)
       const childController = new AbortController()
+      const childNode = createBudgetNode(node)
       const abortChild = (reason?: unknown) => childController.abort(reason)
       if (state.controller.signal.aborted) abortChild(state.controller.signal.reason)
-      else state.controller.signal.addEventListener("abort", () => abortChild(state.controller.signal.reason), { once: true })
+      else {
+        const abortFromParent = () => abortChild(state.controller.signal.reason)
+        state.controller.signal.addEventListener("abort", abortFromParent, { once: true })
+        registerBudgetCleanup(childNode, () => state.controller.signal.removeEventListener("abort", abortFromParent))
+      }
       if (options.signal) {
         if (options.signal.aborted) abortChild(options.signal.reason)
-        else options.signal.addEventListener("abort", () => abortChild(options.signal?.reason), { once: true })
+        else {
+          const abortFromExternal = () => abortChild(options.signal?.reason)
+          options.signal.addEventListener("abort", abortFromExternal, { once: true })
+          registerBudgetCleanup(childNode, () => options.signal?.removeEventListener("abort", abortFromExternal))
+        }
       }
       const deadlineAt = minDefined(limits.deadlineAt, childLimits.deadlineAt)
       if (deadlineAt !== undefined) {
         const remaining = deadlineAt - Date.now()
         if (remaining <= 0) abortChild(new DOMException("Execution budget deadline exceeded.", "TimeoutError"))
-        else setTimeout(() => abortChild(new DOMException("Execution budget deadline exceeded.", "TimeoutError")), remaining)
+        else {
+          const timer = setTimeout(() => abortChild(new DOMException("Execution budget deadline exceeded.", "TimeoutError")), remaining)
+          registerBudgetCleanup(childNode, () => clearTimeout(timer))
+        }
       }
       return createBudget(state, {
         deadlineAt,
@@ -124,7 +184,7 @@ function createBudget(state: BudgetState, limits: ExecutionBudgetLimits, control
         maxOutputBytes: minDefined(limits.maxOutputBytes, childLimits.maxOutputBytes),
         maxRetries: minDefined(limits.maxRetries, childLimits.maxRetries),
         maxToolCalls: minDefined(limits.maxToolCalls, childLimits.maxToolCalls),
-      }, childController)
+      }, childController, childNode)
     },
     consume(counter, amount = 1) {
       consume(counter, amount)

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import { createExecutionBudget, ExecutionBudgetExceededError } from "../src/index.ts"
 
@@ -48,5 +48,26 @@ describe("ExecutionBudget", () => {
     await new Promise(resolve => setTimeout(resolve, 15))
     expect(budget.signal.aborted).toBe(true)
     expect(budget.snapshot().remaining.timeMs).toBe(0)
+  })
+
+  it("disposes deadline timers and external abort listeners, including child budgets", () => {
+    vi.useFakeTimers()
+    try {
+      const external = new AbortController()
+      const budget = createExecutionBudget({ signal: external.signal, deadlineAt: Date.now() + 1_000 })
+      const child = budget.child({ signal: external.signal, deadlineAt: Date.now() + 2_000 })
+
+      expect(vi.getTimerCount()).toBe(2)
+      budget.dispose()
+      budget.dispose()
+      expect(vi.getTimerCount()).toBe(0)
+
+      external.abort(new Error("late cancellation"))
+      expect(budget.signal.aborted).toBe(false)
+      expect(child.signal.aborted).toBe(false)
+    }
+    finally {
+      vi.useRealTimers()
+    }
   })
 })
