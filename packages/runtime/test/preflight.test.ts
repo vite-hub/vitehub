@@ -168,7 +168,9 @@ describe("runtime preflight", () => {
     let checkSignal: AbortSignal | undefined
     const late = new Promise<never>((_, reject) => { rejectLate = reject })
     const manifest = await runRuntimePreflight({
-      timeoutMs: 1,
+      // Leave enough scheduling headroom for the callback to start before the
+      // timeout while keeping the synchronous work over budget.
+      timeoutMs: 10,
       checks: [{
         id: "command:blocking-promise",
         kind: "command",
