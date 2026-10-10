@@ -225,11 +225,17 @@ export async function assertGitHubDependenciesCurrent(target: string, inputs = t
   if (record.status !== "installed" || record.fingerprint !== fingerprint) throw new Error("Dependency inputs changed or installation failed. Call refreshDependencies and rerun validation before committing.");
 }
 
-/** Return whether the host's frozen install still matches the current dependency inputs. */
+/** Return whether the host's frozen install matches current inputs and has published outputs. */
 export async function hasCurrentGitHubDependencies(target: string, inputs = target): Promise<boolean> {
   try {
     await assertGitHubDependenciesCurrent(target, inputs);
-    return true;
+    // A fingerprint proves the inputs are current, not that published outputs survived.
+    // Be conservative for installs that produced no recognizable dependency tree.
+    const outputs = await Promise.all(["node_modules", ".pnp.cjs", ".pnp.js"].map(async output => {
+      const info = await lstat(join(target, output)).catch(() => undefined);
+      return output === "node_modules" ? info?.isDirectory() : info?.isFile() && info.size > 0;
+    }));
+    return outputs.some(Boolean);
   } catch {
     return false;
   }

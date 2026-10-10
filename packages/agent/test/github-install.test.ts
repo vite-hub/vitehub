@@ -81,6 +81,16 @@ it("recognizes an unchanged frozen install without running another package-manag
   await expect(hasCurrentGitHubDependencies(root)).resolves.toBe(false);
 });
 
+it("rejects a matching install record when package-manager outputs are damaged", async () => {
+  const root = await fixture();
+  await writeFile(join(root, "package.json"), JSON.stringify({ packageManager: "pnpm@10.34.6", dependencies: { example: "1.0.0" } }));
+  await installGitHubPullRequestWorkspace(root, undefined, async input => {
+    await mkdir(join(input.cwd, "node_modules"));
+  });
+  await rm(join(root, "node_modules"), { recursive: true, force: true });
+  await expect(hasCurrentGitHubDependencies(root)).resolves.toBe(false);
+});
+
 it("rejects changed live dependency inputs after a cached runner completes", async () => {
   const root = await fixture();
   await expect(installGitHubPullRequestWorkspace(root, undefined, async input => {

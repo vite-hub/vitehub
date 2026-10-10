@@ -1138,7 +1138,8 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                   if (!providerDirectory) throw new Error("The repair workspace is not prepared.");
                   await assertLease();
                   await assertRepairBase();
-                  if (presetOptions.install !== false && !await hasCurrentGitHubDependencies(providerDirectory)) {
+                  const customInstaller = isRuntimeRecord(installOption) && Boolean(installOption.command);
+                  if (presetOptions.install !== false && (customInstaller || !await hasCurrentGitHubDependencies(providerDirectory))) {
                     await installDependencies(providerDirectory, abortSignal, owner, undefined);
                   }
                   await assertLease();
