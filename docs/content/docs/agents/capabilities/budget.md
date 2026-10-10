@@ -25,11 +25,17 @@ export default defineAgent({
       total: 120_000,
     },
     usd: '0.25',
+    capacity: {
+      concurrency: 2,
+      queue: { maxPending: 8 },
+    },
   },
 })
 ```
 
 `tokens: 20_000` is shorthand for a total-token limit. `usd` accepts a non-negative number or decimal string. Cost is compared in USD, not in provider credits.
+
+The optional top-level `capacity` field uses the Driver capacity queue and concurrency contract. It is a host admission setting, not a model usage limit. When both `budget.capacity` and `driver.capacity` are set, the budget value is used.
 
 Use the Capability form when the policy is selected at invocation time or when it is part of a reusable Capability list:
 
@@ -93,7 +99,8 @@ Invocation budgets and host resources answer different questions:
 | Policy | Scope | Result |
 | --- | --- | --- |
 | `budget.tokens` and `budget.usd` | One Invocation | Bounds model usage and reports or rejects after usage is known. |
-| Driver `capacity` | One host process | Queues Invocations and limits concurrent Drivers. |
+| `budget.capacity` | One host process | Queues Invocations and limits concurrent Drivers from the same top-level policy. |
+| Driver `capacity` | One host process | The lower-level capacity option when the policy is configured on a Driver. |
 | Babysitter `options.admission` | Babysitter host and time window | Delays new model passes when retained journal usage or host checks cross a threshold. |
 | `options.capacity` | Babysitter process host | Admits work using memory, CPU, and fallback concurrency. |
 
@@ -108,4 +115,3 @@ Use all of them when an Agent needs both spend visibility and safe host concurre
 | Custom-run-backed | Checks the `usage` or `usageRecord` returned by `driver.run`. |
 
 If a Driver reports no usage, ViteHub cannot compare token or cost limits. The invocation remains successful in `observe` mode.
-
