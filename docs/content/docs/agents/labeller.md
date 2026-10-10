@@ -50,6 +50,6 @@ vitehub channels replay \
   --dry-run
 ```
 
-After inspecting the result, omit `--dry-run` to apply the configured label and message actions. `--force` is only for intentionally repeating completed invocations. Replay uses the same Gmail history collection and trigger as new mail, and the CLI reports IDs and statuses without printing message bodies.
+Inspect the result before any live run. `channels replay` is live when `--dry-run` is absent, so remove that flag only for an intentional apply. `--force` is only for intentionally repeating completed invocations. Replay uses the same Gmail history collection and trigger as new mail, and the CLI reports IDs and statuses without printing message bodies.
 
 The preset sends bounded message bodies to the configured Jev provider. Treat email as untrusted data; Gmail Channel instructions explicitly prevent email content from becoming Agent instructions.
