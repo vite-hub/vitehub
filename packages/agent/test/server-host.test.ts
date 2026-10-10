@@ -1258,6 +1258,18 @@ describe("Agent Invocation host recovery", () => {
     })
   })
 
+  it("rejects repeated invocation workload cursors", async () => {
+    const list = vi.fn(async () => ({
+      cursor: "same",
+      invocations: [],
+    }))
+
+    await expect(readAgentInvocationWorkload({ list }, Date.parse("2026-08-30T10:00:00.000Z"))).rejects.toThrow(
+      "Agent Invocation listing returned a repeated pagination cursor",
+    )
+    expect(list).toHaveBeenCalledTimes(3)
+  })
+
   it("reads recent and all active Agent Invocations through the public list interface", async () => {
     const list = vi.fn(async (options = {}) => {
       if (!("status" in options)) {

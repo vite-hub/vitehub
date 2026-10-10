@@ -24,6 +24,7 @@ export async function failInterruptedAgentInvocations(
   let cursor: string | undefined
   let failed = 0
   const blocked: (AgentInvocationSummary & { blockedClaimToken: string })[] = []
+  const seenCursors = new Set<string>()
   const fail = async (invocation: AgentInvocationSummary, replaceClaimToken?: string): Promise<boolean> => {
     const claimId = `recovery_${globalThis.crypto.randomUUID()}`
     if (!await store.claim(invocation.id, claimId, claimLeaseMs,
@@ -50,6 +51,10 @@ export async function failInterruptedAgentInvocations(
       if (await fail(invocation)) failed += 1
       else if (blockedClaimToken !== undefined) blocked.push({ ...invocation, blockedClaimToken })
     }
+    if (records.cursor && seenCursors.has(records.cursor)) {
+      throw new Error("[vitehub] Agent Invocation listing returned a repeated pagination cursor.")
+    }
+    if (records.cursor) seenCursors.add(records.cursor)
     cursor = records.cursor
   } while (cursor)
   if (blocked.length > 0) {
@@ -88,9 +93,14 @@ export async function readAgentInvocationWorkload(
   const recent = await invocations.list({ limit: 100, ...(options.agentName ? { agentName: options.agentName } : {}) })
   const records = new Map(recent.invocations.map(invocation => [invocation.id, invocation]))
   let cursor: string | undefined
+  const seenCursors = new Set<string>()
   do {
     const active = await invocations.list({ cursor, limit: 100, status: ["pending", "running"], ...(options.agentName ? { agentName: options.agentName } : {}) })
     for (const invocation of active.invocations) records.set(invocation.id, invocation)
+    if (active.cursor && seenCursors.has(active.cursor)) {
+      throw new Error("[vitehub] Agent Invocation listing returned a repeated pagination cursor.")
+    }
+    if (active.cursor) seenCursors.add(active.cursor)
     cursor = active.cursor
   } while (cursor)
   return summarizeAgentInvocationWorkload([...records.values()], processStartedAt)
