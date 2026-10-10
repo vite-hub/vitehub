@@ -226,6 +226,48 @@ describe("cloudflare queue runtime", () => {
     expect(report.mock.calls[0]?.[1]).toMatchObject({ queue: "image-expiry", retryable: true })
   })
 
+  it("falls back to retry when the Cloudflare onError hook throws", async () => {
+    const report = vi.spyOn(console, "error").mockImplementation(() => {})
+    const retry = vi.fn()
+    const onError = vi.fn(() => { throw new Error("error hook failed") })
+    const batchHandler = createCloudflareQueueBatchHandler({
+      onError,
+      onMessage: async () => { throw new Error("handler failed") },
+    })
+
+    await expect(batchHandler({
+      ackAll: vi.fn(),
+      messages: [{ ack: vi.fn(), attempts: 1, body: "fail", id: "1", retry }],
+      queue: "queue--666f6f",
+      retryAll: vi.fn(),
+    })).resolves.toBeUndefined()
+
+    expect(onError).toHaveBeenCalledOnce()
+    expect(retry).toHaveBeenCalledOnce()
+    expect(report).toHaveBeenCalledTimes(2)
+  })
+
+  it("retries non-retryable Cloudflare errors when the onError hook throws", async () => {
+    const report = vi.spyOn(console, "error").mockImplementation(() => {})
+    const retry = vi.fn()
+    const onError = vi.fn(() => { throw new Error("error hook failed") })
+    const batchHandler = createCloudflareQueueBatchHandler({
+      onError,
+      onMessage: async () => { throw new ViteHubError("INVALID_PAYLOAD", "Invalid payload.") },
+    })
+
+    await expect(batchHandler({
+      ackAll: vi.fn(),
+      messages: [{ ack: vi.fn(), attempts: 1, body: "fail", id: "1", retry }],
+      queue: "queue--666f6f",
+      retryAll: vi.fn(),
+    })).resolves.toBeUndefined()
+
+    expect(onError).toHaveBeenCalledOnce()
+    expect(retry).toHaveBeenCalledOnce()
+    expect(report).toHaveBeenCalledTimes(2)
+  })
+
   it.each([
     ["inherited", Object.create({ retry: { delaySeconds: 30 } })],
     ["callable", Object.assign(() => undefined, { retry: { delaySeconds: 30 } })],
