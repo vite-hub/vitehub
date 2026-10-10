@@ -1442,6 +1442,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               if ("issues" in validated)
                 throw new Error("Babysitter returned an invalid pass result.");
               passResult = validated.value;
+              if (passResult?.reviewedHead && passResult.reviewedHead !== pullRequest.headRefOid) schedulerEvent("babysitter.result.stale_assessment", { ...owner, reviewed_head: passResult.reviewedHead, head_sha: pullRequest.headRefOid });
               disposition = validated.value.disposition;
               resultText = validated.value.text;
             },
@@ -1479,7 +1480,6 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
             recorded = await pullRequestInbox.finish(inboxClaim, { text: resultText, wait: { ...createCheckWait(inboxClaim.snapshot, waitPolicy), headSha: pullRequest.headRefOid, ...(assessed && merge.mode === "direct" ? { retryAt: Date.now() + 120_000 } : {}) } });
           } else {
             if (disposition === "park") schedulerEvent("babysitter.result.unqualified_park", { ...owner, head_sha: pullRequest.headRefOid });
-            if (passResult?.reviewedHead && passResult.reviewedHead !== pullRequest.headRefOid) schedulerEvent("babysitter.result.stale_assessment", { ...owner, reviewed_head: passResult.reviewedHead, head_sha: pullRequest.headRefOid });
             // A park that names no external gate still consumed a pass without progress.
             outcome = "retry";
             recorded = await pullRequestInbox.finish(inboxClaim, { text: resultText, retry: true, progress: { kind: "no-progress" } });
