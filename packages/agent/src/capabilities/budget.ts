@@ -44,7 +44,19 @@ function normalizeTokens(value: AgentBudgetOptions["tokens"]): AgentBudgetTokenL
 }
 
 function decimalParts(value: number | string): { scale: bigint, units: bigint } {
-  const text = String(value).trim()
+  const raw = String(value).trim()
+  const scientific = raw.match(/^(\d+)(?:\.(\d+))?[eE]([+-]?\d+)$/)
+  let text = raw
+  if (scientific) {
+    const [, whole, fraction = "", exponentText] = scientific
+    const digits = whole + fraction
+    const decimalIndex = whole.length + Number(exponentText)
+    text = decimalIndex <= 0
+      ? `0.${"0".repeat(-decimalIndex)}${digits}`
+      : decimalIndex >= digits.length
+        ? `${digits}${"0".repeat(decimalIndex - digits.length)}`
+        : `${digits.slice(0, decimalIndex)}.${digits.slice(decimalIndex)}`
+  }
   if (!/^\d+(?:\.\d+)?$/.test(text)) throw new TypeError("[vitehub] budget usd must be a non-negative decimal.")
   const [whole, fraction = ""] = text.split(".")
   return { scale: 10n ** BigInt(fraction.length), units: BigInt(`${whole}${fraction}`) }
