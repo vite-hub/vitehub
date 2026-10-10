@@ -3424,6 +3424,7 @@ type AgentInvocationContext<
   channels?: AgentChannels<TRuntimeConfig>
   close: () => Promise<void>
   deliveryEffectIntents: AgentChannelDeliveryEffectIntent[]
+  executionBudget: ReturnType<typeof createExecutionBudget>
   toolStepReporter?: AgentRuntimeContext<TRuntimeConfig>["toolStepReporter"]
   toolResults: AgentToolStepItem[]
   driverContributions: AgentDriverContribution[]
@@ -3468,6 +3469,7 @@ function toAgentAdapterRunContext<
 ): AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig> {
   return {
     ...context,
+    executionBudget: context.executionBudget,
     instructions: context.instructions,
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     modelExecutionInstrumentation: context.modelExecutionInstrumentation as never,
@@ -4879,6 +4881,7 @@ async function createAgentInvocationContext<
       channels: definition?.channels,
       close: capabilities.close,
       context: invocationContext,
+      executionBudget,
       deliveryEffectIntents: capabilities.registries.deliveryEffectIntents,
       durableErrorFallbackTimeout: (() => {
         const options = getChatCapabilityOptions(definition?.capabilities || [])
