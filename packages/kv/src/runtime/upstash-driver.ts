@@ -120,6 +120,9 @@ export default function createUpstashKVDriver(options: ResolvedUpstashKVStoreCon
         match: `${escapeRedisGlob(prefix)}*`,
       })
       providerCursor = String(scanned[0])
+      if (providerCursor === state.cursor && providerCursor !== "0") {
+        throw kvErrorDiagnostics.KV_R0023({ message: "Upstash KV scan returned a repeated pagination cursor." })
+      }
       keys = [...new Set<string>(scanned[1])]
     }
     const pageKeys = keys.slice(0, limit)
