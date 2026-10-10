@@ -97,7 +97,7 @@ export function tryParseSandboxOutput<TResult>(outputRaw: string) {
     return output as {
       ok?: boolean
       result?: TResult
-      error?: { message?: string, name?: string, stack?: string, cause?: string }
+      error?: { message?: string, name?: string, stack?: string, cause?: string, code?: string }
     }
   }
   catch {

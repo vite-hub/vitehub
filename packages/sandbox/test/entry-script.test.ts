@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createEntrySource } from "../src/runtime/entry-script.ts"
 import { decodeSandboxValue, SANDBOX_VALUE_MARKER } from "../src/runtime/binary-sidecars.ts"
@@ -15,6 +15,7 @@ afterEach(async () => {
 })
 
 async function executePackageEntry(definitionSource: string, options: {
+  transfer?: Parameters<typeof createEntrySource>[2]
   input?: unknown
   inputFiles?: Record<number, Uint8Array>
   inputJson?: string
@@ -27,7 +28,7 @@ async function executePackageEntry(definitionSource: string, options: {
   const outputPath = join(root, "output.json")
   await Promise.all([
     writeFile(definitionPath, definitionSource, "utf8"),
-    writeFile(entryPath, createEntrySource(definitionPath, "module"), "utf8"),
+    writeFile(entryPath, createEntrySource(definitionPath, "module", options.transfer), "utf8"),
     writeFile(inputPath, options.inputJson ?? JSON.stringify(options.input ?? { context: {}, payload: {} }), "utf8"),
   ])
   if (options.inputFiles) {
@@ -44,7 +45,7 @@ async function executePackageEntry(definitionSource: string, options: {
     child.once("close", resolve)
   })
   const output = JSON.parse(await readFile(outputPath, "utf8")) as {
-    error?: { message?: string }
+    error?: { message?: string, code?: string }
     ok: boolean
     result?: unknown
   }
@@ -312,5 +313,53 @@ describe("package entry result transport", () => {
       error: { message: expect.stringContaining(message) },
       ok: false,
     })
+  })
+})
+
+describe("output transfer limits", () => {
+  it.each(["maxSidecars", "maxSidecarBytes"] as const)("bounds files written for %s", async (limit) => {
+    const execution = await executePackageEntry(
+      'export default () => [new Blob([new Uint8Array([1, 2])]), new Uint8Array([3, 4]), Buffer.from([5, 6])]',
+      { transfer: { maxDepth: 32, maxSidecars: 3, maxSidecarBytes: 6, [limit]: limit === "maxSidecars" ? 1 : 3 } },
+    )
+    expect(execution.code).toBe(1)
+    expect(execution.output.error).toMatchObject({ code: "SANDBOX_TRANSFER_LIMIT" })
+    expect(execution.output.error?.message).toContain(limit)
+    expect(await execution.readOutputFile(0)).toEqual(Buffer.from([1, 2]))
+    await expect(execution.readOutputFile(1)).rejects.toMatchObject({ code: "ENOENT" })
+    await expect(execution.readOutputFile(2)).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it.each(["array", "object", "escaped"])("bounds recovery reads in %s values", async (shape) => {
+    const binary = (id: number) => ({ [SANDBOX_VALUE_MARKER]: { tag: "binary", kind: "uint8array", id } })
+    const value = shape === "array" ? [binary(0), binary(1)] : shape === "object"
+      ? { a: binary(0), b: binary(1) }
+      : { [SANDBOX_VALUE_MARKER]: { tag: "object", entries: [["a", binary(0)], ["b", binary(1)]] } }
+    const read = vi.fn(async () => { await Promise.resolve(); return new Uint8Array([1, 2]) })
+    const sandbox = { files: { read } } as unknown as Parameters<typeof decodeSandboxValue>[0]
+    await expect(decodeSandboxValue(sandbox, value, "/assets", "result", {
+      maxDepth: 32, maxSidecars: 1, maxSidecarBytes: 4,
+    })).rejects.toMatchObject({ code: "SANDBOX_TRANSFER_LIMIT", details: { limit: "maxSidecars" } })
+    expect(read).toHaveBeenCalledTimes(1)
+    await expect(decodeSandboxValue(sandbox, value, "/assets", "result", {
+      maxDepth: 32, maxSidecars: 2, maxSidecarBytes: 3,
+    })).rejects.toMatchObject({ code: "SANDBOX_TRANSFER_LIMIT", details: { limit: "maxSidecarBytes" } })
+  })
+
+  it("bounds depth during output extraction", async () => {
+    const execution = await executePackageEntry('export default () => [[new Uint8Array([1])]]', {
+      transfer: { maxDepth: 1, maxSidecars: 2, maxSidecarBytes: 4 },
+    })
+    expect(execution.output.error).toMatchObject({ code: "SANDBOX_TRANSFER_LIMIT" })
+    expect(execution.output.error?.message).toContain("maxDepth")
+    await expect(execution.readOutputFile(0)).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("accepts output at the sidecar boundaries", async () => {
+    const execution = await executePackageEntry('export default () => [new Blob(["ab"]), new Uint8Array([3, 4])]', {
+      transfer: { maxDepth: 1, maxSidecars: 2, maxSidecarBytes: 4 },
+    })
+    expect(execution.code).toBe(0)
+    expect(await execution.readOutputFile(1)).toEqual(Buffer.from([3, 4]))
   })
 })

@@ -125,7 +125,7 @@ async function executeSandboxDefinitionOnce<TPayload>(
     const definitionPath = resolveSandboxModulePath(prepared.directory, bundle.entry)
     throwIfAborted()
     await Promise.all([
-      sandbox.writeFile(files.entryPath, createEntrySource(definitionPath, bundle.execution)),
+      sandbox.writeFile(files.entryPath, createEntrySource(definitionPath, bundle.execution, transferLimits)),
       sandbox.writeFile(files.inputPath, inputJson),
     ])
     throwIfAborted()
@@ -175,6 +175,9 @@ async function executeSandboxDefinitionOnce<TPayload>(
 
     if (output.ok)
       return await decodeSandboxValue(sandbox, output.result, files.outputAssetsDir, 'result', transferLimits)
+
+    if (output.error?.code === 'SANDBOX_TRANSFER_LIMIT')
+      throw sandboxError(output.error.message || 'Sandbox result exceeds its transfer limit.', { code: 'SANDBOX_TRANSFER_LIMIT' })
 
     throw createHandlerError(output.error?.message || 'Sandbox definition failed.', sandbox.provider, {
       name: output.error?.name,

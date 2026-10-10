@@ -176,15 +176,17 @@ export async function decodeSandboxValue(
   async function decode(entry: unknown, depth: number): Promise<unknown> {
     if (depth > limits.maxDepth)
       throw transferLimitError(label, 'maxDepth', depth, limits.maxDepth)
-    if (Array.isArray(entry))
-      return await Promise.all(entry.map(item => decode(item, depth + 1)))
+    if (Array.isArray(entry)) {
+      const decoded: unknown[] = []
+      for (const item of entry) decoded.push(await decode(item, depth + 1))
+      return decoded
+    }
     if (!isPlainObject(entry)) return entry
 
     if (!hasMarker(entry)) {
-      return Object.fromEntries(await Promise.all(Object.entries(entry).map(async ([key, item]) => [
-      key,
-        await decode(item, depth + 1),
-      ])))
+      const decoded: Array<[string, unknown]> = []
+      for (const [key, item] of Object.entries(entry)) decoded.push([key, await decode(item, depth + 1)])
+      return Object.fromEntries(decoded)
     }
 
     const descriptor = entry[SANDBOX_VALUE_MARKER]
@@ -200,10 +202,9 @@ export async function decodeSandboxValue(
     if (descriptor.tag === 'object') {
       if (!Array.isArray(descriptor.entries) || !descriptor.entries.every(entry => Array.isArray(entry) && entry.length === 2 && typeof entry[0] === 'string'))
         throw serializationError(`Sandbox ${label} contains an invalid binary sidecar descriptor.`, { label })
-      return Object.fromEntries(await Promise.all(descriptor.entries.map(async ([key, item]) => [
-        key,
-        await decode(item, depth + 1),
-      ])))
+      const entries: Array<[string, unknown]> = []
+      for (const [key, item] of descriptor.entries) entries.push([key, await decode(item, depth + 1)])
+      return Object.fromEntries(entries)
     }
 
   if (descriptor.tag !== 'binary'

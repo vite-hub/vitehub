@@ -485,6 +485,20 @@ describe("executeSandboxDefinition", () => {
     expect(execCalls.some(call => call.cmd === "node" && call.args[1] === "import(process.argv[1])")).toBe(false)
   })
 
+  it("preserves transfer errors from the generated entry script", async () => {
+    const { sandbox } = createFakeSandbox({
+      onExecute({ args, write }) {
+        write(args.at(-1)!, new TextEncoder().encode(JSON.stringify({
+          ok: false, error: { code: "SANDBOX_TRANSFER_LIMIT", message: "Sandbox result exceeds its maxSidecars limit (2 > 1)." },
+        })))
+        return Promise.resolve({ ok: false, stdout: "", stderr: "", code: 1 })
+      },
+    })
+    await expect(executeSandboxDefinition(sandbox, "bounded-result", undefined, {
+      entry: "definition.mjs", execution: "module", modules: { "definition.mjs": "export default () => true" },
+    })).rejects.toMatchObject({ code: "SANDBOX_TRANSFER_LIMIT" })
+  })
+
   it("bounds binary sidecar count and result envelopes", async () => {
     const { sandbox } = createFakeSandbox({
       onExecute({ args, write }) {
