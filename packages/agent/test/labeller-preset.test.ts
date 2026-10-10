@@ -66,9 +66,26 @@ describe("labeller preset", () => {
     }
     const agent = configured({ actions: { Work: { archive: true, trash: true } }, trashEnabled: false })
     const finish = agent.hooks?.["agent:finish"] as unknown as (event: { message: unknown, result: unknown }) => Promise<void>
-    await finish({ message, result: { label: { choice: "Work", probabilities: { Work: Number.NaN } } } })
-    await finish({ message, result: { label: { choice: "Unknown", probabilities: { Unknown: 1 } } } })
-    await finish({ message, result: { label: { choice: "Work", probabilities: { Work: 0.9 } } } })
+    for (const confidence of [undefined, Number.NaN, Infinity, -0.1, 1.1, "0.9"]) {
+      await finish({ message, result: { label: { choice: "Work", confidence, probabilities: { Work: 0.99 } } } })
+    }
+    await finish({ message, result: { label: { choice: "Unknown", confidence: 1, probabilities: { Unknown: 1 } } } })
+    await finish({ message, result: { label: { choice: "Work", confidence: 0.8, probabilities: { Work: 0.9 } } } })
+    expect(calls).toEqual(["label:Work", "archive"])
+  })
+
+  it("gates Jev writes on answer confidence instead of label probability", async () => {
+    const calls: string[] = []
+    const message = {
+      channel: "gmail",
+      label: async (name: string) => { calls.push(`label:${name}`) },
+      archive: async () => { calls.push("archive") },
+    }
+    const agent = configured({ actions: { Work: { archive: true } } })
+    const finish = agent.hooks?.["agent:finish"] as unknown as (event: { message: unknown, result: unknown }) => Promise<void>
+    await finish({ message, result: { label: { choice: "Work", confidence: 0.4, probabilities: { Work: 0.99 } } } })
+    expect(calls).toEqual([])
+    await finish({ message, result: { label: { choice: "Work", confidence: 0.6, probabilities: { Work: 0.5 } } } })
     expect(calls).toEqual(["label:Work", "archive"])
   })
 

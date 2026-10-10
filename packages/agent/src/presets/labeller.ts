@@ -47,7 +47,7 @@ export interface LabellerDecision {
 }
 
 type LabellerResult = {
-  label: string | { choice?: unknown, probabilities?: Record<string, unknown> }
+  label: string | { choice?: unknown, confidence?: unknown, probabilities?: Record<string, unknown> }
   rule?: string
 }
 
@@ -117,10 +117,10 @@ function selectedLabel(result: LabellerResult | undefined): string | undefined {
   return typeof result?.label?.choice === "string" ? result.label.choice : undefined
 }
 
-function selectedProbability(result: LabellerResult, label: string): number | undefined {
+function selectedConfidence(result: LabellerResult): number | undefined {
   if (typeof result.label === "string") return 1
-  const probability = result.label.probabilities?.[label]
-  return typeof probability === "number" && Number.isFinite(probability) && probability >= 0 && probability <= 1 ? probability : undefined
+  const confidence = result.label.confidence
+  return typeof confidence === "number" && Number.isFinite(confidence) && confidence >= 0 && confidence <= 1 ? confidence : undefined
 }
 
 function validateRule(name: string, rule: LabellerRule, labels: Readonly<Record<string, LabellerLabel>>, depth = 0): void {
@@ -205,8 +205,8 @@ export const labeller: LabellerAgent = defineAgent({
           const output = result as LabellerResult
           const label = selectedLabel(output)
           if (!label || label === "none" || !Object.hasOwn(labels, label)) return
-          const probability = selectedProbability(output, label)
-          if (probability === undefined || probability < minConfidence) return
+          const confidence = selectedConfidence(output)
+          if (confidence === undefined || confidence < minConfidence) return
           const rule = output.rule ? rules[output.rule] : undefined
           const selectedAction = { ...actions[label], ...(rule?.label === label ? explicitAction(rule) : {}) }
           await message.label(label)
