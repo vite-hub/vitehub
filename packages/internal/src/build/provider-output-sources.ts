@@ -1022,14 +1022,11 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
       for (const dependencies of dependencyRoots(root)) {
         await linkDependencies(dependencies, resolve(retainedRoot, "node_modules"), resolveRetainedDependencyTarget)
       }
-      const retainedPnpmPackages = new Set(
-        materializedSources
-          .map(source => pnpmStorePackageRoot(root, source))
-          .filter((source): source is string => {
-            if (!source) return false
-            return existsSync(source)
-          }),
-      )
+      const retainedPnpmPackages = new Set<string>()
+      for (const source of materializedSources) {
+        const packageRoot = pnpmStorePackageRoot(root, source)
+        if (packageRoot && existsSync(packageRoot)) retainedPnpmPackages.add(packageRoot)
+      }
       await Promise.all([...retainedPnpmPackages].map(async (source) => {
         const target = resolve(retainedRoot, relative(root, source))
         if (existsSync(target)) return
