@@ -169,8 +169,12 @@ export async function hasCurrentSourceSnapshot(store: WorkspaceStore, workspace:
 
 async function snapshotHasCurrentOwners(store: WorkspaceStore, workspace: string, source: ResolvedWorkspaceSource, meta: SourceSnapshotMetadata, activeSources: ResolvedWorkspaceSource[] = []) {
   if (Object.keys(meta.items || {}).length === 0 && meta.mountPath && (await store.stat(meta.mountPath))?.type !== "directory") return false
+  // A local Store's stat() computes a content digest for every file. A cache
+  // hit only needs the stored metadata in the common case, so list the mount
+  // once and keep the digest fallback for providers that omit metadata.
+  const listed = new Map((await store.list(source.mountPath, { recursive: true })).map(entry => [entry.path, entry]))
   for (const path of Object.keys(meta.items || {})) {
-    const stat = await store.stat(path)
+    const stat = listed.get(path) ?? await store.stat(path)
     if (await materializedFileHasCurrentOwner(store, workspace, source.key, path, stat)) continue
     // Startup snapshots share the most recent write at overlapping paths.
     const owner = await readWorkspaceFileOwner(store, path)
