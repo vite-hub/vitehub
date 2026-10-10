@@ -73,6 +73,17 @@ describe("GitHub inbox change detection", () => {
     await f.inbox.close()
   })
 
+  it("keeps a PR tracked when it is inserted during the scan", async () => {
+    const f = setup(() => [node(8)])
+    f.graphql.mockImplementation(async () => {
+      await f.inbox.seed(repository, { number: 8, state: "open", user: { login: "dev" }, head: { sha: head, ref: "fix-8" }, base: { ref: "main" } })
+      return { data: { repository: { pullRequests: { nodes: [node(8)], pageInfo: { hasNextPage: false, endCursor: null } } } } }
+    })
+    await detectChangedPullRequests(f.inbox, () => f.graphql, [repository], f.clock() + 61_000)
+    expect(await f.inbox.meta("snapshot-changed:acme/app:8")).toBeTruthy()
+    await f.inbox.close()
+  })
+
   it("coalesces concurrent scans before reading the full snapshot summary", async () => {
     const f = setup(() => [])
     let release!: () => void
