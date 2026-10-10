@@ -18,6 +18,16 @@ describe("budget Capability", () => {
     expect(agent.capabilities?.map(capability => capability.id)).toContain("budget")
   })
 
+  it("accepts a capacity-only top-level policy", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      budget: { capacity: { concurrency: 2 } },
+      driver: { run: () => "ok" },
+    })
+
+    expect(agent.capabilities?.map(capability => capability.id) || []).not.toContain("budget")
+  })
+
   it("reports token and provider cost exceedance", async () => {
     const { budget } = await import("../src/capabilities.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")

@@ -2223,7 +2223,9 @@ function defineBaseAgent<
     throw agentDiagnostics.AGENT_R0426({ message: "[vitehub] defineAgent({ channels }) cannot be combined with the chat() capability. Move chat options to defineAgent({ messages, channels })." })
   }
   const chat = chatCapability || channelChat
-  const configuredBudget = options.budget ? budgetCapability(options.budget) : undefined
+  const configuredBudget = options.budget && (options.budget.tokens !== undefined || options.budget.usd !== undefined)
+    ? budgetCapability(options.budget)
+    : undefined
   const normalizedCapabilities = channelChat
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     ? [...baseCapabilities, defineChatCapability(channelChat) as AgentCapabilityDefinition<TRuntimeConfig>, ...(configuredBudget ? [configuredBudget] : [])]
