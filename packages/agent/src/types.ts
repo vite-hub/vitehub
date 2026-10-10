@@ -1842,6 +1842,8 @@ type AgentSharedSettings<
 > = {
   /** Run the built-in provider Driver inside this Box. Each invocation opens a new Box session. */
   box?: AgentBoxDefinition<TRuntimeConfig, CALL_OPTIONS, TContextValues>
+  /** Per-invocation token and cost limits. */
+  budget?: AgentBudgetOptions
   /**
    * GitHub identity for this Agent. Provider Drivers receive its `access().env`,
    * and the pull request checkout and `git()` use its token.
@@ -1920,6 +1922,8 @@ export interface AgentDefinition<
 > extends AgentDataCarrier<TDataInput>, AgentDataOutputCarrier<TData>, AgentDriverOutputCarrier<TDriverOutput>, AgentInterceptOutputCarrier<TInterceptOutput> {
   [agentOutputType]?: TOutput
   box?: AgentBoxDefinition<TRuntimeConfig, CALL_OPTIONS, TContextValues>
+  /** Per-invocation token and cost limits. */
+  budget?: AgentBudgetOptions
   github?: AgentGitHub
   health?: AgentHealthDescriptor
   capabilities?: AgentCapabilityDefinition<TRuntimeConfig>[]
@@ -2764,6 +2768,45 @@ export interface AgentUsageRecord {
   run?: Partial<AgentRunMetadata>
   transport?: "gateway" | (string & {})
   usage?: AgentUsage
+}
+
+export interface AgentBudgetTokenLimits {
+  input?: number
+  output?: number
+  total?: number
+}
+
+export interface AgentBudgetOptions {
+  /** Token limits for one Agent Invocation. A number is a total-token limit. */
+  tokens?: number | AgentBudgetTokenLimits
+  /** Maximum estimated or provider-reported cost in US dollars. */
+  usd?: number | string
+  /** Driver admission for concurrent Invocations. This field applies to the top-level Agent option. */
+  capacity?: AgentDriverCapacityOptions
+  /** Report exceedance or reject the completed Invocation. */
+  mode?: "observe" | "enforce"
+  /** Optional pricing resolver used when the provider does not report a cost. */
+  pricing?: false | ((context: {
+    model?: AgentUsageRecord["model"]
+    provider?: AgentUsageRecord["provider"]
+    response?: AgentUsageRecord["response"]
+    run?: Partial<AgentRunMetadata>
+    transport?: AgentUsageRecord["transport"]
+    usage: AgentUsage
+  }) => MaybePromise<{ estimated: boolean, source: string, usd: string } | undefined>)
+  id?: string
+}
+
+export interface AgentBudgetExceeded {
+  actual: number | string
+  limit: number | string
+  metric: "inputTokens" | "outputTokens" | "totalTokens" | "usd"
+}
+
+export interface AgentBudgetSnapshot {
+  exceeded: readonly AgentBudgetExceeded[]
+  limits: AgentBudgetOptions
+  usage?: AgentUsageRecord
 }
 
 /** Verified mounted Sources available to an invocation's instruction resolver. */
