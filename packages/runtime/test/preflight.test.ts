@@ -189,7 +189,6 @@ describe("runtime preflight", () => {
     finally {
       clock.mockRestore()
     }
-    }
   })
 
   it("keeps hostile error messages from rejecting the manifest", async () => {

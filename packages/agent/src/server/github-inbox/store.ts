@@ -1112,10 +1112,14 @@ export class PullRequestInbox {
           claim.snapshot.comments, claim.snapshot.reviews, claim.snapshot.reviewComments,
           settledChecks(claim.snapshot.checks), settledStatuses(claim.snapshot.statuses), claim.snapshot.threads,
         ])
+        const ownedEvidenceReason = (reason: string) => {
+          if (reason.startsWith('check_run:') || reason.startsWith('check_suite:') || reason.startsWith('workflow_run:') || reason.startsWith('status:')) return true
+          return false
+        }
         const ownSynchronize = s.generation > claim.generation
           && pinnedHead !== claim.snapshot.pr?.head?.sha && s.pr?.head?.sha === pinnedHead
           && evidenceUnchanged
-          && s.reasons.every(reason => reason === 'pull_request:synchronize' || claim.snapshot.reasons.includes(reason))
+          && s.reasons.every(reason => reason === 'pull_request:synchronize' || claim.snapshot.reasons.includes(reason) || ownedEvidenceReason(reason))
         // A pinned wait may cross the claim generation only for this pass's
         // verified synchronize. Feedback, failures, and other wake events must
         // remain dirty so the next pass sees their fresh evidence.
