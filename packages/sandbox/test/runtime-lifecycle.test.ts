@@ -161,6 +161,22 @@ describe("Sandbox runtime lifecycle", () => {
     expect(runtimeMocks.resolveSandboxBox).not.toHaveBeenCalled()
   })
 
+  it.each([1, true, "invalid"])("rejects primitive transfer options (%s) before resolving a provider", async transfer => {
+    setSandboxRuntimeConfig({ provider: "cloudflare" })
+    setSandboxRuntimeRegistry({
+      example: {
+        ...definition,
+        options: { transfer } as never,
+      },
+    })
+
+    const result = await runSandboxRuntime("example")
+
+    expect(result.ok).toBe(false)
+    expect(await result.json()).toMatchObject({ error: { code: "SANDBOX_R0071" } })
+    expect(runtimeMocks.resolveSandboxBox).not.toHaveBeenCalled()
+  })
+
   it("keeps configured and per-run Cloudflare identity overrides", async () => {
     setSandboxRuntimeConfig({ provider: "cloudflare", sandboxId: "configured" })
     setSandboxRuntimeRegistry({ example: definition })

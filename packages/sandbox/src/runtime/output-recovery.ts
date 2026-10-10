@@ -16,6 +16,21 @@ const HANDLER_DIAGNOSTIC_LENGTH = 16_384
 
 type ExecutionMeta = { stdout?: string, stderr?: string, code?: number | null, meta?: Record<string, unknown> }
 
+function assertOutputSize(output: string, maximum?: number) {
+  if (maximum === undefined) return
+  const bytes = new TextEncoder().encode(output).byteLength
+  if (bytes > maximum) {
+    throw sandboxError(`Sandbox result exceeds its maxOutputBytes limit (${bytes} > ${maximum}).`, {
+      code: 'SANDBOX_TRANSFER_LIMIT',
+      details: { label: 'result', limit: 'maxOutputBytes', value: bytes, maximum },
+    })
+  }
+}
+
+function isTransferLimitError(error: unknown) {
+  return readSandboxErrorMetadata(error)?.code === 'SANDBOX_TRANSFER_LIMIT'
+}
+
 function getErrorMessage(error: unknown) {
   if (error instanceof Error)
     return error.message
@@ -82,7 +97,7 @@ export function tryParseSandboxOutput<TResult>(outputRaw: string) {
     return output as {
       ok?: boolean
       result?: TResult
-      error?: { message?: string, name?: string, stack?: string, cause?: string }
+      error?: { message?: string, name?: string, stack?: string, cause?: string, code?: string }
     }
   }
   catch {
@@ -195,6 +210,7 @@ async function waitForExecOutput(
   timeout: number | undefined,
   execution: ExecutionMeta | undefined,
   shouldAccept: (output: string) => boolean,
+  maximum?: number,
   signal?: AbortSignal,
 ) {
   const recoveryTimeout = resolveExecOutputRecoveryTimeout(timeout)
@@ -206,11 +222,13 @@ async function waitForExecOutput(
     signal?.throwIfAborted()
     try {
       const output = await sandbox.readFile(outputPath, { signal })
+      assertOutputSize(output, maximum)
       lastOutput = output
       if (shouldAccept(output))
         return output
     }
     catch (readError) {
+      if (isTransferLimitError(readError)) throw readError
       lastError = readError
     }
 
@@ -229,6 +247,7 @@ async function recoverExecOutput(
   error: unknown,
   timeout?: number,
   execution?: ExecutionMeta,
+  maximum?: number,
   signal?: AbortSignal,
 ) {
   if (sandbox.provider !== 'cloudflare' || !isRecoverableCloudflareExecError(error))
@@ -241,6 +260,7 @@ async function recoverExecOutput(
     timeout,
     execution,
     output => isCompleteSandboxOutput(output),
+    maximum,
     signal,
   )
 }
@@ -251,6 +271,7 @@ async function waitForCloudflareOutput(
   error: unknown,
   timeout?: number,
   execution?: ExecutionMeta,
+  maximum?: number,
   signal?: AbortSignal,
 ) {
   const recoveryTimeout = resolveExecOutputRecoveryTimeout(timeout)
@@ -265,6 +286,7 @@ async function waitForCloudflareOutput(
     timeout,
     execution,
     output => isCompleteSandboxOutput(output),
+    maximum,
     signal,
   )
 }
@@ -275,15 +297,19 @@ export async function readExecOutputWithRecovery(
   error: unknown,
   timeout?: number,
   execution?: ExecutionMeta,
+  maximum?: number,
   signal?: AbortSignal,
 ) {
   const executionOutput = extractSandboxOutputFromExecution(execution)
     || extractSandboxOutputFromExecution(error as { stdout?: string, stderr?: string } | undefined)
-  if (executionOutput)
+  if (executionOutput) {
+    assertOutputSize(executionOutput, maximum)
     return executionOutput
+  }
 
   try {
     const output = await sandbox.readFile(outputPath, { signal })
+    assertOutputSize(output, maximum)
     if (tryParseSandboxOutput(output))
       return output
     // A complete output file belongs to this execution. Preserve malformed
@@ -292,12 +318,13 @@ export async function readExecOutputWithRecovery(
     if (isCompleteSandboxOutput(output))
       return output
   }
-  catch {
+  catch (error) {
+    if (isTransferLimitError(error)) throw error
     signal?.throwIfAborted()
-    return await waitForCloudflareOutput(sandbox, outputPath, error, timeout, execution, signal)
+    return await waitForCloudflareOutput(sandbox, outputPath, error, timeout, execution, maximum, signal)
   }
 
-  return await waitForCloudflareOutput(sandbox, outputPath, error, timeout, execution, signal)
+  return await waitForCloudflareOutput(sandbox, outputPath, error, timeout, execution, maximum, signal)
 }
 
 export { recoverExecOutput }

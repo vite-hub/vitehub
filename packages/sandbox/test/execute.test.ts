@@ -50,6 +50,20 @@ it("extracts output from a large provider stream", () => {
   expect(extractSandboxOutputFromExecution({ stdout: stream })).toBe(output)
 })
 
+it("enforces max output bytes for marker-delivered stream output", async () => {
+  const sandbox = { provider: "vercel" } as unknown as SandboxExecutionBox
+  const output = JSON.stringify({ ok: true, result: "too large" })
+
+  await expect(readExecOutputWithRecovery(
+    sandbox,
+    "/output.json",
+    { code: 0 },
+    undefined,
+    { stdout: `__VITEHUB_OUTPUT__${output}` },
+    new TextEncoder().encode(output).byteLength - 1,
+  )).rejects.toMatchObject({ code: "SANDBOX_TRANSFER_LIMIT" })
+})
+
 function createFakeSandbox(options: { execError?: Error, execResult?: SandboxExecResult, holdExecution?: boolean, holdFileWrite?: boolean, holdInstall?: boolean, onExecute?: SandboxExecHook, provider?: "cloudflare" | "vercel" } = {}) {
   const files = new Map<string, Uint8Array>()
   const directories = new Set<string>(["/"])
@@ -517,6 +531,73 @@ describe("executeSandboxDefinition", () => {
     expect(new Uint8Array(await result.image.arrayBuffer())).toEqual(Uint8Array.from([9, 8, 7]))
     expect(result.nested[0]).toEqual(Uint8Array.from([6, 5, 4]))
     expect(result.markerObject).toEqual(markerObject)
+  })
+
+  it("rejects oversized input envelopes before starting the handler", async () => {
+    const { sandbox, execCalls } = createFakeSandbox()
+
+    await expect(executeSandboxDefinition(
+      sandbox,
+      "bounded-input",
+      { transfer: { maxInputBytes: 32 } },
+      {
+        entry: "definition.mjs",
+        execution: "module",
+        modules: { "definition.mjs": "export default async () => true" },
+      },
+      { message: "x".repeat(100) },
+    )).rejects.toMatchObject({
+      code: "SANDBOX_TRANSFER_LIMIT",
+      details: { label: "payload/context", limit: "maxInputBytes" },
+    } satisfies Partial<ViteHubError>)
+
+    expect(execCalls.some(call => call.cmd === "node" && call.args[1] === "import(process.argv[1])")).toBe(false)
+  })
+
+  it("preserves transfer errors from the generated entry script", async () => {
+    const { sandbox } = createFakeSandbox({
+      onExecute({ args, write }) {
+        write(args.at(-1)!, new TextEncoder().encode(JSON.stringify({
+          ok: false, error: { code: "SANDBOX_TRANSFER_LIMIT", message: "Sandbox result exceeds its maxSidecars limit (2 > 1)." },
+        })))
+        return Promise.resolve({ ok: false, stdout: "", stderr: "", code: 1 })
+      },
+    })
+    await expect(executeSandboxDefinition(sandbox, "bounded-result", undefined, {
+      entry: "definition.mjs", execution: "module", modules: { "definition.mjs": "export default () => true" },
+    })).rejects.toMatchObject({ code: "SANDBOX_TRANSFER_LIMIT" })
+  })
+
+  it("bounds binary sidecar count and result envelopes", async () => {
+    const { sandbox } = createFakeSandbox({
+      onExecute({ args, write }) {
+        write(args.at(-1)!, new TextEncoder().encode(JSON.stringify({ ok: true, result: "x".repeat(100) })))
+        return Promise.resolve({ ok: true, stdout: "", stderr: "", code: 0 })
+      },
+    })
+
+    await expect(executeSandboxDefinition(
+      sandbox,
+      "bounded-sidecars",
+      { transfer: { maxSidecars: 1 } },
+      {
+        entry: "definition.mjs",
+        execution: "module",
+        modules: { "definition.mjs": "export default async () => true" },
+      },
+      { first: new Uint8Array([1]), second: new Uint8Array([2]) },
+    )).rejects.toMatchObject({ code: "SANDBOX_TRANSFER_LIMIT", details: { limit: "maxSidecars" } } satisfies Partial<ViteHubError>)
+
+    await expect(executeSandboxDefinition(
+      sandbox,
+      "bounded-output",
+      { transfer: { maxOutputBytes: 32 } },
+      {
+        entry: "definition.mjs",
+        execution: "module",
+        modules: { "definition.mjs": "export default async () => true" },
+      },
+    )).rejects.toMatchObject({ code: "SANDBOX_TRANSFER_LIMIT", details: { limit: "maxOutputBytes" } } satisfies Partial<ViteHubError>)
   })
 
   it("preserves Buffer values through binary sidecars", async () => {
