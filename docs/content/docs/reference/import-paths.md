@@ -31,6 +31,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/agent/evlog` | Deprecated compatibility facade for Agent event logging. |
 | `vite-hub/agent/evlog/posthog` | Deprecated compatibility facade for the PostHog event-log exporter. |
 | `vite-hub/agent/presets/babysitter` | Composable Babysitter repair-loop preset. |
+| `vite-hub/agent/presets/labeller` | Gmail labelling preset with ordered rules, Jev fallback, and allowlisted message actions. |
 | `vite-hub/agent/presets/babysitter/server` | Babysitter host runtime integration. |
 | `vite-hub/agent/cloudflare` | Cloudflare Agent state configuration helpers. |
 | `vite-hub/agent/vue` | Vue Agent client handle and AI SDK chat composable. |
