@@ -161,7 +161,7 @@ export default defineAgent({
 })
 ```
 
-The store uses a discovered ViteHub Database and creates its journal tables on first use. It supports local SQLite and hosted libSQL through Drizzle, plus native Cloudflare D1. D1 over HTTP is not supported because its raw query results do not contain column names. The `database` option defaults to `default`.
+The store uses a discovered ViteHub Database and creates its journal tables on first use. It supports local SQLite and hosted libSQL through Drizzle, plus native Cloudflare D1. D1 over HTTP is rejected by a read-only probe before schema creation or writes because its raw query results do not contain column names. The `database` option defaults to `default`.
 
 Retention defaults to 30 days and 10,000 terminal records. Set `maxAgeMs` or `maxRecords` on the store options to change each limit, or set either to `false` to disable it. The Console can inspect an Agent's explicit journal but does not own its retention settings.
 

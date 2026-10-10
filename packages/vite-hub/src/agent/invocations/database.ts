@@ -72,7 +72,8 @@ function statementResult<T extends Record<string, unknown>>(rows: unknown[]): In
 }
 
 async function runBatch(database: RuntimeDatabase, queries: readonly SQL[]): Promise<unknown[][]> {
-  if (!queries.length) return []
+  const [first, ...rest] = queries
+  if (!first) return []
   const statements = queries.map(query => sqliteDialect.sqlToQuery(query))
   const client = d1Client(database.$client)
   if (client) {
@@ -84,7 +85,7 @@ async function runBatch(database: RuntimeDatabase, queries: readonly SQL[]): Pro
       return rows
     })
   }
-  const results = await database.batch(queries.map(query => database.all(query)) as [SQLiteRaw<Record<string, unknown>[]>, ...Array<SQLiteRaw<Record<string, unknown>[]>>])
+  const results = await database.batch([database.all(first), ...rest.map(query => database.all(query))])
   return results.map(result => {
     if (!Array.isArray(result)) throw new TypeError("[vitehub] Database Agent Invocations require a SQLite batch driver that returns rows.")
     return result
@@ -133,13 +134,15 @@ export function createDatabaseAgentInvocationStore(options: DatabaseAgentInvocat
   return createD1AgentInvocationStore({
     ...storeOptions,
     async database() {
-      const entry = (useDatabase as unknown as (database: string) => { db: RuntimeDatabase } | undefined)(name)
+      // SAFETY: Generated registry types restrict database names; runtime lookup accepts any name and returns undefined when absent.
+      const entry = (useDatabase as (database: string) => { db: RuntimeDatabase } | undefined)(name)
       if (!entry) throw new TypeError(`[vitehub] Database "${name}" is not configured.`)
-      const runtime = entry.db as unknown as RuntimeDatabase
+      const runtime = entry.db
+      // Runtime proxies can change drivers between requests; validate each operation before any writes.
+      for (const rows of await runBatch(runtime, [sql`SELECT 1 AS vitehub_probe`])) statementResult(rows)
       adapter ??= invocationDatabase(runtime)
       // SAFETY: The local adapter implements the D1 contract. The cast bridges workspace source and package declaration identities during development.
       return adapter as unknown as AgentInvocationD1Database
     },
-    // SAFETY: The options object supplies the D1 database factory above. The cast bridges workspace source and package declaration identities during development.
-  } as unknown as D1AgentInvocationStoreOptions)
+  })
 }

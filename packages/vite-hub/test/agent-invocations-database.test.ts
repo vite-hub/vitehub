@@ -44,8 +44,24 @@ describe("createDatabaseAgentInvocationStore", () => {
 
     await expect(store.create(input)).resolves.toMatchObject({ created: true, record: { id: input.id, cursor: "1" } })
     expect(useDatabase).toHaveBeenCalledWith("journal")
-    expect(queries).toHaveLength(6)
-    expect(queries.slice(0, 4).every(query => /^CREATE (?:TABLE|INDEX)/i.test(query))).toBe(true)
+    expect(queries).toHaveLength(7)
+    expect(queries[0]).toBe("SELECT 1 AS vitehub_probe")
+    expect(queries.slice(1, 5).every(query => /^CREATE (?:TABLE|INDEX)/i.test(query))).toBe(true)
+  })
+
+  it("rejects D1 HTTP row matrices before schema creation or writes", async () => {
+    const { drizzle } = await import("drizzle-orm/sqlite-proxy")
+    const execute = vi.fn(async () => ({ rows: [[1]] }))
+    const batch = vi.fn(async queries => queries.map(() => ({ rows: [[1]] })))
+    useDatabase.mockReturnValue({ db: drizzle(execute, batch) })
+    const { createDatabaseAgentInvocationStore } = await import("../src/agent/invocations/database.ts")
+    const store = createDatabaseAgentInvocationStore({ maxAgeMs: false, maxRecords: false })
+
+    await expect(store.create(input)).rejects.toThrow("Cloudflare D1 HTTP driver is not supported")
+    expect(execute).not.toHaveBeenCalled()
+    expect(batch).toHaveBeenCalledExactlyOnceWith([
+      { method: "all", params: [], sql: "SELECT 1 AS vitehub_probe" },
+    ])
   })
 
   it("persists records through the async SQLite Drizzle adapter", async () => {
