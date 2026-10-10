@@ -3,6 +3,7 @@ import { createStorage } from "unstorage"
 import createDriver from "unstorage/drivers/cloudflare-kv-binding"
 import { normalizeKVListPrefix } from "./list-prefix.ts"
 import { kvErrorDiagnostics } from "../error-diagnostics.ts"
+import { createCursorHistory } from "./cursor-history.ts"
 
 import type { KVListOptions, KVListPage } from "../types.ts"
 import type { KVRuntimeDriver } from "./driver.ts"
@@ -49,14 +50,12 @@ function createCloudflareDriver(options: Record<string, unknown>): KVRuntimeDriv
   const driver = createDriver(driverOptions) as KVRuntimeDriver & { getInstance: () => CloudflareKVNamespace }
   // Continuation state is keyed by the cursor that carries it. Consuming the
   // state before awaiting the provider keeps concurrent traversals independent.
-  const cursorHistories = new Map<string, Set<string>>()
+  const cursorHistories = createCursorHistory()
   driver.listKeys = async ({ cursor, limit, prefix = "" }: KVListOptions): Promise<KVListPage> => {
     const listOptions: { cursor?: string; limit: number; prefix?: string } = { limit }
     if (cursor) listOptions.cursor = cursor
     if (prefix) listOptions.prefix = prefix
-    const stateKey = (value: string) => `${prefix}\u0000${value}`
-    const cursors = cursor ? cursorHistories.get(stateKey(cursor)) ?? new Set<string>() : new Set<string>()
-    if (cursor) cursorHistories.delete(stateKey(cursor))
+    const cursors = cursor ? cursorHistories.take(cursor) : new Set<string>()
     const page = await driver.getInstance().list(listOptions)
     if (!isCloudflareKVListPage(page)) {
       throw kvErrorDiagnostics.KV_R0022({ message: "[vitehub] Cloudflare KV list returned an invalid page." })
@@ -67,7 +66,7 @@ function createCloudflareDriver(options: Record<string, unknown>): KVRuntimeDriv
         throw kvErrorDiagnostics.KV_R0025({ message: "ViteHub rejected a repeated pagination cursor." })
       }
       cursors.add(page.cursor!)
-      cursorHistories.set(stateKey(page.cursor!), cursors)
+      cursorHistories.store(page.cursor!, cursors)
       result.cursor = page.cursor
     }
     return result

@@ -1,6 +1,7 @@
 import type { KVListOptions, ResolvedDenoKVStoreConfig } from "../types.ts"
 import type { KVRuntimeDriver } from "./driver.ts"
 import { kvErrorDiagnostics } from "../error-diagnostics.ts"
+import { createCursorHistory } from "./cursor-history.ts"
 
 type DenoKVKey = [unknown, ...unknown[]]
 type ViteHubDenoKVKey = [string]
@@ -49,7 +50,7 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
   let kvPromise: Promise<DenoKV> | undefined
   // Keep history with the continuation cursor that carries it. Consuming the
   // entry before awaiting Deno lets concurrent traversals remain independent.
-  const cursorHistories = new Map<string, Set<string>>()
+  const cursorHistories = createCursorHistory()
 
   function open(): Promise<DenoKV> {
     if (kvPromise) return kvPromise
@@ -103,9 +104,7 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
       return (await matchingKeys(base)).flatMap(key => fromDenoKey(key) ?? []).sort()
     },
     async listKeys({ cursor, limit, prefix = "" }: KVListOptions) {
-      const stateKey = (value: string) => `${prefix}\u0000${value}`
-      const cursors = cursor ? cursorHistories.get(stateKey(cursor)) ?? new Set<string>() : new Set<string>()
-      if (cursor) cursorHistories.delete(stateKey(cursor))
+      const cursors = cursor ? cursorHistories.take(cursor) : new Set<string>()
       const iterator = (await open()).list({ prefix: [] }, { cursor, limit })
       const keys: string[] = []
       for await (const entry of iterator) {
@@ -117,7 +116,7 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
         throw kvErrorDiagnostics.KV_R0024({ message: "Deno KV list returned a repeated pagination cursor." })
       }
       cursors.add(iterator.cursor)
-      cursorHistories.set(stateKey(iterator.cursor), cursors)
+      cursorHistories.store(iterator.cursor, cursors)
       return { keys, cursor: iterator.cursor }
     },
     async hasItem(key) {
