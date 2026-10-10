@@ -9,7 +9,7 @@ import * as v from "valibot";
 import { join } from "node:path";
 import { readAsyncMerge, requestAsyncMerge } from "./async-merge.ts";
 import { prepareGitHubRepairBase } from "../../server/github-repair.ts";
-import { assertGitHubDependenciesCurrent, GitHubWorkspaceInstallError, installGitHubPullRequestWorkspace } from "../../server/github-install.ts";
+import { assertGitHubDependenciesCurrent, GitHubWorkspaceInstallError, hasCurrentGitHubDependencies, installGitHubPullRequestWorkspace } from "../../server/github-install.ts";
 import { resolvePublicUrl, resolveRuntimeValue } from "@vite-hub/runtime";
 import { hasRuntimeType, isRuntimeRecord } from "../../internal/runtime-type.ts";
 import { resolveRegisteredWorkspaceDefinition } from "@vite-hub/workspace";
@@ -1139,7 +1139,10 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                   if (!providerDirectory) throw new Error("The repair workspace is not prepared.");
                   await assertLease();
                   await assertRepairBase();
-                  if (presetOptions.install !== false) await installDependencies(providerDirectory, abortSignal, owner, undefined);
+                  const customInstaller = isRuntimeRecord(installOption) && Boolean(installOption.command);
+                  if (presetOptions.install !== false && (customInstaller || !await hasCurrentGitHubDependencies(providerDirectory))) {
+                    await installDependencies(providerDirectory, abortSignal, owner, undefined);
+                  }
                   await assertLease();
                 },
                 commitRepair: async (input) => {
