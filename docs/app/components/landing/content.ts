@@ -299,7 +299,7 @@ export const portabilityExamples = [
       'import { runQueue } from "vite-hub/queue"',
       "",
       "export default defineEventHandler(async (event) => {",
-      "  const payload = await readBody(event)",
+      "  const payload = await readBody<{ email: string }>(event)",
       '  return runQueue("welcome-email", payload)',
       "})",
     ],
@@ -313,7 +313,7 @@ export const portabilityExamples = [
     id: "schedule",
     label: "Run on a schedule",
     path: "server/schedules/daily-report.ts",
-    description: "One definition becomes a native cron trigger on your host.",
+    description: "One definition becomes a native cron trigger where supported, or runs on a process runtime.",
     code: [
       'import { defineSchedule } from "vite-hub/schedule"',
       'import { sendDailyReport } from "../reports"',
