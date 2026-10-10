@@ -1,6 +1,38 @@
 import { describe, expect, it, vi } from "vitest"
+import { createExecutionBudget } from "@vite-hub/runtime"
 import { inspectAgentTools } from "../src/tool-inspection.ts"
-import { applyAgentToolPolicies, copyToolWithOverrides, withAgentToolStepReporting, withJsonCompatibleToolOutputs } from "../src/tool-runtime.ts"
+import { applyAgentToolPolicies, copyToolWithOverrides, withAgentToolExecutionBudget, withAgentToolStepReporting, withJsonCompatibleToolOutputs } from "../src/tool-runtime.ts"
+
+describe("tool execution budgets", () => {
+  it("spends one Invocation tool-call budget for generic Capability tools", async () => {
+    const budget = createExecutionBudget({ maxToolCalls: 1 })
+    const execute = vi.fn(async (input: unknown) => (input as { value: string }).value)
+    const tools = withAgentToolExecutionBudget({
+      lookup: { name: "lookup", execute },
+    }, budget)
+
+    await expect(tools.lookup.execute?.({ value: "first" })).resolves.toBe("first")
+    await expect(tools.lookup.execute?.({ value: "second" })).rejects.toThrow("toolCalls")
+    expect(execute).toHaveBeenCalledTimes(1)
+    expect(budget.snapshot().usage.toolCalls).toBe(1)
+  })
+
+  it("leaves tools with owned budget accounting unchanged", async () => {
+    const budget = createExecutionBudget({ maxToolCalls: 1 })
+    const execute = vi.fn(async (_input: unknown) => "ok")
+    const tool = {
+      name: "shell",
+      metadata: { vitehubExecutionBudget: "handled" },
+      execute,
+    }
+    const tools = withAgentToolExecutionBudget({ shell: tool }, budget)
+
+    await expect(tools.shell.execute?.({})).resolves.toBe("ok")
+    await expect(tools.shell.execute?.({})).resolves.toBe("ok")
+    expect(execute).toHaveBeenCalledTimes(2)
+    expect(budget.snapshot().usage.toolCalls).toBe(0)
+  })
+})
 
 describe("tool accessor receivers", () => {
   it.each([true, false])("preserves private state through preparation (own accessor: %s)", async (own) => {

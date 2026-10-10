@@ -4901,6 +4901,7 @@ async function createAgentInvocationContext<
       intercepted,
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       input: capabilities.input as AgentRunInput<CALL_OPTIONS>,
+      executionBudget,
       instructions,
       invoker,
       invocationJournal,

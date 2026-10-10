@@ -5,6 +5,7 @@ import {
   resolveCapabilityPolicy,
   ViteHubError,
 } from "@vite-hub/runtime"
+import type { ExecutionBudget } from "@vite-hub/runtime"
 import { defineGrant, type Grant } from "@vite-hub/runtime/internal/grant"
 
 import type {
@@ -227,6 +228,35 @@ export function withJsonCompatibleToolOutputs<TTools extends AgentToolSet>(tools
 
     const execute = (tool as { execute: (...args: unknown[]) => unknown }).execute
     const wrappedExecute = async (input: unknown, ...args: unknown[]) => toJsonCompatibleValue(await execute.call(tool, input, ...args))
+    approvalPreservingExecutorOwners.set(wrappedExecute, agentToolPolicyOwners.get(tool) ?? null)
+    return [name, copyToolWithOverrides(tool, { execute: wrappedExecute })]
+  })) as TTools
+}
+
+/**
+ * Spend the enclosing Invocation's tool-call budget at the final execution seam.
+ *
+ * Capability tools can be contributed by arbitrary packages, so they cannot all
+ * be expected to remember to call the budget themselves. A tool that already
+ * owns budget accounting (for example the Workspace Shell) can opt out with
+ * `metadata.vitehubExecutionBudget: "handled"`.
+ */
+export function withAgentToolExecutionBudget<TTools extends AgentToolSet>(tools: TTools, budget?: ExecutionBudget): TTools {
+  if (!budget || !tools || typeof tools !== "object") return tools
+
+  return Object.fromEntries(Object.entries(tools).map(([name, tool]) => {
+    if (!tool || typeof tool !== "object" || typeof tool.execute !== "function") {
+      return [name, tool]
+    }
+    if (tool.metadata?.vitehubExecutionBudget === "handled") {
+      return [name, tool]
+    }
+
+    const execute = tool.execute
+    const wrappedExecute = async (input: unknown, executionContext?: AgentToolExecutionContext) => {
+      budget.recordToolCall()
+      return await execute.call(tool, input, executionContext)
+    }
     approvalPreservingExecutorOwners.set(wrappedExecute, agentToolPolicyOwners.get(tool) ?? null)
     return [name, copyToolWithOverrides(tool, { execute: wrappedExecute })]
   })) as TTools
