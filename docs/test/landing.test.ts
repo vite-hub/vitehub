@@ -5,6 +5,7 @@ import {
   installOptions,
   landingPrimitives,
   nuxtHubMigration,
+  portabilityExamples,
   sharedApi,
 } from "../app/components/landing/content";
 import { primitiveLandings } from "../app/data/primitive-landings";
@@ -12,10 +13,8 @@ import { primitiveLandings } from "../app/data/primitive-landings";
 const landingFiles = [
   "Hero.vue",
   "InstallCommand.vue",
-  "AgentStory.vue",
-  "SharedApi.vue",
   "Primitives.vue",
-  "NuxtHubMigration.vue",
+  "Portability.vue",
   "Closing.vue",
   "PrimitiveMotion.vue",
   "content.ts",
@@ -93,7 +92,7 @@ describe("landing page", () => {
 
   });
 
-  it("keeps one focal point while restoring concrete code and motion", async () => {
+  it("leads with portability and keeps the primitive catalog interactive", async () => {
     const source = (
       await Promise.all(
         landingFiles.map((file) =>
@@ -103,15 +102,13 @@ describe("landing page", () => {
     ).join("\n");
     const normalizedSource = source.replace(/\s+/g, " ");
 
-    expect(source).toContain("Any agent, anywhere.");
-    expect(source).toContain("The server layer for Vite apps");
-    expect(source).toContain("Server pieces, Agents, and UI in one place.");
-    expect(source).toContain("Coming from NuxtHub?");
+    expect(source).toContain("The server layer for Vite apps.");
+    expect(normalizedSource).toContain("Write once.<br>Deploy anywhere.");
     expect(normalizedSource).toContain(
-      "Bring any model or coding provider, compose your own Capabilities around a persistent Workspace",
+      "Your application owns the logic. ViteHub connects it to the host's services.",
     );
-    expect(normalizedSource).toContain("deploy the same Agent across supported hosts.");
-    expect(source).toContain("Build your first Agent");
+    expect(source).toContain('aria-label="ViteHub APIs"');
+    expect(source).toContain("MotionConfig");
     expect(source).toContain("prefers-reduced-motion");
     expect(source).toMatch(/<pre|<code/);
     expect(source).not.toMatch(/vitehub-backplane\.webp|server-primitives\.webp|agents\.webp/);
@@ -119,7 +116,6 @@ describe("landing page", () => {
       /Pick this path|Verified contract|First success \/|The map \/|Your move \/|DIRECT|COMPOSED/,
     );
     expect(source).not.toMatch(/Math\.random|Date\.now|window\.matchMedia/);
-    expect(source).not.toMatch(/any host|Deploy anywhere|Write it once/i);
     expect(source).toContain(":aria-pressed");
     expect(source).not.toMatch(/role="(?:tab|tablist|radio|radiogroup)"/);
   });
@@ -131,18 +127,16 @@ describe("landing page", () => {
     );
 
     expect(landingPrimitives.map((primitive) => primitive.id)).toEqual([
-      "agent",
-      "ui",
-      "workspace",
-      "sandbox",
-      "connections",
-      "workflow",
       "kv",
+      "blob",
       "database",
       "queue",
+      "workflow",
       "schedule",
-      "blob",
       "auth",
+      "connections",
+      "workspace",
+      "sandbox",
       "browser",
       "shell",
       "source",
@@ -152,10 +146,17 @@ describe("landing page", () => {
       "env",
       "rate-limit",
       "realtime",
+      "agent",
+      "ui",
     ]);
     for (const primitive of landingPrimitives) {
       expect(primitiveMotion).toContain(`name === '${primitive.id}'`);
       expect(primitive.to).toMatch(/^\/docs\//);
+    }
+    expect(portabilityExamples.map((example) => example.id)).toEqual(["storage", "queue", "schedule"]);
+    for (const example of portabilityExamples) {
+      expect(example.code.join("\n")).toContain("vite-hub/");
+      expect(example.to).toMatch(/^\/docs\//);
     }
   });
 
@@ -200,16 +201,17 @@ describe("landing page", () => {
   it("wires landing-page metadata through Docus", async () => {
     const source = await readFile(new URL("../app/pages/index.vue", import.meta.url), "utf8");
 
-    expect(source).toContain("<LandingPrimitives />");
     expect(source).toContain("<LandingHero />");
-    expect(source.indexOf("<LandingPrimitives />")).toBeLessThan(source.indexOf("<LandingHero />"));
+    expect(source).toContain("<LandingPortability />");
+    expect(source.indexOf("<LandingHero />")).toBeLessThan(source.indexOf("<LandingPortability />"));
+    expect(source).not.toContain("<LandingAgentStory />");
     expect(source).not.toContain("<LandingSharedApi />");
     expect(source).not.toContain("<LandingNuxtHubMigration />");
     expect(source).toContain("useSeo({");
     expect(source).toContain('type: "website"');
     expect(source).toContain('defineOgImage("Landing"');
-    expect(source).toContain("run it across supported hosts");
-    expect(source).not.toMatch(/any host/i);
+    expect(source).toContain("deploy it across supported Vite hosts");
     expect(source).not.toContain("titleTemplate");
   });
+
 });

@@ -324,3 +324,19 @@ body {
     transition-duration: 0.01ms !important;
   }
 }
+
+.vh-site-footer {
+  padding: 2rem 1rem;
+}
+
+@media (min-width: 640px) {
+  .vh-site-footer {
+    padding: 2.5rem 2rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .vh-site-footer {
+    padding-inline: 3rem;
+  }
+}
