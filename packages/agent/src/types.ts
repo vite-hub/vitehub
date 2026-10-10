@@ -2781,6 +2781,8 @@ export interface AgentBudgetOptions {
   tokens?: number | AgentBudgetTokenLimits
   /** Maximum estimated or provider-reported cost in US dollars. */
   usd?: number | string
+  /** Driver admission for concurrent Invocations. This field applies to the top-level Agent option. */
+  capacity?: AgentDriverCapacityOptions
   /** Report exceedance or reject the completed Invocation. */
   mode?: "observe" | "enforce"
   /** Optional pricing resolver used when the provider does not report a cost. */
