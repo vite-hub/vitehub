@@ -93,28 +93,35 @@ async function executeSandboxDefinitionOnce<TPayload>(
   await sandbox.mkdir(files.baseDir, { recursive: true })
   try {
     throwIfAborted()
-    let inputJson = bundle.project
-      ? toJson(await encodeSandboxValue(
-          sandbox,
-          { payload, context },
-          files.inputAssetsDir,
-          'payload/context',
-          signal,
-          transferLimits,
-        ), 'payload/context', maxInputBytes)
-      : undefined
+    let inputJson: string | undefined
+    if (bundle.project) {
+      const encoded = await encodeSandboxValue(
+        sandbox,
+        { payload, context },
+        files.inputAssetsDir,
+        'payload/context',
+        signal,
+        transferLimits,
+      )
+      inputJson = toJson(encoded.value, 'payload/context', maxInputBytes)
+      await encoded.writeSidecars()
+    }
     const prepared = await prepareSandboxDefinition(sandbox, bundle, files.baseDir, {
       signal,
       timeout: definitionOptions?.timeout,
     })
-    inputJson ||= toJson(await encodeSandboxValue(
-      sandbox,
-      { payload, context },
-      files.inputAssetsDir,
-      'payload/context',
-      signal,
-      transferLimits,
-    ), 'payload/context', maxInputBytes)
+    if (!inputJson) {
+      const encoded = await encodeSandboxValue(
+        sandbox,
+        { payload, context },
+        files.inputAssetsDir,
+        'payload/context',
+        signal,
+        transferLimits,
+      )
+      inputJson = toJson(encoded.value, 'payload/context', maxInputBytes)
+      await encoded.writeSidecars()
+    }
     const definitionPath = resolveSandboxModulePath(prepared.directory, bundle.entry)
     throwIfAborted()
     await Promise.all([

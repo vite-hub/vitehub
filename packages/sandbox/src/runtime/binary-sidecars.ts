@@ -55,6 +55,11 @@ export interface SandboxTransferLimits {
   maxSidecarBytes: number
 }
 
+export interface EncodedSandboxValue {
+  value: unknown
+  writeSidecars: () => Promise<void>
+}
+
 export const DEFAULT_SANDBOX_TRANSFER_LIMITS: SandboxTransferLimits = {
   maxDepth: 32,
   maxSidecars: 64,
@@ -76,7 +81,7 @@ export async function encodeSandboxValue(
   signal?: AbortSignal,
   limits: SandboxTransferLimits = DEFAULT_SANDBOX_TRANSFER_LIMITS,
 ) {
-  const state: { directory?: Promise<void>, nextId: number, sidecarBytes: number } = { nextId: 0, sidecarBytes: 0 }
+  const state: { directory?: Promise<void>, nextId: number, sidecarBytes: number, pendingWrites: Array<{ id: number, bytes: Uint8Array }> } = { nextId: 0, sidecarBytes: 0, pendingWrites: [] }
   const throwIfAborted = () => signal?.throwIfAborted()
   const abortable = async <T>(operation: Promise<T>) => {
     try {
@@ -105,9 +110,7 @@ export async function encodeSandboxValue(
       if (state.sidecarBytes + bytes.byteLength > limits.maxSidecarBytes)
         throw transferLimitError(label, 'maxSidecarBytes', state.sidecarBytes + bytes.byteLength, limits.maxSidecarBytes)
       state.sidecarBytes += bytes.byteLength
-      state.directory ||= abortable(sandbox.files.mkdir(assetsDir, { recursive: true, signal }))
-      await state.directory
-      await abortable(sandbox.files.write(`${assetsDir}/${id}`, bytes, { signal }))
+      state.pendingWrites.push({ id, bytes })
       return tagged({
         id,
         kind: blob ? 'blob' : buffer ? 'buffer' : 'uint8array',
@@ -150,7 +153,16 @@ export async function encodeSandboxValue(
     return hasMarker(entry) ? tagged({ entries, tag: 'object' }) : Object.fromEntries(entries)
   }
 
-  return await encode(value, new Set())
+  const encoded = await encode(value, new Set())
+  return {
+    value: encoded,
+    async writeSidecars() {
+      if (!state.pendingWrites.length) return
+      state.directory ||= abortable(sandbox.files.mkdir(assetsDir, { recursive: true, signal }))
+      await state.directory
+      await Promise.all(state.pendingWrites.map(({ id, bytes }) => abortable(sandbox.files.write(`${assetsDir}/${id}`, bytes, { signal }))))
+    },
+  } satisfies EncodedSandboxValue
 }
 
 export async function decodeSandboxValue(
