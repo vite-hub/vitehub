@@ -1190,6 +1190,17 @@ describe("KV Schedule Run Store", () => {
     }
   })
 
+  it.each(["memory", "kv"])("lists schedule runs newest first when no limit is provided: %s", async kind => {
+    const kvStore = createTestKVStore()
+    const store = kind === "memory" ? createMemoryScheduleRunStore() : createKVScheduleRunStore({ kvStore })
+    const older = new Date("2026-05-23T09:00:00.000Z")
+    const newer = new Date("2026-05-24T09:00:00.000Z")
+    await store.createRun({ id: "older", scheduleId: "daily", target: "report", scheduledAt: older, createdAt: older, updatedAt: older, status: "succeeded", attemptCount: 1 })
+    await store.createRun({ id: "newer", scheduleId: "daily", target: "report", scheduledAt: newer, createdAt: newer, updatedAt: newer, status: "succeeded", attemptCount: 1 })
+
+    expect((await store.listRuns()).map(run => run.id)).toEqual(["newer", "older"])
+  })
+
   it.each([false, true])("keeps history authoritative when index publication fails after writing %s", async (published) => {
     const kvStore = createTestKVStore()
     const store = createKVScheduleRunStore({ kvStore })
