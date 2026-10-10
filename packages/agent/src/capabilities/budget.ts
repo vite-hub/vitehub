@@ -1,7 +1,7 @@
 import { defineCapability, eagerFinishExtensionSymbol } from "../capability-runtime.ts"
 import { enrichAgentUsageCost, modelsDevPricing } from "../internal/usage-pricing.ts"
 import { ViteHubError } from "@vite-hub/runtime"
-import type { ViteHubErrorDetails } from "@vite-hub/runtime"
+import type { ViteHubErrorDetail, ViteHubErrorDetails } from "@vite-hub/runtime"
 
 import type {
   AgentBudgetExceeded,
@@ -154,7 +154,7 @@ export function budget(options: AgentBudgetOptions): AgentCapabilityDefinition {
           output: limits.tokens.output,
           total: limits.tokens.total,
         }
-        const detailLimits: ViteHubErrorDetails = { tokens: detailTokens as ViteHubErrorDetails }
+        const detailLimits: Record<string, ViteHubErrorDetail | undefined> = { tokens: detailTokens as ViteHubErrorDetails }
         if (limits.usd !== undefined) detailLimits.usd = limits.usd
         throw new ViteHubError("AGENT_BUDGET_EXCEEDED", "Agent budget exceeded.", {
           details: {
