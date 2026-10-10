@@ -64,6 +64,7 @@ export async function writeSandboxDefinitionBundle(sandbox: SandboxExecutionBox,
   await Promise.all(files.map(async ({ path, source }) => {
     const parent = dirname(path)
     if (parent !== '.') await sandbox.files.mkdir(`${baseDir}/${parent}`, { recursive: true, signal })
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Bundle sources are the documented string-or-bytes union at this adapter seam.
     await sandbox.files.write(`${baseDir}/${path}`, typeof source === 'string' ? new TextEncoder().encode(source) : source, { signal })
   }))
   await Promise.all(modes.map(async ({ mode, path }) => {
