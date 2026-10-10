@@ -129,7 +129,7 @@ describe("@vite-hub/shell just-bash runtime", () => {
     await expect(session.dispose()).resolves.toMatchObject({ event: "session_disposed" })
   })
 
-  it.each([undefined, 4])("retains class-based observations with max output length %s", async (maxOutputLength) => {
+  it.each([undefined, 0, 4])("retains class-based observations with max output length %s", async (maxOutputLength) => {
     class ProviderObservation implements ShellObservation {
       get command() { return "report" }
       get cwd() { return "/workspace" }
@@ -159,16 +159,20 @@ describe("@vite-hub/shell just-bash runtime", () => {
       },
     })
 
+    const expectedLimit = maxOutputLength === undefined ? undefined : Math.max(0, Math.floor(maxOutputLength))
+    const expectedOutput = (value: string) => expectedLimit === undefined
+      ? value
+      : `${value.slice(0, expectedLimit)}\n[output truncated to ${expectedLimit} characters]\n`
     await expect(runtime.exec("run-report")).resolves.toMatchObject({
       command: "report",
       cwd: "/workspace",
       durationMs: 12,
       event: "command_finished",
       exitCode: 3,
-      stderr: maxOutputLength ? "erro\n[output truncated to 4 characters]\n" : "error-message",
-      stdout: maxOutputLength ? "outp\n[output truncated to 4 characters]\n" : "output-message",
+      stderr: expectedOutput("error-message"),
+      stdout: expectedOutput("output-message"),
       timedOut: false,
-      maxOutputLength: maxOutputLength ?? 100,
+      maxOutputLength: expectedLimit ?? 100,
       outputTruncated: true,
       workspaceGuardrail: { kind: "no_match", path: "docs" },
     })

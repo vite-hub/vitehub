@@ -428,9 +428,12 @@ async function withProviderTimeout(
 }
 
 function boundOutput(content: string, maxLength?: number): { content: string, truncated: boolean } {
-  if (maxLength === undefined || content.length <= maxLength) return { content, truncated: false }
+  const limit = maxLength === undefined
+    ? undefined
+    : Number.isFinite(maxLength) ? Math.max(0, Math.floor(maxLength)) : 0
+  if (limit === undefined || content.length <= limit) return { content, truncated: false }
   return {
-    content: `${content.slice(0, maxLength)}\n[output truncated to ${maxLength} characters]\n`,
+    content: `${content.slice(0, limit)}\n[output truncated to ${limit} characters]\n`,
     truncated: true,
   }
 }

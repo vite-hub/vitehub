@@ -19,6 +19,7 @@ interface WorkspaceInspectionCommandOptions {
   maxOutputLength?: number
   networkGrants?: ShellNetworkGrantExecutor
   provider?: ShellExecutionProvider
+  signal?: AbortSignal
   timeout?: number
 }
 
@@ -27,7 +28,7 @@ export async function runWorkspaceInspectionCommand(
   command: string,
   options: WorkspaceInspectionCommandOptions,
 ): Promise<ShellObservation> {
-  const maxOutputLength = options.maxOutputLength || 30_000
+  const maxOutputLength = normalizeOutputLength(options.maxOutputLength) ?? 30_000
   const timeout = options.timeout || 30_000
   const provider = options.networkGrants && usesWorkspaceNetworkGrant(command) ? undefined : options.provider
   const unsupportedSyntax = preflightUnsupportedWorkspaceSyntax(command, options.commands, Boolean(provider))
@@ -53,10 +54,20 @@ export async function runWorkspaceInspectionCommand(
     }),
   })
   const cwd = options.cwd || workspaceMountPoint
-  const result = await runtime.exec(command, { cwd, timeout, workspacePaths: workspaceSessionPaths(command, cwd) })
+  const result = await runtime.exec(command, {
+    cwd,
+    signal: options.signal,
+    timeout,
+    workspacePaths: workspaceSessionPaths(command, cwd),
+  })
   const noMatchFeedback = searchNoMatchFeedback(command, result, options.broadSearchPaths, options.cwd)
 
   return noMatchFeedback ? { ...result, stdout: noMatchFeedback, workspaceGuardrail: { kind: "no_match" } } : result
+}
+
+function normalizeOutputLength(value: number | undefined): number | undefined {
+  if (value === undefined) return undefined
+  return Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0
 }
 
 function workspaceSessionPaths(command: string, cwd = workspaceMountPoint): string[] | undefined {

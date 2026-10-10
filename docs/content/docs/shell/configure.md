@@ -37,7 +37,7 @@ ViteHub has no adapter for Cloudflare's `@cloudflare/shell` package, which is no
 | --- | --- | --- | --- |
 | `policy` | `ShellSessionPolicy` | `createSession` | Session policy. Merged over the runtime policy. |
 | `env` | `Record<string, string>` | `createSession`, `exec` | Environment for commands. `exec` values override session values. |
-| `maxOutputLength` | `number` | `policy`, `exec` | Truncates stdout and stderr in the Shell Observation. The session applies the stricter value when both exist. |
+| `maxOutputLength` | `number` | `policy`, `exec` | Non-negative character limit for stdout and stderr in the Shell Observation. The session applies the stricter value when both exist. |
 | `maxShellCalls` | `number` | `policy` | Limits calls to `exec()` in one session. |
 | `maxProcesses` | `number` | `policy` | Limits tracked background processes when a provider supports them. |
 | `timeout` | `number` | `policy`, `exec` | Command timeout in milliseconds. `exec` overrides the policy value. |

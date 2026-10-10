@@ -283,7 +283,10 @@ function createWorkspaceSessionShellProvider(starter: WorkspaceSessionStarter): 
       },
     },
     async exec(command: string, execOptions: ShellRuntimeExecOptions = {}) {
-      const session = await starter.startSession({ paths: execOptions.workspacePaths })
+      const session = await starter.startSession({
+        abortSignal: execOptions.signal,
+        paths: execOptions.workspacePaths,
+      })
       let observation: ShellObservation
       try {
         const result = await session.exec("sh", ["-lc", command], {
@@ -417,7 +420,7 @@ function describeShellCommands(commands: string[], options: { sourceRequests?: b
 async function runShellCommand(
   input: Workspace | WorkspaceAssets,
   command: string,
-  options: { broadSearchPaths: string[], commands: string[], cwd: string, executionProvider?: WorkspaceToolOptions["executionProvider"], maxOutputLength: number, timeout?: number },
+  options: { broadSearchPaths: string[], commands: string[], cwd: string, executionProvider?: WorkspaceToolOptions["executionProvider"], maxOutputLength: number, signal?: AbortSignal, timeout?: number },
 ): Promise<WorkspaceShellResult> {
   const networkGrants = getWorkspaceSourceRequestExecution(input)
   const { createReadonlyWorkspaceFs, runWorkspaceInspectionCommand } = await loadWorkspaceShellModule() as WorkspaceShellModule
@@ -428,6 +431,7 @@ async function runShellCommand(
     fs: createReadonlyWorkspaceFs(input),
     maxOutputLength: options.maxOutputLength,
     networkGrants,
+    signal: options.signal,
     timeout: options.timeout,
   }
   const starter = getWorkspaceSessionStarter(input)
@@ -633,7 +637,7 @@ export function createWorkspaceTools<Operations extends WorkspaceToolOperations 
     executionProvider: options.executionProvider,
     materialize: resolveReadOperations(options.operations).materialize,
     maxShellCalls: options.maxShellCalls,
-    maxOutputLength: options.maxOutputLength || defaultMaxOutputLength,
+    maxOutputLength: options.maxOutputLength ?? defaultMaxOutputLength,
     timeout: options.timeout,
     write: resolveWriteOperations(options.operations?.write),
   }
@@ -667,7 +671,8 @@ export function createWorkspaceTools<Operations extends WorkspaceToolOperations 
         required: ["command"],
         type: "object",
       }),
-      execute: async ({ command }) => {
+      execute: async ({ command }, executionOptions) => {
+        const abortSignal = executionOptions?.abortSignal
         if (typeof resolved.maxShellCalls === "number" && shellCalls >= resolved.maxShellCalls) {
           return {
             command,
@@ -679,7 +684,7 @@ export function createWorkspaceTools<Operations extends WorkspaceToolOperations 
           } satisfies WorkspaceShellResult
         }
         shellCalls += 1
-        return await runShellCommand(input, command, resolved)
+        return await runShellCommand(input, command, { ...resolved, signal: abortSignal })
       },
     })
   }
