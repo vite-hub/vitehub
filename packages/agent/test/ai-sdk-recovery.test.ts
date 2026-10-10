@@ -191,6 +191,20 @@ describe("AI SDK recovery", () => {
     expect(fakeModel.calls).toHaveLength(3)
   })
 
+  it("spends the Invocation retry budget on structured-output repairs", async () => {
+    const fakeModel = model(["{\"text\":1}", "{\"text\":2}", "{\"text\":\"must not run\"}"])
+    const agent = defineAgent({
+      driver: { model: languageModel(fakeModel), output: { schema: outputSchema } },
+      runtime: false,
+    })
+
+    await expect(runAgentInline(agent, runtime, {
+      executionBudget: { maxRetries: 1 },
+      prompt: "Respond",
+    })).rejects.toMatchObject({ counter: "retries", name: "ExecutionBudgetExceededError" })
+    expect(fakeModel.calls).toHaveLength(2)
+  })
+
   it("allows structured-output repair to be disabled", async () => {
     const fakeModel = model(["{\"text\":1}", "{\"text\":\"must not run\"}"])
     const agent = defineAgent({

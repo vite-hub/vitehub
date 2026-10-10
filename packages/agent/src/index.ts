@@ -3469,6 +3469,7 @@ function toAgentAdapterRunContext<
 ): AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig> {
   return {
     ...context,
+    executionBudget: context.executionBudget,
     instructions: context.instructions,
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     modelExecutionInstrumentation: context.modelExecutionInstrumentation as never,
@@ -4654,7 +4655,6 @@ async function createAgentInvocationContext<
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       model: agentModel as never,
       resolveCapabilityCli,
-      executionBudget,
       workspaceDefinition: resolvedWorkspaceDefinition,
     })
     const knownUnavailable = (capabilities: Awaited<typeof preparingCapabilities>) => resolveReadiness().then(status => {

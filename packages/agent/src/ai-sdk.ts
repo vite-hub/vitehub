@@ -1359,6 +1359,8 @@ async function createAgent(
           const schema = await inputSchema({ toolName: toolCall.toolName })
           const usageCapture = createUsageCapture()
           toolRepairUsageCaptures.push(usageCapture)
+          // A tool-call repair is an additional model attempt owned by ViteHub.
+          context.executionBudget?.recordRetry()
           // SAFETY: AI SDK adapter normalization establishes the ToolLoopAgent settings contract assembled below.
           const toolRepairAgent = new ToolLoopAgent({
             ...repairSettings,
@@ -1415,6 +1417,8 @@ async function createAgent(
           let repairResult: AgentAdapterResult | undefined
           try {
             // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
+            // Structured-output repair is an additional model attempt owned by ViteHub.
+            context.executionBudget?.recordRetry()
             repairResult = asUnknownBoundary(await repairAgent.generate({
               ...repairCallInput,
               ...("options" in resolvedCallInput ? { options: resolvedCallInput.options } : {}),
