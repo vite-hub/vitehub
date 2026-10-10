@@ -1093,6 +1093,19 @@ export class PullRequestInbox {
         if (result.verifiedPushHeads && (result.progress?.kind !== 'verified' || result.progress.evidence !== `push:${pinnedHead}`)) throw new Error('Published ancestry requires a verified push receipt')
         const pushed = new Set([pinnedHead, ...result.verifiedPushHeads ?? []])
         const published = new Set([claim.snapshot.pr?.head?.sha, ...pushed])
+        const ownSynchronize = s.generation === claim.generation + 1
+          && pinnedHead !== claim.snapshot.pr?.head?.sha && s.pr?.head?.sha === pinnedHead
+          && s.reasons.includes('pull_request:synchronize')
+          && s.reasons.every(reason => reason === 'pull_request:synchronize' || claim.snapshot.reasons.includes(reason))
+        // A pinned wait may cross the claim generation only for this pass's
+        // verified synchronize. Feedback, failures, and other wake events must
+        // remain dirty so the next pass sees their fresh evidence.
+        if (s.generation !== claim.generation && !ownSynchronize) {
+          s.lease = null; s.leaseUntil = 0
+          if (s.status !== 'terminal') { s.status = 'ready'; s.nextAt = 0 }
+          await this.put(tx, s)
+          return false
+        }
         // Synchronize can lag several successful pushes. Accept only this pass's
         // verified publication chain, and fence a different source push even
         // while the PR snapshot still exposes its original head.
@@ -1110,10 +1123,6 @@ export class PullRequestInbox {
         s.status = 'waiting'; s.handled = Math.max(s.handled, claim.generation); s.reasons = s.generation > claim.generation ? s.reasons : []
         s.revision = (s.revision ?? 0) + 1
         await this.put(tx, s)
-        const ownSynchronize = s.generation === claim.generation + 1
-          && pinnedHead !== claim.snapshot.pr?.head?.sha && s.pr?.head?.sha === pinnedHead
-          && s.reasons.includes('pull_request:synchronize')
-          && s.reasons.every(reason => reason === 'pull_request:synchronize' || claim.snapshot.reasons.includes(reason))
         if (s.generation === claim.generation || ownSynchronize) await this.enqueueStatusResult(tx, s, claim, pinnedHead)
         return true
       }
