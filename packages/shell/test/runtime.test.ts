@@ -98,6 +98,16 @@ describe("@vite-hub/shell just-bash runtime", () => {
         background: false,
         interactive: false,
       },
+      execution: {
+        isolation: "in_process",
+        model: "virtual",
+      },
+      resources: {
+        output: {
+          enforcedBy: "unsupported",
+          unit: "characters",
+        },
+      },
     })
     await expect(runtime.exec("pwd")).resolves.toMatchObject({
       command: "pwd",
@@ -119,7 +129,14 @@ describe("@vite-hub/shell just-bash runtime", () => {
     await expect(session.dispose()).resolves.toMatchObject({ event: "session_disposed" })
   })
 
-  it.each([undefined, 4])("retains class-based observations with max output length %s", async (maxOutputLength) => {
+  it.each([
+    { maxOutputLength: undefined, stderr: "error-message", stdout: "output-message", limit: 100 },
+    { maxOutputLength: Number.POSITIVE_INFINITY, stderr: "error-message", stdout: "output-message", limit: 100 },
+    { maxOutputLength: 0, stderr: "\n[output truncated to 0 characters]\n", stdout: "\n[output truncated to 0 characters]\n", limit: 0 },
+    { maxOutputLength: -1, stderr: "\n[output truncated to 0 characters]\n", stdout: "\n[output truncated to 0 characters]\n", limit: 0 },
+    { maxOutputLength: Number.NaN, stderr: "\n[output truncated to 0 characters]\n", stdout: "\n[output truncated to 0 characters]\n", limit: 0 },
+    { maxOutputLength: 4, stderr: "erro\n[output truncated to 4 characters]\n", stdout: "outp\n[output truncated to 4 characters]\n", limit: 4 },
+  ])("retains class-based observations with max output length $maxOutputLength", async ({ maxOutputLength, stderr, stdout, limit }) => {
     class ProviderObservation implements ShellObservation {
       get command() { return "report" }
       get cwd() { return "/workspace" }
@@ -155,10 +172,10 @@ describe("@vite-hub/shell just-bash runtime", () => {
       durationMs: 12,
       event: "command_finished",
       exitCode: 3,
-      stderr: maxOutputLength ? "erro\n[output truncated to 4 characters]\n" : "error-message",
-      stdout: maxOutputLength ? "outp\n[output truncated to 4 characters]\n" : "output-message",
+      stderr,
+      stdout,
       timedOut: false,
-      maxOutputLength: maxOutputLength ?? 100,
+      maxOutputLength: limit,
       outputTruncated: true,
       workspaceGuardrail: { kind: "no_match", path: "docs" },
     })
@@ -247,6 +264,72 @@ describe("@vite-hub/shell just-bash runtime", () => {
       method: "POST",
       url: "https://portal.example.com/runtime/inventory-health",
     })
+  })
+
+  it("bounds controlled Source output before it reaches the Shell observation", async () => {
+    const executeSourceRequest = vi.fn(async () => ({ content: "0123456789" }))
+    const provider = createJustBashProvider({
+      commands: ["curl"],
+      fs: createReadonlyWorkspaceFs(new MemoryWorkspace({})),
+      networkGrants: { executeSourceRequest },
+    })
+    const runtime = createShellRuntime({
+      policy: { maxOutputLength: 4 },
+      provider,
+    })
+
+    await expect(runtime.exec("curl https://portal.example.com/action")).resolves.toMatchObject({
+      event: "command_finished",
+      outputTruncated: true,
+      stdout: "0123\n[output truncated to 4 characters]\n",
+    })
+    await expect(provider.exec("curl https://portal.example.com/action", { maxOutputLength: 4 })).resolves.toMatchObject({
+      maxOutputLength: 4,
+      outputTruncated: true,
+    })
+  })
+
+  it("forwards Shell cancellation to a controlled Source request", async () => {
+    const controller = new AbortController()
+    const executeSourceRequest = vi.fn(async (input: { signal?: AbortSignal }) => {
+      await new Promise<void>((resolve, reject) => {
+        input.signal?.addEventListener("abort", () => reject(input.signal?.reason), { once: true })
+        if (input.signal?.aborted) reject(input.signal.reason)
+      })
+      return { content: "never" }
+    })
+    const runtime = createShellRuntime({
+      provider: createJustBashProvider({
+        commands: ["curl"],
+        fs: createReadonlyWorkspaceFs(new MemoryWorkspace({})),
+        networkGrants: { executeSourceRequest },
+      }),
+    })
+
+    const pending = runtime.exec("curl https://portal.example.com/action", { signal: controller.signal })
+    await vi.waitFor(() => expect(executeSourceRequest).toHaveBeenCalledOnce())
+    controller.abort(new Error("request disconnected"))
+    await expect(pending).rejects.toThrow("request disconnected")
+  })
+
+  it("preserves cancellation during Source request startup", async () => {
+    const controller = new AbortController()
+    const reason = new Error("cancelled during startup")
+    const provider = createJustBashProvider({
+      commands: ["curl"],
+      fs: createReadonlyWorkspaceFs(new MemoryWorkspace({})),
+      networkGrants: {
+        executeSourceRequest() {
+          controller.abort(reason)
+          return new Promise(() => {})
+        },
+      },
+    })
+
+    await expect(provider.exec("curl https://portal.example.com/action", {
+      signal: controller.signal,
+      timeout: 100,
+    })).rejects.toBe(reason)
   })
 
   it.each([{ commands: [] }, { commands: ["cat"] }])("rejects controlled curl when commands $commands do not permit it", async ({ commands }) => {
@@ -736,6 +819,8 @@ describe("@vite-hub/shell just-bash runtime", () => {
       cwd: workspaceMountPoint,
       event: "command_timed_out",
       exitCode: null,
+      maxOutputLength: 30_000,
+      outputTruncated: false,
       stderr: "[vitehub] Workspace shell command timed out after 5ms.",
       stdout: "",
       timedOut: true,
