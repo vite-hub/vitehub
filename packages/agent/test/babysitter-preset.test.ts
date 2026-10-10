@@ -84,6 +84,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
   let abortOperation = false;
   let onAdmission: (() => void | Promise<void>) | undefined;
   let onRepair: (() => void | Promise<void>) | undefined;
+  let beforeResult: (() => void | Promise<void>) | undefined;
   let openPullRequests = true;
   // Check runs that the REST API reports in addition to the fixture's required "test" run.
   const extraCheckRuns: Record<string, unknown>[] = [];
@@ -380,6 +381,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
         } finally {
           await client.close();
         }
+        await beforeResult?.();
         finishTurn();
         return { threadId, turnId: "turn-1" };
       },
@@ -444,6 +446,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
     abortOnOperation: () => { abortOperation = true },
     onAdmission: (callback: () => void | Promise<void>) => { onAdmission = callback },
     onRepair: (callback: () => void | Promise<void>) => { onRepair = callback },
+    beforeResult: (callback: () => void | Promise<void>) => { beforeResult = callback },
     closeOnGitHub: () => { openPullRequests = false },
     reportCheckRun: (run: Record<string, unknown>) => { extraCheckRuns.push(run) },
   };
@@ -715,7 +718,7 @@ describe("Babysitter preset runtime", () => {
     } finally { await f.runtime.inbox.close(); }
   });
 
-  it("retains permission fallback when new check evidence prevents recording the pass", async () => {
+  it("consumes permission fallback after recording a wait across check progress", async () => {
     const f = await fixture(false, false, { actionsDenied: true, result: { disposition: "park", text: "Waiting for checks", wait: { kind: "checks", headSha: "a".repeat(40) } } });
     const key = `ci-permission-fallback:v1:acme/app:${f.pr().head.sha}`;
     const finish = f.runtime.inbox.finish.bind(f.runtime.inbox);
@@ -734,8 +737,8 @@ describe("Babysitter preset runtime", () => {
       await f.reconcile();
       expect(changed).toBe(true);
       expect(f.passes).toHaveLength(1);
-      expect(await f.runtime.inbox.meta(key)).not.toHaveProperty("consumedAt");
-      expect((await f.runtime.inbox.get("acme/app", 12))?.status).toBe("ready");
+      expect(await f.runtime.inbox.meta(key)).toHaveProperty("consumedAt");
+      expect((await f.runtime.inbox.get("acme/app", 12))?.status).toBe("waiting");
     } finally { await f.runtime.inbox.close(); }
   });
 
@@ -2055,6 +2058,47 @@ describe("Babysitter preset runtime", () => {
       expect(current.wait?.retryAt).toBe(retryAt);
       expect(current.lastResult).toContain("host admission");
       expect(createProviderRuntime).toHaveBeenCalledOnce();
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("keeps a declared check wait when check progress arrives during the pass", async () => {
+    const head = "a".repeat(40);
+    const f = await fixture(false, false, { result: { disposition: "park", text: "Waiting for the remaining job.",
+      wait: { kind: "checks", headSha: head } } });
+    const check = { id: 99, name: "package tests", head_sha: head, status: "queued", conclusion: null,
+      app: { slug: "github-actions" }, pull_requests: [{ number: 12 }] };
+    f.reportCheckRun(check);
+    f.beforeResult(async () => {
+      check.status = "in_progress";
+      await f.runtime.inbox.ingest("check-progress-during-pass", "check_run", {
+        repository: { full_name: "acme/app" }, action: "in_progress", check_run: check,
+      });
+    });
+    try {
+      await f.reconcile();
+      expect(await f.runtime.inbox.get("acme/app", 12)).toMatchObject({ status: "waiting",
+        lastResult: "Waiting for the remaining job.", wait: { headSha: head, reason: "checks" } });
+      await f.reconcile();
+      expect(f.passes).toHaveLength(1);
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("does not park an old check wait after an external push during the pass", async () => {
+    const head = "a".repeat(40);
+    const f = await fixture(false, false, { result: { disposition: "park", text: "Waiting for the old head.",
+      wait: { kind: "checks", headSha: head } } });
+    f.beforeResult(async () => {
+      f.advanceHead("b".repeat(40));
+      await f.runtime.inbox.ingest("external-push-during-pass", "pull_request", {
+        repository: { full_name: "acme/app" }, action: "synchronize", pull_request: f.pr(),
+      });
+    });
+    try {
+      await f.reconcile();
+      const current = await f.runtime.inbox.get("acme/app", 12);
+      expect(current?.pr?.head?.sha).toBe("b".repeat(40));
+      expect(current?.wait).toBeUndefined();
+      expect(current?.status).toBe("ready");
     } finally { await f.runtime.inbox.close(); }
   });
 

@@ -164,21 +164,19 @@ describe("runtime preflight", () => {
   })
 
   it("observes a promise returned after a synchronous timeout", async () => {
-    vi.useFakeTimers()
+    const clock = vi.spyOn(Date, "now").mockReturnValue(0)
     let rejectLate: ((reason?: unknown) => void) | undefined
     let checkSignal: AbortSignal | undefined
     const late = new Promise<never>((_, reject) => { rejectLate = reject })
     try {
       const manifest = await runRuntimePreflight({
-        timeoutMs: 100,
+        timeoutMs: 1,
         checks: [{
           id: "command:blocking-promise",
           kind: "command",
           check: ({ signal }) => {
             checkSignal = signal
-            // Advance the fake clock after callback startup to deterministically
-            // exercise a synchronous callback that runs past its deadline.
-            vi.advanceTimersByTime(150)
+            clock.mockReturnValue(15)
             return late
           },
         }],
@@ -186,10 +184,10 @@ describe("runtime preflight", () => {
       expect(manifest.capabilities["command:blocking-promise"]).toBe("unknown")
       expect(checkSignal?.aborted).toBe(true)
       rejectLate?.(new Error("late failure"))
-      await vi.runAllTicks()
+      await new Promise(resolve => setTimeout(resolve, 0))
     }
     finally {
-      vi.useRealTimers()
+      clock.mockRestore()
     }
   })
 

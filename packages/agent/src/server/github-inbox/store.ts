@@ -1093,6 +1093,42 @@ export class PullRequestInbox {
         if (result.verifiedPushHeads && (result.progress?.kind !== 'verified' || result.progress.evidence !== `push:${pinnedHead}`)) throw new Error('Published ancestry requires a verified push receipt')
         const pushed = new Set([pinnedHead, ...result.verifiedPushHeads ?? []])
         const published = new Set([claim.snapshot.pr?.head?.sha, ...pushed])
+        // A publication can emit several synchronize deliveries before the
+        // provider records its wait. Accept the whole owned chain, but only
+        // when no feedback or check evidence changed while the claim ran.
+        const settledChecks = (checks: Snapshot['checks']) => Object.fromEntries(
+          Object.entries(checks).filter(([, check]) =>
+            (check.status === 'completed' || check.conclusion) && !published.has(check.head_sha ?? ''),
+          ),
+        )
+        const settledStatuses = (statuses: Snapshot['statuses']) => Object.fromEntries(
+          Object.entries(statuses).filter(([, status]) =>
+            status.state !== 'pending' && !published.has(status.sha ?? ''),
+          ),
+        )
+        const evidenceUnchanged = digest([
+          s.comments, s.reviews, s.reviewComments, settledChecks(s.checks), settledStatuses(s.statuses), s.threads,
+        ]) === digest([
+          claim.snapshot.comments, claim.snapshot.reviews, claim.snapshot.reviewComments,
+          settledChecks(claim.snapshot.checks), settledStatuses(claim.snapshot.statuses), claim.snapshot.threads,
+        ])
+        const ownedEvidenceReason = (reason: string) => {
+          if (reason.startsWith('check_run:') || reason.startsWith('check_suite:') || reason.startsWith('workflow_run:') || reason.startsWith('status:')) return true
+          return false
+        }
+        const ownSynchronize = s.generation > claim.generation
+          && pinnedHead !== claim.snapshot.pr?.head?.sha && s.pr?.head?.sha === pinnedHead
+          && evidenceUnchanged
+          && s.reasons.every(reason => reason === 'pull_request:synchronize' || claim.snapshot.reasons.includes(reason) || ownedEvidenceReason(reason))
+        // A pinned wait may cross the claim generation only for this pass's
+        // verified synchronize. Feedback, failures, and other wake events must
+        // remain dirty so the next pass sees their fresh evidence.
+        if (s.generation !== claim.generation && !ownSynchronize) {
+          s.lease = null; s.leaseUntil = 0
+          if (s.status !== 'terminal') { s.status = 'ready'; s.nextAt = 0 }
+          await this.put(tx, s)
+          return false
+        }
         // Synchronize can lag several successful pushes. Accept only this pass's
         // verified publication chain, and fence a different source push even
         // while the PR snapshot still exposes its original head.
@@ -1110,10 +1146,6 @@ export class PullRequestInbox {
         s.status = 'waiting'; s.handled = Math.max(s.handled, claim.generation); s.reasons = s.generation > claim.generation ? s.reasons : []
         s.revision = (s.revision ?? 0) + 1
         await this.put(tx, s)
-        const ownSynchronize = s.generation === claim.generation + 1
-          && pinnedHead !== claim.snapshot.pr?.head?.sha && s.pr?.head?.sha === pinnedHead
-          && s.reasons.includes('pull_request:synchronize')
-          && s.reasons.every(reason => reason === 'pull_request:synchronize' || claim.snapshot.reasons.includes(reason))
         if (s.generation === claim.generation || ownSynchronize) await this.enqueueStatusResult(tx, s, claim, pinnedHead)
         return true
       }
