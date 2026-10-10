@@ -1842,6 +1842,8 @@ type AgentSharedSettings<
 > = {
   /** Run the built-in provider Driver inside this Box. Each invocation opens a new Box session. */
   box?: AgentBoxDefinition<TRuntimeConfig, CALL_OPTIONS, TContextValues>
+  /** Per-invocation token and cost limits. */
+  budget?: AgentBudgetOptions
   /**
    * GitHub identity for this Agent. Provider Drivers receive its `access().env`,
    * and the pull request checkout and `git()` use its token.
@@ -1920,6 +1922,8 @@ export interface AgentDefinition<
 > extends AgentDataCarrier<TDataInput>, AgentDataOutputCarrier<TData>, AgentDriverOutputCarrier<TDriverOutput>, AgentInterceptOutputCarrier<TInterceptOutput> {
   [agentOutputType]?: TOutput
   box?: AgentBoxDefinition<TRuntimeConfig, CALL_OPTIONS, TContextValues>
+  /** Per-invocation token and cost limits. */
+  budget?: AgentBudgetOptions
   github?: AgentGitHub
   health?: AgentHealthDescriptor
   capabilities?: AgentCapabilityDefinition<TRuntimeConfig>[]

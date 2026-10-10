@@ -46,6 +46,7 @@ import { getAgentInvocationRecoveryWorkflowName } from "@vite-hub/internal/agent
 import { parseStandardSchema } from "@vite-hub/internal/http-request"
 import { agentResultKind, agentStreamErrorSymbol, agentToolStreamDefaults, appendLatestFinalText, finalTextFromAgentOutput, hasTraceableStreamResult, isAsyncIterable, resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent, usageRecordFromStreamChunk } from "./agent-output.ts"
 import { defineChatCapability, durableChatErrorFallbackTimeout, getAgentChatContext, getChatCapabilityOptions, isDurableChatErrorFallbackEffect, resolveChatMessageContextInstructions, resolveChatMessageRunMetadata, resolveDurableChatErrorFallbackIntents } from "./chat-trigger.ts"
+import { budget as budgetCapability } from "./capabilities/budget.ts"
 import { agentWorkflowExecutionContextKey } from "./internal/workflow-execution.ts"
 import { consumeParsedAgentWorkflowInput } from "./internal/workflow-parsed-input.ts"
 import { parsedAgentMessageMetaState, parseAgentMessageMeta, withParsedAgentMessageMeta } from "./internal/message-meta.ts"
@@ -183,6 +184,7 @@ import type {
   AgentChannelDeliveryFinishEffectContext,
   AgentDataCarrier,
   AgentDataOutputCarrier,
+  AgentBudgetOptions,
   AgentRunInputContextValues,
   AgentInterceptHandler,
   AgentDefinition,
@@ -2221,10 +2223,11 @@ function defineBaseAgent<
     throw agentDiagnostics.AGENT_R0426({ message: "[vitehub] defineAgent({ channels }) cannot be combined with the chat() capability. Move chat options to defineAgent({ messages, channels })." })
   }
   const chat = chatCapability || channelChat
+  const configuredBudget = options.budget ? budgetCapability(options.budget) : undefined
   const normalizedCapabilities = channelChat
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-    ? [...baseCapabilities, defineChatCapability(channelChat) as AgentCapabilityDefinition<TRuntimeConfig>]
-    : baseCapabilities
+    ? [...baseCapabilities, defineChatCapability(channelChat) as AgentCapabilityDefinition<TRuntimeConfig>, ...(configuredBudget ? [configuredBudget] : [])]
+    : [...baseCapabilities, ...(configuredBudget ? [configuredBudget] : [])]
   if (!workspace) validateAgentCapabilityComposition(normalizedCapabilities, {
     driverKind: driver.kind,
     hasWorkspace: false,
@@ -2284,6 +2287,7 @@ function defineBaseAgent<
     [baseAgentResolve]: resolveBaseAgent,
     health: options.health || { handler: (request: Request, healthOptions?: Record<string, unknown>) => createAgentHealthHandler(definition)(request, healthOptions) },
     box,
+    ...(options.budget ? { budget: options.budget } : {}),
     ...(github ? { github } : {}),
     channels,
     chat,
