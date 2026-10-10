@@ -218,14 +218,15 @@ describe("createWorkspaceTools", () => {
       close,
       exec,
     } as unknown as WorkspaceSession))
-    const tools = createWorkspaceTools(workspace)
+    const budget = createExecutionBudget()
+    const tools = createWorkspaceTools(workspace, { executionBudget: budget })
 
     await expect(runShell(tools, "rg orders models")).resolves.toMatchObject({
       exitCode: 0,
       stdout: "session:sh -lc rg orders models /workspace\n",
     })
     expect(workspace.startSession).toHaveBeenCalledWith({ paths: ["models"] })
-    expect(exec).toHaveBeenCalledWith("sh", ["-lc", "rg orders models"], expect.objectContaining({ cwd: "/workspace" }))
+    expect(exec).toHaveBeenCalledWith("sh", ["-lc", "rg orders models"], expect.objectContaining({ abortSignal: budget.signal, cwd: "/workspace" }))
     await expect(runShell(tools, "cat $(python -c 'print(\"models/orders.sql\")')")).resolves.toMatchObject({
       event: "policy_denied",
       exitCode: 126,
