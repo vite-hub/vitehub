@@ -295,8 +295,10 @@ export async function readExecOutputWithRecovery(
 ) {
   const executionOutput = extractSandboxOutputFromExecution(execution)
     || extractSandboxOutputFromExecution(error as { stdout?: string, stderr?: string } | undefined)
-  if (executionOutput)
+  if (executionOutput) {
+    assertOutputSize(executionOutput, maximum)
     return executionOutput
+  }
 
   try {
     const output = await sandbox.readFile(outputPath)

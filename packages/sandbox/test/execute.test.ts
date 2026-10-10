@@ -50,6 +50,20 @@ it("extracts output from a large provider stream", () => {
   expect(extractSandboxOutputFromExecution({ stdout: stream })).toBe(output)
 })
 
+it("enforces max output bytes for marker-delivered stream output", async () => {
+  const sandbox = { provider: "vercel" } as unknown as SandboxExecutionBox
+  const output = JSON.stringify({ ok: true, result: "too large" })
+
+  await expect(readExecOutputWithRecovery(
+    sandbox,
+    "/output.json",
+    { code: 0 },
+    undefined,
+    { stdout: `__VITEHUB_OUTPUT__${output}` },
+    new TextEncoder().encode(output).byteLength - 1,
+  )).rejects.toMatchObject({ code: "SANDBOX_TRANSFER_LIMIT" })
+})
+
 function createFakeSandbox(options: { execError?: Error, execResult?: SandboxExecResult, holdExecution?: boolean, holdFileWrite?: boolean, holdInstall?: boolean, onExecute?: SandboxExecHook, provider?: "cloudflare" | "vercel" } = {}) {
   const files = new Map<string, Uint8Array>()
   const directories = new Set<string>(["/"])
