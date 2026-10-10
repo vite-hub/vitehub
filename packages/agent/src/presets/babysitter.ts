@@ -253,14 +253,19 @@ function lifecycleLabels(labels: BabysitterLifecycleLabels): GitHubPullRequestFi
   if (!isRuntimeRecord(labels)) {
     throw new TypeError("[vitehub] Babysitter lifecycle labels must be an object.");
   }
-  const require = labels.require ?? [];
-  const deny = labels.deny ?? [];
-  if (!Array.isArray(require) || !Array.isArray(deny) || require.some(label => typeof label !== "string" || !label.trim()) || deny.some(label => typeof label !== "string" || !label.trim())) {
+  const require = labels.require;
+  const deny = labels.deny;
+  if ((require !== undefined && !Array.isArray(require)) || (deny !== undefined && !Array.isArray(deny))) {
+    throw new TypeError("[vitehub] Babysitter lifecycle labels must contain arrays of non-empty strings.");
+  }
+  const requiredLabels = require ?? [];
+  const deniedLabels = deny ?? [];
+  if (requiredLabels.some(label => typeof label !== "string" || !label.trim()) || deniedLabels.some(label => typeof label !== "string" || !label.trim())) {
     throw new TypeError("[vitehub] Babysitter lifecycle labels must contain non-empty strings.");
   }
   return {
-    ...(require.length ? { allow: [...require] } : {}),
-    ...(deny.length ? { deny: [...deny] } : {}),
+    ...(requiredLabels.length ? { allow: [...requiredLabels] } : {}),
+    ...(deniedLabels.length ? { deny: [...deniedLabels] } : {}),
   };
 }
 
@@ -270,7 +275,7 @@ export function resolveBabysitterLifecycleFilter(
   lifecycle: BabysitterLifecycleOptions | undefined,
 ): GitHubPullRequestFilter {
   const labels = lifecycle?.labels;
-  if (!labels) return filter;
+  if (labels === undefined) return filter;
   if (filter.labels) {
     throw new TypeError("[vitehub] Configure Babysitter lifecycle labels or filter.labels, not both.");
   }
