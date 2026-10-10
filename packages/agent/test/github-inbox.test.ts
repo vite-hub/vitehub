@@ -5,6 +5,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PullRequestInbox, normalizePullRequest } from '../src/server/github-inbox.ts'
+import { resolveBabysitterLifecycleFilter } from '../src/presets/babysitter.ts'
 const repository = 'vite-hub/vitehub'
 const repo = { full_name: repository }
 const pr = (patch = {}) => ({ number: 7, state: 'open', user: { login: 'onmax' }, head: { sha: 'a', ref: 'fix' }, base: { sha: 'base', ref: 'main' }, updated_at: '2026-09-13T10:00:00Z', ...patch })
@@ -259,6 +260,19 @@ test('persistent filters apply to discovery, labels, and claims; event rules onl
   assert.equal((await inbox.claim(1)).length, 1)
   await post(inbox, 'new', 'pull_request', {action: 'opened', sender: {login: 'someone'}, pull_request: pr({number: 8, user: {login: 'alice'}, labels: ['repair']})})
   assert.equal(await inbox.get(repository, 8), undefined)
+})
+
+test('a newly opened PR is admitted when its lifecycle label is present', async t => {
+  const inbox = new PullRequestInbox({
+    path: ':memory:',
+    repositories: [repository],
+    filter: resolveBabysitterLifecycleFilter({}, { labels: { require: ['repair'], deny: ['paused'] } }),
+  })
+  t.onTestFinished(() => inbox.close())
+  await post(inbox, 'opened-with-label', 'pull_request', { action: 'opened', sender: { login: 'maintainer' }, pull_request: pr({ labels: ['repair'] }) })
+  assert.equal((await inbox.claim(1)).length, 1)
+  await post(inbox, 'opened-paused', 'pull_request', { action: 'opened', sender: { login: 'maintainer' }, pull_request: pr({ number: 8, labels: ['repair', 'paused'] }) })
+  assert.equal((await inbox.claim(1)).length, 0)
 })
 
 test('another process cannot recover a live lease, and an expired owner cannot finish the replacement claim', async t => {

@@ -763,8 +763,8 @@ Without a template, extending instructions replaces the inherited document.
 Import `babysitter` from `@vite-hub/agent/presets/babysitter`, or
 `vite-hub/agent/presets/babysitter` in an application. It repairs selected pull
 requests, addresses human and bot review feedback, and parks while checks run.
-Its workflow options are the GitHub Channel `filter`, the provider `driver`, and
-the `merge` policy:
+Its workflow options are the GitHub Channel `filter`, lifecycle labels, the provider
+`driver`, and the `merge` policy:
 
 ```ts
 import { defineAgent } from "@vite-hub/agent"
@@ -774,9 +774,9 @@ export default defineAgent({
   preset: "babysitter",
   presets: { babysitter },
   options: {
-    filter: {
-      repository: { allow: ["acme/app"] },
-      labels: { allow: ["repair"], deny: ["do-not-touch"] },
+    filter: { repository: { allow: ["acme/app"] } },
+    lifecycle: {
+      labels: { require: ["agent:repair"], deny: ["agent:paused"] },
     },
     driver: "codex",
     merge: false,
@@ -785,6 +785,13 @@ export default defineAgent({
   driver: { model: "your-codex-model" },
 })
 ```
+
+`lifecycle.labels.require` admits a pull request when it has at least one listed
+label. `lifecycle.labels.deny` pauses it whenever any listed label is present.
+The same rules apply during discovery and to `opened`, `labeled`, and
+`unlabeled` webhook events, so adding or removing a label can start, stop, or
+resume work. Use `lifecycle.labels` for lifecycle control and `filter.labels`
+for selection, rather than configuring both on one Babysitter.
 
 `driver` selects the provider Driver that repairs each checkout: `"codex"` (the
 default) or `"claude-code"`. Set its model and other provider settings with the

@@ -39,7 +39,7 @@ vi.mock("@vite-hub/box", async (importOriginal) => {
 });
 
 import { agentWithColocatedInstructions, defineAgent, defineCapability, getAgentFromRegistry } from "../src/index.ts";
-import { babysitter } from "../src/presets/babysitter.ts";
+import { babysitter, resolveBabysitterLifecycleFilter } from "../src/presets/babysitter.ts";
 import { babysitterInstructions } from "../src/presets/babysitter/instructions.ts";
 import { boundedMergeReady } from "../src/presets/babysitter/merge-ready.ts";
 import { createBabysitterRuntime } from "../src/presets/babysitter/server.ts";
@@ -1250,6 +1250,25 @@ describe("Babysitter preset runtime", () => {
     expect(() => defineAgent({ extends: babysitter, options: { driver: "model" } })).toThrow(/driver must be/);
     expect(() => defineAgent({ extends: babysitter, options: { noFindingsReviews: [""] } })).toThrow(/noFindingsReviews cannot contain an empty prefix/);
     expect(() => defineAgent({ extends: babysitter, options: { merge: { strategy: "direct", method: "fast-forward" as "squash" } } })).toThrow(/merge.method/);
+  });
+
+  it("maps lifecycle labels into the shared PR filter", () => {
+    const filter = { repository: { allow: ["acme/app"] } };
+    expect(resolveBabysitterLifecycleFilter(filter, { labels: { require: ["agent:repair"], deny: ["agent:paused"] } })).toEqual({
+      repository: { allow: ["acme/app"] },
+      labels: { allow: ["agent:repair"], deny: ["agent:paused"] },
+    });
+    expect(resolveBabysitterLifecycleFilter(filter, undefined)).toBe(filter);
+    expect(() => resolveBabysitterLifecycleFilter({ labels: { allow: ["repair"] } }, { labels: { require: ["agent:repair"] } })).toThrow(/lifecycle labels or filter\.labels/);
+    expect(() => resolveBabysitterLifecycleFilter(filter, { labels: { require: [""] } })).toThrow(/non-empty strings/);
+  });
+
+  it("applies lifecycle labels before admitting a model pass", async () => {
+    const f = await fixture(false, false, { options: { filter: {}, lifecycle: { labels: { require: ["repair"] } } } });
+    try {
+      await f.reconcile();
+      expect(f.passes).toHaveLength(1);
+    } finally { await f.runtime.inbox.close(); }
   });
 
   it("tells the worker about the host install and what a push records, once each", () => {

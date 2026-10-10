@@ -6,7 +6,7 @@ import type {
   AgentInvokerProfile,
   AgentInvocationContextValues,
 } from "../index.ts";
-import type { GitHubPullRequestFilter } from "../channels.ts";
+import type { GitHubPullRequestFilter, GitHubPullRequestFilterRules } from "../channels.ts";
 import type { BuiltInAgentDriverName } from "../types.ts";
 import { babysitterInstructions } from "./babysitter/instructions.ts";
 import { resolveBabysitterMerge, type BabysitterMerge } from "./babysitter/merge.ts";
@@ -19,11 +19,24 @@ import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
 export type { BabysitterMerge, BabysitterMergeMethod, BabysitterMergeReadinessInput, BabysitterMergeReady } from "./babysitter/merge.ts";
 export type { BabysitterAdmissionOptions, BabysitterAdmissionPause } from "./babysitter/admission.ts";
 
+export interface BabysitterLifecycleLabels {
+  /** At least one of these labels must be present for the PR to be eligible. */
+  require?: readonly string[];
+  /** Any of these labels suppresses the PR, even when a required label is present. */
+  deny?: readonly string[];
+}
+
+export interface BabysitterLifecycleOptions {
+  labels?: BabysitterLifecycleLabels;
+}
+
 export interface BabysitterOptions {
   /** Process admission policy. Concurrency remains the preset hard maximum. */
   capacity?: Pick<import("../runtime/process.ts").ProcessAgentCapacityOptions, "memory" | "cpu" | "fallbackConcurrency">;
   /** Select PRs with the same rules as the GitHub Channel. */
   filter: GitHubPullRequestFilter;
+  /** Additional lifecycle admission rules. Use labels to pause or resume a PR without changing the filter. */
+  lifecycle: BabysitterLifecycleOptions;
   /** Provider Driver that repairs each PR in its checkout. Defaults to `"codex"`. Set the model with `driver.model`. */
   driver: BuiltInAgentDriverName;
   /**
@@ -231,9 +244,39 @@ type BabysitterDefinition = AgentDefinition<
   deferWhilePending: boolean;
   install: BabysitterInstall;
   mentionAllowlist: string[];
+  lifecycle: BabysitterLifecycleOptions;
 };
 
 export type BabysitterAgent = ConfiguredAgentDefinition<BabysitterOptions, BabysitterDefinition>;
+
+function lifecycleLabels(labels: BabysitterLifecycleLabels): GitHubPullRequestFilterRules {
+  if (!isRuntimeRecord(labels)) {
+    throw new TypeError("[vitehub] Babysitter lifecycle labels must be an object.");
+  }
+  const require = labels.require ?? [];
+  const deny = labels.deny ?? [];
+  if (!Array.isArray(require) || !Array.isArray(deny) || require.some(label => typeof label !== "string" || !label.trim()) || deny.some(label => typeof label !== "string" || !label.trim())) {
+    throw new TypeError("[vitehub] Babysitter lifecycle labels must contain non-empty strings.");
+  }
+  return {
+    ...(require.length ? { allow: [...require] } : {}),
+    ...(deny.length ? { deny: [...deny] } : {}),
+  };
+}
+
+/** Combines explicit lifecycle labels with the shared GitHub PR filter. */
+export function resolveBabysitterLifecycleFilter(
+  filter: GitHubPullRequestFilter,
+  lifecycle: BabysitterLifecycleOptions | undefined,
+): GitHubPullRequestFilter {
+  const labels = lifecycle?.labels;
+  if (!labels) return filter;
+  if (filter.labels) {
+    throw new TypeError("[vitehub] Configure Babysitter lifecycle labels or filter.labels, not both.");
+  }
+  const rules = lifecycleLabels(labels);
+  return Object.keys(rules).length ? { ...filter, labels: rules } : filter;
+}
 
 export const babysitter: BabysitterAgent = defineAgent({
   options: {
@@ -258,9 +301,10 @@ export const babysitter: BabysitterAgent = defineAgent({
     concurrency: 1,
     // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- The empty default widens to the documented admission options.
     admission: {} as BabysitterAdmissionOptions,
+    lifecycle: {} as BabysitterLifecycleOptions,
     autoMerge: false,
   },
-  configure: ({ driver, merge, reviewChecks, noFindingsReviews, mentionAllowlist, ignoreFeedbackAuthors, noProgressBudget, deferWhilePending, install, autoMerge, concurrency, admission }) => {
+  configure: ({ filter, lifecycle, driver, merge, reviewChecks, noFindingsReviews, mentionAllowlist, ignoreFeedbackAuthors, noProgressBudget, deferWhilePending, install, autoMerge, concurrency, admission }) => {
     if (!Number.isSafeInteger(concurrency) || concurrency < 1) {
       throw new TypeError("[vitehub] Babysitter concurrency must be a positive integer.");
     }
@@ -285,6 +329,7 @@ export const babysitter: BabysitterAgent = defineAgent({
     if (!validBabysitterAdmission(admission)) {
       throw new TypeError("[vitehub] Babysitter admission must be { inputTokens: { hourly, daily }, minFreeTmpMb, paused, check } with non-negative integer token limits.");
     }
+    resolveBabysitterLifecycleFilter(filter, lifecycle);
     // Validate merge settings when the Agent is defined, not on the first PR.
     resolveBabysitterMerge(merge, autoMerge);
     const definition = defineAgent({
@@ -300,6 +345,6 @@ export const babysitter: BabysitterAgent = defineAgent({
         output: { schema: babysitterPassResultSchema },
       },
     });
-    return withAgentProcessHost(Object.assign(definition, { reviewChecks, noFindingsReviews, mentionAllowlist, ignoreFeedbackAuthors, noProgressBudget, deferWhilePending, install }), babysitterHost);
+    return withAgentProcessHost(Object.assign(definition, { reviewChecks, noFindingsReviews, mentionAllowlist, ignoreFeedbackAuthors, noProgressBudget, deferWhilePending, install, lifecycle }), babysitterHost);
   },
 });
