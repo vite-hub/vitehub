@@ -106,7 +106,7 @@ export interface GitHubPullRequestOperations {
   readBaseCheckLogs(runId: number): Promise<{ repository: string, headSha: string, text: string, truncated: boolean }>
   resolveThread(id: string): Promise<void>
   updateMetadata(input: { title?: string, body?: string }): Promise<void>
-  push(): Promise<void>
+  push(): Promise<string>
   refreshDependencies(): Promise<void>
   commitRepair(input: GitHubRepairCommit): Promise<string>
 }
@@ -469,6 +469,7 @@ export function createGitHubPullRequestOperations(
       const pushedHead = await options.push()
       if (!/^[a-f\d]{40}$/i.test(pushedHead)) throw new Error("The host push did not return a verified commit SHA.")
       expectedHeadOid = pushedHead
+      return pushedHead
     },
   }
 }
