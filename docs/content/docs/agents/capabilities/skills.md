@@ -96,7 +96,7 @@ Put model-facing guidance for a Skill in Agent Driver Instructions or in determi
 2. Check `warnings` for an `instruction-coverage:skill:<path>` entry. Add a `::skill{path="<path>"}` block to clear it.
 3. Remove the Skill file and run the Agent. Confirm that it fails before model execution with a Workspace path requirement error.
 
-Use a local Workspace to exercise both checks without changing the Agent's code. With the default Local Store, create `.vitehub/workspaces/support/skills/review/SKILL.md` and use this Agent:
+Enable the Workspace integration with `vitehub({ preset: 'node', agent: true, workspace: true })` first. See [Workspace context](/docs/agents/workspace-context#add-a-read-only-workspace) for the Vite config. Then exercise both checks without changing the Agent's code. With the default Local Store, create `.vitehub/workspaces/support/skills/review/SKILL.md` and use this Agent:
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'
