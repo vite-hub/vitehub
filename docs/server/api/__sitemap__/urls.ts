@@ -11,6 +11,7 @@ export default defineEventHandler(async (event) => {
   const entries: SitemapEntry[] = [
     { path: "/" },
     { path: "/tutorials" },
+    { path: "/examples" },
     { path: "/projects" },
     { path: "/templates" },
   ];
