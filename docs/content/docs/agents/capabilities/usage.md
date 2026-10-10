@@ -10,6 +10,8 @@ icon: i-lucide-chart-no-axes-column
 `usage()` requests complete provider usage metadata and exposes ViteHub's normalized Agent Usage Record as a typed `usage` finish extension.
 It adds no model-facing tool. It reads usage metadata that the model provider or Agent Driver reports, and it estimates missing cost from the public [Models.dev](https://models.dev) catalog. No Server Primitive is involved.
 
+Use [`budget()`](/docs/agents/capabilities/budget) when the same usage record should also drive per-invocation token or USD limits.
+
 ## Configure usage
 
 ```ts [server/agents/support.ts]
