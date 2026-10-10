@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { validateGitHubInstallInputs } from "../src/server/github-install-inputs.ts";
-import { assertGitHubDependenciesCurrent, installGitHubPullRequestWorkspace, GitHubWorkspaceInstallError } from "../src/server/github-install.ts";
+import { assertGitHubDependenciesCurrent, hasCurrentGitHubDependencies, installGitHubPullRequestWorkspace, GitHubWorkspaceInstallError } from "../src/server/github-install.ts";
 
 const roots: string[] = [];
 afterEach(async () => { vi.unstubAllEnvs(); await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))); });
@@ -69,6 +69,16 @@ it("publishes cached runner output only through the validated snapshot", async (
   expect(await readFile(join(root, "node_modules", "cached.txt"), "utf8")).toBe("isolated");
   expect(JSON.parse(await readFile(join(root, ".git", "vitehub-install.json"), "utf8"))).toMatchObject({ status: "installed", scripts: false, cache: "hit" });
   await expect(assertGitHubDependenciesCurrent(root)).resolves.toBeUndefined();
+});
+
+it("recognizes an unchanged frozen install without running another package-manager pass", async () => {
+  const root = await fixture();
+  await installGitHubPullRequestWorkspace(root, undefined, async input => {
+    await mkdir(join(input.cwd, "node_modules"));
+  });
+  await expect(hasCurrentGitHubDependencies(root)).resolves.toBe(true);
+  await writeFile(join(root, "package.json"), JSON.stringify({ packageManager: "pnpm@10.34.6", dependencies: { changed: "1.0.0" } }));
+  await expect(hasCurrentGitHubDependencies(root)).resolves.toBe(false);
 });
 
 it("rejects changed live dependency inputs after a cached runner completes", async () => {

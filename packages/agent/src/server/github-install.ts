@@ -224,3 +224,13 @@ export async function assertGitHubDependenciesCurrent(target: string, inputs = t
   const record = v.parse(v.object({ status: v.string(), fingerprint: v.optional(v.string()) }), JSON.parse(await readFile(join(target, ".git", "vitehub-install.json"), "utf8")));
   if (record.status !== "installed" || record.fingerprint !== fingerprint) throw new Error("Dependency inputs changed or installation failed. Call refreshDependencies and rerun validation before committing.");
 }
+
+/** Return whether the host's frozen install still matches the current dependency inputs. */
+export async function hasCurrentGitHubDependencies(target: string, inputs = target): Promise<boolean> {
+  try {
+    await assertGitHubDependenciesCurrent(target, inputs);
+    return true;
+  } catch {
+    return false;
+  }
+}
