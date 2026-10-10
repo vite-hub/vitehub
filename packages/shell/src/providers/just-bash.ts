@@ -79,9 +79,12 @@ export function createJustBashProvider(options: JustBashProviderOptions): ShellE
           cwd,
           fs: options.fs,
         })
-        const signal = typeof execOptions.timeout === "number"
+        const timeoutSignal = typeof execOptions.timeout === "number"
           ? AbortSignal.timeout(execOptions.timeout)
           : undefined
+        const signal = timeoutSignal && execOptions.signal
+          ? AbortSignal.any([execOptions.signal, timeoutSignal])
+          : timeoutSignal ?? execOptions.signal
         return await bash.exec(command, {
           cwd,
           env: execOptions.env,
