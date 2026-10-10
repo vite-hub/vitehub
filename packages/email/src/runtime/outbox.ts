@@ -279,7 +279,16 @@ export async function createEmailDevOutboxDriver(options: EmailDevOutboxDriverOp
         captured.delivery = failedDelivery(error)
         throw error
       }
-      captured.delivery = result.error ? failedDelivery(result.error) : { id: result.data.id, status: "sent" }
+      if (result.error) {
+        captured.delivery = failedDelivery(result.error)
+      }
+      else if (typeof result.data?.id === "string" && result.data.id.trim().length > 0) {
+        captured.delivery = { id: result.data.id, status: "sent" }
+      }
+      else {
+        // Keep malformed provider responses out of the successful delivery history.
+        captured.delivery = failedDelivery(new Error("Email driver returned an invalid message id."))
+      }
       return result
     },
   }
