@@ -1,12 +1,30 @@
 ---
 title: Babysitter
 description: Deploy an Agent that repairs pull requests, waits for checks, and merges ready ones.
-navigation.group: Configure
+navigation.order: 92
+navigation.group: Presets
+icon: i-lucide-git-pull-request
 ---
 
 The Babysitter preset repairs selected pull requests. It addresses review feedback from people and bots, fixes failing checks, and pushes the repair. Then it waits for check and review results without another model pass. It can also merge ready pull requests.
 
+Use it when a persistent worker should maintain pull requests across webhooks and restarts. Start with [Agent presets](/docs/agents/presets) for selection and customization rules.
+
 ## Add the Agent
+
+Use the [Agent setup](/docs/agents/get-started) to install ViteHub and configure Nitro. Enable the Agent integration with the Node host preset:
+
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'node', agent: true }), nitro() as never],
+})
+```
+
+The host needs Git, Corepack for detected dependency installation, and the selected provider CLI with its authentication. See [Agent Drivers](/docs/agents/agent-drivers) for provider setup. Configure GitHub and persistent SQL Agent State below before starting production work.
 
 Select the preset in a discovered Agent. The repository filter is required: the Babysitter looks for open pull requests only in these repositories.
 
@@ -15,16 +33,20 @@ import { defineAgent } from 'vite-hub/agent'
 import { babysitter } from 'vite-hub/agent/presets/babysitter'
 
 export default defineAgent({
-  extends: babysitter,
+  preset: 'babysitter',
+  presets: { babysitter },
   options: {
     filter: {
       repository: { allow: ['acme/app'] },
       author: { allow: ['octocat'] },
     },
-    merge: 'direct',
-    concurrency: 2,
+    lifecycle: {
+      labels: { require: ['agent:repair'], deny: ['agent:paused'] },
+    },
+    merge: false,
+    concurrency: 1,
   },
-  driver: { model: 'gpt-5.6-sol' },
+  driver: { model: 'your-codex-model' },
 })
 ```
 
@@ -33,6 +55,7 @@ Add `instructions.md` next to `agent.ts` for project-specific guidance. It fills
 | Option | Default | Purpose |
 | --- | --- | --- |
 | `filter` | `{}` | Pull requests to repair, with the [GitHub Channel filter rules](/docs/agents/channels). `repository.allow` is required. |
+| `lifecycle` | `{}` | Required and denied labels that start, pause, or resume work. See [Control work with labels](#control-work-with-labels). |
 | `driver` | `'codex'` | `'codex'` or `'claude-code'`. Set the model and provider settings with the ordinary `driver` field. |
 | `merge` | `false` | `false`, `'auto'` (request GitHub auto-merge), `'direct'` (merge a ready PR on the host), or `{ strategy: 'direct', method, ready }`. |
 | `reviewChecks` | `[]` | Check names, such as a review bot's check, that keep a PR waiting while they run. |
@@ -45,6 +68,41 @@ Add `instructions.md` next to `agent.ts` for project-specific guidance. It fills
 | `concurrency` | `1` | Pull requests repaired at the same time. |
 | `admission` | `{}` | Token budgets, a free-space guard and custom checks that stop model passes. See [Limit model passes](#limit-model-passes). |
 | `capacity` | Process defaults | Host admission `memory`, `cpu`, and `fallbackConcurrency` settings. |
+
+## Control work with labels
+
+Create the configured labels in your repositories. With the example above, add `agent:repair` when opening a pull request, or add it later to start work. Add `agent:paused` to pause it, and remove that label to resume while `agent:repair` remains present.
+
+| Pull request labels | Eligible for work |
+| --- | --- |
+| No `agent:repair` | No. |
+| `agent:repair` | Yes, when the repository and other filters match. |
+| `agent:repair` and `agent:paused` | No. A denied label takes precedence. |
+| `agent:paused` only | No. |
+
+`lifecycle.labels.require` needs at least one listed label. An empty or omitted list adds no requirement. `lifecycle.labels.deny` excludes a PR with any listed label. The preset applies these rules to discovery and to `opened`, `labeled`, and `unlabeled` webhook events. Removing a required label or adding a denied label also cancels an active claim.
+
+Configure label controls in `lifecycle.labels` or selection rules in `filter.labels`. Defining both throws a configuration error. Labels control eligibility; they do not report progress, authorize a merge, or bypass check and review gates.
+
+## Tools and repair results
+
+The host prepares the assigned PR checkout and supplies tools scoped to that PR. The provider's shell edits files and runs focused validation. GitHub credentials and protected Git metadata stay on the host.
+
+| Tool | Use |
+| --- | --- |
+| `readCheckLogs` | Read failed Actions logs for the assigned PR head. |
+| `readBaseCheckEvidence`, `readBaseCheckLogs` | Compare checks and failed logs on the exact assigned base commit. |
+| `refreshDependencies` | Install frozen dependencies after changing manifests, lockfiles, or dependency conflicts, before validation. |
+| `commitRepair` | Commit a message and explicit repair paths through the host. |
+| `pushRepair` | Push committed repairs to the pinned source branch. |
+| `resolveReviewThread` | Resolve a PR thread after addressing its finding. |
+| `commentOnPullRequest`, `updatePullRequest` | Record a verified finding or update the PR title and body. |
+| `mentionOnPullRequest` | Notify an allowed person about a verified blocker. Available only with `mentionAllowlist`. |
+| `requestAutoMerge` | Request GitHub native auto-merge. Available only with `merge: 'auto'`. |
+
+The normal repair sequence is to inspect feedback, edit, refresh changed dependency inputs, validate, commit, push, and resolve addressed threads. Direct merging is a host decision after the gates pass.
+
+A pass must push a repair, reach a merge outcome, or record a durable wait. For checks, the structured result carries `wait: { kind: 'checks', headSha }`. For an external blocker, it carries `wait: { kind: 'external', reason, wake? }`. Result prose alone does not set a wake condition. The host parks the PR and waits for changed evidence instead of running repeated passes to poll unchanged checks.
 
 ## Limit model passes
 
@@ -97,6 +155,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [vitehub({
     preset: 'node',
+    agent: true,
     console: {
       exposure: 'host-managed',
       authorize: './server/console-authorize.ts',
