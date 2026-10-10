@@ -172,9 +172,24 @@ export async function decodeSandboxValue(
   value: unknown,
   assetsDir: string,
   label: string,
+  signalOrLimits?: AbortSignal | SandboxTransferLimits,
   limits: SandboxTransferLimits = DEFAULT_SANDBOX_TRANSFER_LIMITS,
 ): Promise<unknown> {
+  const signal = signalOrLimits && 'maxDepth' in signalOrLimits
+    ? undefined
+    : signalOrLimits
+  if (signalOrLimits && 'maxDepth' in signalOrLimits)
+    limits = signalOrLimits
   const state = { sidecars: 0, sidecarBytes: 0 }
+  const readSidecar = async (path: string) => {
+    try {
+      return await sandbox.files.read(path, { signal })
+    }
+    catch (error) {
+      signal?.throwIfAborted()
+      throw error
+    }
+  }
   async function decode(entry: unknown, depth: number): Promise<unknown> {
     if (depth > limits.maxDepth)
       throw transferLimitError(label, 'maxDepth', depth, limits.maxDepth)
@@ -221,7 +236,7 @@ export async function decodeSandboxValue(
 
     if (state.sidecars >= limits.maxSidecars)
       throw transferLimitError(label, 'maxSidecars', state.sidecars + 1, limits.maxSidecars)
-    const bytes = await sandbox.files.read(`${assetsDir}/${descriptor.id}`)
+    const bytes = await readSidecar(`${assetsDir}/${descriptor.id}`)
     if (!bytes) {
       throw serializationError(`Sandbox ${label} binary sidecar ${descriptor.id} does not exist.`, {
         id: descriptor.id,

@@ -176,7 +176,7 @@ async function executeSandboxDefinitionOnce<TPayload>(
     }
 
     if (output.ok)
-      return await decodeSandboxValue(sandbox, output.result, files.outputAssetsDir, 'result', transferLimits)
+      return await decodeSandboxValue(sandbox, output.result, files.outputAssetsDir, 'result', signal, transferLimits)
 
     if (output.error?.code === 'SANDBOX_TRANSFER_LIMIT')
       throw sandboxError(output.error.message || 'Sandbox result exceeds its transfer limit.', { code: 'SANDBOX_TRANSFER_LIMIT' })
