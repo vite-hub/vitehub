@@ -519,6 +519,7 @@ export interface WorkspaceSourceRequestDescriptor {
 export interface WorkspaceSourceRequestExecutionInput {
   body?: unknown
   method: WorkspaceSourceRequestMethod
+  signal?: AbortSignal
   url: string
 }
 

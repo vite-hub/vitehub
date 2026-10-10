@@ -3420,6 +3420,7 @@ type AgentInvocationContext<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
 > = AgentRunContext<TRuntimeConfig, CALL_OPTIONS> & {
+  executionBudget: ReturnType<typeof createExecutionBudget>
   activity?: ActiveAgentActivity
   channels?: AgentChannels<TRuntimeConfig>
   close: () => Promise<void>
@@ -4644,6 +4645,7 @@ async function createAgentInvocationContext<
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     const preparingCapabilities = resolveAgentCapabilities(capabilityOptions, runtimeContext, input, workspace as never, workspaceMode, {
       context: invocationContext,
+      executionBudget,
       deferPreparation: Boolean(internalDefinition?.[baseAgentIntercept]),
       driverKind,
       driver: agentDriver,
@@ -4879,6 +4881,7 @@ async function createAgentInvocationContext<
       channels: definition?.channels,
       close: capabilities.close,
       context: invocationContext,
+      executionBudget,
       deliveryEffectIntents: capabilities.registries.deliveryEffectIntents,
       durableErrorFallbackTimeout: (() => {
         const options = getChatCapabilityOptions(definition?.capabilities || [])
