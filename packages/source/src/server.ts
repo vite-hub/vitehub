@@ -116,6 +116,7 @@ export function defineCollectionHandler<TItem, TQuery extends object, TQueryInpu
   options: CollectionHandlerOptions = {},
 ): CollectionHandler {
   assertCollection(collection)
+  if (collection.route === false) throw new TypeError("[vitehub] A server-only Collection cannot be exposed through defineCollectionHandler().")
   const { authorize } = collection
   const { withAuthorization } = options
   if (authorize && !withAuthorization) {

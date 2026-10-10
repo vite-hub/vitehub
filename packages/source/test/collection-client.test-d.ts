@@ -5,12 +5,21 @@ import { defineCollection } from "../src/index.ts"
 import { useCollection } from "../src/client.ts"
 
 import type { StandardSchemaV1 } from "@standard-schema/spec"
-import type { CollectionQuery } from "../src/index.ts"
+import type { CollectionQuery, CollectionRequestQuery, ProviderCollectionOptions } from "../src/index.ts"
 
 interface Article {
   id: number
   title: string
 }
+
+const providerOptions: ProviderCollectionOptions<Article> = {
+  pagination: "provider",
+  transform: (article) => {
+    expectTypeOf(article).toEqualTypeOf<Article>()
+    return article.title
+  },
+}
+expectTypeOf(providerOptions.transform).toEqualTypeOf<((article: Article) => unknown) | undefined>()
 
 type JSONValueRow = {
   array: Array<number | undefined | (() => void) | symbol>
@@ -189,8 +198,11 @@ const nonWireQuery = defineCollection(async ({ query }) => [{ id: query.page }],
   querySchema: v.object({ page: v.number() }),
 })
 
+const rawProvider = defineCollection(async () => ({ items: [], nextCursor: null }), { pagination: "provider" })
+
 declare global {
   interface ViteHubCollectionMap {
+    rawProvider: typeof rawProvider
     articles: typeof articles
     interfaceQuery: typeof interfaceQuery
     cardinalityQuery: typeof cardinalityQuery
@@ -210,6 +222,12 @@ declare global {
 
 describe("useCollection types", () => {
   it("infers registered collection items and filters", () => {
+    expectTypeOf<CollectionQuery<typeof events>>().toEqualTypeOf<CollectionRequestQuery>()
+    expectTypeOf<CollectionQuery<typeof rawProvider>>().toEqualTypeOf<CollectionRequestQuery>()
+    useCollection("events", { filter: { category: "news", tags: ["one", "two"] } })
+    useCollection("rawProvider", { filter: { category: "news" } })
+    // @ts-expect-error Raw filters still require wire values.
+    useCollection("rawProvider", { filter: { count: 2 } })
     const collection = useCollection("articles", { filter: { author: "Ada" } })
     expectTypeOf(collection.items.value).toEqualTypeOf<Array<{ id: number | null; title: string }>>()
     expectTypeOf(useCollection("events").items.value).toEqualTypeOf<Array<{ at: string; id: never }>>()
