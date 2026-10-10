@@ -6969,6 +6969,9 @@ async function executeAgentInvocationWithCapacityLease<
         options.onFinish?.({ error, status: "error" })
         throw error
       }
+      finally {
+        executionBudget?.dispose()
+      }
     },
   )
 
@@ -8099,6 +8102,7 @@ async function executeAgentInvocation<
     const status = invocationFailureWasCancelled(error, input.abortSignal) ? "cancelled" : "failed"
     await invocationJournal?.finish(status, error)
     await activity?.update(status, error)
+    executionBudget.dispose()
     throw error
   }
   if (!release) {
@@ -8114,6 +8118,7 @@ async function executeAgentInvocation<
       const status = invocationFailureWasCancelled(error, input.abortSignal) ? "cancelled" : "failed"
       await invocationJournal?.finish(status, error)
       await activity?.update(status, error)
+      executionBudget.dispose()
       throw error
     }
   }
@@ -8148,6 +8153,7 @@ async function executeAgentInvocation<
     await invocationJournal?.finish(status, error)
     await activity?.update(status, error)
     releaseOnce()
+    executionBudget.dispose()
     throw error
   }
 }
