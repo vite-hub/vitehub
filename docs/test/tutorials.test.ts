@@ -113,14 +113,22 @@ describe("documentation tutorials", () => {
     );
   });
 
-  it("lists product tutorials through the Guides page", async () => {
+  it("lists product tutorials through the top-level Tutorials page", async () => {
+    const source = await readFile(resolve(docsRoot, "app/pages/tutorials.vue"), "utf8");
+    const catalog = await readFile(resolve(docsRoot, "app/components/TutorialCatalog.vue"), "utf8");
+
+    expect(catalog).toContain("docsManifest.sections.flatMap");
+    expect(catalog).toContain('page.layout === "tutorial"');
+    expect(catalog).toContain("to: page.path");
+    expect(catalog).toContain("<UBlogPosts");
+    expect(catalog).toContain("<UBlogPost");
+    expect(source).toContain("<TutorialCatalog />");
+  });
+
+  it("redirects the old Guides path to the Tutorials index", async () => {
     const source = await readFile(resolve(docsRoot, "app/pages/guides.vue"), "utf8");
 
-    expect(source).toContain("docsManifest.sections.flatMap");
-    expect(source).toContain('page.layout === "tutorial"');
-    expect(source).toContain("to: page.path");
-    expect(source).toContain("<UBlogPosts");
-    expect(source).toContain("<UBlogPost");
+    expect(source).toContain('navigateTo("/tutorials", { redirectCode: 301 })');
   });
 
   it("keeps the standalone quickstarts on their checked fixtures", async () => {

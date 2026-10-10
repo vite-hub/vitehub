@@ -164,6 +164,17 @@ describe("UI documentation", () => {
     expect(sidebarTop).not.toContain("getDocsSectionSelectItems");
   });
 
+  it("keeps site catalogs in the rail header above the product sections", () => {
+    const rail = readFileSync(resolve(docsRoot, "app/components/DocsRail.vue"), "utf8");
+
+    expect(rail).toContain('<PrimitiveRail label="ViteHub navigation">');
+    expect(rail).toContain("<template #header");
+    expect(rail).toContain('{ label: "Tutorials", to: "/tutorials"');
+    expect(rail).toContain('{ label: "Projects", to: "/projects"');
+    expect(rail).toContain('{ label: "Templates", to: "/templates"');
+    expect(rail).toContain("<template #default");
+  });
+
   it("keeps the docs sidebar visible without a duplicate picker or search", () => {
     const sidebarTop = readFileSync(
       resolve(docsRoot, "app/components/DocsAsideLeftTop.vue"),

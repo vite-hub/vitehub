@@ -836,4 +836,28 @@ describe("kv runtime", () => {
     expect(list).toHaveBeenCalledTimes(2)
   })
 
+  it("rejects a Deno KV list cursor that does not advance", async () => {
+    const list = vi.fn((_selector: { prefix: [] }, options: { cursor?: string; limit?: number } = {}) => {
+      const iterator = (async function* () {
+        yield { key: ["match"], value: null }
+      })()
+      return Object.assign(iterator, { cursor: options.cursor || "deno-next" })
+    })
+    // SAFETY: This test provides the only Deno API used by the runtime adapter.
+    ;(globalThis as typeof globalThis & { Deno?: unknown }).Deno = {
+      openKv: async () => ({
+        delete: vi.fn(),
+        get: vi.fn(),
+        list,
+        set: vi.fn(),
+      }),
+    }
+    const { default: createDenoKVDriver } = await import("../src/runtime/deno-kv.ts")
+    const driver = createDenoKVDriver()
+
+    const first = await driver.listKeys({ limit: 1 })
+    await expect(driver.listKeys({ cursor: first.cursor, limit: 1 })).rejects.toThrow("repeated pagination cursor")
+    expect(list).toHaveBeenCalledTimes(2)
+  })
+
 })

@@ -6,14 +6,18 @@ import { examples, type Example } from "../app/data/examples";
 const docsRoot = resolve(import.meta.dirname, "..");
 
 describe("examples catalog", () => {
-  it("exposes the public examples route through primary navigation", () => {
+  it("exposes separate project and template catalogs through primary navigation", () => {
     expect(existsSync(resolve(docsRoot, "app/pages/examples.vue"))).toBe(true);
+    expect(existsSync(resolve(docsRoot, "app/pages/projects.vue"))).toBe(true);
+    expect(existsSync(resolve(docsRoot, "app/pages/templates.vue"))).toBe(true);
 
     const header = readFileSync(resolve(docsRoot, "app/components/AppHeader.vue"), "utf8");
-    expect(header).toContain('{ label: "Examples", to: "/examples" }');
+    expect(header).toContain('{ label: "Projects", to: "/projects" }');
+    expect(header).toContain('{ label: "Templates", to: "/templates" }');
 
     const sitemap = readFileSync(resolve(docsRoot, "server/api/__sitemap__/urls.ts"), "utf8");
-    expect(sitemap).toContain('{ path: "/examples" }');
+    expect(sitemap).toContain('{ path: "/projects" }');
+    expect(sitemap).toContain('{ path: "/templates" }');
   });
 
   it("publishes available examples while retaining future candidates", () => {
@@ -95,5 +99,13 @@ describe("examples catalog", () => {
     expectTypeOf<PublishedProject["action"]["to"]>().toEqualTypeOf<string>();
     expectTypeOf<Template["action"]["kind"]>().toEqualTypeOf<"use">();
     expectTypeOf<Template["startPath"]>().toEqualTypeOf<string>();
+  });
+
+  it("keeps the old examples hub while giving each catalog its own page", () => {
+    const hub = readFileSync(resolve(docsRoot, "app/pages/examples.vue"), "utf8");
+
+    expect(hub).toContain('to="/projects"');
+    expect(hub).toContain('to="/templates"');
+    expect(hub).toContain("Projects and templates");
   });
 });
