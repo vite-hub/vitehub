@@ -2337,7 +2337,7 @@ function defineBaseAgent<
     [baseAgentDefinitionHealth]: { value: options.health ? undefined : definition.health },
     [baseAgentDefinitionStatus]: { value: definition.status },
   })
-  configureAgentCapacity(definition, driver.capacity)
+  configureAgentCapacity(definition, options.budget?.capacity ?? driver.capacity)
   Object.defineProperty(definition, "__vitehubAgentSettings", {
     value: channels === options.channels ? options : { ...options, channels },
   })
