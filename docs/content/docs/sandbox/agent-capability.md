@@ -41,7 +41,7 @@ The tool reads these input fields: `command` (required), `args`, `cwd`, `env`, a
 1. When the Agent Definition loads, ViteHub validates `commands`. Each name must match `[A-Za-z0-9_.-]+`. A value such as `'pnpm test'` fails with `accepts executable names only, not shell command strings`.
 2. When the Agent Invocation resolves its tools, the Capability reads the configured Sandbox primitive.
 3. When the Agent calls `sandbox_exec`, the tool checks that `command` exactly matches one allowlisted name.
-4. The tool calls `exec(command, args, { cwd, env, timeout })` on the Sandbox primitive and returns its result unchanged. `args` defaults to `[]`.
+4. The tool validates the execution options, then calls `exec(command, args, { cwd, env, timeout, signal })` on the Sandbox primitive. `args` defaults to `[]`; `signal` is the current Invocation cancellation signal when one is available.
 
 Sandbox is not Workspace Shell.
 Use [`workspaceShell()`](/docs/workspace/agent-capability) for Workspace inspection and structured Workspace mutation.
@@ -54,7 +54,9 @@ Use [`workspaceShell()`](/docs/workspace/agent-capability) for Workspace inspect
 
 ## Security and approval
 
-- The allowlist checks only the executable name. The Agent controls `args`, `cwd`, `env`, and `timeout`, and the tool passes them to the Sandbox primitive without other checks.
+- The allowlist checks the executable name exactly. The tool also requires string arguments, keeps argument and environment sizes bounded, accepts the provider's `cwd` format unchanged, and requires a positive integer timeout no greater than `2_147_483_647` milliseconds.
+- Environment keys must be valid names. `PATH`, `NODE_OPTIONS`, `NODE_PATH`, `LD_*`, and `DYLD_*` are reserved so a tool call cannot replace command resolution or inject a loader.
+- Reserved-name checks run at execution time and are case-insensitive.
 - An allowlisted executable such as `node` or `pnpm` can run any code that its arguments select. The isolation of the Sandbox primitive is the security boundary.
 - `sandbox()` has no `policy` option. Calls with an allowlisted command run without approval. To add an approval gate, wrap execution in a [Custom Capability](/docs/agents/capabilities/custom) with a tool `policy`.
 - A disallowed command fails with `Sandbox command "<name>" is not allowed.` before the Sandbox primitive runs.

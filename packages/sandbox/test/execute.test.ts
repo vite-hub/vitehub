@@ -220,6 +220,61 @@ function createFakeSandbox(options: { execError?: Error, execResult?: SandboxExe
 }
 
 describe("executeSandboxDefinition", () => {
+  it("tracks inner execution until cleanup finishes after cancellation returns", async () => {
+    const { sandbox, execCalls } = createFakeSandbox({ holdExecution: true, provider: "cloudflare" })
+    let finishCleanup!: () => void
+    const cleanup = new Promise<void>(resolve => { finishCleanup = resolve })
+    const exec = sandbox.exec.bind(sandbox)
+    sandbox.exec = vi.fn(async (command, args, options) => {
+      if (command === "rm") await cleanup
+      return await exec(command, args, options)
+    })
+    let trackedExecution: Promise<unknown> | undefined
+    const controller = new AbortController()
+    const run = executeSandboxDefinition(sandbox, "release-notes", undefined, {
+      entry: "definition.mjs",
+      modules: { "definition.mjs": "export default async () => true" },
+    }, undefined, undefined, {
+      onExecution(execution) { trackedExecution = execution },
+    }, controller.signal)
+    await vi.waitFor(() => expect(execCalls.some(call => call.cmd === "node")).toBe(true))
+    const reason = new DOMException("request disconnected", "AbortError")
+    controller.abort(reason)
+    await expect(run).rejects.toBe(reason)
+    let settled = false
+    const completion = trackedExecution!.catch(error => {
+      expect(error).toBe(reason)
+      settled = true
+    })
+    await Promise.resolve()
+    expect(settled).toBe(false)
+    finishCleanup()
+    await completion
+    expect(settled).toBe(true)
+  })
+
+  it("preserves an external abort reason while execution is running", async () => {
+    const { sandbox } = createFakeSandbox({ holdExecution: true })
+    const controller = new AbortController()
+    const reason = new DOMException("request disconnected", "AbortError")
+    const run = executeSandboxDefinition(
+      sandbox,
+      "release-notes",
+      undefined,
+      {
+        entry: "definition.mjs",
+        modules: { "definition.mjs": "export default async () => true" },
+      },
+      undefined,
+      undefined,
+      undefined,
+      controller.signal,
+    )
+
+    controller.abort(reason)
+    await expect(run).rejects.toBe(reason)
+  })
+
   it("does not cross the handler boundary when Definition staging fails", async () => {
     const { sandbox } = createFakeSandbox({ provider: "cloudflare" })
     const onHandlerStart = vi.fn()

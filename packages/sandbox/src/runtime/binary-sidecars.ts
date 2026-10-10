@@ -233,7 +233,7 @@ export async function decodeSandboxValue(
     state.sidecars++
     state.sidecarBytes += bytes.byteLength
     return descriptor.kind === 'blob'
-      ? new Blob([bytes], { type: descriptor.type || '' })
+      ? new Blob([bytes], { type: typeof descriptor.type === 'string' ? descriptor.type : '' })
       : descriptor.kind === 'buffer'
         ? Buffer.from(bytes)
         : bytes
