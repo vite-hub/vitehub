@@ -1328,10 +1328,20 @@ async function createAgent(
     ...(Object.keys(toolSet).length ? { tools: toolSet as AgentToolSet } : {}),
   })
   const settings = instrumentedCallSettings ? { ...baseCallSettings, ...instrumentedCallSettings } : baseCallSettings
+  const remainingRetries = context.executionBudget?.snapshot().remaining.retries
+  const budgetedSettings = remainingRetries === undefined
+    ? settings
+    : {
+        ...settings,
+        maxRetries: Math.min(
+          typeof settings.maxRetries === "number" ? settings.maxRetries : remainingRetries,
+          remainingRetries,
+        ),
+      }
   const convertedOutputSchema = context.output && context.nativeStructuredOutput !== false ? agentOutputJsonSchema(context.output.schema) : undefined
   const outputSchema = convertedOutputSchema?.type === "object" ? convertedOutputSchema : undefined
   const nativeOutput = outputSchema ? aiSdk.Output.object({ schema: jsonSchema(outputSchema) }) : undefined
-  const commonSettings = withRuntimeContext(withViteHubTelemetry(settings, context, resolvedTools), context)
+  const commonSettings = withRuntimeContext(withViteHubTelemetry(budgetedSettings, context, resolvedTools), context)
   const repairSettings = withoutToolCallSettings(commonSettings)
   const prepareCall = commonSettings.prepareCall
   const prepareRepairCall = hasRuntimeType(prepareCall, "function")

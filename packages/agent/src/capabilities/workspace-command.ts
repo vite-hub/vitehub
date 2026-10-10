@@ -8,6 +8,7 @@ import type {
   AgentToolSet,
 } from "../types.ts"
 import type { WorkspaceSession } from "@vite-hub/workspace"
+import type { ExecutionBudget } from "@vite-hub/runtime"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 interface WorkspaceCommandInput {
@@ -34,6 +35,7 @@ interface WorkspaceCommandToolOptions {
   missingWorkspaceMessage?: string
   toolName?: string
   context?: AgentInvocationContextStore
+  executionBudget?: ExecutionBudget
 }
 
 interface BoxCommandOptions {
@@ -43,6 +45,7 @@ interface BoxCommandOptions {
   cwd?: string
   env?: Record<string, string>
   timeout?: number
+  executionBudget?: ExecutionBudget
 }
 
 const unsafeCommand = /[\s\x00-\x1F\x7F]/
@@ -156,13 +159,19 @@ export async function executeWorkspaceCommand(
   context?: AgentInvocationContextStore,
 ): Promise<Awaited<ReturnType<WorkspaceSession["exec"]>>> {
   const activeExecute = context && activeAgentWorkspaceCommands(context)
+  const signal = options.executionBudget && options.abortSignal
+    ? AbortSignal.any([options.abortSignal, options.executionBudget.signal])
+    : options.executionBudget?.signal ?? options.abortSignal
+  const inputBytes = new TextEncoder().encode([command, ...args].join(" ")).byteLength
   if (activeExecute) {
+    options.executionBudget?.recordToolCall(inputBytes)
     const result = await activeExecute(command, args, {
-      abortSignal: options.abortSignal,
+      abortSignal: signal,
       cwd: options.cwd,
       env: options.env,
       timeout: options.timeout,
     })
+    options.executionBudget?.recordOutputBytes(new TextEncoder().encode(result.stdout).byteLength + new TextEncoder().encode(result.stderr).byteLength)
     if (options.check && result.exitCode !== 0) {
       throw Object.assign(agentDiagnostics.AGENT_R0292({ message: `[vitehub] Workspace command "${command}" exited with code ${result.exitCode}.` }), result, { name: "BoxCommandError" })
     }
@@ -176,12 +185,14 @@ export async function executeWorkspaceCommand(
   }
   let result
   try {
+    options.executionBudget?.recordToolCall(inputBytes)
     result = await session.exec(command, args, {
-      abortSignal: options.abortSignal,
+      abortSignal: signal,
       cwd: options.cwd ?? "/workspace",
       env: options.env,
       timeout: options.timeout,
     })
+    options.executionBudget?.recordOutputBytes(new TextEncoder().encode(result.stdout).byteLength + new TextEncoder().encode(result.stderr).byteLength)
     if (options.check && result.exitCode !== 0) {
       throw Object.assign(agentDiagnostics.AGENT_R0294({ message: `[vitehub] Workspace command "${command}" exited with code ${result.exitCode}.` }), {
         command,
@@ -257,6 +268,7 @@ export function workspaceCommandTools(
           cwd,
           env,
           timeout: commandTimeout,
+          executionBudget: options.executionBudget,
         }, options.context)
       },
     }),
