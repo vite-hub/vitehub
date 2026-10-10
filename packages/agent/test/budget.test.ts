@@ -8,6 +8,16 @@ const runtime = () => ({
 })
 
 describe("budget Capability", () => {
+  it("installs the same policy from the top-level Agent setting", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      budget: { tokens: 10, pricing: false },
+      driver: { run: () => "ok" },
+    })
+
+    expect(agent.capabilities?.map(capability => capability.id)).toContain("budget")
+  })
+
   it("reports token and provider cost exceedance", async () => {
     const { budget } = await import("../src/capabilities.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")
