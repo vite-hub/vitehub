@@ -55,7 +55,9 @@ function createCloudflareDriver(options: Record<string, unknown>): KVRuntimeDriv
     const listOptions: { cursor?: string; limit: number; prefix?: string } = { limit }
     if (cursor) listOptions.cursor = cursor
     if (prefix) listOptions.prefix = prefix
-    const cursors = cursor ? cursorHistories.take(cursor) : new Set<string>()
+    const continuation = cursor ? cursorHistories.take(cursor) : { providerCursor: undefined, history: new Set<string>() }
+    if (continuation.providerCursor) listOptions.cursor = continuation.providerCursor
+    const cursors = continuation.history
     const page = await driver.getInstance().list(listOptions)
     if (!isCloudflareKVListPage(page)) {
       throw kvErrorDiagnostics.KV_R0022({ message: "[vitehub] Cloudflare KV list returned an invalid page." })
@@ -66,8 +68,7 @@ function createCloudflareDriver(options: Record<string, unknown>): KVRuntimeDriv
         throw kvErrorDiagnostics.KV_R0025({ message: "ViteHub rejected a repeated pagination cursor." })
       }
       cursors.add(page.cursor!)
-      cursorHistories.store(page.cursor!, cursors)
-      result.cursor = page.cursor
+      result.cursor = cursorHistories.store(page.cursor!, cursors)
     }
     return result
   }

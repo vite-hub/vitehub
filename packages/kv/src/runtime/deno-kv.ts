@@ -104,8 +104,9 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
       return (await matchingKeys(base)).flatMap(key => fromDenoKey(key) ?? []).sort()
     },
     async listKeys({ cursor, limit, prefix = "" }: KVListOptions) {
-      const cursors = cursor ? cursorHistories.take(cursor) : new Set<string>()
-      const iterator = (await open()).list({ prefix: [] }, { cursor, limit })
+      const continuation = cursor ? cursorHistories.take(cursor) : { providerCursor: undefined, history: new Set<string>() }
+      const cursors = continuation.history
+      const iterator = (await open()).list({ prefix: [] }, { cursor: continuation.providerCursor, limit })
       const keys: string[] = []
       for await (const entry of iterator) {
         const key = fromDenoKey(entry.key)
@@ -116,8 +117,7 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
         throw kvErrorDiagnostics.KV_R0024({ message: "Deno KV list returned a repeated pagination cursor." })
       }
       cursors.add(iterator.cursor)
-      cursorHistories.store(iterator.cursor, cursors)
-      return { keys, cursor: iterator.cursor }
+      return { keys, cursor: cursorHistories.store(iterator.cursor, cursors) }
     },
     async hasItem(key) {
       return (await (await open()).get(toDenoKey(key))).versionstamp !== null
