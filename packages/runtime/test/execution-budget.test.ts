@@ -1,8 +1,26 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import { createExecutionBudget, ExecutionBudgetExceededError } from "../src/index.ts"
 
 describe("ExecutionBudget", () => {
+  it("chains long root and child deadlines without timer overflow", () => {
+    vi.useFakeTimers()
+    try {
+      const duration = 2_147_483_647 + 100
+      const root = createExecutionBudget({ deadlineAt: Date.now() + duration })
+      const child = createExecutionBudget().child({ deadlineAt: Date.now() + duration })
+      vi.advanceTimersByTime(2_147_483_647)
+      expect(root.signal.aborted).toBe(false)
+      expect(child.signal.aborted).toBe(false)
+      vi.advanceTimersByTime(100)
+      expect(root.signal.aborted).toBe(true)
+      expect(child.signal.aborted).toBe(true)
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("tracks bounded tool, byte, and retry usage", () => {
     const budget = createExecutionBudget({ maxInputBytes: 10, maxOutputBytes: 12, maxRetries: 1, maxToolCalls: 2 })
     budget.recordToolCall(4)
