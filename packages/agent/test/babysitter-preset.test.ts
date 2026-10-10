@@ -310,7 +310,8 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
     ...(preset.providerRetryDelayMs === undefined ? {} : { providerRetryDelayMs: preset.providerRetryDelayMs }),
   });
   const passes: Array<{ tools: string[]; descriptions: Record<string, string | undefined>; schemas: Record<string, unknown>; prompt: string; session: string; instructions: string; runtimeMode: string | undefined; approvalPolicy: string | undefined; install?: string }> = [];
-  let operation: "resolveReviewThread" | "commitRepair" | "pushRepair" | "requestAutoMerge" | "updatePullRequest" | "readBaseCheckEvidence" | "readBaseCheckLogs" | undefined;
+  const operationResults: unknown[] = [];
+  let operation: "readFeedback" | "readRepairState" | "resolveReviewThread" | "commitRepair" | "pushRepair" | "requestAutoMerge" | "updatePullRequest" | "readBaseCheckEvidence" | "readBaseCheckLogs" | undefined;
   let operationArguments: Record<string, unknown> = {};
   createProviderRuntime.mockImplementation(async (options: { settings?: { launchArgs?: string }; environment?: NodeJS.ProcessEnv }) => {
     let threadId = `pass-${passes.length}`;
@@ -369,6 +370,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
             await onRepair?.();
             for (let count = 0; count < (preset.operationCount ?? 1); count++) {
               const result = await client.callTool({ name: operation, arguments: preset.operationInputs?.[count] ?? operationArguments });
+              operationResults.push(result);
               if (preset.expectedOperationErrorAt === count || onAdmission && !preset.allowOperationAfterAdmission) expect(result.isError, JSON.stringify(result)).toBe(true);
               else if (!checkoutController.signal.aborted) expect(result.isError, JSON.stringify(result)).not.toBe(true);
             }
@@ -429,6 +431,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
     runtime,
     reconcile,
     passes,
+    operationResults,
     errors,
     events,
     commit,
@@ -1173,6 +1176,32 @@ describe("Babysitter preset runtime", () => {
     } finally {
       await f.runtime.inbox.close();
     }
+  });
+
+  it("exposes scoped host state and the verified pushed head through MCP", async () => {
+    const f = await fixture();
+    f.choose("readRepairState");
+    try {
+      await f.reconcile();
+      expect(JSON.stringify(f.operationResults[0])).toContain("assignedHead");
+      expect(JSON.stringify(f.operationResults[0])).toContain("a".repeat(40));
+      expect(f.passes[0]?.tools).toContain("readFeedback");
+    } finally { await f.runtime.inbox.close(); }
+    const pushed = await fixture();
+    pushed.choose("pushRepair");
+    try {
+      await pushed.reconcile();
+      expect(JSON.stringify(pushed.operationResults[0])).toContain("b".repeat(40));
+    } finally { await pushed.runtime.inbox.close(); }
+  });
+
+  it("reads the full assigned review body through the injected MCP tool", async () => {
+    const f = await fixture();
+    f.choose("readFeedback", { kind: "review", id: "41" });
+    try {
+      await f.reconcile();
+      expect(JSON.stringify(f.operationResults[0])).toContain("Fix value");
+    } finally { await f.runtime.inbox.close(); }
   });
 
   it("preserves the dependency installation opt-out in the configured preset", () => {

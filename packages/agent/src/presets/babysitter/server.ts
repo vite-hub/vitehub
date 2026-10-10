@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { access, writeFile } from "node:fs/promises";
+import { access, readFile, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { fileURLToPath } from "node:url";
@@ -47,6 +47,7 @@ import { importBoxCommit } from "./box-commit.ts";
 import { createProviderHeadReader } from "./checkout-watch.ts";
 import { importBoxRepairFiles, importBoxRepairWorkspace, publishBoxDependencies } from "./box-repair.ts";
 import { activeProviderBox } from "../../internal/provider-box.ts";
+import { readBabysitterFeedback } from "./feedback.ts";
 import { createBabysitterPassResultSchema } from "./result.ts";
 import { repairCapability, repairEnvironment } from "./repair.ts";
 import { createGitHubRequiredCheckPolicyReader, evaluateGitHubRequiredChecks } from "../../server/github-required-checks.ts";
@@ -1271,6 +1272,20 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                 if (!session.localWorkspace) await importBoxCommit(session.session, checkout, pullRequest.headRefOid, abortSignal);
               }, {
                 runRepair: execute => repairOperation.run(true, execute),
+                readFeedback: async input => readBabysitterFeedback(await assertLease(), input),
+                readState: async () => {
+                  const current = await assertLease();
+                  const directory = providerDirectory ?? checkout;
+                  const record = await readFile(join(directory, ".git", "vitehub-install.json"), "utf8").catch((error: NodeJS.ErrnoException) => { if (error.code === "ENOENT") return undefined; throw error; });
+                  const dependencies: unknown = record === undefined ? undefined : JSON.parse(record);
+                  await assertLease();
+                  return {
+                    repository, number, assignedHead: pullRequest.headRefOid, observedHead: current.pr?.head?.sha,
+                    assignedBase: pullRequest.baseRefOid, publishedHead: pushedHead,
+                    claim: { current: true, generation: current.generation, revision: current.revision ?? 0 },
+                    dependencies: isRuntimeRecord(dependencies) ? { status: dependencies.status ?? (dependencies.ok ? "installed" : "failed"), fingerprint: dependencies.fingerprint, command: dependencies.command, reason: dependencies.reason } : { status: presetOptions.install === false ? "disabled" : "not-recorded" },
+                  };
+                },
                 beforeRepair: async (context, paths) => {
                   if (!workerSettings.box) return;
                   await assertLease();

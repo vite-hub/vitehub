@@ -21,12 +21,32 @@ export function repairCapability(operations: GitHubPullRequestOperations, autoMe
   beforeRepair(context: AgentInvocationContextStore, paths?: readonly string[]): Promise<void>;
   afterRefresh(context: AgentInvocationContextStore): Promise<void>;
   runRepair?<T>(execute: () => Promise<T>): Promise<T>;
+  readState?(): Promise<unknown>;
+  readFeedback?(input: unknown): Promise<unknown>;
 }) {
   const withinRepair = <T>(execute: () => Promise<T>) => workspace?.runRepair ? workspace.runRepair(execute) : execute();
+  const readState = workspace?.readState;
+  const readFeedback = workspace?.readFeedback;
   const allowedMentions = normalizeGitHubMentionAllowlist(mentionAllowlist)
   return defineCapability({
     id: "babysitter.github",
     tools: context => ({
+      ...(readState ? { readRepairState: {
+        name: "readRepairState",
+        description: "Read the assigned PR head/base, verified publication, installation result and current claim from the host. This reads local state, not GitHub polling.",
+        inputSchema: noArguments,
+        execute: () => readState(),
+      } } : {}),
+      ...(readFeedback ? { readFeedback: {
+        name: "readFeedback",
+        description: "Read a full review or comment body from this PR's durable snapshot in bounded pages. Continue using next.offset and next.version; changed feedback requires reading from offset zero.",
+        inputSchema: {
+          type: "object",
+          properties: { kind: { type: "string", enum: ["comment", "review", "review-comment"] }, id: { type: "string", minLength: 1, maxLength: 256 }, offset: { type: "integer", minimum: 0 }, limit: { type: "integer", minimum: 1, maximum: 16000 }, version: { type: "string", pattern: "^[a-f0-9]{64}$" } },
+          required: ["kind", "id"], additionalProperties: false,
+        },
+        execute: (input: unknown) => readFeedback(input),
+      } } : {}),
       readCheckLogs: {
         name: "readCheckLogs",
         description: "Read failed logs for a GitHub Actions run associated with this PR head.",
@@ -99,8 +119,8 @@ export function repairCapability(operations: GitHubPullRequestOperations, autoMe
         inputSchema: noArguments,
         execute: () => withinRepair(async () => {
           await beforePush?.(context.context);
-          await operations.push();
-          return { pushed: true };
+          const head = await operations.push();
+          return { pushed: true, head };
         }),
       },
       commentOnPullRequest: {
