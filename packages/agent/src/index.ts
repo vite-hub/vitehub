@@ -3425,7 +3425,6 @@ type AgentInvocationContext<
   channels?: AgentChannels<TRuntimeConfig>
   close: () => Promise<void>
   deliveryEffectIntents: AgentChannelDeliveryEffectIntent[]
-  executionBudget: ReturnType<typeof createExecutionBudget>
   toolStepReporter?: AgentRuntimeContext<TRuntimeConfig>["toolStepReporter"]
   toolResults: AgentToolStepItem[]
   driverContributions: AgentDriverContribution[]
@@ -4656,7 +4655,6 @@ async function createAgentInvocationContext<
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       model: agentModel as never,
       resolveCapabilityCli,
-      executionBudget,
       workspaceDefinition: resolvedWorkspaceDefinition,
     })
     const knownUnavailable = (capabilities: Awaited<typeof preparingCapabilities>) => resolveReadiness().then(status => {
