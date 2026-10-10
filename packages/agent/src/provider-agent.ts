@@ -1383,6 +1383,7 @@ function providerReadinessCheck(value: unknown): AgentProviderReadinessCheck | u
 
 function providerModelCompatibility(snapshot: unknown, configuredModel: string | undefined): AgentProviderReadinessCheck | undefined {
   if (!configuredModel) return undefined
+  // SAFETY: provider-runtime snapshots are structurally extended with optional readiness evidence.
   const value = snapshot as ProviderReadinessSnapshot
   const explicit = providerReadinessCheck(value.modelCompatibility)
   if (explicit) return explicit
@@ -1501,6 +1502,7 @@ export async function inspectAgentProvider<TRuntimeConfig extends AgentRuntimeCo
     const authenticated = snapshot.auth.status === "unknown" ? undefined : snapshot.auth.status === "authenticated"
     const exhausted = snapshot.usageLimits?.windows.some(window => window.usedPercent >= 100)
     const modelCompatibility = providerModelCompatibility(snapshot, options.model)
+    // SAFETY: provider-runtime snapshots may expose the optional workspace-capacity evidence.
     const workspaceCapacity = providerReadinessCheck((snapshot as ProviderReadinessSnapshot).workspaceCapacity)
     const signalUnavailable = modelCompatibility?.status === "unavailable" || workspaceCapacity?.status === "unavailable"
     const signalUnknown = modelCompatibility?.status === "unknown" || modelCompatibility?.status === "unsupported"
