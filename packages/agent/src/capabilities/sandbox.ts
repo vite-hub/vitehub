@@ -52,16 +52,27 @@ function validateSandboxCommands(commands: unknown): string[] {
 
 function validateSandboxArgs(value: unknown): string[] {
   if (value === undefined) return []
-  if (!Array.isArray(value) || value.length > maxSandboxArgs || value.some(argument => typeof argument !== "string" || argument.length > maxSandboxArgLength)) {
-    throw agentDiagnostics.AGENT_R0204({ message: `[vitehub] sandbox_exec args must be an array of no more than ${maxSandboxArgs} strings, each no longer than ${maxSandboxArgLength} characters.` })
+  if (!Array.isArray(value) || value.length > maxSandboxArgs) {
+    throw agentDiagnostics.AGENT_R0998({ message: `[vitehub] sandbox_exec args must be an array of no more than ${maxSandboxArgs} strings, each no longer than ${maxSandboxArgLength} characters.` })
   }
-  return value
+  const args: string[] = []
+  for (let index = 0; index < value.length; index++) {
+    if (!Object.hasOwn(value, index)) {
+      throw agentDiagnostics.AGENT_R0998({ message: `[vitehub] sandbox_exec args must be an array of no more than ${maxSandboxArgs} strings, each no longer than ${maxSandboxArgLength} characters.` })
+    }
+    const argument = value[index]
+    if (typeof argument !== "string" || argument.length > maxSandboxArgLength) {
+      throw agentDiagnostics.AGENT_R0998({ message: `[vitehub] sandbox_exec args must be an array of no more than ${maxSandboxArgs} strings, each no longer than ${maxSandboxArgLength} characters.` })
+    }
+    args.push(argument)
+  }
+  return args
 }
 
 function validateSandboxCwd(value: unknown): string | undefined {
   if (value === undefined) return undefined
   if (typeof value !== "string") {
-    throw agentDiagnostics.AGENT_R0205({ message: "[vitehub] sandbox_exec cwd must be a string." })
+    throw agentDiagnostics.AGENT_R0999({ message: "[vitehub] sandbox_exec cwd must be a string." })
   }
   return value
 }
@@ -69,29 +80,30 @@ function validateSandboxCwd(value: unknown): string | undefined {
 function validateSandboxEnvironment(value: unknown): Record<string, string> | undefined {
   if (value === undefined) return undefined
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw agentDiagnostics.AGENT_R0206({ message: "[vitehub] sandbox_exec env must be an object with string values." })
+    throw agentDiagnostics.AGENT_R1000({ message: "[vitehub] sandbox_exec env must be an object with string values." })
   }
-  const environment = value as Record<string, unknown>
-  const entries = Object.entries(environment)
+  const entries = Object.entries(value)
   if (entries.length > maxSandboxEnvironmentEntries) {
-    throw agentDiagnostics.AGENT_R0207({ message: `[vitehub] sandbox_exec env must contain no more than ${maxSandboxEnvironmentEntries} entries.` })
+    throw agentDiagnostics.AGENT_R1001({ message: `[vitehub] sandbox_exec env must contain no more than ${maxSandboxEnvironmentEntries} entries.` })
   }
+  const environment = Object.create(null) as Record<string, string>
   for (const [name, item] of entries) {
     const normalizedName = name.toUpperCase()
     if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name) || blockedSandboxEnvironmentKeys.has(normalizedName) || normalizedName.startsWith("LD_") || normalizedName.startsWith("DYLD_")) {
-      throw agentDiagnostics.AGENT_R0208({ message: "[vitehub] sandbox_exec env cannot override PATH, NODE_OPTIONS, NODE_PATH, or loader-related variables." })
+      throw agentDiagnostics.AGENT_R1002({ message: "[vitehub] sandbox_exec env cannot override PATH, NODE_OPTIONS, NODE_PATH, or loader-related variables." })
     }
     if (typeof item !== "string" || item.length > maxSandboxEnvironmentValueLength) {
-      throw agentDiagnostics.AGENT_R0209({ message: `[vitehub] sandbox_exec env values must be strings no longer than ${maxSandboxEnvironmentValueLength} characters.` })
+      throw agentDiagnostics.AGENT_R1003({ message: `[vitehub] sandbox_exec env values must be strings no longer than ${maxSandboxEnvironmentValueLength} characters.` })
     }
+    environment[name] = item
   }
-  return environment as Record<string, string>
+  return environment
 }
 
 function validateSandboxTimeout(value: unknown): number | undefined {
   if (value === undefined) return undefined
   if (typeof value !== "number" || !Number.isFinite(value) || value <= 0 || value > maxSandboxTimeout) {
-    throw agentDiagnostics.AGENT_R0210({ message: `[vitehub] sandbox_exec timeout must be a positive number no greater than ${maxSandboxTimeout}.` })
+    throw agentDiagnostics.AGENT_R1004({ message: `[vitehub] sandbox_exec timeout must be a positive number no greater than ${maxSandboxTimeout}.` })
   }
   return value
 }

@@ -35,8 +35,11 @@ describe("sandbox capability", () => {
   it("validates structured execution options", async () => {
     const exec = vi.fn(async () => ({ code: 0, ok: true, stderr: "", stdout: "ok" }))
     const tools = await capabilityTools(sandbox({ commands: ["node"] }), exec)
+    const sparseArgs: string[] = []
+    sparseArgs.length = 1
 
     await expect(tools.sandbox_exec?.execute?.({ command: "node", args: "--version" })).rejects.toThrow("args must be an array")
+    await expect(tools.sandbox_exec?.execute?.({ command: "node", args: sparseArgs })).rejects.toThrow("args must be an array")
     await expect(tools.sandbox_exec?.execute?.({ command: "node", env: { PATH: "/tmp" } })).rejects.toThrow("cannot override PATH")
     await expect(tools.sandbox_exec?.execute?.({ command: "node", env: { NODE_OPTIONS: "--require loader" } })).rejects.toThrow("cannot override PATH")
     await expect(tools.sandbox_exec?.execute?.({ command: "node", env: { LD_PRELOAD: "loader.so" } })).rejects.toThrow("cannot override PATH")
@@ -56,6 +59,28 @@ describe("sandbox capability", () => {
       env: { NO_COLOR: "1" },
       timeout: 5_000,
     })
+
+    const args = ["--version", "--inspect"]
+    Object.defineProperty(args, 1, {
+      configurable: true,
+      get() {
+        return "--inspect"
+      },
+    })
+    await tools.sandbox_exec?.execute?.({ command: "node", args })
+    expect(exec).toHaveBeenLastCalledWith("node", ["--version", "--inspect"], {})
+
+    const env: Record<string, string> = {}
+    Object.defineProperty(env, "NO_COLOR", {
+      configurable: true,
+      enumerable: true,
+      get() {
+        env.LATE = "ignored"
+        return "1"
+      },
+    })
+    await tools.sandbox_exec?.execute?.({ command: "node", env })
+    expect(exec).toHaveBeenLastCalledWith("node", [], { env: { NO_COLOR: "1" } })
   })
 
   it("forwards tool cancellation to the sandbox primitive", async () => {
