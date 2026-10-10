@@ -104,6 +104,8 @@ The normal repair sequence is to inspect feedback, edit, refresh changed depende
 
 A pass must push a repair, reach a merge outcome, or record a durable wait. For checks, the structured result carries `wait: { kind: 'checks', headSha }`. For an external blocker, it carries `wait: { kind: 'external', reason, wake? }`. Result prose alone does not set a wake condition. The host parks the PR and waits for changed evidence instead of running repeated passes to poll unchanged checks.
 
+After inspecting every supplied review body and failed check, a pass with no remaining actionable findings sets `reviewedHead` to the inspected HEAD SHA. The host records that assessment against the exact evidence, so a later ready-to-merge wake can proceed without another model review. Omit it when feedback or failures remain unassessed.
+
 ## Limit model passes
 
 The host checks `admission` before it claims a pull request. A spent limit stops model passes. Direct merges and recorded waits continue, so a ready pull request still merges.
