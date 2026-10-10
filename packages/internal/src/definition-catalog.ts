@@ -237,7 +237,10 @@ function scanSuffixDefinitions<TDefinition extends DiscoveredDefinition>(
   const definitions = new Map<string, TDefinition>()
 
   for (const root of source.roots) {
-    for (const file of listMatchingFiles(root, name => source.pattern.test(name), { includeHidden: source.includeHidden })) {
+    for (const file of listMatchingFiles(root, name => {
+      source.pattern.lastIndex = 0
+      return source.pattern.test(name)
+    }, { includeHidden: source.includeHidden })) {
       const name = source.normalizeName(root, file)
       if (!name) {
         continue
