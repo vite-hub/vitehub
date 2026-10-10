@@ -5,6 +5,7 @@ import { getWorkspaceSourceRequestExecution } from "./sources/request-execution.
 
 import type { Workspace, WorkspaceAssets, WorkspaceMaterializeSourcesResult, WriteFileOptions } from "./core/types.ts"
 import type { JSONSchema7, Schema, Tool, ToolSet } from "ai"
+import type { ExecutionBudget } from "@vite-hub/runtime"
 import { workspaceErrorDiagnostics } from "./error-diagnostics.ts"
 
 export type { WorkspaceMaterializeSourcesResult } from "./core/types.ts"
@@ -16,6 +17,7 @@ type ShellObservationEvent =
   | "session_disposed"
 
 interface ShellRuntimeExecOptions {
+  budget?: ExecutionBudget
   cwd?: string
   env?: Record<string, string>
   onStderr?: (chunk: string) => void
@@ -131,6 +133,7 @@ export type WorkspaceToolOperations = WorkspaceReadOperations & {
 export interface WorkspaceToolOptions<Operations extends WorkspaceToolOperations | undefined = undefined, SourceRequests extends boolean = boolean> extends Pick<ShellSessionPolicy, "maxOutputLength" | "maxShellCalls" | "timeout"> {
   broadSearchPaths?: string[]
   cwd?: string
+  executionBudget?: ExecutionBudget
   executionProvider?: ShellExecutionProvider | (() => MaybePromise<ShellExecutionProvider | undefined>)
   operations?: Operations
   sourceRequests?: SourceRequests
@@ -404,11 +407,12 @@ function describeShellCommands(commands: string[], options: { sourceRequests?: b
 async function runShellCommand(
   input: Workspace | WorkspaceAssets,
   command: string,
-  options: { broadSearchPaths: string[], commands: string[], cwd: string, executionProvider?: WorkspaceToolOptions["executionProvider"], maxOutputLength: number, timeout?: number },
+  options: { broadSearchPaths: string[], budget?: ExecutionBudget, commands: string[], cwd: string, executionProvider?: WorkspaceToolOptions["executionProvider"], maxOutputLength: number, timeout?: number },
 ): Promise<WorkspaceShellResult> {
   const networkGrants = getWorkspaceSourceRequestExecution(input)
   const { createReadonlyWorkspaceFs, runWorkspaceInspectionCommand } = await loadWorkspaceShellModule() as WorkspaceShellModule
   const inspectionOptions = {
+    budget: options.budget,
     broadSearchPaths: options.broadSearchPaths,
     commands: options.commands,
     cwd: options.cwd,
@@ -618,6 +622,7 @@ export function createWorkspaceTools<Operations extends WorkspaceToolOperations 
     commands: shellCommandsFor(resolveReadOperations(options.operations)),
     cwd: options.cwd || workspaceMountPoint,
     executionProvider: options.executionProvider,
+    budget: options.executionBudget,
     materialize: resolveReadOperations(options.operations).materialize,
     maxShellCalls: options.maxShellCalls,
     maxOutputLength: options.maxOutputLength || defaultMaxOutputLength,

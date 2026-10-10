@@ -51,8 +51,8 @@ export function workspaceShell(options: WorkspaceShellOptions = {}): AgentCapabi
         ...(driver?.kind === "provider"
           ? {}
           : mode === "write" && hasWritableTools(workspace)
-            ? workspace.tools.write({ sourceRequests: true })
-            : workspace.tools.inspect({ sourceRequests: true })),
+            ? workspace.tools.write({ executionBudget: context.executionBudget, sourceRequests: true })
+            : workspace.tools.inspect({ executionBudget: context.executionBudget, sourceRequests: true })),
         ...(commands ? workspaceCommandTools(commands, mode, timeout, workspace, { context }) : {}),
       }
     },

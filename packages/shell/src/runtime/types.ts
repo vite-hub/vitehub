@@ -1,3 +1,5 @@
+import type { ExecutionBudget } from "@vite-hub/runtime"
+
 export type ShellObservationEvent =
   | "command_finished"
   | "command_timed_out"
@@ -5,10 +7,12 @@ export type ShellObservationEvent =
   | "session_disposed"
 
 export interface ShellRuntimeExecOptions {
+  budget?: ExecutionBudget
   cwd?: string
   env?: Record<string, string>
   onStderr?: (data: string) => void
   onStdout?: (data: string) => void
+  signal?: AbortSignal
   stdin?: string
   timeout?: number
   workspacePaths?: string[]
