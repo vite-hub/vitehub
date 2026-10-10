@@ -7,6 +7,9 @@ const runtime = () => ({
   waitUntil: vi.fn(),
 })
 
+const record = (value: unknown): Record<string, unknown> | undefined =>
+  value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined
+
 describe("budget Capability", () => {
   it("installs the same policy from the top-level Agent setting", async () => {
     const { defineAgent } = await import("../src/index.ts")
@@ -126,7 +129,36 @@ describe("budget Capability", () => {
       },
     })
 
-    await expect(runAgent(agent, runtime(), { prompt: "hello" })).rejects.toMatchObject({ code: "AGENT_BUDGET_EXCEEDED" })
+    const error = await runAgent(agent, runtime(), { prompt: "hello" }).catch(error => error)
+    expect(error).toMatchObject({ code: "AGENT_BUDGET_EXCEEDED", details: { limits: { tokens: { total: 10 } } } })
+    const limits = record(record(error)?.details)?.limits
+    const tokens = record(limits)?.tokens
+    expect(Object.hasOwn(record(tokens) || {}, "input")).toBe(false)
+    expect(Object.hasOwn(record(tokens) || {}, "output")).toBe(false)
+  })
+
+  it("accepts numeric USD limits that use scientific notation", async () => {
+    const { budget } = await import("../src/capabilities.ts")
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const agent = defineAgent({
+      capabilities: [budget({ usd: 1e-7, pricing: false })],
+      driver: {
+        run: () => ({
+          text: "ok",
+          usageRecord: {
+            cost: { display: "$0.00000011", estimated: false, source: "provider", usd: "0.00000011" },
+            usage: {},
+          },
+        }),
+      },
+      hooks: { "agent:finish": finish },
+    })
+
+    await runAgent(agent, runtime(), { prompt: "hello" })
+    expect(finish.mock.calls[0]![0].extensions.get("budget")).toMatchObject({
+      exceeded: [{ metric: "usd", actual: "0.00000011", limit: 1e-7 }],
+    })
   })
 
   it("rejects an empty budget", async () => {

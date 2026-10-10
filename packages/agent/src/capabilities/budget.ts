@@ -1,6 +1,8 @@
 import { defineCapability, eagerFinishExtensionSymbol } from "../capability-runtime.ts"
 import { enrichAgentUsageCost, modelsDevPricing } from "../internal/usage-pricing.ts"
 import { ViteHubError } from "@vite-hub/runtime"
+import type { ViteHubErrorDetail } from "@vite-hub/runtime"
+import { hasRuntimeType } from "../internal/runtime-type.ts"
 
 import type {
   AgentBudgetExceeded,
@@ -28,7 +30,7 @@ function assertFiniteLimit(value: number | undefined, name: string): void {
 
 function normalizeTokens(value: AgentBudgetOptions["tokens"]): AgentBudgetTokenLimits {
   if (value === undefined) return {}
-  if (typeof value === "number") {
+  if (hasRuntimeType(value, "number")) {
     assertFiniteLimit(value, "tokens")
     return { total: value }
   }
@@ -40,11 +42,24 @@ function normalizeTokens(value: AgentBudgetOptions["tokens"]): AgentBudgetTokenL
   assertFiniteLimit(limits.input, "tokens.input")
   assertFiniteLimit(limits.output, "tokens.output")
   assertFiniteLimit(limits.total, "tokens.total")
+  if (limits.input === undefined && limits.output === undefined && limits.total === undefined) return {}
   return limits
 }
 
 function decimalParts(value: number | string): { scale: bigint, units: bigint } {
-  const text = String(value).trim()
+  const raw = String(value).trim()
+  const scientific = raw.match(/^(\d+)(?:\.(\d+))?[eE]([+-]?\d+)$/)
+  let text = raw
+  if (scientific) {
+    const [, whole, fraction = "", exponentText] = scientific
+    const digits = whole + fraction
+    const decimalIndex = whole.length + Number(exponentText)
+    text = decimalIndex <= 0
+      ? `0.${"0".repeat(-decimalIndex)}${digits}`
+      : decimalIndex >= digits.length
+        ? `${digits}${"0".repeat(decimalIndex - digits.length)}`
+        : `${digits.slice(0, decimalIndex)}.${digits.slice(decimalIndex)}`
+  }
   if (!/^\d+(?:\.\d+)?$/.test(text)) throw new TypeError("[vitehub] budget usd must be a non-negative decimal.")
   const [whole, fraction = ""] = text.split(".")
   return { scale: 10n ** BigInt(fraction.length), units: BigInt(`${whole}${fraction}`) }
@@ -60,14 +75,16 @@ function validateOptions(options: AgentBudgetOptions): { tokens: AgentBudgetToke
   const tokens = normalizeTokens(options.tokens)
   let usd: number | string | undefined
   if (options.usd !== undefined) {
-    if (typeof options.usd === "number") assertFiniteLimit(options.usd, "usd")
+    if (hasRuntimeType(options.usd, "number")) assertFiniteLimit(options.usd, "usd")
     decimalParts(options.usd)
     usd = options.usd
   }
   if (!Object.keys(tokens).length && usd === undefined) {
     throw new TypeError("[vitehub] budget requires tokens or usd.")
   }
-  return { tokens, ...(usd === undefined ? {} : { usd }) }
+  const result: { tokens: AgentBudgetTokenLimits, usd?: number | string } = { tokens }
+  if (usd !== undefined) result.usd = usd
+  return result
 }
 
 function budgetExceeded(usage: AgentUsage | undefined, cost: AgentUsageRecord["cost"], limits: ReturnType<typeof validateOptions>): AgentBudgetExceeded[] {
@@ -97,22 +114,20 @@ export function budget(options: AgentBudgetOptions): AgentCapabilityDefinition {
   const pricing = options.pricing === false ? undefined : options.pricing || modelsDevPricing()
   const mode = options.mode || "observe"
 
+  const metadata = { kind: "budget", mode, tokens: limits.tokens }
+  if (limits.usd !== undefined) Object.assign(metadata, { usd: limits.usd })
+
   return Object.assign(defineCapability({
     id,
     instructionCoverage: false,
-    metadata: {
-      kind: "budget",
-      mode,
-      ...(limits.usd === undefined ? {} : { usd: limits.usd }),
-      tokens: limits.tokens,
-    },
+    metadata,
     configure(context) {
       const maxOutputTokens = outputTokenLimit(limits.tokens)
       if (maxOutputTokens === undefined) return
       context.modelExecution.instrument({
         callSettings: ({ callSettings }) => {
           const current = callSettings.maxOutputTokens
-          if (typeof current === "number" && current <= maxOutputTokens) return
+          if (hasRuntimeType(current, "number") && current <= maxOutputTokens) return
           return { maxOutputTokens }
         },
       })
@@ -129,14 +144,20 @@ export function budget(options: AgentBudgetOptions): AgentCapabilityDefinition {
         }
       }
       const exceeded = budgetExceeded(usage?.usage, usage?.cost, limits)
-      const snapshot: AgentBudgetSnapshot = {
-        exceeded,
-        limits: options,
-        ...(usage ? { usage } : {}),
-      }
+      const snapshot: AgentBudgetSnapshot = { exceeded, limits: options }
+      if (usage) snapshot.usage = usage
       if (mode === "enforce" && exceeded.length) {
+        const detailTokens: Record<string, ViteHubErrorDetail> = {}
+        if (limits.tokens.input !== undefined) detailTokens.input = limits.tokens.input
+        if (limits.tokens.output !== undefined) detailTokens.output = limits.tokens.output
+        if (limits.tokens.total !== undefined) detailTokens.total = limits.tokens.total
+        const detailLimits = { tokens: detailTokens }
+        if (limits.usd !== undefined) Object.assign(detailLimits, { usd: limits.usd })
         throw new ViteHubError("AGENT_BUDGET_EXCEEDED", "Agent budget exceeded.", {
-          details: { exceeded, limits: options },
+          details: {
+            exceeded: exceeded.map(({ actual, limit, metric }) => ({ actual, limit, metric })),
+            limits: detailLimits,
+          },
         })
       }
       return snapshot
