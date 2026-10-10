@@ -103,7 +103,22 @@ class MemoryWorkspaceStore implements WorkspaceStore {
   async mkdir(path: string, _options: MkdirOptions = {}): Promise<void> {
     await this.#mutate(() => {
       const normalized = normalizeWorkspacePath(path)
-      this.#ensureParents(normalized)
+      const existing = this.#nodes.get(normalized)
+      const recursive = _options.recursive ?? true
+      if (existing) {
+        if (!recursive || existing.type === "file") {
+          throw workspaceError(`[vitehub] Workspace path already exists: ${path}.`)
+        }
+        return
+      }
+      if (recursive) this.#ensureParents(normalized)
+      else {
+        const separator = normalized.lastIndexOf("/")
+        const parent = separator === -1 ? "" : normalized.slice(0, separator)
+        if (parent && this.#nodes.get(parent)?.type !== "directory") {
+          throw workspaceError(`[vitehub] Workspace parent does not exist: ${path}.`)
+        }
+      }
       this.#nodes.set(normalized, { type: "directory", mtime: now() })
     })
   }
@@ -202,7 +217,9 @@ class MemoryWorkspaceStore implements WorkspaceStore {
     const parts = normalizeWorkspacePath(path).split("/").filter(Boolean)
     for (let index = 1; index < parts.length; index++) {
       const dir = parts.slice(0, index).join("/")
-      if (!this.#nodes.has(dir)) this.#nodes.set(dir, { type: "directory", mtime: now() })
+      const node = this.#nodes.get(dir)
+      if (node?.type === "file") throw workspaceError(`[vitehub] Workspace parent is not a directory: ${path}.`)
+      if (!node) this.#nodes.set(dir, { type: "directory", mtime: now() })
     }
   }
 
