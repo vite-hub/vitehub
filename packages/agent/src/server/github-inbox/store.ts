@@ -1093,9 +1093,24 @@ export class PullRequestInbox {
         if (result.verifiedPushHeads && (result.progress?.kind !== 'verified' || result.progress.evidence !== `push:${pinnedHead}`)) throw new Error('Published ancestry requires a verified push receipt')
         const pushed = new Set([pinnedHead, ...result.verifiedPushHeads ?? []])
         const published = new Set([claim.snapshot.pr?.head?.sha, ...pushed])
-        const ownSynchronize = s.generation === claim.generation + 1
+        // A publication can emit several synchronize deliveries before the
+        // provider records its wait. Accept the whole owned chain, but only
+        // when no feedback or check evidence changed while the claim ran.
+        const settledChecks = (checks: Snapshot['checks']) => Object.fromEntries(
+          Object.entries(checks).filter(([, check]) => check.status === 'completed' || check.conclusion),
+        )
+        const settledStatuses = (statuses: Snapshot['statuses']) => Object.fromEntries(
+          Object.entries(statuses).filter(([, status]) => status.state !== 'pending'),
+        )
+        const evidenceUnchanged = digest([
+          s.comments, s.reviews, s.reviewComments, settledChecks(s.checks), settledStatuses(s.statuses), s.threads,
+        ]) === digest([
+          claim.snapshot.comments, claim.snapshot.reviews, claim.snapshot.reviewComments,
+          settledChecks(claim.snapshot.checks), settledStatuses(claim.snapshot.statuses), claim.snapshot.threads,
+        ])
+        const ownSynchronize = s.generation > claim.generation
           && pinnedHead !== claim.snapshot.pr?.head?.sha && s.pr?.head?.sha === pinnedHead
-          && s.reasons.includes('pull_request:synchronize')
+          && evidenceUnchanged
           && s.reasons.every(reason => reason === 'pull_request:synchronize' || claim.snapshot.reasons.includes(reason))
         // A pinned wait may cross the claim generation only for this pass's
         // verified synchronize. Feedback, failures, and other wake events must
