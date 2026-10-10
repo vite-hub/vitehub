@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { SQLiteAsyncDialect } from "drizzle-orm/sqlite-core"
+import { Miniflare } from "miniflare"
 
 const useDatabase = vi.fn()
 vi.mock("@vite-hub/database/drizzle", () => ({ useDatabase }))
@@ -34,6 +35,7 @@ describe("createDatabaseAgentInvocationStore", () => {
         if (/^SELECT sequence, record, revision/i.test(text)) return [{ sequence: 1, record: JSON.stringify(input), revision: 0 }]
         return []
       }),
+      batch: vi.fn(async (statements: Promise<unknown>[]) => Promise.all(statements)),
     }
     useDatabase.mockReturnValue({ db })
 
@@ -59,5 +61,29 @@ describe("createDatabaseAgentInvocationStore", () => {
     await expect(store.create(input)).resolves.toMatchObject({ created: true, record: { id: input.id, cursor: "1" } })
     await expect(store.get(input.id)).resolves.toMatchObject({ id: input.id, status: input.status, cursor: "1" })
     client.close()
+  })
+
+  it("persists records through the native D1 Drizzle adapter", async () => {
+    const miniflare = new Miniflare({
+      compatibilityDate: "2026-07-14",
+      d1Databases: ["DB"],
+      modules: true,
+      script: "export default { fetch() { return new Response('test') } }",
+    })
+    try {
+      const d1 = await miniflare.getD1Database("DB")
+      const { drizzle } = await import("drizzle-orm/d1")
+      const drizzleDb = drizzle(d1)
+      useDatabase.mockReturnValue({ db: drizzleDb })
+
+      const { createDatabaseAgentInvocationStore } = await import("../src/agent/invocations/database.ts")
+      const store = createDatabaseAgentInvocationStore({ maxAgeMs: false, maxRecords: false })
+
+      await expect(store.create(input)).resolves.toMatchObject({ created: true, record: { id: input.id, cursor: "1" } })
+      await expect(store.get(input.id)).resolves.toMatchObject({ id: input.id, status: input.status, cursor: "1" })
+    }
+    finally {
+      await miniflare.dispose()
+    }
   })
 })
