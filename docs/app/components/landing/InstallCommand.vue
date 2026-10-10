@@ -5,10 +5,10 @@ import { installOptions } from "./content";
 const commandTabs = [
   {
     ...installOptions.skill,
-    label: "For Agents",
+    label: "Agent skill",
   },
   {
-    label: "For humans",
+    label: "Package",
     value: "package",
     icon: "i-lucide-package",
   },
@@ -17,7 +17,7 @@ const commandTabs = [
 type CommandTab = (typeof commandTabs)[number]["value"];
 type PackageManager = (typeof installOptions.packages)[number]["value"];
 
-const activeTab = ref<CommandTab>("skill");
+const activeTab = ref<CommandTab>("package");
 const activePackageManager = ref<PackageManager>("pnpm");
 const copied = ref(false);
 let copiedTimer: ReturnType<typeof setTimeout> | undefined;

@@ -1,70 +1,59 @@
-<script setup lang="ts">
-import { MotionConfig } from "motion-v"
-import AgentPlayground from "./AgentPlayground.vue"
-</script>
-
 <template>
   <section class="border-b border-default bg-default">
-    <div
-      class="mx-auto grid min-h-[calc(100svh-var(--ui-header-height))] max-w-[90rem] items-center gap-10 px-4 py-12 sm:px-8 sm:py-16 lg:grid-cols-[minmax(23rem,0.76fr)_minmax(0,1.24fr)] lg:gap-14 lg:px-12 lg:py-16"
-    >
-      <div class="vh-landing-reveal min-w-0">
-        <p class="mb-6 font-mono text-sm text-muted">
-          The server layer for Vite apps
-        </p>
-        <h2 class="vh-hero-title max-w-[9ch] font-semibold text-highlighted text-balance">
-          Any agent, anywhere.
-        </h2>
-        <p class="mt-7 max-w-[44ch] text-lg/8 text-muted text-pretty sm:text-xl/8">
-          Bring any model or coding provider, compose your own Capabilities around a persistent Workspace,
-          and deploy the same Agent across supported hosts.
-        </p>
-
-        <LandingInstallCommand class="mt-9" />
-
-        <div class="mt-5 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
-          <NuxtLink
-            to="/docs/getting-started/first-agent"
-            class="hero-cta inline-flex min-h-10 items-center gap-1.5 font-medium text-highlighted focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary"
-          >
-            Start building
-            <UIcon
-              name="i-lucide-arrow-right"
-              class="landing-cta-arrow size-4 shrink-0 transition-transform duration-200 motion-reduce:transition-none"
-              aria-hidden="true"
+    <div class="mx-auto max-w-[90rem] px-4 py-12 sm:px-8 sm:py-16 lg:px-12 lg:py-20">
+      <div class="vh-landing-reveal grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(22rem,0.8fr)] lg:items-center lg:gap-20">
+        <h1 class="vh-hero-title max-w-[13ch] font-semibold text-highlighted text-balance">
+          The server layer for Vite apps.
+        </h1>
+        <div class="min-w-0">
+          <p class="max-w-[42ch] text-lg/7 text-muted text-pretty">
+            Storage, queues, workflows, and more. Use one API in your app and deploy it to your
+            choice of cloud.
+          </p>
+          <div class="mt-5 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
+            <UButton
+              to="/docs/getting-started/first-server-primitive"
+              label="Start building"
+              trailing-icon="i-lucide-arrow-right"
+              color="neutral"
+              class="hero-cta rounded-sm px-4 py-2.5"
             />
-          </NuxtLink>
-          <NuxtLink
-            to="/docs"
-            class="inline-flex min-h-10 items-center text-muted transition-colors hover:text-default focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary"
-          >
-            Read the docs
-          </NuxtLink>
+            <NuxtLink
+              to="/docs"
+              class="inline-flex min-h-10 items-center gap-1.5 text-muted transition-colors hover:text-highlighted focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary"
+            >
+              Explore the docs
+              <UIcon name="i-lucide-arrow-up-right" class="size-3.5" aria-hidden="true" />
+            </NuxtLink>
+          </div>
         </div>
       </div>
 
-      <ClientOnly>
-        <MotionConfig reduced-motion="user">
-          <AgentPlayground class="vh-landing-reveal vh-landing-reveal-delay min-w-0" />
-        </MotionConfig>
-        <template #fallback>
-          <div class="min-h-[32rem]" />
-        </template>
-      </ClientOnly>
+      <LandingPrimitives class="vh-landing-reveal vh-landing-reveal-delay mt-12 lg:mt-16" />
     </div>
   </section>
 </template>
 
 <style scoped>
 .vh-hero-title {
-  font-size: clamp(3.75rem, 5.8vw, 6.25rem);
-  letter-spacing: -0.06em;
-  line-height: 0.92;
+  font-size: clamp(3.5rem, 5.6vw, 5.75rem);
+  letter-spacing: -0.065em;
+  line-height: 0.98;
+}
+
+.hero-cta :deep(.iconify) {
+  transition: transform 200ms ease;
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .hero-cta:hover .landing-cta-arrow {
-    transform: translateX(0.25rem);
+  .hero-cta:hover :deep(.iconify) {
+    transform: translateX(0.2rem);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-cta :deep(.iconify) {
+    transition: none;
   }
 }
 </style>
