@@ -87,6 +87,7 @@
     "./agent/mcp": "./dist/agent/mcp.js",
     "./agent/observability": "./dist/agent/observability.js",
     "./agent/presets/babysitter": "./dist/agent/presets/babysitter.js",
+    "./agent/presets/labeller": "./dist/agent/presets/labeller.js",
     "./agent/presets/workspace": "./dist/agent/presets/workspace.js",
     "./agent/runtime/process": "./dist/agent/runtime/process.js",
     "./agent/server": "./dist/agent/server.js",
