@@ -38,7 +38,6 @@ export default defineAgent({
   options: {
     filter: {
       repository: { allow: ['acme/app'] },
-      author: { allow: ['octocat'] },
     },
     lifecycle: {
       labels: { require: ['agent:repair'], deny: ['agent:paused'] },
