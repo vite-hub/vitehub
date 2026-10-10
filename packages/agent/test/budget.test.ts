@@ -11,6 +11,26 @@ const record = (value: unknown): Record<string, unknown> | undefined =>
   value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined
 
 describe("budget Capability", () => {
+  it("installs the same policy from the top-level Agent setting", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      budget: { tokens: 10, pricing: false },
+      driver: { run: () => "ok" },
+    })
+
+    expect(agent.capabilities?.map(capability => capability.id)).toContain("budget")
+  })
+
+  it("accepts a capacity-only top-level policy", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      budget: { capacity: { concurrency: 2 } },
+      driver: { run: () => "ok" },
+    })
+
+    expect(agent.capabilities?.map(capability => capability.id) || []).not.toContain("budget")
+  })
+
   it("accepts provider usage records backed by getters on a prototype", async () => {
     const { budget } = await import("../src/capabilities.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")
