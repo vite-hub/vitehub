@@ -29,6 +29,7 @@ import { babysitter } from 'vite-hub/agent/presets/babysitter'
 export default defineAgent({
   preset: 'babysitter',
   presets: { babysitter },
+  workspace: {},
   options: {
     filter: { repository: { allow: ['acme/app'] } },
     lifecycle: {
