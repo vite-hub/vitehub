@@ -22,9 +22,11 @@ export {
 } from "./runtime/state.ts"
 export {
   createWorkspaceSourceResolutionFacade,
+  forwardWorkspaceFacade,
   hasWorkspaceSourceResolvers,
   resolveWorkspaceSources,
 } from "./sources/resolution.ts"
+export { createWorkspaceHistoryReader } from "./core/history.ts"
 export {
   getWorkspaceSourceRequestDescriptor,
   isWorkspaceSourceRequestOnly,
@@ -35,9 +37,11 @@ export {
 } from "./sources/config.ts"
 export type { WorkspaceSourceMetadata } from "./sources/config.ts"
 export { markLiveWorkspaceSource } from "./sources/live.ts"
+export { forwardWorkspaceMetadataView } from "./storage/metadata-target.ts"
 export {
   attachWorkspaceSourceRequestExecution,
   getWorkspaceSourceRequestExecution,
+  workspaceSourceRequestMatches,
 } from "./sources/request-execution.ts"
 export type {
   ReadonlyWorkspaceFacade,

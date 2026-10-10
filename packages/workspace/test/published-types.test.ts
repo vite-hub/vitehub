@@ -18,13 +18,14 @@ it("publishes Workspace types through the package contract", async () => {
 
   try {
     await cp(fixtureRoot, root, { recursive: true })
-    for (const [name, source] of [["workspace", packageRoot], ["runtime", runtimeRoot]] as const) {
+    for (const [name, source] of [["workspace", packageRoot], ["runtime", runtimeRoot], ["blob", resolve(packageRoot, "../blob")], ["database", resolve(packageRoot, "../database")]] as const) {
       const installedPackageRoot = join(root, "node_modules", "@vite-hub", name)
       await mkdir(installedPackageRoot, { recursive: true })
       await copyFile(join(source, "package.json"), join(installedPackageRoot, "package.json"))
       await cp(join(source, "dist"), join(installedPackageRoot, "dist"), { recursive: true })
     }
     await symlink(resolve(packageRoot, "node_modules/vue"), join(root, "node_modules/vue"), "junction")
+    await symlink(resolve(packageRoot, "node_modules/drizzle-orm"), join(root, "node_modules/drizzle-orm"), "junction")
 
     await execFileAsync(process.execPath, [tsc, "--noEmit", "-p", root])
   }

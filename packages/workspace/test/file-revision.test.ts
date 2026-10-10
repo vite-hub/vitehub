@@ -39,6 +39,19 @@ it.each(["memory", "local"] as const)("%s revisions distinguish identical writes
   }
 })
 
+it("ignores inherited workspace file owner metadata", async () => {
+  const store = createMemoryWorkspaceStore()
+  const owner = Object.create({
+    digest: "ambient-digest",
+    source: "ambient-source",
+    workspace: "ambient-workspace",
+  })
+
+  await store.setMeta!("workspace-file-owner:owned.md", owner)
+
+  await expect(readWorkspaceFileOwner(store, "owned.md")).resolves.toBeUndefined()
+})
+
 
 it.each(["memory", "local"] as const)("%s retires interrupted file removal when a directory replaces the file", async (provider) => {
   const root = await mkdtemp(join(tmpdir(), "workspace-directory-replacement-"))

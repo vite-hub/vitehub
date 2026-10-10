@@ -1,7 +1,7 @@
 ---
 title: Tool List
 description: "Render Agent tool contracts with labels, schemas, MCP origin, and call counts."
-navigation.order: 34
+navigation.order: 35
 navigation.group: Agent work
 icon: i-ph-wrench-light
 ---

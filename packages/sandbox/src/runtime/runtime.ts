@@ -68,7 +68,7 @@ export interface SandboxRunner {
 
 async function loadSandboxDefinition(name: string): Promise<SandboxRegistryEntry | undefined> {
   const registry: SandboxRuntimeRegistry = getSandboxRuntimeRegistry() ?? {}
-  const entry = registry[name]
+  const entry = Object.hasOwn(registry, name) ? registry[name] : undefined
   if (!entry)
     return undefined
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Registry entries intentionally support generated lazy loader functions and resolved definitions.

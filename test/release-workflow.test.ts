@@ -5,8 +5,11 @@ import { execFileSync } from "node:child_process"
 
 import { describe, expect, it } from "vitest"
 
+import viteConfig from "../vite.config.ts"
+
 const repoRoot = resolve(import.meta.dirname, "..")
 const workflow = readFileSync(resolve(repoRoot, ".github/workflows/release.yml"), "utf8")
+const previewWorkflow = readFileSync(resolve(repoRoot, ".github/workflows/pkg-pr-new.yml"), "utf8")
 
 function job(name: string) {
   const start = workflow.indexOf(`  ${name}:\n`)
@@ -70,7 +73,7 @@ describe("release workflow authority", () => {
     expect(publishNpm).toContain("Configure required reviewers and release-tag protection")
     expect(publishNpm).toMatch(/permissions:\n      contents: read\n      id-token: write\n/)
     expect(publishNpm).not.toContain("contents: write")
-    expect(publishNpm).toContain("voidzero-dev/setup-vp@9fd26ff49f9b5e6276c2b493da4454ad4527f7f4 # v1.20.0")
+    expect(publishNpm).toContain("voidzero-dev/setup-vp@3754dd7dbdb32bd8f6d28b6043de13ad3a75f21f # v1.21.1")
     expect(publishNpm).toContain(
       'node-version: "24"\n          working-directory: trusted-source\n          run-install: false\n          cache: false',
     )
@@ -176,6 +179,15 @@ describe("release workflow artifact handoff", () => {
     expect(verify).toContain("--dry-run")
     expect(verify).not.toContain("vp pm publish")
     expect(verify).not.toContain("package-release-order.mjs")
+  })
+
+  it("publishes packages from a fresh build of the root build selection", () => {
+    const packageSelection = '--filter "./packages/*" build'
+    expect(viteConfig.run?.tasks?.build).toEqual({ cache: false, command: `vp run --cache ${packageSelection}` })
+    for (const publishing of [verify, previewWorkflow]) {
+      expect(publishing).toContain(`- run: vp run --no-cache ${packageSelection}\n`)
+      expect(publishing).not.toContain("- run: vp run build\n")
+    }
   })
 
   it("pins every external action in the OIDC job", () => {

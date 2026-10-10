@@ -6,6 +6,7 @@ import { createDrizzleSqliteAdapter } from "./drizzle-adapter.ts"
 import type { ResolvedDrizzleDatabaseConfig, RuntimeDrizzleDatabase } from "../types.ts"
 
 export type { RuntimeDrizzleDatabase }
+export { resolveRuntimeCloudflareConfig } from "../internal/cloudflare.ts"
 
 export function createHostedDrizzleDb<TSchema extends Record<string, unknown>>(
   dbConfig: ResolvedDrizzleDatabaseConfig,

@@ -25,12 +25,13 @@ describe("fs Blob path aliases", () => {
     expect((await driver.get("notes/hello.txt"))?.type).toBe("text/markdown")
     await expect(driver.list()).resolves.toMatchObject({ blobs: [{ pathname: "notes/hello.txt", ...metadata }] })
 
+    const oldMetadata = await readdir(join(base, ".vitehub", "blob-meta"))
     await driver.put("notes/hello.txt", "changed", { contentType: "text/plain", customMetadata: { owner: "updated" } })
     await expect(driver.head(alias)).resolves.toMatchObject({ contentType: "text/plain", customMetadata: { owner: "updated" } })
     expect((await driver.get(alias))?.type).toBe("text/plain")
 
     await driver.delete(alias)
     await expect(driver.head("notes/hello.txt")).resolves.toBeNull()
-    await expect(readdir(join(base, ".vitehub", "blob-meta"))).resolves.toEqual([])
+    await expect(readdir(join(base, ".vitehub", "blob-meta"))).resolves.toEqual(oldMetadata)
   })
 })

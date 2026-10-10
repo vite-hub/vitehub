@@ -5,49 +5,50 @@ packages:
   - "packages/*/examples/*"
   - "playground/console"
 catalog:
-  '@cloudflare/vitest-plugin': ^1.1.4
-  '@t3tools/provider-runtime': https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@f603ba290f3fba0706137f485bdda71e6a0dec7c
-  '@types/proper-lockfile': 4.1.4
+  "@cloudflare/vitest-plugin": ^1.3.6
+  "@t3tools/provider-runtime": https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@ee5848bfdff74af1d14ad9464403d275e47f8822
+  "@types/proper-lockfile": 4.1.4
+  forges: https://pkg.pr.new/danielroe/forges@43be2a6
   proper-lockfile: 4.1.2
   remark-gfm: ^4.0.1
   remark-mdc: ^3.11.1
   remark-parse: ^11.0.0
   unified: ^11.0.5
-  vite-doctor: 0.0.9
+  vite-doctor: https://pkg.pr.new/vite-doctor@9f33eb1748fb93f7399579b60d3bff6af3895eb1
 
 catalogMode: prefer
 
 catalogs:
   ai:
     "@agntn/web": ^0.5.5
-    "@ai-sdk/gateway": 4.0.46
-    "@ai-sdk/mcp": 2.0.36
-    "@ai-sdk/vue": 4.0.58
-    "@modelcontextprotocol/sdk": ^1.30.0
+    "@ai-sdk/gateway": 4.0.103
+    "@ai-sdk/mcp": 2.0.69
+    "@ai-sdk/vue": 4.0.127
+    "@modelcontextprotocol/sdk": ^1.32.1
     "@types/json-schema": ^7.0.15
     advocaat: ^0.0.6
     agents: ^0.22.0
-    ai: 7.0.58
+    ai: 7.0.130
     evalite: 1.0.0-beta.16
   ai-compat:
     ai: ^6.0.0 || ^7.0.0-0
   ai-v6:
-    ai: 6.0.276
+    ai: 6.0.300
   auth:
-    better-auth: ^1.7.2
-    jose: ^6.2.3
+    better-auth: ^1.7.7
+    jose: ^6.2.12
   browser:
     "@cloudflare/playwright": ^1.3.6
-    playwright-core: ^1.62.1
+    playwright-core: ^1.63.0
   chat:
-    "@chat-adapter/discord": 4.40.0
-    "@chat-adapter/telegram": 4.40.0
-    chat: 4.40.0
+    "@chat-adapter/discord": 4.41.1
+    "@chat-adapter/telegram": 4.41.1
+    chat: 4.41.1
     chat-state-cloudflare-do: ^0.2.0
   database:
     "@libsql/client": ^0.18.0
-    drizzle-kit: ^0.31.10
-    drizzle-orm: ^0.45.2
+    drizzle-kit: ^0.31.11
+    drizzle-orm: ^0.45.3
   effect:
     effect: 4.0.0-rc.112
   esbuild-v27:
@@ -58,93 +59,99 @@ catalogs:
     "@comark/html": 0.7.0
     "@types/mdast": ^4.0.4
     comark: 0.7.0
-    comark-content: 0.4.0
+    comark-content: 0.4.1
   nuxt:
-    "@takumi-rs/core": 2.10.0
-    "@nuxt/content": ^3.16.0
-    "@nuxt/ui": ^4.11.0
-    docus: https://pkg.pr.new/docus@986a334
+    "@nuxt/content": ^3.16.1
+    "@nuxt/ui": ^4.11.3
+    "@takumi-rs/core": 2.14.0
+    docus: https://pkg.pr.new/docus@c229a86
     nuxt: ^4.5.2
-    nuxt-schema-org: ^6.3.1
+    nuxt-schema-org: ^6.4.3
   nuxt-compat:
     nuxt: ^4.5.2 || >=5.0.0-0
   realtime:
-    "@tiptap/core": ^3.31.2
-    "@tiptap/extension-collaboration": ^3.31.2
-    "@tiptap/extension-document": ^3.31.2
-    "@tiptap/extension-image": ^3.31.2
-    "@tiptap/extension-table": ^3.31.2
-    "@tiptap/markdown": ^3.31.2
-    "@tiptap/pm": ^3.31.2
-    "@tiptap/starter-kit": ^3.31.2
+    "@tiptap/core": ^3.31.4
+    "@tiptap/extension-collaboration": ^3.31.4
+    "@tiptap/extension-document": ^3.31.4
+    "@tiptap/extension-image": ^3.31.4
+    "@tiptap/extension-table": ^3.31.4
+    "@tiptap/markdown": ^3.31.4
+    "@tiptap/pm": ^3.31.4
+    "@tiptap/starter-kit": ^3.31.4
     "@tiptap/y-tiptap": ^3.0.9
-    lib0: ^0.2.117
+    lib0: ^0.2.119
     marked: 17.0.6
+    prosemirror-model: ^1.25.12
+    prosemirror-state: ^1.4.4
+    prosemirror-transform: ^1.12.2
+    prosemirror-view: ^1.42.3
     y-protocols: ^1.0.7
     y-websocket: ^3.1.0
-    yjs: ^13.6.32
+    yjs: ^13.6.33
   runtime:
     "@standard-schema/spec": ^1.1.0
-    "@valibot/to-json-schema": ^1.7.1
-    nostics: 1.2.0
+    "@valibot/to-json-schema": ^1.8.0
+    devframe: 0.9.12
+    nostics: 1.3.0
     ocache: ^0.3.0
-    valibot: ^1.4.2
-    zod: ^4.5.4
+    valibot: ^1.5.0
+    zod: ^4.6.5
   sandbox:
     "@cloudflare/computer": ^0.2.1
-    "@cloudflare/sandbox": ^0.12.9
-    "@vercel/sandbox": ^3.2.1
+    "@cloudflare/sandbox": ^0.12.10
+    "@vercel/sandbox": ^3.5.1
   shell:
-    just-bash: ^3.4.2
-    sh-syntax: 0.6.0
+    just-bash: ^3.6.0
+    sh-syntax: 0.7.0
   storage:
-    "@aws-sdk/client-s3": ^3.1126.0
-    "@aws-sdk/lib-storage": ^3.1126.0
-    "@aws-sdk/s3-presigned-post": ^3.1126.0
-    "@aws-sdk/s3-request-presigner": ^3.1126.0
-    "@azure/identity": ^4.13.2
-    "@azure/storage-blob": ^12.33.0
-    "@google-cloud/storage": ^7.19.0
+    "@aws-sdk/client-s3": ^3.1146.0
+    "@aws-sdk/lib-storage": ^3.1146.0
+    "@aws-sdk/s3-presigned-post": ^3.1146.0
+    "@aws-sdk/s3-request-presigner": ^3.1146.0
+    "@azure/identity": ^4.13.3
+    "@azure/storage-blob": ^12.34.0
+    "@google-cloud/storage": ^7.22.0
     "@googleapis/drive": ^20.2.0
     "@microsoft/microsoft-graph-client": ^3.0.7
-    "@supabase/storage-js": ^2.115.0
-    "@upstash/redis": ^1.38.3
+    "@supabase/storage-js": ^2.117.2
+    "@upstash/redis": ^1.39.0
     "@vercel/blob": ^2.8.0
     aws4fetch: ^1.0.20
     box-typescript-sdk-gen: ^1.19.1
-    dropbox: ^10.46.0
-    files-sdk: ^2.3.0
-    google-auth-library: ^10.6.2
+    dropbox: ^10.47.0
+    files-sdk: ^2.6.2
+    google-auth-library: ^10.9.1
     unstorage: 2.0.0-alpha.10
     uploadthing: ^7.7.4
   tooling:
-    "@types/node": ^24.13.3
+    "@yarnpkg/parsers": 3.1.0
+    "@types/node": ^24.19.1
     "@types/picomatch": ^4.0.3
     esbuild: ^0.28.2
-    knip: 6.34.0
+    knip: 6.39.0
     local-pkg: ^1.2.1
-    oxlint: ^1.81.0
-    oxlint-tsgolint: 7.0.2001
-    publint: ^0.3.24
-    rollup: ^4.63.1
+    oxlint: ^1.86.0
+    oxlint-tsgolint: 7.0.2003
+    publint: ^0.3.25
+    rollup: ^4.64.0
     typescript: ^6.0.3
-    vite-plus: ^0.3.1
+    vite-plus: ^0.3.3
     vitest: ^4.1.11
-    vue-tsc: ^3.3.11
-    yaml: ^2.9.0
+    vue-tsc: ^3.3.12
+    yaml: ^2.9.1
   ui:
-    "@iconify-json/lucide": ^1.2.129
+    "@iconify-json/lucide": ^1.2.139
     "@iconify-json/ph": ^1.2.2
-    "@iconify-json/simple-icons": ^1.2.94
-    "@iconify-json/vscode-icons": ^1.2.76
-    "@iconify/vue": ^5.0.1
+    "@iconify-json/simple-icons": ^1.2.98
+    "@iconify-json/vscode-icons": ^1.2.84
+    "@iconify/vue": ^5.0.3
     "@vueuse/core": ^14.4.0
-    motion-v: ^2.4.0
-    vue: 3.5.40
+    motion-v: ^2.5.2
+    vue: 3.5.43
   unjs:
     defu: ^6.1.7
-    exsolve: ^1.1.1
-    h3: 2.0.1-rc.31
+    exsolve: ^1.1.3
+    h3: 2.0.1-rc.33
     jiti: ^2.7.0
     mlly: ^1.8.2
     nitro: 3.0.260903-beta
@@ -152,9 +159,9 @@ catalogs:
     ocache: ^0.3.0
     ofetch: ^1.5.1
     pathe: ^2.0.3
-    unimport: ^6.4.0
+    unimport: ^6.5.0
   vercel:
-    "@vercel/functions": ^3.9.5
+    "@vercel/functions": ^3.9.11
     "@vercel/nft": ^1.11.0
     "@vercel/queue": ^0.5.1
   vite:
@@ -162,12 +169,12 @@ catalogs:
   vite-compat:
     vite: ">=8.0.0"
   workflow:
-    "@workflow/builders": 5.0.0-beta.47
+    "@workflow/builders": 5.0.1
     cron-schedule: ^6.0.0
     openworkflow: ^0.9.2
-    workflow: 5.0.0-beta.47
+    workflow: 5.0.1
   workspace:
-    isomorphic-git: ^1.41.9
+    isomorphic-git: ^1.42.6
     minimatch: ^10.2.6
     mountx: 0.0.2
     mrmime: ^2.0.1
@@ -175,14 +182,15 @@ catalogs:
     tinyglobby: ^0.2.17
 
 overrides:
-  '@voidzero-dev/vite-plus-core': 0.3.1
-  vue: catalog:ui
+  mdast-util-to-markdown: 2.1.2
   "@vercel/blob>undici": ^6.28.0
-  "ai@>=7.0.0 <8.0.0": 7.0.58
+  "@voidzero-dev/vite-plus-core": 0.3.3
+  "ai@>=7.0.0 <8.0.0": 7.0.130
   "glob": ^13.0.6
   "parse-url>@types/parse-path": "-"
   "uuid": ^11.1.0
-  vite: npm:@voidzero-dev/vite-plus-core@0.3.1
+  vite: npm:@voidzero-dev/vite-plus-core@0.3.3
+  vue: catalog:ui
 
 packageExtensions:
   "@github-tools/sdk@1.10.0":
@@ -192,7 +200,9 @@ packageExtensions:
     dependencies:
       h3: ^1.15.11
 patchedDependencies:
-  '@netlify/blobs@11.0.3': patches/@netlify__blobs@11.0.3.patch
-  '@pierre/trees@1.0.0-beta.6': patches/@pierre__trees@1.0.0-beta.6.patch
-  '@vercel/blob@2.8.0': patches/@vercel__blob@2.8.0.patch
+  "@netlify/blobs@11.1.3": patches/@netlify__blobs@11.1.3.patch
+  "@pierre/trees@1.0.0-beta.6": patches/@pierre__trees@1.0.0-beta.6.patch
+  "@vercel/blob@2.8.0": patches/@vercel__blob@2.8.0.patch
+  docus@5.13.0: patches/docus@5.13.0.patch
   nitro@3.0.260903-beta: patches/nitro@3.0.260903-beta.patch
+  nuxt-agent-discovery@0.7.0: patches/nuxt-agent-discovery@0.7.0.patch

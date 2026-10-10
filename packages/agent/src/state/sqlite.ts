@@ -1,6 +1,6 @@
 import type { AgentStateCacheMutation } from "../internal/state-lock.ts"
-import { mkdir } from "node:fs/promises"
-import { dirname } from "node:path"
+import { mkdir, realpath } from "node:fs/promises"
+import { basename, dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { parseAgentStateQueueEntry } from "../internal/state-queue.ts"
@@ -70,6 +70,8 @@ export interface LibsqlAgentStateClient {
 export interface LibsqlAgentStateOptions extends Omit<SqliteAgentStateOptions, "driver"> {
   authToken?: string
   client?: LibsqlAgentStateClient
+  /** Owned file databases default to WAL. Use delete on volumes without shared-memory support. */
+  journalMode?: "wal" | "delete"
   url?: string
 }
 
@@ -132,13 +134,14 @@ function isSqliteBusy(error: unknown): boolean {
   return false
 }
 
-async function retrySqliteBusy<T>(operation: () => Promise<T>): Promise<T> {
+async function retrySqliteBusy<T>(operation: () => Promise<T>, timeoutMs?: number): Promise<T> {
+  const deadline = timeoutMs === undefined ? undefined : Date.now() + timeoutMs
   for (let attempt = 0; ; attempt++) {
     try {
       return await operation()
     } catch (error) {
-      if (!isSqliteBusy(error) || attempt >= 7) throw error
-      await new Promise((resolve) => setTimeout(resolve, Math.min(50, 2 ** attempt)))
+      if (!isSqliteBusy(error) || (deadline === undefined ? attempt >= 7 : Date.now() >= deadline)) throw error
+      await new Promise((resolve) => setTimeout(resolve, Math.min(deadline === undefined ? 50 : 250, 2 ** attempt)))
     }
   }
 }
@@ -247,7 +250,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
             candidate.concurrency_key, candidate.concurrency_limit, candidate.lease_ttl_ms, candidate.attempts
           FROM ${this.tables.webhookQueue} AS candidate
           WHERE candidate.scope = ? AND candidate.available_at <= ?
-            AND (candidate.status = 'queued' OR (candidate.status IN ('running', 'steering') AND candidate.lease_expires_at <= ?))
+            AND (candidate.status = 'queued' OR (candidate.status IN ('running', 'steering', 'notifying') AND COALESCE(candidate.lease_expires_at, 0) <= ?))
             AND (
               SELECT COUNT(*) FROM ${this.tables.webhookQueue} AS active_group
               WHERE active_group.status = 'running' AND active_group.lease_expires_at > ?
@@ -277,14 +280,14 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
             SET attempts = attempts + CASE WHEN status IN ('running', 'steering') THEN 1 ELSE 0 END,
               status = 'running', lease_token = ?, lease_expires_at = ?
             WHERE scope = ? AND delivery_id = ?
-              AND (status = 'queued' OR (status IN ('running', 'steering') AND lease_expires_at <= ?))
+              AND (status = 'queued' OR (status IN ('running', 'steering', 'notifying') AND COALESCE(lease_expires_at, 0) <= ?))
             RETURNING value`,
           [leaseToken, now + leaseTtlMs, scope, candidate.delivery_id, now],
         )
         if (claimed.length === 0 || !isRuntimeString(candidate.value)) continue
         return {
           ...parseAgentWebhookQueueDelivery(candidate.value),
-          attempts: numberValue(candidate.attempts) + (candidate.status === "queued" ? 0 : 1),
+          attempts: numberValue(candidate.attempts) + (candidate.status === "running" || candidate.status === "steering" ? 1 : 0),
           leaseExpiresAt: now + leaseTtlMs,
           leaseToken,
         }
@@ -339,13 +342,49 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
             tx,
             `UPDATE ${this.tables.webhookQueue}
           SET status = 'completed', value = '{}', lease_token = NULL, lease_expires_at = NULL
-          WHERE scope = ? AND delivery_id = ? AND status IN ('running', 'steering') AND lease_token = ?
+          WHERE scope = ? AND delivery_id = ? AND status IN ('running', 'steering', 'notifying') AND lease_token = ?
           RETURNING delivery_id`,
             [scope, deliveryId, leaseToken],
           ),
       )
     })
     return completed.length > 0
+  }
+
+  async beginWebhookFailureNotification(scope: string, deliveryId: string, leaseToken: string): Promise<boolean> {
+    const claimed = await retrySqliteBusy(() => this.transaction(async tx => {
+      const current = await execute(tx, `SELECT value FROM ${this.tables.webhookQueue}
+        WHERE scope = ? AND delivery_id = ? AND status IN ('running', 'steering') AND lease_token = ?`, [scope, deliveryId, leaseToken])
+      if (current.length === 0 || !isRuntimeString(current[0]?.value)) return []
+      const delivery = parseAgentWebhookQueueDelivery(current[0].value)
+      if (!delivery.failure || delivery.failure.notificationStarted) return []
+      delivery.failure.notificationStarted = true
+      // Fence dispatch permanently, but retain the lease so finalization can
+      // recover even when no state write succeeds after the callback.
+      return await execute(tx, `UPDATE ${this.tables.webhookQueue}
+        SET status = 'notifying', value = ?
+        WHERE scope = ? AND delivery_id = ? AND status IN ('running', 'steering') AND lease_token = ?
+        RETURNING delivery_id`, [JSON.stringify(delivery), scope, deliveryId, leaseToken])
+    }))
+    return claimed.length > 0
+  }
+
+  async markWebhookDeliveryFailure(scope: string, deliveryId: string, leaseToken: string, failure: { error: string, attempts: number, invocationStarted?: false }): Promise<boolean> {
+    const marked = await retrySqliteBusy(async () => {
+      await this.cleanupExpiredStateIfDue()
+      return await this.transaction(async tx => {
+        const current = await execute(tx, `SELECT value FROM ${this.tables.webhookQueue}
+          WHERE scope = ? AND delivery_id = ? AND status IN ('running', 'steering') AND lease_token = ?`, [scope, deliveryId, leaseToken])
+        if (current.length === 0 || !isRuntimeString(current[0]?.value)) return []
+        const delivery = parseAgentWebhookQueueDelivery(current[0].value)
+        delivery.failure = failure
+        return await execute(tx, `UPDATE ${this.tables.webhookQueue}
+          SET value = ?
+          WHERE scope = ? AND delivery_id = ? AND status IN ('running', 'steering') AND lease_token = ?
+          RETURNING delivery_id`, [JSON.stringify(delivery), scope, deliveryId, leaseToken])
+      })
+    })
+    return marked.length > 0
   }
 
   async connect(): Promise<void> {
@@ -719,6 +758,17 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
   }
 
   private async migrate(): Promise<void> {
+    // A current database does not need a write transaction just to read its
+    // schema version. Keeping reconnects read-only avoids holding a libSQL
+    // statement open while a large on-disk database is being opened.
+    let currentVersion = 0
+    try {
+      const rows = await execute(this.driver, `SELECT COALESCE(MAX(version), 0) as version FROM ${this.tables.schemaVersion}`)
+      currentVersion = numberValue(rows[0]?.version)
+      if (currentVersion >= 5) return
+    } catch (error) {
+      if (!(error instanceof Error) || !/no such table/i.test(error.message)) throw error
+    }
     await this.transaction(async (tx) => {
       await execute(tx, `CREATE TABLE IF NOT EXISTS ${this.tables.schemaVersion} (version INTEGER PRIMARY KEY)`)
       const versionRows = await execute(tx, `SELECT COALESCE(MAX(version), 0) as version FROM ${this.tables.schemaVersion}`)
@@ -869,22 +919,78 @@ function libsqlExecute(client: Pick<LibsqlAgentStateClient, "execute">): SqliteA
   return async (statement, args = []) => await client.execute({ args, sql: statement })
 }
 
+// Local libSQL clients can leave native statements busy when independent writers
+// contend. Coordinate Agent State transactions across adapters for the same database.
+const libsqlWriteTails = new Map<string | LibsqlAgentStateClient, Promise<void>>()
+
+async function serializeLibsqlWrite<T>(key: string | LibsqlAgentStateClient | undefined, run: () => Promise<T>): Promise<T> {
+  if (key === undefined) return await run()
+  const previous = libsqlWriteTails.get(key)
+  let release!: () => void
+  const tail = new Promise<void>(resolve => { release = resolve })
+  libsqlWriteTails.set(key, tail)
+  await previous
+  try {
+    return await run()
+  } finally {
+    if (libsqlWriteTails.get(key) === tail) libsqlWriteTails.delete(key)
+    release()
+  }
+}
+
+function libsqlFilePath(url: string | undefined): string | undefined {
+  if (!url || !/^file:/i.test(url)) return
+  // libSQL accepts relative file: paths, which the standard URL parser does not.
+  const path = /^file:\/\//i.test(url)
+    ? fileURLToPath(url)
+    : decodeURIComponent(url.slice(5).split(/[?#]/, 1)[0]!)
+  if (path === ":memory:" || /[?&]mode=memory(?:&|$)/.test(url)) return
+  return resolve(path)
+}
+
+function libsqlSharedMemoryKey(url: string | undefined): string | undefined {
+  if (!url || !/^file:/i.test(url)) return
+  const [path, query] = url.slice(5).split("?", 2)
+  // libSQL accepts percent-encoded paths and query parameters. SQLite uses
+  // the last cache parameter when it occurs more than once.
+  if (decodeURIComponent(path!) === ":memory:" && new URLSearchParams(query).getAll("cache").at(-1) === "shared") {
+    return "file::memory:?cache=shared"
+  }
+}
+
 export function createLibsqlAgentState(options: LibsqlAgentStateOptions): ViteHubSqliteAgentStateAdapter {
   if (!options.client && !options.url) {
     throw agentDiagnostics.AGENT_R0852({ message: "[vitehub] libSQL Agent State requires `url` or `client`." })
   }
   const ownsClient = !options.client
   let client: LibsqlAgentStateClient | undefined
+  let writeKey: string | LibsqlAgentStateClient | undefined
   const openClient = async () => {
     if (options.client) return options.client
-    if (options.url?.startsWith("file:")) {
-      const filePath = options.url.startsWith("file://") ? fileURLToPath(options.url) : options.url.slice("file:".length)
+    const filePath = libsqlFilePath(options.url)
+    if (filePath) {
       const directory = dirname(filePath)
       if (directory && directory !== ".") await mkdir(directory, { recursive: true })
     }
     const { createClient } = await import("@libsql/client")
     // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
-    return createClient({ authToken: options.authToken, url: options.url! }) as LibsqlAgentStateClient
+    const opened = createClient({ authToken: options.authToken, url: options.url! }) as LibsqlAgentStateClient
+    if (filePath) {
+      try {
+        // A retained read snapshot must not block queue and lease commits.
+        // Configure only owned persistent files, leaving supplied clients and
+        // remote databases under their caller's connection policy.
+        // Give legacy readers a startup window to release the exclusive mode-change lock.
+        const requested = options.journalMode === "delete" ? "delete" : "wal"
+        const result = await retrySqliteBusy(async () => await opened.execute(`PRAGMA journal_mode = ${requested.toUpperCase()}`), 30_000)
+        const actual = rows(result)[0]?.journal_mode
+        if (actual !== requested) throw agentDiagnostics.AGENT_R0947({ requested, actual: String(actual) })
+      } catch (error) {
+        await opened.close?.()
+        throw error
+      }
+    }
+    return opened
   }
 
   return createSqliteAgentState({
@@ -894,32 +1000,46 @@ export function createLibsqlAgentState(options: LibsqlAgentStateOptions): ViteHu
       : options.durable === true,
     driver: {
       async connect() {
-        client ||= await openClient()
+        writeKey = options.client ?? libsqlSharedMemoryKey(options.url)
+        const path = options.client ? undefined : libsqlFilePath(options.url)
+        if (path) {
+          await mkdir(dirname(path), { recursive: true })
+          writeKey = await realpath(path).catch(async () => join(await realpath(dirname(path)), basename(path)))
+        }
+        client ||= await serializeLibsqlWrite(writeKey, openClient)
+        if (options.url === ":memory:" || /^file:/i.test(options.url || "")) writeKey ??= client
       },
       async disconnect() {
-        if (ownsClient) await client?.close?.()
+        const closing = client
         client = undefined
+        await serializeLibsqlWrite(writeKey, async () => {
+          if (ownsClient) await closing?.close?.()
+        })
       },
       async execute(statement, args) {
         if (!client) throw agentDiagnostics.AGENT_R0853({ message: "[vitehub] libSQL Agent State is not connected." })
-        return await libsqlExecute(client)(statement, args)
+        const connected = client
+        return await serializeLibsqlWrite(writeKey, async () => await libsqlExecute(connected)(statement, args))
       },
       async transaction(run) {
         if (!client) throw agentDiagnostics.AGENT_R0854({ message: "[vitehub] libSQL Agent State is not connected." })
         if (!client.transaction) {
           throw agentDiagnostics.AGENT_R0855({ message: "[vitehub] libSQL Agent State clients must support transactions." })
         }
-        const transaction = await client.transaction("write")
-        try {
-          const result = await run({ execute: libsqlExecute(transaction) })
-          await transaction.commit()
-          return result
-        } catch (error) {
-          await Promise.resolve(transaction.rollback()).catch(() => undefined)
-          throw error
-        } finally {
-          await transaction.close?.()
-        }
+        const connected = client
+        return await serializeLibsqlWrite(writeKey, async () => {
+          const transaction = await connected.transaction("write")
+          try {
+            const result = await run({ execute: libsqlExecute(transaction) })
+            await transaction.commit()
+            return result
+          } catch (error) {
+            await Promise.resolve(transaction.rollback()).catch(() => undefined)
+            throw error
+          } finally {
+            await transaction.close?.()
+          }
+        })
       },
     },
   })

@@ -5,6 +5,12 @@
     "rootDir": "..",
     "baseUrl": "../..",
     "paths": {
+      "@vite-hub/blob": [
+        "packages/blob/src/index.ts"
+      ],
+      "@vite-hub/blob/runtime/state": [
+        "packages/blob/src/runtime/state.ts"
+      ],
       "@vite-hub/internal/*": [
         "packages/internal/src/*.ts"
       ]

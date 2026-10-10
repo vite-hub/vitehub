@@ -1,6 +1,6 @@
 import { createWorkflowError } from "../errors.ts"
 
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
+import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { isWorkflowBoundaryError, runWorkflowProviderOperation, safeWorkflowName } from "./provider-operation.ts"
 
 import type { WorkflowDefinition, WorkflowExecutionContext, WorkflowRun, WorkflowRunStatus, WorkflowRunStep, WorkflowSignalResult } from "../types.ts"
@@ -44,11 +44,11 @@ interface VercelWorkflowApiModule {
 interface VercelWorkflowRuntimeModule {
   getWorld: () => Promise<{
     steps: {
-      list: (options: unknown) => Promise<{ cursor?: string, data: unknown[], hasMore: boolean }>
+      list: (options: unknown) => Promise<{ cursor?: string | null, data: unknown[], hasMore: boolean }>
     }
   }> | {
     steps: {
-      list: (options: unknown) => Promise<{ cursor?: string, data: unknown[], hasMore: boolean }>
+      list: (options: unknown) => Promise<{ cursor?: string | null, data: unknown[], hasMore: boolean }>
     }
   }
 }
@@ -72,16 +72,22 @@ function createVercelWorkflowRuntime(api: VercelWorkflowApiModule, runtime: Verc
     getRun: getRun as (id: string) => VercelRun,
     async listSteps(id) {
       const steps: VercelStep[] = []
+      const cursors = new Set<string>()
       let cursor: string | undefined
       do {
-        const page = await (await getWorld()).steps.list({
+        const page = normalizeStepPage(await (await getWorld()).steps.list({
           pagination: { cursor, limit: 1000, sortOrder: "asc" },
           resolveData: "none",
           runId: id,
-        })
+        }))
         // SAFETY: normalizeSteps validates every provider step before public use.
         steps.push(...(page.data as VercelStep[]))
-        cursor = page.hasMore && page.cursor ? page.cursor : undefined
+        if (!page.hasMore) break
+        if (!hasRuntimeType(page.cursor, "string") || !page.cursor || cursors.has(page.cursor)) {
+          throw invalidVercelResult("step pagination cursor")
+        }
+        cursors.add(page.cursor)
+        cursor = page.cursor
       } while (cursor)
       return steps
     },
@@ -128,9 +134,21 @@ function invalidVercelResult(field: string): Error {
   return workflowErrorDiagnostics.WORKFLOW_R0026({ message: `Vercel Workflow provider returned an invalid ${field}.` })
 }
 
+function normalizeStepPage(page: unknown): { cursor?: string, data: unknown[], hasMore: boolean } {
+  if (!hasRuntimeType(page, "object") || page === null || Array.isArray(page)) throw invalidVercelResult("step page")
+  // SAFETY: The object check establishes a provider page record whose members are validated below.
+  const value = page as { cursor?: unknown, data?: unknown, hasMore?: unknown }
+  const { cursor, data, hasMore } = value
+  if (!Array.isArray(data)) throw invalidVercelResult("step page data")
+  if (!hasRuntimeType(hasMore, "boolean")) throw invalidVercelResult("step page hasMore flag")
+  if (cursor !== undefined && cursor !== null && !hasRuntimeType(cursor, "string")) throw invalidVercelResult("step page cursor")
+  return { ...(cursor === undefined || cursor === null ? {} : { cursor }), data, hasMore }
+}
+
 function normalizeStatus(status: unknown): WorkflowRunStatus {
   if (!hasRuntimeType(status, "string")) throw invalidVercelResult("status")
-  return statusMap[status.toLowerCase()] || "unknown"
+  const normalized = status.toLowerCase()
+  return Object.hasOwn(statusMap, normalized) ? statusMap[normalized]! : "unknown"
 }
 
 function normalizeRunId(id: unknown): string {

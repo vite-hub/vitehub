@@ -123,7 +123,7 @@ Use `<path>.sandbox.ts` with `defineSandbox()` for a free-form Definition outsid
 
 ## Read more
 
-- [Sandbox guide](https://vitehub.dev/docs/server-primitives/sandbox)
+- [Sandbox guide](https://vitehub.dev/docs/sandbox)
 - [Box execution and security model](https://vitehub.dev/docs/agents/boxes)
 - [Runtime and host support](https://vitehub.dev/docs/frameworks-hosts/support-matrix)
 - [ViteHub security policy](https://github.com/vite-hub/vitehub/blob/main/SECURITY.md)

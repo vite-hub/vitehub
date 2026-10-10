@@ -1,10 +1,11 @@
 import { describe, expect, it, vi } from "vitest"
+import { agentEnvAccess } from "../../env/test/agent-access.ts"
 
 import { isConnectionError } from "../src/errors.ts"
 import { createConnectionsRuntime } from "../src/runtime.ts"
 import { ACCESS_TOKEN, CLIENT_SECRET, connect, createStore, createTestRuntime, mailConnection, REFRESH_TOKEN, testProvider } from "./helpers.ts"
 
-import type { ConnectionEffect } from "../src/types.ts"
+import type { ConnectionEffect, UseConnectionOptions } from "../src/types.ts"
 
 async function rejection(promise: Promise<unknown>): Promise<unknown> {
   try {
@@ -543,6 +544,21 @@ describe("calls", () => {
     expect(rotations).toBe(1)
   })
 
+  it("maps malformed successful provider JSON to a Connection error", async () => {
+    const test = createTestRuntime()
+    await connect(test)
+    const runtime = createConnectionsRuntime({
+      definitions: { mail: mailConnection() },
+      fetch: async (input, init) => String(input) === "https://mail.example.com/mail/v1/users/me/labels"
+        ? new Response("truncated response", { status: 200 })
+        : await test.provider.fetch(input, init),
+      now: () => test.now.value,
+      store: test.store,
+    })
+    await expect(runtime.client("mail", {}).call("mail.labels.list", { userId: "me" }))
+      .rejects.toMatchObject({ code: "CONNECTION_PROVIDER", message: "Provider returned invalid JSON." })
+  })
+
   it("marks the Connection for reauthorization after invalid_grant", async () => {
     const test = createTestRuntime()
     await connect(test)
@@ -680,9 +696,30 @@ describe("policy", () => {
     await connect(test)
     await expect(test.runtime.client("mail", {}).call("mail.messages.modify", { id: "m1", userId: "me" })).resolves.toEqual({ id: "message-1" })
     expect(await rejection(test.runtime.client("mail", {}).call("mail.messages.send", { requestBody: { raw: "x" }, userId: "me" }))).toMatchObject({ code: "CONNECTION_DENIED" })
-    await expect(test.runtime.client("mail", { actor: "agent:labeller" }).call("mail.labels.list", { userId: "me" })).resolves.toBeDefined()
-    const error = await rejection(test.runtime.client("mail", { actor: "agent:labeller" }).call("mail.messages.modify", { id: "m1", userId: "me" }))
+    await expect(test.runtime.client("mail", { access: agentEnvAccess({ name: "labeller" }) }).call("mail.labels.list", { userId: "me" })).resolves.toBeDefined()
+    const error = await rejection(test.runtime.client("mail", { access: agentEnvAccess({ name: "labeller" }) }).call("mail.messages.modify", { id: "m1", userId: "me" }))
     expect(isConnectionError(error) && error.reason).toBe("approval_required")
+  })
+
+  it("takes an Agent actor only from an Env context that the Agent runtime created", async () => {
+    const test = createTestRuntime(mailConnection({ "agent:labeller": { read: true } }))
+    await connect(test)
+    const calls = test.provider.calls.length
+    const before = await test.runtime.activity({ name: "mail" })
+    const forged = [
+      { access: { actor: { id: "labeller", kind: "agent" } } },
+      { access: { ...agentEnvAccess({ name: "labeller" }) } },
+    ] as unknown as UseConnectionOptions[]
+    for (const options of forged) {
+      expect(await rejection(test.runtime.client("mail", options).call("mail.labels.list", { userId: "me" }))).toMatchObject({ code: "ENV_BRIDGE_UNTRUSTED" })
+    }
+    for (const options of [{ actor: "agent:labeller" }, { access: agentEnvAccess({ name: "labeller" }), actor: "server" }]) {
+      expect(await rejection(test.runtime.client("mail", options).call("mail.labels.list", { userId: "me" }))).toMatchObject({ code: "CONNECTION_INVALID" })
+    }
+    expect(test.provider.calls).toHaveLength(calls)
+    expect(await test.runtime.activity({ name: "mail" })).toEqual(before)
+    expect(await rejection(test.runtime.client("mail", { access: agentEnvAccess({ name: "other" }) }).call("mail.labels.list", { userId: "me" }))).toMatchObject({ code: "CONNECTION_DENIED" })
+    await expect(test.runtime.client("mail", { access: agentEnvAccess({ name: "labeller" }) }).call("mail.labels.list", { userId: "me" })).resolves.toBeDefined()
   })
 
   it("denies actors that the access map does not list and records the denial", async () => {
@@ -759,7 +796,7 @@ describe("approvals", () => {
       }
     }
     const calls = test.provider.calls.length
-    const client = test.runtime.client("mail", { actor: "agent:labeller" })
+    const client = test.runtime.client("mail", { access: agentEnvAccess({ name: "labeller" }) })
     expect(await rejection(client.call("mail.messages.modify", { id: "m1", userId: "me" }))).toMatchObject({ code: "CONNECTION_REAUTH_REQUIRED" })
     expect(await rejection(client.fetch("https://mail.example.com/mail/v1/users/me/messages/m1/modify", { method: "POST" }))).toMatchObject({ code: "CONNECTION_REAUTH_REQUIRED" })
     expect((await test.runtime.approvals({ status: "pending" })).approvals).toEqual([])
@@ -773,7 +810,7 @@ describe("approvals", () => {
   it("preserves extension method casing in approval replay", async () => {
     const test = createTestRuntime(mailConnection({ "agent:labeller": { write: ["fetch"] } }))
     await connect(test)
-    const error = await rejection(test.runtime.client("mail", { actor: "agent:labeller" }).fetch("https://mail.example.com/mail/v1/users/me/messages/m1/modify", { method: "Egg" }))
+    const error = await rejection(test.runtime.client("mail", { access: agentEnvAccess({ name: "labeller" }) }).fetch("https://mail.example.com/mail/v1/users/me/messages/m1/modify", { method: "Egg" }))
     expect(error).toMatchObject({ code: "CONNECTION_APPROVAL_REQUIRED" })
     const id = isConnectionError(error) ? error.requestId! : ""
     expect((await test.runtime.approvals({ status: "pending" })).approvals).toEqual([expect.objectContaining({ input: expect.objectContaining({ method: "Egg" }) })])
@@ -784,7 +821,7 @@ describe("approvals", () => {
   it("preserves Accept when replaying an approved fetch", async () => {
     const test = createTestRuntime(mailConnection({ "agent:labeller": { write: ["fetch"] } }))
     await connect(test)
-    const error = await rejection(test.runtime.client("mail", { actor: "agent:labeller" }).fetch("https://mail.example.com/mail/v1/users/me/messages/m1/modify", { method: "POST", body: "{}", headers: { Accept: "application/vnd.example+json" } }))
+    const error = await rejection(test.runtime.client("mail", { access: agentEnvAccess({ name: "labeller" }) }).fetch("https://mail.example.com/mail/v1/users/me/messages/m1/modify", { method: "POST", body: "{}", headers: { Accept: "application/vnd.example+json" } }))
     expect(error).toMatchObject({ code: "CONNECTION_APPROVAL_REQUIRED" })
     const id = isConnectionError(error) ? error.requestId! : ""
     await test.runtime.approve({ id })
@@ -794,7 +831,7 @@ describe("approvals", () => {
   it("replays an approved write once under the requesting actor", async () => {
     const test = createTestRuntime()
     await connect(test)
-    const error = await rejection(test.runtime.client("mail", { actor: "agent:labeller", invocationId: "inv-1" }).call("mail.messages.modify", { id: "m1", requestBody: { addLabelIds: ["L1"] }, userId: "me" }))
+    const error = await rejection(test.runtime.client("mail", { access: agentEnvAccess({ name: "labeller" }), invocationId: "inv-1" }).call("mail.messages.modify", { id: "m1", requestBody: { addLabelIds: ["L1"] }, userId: "me" }))
     const id = isConnectionError(error) ? error.requestId! : ""
     expect((await test.runtime.approvals({ status: "pending" })).approvals).toEqual([expect.objectContaining({ action: "mail.messages.modify", actor: "agent:labeller", id, invocationId: "inv-1", name: "mail", status: "pending" })])
     const calls = test.provider.calls.length
@@ -811,7 +848,7 @@ describe("approvals", () => {
     await connect(test)
     const error = await rejection(
       test.runtime
-        .client("mail", { actor: "agent:labeller" })
+        .client("mail", { access: agentEnvAccess({ name: "labeller" }) })
         .call("mail.messages.modify", { id: "m1", userId: "me" }),
     )
     const id = isConnectionError(error) ? error.requestId! : ""
@@ -879,7 +916,7 @@ describe("approvals", () => {
       await connect(test)
       const error = await rejection(
         test.runtime
-          .client("mail", { actor: "agent:labeller" })
+          .client("mail", { access: agentEnvAccess({ name: "labeller" }) })
           .call("mail.messages.modify", { id: "m1", userId: "me" }),
       )
       const id = isConnectionError(error) ? error.requestId! : ""
@@ -932,7 +969,7 @@ describe("approvals", () => {
   it("denies a pending write without calling the provider", async () => {
     const test = createTestRuntime()
     await connect(test)
-    const error = await rejection(test.runtime.client("mail", { actor: "agent:labeller" }).call("mail.messages.modify", { id: "m1", userId: "me" }))
+    const error = await rejection(test.runtime.client("mail", { access: agentEnvAccess({ name: "labeller" }) }).call("mail.messages.modify", { id: "m1", userId: "me" }))
     const id = isConnectionError(error) ? error.requestId! : ""
     const calls = test.provider.calls.length
     expect(await test.runtime.deny({ actor: "user:owner", id })).toMatchObject({ decidedBy: "user:owner", status: "denied" })
@@ -943,7 +980,7 @@ describe("approvals", () => {
   it("marks a failed replay", async () => {
     const test = createTestRuntime()
     await connect(test)
-    const error = await rejection(test.runtime.client("mail", { actor: "agent:labeller" }).call("mail.messages.modify", { id: "m1", userId: "me" }))
+    const error = await rejection(test.runtime.client("mail", { access: agentEnvAccess({ name: "labeller" }) }).call("mail.messages.modify", { id: "m1", userId: "me" }))
     const id = isConnectionError(error) ? error.requestId! : ""
     await test.runtime.revoke({ name: "mail" })
     expect(await rejection(test.runtime.approve({ id }))).toMatchObject({ code: "CONNECTION_REAUTH_REQUIRED" })

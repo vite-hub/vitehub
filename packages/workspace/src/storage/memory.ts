@@ -1,7 +1,7 @@
 import { assertWorkspaceDigest, workspaceConflictError, workspaceError } from "../core/errors.ts"
 import { copyJsonFileMetadata } from "../core/file-metadata.ts"
 import { createWorkspaceGlobMatcher } from "../core/glob.ts"
-import { isExcludedWorkspacePath, normalizeWorkspacePath, sha256 } from "../core/path.ts"
+import { isExcludedWorkspacePath, isWorkspaceBytes, normalizeWorkspacePath, sha256 } from "../core/path.ts"
 import { workspaceStoreTarget } from "./target.ts"
 
 import type {
@@ -42,13 +42,21 @@ class MemoryWorkspaceStore implements WorkspaceStore {
   #baseline: WorkspaceSnapshot | undefined
   #mutationQueue: Promise<void> = Promise.resolve()
 
+  fork(): MemoryWorkspaceStore {
+    const fork = new MemoryWorkspaceStore()
+    fork.#nodes = structuredClone(this.#nodes)
+    fork.#meta = structuredClone(this.#meta)
+    fork.#baseline = structuredClone(this.#baseline)
+    return fork
+  }
+
   async readFile(path: string): Promise<WorkspaceFile | undefined> {
     const normalized = normalizeWorkspacePath(path)
     const node = this.#nodes.get(normalized)
     if (!node || node.type !== "file") return undefined
     return {
       path: normalized,
-      content: node.content || "",
+      content: isWorkspaceBytes(node.content) ? new Uint8Array(node.content) : node.content || "",
       mediaType: node.mediaType,
       metadata: structuredClone(node.metadata),
     }
@@ -95,7 +103,22 @@ class MemoryWorkspaceStore implements WorkspaceStore {
   async mkdir(path: string, _options: MkdirOptions = {}): Promise<void> {
     await this.#mutate(() => {
       const normalized = normalizeWorkspacePath(path)
-      this.#ensureParents(normalized)
+      const existing = this.#nodes.get(normalized)
+      const recursive = _options.recursive ?? true
+      if (existing) {
+        if (!recursive || existing.type === "file") {
+          throw workspaceError(`[vitehub] Workspace path already exists: ${path}.`)
+        }
+        return
+      }
+      if (recursive) this.#ensureParents(normalized)
+      else {
+        const separator = normalized.lastIndexOf("/")
+        const parent = separator === -1 ? "" : normalized.slice(0, separator)
+        if (parent && this.#nodes.get(parent)?.type !== "directory") {
+          throw workspaceError(`[vitehub] Workspace parent does not exist: ${path}.`)
+        }
+      }
       this.#nodes.set(normalized, { type: "directory", mtime: now() })
     })
   }
@@ -151,8 +174,8 @@ class MemoryWorkspaceStore implements WorkspaceStore {
     const keys = new Set([...Object.keys(from?.entries || {}), ...Object.keys(to.entries)])
 
     for (const path of [...keys].sort()) {
-      const before = from?.entries[path]
-      const after = to.entries[path]
+      const before = from && Object.hasOwn(from.entries, path) ? from.entries[path] : undefined
+      const after = Object.hasOwn(to.entries, path) ? to.entries[path] : undefined
       if (!before && after) entries.push({ path, type: "added", after })
       else if (before && !after) entries.push({ path, type: "removed", before })
       else if (before && after && (before.digest !== after.digest || before.type !== after.type || before.size !== after.size || JSON.stringify(before.metadata) !== JSON.stringify(after.metadata))) {
@@ -176,7 +199,7 @@ class MemoryWorkspaceStore implements WorkspaceStore {
     this.#ensureParents(normalized)
     this.#nodes.set(normalized, {
       type: "file",
-      content: file.content,
+      content: isWorkspaceBytes(file.content) ? new Uint8Array(file.content) : file.content,
       revision: crypto.randomUUID(),
       mediaType: file.mediaType,
       metadata: structuredClone(file.metadata),
@@ -194,7 +217,9 @@ class MemoryWorkspaceStore implements WorkspaceStore {
     const parts = normalizeWorkspacePath(path).split("/").filter(Boolean)
     for (let index = 1; index < parts.length; index++) {
       const dir = parts.slice(0, index).join("/")
-      if (!this.#nodes.has(dir)) this.#nodes.set(dir, { type: "directory", mtime: now() })
+      const node = this.#nodes.get(dir)
+      if (node?.type === "file") throw workspaceError(`[vitehub] Workspace parent is not a directory: ${path}.`)
+      if (!node) this.#nodes.set(dir, { type: "directory", mtime: now() })
     }
   }
 
@@ -213,7 +238,7 @@ class MemoryWorkspaceStore implements WorkspaceStore {
   }
 
   async #createSnapshot(name?: string): Promise<WorkspaceSnapshot> {
-    const entries: WorkspaceSnapshot["entries"] = {}
+    const entries: WorkspaceSnapshot["entries"] = Object.create(null)
     for (const [path, node] of this.#nodes) {
       if (!path) continue
       const entry = await this.#entry(path, node)
@@ -235,4 +260,10 @@ class MemoryWorkspaceStore implements WorkspaceStore {
 
 export function createMemoryWorkspaceStore(): WorkspaceStore {
   return new MemoryWorkspaceStore()
+}
+
+/** Internal copy for Store adapters that publish draft mutations only after validation. */
+export function forkMemoryWorkspaceStore(store: WorkspaceStore): WorkspaceStore {
+  if (!(store instanceof MemoryWorkspaceStore)) throw workspaceError("[vitehub] Only memory Workspace Stores can be forked.")
+  return store.fork()
 }

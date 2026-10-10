@@ -55,6 +55,22 @@ describe("GitHub inbox change detection", () => {
     await f.inbox.close()
   })
 
+  it("coalesces concurrent scans before reading the full snapshot summary", async () => {
+    const f = setup(() => [])
+    let release!: () => void
+    const gate = new Promise<void>(resolve => { release = resolve })
+    f.graphql.mockImplementation(async () => {
+      await gate
+      return { data: { repository: { pullRequests: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } } } } }
+    })
+    const first = detectChangedPullRequests(f.inbox, () => f.graphql, [repository], f.clock() + 61_000)
+    const second = detectChangedPullRequests(f.inbox, () => f.graphql, [repository], f.clock() + 61_000)
+    release()
+    await Promise.all([first, second])
+    expect(f.graphql).toHaveBeenCalledTimes(1)
+    await f.inbox.close()
+  })
+
   it("seeds open PRs that no delivery reported", async () => {
     const f = setup(() => [node(8)])
     await f.tick()

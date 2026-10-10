@@ -118,7 +118,7 @@ process.once("SIGTERM", async () => { await server.close(); process.exit(0) })
       CODEX_HOME: join(root, "missing-application-codex-home"),
       TMPDIR: applicationTmp,
       CODEX_AUTH_JSON: "",
-      CLIPROXY_BASE_URL: "",
+      CLIPROXY_URL: "",
     };
     const signedOut = await run(process.execPath, args, {
       cwd: root,

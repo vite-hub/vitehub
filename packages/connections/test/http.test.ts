@@ -26,7 +26,6 @@ function streamedPost(body: ReadableStream<Uint8Array>): Request {
 
 describe("createConnectionsHandler", () => {
   it.each([
-    undefined,
     () => undefined,
     () => "agent:worker",
     () => "user:",
@@ -63,6 +62,15 @@ describe("createConnectionsHandler", () => {
     expect(start.status).toBe(302);
     expect(new URL(start.headers.get("location")!).searchParams.get("state")).toBeTruthy();
     expect((await handler(post({ action: "inspect", name: "team//mail" }))).status).toBe(400);
+  });
+
+  it("rejects malformed encoded connection names with a client error", async () => {
+    const handler = createConnectionsHandler({ actor: () => "user:owner", runtime: () => createTestRuntime().runtime });
+
+    const response = await handler(new Request(`${origin}/_vitehub/connections/connect/%E0%A4%A`));
+
+    expect(response.status).toBe(400);
+    expect(await response.text()).toContain("Connection name is invalid");
   });
 
   it("runs JSON actions for same-origin requests", async () => {
@@ -187,6 +195,111 @@ describe("createConnectionsHandler", () => {
     expect(await counts.json()).toEqual({ counts: { mail: 1 } })
   })
 
+  it("rejects approval counts when a store repeats a pagination cursor", async () => {
+    const test = createTestRuntime()
+    const approvals = vi.spyOn(test.runtime, "approvals").mockResolvedValue({
+      approvals: [{
+        action: "mail.messages.modify",
+        actor: "agent:test",
+        createdAt: new Date().toISOString(),
+        id: "same-approval",
+        input: {},
+        name: "mail",
+        status: "pending",
+      }],
+      nextCursor: "same-cursor",
+    })
+    const handler = createConnectionsHandler({ actor: () => "user:local", runtime: () => test.runtime })
+
+    const response = await handler(post({ action: "approval-counts" }))
+
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({
+      error: {
+        code: "CONNECTION_INVALID",
+        message: "Connections approval pagination did not advance.",
+      },
+    })
+    expect(approvals).toHaveBeenCalledTimes(2)
+  })
+
+  it("rejects approval counts when a store never terminates pagination", async () => {
+    const test = createTestRuntime()
+    const approvals = vi.spyOn(test.runtime, "approvals").mockImplementation(async ({ before } = {}) => ({
+      approvals: [],
+      nextCursor: `${before ?? "cursor"}-next`,
+    }))
+    const handler = createConnectionsHandler({ actor: () => "user:local", runtime: () => test.runtime })
+
+    const response = await handler(post({ action: "approval-counts" }))
+
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({
+      error: {
+        code: "CONNECTION_INVALID",
+        message: "Connections approval pagination did not advance.",
+      },
+    })
+    expect(approvals).toHaveBeenCalledTimes(1)
+  })
+
+  it("rejects approval counts when a store returns endlessly distinct pages", async () => {
+    const test = createTestRuntime()
+    const approvals = vi.spyOn(test.runtime, "approvals").mockImplementation(async ({ before } = {}) => {
+      const index = before ? Number(before) + 1 : 0
+      return {
+        approvals: [{
+          action: "mail.messages.modify",
+          actor: "agent:test",
+          createdAt: new Date().toISOString(),
+          id: `approval-${index}`,
+          input: {},
+          name: "mail",
+          status: "pending",
+        }],
+        nextCursor: String(index),
+      }
+    })
+    const handler = createConnectionsHandler({ actor: () => "user:local", runtime: () => test.runtime })
+
+    const response = await handler(post({ action: "approval-counts" }))
+
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({
+      error: {
+        code: "CONNECTION_INVALID",
+        message: "Connections approval pagination did not terminate.",
+      },
+    })
+    expect(approvals).toHaveBeenCalledTimes(10_000)
+  })
+
+  it("counts approval pages beyond the old pagination limit", async () => {
+    const test = createTestRuntime()
+    const approvals = vi.spyOn(test.runtime, "approvals").mockImplementation(async ({ before } = {}) => {
+      const index = before ? Number(before) + 1 : 0
+      return {
+        approvals: [{
+          action: "mail.messages.modify",
+          actor: "agent:test",
+          createdAt: new Date().toISOString(),
+          id: String(index),
+          input: {},
+          name: "mail",
+          status: "pending",
+        }],
+        ...(index < 1_000 ? { nextCursor: String(index) } : {}),
+      }
+    })
+    const handler = createConnectionsHandler({ actor: () => "user:local", runtime: () => test.runtime })
+
+    const response = await handler(post({ action: "approval-counts" }))
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ counts: { mail: 1_001 } })
+    expect(approvals).toHaveBeenCalledTimes(1_001)
+  })
+
   it("rejects cross-origin, non-JSON, and invalid requests", async () => {
     const test = createTestRuntime();
     const handler = createConnectionsHandler({
@@ -240,6 +353,15 @@ describe("createConnectionsHandler", () => {
       new Request(`${origin}/_vitehub/connections/callback?code=code-1&state=${state}`),
     );
     expect(mismatch.status).toBe(400);
+    const sameLength = `${state.slice(0, -1)}${state.endsWith("A") ? "B" : "A"}`;
+    for (const cookieState of [state.slice(0, -1), `${state}x`, sameLength]) {
+      const wrong = await handler(
+        new Request(`${origin}/_vitehub/connections/callback?code=code-1&state=${state}`, {
+          headers: { cookie: `vitehub_connection_state=${cookieState}` },
+        }),
+      );
+      expect(wrong.status).toBe(400);
+    }
 
     test.provider.tokenResponses.push({
       body: {

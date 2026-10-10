@@ -1,14 +1,14 @@
 import { resolve } from "node:path"
 import { Readable } from "node:stream"
 
-import { createNoExternalAddition, isServerEnvironment, generatedViteHubWatchIgnoredAddition, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { createNoExternalAddition, generatedViteHubWatchIgnoredAddition, isServerEnvironment, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { summarizeDefinitions } from "@vite-hub/internal/inspect"
 
 import { resolveAuthViteConfig } from "./config.ts"
 import { discoverAuthDefinitions } from "./discovery.ts"
-import { getAuthForDefinition, handleAuthRequest, resetAuth } from "./server.ts"
+import { resetAuth } from "./runtime-state.ts"
 import { isAuthRequestPath } from "./shared.ts"
 
 import type { ViteHubDefinitionSummary, ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
@@ -68,9 +68,8 @@ export function createAuthNitroConfig(plugin: AuthVitePlugin, options: {
     auth: options.viteAuth,
     ...(options.serverDirs ? { [VITEHUB_SERVER_DIRS]: options.serverDirs } : {}),
   }
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vite config hooks can be functions or handler objects; this helper invokes the function form.
+  // SAFETY: This hook mutates the supplied Nitro config because Vite concatenates returned arrays.
   if (plugin.config && typeof plugin.config === "function") {
-    // SAFETY: This config hook does not use its hook context and replaces Nitro config on the supplied UserConfig.
     plugin.config.call({} as never, viteConfig, { command: "build", isPreview: false, isSsrBuild: true, mode: "production" })
   }
   return viteConfig.nitro
@@ -188,12 +187,12 @@ function mergeNitroAuthHandler(value: unknown, config: ResolvedAuthViteConfig | 
     ...(config.route === false
       ? []
       : [{
-          handler: resolve(config.rootDir, generatedAuthRouteHandler),
+          handler: resolve(resolveViteHubProjectRoot(config.rootDir), generatedAuthRouteHandler),
           route: authRoutePattern(config.route),
         }]),
     ...(config.access.routes.length > 0
       ? [{
-          handler: resolve(config.rootDir, generatedAuthAccessMiddlewareHandler),
+          handler: resolve(resolveViteHubProjectRoot(config.rootDir), generatedAuthAccessMiddlewareHandler),
           middleware: true,
           route: "/**",
         }]
@@ -288,6 +287,7 @@ export function hubAuth(options?: AuthModuleOptions, internalOptions: InternalAu
   function refreshRuntimeConfig(): ResolvedAuthViteConfig | undefined {
     if (!resolved) return
     runtimeConfig = resolveAuthViteConfig(resolvedOptions(), resolved.root, { serverDirs })
+    runtimeConfig ??= resolveAuthViteConfig(resolvedOptions(), resolveViteHubProjectRoot(resolved.root), { serverDirs })
     resetAuth()
     return runtimeConfig
   }
@@ -317,12 +317,15 @@ export function hubAuth(options?: AuthModuleOptions, internalOptions: InternalAu
     config(config) {
       const configRoot = config.root || process.cwd()
       serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? serverDirs
-      const authConfig = resolveAuthViteConfig((config as { auth?: AuthModuleOptions }).auth ?? options, configRoot, { serverDirs })
+      // SAFETY: Vite config may include the Auth module options supplied by the integration.
+      const authOptions = (config as { auth?: AuthModuleOptions }).auth ?? options
+      const authConfig = resolveAuthViteConfig(authOptions, configRoot, { serverDirs })
+        ?? resolveAuthViteConfig(authOptions, resolveViteHubProjectRoot(configRoot), { serverDirs })
+      const nitro = mergeNitroAuthHandler((config as { nitro?: unknown }).nitro, authConfig)
       const hasNitroHandlers = Boolean(authConfig && (authConfig.route !== false || authConfig.access.routes.length > 0))
       if (hasNitroHandlers) {
-        // Replace the Nitro config in place. A returned Nitro config would repeat its arrays when Vite merges it.
-        // SAFETY: Nitro extends Vite's config with this optional field; the merger validates its unknown input.
-        ;(config as { nitro?: unknown }).nitro = mergeNitroAuthHandler((config as { nitro?: unknown }).nitro, authConfig)
+        // Replace Nitro in place because Vite concatenates arrays from returned config hooks.
+        Object.assign(config, { nitro })
       }
       return {
         ssr: {
@@ -339,7 +342,7 @@ export function hubAuth(options?: AuthModuleOptions, internalOptions: InternalAu
       resolved = config
       serverEnv = hasServerEnvIntegration(config)
       const runtimeConfig = refreshRuntimeConfig()
-      await refreshAuthGeneratedFiles(config.root, runtimeConfig, { importBase, serverEnv })
+      await refreshAuthGeneratedFiles(resolveViteHubProjectRoot(config.root), runtimeConfig, { importBase, serverEnv })
     },
     configEnvironment(name, config) {
       if (!isServerEnvironment(name, config)) {
@@ -374,6 +377,8 @@ export function hubAuth(options?: AuthModuleOptions, internalOptions: InternalAu
           const webRequest = createWebRequest(request)
           const hasRequestRuntime = typeof definition.options === "function"
             || typeof definition.options.runtime === "function"
+          // Load Better Auth on the first Auth request, not when the Vite config imports this plugin.
+          const { getAuthForDefinition, handleAuthRequest } = await import("./server.ts")
           const authResponse = hasRequestRuntime
             ? await handleAuthRequest(definition, webRequest)
             : await getAuthForDefinition(definition).handler(webRequest)

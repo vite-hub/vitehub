@@ -307,11 +307,11 @@ export function hubKv(options?: KVModuleOptions, internalOptions: KVVitePluginIn
       order: "pre",
       async handler(config, env?: { command?: string }) {
         configuredOptions = config.kv ?? options
-        projectRoot = config.root || process.cwd()
+        projectRoot = resolveViteHubProjectRoot(config.root || process.cwd())
         nitroOwned = configureNitroCloudflareKV(config, options, ownedNitroNamespaces, readProvisionStateSync(projectRoot))
         if (env?.command !== "serve") return
         // Vite keeps the `nitro` key that the Nitro Vite plugin reads. The kit copies it and adds one handler.
-        Reflect.set(config, "nitro", await addNitroKVDevHandler(Reflect.get(config, "nitro"), resolve(config.root || process.cwd()), internalOptions.importBase))
+        Reflect.set(config, "nitro", await addNitroKVDevHandler(Reflect.get(config, "nitro"), projectRoot, internalOptions.importBase))
       },
     },
     configureServer(server) {
@@ -322,7 +322,7 @@ export function hubKv(options?: KVModuleOptions, internalOptions: KVVitePluginIn
       handler(config) {
         resolved = config
         configuredOptions = config.kv ?? options
-        projectRoot = config.root
+        projectRoot = resolveViteHubProjectRoot(config.root || process.cwd())
         providerOutput = useProviderOutputCatalog(config)
         runtimeConfig = resolveKVViteConfig(config.kv ?? options)
         const provisionState = readProvisionStateSync(projectRoot)

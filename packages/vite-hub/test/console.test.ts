@@ -40,23 +40,24 @@ import {
 } from "../src/console/internal.ts"
 import { serializeConsoleRefresh } from "../src/console/refresh.ts"
 import { consoleFixtureEnvironmentVariable, consoleFixtureFallbackAgentName, consoleFixtureRevision, parseConsoleFixture } from "../src/console/fixture.ts"
-import agentsHandler from "../src/console/runtime/server/agents.get.ts"
-import agentInvocationsHandler from "../src/console/runtime/server/agent-invocations.post.ts"
+import agentsHandlerRoute from "../src/console/runtime/server/agents.get.ts"
+import agentInvocationsHandlerRoute from "../src/console/runtime/server/agent-invocations.post.ts"
 import { encodeAgentRouteParam } from "../src/console/runtime/console-route.ts"
 import { installConsoleAgentDefinitions, installConsoleAgents } from "../src/console/runtime/server/agents.ts"
 import { createConsoleFixtureInvocations, createConsoleInvocations, getConsoleInvocationsDatabase, installConsoleFixtureInvocations, installConsoleInvocations, resolveConsoleDatabaseOptions } from "../src/console/runtime/server/invocations.ts"
 import { console as consoleRuntime } from "../src/console/server.ts"
-import invocationHandler from "../src/console/runtime/server/invocation.get.ts"
-import invocationCapabilitiesHandler from "../src/console/runtime/server/invocation-capabilities.get.ts"
-import invocationsHandler from "../src/console/runtime/server/invocations.get.ts"
+import { addConsoleRpcHandler } from "../src/console/nitro.ts"
+import invocationHandlerRoute, { cancelConsoleInvocation, getConsoleInvocationDetail } from "../src/console/runtime/server/invocation.get.ts"
+import invocationCapabilitiesHandlerRoute from "../src/console/runtime/server/invocation-capabilities.get.ts"
+import invocationsHandlerRoute from "../src/console/runtime/server/invocations.get.ts"
 import consolePageHandler from "../src/console/runtime/server/page.get.ts"
 import { assertConsoleRequest } from "../src/console/runtime/server/request.ts"
-import searchHandler from "../src/console/runtime/server/search.get.ts"
+import searchHandlerRoute from "../src/console/runtime/server/search.get.ts"
 import { consoleSearch } from "../src/console/runtime/server/search.ts"
-import sectionsHandler from "../src/console/runtime/server/sections.get.ts"
+import sectionsHandlerRoute from "../src/console/runtime/server/sections.get.ts"
 import { installConsoleProjectName, installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { consoleInvocationRootPlugin, consoleVitePlugin, updateConsoleInvocationRootState } from "../src/console/vite.ts"
-import usageHandler from "../src/console/runtime/server/usage.get.ts"
+import usageHandlerRoute from "../src/console/runtime/server/usage.get.ts"
 import { createUsageSummary, invocationUsage } from "../src/console/runtime/server/usage.ts"
 
 import { runAgent } from "@vite-hub/agent"
@@ -70,6 +71,17 @@ import type { Plugin } from "vite"
 import type { ConsoleInvocationRootState } from "../src/console/vite.ts"
 import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.ts"
 import type { ConsoleInvocationScope } from "../src/console/internal.ts"
+import { allowed } from "./support/console-access.ts"
+import { hostManagedAuthorize } from "./support/console-authorize.ts"
+
+const agentsHandler = allowed(agentsHandlerRoute)
+const invocationHandler = allowed(invocationHandlerRoute)
+const agentInvocationsHandler = allowed(agentInvocationsHandlerRoute)
+const invocationCapabilitiesHandler = allowed(invocationCapabilitiesHandlerRoute)
+const invocationsHandler = allowed(invocationsHandlerRoute)
+const searchHandler = allowed(searchHandlerRoute)
+const sectionsHandler = allowed(sectionsHandlerRoute)
+const usageHandler = allowed(usageHandlerRoute)
 
 const scope = globalThis as ConsoleInvocationScope
 // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- This test double only needs identity; no journal method is invoked through it.
@@ -476,7 +488,7 @@ describe("Agent invocation console", () => {
       await writeFile(join(root, "support.agent.ts"), "export default {}\n")
       const plugin = consoleVitePlugin({
         blobStores: ["default", "archive"],
-        console: { exposure: "host-managed" },
+        console: { exposure: "host-managed", authorize: hostManagedAuthorize },
         kvStores: ["default", "cache"],
         preset: "node",
         sections: ["agents", "usage", "blob", "kv"],
@@ -532,13 +544,94 @@ describe("Agent invocation console", () => {
     }
   })
 
+  it.each(["/portal/", "https://cdn.example/portal/"])("prefixes Nitro Console routes and assets with the Vite base path %s", async (base) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-base-host-"))
+    try {
+      await writeFile(join(root, "package.json"), "{}\n")
+      const plugin = consoleVitePlugin({ console: { exposure: "host-managed", authorize: hostManagedAuthorize }, preset: "node", sections: ["agents", "usage"] })
+      const configHook = plugin.config
+      if (!configHook) throw new TypeError("Expected a console config hook.")
+      const configHandler = "handler" in configHook ? configHook.handler : configHook
+      const config: { base: string, nitro?: { handlers: Array<{ handler: string, route: string }>, plugins: string[], publicAssets: Array<{ baseURL: string, dir: string }> }, root: string } = { base, root }
+
+      await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
+
+      expect(config.nitro?.handlers.map(handler => handler.route)).toEqual([
+        "/portal/api/_vitehub/console/status",
+        "/portal/api/_vitehub/console/usage",
+        "/portal/_vitehub",
+        "/portal/_vitehub/**",
+        "/portal/api/_vitehub/console/client.js",
+        "/portal/_vitehub/rpc/**",
+        "/portal/_vitehub/env/manage",
+        "/portal/_vitehub/channels/replay",
+        "/portal/_vitehub/schedules/run",
+      ])
+      expect(config.nitro?.publicAssets).toEqual([expect.objectContaining({ baseURL: "/portal/_vitehub/assets" })])
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("remounts every Console route when Vite resolves a later base path", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-resolved-base-"))
+    try {
+      await writeFile(join(root, "package.json"), "{}\n")
+      const plugin = consoleVitePlugin({ console: { exposure: "host-managed", authorize: hostManagedAuthorize }, preset: "node", sections: ["agents", "usage"] })
+      const configHook = plugin.config
+      const configResolvedHook = plugin.configResolved
+      if (!configHook || !configResolvedHook) throw new TypeError("Expected Console Vite hooks.")
+      const configHandler = "handler" in configHook ? configHook.handler : configHook
+      const configResolvedHandler = "handler" in configResolvedHook ? configResolvedHook.handler : configResolvedHook
+      const config: { base: string, nitro?: { handlers: Array<{ handler: string, route: string }>, plugins: string[], publicAssets: Array<{ baseURL: string, dir: string }> }, root: string, vitehubCliDiscovery: true } = { base: "/early/", root, vitehubCliDiscovery: true }
+      await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
+      config.nitro?.publicAssets.push({ baseURL: "/portal/_vitehub/assets", dir: "/user-owned-assets" })
+
+      const resolvedConfig = { ...config, base: "/portal/", logger: { warn: () => undefined } }
+      await Reflect.apply(configResolvedHandler, {}, [resolvedConfig])
+
+      expect(resolvedConfig.nitro?.handlers.map(handler => handler.route)).toEqual([
+        "/portal/api/_vitehub/console/status",
+        "/portal/api/_vitehub/console/usage",
+        "/portal/_vitehub",
+        "/portal/_vitehub/**",
+        "/portal/api/_vitehub/console/client.js",
+        "/portal/_vitehub/rpc/**",
+        "/portal/_vitehub/env/manage",
+        "/portal/_vitehub/channels/replay",
+        "/portal/_vitehub/schedules/run",
+      ])
+      expect(resolvedConfig.nitro?.publicAssets).toEqual([
+        expect.objectContaining({ baseURL: "/portal/_vitehub/assets", dir: expect.stringContaining("public/console") }),
+        { baseURL: "/portal/_vitehub/assets", dir: "/user-owned-assets" },
+      ])
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("remounts Console RPC routes when a later Vite base replaces the early base", () => {
+    const config: { handlers: Array<{ handler: string, route: string }> } = { handlers: [] }
+    addConsoleRpcHandler(config, "/runtime", "/early/")
+    addConsoleRpcHandler(config, "/runtime", "/portal/")
+
+    expect(config.handlers.map(handler => handler.route)).toEqual([
+      "/portal/_vitehub/rpc/**",
+      "/portal/_vitehub/env/manage",
+      "/portal/_vitehub/channels/replay",
+      "/portal/_vitehub/schedules/run",
+    ])
+  })
+
   it("registers Blob inspection without loading the Agent server graph", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-blob-host-"))
     try {
       await writeFile(join(root, "package.json"), "{}\n")
       const plugin = consoleVitePlugin({
         blobStores: ["default", "archive"],
-        console: { exposure: "host-managed" },
+        console: { exposure: "host-managed", authorize: hostManagedAuthorize },
         preset: "cloudflare",
         resolveKVStores: () => false,
         sections: ["blob"],
@@ -582,7 +675,7 @@ describe("Agent invocation console", () => {
       await writeFile(join(root, "package.json"), "{}\n")
       const plugin = consoleVitePlugin({
         blobStores: ["default"],
-        console: { exposure: "host-managed" },
+        console: { exposure: "host-managed", authorize: hostManagedAuthorize },
         preset: "cloudflare",
         resolveKVStores: () => false,
         sections: ["blob"],
@@ -611,7 +704,7 @@ describe("Agent invocation console", () => {
       await writeFile(join(root, "package.json"), "{}\n")
       await writeFile(join(root, "hidden.agent.ts"), "export default {}\n")
       const plugin = consoleVitePlugin({
-        console: { exposure: "host-managed" },
+        console: { exposure: "host-managed", authorize: hostManagedAuthorize },
         kvStores: ["default"],
         preset: "cloudflare",
         sections: ["kv"],
@@ -645,7 +738,7 @@ describe("Agent invocation console", () => {
     try {
       await writeFile(join(root, "package.json"), "{}\n")
       const plugin = consoleVitePlugin({
-        console: { exposure: "host-managed" },
+        console: { exposure: "host-managed", authorize: hostManagedAuthorize },
         preset: "cloudflare",
         resolveKVStores: kv => kv ? ["default", "cache"] : false,
       })
@@ -674,7 +767,7 @@ describe("Agent invocation console", () => {
     try {
       await writeFile(join(root, "package.json"), "{}\n")
       const plugin = consoleVitePlugin({
-        console: { exposure: "host-managed" },
+        console: { exposure: "host-managed", authorize: hostManagedAuthorize },
         preset: "cloudflare",
         sections: ["workflows"],
       })
@@ -704,7 +797,7 @@ describe("Agent invocation console", () => {
     try {
       await writeFile(join(root, "package.json"), "{}\n")
       const plugin = consoleVitePlugin({
-        console: { exposure: "host-managed" },
+        console: { exposure: "host-managed", authorize: hostManagedAuthorize },
         preset: "cloudflare",
         resolveKVStores: () => false,
         sections: ["queues"],
@@ -740,7 +833,7 @@ describe("Agent invocation console", () => {
       await mkdir(join(customServerDir, "workflows"), { recursive: true })
       await writeFile(join(customServerDir, "workflows", "custom.ts"), "export default null\n")
       const plugin = consoleVitePlugin({
-        console: { exposure: "host-managed" },
+        console: { exposure: "host-managed", authorize: hostManagedAuthorize },
         preset: "cloudflare",
         sections: ["workflows"],
       })
@@ -772,7 +865,7 @@ describe("Agent invocation console", () => {
         `export default defineWorkspace({ store: { provider: "memory" } })\nthrow new Error("The Console must not initialize Workspace Definitions during discovery.")\n`,
       )
       const plugin = consoleVitePlugin({
-        console: { exposure: "host-managed" },
+        console: { exposure: "host-managed", authorize: hostManagedAuthorize },
         preset: "cloudflare",
         resolveKVStores: () => false,
         sections: ["workspaces"],
@@ -809,7 +902,7 @@ describe("Agent invocation console", () => {
         `export default defineDatabase({ schema: { notes, users } })\nthrow new Error("The Console must not evaluate Database Definitions during discovery.")\n`,
       )
       const plugin = consoleVitePlugin({
-        console: { exposure: "host-managed" },
+        console: { exposure: "host-managed", authorize: hostManagedAuthorize },
         preset: "cloudflare",
         resolveKVStores: () => false,
         sections: ["databases"],
@@ -862,7 +955,7 @@ describe("Agent invocation console", () => {
         `throw new Error("The Console must not evaluate Queue Definitions during discovery.")\n`,
       )
       const plugin = consoleVitePlugin({
-        console: { exposure: "host-managed" },
+        console: { exposure: "host-managed", authorize: hostManagedAuthorize },
         preset: "cloudflare",
         resolveKVStores: () => false,
         sections: ["queues"],
@@ -913,7 +1006,7 @@ describe("Agent invocation console", () => {
         ].join("\n"),
       )
       const plugin = consoleVitePlugin({
-        console: { exposure: "host-managed" },
+        console: { exposure: "host-managed", authorize: hostManagedAuthorize },
         preset: "cloudflare",
         resolveKVStores: () => false,
         sections: ["rate-limits"],
@@ -959,7 +1052,7 @@ describe("Agent invocation console", () => {
       await writeFile(join(root, "package.json"), "{}\n")
       await writeFile(join(hostServerDir, "upload.ts"), 'requireRateLimit(event, "uploads", { limit: 25, window: "10s" })\n')
       const plugin = consoleVitePlugin({
-        console: { exposure: "host-managed" },
+        console: { exposure: "host-managed", authorize: hostManagedAuthorize },
         preset: "cloudflare",
         resolveKVStores: () => false,
         sections: ["rate-limits"],
@@ -1003,7 +1096,7 @@ describe("Agent invocation console", () => {
         `const scheduleCron = process.env.SCHEDULE_CRON || "0 10 * * *"\nexport default defineSchedule({ cron: scheduleCron, handler() {} })\n`,
       )
       const plugin = consoleVitePlugin({
-        console: { exposure: "host-managed" },
+        console: { exposure: "host-managed", authorize: hostManagedAuthorize },
         preset: "cloudflare",
         resolveKVStores: () => false,
         sections: ["schedules"],
@@ -1059,7 +1152,7 @@ describe("Agent invocation console", () => {
       await writeFile(join(root, "packages/workspace/server/workspaces/docs/config.ts"), "export default defineWorkspace({ store: { provider: 'memory' } })\n")
       await writeFile(join(root, "packages/schedule/server/schedules/adhoc.ts"), "export default defineScheduleTarget({ handler() {} })\n")
       const plugins = vitehub({
-        console: { exposure: "host-managed" },
+        console: { exposure: "host-managed", authorize: hostManagedAuthorize },
         database: { projectRoot: "packages/database" },
         preset: "cloudflare",
         rateLimit: { projectRoot: "packages/rate-limit", scanDirs: ["policies"] },
@@ -1099,7 +1192,7 @@ describe("Agent invocation console", () => {
       await writeFile(join(projectRoot, "packages/api/server/databases/config.ts"), "export default defineDatabase({ schema: {} })\n")
       await writeFile(join(viteRoot, "server/databases/config.ts"), "export default defineDatabase({ schema: {} })\n")
       const plugin = consoleVitePlugin({
-        console: { exposure: "host-managed" },
+        console: { exposure: "host-managed", authorize: hostManagedAuthorize },
         databaseDiscoveryRoot: "packages/api",
         preset: "cloudflare",
         resolveKVStores: () => false,
@@ -1127,7 +1220,7 @@ describe("Agent invocation console", () => {
       await mkdir(viteRoot, { recursive: true })
       await writeFile(join(projectRoot, "package.json"), "{}\n")
       const plugin = consoleVitePlugin({
-        console: { exposure: "host-managed" },
+        console: { exposure: "host-managed", authorize: hostManagedAuthorize },
         databaseDiscoveryRoot: "packages/database",
         preset: "cloudflare",
         rateLimitDiscoveryRoot: "packages/rate-limit",
@@ -1164,7 +1257,7 @@ describe("Agent invocation console", () => {
     try {
       await writeFile(join(root, "package.json"), "{}\n")
       const plugin = consoleVitePlugin({
-        console: { exposure: "host-managed" },
+        console: { exposure: "host-managed", authorize: hostManagedAuthorize },
         preset: "cloudflare",
         resolveKVStores: () => false,
         sections: ["sandboxes", "workspaces"],
@@ -1197,7 +1290,7 @@ describe("Agent invocation console", () => {
     try {
       await writeFile(join(root, "package.json"), "{}\n")
       const plugin = consoleVitePlugin({
-        console: { exposure: "host-managed" },
+        console: { exposure: "host-managed", authorize: hostManagedAuthorize },
         preset: "cloudflare",
         resolveKVStores: () => false,
         sections: ["databases", "sandboxes", "workspaces"],
@@ -1235,7 +1328,7 @@ describe("Agent invocation console", () => {
       await writeFile(join(viteRoot, "src/preview.sandbox.ts"), "export default defineSandbox({ run: async () => undefined })\n")
       await writeFile(join(projectRoot, "server/schedules/adhoc.ts"), "export default defineScheduleTarget({ handler() {} })\n")
       const plugin = consoleVitePlugin({
-        console: { exposure: "host-managed" },
+        console: { exposure: "host-managed", authorize: hostManagedAuthorize },
         preset: "cloudflare",
         resolveKVStores: () => false,
         sections: ["rate-limits", "sandboxes", "schedules"],
@@ -1245,6 +1338,7 @@ describe("Agent invocation console", () => {
       await callPluginHook(plugin.config, {}, [config, { command: "build", mode: "production" }])
       await callPluginHook(plugin.configResolved, {}, [withViteLogger(config)])
 
+      expect(config.nitro?.plugins).toEqual([join(projectRoot, ".vitehub/nitro/console/plugin.mjs")])
       const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
       expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(projectRoot)}`)
       expect(generated).toContain(`"file":"src/api.ts","name":"api","source":"require-rate-limit"`)
@@ -1266,7 +1360,7 @@ describe("Agent invocation console", () => {
       await writeFile(join(root, "package.json"), "{}\n")
       await writeFile(join(root, "src/preview.sandbox.ts"), `export default defineSandbox({ run: async () => { throw new Error("must not run") } })\n`)
       const plugin = consoleVitePlugin({
-        console: { exposure: "host-managed" },
+        console: { exposure: "host-managed", authorize: hostManagedAuthorize },
         preset: "cloudflare",
         resolveKVStores: () => false,
         sections: ["sandboxes"],
@@ -1292,7 +1386,7 @@ describe("Agent invocation console", () => {
   })
 
   it("allows host-managed production Console builds on non-Node hosts", async () => {
-    const plugin = consoleVitePlugin({ console: { exposure: "host-managed" }, preset: "cloudflare", sections: ["agents"] })
+    const plugin = consoleVitePlugin({ console: { exposure: "host-managed", authorize: hostManagedAuthorize }, preset: "cloudflare", sections: ["agents"] })
     const configHook = plugin.config
     if (!configHook) throw new TypeError("Expected a console config hook.")
     const configHandler = "handler" in configHook ? configHook.handler : configHook
@@ -1319,7 +1413,7 @@ describe("Agent invocation console", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-host-invoke-"))
     try {
       const plugin = consoleVitePlugin({
-        console: { exposure: "host-managed", invoke },
+        console: { exposure: "host-managed", authorize: hostManagedAuthorize, invoke },
         preset: "node",
         sections: ["agents"],
       })
@@ -1340,7 +1434,7 @@ describe("Agent invocation console", () => {
     const observations = { maxCount: 1024, maxStringLength: 131072, maxBytes: 16777216, flushTimeoutMs: 10000 }
     try {
       const plugin = consoleVitePlugin({
-        console: { exposure: "host-managed", observations },
+        console: { exposure: "host-managed", authorize: hostManagedAuthorize, observations },
         preset: "node",
         sections: ["agents"],
       })
@@ -1416,6 +1510,25 @@ describe("Agent invocation console", () => {
       await expect(readFile(resolve(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")).resolves.toContain(
         `installConsoleAgentDefinitions([], { projectRoot: ${JSON.stringify(root)}, invoke: true })`,
       )
+
+      const changingBaseConsole = consoleVitePlugin({
+        console: { access: "auth" },
+        preset: "node",
+        resolveAuthConfig: () => auth([
+          { authorize: true, route: "/early/_vitehub/**" },
+          { authorize: true, method: "GET", route: "/early/api/_vitehub/console/**" },
+        ]),
+        sections: ["agents"],
+      })
+      const changingBaseConfigHook = changingBaseConsole.config
+      const changingBaseResolvedHook = changingBaseConsole.configResolved
+      if (!changingBaseConfigHook || !changingBaseResolvedHook) throw new TypeError("Expected Console Vite hooks.")
+      const changingBaseHandler = "handler" in changingBaseConfigHook ? changingBaseConfigHook.handler : changingBaseConfigHook
+      const changingBaseResolvedHandler = "handler" in changingBaseResolvedHook ? changingBaseResolvedHook.handler : changingBaseResolvedHook
+      const changingBaseConfig: { base: string, nitro?: { handlers: Array<{ handler: string, route: string }>, plugins: string[], publicAssets: Array<{ baseURL: string, dir: string }> }, root: string, vitehubCliDiscovery: true } = { base: "/early/", root, vitehubCliDiscovery: true }
+      await Reflect.apply(changingBaseHandler, {}, [changingBaseConfig, { command: "build", mode: "production" }])
+      await expect(Reflect.apply(changingBaseResolvedHandler, {}, [{ ...changingBaseConfig, base: "/portal/", command: "build", logger: { warn: () => undefined } }]))
+        .rejects.toThrow("/portal/_vitehub/**")
     } finally {
       await rm(root, { force: true, recursive: true })
     }
@@ -1425,7 +1538,7 @@ describe("Agent invocation console", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-managed-host-"))
     try {
       const plugin = consoleVitePlugin({
-        console: { exposure: "host-managed" },
+        console: { exposure: "host-managed", authorize: hostManagedAuthorize },
         preset: "node",
         sections: ["agents"],
       })
@@ -1485,7 +1598,7 @@ describe("Agent invocation console", () => {
       }`)
       await writeFile(fixture, JSON.stringify(fixtureWithPrototypeData))
       vi.stubEnv(consoleFixtureEnvironmentVariable, fixture)
-      const plugin = consoleVitePlugin({ console: { exposure: "host-managed" }, preset: "node", sections: ["agents"] })
+      const plugin = consoleVitePlugin({ console: { exposure: "host-managed", authorize: hostManagedAuthorize }, preset: "node", sections: ["agents"] })
       const configHook = plugin.config
       if (!configHook) throw new TypeError("Expected a console config hook.")
       const configHandler = "handler" in configHook ? configHook.handler : configHook
@@ -1525,7 +1638,7 @@ describe("Agent invocation console", () => {
       expect(add).toHaveBeenCalledWith(fixture)
       await writeFile(fixture, JSON.stringify(fixtureDocument("replacement")))
 
-      const concurrentPlugin = consoleVitePlugin({ console: { exposure: "host-managed" }, preset: "node", sections: ["agents"] })
+      const concurrentPlugin = consoleVitePlugin({ console: { exposure: "host-managed", authorize: hostManagedAuthorize }, preset: "node", sections: ["agents"] })
       const concurrentConfig: { nitro?: { plugins?: string[] }, root: string } = { root }
       await callPluginHook(concurrentPlugin.config, {}, [concurrentConfig, { command: "serve", mode: "development" }])
       await callPluginHook(concurrentPlugin.configResolved, {}, [{ root }])
@@ -1724,19 +1837,19 @@ describe("Agent invocation console", () => {
     expect(store.list).not.toHaveBeenCalled()
   })
 
-  it("serves enabled Console sections in stable order for the active project", () => {
+  it("serves enabled Console sections in stable order for the active project", async () => {
     installConsoleSections("/first", ["agents"])
     installConsoleProjectName("/first", "first-app")
     installConsoleSections("/second", ["kv"])
     installConsoleProjectName("/second", "second-app")
 
-    expect(sectionsHandler(event("127.0.0.1"))).toEqual({
+    await expect(sectionsHandler(event("127.0.0.1"))).resolves.toEqual({
       projectName: "second-app",
       sections: ["kv"],
     })
 
     scope[consoleSectionsRootKey] = "/first"
-    expect(sectionsHandler(event("127.0.0.1"))).toEqual({
+    await expect(sectionsHandler(event("127.0.0.1"))).resolves.toEqual({
       projectName: "first-app",
       sections: ["agents"],
     })
@@ -1749,7 +1862,7 @@ describe("Agent invocation console", () => {
     expect(resolveConsoleProjectName({ process })).toBe("shared-app")
   })
 
-  it("does not let section registration rebind the invocation project", () => {
+  it("does not let section registration rebind the invocation project", async () => {
     const first = fakeInvocations("first")
     installConsoleInvocationFallback(first, "/first")
 
@@ -1757,7 +1870,7 @@ describe("Agent invocation console", () => {
 
     expect(resolveConsoleProjectRoot()).toBe("/first")
     expect(resolveConsoleInvocations()).toBe(first)
-    expect(sectionsHandler(event("127.0.0.1"))).toEqual({ sections: ["kv"] })
+    await expect(sectionsHandler(event("127.0.0.1"))).resolves.toEqual({ sections: ["kv"] })
   })
 
   it("rebinds already evaluated Agent realms to a refreshed fixture revision", async () => {
@@ -2126,6 +2239,134 @@ describe("Agent invocation console", () => {
     }
   })
 
+  it("cancels running invocations only with Console invoke access", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-invocation-cancel-"))
+    let release: (value: string) => void = () => {}
+    let handlerStarted = false
+    const definition = defineAgent({
+      driver: { run: () => new Promise<string>((resolve) => {
+        release = resolve
+        handlerStarted = true
+      }) },
+      name: "support",
+    })
+    const detailEvent = (id: string, body?: unknown): ConsoleRequestEvent => {
+      const method = body === undefined ? "GET" : "POST"
+      const url = `http://localhost/api/_vitehub/console/invocations/${id}`
+      return {
+        headers: new Headers({ host: "localhost" }),
+        method,
+        node: { req: { method, socket: { remoteAddress: "127.0.0.1" }, url } },
+        req: { ...(body === undefined ? {} : { json: async () => body }), method, url },
+      }
+    }
+    const install = (invoke: boolean) => installConsoleAgentDefinitions([
+      { definition: { default: definition }, fallbackName: "help" },
+    ], { invoke, projectRoot: root })
+    try {
+      install(true)
+      const running = await agentInvocationsHandler({
+        context: { params: { agent: "support" } },
+        method: "POST",
+        req: {
+          json: async () => ({ prompt: "Compile the digest." }),
+          method: "POST",
+          url: "http://localhost/api/_vitehub/console/agents/support/invocations",
+        },
+      })
+      await vi.waitFor(async () => {
+        expect(handlerStarted).toBe(true)
+        await expect(definition.invocations?.get(running.id)).resolves.toMatchObject({ status: "running" })
+      }, { timeout: 4_000 })
+      await expect(getConsoleInvocationDetail(detailEvent(running.id))).resolves.toMatchObject({
+        invocation: { actions: { cancel: { available: true } } },
+      })
+
+      install(false)
+      const inspected = await getConsoleInvocationDetail(detailEvent(running.id))
+      expect(inspected.invocation).not.toHaveProperty("actions")
+      await expect(cancelConsoleInvocation(detailEvent(running.id, { action: "cancel" }))).rejects.toMatchObject({ statusCode: 403 })
+      await expect(definition.invocations?.getSummary(running.id)).resolves.not.toHaveProperty("cancelRequestedAt")
+
+      install(true)
+      await expect(invocationHandler(detailEvent(running.id, { action: "delete" }))).rejects.toMatchObject({ statusCode: 409 })
+      await expect(invocationHandler(detailEvent("missing", { action: "cancel" }))).rejects.toMatchObject({ statusCode: 404 })
+      // A custom `run` Driver receives the abort signal, but the Console does not report the cancel as enforced.
+      await expect(invocationHandler(detailEvent(running.id, { action: "cancel" }))).resolves.toEqual({
+        delivery: "local",
+        id: running.id,
+        notEnforcedBy: "run",
+        outcome: "requested",
+        status: "running",
+      })
+      await expect(getConsoleInvocationDetail(detailEvent(running.id))).resolves.toMatchObject({
+        invocation: { cancelNotEnforcedBy: "run", cancelRequestedAt: expect.any(String), status: "running" },
+      })
+
+      release("done")
+      await vi.waitFor(async () => {
+        await expect(definition.invocations?.get(running.id)).resolves.toMatchObject({ status: "completed" })
+      }, { timeout: 4_000 })
+      await expect(invocationHandler(detailEvent(running.id, { action: "cancel" }))).resolves.toMatchObject({ outcome: "terminal", status: "completed" })
+      await expect(getConsoleInvocationDetail(detailEvent(running.id))).resolves.toMatchObject({
+        invocation: { actions: { cancel: { available: true }, delete: { available: true }, rerun: { available: true, prompt: "Compile the digest." } } },
+      })
+      await expect(invocationHandler(detailEvent(running.id, { action: "delete" }))).resolves.toEqual({ id: running.id, outcome: "deleted" })
+      await expect(definition.invocations?.getSummary(running.id)).resolves.toBeUndefined()
+    }
+    finally {
+      release("done")
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it.each(["completed", "failed", "cancelled"] as const)("aborts a stale local custom execution with a %s journal through Console", async status => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-terminal-abort-"))
+    const backing = createMemoryAgentInvocationStore()
+    const invocations = defineAgentInvocations({ store: backing })
+    let release: (value: string) => void = () => {}
+    let signal: AbortSignal | undefined
+    let ended = false
+    const definition = defineAgent({ driver: { run: async ({ input }) => {
+      signal = input.abortSignal
+      const result = await new Promise<string>(resolve => { release = resolve })
+      ended = true
+      return result
+    } }, invocations, name: "support" })
+    const request = (id: string, body?: unknown): ConsoleRequestEvent => {
+      const method = body === undefined ? "GET" : "POST"
+      const url = `http://localhost/api/_vitehub/console/invocations/${id}`
+      return { headers: new Headers({ host: "localhost" }), method, node: { req: { method, socket: { remoteAddress: "127.0.0.1" }, url } }, req: { ...(body === undefined ? {} : { json: async () => body }), method, url } }
+    }
+    try {
+      installConsoleAgentDefinitions([{ definition: { default: definition }, fallbackName: "help" }], { invoke: true, projectRoot: root })
+      installConsoleInvocations(root, invocations)
+      const { id } = await agentInvocationsHandler({
+        context: { params: { agent: "support" } }, method: "POST",
+        req: { json: async () => ({ prompt: "Work until released." }), method: "POST", url: "http://localhost/api/_vitehub/console/agents/support/invocations" },
+      })
+      await vi.waitFor(() => expect(signal).toBeDefined())
+      // A replacement owner writes a terminal state while the original handler still runs.
+      await backing.update(id, { status, timestamp: new Date().toISOString() })
+      const terminalRecord = await backing.get(id)
+      installConsoleAgentDefinitions([{ definition: { default: definition }, fallbackName: "help" }], { invoke: false, projectRoot: root })
+      expect((await getConsoleInvocationDetail(request(id))).invocation).not.toHaveProperty("actions")
+      await expect(invocationHandler(request(id, { action: "cancel" }))).rejects.toMatchObject({ statusCode: 403 })
+      expect(signal?.aborted).toBe(false)
+      installConsoleAgentDefinitions([{ definition: { default: definition }, fallbackName: "help" }], { invoke: true, projectRoot: root })
+      await expect(getConsoleInvocationDetail(request(id))).resolves.toMatchObject({
+        invocation: { status, actions: { cancel: { available: true } } },
+      })
+      await expect(invocationHandler(request(id, { action: "cancel" }))).resolves.toEqual({ delivery: "local", id, notEnforcedBy: "run", outcome: "terminal", status })
+      expect(signal?.aborted).toBe(true)
+      expect(ended).toBe(false)
+      expect(await backing.get(id)).toEqual(terminalRecord)
+      release("done")
+      await vi.waitFor(() => expect(ended).toBe(true))
+    }
+    finally { release("done"); await rm(root, { force: true, recursive: true }) }
+  })
+
   it("rejects disabled Agents, unknown profiles, and unsupported fields", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-invoke-validation-"))
     const definition = defineAgent({
@@ -2297,7 +2538,7 @@ describe("Agent invocation console", () => {
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "review.ts"), "export default {}\n")
       const plugin = consoleVitePlugin({
-        console: { exposure: "host-managed" },
+        console: { exposure: "host-managed", authorize: hostManagedAuthorize },
         preset: "node",
         sections: ["agents"],
       })
@@ -2528,8 +2769,7 @@ describe("Agent invocation console", () => {
     const detailURL = "http://localhost/api/_vitehub/console/invocations/inv-delta"
     requestEvent.node!.req!.url = detailURL
     requestEvent.req!.url = detailURL
-    const initial = await invocationHandler(requestEvent)
-    if (!("observationCursor" in initial)) throw new TypeError("Expected invocation detail response")
+    const initial = await getConsoleInvocationDetail(requestEvent)
     await store.update("inv-delta", {
       observation: {
         name: "agent.invocation.running",
@@ -2543,7 +2783,7 @@ describe("Agent invocation console", () => {
     requestEvent.node!.req!.url = url
     requestEvent.req!.url = url
 
-    await expect(invocationHandler(requestEvent)).resolves.toMatchObject({
+    await expect(getConsoleInvocationDetail(requestEvent)).resolves.toMatchObject({
       appendObservations: true,
       invocation: { id: "inv-delta" },
       observations: [{ sequence: 3 }],
@@ -2558,8 +2798,7 @@ describe("Agent invocation console", () => {
       },
       timestamp: "2026-08-23T12:00:04.000Z",
     })
-    const replaced = await invocationHandler(requestEvent)
-    if (!("observations" in replaced) || !("observationCursor" in replaced)) throw new TypeError("Expected invocation detail response")
+    const replaced = await getConsoleInvocationDetail(requestEvent)
     expect(replaced.appendObservations).toBeUndefined()
     expect(replaced.observations.map(observation => observation.sequence)).toEqual([0, 1, 2, 3])
 
@@ -2570,7 +2809,49 @@ describe("Agent invocation console", () => {
     const truncatedURL = `${detailURL}?observationCount=4&observationCursor=${encodeURIComponent(replaced.observationCursor)}`
     requestEvent.node!.req!.url = truncatedURL
     requestEvent.req!.url = truncatedURL
-    await expect(invocationHandler(requestEvent)).resolves.not.toHaveProperty("appendObservations")
+    await expect(getConsoleInvocationDetail(requestEvent)).resolves.not.toHaveProperty("appendObservations")
+  })
+
+  it("rejects malformed invocation URL ids with a client error", async () => {
+    installConsoleInvocationFallback(defineAgentInvocations({ store: createMemoryAgentInvocationStore() }), process.cwd())
+    const requestEvent = event("127.0.0.1")
+    const malformedURL = "http://localhost/api/_vitehub/console/invocations/%E0%A4%A"
+    requestEvent.node!.req!.url = malformedURL
+    requestEvent.req!.url = malformedURL
+
+    await expect(invocationHandler(requestEvent)).rejects.toMatchObject({
+      statusCode: 400,
+      statusMessage: "Malformed invocation id.",
+    })
+  })
+
+  it.each([false, true])("rejects malformed invocation URL ids with route params: %s", async (withParams) => {
+    installConsoleInvocationFallback(defineAgentInvocations({ store: createMemoryAgentInvocationStore() }), process.cwd())
+    const requestEvent = event("127.0.0.1")
+    const malformedURL = "http://localhost/api/_vitehub/console/invocations/%E0%A4%A"
+    requestEvent.node!.req!.url = malformedURL
+    requestEvent.req!.url = malformedURL
+    if (withParams) requestEvent.context = { params: { id: "%E0%A4%A" } }
+
+    await expect(invocationHandler(requestEvent)).rejects.toMatchObject({
+      statusCode: 400,
+      statusMessage: "Malformed invocation id.",
+    })
+  })
+
+  it.each(["team/run", "team%2Frun", "%E0%A4%A"])("decodes invocation URL ids once: %s", async (id) => {
+    const store = createMemoryAgentInvocationStore()
+    const timestamp = "2026-08-23T12:00:00.000Z"
+    await store.create({ id, createdAt: timestamp, updatedAt: timestamp, status: "completed", observations: [], traceId: "trace-encoded" })
+    installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
+    for (const paramId of [encodeURIComponent(id), id]) {
+      const requestEvent = event("127.0.0.1")
+      const url = `http://localhost/api/_vitehub/console/invocations/${encodeURIComponent(id)}`
+      requestEvent.node!.req!.url = url
+      requestEvent.req!.url = url
+      requestEvent.context = { params: { id: paramId } }
+      await expect(invocationHandler(requestEvent)).resolves.toMatchObject({ invocation: { id } })
+    }
   })
 
   it("bounds each console response to the requested page size", async () => {
@@ -4482,6 +4763,19 @@ describe("Agent invocation console", () => {
     expect(response.headers.get("content-security-policy")).toContain("form-action 'none'")
     expect(page).toContain('<meta name="robots" content="noindex, nofollow">')
     expect(response.headers.get("x-robots-tag")).toBe("noindex, nofollow")
+  })
+
+  it("prefixes shell assets when the application is mounted below a base path", async () => {
+    const request = event("127.0.0.1")
+    request.req = { url: "http://localhost/portal/_vitehub" }
+    request.node!.req!.url = "http://localhost/portal/_vitehub"
+    const page = await consolePageHandler(request).text()
+
+    expect(page).toContain('href="/portal/_vitehub/assets/__VITEHUB_CONSOLE_STYLE_ASSET__"')
+    expect(page).toContain('src="/portal/api/_vitehub/console/client.js"')
+    expect(page).toContain('src="/portal/_vitehub/assets/__VITEHUB_CONSOLE_SCRIPT_ASSET__"')
+    expect(page).not.toContain('href="/_vitehub/assets/')
+    expect(page).not.toContain('src="/api/_vitehub/console/client.js"')
   })
 
   it("rejects non-GET console requests", () => {

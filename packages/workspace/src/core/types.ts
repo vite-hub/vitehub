@@ -148,6 +148,12 @@ export interface WorkspaceSyncOptions {
 export interface WorkspaceSessionOptions {
   abortSignal?: AbortSignal
   attach?: boolean
+  /**
+   * Set when the caller owns `target` and deletes it after `close()`.
+   * A hosted Session then leaves the target as it is on close and on failed setup.
+   * It does not restore the Workspace tree or excluded paths there. Commits are unchanged.
+   */
+  disposableTarget?: boolean
   host?: WorkspaceSessionHost
   materializeSources?: false
   onProgress?: (event: WorkspacePrepareSessionProgressEvent) => void | Promise<void>
@@ -300,6 +306,59 @@ export interface WorkspaceSnapshot {
   }>
 }
 
+export interface WorkspaceRevision {
+  id: string
+  parentId: string | null
+  createdAt: string
+  message?: string
+  metadata?: Record<string, unknown>
+  files: number
+  bytes: number
+}
+
+export interface WorkspaceHistoryCommitOptions {
+  /** The expected published head. Use null for the first revision. */
+  ifHead: string | null
+  /** The complete desired file set. Omitted paths are deleted. */
+  files: Record<string, WorkspaceContent>
+  message?: string
+  metadata?: Record<string, unknown>
+}
+
+export interface WorkspaceHistoryListOptions {
+  cursor?: string
+  limit?: number
+}
+
+export interface WorkspaceHistoryListResult {
+  revisions: WorkspaceRevision[]
+  cursor?: string
+}
+
+export interface WorkspaceRevisionView {
+  readonly revision: WorkspaceRevision
+  /** File digests, when provided, are SHA-256 of the retained bytes. */
+  list(path?: string, options?: ListOptions): Promise<WorkspaceEntry[]>
+  stat(path: string): Promise<WorkspaceStat>
+  readFile<TOptions extends ReadFileOptions | undefined = undefined>(path: string, options?: TOptions): Promise<ReadFileResult<TOptions>>
+}
+
+export interface WorkspaceHistoryReader {
+  head(): Promise<WorkspaceRevision | null>
+  list(options?: WorkspaceHistoryListOptions): Promise<WorkspaceHistoryListResult>
+  open(id: string): Promise<WorkspaceRevisionView>
+  /** Unique uncompressed file bytes retained across published revisions. */
+  usage(): Promise<{ bytes: number, objects: number }>
+}
+
+export interface WorkspaceRetainedHistory extends WorkspaceHistoryReader {
+  commit(options: WorkspaceHistoryCommitOptions): Promise<WorkspaceRevision>
+}
+
+export interface WorkspaceStoreHistory extends WorkspaceHistoryReader {
+  commit(options: Omit<WorkspaceHistoryCommitOptions, "files"> & { files: Record<string, WorkspaceFile> }): Promise<WorkspaceRevision>
+}
+
 export interface WorkspaceDiffEntry {
   path: string
   type: "added" | "modified" | "removed"
@@ -323,6 +382,7 @@ export interface WorkspaceRebaseOptions {
 }
 
 export interface WorkspaceStore {
+  history?: WorkspaceStoreHistory
   readFile(path: string): Promise<WorkspaceFile | undefined>
   writeFile(path: string, file: WorkspaceFile): Promise<void>
   writeFileConditional?(path: string, file: WorkspaceFile, ifDigest: string | null): Promise<void>
@@ -337,7 +397,7 @@ export interface WorkspaceStore {
   rebase?(options?: WorkspaceRebaseOptions): Promise<void>
   diff(options?: DiffOptions): Promise<WorkspaceDiff>
   getMeta?(key: string): Promise<unknown>
-  setMeta?(key: string, value: unknown): Promise<void>
+  setMeta?(key: string, value: unknown, capability?: symbol): Promise<void>
 }
 
 export interface SourceContextWorkspaceFiles {
@@ -690,15 +750,17 @@ export interface ResolvedWorkspaceModuleOptions {
 
 export interface WorkspaceCapabilities {
   conditionalWrites: boolean
+  retainedHistory?: boolean
 }
 
 export interface Workspace {
   name: string
+  history: WorkspaceRetainedHistory
   capabilities?(): Promise<WorkspaceCapabilities>
   sync(options: WorkspaceSyncOptions): Promise<WorkspaceSourceSyncResult>
   materializeSources?(options?: WorkspaceMaterializeSourcesOptions): Promise<WorkspaceMaterializeSourcesResult>
   getMeta?(key: string): Promise<unknown>
-  setMeta?(key: string, value: unknown): Promise<void>
+  setMeta?(key: string, value: unknown, capability?: symbol): Promise<void>
   readFile<TOptions extends ReadFileOptions | undefined = undefined>(path: string, options?: TOptions): Promise<ReadFileResult<TOptions>>
   writeFile(path: string, content: WorkspaceContent, options?: WriteFileOptions): Promise<string>
   list(path?: string, options?: ListOptions): Promise<WorkspaceEntry[]>

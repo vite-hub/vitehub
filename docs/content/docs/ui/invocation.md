@@ -6,7 +6,7 @@ navigation.group: Agent work
 icon: i-ph-activity-light
 ---
 
-`AgentInvocation` turns the append-only observations of one Agent Invocation into a conversation. Messages show their role. Commands, reasoning, tool calls, and file changes collapse into one work group that expands in place. Use it to review what an Agent did, live or after the run.
+`AgentInvocation` turns the append-only observations of one Agent Invocation into a conversation. User messages are bubbles and replies are plain text. Commands, reasoning, tool calls, and file changes collapse into one work group that expands in place. Use it to review what an Agent did, live or after the run.
 
 ::component-preview{name="InvocationExample" flush}
 ::
@@ -25,7 +25,11 @@ The component receives data that your application already loaded and authorized.
 
 ## How the thread reads
 
-- The prompt shows its known author. Other user messages show **You**. Replies show **Assistant**. User prompts align to the end.
+- User messages are right-aligned bubbles without a visible role label. Replies are plain text. Screen readers still hear **You**, **Assistant**, **System**, and **Tool**. The prompt's known author and its time appear in a row that shows on hover.
+- The work group reads **Working…** with the elapsed time while the Invocation runs, and **Worked for 1m 12s** after it settles. Each activity is one row: an icon, a sentence, a muted detail, and a chevron when the row can expand.
+- Tool identifiers become sentences. `exec_command` reads **Ran command**, `apply_patch` reads **Changed files**, and other snake_case names drop their underscores. A `label` in the recorded tool catalog wins over the identifier.
+- A failed tool step tints its icon. A failed Invocation adds a red **Session failed** row. The terminal error also appears above the thread.
+- Drivers often record the prompt again as the first user message. The thread shows it once.
 - A completed `reply` or `update` delivery with captured content is the answer the user saw. It appears as an assistant message after the work group, also when the Invocation has no visible prompt. The delivery row stays in the work group without a second copy of the text.
 - When the delivered text equals the final assistant message, only the message appears. Status updates and failed deliveries keep their text in the work group.
 

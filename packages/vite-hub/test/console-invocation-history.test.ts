@@ -5,9 +5,9 @@ import { describe, expect, it, vi } from "vitest"
 import { consoleRpcHeader, consoleRpcMethods } from "../src/console/runtime/rpc.ts"
 import { installConsoleAgentDefinitions } from "../src/console/runtime/server/agents.ts"
 import { installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
-import { handleConsoleRpcRequest } from "../src/console/runtime/server/rpc.ts"
 
 import type { AgentRunContext, MessagePart } from "@vite-hub/agent"
+import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
 
 function setup() {
   const run = vi.fn((_context: AgentRunContext) => "From the requested receipt date.")

@@ -26,6 +26,9 @@ it("publishes Env error codes for the shared ViteHubError contract", async () =>
       await cp(join(sourceRoot, "dist"), join(installedPackageRoot, "dist"), { recursive: true })
     }
 
+    // Runtime's public diagnostic types refer to its production dependency.
+    await cp(join(runtimeRoot, "node_modules", "nostics"), join(root, "node_modules", "nostics"), { dereference: true, recursive: true })
+
     await execFileAsync(process.execPath, [tsc, "--noEmit", "-p", root])
   }
   finally {

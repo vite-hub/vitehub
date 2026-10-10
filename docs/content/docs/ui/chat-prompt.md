@@ -1,7 +1,7 @@
 ---
 title: Chat Prompt
 description: Collect prompt text and file attachments with a submit control that follows the AI SDK chat status.
-navigation.order: 14
+navigation.order: 24
 navigation.group: Chat
 icon: i-ph-paper-plane-tilt-light
 ---
@@ -93,6 +93,7 @@ Other attributes go to `UChatPrompt`.
 | Slot      | Scope                                    | Description                                         |
 | --------- | ---------------------------------------- | --------------------------------------------------- |
 | `files`   | `{ files, remove }`                      | Replaces the attachment row. Call `remove(index)` to remove a file. |
+| `footer-leading` |                                   | Controls at the start of the footer, before the attachment button. Use it for a model or profile picker. |
 | `actions` |                                          | Replaces the attachment button.                     |
 | `submit`  | `{ status, canSubmit, preparingFiles }`  | Replaces the submit button.                         |
 

@@ -1,7 +1,6 @@
 import { resolve } from "node:path";
-import { addServerHandler, defineNuxtModule } from "nuxt/kit";
+import { defineNuxtModule } from "nuxt/kit";
 import { writeDocsArtifacts } from "./artifacts";
-import { laneLlmsRoutes } from "./runtime/utils/lane-llms";
 import { createCapabilityReferences, writeCapabilityReferences } from "./capability-references";
 import { createDocsRedirectRouteRules } from "./redirects";
 
@@ -27,7 +26,7 @@ function removeDocusCatchAllPage(pages: Array<{ path?: string, file?: string }>)
 
 export function isDocsArtifactSource(path: string) {
   const normalizedPath = path.replace(/\\/g, "/");
-  return /content\/(?:docs|blog|trust)\/.*\.md$/.test(normalizedPath)
+  return /content\/(?:docs|trust)\/.*\.md$/.test(normalizedPath)
     || /content\/docs\/(?:.*\/)?\.navigation\.yml$/.test(normalizedPath);
 }
 
@@ -38,7 +37,6 @@ export default defineNuxtModule({
   async setup(_options, nuxt) {
     const docsRoot = nuxt.options.rootDir;
     const outputDir = resolve(docsRoot, ".generated");
-    const agentErrorHandler = resolve(docsRoot, "server/error-handler.ts");
     const llmsRawLinksPlugin = resolve(docsRoot, "modules/vitehub-docs/runtime/server/llms-raw-links.ts");
 
     const capabilityReferences = await createCapabilityReferences();
@@ -53,26 +51,23 @@ export default defineNuxtModule({
         writeDocsArtifacts({ capabilityReferences, docsRoot, outputDir });
       }
     });
-    addServerHandler({
-      route: "/llms/:lane",
-      handler: resolve(docsRoot, "modules/vitehub-docs/runtime/server/llms-lane.ts"),
-    });
     nuxt.hook("prerender:routes", (context) => {
-      for (const route of [...collectPrerenderRoutes(manifest), ...laneLlmsRoutes()]) {
+      for (const route of collectPrerenderRoutes(manifest)) {
         context.routes.add(route);
       }
     });
     nuxt.hook("nitro:config", (config) => {
-      const configuredHandlers = config.errorHandler
-        ? Array.isArray(config.errorHandler) ? config.errorHandler : [config.errorHandler]
-        : [];
-      config.errorHandler = [agentErrorHandler, ...configuredHandlers];
       config.publicAssets ||= [];
       config.publicAssets.push({
         baseURL: "/raw",
         dir: resolve(outputDir, "raw"),
+        // A removed page has no raw file. Fall through so its redirect route rule answers.
+        fallthrough: true,
         maxAge: 300,
       });
+      // Negotiated pages and `.md` twins read the same files through `server/routes/raw`.
+      config.serverAssets ||= [];
+      config.serverAssets.push({ baseName: "vitehub-raw", dir: resolve(outputDir, "raw") });
       config.plugins ||= [];
       config.plugins.push(llmsRawLinksPlugin);
     });

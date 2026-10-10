@@ -3,8 +3,7 @@ import { defineDiagnostics } from "nostics"
 import { normalizeRuntimeDiagnosticError } from "@vite-hub/runtime"
 
 import { defineAgent, defineCapability, runAgentInline, streamAgentInline } from "../src/index.ts"
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
-import { isRuntimeRecord } from "../src/internal/runtime-type.ts"
+import { hasRuntimeType, isRuntimeRecord } from "../src/internal/runtime-type.ts"
 import { isAsyncIterable } from "../src/internal/stream-result.ts"
 
 const outputSchema = {

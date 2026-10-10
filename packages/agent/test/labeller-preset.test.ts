@@ -71,4 +71,23 @@ describe("labeller preset", () => {
     await finish({ message, result: { label: { choice: "Work", probabilities: { Work: 0.9 } } } })
     expect(calls).toEqual(["label:Work", "archive"])
   })
+
+  it("applies label actions to rule-selected labels", async () => {
+    const calls: string[] = []
+    const message = {
+      channel: "gmail",
+      label: async (name: string) => { calls.push(`label:${name}`) },
+      archive: async () => { calls.push("archive") },
+      markRead: async () => { calls.push("read") },
+      star: async () => { calls.push("star") },
+      trash: async () => { calls.push("trash") },
+    }
+    const agent = configured({
+      actions: { Receipts: { archive: true, star: true } },
+      rules: { receipts: { subject: "invoice", label: "Receipts" } },
+    })
+    const finish = agent.hooks?.["agent:finish"] as unknown as (event: { message: unknown, result: unknown }) => Promise<void>
+    await finish({ message, result: { label: "Receipts", rule: "receipts" } })
+    expect(calls).toEqual(["label:Receipts", "archive", "star"])
+  })
 })

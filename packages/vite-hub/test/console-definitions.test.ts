@@ -8,12 +8,15 @@ import {
   installConsoleDefinitionScope,
   resolveConsoleDefinitions,
 } from "../src/console/internal.ts"
-import definitionsHandler from "../src/console/runtime/server/definitions.get.ts"
+import definitionsHandlerRoute from "../src/console/runtime/server/definitions.get.ts"
 import { installConsoleDefinitions } from "../src/console/runtime/server/definitions.ts"
 
 import type { ConsoleDefinitionSummary, ConsoleSectionCatalog } from "../src/console/runtime/definitions.ts"
 import type { ConsoleInvocationScope } from "../src/console/internal.ts"
 import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.ts"
+import { allowed } from "./support/console-access.ts"
+
+const definitionsHandler = allowed(definitionsHandlerRoute)
 
 // SAFETY: ConsoleInvocationScope only adds optional symbol-keyed test state to the global object.
 const scope = globalThis as ConsoleInvocationScope

@@ -67,6 +67,10 @@
       "types": "./dist/cloudflare/state.d.ts",
       "import": "./dist/cloudflare/state.js"
     },
+    "./env-identity": {
+      "types": "./dist/env-identity.d.ts",
+      "import": "./dist/env-identity.js"
+    },
     "./eval": {
       "types": "./dist/eval.d.ts",
       "import": "./dist/eval.js"
@@ -82,6 +86,10 @@
     "./evlog/posthog": {
       "types": "./dist/evlog/posthog.d.ts",
       "import": "./dist/evlog/posthog.js"
+    },
+    "./gateways": {
+      "types": "./dist/gateways.d.ts",
+      "import": "./dist/gateways.js"
     },
     "./invocations/d1": {
       "types": "./dist/invocations/d1.d.ts",
@@ -127,6 +135,10 @@
       "types": "./dist/presets/labeller.d.ts",
       "import": "./dist/presets/labeller.js"
     },
+    "./presets/babysitter/server": {
+      "types": "./dist/presets/babysitter/server.d.ts",
+      "import": "./dist/presets/babysitter/server.js"
+    },
     "./presets/workspace": {
       "types": "./dist/presets/workspace.d.ts",
       "import": "./dist/presets/workspace.js"
@@ -134,6 +146,10 @@
     "./runtime/empty-registry": {
       "types": "./dist/runtime/empty-registry.d.ts",
       "import": "./dist/runtime/empty-registry.js"
+    },
+    "./runtime/invocations-dev": {
+      "types": "./dist/runtime/invocations-dev.d.ts",
+      "import": "./dist/runtime/invocations-dev.js"
     },
     "./runtime/process": {
       "types": "./dist/runtime/process.d.ts",
@@ -158,6 +174,10 @@
     "./server/internal": {
       "types": "./dist/server/internal.d.ts",
       "import": "./dist/server/internal.js"
+    },
+    "./server/registry": {
+      "types": "./dist/server/registry.d.ts",
+      "import": "./dist/server/registry.js"
     },
     "./server/workspace": {
       "types": "./dist/server/workspace.d.ts",
@@ -196,9 +216,11 @@
     "@standard-schema/spec": "catalog:runtime",
     "@valibot/to-json-schema": "catalog:runtime",
     "@t3tools/provider-runtime": "catalog:",
-    "@vercel/connect": "2.0.1",
+    "@vercel/connect": "2.4.0",
     "@vercel/nft": "catalog:vercel",
+    "@yarnpkg/parsers": "catalog:tooling",
     "@vite-hub/box": "workspace:*",
+    "@vite-hub/env": "workspace:*",
     "@vite-hub/markdown-template": "workspace:*",
     "@vite-hub/rate-limit": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
@@ -208,27 +230,30 @@
     "comark": "catalog:markdown",
     "effect": "catalog:effect",
     "esbuild": "catalog:esbuild-v27",
+    "forges": "catalog:",
     "nostics": "catalog:runtime",
     "proper-lockfile": "catalog:",
-    "valibot": "catalog:runtime"
+    "valibot": "catalog:runtime",
+    "yaml": "catalog:tooling"
   },
   "devDependencies": {
     "@agntn/web": "catalog:ai",
     "advocaat": "catalog:ai",
     "@ai-sdk/mcp": "catalog:ai",
     "@chat-adapter/discord": "catalog:chat",
-    "@github-tools/eve-extension": "0.7.0",
+    "@github-tools/eve-extension": "0.8.0",
     "@types/json-schema": "catalog:ai",
     "@types/mdast": "catalog:markdown",
     "@types/node": "catalog:tooling",
     "@types/proper-lockfile": "catalog:",
     "@vercel/functions": "catalog:vercel",
+    "@vite-hub/connections": "workspace:*",
     "@vite-hub/internal": "workspace:*",
     "@vite-hub/schedule": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
     "evalite": "catalog:ai",
-    "eve": "0.46.1",
-    "miniflare": "4.20260714.0",
+    "eve": "0.72.1",
+    "miniflare": "4.20260730.0",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",
@@ -236,8 +261,8 @@
     "vitest": "catalog:tooling",
     "zod": "catalog:runtime",
     "vue": "catalog:ui",
-    "evlog": "^2.28.1",
-    "posthog-node": "^5.51.6"
+    "evlog": "^2.29.0",
+    "posthog-node": "^5.55.0"
   },
   "optionalDependencies": {
     "@ai-sdk/mcp": "catalog:ai",
@@ -259,8 +284,9 @@
     "vite": "catalog:vite-compat",
     "vitest": "catalog:tooling",
     "vue": "catalog:ui",
-    "evlog": "^2.28.1",
-    "posthog-node": "^5.51.6"
+    "eve": "0.46.1 || 0.72.1",
+    "evlog": "^2.29.0",
+    "posthog-node": "^5.55.0"
   },
   "peerDependenciesMeta": {
     "@agntn/web": {
@@ -300,6 +326,9 @@
       "optional": true
     },
     "vue": {
+      "optional": true
+    },
+    "eve": {
       "optional": true
     },
     "evlog": {

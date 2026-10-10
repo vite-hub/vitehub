@@ -1,4 +1,5 @@
 import { consoleD1Binding, consoleDatabaseUrl, withDataDir } from "./storage-config.ts"
+import { applyCacheStorage, resolveCacheStorage, type CacheOptions } from "./cache.ts"
 import { existsSync, readFileSync } from "node:fs"
 import { basename, dirname, join, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -35,6 +36,7 @@ import { assertDeploymentService, deploymentPresetFromNitro, normalizeNitroPrese
 import { viteHubTypesPlugin } from "./internal/types.ts"
 import { consoleConnectionsActorId } from "./console/auth-build.ts"
 import { agentChannelEnvPlugin } from "./agent-channel-env.ts"
+import { databaseDisabledPlugin } from "./database-disabled.ts"
 import { consoleInvocationRootPlugin, consoleVitePlugin, type ConsoleOptions } from "./console/vite.ts"
 import { observabilityVitePlugin, type ObservabilityOptions } from "./observability-vite.ts"
 import { resolveConsoleSectionIds } from "./console/runtime/sections.ts"
@@ -61,8 +63,10 @@ import type { WorkflowModuleOptions } from "@vite-hub/workflow"
 import type { WorkspaceModuleOptions } from "@vite-hub/workspace"
 import type { PublicUrlConfig } from "@vite-hub/runtime"
 import type { Plugin, PluginOption, ResolvedConfig, UserConfig } from "vite"
+import type { DoctorPluginApi } from "vite-doctor/extension"
 import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
 
+export type { CacheOptions } from "./cache.ts"
 export type { ConsoleOptions } from "./console/vite.ts"
 export type { ObservabilityEvlogOptions, ObservabilityOptions } from "./observability-vite.ts"
 
@@ -268,6 +272,12 @@ export interface ViteHubOptions {
   auth?: true | AuthModuleOptions
   blob?: boolean | BlobModuleOptions
   browser?: boolean | BrowserModuleOptions
+  /**
+   * Storage for Nitro's `cache` mount, which `defineCachedFunction()` and `defineCachedEventHandler()` use.
+   * `true` selects the preset's store: Workers KV binding `CACHE`, Vercel Runtime Cache, Deno KV, or `.vitehub/data/cache` on Node.
+   * Development always uses `.vitehub/data/cache`.
+   */
+  cache?: boolean | CacheOptions
   channels?: boolean | ChannelsVitePluginOptions
   /** App-owned OAuth Connections in `server/connections/`. Requires `database`. */
   connections?: boolean | ConnectionsVitePluginOptions
@@ -367,6 +377,7 @@ function requiredCloudflareSecretNames(registry: EnvRuntimeRegistry): string[] {
     const entry = cloneRecord(value)
     const source = cloneRecord(entry.source)
     if (source.kind === "env" && typeof source.name === "string") {
+      // Wrangler cannot express alternatives, including canonical and conventional names.
       const sources = Array.isArray(source.names) ? source.names : [source.name]
       if (
         entry.required === true
@@ -480,6 +491,7 @@ function deploymentPlugins(
   envPlugin: EnvVitePlugin | undefined,
 ): Plugin[] {
   let deployCommandOwned = false
+  const cacheStorage = options.cache ? resolveCacheStorage(options.cache, plan.preset) : undefined
   const resolvedBuildConfigs = new WeakMap<object, { current: ResolvedBuildConfig }>()
   let providerOutput: ReturnType<typeof useProviderOutputCatalog> | undefined
   let deploymentRoot: string | undefined
@@ -649,6 +661,7 @@ function deploymentPlugins(
             nitro = composeNitroCloudflareProviderOutput(providerOutput, nitro)
           }
         }
+        if (cacheStorage) nitro = applyCacheStorage(nitro, cacheStorage)
         ;(config as { nitro?: unknown }).nitro = nitro
       },
     },
@@ -792,6 +805,18 @@ function publicUrlPlugin(publicUrl: ViteHubOptions["publicUrl"]): Plugin {
   }
 }
 
+// Vite Doctor reads `api.doctor` from installed plugins and loads the extension only during a Doctor Run.
+function doctorPlugin(): Plugin {
+  return {
+    name: "vite-hub/doctor",
+    api: {
+      doctor: {
+        extensions: [() => import("./doctor.ts")],
+      } satisfies DoctorPluginApi,
+    },
+  }
+}
+
 export function vitehub(options: ViteHubOptions): PluginOption[] {
   if (!options || typeof options !== "object") throw viteHubErrorDiagnostics.VITE_HUB_R0085({ message: "vitehub() requires a built-in deployment preset." })
   options = withDataDir(options)
@@ -822,7 +847,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
     : []
   const workflowEnabled = options.workflow !== false && Boolean(options.agent || options.workflow)
   const consoleSections = resolveConsoleSectionIds({ ...options, env: options.env !== false, blob: blobEnabled, preset: plan.preset, sandbox: sandboxEnabled })
-  const plugins: unknown[] = [hubMarkdownTemplate()]
+  const plugins: unknown[] = [doctorPlugin(), hubMarkdownTemplate()]
   const requestedServices: DeploymentService[] = []
   if (options.blob !== undefined && options.blob !== false && !hasExplicitBlobStore(options.blob)) requestedServices.push("blob")
   if (options.queue) requestedServices.push("queue")
@@ -860,6 +885,16 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   configureProviderOptionalImportAliases(providerImportAliases, options, presetKVOptions || undefined)
   const workspaceDependencyRuntimeImports = frameworkWorkspaceDependencyRuntimeImports(sandboxEnabled)
 
+  if (!options.database) {
+    const databaseRuntimeImports = new Map<string, string>()
+    for (const specifier of ["vite-hub/database/drizzle", "@vite-hub/database/drizzle"]) {
+      databaseRuntimeImports.set(specifier, specifier)
+      // Vite applies the framework alias first, so resolveId can receive the facade path.
+      const facade = frameworkProviderImportAliases[specifier]
+      if (facade) databaseRuntimeImports.set(facade, specifier)
+    }
+    plugins.push(databaseDisabledPlugin(databaseRuntimeImports, options.database === false))
+  }
   plugins.push(frameworkDependencyResolver(options, envPlugin, providerImportAliases, blobEnabled, presetKVOptions || undefined))
 
   if (options.observability) {
@@ -879,6 +914,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
     plugins.push(consoleVitePlugin({
       blobStores: consoleBlobStores,
       console: options.console === true ? true : options.console,
+      connections: options.connections,
       resolveD1Binding: (root, serverDirs) => consoleD1Binding(plan.preset, options.database, { root, serverDirs }),
       databaseUrl: consoleDatabaseUrl(options),
       databaseDiscoveryRoot: options.database && options.database !== true ? options.database.projectRoot : undefined,
@@ -965,14 +1001,12 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
     if (options.connections !== true && options.connections.management && !options.console) {
       throw viteHubErrorDiagnostics.VITE_HUB_R0126({ message: '[vitehub] connections.management requires Console production access. Set console: { access: "auth" } or console: { exposure: "host-managed" }.' })
     }
-    plugins.push(hubConnections({
-      ...(options.connections === true ? {} : options.connections),
-      ...(options.connections !== true && options.connections.management === true && options.console && consoleSections.includes("connections")
-        ? { management: { actor: consoleConnectionsActorId } }
-        : {}),
-      database: "vite-hub/database/drizzle",
-      importBase: "vite-hub/connections",
-    }))
+    const connectionsOptions: ConnectionsVitePluginOptions = options.connections === true
+      ? { database: "vite-hub/database/drizzle", importBase: "vite-hub/connections" }
+      : { ...options.connections, database: "vite-hub/database/drizzle", importBase: "vite-hub/connections" }
+    // The Console actor module checks the Console or app Auth session in every management route.
+    if (!connectionsOptions.actor && options.console && consoleSections.includes("connections")) connectionsOptions.actor = consoleConnectionsActorId
+    plugins.push(hubConnections(connectionsOptions))
   }
   else plugins.push(hubConnectionsTypesCleanup())
   if (options.database) plugins.push(hubDb(options.database === true ? undefined : options.database))

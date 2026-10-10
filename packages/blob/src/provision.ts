@@ -61,7 +61,10 @@ async function listCloudflareR2BucketNames(request: CloudflareProvisionRequest):
       parse: parseCloudflareBuckets,
       query,
     })
-    for (const bucket of listed.result?.buckets ?? []) {
+    if (listed.result === undefined) {
+      throw blobErrorDiagnostics.BLOB_R0018({ message: "Cloudflare R2 provisioning returned an invalid bucket list." })
+    }
+    for (const bucket of listed.result.buckets ?? []) {
       if (bucket.name) names.add(bucket.name)
     }
 
@@ -91,7 +94,7 @@ async function createCloudflareR2Bucket(request: CloudflareProvisionRequest, buc
 }
 
 function parseObject(value: unknown): Record<string, unknown> {
-  if (!value || Object(value) !== value) throw blobErrorDiagnostics.BLOB_R0018({ message: "Provisioning returned an invalid response." })
+  if (!value || Object(value) !== value || Array.isArray(value)) throw blobErrorDiagnostics.BLOB_R0018({ message: "Provisioning returned an invalid response." })
   // SAFETY: The object check establishes the string-keyed JSON object representation.
   return value as Record<string, unknown>
 }
@@ -109,7 +112,18 @@ function parseVercelBlobStoreCreateResponse(value: unknown): VercelBlobStoreCrea
 }
 
 function parseCloudflareBuckets(value: unknown): { buckets?: CloudflareR2Bucket[] } {
-  return parseObject(value)
+  const object = parseObject(value)
+  const buckets = object.buckets
+  if (!Array.isArray(buckets)
+    || Array.from(buckets).some((bucket, index) => !(index in buckets)
+      || bucket === null
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Bucket entries come from untrusted Cloudflare JSON and must be object-checked before field access.
+      || typeof bucket !== "object"
+      || Array.isArray(bucket))) {
+    throw blobErrorDiagnostics.BLOB_R0018({ message: "Cloudflare R2 provisioning returned an invalid bucket list." })
+  }
+  // SAFETY: The array and element boundary above establish the provider response shape.
+  return object as { buckets: CloudflareR2Bucket[] }
 }
 
 function parseCloudflareBucket(value: unknown): CloudflareR2Bucket {

@@ -33,7 +33,7 @@ The Agent can use only the Capabilities selected for that Invocation. A Capabili
 
 A Channel can start many Invocations, and a Workflow Run can carry an Invocation. Neither one replaces the Invocation record.
 
-Run `vitehub agent info` to inspect the resolved Agent Definition. Run `vitehub agent dev` to talk to the Agent through a running Vite development server. Read [Runtime policy, approvals, and traces](/docs/concepts/runtime-policy-approvals-and-traces) for the records produced during execution.
+Run `vitehub agent info` to inspect the resolved Agent Definition. Run `vitehub agent dev` to talk to the Agent through a running Vite development server. Read [Runtime policy, approvals, and traces](/docs/agents/runtime-policy) for the records produced during execution.
 
 ## Run an Agent
 
@@ -69,7 +69,7 @@ export default defineEventHandler(async (event) => {
 
 Authenticate the request before passing trusted identity or access facts. `context.invoker` is the current input field for an [Agent Actor](/docs/agents/actors).
 
-The second argument is [Runtime Context](/docs/concepts/runtime-context); the third is invocation input. The H3 `getRuntimeContext()` adapter supplies `runtime`, a fresh `memo` cache, and tracked `waitUntil` work. The example drains background work before returning and reports background failures separately.
+The second argument is [Runtime Context](/docs/reference/runtime-context); the third is invocation input. The H3 `getRuntimeContext()` adapter supplies `runtime`, a fresh `memo` cache, and tracked `waitUntil` work. The example drains background work before returning and reports background failures separately.
 
 ### Run without a host context
 
@@ -107,7 +107,7 @@ export default defineEventHandler(async (event) => {
 
 Use `output: 'ui-message-stream'` for an AI SDK-compatible chat response. Use `output: 'events'` when server code needs ViteHub stream events.
 
-Streaming routes must provide a real host `waitUntil` lifetime through the event or the adapter options. A drain before returning cannot cover work scheduled when the caller consumes or cancels the stream. See [Runtime Context](/docs/concepts/runtime-context#background-work-and-cleanup).
+Streaming routes must provide a real host `waitUntil` lifetime through the event or the adapter options. A drain before returning cannot cover work scheduled when the caller consumes or cancels the stream. See [Runtime Context](/docs/reference/runtime-context#background-work-and-cleanup).
 
 The stream becomes terminal when the caller consumes it, cancels it, or receives an error. A caller that abandons the stream also abandons completion observation.
 
@@ -229,7 +229,7 @@ export default defineAgent({
 
 Pass the OTLP base endpoint; ViteHub appends `/v1/logs` and `/v1/traces`. With `live: true`, new Trace Events are batched as correlated OTLP LogRecords while the invocation runs, then ViteHub exports one completed trace. Without `live`, it exports only the completed trace and retains Trace Events as span events. Invocation content is metadata-only by default. Use `content.inputs`, `content.outputs`, and `content.instructions` to opt a trusted receiver into each content class independently.
 
-Export runs through `runtime.waitUntil()`, so delivery failures do not replace the Agent result. See [`otlp()`](/docs/capabilities/otlp) for batching, deduplication, privacy, and Capability-contribution details.
+Export runs through `runtime.waitUntil()`, so delivery failures do not replace the Agent result. See [`otlp()`](/docs/agents/capabilities/otlp) for batching, deduplication, privacy, and Capability-contribution details.
 
 To persist a queryable invocation journal, attach Agent Invocations to the Agent Definition. Storage durability and recovery guarantees still depend on the selected store and host lifecycle. The SQLite adapter accepts a local SQLite or remote libSQL URL:
 
@@ -252,6 +252,8 @@ export default defineAgent({
 })
 ```
 
+For a local database file, the SQLite adapter sets the WAL journal mode and `synchronous = NORMAL`. A process crash does not lose committed updates, but a power loss can drop the latest commits. Remote libSQL URLs keep their own settings. While an Invocation runs, the adapter stores each new observation in its own row in the `vitehub_agent_invocations_observations` table, so an update does not rewrite the complete record. The terminal update moves all observations into the `record` column. If you query the tables directly, read running records through `invocations.get(id)`.
+
 Use `invocations.getSummary(id)` to read metadata without observation payloads. It returns `undefined` when the Invocation does not exist. Every `AgentInvocationStore` must implement `getSummary(id)`; `get(id)` returns the full record.
 
 Custom stores must enforce `claim(id, claimId, leaseMs, { expectedClaimIds })` atomically. Unless `replaceExisting` is `true`, this form can claim an unclaimed record or replace one of the listed claim IDs. It must reject a different owner, including an expired claim. Journals rotate the claim ID for handoff and after an uncertain renewal so cleanup of a timed-out attempt cannot release a newer claim. `release(id, claimId)` must release only that claim ID. The memory, libSQL, and D1 stores enforce these rules.
@@ -266,7 +268,7 @@ const record = await invocations.get(invocationId, {
 
 Names match exactly, and matching observations keep their journal order. Other record fields remain unchanged. An empty array returns no observations; omitting `observationNames` returns all retained observations. Both forms return `undefined` for a missing Invocation. D1 and libSQL filter observation payloads in storage. Custom stores may ignore the optional read options; the Invocations wrapper still filters the returned record.
 
-The SQLite adapter keeps at most 10,000 terminal records from the last 30 days by default. Pending and running invocations remain available until they reach a terminal state. Set `maxAgeMs` or `maxRecords` to `false` to disable that limit. Retention runs after successful creates and terminal transitions, so a journal without either event may retain an expired record.
+The SQLite adapter keeps at most 10,000 terminal records from the last 30 days by default. Pending and running invocations remain available until they reach a terminal state. Set `maxAgeMs` or `maxRecords` to `false` to disable that limit. Retention runs on creates and terminal transitions, so a journal without either event may retain an expired record. The age limit reads only the records it deletes. The count limit reads about `maxRecords` rows, so the SQLite and D1 adapters apply it on about 1 in `ceil(maxRecords / 100)` of these writes. Between runs, the terminal record count can exceed `maxRecords` by about 1%. `invocations.prune()` applies both limits immediately.
 
 Delete or prune terminal records on demand:
 
@@ -315,20 +317,9 @@ const invocations = defineAgentInvocations({
 })
 ```
 
-`redact` runs after the content policy and before the journal bounds the observation. It applies to observations streamed during the run, observations that the journal persists after the run finishes, and `appendObservation()` evidence. The journal calls it once for each observation, also when a write is retried. Return `undefined` to drop the observation; `appendObservation()` then returns the unchanged record. `redactError` receives the bounded error and its return value is stored as is. Return `undefined` to store no error details; the record status stays `failed`. A hook that throws drops the observation or the error details. Both hooks must be synchronous. The journal preserves its internal `vitehub.observation.id` after redaction so retries can identify evidence that was already stored. They do not change the live trace log, hook events, or OTLP export.
+`redact` runs after the content policy and before the journal bounds the observation. It applies to streamed observations, persisted observations, and `appendObservation()` evidence. Return `undefined` to drop evidence; `redactError` can likewise return `undefined` to store no error details while the record remains `failed`. Both hooks are synchronous.
 
-`agent:finish` and `agent:error` hook events include `event.invocation.traceId` after journal creation confirms the stored record identity. It equals the `traceId` on that record. Hooks wait at most one second for pending creation, then proceed without this field if creation is still unresolved. This preserves the Agent result or original error:
-
-```ts
-hooks: {
-  'agent:finish': async (event) => {
-    if (event.invocation.traceId === undefined) return
-    await audit.insert({ traceId: event.invocation.traceId, text: event.text })
-  },
-}
-```
-
-The journal records pending, running, completed, failed, and cancelled states plus bounded invocation metadata and trace observations. Failed records retain bounded `cause` and `AggregateError.errors` trees, common status and code fields, and public ViteHub error details. Use `invocations.list()` for cursor-based summaries, `invocations.get(id)` for a stored record ID, and `invocations.getByRunId(runId, agentName?)` when starting from the source run ID. Always pass the Agent Definition name for a named Definition; the name is part of its durable invocation identity. When the Console is enabled, a discovered Definition without `name` records its discovered name, such as `labeller` for `server/agents/labeller.ts`, also when server code calls `runAgent()` directly. If the same unnamed Definition is discovered under multiple names, direct calls remain unscoped because the Definition cannot identify the imported alias. Host calls still record their selected Agent name. Journal failures never change the Agent Invocation result.
+The journal records pending, running, completed, failed, and cancelled states plus bounded invocation metadata and trace observations. Failed records retain bounded `cause` and `AggregateError.errors` trees, common status and code fields, and public ViteHub error details. Use `invocations.list()` for cursor-based summaries, `invocations.get(id)` for a stored record ID, and `invocations.getByRunId(runId, agentName?)` when starting from the source run ID. Always pass the Agent Definition name for a named Definition; the name is part of its durable invocation identity. Trace persistence failures do not change the Agent Invocation result. The initial cancellation check must succeed before setup; a rejected, missing, or timed-out read fails startup with `AGENT_R0973`.
 
 Use `triggeredBy` to filter persisted summaries by the person label recorded in `annotations.triggeredBy`. It matches the trimmed label exactly and composes with Agent, Capability, status, and text filters:
 
@@ -378,7 +369,7 @@ vitehub agent invocations show INVOCATION_ID
 vitehub agent invocations tail INVOCATION_ID
 ```
 
-The CLI defaults to `http://localhost:5173/api/invocations`. Use `--url` or `VITEHUB_AGENT_INVOCATIONS_URL` for another local endpoint, and `--json` for automation-safe output.
+The CLI defaults to `http://localhost:5173/api/invocations`. Use `--url` or `VITEHUB_AGENT_INVOCATIONS_URL` for another local endpoint, and `--json` for automation-safe output. `vitehub agent invocations cancel INVOCATION_ID` sends a cancel request into the Nitro runtime of a Vite + Nitro Development Server. A deployed URL, such as `--url https://app.example.com`, uses that deployment's Console for `list`, `show`, `tail`, and `cancel`. See [Cancel an Agent Invocation](/docs/development/cli#cancel-an-agent-invocation) and [Inspect and cancel on a deployed app](/docs/development/cli#inspect-and-cancel-on-a-deployed-app).
 
 Delete and prune open a SQLite or libSQL journal directly:
 
@@ -447,6 +438,40 @@ const record = await invocations.appendObservation(invocationId, {
 ```
 
 The observation ID is required, must be at most 512 characters, and makes retries idempotent within that Invocation. The store assigns the sequence atomically. This operation does not change Invocation status or its active lease, and it applies the configured content policy. The result is the stored record, or `undefined` when the Invocation does not exist. A failed write or full observation capacity throws, so a caller cannot mistake an omitted event for durable evidence. An append uses the observation limits saved with the record, including after restart. It rejects before changing the record if count, byte, or provider row capacity would remove evidence. Accepted appends remain intact under later trace pressure until the whole Invocation is removed by retention. Keep the same observation ID when retrying a write whose result is unknown. Custom stores must implement the `appendObservation` field on `AgentInvocationStoreUpdateInput`; a store that ignores it fails explicitly.
+
+## Cancel an invocation
+
+Call `invocations.cancel(id)` to cancel a pending or running Invocation. The journal records `cancelRequestedAt` first, so every process that shares the store can read the request.
+
+```ts
+const result = await invocations.cancel(id)
+if (result.notEnforcedBy) console.warn(`Cancel requested, not enforced by ${result.notEnforcedBy}`)
+```
+
+| `outcome` | Meaning |
+| --- | --- |
+| `requested` | The request was recorded or sent locally. `delivery: 'local'` means a run in this process received an aborted signal. `delivery: 'journal'` means the store retained the request for a current or future execution owner. Neither confirms that execution stopped. A missing journal record still returns `requested` with local delivery if a local run received the request. |
+| `terminal` | The journal has a final state in `status`. A stale Driver may still be active. Local abort delivery and durable or local `notEnforcedBy` warnings remain in the result. A durable warning describes the Driver enforcement contract; it does not prove execution is still active. |
+| `not-found` | The journal has no Invocation with this id and no local run received the request. |
+| `unavailable` | The store did not keep the request and no run in this process holds the Invocation. |
+
+Before setup, active runs check for a journal cancellation request. A rejected or missing read, or a check that exceeds one second, fails startup with `AGENT_R0973`. After startup, active runs read journal requests every 10 seconds, including after a lost lease stops claim renewal. A crashed owner or expired lease does not prove that a Driver stopped. An orphaned record remains pending or running until execution recovery observes its request; cancellation does not recover orphaned work or promise a completion deadline. Repeating the request does not change that state. Read the final journal status to confirm cancellation.
+
+The Development Server command `vitehub agent invocations cancel <id>` checks all registered journals before cancellation. If distinct journals contain the same ID, it rejects the request with HTTP `409` without changing either record. Call the intended Agent's `invocations.cancel(id)` to select its journal. Registry entries that share one journal are checked once. If any journal lookup fails, the request fails before cancellation because uniqueness cannot be verified.
+
+If the durable request write fails, cancellation still aborts a local run and propagates the storage error. This does not create a durable request for other processes.
+
+A local abort can signal a stale execution owner after lease replacement. Cancellation results also retain the current journal owner's durable Driver warning. The pending marker includes `cancelWarningOwnerId`, which identifies its execution owner. A local handle for another owner must verify that marker before reporting success. Custom stores preserve both pending fields; clearing `cancelWarningPending` also clears its owner ID.
+
+An observed cancel request aborts the Invocation abort signal. That signal stops the Driver capacity wait, the Driver run, tool calls, queued webhook executions, and scheduled turns. A webhook failure caused by cancellation completes its delivery without a retry. An unrelated failure still retries, even if the Invocation has a historical cancellation request. The record then moves to `cancelled` through the usual `agent.invocation.cancelled` event.
+
+| Driver | Cancel |
+| --- | --- |
+| `model` | Enforced. The AI SDK request receives the abort signal. |
+| `provider` (`claude-code`, `codex`) | Enforced. The provider session receives the abort signal. |
+| `run` | Not enforced. The handler receives `context.input.abortSignal` and can stop on its own. ViteHub cannot stop it. |
+
+Cancellation before Driver dispatch stops startup without a `notEnforcedBy` warning. New custom Driver journals persist `cancelWarningPending` at creation until dispatch can be verified. A reused record must confirm this pending state before dispatch if its running update fails. After dispatch, they retry the warning write for up to one minute. A cancellation caller in another process waits up to five seconds for a pending state to become a durable warning or a terminal record. If it cannot verify that state, `cancel()` throws `AGENT_R0974`; the cancellation request is already recorded. Inspect the journal again to confirm the result. Terminal writes preserve `cancelNotEnforcedBy` even if an earlier warning write failed. Custom stores must preserve `cancelWarningPending` on creation and update and clear it when `applyAgentInvocationStoreUpdate()` receives `false`. When a started Driver does not enforce cancel, the result has `notEnforcedBy`, and the record keeps `cancelNotEnforcedBy` and `cancelRequestedAt`. The record stays `running` until the Driver returns. ViteHub does not report the Invocation as cancelled.
 
 ## Inspect invocations in the console
 
@@ -567,3 +592,7 @@ it rejects an active lease, a closed PR, or an outdated head. It records the res
 reason separately and preserves already credited evidence IDs. Keep these operations
 behind the application's operator authorization. Do not call reset on every webhook
 or deployment. The inbox cannot prove an application's evidence or authorization.
+
+An expired execution lease does not prove that its Driver stopped. Cancellation of an unowned running Invocation remains a durable request until the execution owner observes it.
+
+Cancellation of an unowned pending Invocation remains a durable request. A later worker reads the request before starting its Driver and records cancellation. Pending journal status alone does not prove that an earlier Driver never started.

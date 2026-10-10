@@ -1,4 +1,15 @@
 export {
+  codeHost,
+} from "./code-host.ts"
+export type {
+  CodeHostCapabilityOptions,
+  CodeHostKind,
+  CodeHostOperation,
+  CodeHostReadOperation,
+  CodeHostToolPolicy,
+  CodeHostWriteOperation,
+} from "./code-host.ts"
+export {
   access,
 } from "./access.ts"
 export {
@@ -364,6 +375,9 @@ export type {
   McpClientConfig,
   McpServerConfig,
   McpToolFingerprints,
+  McpToolInputSchema,
+  McpToolOverride,
+  McpToolOverrides,
 } from "../mcp/types.ts"
 export type {
   WebReadToolDefinition,

@@ -88,6 +88,8 @@ const exitCode = await runViteHubCli({
 process.exitCode = exitCode;
 ```
 
+Pass `runtimeNamespaces` for namespaces that never need the project config, such as `vitehub box` inside a deployed container. Pass `runtimeFeatures` for single features that do not need it, such as `vitehub agent invocations`, which only talks to a server or a journal database. A matching runtime feature runs before the CLI loads the config. The other features of a namespace with the same name still load it.
+
 `runViteHubCli()` returns `0` for successful commands and help, or a non-zero code when a command reports failure. It rejects if config loading or a contributor throws. Pass custom `stdout`, `stderr`, `env`, or `spawn` implementations only when the host needs to capture output or control subprocesses.
 
 The binary catches these failures, writes them to stderr, and exits with code

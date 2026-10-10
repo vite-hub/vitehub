@@ -46,6 +46,7 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["@vite-hub/source/client", { "vue": "both" }],
   ["@vite-hub/ui/vite", { "@nuxt/ui": "both" }],
   ["@vite-hub/workspace/collections/client", { "vue": "both" }],
+  ["@vite-hub/workspace/blob-database", { "drizzle-orm": "both" }],
   ["@vite-hub/workspace/nitro", { "vite": "declaration" }],
   ["@vite-hub/workflow/runtime/openworkflow", { "openworkflow": "declaration" }],
   ["@vite-hub/workflow/runtime/openworkflow-worker", { "openworkflow": "declaration" }],
@@ -54,6 +55,7 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["vite-hub/agent/evlog/posthog", { "evlog": "both", "posthog-node": "both" }],
   ["vite-hub/agent/observability", { "evlog": "both" }],
   ["vite-hub/agent/eval", { "evalite": "both", "vitest": "both" }],
+  ["vite-hub/doctor", { "vite-doctor": "both" }],
   ["vite-hub/browser/controllers/playwright", { "playwright-core": "declaration" }],
   ["vite-hub/nuxt", { "vite": "both" }],
   ["vite-hub/source/client", { "vue": "both" }],
@@ -87,6 +89,7 @@ function optionalPeersForExport(specifier: string, subpath: string) {
   const usage: Record<string, OptionalPeerUsage> = { ...optionalPeerUsage.get(specifier) }
   if (/(?:^|\/)vite$/.test(subpath)) usage.vite ??= "both"
   if (/(?:^|\/)vue$/.test(subpath)) usage.vue ??= "both"
+  if (specifier === "vite-hub/ui" || specifier.startsWith("vite-hub/ui/")) usage.vue ??= "both"
   const entries = Object.entries(usage)
   return {
     optionalDeclarationPeers: entries.filter(([, mode]) => mode !== "runtime").map(([peer]) => peer),

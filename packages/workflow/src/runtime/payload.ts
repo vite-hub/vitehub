@@ -25,19 +25,41 @@ export async function validatePayload<T>(payload: unknown, schema: PayloadValida
     return await schema(payload)
   }
 
-  if ("safeParse" in schema && typeof schema.safeParse === "function") {
-    const result = schema.safeParse(payload)
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- SAFETY: The structural union may lack safeParse; reject non-callable parser properties before calling it.
+  if (hasSchemaMethod(schema, "safeParse") && typeof (schema as { safeParse?: unknown }).safeParse === "function") {
+    // SAFETY: The guard verifies an allowed callable method; PayloadValidator<T> owns its result contract.
+    const result = (schema as PayloadSchema<T>).safeParse(payload)
     if (!result.success) {
       throw result.error || workflowErrorDiagnostics.WORKFLOW_R0021({ message: "Invalid workflow payload." })
     }
     return result.data as T
   }
 
-  if ("parse" in schema && typeof schema.parse === "function") {
-    return schema.parse(payload)
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- SAFETY: The structural union may lack parse; reject non-callable parser properties before calling it.
+  if (hasSchemaMethod(schema, "parse") && typeof (schema as { parse?: unknown }).parse === "function") {
+    // SAFETY: The guard verifies an allowed callable method; PayloadValidator<T> owns its result contract.
+    return (schema as ParsePayloadSchema<T>).parse(payload)
   }
 
   throw workflowErrorDiagnostics.WORKFLOW_R0022({ message: "Invalid workflow payload schema." })
+}
+
+function hasSchemaMethod<T>(value: PayloadSchema<T> | ParsePayloadSchema<T>, key: "parse" | "safeParse"): boolean {
+  if (Object.hasOwn(value, key)) return true
+  let prototype = Object.getPrototypeOf(value)
+  while (prototype !== null) {
+    if (Object.hasOwn(prototype, key)) {
+      const constructor = Object.hasOwn(prototype, "constructor") ? prototype.constructor : undefined
+      // Native Object constructors have the same source across realms. Custom
+      // constructor prototypes can also have a null parent and remain valid.
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Prototype linkage requires a callable constructor before inspecting its prototype.
+      return typeof constructor === "function"
+        && constructor.prototype === prototype
+        && Function.prototype.toString.call(constructor) !== Function.prototype.toString.call(Object)
+    }
+    prototype = Object.getPrototypeOf(prototype)
+  }
+  return false
 }
 
 export async function readValidatedPayload<T>(request: Request, schema: PayloadValidator<T>): Promise<T> {

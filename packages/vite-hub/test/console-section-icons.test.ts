@@ -1,4 +1,4 @@
-import { globSync, readFileSync } from "node:fs"
+import { readdirSync, readFileSync } from "node:fs"
 import { join, resolve } from "node:path"
 
 import { describe, expect, it } from "vitest"
@@ -16,9 +16,9 @@ interface BundledIconCollection {
 
 /** Reads the Iconify collections that Nuxt UI inlines as `JSON.parse(`[...]`)` in the Console entry. */
 function readBundledIcons(): Set<string> {
-  const files = globSync("**/*.js", { cwd: consoleAssetRoot })
-  if (!files.length) throw new Error(`Console JavaScript assets are missing in ${consoleAssetRoot}. Build vite-hub first.`)
-  const code = files.map(file => readFileSync(join(consoleAssetRoot, file), "utf8")).join("\n")
+  const entry = readdirSync(consoleAssetRoot).find(file => /^console-.+\.js$/.test(file))
+  if (!entry) throw new Error(`Console entry is missing in ${consoleAssetRoot}. Build vite-hub first.`)
+  const code = readFileSync(join(consoleAssetRoot, entry), "utf8")
   const icons = new Set<string>()
   for (const match of code.matchAll(/JSON\.parse\(`(\[\{"prefix":[\s\S]*?\}\])`\)/g)) {
     const collections: BundledIconCollection[] = JSON.parse(match[1]!.replace(/\\([\\`$])/g, "$1"))

@@ -6,8 +6,7 @@ import { consoleSectionDetails, consoleSectionRouteName, isConsoleBuiltinSection
 import { requestConsole } from "./request"
 
 export interface ConsoleNavigation {
-  /** `true` for a Console Auth session, `"cloudflare-access"` when Cloudflare Access verifies each request. */
-  auth: boolean | "cloudflare-access"
+  auth: false | true | "cloudflare-access"
   /** Descriptors of the installed sections that owner packages contribute, keyed by section id. */
   contributions: Readonly<Record<ConsoleSectionId, ConsoleContributedSection>>
   projectName?: string

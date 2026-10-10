@@ -179,7 +179,7 @@ const devHeaders = { header: emailDevHeader, headerValue: emailDevHeaderValue, l
  */
 export async function handleEmailDevRequest(request: Request, runtimeContext?: string | { runtimeId?: string }): Promise<Response> {
   const runtimeId = v.is(v.string(), runtimeContext) ? runtimeContext : runtimeContext?.runtimeId
-  const rejection = validateViteHubNitroDevRequest(request, devHeaders)
+  const { rejection } = await validateViteHubNitroDevRequest(request, devHeaders)
   if (rejection) return rejection
   const body = await readBody(request)
   if (!body) return failure("The Email Dev request body is invalid.", 400)
@@ -191,7 +191,7 @@ export async function handleEmailDevRequest(request: Request, runtimeContext?: s
  * `409` with `EMAIL_OUTBOX_DISABLED`.
  */
 export async function handleDisabledEmailDevRequest(request: Request): Promise<Response> {
-  const rejection = validateViteHubNitroDevRequest(request, devHeaders)
+  const { rejection } = await validateViteHubNitroDevRequest(request, devHeaders)
   if (rejection) return rejection
   return failure("The Email development outbox is disabled. Remove `email.outbox: false` to capture messages in `vite dev`.", 409, "EMAIL_OUTBOX_DISABLED")
 }

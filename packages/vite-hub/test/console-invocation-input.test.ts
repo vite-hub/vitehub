@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 import { effectScope, reactive } from "vue"
-import { deleteConsoleInvocation, startConsoleAgentInvocation, useConsoleInvocationTarget } from "../src/console/runtime/client/invocation.ts"
+import { cancelConsoleInvocation, deleteConsoleInvocation, startConsoleAgentInvocation, useConsoleInvocationTarget } from "../src/console/runtime/client/invocation.ts"
 import { requestConsole } from "../src/console/runtime/client/request.ts"
 
 vi.mock("../src/console/runtime/client/request.ts", () => ({ requestConsole: vi.fn() }))
@@ -52,6 +52,16 @@ describe("Console invocation input", () => {
     } finally {
       scope.stop()
     }
+  })
+
+  it.each([
+    { outcome: "requested", delivery: "journal", status: "running" },
+    { outcome: "terminal", delivery: "local", status: "failed", notEnforcedBy: "run" },
+    { outcome: "terminal", status: "completed" },
+  ])("preserves cancellation delivery and terminal state for $outcome", async result => {
+    vi.mocked(requestConsole).mockReset().mockResolvedValueOnce({ id: "team/run", ...result })
+    await expect(cancelConsoleInvocation("/invocations", "team/run")).resolves.toEqual(result)
+    expect(requestConsole).toHaveBeenCalledExactlyOnceWith("/invocations/team%2Frun", { body: { action: "cancel" }, method: "POST" })
   })
 
   it("deletes an invocation through the invocation operation", async () => {

@@ -14,9 +14,12 @@ export default defineConfig({
         cache: false,
         command: "vp dev --config playground/console/vite.config.ts",
       },
+      // Builds packages in dependency order and caches each package build by
+      // the files it reads. An outer --no-cache does not reach this nested run,
+      // so release and preview publishing run the filter with --no-cache.
       build: {
         cache: false,
-        command: "node test/run-package-task.mjs build",
+        command: 'vp run --cache --filter "./packages/*" build',
       },
       "database:e2e": {
         cache: false,
@@ -62,7 +65,8 @@ export default defineConfig({
       },
       "knip:catalog": {
         cache: false,
-        command: "vp exec knip --include catalog --no-progress --reporter compact",
+        command:
+          "vp run -t @vite-hub/sandbox#build && vp run -t @vite-hub/queue#build && vp exec knip --include catalog --no-progress --reporter compact",
       },
       "kv:e2e": {
         cache: false,
@@ -119,8 +123,7 @@ export default defineConfig({
       ...rootTestTasks,
       typecheck: {
         cache: false,
-        command:
-          "vp run build && vp run --filter vitehub-docs --ignore-depends-on typecheck && node test/run-package-task.mjs typecheck",
+        command: "node test/typecheck.mjs",
       },
       verify: {
         cache: false,

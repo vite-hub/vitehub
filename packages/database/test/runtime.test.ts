@@ -251,6 +251,7 @@ describe("drizzle runtime", () => {
 
     expect(db).toBe(databases.default.db)
     expect((useDatabase as (name: string) => unknown)("analytics")).toBe(databases.analytics)
+    expect((useDatabase as (name: string) => unknown)("toString")).toBeUndefined()
 
     await databases.default.db.run(sql`
       create table if not exists notes (
@@ -292,6 +293,7 @@ describe("drizzle runtime", () => {
     await analytics.exec("insert into analytics_events (id, name) values (1, 'page-view')")
     await expect(analytics.query("select id, name from analytics_events")).resolves.toEqual([{ id: 1, name: "page-view" }])
     expect(() => agentDb.database("missing")).toThrow('Database "missing" is not configured.')
+    expect(() => agentDb.database("toString")).toThrow('Database "toString" is not configured.')
   })
 
   it("queries configured Cloudflare D1 over HTTP from the generated local runtime", async () => {
@@ -383,6 +385,33 @@ describe("database definition runtime", () => {
     })
     await expect(db.select().from(analyticsSchema.analyticsEvents)).resolves.toEqual([{ id: 1, name: "page-view" }])
 
+    expect(fetchMock).toHaveBeenCalledOnce()
+    expectD1HttpRequest(fetchMock.mock.calls[0]!, {
+      authToken: "proxy-token",
+      table: "analytics_events",
+      url: "https://d1.example.com/raw",
+    })
+  })
+
+  it("inherits remote D1 settings when a local definition supplies a partial Cloudflare config", async () => {
+    const fetchMock = vi.fn(async (_input: Parameters<typeof fetch>[0], _init?: Parameters<typeof fetch>[1]) => createD1Response([[1, "page-view"]]))
+    vi.stubGlobal("fetch", fetchMock)
+
+    const { createDefinitionRuntime } = await import("../src/runtime/definition-local.ts")
+    const db = createDefinitionRuntime({
+      cloudflare: { binding: "ANALYTICS_DB" },
+      drizzle: {},
+      name: "analytics",
+      schema: analyticsSchema,
+    }, {
+      cloudflare: {
+        binding: "DEFAULT_DB",
+        databaseId: "analytics-d1-id",
+        http: { authToken: "proxy-token", url: "https://d1.example.com/raw" },
+      },
+    })
+
+    await expect(db.select().from(analyticsSchema.analyticsEvents)).resolves.toEqual([{ id: 1, name: "page-view" }])
     expect(fetchMock).toHaveBeenCalledOnce()
     expectD1HttpRequest(fetchMock.mock.calls[0]!, {
       authToken: "proxy-token",
@@ -696,5 +725,37 @@ describe("hosted drizzle runtime", () => {
     ])
     await expect(batch()).rejects.toThrow("Cloudflare D1 query 2 failed (200): second query failed")
     await expect(batch()).rejects.toThrow("Cloudflare D1 returned an unexpected query result count")
+  })
+
+  it.each([
+    { label: "missing results", result: { success: true } },
+    { label: "missing rows", result: { success: true, results: {} } },
+  ])("accepts successful rowless D1 writes with $label", async ({ result }) => {
+    vi.stubEnv("CLOUDFLARE_ACCOUNT_ID", "account-id")
+    vi.stubEnv("CLOUDFLARE_API_TOKEN", "api-token")
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ result: [result], success: true }), {
+      headers: { "Content-Type": "application/json" },
+      status: 200,
+    })))
+
+    const { db } = await createHostedAnalyticsDb()
+    await expect(db.insert(analyticsSchema.analyticsEvents).values({ name: "signup" }).run()).resolves.toEqual({ rows: [] })
+  })
+
+  it.each([
+    { label: "missing results", result: { success: true } },
+    { label: "missing rows", result: { success: true, results: {} } },
+    { label: "non-array rows", result: { results: { rows: { id: 1 } }, success: true } },
+  ])("rejects successful D1 row responses with $label", async ({ result }) => {
+    vi.stubEnv("CLOUDFLARE_ACCOUNT_ID", "account-id")
+    vi.stubEnv("CLOUDFLARE_API_TOKEN", "api-token")
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ result: [result], success: true }), {
+      headers: { "Content-Type": "application/json" },
+      status: 200,
+    })))
+
+    const { db } = await createHostedAnalyticsDb()
+    const error = await db.select().from(analyticsSchema.analyticsEvents).then(() => undefined, error => error)
+    expect(error).toMatchObject({ cause: { message: "[vitehub] Cloudflare D1 query 1 failed (200)." } })
   })
 })

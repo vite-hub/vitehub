@@ -1,0 +1,5 @@
+title: Connections
+icon: i-lucide-plug
+order: 32
+category: Access
+related: [auth, env]

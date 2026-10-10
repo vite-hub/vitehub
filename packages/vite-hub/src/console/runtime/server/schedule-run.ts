@@ -1,12 +1,11 @@
-import { fromWebHandler } from "h3"
-
 import { getConsoleSchedules } from "./definitions.ts"
+import { withConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
 import { assertConsoleRequest, consoleRequestJSON } from "./request.ts"
 import { getConsoleSections } from "./sections.ts"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
 import type { ScheduleRunRecord } from "@vite-hub/schedule"
-import type { EventHandler } from "h3"
+import type { H3Event } from "h3"
 import type { ConsoleRequestEvent } from "./request.ts"
 
 export interface ConsoleScheduleRun {
@@ -58,13 +57,15 @@ export async function runConsoleSchedule(body: unknown): Promise<ConsoleSchedule
   }
 }
 
-/** Console RPC operation behind the Schedules page "Run now" button. */
-export async function consoleScheduleRunHandler(event: ConsoleRequestEvent): Promise<{ run: ConsoleScheduleRun }> {
+async function runScheduleOperation(event: ConsoleRequestEvent): Promise<{ run: ConsoleScheduleRun }> {
   assertConsoleRequest(event, ["POST"])
   const outcome = await runConsoleSchedule(await consoleRequestJSON(event, maximumBodyBytes))
   if (outcome.ok) return { run: outcome.run }
   throw Object.assign(viteHubErrorDiagnostics.VITE_HUB_C0001({ message: outcome.message }), { statusCode: outcome.status, statusMessage: outcome.message })
 }
+
+/** Console RPC operation behind the Schedules page "Run now" button. */
+export const consoleScheduleRunHandler: ConsoleAccessRoute<typeof runScheduleOperation> = withConsoleAccess(runScheduleOperation)
 
 function failure(message: string, status: number): Response {
   return Response.json({ message }, { headers: responseHeaders, status })
@@ -72,7 +73,7 @@ function failure(message: string, status: number): Response {
 
 /**
  * `POST /_vitehub/schedules/run` for `vitehub schedule run --url`.
- * Console access protects `/_vitehub/**`. A JSON body and a same-origin check keep browsers from sending cross-site runs.
+ * The default export checks Console access first. A JSON body and a same-origin check keep browsers from sending cross-site runs.
  */
 export async function handleConsoleScheduleRunRequest(request: Request): Promise<Response> {
   if (request.method !== "POST") return failure("Method not allowed.", 405)
@@ -95,5 +96,5 @@ export async function handleConsoleScheduleRunRequest(request: Request): Promise
     : failure(outcome.message, outcome.status)
 }
 
-const handler: EventHandler = fromWebHandler(handleConsoleScheduleRunRequest)
-export default handler
+const guardedHandler: (event: H3Event) => Promise<Response> = withConsoleAccess((event: H3Event) => handleConsoleScheduleRunRequest(event.req))
+export default guardedHandler

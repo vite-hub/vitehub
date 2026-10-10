@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest"
+import { agentEnvAccess } from "../../env/test/agent-access.ts"
 
 import { connect, createTestRuntime, mailConnection } from "./helpers.ts"
 
 async function pending(test: ReturnType<typeof createTestRuntime>): Promise<string> {
-  await expect(test.runtime.client("mail", { actor: "agent:writer" }).call("mail.messages.modify", { id: "m1", userId: "me" })).rejects.toMatchObject({ code: "CONNECTION_APPROVAL_REQUIRED" })
+  await expect(test.runtime.client("mail", { access: agentEnvAccess({ name: "writer" }) }).call("mail.messages.modify", { id: "m1", userId: "me" })).rejects.toMatchObject({ code: "CONNECTION_APPROVAL_REQUIRED" })
   const approvals = (await test.runtime.approvals({ status: "pending" })).approvals
   return approvals[0]!.id
 }

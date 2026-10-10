@@ -6,6 +6,8 @@ import * as v from 'valibot'
 import { isRuntimeNumber, isRuntimeString } from '../../internal/runtime-value.ts'
 import { isRuntimeRecord } from '../../internal/runtime-type.ts'
 import { createNodeSqliteInboxStorage, type PullRequestInboxExecutor, type PullRequestInboxRow, type PullRequestInboxStorage } from './storage.ts'
+import type { AgentRunActivity } from '../../types.ts'
+import { isStatusDeliveryCurrent, statusProjectionText, statusAcknowledgementSchema, statusDeliverySchema, statusOutboxPrefix, statusSentPrefix, statusWriterPrefix, statusTargetKey, workerBlockerPrefix, type StatusDelivery } from './status-delivery.ts'
 
 import type { GitHubPullRequestFilter, GitHubPullRequestFilterContext } from '../../channels.ts'
 import { matchesGitHubPullRequestFilter } from '../../internal/github-pull-request-filter.ts'
@@ -18,21 +20,31 @@ export type Snapshot = {
   wait?: PullRequestWait
   lease: string | null; leaseUntil: number; attempts: number
   progressBudget?: ProgressBudget
+  recoveryHead?: string
+  sourcePushHead?: string
+  sourcePushHeads?: string[]
+  sourcePushOverflow?: boolean
+  prospectivePush?: { token: string; heads: string[] }
+  threadReopens?: Record<string, number>
   hydrated: boolean; refresh: boolean; feedbackRefresh: boolean
   comments: Record<string, GitHubEvidence>; reviews: Record<string, GitHubEvidence>
   reviewComments: Record<string, GitHubEvidence>; checks: Record<string, GitHubEvidence>; statuses: Record<string, GitHubEvidence>
+  ciEvidence?: Record<string, unknown>[]
   threads: GitHubReviewThread[]; threadsHydrated?: boolean; reasons: string[]; lastResult?: string
 }
-export type SnapshotPatch = Partial<Pick<Snapshot, 'pr' | 'comments' | 'reviews' | 'reviewComments' | 'checks' | 'statuses' | 'threads' | 'hydrated' | 'refresh' | 'feedbackRefresh' | 'threadsHydrated'>>
+export type SnapshotPatch = Partial<Pick<Snapshot, 'pr' | 'comments' | 'reviews' | 'reviewComments' | 'checks' | 'statuses' | 'threads' | 'hydrated' | 'refresh' | 'feedbackRefresh' | 'threadsHydrated' | 'ciEvidence'>>
 export interface GitHubInboxDeliveryResult { accepted: true; duplicate?: boolean; queued: number[]; updated: number[]; ignored?: boolean; reason?: string }
 export interface GitHubInboxSummary {
   repository: string; number: number; head?: string; generation: number; handled: number; status: Snapshot['status']; reasons: string[]
   wait?: PullRequestWait
   dirty: boolean; attempts: number; nextAt: number; lastResult?: string; progressBudget?: ProgressBudget
+  stackBlocked?: boolean; stackParent?: { number: number; state: string }
 }
-export type Claim = { token: string; generation: number; snapshot: Snapshot }
-export type DirectMergeAttempt = { token: string; generation: number; revision: number; head: string; startedAt: number }
+export type Claim = { token: string; generation: number; snapshot: Snapshot; runId?: string; startedAt?: number; activity?: AgentRunActivity }
+export type DirectMergeAttempt = { token: string; generation: number; revision: number; head: string; startedAt: number; asynchronous?: boolean; requestId?: string; enqueued?: boolean }
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex')
+const statusContentKey = (snapshot: Snapshot, head = snapshot.wait?.headSha ?? snapshot.pr?.head?.sha) =>
+  digest([head, snapshot.generation, snapshot.status, snapshot.lastResult])
 const stamp = (value: GitHubEvidence) => Date.parse(value.updated_at ?? value.updatedAt ?? value.submitted_at ?? value.completed_at ?? value.started_at ?? value.created_at ?? '') || 0
 /** Normalize REST and discovery records once, before they enter the inbox. */
 export const normalizePullRequest: typeof parsePullRequest = parsePullRequest
@@ -58,6 +70,13 @@ function parseSnapshot(value: unknown): Snapshot {
     ('lastResult' in input && Object.prototype.toString.call(input.lastResult) !== '[object String]')) {
     throw new TypeError('Invalid inbox snapshot')
   }
+  if (input.prospectivePush !== undefined) v.parse(v.object({ token: v.string(), heads: v.array(v.pipe(v.string(), v.regex(/^[a-f\d]{40}$/i))) }), input.prospectivePush)
+  if (input.threadReopens !== undefined) v.parse(v.record(v.string(), v.pipe(v.number(), v.integer(), v.minValue(0))), input.threadReopens)
+  if (input.sourcePushHeads !== undefined) v.parse(v.array(v.string()), input.sourcePushHeads)
+  if (input.sourcePushOverflow !== undefined) v.parse(v.boolean(), input.sourcePushOverflow)
+  if (input.sourcePushHead !== undefined) v.parse(v.string(), input.sourcePushHead)
+  if (input.recoveryHead !== undefined) v.parse(v.string(), input.recoveryHead)
+  if (input.ciEvidence !== undefined) v.parse(v.array(v.record(v.string(), v.unknown())), input.ciEvidence)
   if (input.wait !== undefined) parseWait(input.wait)
   if (input.progressBudget !== undefined) parseProgressBudget(input.progressBudget)
   const parseMap = (map: unknown): Record<string, GitHubEvidence> => {
@@ -99,6 +118,7 @@ const summarySchema = v.object({
   repository: v.string(), number: v.number(), head: v.optional(v.string()), generation: v.number(), handled: v.number(),
   status: v.picklist(['ready', 'working', 'waiting', 'terminal']), reasons: v.array(v.string()), wait: v.optional(v.unknown()),
   dirty: v.boolean(), attempts: v.number(), nextAt: v.number(), lastResult: v.optional(v.string()), progressBudget: v.optional(v.unknown()),
+  stackBlocked: v.optional(v.boolean()), stackParent: v.optional(v.object({ number: v.number(), state: v.string() })),
 })
 function parseSummary(value: unknown): GitHubInboxSummary {
   const { wait, progressBudget, ...summary } = v.parse(summarySchema, value)
@@ -197,8 +217,8 @@ export class PullRequestInbox {
     await this.init()
     return await this.storage.execute(statement, args)
   }
-  private repositoryFilter(): { sql: string; args: string[] } {
-    return { sql: `repository IN (${this.repositories.map(() => '?').join(',')})`, args: this.repositories }
+  private repositoryFilter(column = 'repository'): { sql: string; args: string[] } {
+    return { sql: `${column} IN (${this.repositories.map(() => '?').join(',')})`, args: this.repositories }
   }
   private async getIn(tx: PullRequestInboxExecutor, repository: string, number: number): Promise<Snapshot | undefined> {
     const [row] = await tx.execute(`SELECT value FROM ${this.tables.pullRequests} WHERE scope=? AND repository=? AND number=?`, [this.scope, repository, number])
@@ -215,7 +235,36 @@ export class PullRequestInbox {
     const rows = await this.read(`SELECT value FROM ${this.tables.pullRequests} WHERE scope=? AND ${repositories.sql} ORDER BY repository, number`, [this.scope, ...repositories.args])
     return rows.map(row => parseSnapshot(JSON.parse(stringValue(row.value))))
   }
+  private compactTerminal(s: Snapshot): void {
+    if (s.status !== 'terminal') return
+    // Closed or filtered PRs can be reopened from a webhook or the open-PR
+    // sweep. Keep their identity and durable result, but discard historical
+    // feedback and CI payloads so terminal history cannot starve the scheduler.
+    s.comments = {}
+    s.reviews = {}
+    s.reviewComments = {}
+    s.checks = {}
+    s.statuses = {}
+    s.threads = []
+    delete s.ciEvidence
+    s.hydrated = false
+    s.refresh = true
+    s.feedbackRefresh = true
+  }
   private async put(tx: PullRequestInboxExecutor, s: Snapshot): Promise<void> {
+    let reopened = false
+    let resumed = false
+    let wasWorking = false
+    let readySuperseded = false
+    if (this.activityAuthors.size && (s.status === 'ready' || s.status === 'terminal')) {
+      const [previous] = await tx.execute(`SELECT status, generation FROM ${this.tables.pullRequests} WHERE scope=? AND repository=? AND number=?`, [this.scope, s.repository, s.number])
+      reopened = s.status === 'ready' && previous?.status === 'terminal'
+      resumed = s.status === 'ready' && previous?.status === 'waiting'
+      wasWorking = previous?.status === 'working'
+      readySuperseded = s.status === 'ready' && (wasWorking || previous?.status === 'ready' && s.generation > Number(previous.generation))
+    }
+    if (!s.lease) delete s.prospectivePush
+    this.compactTerminal(s)
     const head = s.pr?.head?.sha
     await tx.execute(`INSERT OR REPLACE INTO ${this.tables.pullRequests} (scope, repository, number, value, summary, status, generation, handled,
       dirty_at, next_at, lease, lease_until, waiting, progress_blocked, state, head_sha, head_ref, base_ref) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [
@@ -223,6 +272,14 @@ export class PullRequestInbox {
       s.dirtyAt, s.nextAt, s.lease, s.leaseUntil, s.wait ? 1 : 0, s.progressBudget?.exhausted && s.progressBudget.head === head ? 1 : 0,
       s.pr?.state === undefined ? null : String(s.pr.state).toLowerCase(), head ?? null, s.pr?.head?.ref ?? null, s.pr?.base?.ref ?? null,
     ])
+    if (this.activityAuthors.size && (s.status === 'terminal' || reopened || resumed || readySuperseded)) {
+      const target = statusTargetKey(s)
+      const pending = v.safeParse(statusDeliverySchema, await this.metaIn(tx, `${statusOutboxPrefix}${target}`))
+      const sent = v.safeParse(statusAcknowledgementSchema, await this.metaIn(tx, `${statusSentPrefix}${target}`))
+      if (reopened || resumed || wasWorking || readySuperseded && (pending.success || sent.success) || (pending.success ? !isStatusDeliveryCurrent(pending.output, s) : sent.success && sent.output.status !== 'completed')) {
+        await this.enqueueStatusProjectionIn(tx, s)
+      }
+    }
   }
   private empty(repository: string, number: number): Snapshot {
     return { repository, number, pr: null, generation: 0, handled: 0, dirtyAt: this.clock(), nextAt: 0,
@@ -255,9 +312,293 @@ export class PullRequestInbox {
     await this.transaction(async tx => { await tx.execute(`DELETE FROM ${this.tables.meta} WHERE scope=? AND key=?`, [this.scope, key]) })
   }
   async setMeta(key: string, value: unknown): Promise<void> { await this.transaction(tx => this.setMetaIn(tx, key, value)) }
+  private async enqueueStatusResult(tx: PullRequestInboxExecutor, snapshot: Snapshot, claim?: Claim, resultHead?: string): Promise<void> {
+    if (!this.activityAuthors.size || !snapshot.lastResult?.trim()) return
+    const head = resultHead ?? snapshot.pr?.head?.sha
+    if (!head || claim && !resultHead && claim.snapshot.pr?.head?.sha !== head) return
+    const key = statusTargetKey(snapshot)
+    const contentKey = statusContentKey(snapshot, head)
+    const statusRunId = `saved:${key}:${contentKey}`
+    const sent = v.safeParse(statusAcknowledgementSchema, await this.metaIn(tx, `${statusSentPrefix}${key}`))
+    const pending = await this.metaIn(tx, `${statusOutboxPrefix}${key}`)
+    if (sent.success && sent.output.contentKey === contentKey
+      && (sent.output.runId === statusRunId || sent.output.runId.startsWith(`${statusRunId}:`))
+      || isRuntimeRecord(pending) && pending.contentKey === contentKey) return
+    const now = this.clock()
+    const delivery: StatusDelivery = {
+      version: randomUUID(), contentKey, repository: snapshot.repository, number: snapshot.number,
+      head, generation: snapshot.generation, text: snapshot.lastResult, attempts: 0, nextAt: now,
+      activity: {
+        runId: statusRunId,
+        status: snapshot.status === 'waiting' ? 'waiting' : snapshot.status === 'ready' ? 'failed' : 'completed',
+        updatedAt: new Date(now).toISOString(), links: [...claim?.activity?.links ?? []], tasks: [], summary: snapshot.lastResult,
+      },
+    }
+    const previous = v.safeParse(statusDeliverySchema, pending)
+    if (previous.success && previous.output.lease && (previous.output.leaseUntil ?? 0) > now) {
+      delivery.lease = previous.output.lease
+      delivery.leaseUntil = previous.output.leaseUntil
+    }
+    if (head !== snapshot.pr?.head?.sha) delivery.precedingHead = snapshot.pr?.head?.sha
+    if (claim?.startedAt !== undefined) delivery.activity.startedAt = new Date(claim.startedAt).toISOString()
+    await this.setMetaIn(tx, `${statusOutboxPrefix}${key}`, delivery)
+  }
+  private async statusWritersIn(tx: PullRequestInboxExecutor, target: string): Promise<Array<{ lease: string; expiresAt: number }>> {
+    const parsed = v.safeParse(v.array(v.union([v.string(), v.object({ lease: v.string(), expiresAt: v.number() })])), await this.metaIn(tx, `${statusWriterPrefix}${target}`))
+    const now = this.clock()
+    if (!parsed.success) return []
+    const writers = parsed.output.map(value => v.is(v.string(), value) ? { lease: value, expiresAt: now + 900_000 } : value)
+      .filter(value => Number.isFinite(value.expiresAt) && value.expiresAt > now)
+    // A crashed process cannot settle its marker. Bound correction replay,
+    // and persist a legacy marker's first deadline instead of extending it on reads.
+    if (writers.length !== parsed.output.length || parsed.output.some(value => v.is(v.string(), value))) {
+      if (writers.length) await this.setMetaIn(tx, `${statusWriterPrefix}${target}`, writers)
+      else await tx.execute(`DELETE FROM ${this.tables.meta} WHERE scope=? AND key=?`, [this.scope, `${statusWriterPrefix}${target}`])
+    }
+    return writers
+  }
+  private async settleStatusWriterIn(tx: PullRequestInboxExecutor, observed: StatusDelivery): Promise<Array<{ lease: string; expiresAt: number }>> {
+    const target = statusTargetKey(observed)
+    const remaining = (await this.statusWritersIn(tx, target)).filter(writer => writer.lease !== observed.lease)
+    if (remaining.length) await this.setMetaIn(tx, `${statusWriterPrefix}${target}`, remaining)
+    else await tx.execute(`DELETE FROM ${this.tables.meta} WHERE scope=? AND key=?`, [this.scope, `${statusWriterPrefix}${target}`])
+    return remaining
+  }
+  private async enqueueStatusProjectionIn(tx: PullRequestInboxExecutor, current: Snapshot): Promise<void> {
+    const target = statusTargetKey(current)
+    const key = `${statusOutboxPrefix}${target}`
+    const surviving = v.safeParse(statusDeliverySchema, await this.metaIn(tx, key))
+    const now = this.clock()
+    const version = randomUUID()
+    const text = statusProjectionText(current)
+    const head = current.pr?.head?.sha
+    if (!head) return
+    const contentKey = digest(['projection', head, current.generation, text])
+    const delivery: StatusDelivery = {
+      version, contentKey, repository: current.repository, number: current.number,
+      head, generation: current.generation, projection: true,
+      workerLease: current.status === 'working' ? current.lease ?? undefined : undefined,
+      text, attempts: 0, nextAt: now,
+      activity: { runId: `saved:${target}:${contentKey}:${version}`,
+        status: current.status === 'terminal' ? 'completed' : current.status === 'working' && current.lease ? 'running' : 'queued',
+        updatedAt: new Date(now).toISOString(), links: [], tasks: [], summary: text },
+    }
+    if (surviving.success && surviving.output.lease && (surviving.output.leaseUntil ?? 0) > now) {
+      delivery.lease = surviving.output.lease
+      delivery.leaseUntil = surviving.output.leaseUntil
+    }
+    await this.setMetaIn(tx, key, delivery)
+  }
+  /** A bounded batch of due deliveries. Invalid metadata never reaches the publisher. */
+  async pendingStatusDeliveries(limit = 5): Promise<StatusDelivery[]> {
+    if (!Number.isInteger(limit) || limit < 1) throw new Error('Status delivery limit must be a positive integer')
+    const now = this.clock()
+    return (await this.metaEntries(statusOutboxPrefix)).flatMap(([, value]) => {
+      const parsed = v.safeParse(statusDeliverySchema, value)
+      return parsed.success && parsed.output.nextAt <= now && (parsed.output.leaseUntil ?? 0) <= now && this.repositories.includes(parsed.output.repository) ? [parsed.output] : []
+    }).sort((a, b) => a.nextAt - b.nextAt).slice(0, limit)
+  }
+  /** Claim due, eligible deliveries atomically across hosts. Deferred heads yield the batch. */
+  async claimStatusDeliveries(limit = 5, leaseMs = 300_000): Promise<StatusDelivery[]> {
+    if (!Number.isInteger(limit) || limit < 1 || !Number.isFinite(leaseMs) || leaseMs <= 0) throw new Error('Status delivery limits must be positive')
+    return await this.transaction(async tx => {
+      const now = this.clock()
+      const rows = await tx.execute(`SELECT value FROM ${this.tables.meta} WHERE scope=? AND substr(key, 1, ?)=?`, [this.scope, statusOutboxPrefix.length, statusOutboxPrefix])
+      const candidates = rows.flatMap(row => {
+        const parsed = v.safeParse(statusDeliverySchema, JSON.parse(stringValue(row.value)))
+        return parsed.success && parsed.output.nextAt <= now && (parsed.output.leaseUntil ?? 0) <= now && this.repositories.includes(parsed.output.repository) ? [parsed.output] : []
+      }).sort((a, b) => a.nextAt - b.nextAt || a.repository.localeCompare(b.repository) || a.number - b.number)
+      const claimed: StatusDelivery[] = []
+      for (const pending of candidates) {
+        const snapshot = await this.getIn(tx, pending.repository, pending.number)
+        if (pending.projection && snapshot?.lease && snapshot.status !== 'terminal' && pending.workerLease !== snapshot.lease) {
+          await this.enqueueStatusProjectionIn(tx, snapshot)
+          continue
+        }
+        if (snapshot?.generation === pending.generation && pending.precedingHead && snapshot.pr?.head?.sha === pending.precedingHead && snapshot.wait?.headSha === pending.head && snapshot.pr.state === 'open') continue
+        // Upgrade saved entries from releases that reused the invocation run ID.
+        const statusRunId = `saved:${statusTargetKey(pending)}:${pending.contentKey}`
+        const runId = pending.activity.runId.startsWith(`${statusRunId}:`) ? pending.activity.runId : statusRunId
+        const delivery = { ...pending, activity: { ...pending.activity, runId }, lease: randomUUID(), leaseUntil: now + leaseMs }
+        // Expiry releases delivery ownership. A bounded writer horizon keeps
+        // corrections durable without a crashed publisher forcing endless writes.
+        const target = statusTargetKey(pending)
+        const writers = await this.statusWritersIn(tx, target)
+        if (pending.lease && !writers.some(writer => writer.lease === pending.lease)
+          && (pending.leaseUntil ?? 0) + 900_000 > now) {
+          writers.push({ lease: pending.lease, expiresAt: pending.leaseUntil! + 900_000 })
+        }
+        writers.push({ lease: delivery.lease, expiresAt: delivery.leaseUntil + 900_000 })
+        await this.setMetaIn(tx, `${statusWriterPrefix}${target}`, writers)
+        await this.setMetaIn(tx, `${statusOutboxPrefix}${target}`, delivery)
+        claimed.push(delivery)
+        if (claimed.length === limit) break
+      }
+      return claimed
+    })
+  }
+  /** Keep the external writer's lease, including when its saved result is superseded. */
+  async renewStatusDelivery(observed: StatusDelivery, leaseMs = 300_000): Promise<boolean> {
+    if (!Number.isFinite(leaseMs) || leaseMs <= 0) throw new Error('Status delivery lease must be positive')
+    return await this.transaction(async tx => {
+      const key = `${statusOutboxPrefix}${statusTargetKey(observed)}`
+      const parsed = v.safeParse(statusDeliverySchema, await this.metaIn(tx, key))
+      if (!observed.lease || !parsed.success || parsed.output.lease !== observed.lease) return false
+      const leaseUntil = this.clock() + leaseMs
+      await this.setMetaIn(tx, key, { ...parsed.output, leaseUntil })
+      const target = statusTargetKey(observed)
+      const writers = (await this.statusWritersIn(tx, target)).filter(writer => writer.lease !== observed.lease)
+      writers.push({ lease: observed.lease, expiresAt: leaseUntil + 900_000 })
+      await this.setMetaIn(tx, `${statusWriterPrefix}${target}`, writers)
+      return true
+    })
+  }
+  /** Version and lease comparisons preserve newer results and fence replaced consumers. */
+  async finishStatusDelivery(observed: StatusDelivery, outcome: 'delivered' | 'discarded'): Promise<boolean> {
+    return await this.transaction(async tx => {
+      const writers = await this.settleStatusWriterIn(tx, observed)
+      const key = `${statusOutboxPrefix}${statusTargetKey(observed)}`
+      const parsed = v.safeParse(statusDeliverySchema, await this.metaIn(tx, key))
+      if (!observed.lease || !parsed.success || parsed.output.lease !== observed.lease) return false
+      const { lease: _lease, leaseUntil: _leaseUntil, ...released } = parsed.output
+      if (parsed.output.version !== observed.version) {
+        await this.setMetaIn(tx, key, released)
+        return false
+      }
+      if (outcome === 'delivered') {
+        if (!isStatusDeliveryCurrent(observed, await this.getIn(tx, observed.repository, observed.number))) {
+          await this.setMetaIn(tx, key, released)
+          await this.reconcileStatusWriterIn(tx, observed)
+          return false
+        }
+        await this.setMetaIn(tx, `${statusSentPrefix}${statusTargetKey(observed)}`, { contentKey: observed.contentKey, runId: observed.activity.runId, status: observed.activity.status, head: observed.head, deliveredAt: this.clock() })
+      }
+      if (writers.length) {
+        if (outcome === 'discarded') await this.reconcileStatusWriterIn(tx, observed)
+        else {
+          // An older accepted request can still land after this acknowledgement.
+          // Replay with a fresh activity identity through each writer's correction window.
+          const version = randomUUID()
+          await this.setMetaIn(tx, key, { ...released, version, nextAt: this.clock() + 60_000,
+            activity: { ...released.activity, runId: `saved:${statusTargetKey(observed)}:${released.contentKey}:${version}` } })
+        }
+      } else await tx.execute(`DELETE FROM ${this.tables.meta} WHERE scope=? AND key=?`, [this.scope, key])
+      return true
+    })
+  }
+  async retryStatusDelivery(observed: StatusDelivery, failure: unknown): Promise<boolean> {
+    return await this.transaction(async tx => {
+      await this.settleStatusWriterIn(tx, observed)
+      const key = `${statusOutboxPrefix}${statusTargetKey(observed)}`
+      const parsed = v.safeParse(statusDeliverySchema, await this.metaIn(tx, key))
+      if (!observed.lease || !parsed.success || parsed.output.lease !== observed.lease) return false
+      const { lease: _lease, leaseUntil: _leaseUntil, ...released } = parsed.output
+      if (parsed.output.version !== observed.version) {
+        await this.setMetaIn(tx, key, released)
+        return false
+      }
+      if (!isStatusDeliveryCurrent(observed, await this.getIn(tx, observed.repository, observed.number))) {
+        await this.setMetaIn(tx, key, released)
+        await this.reconcileStatusWriterIn(tx, observed)
+        return false
+      }
+      const attempts = parsed.output.attempts + 1
+      await this.setMetaIn(tx, key, { ...released, attempts, nextAt: this.clock() + Math.min(900_000, 60_000 * 2 ** Math.min(attempts - 1, 4)), lastError: String(failure).slice(0, 1000) })
+      return true
+    })
+  }
+  /** Repair the external projection after a replaced writer finally settles. */
+  async reconcileSettledStatusWriter(observed: StatusDelivery): Promise<boolean> {
+    if (!observed.lease) return false
+    return await this.transaction(async tx => {
+      await this.settleStatusWriterIn(tx, observed)
+      return await this.reconcileStatusWriterIn(tx, observed)
+    })
+  }
+  private async reconcileStatusWriterIn(tx: PullRequestInboxExecutor, observed: StatusDelivery): Promise<boolean> {
+    const target = statusTargetKey(observed)
+    const key = `${statusOutboxPrefix}${target}`
+    const current = await this.getIn(tx, observed.repository, observed.number)
+    if (!current?.pr?.head?.sha) return false
+    const surviving = v.safeParse(statusDeliverySchema, await this.metaIn(tx, key))
+    const sent = v.safeParse(statusAcknowledgementSchema, await this.metaIn(tx, `${statusSentPrefix}${target}`))
+    const contentKey = statusContentKey(current)
+    const survivingCurrent = surviving.success && isStatusDeliveryCurrent(surviving.output, current)
+    const resultCurrent = !current.lease && current.lastResult?.trim()
+      && (current.status !== 'terminal' && current.generation === current.handled || survivingCurrent && !surviving.output.projection
+        || current.status === 'terminal' && isStatusDeliveryCurrent(observed, current)
+        || current.status === 'ready' && sent.success && sent.output.contentKey === contentKey)
+    if (!resultCurrent) {
+      // The old HTTP write may have replaced a newer comment. Persist an
+      // honest queue/closure projection without relabelling the saved result.
+      await this.enqueueStatusProjectionIn(tx, current)
+      return true
+    }
+    if (survivingCurrent) {
+      // Its side effect may already have happened while its response is still
+      // pending. Preserve ownership, but fence that acknowledgement and replay.
+      const version = randomUUID()
+      await this.setMetaIn(tx, key, { ...surviving.output, version, nextAt: this.clock(), activity: {
+        ...surviving.output.activity, runId: `saved:${target}:${surviving.output.contentKey}:${version}`,
+      } })
+      return true
+    }
+    await tx.execute(`DELETE FROM ${this.tables.meta} WHERE scope=? AND key=?`, [this.scope, `${statusSentPrefix}${target}`])
+    await this.enqueueStatusResult(tx, current, undefined, current.wait?.headSha)
+    const pending = v.safeParse(statusDeliverySchema, await this.metaIn(tx, key))
+    if (!pending.success) return false
+    // The activity channel remembers prior runs. A correction must have a fresh
+    // identity so an already-published run is not rejected as a stale replay.
+    await this.setMetaIn(tx, key, { ...pending.output, activity: {
+      ...pending.output.activity, runId: `${pending.output.activity.runId}:${pending.output.version}`,
+    } })
+    return true
+  }
+  /** Upgrade historical waiting results without synthetic webhooks or model passes. */
+  async backfillStatusDeliveries(): Promise<void> {
+    for (const observed of await this.waitsToEvaluate(true, true)) {
+      await this.transaction(async tx => {
+        const current = await this.getIn(tx, observed.repository, observed.number)
+        if (!current || current.lease || current.status !== 'waiting' || current.generation !== current.handled || current.generation !== observed.generation
+          || (current.revision ?? 0) !== (observed.revision ?? 0)) return
+        await this.enqueueStatusResult(tx, current, undefined, current.wait?.headSha)
+      })
+    }
+  }
+  async recordWorkerBlocker(observed: Snapshot, revision: string): Promise<void> {
+    await this.transaction(async tx => {
+      const current = await this.getIn(tx, observed.repository, observed.number)
+      if (!current || current.pr?.head?.sha !== observed.pr?.head?.sha) return
+      await this.setMetaIn(tx, `${workerBlockerPrefix}${statusTargetKey(observed)}`, { revision, head: observed.pr?.head?.sha })
+    })
+  }
+  /** Wake and persist its release marker atomically, so restart cannot repeat the wake. */
+  async wakeForWorkerRelease(observed: Snapshot, revision: string, evidenceKey: string): Promise<boolean> {
+    return await this.transaction(async tx => {
+      const s = await this.getIn(tx, observed.repository, observed.number)
+      if (!s?.wait || s.lease || s.status === 'terminal' || s.generation !== observed.generation
+        || (s.revision ?? 0) !== (observed.revision ?? 0) || s.pr?.head?.sha !== observed.pr?.head?.sha) return false
+      const key = `${workerBlockerPrefix}${statusTargetKey(s)}`
+      const marker = await this.metaIn(tx, key)
+      if (isRuntimeRecord(marker) && marker.revision === revision && marker.head === s.pr?.head?.sha) return false
+      parseWait({ ...s.wait, evidenceKey })
+      if (s.wait.evidenceKey === evidenceKey) return false
+      s.recoveryHead = s.pr?.head?.sha; s.refresh = true
+      delete s.wait
+      this.dirty(s, 'wait:worker-release-changed')
+      await this.put(tx, s)
+      await this.setMetaIn(tx, key, { revision, head: s.pr?.head?.sha })
+      // The corrected host can repair unchanged CI even when Actions reruns
+      // are forbidden. Its old model fallback must not suppress that retry.
+      await tx.execute(`DELETE FROM ${this.tables.meta} WHERE scope=? AND key=?`,
+        [this.scope, `ci-permission-fallback:v1:${s.repository}:${s.pr?.head?.sha ?? ''}`])
+      if (this.activityAuthors.size) await this.enqueueStatusProjectionIn(tx, s)
+      return true
+    })
+  }
   private directMergeKey(repository: string, number: number): string { return `direct-merge:${repository}:${number}` }
   /** Atomically records that a claim has started an irreversible merge request. */
-  async beginDirectMerge(claim: Claim, head: string): Promise<boolean> {
+  async beginDirectMerge(claim: Claim, head: string, asynchronous = false): Promise<boolean> {
     return await this.transaction(async tx => {
       const s = await this.getIn(tx, claim.snapshot.repository, claim.snapshot.number)
       if (!s || s.lease !== claim.token || s.generation !== claim.generation ||
@@ -265,7 +606,7 @@ export class PullRequestInbox {
       if (await this.metaIn(tx, this.directMergeKey(s.repository, s.number)) !== undefined) return false
       await this.setMetaIn(tx, this.directMergeKey(s.repository, s.number), {
         token: claim.token, generation: claim.generation, revision: claim.snapshot.revision ?? 0,
-        head, startedAt: this.clock(),
+        head, startedAt: this.clock(), ...(asynchronous ? { asynchronous } : {}),
       } satisfies DirectMergeAttempt)
       return true
     })
@@ -279,6 +620,27 @@ export class PullRequestInbox {
       !isRuntimeString(attempt.head) || !Number.isFinite(attempt.startedAt)) return undefined
     // SAFETY: the required fields were validated above before this DirectMergeAttempt assertion.
     return attempt as DirectMergeAttempt
+  }
+  /** Save the provider's request identity without releasing the merge fence. */
+  async recordDirectMergeRequest(repository: string, number: number, token: string, requestId: string): Promise<boolean> {
+    if (!/^[a-f\d]{8}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{12}$/i.test(requestId)) throw new TypeError('Expected an asynchronous merge UUID.')
+    return await this.transaction(async tx => {
+      const key = this.directMergeKey(repository, number)
+      const attempt = await this.metaIn(tx, key)
+      if (!isRuntimeRecord(attempt) || attempt.token !== token || attempt.asynchronous !== true) return false
+      await this.setMetaIn(tx, key, { ...attempt, requestId })
+      return true
+    })
+  }
+  /** Preserve a final enqueued result, including an immediate response without a UUID. */
+  async recordDirectMergeEnqueued(repository: string, number: number, token: string): Promise<boolean> {
+    return await this.transaction(async tx => {
+      const key = this.directMergeKey(repository, number)
+      const attempt = await this.metaIn(tx, key)
+      if (!isRuntimeRecord(attempt) || attempt.token !== token || attempt.asynchronous !== true) return false
+      await this.setMetaIn(tx, key, { ...attempt, enqueued: true })
+      return true
+    })
   }
   async clearDirectMerge(repository: string, number: number, token: string): Promise<boolean> {
     return await this.transaction(async tx => {
@@ -372,10 +734,17 @@ export class PullRequestInbox {
       return false
     }
     const newHead = previous?.head?.sha !== pr.head?.sha
+    if (newHead && s.prospectivePush) {
+      const position = s.prospectivePush.heads.indexOf(pr.head?.sha ?? '')
+      if (position < 0) delete s.prospectivePush
+      else s.prospectivePush.heads = s.prospectivePush.heads.slice(position)
+    }
+    if (pr.state === 'closed') delete s.prospectivePush
     // A wait on a pushed head survives that head's synchronize event.
     if (newHead && pr.head?.sha !== s.wait?.headSha || pr.state === 'closed') delete s.wait
     s.pr = { ...previous, ...pr }
     if (newHead) {
+      delete s.ciEvidence
       s.checks = Object.fromEntries(Object.entries(s.checks).filter(([, check]) => check.head_sha === pr.head?.sha))
       s.statuses = Object.fromEntries(Object.entries(s.statuses).filter(([, status]) => status.sha === pr.head?.sha))
       s.hydrated = false; s.feedbackRefresh = true
@@ -384,7 +753,10 @@ export class PullRequestInbox {
     if (pr.state === 'closed') s.status = 'terminal'
     else if (s.status === 'terminal') {
       delete s.wait
-      s.status = s.lease ? 'working' : 'ready'
+      // A reopened PR starts new work. A claim from its closed lifetime
+      // cannot retain publication authority or defer the new status.
+      s.lease = null; s.leaseUntil = 0
+      s.status = 'ready'
     }
     return true
   }
@@ -452,6 +824,15 @@ export class PullRequestInbox {
       const matches = await tx.execute(`SELECT number FROM ${t.pullRequests} WHERE scope=? AND repository=? AND state='open'
         AND ((? IS NOT NULL AND head_sha=?) OR (? IS NOT NULL AND (base_ref=? OR head_ref=?)))`, [this.scope, repository, sha ?? null, sha ?? null, pushedRef, pushedRef, pushedRef])
       for (const row of matches) numbers.add(Number(row.number))
+      if (sha && (check || event === 'status')) {
+        // Source-push and check deliveries can precede synchronize. Retain CI
+        // for an active publication or its durable pushed-head wait.
+        const pending = await tx.execute(`SELECT number, value FROM ${t.pullRequests} WHERE scope=? AND repository=? AND state='open' AND (lease IS NOT NULL OR waiting=1)`, [this.scope, repository])
+        for (const row of pending) {
+          const snapshot = parseSnapshot(JSON.parse(stringValue(row.value)))
+          if (snapshot.wait?.headSha === sha || snapshot.lease && snapshot.leaseUntil > this.clock() && (snapshot.sourcePushHeads?.includes(sha) || snapshot.prospectivePush?.token === snapshot.lease && snapshot.prospectivePush.heads.includes(sha))) numbers.add(Number(row.number))
+        }
+      }
       for (const number of numbers) {
         const existing = await this.getIn(tx, repository, number)
         const s = existing ?? this.empty(repository, number)
@@ -459,7 +840,8 @@ export class PullRequestInbox {
         // invalidate active work when the author, labels, head, or state changes.
         if (!existing && !matchesGitHubPullRequestFilter({ ...pullRequestFilterContext(repository, payload.pull_request ?? null), actor: payload.sender?.login ?? payload.comment?.user?.login, action: payload.action }, { actor: this.filter?.actor, action: this.filter?.action }, 'event')) continue
         const pushRefMatch = event === 'push' && (payload.ref === `refs/heads/${s.pr?.base?.ref}` || payload.ref === `refs/heads/${s.pr?.head?.ref}`)
-        if (sha && s.pr?.head?.sha && s.pr.head.sha !== sha && !pushRefMatch) continue // old-head CI cannot wake current head
+        const pendingHead = sha && (check || event === 'status') && (s.wait?.headSha === sha || s.lease && s.leaseUntil > this.clock() && (s.sourcePushHeads?.includes(sha) || s.prospectivePush?.token === s.lease && s.prospectivePush.heads.includes(sha)))
+        if (sha && s.pr?.head?.sha && s.pr.head.sha !== sha && !pushRefMatch && !pendingHead) continue // unrelated old-head CI cannot wake current head
         let changed = false
         if (payload.pull_request) changed = this.updatePr(s, payload.pull_request)
         const upsert = (map: Record<string, GitHubEvidence>, value: GitHubEvidence | undefined, itemKey?: string) => {
@@ -501,6 +883,11 @@ export class PullRequestInbox {
             upsert(s.reviewComments, comment)
           }
           const isResolved = payload.action === 'resolved'
+          if (!isResolved) {
+            const reopens = s.threadReopens ??= {}
+            reopens[id] = (reopens[id] ?? 0) + 1
+            changed = true
+          }
           if (!previous || previous.isResolved !== isResolved || digest(previousComments) !== digest([...comments.values()])) {
             const thread = { ...previous, id, node_id: id, isResolved,
               resolutionSource: 'webhook', resolutionObservedAt: new Date(this.clock()).toISOString(), comments: [...comments.values()] }
@@ -518,7 +905,21 @@ export class PullRequestInbox {
         }
         if (check) upsert(s.checks, check, `${event}:${check.id}`)
         if (event === 'status') upsert(s.statuses, payload, payload.context)
-        if (event === 'push') { s.refresh = true; s.feedbackRefresh = true; changed = true }
+        if (event === 'push') {
+          // Preserve source-branch evidence before synchronize updates the PR head.
+          // A same-named branch in the base repository is not a fork's source.
+          if (payload.ref === `refs/heads/${s.pr?.head?.ref}` && (s.pr?.head?.repo?.full_name ?? repository).toLowerCase() === repository.toLowerCase()) {
+            s.sourcePushHead = sha ?? 'unknown'
+            if (s.lease) {
+              const heads = s.sourcePushHeads ??= []
+              if (!heads.includes(s.sourcePushHead)) {
+                if (heads.length < 64) heads.push(s.sourcePushHead)
+                else s.sourcePushOverflow = true
+              }
+            }
+          }
+          s.refresh = true; s.feedbackRefresh = true; changed = true
+        }
         // Pending CI is evidence to retain, not another repair task. Terminal
         // results still wake the PR; revision invalidates in-flight hydration
         // even when this update does not need a new agent generation.
@@ -526,6 +927,11 @@ export class PullRequestInbox {
           && ['queued', 'in_progress', 'pending', 'waiting', 'requested', 'rerequested', 'created'].includes(check.status ?? payload.action ?? '')
           || event === 'status' && payload.state === 'pending'
         const wake = (changed || !s.pr) && !pendingCi
+        // New human feedback is new evidence on the same head. It resets an exhausted no-progress budget.
+        const human = String(payload.sender?.type ?? '').toLowerCase() === 'user' && !this.activityAuthors.has(String(payload.sender?.login ?? '').toLowerCase())
+        if (changed && human && ['issue_comment', 'pull_request_review', 'pull_request_review_comment'].includes(event) && s.progressBudget?.exhausted) {
+          s.progressBudget = { ...s.progressBudget, count: 0, exhausted: false, resetReason: `${event}:${payload.sender?.login ?? 'unknown'}` }
+        }
         if (wake) this.dirty(s, `${event}:${payload.action ?? check?.conclusion ?? payload.state ?? 'updated'}`)
         else if (changed) s.revision = (s.revision ?? 0) + 1
         const exhausted = s.progressBudget?.exhausted && s.progressBudget.head === s.pr?.head?.sha
@@ -546,26 +952,33 @@ export class PullRequestInbox {
       return await finish(numbers.size ? undefined : 'no matching PR head')
     })
   }
-  async claim(limit: number): Promise<Claim[]> {
+  /** Leases up to `limit` eligible PRs. `skip` leaves a candidate unclaimed for this call. */
+  async claim(limit: number, options: { only?: (snapshot: Snapshot) => boolean; skip?: (snapshot: Snapshot) => boolean; includeBlocked?: boolean } = {}): Promise<Claim[]> {
     if (!this.repositories.length || limit < 1) return []
     return await this.transaction(async tx => {
       const now = this.clock(), claims: Claim[] = [], t = this.tables
-      const repositories = this.repositoryFilter()
-      // Columns select candidates; only these snapshots are parsed.
-      const candidates = await tx.execute(`SELECT repository, number, base_ref FROM ${t.pullRequests}
-        WHERE scope=? AND ${repositories.sql} AND waiting=0 AND status<>'terminal' AND generation>handled AND next_at<=?
-          AND (lease IS NULL OR lease_until<=?) AND progress_blocked=0
-        ORDER BY dirty_at, number`, [this.scope, ...repositories.args, now, now])
+      const repositories = this.repositoryFilter('p.repository')
+      // Columns select candidates; only these snapshots are parsed. Stack parents come first,
+      // weighted by their open children: merging one unblocks every child based on its branch.
+      const candidates = await tx.execute(`SELECT p.repository AS repository, p.number AS number, p.base_ref AS base_ref, COALESCE(json_extract(p.value, '$.pr.base.repo.full_name'), p.repository) AS base_repository FROM ${t.pullRequests} p
+        WHERE p.scope=? AND ${repositories.sql} AND p.waiting=0 AND p.status<>'terminal' AND p.generation>p.handled AND p.next_at<=?
+          AND (p.lease IS NULL OR p.lease_until<=?) AND (p.progress_blocked=0 OR ?=1)
+        ORDER BY (SELECT COUNT(*) FROM ${t.pullRequests} c WHERE c.scope=p.scope AND c.repository=p.repository AND c.state='open' AND c.base_ref=p.head_ref) DESC,
+          p.dirty_at, p.number`, [this.scope, ...repositories.args, now, now, options.includeBlocked ? 1 : 0])
       for (const candidate of candidates) {
         if (claims.length >= limit) break
         const repository = stringValue(candidate.repository), number = Number(candidate.number)
         // Stack children remain local; a parent merge's base push wakes them.
         if (candidate.base_ref !== null && candidate.base_ref !== undefined && (await tx.execute(`SELECT 1 FROM ${t.pullRequests}
-          WHERE scope=? AND repository=? AND number<>? AND state='open' AND head_ref=? LIMIT 1`, [this.scope, repository, number, candidate.base_ref])).length) continue
+          WHERE scope=? AND repository=? AND number<>? AND state='open' AND head_ref=?
+            AND json_extract(value, '$.pr.head.repo.full_name') = ? COLLATE NOCASE LIMIT 1`, [this.scope, repository, number, candidate.base_ref, candidate.base_repository])).length) continue
         const s = await this.getIn(tx, repository, number)
         if (!s) continue
         if (s.pr && !this.eligible(s.repository, s.pr)) continue
-        s.lease = randomUUID(); s.leaseUntil = now + 2 * 60 * 60_000; s.status = 'working'
+        if (options.only && !options.only(s)) continue
+        if (options.skip && options.skip(s)) continue
+        s.lease = randomUUID(); s.leaseUntil = now + 2 * 60 * 60_000; s.status = 'working'; s.sourcePushHeads = []
+        delete s.sourcePushOverflow
         await this.put(tx, s); claims.push({ token: s.lease, generation: s.generation, snapshot: structuredClone(s) })
       }
       return claims
@@ -599,6 +1012,46 @@ export class PullRequestInbox {
       await this.put(tx, s); return true
     })
   }
+  /** Retain a worker's verified thread resolution even when its webhook is missing. */
+  async recordThreadResolution(claim: Claim, id: string, observed: Snapshot): Promise<boolean> {
+    return await this.transaction(async tx => {
+      const s = await this.getIn(tx, claim.snapshot.repository, claim.snapshot.number)
+      if (!s || s.lease !== claim.token || s.leaseUntil <= this.clock() || s.status === 'terminal' || s.pr?.state !== 'open'
+        || s.pr.head?.sha !== observed.pr?.head?.sha || s.sourcePushOverflow || s.sourcePushHead !== observed.sourcePushHead
+        || digest(s.sourcePushHeads ?? []) !== digest(observed.sourcePushHeads ?? [])
+        || (s.threadReopens?.[id] ?? 0) !== (observed.threadReopens?.[id] ?? 0)) return false
+      const index = s.threads.findIndex(thread => String(thread.node_id ?? thread.id) === id)
+      if (index < 0) return false
+      const thread = s.threads[index]
+      if (!thread) return false
+      if (thread.isResolved === true) return true
+      const unchanged = s.generation === claim.generation && (s.revision ?? 0) === (claim.snapshot.revision ?? 0)
+      s.threads[index] = { ...thread, isResolved: true, resolutionSource: 'worker', resolutionObservedAt: new Date(this.clock()).toISOString() }
+      s.revision = (s.revision ?? 0) + 1
+      await this.put(tx, s)
+      // Own writes keep an unchanged claim usable. Concurrent evidence stays unacknowledged.
+      if (unchanged) Object.assign(claim.snapshot, { threads: structuredClone(s.threads), revision: s.revision })
+      return true
+    })
+  }
+  /** Retain CI for an exact candidate before its source-push webhook arrives. This is not a publication receipt. */
+  async registerProspectivePush(claim: Claim, head: string): Promise<boolean> {
+    if (!/^[a-f\d]{40}$/i.test(head)) throw new TypeError('Expected an exact publication commit SHA.')
+    return await this.transaction(async tx => {
+      const s = await this.getIn(tx, claim.snapshot.repository, claim.snapshot.number)
+      if (!s || s.status === 'terminal' || s.sourcePushOverflow || s.lease !== claim.token || s.leaseUntil <= this.clock()
+        || s.generation !== claim.generation || (s.revision ?? 0) !== (claim.snapshot.revision ?? 0)) return false
+      const heads = s.prospectivePush?.token === claim.token ? s.prospectivePush.heads : []
+      if (!heads.includes(head)) {
+        if (heads.length >= 64) throw new Error('Publication candidate limit reached.')
+        heads.push(head)
+      }
+      s.prospectivePush = { token: claim.token, heads }
+      s.revision = (s.revision ?? 0) + 1
+      await this.put(tx, s)
+      return true
+    })
+  }
   async release(claim: Claim): Promise<boolean> {
     return await this.transaction(async tx => {
       const s = await this.getIn(tx, claim.snapshot.repository, claim.snapshot.number)
@@ -630,15 +1083,22 @@ export class PullRequestInbox {
    * unchanged evidence. A wait with `headSha`, such as the head of a repair push, keeps later events
    * unhandled, so `waitsToEvaluate()` returns the PR and the host decides whether they need work.
    */
-  async finish(claim: Claim, result: { text: string; retry?: boolean; terminal?: boolean; progress?: ProgressOutcome; wait?: Omit<PullRequestWait, 'headSha'> & { headSha?: string } }): Promise<boolean> {
+  async finish(claim: Claim, result: { text: string; retry?: boolean; terminal?: boolean; progress?: ProgressOutcome; verifiedPushHeads?: readonly string[]; wait?: Omit<PullRequestWait, 'headSha'> & { headSha?: string } }): Promise<boolean> {
     return await this.transaction(async tx => {
       const s = await this.getIn(tx, claim.snapshot.repository, claim.snapshot.number)
-      if (!s || s.lease !== claim.token) return false
+      if (!s || s.lease !== claim.token || s.leaseUntil <= this.clock()) return false
       const pinnedHead = result.wait?.headSha
       if (result.wait && pinnedHead) {
         if (result.retry || result.terminal) throw new Error('A wait cannot also retry or terminate work')
-        // The synchronize event for the pinned head may arrive before or after this finish.
-        if (s.status === 'terminal' || (s.pr?.head?.sha !== pinnedHead && s.pr?.head?.sha !== claim.snapshot.pr?.head?.sha)) {
+        if (result.verifiedPushHeads && (result.progress?.kind !== 'verified' || result.progress.evidence !== `push:${pinnedHead}`)) throw new Error('Published ancestry requires a verified push receipt')
+        const pushed = new Set([pinnedHead, ...result.verifiedPushHeads ?? []])
+        const published = new Set([claim.snapshot.pr?.head?.sha, ...pushed])
+        // Synchronize can lag several successful pushes. Accept only this pass's
+        // verified publication chain, and fence a different source push even
+        // while the PR snapshot still exposes its original head.
+        if (s.status === 'terminal' || s.sourcePushOverflow || !published.has(s.pr?.head?.sha)
+          || s.sourcePushHead !== claim.snapshot.sourcePushHead && !pushed.has(s.sourcePushHead ?? "")
+          || s.sourcePushHeads?.some(head => !pushed.has(head))) {
           s.lease = null; s.leaseUntil = 0
           if (s.status !== 'terminal') { s.status = 'ready'; s.nextAt = 0 }
           await this.put(tx, s)
@@ -649,7 +1109,13 @@ export class PullRequestInbox {
         this.recordProgress(s, claim, result.progress)
         s.status = 'waiting'; s.handled = Math.max(s.handled, claim.generation); s.reasons = s.generation > claim.generation ? s.reasons : []
         s.revision = (s.revision ?? 0) + 1
-        await this.put(tx, s); return true
+        await this.put(tx, s)
+        const ownSynchronize = s.generation === claim.generation + 1
+          && pinnedHead !== claim.snapshot.pr?.head?.sha && s.pr?.head?.sha === pinnedHead
+          && s.reasons.includes('pull_request:synchronize')
+          && s.reasons.every(reason => reason === 'pull_request:synchronize' || claim.snapshot.reasons.includes(reason))
+        if (s.generation === claim.generation || ownSynchronize) await this.enqueueStatusResult(tx, s, claim, pinnedHead)
+        return true
       }
       if (result.wait) {
         if (result.retry || result.terminal) throw new Error('A wait cannot also retry or terminate work')
@@ -663,6 +1129,7 @@ export class PullRequestInbox {
         s.wait = parseWait({ ...result.wait, headSha: s.pr.head.sha })
         s.revision = (s.revision ?? 0) + 1
       }
+      delete s.recoveryHead
       const head = s.pr?.head?.sha
       this.recordProgress(s, claim, result.progress)
       s.lease = null; s.leaseUntil = 0; s.lastResult = result.text
@@ -678,7 +1145,9 @@ export class PullRequestInbox {
       if (s.status !== 'terminal' && s.progressBudget?.exhausted && s.progressBudget.head === head) {
         s.status = 'waiting'; s.nextAt = 0; s.reasons = ['no-progress-budget-exhausted']
       }
-      await this.put(tx, s); return true
+      await this.put(tx, s)
+      if (s.generation === claim.generation) await this.enqueueStatusResult(tx, s, claim)
+      return true
     })
   }
   private recordProgress(s: Snapshot, claim: Claim, progress: ProgressOutcome | undefined): void {
@@ -697,12 +1166,12 @@ export class PullRequestInbox {
     }
   }
   /** Waiting PRs that received events since the host last evaluated their wait. */
-  async waitsToEvaluate(): Promise<Snapshot[]> {
+  async waitsToEvaluate(includeExternal = false, includeIdle = false): Promise<Snapshot[]> {
     if (!this.repositories.length) return []
     const repositories = this.repositoryFilter()
     const rows = await this.read(`SELECT value FROM ${this.tables.pullRequests} WHERE scope=? AND ${repositories.sql}
-      AND waiting=1 AND status<>'terminal' AND lease IS NULL AND generation>handled ORDER BY dirty_at, number`, [this.scope, ...repositories.args])
-    return rows.map(row => parseSnapshot(JSON.parse(stringValue(row.value))))
+      AND waiting=1 AND status<>'terminal' AND lease IS NULL ${includeExternal || includeIdle ? '' : 'AND generation>handled'} ORDER BY dirty_at, number`, [this.scope, ...repositories.args])
+    return rows.map(row => parseSnapshot(JSON.parse(stringValue(row.value)))).filter(snapshot => snapshot.generation > snapshot.handled || includeExternal && (snapshot.wait?.wake || snapshot.wait?.retryAt !== undefined) || includeIdle && !snapshot.wait?.wake)
   }
   /** Records that the host evaluated a wait's new events and the wait still holds. */
   async acknowledgeWait(observed: Snapshot): Promise<boolean> {
@@ -712,21 +1181,43 @@ export class PullRequestInbox {
         || (s.revision ?? 0) !== (observed.revision ?? 0)) return false
       s.handled = s.generation; s.reasons = []
       await this.put(tx, s)
+      await this.enqueueStatusResult(tx, s, undefined, s.wait.headSha)
       return true
     })
   }
   /** Re-evaluate structured evidence outside an Agent invocation before calling this method. */
-  async wake(observed: Snapshot, evidenceKey: string): Promise<boolean> {
+  async wake(observed: Snapshot, evidenceKey: string, options: { recovery?: boolean } = {}): Promise<boolean> {
     return await this.transaction(async tx => {
       const s = await this.getIn(tx, observed.repository, observed.number)
       if (!s?.wait || s.lease || s.status === 'terminal' || s.generation !== observed.generation
         || (s.revision ?? 0) !== (observed.revision ?? 0) || s.pr?.head?.sha !== observed.pr?.head?.sha) return false
       parseWait({ ...s.wait, evidenceKey })
       if (s.wait.evidenceKey === evidenceKey) return false
+      if (options.recovery) { s.recoveryHead = s.pr?.head?.sha; s.refresh = true }
+      else delete s.recoveryHead
       delete s.wait
       this.dirty(s, 'wait:evidence-changed')
       await this.put(tx, s)
       return true
+    })
+  }
+  /**
+   * Frees every lease in this scope at startup and returns how many were held. Call it only when one
+   * process owns the scope: a pass cannot survive a restart, so its lease only delays the PR.
+   */
+  async releaseLeases(): Promise<number> {
+    return await this.transaction(async tx => {
+      const rows = await tx.execute(`SELECT repository, number FROM ${this.tables.pullRequests} WHERE scope=? AND lease IS NOT NULL`, [this.scope])
+      let released = 0
+      for (const row of rows) {
+        const s = await this.getIn(tx, stringValue(row.repository), Number(row.number))
+        if (!s?.lease) continue
+        s.lease = null; s.leaseUntil = 0
+        if (s.status !== 'terminal') s.status = s.wait ? 'waiting' : 'ready'
+        await this.put(tx, s)
+        released++
+      }
+      return released
     })
   }
   async recoverLeases(): Promise<void> {
@@ -746,8 +1237,16 @@ export class PullRequestInbox {
   async summary(): Promise<GitHubInboxSummary[]> {
     if (!this.repositories.length) return []
     const repositories = this.repositoryFilter()
-    const rows = await this.read(`SELECT summary FROM ${this.tables.pullRequests} WHERE scope=? AND ${repositories.sql} ORDER BY repository, number`, [this.scope, ...repositories.args])
-    return rows.map(row => parseSummary(JSON.parse(stringValue(row.summary))))
+    const rows = await this.read(`SELECT p.summary, (SELECT parent.number FROM ${this.tables.pullRequests} parent
+      WHERE parent.scope=p.scope AND parent.repository=p.repository AND parent.number<>p.number
+        AND parent.state='open' AND parent.head_ref=p.base_ref
+        AND json_extract(parent.value, '$.pr.head.repo.full_name') = COALESCE(json_extract(p.value, '$.pr.base.repo.full_name'), p.repository) COLLATE NOCASE ORDER BY parent.number LIMIT 1) AS stack_parent
+      FROM ${this.tables.pullRequests} p WHERE p.scope=? AND p.${repositories.sql} ORDER BY p.repository, p.number`, [this.scope, ...repositories.args])
+    return rows.map(row => {
+      const summary = parseSummary(JSON.parse(stringValue(row.summary)))
+      if (summary.status !== 'ready' || !summary.dirty || row.stack_parent === null || row.stack_parent === undefined) return summary
+      return { ...summary, stackBlocked: true, stackParent: { number: Number(row.stack_parent), state: 'open' } }
+    })
   }
   /** The open, unleased PR that a reconciliation probe checked longest ago, with that probe time. */
   async nextProbe(): Promise<{ repository: string; number: number; probedAt: number } | undefined> {
@@ -807,9 +1306,15 @@ export class PullRequestInbox {
     }
   }
   /** Drops delivery payloads after `payloadMs` and delivery IDs after `idMs`. Recent IDs still deduplicate redeliveries. */
-  async pruneDeliveries({ payloadMs = 7 * 24 * 60 * 60_000, idMs = 30 * 24 * 60 * 60_000 }: { payloadMs?: number; idMs?: number } = {}): Promise<void> {
+  async pruneDeliveries({ payloadMs = 864e5, idMs = 6048e5 }: { payloadMs?: number; idMs?: number } = {}): Promise<void> {
     const now = this.clock()
+    // CI metadata and full logs share the delivery payload retention window.
+    // Entries written before timestamps were introduced are expired too.
+    const staleEvidence = (await this.metaEntries('ci-evidence:v1:'))
+      .filter(([, value]) => !isRuntimeRecord(value) || !isRuntimeNumber(value.fetchedAt) || value.fetchedAt < now - payloadMs)
+      .map(([key]) => key)
     await this.transaction(async tx => {
+      for (const key of staleEvidence) await tx.execute(`DELETE FROM ${this.tables.meta} WHERE scope=? AND key=?`, [this.scope, key])
       await tx.execute(`DELETE FROM ${this.tables.deliveries} WHERE scope=? AND received<?`, [this.scope, now - idMs])
       await tx.execute(`UPDATE ${this.tables.deliveries} SET payload=NULL WHERE scope=? AND received<? AND payload IS NOT NULL`, [this.scope, now - payloadMs])
     })

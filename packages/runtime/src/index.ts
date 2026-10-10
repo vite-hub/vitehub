@@ -3,6 +3,26 @@ import { ViteHubError } from "./errors.ts"
 import { runtimeErrorDiagnostics } from "./error-diagnostics.ts"
 import { normalizeTraceAttributes } from "./internal/trace-attributes.ts"
 
+export { runtimeErrorDiagnostics }
+
+export {
+  runRuntimePreflight,
+  startRuntimePreflight,
+  type RuntimePreflightCheck,
+  type RuntimePreflightCheckContext,
+  type RuntimePreflightCheckResult,
+  type RuntimePreflightCheckSummary,
+  type RuntimePreflightDetails,
+  type RuntimePreflightDiagnosticData,
+  type RuntimePreflightHandle,
+  type RuntimePreflightIssue,
+  type RuntimePreflightKind,
+  type RuntimePreflightManifest,
+  type RuntimePreflightOptions,
+  type RuntimePreflightState,
+  type RuntimePreflightValue,
+} from "./preflight.ts"
+
 export { isTraceContentAttributeKey } from "./internal/trace-attributes.ts"
 
 export { decodeRouteSegment, encodeRouteSegment } from "./route-segment.ts"

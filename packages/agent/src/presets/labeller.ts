@@ -104,12 +104,12 @@ function matches(message: GmailMessage, rule: LabellerRule): boolean {
 }
 
 function explicitAction(rule: LabellerRule | undefined): LabellerAction {
-  return rule ? {
-    archive: rule.archive === true,
-    read: rule.read === true,
-    star: rule.star === true,
-    trash: rule.trash === true,
-  } : {}
+  if (!rule) return {}
+  const action: LabellerAction = {}
+  for (const key of ["archive", "read", "star", "trash"] as const) {
+    if (rule[key] !== undefined) action[key] = rule[key]
+  }
+  return action
 }
 
 function selectedLabel(result: LabellerResult | undefined): string | undefined {
@@ -208,7 +208,7 @@ export const labeller: LabellerAgent = defineAgent({
           const probability = selectedProbability(output, label)
           if (probability === undefined || probability < minConfidence) return
           const rule = output.rule ? rules[output.rule] : undefined
-          const selectedAction = rule?.label === label ? explicitAction(rule) : actions[label] || {}
+          const selectedAction = { ...actions[label], ...(rule?.label === label ? explicitAction(rule) : {}) }
           await message.label(label)
           if (selectedAction.archive) await message.archive()
           if (selectedAction.read) await message.markRead()

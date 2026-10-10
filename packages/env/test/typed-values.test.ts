@@ -107,11 +107,11 @@ describe("typed Server Env values", () => {
 
   it("describes the parsed type without exposing defaults", () => {
     expect(describeServerEnv(labellerRegistry()).entries).toEqual([
-      { path: "env.server.labeller.dryRun", source: "env", secret: false, required: true, hasDefault: true, type: "boolean" },
-      { path: "env.server.labeller.minConfidence", source: "env", secret: false, required: true, hasDefault: true, type: "number" },
-      { path: "env.server.labeller.mode", source: "env", secret: false, required: true, hasDefault: true, type: "\"draft\" | \"send\"" },
-      { path: "env.server.labeller.retries", source: "env", secret: false, required: false, hasDefault: false, type: "number" },
-      { path: "env.server.labeller.pin", source: "env", secret: true, required: true, hasDefault: false, type: "number" },
+      { path: "env.server.labeller.dryRun", canonicalName: "VITEHUB_LABELLER_DRY_RUN", source: "env", secret: false, required: true, hasDefault: true, type: "boolean" },
+      { path: "env.server.labeller.minConfidence", canonicalName: "VITEHUB_LABELLER_MIN_CONFIDENCE", source: "env", secret: false, required: true, hasDefault: true, type: "number" },
+      { path: "env.server.labeller.mode", canonicalName: "VITEHUB_LABELLER_MODE", source: "env", secret: false, required: true, hasDefault: true, type: "\"draft\" | \"send\"" },
+      { path: "env.server.labeller.retries", canonicalName: "VITEHUB_LABELLER_RETRIES", source: "env", secret: false, required: false, hasDefault: false, type: "number" },
+      { path: "env.server.labeller.pin", canonicalName: "VITEHUB_LABELLER_PIN", source: "env", secret: true, required: true, hasDefault: false, type: "number" },
     ])
   })
 })

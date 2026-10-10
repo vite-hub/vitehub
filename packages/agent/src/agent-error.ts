@@ -3,7 +3,7 @@ import {
   getViteHubErrorShape,
 } from "@vite-hub/runtime"
 
-import { hasRuntimeType, isRuntimeObject } from "@vite-hub/runtime/internal/runtime-type"
+import { hasRuntimeType, isRuntimeObject } from "./internal/runtime-type.ts"
 
 interface NormalizedAgentError {
   message: string
@@ -107,6 +107,7 @@ export type AgentPublicErrorCode =
   | "AUTHENTICATION_REQUIRED"
   | "CAPABILITY_DENIED"
   | "CAPABILITY_NOT_FOUND"
+  | "HOST_RESTARTED"
   | "INTERNAL"
   | "LLM_GATE_REJECTED"
   | "PROVIDER_AUTHENTICATION_FAILED"
@@ -307,6 +308,10 @@ function aiSdkProviderPublicError(error: unknown): AgentPublicError | undefined 
   }
 }
 
+// A spending limit or cap counts only when the same sentence says it was reached.
+// Messages that only mention one, such as probe notes, are not quota failures.
+const providerQuotaMessage = /usage limit|quota (?:is )?(?:exhausted|exceeded)|insufficient (?:quota|credits)|credit balance.*(?:low|exhausted)|spend(?:ing)?[\s_-]?(?:limit|cap)s?\b[^.]*\b(?:reached|exceeded|hit)\b|\b(?:reached|exceeded|hit)\b[^.]*\bspend(?:ing)?[\s_-]?(?:limit|cap)|(?:billing|spending) budget (?:is )?exceeded/i
+
 export function toAgentPublicError(error: unknown, context: AgentPublicErrorContext): AgentPublicError {
   try {
     const providerError = aiSdkProviderPublicError(error)
@@ -316,11 +321,16 @@ export function toAgentPublicError(error: unknown, context: AgentPublicErrorCont
     if (readAgentErrorProperty(error, "code") === "AGENT_R0726") {
       const message = readAgentErrorProperty(error, "message")
       if (hasRuntimeType(message, "string")
-        && /usage limit|quota (?:is )?(?:exhausted|exceeded)|insufficient (?:quota|credits)|credit balance.*(?:low|exhausted)|spend(?:ing)? limit|spend.?cap|(?:billing|spending) budget (?:is )?exceeded/i.test(message)) {
+        && providerQuotaMessage.test(message)) {
         return quotaExhausted(message)
       }
     }
     const viteHubError = getViteHubErrorShape(error)
+    if (viteHubError?.code === "HOST_RESTARTED") {
+      return publicError("HOST_RESTARTED", viteHubError.details?.retry === "exhausted"
+        ? "The server restarted twice while I was working on this. Please send your message again."
+        : "The server restarted while I was working on this. I'll retry it automatically.")
+    }
     if (viteHubError?.code === "AUTHENTICATION_REQUIRED") {
       return publicError("AUTHENTICATION_REQUIRED", "Authentication required.")
     }

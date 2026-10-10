@@ -490,7 +490,11 @@ describe("git capability", () => {
       command,
       exitCode: 0,
       stderr: "",
-      stdout: command === "git" && args.join(" ") === "rev-parse HEAD" ? `${pullRequestHeadSha}\n` : "",
+      stdout: command === "git" && args.join(" ") === "rev-parse HEAD"
+        ? `${pullRequestHeadSha}\n`
+        : command === "git" && args.join(" ") === "remote get-url origin"
+          ? "https://github.com/vite-hub/vitehub.git\n"
+          : "",
     }))
     const { tools } = await capabilityTools(git(), session, {
       pullRequest: {

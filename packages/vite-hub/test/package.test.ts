@@ -12,14 +12,14 @@ import * as ownerAgent from "@vite-hub/agent";
 import * as ownerCapabilities from "@vite-hub/agent/capabilities";
 import * as ownerAgentEve from "@vite-hub/agent/eve";
 import * as ownerAgentMcp from "@vite-hub/agent/mcp";
-import * as ownerBoxSsh from "@vite-hub/box/ssh";
-import * as frameworkBoxSsh from "vite-hub/box/ssh";
 import * as ownerAgentProcessRuntime from "@vite-hub/agent/runtime/process";
 import * as ownerAgentVite from "@vite-hub/agent/vite";
 import * as ownerAgentVue from "@vite-hub/agent/vue";
 import ownerAuthHandler from "@vite-hub/auth/server";
 import * as ownerAuthVue from "@vite-hub/auth/vue";
+import * as ownerBlobClient from "@vite-hub/blob/client";
 import * as ownerBlobContentType from "@vite-hub/blob/content-type";
+import * as ownerBlobVue from "@vite-hub/blob/vue";
 import { setActiveCloudflareEnv as ownerCloudflareEnvSetter } from "@vite-hub/database/runtime/cloudflare-env";
 import { setActiveCloudflareEnv as ownerDatabaseStateSetter } from "@vite-hub/database/runtime/state";
 import * as ownerRateLimit from "@vite-hub/rate-limit";
@@ -33,16 +33,18 @@ import * as frameworkAgentVite from "vite-hub/agent/vite";
 import * as frameworkAgentVue from "vite-hub/agent/vue";
 import { defineConsoleAuth } from "vite-hub/console/auth";
 import { defineConsoleAuthClient } from "vite-hub/console/auth/client";
-import { handleCloudflareAccessConsoleRequest } from "vite-hub/console/auth/cloudflare-access";
 import { createInlineConsoleAuth } from "vite-hub/console/auth/inline";
 import frameworkAuthHandler from "vite-hub/auth/server";
 import * as frameworkAuthVue from "vite-hub/auth/vue";
+import * as frameworkBlobClient from "vite-hub/blob/client";
 import * as frameworkBlobContentType from "vite-hub/blob/content-type";
+import * as frameworkBlobVue from "vite-hub/blob/vue";
 import * as frameworkRateLimit from "vite-hub/rate-limit";
 import * as frameworkRuntimeNode from "vite-hub/runtime/node";
 import { setActiveCloudflareEnv as frameworkDatabaseStateSetter } from "vite-hub/_internal/database/runtime/state";
 import * as ownerRuntimeNode from "@vite-hub/runtime/node";
 import { distributionBinEntries, distributionEntriesFromManifest } from "../vite.config.ts";
+import { hostManagedAuthorize } from "./support/console-authorize.ts";
 
 const packageRoot = fileURLToPath(new URL("..", import.meta.url));
 const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
@@ -76,7 +78,6 @@ describe("Console Auth package exports", () => {
     expect(typeof defineConsoleAuth).toBe("function");
     expect(typeof defineConsoleAuthClient).toBe("function");
     expect(typeof createInlineConsoleAuth).toBe("function");
-    expect(typeof handleCloudflareAccessConsoleRequest).toBe("function");
   });
 });
 
@@ -87,31 +88,38 @@ const consolidatedOwnerExports = new Set(["@vite-hub/blob/ensure", "@vite-hub/wo
 const lowLevelOwnerExports = new Set([
   "@vite-hub/agent/ai-sdk",
   "@vite-hub/agent/cloudflare/state",
+  "@vite-hub/agent/env-identity",
   "@vite-hub/agent/eve",
   "@vite-hub/agent/mcp/stdio",
   "@vite-hub/agent/messages",
   "@vite-hub/agent/output",
+  "@vite-hub/agent/observability/host",
+  "@vite-hub/agent/observability/posthog",
   "@vite-hub/agent/server/github",
   "@vite-hub/agent/server/workspace",
   "@vite-hub/blob/config",
   "@vite-hub/blob/errors",
+  "@vite-hub/box/ssh",
   "@vite-hub/database/config",
   "@vite-hub/env/seal",
   "@vite-hub/kv/errors",
+  "@vite-hub/ui/primitive-rail",
   "@vite-hub/workspace/source-metadata",
 ]);
 
 const generatedRuntimeOwnerExports = new Set([
-  "@vite-hub/agent/observability/host",
-  "@vite-hub/agent/observability/posthog",
   "@vite-hub/agent/runtime/empty-registry",
+  "@vite-hub/agent/runtime/invocations-dev",
   "@vite-hub/agent/runtime/workflow",
+  "@vite-hub/agent/server/registry",
   "@vite-hub/blob/runtime/cloudflare-vite",
+  "@vite-hub/blob/runtime/dev",
   "@vite-hub/blob/runtime/state",
   "@vite-hub/blob/runtime/vercel-vite",
   "@vite-hub/database/runtime/agent",
   "@vite-hub/database/runtime/cloudflare-env",
   "@vite-hub/database/runtime/cloudflare-vite",
+  "@vite-hub/database/runtime/d1",
   "@vite-hub/database/runtime/hosted",
   "@vite-hub/database/runtime/state",
   "@vite-hub/database/runtime/vercel-vite",
@@ -200,8 +208,12 @@ describe("framework package contract", () => {
       ownerAgentProcessRuntime.createProcessAgentCapacity,
     );
     expect(frameworkCapabilities.email).toBe(ownerCapabilities.email);
-    expect(frameworkBoxSsh.serveSsh).toBe(ownerBoxSsh.serveSsh);
-    expect(frameworkBoxSsh.sshLaunch).toBe(ownerBoxSsh.sshLaunch);
+    expect(Object.keys(frameworkCapabilities).sort()).toEqual(Object.keys(ownerCapabilities).sort());
+    for (const [name, capability] of Object.entries(ownerCapabilities)) {
+      // The framework narrows inputCommands to its Console Runtime context.
+      if (name === "inputCommands") continue;
+      expect(Reflect.get(frameworkCapabilities, name), name).toBe(capability);
+    }
     expect(frameworkCapabilities.workspaceShell).toBe(ownerCapabilities.workspaceShell);
     expect(frameworkAgentMcp.remoteMcpServer).toBe(ownerAgentMcp.remoteMcpServer);
     expect(frameworkAgentVite.agentHostRoutes).toBe(ownerAgentVite.agentHostRoutes);
@@ -211,6 +223,9 @@ describe("framework package contract", () => {
     expect(frameworkAuthVue.authClient).toBe(ownerAuthVue.authClient);
     expect(frameworkAuthVue.useUserSession).toBe(ownerAuthVue.useUserSession);
     expect(frameworkBlobContentType.detectContentType).toBe(ownerBlobContentType.detectContentType);
+    expect(frameworkBlobClient.createMultipartUploader).toBe(ownerBlobClient.createMultipartUploader);
+    expect(frameworkBlobVue.useUpload).toBe(ownerBlobVue.useUpload);
+    expect(frameworkBlobVue.useMultipartUpload).toBe(ownerBlobVue.useMultipartUpload);
     expect(frameworkRateLimit.requireRateLimit).toBe(ownerRateLimit.requireRateLimit);
     expect(frameworkRateLimit.createRateLimiter).toBe(ownerRateLimit.createRateLimiter);
     expect(frameworkRuntimeNode.nodeRuntimeResources).toBe(ownerRuntimeNode.nodeRuntimeResources);
@@ -260,6 +275,7 @@ describe("framework package contract", () => {
       "./console/sections",
       "./console/server",
       "./database/drizzle",
+      "./doctor",
       "./nuxt",
       "./runtime/h3",
       "./source",
@@ -354,10 +370,13 @@ describe("framework package contract", () => {
     expect(existsSync(`${packageRoot}/dist/console/runtime/client/request.d.ts`)).toBe(true);
     expect(existsSync(`${packageRoot}/dist/console/runtime/client/time.js`)).toBe(true);
     expect(existsSync(`${packageRoot}/dist/console/runtime/client/time.d.ts`)).toBe(true);
+    expect(existsSync(`${packageRoot}/dist/console/runtime/client/appearance.js`)).toBe(true);
+    expect(existsSync(`${packageRoot}/dist/console/runtime/client/appearance.d.ts`)).toBe(true);
     expect(manifest.exports).not.toHaveProperty("./console/runtime/console-route");
     expect(manifest.exports).not.toHaveProperty("./console/runtime/sections");
     expect(manifest.exports).not.toHaveProperty("./console/runtime/client/request");
     expect(manifest.exports).not.toHaveProperty("./console/runtime/client/time");
+    expect(manifest.exports).not.toHaveProperty("./console/runtime/client/appearance");
     expect(consolePage).toContain("AgentInvocationList");
     expect(consolePage).toContain('aria-label="Filter sessions"');
     expect(consolePage).toContain("selectedCapabilityId");
@@ -446,8 +465,7 @@ describe("framework package contract", () => {
     expect(consolePage).toContain(':maximizable="Boolean(selectedInvocationId)"');
     expect(consoleSessionNavbar).toContain('data-slot="session-details-toggle"');
     expect(consoleSessionNavbar).toContain(':disabled="!hasSelection"');
-    expect(consoleSessionNavbar).toContain('v-if="externalTarget.github"');
-    expect(consoleSessionNavbar).toContain('fill="currentColor"');
+    expect(consoleSessionNavbar).toContain('icon: "i-lucide-github"');
     expect(consoleSessionNavbar).toContain('label: "Open on GitHub"');
     expect(consolePage).toMatch(/scrollbar-width: none;/);
     expect(consolePage).toMatch(/::-webkit-scrollbar[\s\S]*?display: none;/);
@@ -484,7 +502,12 @@ describe("framework package contract", () => {
     expect(sessionInspector).toContain("workspace.pullRequest !== undefined");
     expect(sessionInspector).toContain("hasPullRequest && (pullRequest === undefined");
     expect(sessionInspector).toContain('openViews.value.includes("workspace")');
-    expect(sessionInspector).toContain("list: 'w-max min-w-0 gap-1 bg-transparent p-0'");
+    expect(sessionInspector).toContain('<TabsList data-slot="list">');
+    expect(sessionInspector).toContain('import { TabsList, TabsRoot, TabsTrigger } from "reka-ui";');
+    expect(sessionInspector).toMatch(
+      /<TabsTrigger[\s\S]*?<\/TabsTrigger>[\s\S]*?class="session-inspector__tab-close"/,
+    );
+    expect(sessionInspector).not.toContain('<template #leading="{ item }">');
     expect(sessionInspector).not.toContain("scrollIntoView");
     expect(sessionInspector).toContain("scroller.scrollLeft");
     expect(consoleSessionCss).toMatch(
@@ -494,7 +517,7 @@ describe("framework package contract", () => {
       /\.session-inspector__tabs \{[\s\S]*?flex: 0 1 auto;[\s\S]*?max-width: calc\(100% - 2rem\);[\s\S]*?width: max-content;/,
     );
     expect(consoleSessionCss).toMatch(
-      /\.session-inspector__tabs \[data-slot="list"\] \{[\s\S]*?min-width: 0;[\s\S]*?width: max-content;/,
+      /\.session-inspector__tabs \[data-slot="list"\] \{[^}]*?display: flex;[^}]*?min-width: 0;[^}]*?width: max-content;/,
     );
     const sessionTrace = readFileSync(
       `${packageRoot}/dist/console/runtime/components/console-session-trace.vue`,
@@ -555,8 +578,10 @@ describe("framework package contract", () => {
     expect(consolePage).toContain("list.loadMoreError.value");
     expect(consolePage).toContain("Retry loading older sessions");
     expect(consolePage).toContain('@click="list.loadMore"');
-    expect(consolePage).toContain("Switch Agent");
-    expect(consolePage).toContain("agentMenuItems");
+    expect(consolePage).toContain('import {\n  readConsoleAgentListOpen,');
+    expect(consolePage).toContain('aria-controls="vitehub-console-agent-list"');
+    expect(consolePage).toContain('group-by="recency"');
+    expect(existsSync(`${packageRoot}/dist/console/runtime/components/console-agent-list.ts`)).toBe(true);
     expect(consolePage).toContain("invocation.agentName !== selectedAgentName.value");
     expect(consolePage).toContain("invocation.agentName === agentName");
     expect(consolePage).toContain(
@@ -653,8 +678,10 @@ describe("framework package contract", () => {
     expect(consoleSearch).toContain(
       'resolveConsoleRouteName(route.name, "vitehub-console-invocation")',
     );
-    expect(consoleSearch).toContain('label: "All primitives"');
-    expect(consoleSearch).toContain('label: "Pages"');
+    expect(consoleSearch).toContain('[{ id: "actions", items: props.actions, label: "Actions" }]');
+    expect(consoleSearch).toContain('label: "Overview"');
+    expect(consoleSearch).toContain('label: "Go to"');
+    expect(consoleSearch).toContain("kbds: [...shortcut]");
     expect(consoleSearch).toContain(
       'label: debouncedSearchTerm.value ? "Sessions" : "Recent sessions"',
     );
@@ -675,24 +702,20 @@ describe("framework package contract", () => {
     expect(consoleSearch).toContain("if (!open.value) return");
     expect(consoleSearch).toContain("if (open.value) debouncedSearchTerm.value = value.trim()");
     expect(consoleSearch).toContain("debouncedSearchTerm.value = nextSearchTerm");
-    const consoleBrand = readFileSync(
-      `${packageRoot}/dist/console/runtime/components/console-brand.vue`,
-      "utf8",
-    );
-    expect(consoleBrand).toContain("<RouterLink");
-    expect(consoleBrand).toContain("resolveConsoleRouteName(route.name, 'vitehub-console')");
-    expect(consoleBrand).toContain("subscribeConsoleNavigation(props.sectionsBase");
     const consoleHome = readFileSync(
       `${packageRoot}/dist/console/runtime/components/console-home.vue`,
       "utf8",
     );
     expect(consoleHome).toContain("loadConsoleNavigation(props.sectionsBase)");
-    const consolePrimitiveSwitcher = readFileSync(
-      `${packageRoot}/dist/console/runtime/components/console-primitive-switcher.vue`,
+    const consoleRail = readFileSync(
+      `${packageRoot}/dist/console/runtime/components/console-rail.vue`,
       "utf8",
     );
-    expect(consolePrimitiveSwitcher).toContain("navigationFailed.value = true");
-    expect(consolePrimitiveSwitcher).toContain('aria-label="Retry loading primitives"');
+    expect(consoleRail).toContain("navigationFailed.value = true");
+    expect(consoleRail).toContain('<PrimitiveRailItem label="Retry loading primitives" @click="loadNavigation">');
+    expect(consoleRail).toContain("open('vitehub-console')");
+    expect(consoleRail).toContain("subscribeConsoleNavigation(props.sectionsBase");
+    expect(consoleRail).toContain('import { defineShortcuts } from "@nuxt/ui/composables";');
     expect(existsSync(`${packageRoot}/dist/console/runtime/components/console-usage.vue`)).toBe(
       true,
     );
@@ -707,6 +730,9 @@ describe("framework package contract", () => {
     expect(consoleClient).toContain('"folder-tree":{"width":24');
     expect(consoleClient).toContain("prefers-color-scheme: dark");
     expect(consoleClient).toMatch(/classList\.toggle\(["`]dark["`]/);
+    // The Console appearance module is the only color scheme writer. Nuxt UI color mode stays off.
+    expect(consoleClient).toContain("vitehub-console:appearance");
+    expect(consoleClient).not.toContain("vueuse-color-scheme");
     expect(consoleClient).toContain("ViteHub");
     expect(consoleClient).toContain("/agents/:agent/invocations/:invocation");
     expect(consoleClient).toContain("/blob");
@@ -726,10 +752,6 @@ describe("framework package contract", () => {
     expect(consoleCss).toContain("vitehub-console");
     expect(consoleCss).toContain("--ui-bg:#fdfdfd");
     expect(consoleCss).toContain("--ui-text:#27272a");
-    // The blocking stylesheet and entry script exclude KaTeX fonts and the full Lucide set.
-    expect(consoleCss).not.toContain("KaTeX_");
-    expect(consoleClient).not.toContain('"alarm-clock-check":{');
-    // KaTeX is loaded lazily by the runtime math component, so it is absent from the blocking assets.
     expect(
       globSync("dist/console/runtime/public/console/chunks/*.js", { cwd: packageRoot }).length,
     ).toBeGreaterThan(0);
@@ -744,7 +766,7 @@ describe("framework package contract", () => {
     expect(consolePageSource).toContain(`/_vitehub/assets/${consoleClientFile.split("/").at(-1)}`);
     expect(consolePageSource).toContain(`/_vitehub/assets/${consoleCssFile.split("/").at(-1)}`);
     expect(consolePageSource).not.toContain("__VITEHUB_CONSOLE_");
-    expect(consoleRpcSource).not.toContain("devframe");
+    expect(consoleRpcSource).not.toContain("devframe/adapters/h3");
     expect(manifest.dependencies).toHaveProperty("@cloudflare/workers-types");
     expect(manifest.dependencies).toHaveProperty("h3");
     expect(manifest.dependencies).toHaveProperty("ocache");
@@ -757,7 +779,7 @@ describe("framework package contract", () => {
       const plugin = framework
         .vitehub({
           agent: true,
-          console: { exposure: "host-managed" },
+          console: { exposure: "host-managed", authorize: hostManagedAuthorize },
           kv: true,
           preset: "node",
           queue: true,

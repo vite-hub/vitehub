@@ -356,6 +356,19 @@ describe("required check evidence", () => {
       }).state,
     ).toBe("unknown");
   });
+  it("gates a branch without required checks on the newest run of every current-head check", () => {
+    const unprotected = { ...policy, required: [] };
+    const abandoned = { ...run, id: 10, name: "Workers Builds", app: { id: 1 }, status: "in_progress", conclusion: null };
+    const finished = { ...abandoned, id: 11, status: "completed", conclusion: "success" };
+    const state = (checkRuns: (typeof run | typeof abandoned)[], statuses: { id: number; sha: string; context: string; state: string }[] = []) =>
+      evaluateGitHubRequiredChecks(unprotected, { ...evidence, checkRuns, statuses }).state;
+    expect(state([abandoned])).toBe("pending");
+    expect(state([abandoned, finished])).toBe("passed");
+    expect(state([{ ...abandoned, head_sha: "old" }])).toBe("passed");
+    // Failures need an assessment from the merge gate, not another wait.
+    expect(state([{ ...finished, conclusion: "failure" }])).toBe("passed");
+    expect(state([], [{ id: 1, sha: "head", context: "deploy", state: "pending" }])).toBe("pending");
+  });
   it("never treats unknown or mismatched policy as passing", () => {
     for (const value of [
       { ...policy, status: "unknown" as const },

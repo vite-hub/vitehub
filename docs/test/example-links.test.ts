@@ -40,6 +40,25 @@ describe("public example link checks", () => {
     ]);
   });
 
+  it("checks optional published example websites", async () => {
+    const fetchImpl = vi.fn(async (input: string | URL) => new Response(
+      String(input).startsWith("https://api.github.com/repos/")
+        ? JSON.stringify({ default_branch: "main", is_template: false })
+        : "ok",
+      { status: 200 },
+    ));
+    const result = await checkExampleLinks([
+      { name: "Project", kind: "project", status: "published", action: { to: "https://github.com/vite-hub/project" }, website: "https://project.example" },
+    ], { attempts: 1, fetchImpl });
+
+    expect(result.failures).toEqual([]);
+    expect(result.checks.map(({ category, url }) => ({ category, url }))).toEqual([
+      { category: "catalog-url", url: "https://github.com/vite-hub/project" },
+      { category: "website", url: "https://project.example" },
+      { category: "default-branch", url: "https://api.github.com/repos/vite-hub/project" },
+    ]);
+  });
+
   it("checks the repository reached through a redirected GitHub action", async () => {
     const fetchImpl = vi.fn(async (input: string | URL) => {
       if (String(input) === "https://www.github.com/vite-hub/template/generate") {

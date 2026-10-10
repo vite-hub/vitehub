@@ -13,6 +13,7 @@ import { installConsoleAgentDefinitions } from "../src/console/runtime/server/ag
 import channelReplayHandler from "../src/console/runtime/server/channel-replay.ts"
 
 import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.ts"
+import "./support/console-access.ts"
 
 const messages = [{ id: "m1", subject: "Invoice" }, { id: "m2", subject: "Receipt" }]
 

@@ -1,22 +1,27 @@
 import { characterEntitiesLegacy } from "character-entities-legacy"
+import { decodeHTMLAttribute } from "entities"
 import { parseMarkdown } from "comark"
 import { markdownTemplateErrorDiagnostics } from "./error-diagnostics.ts"
 
 const legacyHtmlReferences = new Set(characterEntitiesLegacy)
 
-export async function safeLinkDestination(value: string, path: string): Promise<string> {
-  const suffixIndex = value.search(/[?#]/)
-  const scheme = value.match(/^([a-z][a-z\d+.-]*):/i)
+export async function safeLinkDestination(value: string, path: string, options: { decodeHtmlEntities?: boolean } = {}): Promise<string> {
+  // Authored HTML attributes are entity-decoded by browsers before navigation.
+  // Validate the decoded value so encoded schemes cannot bypass the URL policy,
+  // while encoding the result later lets the HTML renderer restore safe entities.
+  const decodedValue = options.decodeHtmlEntities ? decodeHTMLAttribute(value) : value
+  const suffixIndex = decodedValue.search(/[?#]/)
+  const scheme = decodedValue.match(/^([a-z][a-z\d+.-]*):/i)
   const hierarchical = !scheme
     || /^(?:file|ftp|https?|wss?)$/i.test(scheme[1]!)
   const hasPathBackslash = hierarchical
-    && value.slice(0, suffixIndex < 0 ? undefined : suffixIndex).includes("\\")
-  const hasHtmlReferencePrefix = /&#(?:\d+|x[\dA-F]+)/i.test(value)
+    && decodedValue.slice(0, suffixIndex < 0 ? undefined : suffixIndex).includes("\\")
+  const hasHtmlReferencePrefix = !options.decodeHtmlEntities && (/&#(?:\d+|x[\dA-F]+)/i.test(value)
     || [...value.matchAll(/&([A-Za-z][A-Za-z\d]*)(?=[^=A-Za-z\d]|$)/g)]
-      .some(match => legacyHtmlReferences.has(match[1]!))
-  const hasBracketedAuthority = /^(?:[a-z][a-z\d+.-]*:)?\/{2,}(?:[^/?#]*@)?\[/i.test(value)
-    || /^(?:file|ftp|https?|wss?):\/*(?:[^/?#]*@)?\[/i.test(value)
-  if (value.startsWith(" ") || value.endsWith(" ") || /%(?![\dA-F]{2})/i.test(value) || hasPathBackslash || hasHtmlReferencePrefix || hasBracketedAuthority || [...value].some((character) => {
+      .some(match => legacyHtmlReferences.has(match[1]!)))
+  const hasBracketedAuthority = /^(?:[a-z][a-z\d+.-]*:)?\/{2,}(?:[^/?#]*@)?\[/i.test(decodedValue)
+    || /^(?:file|ftp|https?|wss?):\/*(?:[^/?#]*@)?\[/i.test(decodedValue)
+  if (decodedValue.startsWith(" ") || decodedValue.endsWith(" ") || /%(?![\dA-F]{2})/i.test(decodedValue) || hasPathBackslash || hasHtmlReferencePrefix || hasBracketedAuthority || [...decodedValue].some((character) => {
     const codePoint = character.codePointAt(0)!
     return codePoint < 32 || codePoint === 127
   })) {
@@ -24,7 +29,7 @@ export async function safeLinkDestination(value: string, path: string): Promise<
   }
   let encoded: string
   try {
-    encoded = encodeURI(value)
+    encoded = encodeURI(decodedValue)
     encoded = encoded
       .replace(/%25([\dA-F]{2})/gi, "%$1")
       .replace(/[()]/g, character => `%${character.codePointAt(0)!.toString(16).toUpperCase()}`)

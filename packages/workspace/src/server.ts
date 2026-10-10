@@ -2,6 +2,7 @@ import { createError, defineEventHandler, getQuery, getRouterParam } from "h3"
 import { lookup } from "mrmime"
 import { Diagnostic } from "nostics"
 import { getViteHubErrorShape } from "@vite-hub/runtime"
+import { isViteHubSecretEqual } from "@vite-hub/internal/secret"
 
 import { getWorkspaceCollectionItem, queryWorkspaceCollection, workspaceCollectionEmpty } from "./collections.ts"
 import { matchesAny, normalizeSafeWorkspacePath } from "./core/path.ts"
@@ -156,7 +157,7 @@ export async function readWorkspaceDevToken(rootDir: string, options: WorkspaceD
 
 export async function validateWorkspaceDevToken(rootDir: string, headers: Headers | Record<string, string | string[] | undefined>, options: WorkspaceDevTokenOptions = {}): Promise<boolean> {
   const token = headerValue(headers, workspaceDevTokenHeader)
-  return typeof token === "string" && token === await ensureWorkspaceDevToken(rootDir, options)
+  return isViteHubSecretEqual(token, await ensureWorkspaceDevToken(rootDir, options))
 }
 
 async function resolveWorkspace<Name extends WorkspaceName>(

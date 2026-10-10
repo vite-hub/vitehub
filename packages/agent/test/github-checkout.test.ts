@@ -1,15 +1,22 @@
 import { execFile } from 'node:child_process'
-import { access, cp, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { cp, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
+import * as fs from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { afterEach, expect, it, vi } from 'vitest'
 import { createGitHubHost, prepareGitHubPullRequestWorkspace } from '../src/server/github.ts'
 
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const original = await importOriginal<typeof import('node:fs/promises')>()
+  return { ...original, lstat: vi.fn(original.lstat), readdir: vi.fn(original.readdir) }
+})
+
 const exec = promisify(execFile)
 const roots: string[] = []
 afterEach(async () => {
   vi.unstubAllEnvs()
+  vi.restoreAllMocks()
   await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true })))
 })
 const git = async (cwd: string, ...args: string[]) => (await exec('git', args, { cwd })).stdout.trim()
@@ -74,7 +81,7 @@ it('supplies Git credentials without running the GitHub CLI', async () => {
   expect(result).toContain('password=test-token')
 })
 
-it('fetches the fork branch instead of stale PR refs and pushes provider repairs with a head lease', async () => {
+it('records repair publication before post-push validation while retaining source head leases', async () => {
   const { root, source, target, head: staleHead } = await fixture()
   const fork = join(root, 'fork.git')
   await git(root, 'clone', '--bare', source, fork)
@@ -95,6 +102,12 @@ const args = process.argv.slice(2).map(arg => map[arg] || arg);
 const result = spawnSync(${JSON.stringify(realGit)}, args, { stdio: 'inherit' });
 process.exit(result.status ?? 1);
 `, { mode: 0o755 })
+  const globalConfig = join(root, 'global.gitconfig')
+  const globalHooks = join(root, 'global-hooks')
+  await mkdir(globalHooks)
+  await writeFile(join(globalHooks, 'post-checkout'), '#!/bin/sh\nexit 99\n', { mode: 0o755 })
+  await writeFile(globalConfig, `[core]\n hooksPath = ${globalHooks}\n`)
+  vi.stubEnv('GIT_CONFIG_GLOBAL', globalConfig)
   vi.stubEnv('PATH', `${bin}:${process.env.PATH}`)
   const credentials = vi.fn(({ repository }: { repository?: string }) => ({ token: repository ?? 'default', rateLimitKey: repository ?? 'default' }))
   const host = createGitHubHost({ credentials })
@@ -131,6 +144,21 @@ process.exit(result.status ?? 1);
     })
     await expect(checkout.push(target, { signal: pushController.signal })).rejects.toThrow('Lease expired')
     expect(await git(fork, 'rev-parse', 'feature')).toBe(headSha)
+    let receipt: string | undefined
+    const receiptController = new AbortController()
+    await expect(checkout.push(target, {
+      signal: receiptController.signal,
+      beforePush: async () => {
+        // The base fence belongs before publication; the remote still has the old head.
+        expect(await git(fork, 'rev-parse', 'feature')).toBe(headSha)
+      },
+      afterPush: async head => {
+        receipt = head
+        expect(await git(fork, 'rev-parse', 'feature')).toBe(head)
+        receiptController.abort(new DOMException('Lease expired after publication', 'AbortError'))
+      },
+    })).rejects.toThrow('Lease expired after publication')
+    expect(receipt).toBe(repair)
     expect(await checkout.push(target)).toBe(repair)
     await expect(readFile(hookMarker)).rejects.toMatchObject({ code: 'ENOENT' })
     expect(await git(fork, 'rev-parse', 'feature')).toBe(repair)
@@ -159,5 +187,66 @@ process.exit(result.status ?? 1);
     await expect(git(checkout.path, 'symbolic-ref', 'HEAD')).rejects.toThrow()
     await expect(checkout.push()).rejects.toThrow('source repository and branch are required')
   })
+  let replacement: string | undefined
+  await host.withPullRequestCheckout({ repository: pr.repository, number: 125, headSha: baseHead }, async checkout => {
+    const moved = `${checkout.path}-moved`
+    replacement = checkout.path
+    await rename(checkout.path, moved)
+    await mkdir(checkout.path)
+    await writeFile(join(checkout.path, 'replacement'), 'preserve\n')
+  })
+  expect(await readFile(join(replacement!, 'replacement'), 'utf8')).toBe('preserve\n')
+  roots.push(replacement!, `${replacement!}-moved`)
+  expect(await readdir(`${replacement!}-moved`)).toEqual([])
 
+  // Swap the candidate after the parent receives its matching identity, but
+  // before the worker resolves cwd. The replacement must stay at its path,
+  // and rediscovery must still clean the moved checkout.
+  const original = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises')
+  let raced = false
+  let candidate = ''
+  await host.withPullRequestCheckout({ repository: pr.repository, number: 127, headSha: baseHead }, async checkout => {
+    candidate = checkout.path
+    roots.push(candidate, `${candidate}-moved`)
+    vi.mocked(fs.lstat).mockImplementation(async (path, options) => {
+      const identity = await original.lstat(path, options)
+      if (!raced && path === candidate) {
+        raced = true
+        await rename(candidate, `${candidate}-moved`)
+        await mkdir(candidate)
+        await writeFile(join(candidate, 'replacement'), 'preserve')
+      }
+      return identity
+    })
+  })
+  expect(raced).toBe(true)
+  expect(await readFile(join(candidate, 'replacement'), 'utf8')).toBe('preserve')
+  expect(await readdir(`${candidate}-moved`)).toEqual([])
+  vi.mocked(fs.lstat).mockImplementation(original.lstat)
+  // Moving outside the discovery parent must preserve both callback outcomes.
+  for (const fails of [false, true]) {
+    const failure = new Error('callback failure')
+    const moved = join(root, `outside-${fails}`)
+    const result = host.withPullRequestCheckout({ repository: pr.repository, number: 128, headSha: baseHead }, async checkout => {
+      await rename(checkout.path, moved)
+      if (fails) throw failure
+      return 'callback result'
+    })
+    if (fails) await expect(result).rejects.toBe(failure)
+    else await expect(result).resolves.toBe('callback result')
+    expect(await readFile(join(moved, 'file.txt'), 'utf8')).toBe('external update\n')
+  }
+  // A discovery error must not replace either callback outcome.
+  for (const fails of [false, true]) {
+    const failure = new Error('callback failure')
+    const result = host.withPullRequestCheckout({ repository: pr.repository, number: 129, headSha: baseHead }, async checkout => {
+      roots.push(checkout.path)
+      vi.mocked(fs.readdir).mockRejectedValue(Object.assign(new Error('discovery failed'), { code: 'EACCES' }))
+      if (fails) throw failure
+      return 'callback result'
+    })
+    if (fails) await expect(result).rejects.toBe(failure)
+    else await expect(result).resolves.toBe('callback result')
+    vi.mocked(fs.readdir).mockImplementation(original.readdir)
+  }
 }, 30_000)

@@ -19,11 +19,13 @@ import {
   stringAttribute,
   terminalText,
   type InvocationActivity,
+  invocationActivityDetail,
 } from "../internal/invocation-activity.ts";
+import { AgentInvocationTimeline, invocationTimeline } from "./agent-invocation-timeline.ts";
 
 export { invocationActivities } from "../internal/invocation-activity.ts";
 import { buildInvocationConversation, type InvocationConversation } from "../internal/invocation-conversation.ts";
-import { hasRuntimeType, runtimeType } from "@vite-hub/runtime/internal/runtime-type";
+import { hasRuntimeType, runtimeType } from "../internal/runtime-type.ts";
 import { AgentPatchDiff } from "./agent-code-view.ts";
 import { AgentMarkdown } from "./agent-markdown.ts";
 import { AgentToolList } from "./agent-tool-list.ts";
@@ -68,16 +70,6 @@ function formatElapsed(startedAt: string | undefined, now: Date | undefined): st
   const hours = Math.floor(seconds / 3_600);
   const pad = (value: number) => String(value).padStart(2, "0");
   return hours ? `${hours}:${pad(minutes)}:${pad(seconds % 60)}` : `${minutes}:${pad(seconds % 60)}`;
-}
-
-function formatTimelineDuration(value: number): string | undefined {
-  if (!Number.isFinite(value) || value < 0) return;
-  if (value < 1_000) return `${Math.round(value)}ms`;
-  if (value < 60_000) {
-    return `${new Intl.NumberFormat("en", { maximumFractionDigits: 1 }).format(value / 1_000)}s`;
-  }
-  const seconds = Math.round(value / 1_000);
-  return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
 }
 
 function driverLabel(configuration: AgentInvocationConfiguration): string | undefined {
@@ -553,7 +545,8 @@ const activityIconPaths: Record<ActivityIcon, readonly string[]> = {
   alert: ["M12 22a10 10 0 1 1 0-20 10 10 0 0 1 0 20", "M12 8v4", "M12 16h.01"],
   action: ["M13 2 3 14h9l-1 8 10-12h-9z"],
   approval: ["M12 3v12", "m8 11 4 4 4-4", "M5 21h14"],
-  brain: ["M9.5 4.5A3 3 0 0 0 4 6a3 3 0 0 0-1 5.25A3.5 3.5 0 0 0 6.5 17H9", "M14.5 4.5A3 3 0 0 1 20 6a3 3 0 0 1 1 5.25A3.5 3.5 0 0 1 17.5 17H15", "M9 4.5V20", "M15 4.5V20", "M9 9H7", "M15 9h2", "M9 14H6.5", "M15 14h2.5"],
+  // Lucide `brain`, the same mark T3 Code uses for a thinking step.
+  brain: ["M12 18V5m3 8a4.17 4.17 0 0 1-3-4a4.17 4.17 0 0 1-3 4m8.598-6.5A3 3 0 1 0 12 5a3 3 0 1 0-5.598 1.5", "M17.997 5.125a4 4 0 0 1 2.526 5.77", "M18 18a4 4 0 0 0 2-7.464", "M19.967 17.483A4 4 0 1 1 12 18a4 4 0 1 1-7.967-.517", "M6 18a4 4 0 0 1-2-7.464", "M6.003 5.125a4 4 0 0 0-2.526 5.77"],
   change: ["M12 20h9", "M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"],
   check: ["m5 12 4 4L19 6"],
   command: ["m4 17 6-6-6-6", "M12 19h8"],
@@ -778,7 +771,7 @@ function renderCommandError(value: unknown) {
 }
 
 function activityDetail(activity: InvocationActivity): string | undefined {
-  return activity.preview ?? stringAttribute(activity.attributes, "vitehub.activity.detail");
+  return invocationActivityDetail(activity);
 }
 
 function renderPreparationAction(activity: InvocationActivity, inspect: InspectHandler) {
@@ -1049,87 +1042,19 @@ function inspectorSection(title: string, body: ReturnType<typeof h>) {
   return h("section", [h("h4", title), body]);
 }
 
-function timelineOwner(activity: InvocationActivity): "agent" | "vitehub" {
-  const tool = String(activity.attributes["tool.name"] ?? "").toLocaleLowerCase();
-  if (
-    activity.kind === "preparation"
-    || activity.kind === "action"
-    || activity.kind === "system"
-    || activity.kind === "delivery"
-    || activity.name.startsWith("vitehub.")
-    || tool === "materialize_sources"
-    || tool.startsWith("vitehub_")
-  ) return "vitehub";
-  return "agent";
-}
-
-function traceTimeline(
-  activities: readonly InvocationActivity[],
-  invocation: AgentInvocationView,
-  selectActivity: (id: string) => void,
-) {
-  const items = activities.filter(activity => activity.kind !== "message" && Number.isFinite(Date.parse(activity.startedAt ?? "")));
-  if (!items.length) return null;
-  const invocationStart = Date.parse(invocation.startedAt ?? invocation.createdAt ?? "");
-  const observedStarts = items
-    .map(activity => Date.parse(activity.startedAt ?? ""))
-    .filter(Number.isFinite);
-  const zero = Number.isFinite(invocationStart) ? invocationStart : Math.min(...observedStarts);
-  const invocationEnd = Date.parse(
-    invocation.completedAt ?? invocation.failedAt ?? invocation.cancelledAt ?? invocation.updatedAt ?? "",
-  );
-  const observedEnds = items
-    .map(activity => Date.parse(activity.endedAt ?? activity.startedAt ?? ""))
-    .filter(Number.isFinite);
-  const end = Number.isFinite(invocationEnd) ? invocationEnd : Math.max(...observedEnds, zero + 1);
-  const span = Math.max(1, end - zero);
-  return inspectorSection("Trace timeline", h("div", { class: "vh-invocation-timeline" }, [
-    h("div", { class: "vh-invocation-timeline__legend", "aria-hidden": "true" }, [
-      h("span", { "data-owner": "agent" }, "Agent"),
-      h("span", { "data-owner": "vitehub" }, "ViteHub"),
-    ]),
-    h("ol", items.map((activity) => {
-      const started = Date.parse(activity.startedAt ?? "");
-      const duration = Number.isFinite(activity.durationMs) ? (activity.durationMs ?? 0) : 0;
-      const offset = Number.isFinite(started) ? Math.max(0, started - zero) : 0;
-      const owner = timelineOwner(activity);
-      const timing = [
-        offset ? `+${formatTimelineDuration(offset)}` : "start",
-        duration ? formatTimelineDuration(duration) : undefined,
-      ].filter(Boolean).join(" · ");
-      const title = invocationActivityTitle(activity);
-      const detail = activityDetail(activity);
-      const width = Math.max(1.5, Math.min(100, (duration / span) * 100));
-      const left = Math.min(100 - width, Math.max(0, (offset / span) * 100));
-      return h("li", { key: `timeline:${activity.id}` }, [
-        h("button", {
-          class: "vh-invocation-timeline__row",
-          "data-activity-id": activity.id,
-          "data-owner": owner,
-          onClick: () => selectActivity(activity.id),
-          title: detail ? `${title} — ${detail}` : title,
-          type: "button",
-        }, [
-          h("div", { class: "vh-invocation-timeline__heading" }, [
-            h("strong", title),
-            h("time", timing),
-          ]),
-          detail ? h("code", { class: "vh-invocation-timeline__detail" }, detail) : null,
-          h("div", { class: "vh-invocation-timeline__track", "aria-hidden": "true" }, [
-            h("span", { style: {
-              left: `${left}%`,
-              width: `${width}%`,
-            } }),
-          ]),
-        ]),
-      ]);
-    })),
-  ]));
+function traceTimeline(invocation: AgentInvocationView, selectActivity: (id: string) => void) {
+  if (!invocationTimeline(invocation).length) return null;
+  return inspectorSection("Trace timeline", h(AgentInvocationTimeline, { invocation, onSelectActivity: selectActivity }));
 }
 
 function inspectorRow(label: string, value: string | number | undefined) {
   if (value === undefined || value === "") return null;
   return h("div", [h("dt", label), h("dd", String(value))]);
+}
+
+/** The tail of an identifier, so the row gives a visual check without disclosing the whole value. */
+function shortIdentifier(value: string): string {
+  return value.length > 8 ? `…${value.slice(-6)}` : "…";
 }
 
 function copyIcon(copied: boolean) {
@@ -1173,10 +1098,10 @@ function statusIcon(status: AgentInvocationView["status"]) {
 function sourcePresentation(source: string | { id: string; repository?: string }) {
   const id = hasRuntimeType(source, "string") ? source : source.id;
   const repository = hasRuntimeType(source, "string")
-    ? /^gh:([\w.-]+\/[\w.-]+)(?:\/.*)?$/.exec(source)?.[1]
+    ? /^(?:gh|github):([\w.-]+\/[\w.-]+)(?:\/.*)?$/.exec(source)?.[1]
     : /^[\w.-]+\/[\w.-]+$/.test(source.repository ?? "") ? source.repository : undefined;
   return repository
-    ? { href: `https://github.com/${repository}`, icon: channelIcon("github"), label: id }
+    ? { href: `https://github.com/${repository}`, icon: channelIcon("github"), label: id, title: `${id}: ${repository}` }
     : { label: id };
 }
 
@@ -1187,7 +1112,7 @@ function inspectorSources(sources: NonNullable<AgentInvocationConfiguration["wor
       const presentation = sourcePresentation(source);
       const children = [presentation.icon, h("span", presentation.label)];
       return presentation.href
-        ? h("a", { class: "vh-invocation-inspector__badge", href: presentation.href, rel: "noreferrer", target: "_blank" }, children)
+        ? h("a", { class: "vh-invocation-inspector__badge", href: presentation.href, rel: "noreferrer", target: "_blank", title: presentation.title }, children)
         : h("span", { class: "vh-invocation-inspector__badge" }, children);
     })),
   ]);
@@ -1274,6 +1199,7 @@ function renderConfiguration(
   invocation: AgentInvocationView,
   showCapabilities: boolean,
   selectTool: (name: string) => void,
+  showSources: boolean,
 ) {
   const recordedTools = Array.isArray(configuration.tools) ? configuration.tools : [];
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Persisted catalogs can contain truncation markers; validate tool names at the inspector boundary.
@@ -1297,7 +1223,7 @@ function renderConfiguration(
           h("dl", { class: "vh-invocation-inspector__list" }, setup),
         ])
       : null,
-    configuration.workspace?.sources?.length
+    showSources && configuration.workspace?.sources?.length
       ? inspectorSources(configuration.workspace.sources)
       : null,
     configuration.channels?.length
@@ -1331,8 +1257,8 @@ function renderConfiguration(
           ),
         ])
       : null,
-    configuration.tools?.some(tool => !configuration.capabilities?.some(capability => capability.id === tool.capabilityId))
-      ? inspectorTools(configuration.tools.filter(tool => !configuration.capabilities?.some(capability => capability.id === tool.capabilityId)), invocationToolUsage(invocation), selectTool)
+    configuration.tools?.some(tool => !showCapabilities || !configuration.capabilities?.some(capability => capability.id === tool.capabilityId))
+      ? inspectorTools(configuration.tools.filter(tool => !showCapabilities || !configuration.capabilities?.some(capability => capability.id === tool.capabilityId)), invocationToolUsage(invocation), selectTool)
       : null,
     configuration.instructions?.length
       ? inspectorDisclosure(
@@ -1680,7 +1606,8 @@ export const AgentInvocationInspector = defineComponent({
   props: {
     invocation: { required: true, type: Object as PropType<AgentInvocationView> },
     showStatus: { default: true, type: Boolean },
-    showCapabilities: { default: true, type: Boolean },
+    showCapabilities: { default: false, type: Boolean },
+    showSources: { default: true, type: Boolean },
     showTimeline: { default: true, type: Boolean },
     showError: { default: true, type: Boolean },
   },
@@ -1692,7 +1619,10 @@ export const AgentInvocationInspector = defineComponent({
     let copyTimer: ReturnType<typeof setTimeout> | undefined;
     const metrics = computed(() => ({
       changes: activities.value.filter((activity) => activity.kind === "change").length,
-      messages: activities.value.filter((activity) => activity.kind === "message").length + conversation.value.deliveredAnswerCount,
+      messages: conversation.value.kind === "activities"
+        ? conversation.value.activities.filter(activity => activity.kind === "message").length
+        : [...conversation.value.history, ...(conversation.value.prompt ? [conversation.value.prompt] : []), ...conversation.value.work, ...conversation.value.answers, ...conversation.value.followup]
+          .filter(activity => activity.kind === "message").length,
       steps: activities.value.filter((activity) =>
         activity.kind !== "message" && activity.name !== "vitehub.observation.truncated"
       ).length,
@@ -1739,6 +1669,8 @@ export const AgentInvocationInspector = defineComponent({
         },
         [
           h("span", { class: "vh-invocation-inspector__copy-label" }, label),
+          // The shortened value gives the reader a visual check; the full value only reaches the clipboard.
+          h("code", { "aria-hidden": "true", class: "vh-invocation-inspector__copy-value" }, shortIdentifier(value)),
           h("span", { class: "vh-invocation-inspector__copy-icon" }, [copyIcon(didCopy)]),
         ],
       );
@@ -1852,9 +1784,9 @@ export const AgentInvocationInspector = defineComponent({
               ]),
             ),
             props.showTimeline
-              ? traceTimeline(activities.value, props.invocation, id => emit("selectActivity", id))
+              ? traceTimeline(props.invocation, id => emit("selectActivity", id))
               : null,
-            ...(configuration ? renderConfiguration(configuration, props.invocation, props.showCapabilities, selectTool) : []),
+            ...(configuration ? renderConfiguration(configuration, props.invocation, props.showCapabilities, selectTool, props.showSources) : []),
             slots.metadata?.({ invocation: props.invocation }),
             inspectorSection(
               "Identifiers",

@@ -24,7 +24,7 @@ export function setActiveCloudflareEnv(env: CloudflareWorkerEnv | undefined): vo
 }
 
 export function clearActiveCloudflareEnv(): void {
-  activeEnv = undefined
+  setActiveCloudflareEnv(undefined)
   delete (globalThis as { __env__?: CloudflareWorkerEnv }).__env__
 }
 
@@ -38,7 +38,9 @@ export function getActiveCloudflareEnv(): CloudflareWorkerEnv | undefined {
 }
 
 export function getActiveCloudflareBinding<T>(name: string): T | undefined {
-  return getActiveCloudflareEnv()?.[name] as T | undefined
+  const env = getActiveCloudflareEnv()
+  // SAFETY: The caller chooses T, and the binding name is an own property of the environment.
+  return env && Object.hasOwn(env, name) ? env[name] as T : undefined
 }
 
 interface CloudflareEnvCarrier {

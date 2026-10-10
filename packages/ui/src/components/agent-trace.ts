@@ -37,42 +37,82 @@ export const AgentTrace = defineComponent({
                       props.run.status === "failed"
                         ? "error"
                         : props.run.status === "running"
-                          ? "warning"
-                          : "success",
-                    variant: "subtle",
+                          ? "info"
+                          : props.run.status === "cancelled"
+                            ? "neutral"
+                            : "success",
+                    size: "xs",
+                    variant: "outline",
                   },
-                  { default: () => props.run.status },
+                  {
+                    default: () =>
+                      ({
+                        cancelled: "Cancelled",
+                        completed: "Completed",
+                        failed: "Failed",
+                        running: "Working",
+                      })[props.run.status],
+                  },
                 ),
                 h("span", { class: "vh-trace__duration" }, formatDuration(props.run.durationMs)),
+                h(
+                  "svg",
+                  {
+                    "aria-hidden": "true",
+                    class: "vh-trace__chevron",
+                    fill: "none",
+                    viewBox: "0 0 24 24",
+                  },
+                  [
+                    h("path", {
+                      d: "m7 10 5 5 5-5",
+                      "stroke-linecap": "round",
+                      "stroke-linejoin": "round",
+                    }),
+                  ],
+                ),
               ]),
             content: () =>
               h(
                 "div",
                 { class: "vh-trace__steps" },
-                props.run.steps.map((step: TraceStepView) =>
-                  h(
-                    "article",
-                    {
-                      "aria-label": step.name,
-                      class: "vh-trace__step",
-                      "data-status": step.status,
-                      key: step.id,
-                    },
-                    slots.step?.({ step }) ?? [
-                      h("div", { class: "vh-trace__step-heading" }, [
-                        h("span", step.name),
-                        h("span", formatDuration(step.durationMs)),
-                      ]),
-                      step.attributes && Object.keys(step.attributes).length > 0
-                        ? h(
-                            "pre",
-                            { class: "vh-trace__attributes" },
-                            JSON.stringify(step.attributes, null, 2),
-                          )
-                        : null,
-                    ],
-                  ),
-                ),
+                props.run.steps.length === 0
+                  ? h("p", { class: "vh-trace__empty" }, "No steps recorded.")
+                  : props.run.steps.map((step: TraceStepView) =>
+                      h(
+                        "article",
+                        {
+                          "aria-label": step.name,
+                          class: "vh-trace__step",
+                          "data-status": step.status,
+                          key: step.id,
+                        },
+                        slots.step?.({ step }) ?? [
+                          h("div", { class: "vh-trace__step-heading" }, [
+                            h("span", step.name),
+                            step.status === "completed"
+                              ? null
+                              : h(
+                                  "span",
+                                  { class: "vh-trace__step-status" },
+                                  step.status === "failed" ? "Failed" : "Working",
+                                ),
+                            h(
+                              "span",
+                              { class: "vh-trace__duration" },
+                              formatDuration(step.durationMs),
+                            ),
+                          ]),
+                          step.attributes && Object.keys(step.attributes).length > 0
+                            ? h(
+                                "pre",
+                                { class: "vh-trace__attributes" },
+                                JSON.stringify(step.attributes, null, 2),
+                              )
+                            : null,
+                        ],
+                      ),
+                    ),
               ),
           },
         ),

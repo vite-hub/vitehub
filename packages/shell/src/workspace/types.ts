@@ -53,7 +53,7 @@ export interface SearchableShellWorkspace extends ReadonlyShellWorkspace {
 }
 
 export interface WritableShellWorkspace extends ReadonlyShellWorkspace {
-  writeFile(path: string, content: ShellContent): Promise<void>
+  writeFile(path: string, content: ShellContent): Promise<unknown>
   mkdir(path: string, options?: ShellMkdirOptions): Promise<void>
   rm(path: string, options?: ShellRmOptions): Promise<void>
 }

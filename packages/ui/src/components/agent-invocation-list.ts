@@ -19,6 +19,42 @@ interface RelativeTime {
 
 const invocationListPaginationThreshold = 6 * 106;
 
+type RecencyGroupId = "today" | "yesterday" | "week" | "older";
+
+const recencyGroups: readonly { id: RecencyGroupId; label: string }[] = [
+  { id: "today", label: "Today" },
+  { id: "yesterday", label: "Yesterday" },
+  { id: "week", label: "Previous 7 days" },
+  { id: "older", label: "Older" },
+];
+
+// Groups use calendar days in the local time zone of the viewer.
+function recencyGroup(value: string | undefined, now: number): RecencyGroupId {
+  const time = value ? Date.parse(value) : Number.NaN;
+  if (!Number.isFinite(time)) return "older";
+  const today = new Date(now);
+  today.setHours(0, 0, 0, 0);
+  const startOfDay = (offset: number) => new Date(today.getFullYear(), today.getMonth(), today.getDate() - offset).getTime();
+  if (time >= startOfDay(0)) return "today";
+  if (time >= startOfDay(1)) return "yesterday";
+  if (time >= startOfDay(7)) return "week";
+  return "older";
+}
+
+function groupByRecency(items: readonly AgentInvocationListItem[], now: number) {
+  const buckets = new Map<RecencyGroupId, AgentInvocationListItem[]>();
+  for (const item of items) {
+    const id = recencyGroup(item.updatedAt ?? item.startedAt, now);
+    const bucket = buckets.get(id);
+    if (bucket) bucket.push(item);
+    else buckets.set(id, [item]);
+  }
+  return recencyGroups.flatMap(group => {
+    const groupItems = buckets.get(group.id);
+    return groupItems ? [{ ...group, items: groupItems }] : [];
+  });
+}
+
 function relativeTime(value: string | undefined, now: number | undefined): RelativeTime | undefined {
   if (!value || now === undefined) return;
   const elapsed = now - Date.parse(value);
@@ -104,6 +140,8 @@ export const AgentInvocationList = defineComponent({
   props: {
     ariaLabel: { default: "Agent sessions", type: String },
     continuationKey: [Number, String],
+    /** Groups rows under Today, Yesterday, Previous 7 days, and Older. Requires `now`. */
+    groupBy: String as PropType<"recency">,
     hasMore: Boolean,
     /** @deprecated The flat list paginates independently of lifecycle status. */
     remainingStatuses: { default: () => [], type: Array as PropType<readonly AgentInvocationStatus[]> },
@@ -120,7 +158,7 @@ export const AgentInvocationList = defineComponent({
   setup(props, { emit, slots }) {
     const viewport = ref<HTMLElement | null>(null);
     const requestedLength = ref<number>();
-    let focusedItemBeforeUpdate: { element: HTMLButtonElement; id: string; status: string | undefined } | undefined;
+    let focusedItemBeforeUpdate: { element: HTMLButtonElement; id: string } | undefined;
     const paginationKey = computed(() => props.items.map(item => `${item.id}:${item.status}`).join("\0"));
     let resizeObserver: ResizeObserver | undefined;
     const requestMoreIfNeeded = () => {
@@ -148,7 +186,9 @@ export const AgentInvocationList = defineComponent({
       requestedLength.value = undefined;
       requestMoreAutomatically();
     });
+    const mounted = ref(false);
     onMounted(() => {
+      mounted.value = true;
       requestMoreAutomatically();
       if ("ResizeObserver" in globalThis && viewport.value) {
         resizeObserver = new ResizeObserver(requestMoreAutomatically);
@@ -163,7 +203,7 @@ export const AgentInvocationList = defineComponent({
         && element.classList.contains("vh-invocation-list__item")
         && viewport.value?.contains(element)
         && element.dataset.invocationId
-        ? { element, id: element.dataset.invocationId, status: element.dataset.status }
+        ? { element, id: element.dataset.invocationId }
         : undefined;
     };
     const restoreMovedItemFocus = async () => {
@@ -173,8 +213,23 @@ export const AgentInvocationList = defineComponent({
       await nextTick();
       const element = [...(viewport.value?.querySelectorAll<HTMLButtonElement>("[data-invocation-id]") ?? [])]
         .find(candidate => candidate.dataset.invocationId === focused.id);
-      if (!element || element.dataset.status === focused.status) return;
+      if (!element) return;
       element.focus();
+    };
+
+    const renderRow = (item: AgentInvocationListItem) => renderItem(item, props.selectedId, props.now, select, slots.projectIcon, slots.harness);
+    const renderRows = () => {
+      const busy = props.loading ? "true" : undefined;
+      if (props.groupBy !== "recency" || props.now === undefined || !mounted.value) {
+        return h("ul", { "aria-busy": busy, class: "vh-invocation-list__group-items" }, props.items.map(renderRow));
+      }
+      return h("div", { "aria-busy": busy, class: "vh-invocation-list__groups" }, groupByRecency(props.items, props.now).map(group =>
+        h("section", { class: "vh-invocation-list__group", "data-group": group.id, key: group.id }, [
+          h("h3", { class: "vh-invocation-list__group-heading" }, [
+            h("span", { class: "vh-invocation-list__group-label" }, group.label),
+          ]),
+          h("ul", { class: "vh-invocation-list__group-items" }, group.items.map(renderRow)),
+        ])));
     };
 
     return () => h("nav", {
@@ -189,9 +244,7 @@ export const AgentInvocationList = defineComponent({
       props.items.length === 0
         ? slots.empty?.() ?? h("p", { class: "vh-invocation-list__empty" }, "No sessions yet.")
         : null,
-      props.items.length
-        ? h("ul", { "aria-busy": props.loading ? "true" : undefined, class: "vh-invocation-list__group-items" }, props.items.map(item => renderItem(item, props.selectedId, props.now, select, slots.projectIcon, slots.harness)))
-        : null,
+      props.items.length ? renderRows() : null,
       props.loading && props.items.length ? slots.loading?.() ?? h("p", { class: "vh-invocation-list__loading", role: "status" }, "Loading sessions…") : null,
       slots.footer?.({ items: props.items }),
     ]);

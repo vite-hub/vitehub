@@ -6,14 +6,18 @@ import { examples, type Example } from "../app/data/examples";
 const docsRoot = resolve(import.meta.dirname, "..");
 
 describe("examples catalog", () => {
-  it("exposes the public examples route through primary navigation", () => {
+  it("exposes separate project and template catalogs through primary navigation", () => {
     expect(existsSync(resolve(docsRoot, "app/pages/examples.vue"))).toBe(true);
+    expect(existsSync(resolve(docsRoot, "app/pages/projects.vue"))).toBe(true);
+    expect(existsSync(resolve(docsRoot, "app/pages/templates.vue"))).toBe(true);
 
     const header = readFileSync(resolve(docsRoot, "app/components/AppHeader.vue"), "utf8");
-    expect(header).toContain('{ label: "Examples", to: "/examples" }');
+    expect(header).toContain('{ label: "Projects", to: "/projects" }');
+    expect(header).toContain('{ label: "Templates", to: "/templates" }');
 
-    const sitemap = readFileSync(resolve(docsRoot, "server/routes/sitemap.xml.ts"), "utf8");
-    expect(sitemap).toContain('{ path: "/examples" }');
+    const sitemap = readFileSync(resolve(docsRoot, "server/api/__sitemap__/urls.ts"), "utf8");
+    expect(sitemap).toContain('{ path: "/projects" }');
+    expect(sitemap).toContain('{ path: "/templates" }');
   });
 
   it("publishes available examples while retaining future candidates", () => {
@@ -27,7 +31,8 @@ describe("examples catalog", () => {
           label: "View source",
           to: "https://github.com/vite-hub/drop",
         },
-        builtWith: ["Blob", "Queue", "Rate Limit", "Sandbox", "Schedule"],
+        builtWith: ["Auth", "Database", "Blob", "KV", "Rate Limit", "Browser", "Schedule"],
+        website: "https://drop.vitehub.dev",
       }),
       expect.objectContaining({
         name: "Calories",
@@ -59,8 +64,6 @@ describe("examples catalog", () => {
           kind: "use",
           label: "Template unavailable",
         },
-        publicationNote:
-          "Pending an explicit license and Node 24 support for local and Vercel runtimes.",
         builtWith: ["Agent Definitions", "MCP", "Workspaces", "Channels", "Rate Limit", "Workflow"],
         startPath: "server/agents/nuxt/agent.ts",
       }),
@@ -74,6 +77,19 @@ describe("examples catalog", () => {
     ]);
   });
 
+  it("gives every available app an honest preview and resolves local screenshots", () => {
+    for (const example of examples) {
+      if (example.status !== "published") continue;
+      expect(example.preview.alt).not.toBe("");
+      if (example.preview.kind === "screenshot") {
+        expect(existsSync(resolve(docsRoot, "public", example.preview.src.slice(1)))).toBe(true);
+        expect(new URL(example.preview.source).hostname).toBe("github.com");
+      } else {
+        expect(example.preview.alt).toContain("App mockup");
+      }
+    }
+  });
+
   it("uses source actions for Projects and use actions with a start path for Templates", () => {
     type Project = Extract<Example, { kind: "project" }>;
     type PublishedProject = Extract<Project, { status: "published" }>;
@@ -83,5 +99,13 @@ describe("examples catalog", () => {
     expectTypeOf<PublishedProject["action"]["to"]>().toEqualTypeOf<string>();
     expectTypeOf<Template["action"]["kind"]>().toEqualTypeOf<"use">();
     expectTypeOf<Template["startPath"]>().toEqualTypeOf<string>();
+  });
+
+  it("keeps the old examples hub while giving each catalog its own page", () => {
+    const hub = readFileSync(resolve(docsRoot, "app/pages/examples.vue"), "utf8");
+
+    expect(hub).toContain('to="/projects"');
+    expect(hub).toContain('to="/templates"');
+    expect(hub).toContain("Projects and templates");
   });
 });

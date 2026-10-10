@@ -1,11 +1,11 @@
-import { asUnknownBoundary, hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
+import { asUnknownBoundary, hasRuntimeType } from "../src/internal/runtime-type.ts"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import type { AgentToolSet, ResolvedAgentRuntimeContext } from "../src/types.ts"
-import { custom, file, github, type ReadonlyWorkspaceFacade, type WorkspaceDefinition, type WorkspaceEntry, type WorkspaceSearchHit, type WorkspaceSession, type WorkspaceStat } from "@vite-hub/workspace"
+import { createWorkspace as createRuntimeWorkspace, custom, file, github, type ReadonlyWorkspaceFacade, type WorkspaceDefinition, type WorkspaceEntry, type WorkspaceSearchHit, type WorkspaceSourceRequestDescriptor, type WorkspaceSession, type WorkspaceStat } from "@vite-hub/workspace"
 import { attachWorkspaceSourceRequestExecution, registerWorkspace, useWorkspace } from "@vite-hub/workspace/runtime"
 import { listMaterializedWorkspaceSourceEntries, normalizeWorkspaceSourceMetadata, readWorkspaceSourceMaterializationStatus } from "@vite-hub/workspace/source-metadata"
 
@@ -33,7 +33,14 @@ function directChildOf(prefix: string, path: string): boolean {
   return !path.slice(prefix.length + 1).includes("/")
 }
 
-function createWorkspace(executor?: Parameters<typeof attachWorkspaceSourceRequestExecution>[1]): ReadonlyWorkspaceFacade {
+function createWorkspace(
+  executor?: Parameters<typeof attachWorkspaceSourceRequestExecution>[1],
+  descriptor: WorkspaceSourceRequestDescriptor = {
+    method: "GET",
+    request: { query: { region: "eu" } },
+    url: "https://portal.example.com/runtime/inventory-health",
+  },
+): ReadonlyWorkspaceFacade {
   const files = new Map<string, string>([
     ["customers/acme/brief.md", "acme only"],
     ["customers/globex/brief.md", "globex only"],
@@ -49,11 +56,7 @@ function createWorkspace(executor?: Parameters<typeof attachWorkspaceSourceReque
     { path: "public/readme.md", size: 6, type: "file" },
   ]
   if (executor) {
-    files.set(".vitehub/sources/inventoryHealthSummary.json", JSON.stringify({
-      method: "GET",
-      request: { query: { region: "eu" } },
-      url: "https://portal.example.com/runtime/inventory-health",
-    }))
+    files.set(".vitehub/sources/inventoryHealthSummary.json", JSON.stringify(descriptor))
     entries.push(
       { path: ".vitehub", type: "directory" },
       { path: ".vitehub/sources", type: "directory" },
@@ -99,6 +102,7 @@ function createWorkspace(executor?: Parameters<typeof attachWorkspaceSourceReque
   }
 
   return {
+    history: createRuntimeWorkspace({ name: "access-fixture", store: { provider: "memory" } }).history,
     fs: executor ? attachWorkspaceSourceRequestExecution(fs, executor) : fs,
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     tools: asUnknownBoundary({
@@ -187,6 +191,7 @@ function createWorkspaceWithStaleIngestion(): ReadonlyWorkspaceFacade {
       },
     },
     tools: base.tools,
+    history: base.history,
   }
 }
 
@@ -241,10 +246,29 @@ function createWorkspaceWithCustomerIngestion(): ReadonlyWorkspaceFacade {
       },
     },
     tools: base.tools,
+    history: base.history,
   }
 }
 
 describe("access capability", () => {
+  it("denies complete folder history through a selected path scope", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { access } = await import("../src/capabilities.ts")
+    const workspace = createWorkspace()
+    const head = vi.spyOn(workspace.history, "head")
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [access({ workspace: {
+        defaultScope: "public",
+        scopes: { public: { paths: ["public"] } },
+      } })],
+    }, runtime(), { prompt: "check" }, workspace)
+    const history = resolved.workspace!.history
+    for (const inspect of [() => history.head(), () => history.list(), () => history.open("revision"), () => history.usage()]) {
+      await expect(inspect()).rejects.toMatchObject({ code: "WORKSPACE_R0069" })
+    }
+    expect(head).not.toHaveBeenCalled()
+  })
+
   it("accepts chat admission without requiring a workspace", async () => {
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { access } = await import("../src/capabilities.ts")
@@ -631,6 +655,7 @@ describe("access capability", () => {
     class Workspace {
       readonly fs = new Files()
       readonly tools = base.tools
+      readonly history = base.history
       readonly #value = "workspace"
 
       async startSession() {
@@ -679,6 +704,7 @@ describe("access capability", () => {
     const workspace = Object.freeze({
       fs,
       tools: base.tools,
+      history: base.history,
       async startSession() {
         return session
       },
@@ -898,14 +924,18 @@ describe("access capability", () => {
         }),
         workspaceShell(),
       ],
-    }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, createWorkspace({ executeSourceRequest }), "read", { workspaceDefinition })
+    }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, createWorkspace({ executeSourceRequest }, {
+      method: "GET",
+      request: { query: { region: "eu", tag: ["first", "second"] } },
+      url: "https://portal.example.com/runtime/inventory-health",
+    }), "read", { workspaceDefinition })
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const executeShell = asUnknownBoundary(resolved.tools!.shell.execute) as (
       input: { command: string },
       options: { messages: unknown[], toolCallId: string },
     ) => Promise<{ exitCode: number, stdout: string }>
     const result = await executeShell(
-      { command: "curl 'https://portal.example.com/runtime/inventory-health?region=eu'" },
+      { command: "curl 'https://portal.example.com/runtime/inventory-health?tag=first&tag=second&region=eu'" },
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       { toolCallId: "test", messages: [] } as never,
     )
@@ -914,8 +944,78 @@ describe("access capability", () => {
     expect(executeSourceRequest).toHaveBeenCalledWith({
       body: undefined,
       method: "GET",
-      url: "https://portal.example.com/runtime/inventory-health?region=eu",
+      url: "https://portal.example.com/runtime/inventory-health?tag=first&tag=second&region=eu",
     })
+    const reversed = await executeShell(
+      { command: "curl 'https://portal.example.com/runtime/inventory-health?tag=second&tag=first&region=eu'" },
+      { toolCallId: "reversed", messages: [] },
+    )
+    expect(reversed.exitCode).not.toBe(0)
+    expect(executeSourceRequest).toHaveBeenCalledOnce()
+  })
+
+  it("matches reordered nested body fields through scoped workspace shell commands", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { access, workspaceShell } = await import("../src/capabilities.ts")
+    const executeSourceRequest = vi.fn(async () => ({
+      content: JSON.stringify({ status: "ok" }),
+      status: 200,
+    }))
+    const workspaceDefinition: WorkspaceDefinition = {
+      name: "support",
+      sources: {
+        inventoryHealthSummary: custom({
+          mount: "inventoryHealthSummary",
+          async getKeys() {
+            return []
+          },
+          async getItem(key) {
+            throw new Error(`unexpected read: ${key}`)
+          },
+        }),
+      },
+    }
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        access({
+          workspace: {
+            defaultScope: "support",
+            scopes: {
+              support: { source: "inventoryHealthSummary" },
+            },
+          },
+        }),
+        workspaceShell(),
+      ],
+    }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, createWorkspace({ executeSourceRequest }, {
+      method: "POST",
+      request: { body: { filter: { region: "eu", enabled: true }, tags: ["first", "second"] } },
+      url: "https://portal.example.com/runtime/inventory-health",
+    }), "read", { workspaceDefinition })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    const executeShell = asUnknownBoundary(resolved.tools!.shell.execute) as (
+      input: { command: string },
+      options: { messages: unknown[], toolCallId: string },
+    ) => Promise<{ exitCode: number, stdout: string }>
+    const result = await executeShell(
+      { command: `curl -X POST -d '{"tags":["first","second"],"filter":{"enabled":true,"region":"eu"}}' 'https://portal.example.com/runtime/inventory-health'` },
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      { toolCallId: "test", messages: [] } as never,
+    )
+
+    expect(result).toMatchObject({ exitCode: 0, stdout: JSON.stringify({ status: "ok" }) })
+    expect(executeSourceRequest).toHaveBeenCalledWith({
+      body: { tags: ["first", "second"], filter: { enabled: true, region: "eu" } },
+      method: "POST",
+      url: "https://portal.example.com/runtime/inventory-health",
+    })
+    const reversed = await executeShell(
+      { command: `curl -X POST -d '{"tags":["second","first"],"filter":{"enabled":true,"region":"eu"}}' 'https://portal.example.com/runtime/inventory-health'` },
+      { toolCallId: "reversed", messages: [] },
+    )
+    expect(reversed.exitCode).not.toBe(0)
+    expect(executeSourceRequest).toHaveBeenCalledOnce()
   })
 
   it("denies scoped source request execution for hidden workspace sources", async () => {

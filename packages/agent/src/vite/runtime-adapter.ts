@@ -8,6 +8,7 @@ import { createAgentRuntimeContext } from "../runtime/context.ts"
 import {
   workspaceAgentWithSourceRoot,
 } from "../workspace-agent.ts"
+import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { decodeColocatedAgentSkills, withColocatedAgentSkills } from "../internal/colocated-agent-skills.ts"
 import { readColocatedAgentInstructions } from "./colocated-agent-instructions.ts"
 import { readColocatedAgentSkills } from "./colocated-agent-skills.ts"
@@ -22,6 +23,7 @@ import type {
   AgentRuntimeContext,
   ResolvedAgentRuntimeContext,
   DiscoveredAgentDefinition,
+  DefineAgent,
 } from "../index.ts"
 
 export interface ViteAgentRuntimeContext extends ResolvedAgentRuntimeContext {
@@ -81,15 +83,42 @@ export function createViteWorkspaceAgentLoader(
 ) {
   return async () => {
     const module = await server.ssrLoadModule(pathToFileURL(definition.handler).href)
+    // Use the host facade so definitions authored with the primitive package also inherit
+    // the Console's configured journal. The facade keeps journal selection lazy and scoped.
+    const authored = module.default
+    let journalSource = authored
+    const invocations = Object.getOwnPropertyDescriptor(authored, "invocations")
+    if (server.config.plugins?.some(plugin => plugin.name === "vite-hub/console")) {
+      // Nitro runs its plugins in another module runner. Initialize the same generated
+      // Console configuration in this runner before resolving its journal fallback.
+      // SAFETY: Nitro extends Vite's open config with its registered runtime plugins.
+      const nitro = (server.config as typeof server.config & { nitro?: { plugins?: unknown[] } }).nitro
+      const bootstrap = nitro?.plugins?.find((plugin): plugin is string =>
+        hasRuntimeType(plugin, "string") && /[\\/]\.vitehub[\\/]nitro[\\/]console[\\/]plugin(?:-[^\\/]+)?\.mjs$/.test(plugin))
+      if (bootstrap) await server.ssrLoadModule(bootstrap)
+      // SAFETY: The active Console plugin belongs to vite-hub, whose Agent facade exports DefineAgent.
+      const framework = await server.ssrLoadModule("vite-hub/agent") as { defineAgent: DefineAgent }
+      if (!invocations?.get && authored.invocations === undefined) {
+        // Only obtain the lazy journal binding; extending authored would rerun preset configuration.
+        // The facade requires a valid Driver, but this descriptor carrier is never invoked.
+        journalSource = framework.defineAgent({ driver: { run: () => "" }, runtime: false })
+      }
+    }
     const colocatedInstructions = await readColocatedAgentInstructions(definition.handler)
     const agent = workspaceAgentWithSourceRoot(
       withColocatedAgentSkills(
-        agentWithColocatedInstructions(module.default, colocatedInstructions),
+        agentWithColocatedInstructions(authored, colocatedInstructions),
         colocatedSkills(definition.handler),
       ),
       workspaceSourceRoot(definition.handler),
       colocatedInstructions,
     )
+    // Workspace decoration spreads values and can drop the facade's non-enumerable getter.
+    // Keep that binding, including an explicitly authored journal, on the loaded definition.
+    for (const key of ["invocations", Symbol.for("vitehub.console.invocations.fallback")]) {
+      const descriptor = Object.getOwnPropertyDescriptor(journalSource, key)
+      if (descriptor) Object.defineProperty(agent, key, descriptor)
+    }
     return {
       ...module,
       default: agent,

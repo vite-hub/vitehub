@@ -3,6 +3,7 @@ import { createExecutionContext, createRuntimeWaitUntilController } from "@vite-
 
 import { console } from "../../server.ts"
 import { getConsoleAgentDefinition } from "./agents.ts"
+import { withConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
 import { consoleRequestJSON, consoleRequestURL, setConsoleResponseHeaders } from "./request.ts"
 
 import type { ConsoleRequestEvent } from "./request.ts"
@@ -31,9 +32,9 @@ function memo() {
 
 /**
  * Replays Channel history for `vitehub channels replay --url`.
- * Console access protects `/_vitehub/**`; this handler also needs Console invocation to be enabled.
+ * The default export checks Console access first. This handler also needs Console invocation to be enabled.
  */
-export default async function channelReplayHandler(event: ConsoleRequestEvent): Promise<Response> {
+async function channelReplayHandler(event: ConsoleRequestEvent): Promise<Response> {
   setConsoleResponseHeaders(event)
   const method = event.method ?? event.req?.method ?? event.node?.req?.method
   if (method !== "POST") return replayError("Method not allowed.", 405)
@@ -77,3 +78,6 @@ export default async function channelReplayHandler(event: ConsoleRequestEvent): 
   })
   return await handleChannelReplayRequest(agent, replay, { maxLimit: maximumReplayItemsPerRequest, runtime: context })
 }
+
+const guardedHandler: ConsoleAccessRoute<typeof channelReplayHandler> = withConsoleAccess(channelReplayHandler)
+export default guardedHandler

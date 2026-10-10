@@ -2,8 +2,7 @@ import { requireAtomicAgentStateLock, type AgentStateCacheMutation } from "./sta
 import * as v from "valibot"
 
 import { agentDiagnostics } from "../agent-diagnostics.ts"
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
-import { isRuntimeRecord } from "./runtime-type.ts"
+import { hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
 
 import type { ReplayChannelResult } from "../channel-replay.ts"
 import type { AgentChannelHistoryCollection, AgentChannelHistoryQuery, AgentChannelStateBinding } from "../types.ts"

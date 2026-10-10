@@ -43,6 +43,11 @@ describe("createEmail", () => {
     expect(() => createEmail({ driver: {} as EmailDriver })).toThrow("name")
   })
 
+  it("rejects an inherited driver marker", () => {
+    const definition = Object.create({ driver: fixtureDriver() })
+    expect(() => createEmail(definition as never)).toThrow("expects an object with a driver")
+  })
+
   it("preserves the portable message contract and normalizes the result", async () => {
     const driver = fixtureDriver()
     const client = createEmail({ driver })

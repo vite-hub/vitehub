@@ -1,6 +1,6 @@
-import { execFile, spawn } from "node:child_process"
+import { execFile, spawn, spawnSync } from "node:child_process"
 import { once } from "node:events"
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, relative } from "node:path"
 import { promisify } from "node:util"
@@ -300,6 +300,102 @@ describe("Agent Box environment", () => {
 })
 
 describe("Agent Box relay", () => {
+  it("rejects host Capability tools in a Box without a shared network before provider startup", async () => {
+    const root = await temporaryRoot()
+    const { first, repository } = await gitRepository(root)
+    const runtime = providerRuntime("box-isolated-tools", async () => undefined)
+    const context = {
+      ...invocationContext("box-isolated-tools", { prompt: "repair", options: { ref: "refs/heads/first", sha: first, token: "token" } }),
+      tools: { repair: { name: "repair", description: "Host repair", inputSchema: { type: "object" }, execute: vi.fn() } },
+    }
+    await expect(createProviderAgentAdapter<PullRequestOptions>({
+      box: { ...testBox(repository), runtime: { kind: "crabbox", profile: "remote" } },
+      provider: "codex",
+      permissions: "allow-edits-unattended",
+      providerSettings: { binaryPath: process.execPath },
+      // SAFETY: The fixture provides the provider invocation fields read by the adapter.
+    }).generate(context as never)).rejects.toMatchObject({ code: "AGENT_R0961" })
+    expect(runtime.startSession).not.toHaveBeenCalled()
+    expect(openedBoxSession.current).toBeUndefined()
+  })
+  it("materializes nested pull request Skills in Box Home", async () => {
+    const threadId = "thread-nested-pull-request-provider-root"
+    let root = ""
+    providerRuntime(threadId, async ({ cwd }) => {
+      expect(cwd).toBe(join(root, "portal"))
+      const result = await openedBoxSession.current!.exec("sh", ["-c", 'cat "$HOME/.codex/skills/review/SKILL.md"'])
+      expect(result.stdout).toBe("review skill")
+      expect(result.ok).toBe(true)
+      const options = createProviderRuntime.mock.lastCall?.[0]
+      const launched = await runLauncher(String(options?.settings?.binaryPath), ["-e", "process.stdout.write(process.cwd())"], {
+        cwd,
+        env: { ...options?.environment },
+        stdin: "",
+      })
+      expect(launched).toMatchObject({ code: 0 })
+      expect(launched.stdout).toBe(await realpath(join(openedBoxSession.current!.cwd, "portal")))
+    })
+    const session = {
+      close: vi.fn(async () => undefined),
+      commit: vi.fn(async () => undefined),
+      diff: vi.fn(async () => ({ entries: [] })),
+      exec: vi.fn(async (command: string, args: string[] = [], options?: { cwd?: string }) => {
+        const cwd = options?.cwd?.replace(/^\/workspace/, root) || root
+        const result = spawnSync(command, args, { cwd, encoding: "utf8" })
+        return { args, command, exitCode: result.status ?? 1, stderr: result.stderr, stdout: result.stdout }
+      }),
+      readFile: vi.fn(async () => new Uint8Array()),
+    }
+    const workspace = {
+      fs: {},
+      startSession: vi.fn(async (options: { target: string }) => {
+        root = options.target
+        const checkout = join(root, "portal")
+        await mkdir(checkout)
+        const git = (...args: string[]) => {
+          const result = spawnSync("git", ["-C", checkout, ...args], { encoding: "utf8" })
+          if (result.status !== 0) throw new Error(result.stderr)
+          return result.stdout
+        }
+        git("init", "-q", "-b", "feature")
+        git("remote", "add", "origin", "https://github.com/acme/portal.git")
+        git("config", "branch.feature.remote", "origin")
+        git("config", "branch.feature.merge", "refs/heads/feature")
+        git("-c", "user.name=Test", "-c", "user.email=test@localhost", "commit", "--allow-empty", "-qm", "initial repository")
+        runContext.context.set("pullRequest", {
+          pullRequest: {
+            head: { ref: "feature", repo: "acme/portal", sha: git("rev-parse", "HEAD").trim() },
+            source: { mount: "portal", ref: "refs/pull/42/head", repo: "acme/portal" },
+          },
+          repository: { fullName: "acme/portal", name: "portal" },
+        })
+        return session
+      }),
+      tools: {},
+    }
+    const runContext = {
+      ...invocationContext(threadId, { options: { ref: "feature", sha: "a".repeat(40), token: "test" }, prompt: "hello" }),
+      workspace,
+      workspaceDefinition: { mode: "write", name: "docs" },
+      workspaceMode: "write",
+    }
+    runContext.context.set("agent.colocatedSkills", {
+      review: { content: "review skill", workspacePath: ".agents/skills/review/SKILL.md" },
+    })
+    runContext.context.set("pullRequest", {
+      pullRequest: {
+        head: { ref: "feature", repo: "acme/portal", sha: "a".repeat(40) },
+        number: 42,
+        source: { mount: "portal", ref: "refs/pull/42/head", repo: "acme/portal" },
+      },
+      repository: { fullName: "acme/portal", name: "portal" },
+    })
+
+    await expect(createProviderAgentAdapter({ box: { cwd: () => root, runtime: "trusted-host" }, provider: "codex", providerSettings: { binaryPath: process.execPath } }).generate(runContext as never)).resolves.toMatchObject({ text: "" })
+    expect(session.exec.mock.calls.some(([command, args = []]) => command === "git" && args.join(" ") === "init -q")).toBe(true)
+  })
+
+
   it.each(["relay.mjs", "provider"])("closes the listening server when writing %s fails", async (blockedFile) => {
     const root = await temporaryRoot()
     await mkdir(join(root, blockedFile))
@@ -458,6 +554,67 @@ describe("Agent Box relay", () => {
 })
 
 describe("Agent Box provider execution", () => {
+  it("runs the provider from an independent authoritative Box cwd", async () => {
+    const root = await temporaryRoot()
+    const workspace = join(root, "workspace")
+    await mkdir(workspace)
+    await writeFile(join(workspace, "README.md"), "independent checkout\n")
+    const threadId = "box-independent-cwd"
+    let sibling = ""
+    let embedded = ""
+    let embeddedPrefix = ""
+    let url = ""
+    let command = ""
+    let atReference = ""
+    let quotedPath = ""
+    let unicodeSibling = ""
+    let plusSibling = ""
+    let launched: LauncherResult | undefined
+    providerRuntime(threadId, async ({ cwd }) => {
+      expect(cwd).not.toBe(workspace)
+      sibling = `${cwd}ist/config`
+      embedded = `prefix${cwd}suffix`
+      embeddedPrefix = `prefixé${cwd}`
+      url = `URL=file://${cwd}#section`
+      command = `CMD=${cwd}&pwd`
+      atReference = `@${cwd}/notes.txt`
+      quotedPath = `\`${cwd}/notes.txt\``
+      unicodeSibling = `${cwd}é/config`
+      plusSibling = `${cwd}+archive/config`
+      const options = createProviderRuntime.mock.lastCall?.[0]
+      const script = "let input = ''; process.stdin.setEncoding('utf8'); process.stdin.on('data', chunk => input += chunk); process.stdin.on('end', () => process.stdout.write(JSON.stringify({ cwd: process.cwd(), argv: process.argv.slice(1), input, readme: require('node:fs').readFileSync('README.md', 'utf8'), mapped: process.env.PROVIDER_PATH, sibling: process.env.PROVIDER_SIBLING, text: process.env.PROVIDER_TEXT, embeddedPrefix: process.env.PROVIDER_EMBEDDED_PREFIX, url: process.env.PROVIDER_URL, command: process.env.PROVIDER_COMMAND, atReference: process.env.PROVIDER_AT_REFERENCE, quotedPath: process.env.PROVIDER_QUOTED_PATH, unicodeSibling: process.env.PROVIDER_UNICODE_SIBLING, plusSibling: process.env.PROVIDER_PLUS_SIBLING })))"
+      launched = await runLauncher(String(options?.settings?.binaryPath), ["-e", script, join(cwd, "notes.txt"), sibling], {
+        cwd,
+        env: { ...options?.environment, PROVIDER_PATH: join(cwd, "notes.txt"), PROVIDER_SIBLING: sibling, PROVIDER_TEXT: embedded, PROVIDER_EMBEDDED_PREFIX: embeddedPrefix, PROVIDER_URL: url, PROVIDER_COMMAND: command, PROVIDER_AT_REFERENCE: atReference, PROVIDER_QUOTED_PATH: quotedPath, PROVIDER_UNICODE_SIBLING: unicodeSibling, PROVIDER_PLUS_SIBLING: plusSibling },
+        stdin: `${cwd}/notes.txt\n${sibling}\n${unicodeSibling}\n${plusSibling}\n${embeddedPrefix}\n${url}\n${command}\n${atReference}\n${quotedPath}\n`,
+      })
+      expect(launched).toMatchObject({ code: 0 })
+      const boxCwd = openedBoxSession.current!.cwd
+      expect(JSON.parse(launched.stdout)).toMatchObject({
+        argv: [`${boxCwd}/notes.txt`, sibling],
+        cwd: await realpath(boxCwd),
+        input: `${boxCwd}/notes.txt\n${sibling}\n${unicodeSibling}\n${plusSibling}\n${embeddedPrefix}\nURL=file://${boxCwd}#section\nCMD=${boxCwd}&pwd\n@${boxCwd}/notes.txt\n\`${boxCwd}/notes.txt\`\n`,
+        mapped: `${boxCwd}/notes.txt`,
+        readme: "independent checkout\n",
+        sibling,
+        text: embedded,
+        embeddedPrefix,
+        url: `URL=file://${boxCwd}#section`,
+        command: `CMD=${boxCwd}&pwd`,
+        atReference: `@${boxCwd}/notes.txt`,
+        quotedPath: `\`${boxCwd}/notes.txt\``,
+        unicodeSibling,
+        plusSibling,
+      })
+    })
+    await expect(createProviderAgentAdapter<PullRequestOptions>({
+      box: { cwd: workspace, runtime: "trusted-host" },
+      provider: "codex",
+      providerSettings: { binaryPath: process.execPath },
+    }).generate(invocationContext(threadId, { prompt: "review", options: { ref: "", sha: "", token: "" } }) as never)).resolves.toMatchObject({ text: "" })
+    expect(launched).toMatchObject({ code: 0 })
+  })
+
   it("runs the provider in a Box resolved for each invocation", async () => {
     const root = await temporaryRoot()
     const { first, repository, second } = await gitRepository(root)

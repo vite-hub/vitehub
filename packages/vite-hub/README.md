@@ -47,7 +47,7 @@ Custom H3 and Nuxt routes can import `getRuntimeContext` from
 `vite-hub/runtime/h3`. Call it once per invocation to normalize event bindings,
 host `waitUntil`, and memo storage. Without a real host lifetime API, await the
 returned `flushWaitUntil()` before responding. See the
-[Runtime Context guide](https://vitehub.dev/docs/concepts/runtime-context).
+[Runtime Context guide](https://vitehub.dev/docs/reference/runtime-context).
 
 The public presets are `cloudflare`, `netlify`, `vercel`, `deno`, and `node`. Each resolves once to a host, runtime, Nitro output, packaging policy, and service adapters; do not also set `nitro.preset`, `NITRO_PRESET`, `SERVER_PRESET`, or `VITEHUB_HOSTING`.
 
@@ -77,6 +77,8 @@ vitehub({
 
 See [Runtime and host support](https://vitehub.dev/docs/frameworks-hosts/support-matrix) for the providers, limitations, and proof available on each host.
 
+Discovered Database Definitions do not enable Database. Without `database`, importing `vite-hub/database/drizzle` or `@vite-hub/database/drizzle` fails the build, and `vitehub db` reports that Database is disabled. A directly composed `hubDb()` still provides Database.
+
 If an enabled capability is not supported by the preset, the build fails. You can instead configure an explicit Blob driver through `blob` or compose an owner package directly when the application provides its own portable implementation.
 
 The Deno preset uses Nitro's Deno entrypoint, so it rejects Schedule and `agent.runtime: "deno"`; those owner-package outputs require an explicit deployment integration.
@@ -90,6 +92,8 @@ The preset tells ViteHub which integrations and Provider Output to generate. Dep
 A successful build proves that ViteHub discovered the configured definitions and wrote the selected output. It does not prove that remote resources exist, credentials are valid, deployment succeeded, or a hosted provider completed a live operation. Follow the selected [host guide](https://vitehub.dev/docs/frameworks-hosts) for provisioning, environment variables, deployment commands, and current proof.
 
 Generated files are for inspection and deployment. Application code must not import `.vitehub/**`, provider output directories, Vite virtual module IDs, or `vite-hub/_internal/*`. Use the public paths in the [import reference](https://vitehub.dev/docs/reference/import-paths).
+
+`vitehub()` and `vite-hub/nuxt` register ViteHub rules with [Vite Doctor](https://github.com/onmax/vite-doctor) when the app runs it. The rules report internal imports, server-only imports in client code, and unchecked KV and Blob results. Read [Doctor rules](https://vitehub.dev/docs/reference/doctor-rules).
 
 ## Configure TypeScript
 
@@ -145,7 +149,9 @@ Built-in Agent Drivers and Box runtimes are selected by literal or tagged values
 
 The Console **Usage** page provides session history with date, Agent, status, and search filters. Open a row to inspect that session in the existing Agents view. History keeps completed, failed, and cancelled Agent Invocations visible even when token or cost evidence is unavailable. Totals use the same filters as the history table. See [Session history and usage](https://vitehub.dev/docs/development/console#inspect-usage) for the identity, coverage, and pagination contract.
 
-Set `console: { access: "auth", auth: { ... }, invoke: true }` for an independent Console session, `console: { access: "auth", auth: { provider: "cloudflare-access" } }` to verify a Cloudflare Access token on each Console request, `console: { access: "auth", invoke: true }` to reuse the Primary Auth Definition, or `console: { exposure: "host-managed", invoke: true }` when host middleware protects all `/_vitehub/**` and `/api/_vitehub/console/**` routes. Explicit access configurations keep invocation disabled by default. The development shorthand `console: true` enables invocation. Invocation also enables the Schedules page **Run now** button and `POST /_vitehub/schedules/run` for Static Schedule Definitions that set `manual: true`; see [Run Schedules on demand](https://vitehub.dev/docs/development/cli#run-a-schedule-on-demand).
+Set `console: { access: "auth", auth: { ... }, invoke: true }` for an independent Console session, `console: { access: "auth", auth: { provider: "cloudflare-access" } }` to verify a Cloudflare Access token on each Console request, `console: { access: "auth", invoke: true }` to reuse the Primary Auth Definition, or `console: { exposure: "host-managed", authorize: "./server/console-authorize.ts", invoke: true }` when the host owns authentication. The `authorize` file default-exports `defineConsoleAuthorize()` from `vite-hub/console/auth`. Every Console data route calls the configured check itself, so it does not depend only on middleware. Without `authorize`, a `host-managed` production build fails and the data routes return `500`. Explicit access configurations keep invocation disabled by default. The development shorthand `console: true` enables invocation. Invocation also enables the Schedules page **Run now** button and `POST /_vitehub/schedules/run` for Static Schedule Definitions that set `manual: true`; see [Run Schedules on demand](https://vitehub.dev/docs/development/cli#run-a-schedule-on-demand).
+
+All Console paths include the resolved Vite `base` pathname. With `base: "/portal/"`, host middleware that you keep for `host-managed` must protect `/portal/_vitehub/**` and `/portal/api/_vitehub/console/**` for every method, including assets, RPC, and invocation actions. Root-only policies do not protect these mounted routes. Update host policies when changing the base or upgrading to base-aware Console routes. An absolute base such as `https://cdn.example/portal/` uses the same `/portal/` prefix. Relative bases (`""` or `"./"`) use root routes. Host middleware is an optional first layer for `host-managed`; `authorize` is the check that ViteHub enforces.
 
 The Console RPC transport accepts browser requests only from its own origin, including in development. It uses browser Fetch Metadata through reverse proxies and checks the request origin when that metadata is absent. Hosts must reconstruct the public request origin for older browsers that send `Origin` without Fetch Metadata. Requests with neither same-origin Fetch Metadata nor an `Origin` header must send `x-vitehub-console: 1`. The built-in Console client adds this header to its RPC calls. Server clients must add it too and still require the configured authentication. Each Console operation is one stateless `POST /_vitehub/rpc/__call` request with the JSON body `{ method, input }`, so hosts such as Cloudflare Workers can send consecutive calls to different instances.
 

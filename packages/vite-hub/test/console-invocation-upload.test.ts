@@ -1,4 +1,7 @@
 import { beforeEach, expect, it, vi } from "vitest"
+import { allowed } from "./support/console-access.ts"
+
+const handler = allowed(handlerRoute)
 
 const mocks = vi.hoisted(() => ({
   start: vi.fn(),
@@ -29,7 +32,7 @@ vi.mock("../src/console/runtime/server/attachments.ts", () => ({
   consoleInputMessage: mocks.input,
 }))
 
-import handler from "../src/console/runtime/server/agent-invocations.post.ts"
+import handlerRoute from "../src/console/runtime/server/agent-invocations.post.ts"
 
 const files = [{ url: "data:image/png;base64,YQ==", filename: "test.png" }]
 const invoke = (body: unknown) => handler({ method: "POST", context: { params: { agent: "bot" } }, req: { json: async () => body } })

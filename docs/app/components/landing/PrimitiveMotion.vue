@@ -1,12 +1,12 @@
 <script setup lang="ts">
 const props = withDefaults(defineProps<{
   name: string;
-  /** Run one pass. Pause it when the scene is off screen. */
+  /** Keep the scene running. Consumers may pause it while it is off screen. */
   play?: boolean;
   /** Start position in the loop, from 0 to 1, so neighboring scenes do not move in step. */
   offset?: number;
 }>(), {
-  play: false,
+  play: true,
   offset: 0,
 });
 
@@ -21,6 +21,9 @@ const cycles: Record<string, number> = {
   realtime: 6000,
   workflow: 5600,
   content: 5600,
+  agent: 6000,
+  ui: 5000,
+  channels: 4800,
 };
 const cycle = computed(() => cycles[props.name] ?? 5000);
 const id = useId();
@@ -41,7 +44,37 @@ const id = useId();
     :style="{ '--cycle': `${cycle}ms`, '--scene-delay': `${-props.offset * cycle}ms` }"
     aria-hidden="true"
   >
-    <template v-if="name === 'env'">
+    <template v-if="name === 'agent'">
+      <rect x="6" y="15" width="10" height="10" rx="2" class="line" />
+      <rect x="9" y="18.5" width="4" height="3" rx="1" class="soft" />
+      <path d="M16 20h6" class="line link" />
+      <path d="M22 13h12v14H22z" class="line" />
+      <circle cx="28" cy="20" r="2" class="ink a ag-run" />
+      <path d="M34 18 44 10.5M34 20h10M34 22l10 7.5" class="line link" />
+      <rect x="44" y="7" width="7" height="7" rx="1.5" class="line" />
+      <rect x="44" y="16.5" width="7" height="7" rx="1.5" class="line" />
+      <rect x="44" y="26" width="7" height="7" rx="1.5" class="line" />
+      <rect x="46" y="9" width="3" height="3" rx="0.75" class="soft a ag-tool-1" />
+      <rect x="46" y="18.5" width="3" height="3" rx="0.75" class="soft a ag-tool-2" />
+      <rect x="46" y="28" width="3" height="3" rx="0.75" class="soft a ag-tool-3" />
+      <circle cx="16" cy="20" r="1.75" class="token a ag-call" />
+      <circle cx="34" cy="18" r="1.75" class="token a ag-call-1" />
+      <circle cx="34" cy="20" r="1.75" class="token a ag-call-2" />
+      <circle cx="34" cy="22" r="1.75" class="token a ag-call-3" />
+    </template>
+
+    <template v-else-if="name === 'ui'">
+      <rect x="6" y="7" width="42" height="26" rx="2" class="line" />
+      <path d="M6 13h42" class="line" />
+      <circle cx="10" cy="10" r="1" class="command" />
+      <circle cx="14" cy="10" r="1" class="command" />
+      <rect x="11" y="18" width="19" height="2.5" rx="1" class="soft" />
+      <rect x="11" y="23" width="13" height="2.5" rx="1" class="soft" />
+      <rect x="36" y="18" width="7" height="8" rx="1.5" class="soft a ui-panel" />
+      <circle cx="52" cy="20" r="2" class="token a ui-token" />
+    </template>
+
+    <template v-else-if="name === 'env'">
       <rect x="6" y="10.5" width="10" height="3" rx="1" class="soft" />
       <rect x="6" y="18.5" width="10" height="3" rx="1" class="soft" />
       <rect x="6" y="26.5" width="10" height="3" rx="1" class="soft" />
@@ -258,6 +291,15 @@ const id = useId();
       <rect x="11" y="27" width="22" height="2.5" rx="1" class="soft a sh-output-2" />
     </template>
 
+    <template v-else-if="name === 'channels'">
+      <circle cx="12" cy="20" r="5" class="line" />
+      <path d="M17 20h10M34 20h10" class="line dashed" />
+      <rect x="27" y="14" width="7" height="12" rx="1.5" class="soft a ch-message" />
+      <rect x="44" y="13" width="12" height="14" rx="2" class="line" />
+      <path d="M47 18h6M47 22h4" class="soft" />
+      <circle cx="12" cy="20" r="2" class="token a ch-token" />
+    </template>
+
     <template v-else-if="name === 'email'">
       <rect x="6" y="12" width="20" height="15" rx="1.5" class="line" />
       <path d="m6.75 13 9.25 7 9.25-7" class="line" />
@@ -355,7 +397,7 @@ const id = useId();
 .a {
   animation-duration: var(--cycle);
   animation-delay: var(--scene-delay);
-  animation-iteration-count: 1;
+  animation-iteration-count: infinite;
   animation-fill-mode: both;
   animation-timing-function: var(--ease-move);
 }
@@ -390,6 +432,60 @@ const id = useId();
 .br-cursor {
   transform-box: fill-box;
   transform-origin: 0 0;
+}
+
+/* Agent: a message starts the run, and the Agent calls three primitives through its Capabilities. */
+.ag-call { animation-name: ag-call; }
+.ag-run { animation-name: ag-run; }
+.ag-call-1 { animation-name: ag-call-1; }
+.ag-call-2 { animation-name: ag-call-2; }
+.ag-call-3 { animation-name: ag-call-3; }
+.ag-tool-1 { animation-name: ag-tool-1; }
+.ag-tool-2 { animation-name: ag-tool-2; }
+.ag-tool-3 { animation-name: ag-tool-3; }
+@keyframes ag-call {
+  0%, 4% { opacity: 0; transform: translateX(0); }
+  7% { opacity: 0.85; transform: translateX(0); }
+  16% { opacity: 0.85; transform: translateX(5px); }
+  19%, 100% { opacity: 0; transform: translateX(6px); }
+}
+@keyframes ag-run {
+  0%, 17% { opacity: 0.35; }
+  21%, 88% { opacity: 0.85; }
+  96%, 100% { opacity: 0.35; }
+}
+@keyframes ag-call-1 {
+  0%, 22% { opacity: 0; transform: translate(0, 0); }
+  25% { opacity: 0.85; transform: translate(0, 0); }
+  36% { opacity: 0.85; transform: translate(8.5px, -6.4px); }
+  39%, 100% { opacity: 0; transform: translate(10px, -7.5px); }
+}
+@keyframes ag-tool-1 {
+  0%, 35% { opacity: 0.35; }
+  40%, 46% { opacity: 0.85; }
+  56%, 100% { opacity: 0.35; }
+}
+@keyframes ag-call-2 {
+  0%, 44% { opacity: 0; transform: translateX(0); }
+  47% { opacity: 0.85; transform: translateX(0); }
+  58% { opacity: 0.85; transform: translateX(8.5px); }
+  61%, 100% { opacity: 0; transform: translateX(10px); }
+}
+@keyframes ag-tool-2 {
+  0%, 57% { opacity: 0.35; }
+  62%, 68% { opacity: 0.85; }
+  78%, 100% { opacity: 0.35; }
+}
+@keyframes ag-call-3 {
+  0%, 66% { opacity: 0; transform: translate(0, 0); }
+  69% { opacity: 0.85; transform: translate(0, 0); }
+  80% { opacity: 0.85; transform: translate(8.5px, 6.4px); }
+  83%, 100% { opacity: 0; transform: translate(10px, 7.5px); }
+}
+@keyframes ag-tool-3 {
+  0%, 79% { opacity: 0.35; }
+  84%, 90% { opacity: 0.85; }
+  100% { opacity: 0.35; }
 }
 
 /* Env: each value is validated in order. */
@@ -452,6 +548,60 @@ const id = useId();
   0%, 32% { opacity: 0.35; }
   40%, 64% { opacity: 0.8; }
   76%, 100% { opacity: 0.35; }
+}
+
+/* Agent: a message starts the run, and the Agent calls three primitives through its Capabilities. */
+.ag-call { animation-name: ag-call; }
+.ag-run { animation-name: ag-run; }
+.ag-call-1 { animation-name: ag-call-1; }
+.ag-call-2 { animation-name: ag-call-2; }
+.ag-call-3 { animation-name: ag-call-3; }
+.ag-tool-1 { animation-name: ag-tool-1; }
+.ag-tool-2 { animation-name: ag-tool-2; }
+.ag-tool-3 { animation-name: ag-tool-3; }
+@keyframes ag-call {
+  0%, 4% { opacity: 0; transform: translateX(0); }
+  7% { opacity: 0.85; transform: translateX(0); }
+  16% { opacity: 0.85; transform: translateX(5px); }
+  19%, 100% { opacity: 0; transform: translateX(6px); }
+}
+@keyframes ag-run {
+  0%, 17% { opacity: 0.35; }
+  21%, 88% { opacity: 0.85; }
+  96%, 100% { opacity: 0.35; }
+}
+@keyframes ag-call-1 {
+  0%, 22% { opacity: 0; transform: translate(0, 0); }
+  25% { opacity: 0.85; transform: translate(0, 0); }
+  36% { opacity: 0.85; transform: translate(8.5px, -6.4px); }
+  39%, 100% { opacity: 0; transform: translate(10px, -7.5px); }
+}
+@keyframes ag-tool-1 {
+  0%, 35% { opacity: 0.35; }
+  40%, 46% { opacity: 0.85; }
+  56%, 100% { opacity: 0.35; }
+}
+@keyframes ag-call-2 {
+  0%, 44% { opacity: 0; transform: translateX(0); }
+  47% { opacity: 0.85; transform: translateX(0); }
+  58% { opacity: 0.85; transform: translateX(8.5px); }
+  61%, 100% { opacity: 0; transform: translateX(10px); }
+}
+@keyframes ag-tool-2 {
+  0%, 57% { opacity: 0.35; }
+  62%, 68% { opacity: 0.85; }
+  78%, 100% { opacity: 0.35; }
+}
+@keyframes ag-call-3 {
+  0%, 66% { opacity: 0; transform: translate(0, 0); }
+  69% { opacity: 0.85; transform: translate(0, 0); }
+  80% { opacity: 0.85; transform: translate(8.5px, 6.4px); }
+  83%, 100% { opacity: 0; transform: translate(10px, 7.5px); }
+}
+@keyframes ag-tool-3 {
+  0%, 79% { opacity: 0.35; }
+  84%, 90% { opacity: 0.85; }
+  100% { opacity: 0.35; }
 }
 
 /* Connections: one app calls several connected accounts, one after another. */
@@ -825,6 +975,21 @@ const id = useId();
   0% { opacity: 0.35; transform: translateY(0); }
   4%, 46% { opacity: 0; transform: translateY(2px); animation-timing-function: var(--ease-out); }
   54%, 100% { opacity: 0.35; transform: translateY(0); }
+}
+
+/* Channels: one message travels from the app to a named connector. */
+.ch-token { animation-name: ch-token; }
+.ch-message { animation-name: ch-message; }
+@keyframes ch-token {
+  0%, 8% { opacity: 0; transform: translateX(0); }
+  14% { opacity: 0.85; transform: translateX(0); }
+  46% { opacity: 0.85; transform: translateX(30px); }
+  52%, 100% { opacity: 0; transform: translateX(32px); }
+}
+@keyframes ch-message {
+  0%, 12% { opacity: 0.35; transform: translateX(0); }
+  32%, 48% { opacity: 0.8; transform: translateX(4px); }
+  68%, 100% { opacity: 0.35; transform: translateX(0); }
 }
 
 /* Email: a message leaves the envelope and lands in the inbox as unread. */

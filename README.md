@@ -72,7 +72,7 @@ Requirements: Node 24.15 or newer and Vite 8 or newer. Presets: `cloudflare`, `n
 
 ## Built on Server Primitives
 
-Capabilities use Server Primitives such as [KV](https://vitehub.dev/docs/server-primitives/kv), [Blob](https://vitehub.dev/docs/server-primitives/blob), [Queue](https://vitehub.dev/docs/server-primitives/queue), [Workflow](https://vitehub.dev/docs/server-primitives/workflows), and [Sandbox](https://vitehub.dev/docs/server-primitives/sandbox). You can also call them from ordinary server code without an Agent. See [Server Primitives](https://vitehub.dev/docs/server-primitives).
+Capabilities use Server Primitives such as [KV](https://vitehub.dev/docs/kv), [Blob](https://vitehub.dev/docs/blob), [Queue](https://vitehub.dev/docs/queue), [Workflow](https://vitehub.dev/docs/workflows), and [Sandbox](https://vitehub.dev/docs/sandbox). You can also call them from ordinary server code without an Agent. See [Server Primitives](https://vitehub.dev/docs/getting-started/server-primitives).
 
 ## Status
 
@@ -80,4 +80,4 @@ ViteHub is in active development and has not reached 1.0. Interfaces can change 
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and checks, and [AGENTS.md](AGENTS.md) for the code map. ViteHub uses the [Apache License 2.0](LICENSE). Report vulnerabilities through the [security policy](SECURITY.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, checks, and the code map. ViteHub uses the [Apache License 2.0](LICENSE). Report vulnerabilities through the [security policy](SECURITY.md).

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import { ViteHubError } from "@vite-hub/runtime"
 
 import { toHttpErrorResponse } from "../src/http-error.ts"
+import { agentDiagnostics } from "../src/agent-diagnostics.ts"
 import { toAgentPublicError } from "../src/agent-error.ts"
 
 describe("Agent public error seams", () => {
@@ -15,6 +16,17 @@ describe("Agent public error seams", () => {
       code: "LLM_GATE_REJECTED",
       details: { category: "unsafe" },
       error: "Agent request was rejected.",
+    })
+  })
+
+  it("tells chat users whether a host restart is retried", () => {
+    expect(toAgentPublicError(new ViteHubError("HOST_RESTARTED", "private restart detail", { details: { retry: "pending" } }), "invocation")).toEqual({
+      code: "HOST_RESTARTED",
+      error: "The server restarted while I was working on this. I'll retry it automatically.",
+    })
+    expect(toAgentPublicError(new ViteHubError("HOST_RESTARTED", "private restart detail", { details: { retry: "exhausted" } }), "invocation")).toEqual({
+      code: "HOST_RESTARTED",
+      error: "The server restarted twice while I was working on this. Please send your message again.",
     })
   })
 
@@ -41,6 +53,14 @@ describe("Agent public error seams", () => {
       code: "PROVIDER_UNAVAILABLE",
       error: "AI provider is temporarily unavailable. Try again later.",
     })
+  })
+
+  it("classifies a spending limit as quota only when it was reached", () => {
+    const code = (message: string) => toAgentPublicError(agentDiagnostics.AGENT_R0726({ message }), "invocation").code
+    expect(code("Reported subscription quota is available. Workspace spending limits are not reported by this provider probe.")).toBe("INTERNAL")
+    expect(code("Provider status check failed: Codex App Server process exited with code 1")).toBe("INTERNAL")
+    expect(code("Workspace spend cap reached")).toBe("PROVIDER_QUOTA_EXHAUSTED")
+    expect(code("You have reached your workspace spending limit.")).toBe("PROVIDER_QUOTA_EXHAUSTED")
   })
 
   it("maps launch failures to a correlated provider-unavailable error", () => {

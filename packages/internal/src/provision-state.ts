@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs"
 import { dirname, resolve } from "pathe"
 
 import { isPlainObject } from "./object.ts"
+import { redactInspectionValue } from "./inspect.ts"
 
 import type { ProvisionState } from "./provision.ts"
 
@@ -27,6 +28,20 @@ export function readProvisionStateSync(rootDir: string): ProvisionState {
   } catch {
     return {}
   }
+}
+
+/** Resource names are user-defined keys, so redact only identifier values. */
+export function redactProvisionState(state: ProvisionState): ProvisionState {
+  const redacted: ProvisionState = {}
+  for (const provider of ["cloudflare", "vercel"] as const) {
+    const categories = state[provider]
+    if (!categories) continue
+    redacted[provider] = Object.fromEntries(Object.entries(categories).map(([category, ids]) => [
+      category,
+      Object.fromEntries(Object.entries(ids).map(([name, id]) => [name, String(redactInspectionValue(id))])),
+    ]))
+  }
+  return redacted
 }
 
 // Reads a single provisioned identifier, e.g. ("cloudflare", "d1", "primary").

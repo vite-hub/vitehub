@@ -48,10 +48,16 @@ try {
   await assertTextRoute("raw Markdown", "/raw/docs/getting-started.md", 200, "text/markdown", "# Introduction");
   const openApi = await request("OpenAPI", "/openapi.json", 200, "application/json");
   if (JSON.parse(openApi).openapi !== "3.1.0") throw new Error("OpenAPI route did not return the 3.1.0 document");
-  await assertTextRoute("sitemap", "/sitemap.xml", 200, "application/xml", "<urlset");
+  await assertTextRoute("sitemap", "/sitemap.xml", 200, "text/xml", "<urlset");
   await assertTextRoute("HTML 404", "/missing-docs-artifact-smoke", 404, "text/html", "Page not found", { accept: "text/html" });
   await assertTextRoute("static logo", "/vitehub-logo.svg", 200, "image/svg+xml", "<svg");
-  process.stdout.write("Docs artifact smoke passed: HTML, Markdown, OpenAPI, sitemap, 404, and static asset routes.\n");
+  // Prerendered pages must still reach the Worker so the Accept header selects the representation.
+  await assertNegotiated("negotiated Markdown", "/docs/getting-started/", "text/markdown", "text/markdown");
+  await assertNegotiated("negotiated HTML", "/docs/getting-started/", "text/html, text/markdown;q=0.5", "text/html");
+  await assertTextRoute("Markdown twin", "/docs/getting-started.md", 200, "text/markdown", "# Introduction");
+  await assertTextRoute("Markdown home", "/", 200, "text/markdown", "> Portable Agents for Vite", { accept: "text/markdown" });
+  await assertTextRoute("Markdown 404", "/missing-docs-artifact-smoke", 404, "text/markdown", "404", { accept: "text/markdown" });
+  process.stdout.write("Docs artifact smoke passed: HTML, Markdown negotiation, OpenAPI, sitemap, 404, and static asset routes.\n");
 }
 catch (error) {
   process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n${serverOutput}\n`);
@@ -133,6 +139,18 @@ function fetchFromServer(name, path, timeout, headers = {}) {
       throw new Error(`${name} could not complete because the docs artifact server exited with ${signal ?? `status ${code}`}`);
     }),
   ]);
+}
+
+async function assertNegotiated(name, path, accept, expectedType) {
+  const response = await fetchFromServer(name, path, requestTimeout, { accept });
+  const body = await response.text();
+  const contentType = response.headers.get("content-type") ?? "";
+  const vary = (response.headers.get("vary") ?? "").toLowerCase();
+  if (response.status !== 200) throw new Error(`${name} returned ${response.status}, expected 200`);
+  if (!contentType.startsWith(expectedType)) throw new Error(`${name} returned ${contentType || "no content type"}, expected ${expectedType}`);
+  if (!vary.includes("accept")) throw new Error(`${name} did not vary on Accept`);
+  // ViteHub raw files start with the page heading. The content-source fallback starts with frontmatter.
+  if (expectedType === "text/markdown" && !body.startsWith("# Introduction")) throw new Error(`${name} did not return the ViteHub raw file`);
 }
 
 async function assertTextRoute(name, path, status, type, text, headers) {

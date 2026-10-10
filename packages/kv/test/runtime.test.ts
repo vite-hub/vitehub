@@ -213,6 +213,41 @@ describe("kv runtime", () => {
     })
   })
 
+  it("reads Upstash runtime credentials under either env name", async () => {
+    const { resolveRuntimeKVOptions } = await import("../src/runtime/upstash.ts")
+    const masked = { store: { driver: "upstash" as const, token: "********", url: "********" } }
+
+    expect(resolveRuntimeKVOptions(masked, {
+      UPSTASH_REDIS_REST_TOKEN: "upstash-token",
+      UPSTASH_REDIS_REST_URL: "https://upstash.example.com",
+    })).toEqual({ store: { driver: "upstash", token: "upstash-token", url: "https://upstash.example.com" } })
+    expect(resolveRuntimeKVOptions(masked, {
+      KV_REST_API_TOKEN: "vercel-token",
+      KV_REST_API_URL: "https://vercel.example.com",
+      UPSTASH_REDIS_REST_TOKEN: "upstash-token",
+      UPSTASH_REDIS_REST_URL: "https://upstash.example.com",
+    })).toEqual({ store: { driver: "upstash", token: "vercel-token", url: "https://vercel.example.com" } })
+    expect(resolveRuntimeKVOptions(masked, {
+      KV_REST_API_URL: "https://stale.example.com",
+      UPSTASH_REDIS_REST_TOKEN: "upstash-token",
+      UPSTASH_REDIS_REST_URL: "https://upstash.example.com",
+    })).toEqual({ store: { driver: "upstash", token: "upstash-token", url: "https://upstash.example.com" } })
+    expect(resolveRuntimeKVOptions({ store: { driver: "upstash", token: "********", url: "https://configured.example.com" } }, {
+      KV_REST_API_TOKEN: "stale-token",
+      UPSTASH_REDIS_REST_TOKEN: "upstash-token",
+      UPSTASH_REDIS_REST_URL: "https://upstash.example.com",
+    })).toEqual({ store: { driver: "upstash", token: "upstash-token", url: "https://configured.example.com" } })
+    expect(() => resolveRuntimeKVOptions(masked, {
+      KV_REST_API_URL: "https://vercel.example.com",
+      UPSTASH_REDIS_REST_TOKEN: "upstash-token",
+    })).toThrow(
+      "Missing runtime environment variable `KV_REST_API_URL` or `UPSTASH_REDIS_REST_URL` for Upstash KV.",
+    )
+    expect(() => resolveRuntimeKVOptions(masked, {})).toThrow(
+      "Missing runtime environment variable `KV_REST_API_URL` or `UPSTASH_REDIS_REST_URL` for Upstash KV.",
+    )
+  })
+
   it("exposes atomic Upstash operations through the KV helper", async () => {
     process.env.KV_REST_API_URL = "https://upstash.example.com"
     process.env.KV_REST_API_TOKEN = "upstash-token"
@@ -713,6 +748,16 @@ describe("kv runtime", () => {
     expect(upstashScan).toHaveBeenNthCalledWith(2, "7", { count: 2, match: "*" })
   })
 
+  it("rejects an Upstash scan cursor that does not advance", async () => {
+    upstashScan = vi.fn(async () => ["7", ["one"]])
+    const { default: createUpstashKVDriver } = await import("../src/runtime/upstash-driver.ts")
+    const driver = createUpstashKVDriver({ driver: "upstash", token: "token", url: "https://example.com" })
+
+    const first = await driver.listKeys({ limit: 1 })
+    await expect(driver.listKeys({ cursor: first.cursor, limit: 1 })).rejects.toThrow("repeated pagination cursor")
+    expect(upstashScan).toHaveBeenCalledTimes(2)
+  })
+
   it("does not replay an oversized Upstash scan to resume overflow", async () => {
     upstashScan = vi.fn()
       .mockResolvedValueOnce(["7", ["one", "two", "three"]])
@@ -788,6 +833,30 @@ describe("kv runtime", () => {
     })
     expect(list).toHaveBeenNthCalledWith(1, { prefix: [] }, { cursor: undefined, limit: 2 })
     expect(list).toHaveBeenNthCalledWith(2, { prefix: [] }, { cursor: "deno-next", limit: 2 })
+    expect(list).toHaveBeenCalledTimes(2)
+  })
+
+  it("rejects a Deno KV list cursor that does not advance", async () => {
+    const list = vi.fn((_selector: { prefix: [] }, options: { cursor?: string; limit?: number } = {}) => {
+      const iterator = (async function* () {
+        yield { key: ["match"], value: null }
+      })()
+      return Object.assign(iterator, { cursor: options.cursor || "deno-next" })
+    })
+    // SAFETY: This test provides the only Deno API used by the runtime adapter.
+    ;(globalThis as typeof globalThis & { Deno?: unknown }).Deno = {
+      openKv: async () => ({
+        delete: vi.fn(),
+        get: vi.fn(),
+        list,
+        set: vi.fn(),
+      }),
+    }
+    const { default: createDenoKVDriver } = await import("../src/runtime/deno-kv.ts")
+    const driver = createDenoKVDriver()
+
+    const first = await driver.listKeys({ limit: 1 })
+    await expect(driver.listKeys({ cursor: first.cursor, limit: 1 })).rejects.toThrow("repeated pagination cursor")
     expect(list).toHaveBeenCalledTimes(2)
   })
 

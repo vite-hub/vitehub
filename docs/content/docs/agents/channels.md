@@ -8,7 +8,16 @@ icon: i-lucide-radio
 
 A Channel describes where an Agent Invocation came from and how replies return there. It carries transport, event, thread, message, and delivery facts. It does not prove who the caller is.
 
-Use [Agent Actors](/docs/agents/actors) for trusted identity and [Input Commands](/docs/capabilities/input-commands) for explicit command handling.
+Use [Agent Actors](/docs/agents/actors) for trusted identity and [Input Commands](/docs/agents/capabilities/input-commands) for explicit command handling.
+
+## Supported channels
+
+ViteHub includes these Channel helpers. Each one connects an incoming message or event to an Agent Invocation. Configure provider credentials and permissions before using it.
+
+::supported-channels
+::
+
+Use `defineChannel()` when your application needs another transport. For outbound delivery without starting an Invocation, use [Channels](/docs/channels).
 
 ## Add a Channel
 
@@ -27,9 +36,36 @@ export default defineAgent({
 })
 ```
 
-Built-in helpers include `discord()`, `github()`, [`gmail()`](/docs/agents/gmail), `http()`, `slack()`, `teams()`, `telegram()`, and `webChat()`. Use `defineChannel()` for an application-owned Channel Kind.
+Built-in helpers include `discord()`, `github()`, [`gitlab()` and `forgejo()`](/docs/agents/code-host-channels), [`gmail()`](/docs/agents/gmail), `http()`, `slack()`, `teams()`, `telegram()`, and `webChat()`. Use `defineChannel()` for an application-owned Channel Kind.
+
+`teams()` instructs the Agent to cite sources with descriptive Markdown links to verified URLs. Chat SDK Channel delivery labels unresolved native web citations as `[source link unavailable]`, including during streaming. Codex app-server does not supply a citation-ID-to-URL map, so ViteHub cannot recover those links from the IDs. Ordinary source links remain intact.
 
 `webChat()` enables a generated AI SDK chat route by default. `http()` is a generic HTTP Channel and keeps its route disabled unless you pass `http({ route: true })`.
+
+## Answer replies in subscribed threads
+
+Built-in chat Channels require a mention for channel messages by default. Set
+`messages.replyToSubscribedThreads: true` on the Agent or an individual Channel
+to also answer human messages in subscribed threads:
+
+```ts
+teams({
+  messages: {
+    replyToSubscribedThreads: true,
+  },
+})
+```
+
+Mentions subscribe a conversation through the Agent's chat state. A host that
+creates bot threads must subscribe those threads through the same state store.
+This setting does not subscribe every channel conversation. It ignores
+unmentioned messages in other threads and unmentioned messages sent by other bots.
+Direct messages and mentions keep their existing behavior.
+
+Message filters receive `deliveryKind: 'subscribed'` for these replies. All
+concurrency modes use the same admission policy. The provider must deliver the
+messages first. For Teams, the Team app installation needs channel-message read
+permission and consent.
 
 ## Act on the Channel message in hooks
 
@@ -102,9 +138,17 @@ A method declared as a function is a write. In a dry run, ViteHub does not call 
 
 The Console shows the recorded call, such as `label(["Receipts"])`. The call text is Invocation content. A stored Invocation keeps it only with `content: 'content'` or when `metadataContent` lists `channel.effect.content`. The Console store lists it.
 
+## Webhook paths
+
+On Nitro hosts, a Channel's `webhooks.path` is served alongside its built-in `/api/_vitehub/agents/:agent/webhooks/:webhook` route. Both paths use the same handler, authentication, HEAD probe, and Channel history export. Other application routes keep their request body.
+
+If several Agents declare the same path, their configured `publicUrl` hosts select the Agent for the request host. You can also set `agent.routes.aliases[path]` to `{ agent, webhook }` to select its owner explicitly. If ownership remains ambiguous, the declared path returns HTTP 409 instead of dispatching to an arbitrary Agent.
+
 ## Replay Channel history
 
-Add `history` to a Channel to run an Agent on messages that arrived before the Agent existed, or to run them again after a change. `history.collection` is a [Collection](/docs/server-primitives/source#expose-a-typed-collection). Each item has the shape of the Channel trigger input, so a replayed message takes the same trigger path as a live one. `history.key` returns a stable key for each item, such as the provider message ID.
+Add `history` to a Channel to run an Agent on messages that arrived before the Agent existed, or to run them again after a change. `history.collection` is a [Collection](/docs/source/server-api#expose-a-typed-collection). Each item has the shape of the Channel trigger input, so a replayed message takes the same trigger path as a live one. `history.key` returns a stable key for each item, such as the provider message ID. Optional `history.thread` returns its conversation ID. `vitehub channels history` uses this Collection for custom Channels and accepts `--thread`, repeatable `--query key=value`, and `--invocations`.
+
+To join legacy Invocations without `vitehub.channel.key`, add `history.invocationItem(invocation): TItem | undefined | Promise<TItem | undefined>`. This read-only hook receives the retained `AgentInvocationRecord` and reconstructs an item for `key()` and optional `thread()`. Existing key annotations take precedence. The journal does not retain raw trigger input or `input.context`, so return `undefined` when observations and annotations cannot identify the item. Hook errors also leave the record unjoined.
 
 ```ts [server/agents/labeller.ts]
 import { defineAgent } from 'vite-hub/agent'
@@ -180,6 +224,12 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
+Use `--label <label>` to group replayed Invocations by the `triggeredBy` annotation. Labels must be non-empty and at most 512 characters. Repeatable `--query key=value` is an alias for `--filter key=value`. The label stays outside the Collection query; to filter a query field named `label`, use `--query label=value`. The programmatic option is `replayChannel(agent, channel, { label })`. Forced rounds get separate Invocation IDs and labels, while unlabeled replay keeps its existing behavior.
+
+With the Console enabled, the Vite development loop inherits its configured Invocation journal, including definitions authored with `@vite-hub/agent`. Local dry-run replays need no app-side Invocation configuration.
+
+Authenticated replay uses the saved history item without requiring the provider webhook signature again. Live webhooks still verify their signatures and replayed input still passes trigger schema validation.
+
 `replayChannel()` validates `query` with the Collection's query schema, then reads pages until it reaches `limit` or the end of the history. It returns `processed`, `skipped`, and `failed` counts, one entry per item, and `nextCursor`. Pass `nextCursor` as `cursor` to continue. It is `null` when no history remains.
 
 An unconfirmed pending Invocation held by another claim reports a retryable failure. Workflow dispatch records its attempt before calling the provider. If recovery cannot observe that run, the Invocation stays pending and reports a retryable failure; a later replay checks the provider again. A provider status of `unknown` does not prove that an attempted dispatch was rejected. A reservation that records no dispatch attempt can be recovered after its claim expires. Older journals without this marker remain pending while provider status is unknown. Use `force` only when you intend to start a separate Invocation with a fresh ID. Running Invocations and confirmed Workflow dispatches are skipped. Replay also checks journals created with the earlier `channel-replay:<channel>:<key>` IDs before starting a new Invocation.
@@ -213,7 +263,7 @@ Set `webhooks: []` on the trigger that only receives dispatched items, so the Ch
 
 ## Publish Agent activity without opening a chat
 
-Enable `activity` when an invocation should project its lifecycle into a Channel without treating that Channel as the Agent's conversation transport. With GitHub App webhooks enabled, ViteHub creates the authenticated app-owned comment on `pull_request.opened` unless `pullRequest.reconcile.events` explicitly excludes `opened`; later invocations reuse it. If that event is excluded, the first later invocation creates the comment. The comment claims work with a “Starting” row. One table lists the current and recent sessions, newest first, with links, status, GitHub relative start times, and completed durations. Normalized harness task checkboxes and the latest iteration result appear below it. Previous results stay under a collapsed section. The full transcript stays in the linked session when one is configured.
+Enable `activity` when an invocation should project its lifecycle into a Channel without treating that Channel as the Agent's conversation transport. With GitHub App webhooks enabled, ViteHub creates the authenticated app-owned comment on `pull_request.opened` unless `pullRequest.reconcile.events` explicitly excludes `opened`; later invocations reuse it. If that event is excluded, the first later invocation creates the comment. The comment claims work with a “Starting” row. One table lists the current and recent sessions, newest first, with links, status, GitHub relative start times, and completed durations. Normalized harness task checkboxes and the newest available session's final answer appear below it. All session answers stay in one collapsed section, newest first, with one session link and one paragraph per answer. The full transcript stays in the linked session when one is configured.
 
 Enable the GitHub App webhook for `pull_request` events and route it to the Agent’s generated webhook endpoint to claim the comment when the PR opens, unless `pullRequest.reconcile.events` explicitly excludes `opened`. If it is excluded or the webhook is not delivered, the first later invocation creates the comment.
 
@@ -290,6 +340,10 @@ export default defineAgent({
 ```
 
 Reconciled deliveries use `pullRequest.reconcile.concurrencyLimit` concurrent invocation slots per repository and pull request. The default is `1`. Set a positive integer such as `4` to allow up to four deliveries for the same pull request to run together. Other pull requests have separate limits. ViteHub ignores bot-authored `synchronize` events to prevent a bot push from immediately triggering itself. Existing slash commands still work when reconciliation is enabled. Reconciliation starts work; merge policy and any required human consent remain application-owned instructions or Capabilities.
+
+Persisted inline webhook executions have a 15-minute default deadline. Set `messages.timeout` in milliseconds to change it, for example `30 * 60_000`. A timeout on the persisted Invocation input takes precedence. The selected timeout must be positive, finite, and at most `2_147_483_647` milliseconds; invalid values use the 15-minute default. Replayed or rehydrated Invocation input can override the deadline after setup, with elapsed setup time deducted. Setup remains bounded by the initial deadline. The deadline includes workspace preparation and cancels the Invocation when it expires.
+
+Queued GitHub reconciliation reloads the PR head, comments, and files before the Driver starts, so each Invocation uses the current PR state. Eligibility is decided when the delivery is accepted and is preserved while queued. Use the default `concurrencyLimit: 1` for tasks that write to the same PR branch.
 
 Set `pullRequest.workspace.mount` to the repository path inside the Workspace. Omitting `workspace` mounts at `portal`. Both `workspace: true` and `workspace: {}` mount at the Workspace root. Set `workspace: false` to disable the pull request Workspace contribution.
 
@@ -408,7 +462,9 @@ Install the matching `@chat-adapter/*` package when a built-in Channel uses prov
 
 Built-in Channels read credentials from Server Env under `env.server.<channel>`. ViteHub discovers built-in Channel factories in Agent definitions and declares their fields automatically, so applications usually need no separate Env declaration. Explicit Channel options take precedence over Env values. Declare a field yourself when the host variable name or provider differs from the default.
 
-Use [Server Env](/docs/server-primitives/env) to inspect the discovered fields and their required or secret status. When a Channel is defined outside a discovered Agent file, declare its Env fields explicitly.
+Each field first reads its canonical name, `VITEHUB_` and the path in upper snake case, then its vendor names. `telegram()` reads `VITEHUB_TELEGRAM_BOT_TOKEN`, then `TELEGRAM_BOT_TOKEN`. Use the canonical name when the vendor name is taken, for example `VITEHUB_GITHUB_TOKEN` in CI. See [Server Env variable names](/docs/env/configure).
+
+Use [Server Env](/docs/env) to inspect the discovered fields and their required or secret status. When a Channel is defined outside a discovered Agent file, declare its Env fields explicitly.
 
 For Telegram, ViteHub can own the verified webhook route and synchronize it after deployment:
 
@@ -436,9 +492,9 @@ The command is a dry run by default. Apply a reviewed plan with `--apply` and th
 
 ## Control admission and delivery
 
-Adapter-backed Channels accept messages without a mention only in a direct conversation with the Agent. Group conversations, channels, and shared chats between people require an explicit Agent mention on every message. A previous mention or thread subscription does not grant permission to answer later unmentioned messages. The same rule applies to queued messages and steering an active invocation.
+Adapter-backed Channels accept messages without a mention in a direct conversation with the Agent. By default, group conversations, channels, and shared chats between people require an explicit Agent mention on every message. When `messages.replyToSubscribedThreads` is `true`, a current thread subscription also permits unmentioned human replies. Unmentioned messages from other bots or unsubscribed threads remain ignored. The same rule applies to queued messages and steering an active invocation.
 
-Use `messages.filter` to add application-specific restrictions before an invocation starts. Returning `false` posts no loading message or fallback error because the Agent never started. Accepted deliveries have `deliveryKind: 'direct'` or `deliveryKind: 'mention'`.
+Use `messages.filter` to add application-specific restrictions before an invocation starts. Returning `false` posts no loading message or fallback error because the Agent never started. Accepted deliveries have `deliveryKind: 'direct'`, `deliveryKind: 'mention'`, or `deliveryKind: 'subscribed'`. The `subscribed` kind identifies unmentioned human replies admitted by `messages.replyToSubscribedThreads`.
 
 Set `messages.meta` to a Standard Schema when application-owned Channel metadata must be validated before Capabilities, hooks, or the Driver run. The schema may normalize or add defaults, but its output must be an object. Set `metaRevision` to a stable value and change it whenever the schema contract changes so durable Agent Workflows can reuse parsed metadata across processes. Without a revision, durable execution validates the metadata again. Put both settings on shared Agent message settings or on one Channel to override them for that Channel.
 
@@ -542,4 +598,4 @@ A Channel and an Agent Invocation are separate records. One Agent Definition can
 
 Use verified Channel metadata to identify the Agent Actor, choose a Capability, or select a Workspace Scope. When a message reaches the wrong Agent, carries the wrong identity, or loses delivery data, inspect the Channel and the [Invocation](/docs/agents/invocations) together.
 
-To send an application message without an Agent, use the [Channels Server Primitive](/docs/server-primitives/channels).
+To send an application message without an Agent, use the [Channels Server Primitive](/docs/channels).

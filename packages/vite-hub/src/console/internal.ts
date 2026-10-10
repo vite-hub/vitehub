@@ -7,6 +7,7 @@ import type { KVStorage } from "@vite-hub/kv"
 import type { ScheduleDefinitionRegistry } from "@vite-hub/schedule"
 import type { ConsoleSectionCatalog } from "./runtime/definitions.ts"
 import type { ConsoleSectionId } from "./runtime/sections.ts"
+import type { ConsoleRequestEvent } from "./runtime/server/request.ts"
 
 export const consoleDefinitionsKey: unique symbol = Symbol.for("vitehub.console.definitions")
 export const consoleDefinitionsRegistryKey: unique symbol = Symbol.for("vitehub.console.definitions.registry")
@@ -55,8 +56,7 @@ type ConsoleInvocationsByRoot = {
 type ConsoleDefinitionsByRoot = ConsoleProjectRegistry<ConsoleSectionCatalog>
 
 export type ConsoleEnvInspection = ServerEnvDescription & {
-  /** Loads status-only Server Env inspection on request. It may call providers. */
-  inspect?: (event: unknown) => Promise<ServerEnvInspection>
+  inspect?: (event: ConsoleRequestEvent) => Promise<ServerEnvInspection>
   manage?: (request: Request) => Promise<Response>
 }
 
@@ -232,6 +232,7 @@ function invocationsByRoot(value: unknown): ConsoleInvocationsByRoot | undefined
     ? registry as ConsoleInvocationsByRoot
     : undefined
 }
+
 
 
 

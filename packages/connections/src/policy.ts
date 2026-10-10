@@ -1,9 +1,11 @@
+import { envAccessActor } from "@vite-hub/env/internal/connections"
+
 import type { EnvActor } from "@vite-hub/env/bridge"
 
 import { ConnectionError } from "./errors.ts"
 
 import { matchesPattern } from "./catalog.ts"
-import type { ConnectionAccessRule, ConnectionDefinition } from "./types.ts"
+import type { ConnectionAccessRule, ConnectionDefinition, UseConnectionOptions } from "./types.ts"
 
 export type ConnectionDecision = "allow" | "approve" | "deny"
 
@@ -18,6 +20,21 @@ export function envActor(actor: string): EnvActor {
     throw new ConnectionError("invalid", "Connection actor IDs must contain 1 to 512 characters and no control characters.")
   }
   return mapped
+}
+
+/** Resolve the caller. An Agent actor comes only from an Env context that the Agent runtime created. */
+export function callerActor(options: Pick<UseConnectionOptions, "access" | "actor">): string {
+  if (options.access) {
+    const actor = envAccessActor(options.access)
+    if (actor.kind !== "agent" || options.actor !== undefined) {
+      throw new ConnectionError("invalid", "Connection `access` must be the Env access context of an Agent, without `actor`.")
+    }
+    return `agent:${actor.id}`
+  }
+  if (options.actor?.startsWith("agent:")) {
+    throw new ConnectionError("invalid", "Agent actors come from the Agent runtime. Use the Connection capabilities of the Agent.")
+  }
+  return options.actor ?? "server"
 }
 
 function allowsWrite(rule: ConnectionAccessRule, action: string, highRisk: boolean): boolean {

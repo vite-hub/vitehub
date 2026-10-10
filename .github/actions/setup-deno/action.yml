@@ -1,5 +1,5 @@
 name: Setup Deno
-description: Install the Deno version pinned in .tool-versions
+description: Install the Deno version pinned in .deno-version
 runs:
   using: composite
   steps:
@@ -7,9 +7,9 @@ runs:
       id: deno
       shell: bash
       run: |
-        version="$(awk '$1 == "deno" && NF == 2 { print $2 }' .tool-versions)"
+        version="$(awk 'NF == 1 { print $1 }' .deno-version)"
         if [[ -z "$version" ]]; then
-          echo ".tool-versions must declare the required Deno version" >&2
+          echo ".deno-version must declare the required Deno version" >&2
           exit 1
         fi
         echo "version=$version" >> "$GITHUB_OUTPUT"

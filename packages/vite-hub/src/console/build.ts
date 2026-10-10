@@ -9,7 +9,6 @@ import type { ConsoleSectionContent } from "./runtime/definitions.ts"
 import type { ConsoleSectionId } from "./runtime/sections.ts"
 
 export type ConsoleAgentEntry = { handler: string; name: string }
-
 /** A Static Schedule Definition that sets `manual: true`. */
 export type ConsoleScheduleEntry = { handler: string; name: string }
 

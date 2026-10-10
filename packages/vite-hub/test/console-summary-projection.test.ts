@@ -1,6 +1,9 @@
 import { expect, it, vi } from "vitest"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../../agent/src/invocations.ts"
-import invocationsHandler from "../src/console/runtime/server/invocations.get.ts"
+import invocationsHandlerRoute from "../src/console/runtime/server/invocations.get.ts"
+import { allowed } from "./support/console-access.ts"
+
+const invocationsHandler = allowed(invocationsHandlerRoute)
 
 const getConsoleInvocations = vi.hoisted(() => vi.fn())
 vi.mock("../src/console/runtime/server/invocations.ts", () => ({ getConsoleInvocations }))

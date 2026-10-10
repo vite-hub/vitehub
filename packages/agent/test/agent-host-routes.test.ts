@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, it } from 'vitest'
 import { agentHostRoutes } from '../src/host-routes-vite.ts'
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
+import { hasRuntimeType } from '../src/internal/runtime-type.ts'
 
 async function configure(options: Parameters<typeof agentHostRoutes>[0], config: import('vite').UserConfig) {
   const hook = agentHostRoutes(options).config

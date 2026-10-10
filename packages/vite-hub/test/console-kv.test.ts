@@ -8,12 +8,15 @@ import {
   installConsoleKVScope,
   resolveConsoleKV,
 } from "../src/console/internal.ts"
-import kvHandler from "../src/console/runtime/server/kv.get.ts"
+import kvHandlerRoute from "../src/console/runtime/server/kv.get.ts"
 import { installConsoleKV } from "../src/console/runtime/server/kv.ts"
 
 import type { KVResult, KVStorage } from "@vite-hub/kv"
 import type { ConsoleInvocationScope } from "../src/console/internal.ts"
 import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.ts"
+import { allowed } from "./support/console-access.ts"
+
+const kvHandler = allowed(kvHandlerRoute)
 
 // SAFETY: ConsoleInvocationScope only adds optional symbol-keyed test state to the global object.
 const scope = globalThis as ConsoleInvocationScope

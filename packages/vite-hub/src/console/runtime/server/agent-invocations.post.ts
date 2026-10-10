@@ -6,6 +6,7 @@ import * as v from "valibot"
 import { decodeAgentRouteParam, encodeAgentRouteParam } from "../console-route.ts"
 import { console } from "../../server.ts"
 import { consoleAgentInvokerProfiles, getConsoleAgentDefinition } from "./agents.ts"
+import { withConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
 import { assertConsoleRequest, consoleRequestJSON, consoleRequestURL, setConsoleResponseStatus } from "./request.ts"
 
 import type { Message } from "@vite-hub/agent"
@@ -158,4 +159,5 @@ const agentInvocationsHandler: (event: ConsoleRequestEvent) => Promise<ConsoleAg
   }
 }
 
-export default agentInvocationsHandler
+const guardedHandler: ConsoleAccessRoute<typeof agentInvocationsHandler> = withConsoleAccess(agentInvocationsHandler)
+export default guardedHandler

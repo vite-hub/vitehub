@@ -112,7 +112,9 @@ function workspaceDependencies(manifest, publicNames) {
   const dependencies = {
     ...manifest.dependencies,
     ...manifest.optionalDependencies,
-    ...manifest.peerDependencies,
+    // Optional peers are integrations, not prerequisites for publishing the package.
+    ...Object.fromEntries(Object.entries(manifest.peerDependencies || {})
+      .filter(([name]) => manifest.peerDependenciesMeta?.[name]?.optional !== true)),
   }
   return Object.keys(dependencies).filter(name => publicNames.has(name)).sort()
 }

@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { hubBlob } from "@vite-hub/blob/vite";
 import { createAgentCliContributor } from "@vite-hub/agent/cli";
 import { runViteHubCli } from "@vite-hub/cli";
 import { createDbCliContributor } from "@vite-hub/database/cli";
@@ -53,6 +54,7 @@ function documentedNamespaces(): string[] {
 
 describe("CLI documentation contract", () => {
   it("indexes every command from the live package contributors", async () => {
+    const blobPlugin: unknown = hubBlob();
     const agent = createAgentCliContributor({ rootDir: evalFixtureRoot });
     const database = createDbCliContributor();
     if (!agent || !database) throw new TypeError("Expected the default CLI contributors.");
@@ -62,6 +64,7 @@ describe("CLI documentation contract", () => {
     const workflowPlugin: unknown = hubWorkflow();
     const typesPlugin: unknown = viteHubTypesPlugin();
     const plugins: unknown[] = [
+      blobPlugin,
       { vitehub: { cli: agent } },
       { vitehub: { cli: database } },
       { vitehub: { cli: { namespaces: [createConsoleCliNamespace()] } } },

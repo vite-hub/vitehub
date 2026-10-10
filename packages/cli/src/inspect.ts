@@ -174,26 +174,19 @@ async function runProviderOutput(args: string[], context: InspectContext, plugin
     .sort((left, right) => left.path.localeCompare(right.path))
 
   if (parsed.json) {
-    const providerOutput = reports.map((report) => {
-      if (report.owner !== "cli" || report.path !== PROVISION_STATE_FILE || report.type !== "file" || report.content === "[unreadable JSON]")
-        return redactInspectionValue(report);
-      const state = readProvisionStateSync(context.rootDir);
-      const content = Object.fromEntries(
-        (["cloudflare", "vercel"] as const).filter(provider => state[provider]).map(provider => [
-          provider,
-          Object.fromEntries(
-            Object.entries(state[provider] ?? {}).map(([category, ids]) => [
-              category,
-              Object.fromEntries(
-                Object.entries(ids).map(([name, id]) => [name, redactInspectionValue(id)]),
-              ),
-            ]),
-          ),
-        ]),
-      );
-      return { ...report, content };
-    });
-    context.stdout.write(`${JSON.stringify({ providerOutput }, null, 2)}\n`);
+    const provisionPath = relative(context.rootDir, resolve(context.rootDir, PROVISION_STATE_FILE)) || "."
+    const provisionState = readProvisionStateSync(context.rootDir)
+    const provisionStateOutput = Object.fromEntries(Object.entries(provisionState).map(([provider, categories]) => [
+      provider,
+      Object.fromEntries(Object.entries(categories ?? {}).map(([category, ids]) => [
+        category,
+        Object.fromEntries(Object.entries(ids ?? {}).map(([key, id]) => [key, redactInspectionValue(id)])),
+      ])),
+    ]))
+    const providerOutput = reports.map(report => report.path === provisionPath && report.exists && report.owner === "cli" && report.type === "file" && report.content !== "[unreadable JSON]"
+      ? { ...report, content: provisionStateOutput }
+      : redactInspectionValue(report))
+    context.stdout.write(`${JSON.stringify({ providerOutput }, null, 2)}\n`)
     return 0
   }
 

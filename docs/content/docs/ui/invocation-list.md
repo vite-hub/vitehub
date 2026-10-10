@@ -6,7 +6,7 @@ navigation.group: Agent work
 icon: i-ph-list-bullets-light
 ---
 
-`AgentInvocationList` renders Agent Invocation summaries as a navigation list. Each row shows the title, context, status, relative time, and channel. Use it as the sidebar of a session browser. It does not search, route, or fetch. Your application loads the items and handles selection.
+`AgentInvocationList` is the Console's session browser. Each row shows the project, title, context, status, and relative time in a dense layout that stays readable when an error wraps. It does not search, route, or fetch. Your application loads the items and handles selection.
 
 ::component-preview{name="InvocationListExample"}
 ::
@@ -26,7 +26,7 @@ icon: i-ph-list-bullets-light
 />
 ```
 
-The list renders the items in the order you give. It does not sort or group them.
+The list renders the items in the order you give. It does not sort them. By default it does not group them.
 
 ## Examples
 
@@ -54,6 +54,14 @@ The list emits `endReached` when the viewport comes near the end and `hasMore` i
 - Set `continuationKey` from the current cursor. A new cursor lets pagination continue when a page only refreshes loaded rows.
 - If a request fails and the cursor does not change, increment `retryKey` to request the same page again.
 - Paginate long histories. The list keeps every loaded row in the document, so keyboard and screen reader users can reach every row. It is not virtualized.
+
+### Group by recency
+
+Set `groupBy="recency"` and `now` to show rows under **Today**, **Yesterday**, **Previous 7 days**, and **Older**. The list uses `updatedAt`, then `startedAt`, in the viewer's time zone. Rows without a time go to **Older**. Each group keeps the order you give. Without `now`, the list stays flat.
+
+```vue
+<AgentInvocationList :items="invocations" :now="now" group-by="recency" />
+```
 
 ### Agent metadata
 
@@ -101,6 +109,7 @@ const items = invocations.map((invocation) => ({
 | `continuationKey`   | `string \| number`                   |                    | Rechecks pagination when the cursor changes.             |
 | `retryKey`          | `string \| number`                   |                    | Requests the current page again when the value changes.  |
 | `now`               | `number`                             |                    | Timestamp for relative times. Set it for stable server rendering. Without it, rows show no time. |
+| `groupBy`           | `'recency'`                          |                    | Groups rows under Today, Yesterday, Previous 7 days, and Older. Requires `now`. |
 | `ariaLabel`         | `string`                             | `'Agent sessions'` | Accessible name of the navigation region.                |
 | `remainingStatuses` | `readonly AgentInvocationStatus[]`   | `[]`               | Deprecated. The flat list ignores it.                    |
 
