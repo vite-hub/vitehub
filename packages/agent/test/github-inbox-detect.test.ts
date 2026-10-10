@@ -55,6 +55,24 @@ describe("GitHub inbox change detection", () => {
     await f.inbox.close()
   })
 
+  it("reuses the tracked summary while detecting many pull requests", async () => {
+    const prs = Array.from({ length: 20 }, (_, index) => node(index + 1))
+    const f = setup(() => prs)
+    for (const pr of prs) {
+      await f.inbox.seed(repository, {
+        number: pr.number,
+        state: "open",
+        user: { login: "dev" },
+        head: { sha: head, ref: pr.headRefName },
+        base: { ref: "main" },
+      })
+    }
+    const get = vi.spyOn(f.inbox, "get")
+    await detectChangedPullRequests(f.inbox, () => f.graphql, [repository], f.clock() + 61_000)
+    expect(get).not.toHaveBeenCalled()
+    await f.inbox.close()
+  })
+
   it("coalesces concurrent scans before reading the full snapshot summary", async () => {
     const f = setup(() => [])
     let release!: () => void
