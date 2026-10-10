@@ -35,7 +35,7 @@ export default defineAgent({
 
 `tokens: 20_000` is shorthand for a total-token limit. `usd` accepts a non-negative number or decimal string. Cost is compared in USD, not in provider credits.
 
-The optional top-level `capacity` field uses the Driver capacity queue and concurrency contract. It is a host admission setting, not a model usage limit. When both `budget.capacity` and `driver.capacity` are set, the budget value is used.
+The optional top-level `capacity` field uses the Driver capacity queue and concurrency contract. It is a host admission setting, not a model usage limit. It can be used by itself when an Agent only needs concurrency control. When both `budget.capacity` and `driver.capacity` are set, the budget value is used.
 
 Use the Capability form when the policy is selected at invocation time or when it is part of a reusable Capability list:
 
