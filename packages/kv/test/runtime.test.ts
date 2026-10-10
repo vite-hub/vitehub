@@ -748,6 +748,16 @@ describe("kv runtime", () => {
     expect(upstashScan).toHaveBeenNthCalledWith(2, "7", { count: 2, match: "*" })
   })
 
+  it("rejects an Upstash scan cursor that does not advance", async () => {
+    upstashScan = vi.fn(async () => ["7", ["one"]])
+    const { default: createUpstashKVDriver } = await import("../src/runtime/upstash-driver.ts")
+    const driver = createUpstashKVDriver({ driver: "upstash", token: "token", url: "https://example.com" })
+
+    const first = await driver.listKeys({ limit: 1 })
+    await expect(driver.listKeys({ cursor: first.cursor, limit: 1 })).rejects.toThrow("repeated pagination cursor")
+    expect(upstashScan).toHaveBeenCalledTimes(2)
+  })
+
   it("does not replay an oversized Upstash scan to resume overflow", async () => {
     upstashScan = vi.fn()
       .mockResolvedValueOnce(["7", ["one", "two", "three"]])
