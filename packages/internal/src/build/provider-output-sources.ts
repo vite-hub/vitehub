@@ -706,6 +706,20 @@ function packageMetadataSourcesForPath(root: string, path: string): string[] {
   return sources
 }
 
+/**
+ * Generated Provider Output can import a package by the physical pnpm store path
+ * that Vite resolved during the source build. Retained source trees do not copy
+ * `node_modules/.pnpm`, so keep only the store package directories that the
+ * traced source graph actually references.
+ */
+function pnpmStorePackageRoot(root: string, source: string): string | undefined {
+  const segments = relative(root, source).split(sep)
+  const nodeModulesIndex = segments.indexOf("node_modules")
+  if (nodeModulesIndex === -1 || segments[nodeModulesIndex + 1] !== ".pnpm") return
+  const packageName = segments[nodeModulesIndex + 2]
+  return packageName ? resolve(root, ...segments.slice(0, nodeModulesIndex + 3)) : undefined
+}
+
 function parseJsonWithComments(source: string): unknown {
   let output = ""
   let blockComment = false
@@ -1008,6 +1022,20 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
       for (const dependencies of dependencyRoots(root)) {
         await linkDependencies(dependencies, resolve(retainedRoot, "node_modules"), resolveRetainedDependencyTarget)
       }
+      const retainedPnpmPackages = new Set(
+        materializedSources
+          .map(source => pnpmStorePackageRoot(root, source))
+          .filter((source): source is string => {
+            if (!source) return false
+            return existsSync(source)
+          }),
+      )
+      await Promise.all([...retainedPnpmPackages].map(async (source) => {
+        const target = resolve(retainedRoot, relative(root, source))
+        if (existsSync(target)) return
+        await mkdir(dirname(target), { recursive: true })
+        await symlink(realpathSync(source), target, process.platform === "win32" ? "junction" : "dir")
+      }))
       for (const source of escapedMaterializedSources) {
         const sourceDirectory = statSync(source).isDirectory() ? source : dirname(source)
         for (const dependencies of dependencyRoots(sourceDirectory)) {
