@@ -1361,6 +1361,32 @@ describe("Agent Invocation host recovery", () => {
     expect(list).toHaveBeenNthCalledWith(2, { cursor: undefined, limit: 100, status: ["pending", "running"] })
     expect(list).toHaveBeenNthCalledWith(3, { cursor: "opaque-next-page", limit: 100, status: ["pending", "running"] })
   })
+
+  it("rejects a repeated cursor instead of looping during workload inspection", async () => {
+    const invocation = invocationSummary("active", "running", "2026-08-30T10:00:00.000Z")
+    const list = vi.fn(async (options = {}) => {
+      if (!("status" in options)) return { invocations: [] }
+      return { cursor: "same-cursor", invocations: [invocation] }
+    })
+
+    await expect(readAgentInvocationWorkload({ list }, Date.parse("2026-08-30T11:00:00.000Z")))
+      .rejects.toThrow("repeated pagination cursor")
+    expect(list).toHaveBeenCalledTimes(3)
+  })
+
+  it("rejects a repeated cursor before recovering the same page twice", async () => {
+    const store = createMemoryAgentInvocationStore()
+    const list = vi.spyOn(store, "list").mockResolvedValue({
+      cursor: "same-cursor",
+      invocations: [],
+    })
+
+    await expect(failInterruptedAgentInvocations(store, {
+      before: Date.parse("2026-08-30T11:00:00.000Z"),
+      recover: () => true,
+    })).rejects.toThrow("repeated pagination cursor")
+    expect(list).toHaveBeenCalledTimes(2)
+  })
 })
 
 function invocationSummary(id: string, status: "cancelled" | "completed" | "failed" | "pending" | "running", createdAt: string) {
