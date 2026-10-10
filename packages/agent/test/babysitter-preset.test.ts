@@ -1259,6 +1259,7 @@ describe("Babysitter preset runtime", () => {
       labels: { allow: ["agent:repair"], deny: ["agent:paused"] },
     });
     expect(resolveBabysitterLifecycleFilter(filter, undefined)).toBe(filter);
+    expect(() => resolveBabysitterLifecycleFilter(filter, null as never)).toThrow(/lifecycle must be an object/);
     expect(() => resolveBabysitterLifecycleFilter(filter, { labels: null as never })).toThrow(/must be an object/);
     expect(() => resolveBabysitterLifecycleFilter(filter, { labels: { require: null as never } })).toThrow(/arrays/);
     expect(() => resolveBabysitterLifecycleFilter(filter, { labels: { deny: null as never } })).toThrow(/arrays/);

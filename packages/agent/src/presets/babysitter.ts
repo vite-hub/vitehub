@@ -249,7 +249,7 @@ type BabysitterDefinition = AgentDefinition<
 
 export type BabysitterAgent = ConfiguredAgentDefinition<BabysitterOptions, BabysitterDefinition>;
 
-function lifecycleLabels(labels: BabysitterLifecycleLabels): GitHubPullRequestFilterRules {
+function lifecycleLabels(labels: unknown): GitHubPullRequestFilterRules {
   if (!isRuntimeRecord(labels)) {
     throw new TypeError("[vitehub] Babysitter lifecycle labels must be an object.");
   }
@@ -274,7 +274,11 @@ export function resolveBabysitterLifecycleFilter(
   filter: GitHubPullRequestFilter,
   lifecycle: BabysitterLifecycleOptions | undefined,
 ): GitHubPullRequestFilter {
-  const labels = lifecycle?.labels;
+  if (lifecycle === undefined) return filter;
+  if (!isRuntimeRecord(lifecycle)) {
+    throw new TypeError("[vitehub] Babysitter lifecycle must be an object.");
+  }
+  const labels = lifecycle.labels;
   if (labels === undefined) return filter;
   if (filter.labels) {
     throw new TypeError("[vitehub] Configure Babysitter lifecycle labels or filter.labels, not both.");
