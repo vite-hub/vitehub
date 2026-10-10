@@ -49,14 +49,34 @@ function serializationError(message: string, details?: Record<string, unknown>, 
   })
 }
 
+export interface SandboxTransferLimits {
+  maxDepth: number
+  maxSidecars: number
+  maxSidecarBytes: number
+}
+
+export const DEFAULT_SANDBOX_TRANSFER_LIMITS: SandboxTransferLimits = {
+  maxDepth: 32,
+  maxSidecars: 64,
+  maxSidecarBytes: 64 * 1024 * 1024,
+}
+
+function transferLimitError(label: string, limit: string, value: number, maximum: number) {
+  return sandboxError(`Sandbox ${label} exceeds its ${limit} limit (${value} > ${maximum}).`, {
+    code: 'SANDBOX_TRANSFER_LIMIT',
+    details: { label, limit, value, maximum },
+  })
+}
+
 export async function encodeSandboxValue(
   sandbox: SandboxExecutionBox,
   value: unknown,
   assetsDir: string,
   label: string,
   signal?: AbortSignal,
+  limits: SandboxTransferLimits = DEFAULT_SANDBOX_TRANSFER_LIMITS,
 ) {
-  const state: { directory?: Promise<void>, nextId: number } = { nextId: 0 }
+  const state: { directory?: Promise<void>, nextId: number, sidecarBytes: number } = { nextId: 0, sidecarBytes: 0 }
   const throwIfAborted = () => signal?.throwIfAborted()
   const abortable = async <T>(operation: Promise<T>) => {
     try {
@@ -68,18 +88,25 @@ export async function encodeSandboxValue(
     }
   }
 
-  async function encode(entry: unknown, ancestors: ReadonlySet<object>, key = '', applyToJSON = true): Promise<unknown> {
+  async function encode(entry: unknown, ancestors: ReadonlySet<object>, key = '', applyToJSON = true, depth = 0): Promise<unknown> {
+    if (depth > limits.maxDepth)
+      throw transferLimitError(label, 'maxDepth', depth, limits.maxDepth)
     const blob = typeof Blob !== 'undefined' && entry instanceof Blob
     const buffer = typeof Buffer !== 'undefined' && Buffer.isBuffer(entry)
     if (blob || entry instanceof Uint8Array) {
       throwIfAborted()
+      if (state.nextId + 1 > limits.maxSidecars)
+        throw transferLimitError(label, 'maxSidecars', state.nextId + 1, limits.maxSidecars)
       const id = state.nextId++
-      state.directory ||= abortable(sandbox.files.mkdir(assetsDir, { recursive: true, signal }))
-      await state.directory
       const bytes = blob
         ? new Uint8Array(await (entry as Blob).arrayBuffer())
         : entry as Uint8Array
       throwIfAborted()
+      if (state.sidecarBytes + bytes.byteLength > limits.maxSidecarBytes)
+        throw transferLimitError(label, 'maxSidecarBytes', state.sidecarBytes + bytes.byteLength, limits.maxSidecarBytes)
+      state.sidecarBytes += bytes.byteLength
+      state.directory ||= abortable(sandbox.files.mkdir(assetsDir, { recursive: true, signal }))
+      await state.directory
       await abortable(sandbox.files.write(`${assetsDir}/${id}`, bytes, { signal }))
       return tagged({
         id,
@@ -91,7 +118,7 @@ export async function encodeSandboxValue(
 
     if (isObjectRecord(entry) && applyToJSON && typeof entry.toJSON === 'function') {
       try {
-        return await encode(Reflect.apply(entry.toJSON, entry, [key]), ancestors, key, false)
+        return await encode(Reflect.apply(entry.toJSON, entry, [key]), ancestors, key, false, depth)
       }
       catch (error) {
         if (isSandboxError(error)) throw error
@@ -103,11 +130,11 @@ export async function encodeSandboxValue(
       if (ancestors.has(entry))
         throw serializationError(`Sandbox ${label} must be JSON-serializable.`, { label })
       const nextAncestors = new Set(ancestors).add(entry)
-      return await Promise.all(entry.map((item, index) => encode(item, nextAncestors, String(index))))
+      return await Promise.all(entry.map((item, index) => encode(item, nextAncestors, String(index), true, depth + 1)))
     }
 
     if (!isObjectRecord(entry)) return entry
-    if (isBoxedJsonPrimitive(entry)) return await encode(entry.valueOf(), ancestors, key, false)
+    if (isBoxedJsonPrimitive(entry)) return await encode(entry.valueOf(), ancestors, key, false, depth)
     if (ancestors.has(entry))
       throw serializationError(`Sandbox ${label} must be JSON-serializable.`, { label })
 
@@ -119,7 +146,7 @@ export async function encodeSandboxValue(
     catch (error) {
       throw serializationError(`Sandbox ${label} must be JSON-serializable.`, { label }, error)
     }
-    const entries = await Promise.all(sourceEntries.map(async ([entryKey, item]) => [entryKey, await encode(item, nextAncestors, entryKey)] as [string, unknown]))
+    const entries = await Promise.all(sourceEntries.map(async ([entryKey, item]) => [entryKey, await encode(item, nextAncestors, entryKey, true, depth + 1)] as [string, unknown]))
     return hasMarker(entry) ? tagged({ entries, tag: 'object' }) : Object.fromEntries(entries)
   }
 
@@ -131,36 +158,41 @@ export async function decodeSandboxValue(
   value: unknown,
   assetsDir: string,
   label: string,
+  limits: SandboxTransferLimits = DEFAULT_SANDBOX_TRANSFER_LIMITS,
 ): Promise<unknown> {
-  if (Array.isArray(value))
-    return await Promise.all(value.map(entry => decodeSandboxValue(sandbox, entry, assetsDir, label)))
-  if (!isPlainObject(value)) return value
+  const state = { sidecars: 0, sidecarBytes: 0 }
+  async function decode(entry: unknown, depth: number): Promise<unknown> {
+    if (depth > limits.maxDepth)
+      throw transferLimitError(label, 'maxDepth', depth, limits.maxDepth)
+    if (Array.isArray(entry))
+      return await Promise.all(entry.map(item => decode(item, depth + 1)))
+    if (!isPlainObject(entry)) return entry
 
-  if (!hasMarker(value)) {
-    return Object.fromEntries(await Promise.all(Object.entries(value).map(async ([key, entry]) => [
+    if (!hasMarker(entry)) {
+      return Object.fromEntries(await Promise.all(Object.entries(entry).map(async ([key, item]) => [
       key,
-      await decodeSandboxValue(sandbox, entry, assetsDir, label),
-    ])))
-  }
+        await decode(item, depth + 1),
+      ])))
+    }
 
-  const descriptor = value[SANDBOX_VALUE_MARKER]
-  if (!isPlainObject(descriptor) || typeof descriptor.tag !== 'string')
-    throw serializationError(`Sandbox ${label} contains an invalid binary sidecar descriptor.`, { label })
-
-  if (descriptor.tag === 'response') {
-    if (!isSerializedResponse(descriptor.value))
-      throw serializationError(`Sandbox ${label} contains an invalid response descriptor.`, { label })
-    return deserializeResponse(descriptor.value)
-  }
-
-  if (descriptor.tag === 'object') {
-    if (!Array.isArray(descriptor.entries) || !descriptor.entries.every(entry => Array.isArray(entry) && entry.length === 2 && typeof entry[0] === 'string'))
+    const descriptor = entry[SANDBOX_VALUE_MARKER]
+    if (!isPlainObject(descriptor) || typeof descriptor.tag !== 'string')
       throw serializationError(`Sandbox ${label} contains an invalid binary sidecar descriptor.`, { label })
-    return Object.fromEntries(await Promise.all(descriptor.entries.map(async ([key, entry]) => [
-      key,
-      await decodeSandboxValue(sandbox, entry, assetsDir, label),
-    ])))
-  }
+
+    if (descriptor.tag === 'response') {
+      if (!isSerializedResponse(descriptor.value))
+        throw serializationError(`Sandbox ${label} contains an invalid response descriptor.`, { label })
+      return deserializeResponse(descriptor.value)
+    }
+
+    if (descriptor.tag === 'object') {
+      if (!Array.isArray(descriptor.entries) || !descriptor.entries.every(entry => Array.isArray(entry) && entry.length === 2 && typeof entry[0] === 'string'))
+        throw serializationError(`Sandbox ${label} contains an invalid binary sidecar descriptor.`, { label })
+      return Object.fromEntries(await Promise.all(descriptor.entries.map(async ([key, item]) => [
+        key,
+        await decode(item, depth + 1),
+      ])))
+    }
 
   if (descriptor.tag !== 'binary'
     || !Number.isSafeInteger(descriptor.id)
@@ -168,19 +200,28 @@ export async function decodeSandboxValue(
     || (descriptor.id as number) < 0
     || (descriptor.kind !== 'blob' && descriptor.kind !== 'buffer' && descriptor.kind !== 'uint8array')
     || (typeof descriptor.type !== 'undefined' && typeof descriptor.type !== 'string')) {
-    throw serializationError(`Sandbox ${label} contains an invalid binary sidecar descriptor.`, { label })
+      throw serializationError(`Sandbox ${label} contains an invalid binary sidecar descriptor.`, { label })
   }
 
-  const bytes = await sandbox.files.read(`${assetsDir}/${descriptor.id}`)
-  if (!bytes) {
-    throw serializationError(`Sandbox ${label} binary sidecar ${descriptor.id} does not exist.`, {
-      id: descriptor.id,
-      label,
-    })
+    if (state.sidecars >= limits.maxSidecars)
+      throw transferLimitError(label, 'maxSidecars', state.sidecars + 1, limits.maxSidecars)
+    const bytes = await sandbox.files.read(`${assetsDir}/${descriptor.id}`)
+    if (!bytes) {
+      throw serializationError(`Sandbox ${label} binary sidecar ${descriptor.id} does not exist.`, {
+        id: descriptor.id,
+        label,
+      })
+    }
+    if (state.sidecarBytes + bytes.byteLength > limits.maxSidecarBytes)
+      throw transferLimitError(label, 'maxSidecarBytes', state.sidecarBytes + bytes.byteLength, limits.maxSidecarBytes)
+    state.sidecars++
+    state.sidecarBytes += bytes.byteLength
+    return descriptor.kind === 'blob'
+      ? new Blob([bytes], { type: descriptor.type || '' })
+      : descriptor.kind === 'buffer'
+        ? Buffer.from(bytes)
+        : bytes
   }
-  return descriptor.kind === 'blob'
-    ? new Blob([bytes], { type: descriptor.type || '' })
-    : descriptor.kind === 'buffer'
-      ? Buffer.from(bytes)
-    : bytes
+
+  return await decode(value, 0)
 }

@@ -16,6 +16,21 @@ const HANDLER_DIAGNOSTIC_LENGTH = 16_384
 
 type ExecutionMeta = { stdout?: string, stderr?: string, code?: number | null, meta?: Record<string, unknown> }
 
+function assertOutputSize(output: string, maximum?: number) {
+  if (maximum === undefined) return
+  const bytes = new TextEncoder().encode(output).byteLength
+  if (bytes > maximum) {
+    throw sandboxError(`Sandbox result exceeds its maxOutputBytes limit (${bytes} > ${maximum}).`, {
+      code: 'SANDBOX_TRANSFER_LIMIT',
+      details: { label: 'result', limit: 'maxOutputBytes', value: bytes, maximum },
+    })
+  }
+}
+
+function isTransferLimitError(error: unknown) {
+  return readSandboxErrorMetadata(error)?.code === 'SANDBOX_TRANSFER_LIMIT'
+}
+
 function getErrorMessage(error: unknown) {
   if (error instanceof Error)
     return error.message
@@ -195,6 +210,7 @@ async function waitForExecOutput(
   timeout: number | undefined,
   execution: ExecutionMeta | undefined,
   shouldAccept: (output: string) => boolean,
+  maximum?: number,
 ) {
   const recoveryTimeout = resolveExecOutputRecoveryTimeout(timeout)
   const deadline = Date.now() + recoveryTimeout
@@ -204,11 +220,13 @@ async function waitForExecOutput(
   while (Date.now() < deadline) {
     try {
       const output = await sandbox.readFile(outputPath)
+      assertOutputSize(output, maximum)
       lastOutput = output
       if (shouldAccept(output))
         return output
     }
     catch (readError) {
+      if (isTransferLimitError(readError)) throw readError
       lastError = readError
     }
 
@@ -227,6 +245,7 @@ async function recoverExecOutput(
   error: unknown,
   timeout?: number,
   execution?: ExecutionMeta,
+  maximum?: number,
 ) {
   if (sandbox.provider !== 'cloudflare' || !isRecoverableCloudflareExecError(error))
     return null
@@ -238,6 +257,7 @@ async function recoverExecOutput(
     timeout,
     execution,
     output => isCompleteSandboxOutput(output),
+    maximum,
   )
 }
 
@@ -247,6 +267,7 @@ async function waitForCloudflareOutput(
   error: unknown,
   timeout?: number,
   execution?: ExecutionMeta,
+  maximum?: number,
 ) {
   const recoveryTimeout = resolveExecOutputRecoveryTimeout(timeout)
 
@@ -260,6 +281,7 @@ async function waitForCloudflareOutput(
     timeout,
     execution,
     output => isCompleteSandboxOutput(output),
+    maximum,
   )
 }
 
@@ -269,6 +291,7 @@ export async function readExecOutputWithRecovery(
   error: unknown,
   timeout?: number,
   execution?: ExecutionMeta,
+  maximum?: number,
 ) {
   const executionOutput = extractSandboxOutputFromExecution(execution)
     || extractSandboxOutputFromExecution(error as { stdout?: string, stderr?: string } | undefined)
@@ -277,6 +300,7 @@ export async function readExecOutputWithRecovery(
 
   try {
     const output = await sandbox.readFile(outputPath)
+    assertOutputSize(output, maximum)
     if (tryParseSandboxOutput(output))
       return output
     // A complete output file belongs to this execution. Preserve malformed
@@ -285,11 +309,12 @@ export async function readExecOutputWithRecovery(
     if (isCompleteSandboxOutput(output))
       return output
   }
-  catch {
-    return await waitForCloudflareOutput(sandbox, outputPath, error, timeout, execution)
+  catch (error) {
+    if (isTransferLimitError(error)) throw error
+    return await waitForCloudflareOutput(sandbox, outputPath, error, timeout, execution, maximum)
   }
 
-  return await waitForCloudflareOutput(sandbox, outputPath, error, timeout, execution)
+  return await waitForCloudflareOutput(sandbox, outputPath, error, timeout, execution, maximum)
 }
 
 export { recoverExecOutput }

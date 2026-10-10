@@ -113,6 +113,27 @@ The descriptor reports the provider's complete `ExecutionAuthority`, including d
 
 Payloads, context, and results must be JSON-serializable. Nested `Blob` and `Uint8Array` values cross the Box boundary through invocation-local binary files, and Node.js `Buffer` values retain their type.
 
+Sandbox bounds transfer memory and disk use. The default envelope limit is 4 MiB of UTF-8 JSON for each payload/context input and result output. Each direction also allows at most 64 binary sidecars, 64 MiB of sidecar bytes, and 32 nested arrays or objects. Set per-Definition limits with `options.transfer` when a workload needs a smaller contract:
+
+```ts
+export default {
+  options: {
+    transfer: {
+      maxInputBytes: 2 * 1024 * 1024,
+      maxOutputBytes: 8 * 1024 * 1024,
+      maxDepth: 24,
+      maxSidecars: 16,
+      maxSidecarBytes: 16 * 1024 * 1024,
+    },
+  },
+  async run(payload) {
+    return payload
+  },
+}
+```
+
+Limits reject the invocation with `SANDBOX_TRANSFER_LIMIT` before the handler starts for input, and before result parsing or sidecar recovery for output. The byte limits count UTF-8 JSON and actual binary sidecar bytes. Provider execution and timeout limits remain provider-owned.
+
 ## Package projects
 
 ViteHub uses the package manifest's `packageManager`, then a lockfile at that package root, then npm. A matching `pnpm-workspace.yaml` moves preparation to the pnpm Workspace root and carries the transitive `workspace:*` dependency closure into the Box while the entrypoint still runs from its package directory.

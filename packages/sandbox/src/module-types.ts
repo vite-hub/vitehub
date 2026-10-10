@@ -68,6 +68,21 @@ type SandboxDefinitionResult<THandler extends (...args: any[]) => any>
 export interface SandboxDefinitionOptions {
   timeout?: number
   env?: Record<string, string>
+  /** Limits for JSON envelopes and binary sidecars crossing the Box boundary. */
+  transfer?: SandboxTransferOptions
+}
+
+export interface SandboxTransferOptions {
+  /** Maximum UTF-8 bytes in the payload/context JSON envelope. */
+  maxInputBytes?: number
+  /** Maximum UTF-8 bytes in the result JSON envelope. */
+  maxOutputBytes?: number
+  /** Maximum nested arrays/objects in either direction. */
+  maxDepth?: number
+  /** Maximum binary sidecar files in either direction. */
+  maxSidecars?: number
+  /** Maximum bytes across binary sidecars in either direction. */
+  maxSidecarBytes?: number
 }
 
 export interface SandboxProjectOptions {

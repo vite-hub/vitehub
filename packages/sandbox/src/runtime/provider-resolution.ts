@@ -21,8 +21,10 @@ type ProviderLoaderModule = {
   loadSandboxRuntimeProvider: (provider: SandboxProvider) => Promise<SandboxRuntimeProvider>
 }
 
-const allowedDefinitionKeys = new Set(['timeout', 'env'])
+const allowedDefinitionKeys = new Set(['timeout', 'env', 'transfer'])
 const maxTimeout = 2_147_483_647
+const maxTransferLimit = 1_073_741_824
+const transferLimitKeys = new Set(['maxInputBytes', 'maxOutputBytes', 'maxDepth', 'maxSidecars', 'maxSidecarBytes'])
 const detectProvider = createProviderDetector<'cloudflare' | 'vercel'>([
   { provider: 'cloudflare', when: isCloudflare },
   { provider: 'vercel', when: isVercel },
@@ -109,10 +111,21 @@ export function resolveRuntimeProvider(provider?: SandboxDefinitionProviderOptio
 export function assertSandboxDefinitionOptions(local: SandboxDefinitionOptions) {
   const invalidKeys = Object.keys(local).filter(key => !allowedDefinitionKeys.has(key))
   if (invalidKeys.length > 0)
-    throw sandboxErrorDiagnostics.SANDBOX_R0069({ message: `[vitehub] Sandbox definition options only support timeout and env. Unsupported: ${invalidKeys.join(', ')}` })
+    throw sandboxErrorDiagnostics.SANDBOX_R0069({ message: `[vitehub] Sandbox definition options only support timeout, env, and transfer. Unsupported: ${invalidKeys.join(', ')}` })
   if (local.timeout !== undefined
     && (!Number.isInteger(local.timeout) || local.timeout <= 0 || local.timeout > maxTimeout)) {
     throw sandboxErrorDiagnostics.SANDBOX_R0070({ message: `[vitehub] Sandbox definition timeout must be a positive integer no greater than ${maxTimeout}.` })
+  }
+  const transfer = local.transfer
+  if (transfer === undefined) return
+  if (!transfer || typeof transfer !== 'object' || Array.isArray(transfer))
+    throw sandboxErrorDiagnostics.SANDBOX_R0071({ message: '[vitehub] Sandbox transfer must be an object.' })
+  const invalidTransferKeys = Object.keys(transfer).filter(key => !transferLimitKeys.has(key))
+  if (invalidTransferKeys.length > 0)
+    throw sandboxErrorDiagnostics.SANDBOX_R0071({ message: `[vitehub] Sandbox transfer does not support: ${invalidTransferKeys.join(', ')}` })
+  for (const [key, value] of Object.entries(transfer)) {
+    if (value !== undefined && (!Number.isSafeInteger(value) || value <= 0 || value > maxTransferLimit))
+      throw sandboxErrorDiagnostics.SANDBOX_R0071({ message: `[vitehub] Sandbox transfer.${key} must be a positive safe integer no greater than ${maxTransferLimit}.` })
   }
 }
 
