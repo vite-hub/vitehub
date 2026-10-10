@@ -198,7 +198,9 @@ export function readViteHubDevTargetOption(
     return 1
   }
   if (arg.startsWith("--url=")) {
-    target.url = arg.slice("--url=".length)
+    const value = arg.slice("--url=".length)
+    if (!value) throw errors.missingValue(`Missing value for ${arg}.`)
+    target.url = value
     return 0
   }
   if (arg === "--timeout") {
