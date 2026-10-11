@@ -56,6 +56,19 @@ describe("server authentication provider boundaries", () => {
     expect(protectedAction).toHaveBeenCalledOnce()
   })
 
+  it("preserves a foreign custom authorization response", async () => {
+    const denied = runInNewContext(`({
+      [Symbol.toStringTag]: "Response",
+      status: 404,
+    })`) as Response
+    const authorize = runInNewContext("() => denied", { denied }) as () => Response
+    const guarded = withAuthorization(authorize, protectedAction, definition)
+    providerMocks.getSession.mockResolvedValue({ session: { id: "session-1" }, user: { id: "user-1" } })
+
+    await expect(guarded(request)).resolves.toBe(denied)
+    expect(protectedAction).not.toHaveBeenCalled()
+  })
+
   it.each([
     ["missing API", { api: {} }, "AUTH_R0011", "Better Auth did not expose api.getSession()."],
     ["malformed response", { api: { getSession: () => ({ session: {}, user: {} }) } }, "AUTH_R0012", "Better Auth returned an invalid session response."],

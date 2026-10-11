@@ -275,12 +275,16 @@ function reject(response: Response): AuthCheck {
   return { response }
 }
 
+function isResponse(value: unknown): value is Response {
+  return value instanceof Response || Object.prototype.toString.call(value) === "[object Response]"
+}
+
 async function runAccessAuthorize(
   authorize: AuthAccessAuthorize,
   context: AuthAccessAuthorizationContext,
 ): Promise<Response | undefined> {
   const result = await authorize(context)
-  if (result instanceof Response) return result
+  if (isResponse(result)) return result
   if (result !== true) return createForbiddenResponse(context.request)
 }
 
