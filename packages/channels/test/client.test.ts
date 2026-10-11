@@ -175,6 +175,20 @@ describe("createChannel", () => {
     expect(receipt).toBeNull()
   })
 
+  it("rejects array send options even when a default connector is configured", async () => {
+    const send = vi.fn(() => ({ id: "delivery-1" }))
+    const channel = createChannel("alerts", {
+      connectors: { telegram: { send } },
+      defaultConnector: "telegram",
+    })
+
+    const [error, receipt] = await channel.send("Build finished.", [] as never)
+
+    expect(error?.message).toContain("send options must select a connector")
+    expect(receipt).toBeNull()
+    expect(send).not.toHaveBeenCalled()
+  })
+
   it("records failed deliveries without logging message content or connector options", async () => {
     const info = vi.spyOn(console, "info").mockImplementation(() => {})
     const channel = createChannel("alerts", defineOutboundChannel({
