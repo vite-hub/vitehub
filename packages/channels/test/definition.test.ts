@@ -23,6 +23,13 @@ describe("defineOutboundChannel", () => {
   ])("rejects invalid definitions", (definition, message) => {
     expect(() => defineOutboundChannel(definition as never)).toThrow(message)
   })
+
+  it.each([
+    [{ connectors: { "": connector }, defaultConnector: "" }, "CHANNELS_C0006"],
+    [{ connectors: { fixture: {} } }, "CHANNELS_C0004"],
+  ])("distinguishes connector name and implementation diagnostics", (definition, code) => {
+    expect(() => defineOutboundChannel(definition as never)).toThrowError(expect.objectContaining({ code }))
+  })
 })
 
 describe("defineChannel", () => {
