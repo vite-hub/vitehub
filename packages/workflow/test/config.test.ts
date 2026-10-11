@@ -164,14 +164,22 @@ describe("workflow config", () => {
   it("creates stable provider names", () => {
     expect(getCloudflareWorkflowBindingName("welcome-email")).toBe("WORKFLOW_77656C636F6D652D656D61696C")
     expect(getCloudflareWorkflowName("welcome-email")).toBe("workflow--77656c636f6d652d656d61696c")
-    expect(getCloudflareWorkflowClassName("welcome-email")).toMatch(/^ViteHubWelcomeEmail[a-f0-9]{8}Workflow$/)
+    expect(getCloudflareWorkflowClassName("welcome-email")).toMatch(/^ViteHubWelcomeEmail[a-f0-9]{16}Workflow$/)
     expect(getVercelWorkflowName("welcome-email")).toBe("workflow--77656c636f6d652d656d61696c")
   })
 
   it("bounds long Cloudflare workflow names", () => {
     const name = getCloudflareWorkflowName("notifications/onboarding/send-welcome-email")
     expect(name.length).toBeLessThanOrEqual(64)
-    expect(name).toMatch(/^workflow--[a-f0-9]+-[a-f0-9]{8}$/)
+    expect(name).toMatch(/^workflow--[a-f0-9]+-[a-f0-9]{16}$/)
+  })
+
+  it("keeps long Cloudflare workflow names distinct after truncation", () => {
+    const first = "ppppppppppppppppppppppqjamwa4nbhjdw"
+    const second = "ppppppppppppppppppppppqahfblo6lc9cj"
+
+    expect(first).not.toBe(second)
+    expect(getCloudflareWorkflowName(first)).not.toBe(getCloudflareWorkflowName(second))
   })
 
   it("creates collision-resistant Cloudflare workflow class names", () => {

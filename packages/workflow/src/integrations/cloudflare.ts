@@ -6,12 +6,12 @@ import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
 const cloudflareWorkflowNameMaxLength = 64
 
 function shortHash(value: string): string {
-  let hash = 0x811c9dc5
+  let hash = 0xcbf29ce484222325n
   for (const char of value) {
-    hash ^= char.codePointAt(0) || 0
-    hash = Math.imul(hash, 0x01000193)
+    hash ^= BigInt(char.codePointAt(0) || 0)
+    hash = BigInt.asUintN(64, hash * 0x100000001b3n)
   }
-  return (hash >>> 0).toString(16).padStart(8, "0")
+  return hash.toString(16).padStart(16, "0")
 }
 
 export function getCloudflareWorkflowBindingName(name: string): string {
