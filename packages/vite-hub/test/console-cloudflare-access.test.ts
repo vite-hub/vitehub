@@ -115,28 +115,30 @@ describe("Cloudflare Access Console Auth", () => {
   })
 
   it("refreshes Access keys immediately after signing-key rotation", async () => {
-    const fetch = certsFetch()
-    const verify = createCloudflareAccessVerifier({ fetch })
-    await expect(verify(await accessToken(), { audience, issuer })).resolves.toEqual({ email: "maintainer@example.com" })
-
     const originalJwks = jwks
-    const rotated = await generateKeyPair("RS256", { extractable: true })
-    jwks = { keys: [{ ...(await exportJWK(rotated.publicKey)), alg: "RS256", kid: "rotated-key", use: "sig" }] }
-    const rotatedToken = await new SignJWT({ email: "maintainer@example.com" })
-      .setProtectedHeader({ alg: "RS256", kid: "rotated-key" })
-      .setIssuer(issuer)
-      .setAudience(audience)
-      .setIssuedAt()
-      .setExpirationTime("5m")
-      .sign(rotated.privateKey)
-
+    vi.useFakeTimers()
     try {
-      await new Promise((resolve) => setTimeout(resolve, 1_100))
+      const fetch = certsFetch()
+      const verify = createCloudflareAccessVerifier({ fetch })
+      await expect(verify(await accessToken(), { audience, issuer })).resolves.toEqual({ email: "maintainer@example.com" })
+
+      const rotated = await generateKeyPair("RS256", { extractable: true })
+      jwks = { keys: [{ ...(await exportJWK(rotated.publicKey)), alg: "RS256", kid: "rotated-key", use: "sig" }] }
+      const rotatedToken = await new SignJWT({ email: "maintainer@example.com" })
+        .setProtectedHeader({ alg: "RS256", kid: "rotated-key" })
+        .setIssuer(issuer)
+        .setAudience(audience)
+        .setIssuedAt()
+        .setExpirationTime("5m")
+        .sign(rotated.privateKey)
+
+      await vi.advanceTimersByTimeAsync(1_100)
       await expect(verify(rotatedToken, { audience, issuer })).resolves.toEqual({ email: "maintainer@example.com" })
       expect(fetch).toHaveBeenCalledTimes(2)
     }
     finally {
       jwks = originalJwks
+      vi.useRealTimers()
     }
   })
 
