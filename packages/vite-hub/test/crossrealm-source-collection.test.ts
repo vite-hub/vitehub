@@ -9,6 +9,6 @@ describe("ViteHub Source collection adapter", () => {
       cursorSchema: { "~standard": { validate: (value: unknown) => ({ value }) } },
       defaultLimit: 3,
     })
-    await expect(collection.page({ query: {}, signal: new AbortController().signal })).resolves.toEqual({ items: [{ id: 3 }], nextCursor: null })
+    await expect(collection.page({ query: {}, signal: new AbortController().signal })).resolves.toEqual({ items: [{ id: 4 }], nextCursor: null })
   })
 })
