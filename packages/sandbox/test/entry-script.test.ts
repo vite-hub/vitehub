@@ -59,14 +59,7 @@ describe("package entry result transport", () => {
   it("preserves a Response from another realm across the child process", async () => {
     const execution = await executePackageEntry([
       `import { runInNewContext } from 'node:vm'`,
-      `export default () => runInNewContext(\`new (class {`,
-      `  get [Symbol.toStringTag]() { return 'Response' }`,
-      `  get status() { return 201 }`,
-      `  get statusText() { return 'Created' }`,
-      `  get headers() { return new Headers([['x-result', 'preserved']]) }`,
-      `  get body() { return {} }`,
-      `  async arrayBuffer() { return new Uint8Array([0, 127, 255]).buffer }`,
-      `})()\`, { Headers })`,
+      `export default () => runInNewContext(\`new Response(new Uint8Array([0, 127, 255]), { status: 201, statusText: 'Created', headers: { 'x-result': 'preserved' } })\`, { Response })`,
     ].join("\n"))
 
     expect(execution.code).toBe(0)
@@ -79,6 +72,20 @@ describe("package entry result transport", () => {
     expect(response.statusText).toBe("Created")
     expect(response.headers.get("x-result")).toBe("preserved")
     expect(new Uint8Array(await response.arrayBuffer())).toEqual(new Uint8Array([0, 127, 255]))
+  })
+
+  it("preserves response-shaped ordinary objects", async () => {
+    const execution = await executePackageEntry([
+      `export default () => {`,
+      `  const headers = {}`,
+      `  Object.defineProperties(headers, { get: { value: () => 'preserved' }, [Symbol.iterator]: { value: function* () {} } })`,
+      `  const value = { status: 201, statusText: 'Created', headers, extra: 'kept' }`,
+      `  return Object.defineProperties(value, { [Symbol.toStringTag]: { value: 'Response' }, arrayBuffer: { value: async () => new ArrayBuffer() } })`,
+      `}`,
+    ].join("\n"))
+
+    expect(execution.code).toBe(0)
+    expect(execution.output.result).toMatchObject({ status: 201, statusText: "Created", extra: "kept" })
   })
 
   it.each(["opaque", "opaqueredirect"])("preserves a %s response across the child process", async (type) => {
