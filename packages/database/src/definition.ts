@@ -43,6 +43,10 @@ export function defineDatabase<TSchema extends Record<string, unknown>>(
     throw databaseErrorDiagnostics.DATABASE_C0006({ message: "`defineDatabase().drizzle.casing` must be `snake_case` or `camelCase`." })
   }
 
+  if (typeof options.name !== "undefined" && typeof options.name !== "string") {
+    throw databaseErrorDiagnostics.DATABASE_C0007({ message: "`defineDatabase().name` must be a string." })
+  }
+
   const name = options.name?.trim() || "default"
   if (!/^[a-z0-9][a-z0-9._-]*(?:\/[a-z0-9][a-z0-9._-]*)*$/i.test(name)) {
     throw databaseErrorDiagnostics.DATABASE_C0007({ message: "`defineDatabase().name` must be a normalized path using letters, numbers, dots, underscores, or dashes." })
