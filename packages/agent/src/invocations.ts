@@ -572,6 +572,16 @@ function boxedObservationPrimitive(value: unknown): { type: string, value: bigin
   }
 }
 
+function reflectedMapEntries(value: unknown): Array<[unknown, unknown]> | undefined {
+  if (!value || !hasRuntimeType(value, "object")) return
+  try {
+    return Array.from(Map.prototype.entries.call(value))
+  }
+  catch {
+    return
+  }
+}
+
 async function collectBoundedObservationBuiltIns(
   value: unknown,
   builtIns: Map<object, BoundedObservationBuiltIn>,
@@ -615,9 +625,10 @@ async function collectBoundedObservationBuiltIns(
     }
     return
   }
-  if (value instanceof Map) {
+  const mapEntries = reflectedMapEntries(value)
+  if (mapEntries) {
     let count = 0
-    for (const [key, child] of value) {
+    for (const [key, child] of mapEntries) {
       if (count++ >= MAX_OBSERVATION_COLLECTION_ITEMS) break
       await collectBoundedObservationBuiltIns(key, builtIns, budget, seen, depth + 1)
       await collectBoundedObservationBuiltIns(child, builtIns, budget, seen, depth + 1)
@@ -726,16 +737,12 @@ function boundedObservationValue(
       ),
     }
   }
-  if (value instanceof Map) {
+  const mapEntries = reflectedMapEntries(value)
+  if (mapEntries) {
     budget.truncated = true
-    const entries: [unknown, unknown][] = []
     const limit = Math.min(collectionItems, budget.items)
-    for (const entry of value) {
-      if (entries.length >= limit) break
-      entries.push(entry)
-    }
-    if (entries.length < value.size) budget.truncated = true
-    return entries.map(([key, child]) => [
+    if (limit < mapEntries.length) budget.truncated = true
+    return mapEntries.slice(0, limit).map(([key, child]) => [
       boundedObservationValue(key, budget, depth + 1, maxStringLength, builtIns),
       boundedObservationValue(child, budget, depth + 1, maxStringLength, builtIns),
     ])
