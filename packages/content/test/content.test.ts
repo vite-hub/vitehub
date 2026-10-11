@@ -481,6 +481,17 @@ describe("contentSource", () => {
     await expect(source.getItemRaw("settings.json")).resolves.toEqual({ theme: "dark" })
   })
 
+  it("accepts a source list created in another realm", async () => {
+    const names = runInNewContext("['docs']") as string[]
+    const content = defineContent({
+      sources: {
+        docs: { keys: async () => ["index.md"], getItem: async () => "# Docs", getItemRaw: async () => "# Docs" },
+      },
+    })
+
+    await expect(content.list(names)).resolves.toEqual([expect.objectContaining({ path: "/" })])
+  })
+
   it("refreshes a direct adapter passed to raw Comark Content", async () => {
     let revision = 0
     const parsed: string[] = []
