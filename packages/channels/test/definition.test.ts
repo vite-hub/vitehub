@@ -17,6 +17,7 @@ describe("defineOutboundChannel", () => {
   it.each([
     [{}, "connectors"],
     [{ connectors: {} }, "at least one"],
+    [{ connectors: { "": connector } }, "non-empty"],
     [{ connectors: { fixture: {} } }, "send"],
     [{ connectors: { fixture: connector }, defaultConnector: "missing" }, "not configured"],
   ])("rejects invalid definitions", (definition, message) => {
