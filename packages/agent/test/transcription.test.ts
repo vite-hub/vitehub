@@ -1,8 +1,16 @@
+import { runInNewContext } from "node:vm"
+
 import { describe, expect, it, vi } from "vitest"
 
 import { getTranscriptionResults, openRouterTranscriptionModel, streamTranscription, title, transcribe } from "../src/capabilities.ts"
 import { audioBytes, audioExtensionFor } from "../src/capabilities/transcribe.ts"
 import { createMessage, defineAgent, runAgent, serializeMessages } from "../src/index.ts"
+
+it("reads cross-realm ArrayBuffer audio data", async () => {
+  const data = runInNewContext("new Uint8Array([1, 2, 3]).buffer") as ArrayBuffer
+  expect(data).not.toBeInstanceOf(ArrayBuffer)
+  await expect(audioBytes({ data, mediaType: "audio/ogg" })).resolves.toEqual(new Uint8Array([1, 2, 3]))
+})
 
 const runtime = () => ({
   memo: vi.fn(),
