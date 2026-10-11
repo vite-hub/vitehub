@@ -27,7 +27,7 @@ export async function runWorkspaceInspectionCommand(
   command: string,
   options: WorkspaceInspectionCommandOptions,
 ): Promise<ShellObservation> {
-  const maxOutputLength = options.maxOutputLength || 30_000
+  const maxOutputLength = options.maxOutputLength ?? 30_000
   const timeout = options.timeout || 30_000
   const provider = options.networkGrants && usesWorkspaceNetworkGrant(command) ? undefined : options.provider
   const unsupportedSyntax = preflightUnsupportedWorkspaceSyntax(command, options.commands, Boolean(provider))

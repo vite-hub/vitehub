@@ -958,6 +958,16 @@ describe("@vite-hub/shell workspace inspection", () => {
     })).resolves.toMatchObject({
       stdout: expect.stringContaining("Workspace path is not mounted: missing.md"),
     })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "cat README.md", {
+      cwd: workspaceMountPoint,
+      fs,
+      maxOutputLength: 0,
+    })).resolves.toMatchObject({
+      event: "command_finished",
+      outputTruncated: true,
+      stdout: "\n[output truncated to 0 characters]\n",
+    })
   })
 
 })

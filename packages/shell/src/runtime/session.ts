@@ -14,7 +14,7 @@ import type {
 import { shellErrorDiagnostics } from "../error-diagnostics.ts"
 
 function applyOutputLimit(result: ShellObservation, maxLength?: number): ShellObservation {
-  if (!maxLength) return result
+  if (maxLength === undefined) return result
   const next = { ...result, maxOutputLength: maxLength }
   let truncated = false
   if (next.stdout.length > maxLength) {
