@@ -199,7 +199,10 @@ async function loadVercelSandbox() {
 }
 
 function isMissingFile(error: unknown) {
-  return error instanceof Error && "code" in error && error.code === "ENOENT";
+  return error !== null
+    && typeof error === "object"
+    && Object.hasOwn(error, "code")
+    && Reflect.get(error, "code") === "ENOENT";
 }
 
 function createVercelSession(
