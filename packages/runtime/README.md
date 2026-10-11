@@ -149,6 +149,11 @@ listeners.
 Agent input accepts `executionBudget` limits. The Agent runtime creates one
 Invocation-owned budget and Workspace Shell tools spend it, so separate tool
 calls cannot bypass the same limit.
+The AI SDK adapter also charges model usage when the provider reports token
+counts. It estimates four UTF-8 bytes per input or output token because model
+providers do not expose a portable byte count. Missing token counts remain
+unknown and do not spend a byte budget. Each reported model call is charged
+once, including calls made while streaming or repairing output.
 
 ## Understand the boundaries
 
