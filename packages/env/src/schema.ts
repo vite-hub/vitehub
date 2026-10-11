@@ -95,6 +95,9 @@ function isZodSchemaMethod(schema: ZodLikeSchema, method: string): boolean {
     return false
   }
   const metadata = schema._zod
+  if (!metadata) {
+    return false
+  }
   const constructor = metadata?.constr
   return hasSetValue(metadata?.traits, "ZodType")
     && Object.hasOwn(metadata, "constr")
