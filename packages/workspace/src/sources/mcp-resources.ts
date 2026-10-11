@@ -3,7 +3,7 @@ import { mcpResources as createMcpResourcesSource, type McpResourcesSourceOption
 import { normalizeSafeWorkspacePath } from "../core/path.ts"
 import { prepareWorkspaceSource } from "./preparation.ts"
 import { markLiveWorkspaceSource } from "./live.ts"
-import { withWorkspaceRuntimeOptions } from "./runtime-options.ts"
+import { ownSourceOption, withWorkspaceRuntimeOptions } from "./runtime-options.ts"
 
 import type { ExactOptions, WorkspaceSourceRuntimeOptions } from "./runtime-options.ts"
 import type { WorkspaceSource } from "../core/types.ts"
@@ -15,27 +15,27 @@ export function mcpResources<const TKey extends string = string, const TOptions 
   const livePaths: Record<string, string> = {}
   const baseSource = createMcpResourcesSource({
     ...options,
-    cache: options.cache,
+    cache: ownSourceOption(options, "cache"),
   })
 
   const source = withWorkspaceRuntimeOptions({
     ...baseSource,
     async prepare(ctx) {
       await prepareWorkspaceSource(baseSource, ctx)
-      const mountPath = resolveMountPath(options.mount, ctx)
+      const mountPath = resolveMountPath(ownSourceOption(options, "mount"), ctx)
       const keys = await baseSource.getKeys(ctx)
       resetLivePaths(livePaths, mountPath, keys)
     },
   }, {
     ...options,
-    materialize: options.materialize || (options.sync ? "none" : "lazy"),
+    materialize: ownSourceOption(options, "materialize") || (ownSourceOption(options, "sync") ? "none" : "lazy"),
   })
 
   return markLiveWorkspaceSource(source, livePaths)
 }
 
 function resolveMountPath(mount: WorkspaceSource["mount"], ctx: { mountPath?: string, source?: string }) {
-  const explicit = typeof mount === "string" ? mount : mount?.path
+  const explicit = typeof mount === "string" ? mount : mount && ownSourceOption(mount, "path")
   return normalizeSafeWorkspacePath(explicit ?? ctx.mountPath ?? ctx.source ?? "", { allowEmpty: true })
 }
 

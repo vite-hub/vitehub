@@ -7,6 +7,7 @@ import { fetch as fetchSource } from "./fetch.ts"
 import { getLiveWorkspaceSourcePaths, markLiveWorkspaceSource } from "./live.ts"
 import { resolveGitHubIgnore } from "./github-ignore.ts"
 import { prepareWorkspaceSource } from "./preparation.ts"
+import { ownSourceOption } from "./runtime-options.ts"
 import {
   copyWorkspaceSourceRequestMetadata,
   assertWorkspaceSourceRequestDescriptorKey,
@@ -123,21 +124,21 @@ export function normalizeWorkspaceSources(sources: WorkspaceDefinition["sources"
 export function normalizeWorkspaceSource(key: string, input: WorkspaceSourceInput): ResolvedWorkspaceSource {
   const source = toWorkspaceSource(input)
   const mount = normalizeSourceMount(source)
-  const cache = mount.cache ?? normalizeSourceCache(source) ?? false
-  const sync = normalizeSourceSync(source.sync)
-  const mountPath = typeof mount.path === "string" ? mount.path : defaultSourceMountPath(key, source)
+  const cache = ownSourceOption(mount, "cache") ?? normalizeSourceCache(source) ?? false
+  const sync = normalizeSourceSync(ownSourceOption(source, "sync"))
+  const mountPath = typeof ownSourceOption(mount, "path") === "string" ? ownSourceOption(mount, "path") : defaultSourceMountPath(key, source)
   const requestDescriptor = getWorkspaceSourceRequestDescriptor(source)
   if (requestDescriptor) assertWorkspaceSourceRequestDescriptorKey(key)
   return {
     key,
     source,
     mountPath: normalizeSafeWorkspacePath(mountPath, { allowEmpty: true }),
-    materialize: mount.materialize || source.materialize || (cache ? "lazy" : sync ? "none" : "build"),
+    materialize: ownSourceOption(mount, "materialize") || ownSourceOption(source, "materialize") || (cache ? "lazy" : sync ? "none" : "build"),
     cache,
     sync,
-    validate: mount.validate ?? source.validate ?? false,
+    validate: ownSourceOption(mount, "validate") ?? ownSourceOption(source, "validate") ?? false,
     livePaths: getLiveWorkspaceSourcePaths(source),
-    ...(source.probeKeys?.length ? { probeKeys: source.probeKeys } : {}),
+    ...(ownSourceOption(source, "probeKeys")?.length ? { probeKeys: ownSourceOption(source, "probeKeys") } : {}),
     readonly: true,
     requestDescriptor,
     requestOnly: isWorkspaceSourceRequestOnly(source),
@@ -205,23 +206,23 @@ export function sourceMountIntersectsPath(source: Pick<ResolvedWorkspaceSource, 
 }
 
 function normalizeSourceMount(source: WorkspaceSource) {
-  if (typeof source.mount === "string") {
-    return { path: source.mount }
-  }
-  return source.mount || {}
+  const mount = ownSourceOption(source, "mount")
+  if (typeof mount === "string") return { path: mount }
+  return mount || {}
 }
 
 function normalizeSourceCache(source: Pick<WorkspaceSource, "cache">): false | WorkspaceCacheOptions | undefined {
-  if (source.cache === false) return false
-  if (source.cache) return defu(source.cache, {})
+  const cache = ownSourceOption(source, "cache")
+  if (cache === false) return false
+  if (cache) return defu(cache, {})
 }
 
 function normalizeSourceSync(sync: WorkspaceSource["sync"]): false | WorkspaceSourceSyncPolicy {
   if (!sync) return false
   if (sync === true) return { stale: "keep" }
   return {
-    concurrency: sync.concurrency,
-    stale: sync.stale || "keep",
+    concurrency: ownSourceOption(sync, "concurrency"),
+    stale: ownSourceOption(sync, "stale") || "keep",
   }
 }
 
@@ -368,9 +369,10 @@ function inferredSourceDefaults(family: WorkspaceSourceFamily, input: WorkspaceS
   }
 
   if (family === "file") {
-    const mount = typeof input.mount === "object" && input.mount && !("path" in input.mount)
-      ? { ...input.mount, path: "" }
-      : input.mount ?? ""
+    const declaredMount = ownSourceOption(input, "mount") as WorkspaceSource["mount"]
+    const mount = typeof declaredMount === "object" && declaredMount && !Object.hasOwn(declaredMount, "path")
+      ? { ...declaredMount, path: "" }
+      : declaredMount ?? ""
     return copySourceRuntimeOptions(input, {
       mount,
       probeKeys: [inferredFileSourceKey(input)],
@@ -381,8 +383,8 @@ function inferredSourceDefaults(family: WorkspaceSourceFamily, input: WorkspaceS
     const workspacePath = inferFetchWorkspacePath(input)
     const mountPath = dirname(workspacePath)
     return copySourceRuntimeOptions(input, {
-      cache: input.cache ?? false,
-      materialize: input.materialize || (input.sync ? "none" : "lazy"),
+      cache: ownSourceOption(input, "cache") as WorkspaceSource["cache"] ?? false,
+      materialize: ownSourceOption(input, "materialize") as WorkspaceSource["materialize"] || (ownSourceOption(input, "sync") ? "none" : "lazy"),
       mount: mountPath,
     })
   }
@@ -393,7 +395,7 @@ function inferredSourceDefaults(family: WorkspaceSourceFamily, input: WorkspaceS
 
   if (family === "mcpResources") {
     return copySourceRuntimeOptions(input, {
-      materialize: input.materialize || (input.sync ? "none" : "lazy"),
+      materialize: ownSourceOption(input, "materialize") as WorkspaceSource["materialize"] || (ownSourceOption(input, "sync") ? "none" : "lazy"),
     })
   }
 
@@ -403,12 +405,12 @@ function inferredSourceDefaults(family: WorkspaceSourceFamily, input: WorkspaceS
 function copySourceRuntimeOptions(input: Record<string, unknown>, defaults: Partial<WorkspaceSource> = {}): Partial<WorkspaceSource> {
   return {
     ...defaults,
-    cache: input.cache as WorkspaceSource["cache"] ?? defaults.cache,
-    materialize: input.materialize as WorkspaceSource["materialize"] ?? defaults.materialize,
-    mount: input.mount as WorkspaceSource["mount"] ?? defaults.mount,
-    probeKeys: input.probeKeys as WorkspaceSource["probeKeys"] ?? defaults.probeKeys,
-    sync: input.sync as WorkspaceSource["sync"] ?? defaults.sync,
-    validate: input.validate as WorkspaceSource["validate"] ?? defaults.validate,
+    cache: ownSourceOption(input, "cache") as WorkspaceSource["cache"] ?? defaults.cache,
+    materialize: ownSourceOption(input, "materialize") as WorkspaceSource["materialize"] ?? defaults.materialize,
+    mount: ownSourceOption(input, "mount") as WorkspaceSource["mount"] ?? defaults.mount,
+    probeKeys: ownSourceOption(input, "probeKeys") as WorkspaceSource["probeKeys"] ?? defaults.probeKeys,
+    sync: ownSourceOption(input, "sync") as WorkspaceSource["sync"] ?? defaults.sync,
+    validate: ownSourceOption(input, "validate") as WorkspaceSource["validate"] ?? defaults.validate,
   }
 }
 
@@ -498,7 +500,7 @@ function copyDefinedWorkspaceBindingOption<TKey extends "cache" | "materialize" 
   input: Record<string, unknown>,
   key: TKey,
 ) {
-  if (input[key] !== undefined) {
+  if (Object.hasOwn(input, key) && input[key] !== undefined) {
     target[key] = input[key] as never
   }
 }
