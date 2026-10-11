@@ -1,6 +1,7 @@
 import type { TraceEventLogEntry } from "@vite-hub/runtime";
 import type { AgentInvocationView, AgentToolInspection } from "../types.ts";
 import { hasRuntimeType } from "./runtime-type.ts";
+import { payloadText } from "./payload-text.ts";
 
 type InvocationActivityKind =
   | "action"
@@ -368,7 +369,7 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
     if (Array.isArray(inputMessages)) {
       inputMessages.forEach((message, index) => {
         const value = record(message);
-        const body = messageText(value) ?? (Array.isArray(value?.parts) ? "```json\n" + JSON.stringify(value.parts, null, 2) + "\n```" : undefined);
+        const body = messageText(value) ?? (Array.isArray(value?.parts) ? "```json\n" + payloadText(value.parts) + "\n```" : undefined);
         const role = messageRole(value?.role);
         if (!body || !role) return;
         const key = `input-message:${observation.sequence}:${index}`;
