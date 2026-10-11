@@ -1928,6 +1928,21 @@ describe("workflow runtime", () => {
     expect(openWorkflowMock.definitions.has("inline-worker")).toBe(true)
   })
 
+  it("ignores OpenWorkflow definitions whose handler is inherited", async () => {
+    setWorkflowRuntimeConfig({
+      postgres: { url: "postgres://localhost/vitehub" },
+      provider: "openworkflow",
+    })
+    const inherited = Object.create({ handler: async () => "inherited" })
+    setWorkflowRuntimeRegistry({
+      inherited: async () => inherited,
+    })
+
+    await createOpenWorkflowWorker()
+
+    expect(openWorkflowMock.definitions.has("inherited")).toBe(false)
+  })
+
   it("registers exported inline handles under discovered names in OpenWorkflow workers", async () => {
     setWorkflowRuntimeConfig({
       postgres: { url: "postgres://localhost/vitehub" },
