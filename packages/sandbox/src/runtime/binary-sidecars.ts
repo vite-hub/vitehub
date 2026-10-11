@@ -124,7 +124,9 @@ export async function encodeSandboxValue(
 
     if (isObjectRecord(entry) && applyToJSON && typeof entry.toJSON === 'function') {
       try {
-        return await encode(Reflect.apply(entry.toJSON, entry, [key]), ancestors, key, false, depth + 1)
+        const replacement = Reflect.apply(entry.toJSON, entry, [key])
+        const replacementDepth = replacement !== null && typeof replacement === 'object' ? depth + 1 : depth
+        return await encode(replacement, ancestors, key, false, replacementDepth)
       }
       catch (error) {
         if (isSandboxError(error)) throw error

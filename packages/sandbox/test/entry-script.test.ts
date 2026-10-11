@@ -263,6 +263,18 @@ describe("package entry result transport", () => {
     expect(execution.output.error?.message).toContain("maxDepth")
   })
 
+  it("accepts primitive result toJSON replacements at maxDepth zero", async () => {
+    const execution = await executePackageEntry([
+      `export default async function () {`,
+      `  return { toJSON() { return 1 } }`,
+      `}`,
+      ``,
+    ].join("\n"), { transfer: { maxDepth: 0, maxSidecars: 64, maxSidecarBytes: 64 * 1024 * 1024 } })
+
+    expect(execution.code).toBe(0)
+    expect(execution.output).toMatchObject({ ok: true, result: 1 })
+  })
+
   it("applies array result toJSON before walking its elements", async () => {
     const execution = await executePackageEntry([
       `class Values extends Array {`,
