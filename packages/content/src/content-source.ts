@@ -34,6 +34,10 @@ export type ContentSourceInput =
   | ComarkContentSource
 
 const contentSourceFactory = Symbol("vitehub.contentSourceFactory")
+const typedArrayTag = Object.getOwnPropertyDescriptor(
+  Object.getPrototypeOf(Uint8Array.prototype),
+  Symbol.toStringTag,
+)!.get!
 
 function normalizeContentSourcePath(path = ""): string {
   const raw = path.replace(/\\/g, "/")
@@ -83,13 +87,7 @@ function isRuntimeObject(value: unknown): value is RuntimeObject {
 }
 
 function isUint8Array(value: unknown): value is Uint8Array {
-  if (!ArrayBuffer.isView(value)) return false
-  try {
-    return Object.prototype.toString.call(value) === "[object Uint8Array]"
-  }
-  catch {
-    return false
-  }
+  return typedArrayTag.call(value) === "Uint8Array"
 }
 
 function isConstructorPrototype(prototype: RuntimeObject): boolean {
