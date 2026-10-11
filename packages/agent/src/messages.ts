@@ -139,12 +139,28 @@ export type MessagePart =
   | ToolCallPart
   | ToolResultPart
 
+function isBlobLike(value: unknown): value is Blob {
+  if (value === null || !hasRuntimeType(value, "object")) return false
+  try {
+    if (Object.prototype.toString.call(value) !== "[object Blob]") return false
+    const blob = value as { arrayBuffer?: unknown, size?: unknown, type?: unknown }
+    return hasRuntimeType(blob.arrayBuffer, "function")
+      && hasRuntimeType(blob.size, "number")
+      && Number.isSafeInteger(blob.size)
+      && blob.size >= 0
+      && hasRuntimeType(blob.type, "string")
+  }
+  catch {
+    return false
+  }
+}
+
 export function isAttachmentData(value: unknown): value is AttachmentData {
   return hasRuntimeType(value, "string")
     ? value.length > 0
     : value instanceof ArrayBuffer
       ? value.byteLength > 0
-      : value instanceof Blob
+      : isBlobLike(value)
         ? value.size > 0
         : value instanceof Uint8Array && value.byteLength > 0
 }
