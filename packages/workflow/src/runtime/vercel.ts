@@ -147,8 +147,15 @@ function normalizeRunId(id: unknown): string {
 
 function normalizeDate(value: unknown, field: string): Date | undefined {
   if (value === undefined) return undefined
-  if (!(value instanceof Date) || !Number.isFinite(value.getTime())) throw invalidVercelResult(field)
-  return value
+  let timestamp: number
+  try {
+    timestamp = Date.prototype.getTime.call(value as Date)
+  }
+  catch {
+    throw invalidVercelResult(field)
+  }
+  if (!Number.isFinite(timestamp)) throw invalidVercelResult(field)
+  return new Date(timestamp)
 }
 
 function normalizeStepError(error: unknown): { code?: string; message: string } | undefined {
