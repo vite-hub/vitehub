@@ -47,11 +47,18 @@ export function apiKeyOrigin(value: string): string | undefined {
 
 /** Whether the provider header and origins can carry a key safely. */
 export function isValidApiKeyProvider(provider: { header: string, origins: readonly string[], scheme?: string }): boolean {
-  return tokenPattern.test(provider.header)
-    && provider.header === provider.header.toLowerCase()
-    && (provider.scheme === undefined || tokenPattern.test(provider.scheme))
-    && provider.origins.length > 0
-    && provider.origins.every(origin => apiKeyOrigin(origin) === origin)
+  try {
+    if (!provider || typeof provider !== "object" || Array.isArray(provider)) return false
+    if (typeof provider.header !== "string" || !Array.isArray(provider.origins) || provider.origins.some(origin => typeof origin !== "string")) return false
+    return tokenPattern.test(provider.header)
+      && provider.header === provider.header.toLowerCase()
+      && (provider.scheme === undefined || typeof provider.scheme === "string" && tokenPattern.test(provider.scheme))
+      && provider.origins.length > 0
+      && provider.origins.every(origin => apiKeyOrigin(origin) === origin)
+  }
+  catch {
+    return false
+  }
 }
 
 export function isApiKeyProvider(provider: ConnectionDefinition["provider"]): provider is ConnectionApiKeyProvider {

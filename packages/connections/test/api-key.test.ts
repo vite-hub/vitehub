@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { agentEnvAccess } from "../../env/test/agent-access.ts"
 
-import { apiKey } from "../src/api-key.ts"
+import { apiKey, isValidApiKeyProvider } from "../src/api-key.ts"
 import { runConnectionsCli } from "../src/cli.ts"
 import { defineConnection } from "../src/definition.ts"
 import { createConnectionsHandler } from "../src/http.ts"
@@ -42,6 +42,11 @@ function harness(provider: ConnectionApiKeyProvider = apiKey({ origins: ["https:
 }
 
 describe("apiKey()", () => {
+  it("returns false for malformed validator input", () => {
+    expect(isValidApiKeyProvider(null as never)).toBe(false)
+    expect(isValidApiKeyProvider({ header: "authorization", origins: null as never })).toBe(false)
+  })
+
   it("defaults to a Bearer authorization header", () => {
     expect(apiKey({ origins: ["https://API.example.com:443"] })).toMatchObject({ header: "authorization", id: "api-key", kind: "api-key", origins: ["https://api.example.com"], scheme: "Bearer" })
     expect(apiKey({ header: "X-Api-Key", origins: ["http://localhost:8787"] })).toMatchObject({ header: "x-api-key", origins: ["http://localhost:8787"] })
