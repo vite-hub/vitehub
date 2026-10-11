@@ -41,6 +41,10 @@ function isString(value: unknown): value is string {
   return Object.prototype.toString.call(value) === "[object String]" && !(value instanceof String);
 }
 
+function isDate(value: unknown): value is Date {
+  return Object.prototype.toString.call(value) === "[object Date]";
+}
+
 async function readResponseText(
   response: Response,
   signal: AbortSignal,
@@ -207,7 +211,7 @@ function payload(message: EmailMessage): Record<string, unknown> {
     ...(message.scheduledAt
       ? {
           scheduled_at:
-            message.scheduledAt instanceof Date
+            isDate(message.scheduledAt)
               ? message.scheduledAt.toISOString()
               : message.scheduledAt,
         }
@@ -333,7 +337,7 @@ export default function resendEmailDriver(options: ResendEmailDriverOptions): Em
         idempotencyKey = validateIdempotencyKey(message.idempotencyKey);
         if (
           message.scheduledAt !== undefined &&
-          !(message.scheduledAt instanceof Date) &&
+          !isDate(message.scheduledAt) &&
           message.scheduledAt.trim() === ""
         ) {
           throw emailProviderError("resend", "INVALID_OPTIONS", "scheduledAt cannot be empty.");
