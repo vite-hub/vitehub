@@ -74,6 +74,18 @@ describe("managed Rate Limit guard", () => {
     await expect(requireRateLimit(event, "searches", { limit: 1, window: "1m" })).resolves.toBeUndefined()
   })
 
+  it("shares counters for equivalent normalized windows", async () => {
+    const event = requestEvent("192.0.2.40")
+
+    await requireRateLimit(event, "equivalent-windows", { key: "user", limit: 1, window: "1m" })
+    await expect(requireRateLimit(event, "equivalent-windows", { key: "user", limit: 1, window: "60s" }))
+      .rejects.toMatchObject({ status: 429 })
+
+    const inspection = await peekRateLimit("equivalent-windows", "user")
+    expect(inspection).toMatchObject({ status: "known", counters: [{ limit: 1, used: 1, remaining: 0, windowMs: 60_000 }] })
+    if (inspection.status === "known") expect(inspection.counters).toHaveLength(1)
+  })
+
   it("refreshes the memory limiter when a policy changes during development", async () => {
     const event = requestEvent("192.0.2.4")
 
