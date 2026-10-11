@@ -10,6 +10,7 @@ import {
 } from "@vite-hub/internal/build/vite"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { findExportNames } from "mlly"
+import { createSourceScanner } from "@vite-hub/internal/source-scanner"
 
 import type { Plugin } from "vite"
 import { encodeCollectionRouteSegment } from "./internal/collection-route.ts"
@@ -59,6 +60,7 @@ interface DiscoveredCollection {
   exportName: string
   file: string
   name: string
+  route: boolean
 }
 
 interface NitroGeneratedConfig {
@@ -89,6 +91,82 @@ interface SourcePluginConfig {
 
 interface GeneratedSourceArtifactsSnapshot {
   files: Map<string, string>
+}
+
+function collectionRouteDisabled(source: string, exportName: string, file: string): boolean {
+  const scanner = createSourceScanner(file)
+  const masked = scanner.maskSourceLiterals(source)
+  const escapedExportName = exportName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  const identifier = String.raw`[$\p{ID_Start}_][$\p{ID_Continue}]*`
+  // Bind the call to the exported declaration itself. Looking only at the
+  // prefix up to a call can accidentally select an earlier local declaration
+  // with the same name, so first locate the exported initializer and then
+  // inspect calls inside that initializer.
+  const declaration = new RegExp(`(?:^|[;\\n])\\s*export\\s+(?:const|let|var)\\s+${escapedExportName}(?:\\s*:\\s*[^=;]+)?\\s*=`, "g")
+  const calls = scanner.findIdentifierCalls(source, "defineCollection")
+  let call
+  const findDeclarationCall = (initializerStart: number) => {
+    // Scan only this initializer. Matched groups retain nested calls and
+    // semicolons inside IIFEs, while top-level separators end the binding.
+    let end = initializerStart
+    let previous = ""
+    for (; end < masked.length; end++) {
+      const char = masked[end]!
+      if (char === ";" || char === ",") break
+      if (char === "\n" && previous) {
+        const next = masked.slice(end).trimStart()
+        // A newline can continue an expression after an operator or before
+        // a member access/call/operator; otherwise automatic semicolon
+        // insertion ends the initializer before the next statement.
+        if (!/[=?:+\-*/%&|^!<>.]/.test(previous)
+          && !/^(?:[.([?+\-*/%&|^<>=]|as\b|satisfies\b)/.test(next)) break
+      }
+      const close = char === "(" ? ")" : char === "[" ? "]" : char === "{" ? "}" : undefined
+      if (close) {
+        const matched = scanner.findMatching(source, end, char, close)
+        if (matched === undefined) return undefined
+        end = matched
+        previous = close
+      }
+      else if (!/\s/.test(char)) previous = char
+    }
+    return calls.find(candidate => candidate.start >= initializerStart && candidate.closeParen < end)
+  }
+  for (const match of masked.matchAll(declaration)) {
+    const initializerStart = (match.index ?? 0) + match[0].length
+    call = findDeclarationCall(initializerStart)
+    if (call) break
+  }
+  // Named exports may also re-export a local binding (`export { articles }`).
+  // Resolve that binding before inspecting its initializer so route metadata
+  // stays attached to the Collection that discovery imports.
+  if (!call) {
+    const exportList = new RegExp(`\\bexport\\s*\\{([^}]*)\\}`, "g")
+    for (const match of masked.matchAll(exportList)) {
+      const localName = match[1]
+        .split(",")
+        .map(entry => entry.trim().match(new RegExp(`^(${identifier})\\s+as\\s+${escapedExportName}$|^${escapedExportName}$`, "u")))
+        .find(Boolean)?.[1] ?? (match[1].split(",").map(entry => entry.trim()).find(entry => entry === exportName) ? exportName : undefined)
+      if (!localName) continue
+      // The export list may appear before or after the local declaration. Include
+      // `export const` declarations as well, then bind the name to its own
+      // initializer rather than relying on statement order.
+      const escapedLocalName = localName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+      const localDeclaration = new RegExp(`(?:^|[;\\n])\\s*(?:export\\s+)?(?:const|let|var)\\s+${escapedLocalName}(?:\\s*:\\s*[^=;]+)?\\s*=`, "g")
+      for (const declarationMatch of masked.matchAll(localDeclaration)) {
+        const initializerStart = (declarationMatch.index ?? 0) + declarationMatch[0].length
+        const candidateCall = findDeclarationCall(initializerStart)
+        if (candidateCall) {
+          call = candidateCall
+          break
+        }
+      }
+      if (call) break
+    }
+  }
+  if (!call) return false
+  const options = call.arguments[1] ?? call.arguments[0]
+  return options !== undefined && scanner.readObjectProperty(options, "route") === "false"
 }
 
 async function snapshotDirectoryFiles(directory: string, files: Map<string, string>): Promise<void> {
@@ -256,7 +334,8 @@ async function discoverCollections(options: SourceGenerationOptions): Promise<Di
       if (!findExportNames(await readFile(file, "utf8")).includes(exportName)) {
         throw sourceErrorDiagnostics.SOURCE_B0004({ message: `[vitehub] Collection file ${JSON.stringify(relative(options.projectRoot, file))} must export a Collection named ${JSON.stringify(exportName)} to match its filename.` })
       }
-      return { exportName, file, name }
+      const source = await readFile(file, "utf8")
+      return { exportName, file, name, route: !collectionRouteDisabled(source, exportName, file) }
     }))
   }))).flat().sort((left, right) => left.name.localeCompare(right.name))
 
@@ -319,10 +398,11 @@ async function writeCollectionArtifacts(
   ].join("\n"))
   await writeFileIfChanged(packageOutput, '/// <reference path="./collections.d.ts" />\n')
 
-  const expectedRoutes = new Set(collections.map(({ name }) => resolve(routesDirectory, `${name}.mjs`)))
+  const routedCollections = collections.filter(collection => collection.route)
+  const expectedRoutes = new Set(routedCollections.map(({ name }) => resolve(routesDirectory, `${name}.mjs`)))
   const existingRoutes = await collectCollectionFiles(routesDirectory)
   await Promise.all(existingRoutes.filter(file => !expectedRoutes.has(file)).map(file => rm(file, { force: true })))
-  return await Promise.all(collections.map(async ({ exportName, file, name }) => {
+  return await Promise.all(routedCollections.map(async ({ exportName, file, name }) => {
     const handler = resolve(routesDirectory, `${name}.mjs`)
     await writeFileIfChanged(handler, [
       `import { defineCollectionHandler } from ${JSON.stringify(`${options.importBase ?? "@vite-hub/source"}/server`)}`,

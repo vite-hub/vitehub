@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest"
 import { createRateLimiter } from "../src/index.ts"
 import { memoryRateLimitDriver } from "../src/drivers/memory.ts"
 
-import type { RateLimitDriverCapabilities } from "../src/index.ts"
+import type { RateLimitDriver, RateLimitDriverCapabilities } from "../src/index.ts"
 
 const strictCapabilities = {
   enforcement: "strict",
@@ -252,6 +252,18 @@ describe("Rate Limit core", () => {
       limit: 1,
       window: "1m",
     })).toThrow("valid enforcement")
+  })
+
+  it.each([null, "60s", {}, [0], [1.5], [Number.NaN], new Array(1)])("rejects malformed supported windows: %j", windows => {
+    expect(() => createRateLimiter({
+      driver: {
+        capabilities: { ...strictCapabilities, windows } as never,
+        consume: () => [null, { allowed: true }],
+        name: "malformed-windows",
+      },
+      limit: 1,
+      window: "1m",
+    })).toThrow("windows must contain positive integer milliseconds")
   })
 
   it("exposes resolved driver capabilities", () => {
