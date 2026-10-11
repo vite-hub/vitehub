@@ -16,11 +16,21 @@ export interface SerializedResponse {
 
 import { hasRuntimeType, isRuntimeObject } from "./internal/runtime-type.ts"
 
+function isBlobLike(value: unknown): value is Blob {
+  if (value === null || typeof value !== "object" || Object.prototype.toString.call(value) !== "[object Blob]") return false
+  const blob = value as { arrayBuffer?: unknown; size?: unknown; stream?: unknown; text?: unknown; type?: unknown }
+  return typeof blob.arrayBuffer === "function"
+    && typeof blob.stream === "function"
+    && typeof blob.text === "function"
+    && typeof blob.size === "number"
+    && typeof blob.type === "string"
+}
+
 /** Normalize a primitive value into the native Web Response contract. */
 export function toResponse(value: unknown): Response {
   if (value instanceof Response) return value
   if (value === undefined) return new Response(null, { status: 204 })
-  if (hasRuntimeType(value, "string") || value instanceof Blob || value instanceof ArrayBuffer || ArrayBuffer.isView(value)) {
+  if (hasRuntimeType(value, "string") || value instanceof Blob || isBlobLike(value) || value instanceof ArrayBuffer || ArrayBuffer.isView(value)) {
     // SAFETY: The guards admit only strings, Blob, ArrayBuffer, and views accepted by Response.
     return new Response(value as ConstructorParameters<typeof Response>[0])
   }

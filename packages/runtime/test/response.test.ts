@@ -1,7 +1,24 @@
+import { runInNewContext } from "node:vm"
 import { describe, expect, it } from "vitest"
-import { deserializeResponse, isSerializedResponse, serializeResponse } from "../src/response.ts"
+import { deserializeResponse, isSerializedResponse, serializeResponse, toResponse } from "../src/response.ts"
 
 describe("durable Response representation", () => {
+  it("preserves Blob bodies created in another realm", async () => {
+    const blob = runInNewContext(`
+      class CrossRealmBlob {
+        constructor() { this.size = 4; this.type = "text/plain" }
+        arrayBuffer() { return Promise.resolve(new Uint8Array([116, 101, 115, 116]).buffer) }
+        stream() { return new ReadableStream() }
+        text() { return Promise.resolve("test") }
+      }
+      Object.defineProperty(CrossRealmBlob.prototype, Symbol.toStringTag, { value: "Blob" })
+      new CrossRealmBlob()
+    `, { Symbol })
+
+    const response = toResponse(blob)
+    expect(response.headers.get("content-type")).toBe("text/plain;charset=UTF-8")
+  })
+
   it.each([204, 205, 304])("round trips a bodyless response with status %s", async (status) => {
     const restored = deserializeResponse(await serializeResponse(new Response(null, { status })))
     expect(restored.status).toBe(status)
