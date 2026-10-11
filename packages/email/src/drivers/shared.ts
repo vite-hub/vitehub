@@ -1,6 +1,6 @@
 import { emailProviderError } from "../provider.ts";
 
-import type { EmailAddress, EmailAddressList, EmailMessage } from "../types.ts";
+import type { EmailAddress, EmailAddressList, EmailAddressValue, EmailMessage } from "../types.ts";
 
 function isAddressArray(input: EmailAddressList): input is readonly EmailAddress[] {
   return Array.isArray(input);
@@ -17,7 +17,11 @@ export function addresses(input: EmailAddressList): EmailAddress[] {
 
 export function addressValue(input: EmailAddress): { email: string; name?: string } {
   if (!isString(input)) {
-    return { ...input, email: input.email.trim() };
+    const value: unknown = input
+    const object = value !== null && typeof value === "object" ? value as Partial<EmailAddressValue> : undefined
+    const email = object && isString(object.email) ? object.email.trim() : ""
+    const name = object && isString(object.name) ? object.name : undefined
+    return { email, ...(name !== undefined ? { name } : {}) }
   }
   const match = /^\s*(.*?)\s*<([^<>]+)>\s*$/.exec(input);
   if (!match) return { email: input.trim() };

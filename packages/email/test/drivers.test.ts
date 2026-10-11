@@ -737,6 +737,7 @@ describe("Resend Email driver", () => {
     expect(request).not.toHaveBeenCalled();
   });
 
+
   it.each(["", "   ", "x".repeat(257)])(
     "rejects an out-of-range idempotency key before fetch",
     async (idempotencyKey) => {
@@ -1282,6 +1283,18 @@ describe("Cloudflare Email driver", () => {
     const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor });
 
     await expect(driver.send({ ...message, ...override }, context)).resolves.toMatchObject({
+      error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" },
+    });
+    expect(Constructor).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("classifies malformed mailbox shapes as invalid options", async () => {
+    const send = vi.fn();
+    const Constructor = vi.fn();
+    const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor });
+
+    await expect(driver.send({ ...message, from: { email: 123 } as never }, context)).resolves.toMatchObject({
       error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" },
     });
     expect(Constructor).not.toHaveBeenCalled();
