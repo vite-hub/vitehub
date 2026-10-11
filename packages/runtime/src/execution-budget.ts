@@ -78,7 +78,9 @@ function createBudgetNode(parent?: BudgetNode): BudgetNode {
     cleanups: new Set(),
     children: new Set(),
     ...(parent ? { parent } : {}),
-    disposed: false,
+    // A child created after its parent was released must not acquire fresh
+    // timers or listeners. Its cleanup registration below runs immediately.
+    disposed: parent?.disposed ?? false,
   }
   parent?.children.add(node)
   return node
@@ -124,9 +126,10 @@ export function createExecutionBudget(options: ExecutionBudgetOptions = {}): Exe
 }
 
 function scheduleDeadline(controller: AbortController, deadlineAt: number, node: BudgetNode): void {
+  if (node.disposed) return
   let timer: ReturnType<typeof setTimeout> | undefined
   const schedule = () => {
-    if (controller.signal.aborted) return
+    if (node.disposed || controller.signal.aborted) return
     const remaining = deadlineAt - Date.now()
     if (remaining <= 0) controller.abort(new DOMException("Execution budget deadline exceeded.", "TimeoutError"))
     else timer = setTimeout(schedule, Math.min(remaining, 2_147_483_647))

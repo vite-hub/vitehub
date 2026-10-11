@@ -88,4 +88,23 @@ describe("ExecutionBudget", () => {
       vi.useRealTimers()
     }
   })
+
+  it("does not reacquire resources when a child is created after disposal", () => {
+    vi.useFakeTimers()
+    try {
+      const external = new AbortController()
+      const budget = createExecutionBudget({ signal: external.signal })
+      budget.dispose()
+
+      const child = budget.child({ signal: external.signal, deadlineAt: Date.now() + 1_000 })
+      expect(vi.getTimerCount()).toBe(0)
+      expect(child.signal.aborted).toBe(false)
+
+      external.abort(new Error("late cancellation"))
+      expect(child.signal.aborted).toBe(false)
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
 })

@@ -4654,7 +4654,6 @@ async function createAgentInvocationContext<
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       model: agentModel as never,
       resolveCapabilityCli,
-      executionBudget,
       workspaceDefinition: resolvedWorkspaceDefinition,
     })
     const knownUnavailable = (capabilities: Awaited<typeof preparingCapabilities>) => resolveReadiness().then(status => {
@@ -8094,16 +8093,20 @@ async function executeAgentInvocation<
       : undefined
   }
   catch (error) {
-    if (preparedInvocation) {
-      // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-      const workflowExecution = Boolean((context as AgentRuntimeContext & { [agentWorkflowExecutionContextKey]?: boolean })[agentWorkflowExecutionContextKey])
-      await finishPreparedInvocationFailure(preparedInvocation, error, workflowExecution)
+    try {
+      if (preparedInvocation) {
+        // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
+        const workflowExecution = Boolean((context as AgentRuntimeContext & { [agentWorkflowExecutionContextKey]?: boolean })[agentWorkflowExecutionContextKey])
+        await finishPreparedInvocationFailure(preparedInvocation, error, workflowExecution)
+      }
+      const status = invocationFailureWasCancelled(error, input.abortSignal) ? "cancelled" : "failed"
+      await invocationJournal?.finish(status, error)
+      await activity?.update(status, error)
+      throw error
     }
-    const status = invocationFailureWasCancelled(error, input.abortSignal) ? "cancelled" : "failed"
-    await invocationJournal?.finish(status, error)
-    await activity?.update(status, error)
-    executionBudget.dispose()
-    throw error
+    finally {
+      executionBudget.dispose()
+    }
   }
   if (!release) {
     try {
@@ -8115,11 +8118,15 @@ async function executeAgentInvocation<
       return await executeAgentInvocationWithCapacityLease(agent, context, input, options, preparedInvocation, invocationJournal, activity, executionBudget)
     }
     catch (error) {
-      const status = invocationFailureWasCancelled(error, input.abortSignal) ? "cancelled" : "failed"
-      await invocationJournal?.finish(status, error)
-      await activity?.update(status, error)
-      executionBudget.dispose()
-      throw error
+      try {
+        const status = invocationFailureWasCancelled(error, input.abortSignal) ? "cancelled" : "failed"
+        await invocationJournal?.finish(status, error)
+        await activity?.update(status, error)
+        throw error
+      }
+      finally {
+        executionBudget.dispose()
+      }
     }
   }
 
@@ -8149,12 +8156,16 @@ async function executeAgentInvocation<
     }, preparedInvocation, invocationJournal, activity, executionBudget)
   }
   catch (error) {
-    const status = invocationFailureWasCancelled(error, input.abortSignal) ? "cancelled" : "failed"
-    await invocationJournal?.finish(status, error)
-    await activity?.update(status, error)
-    releaseOnce()
-    executionBudget.dispose()
-    throw error
+    try {
+      const status = invocationFailureWasCancelled(error, input.abortSignal) ? "cancelled" : "failed"
+      await invocationJournal?.finish(status, error)
+      await activity?.update(status, error)
+      releaseOnce()
+      throw error
+    }
+    finally {
+      executionBudget.dispose()
+    }
   }
 }
 
