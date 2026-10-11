@@ -223,6 +223,9 @@ export function normalizeBlobOptions(
   const hosting = normalizeHosting(input.hosting)
   const explicit = options as BlobStoreConfig | undefined
   const optionRecord = options as { serve?: BlobServeOptions } | undefined
+  if (options !== undefined && Object.hasOwn(options, "stores") && !isPlainObject((options as { stores?: unknown }).stores)) {
+    throw blobErrorDiagnostics.BLOB_C0013({ message: "`blob.stores` must be a plain object." })
+  }
   const serve = normalizeServeOptions(optionRecord?.serve)
   const { serve: _serve, ...storeOptions } = options || {}
   const implicitCloudflare = storeOptions as Partial<CloudflareR2BlobStoreConfig> | undefined

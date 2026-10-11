@@ -266,6 +266,10 @@ describe("blob config", () => {
     expect(() => normalizeBlobOptions("blob" as never)).toThrow("`blob` must be a plain object.")
   })
 
+  it.each([null, [], "stores"])("rejects a non-record stores option: %j", stores => {
+    expect(() => normalizeBlobOptions({ stores } as never)).toThrow("`blob.stores` must be a plain object.")
+  })
+
   it("normalizes opt-in serving defaults", () => {
     expect(normalizeBlobOptions({ serve: true })).toEqual({
       serve: {
