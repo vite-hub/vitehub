@@ -55,10 +55,7 @@ const ambiguousOneClickMessages: Pick<EmailMessage, "headers" | "unsubscribe">[]
 describe("Resend Email driver", () => {
   it("classifies AbortErrors from another realm as cancellations", async () => {
     const abortError = runInNewContext(
-      "new DOMException('aborted', 'AbortError')",
-      { DOMException: class ForeignDOMException extends Error {
-        name = "AbortError"
-      } },
+      "Object.assign(new Error('aborted'), { name: 'AbortError' })",
     );
     const request = vi.fn(async () => { throw abortError });
     const driver = resend({ apiKey: "re_secret", fetch: request });
