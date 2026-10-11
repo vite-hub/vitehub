@@ -1234,7 +1234,7 @@ function renderConfiguration(
                 tools.length ? h(AgentToolList, { tools, calls: Object.fromEntries(invocationToolUsage(invocation)), onSelect: selectTool }) : null,
                 capability.metadata ? h("details", { class: "vh-invocation-inspector__settings" }, [
                   h("summary", "Configuration"),
-                  h("pre", JSON.stringify(capability.metadata, null, 2)),
+                  h("pre", payloadText(capability.metadata)),
                 ]) : null,
                 !tools.length && !capability.metadata ? h("p", "No tools or configuration recorded.") : null,
               ]);
