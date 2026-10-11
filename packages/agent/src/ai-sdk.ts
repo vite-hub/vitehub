@@ -1425,6 +1425,7 @@ async function createAgent(
           }
           throw error
         }
+        // SAFETY: The selected callback is normalized to the AI SDK repair contract above.
         return await customRepairToolCall(input as never)
         }
       : builtInRepairToolCall
