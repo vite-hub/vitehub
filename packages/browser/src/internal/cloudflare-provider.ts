@@ -78,6 +78,9 @@ export function createCloudflareBrowser(
         acquired = openOptions.idleTimeoutMs
           ? await driver.acquire(binding, { keep_alive: openOptions.idleTimeoutMs })
           : await driver.acquire(binding)
+        if (!acquired || typeof acquired.sessionId !== "string" || acquired.sessionId.length === 0) {
+          throw new TypeError("Cloudflare Browser Run returned an invalid session id.")
+        }
       }
       catch (error) {
         throw browserProviderError("cloudflare", "acquire a Browser Run session", { cause: error })

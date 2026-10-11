@@ -54,6 +54,22 @@ describe("cloudflareBrowser", () => {
     expect(browserClose).not.toHaveBeenCalled()
   })
 
+  it("rejects an acquired session without a usable session id", async () => {
+    const provider = cloudflareBrowser({
+      binding: { fetch: vi.fn() },
+      driver: {
+        acquire: vi.fn(async () => ({ sessionId: "" })),
+        connect: vi.fn(),
+      },
+      engine: "chromium",
+    })
+
+    await expect(provider.open()).rejects.toMatchObject({
+      code: "BROWSER_PROVIDER_ERROR",
+      details: { operation: "acquire a Browser Run session" },
+    })
+  })
+
   it("resolves a named request-scoped binding", async () => {
     const binding = { fetch: vi.fn() }
     const driver = {
