@@ -50,7 +50,7 @@ export interface ViteHubInspectionContributingPlugin {
 async function collectContributors(plugins: readonly unknown[]): Promise<ViteHubInspectionContributor[]> {
   const contributors: ViteHubInspectionContributor[] = []
   for (const plugin of plugins) {
-    if (!plugin || typeof plugin !== "object") continue
+    if (!plugin || typeof plugin !== "object" || !Object.hasOwn(plugin, "vitehub")) continue
     const value = (plugin as ViteHubInspectionContributingPlugin).vitehub?.inspect
     const contributor = typeof value === "function" ? await value() : value
     if (contributor) contributors.push(contributor)
