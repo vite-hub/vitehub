@@ -5091,6 +5091,7 @@ function withEagerStreamUsageExtensions<
   const providers = context.finishExtensionProviders.filter(provider => provider.eager)
   if (!providers.length) return stream
   return (async function* () {
+    let extensionApplied = false
     for await (const chunk of stream) {
       const usageRecord = usageRecordFromStreamChunk(chunk, result)
       if (!usageRecord) {
@@ -5113,6 +5114,7 @@ function withEagerStreamUsageExtensions<
       } satisfies Omit<AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>, "extensions">
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       await createAgentInvocationExtensions(eventBase as never, providers)
+      extensionApplied = true
       if (chunk && hasRuntimeType(chunk, "object")) {
         const prototype = Object.getPrototypeOf(chunk)
         if (prototype !== Object.prototype && prototype !== null) {
@@ -5140,6 +5142,25 @@ function withEagerStreamUsageExtensions<
       }
       yield { type: "usage", usageRecord: usage }
     }
+    if (extensionApplied) return
+    const usageRecord = await resolveAgentUsageRecord(result, context.run)
+    if (!usageRecord) return
+    const usage = { ...usageRecord }
+    const eventBase = {
+      actor: context.actor,
+      input: context.input,
+      invoker: context.invoker,
+      invocation: {
+        durationMs: Date.now() - context.startedAt,
+        ...(context.run ? { run: context.run } : {}),
+        usage,
+      },
+      result,
+      runtime: context.runtimeContext,
+      toolResults: [...context.toolResults],
+    } satisfies Omit<AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>, "extensions">
+    await createAgentInvocationExtensions(eventBase as never, providers)
+    assignResolvedUsageRecord(result, usage)
   })()
 }
 
