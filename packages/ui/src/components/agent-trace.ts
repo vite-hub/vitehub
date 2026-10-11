@@ -1,6 +1,22 @@
 import type { TraceRunView, TraceStepView } from "@vite-hub/runtime";
 import { defineComponent, h, type PropType, resolveComponent } from "vue";
 
+function traceAttributesText(value: unknown): string {
+  try {
+    const ancestors: object[] = [];
+    return JSON.stringify(value, function (this: unknown, _key, item: unknown) {
+      if (typeof item === "bigint") return `${item}n`;
+      if (item === null || typeof item !== "object") return item;
+      while (ancestors.length && ancestors.at(-1) !== this) ancestors.pop();
+      if (ancestors.includes(item)) return "[Circular]";
+      ancestors.push(item);
+      return item;
+    }, 2) ?? String(value);
+  } catch (error) {
+    return error instanceof Error ? `[Unable to display payload: ${error.message}]` : "[Unable to display payload]";
+  }
+}
+
 function formatDuration(duration: number | undefined): string | undefined {
   if (duration === undefined) return undefined;
   return duration < 1_000
@@ -107,7 +123,7 @@ export const AgentTrace = defineComponent({
                             ? h(
                                 "pre",
                                 { class: "vh-trace__attributes" },
-                                JSON.stringify(step.attributes, null, 2),
+                                traceAttributesText(step.attributes),
                               )
                             : null,
                         ],
