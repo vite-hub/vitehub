@@ -311,7 +311,7 @@ export function isResolvedAgentTriggerHandledInvocation<
 >(
   invocation: ResolvedAgentTriggerInvocationResult<TRuntimeConfig, CALL_OPTIONS>,
 ): invocation is ResolvedAgentTriggerHandledInvocation<TRuntimeConfig, CALL_OPTIONS> {
-  return "response" in invocation && invocation.response instanceof Response
+  return "response" in invocation && isResponse(invocation.response)
 }
 
 export interface AgentWebhookVerificationResult {
@@ -321,6 +321,10 @@ export interface AgentWebhookVerificationResult {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null
+}
+
+function isResponse(value: unknown): value is Response {
+  return value instanceof Response || Object.prototype.toString.call(value) === "[object Response]"
 }
 
 async function resolveWebhookSecret(
@@ -609,7 +613,7 @@ export async function resolveAgentTriggerInvocation<
     }
   }
   const invoked = await trigger.invoke(validatedInput)
-  if (invoked instanceof Response) return resolveAgentTriggerInvocationResult(invoked, trigger)
+  if (isResponse(invoked)) return resolveAgentTriggerInvocationResult(invoked, trigger)
   const annotations = channelHistoryAnnotations(agent, trigger, validatedInput)
   const run = annotations
     ? { ...(invoked.run || context.run || { runId: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}` }), annotations: { ...(invoked.run || context.run)?.annotations, ...annotations } }
@@ -628,7 +632,7 @@ export function resolveAgentTriggerInvocationResult<
   invocation: AgentTriggerInvokeResult<CALL_OPTIONS>,
   trigger: ResolvedAgentTriggerDefinition<TRuntimeConfig, TInput, CALL_OPTIONS>,
 ): ResolvedAgentTriggerInvocationResult<TRuntimeConfig, CALL_OPTIONS> {
-  if (invocation instanceof Response) {
+  if (isResponse(invocation)) {
     return {
       response: invocation,
       trigger: trigger as never,
