@@ -312,8 +312,9 @@ function foldedList(entries: FsBlobEntry[], options: BlobListOptions, start: num
     }
     return {
       blobs,
+      cursor: start < entries.length ? encodeCursor(start) : undefined,
       folders: [...folders].sort((left, right) => left.localeCompare(right)),
-      hasMore: false,
+      hasMore: start < entries.length,
     }
   }
 
