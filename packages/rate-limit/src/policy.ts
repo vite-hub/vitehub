@@ -12,6 +12,9 @@ const unitMilliseconds = {
 } as const
 
 function parseRateLimitWindow(value: RateLimitWindow): number {
+  if (typeof value !== "string") {
+    throw rateLimitErrorDiagnostics.RATE_LIMIT_R0031({ message: "[vitehub] Rate Limit window must use a duration such as \"10s\", \"1m\", \"1h\", or \"1d\"." })
+  }
   const match = /^(\d+(?:\.\d+)?)(ms|s|m|h|d)$/.exec(value)
   if (!match) {
     throw rateLimitErrorDiagnostics.RATE_LIMIT_R0031({ message: "[vitehub] Rate Limit window must use a duration such as \"10s\", \"1m\", \"1h\", or \"1d\"." })

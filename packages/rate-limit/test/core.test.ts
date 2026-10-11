@@ -134,6 +134,10 @@ describe("Rate Limit core", () => {
     expect(() => createRateLimiter({ driver: memoryRateLimitDriver(), limit: 1, window: "soon" as never })).toThrow("must use a duration")
   })
 
+  it("classifies non-string windows without invoking native coercion", () => {
+    expect(() => createRateLimiter({ driver: memoryRateLimitDriver(), limit: 1, window: Symbol("window") as never })).toThrow(expect.objectContaining({ code: "RATE_LIMIT_R0031" }))
+  })
+
   it("consumes a fixed window atomically in memory", async () => {
     let now = 60_001
     const driver = memoryRateLimitDriver({ now: () => now })
