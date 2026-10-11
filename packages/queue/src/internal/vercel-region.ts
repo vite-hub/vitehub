@@ -7,14 +7,20 @@ function readHeader(headers: Headers | Record<string, unknown> | undefined, name
 
   if (isHeadersLike(headers)) {
     try {
-      return headers.get(name) || undefined
+      return Headers.prototype.get.call(headers, name) || undefined
     }
     catch {
       return
     }
   }
 
-  const value = headers[name] ?? headers[name.toLowerCase()]
+  let value: unknown
+  try {
+    value = headers[name] ?? headers[name.toLowerCase()]
+  }
+  catch {
+    return
+  }
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Host headers are untyped; accept only string values before parsing the region.
   if (typeof value === "string") {
     return value
@@ -26,24 +32,24 @@ function readHeader(headers: Headers | Record<string, unknown> | undefined, name
 }
 
 function isHeadersLike(value: unknown): value is Headers {
-  if (!value || typeof value !== "object") return false
+  if (!value || (typeof value !== "object" && typeof value !== "function")) return false
   try {
-    return Object.prototype.toString.call(value) === "[object Headers]"
-      && typeof (value as { get?: unknown }).get === "function"
+    Headers.prototype.get.call(value, "")
+    return true
   }
   catch {
     return false
   }
 }
 
-function isRequestLike(value: unknown): value is Request {
-  if (!value || typeof value !== "object") return false
+function getRequestHeaders(value: unknown) {
+  if (!value || (typeof value !== "object" && typeof value !== "function")) return undefined
   try {
-    if (Object.prototype.toString.call(value) !== "[object Request]") return false
-    return isHeadersLike((value as { headers?: unknown }).headers)
+    const headers = Object.getOwnPropertyDescriptor(Request.prototype, "headers")?.get?.call(value)
+    return isHeadersLike(headers) ? headers : undefined
   }
   catch {
-    return false
+    return undefined
   }
 }
 
@@ -71,7 +77,22 @@ export function resolveVercelQueueRegion(explicitRegion: string | undefined) {
 
   // SAFETY: Queue host integrations supply Fetch or Nitro events; all host-specific header containers are optional and their values are checked below.
   const event = getQueueRuntimeEvent() as { node?: { req?: { headers?: Headers | Record<string, unknown> } }, req?: { headers?: Headers | Record<string, unknown> }, request?: Request } | undefined
-  const requestHeaders = isRequestLike(event?.request) ? event.request.headers : event?.req?.headers ?? event?.node?.req?.headers
+  let requestHeaders: Headers | Record<string, unknown> | undefined
+  try {
+    const request = event?.request
+    requestHeaders = getRequestHeaders(request)
+  }
+  catch {
+    requestHeaders = undefined
+  }
+  if (!requestHeaders) {
+    try {
+      requestHeaders = event?.req?.headers ?? event?.node?.req?.headers
+    }
+    catch {
+      requestHeaders = undefined
+    }
+  }
 
   return {
     region: readHeader(requestHeaders, "ce-vqsregion") || parseRegionFromVercelId(readHeader(requestHeaders, "x-vercel-id")),

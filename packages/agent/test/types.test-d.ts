@@ -77,6 +77,43 @@ describe("agent public types", () => {
     })
   })
 
+  it("accepts application-owned MCP tool contract overrides", () => {
+    mcp({
+      servers: {
+        support: remoteMcpServer({ url: "https://example.com/mcp" }),
+      },
+      toolOverrides: {
+        support: {
+          threads_get: {
+            inputSchema: {
+              additionalProperties: false,
+              properties: { id: { type: "string" } },
+              required: ["id"],
+              type: "object",
+            },
+          },
+        },
+      },
+    })
+  })
+
+  it("rejects non-object MCP input contracts", () => {
+    mcp({
+      servers: { support: false },
+      toolOverrides: { support: { read: {
+        // @ts-expect-error MCP arguments require an object schema.
+        inputSchema: { type: "string" },
+      } } },
+    })
+    mcp({
+      servers: { support: false },
+      toolOverrides: { support: { read: {
+        // @ts-expect-error MCP arguments cannot be arrays.
+        inputSchema: { type: "array" },
+      } } },
+    })
+  })
+
   it("types Connection-backed capabilities", () => {
     gmail()
     gmail({ connection: "google", operations: ["search", "read", "draft"] })
@@ -1643,7 +1680,7 @@ describe("agent public types", () => {
       messages: {
         filter: ({ deliveryKind }) => {
           expectTypeOf(deliveryKind).toEqualTypeOf<AgentMessageDeliveryKind>()
-          expectTypeOf(deliveryKind).toEqualTypeOf<"direct" | "mention">()
+          expectTypeOf(deliveryKind).toEqualTypeOf<"direct" | "mention" | "subscribed">()
           return deliveryKind === "direct" || deliveryKind === "mention"
         },
         identity: ({ adapter, author }) => `${adapter}:${author.userId}`,
