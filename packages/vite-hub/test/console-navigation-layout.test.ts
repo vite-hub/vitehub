@@ -29,10 +29,23 @@ describe("shared Console navigation layout", () => {
       expect(component(name)).not.toContain("ConsoleSectionNav")
     }
     const rail = component("console-rail")
-    expect(rail).toContain('aria-label="Console"')
     expect(rail).toContain("groupConsoleSections(")
-    expect(rail).toContain(":aria-current=\"section.id === active ? 'page' : undefined\"")
+    expect(rail).toContain('<PrimitiveRail class="vitehub-console__rail" label="Console">')
+    expect(rail).toContain(':current="section.id === active"')
     expect(rail).toContain("<UDashboardSearchButton")
+  })
+
+  it("shows the appearance menu between search and sign-out only in the standalone Console", () => {
+    const rail = component("console-rail")
+    expect(rail).toContain("inject(consoleAppearanceKey, undefined)")
+    expect(rail).toMatch(/<UDashboardSearchButton[\s\S]*?<UDropdownMenu\s+v-if="appearance"[\s\S]*?<UTooltip v-if="signedIn"/)
+    expect(rail).toMatch(/type: "checkbox",[\s\S]*?checked: appearance\?\.preference\.value === option/)
+    expect(component("console-search")).toContain("inject(consoleAppearanceKey, undefined)")
+    const client = readFileSync(new URL("../src/console/runtime/client/main.js", import.meta.url), "utf8")
+    // The stored appearance applies before mount, so the first render uses the chosen scheme.
+    expect(client).toMatch(/startConsoleAppearance\([\s\S]*?\.provide\(consoleAppearanceKey, appearance\)[\s\S]*?\.mount\("#app"\)/)
+    // Nuxt UI color mode would write the root class from a second, origin-wide storage key.
+    expect(readFileSync(new URL("../console.vite.config.ts", import.meta.url), "utf8")).toContain("colorMode: false")
   })
 
   it("registers Go to chords in the rail and shows them in tooltips and search", () => {
