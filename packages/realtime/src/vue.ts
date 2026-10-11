@@ -179,15 +179,32 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
           }
           throw error
         }
+        const readResponse = async (): Promise<unknown> => {
+          try {
+            return await response.json()
+          }
+          catch {
+            if (controller.signal.aborted) {
+              throw realtimeErrorDiagnostics.REALTIME_R0011({ message: "The realtime document is no longer connected to this checkpoint." })
+            }
+            return undefined
+          }
+        }
         if (response.ok) {
-          const result: unknown = await response.json().catch(() => undefined)
+          const result = await readResponse()
+          if (controller.signal.aborted || connectedDocumentId !== id || document.value !== current || toValue(documentId) !== id || !enabled()) {
+            throw realtimeErrorDiagnostics.REALTIME_R0011({ message: "The realtime document is no longer connected to this checkpoint." })
+          }
           if (isRealtimeCheckpoint(result)) return result
           throw Object.assign(realtimeErrorDiagnostics.REALTIME_R0012({ message: "The realtime checkpoint response was invalid." }), {
             data: result,
             statusCode: response.status,
           })
         }
-        const data: unknown = await response.json().catch(() => undefined)
+        const data = await readResponse()
+        if (controller.signal.aborted || connectedDocumentId !== id || document.value !== current || toValue(documentId) !== id || !enabled()) {
+          throw realtimeErrorDiagnostics.REALTIME_R0011({ message: "The realtime document is no longer connected to this checkpoint." })
+        }
         const errorData = isRecord(data) ? data : undefined
         const nestedData = isRecord(errorData?.data) ? errorData.data : undefined
         const message = isString(errorData?.statusMessage) && errorData.statusMessage
