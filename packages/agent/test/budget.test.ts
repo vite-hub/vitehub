@@ -11,6 +11,46 @@ const record = (value: unknown): Record<string, unknown> | undefined =>
   value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined
 
 describe("budget Capability", () => {
+  it("emits fallback usage and every finish before a UI source closes or fails", async () => {
+    const { budget } = await import("../src/capabilities.ts")
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    let sourceController: ReadableStreamDefaultController<unknown> | undefined
+    const agent = defineAgent({
+      capabilities: [budget({ tokens: 10, pricing: false })],
+      driver: {
+        run: () => Object.freeze({
+          usage: { inputTokens: 8, outputTokens: 4, totalTokens: 12 },
+          fullStream: (async function* () { yield { type: "finish" } })(),
+          toUIMessageStream: () => new ReadableStream<unknown>({
+            start(controller) {
+              sourceController = controller
+              controller.enqueue({ type: "finish", reason: "first" })
+              controller.enqueue({ type: "finish", reason: "second" })
+            },
+          }),
+        }),
+      },
+    })
+    // SAFETY: This fixture's Driver exposes the UI message stream inspected below.
+    const result = await runAgent(agent, runtime(), { prompt: "hello" }) as {
+      toUIMessageStream: () => ReadableStream<unknown>
+    }
+    const reader = result.toUIMessageStream().getReader()
+    try {
+      expect((await reader.read()).value).toMatchObject({
+        type: "usage", usageRecord: { usage: { totalTokens: 12 } },
+      })
+      expect((await reader.read()).value).toEqual({ type: "finish", reason: "first" })
+      expect((await reader.read()).value).toEqual({ type: "finish", reason: "second" })
+      const failure = new Error("source failed after finish")
+      sourceController!.error(failure)
+      await expect(reader.read()).rejects.toThrow("source failed after finish")
+    }
+    finally {
+      await reader.cancel().catch(() => {})
+    }
+  }, 15_000)
+
   it("accepts provider usage records backed by getters on a prototype", async () => {
     const { budget } = await import("../src/capabilities.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")
