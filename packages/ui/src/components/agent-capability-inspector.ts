@@ -3,6 +3,7 @@ import type { Spec } from "@json-render/core";
 import { computed, defineComponent, h, ref, watch, type PropType, type VNodeChild } from "vue";
 import { invocationActivities, invocationToolUsage } from "../internal/invocation-activity.ts";
 import { hasRuntimeType } from "../internal/runtime-type.ts";
+import { payloadText } from "../internal/payload-text.ts";
 import { AgentToolList } from "./agent-tool-list.ts";
 import type { AgentInvocationView } from "../types.ts";
 
@@ -137,8 +138,8 @@ export const AgentCapabilityInspector = defineComponent({
                 ? "This view is unavailable. Recorded tools and data are shown below."
                 : "Inspection data was not recorded. Configuration capture may be disabled for this run.") : null,
               tools.value.length ? h(AgentToolList, { calls: calls.value, onSelect: selectTool, tools: tools.value }) : null,
-              selected.value.inspection?.state ? h("pre", JSON.stringify(selected.value.inspection.state, null, 2)) : null,
-              selected.value.metadata ? h("details", [h("summary", "Configuration"), h("pre", JSON.stringify(selected.value.metadata, null, 2))]) : null,
+              selected.value.inspection?.state ? h("pre", payloadText(selected.value.inspection.state)) : null,
+              selected.value.metadata ? h("details", [h("summary", "Configuration"), h("pre", payloadText(selected.value.metadata))]) : null,
               !tools.value.length && !selected.value.metadata && !selected.value.inspection ? h("p", "No tools or configuration recorded.") : null,
             ],
       ]) : null,
