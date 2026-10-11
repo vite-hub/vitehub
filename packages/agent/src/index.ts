@@ -5159,6 +5159,7 @@ function withEagerStreamUsageExtensions<
       runtime: context.runtimeContext,
       toolResults: [...context.toolResults],
     } satisfies Omit<AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>, "extensions">
+    // SAFETY: The event and eager providers share this invocation's normalized Agent runtime and call-option contracts.
     await createAgentInvocationExtensions(eventBase as never, providers)
     assignResolvedUsageRecord(result, usage)
     // Keep deferred usage observable to stream consumers even when the provider
