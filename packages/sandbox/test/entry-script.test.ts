@@ -250,6 +250,19 @@ describe("package entry result transport", () => {
     })
   })
 
+  it("counts result toJSON replacements toward maxDepth", async () => {
+    const execution = await executePackageEntry([
+      `export default async function () {`,
+      `  return { toJSON() { return { nested: true } } }`,
+      `}`,
+      ``,
+    ].join("\n"), { transfer: { maxDepth: 0, maxSidecars: 64, maxSidecarBytes: 64 * 1024 * 1024 } })
+
+    expect(execution.code).not.toBe(0)
+    expect(execution.output.error?.code).toBe("SANDBOX_TRANSFER_LIMIT")
+    expect(execution.output.error?.message).toContain("maxDepth")
+  })
+
   it("applies array result toJSON before walking its elements", async () => {
     const execution = await executePackageEntry([
       `class Values extends Array {`,

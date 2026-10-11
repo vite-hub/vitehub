@@ -133,7 +133,7 @@ export function createEntrySource(
     `    } }`,
     `  }`,
     `  if (value && typeof value === 'object' && applyToJSON && typeof value.toJSON === 'function')`,
-    `    return await extractValue(Reflect.apply(value.toJSON, value, [key]), assetsDir, state, ancestors, key, false, depth)`,
+    `    return await extractValue(Reflect.apply(value.toJSON, value, [key]), assetsDir, state, ancestors, key, false, depth + 1)`,
     `  if (Array.isArray(value)) {`,
     `    if (ancestors.has(value))`,
     `      throw new TypeError('Sandbox result must be JSON-serializable; cyclic value.')`,
