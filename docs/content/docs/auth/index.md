@@ -85,7 +85,7 @@ icon: i-lucide-shield-check
   Return a concrete Better Auth adapter to persist sessions.
   :::
 
-  :::product-feature-item{title="Map the signed-in user to an Agent Invoker" icon="i-lucide-bot" to="/docs/getting-started/concepts/auth-users-and-agent-invokers"}
+  :::product-feature-item{title="Map the signed-in user to an Agent Invoker" icon="i-lucide-bot" to="/docs/agents/invokers"}
   `authenticated()` maps the session to an `authUser` Invoker.
   :::
 
