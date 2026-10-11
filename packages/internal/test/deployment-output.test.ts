@@ -1684,6 +1684,41 @@ describe("provider deployment outputs", () => {
     })).resolves.toBeUndefined()
   })
 
+  it("requires duplicated peer dependencies when the peer is not optional", async () => {
+    const rootDir = await createTempProject()
+    const outputNodeModules = join(rootDir, ".output", "server", "node_modules")
+    await writePackage(rootDir, "runtime-package", {
+      optionalDependencies: { "required-peer": "1.0.0" },
+      peerDependencies: { "required-peer": "1.0.0" },
+    })
+    const { copyNodeRuntimePackages } = await import("../src/build/vercel-runtime-packages.ts")
+
+    await expect(copyNodeRuntimePackages({
+      outputNodeModules,
+      packages: [{ includePeerDependencies: true, name: "runtime-package" }],
+      rootDir,
+    })).rejects.toMatchObject({
+      code: "INTERNAL_B0046",
+    })
+  })
+
+  it("keeps duplicated optional peer dependencies optional", async () => {
+    const rootDir = await createTempProject()
+    const outputNodeModules = join(rootDir, ".output", "server", "node_modules")
+    await writePackage(rootDir, "runtime-package", {
+      optionalDependencies: { "optional-peer": "1.0.0" },
+      peerDependencies: { "optional-peer": "1.0.0" },
+      peerDependenciesMeta: { "optional-peer": { optional: true } },
+    })
+    const { copyNodeRuntimePackages } = await import("../src/build/vercel-runtime-packages.ts")
+
+    await expect(copyNodeRuntimePackages({
+      outputNodeModules,
+      packages: [{ includePeerDependencies: true, name: "runtime-package" }],
+      rootDir,
+    })).resolves.toBeUndefined()
+  })
+
   it("copies cyclic Node runtime package dependencies once", async () => {
     const rootDir = await createTempProject()
     const outputNodeModules = join(rootDir, ".output", "server", "node_modules")

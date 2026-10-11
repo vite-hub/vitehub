@@ -119,9 +119,13 @@ async function copyPackageToNodeModules(
   const dependencyNames = new Set(Object.keys(packageJson.dependencies || {}))
   const optionalDependencyNames = new Set(Object.keys(packageJson.optionalDependencies || {}))
   for (const dependencyName of optionalDependencyNames) dependencyNames.add(dependencyName)
+  const requiredPeerDependencyNames = new Set<string>()
   if (options.includePeerDependencies) {
     for (const dependencyName of Object.keys(packageJson.peerDependencies || {})) {
-      if (!packageJson.peerDependenciesMeta?.[dependencyName]?.optional) dependencyNames.add(dependencyName)
+      if (!packageJson.peerDependenciesMeta?.[dependencyName]?.optional) {
+        dependencyNames.add(dependencyName)
+        requiredPeerDependencyNames.add(dependencyName)
+      }
     }
   }
 
@@ -129,7 +133,7 @@ async function copyPackageToNodeModules(
     await copyPackageToNodeModules(dependencyName, packageRequire, packageDir, outputNodeModules, copied, expanded, {
       includePeerDependencies: options.includePeerDependencies,
       name: dependencyName,
-      optional: optionalDependencyNames.has(dependencyName),
+      optional: optionalDependencyNames.has(dependencyName) && !requiredPeerDependencyNames.has(dependencyName),
     })
   }
 }
