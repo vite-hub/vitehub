@@ -1,6 +1,6 @@
 import { resolveAgentInstructions } from "./agent-instructions.ts"
 import { asUnknownBoundary, hasRuntimeType } from "./internal/runtime-type.ts"
-import { formatRuntimeDiagnosticError } from "@vite-hub/runtime"
+import { formatRuntimeDiagnosticError, type ExecutionBudget } from "@vite-hub/runtime"
 import { readAgentErrorProperty } from "./agent-error.ts"
 import { getMessageText, isAttachmentData, isAttachmentPart, resolveAttachmentData } from "./messages.ts"
 import {
@@ -936,10 +936,37 @@ function withRuntimeContext(settings: Record<string, unknown>, context: AgentAda
   }
 }
 
-function createUsageCapture() {
+const MODEL_TOKEN_BYTES_ESTIMATE = 4
+
+function usageTokenCount(usage: unknown, key: "inputTokens" | "outputTokens"): number | undefined {
+  if (!usage || !hasRuntimeType(usage, "object")) return
+  const value = (usage as Record<string, unknown>)[key]
+  if (hasRuntimeType(value, "number") && Number.isFinite(value) && value >= 0) return Math.ceil(value)
+  if (value && hasRuntimeType(value, "object")) {
+    const total = (value as Record<string, unknown>).total
+    if (hasRuntimeType(total, "number") && Number.isFinite(total) && total >= 0) return Math.ceil(total)
+  }
+}
+
+function createUsageCapture(executionBudget?: ExecutionBudget) {
   let captured = false
   let capturedUsage: unknown
   let metadataSource: unknown
+  let modelCallbackSeen = false
+  let inputUsageReported = false
+  let outputUsageReported = false
+
+  const accountUsage = (usage: unknown, options: { input?: boolean, output?: boolean } = {}) => {
+    const inputTokens = usageTokenCount(usage, "inputTokens")
+    const outputTokens = usageTokenCount(usage, "outputTokens")
+    if (inputTokens !== undefined && options.input !== false) {
+      executionBudget?.recordInputBytes(inputTokens * MODEL_TOKEN_BYTES_ESTIMATE)
+    }
+    if (outputTokens !== undefined && options.output !== false) {
+      executionBudget?.recordOutputBytes(outputTokens * MODEL_TOKEN_BYTES_ESTIMATE)
+    }
+    return { inputReported: inputTokens !== undefined, outputReported: outputTokens !== undefined }
+  }
 
   const capture = (event: unknown) => {
     // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
@@ -954,12 +981,20 @@ function createUsageCapture() {
   return {
     async onEnd(event: unknown) {
       capture(event)
+      // Some AI SDK model adapters only report usage on the final callback.
+      accountUsage(capturedUsage, modelCallbackSeen
+        ? { input: !inputUsageReported, output: !outputUsageReported }
+        : undefined)
     },
     async onStepEnd(event: unknown) {
       capture(event)
     },
     async onLanguageModelCallEnd(event: unknown) {
+      modelCallbackSeen = true
       capture(event)
+      const reported = accountUsage(capturedUsage)
+      inputUsageReported ||= reported.inputReported
+      outputUsageReported ||= reported.outputReported
     },
     get captured() {
       return captured
@@ -1357,7 +1392,7 @@ async function createAgent(
         if (toolCall.providerExecuted || !Object.hasOwn(tools, toolCall.toolName)) return null
         try {
           const schema = await inputSchema({ toolName: toolCall.toolName })
-          const usageCapture = createUsageCapture()
+          const usageCapture = createUsageCapture(context.executionBudget)
           toolRepairUsageCaptures.push(usageCapture)
           // SAFETY: AI SDK adapter normalization establishes the ToolLoopAgent settings contract assembled below.
           const toolRepairAgent = new ToolLoopAgent({
@@ -1485,11 +1520,11 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
         await reportWorkspaceMaterialization(tools as AgentToolSet, context.toolStepReporter)
       }
-      const usageCapture = createUsageCapture()
+      const usageCapture = createUsageCapture(context.executionBudget)
       const repairUsageCaptures: Array<ReturnType<typeof createUsageCapture>> = []
-      const fallbackUsageCapture = createUsageCapture()
+      const fallbackUsageCapture = createUsageCapture(context.executionBudget)
       const repairCallInput = () => {
-        const usageCapture = createUsageCapture()
+        const usageCapture = createUsageCapture(context.executionBudget)
         repairUsageCaptures.push(usageCapture)
         return {
           ...callInput,
@@ -1647,7 +1682,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
     name: "ai-sdk",
     ...(staticTools ? { tools: staticTools } : {}),
     async stream(context) {
-      const usageCapture = createUsageCapture()
+      const usageCapture = createUsageCapture(context.executionBudget)
       const execution = options.execution
       const fallback = getFallbackOptions(execution?.workspaceFallback)
       const fallbackCapture = fallback.enabled

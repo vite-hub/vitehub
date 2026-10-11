@@ -8,6 +8,7 @@ import { bindMessageChannelInstructions, inheritMessageChannelInstructions, mark
 import { createAgentInvocationContextStore } from "../src/invocation-context.ts"
 import { createMessage } from "../src/messages.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/server.ts"
+import { createExecutionBudget } from "@vite-hub/runtime"
 
 import type { AgentRuntimeContext } from "../src/index.ts"
 
@@ -445,6 +446,35 @@ describe("Channel instructions", () => {
       outputInstructions,
     ])
     expect(systemMessages[0]!.content).not.toContain("Injected Channel instructions.")
+  })
+
+  it("charges model usage against the Invocation execution budget", async () => {
+    const budget = createExecutionBudget()
+    try {
+      const model = createModel()
+      const adapter = createAiSdkAdapter({
+        // SAFETY: createModel implements the AI SDK methods exercised by this test.
+        model: model as never,
+      })
+      const invoker = { id: "budget-test", kind: "user" }
+
+      await adapter.generate({
+        actor: invoker,
+        context: createAgentInvocationContextStore(),
+        executionBudget: budget,
+        input: {},
+        invoker,
+        messages: [createMessage({ role: "user", text: "Count this input." })],
+        runtime,
+      } as never)
+
+      // AI SDK reports tokens, so the adapter charges the documented four-byte
+      // estimate per token for both input and output.
+      expect(budget.snapshot().usage).toMatchObject({ inputBytes: 12, outputBytes: 4 })
+    }
+    finally {
+      budget.dispose()
+    }
   })
 
   it("does not apply final-response guidance to auxiliary model calls", async () => {
