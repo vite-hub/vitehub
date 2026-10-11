@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -45,5 +45,14 @@ describe("provision state", () => {
     await writeProvisionState(rootDir, { cloudflare: { d1: { primary: "id-1" } } })
     const raw = await readFile(join(rootDir, ".vitehub", "provision.json"), "utf8")
     expect(raw).not.toMatch(/token|secret/i)
+  })
+
+  it("preserves provision categories and identifiers named __proto__", async () => {
+    const rootDir = await createTempDir()
+    await mkdir(join(rootDir, ".vitehub"), { recursive: true })
+    await writeFile(join(rootDir, ".vitehub", "provision.json"), '{"cloudflare":{"__proto__":{"__proto__":"id-prototype"}}}')
+
+    const state = await readProvisionState(rootDir)
+    expect(readProvisionedId(state, "cloudflare", "__proto__", "__proto__")).toBe("id-prototype")
   })
 })
