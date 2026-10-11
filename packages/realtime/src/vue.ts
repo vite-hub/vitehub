@@ -70,11 +70,14 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
   const synced = ref(false)
   const checkpointRequests = ref(0)
   const pendingWorkspaceChanges: RealtimeWorkspaceChange[] = []
+  const checkpointControllers = new Set<AbortController>()
   let connectedDocumentId: string | undefined
   let workspaceChangeTimer: ReturnType<typeof setTimeout> | undefined
   const enabled = () => options.enabled === undefined || toValue(options.enabled)
 
   function destroyDocument() {
+    for (const controller of checkpointControllers) controller.abort()
+    checkpointControllers.clear()
     connectedDocumentId = undefined
     provider.value?.destroy()
     document.value?.destroy()
@@ -151,6 +154,8 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
   async function checkpoint(): Promise<RealtimeCheckpoint> {
     if (!enabled()) throw realtimeErrorDiagnostics.REALTIME_R0009({ message: "Realtime is disabled." })
     checkpointRequests.value++
+    const controller = new AbortController()
+    checkpointControllers.add(controller)
     try {
       const id = toValue(documentId)
       if (!id) throw realtimeErrorDiagnostics.REALTIME_R0010({ message: "A realtime document is required before creating a checkpoint." })
@@ -160,10 +165,20 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
         if (!current || connectedDocumentId !== id || document.value !== current || toValue(documentId) !== id || !enabled()) {
           throw realtimeErrorDiagnostics.REALTIME_R0011({ message: "The realtime document is no longer connected to this checkpoint." })
         }
-        const response = await fetch(resolveRealtimeApplicationPath(`/api/_vitehub/realtime/${encodeURIComponent(definition)}/${room}?history=checkpoint`), {
-          body: Uint8Array.from(Y.encodeStateAsUpdate(current)).buffer,
-          method: "POST",
-        })
+        let response: Response
+        try {
+          response = await fetch(resolveRealtimeApplicationPath(`/api/_vitehub/realtime/${encodeURIComponent(definition)}/${room}?history=checkpoint`), {
+            body: Uint8Array.from(Y.encodeStateAsUpdate(current)).buffer,
+            method: "POST",
+            signal: controller.signal,
+          })
+        }
+        catch (error) {
+          if (controller.signal.aborted) {
+            throw realtimeErrorDiagnostics.REALTIME_R0011({ message: "The realtime document is no longer connected to this checkpoint." })
+          }
+          throw error
+        }
         if (response.ok) {
           const result: unknown = await response.json().catch(() => undefined)
           if (isRealtimeCheckpoint(result)) return result
@@ -189,6 +204,7 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
       }
     }
     finally {
+      checkpointControllers.delete(controller)
       checkpointRequests.value--
     }
   }
