@@ -162,11 +162,16 @@ it does not call the provider. To run the readiness probe, expose the authentica
 Console status endpoint and select the Agent, for example:
 
 ```bash
-curl -H "Authorization: Bearer $VITEHUB_CONSOLE_TOKEN" \
+curl -H "Cookie: $VITEHUB_CONSOLE_COOKIE" \
   'http://localhost:5173/api/_vitehub/console/status?agent=support'
 ```
 
-This calls `agent.status()`. A `ready` status means the provider probe found
+`VITEHUB_CONSOLE_COOKIE` is the cookie copied from a signed-in Console session
+(`vitehub_console.session_token`, with a `__Secure-` prefix over HTTPS). If the
+host uses a separate bearer policy, send its accepted header instead:
+`curl -H "Authorization: $VITEHUB_CONSOLE_AUTHORIZATION" ...`. These are CLI
+environment variables; `VITEHUB_CONSOLE_TOKEN` is not a ViteHub setting. This
+calls `agent.status()`. A `ready` status means the provider probe found
 enough executable, authentication, and quota evidence. It does not run an Agent
 turn. See [Provider status](/docs/agents/provider-status) for Console access and
 response details.
