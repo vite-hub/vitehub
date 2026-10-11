@@ -18,7 +18,9 @@ describe("budget Capability", () => {
     const agent = defineAgent({
       capabilities: [budget({ tokens: 10, pricing: false })],
       driver: {
-        run: () => Object.freeze({
+        run: () => ({
+          // Keep the result surface configurable so stream cleanup can attach
+          // resolved usage before the source reports its post-finish failure.
           usage: { inputTokens: 8, outputTokens: 4, totalTokens: 12 },
           fullStream: (async function* () { yield { type: "finish" } })(),
           toUIMessageStream: () => new ReadableStream<unknown>({
