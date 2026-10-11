@@ -136,6 +136,7 @@ private response data.
 | `PROVIDER_QUOTA_EXHAUSTED` | The account or project has no remaining provider quota. |
 | `PROVIDER_RATE_LIMITED` | The provider returned a temporary rate limit. |
 | `PROVIDER_UNAVAILABLE` | The provider returned a server or availability failure. |
+| `AGENT_BUDGET_EXCEEDED` | An Invocation used more tokens or estimated USD than its `budget` policy allows in `enforce` mode. `details.limits` contains the configured token and USD limits. `details.exceeded` lists each metric with its `actual` usage and `limit`. |
 | `APPROVAL_REQUIRED` | A Capability needs approval before it can continue. `requestId` identifies the approval request when available. |
 | `HOST_RESTARTED` | The host restarted while an inline Chat invocation ran. `details.retry` is `pending` when ViteHub retries the message after the restart, or `exhausted` after a second interruption. |
 | `AUTHENTICATION_REQUIRED`, `RATE_LIMIT_*`, `LLM_GATE_REJECTED`, `CAPABILITY_*`, `TRANSCRIPTION_*` | ViteHub recognized a public application or Capability failure. |
@@ -148,6 +149,8 @@ timestamp. Unrecognized, unparseable, or ambiguous reset text is omitted. Zone
 abbreviations with multiple regional meanings, such as `IST`, `BST`, and `CST`,
 are ambiguous without provider locale context. A time without
 a zone is read in the server's local time zone.
+
+`AGENT_BUDGET_EXCEEDED` is raised after the Driver reports usage. Treat it as a terminal result for that Invocation, record the `details.exceeded` metrics, and start a new Invocation after changing the policy or input. The error cannot undo a provider request that already ran. When usage has no provider cost, a USD limit is compared only when the pricing resolver can estimate it; an unknown cost does not exceed the policy.
 
 The mapper includes only bounded identifiers, categories, retry delays, reset
 times, and request IDs. It replaces unknown errors with a context-specific `INTERNAL`
