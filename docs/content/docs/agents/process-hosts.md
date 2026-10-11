@@ -145,11 +145,16 @@ policy. `agentHostRoutes()` generates opt-in GET and HEAD routes from named
 exports:
 
 ```ts [vite.config.ts]
+import { defineConfig } from 'vite'
 import { agentHostRoutes } from 'vite-hub/agent/vite'
 
-agentHostRoutes({
-  entry: './server/health.ts',
-  health: 'health',
+export default defineConfig({
+  plugins: [
+    agentHostRoutes({
+      entry: './server/health.ts',
+      health: 'health',
+    }),
+  ],
 })
 ```
 
