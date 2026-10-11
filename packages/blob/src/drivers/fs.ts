@@ -5,6 +5,7 @@ import { object, optional, parse, record, string } from "valibot"
 
 import type { BlobDriverAdapter, BlobDriverMultipartUpload, BlobListOptions, BlobListResult, BlobMultipartOptions, BlobObject, BlobPutBody, BlobPutOptions, ResolvedFsBlobStoreConfig } from "../types.ts"
 import { blobErrorDiagnostics } from "../error-diagnostics.ts"
+import isBlob from "../internal/is-blob.ts"
 
 interface FsMultipartState {
   contentType?: string
@@ -383,7 +384,7 @@ export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdap
       await mkdir(dirname(path), { recursive: true })
       await writeFile(path, bytes)
       await writeMetadata(root, pathname, {
-        contentType: putOptions.contentType || (body instanceof Blob ? body.type : undefined),
+        contentType: putOptions.contentType || (isBlob(body) ? body.type : undefined),
         customMetadata: putOptions.customMetadata,
       })
       const entry = await readEntry(root, pathname)

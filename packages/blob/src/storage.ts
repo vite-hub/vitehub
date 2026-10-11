@@ -4,6 +4,7 @@ import { toArray } from "@vite-hub/internal/arrays"
 
 import { blobError, blobResult } from "./errors.ts"
 import { handleBlobMultipartUpload, handleBlobUpload } from "./upload.ts"
+import isBlob from "./internal/is-blob.ts"
 
 // Generated provider runtime modules import the handlers from this entry.
 export { handleBlobMultipartUpload, handleBlobUpload }
@@ -149,7 +150,7 @@ export function createBlobStorage(driver: BlobDriverAdapter<any>, store: string 
     },
     async put(pathname: string, body: BlobPutBody, options: BlobPutOptions = {}) {
       const normalizedPath = normalizeBlobPath(normalizePathname(pathname), options)
-      const contentType = options.contentType || (body instanceof Blob ? body.type : undefined) || guessContentType(normalizedPath)
+      const contentType = options.contentType || (isBlob(body) ? body.type : undefined) || guessContentType(normalizedPath)
       return blobResult("put", store, () => driver.put(normalizedPath, body, {
         ...options,
         contentType,
