@@ -7,6 +7,10 @@ export type ShellObservationEvent =
 export interface ShellRuntimeExecOptions {
   cwd?: string
   env?: Record<string, string>
+  /** Abort the command and any provider-owned work, such as a Source request. */
+  signal?: AbortSignal
+  /** A provider may enforce this before buffering output. The runtime always enforces its policy limit. */
+  maxOutputLength?: number
   onStderr?: (data: string) => void
   onStdout?: (data: string) => void
   stdin?: string
@@ -71,12 +75,24 @@ export interface ShellBoundary {
     enforcedBy: "provider" | "runtime" | "unsupported"
     supported: boolean
   }
+  /** Provider execution details that callers can inspect without knowing the host implementation. */
+  execution?: {
+    isolation: "in_process" | "process" | "provider_managed" | "unknown"
+    model: "virtual" | "host" | "unknown"
+  }
+  /** Resource controls that this provider can enforce before buffering work. */
+  resources?: {
+    output: {
+      enforcedBy: "provider" | "runtime" | "unsupported"
+      unit: "characters"
+    }
+  }
 }
 
 export interface ShellProcess {
-  id: string
-  command: string
-  cwd?: string
+  readonly id: string
+  readonly command: string
+  readonly cwd?: string
   stop(): Promise<ShellObservation>
 }
 
