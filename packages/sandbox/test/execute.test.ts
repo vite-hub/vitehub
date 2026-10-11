@@ -611,6 +611,30 @@ describe("executeSandboxDefinition", () => {
     })
   })
 
+  it("classifies a payload toJSON getter failure as a serialization error", async () => {
+    const { sandbox } = createFakeSandbox()
+    const payload = Object.defineProperty({}, "toJSON", {
+      enumerable: true,
+      get() { throw new Error("broken JSON getter") },
+    })
+
+    await expect(executeSandboxDefinition(
+      sandbox,
+      "invalid-json-getter",
+      undefined,
+      {
+        entry: "definition.mjs",
+        execution: "module",
+        modules: { "definition.mjs": "export default async () => true" },
+      },
+      payload,
+      {},
+    )).rejects.toMatchObject({
+      code: "SANDBOX_SERIALIZATION_ERROR",
+      cause: expect.objectContaining({ message: "broken JSON getter" }),
+    })
+  })
+
   it("classifies payload traversal failures as serialization errors", async () => {
     const { sandbox } = createFakeSandbox()
     const payload = Object.defineProperty({}, "broken", {
