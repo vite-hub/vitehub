@@ -11,11 +11,13 @@ function channelError(message: string): Error {
 
 export function toChannelSendError(cause: unknown): Error {
   try {
-    if (cause instanceof Error) return cause
-    if (cause !== null && typeof cause === "object" && Object.prototype.toString.call(cause) === "[object Error]") {
-      // SAFETY: Error objects from another realm have the same standard Error shape.
-      return cause as Error
-    }
+    const isError = "isError" in Error && typeof Error.isError === "function"
+      ? Error.isError(cause) === true
+      : cause instanceof Error || (cause !== null && typeof cause === "object"
+          && Object.getPrototypeOf(cause) !== Object.prototype
+          && Object.getPrototypeOf(cause) !== null
+          && Object.prototype.toString.call(cause) === "[object Error]")
+    if (isError) return cause as Error
     return new Error(String(cause))
   }
   catch {

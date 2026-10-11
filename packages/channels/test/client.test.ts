@@ -25,6 +25,24 @@ describe("createChannel", () => {
     }
   })
 
+  it("wraps objects that spoof the Error brand", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => {})
+    const failure = { message: "spoofed", [Symbol.toStringTag]: "Error" }
+    try {
+      const channel = createChannel("alerts", {
+        connectors: { configured: { send: async () => { throw failure } } },
+      })
+
+      const [error, receipt] = await channel.send("Build finished.", { connector: "configured" })
+      expect(error).toBeInstanceOf(Error)
+      expect(error).not.toBe(failure)
+      expect(receipt).toBeNull()
+    }
+    finally {
+      info.mockRestore()
+    }
+  })
+
   it("preserves connector option instances and their private state", async () => {
     class Destination {
       #id = "room-1"
