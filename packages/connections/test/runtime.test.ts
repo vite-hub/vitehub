@@ -544,6 +544,21 @@ describe("calls", () => {
     expect(rotations).toBe(1)
   })
 
+  it("maps malformed successful provider JSON to a Connection error", async () => {
+    const test = createTestRuntime()
+    await connect(test)
+    const runtime = createConnectionsRuntime({
+      definitions: { mail: mailConnection() },
+      fetch: async (input, init) => String(input) === "https://mail.example.com/mail/v1/users/me/labels"
+        ? new Response("truncated response", { status: 200 })
+        : await test.provider.fetch(input, init),
+      now: () => test.now.value,
+      store: test.store,
+    })
+    await expect(runtime.client("mail", {}).call("mail.labels.list", { userId: "me" }))
+      .rejects.toMatchObject({ code: "CONNECTION_PROVIDER", message: "Provider returned invalid JSON." })
+  })
+
   it("marks the Connection for reauthorization after invalid_grant", async () => {
     const test = createTestRuntime()
     await connect(test)

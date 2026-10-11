@@ -653,11 +653,15 @@ describe("Schedule Run bookkeeping", () => {
       }),
     })
     await schedules.dynamic.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
+    const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
+    const first = await schedules.run("schedule-1", { scheduledAt })
     await schedules.disable("schedule-1")
 
-    await expect(schedules.run("schedule-1")).rejects.toMatchObject({
+    await expect(schedules.run("schedule-1", { scheduledAt })).rejects.toMatchObject({
       code: "SCHEDULE_DISABLED",
     })
+    await schedules.enable("schedule-1")
+    await expect(schedules.run("schedule-1", { scheduledAt })).resolves.toEqual(first)
   })
 
   it("returns an existing run before revalidating a Runtime Schedule", async () => {

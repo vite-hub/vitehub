@@ -1,7 +1,12 @@
 import { afterEach, expect, it, vi } from "vitest"
+import { posthogAgentExporter } from "../src/evlog/posthog.ts"
 import { posthog } from "../src/observability/posthog.ts"
 
 afterEach(() => vi.unstubAllGlobals())
+
+it("keeps the deprecated evlog exporter as an alias", () => {
+  expect(posthogAgentExporter).toBe(posthog)
+})
 
 it("requires an acknowledgement and preserves retry identities", async () => {
   const fetch = vi.fn().mockResolvedValueOnce(new Response("offline", { status: 503 })).mockResolvedValueOnce(Response.json({ status: "Ok" }))

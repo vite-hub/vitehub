@@ -15,7 +15,6 @@ export function rawMarkdownUrl(href: string, domain: string) {
   const pathname = url.pathname.replace(/\/+$/, "") || "/";
   const sourceBacked = pathname === "/docs"
     || pathname.startsWith("/docs/")
-    || pathname.startsWith("/blog/")
     || ["/about", "/contact", "/privacy"].includes(pathname);
   if (url.origin !== site.origin || !sourceBacked) {
     return href;
