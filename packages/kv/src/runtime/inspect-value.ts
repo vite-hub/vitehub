@@ -2,10 +2,14 @@ import * as v from "valibot"
 
 class UnsupportedValueError extends Error {}
 
+function isUint8Array(value: unknown): value is Uint8Array {
+  return ArrayBuffer.isView(value) && Object.prototype.toString.call(value) === "[object Uint8Array]"
+}
+
 export function kvValueType(value: unknown): string {
   if (value === null) return "null"
   if (Array.isArray(value)) return "array"
-  if (value instanceof Uint8Array) return "bytes"
+  if (isUint8Array(value)) return "bytes"
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This reports the stored value representation; it does not validate an input contract.
   return typeof value
 }
@@ -48,7 +52,7 @@ function inspectValue(value: unknown, seen = new WeakSet<object>()): unknown {
 
 /** Encodes one inspection result without running getters or exposing non-JSON object behavior. */
 export function inspectKVValue(value: unknown): { encoding?: "base64", type: string, value: unknown } | undefined {
-  if (value instanceof Uint8Array) return { encoding: "base64", type: "bytes", value: encodeBase64(value) }
+  if (isUint8Array(value)) return { encoding: "base64", type: "bytes", value: encodeBase64(value) }
   try {
     return { type: kvValueType(value), value: inspectValue(value) }
   }

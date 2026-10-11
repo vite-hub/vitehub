@@ -1,3 +1,5 @@
+import vm from "node:vm"
+
 import { describe, expect, it, vi } from "vitest"
 
 import { inspectKVValue } from "../src/runtime/inspect-value.ts"
@@ -11,6 +13,12 @@ describe("KV inspection values", () => {
     expect(inspected?.value).not.toBe(value)
     expect(inspectKVValue(null)).toEqual({ type: "null", value: null })
     expect(inspectKVValue(new Uint8Array([0, 127, 255]))).toEqual({ encoding: "base64", type: "bytes", value: "AH//" })
+  })
+
+  it("recognizes byte arrays from another JavaScript realm", () => {
+    const value = vm.runInNewContext("new Uint8Array([0, 127, 255])")
+    expect(value).not.toBeInstanceOf(Uint8Array)
+    expect(inspectKVValue(value)).toEqual({ encoding: "base64", type: "bytes", value: "AH//" })
   })
 
   it("rejects object behavior without running getters or toJSON", () => {
