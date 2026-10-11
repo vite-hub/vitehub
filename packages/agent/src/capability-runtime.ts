@@ -505,41 +505,150 @@ function isPlainRecord(input: unknown): input is Record<string, unknown> {
   return !!input && hasRuntimeType(input, "object") && !Array.isArray(input)
 }
 
+const objectToString = Object.prototype.toString
+
+function objectTag(value: object): string {
+  try {
+    return objectToString.call(value)
+  }
+  catch {
+    return ""
+  }
+}
+
+function isPlainObjectPrototype(prototype: object | null): boolean {
+  if (prototype === null || objectTag(prototype) !== "[object Object]") return false
+  try {
+    const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+    return typeof constructor === "function"
+      && Function.prototype.toString.call(constructor) === Function.prototype.toString.call(Object)
+  }
+  catch {
+    return false
+  }
+}
+
+function copySnapshotProperties(source: object, target: object, seen: WeakMap<object, unknown>, skip?: PropertyKey): void {
+  for (const key of Reflect.ownKeys(source)) {
+    if (key === skip) continue
+    const descriptor = Object.getOwnPropertyDescriptor(source, key)
+    if (!descriptor) continue
+    if ("value" in descriptor) descriptor.value = snapshotCapabilityData(descriptor.value, seen)
+    Object.defineProperty(target, key, descriptor)
+  }
+}
+
+function snapshotBoxedValue(value: object, tag: string, seen: WeakMap<object, unknown>): object | undefined {
+  let snapshot: object
+  try {
+    switch (tag) {
+      case "[object Number]": snapshot = Object(Number.prototype.valueOf.call(value)); break
+      case "[object String]": snapshot = Object(String.prototype.valueOf.call(value)); break
+      case "[object Boolean]": snapshot = Object(Boolean.prototype.valueOf.call(value)); break
+      case "[object BigInt]": snapshot = Object(BigInt.prototype.valueOf.call(value)); break
+      case "[object Symbol]": snapshot = Object(Symbol.prototype.valueOf.call(value)); break
+      default: return undefined
+    }
+  }
+  catch {
+    return undefined
+  }
+  seen.set(value, snapshot)
+  copySnapshotProperties(value, snapshot, seen)
+  return snapshot
+}
+
 export function snapshotCapabilityData(value: unknown, seen: WeakMap<object, unknown> = new WeakMap()): unknown {
   if (!value || !hasRuntimeType(value, "object")) return value
   const existing = seen.get(value)
   if (existing) return existing
-  if (value instanceof Date) return new Date(value.getTime())
-  if (value instanceof RegExp) {
-    const snapshot = new RegExp(value.source, value.flags)
-    snapshot.lastIndex = value.lastIndex
-    return snapshot
+  const tag = objectTag(value)
+  if (tag === "[object Date]") {
+    try { return new Date((Date.prototype.getTime as (this: object) => number).call(value)) }
+    catch { return value }
   }
-  if (value instanceof URL) return new URL(value.href)
-  if (value instanceof URLSearchParams) return new URLSearchParams(value)
-  if (value instanceof Map) {
+  if (tag === "[object RegExp]") {
+    try {
+      const source = Object.getOwnPropertyDescriptor(RegExp.prototype, "source")!.get!.call(value) as string
+      const flags = Object.getOwnPropertyDescriptor(RegExp.prototype, "flags")!.get!.call(value) as string
+      const snapshot = new RegExp(source, flags)
+      snapshot.lastIndex = Reflect.get(value, "lastIndex") as number
+      return snapshot
+    }
+    catch { return value }
+  }
+  if (tag === "[object URL]") {
+    try {
+      const href = Object.getOwnPropertyDescriptor(URL.prototype, "href")!.get!.call(value) as string
+      return new URL(href)
+    }
+    catch { return value }
+  }
+  if (tag === "[object URLSearchParams]") {
+    try { return new URLSearchParams(URLSearchParams.prototype.toString.call(value)) }
+    catch { return value }
+  }
+  if (tag === "[object ArrayBuffer]") {
+    try {
+      const byteLength = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")!.get!.call(value) as number
+      const snapshot = new ArrayBuffer(byteLength)
+      new Uint8Array(snapshot).set(new Uint8Array(value as ArrayBuffer))
+      return snapshot
+    }
+    catch { return value }
+  }
+  if (tag === "[object SharedArrayBuffer]" && typeof SharedArrayBuffer !== "undefined") {
+    try {
+      const byteLength = Object.getOwnPropertyDescriptor(SharedArrayBuffer.prototype, "byteLength")!.get!.call(value) as number
+      const snapshot = new SharedArrayBuffer(byteLength)
+      new Uint8Array(snapshot).set(new Uint8Array(value as SharedArrayBuffer))
+      return snapshot
+    }
+    catch { return value }
+  }
+  const boxed = snapshotBoxedValue(value, tag, seen)
+  if (boxed) return boxed
+  if (tag === "[object Map]") {
     const snapshot = new Map<unknown, unknown>()
     seen.set(value, snapshot)
-    for (const [key, entry] of value) snapshot.set(snapshotCapabilityData(key, seen), snapshotCapabilityData(entry, seen))
+    try {
+      const entries = Map.prototype.entries.call(value) as Iterable<readonly [unknown, unknown]>
+      for (const [key, entry] of entries) snapshot.set(snapshotCapabilityData(key, seen), snapshotCapabilityData(entry, seen))
+    }
+    catch { return value }
     return snapshot
   }
-  if (value instanceof Set) {
+  if (tag === "[object Set]") {
     const snapshot = new Set<unknown>()
     seen.set(value, snapshot)
-    for (const entry of value) snapshot.add(snapshotCapabilityData(entry, seen))
+    try {
+      const entries = Set.prototype.values.call(value) as Iterable<unknown>
+      for (const entry of entries) snapshot.add(snapshotCapabilityData(entry, seen))
+    }
+    catch { return value }
     return snapshot
   }
   const prototype = Object.getPrototypeOf(value)
-  if (!Array.isArray(value) && prototype !== Object.prototype && prototype !== null) return value
-  const snapshot = Array.isArray(value) ? [] : Object.create(prototype)
+  if (!Array.isArray(value) && !isPlainObjectPrototype(prototype)) return value
+  const snapshot = Array.isArray(value) ? Object.setPrototypeOf([], prototype) : Object.create(prototype)
   seen.set(value, snapshot)
-  for (const key of Reflect.ownKeys(value)) {
-    const descriptor = Object.getOwnPropertyDescriptor(value, key)
-    if (!descriptor) continue
-    if ("value" in descriptor) descriptor.value = snapshotCapabilityData(descriptor.value, seen)
-    Object.defineProperty(snapshot, key, descriptor)
-  }
+  copySnapshotProperties(value, snapshot, seen)
   return snapshot
+}
+
+function compareCapabilityProperties(left: object, right: object, seen: WeakMap<object, object>): boolean {
+  const leftKeys = Reflect.ownKeys(left)
+  const rightKeys = Reflect.ownKeys(right)
+  if (leftKeys.length !== rightKeys.length || leftKeys.some((key, index) => key !== rightKeys[index])) return false
+  return leftKeys.every(key => {
+    const leftDescriptor = Object.getOwnPropertyDescriptor(left, key)
+    const rightDescriptor = Object.getOwnPropertyDescriptor(right, key)
+    if (!leftDescriptor || !rightDescriptor) return false
+    if ("value" in leftDescriptor || "value" in rightDescriptor) {
+      return "value" in leftDescriptor && "value" in rightDescriptor && capabilityDataEqual(leftDescriptor.value, rightDescriptor.value, seen)
+    }
+    return leftDescriptor.get === rightDescriptor.get && leftDescriptor.set === rightDescriptor.set
+  })
 }
 
 function capabilityDataEqual(left: unknown, right: unknown, seen = new WeakMap<object, object>()): boolean {
@@ -548,26 +657,78 @@ function capabilityDataEqual(left: unknown, right: unknown, seen = new WeakMap<o
   const matched = seen.get(left)
   if (matched === right) return true
   seen.set(left, right)
-  if (left instanceof Date || right instanceof Date) return left instanceof Date && right instanceof Date && Object.is(left.getTime(), right.getTime())
-  if (left instanceof RegExp || right instanceof RegExp) return left instanceof RegExp && right instanceof RegExp && left.source === right.source && left.flags === right.flags && left.lastIndex === right.lastIndex
-  if (left instanceof URL || right instanceof URL) return left instanceof URL && right instanceof URL && left.href === right.href
-  if (left instanceof URLSearchParams || right instanceof URLSearchParams) return left instanceof URLSearchParams && right instanceof URLSearchParams && left.toString() === right.toString()
-  if (left instanceof Map || right instanceof Map) {
-    if (!(left instanceof Map) || !(right instanceof Map) || left.size !== right.size) return false
-    const leftEntries = [...left.entries()]
-    const rightEntries = [...right.entries()]
-    return leftEntries.every(([key, value], index) => capabilityDataEqual(key, rightEntries[index]?.[0], seen) && capabilityDataEqual(value, rightEntries[index]?.[1], seen))
+  const leftTag = objectTag(left)
+  const rightTag = objectTag(right)
+  if (leftTag !== rightTag) return false
+  if (leftTag === "[object Date]") {
+    try {
+      const getTime = Date.prototype.getTime as (this: object) => number
+      return Object.is(getTime.call(left), getTime.call(right))
+    }
+    catch { return false }
   }
-  if (left instanceof Set || right instanceof Set) {
-    if (!(left instanceof Set) || !(right instanceof Set) || left.size !== right.size) return false
-    const rightEntries = [...right.values()]
-    return [...left.values()].every((value, index) => capabilityDataEqual(value, rightEntries[index], seen))
+  if (leftTag === "[object RegExp]") {
+    try {
+      const source = Object.getOwnPropertyDescriptor(RegExp.prototype, "source")!.get!
+      const flags = Object.getOwnPropertyDescriptor(RegExp.prototype, "flags")!.get!
+      return source.call(left) === source.call(right) && flags.call(left) === flags.call(right) && Reflect.get(left, "lastIndex") === Reflect.get(right, "lastIndex")
+    }
+    catch { return false }
+  }
+  if (leftTag === "[object URL]") {
+    try {
+      const href = Object.getOwnPropertyDescriptor(URL.prototype, "href")!.get!
+      return href.call(left) === href.call(right)
+    }
+    catch { return false }
+  }
+  if (leftTag === "[object URLSearchParams]") {
+    try { return URLSearchParams.prototype.toString.call(left) === URLSearchParams.prototype.toString.call(right) }
+    catch { return false }
+  }
+  if (leftTag === "[object ArrayBuffer]" || leftTag === "[object SharedArrayBuffer]") {
+    try {
+      const leftBytes = new Uint8Array(left as ArrayBufferLike)
+      const rightBytes = new Uint8Array(right as ArrayBufferLike)
+      return leftBytes.length === rightBytes.length && leftBytes.every((byte, index) => byte === rightBytes[index])
+    }
+    catch { return false }
+  }
+  if (leftTag === "[object Map]") {
+    try {
+      const size = Object.getOwnPropertyDescriptor(Map.prototype, "size")!.get!
+      if (size.call(left) !== size.call(right)) return false
+      const leftEntries = [...Map.prototype.entries.call(left) as Iterable<[unknown, unknown]>]
+      const rightEntries = [...Map.prototype.entries.call(right) as Iterable<[unknown, unknown]>]
+      return leftEntries.every(([key, value], index) => capabilityDataEqual(key, rightEntries[index]?.[0], seen) && capabilityDataEqual(value, rightEntries[index]?.[1], seen))
+    }
+    catch { return false }
+  }
+  if (leftTag === "[object Set]") {
+    try {
+      const size = Object.getOwnPropertyDescriptor(Set.prototype, "size")!.get!
+      if (size.call(left) !== size.call(right)) return false
+      const rightEntries = [...Set.prototype.values.call(right) as Iterable<unknown>]
+      return [...Set.prototype.values.call(left) as Iterable<unknown>].every((value, index) => capabilityDataEqual(value, rightEntries[index], seen))
+    }
+    catch { return false }
+  }
+  if (["[object Number]", "[object String]", "[object Boolean]", "[object BigInt]", "[object Symbol]"].includes(leftTag)) {
+    try {
+      const valueOf = (leftTag === "[object Number]" ? Number.prototype.valueOf
+        : leftTag === "[object String]" ? String.prototype.valueOf
+          : leftTag === "[object Boolean]" ? Boolean.prototype.valueOf
+            : leftTag === "[object BigInt]" ? BigInt.prototype.valueOf
+              : Symbol.prototype.valueOf) as (this: object) => unknown
+      if (!Object.is(valueOf.call(left), valueOf.call(right))) return false
+    }
+    catch { return false }
+    return compareCapabilityProperties(left, right, seen)
   }
   const leftPrototype = Object.getPrototypeOf(left)
   const rightPrototype = Object.getPrototypeOf(right)
-  const isSupportedRecord = (prototype: unknown): boolean => prototype === Object.prototype || prototype === null
   if (Array.isArray(left) !== Array.isArray(right) || leftPrototype !== rightPrototype) return false
-  if (!Array.isArray(left) && !isSupportedRecord(leftPrototype)) return Object.is(left, right)
+  if (!Array.isArray(left) && !isPlainObjectPrototype(leftPrototype)) return Object.is(left, right)
   const leftKeys = Reflect.ownKeys(left)
   const rightKeys = Reflect.ownKeys(right)
   if (leftKeys.length !== rightKeys.length || leftKeys.some((key, index) => key !== rightKeys[index])) return false
