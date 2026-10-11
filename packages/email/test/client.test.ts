@@ -1,3 +1,4 @@
+import { runInNewContext } from "node:vm"
 import { describe, expect, it, vi } from "vitest"
 
 import { ViteHubError } from "@vite-hub/runtime"
@@ -6,6 +7,7 @@ import { emailProviderError } from "../src/provider.ts"
 import { email } from "../src/server.ts"
 
 import type { EmailDriver, EmailMessage } from "../src/index.ts"
+import type { EmailProviderError } from "../src/types.ts"
 
 const message: EmailMessage = {
   attachments: [
@@ -214,6 +216,28 @@ describe("createEmail", () => {
     })
 
     await expect(client.send(message)).rejects.toBe(error)
+  })
+
+  it("maps structurally valid provider errors from another realm", async () => {
+    const cause = runInNewContext(
+      `Object.assign(new Error("slow down"), { code: "RATE_LIMIT", driver: "custom", retryable: true })`,
+    ) as EmailProviderError
+    const client = createEmail({ driver: fixtureDriver(async () => ({ data: null, error: cause })) })
+
+    await expect(client.send(message)).rejects.toMatchObject({
+      code: "EMAIL_RATE_LIMITED",
+      details: { driver: "custom" },
+    })
+  })
+
+  it("does not classify provider-shaped plain objects as errors", async () => {
+    const cause = { code: "RATE_LIMIT", driver: "custom", message: "slow down" } as EmailProviderError
+    const client = createEmail({ driver: fixtureDriver(async () => ({ data: null, error: cause })) })
+
+    await expect(client.send(message)).rejects.toMatchObject({
+      code: "EMAIL_PROVIDER_FAILED",
+      details: { driver: "fixture" },
+    })
   })
 
   it("preserves structurally valid custom provider errors", async () => {
