@@ -4,6 +4,7 @@ import { Socket } from "node:net"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
+import { runInNewContext } from "node:vm"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { createEvent } from "h3-v1"
@@ -376,6 +377,19 @@ describe("framework generated types", () => {
     await expect(readFile(join(root, ".vitehub/types.d.ts"), "utf8")).resolves.toContain(
       `./types/${liveAlias}/local.d.ts`,
     )
+  })
+
+  it("ignores a cross-realm missing alias during traversal", async () => {
+    const { root, viteRoot } = await createNestedProject()
+    const generatedTypes = join(root, ".vitehub/types")
+    const missingAlias = join(generatedTypes, "missing")
+    await mkdir(missingAlias, { recursive: true })
+    generatedTypeDirectoryReadGate.paths = [missingAlias]
+    generatedTypeDirectoryReadGate.error = runInNewContext("Object.assign(new Error('alias replaced'), { code: 'ENOENT' })") as Error
+
+    const plugin = viteHubTypesPlugin()
+    await expect(configResolved(plugin)({ root: viteRoot })).resolves.toBeUndefined()
+    await expect(readFile(join(root, ".vitehub/types.d.ts"), "utf8")).resolves.toBe("export {}\n")
   })
 
   it("refreshes build output and exposes the prepare lifecycle", async () => {
