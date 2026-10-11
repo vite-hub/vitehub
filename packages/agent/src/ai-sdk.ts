@@ -1414,6 +1414,7 @@ async function createAgent(
           const { messages: _messages, options: _options, prompt: _prompt, ...repairCallInput } = resolvedCallInput
           let repairResult: AgentAdapterResult | undefined
           try {
+            context.executionBudget?.recordRetry()
             // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
             repairResult = asUnknownBoundary(await repairAgent.generate({
               ...repairCallInput,

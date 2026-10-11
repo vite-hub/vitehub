@@ -7,7 +7,7 @@ import type {
   AgentToolExecutionContext,
   AgentToolSet,
 } from "../types.ts"
-import type { WorkspaceSession } from "@vite-hub/workspace"
+import type { WorkspaceSession, WorkspaceSessionOptions } from "@vite-hub/workspace"
 import type { ExecutionBudget } from "@vite-hub/runtime"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 
@@ -20,7 +20,7 @@ interface WorkspaceCommandInput {
 }
 
 type WorkspaceCommandWorkspace = {
-  startSession: () => Promise<WorkspaceSession>
+  startSession: (options?: WorkspaceSessionOptions) => Promise<WorkspaceSession>
 }
 
 export interface WorkspaceCommandEntry {
@@ -178,7 +178,7 @@ export async function executeWorkspaceCommand(
     return result
   }
   assertWorkspace(workspace, "[vitehub] Capability command execution requires an execution-capable Workspace Session.")
-  const session = await workspace.startSession()
+  const session = await workspace.startSession({ abortSignal: signal })
   if (session.executionAuthority?.processes === "none") {
     await session.close()
     throw agentDiagnostics.AGENT_R0293({ message: "[vitehub] Capability command execution requires a Workspace Session host that permits processes." })

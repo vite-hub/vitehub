@@ -497,7 +497,7 @@ async function materializeWorkspaceSourcesTool(
   }
 }
 
-function createWriteTools(workspace: Workspace, enabled: ReturnType<typeof resolveWriteOperations>): Partial<WorkspaceWriteToolMap> {
+function createWriteTools(workspace: Workspace, enabled: ReturnType<typeof resolveWriteOperations>, budget?: ExecutionBudget): Partial<WorkspaceWriteToolMap> {
   const result: Partial<WorkspaceWriteToolMap> = {}
 
   if (enabled.writeFile) {
@@ -515,6 +515,7 @@ function createWriteTools(workspace: Workspace, enabled: ReturnType<typeof resol
       }),
       execute: async ({ content, mediaType, path }) => {
         const normalized = cleanMutationPath(path)
+        budget?.recordToolCall(sizeOf(content))
         await workspace.writeFile(normalized, content, { mediaType } satisfies WriteFileOptions)
         return { path: normalized }
       },
@@ -535,6 +536,7 @@ function createWriteTools(workspace: Workspace, enabled: ReturnType<typeof resol
       }),
       execute: async ({ content, path }) => {
         const normalized = cleanMutationPath(path)
+        budget?.recordToolCall(sizeOf(content))
         await appendWorkspaceFile(workspace, normalized, content)
         return { path: normalized }
       },
@@ -556,6 +558,7 @@ function createWriteTools(workspace: Workspace, enabled: ReturnType<typeof resol
       }),
       execute: async ({ force, path, recursive }) => {
         const normalized = cleanMutationPath(path)
+        budget?.recordToolCall()
         await workspace.rm(normalized, { force, recursive })
         return { path: normalized }
       },
@@ -576,6 +579,7 @@ function createWriteTools(workspace: Workspace, enabled: ReturnType<typeof resol
       }),
       execute: async ({ path, recursive }) => {
         const normalized = cleanMutationPath(path)
+        budget?.recordToolCall()
         await workspace.mkdir(normalized, { recursive })
         return { path: normalized }
       },
@@ -598,6 +602,7 @@ function createWriteTools(workspace: Workspace, enabled: ReturnType<typeof resol
       execute: async ({ from, overwrite = false, to }) => {
         const source = cleanMutationPath(from)
         const target = cleanMutationPath(to)
+        budget?.recordToolCall()
         await copyWorkspacePath(workspace, source, target, overwrite)
         return { from: source, to: target }
       },
@@ -620,6 +625,7 @@ function createWriteTools(workspace: Workspace, enabled: ReturnType<typeof resol
       execute: async ({ from, overwrite = false, to }) => {
         const source = cleanMutationPath(from)
         const target = cleanMutationPath(to)
+        budget?.recordToolCall()
         await copyWorkspacePath(workspace, source, target, overwrite)
         await workspace.rm(source, { recursive: true, force: true })
         return { from: source, to: target }
@@ -720,7 +726,7 @@ export function createWorkspaceTools<Operations extends WorkspaceToolOperations 
     }), { icon: "i-lucide-folder-sync", title: "Materialized Workspace sources" })
   }
 
-  if (writeEnabled) Object.assign(result, createWriteTools(input as Workspace, resolved.write))
+  if (writeEnabled) Object.assign(result, createWriteTools(input as Workspace, resolved.write, resolved.budget))
 
   // Resolved flags select the shell, materialize_sources, and write tool contracts declared by WorkspaceTools.
   // SAFETY: These flags match its type parameters; Source requests require an executor and empty configurations throw above.
