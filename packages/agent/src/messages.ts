@@ -139,14 +139,28 @@ export type MessagePart =
   | ToolCallPart
   | ToolResultPart
 
+function isArrayBufferValue(value: unknown): value is ArrayBuffer {
+  if (value instanceof ArrayBuffer) return true
+  try {
+    Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")!.get!.call(value)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function isUint8ArrayValue(value: unknown): value is Uint8Array {
+  return ArrayBuffer.isView(value) && Object.prototype.toString.call(value) === "[object Uint8Array]"
+}
+
 export function isAttachmentData(value: unknown): value is AttachmentData {
   return hasRuntimeType(value, "string")
     ? value.length > 0
-    : value instanceof ArrayBuffer
+    : isArrayBufferValue(value)
       ? value.byteLength > 0
       : value instanceof Blob
         ? value.size > 0
-        : value instanceof Uint8Array && value.byteLength > 0
+        : isUint8ArrayValue(value) && value.byteLength > 0
 }
 
 export function isAttachmentPart(value: unknown): value is AttachmentPart {
