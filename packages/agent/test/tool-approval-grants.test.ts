@@ -39,9 +39,22 @@ describe("tool approval grants", () => {
     expect(grant).toMatchObject({ toolName: "email_send" })
     expect(Object.isFrozen(grant)).toBe(true)
     expect(approveAgentToolRequest(request)).toBeUndefined()
-    await expect(executeApprovedAgentTool(tool, grant)).resolves.toBe(input)
+    await expect(executeApprovedAgentTool(tool, grant)).resolves.toEqual(input)
     expect(execute).toHaveBeenCalledExactlyOnceWith(input, expect.any(Object))
     await expect(executeApprovedAgentTool(tool, grant)).rejects.toMatchObject({ code: "APPROVAL_REQUIRED" })
+    expect(execute).toHaveBeenCalledOnce()
+  })
+
+  it("snapshots nested approved input separately from the caller and approval request", async () => {
+    const { execute, tool } = approvalTool()
+    const input = { message: { recipients: ["team@example.com"] } }
+    const request = await requestApproval(tool, input) as { input: typeof input }
+    request.input.message.recipients[0] = "changed@example.com"
+    const grant = approveAgentToolRequest(request)!
+    input.message.recipients.push("extra@example.com")
+    request.input = { message: { recipients: ["replacement@example.com"] } }
+
+    await expect(executeApprovedAgentTool(tool, grant)).resolves.toEqual({ message: { recipients: ["team@example.com"] } })
     expect(execute).toHaveBeenCalledOnce()
   })
 

@@ -180,7 +180,7 @@ describe("launch documentation trust boundaries", () => {
     expect(docsLayout).toMatch(
       /v-if="isSupportMatrix"[\s\S]*<AnnouncementBanner \/>[\s\S]*<slot \/>/,
     );
-    expect(appHeader).toContain("isDocsRoute && !isSupportMatrix");
+    expect(appHeader).toContain("container: isDocsRoute ? 'max-w-none' : undefined");
   });
 
   it("keeps launch-facing docs free from stale version and internal process prose", () => {
