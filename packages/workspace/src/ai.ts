@@ -6,6 +6,7 @@ import { getWorkspaceSourceRequestExecution } from "./sources/request-execution.
 import type { Workspace, WorkspaceAssets, WorkspaceMaterializeSourcesResult, WriteFileOptions } from "./core/types.ts"
 import type { JSONSchema7, Schema, Tool, ToolSet } from "ai"
 import type { ExecutionBudget } from "@vite-hub/runtime"
+import { markExecutionBudgetHandled } from "@vite-hub/runtime/internal/execution-budget"
 import { workspaceErrorDiagnostics } from "./error-diagnostics.ts"
 
 export type { WorkspaceMaterializeSourcesResult } from "./core/types.ts"
@@ -675,7 +676,8 @@ export function createWorkspaceTools<Operations extends WorkspaceToolOperations 
         shellCalls += 1
         return await runShellCommand(input, command, resolved)
       },
-    }), { metadata: { vitehubExecutionBudget: "handled" } })
+    }))
+    markExecutionBudgetHandled(result.shell)
   }
 
   if (resolved.materialize) {

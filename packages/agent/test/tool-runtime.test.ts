@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 import { createExecutionBudget } from "@vite-hub/runtime"
+import { markExecutionBudgetHandled } from "@vite-hub/runtime/internal/execution-budget"
 import { inspectAgentTools } from "../src/tool-inspection.ts"
 import { applyAgentToolPolicies, copyToolWithOverrides, withAgentToolExecutionBudget, withAgentToolStepReporting, withJsonCompatibleToolOutputs } from "../src/tool-runtime.ts"
 
@@ -22,14 +23,28 @@ describe("tool execution budgets", () => {
     const execute = vi.fn(async (_input: unknown) => "ok")
     const tool = {
       name: "shell",
-      metadata: { vitehubExecutionBudget: "handled" },
       execute,
     }
-    const tools = withAgentToolExecutionBudget({ shell: tool }, budget)
+    // A caller-provided metadata field must not bypass the budget wrapper.
+    const spoofed = { ...tool, metadata: { vitehubExecutionBudget: "handled" } }
+    const tools = withAgentToolExecutionBudget({ shell: spoofed }, budget)
+
+    await expect(tools.shell.execute?.({})).resolves.toBe("ok")
+    await expect(tools.shell.execute?.({})).rejects.toThrow("toolCalls")
+    expect(execute).toHaveBeenCalledTimes(1)
+    expect(budget.snapshot().usage.toolCalls).toBe(1)
+  })
+
+  it("keeps the internal handled marker through tool preparation wrappers", async () => {
+    const budget = createExecutionBudget({ maxToolCalls: 1 })
+    const tool = { name: "shell", execute: vi.fn(async (_input: unknown) => "ok") }
+    markExecutionBudgetHandled(tool)
+    const prepared = withJsonCompatibleToolOutputs({ shell: tool }).shell
+    const tools = withAgentToolExecutionBudget({ shell: prepared }, budget)
 
     await expect(tools.shell.execute?.({})).resolves.toBe("ok")
     await expect(tools.shell.execute?.({})).resolves.toBe("ok")
-    expect(execute).toHaveBeenCalledTimes(2)
+    expect(tool.execute).toHaveBeenCalledTimes(2)
     expect(budget.snapshot().usage.toolCalls).toBe(0)
   })
 })
