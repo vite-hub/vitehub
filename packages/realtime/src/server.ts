@@ -115,6 +115,53 @@ interface RealtimeRoomSql {
   exec(query: string, ...bindings: unknown[]): { toArray(): Array<Record<string, unknown>> }
 }
 
+interface RealtimeDurableObjectStub {
+  fetch(request: Request): Promise<Response>
+}
+
+interface RealtimeDurableObjectNamespace {
+  get(id: unknown): RealtimeDurableObjectStub
+  idFromName(name: string): unknown
+}
+
+function hasCallableDurableObjectMethod(value: object, name: "get" | "idFromName"): boolean {
+  let owner: object | null = value
+  while (owner && owner !== Object.prototype) {
+    let descriptor: PropertyDescriptor | undefined
+    try {
+      descriptor = Object.getOwnPropertyDescriptor(owner, name)
+    }
+    catch {
+      return false
+    }
+    if (descriptor) {
+      if (owner !== value) {
+        const constructor = Object.getOwnPropertyDescriptor(owner, "constructor")
+        if (!constructor || !("value" in constructor) || typeof constructor.value !== "function" || constructor.value.prototype !== owner) return false
+      }
+      if ("value" in descriptor) return typeof descriptor.value === "function"
+      try {
+        return typeof Reflect.get(value, name) === "function"
+      }
+      catch {
+        return false
+      }
+    }
+    try {
+      owner = Object.getPrototypeOf(owner)
+    }
+    catch {
+      return false
+    }
+  }
+  return false
+}
+
+function isRealtimeDurableObjectNamespace(value: unknown): value is RealtimeDurableObjectNamespace {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return false
+  return hasCallableDurableObjectMethod(value, "get") && hasCallableDurableObjectMethod(value, "idFromName")
+}
+
 export function realtimeRoomKey(definitionName: string, documentId: string): string {
   return JSON.stringify([definitionName, documentId])
 }
@@ -371,11 +418,9 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
   async function forwardToCloudflareDurableObject(event: { context: Record<string, unknown>, req: Request }): Promise<Response | undefined> {
     const cloudflare = resolveCloudflare(event)
     const context = cloudflare?.context
-    const binding = (cloudflare?.env as Record<string, unknown> | undefined)?.$DurableObject as {
-      get(id: unknown): { fetch(request: Request): Promise<Response> }
-      idFromName(name: string): unknown
-    } | undefined
+    const binding = (cloudflare?.env as Record<string, unknown> | undefined)?.$DurableObject
     if (!binding || (typeof context === "object" && context !== null && "storage" in context)) return
+    if (!isRealtimeDurableObjectNamespace(binding)) return
     const { definitionName, documentId, workspaceEvents } = parseRoomPath(event.req.url)
     const key = workspaceEvents
       ? JSON.stringify([definitionName, { workspaceEvents: true }])
