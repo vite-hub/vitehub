@@ -46,7 +46,7 @@ function trimmed(value: unknown): string | undefined {
 
 function isCacheDriver(value: unknown): value is CacheDriver {
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The driver literal comes from user config and is checked before use.
-  return typeof value === "string" && value in cacheDriverPresets
+  return typeof value === "string" && Object.hasOwn(cacheDriverPresets, value)
 }
 
 function readCacheDriver(cache: true | CacheOptions, preset: DeploymentPreset): CacheDriver {
