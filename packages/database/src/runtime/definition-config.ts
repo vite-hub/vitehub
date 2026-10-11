@@ -1,16 +1,12 @@
 import definitionDefaults from "#vitehub/database/definition-defaults"
+import { resolveRuntimeCloudflareConfig } from "../internal/cloudflare.ts"
 
-import type { DatabaseDefinition, RuntimeDrizzleDatabaseConfig } from "../types.ts"
+import type { CloudflareD1Projection, DatabaseDefinition, RuntimeDrizzleDatabaseConfig } from "../types.ts"
 
 interface DatabaseDefinitionDefaults {
   cloudflare?: DatabaseDefinition["cloudflare"]
+  cloudflareProjections?: Record<string, CloudflareD1Projection>
   connection?: DatabaseDefinition["connection"]
-}
-
-function defaultBinding(name: string) {
-  if (name === "default") return "DB"
-  const suffix = name.replace(/[^a-z0-9]+/gi, "_").replace(/^_+|_+$/g, "").replace(/_+/g, "_").toUpperCase()
-  return `DB_${suffix || "DATABASE"}`
 }
 
 function defaultUrl(name: string) {
@@ -22,11 +18,11 @@ export function runtimeConfig(
   definition: DatabaseDefinition,
   defaults: DatabaseDefinitionDefaults = definitionDefaults,
 ): RuntimeDrizzleDatabaseConfig {
-  const cloudflare = definition.cloudflare ?? defaults.cloudflare
-  return {
-    ...(cloudflare
-      ? { cloudflare: { ...cloudflare, binding: cloudflare.binding || defaultBinding(definition.name) } }
-      : {}),
+  const cloudflare = resolveRuntimeCloudflareConfig(defaults.cloudflare, definition.cloudflare, {
+    ...defaults.cloudflareProjections?.[definition.name],
+    name: definition.name,
+  })
+  const config: RuntimeDrizzleDatabaseConfig = {
     connection: {
       authToken: definition.connection?.authToken ?? defaults.connection?.authToken,
       url: definition.connection?.url ?? defaults.connection?.url ?? defaultUrl(definition.name),
@@ -34,4 +30,6 @@ export function runtimeConfig(
     drizzle: definition.drizzle,
     name: definition.name,
   }
+  if (cloudflare) config.cloudflare = cloudflare
+  return config
 }

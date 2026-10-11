@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { runInNewContext } from "node:vm";
 
 import cloudflareEmail from "../src/drivers/cloudflare-email.ts";
 import resend from "../src/drivers/resend.ts";
@@ -135,6 +136,34 @@ describe("Resend Email driver", () => {
       tags: [{ name: "kind", value: "welcome" }],
       to: ["maxi@example.com"],
     });
+  });
+
+  it("serializes a cross-realm scheduled date", async () => {
+    const request = vi.fn(
+      async (_input: Parameters<typeof fetch>[0], _init: RequestInit = {}) =>
+        new Response(JSON.stringify({ id: "email-1" }), { status: 200 }),
+    );
+    const driver = resend({ apiKey: "re_secret", fetch: request });
+    const crossRealmDate = runInNewContext(`new Date("2026-08-26T12:00:00.000Z")`) as Date;
+
+    await expect(
+      driver.send({ ...message, scheduledAt: crossRealmDate }, context),
+    ).resolves.toMatchObject({ data: { id: "email-1" }, error: null });
+    const [, init = {}] = request.mock.calls[0]!;
+    expect(JSON.parse(init.body as string).scheduled_at).toBe("2026-08-26T12:00:00.000Z");
+  });
+
+  it("rejects spoofed dates without serializing their custom timestamp", async () => {
+    const request = vi.fn();
+    const driver = resend({ apiKey: "re_secret", fetch: request });
+    const spoofedDate = runInNewContext(
+      `({ [Symbol.toStringTag]: "Date", toISOString: () => "spoofed" })`,
+    );
+
+    await expect(
+      driver.send({ ...message, scheduledAt: spoofedDate as Date }, context),
+    ).resolves.toMatchObject({ error: { code: "INVALID_OPTIONS", driver: "resend" } });
+    expect(request).not.toHaveBeenCalled();
   });
 
   it("encodes string attachments as UTF-8 base64", async () => {
@@ -722,6 +751,16 @@ describe("Resend Email driver", () => {
     const driver = resend({ apiKey: "re_secret", fetch: request });
 
     await expect(driver.send({ ...message, ...override }, context)).resolves.toMatchObject({
+      error: { code: "INVALID_OPTIONS", driver: "resend" },
+    });
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it("returns an invalid-options result for a malformed message value", async () => {
+    const request = vi.fn();
+    const driver = resend({ apiKey: "re_secret", fetch: request });
+
+    await expect(driver.send(null as never, context)).resolves.toMatchObject({
       error: { code: "INVALID_OPTIONS", driver: "resend" },
     });
     expect(request).not.toHaveBeenCalled();
