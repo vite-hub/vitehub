@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import { runInNewContext } from "node:vm"
 
 import { applyStreamEvent } from "../src/messages.ts"
 import { finalChannelOutputSelectedSymbol } from "../src/internal/final-channel-output.ts"
@@ -1123,6 +1124,26 @@ describe("agent output helpers", () => {
     expect(events).toEqual([
       { text: "first", type: "text-delta" },
       { text: "second", type: "text-delta" },
+      { type: "finish" },
+    ])
+  })
+
+  it("emits body chunks from a Response created in another realm", async () => {
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("foreign"))
+        controller.close()
+      },
+    })
+    const response = runInNewContext(`(() => {
+      const value = { body, headers: { get: () => null }, status: 200, statusText: "OK" }
+      Object.defineProperty(value, Symbol.toStringTag, { value: "Response" })
+      return value
+    })()`, { body }) as Response
+    const events = []
+    for await (const event of streamAgentOutputToEvents(response)) events.push(event)
+    expect(events).toEqual([
+      { text: "foreign", type: "text-delta" },
       { type: "finish" },
     ])
   })

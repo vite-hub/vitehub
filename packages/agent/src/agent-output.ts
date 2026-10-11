@@ -802,13 +802,33 @@ function hasPropertyGetter(value: unknown, key: PropertyKey): boolean {
   return false
 }
 
+function isResponseLike(value: unknown): value is Response {
+  if (value === null || typeof value !== "object") return false
+  try {
+    if (Object.prototype.toString.call(value) !== "[object Response]") return false
+    const response = value as { body?: unknown, headers?: unknown, status?: unknown, statusText?: unknown }
+    return typeof response.status === "number"
+      && Number.isInteger(response.status)
+      && response.status >= 0
+      && response.status <= 599
+      && typeof response.statusText === "string"
+      && response.headers !== null
+      && typeof response.headers === "object"
+      && typeof (response.headers as { get?: unknown }).get === "function"
+      && (response.body === null || (response.body !== null && typeof response.body === "object" && typeof (response.body as { pipeThrough?: unknown }).pipeThrough === "function"))
+  }
+  catch {
+    return false
+  }
+}
+
 export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<StreamEvent> {
   if (hasRuntimeType(value, "string")) {
     if (value) yield { text: value, type: "text-delta" }
     yield { type: "finish" }
     return
   }
-  if (value instanceof Response) {
+  if (isResponseLike(value)) {
     if (value.body) {
       for await (const text of value.body.pipeThrough(new TextDecoderStream())) {
         if (text) yield { text, type: "text-delta" }
