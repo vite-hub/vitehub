@@ -32,6 +32,21 @@ describe("CLI primitives", () => {
     ])
   })
 
+  it("ignores inherited plugin metadata", async () => {
+    const inherited = Object.create({
+      vitehub: {
+        cli: {
+          namespaces: [{ features: [{ name: "unexpected", run: () => undefined }], name: "inherited" }],
+        },
+      },
+    }) as object
+
+    const { namespaces, provision } = await collectViteHubCliContribution([inherited])
+
+    expect(namespaces).toEqual([])
+    expect(provision).toEqual([])
+  })
+
   it("merges features for the same namespace", async () => {
     const { namespaces } = await collectViteHubCliContribution([
       {
