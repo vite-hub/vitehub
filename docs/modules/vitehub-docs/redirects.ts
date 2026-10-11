@@ -24,6 +24,7 @@ const movedServerPrimitives = [
   "source",
   "workflows",
   "workspace",
+  "realtime",
 ];
 
 /** Capability pages that now live inside the product section of the primitive they expose. */
@@ -81,7 +82,21 @@ const agentCapabilities = {
   "web-search": "web-search",
 } satisfies Record<string, string>;
 
+const movedLearningPages = new Map(Object.entries({
+  "/docs/getting-started/built-for-vue": "/docs/ui/built-for-vue",
+  "/docs/frameworks-hosts/migrate-from-nuxthub": "/docs/getting-started/migrate-from-nuxthub",
+  "/docs/getting-started/concepts/workspace-and-sources": "/docs/workspace/concepts",
+  "/docs/getting-started/concepts/auth-users-and-agent-invokers": "/docs/agents/invokers",
+  "/docs/getting-started/concepts/runtime-policy-approvals-and-traces": "/docs/agents/runtime-policy",
+  "/docs/getting-started/concepts/runtime-context": "/docs/reference/runtime-context",
+  "/docs/getting-started/concepts/runtime-helpers-and-stable-imports": "/docs/reference/runtime-helpers",
+  "/docs/getting-started/concepts/definitions-and-discovery": "/docs/development/definition-discovery",
+  "/docs/getting-started/concepts/vite-integrations-and-provider-output": "/docs/development/integrations-and-output",
+}));
+
 export const docsPageRedirects = {
+  "/blog/agents": "/docs/getting-started/first-agent",
+  "/blog/server-primitives": "/docs/getting-started/server-primitives",
   "/docs/agents/evlog": "/docs/agents/observability",
   "/docs/ai-resources": "/docs/getting-started/ai-resources",
   "/docs/concepts": "/docs/getting-started/concepts",
@@ -100,7 +115,8 @@ export const docsPageRedirects = {
   ...Object.fromEntries(movedServerPrimitives.map(id => [`/docs/server-primitives/${id}`, `/docs/${id}`])),
   ...Object.fromEntries(Object.entries(primitiveCapabilities).map(([id, section]) => [`/docs/capabilities/${id}`, `/docs/${section}/agent-capability`])),
   ...Object.fromEntries(Object.entries(agentCapabilities).map(([id, page]) => [`/docs/capabilities/${id}`, `/docs/agents/capabilities/${page}`])),
-  ...Object.fromEntries(Object.entries(startGroups).flatMap(([dir, pages]) => pages.map(page => [`/docs/${dir}/${page}`, `/docs/getting-started/${dir}/${page}`]))),
+  ...Object.fromEntries(Object.entries(startGroups).flatMap(([dir, pages]) => pages.map(page => [`/docs/${dir}/${page}`, movedLearningPages.get(`/docs/getting-started/${dir}/${page}`) || `/docs/getting-started/${dir}/${page}`]))),
+  ...Object.fromEntries(movedLearningPages),
 } satisfies Record<string, string>;
 
 /** Fragments that moved with the Blob page split. The old overview redirect keeps the hash. */
@@ -158,6 +174,16 @@ export function createDocsRedirectRouteRules(redirects: Record<string, string> =
     routeRules[from] = { redirect: { statusCode: 301, to } };
     routeRules[`${from}/`] = { redirect: { statusCode: 301, to } };
     routeRules[rawMarkdownPath(from)] = { redirect: { statusCode: 301, to: rawMarkdownPath(to) } };
+  }
+
+  for (const [from, to] of Object.entries({
+    "/databases": "/database",
+    "/rate-limits": "/rate-limit",
+    "/blog": "/tutorials",
+    "/guides": "/tutorials",
+  })) {
+    routeRules[from] = { redirect: { statusCode: 301, to } };
+    routeRules[`${from}/`] = { redirect: { statusCode: 301, to } };
   }
 
   return routeRules;

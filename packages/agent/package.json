@@ -67,6 +67,10 @@
       "types": "./dist/cloudflare/state.d.ts",
       "import": "./dist/cloudflare/state.js"
     },
+    "./env-identity": {
+      "types": "./dist/env-identity.d.ts",
+      "import": "./dist/env-identity.js"
+    },
     "./eval": {
       "types": "./dist/eval.d.ts",
       "import": "./dist/eval.js"
@@ -127,6 +131,10 @@
       "types": "./dist/presets/babysitter.d.ts",
       "import": "./dist/presets/babysitter.js"
     },
+    "./presets/babysitter/server": {
+      "types": "./dist/presets/babysitter/server.d.ts",
+      "import": "./dist/presets/babysitter/server.js"
+    },
     "./presets/workspace": {
       "types": "./dist/presets/workspace.d.ts",
       "import": "./dist/presets/workspace.js"
@@ -163,6 +171,10 @@
       "types": "./dist/server/internal.d.ts",
       "import": "./dist/server/internal.js"
     },
+    "./server/registry": {
+      "types": "./dist/server/registry.d.ts",
+      "import": "./dist/server/registry.js"
+    },
     "./server/workspace": {
       "types": "./dist/server/workspace.d.ts",
       "import": "./dist/server/workspace.js"
@@ -183,11 +195,7 @@
       "types": "./dist/vue.d.ts",
       "import": "./dist/vue.js"
     },
-    "./package.json": "./package.json",
-    "./env-identity": {
-      "types": "./dist/env-identity.d.ts",
-      "import": "./dist/env-identity.js"
-    }
+    "./package.json": "./package.json"
   },
   "scripts": {
     "build": "vp pack",
@@ -206,6 +214,7 @@
     "@t3tools/provider-runtime": "catalog:",
     "@vercel/connect": "2.4.0",
     "@vercel/nft": "catalog:vercel",
+    "@yarnpkg/parsers": "catalog:tooling",
     "@vite-hub/box": "workspace:*",
     "@vite-hub/env": "workspace:*",
     "@vite-hub/markdown-template": "workspace:*",
@@ -217,16 +226,18 @@
     "comark": "catalog:markdown",
     "effect": "catalog:effect",
     "esbuild": "catalog:esbuild-v27",
+    "forges": "catalog:",
     "nostics": "catalog:runtime",
     "proper-lockfile": "catalog:",
-    "valibot": "catalog:runtime"
+    "valibot": "catalog:runtime",
+    "yaml": "catalog:tooling"
   },
   "devDependencies": {
     "@agntn/web": "catalog:ai",
     "advocaat": "catalog:ai",
     "@ai-sdk/mcp": "catalog:ai",
     "@chat-adapter/discord": "catalog:chat",
-    "@github-tools/eve-extension": "0.7.0",
+    "@github-tools/eve-extension": "0.8.0",
     "@types/json-schema": "catalog:ai",
     "@types/mdast": "catalog:markdown",
     "@types/node": "catalog:tooling",
@@ -237,7 +248,7 @@
     "@vite-hub/schedule": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
     "evalite": "catalog:ai",
-    "eve": "0.46.1",
+    "eve": "0.72.1",
     "miniflare": "4.20260730.0",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
@@ -269,6 +280,7 @@
     "vite": "catalog:vite-compat",
     "vitest": "catalog:tooling",
     "vue": "catalog:ui",
+    "eve": "0.46.1 || 0.72.1",
     "evlog": "^2.29.0",
     "posthog-node": "^5.55.0"
   },
@@ -310,6 +322,9 @@
       "optional": true
     },
     "vue": {
+      "optional": true
+    },
+    "eve": {
       "optional": true
     },
     "evlog": {
