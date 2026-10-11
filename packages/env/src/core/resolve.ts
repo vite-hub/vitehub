@@ -112,7 +112,7 @@ export async function resolveBuildConfig(
 
   for (const [key, declaration] of Object.entries(declarations || {})) {
     const result = await resolveBuildConfigValue(declaration, `${input.section}.${key}`, { ...input, prefix: canonicalKey.test(key) ? input.prefix : false })
-    values[key] = result.value
+    setOwnValue(values, key, result.value)
     diagnostics.push(...result.diagnostics)
   }
 
@@ -302,7 +302,7 @@ async function resolveBuildConfigValue(
   const diagnostics: EnvDiagnosticEntry[] = []
   for (const [key, child] of Object.entries(declaration)) {
     const result = await resolveBuildConfigValue(child, `${path}.${key}`, { ...input, prefix: canonicalKey.test(key) ? input.prefix : false })
-    value[key] = result.value
+    setOwnValue(value, key, result.value)
     diagnostics.push(...result.diagnostics)
   }
 
@@ -362,6 +362,10 @@ function buildRegistry(declarations: EnvRuntimeConfigOptions | undefined, path: 
       source,
     }]
   }))
+}
+
+function setOwnValue(record: Record<string, unknown>, key: string, value: unknown): void {
+  Object.defineProperty(record, key, { configurable: true, enumerable: true, value, writable: true })
 }
 
 // Defaults use the parsed type. Only host and provider values are parsed from strings.
