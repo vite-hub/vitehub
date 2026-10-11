@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
 import { createMultipartUploader, uploadFiles } from "../src/client.ts"
+import type { BlobMultipartPart } from "../src/types.ts"
 import { useMultipartUpload, useUpload } from "../src/vue.ts"
 
 type FetchInput = Parameters<typeof fetch>[0]
@@ -51,6 +52,12 @@ describe("uploadFiles", () => {
     await expect(uploadFiles("/api/files", [], { fetch })).resolves.toEqual([])
     expect(fetch).toHaveBeenCalledTimes(1)
   })
+
+  it.each([undefined, {}, [object, undefined], Array.from({ length: 1 })])("rejects malformed successful responses", async responseBody => {
+    const fetch = vi.fn(async () => json(responseBody))
+
+    await expect(uploadFiles("/api/files", [new File(["a"], "a.txt")], { fetch })).rejects.toThrow("Upload request returned malformed JSON.")
+  })
 })
 
 describe("createMultipartUploader", () => {
@@ -78,6 +85,26 @@ describe("createMultipartUploader", () => {
     expect(progress).toEqual([0, 33, 67, 100])
   })
 
+  it("completes concurrent uploads with parts in part-number order", async () => {
+    const { fetch } = multipartServer()
+    let completeParts: BlobMultipartPart[] | undefined
+    fetch.mockImplementation(async (url, init = {}) => {
+      const href = String(url)
+      if (href.includes("/create/")) return json({ pathname: "concurrent.bin", uploadId: "u3" })
+      if (href.includes("/upload/")) {
+        const partNumber = Number(new URL(href, "http://x").searchParams.get("partNumber"))
+        await new Promise(resolve => setTimeout(resolve, (4 - partNumber) * 5))
+        return json({ part: { etag: `"p${partNumber}"`, partNumber } })
+      }
+      completeParts = JSON.parse(String(init.body)).parts as BlobMultipartPart[]
+      return json({ object: { ...object, pathname: "concurrent.bin" } })
+    })
+
+    await createMultipartUploader("/api/multipart", { fetch, partSize: 1, concurrency: 3 })(new File(["abc"], "concurrent.bin")).completed
+
+    expect(completeParts?.map(part => part.partNumber)).toEqual([1, 2, 3])
+  })
+
   it("aborts the server upload and resolves with undefined", async () => {
     const { fetch, requests } = multipartServer()
     let releasePart: () => void = () => {}
@@ -95,6 +122,37 @@ describe("createMultipartUploader", () => {
 
     await expect(task.completed).resolves.toBeUndefined()
     expect(requests.at(-1)).toMatchObject({ method: "DELETE", url: "/api/multipart/abort/a.bin?uploadId=u2" })
+  })
+
+  it.each([
+    { pathname: "a.bin" },
+    { pathname: "a.bin", uploadId: 42 },
+  ])("rejects malformed create responses", async responseBody => {
+    const fetch = vi.fn(async () => json(responseBody))
+    const task = createMultipartUploader("/api/multipart", { fetch })(new File(["a"], "a.bin"))
+
+    await expect(task.completed).rejects.toThrow("Upload request returned malformed JSON.")
+  })
+
+  it("rejects malformed part responses", async () => {
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(json({ pathname: "a.bin", uploadId: "u1" }))
+      .mockResolvedValueOnce(json({ part: { etag: "p1", partNumber: "1" } }))
+      .mockResolvedValue(json({ action: "abort" }))
+    const task = createMultipartUploader("/api/multipart", { fetch, partSize: 1 })(new File(["a"], "a.bin"))
+
+    await expect(task.completed).rejects.toThrow("Upload request returned malformed JSON.")
+  })
+
+  it("rejects malformed complete responses", async () => {
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(json({ pathname: "a.bin", uploadId: "u1" }))
+      .mockResolvedValueOnce(json({ part: { etag: "p1", partNumber: 1 } }))
+      .mockResolvedValueOnce(json({ object: { pathname: "a.bin" } }))
+      .mockResolvedValue(json({ action: "abort" }))
+    const task = createMultipartUploader("/api/multipart", { fetch, partSize: 1 })(new File(["a"], "a.bin"))
+
+    await expect(task.completed).rejects.toThrow("Upload request returned malformed JSON.")
   })
 })
 

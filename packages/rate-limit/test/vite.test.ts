@@ -1,4 +1,4 @@
-import { access, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
+import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -32,6 +32,25 @@ async function writeCloudflareDeclaration(root: string): Promise<void> {
 }
 
 describe("hubRateLimit", () => {
+  it("writes generated files at the project root when Vite runs from app/", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-project-root-"))
+    roots.push(root)
+    await mkdir(join(root, "app"), { recursive: true })
+    await writeFile(join(root, "package.json"), "{}")
+    const plugin = hubRateLimit({ provider: "memory" })
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({
+      build: { outDir: "dist" },
+      command: "serve",
+      plugins: [],
+      resolve: { alias: [] },
+      root: join(root, "app"),
+    } as never)
+
+    await expect(readFile(join(root, ".vitehub", "nitro", "rate-limit", "plugin.ts"), "utf8")).resolves.toContain("setRateLimitRuntimeConfig")
+    await expect(readFile(join(root, ".vitehub", "rate-limit", "manifest.json"), "utf8")).resolves.toContain('"schemaVersion"')
+    await expect(readFile(join(root, "app", ".vitehub", "nitro", "rate-limit", "plugin.ts"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
   it("serializes shared Provider Output finalization", () => {
     expect(hubRateLimit().closeBundle).toMatchObject({ order: "post", sequential: true })
   })
@@ -227,6 +246,7 @@ describe("hubRateLimit", () => {
         plugins: ["server/plugin.ts"],
       },
       rateLimit: { projectRoot: ".", provider: "memory" },
+      root,
     }
     expect(config(userConfig)).toBeUndefined()
     expect(userConfig).toMatchObject({
@@ -234,7 +254,7 @@ describe("hubRateLimit", () => {
         handlers: [
           { handler: "server/middleware.ts", middleware: true, route: "/**" },
         ],
-        plugins: [".vitehub/nitro/rate-limit/plugin.ts", "server/plugin.ts"],
+        plugins: [join(root, ".vitehub/nitro/rate-limit/plugin.ts"), "server/plugin.ts"],
       },
     })
 
@@ -333,7 +353,7 @@ describe("hubRateLimit", () => {
     const buildConfig: Record<string, unknown> = { root }
     const buildPlugin = hubRateLimit({ provider: "memory" })
     ;(buildPlugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" }) => unknown)(buildConfig, { command: "build" })
-    expect(JSON.stringify(buildConfig.nitro ?? {})).not.toContain("dev-handler")
+    expect(buildConfig.nitro).toMatchObject({ handlers: [] })
   })
 
   it.each([false, true])("does not create or rewrite the dev token during CLI discovery with existing handler %s", async existing => {

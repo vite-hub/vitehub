@@ -7,7 +7,7 @@ const trustLinks = [
 </script>
 
 <template>
-  <UFooter>
+  <UFooter class="vh-site-footer">
     <template #left>
       <div class="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-muted">
         <span>© {{ new Date().getFullYear() }} ViteHub</span>

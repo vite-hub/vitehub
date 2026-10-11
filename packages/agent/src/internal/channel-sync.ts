@@ -33,6 +33,10 @@ export interface AgentChannelSyncProvider {
   }) => Promise<AgentChannelSyncPlan>
   /** Opaque provider resource identity used only to reject conflicting local plans. */
   resourceKey?: unknown
+  /** Resource identities including the deployed URL, checked before planning. */
+  resourceKeys?: (desiredUrl: string | undefined) => readonly unknown[]
+  /** Raw current URL for origin checks when the printable plan is redacted. */
+  currentWebhookUrl?: (plan: AgentChannelSyncPlan) => string | undefined
 }
 
 export interface AgentChannelSyncDefinition<

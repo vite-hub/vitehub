@@ -1199,6 +1199,7 @@ function renderConfiguration(
   invocation: AgentInvocationView,
   showCapabilities: boolean,
   selectTool: (name: string) => void,
+  showSources: boolean,
 ) {
   const recordedTools = Array.isArray(configuration.tools) ? configuration.tools : [];
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Persisted catalogs can contain truncation markers; validate tool names at the inspector boundary.
@@ -1222,7 +1223,7 @@ function renderConfiguration(
           h("dl", { class: "vh-invocation-inspector__list" }, setup),
         ])
       : null,
-    configuration.workspace?.sources?.length
+    showSources && configuration.workspace?.sources?.length
       ? inspectorSources(configuration.workspace.sources)
       : null,
     configuration.channels?.length
@@ -1606,6 +1607,7 @@ export const AgentInvocationInspector = defineComponent({
     invocation: { required: true, type: Object as PropType<AgentInvocationView> },
     showStatus: { default: true, type: Boolean },
     showCapabilities: { default: false, type: Boolean },
+    showSources: { default: true, type: Boolean },
     showTimeline: { default: true, type: Boolean },
     showError: { default: true, type: Boolean },
   },
@@ -1757,7 +1759,7 @@ export const AgentInvocationInspector = defineComponent({
             inspectorSection(
               "Run summary",
               h("dl", { class: "vh-invocation-inspector__metrics" }, [
-                h("div", [h("dt", "Messages"), h("dd", metrics.value.messages)]),
+                h("div", [h("dt", "Messages (including collapsed)"), h("dd", metrics.value.messages)]),
                 h("div", [h("dt", "Steps"), h("dd", metrics.value.steps)]),
                 h("div", [h("dt", "Tool calls"), h("dd", metrics.value.toolCalls)]),
                 totalTime ? h("div", [h("dt", "Total time"), h("dd", totalTime)]) : null,
@@ -1784,7 +1786,7 @@ export const AgentInvocationInspector = defineComponent({
             props.showTimeline
               ? traceTimeline(props.invocation, id => emit("selectActivity", id))
               : null,
-            ...(configuration ? renderConfiguration(configuration, props.invocation, props.showCapabilities, selectTool) : []),
+            ...(configuration ? renderConfiguration(configuration, props.invocation, props.showCapabilities, selectTool, props.showSources) : []),
             slots.metadata?.({ invocation: props.invocation }),
             inspectorSection(
               "Identifiers",
