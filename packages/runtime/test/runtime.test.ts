@@ -742,6 +742,23 @@ describe("@vite-hub/runtime", () => {
     })
   })
 
+  it("does not treat an inherited SharedArrayBuffer tag as shared memory", async () => {
+    Object.defineProperty(Object.prototype, Symbol.toStringTag, { configurable: true, value: "SharedArrayBuffer" })
+    try {
+      const log = createTraceEventLog()
+      await log.append({
+        name: "custom.event",
+        payload: { value: { files: 1 }, visibility: "public" },
+        type: "lifecycle",
+      })
+
+      expect(log.entries()[0]?.payload).toEqual({ value: { files: 1 }, visibility: "public" })
+    }
+    finally {
+      delete Object.prototype[Symbol.toStringTag]
+    }
+  })
+
   it("preserves public Blob payload snapshots", async () => {
     const log = createTraceEventLog()
     await log.append({

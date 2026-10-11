@@ -428,8 +428,26 @@ function isWebAssemblyModule(value: unknown): boolean {
 function isSharedArrayBuffer(value: unknown): boolean {
   if (!value || !hasRuntimeType(value, "object")) return false
   const constructor = Object.getOwnPropertyDescriptor(globalThis, "SharedArrayBuffer")?.value
-  if (hasRuntimeType(constructor, "function") && value instanceof constructor) return true
-  return Object.prototype.toString.call(value) === "[object SharedArrayBuffer]"
+  const prototypes: object[] = []
+  if (hasRuntimeType(constructor, "function")) {
+    const prototype = Object.getOwnPropertyDescriptor(constructor, "prototype")?.value
+    if (prototype && hasRuntimeType(prototype, "object")) prototypes.push(prototype)
+  }
+  const valuePrototype = Object.getPrototypeOf(value)
+  if (valuePrototype && hasRuntimeType(valuePrototype, "object") && !prototypes.includes(valuePrototype)) prototypes.push(valuePrototype)
+  for (const prototype of prototypes) {
+    const byteLength = Object.getOwnPropertyDescriptor(prototype, "byteLength")?.get
+    if (!hasRuntimeType(byteLength, "function")) continue
+    try {
+      const length = Reflect.apply(byteLength, value, [])
+      if (!hasRuntimeType(length, "number")) continue
+      if (Object.getOwnPropertyDescriptor(prototype, Symbol.toStringTag)?.value === "SharedArrayBuffer") return true
+    }
+    catch {
+      // The intrinsic getter rejects values without SharedArrayBuffer backing memory.
+    }
+  }
+  return false
 }
 
 function containsSharedArrayBuffer(value: unknown, seen = new Set<object>()): boolean {
