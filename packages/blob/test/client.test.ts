@@ -78,6 +78,24 @@ describe("createMultipartUploader", () => {
     expect(progress).toEqual([0, 33, 67, 100])
   })
 
+
+  it("aborts a server upload that finishes creating after local abort", async () => {
+    let releaseCreate!: (response: Response) => void
+    const fetch = vi.fn((url: FetchInput) => {
+      if (String(url).includes("/create/")) return new Promise<Response>(resolve => { releaseCreate = resolve })
+      return Promise.resolve(json({ action: "abort" }))
+    })
+    const task = createMultipartUploader("/api/multipart", { fetch })(new File(["a"], "a.txt"))
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce())
+
+    const aborted = task.abort()
+    releaseCreate(json({ pathname: "a.txt", uploadId: "u1" }))
+
+    await aborted
+    await expect(task.completed).resolves.toBeUndefined()
+    expect(fetch.mock.calls.map(([url]) => String(url))).toContain("/api/multipart/abort/a.txt?uploadId=u1")
+  })
+
   it("aborts the server upload and resolves with undefined", async () => {
     const { fetch, requests } = multipartServer()
     let releasePart: () => void = () => {}

@@ -99,6 +99,7 @@ export function createMultipartUploader(baseURL: string, options: MultipartUploa
   return (file, pathname = file.name) => {
     const controller = new AbortController()
     let upload: { pathname: string, uploadId: string } | undefined
+    let remoteAbort: Promise<void> | undefined
     let aborted = false
 
     const completed = (async () => {
@@ -109,6 +110,10 @@ export function createMultipartUploader(baseURL: string, options: MultipartUploa
         signal: controller.signal,
       }))
       const { pathname: uploadPathname, uploadId } = upload
+      if (aborted) {
+        await abortRemoteUpload().catch(() => {})
+        return undefined
+      }
       // Drivers accept at most 10,000 parts. Increase the requested size for very large files.
       const effectivePartSize = Math.max(partSize, Math.ceil(file.size / 10_000))
       const partCount = Math.max(1, Math.ceil(file.size / effectivePartSize))
@@ -142,22 +147,26 @@ export function createMultipartUploader(baseURL: string, options: MultipartUploa
       if (aborted) return undefined
       aborted = true
       controller.abort()
-      if (upload) {
-        try {
-          await readJson(await send("abort", upload.pathname, { method: "DELETE" }, { uploadId: upload.uploadId }))
-        }
-        catch {
-          // Preserve the original upload error. Cleanup is best effort here.
-        }
+      try {
+        await abortRemoteUpload()
+      }
+      catch {
+        // Preserve the original upload error. Cleanup is best effort here.
       }
       throw error
     })
+
+    async function abortRemoteUpload() {
+      if (!upload) return
+      remoteAbort ??= readJson(await send("abort", upload.pathname, { method: "DELETE" }, { uploadId: upload.uploadId })).then(() => undefined)
+      return remoteAbort
+    }
 
     async function abort() {
       if (aborted) return
       aborted = true
       controller.abort()
-      if (upload) await readJson(await send("abort", upload.pathname, { method: "DELETE" }, { uploadId: upload.uploadId }))
+      await abortRemoteUpload()
     }
 
     return { abort, completed }
