@@ -421,6 +421,15 @@ describe("Runtime Schedule helper", () => {
 })
 
 describe("KV Runtime Schedule Store", () => {
+  it("does not read sibling keys as Runtime Schedules", async () => {
+    const kvStore = createTestKVStore()
+    await kvStore.set("tests/schedules/runtime-schedules-other", "unrelated")
+
+    const store = createKVRuntimeScheduleStore({ kvStore, prefix: "tests/schedules" })
+
+    await expect(store.list()).resolves.toEqual([])
+  })
+
   it("matches the RuntimeScheduleStore create, list, update, get, and delete contract", async () => {
     const store = createKVRuntimeScheduleStore({ kvStore: createTestKVStore(), prefix: "tests/schedules" })
     const createdAt = new Date("2026-05-23T09:00:00.000Z")
