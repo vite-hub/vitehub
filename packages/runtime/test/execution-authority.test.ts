@@ -38,6 +38,16 @@ describe("execution authority", () => {
     })).toBe(false)
   })
 
+  it("rejects authority objects whose accessors throw", () => {
+    const hostile = Object.defineProperty({ ...unknownExecutionAuthority }, "network", {
+      enumerable: true,
+      get() { throw new Error("blocked network") },
+    })
+
+    expect(() => isExecutionAuthority(hostile)).not.toThrow()
+    expect(isExecutionAuthority(hostile)).toBe(false)
+  })
+
   it("normalizes provider declarations into immutable snapshots", () => {
     const declaration = {
       credentials: "unknown",

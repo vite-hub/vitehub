@@ -83,27 +83,32 @@ export const unknownExecutionAuthority: ExecutionAuthority = Object.freeze({
 }) satisfies ExecutionAuthority
 
 export function isExecutionAuthority(value: unknown): value is ExecutionAuthority {
-  if (!value || !hasRuntimeType(value, "object") || Array.isArray(value)) return false
-  // SAFETY: Runtime Capability normalization establishes the asserted host contract.
-  const authority = value as Record<string, unknown>
-  const filesystem = authority.filesystem
-  if (!filesystem || !hasRuntimeType(filesystem, "object") || Array.isArray(filesystem)) return false
-  // SAFETY: Runtime Capability normalization establishes the asserted host contract.
-  const files = filesystem as Record<string, unknown>
-  return hasRuntimeType(authority.credentials, "string")
-    && ["ambient", "none", "provisioned", "unknown"].includes(authority.credentials)
-    && hasRuntimeType(authority.environment, "string")
-    && ["ambient", "none", "selected", "unknown"].includes(authority.environment)
-    && hasRuntimeType(files.access, "string")
-    && ["none", "read-only", "read-write", "unknown"].includes(files.access)
-    && hasRuntimeType(files.scope, "string")
-    && ["host", "none", "sandbox", "unknown", "workspace"].includes(files.scope)
-    && hasRuntimeType(authority.isolation, "string")
-    && ["container", "microvm", "none", "process", "unknown"].includes(authority.isolation)
-    && hasRuntimeType(authority.network, "string")
-    && ["none", "restricted", "unrestricted", "unknown"].includes(authority.network)
-    && hasRuntimeType(authority.processes, "string")
-    && ["arbitrary", "none", "restricted", "unknown"].includes(authority.processes)
+  try {
+    if (!value || !hasRuntimeType(value, "object") || Array.isArray(value)) return false
+    // SAFETY: Runtime Capability normalization establishes the asserted host contract.
+    const authority = value as Record<string, unknown>
+    const filesystem = authority.filesystem
+    if (!filesystem || !hasRuntimeType(filesystem, "object") || Array.isArray(filesystem)) return false
+    // SAFETY: Runtime Capability normalization establishes the asserted host contract.
+    const files = filesystem as Record<string, unknown>
+    return hasRuntimeType(authority.credentials, "string")
+      && ["ambient", "none", "provisioned", "unknown"].includes(authority.credentials)
+      && hasRuntimeType(authority.environment, "string")
+      && ["ambient", "none", "selected", "unknown"].includes(authority.environment)
+      && hasRuntimeType(files.access, "string")
+      && ["none", "read-only", "read-write", "unknown"].includes(files.access)
+      && hasRuntimeType(files.scope, "string")
+      && ["host", "none", "sandbox", "unknown", "workspace"].includes(files.scope)
+      && hasRuntimeType(authority.isolation, "string")
+      && ["container", "microvm", "none", "process", "unknown"].includes(authority.isolation)
+      && hasRuntimeType(authority.network, "string")
+      && ["none", "restricted", "unrestricted", "unknown"].includes(authority.network)
+      && hasRuntimeType(authority.processes, "string")
+      && ["arbitrary", "none", "restricted", "unknown"].includes(authority.processes)
+  }
+  catch {
+    return false
+  }
 }
 
 export function normalizeExecutionAuthority(value: unknown): ExecutionAuthority {
