@@ -19,7 +19,7 @@ export interface AuthenticationSessionSnapshot {
 export async function getAuthenticationSession(
   auth: unknown,
   input: BetterAuthGetSessionInput,
-): Promise<AuthenticationSessionSnapshot | null | undefined> {
+): Promise<AuthenticationSessionSnapshot | null> {
   const [api, getSession] = await readProvider(() => {
     const api = readRecordProperty(auth, "api")
     return [api, api && readProperty(api, "getSession")] as const
@@ -29,7 +29,7 @@ export async function getAuthenticationSession(
   }
 
   const value = await readProvider(() => Reflect.apply(getSession, api, [input]))
-  if (value == null) return value
+  if (value === null) return null
   const session = await readProvider(() => resolveAuthenticationSession(value))
   if (!session) {
     throw authErrorDiagnostics.AUTH_R0012({ message: "Better Auth returned an invalid session response." })
