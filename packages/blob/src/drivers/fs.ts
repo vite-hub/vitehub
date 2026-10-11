@@ -305,7 +305,7 @@ function foldedList(entries: FsBlobEntry[], options: BlobListOptions, start: num
   // existing folded listing behavior, but never emit a blob when callers ask
   // for no blobs.
   if (limit <= 0) {
-    for (const entry of entries) {
+    for (const entry of entries.slice(start)) {
       const remainder = entry.path.slice(prefix.length)
       const firstSlash = remainder.indexOf("/")
       if (firstSlash !== -1) folders.add(entry.path.slice(0, prefix.length + firstSlash + 1))

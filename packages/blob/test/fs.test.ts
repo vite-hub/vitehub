@@ -156,6 +156,17 @@ describe("fs blob driver", () => {
       folders: [],
       hasMore: false,
     })
+
+    await expect(driver.list({
+      cursor: firstPage.cursor,
+      folded: true,
+      limit: 0,
+      prefix: "a/",
+    })).resolves.toMatchObject({
+      blobs: [],
+      folders: [],
+      hasMore: false,
+    })
   })
 
   it("returns no blobs for a zero folded-list limit", async () => {
