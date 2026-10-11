@@ -547,6 +547,19 @@ function isArrayBufferValue(value: unknown): value is ArrayBuffer {
   }
 }
 
+function isSharedArrayBufferValue(value: unknown): value is SharedArrayBuffer {
+  const SharedArrayBufferConstructor = globalThis.SharedArrayBuffer
+  if (!hasRuntimeType(SharedArrayBufferConstructor, "function")) return false
+  if (value instanceof SharedArrayBufferConstructor) return true
+  try {
+    Object.getOwnPropertyDescriptor(SharedArrayBufferConstructor.prototype, "byteLength")!.get!.call(value)
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
 function normalizedTimestamp(value: Date | string): string {
   const timestamp = value instanceof Date ? value : new Date(value)
   return Number.isFinite(timestamp.getTime()) ? timestamp.toISOString() : new Date().toISOString()
@@ -762,7 +775,7 @@ function boundedObservationValue(
     if (entries.length < value.size) budget.truncated = true
     return entries.map(child => boundedObservationValue(child, budget, depth + 1, maxStringLength, builtIns))
   }
-  if (isArrayBufferValue(value)) {
+  if (isArrayBufferValue(value) || isSharedArrayBufferValue(value)) {
     budget.truncated = true
     const length = Math.min(value.byteLength, collectionItems, budget.items)
     return boundedObservationValue(Array.from(new Uint8Array(value, 0, length)), budget, depth + 1, maxStringLength, builtIns)
