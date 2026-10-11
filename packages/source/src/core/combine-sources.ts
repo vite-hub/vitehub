@@ -87,6 +87,11 @@ type CombinedSourcesReader<TSources extends CombinedSources> = {
   ? { items(): Promise<Array<CombinedItem<TSources>>> }
   : {})
 
+function isFunction(value: unknown): value is (...args: never[]) => unknown {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Source readers cross runtime realms.
+  return typeof value === "function"
+}
+
 export function combineSources<const TSources extends CombinedSources>(
   definition: CombinedSourcesDefinition<TSources>,
 ): CombinedSourcesReader<TSources> {
@@ -116,7 +121,7 @@ export function combineSources<const TSources extends CombinedSources>(
   async function items(): Promise<Array<CombinedItem<TSources>>> {
     const entries = Object.entries(sources)
     for (const [source, reader] of entries) {
-      if (!(reader.items instanceof Function)) {
+      if (!isFunction(reader.items)) {
         throw sourceError(`[vitehub] Combined Source alias ${JSON.stringify(source)} is not enumerable.`)
       }
     }
@@ -136,7 +141,7 @@ export function combineSources<const TSources extends CombinedSources>(
     return flattened as Array<CombinedItem<TSources>>
   }
 
-  const reader = Object.values(sources).every(source => source.items instanceof Function)
+  const reader = Object.values(sources).every(source => isFunction(source.items))
     ? { get, items }
     : { get }
   // SAFETY: Enumeration is exposed only when every input reader supports it.
