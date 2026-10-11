@@ -916,6 +916,14 @@ describe("@vite-hub/shell cloudflare runtime", () => {
 })
 
 describe("@vite-hub/shell analyzer", () => {
+  it("ignores pipeline operators inside shell comments", async () => {
+    await expect(analyzeShellCommand("echo hi # | cat")).resolves.toMatchObject({
+      commands: ["echo"],
+      hasPipelines: false,
+      ok: true,
+    })
+  })
+
   it.each([
     ["echo 'a|b'", ["echo"], false],
     ["echo a\\|b", ["echo"], false],

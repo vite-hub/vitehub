@@ -63,9 +63,14 @@ export function splitShellCommandSegments(command: string) {
   let current = ""
   let quote: "'" | "\"" | undefined
   let escaped = false
+  let comment = false
   let followsPipe = false
   for (let index = 0; index < command.length; index++) {
     const char = command[index]!
+    if (comment) {
+      if (char !== "\n") continue
+      comment = false
+    }
     if (escaped) {
       current += char
       escaped = false
@@ -84,6 +89,10 @@ export function splitShellCommandSegments(command: string) {
     if (char === "'" || char === "\"") {
       quote = char
       current += char
+      continue
+    }
+    if (char === "#" && (index === 0 || /[\s;|&()<>]/.test(command[index - 1] ?? ""))) {
+      comment = true
       continue
     }
     const next = command[index + 1]
