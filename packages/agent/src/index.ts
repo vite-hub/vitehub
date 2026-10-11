@@ -5161,6 +5161,9 @@ function withEagerStreamUsageExtensions<
     } satisfies Omit<AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>, "extensions">
     await createAgentInvocationExtensions(eventBase as never, providers)
     assignResolvedUsageRecord(result, usage)
+    // Keep deferred usage observable to stream consumers even when the provider
+    // never emitted a usage chunk during iteration.
+    yield { type: "usage", usageRecord: usage }
   })()
 }
 
