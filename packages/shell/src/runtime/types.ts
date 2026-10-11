@@ -16,7 +16,6 @@ export interface ShellRuntimeExecOptions {
   maxOutputLength?: number
   onStderr?: (data: string) => void
   onStdout?: (data: string) => void
-  signal?: AbortSignal
   stdin?: string
   timeout?: number
   workspacePaths?: string[]

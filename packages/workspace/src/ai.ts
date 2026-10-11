@@ -287,7 +287,7 @@ function createWorkspaceSessionShellProvider(starter: WorkspaceSessionStarter): 
     },
     async exec(command: string, execOptions: ShellRuntimeExecOptions = {}) {
       const session = await starter.startSession({
-        abortSignal: execOptions.signal,
+        ...(execOptions.signal ? { abortSignal: execOptions.signal } : {}),
         paths: execOptions.workspacePaths,
       })
       let observation: ShellObservation
