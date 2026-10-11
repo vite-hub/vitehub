@@ -324,7 +324,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isResponse(value: unknown): value is Response {
-  return value instanceof Response || Object.prototype.toString.call(value) === "[object Response]"
+  try {
+    if (value instanceof Response) return true
+    const headersGetter = Object.getOwnPropertyDescriptor(Response.prototype, "headers")?.get
+    if (!headersGetter) return false
+    headersGetter.call(value)
+    return true
+  } catch {
+    return false
+  }
 }
 
 async function resolveWebhookSecret(
