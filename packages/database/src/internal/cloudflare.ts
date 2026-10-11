@@ -55,7 +55,14 @@ interface ResolveCloudflareD1BindingsOptions {
 }
 
 function resolveProvisionedD1Id(provisionState: CloudflareD1ProvisionState | undefined, name: string) {
-  return provisionState?.cloudflare?.d1?.[name]
+  const value = provisionState?.cloudflare?.d1?.[name]
+  return typeof value === "string" && value.trim() ? value.trim() : undefined
+}
+
+function resolveNonEmptyConfigValue(value: DatabaseConfigValue | undefined) {
+  const resolved = resolveConfigValue(value)
+  const trimmed = resolved?.trim()
+  return trimmed || undefined
 }
 
 export function resolveCloudflareD1BindingName(database: string, binding: string | undefined) {
@@ -71,7 +78,7 @@ export function resolveCloudflareD1BindingName(database: string, binding: string
 }
 
 function resolveDatabaseId(config: ResolvedDBViteConfig, name: string, provisionState: CloudflareD1ProvisionState | undefined): string | undefined {
-  return resolveConfigValue(config.databases[name]?.cloudflare?.databaseId)
+  return resolveNonEmptyConfigValue(config.databases[name]?.cloudflare?.databaseId)
     ?? resolveProvisionedD1Id(provisionState, name)
 }
 
@@ -81,8 +88,8 @@ function createUnresolvedBinding(
   database: CloudflareD1BindingInput,
   reason: CloudflareD1UnresolvedBindingReason,
 ): CloudflareD1UnresolvedBinding {
-  const databaseName = resolveConfigValue(database.databaseName)
-  const previewDatabaseId = resolveConfigValue(database.previewDatabaseId)
+  const databaseName = resolveNonEmptyConfigValue(database.databaseName)
+  const previewDatabaseId = resolveNonEmptyConfigValue(database.previewDatabaseId)
   return {
     binding,
     database: name,
@@ -100,9 +107,9 @@ export function resolveCloudflareD1Binding(
 ): ResolvedCloudflareD1Binding {
   const database = input.database?.trim() || "default"
   const bindingName = resolveCloudflareD1BindingName(database, input.binding)
-  const databaseId = resolveConfigValue(input.databaseId) ?? resolveProvisionedD1Id(options.provisionState, database)
-  const databaseName = resolveConfigValue(input.databaseName)
-  const previewDatabaseId = resolveConfigValue(input.previewDatabaseId)
+  const databaseId = resolveNonEmptyConfigValue(input.databaseId) ?? resolveProvisionedD1Id(options.provisionState, database)
+  const databaseName = resolveNonEmptyConfigValue(input.databaseName)
+  const previewDatabaseId = resolveNonEmptyConfigValue(input.previewDatabaseId)
 
   if (!databaseId) {
     return {

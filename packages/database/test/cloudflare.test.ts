@@ -68,6 +68,26 @@ describe("Cloudflare D1 binding projections", () => {
     })
   })
 
+  it("treats whitespace D1 ids and names as missing", () => {
+    expect(resolveCloudflareD1Binding({
+      database: "blank-id",
+      databaseId: "   ",
+      databaseName: "blank-id-db",
+    })).toMatchObject({
+      bindingName: "DB_BLANK_ID",
+      unresolved: { reason: "missing-database-id" },
+    })
+
+    expect(resolveCloudflareD1Binding({
+      database: "blank-name",
+      databaseId: "blank-name-id",
+      databaseName: "   ",
+    })).toMatchObject({
+      bindingName: "DB_BLANK_NAME",
+      unresolved: { reason: "missing-database-name" },
+    })
+  })
+
   it("resolves Wrangler D1 bindings from explicit IDs and Provision State fallback IDs", async () => {
     const rootDir = await createTempProject()
     await writeDefinition(rootDir, "primary", [
