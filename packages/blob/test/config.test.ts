@@ -270,6 +270,10 @@ describe("blob config", () => {
     expect(() => normalizeBlobOptions({ stores } as never)).toThrow("`blob.stores` must be a plain object.")
   })
 
+  it("treats an explicitly undefined stores option as omitted", () => {
+    expect(normalizeBlobOptions({ stores: undefined } as never)).toEqual(normalizeBlobOptions({}))
+  })
+
   it("normalizes opt-in serving defaults", () => {
     expect(normalizeBlobOptions({ serve: true })).toEqual({
       serve: {
