@@ -224,9 +224,14 @@ function normalizePublicResponseType(responseType: string): FetchSourceResponseT
 }
 
 function normalizeMethod(method: FetchSourceMethod | undefined): FetchSourceMethod {
-  const normalized = (method || "GET").toUpperCase()
+  const normalized = method === undefined
+    ? "GET"
+    : typeof method === "string"
+      ? method.toUpperCase()
+      : ""
   if (normalized !== "GET" && normalized !== "HEAD" && normalized !== "POST") {
-    throw workspaceErrorDiagnostics.WORKSPACE_R0050({ message: `[vitehub] fetch() method "${normalized}" is not supported in v1. Use GET, HEAD, or POST.` })
+    const label = typeof method === "string" ? method : typeof method
+    throw workspaceErrorDiagnostics.WORKSPACE_R0050({ message: `[vitehub] fetch() method "${label}" is not supported in v1. Use GET, HEAD, or POST.` })
   }
   return normalized
 }
