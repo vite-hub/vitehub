@@ -362,6 +362,19 @@ export function resolveDBViteConfig(
     }
   }
 
+  const cloudflareBindings = new Map<string, string>()
+  for (const name of definitions.map(definition => definition.name)) {
+    const binding = databases[name]?.cloudflare?.binding
+    if (!binding) continue
+    const previousName = cloudflareBindings.get(binding)
+    if (previousName && previousName !== name) {
+      throw databaseErrorDiagnostics.DATABASE_C0008({
+        message: `[vitehub] Database definitions "${previousName}" and "${name}" resolve to the same Cloudflare D1 binding "${binding}". Set a unique \`cloudflare.binding\` for each database.`,
+      })
+    }
+    cloudflareBindings.set(binding, name)
+  }
+
   return {
     databaseNames: definitions.map(definition => definition.name),
     databases,

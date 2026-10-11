@@ -252,6 +252,18 @@ describe("resolveDBViteConfig", () => {
     })
   })
 
+  it("rejects named databases whose default D1 bindings collide", async () => {
+    const rootDir = await createTempProject()
+    const cloudflare = "    databaseId: 'database-id',\n    databaseName: 'database',"
+    await writeDefinition(rootDir, "server/databases/foo-bar/config.ts", "events", { cloudflare })
+    await writeDefinition(rootDir, "server/databases/foo_bar/config.ts", "accounts", { cloudflare })
+
+    expect(() => resolveDBViteConfig(undefined, rootDir)).toThrow(expect.objectContaining({
+      code: "DATABASE_C0008",
+      message: expect.stringContaining('resolve to the same Cloudflare D1 binding "DB_FOO_BAR"'),
+    }))
+  })
+
   it("resolves default migrations from a forwarded server directory", async () => {
     const rootDir = await createTempProject()
     const serverDir = join(rootDir, "backend")
