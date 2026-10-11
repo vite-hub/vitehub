@@ -26,11 +26,9 @@ export function createCursorHistory() {
   return { take, store }
 }
 
-/** Records a provider cursor while bounding memory for abandoned long listings. */
-export function recordCursor(history: CursorHistory, cursor: string): void {
-  if (history.size >= MAX_CURSORS_PER_HISTORY) {
-    const oldest = history.values().next().value as string | undefined
-    if (oldest !== undefined) history.delete(oldest)
-  }
+/** Records a provider cursor, refusing to weaken repeat detection at the bound. */
+export function recordCursor(history: CursorHistory, cursor: string): boolean {
+  if (history.size >= MAX_CURSORS_PER_HISTORY) return false
   history.add(cursor)
+  return true
 }

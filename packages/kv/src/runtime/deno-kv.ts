@@ -116,7 +116,9 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
       if (cursors.has(iterator.cursor)) {
         throw kvErrorDiagnostics.KV_R0024({ message: "Deno KV list returned a repeated pagination cursor." })
       }
-      recordCursor(cursors, iterator.cursor)
+      if (!recordCursor(cursors, iterator.cursor)) {
+        throw kvErrorDiagnostics.KV_R0024({ message: "Deno KV rejected pagination after the cursor history limit was reached." })
+      }
       return { keys, cursor: cursorHistories.store(iterator.cursor, cursors) }
     },
     async hasItem(key) {
