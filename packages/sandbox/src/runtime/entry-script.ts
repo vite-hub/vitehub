@@ -3,7 +3,7 @@ export const EXEC_STDIO_OUTPUT_MARKER = '__VITEHUB_OUTPUT__'
 export function createEntrySource(
   definitionPath: string,
   execution: 'definition' | 'module' = 'definition',
-  transferLimits = { maxDepth: 32, maxSidecars: 64, maxSidecarBytes: 64 * 1024 * 1024 },
+  transferLimits: { maxDepth: number, maxSidecars: number, maxSidecarBytes: number, maxOutputBytes?: number } = { maxDepth: 32, maxSidecars: 64, maxSidecarBytes: 64 * 1024 * 1024 },
 ) {
   const invocation = execution === 'module'
     ? [
@@ -180,6 +180,9 @@ export function createEntrySource(
     `    const input = await reviveValue(JSON.parse(raw || '{}'), inputPath + '.files', 'input')`,
     ...invocation,
     `    const output = await serializeSuccess(result, outputPath + '.files')`,
+    `    const outputBytes = Buffer.byteLength(output, 'utf8')`,
+    `    const maximum = transferLimits.maxOutputBytes ?? 4 * 1024 * 1024`,
+    `    if (outputBytes > maximum) throw transferLimitError('maxOutputBytes', outputBytes, maximum)`,
     `    await writeFile(outputPath, output)`,
     `    console.log('${EXEC_STDIO_OUTPUT_MARKER}' + output)`,
     `  }`,

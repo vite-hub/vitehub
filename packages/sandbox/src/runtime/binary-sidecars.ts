@@ -104,13 +104,15 @@ export async function encodeSandboxValue(
       if (state.nextId + 1 > limits.maxSidecars)
         throw transferLimitError(label, 'maxSidecars', state.nextId + 1, limits.maxSidecars)
       const id = state.nextId++
+      // SAFETY: The branch accepts only Blob or Uint8Array, and blob identifies the Blob case.
+      const byteLength = blob ? (entry as Blob).size : (entry as Uint8Array).byteLength
+      if (state.sidecarBytes + byteLength > limits.maxSidecarBytes)
+        throw transferLimitError(label, 'maxSidecarBytes', state.sidecarBytes + byteLength, limits.maxSidecarBytes)
+      state.sidecarBytes += byteLength
       const bytes = blob
         ? new Uint8Array(await (entry as Blob).arrayBuffer())
         : entry as Uint8Array
       throwIfAborted()
-      if (state.sidecarBytes + bytes.byteLength > limits.maxSidecarBytes)
-        throw transferLimitError(label, 'maxSidecarBytes', state.sidecarBytes + bytes.byteLength, limits.maxSidecarBytes)
-      state.sidecarBytes += bytes.byteLength
       state.pendingWrites.push({ id, bytes })
       return tagged({
         id,
@@ -134,7 +136,10 @@ export async function encodeSandboxValue(
       if (ancestors.has(entry))
         throw serializationError(`Sandbox ${label} must be JSON-serializable.`, { label })
       const nextAncestors = new Set(ancestors).add(entry)
-      return await Promise.all(entry.map((item, index) => encode(item, nextAncestors, String(index), true, depth + 1)))
+      const encoded: unknown[] = []
+      for (const [index, item] of entry.entries())
+        encoded.push(await encode(item, nextAncestors, String(index), true, depth + 1))
+      return encoded
     }
 
     if (!isObjectRecord(entry)) return entry
@@ -150,8 +155,9 @@ export async function encodeSandboxValue(
     catch (error) {
       throw serializationError(`Sandbox ${label} must be JSON-serializable.`, { label }, error)
     }
-    // SAFETY: Object.entries returns string keys and the encoder preserves that pair shape.
-    const entries = await Promise.all(sourceEntries.map(async ([entryKey, item]) => [entryKey, await encode(item, nextAncestors, entryKey, true, depth + 1)] as [string, unknown]))
+    const entries: Array<[string, unknown]> = []
+    for (const [entryKey, item] of sourceEntries)
+      entries.push([entryKey, await encode(item, nextAncestors, entryKey, true, depth + 1)])
     return hasMarker(entry) ? tagged({ entries, tag: 'object' }) : Object.fromEntries(entries)
   }
 
@@ -248,7 +254,7 @@ export async function decodeSandboxValue(
     state.sidecars++
     state.sidecarBytes += bytes.byteLength
     return descriptor.kind === 'blob'
-      ? new Blob([bytes], { type: typeof descriptor.type === 'string' ? descriptor.type : '' })
+      ? new Blob([bytes], { type: hasRuntimeType(descriptor.type, 'string') ? descriptor.type : '' })
       : descriptor.kind === 'buffer'
         ? Buffer.from(bytes)
         : bytes

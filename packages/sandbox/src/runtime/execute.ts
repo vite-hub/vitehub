@@ -126,8 +126,8 @@ async function executeSandboxDefinitionOnce<TPayload>(
     const definitionPath = resolveSandboxModulePath(prepared.directory, bundle.entry)
     throwIfAborted()
     await Promise.all([
-      sandbox.writeFile(files.entryPath, createEntrySource(definitionPath, bundle.execution, transferLimits)),
-      sandbox.writeFile(files.inputPath, inputJson),
+      sandbox.writeFile(files.entryPath, createEntrySource(definitionPath, bundle.execution, { ...transferLimits, maxOutputBytes }), { signal }),
+      sandbox.writeFile(files.inputPath, inputJson, { signal }),
     ])
     throwIfAborted()
 

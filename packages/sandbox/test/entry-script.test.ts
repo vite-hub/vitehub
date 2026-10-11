@@ -6,7 +6,7 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createEntrySource } from "../src/runtime/entry-script.ts"
-import { decodeSandboxValue, SANDBOX_VALUE_MARKER } from "../src/runtime/binary-sidecars.ts"
+import { decodeSandboxValue, encodeSandboxValue, SANDBOX_VALUE_MARKER } from "../src/runtime/binary-sidecars.ts"
 
 const tempDirs: string[] = []
 
@@ -317,6 +317,39 @@ describe("package entry result transport", () => {
 })
 
 describe("output transfer limits", () => {
+  it.each([true, false])("checks UTF-8 output bytes before writing success (accepted: %s)", async (accepted) => {
+    const result = "é".repeat(2048)
+    const bytes = Buffer.byteLength(JSON.stringify({ ok: true, result }))
+    const execution = await executePackageEntry(`export default () => ${JSON.stringify(result)}`, {
+      transfer: { maxDepth: 32, maxSidecars: 64, maxSidecarBytes: 1024, maxOutputBytes: bytes - (accepted ? 0 : 1) },
+    })
+    expect(execution.code).toBe(accepted ? 0 : 1)
+    if (accepted) expect(execution.output.result).toBe(result)
+    else {
+      expect(execution.output.result).toBeUndefined()
+      expect(execution.output.error).toMatchObject({ code: "SANDBOX_TRANSFER_LIMIT" })
+      expect(execution.output.error?.message).toContain("maxOutputBytes")
+    }
+  })
+
+  it.each(["array", "object", "escaped"])("rejects excess input Blob bytes before reading them in %s values", async (shape) => {
+    const first = new Blob(["ab"])
+    const second = new Blob(["cd"])
+    const firstRead = vi.spyOn(first, "arrayBuffer")
+    const secondRead = vi.spyOn(second, "arrayBuffer")
+    const value = shape === "array" ? [first, second] : shape === "object"
+      ? { first, second } : { [SANDBOX_VALUE_MARKER]: first, second }
+    const write = vi.fn()
+    // SAFETY: Encoding rejects before any Box operation; only the write spy is observed.
+    const sandbox = { files: { write } } as unknown as Parameters<typeof encodeSandboxValue>[0]
+    await expect(encodeSandboxValue(sandbox, value, "/assets", "payload", undefined, {
+      maxDepth: 32, maxSidecars: 2, maxSidecarBytes: 3,
+    })).rejects.toMatchObject({ code: "SANDBOX_TRANSFER_LIMIT", details: { limit: "maxSidecarBytes" } })
+    expect(firstRead).toHaveBeenCalledTimes(1)
+    expect(secondRead).not.toHaveBeenCalled()
+    expect(write).not.toHaveBeenCalled()
+  })
+
   it.each(["maxSidecars", "maxSidecarBytes"] as const)("bounds files written for %s", async (limit) => {
     const execution = await executePackageEntry(
       'export default () => [new Blob([new Uint8Array([1, 2])]), new Uint8Array([3, 4]), Buffer.from([5, 6])]',
