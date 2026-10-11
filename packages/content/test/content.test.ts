@@ -492,6 +492,18 @@ describe("contentSource", () => {
     await expect(source.getItem("hello.txt")).resolves.toBe("Hi")
   })
 
+  it("does not decode a tagged non-Uint8Array view", async () => {
+    const view = new DataView(Uint8Array.of(72, 105).buffer)
+    Object.defineProperty(view, Symbol.toStringTag, { value: "Uint8Array" })
+    const source = contentSource({
+      async items() {
+        return [{ content: view, key: "hello.txt" }]
+      },
+    } as never)
+
+    await expect(source.getItem("hello.txt")).resolves.toBe(view)
+  })
+
   it("refreshes a direct adapter passed to raw Comark Content", async () => {
     let revision = 0
     const parsed: string[] = []

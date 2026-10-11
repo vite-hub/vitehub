@@ -57,7 +57,12 @@ function contentPath(item: ContentSourceItem): string {
 }
 
 function isUint8Array(value: unknown): value is Uint8Array {
-  return ArrayBuffer.isView(value) && Object.prototype.toString.call(value) === "[object Uint8Array]"
+  if (!ArrayBuffer.isView(value)) return false
+  const typedArrayTag = Object.getOwnPropertyDescriptor(
+    Object.getPrototypeOf(Uint8Array.prototype),
+    Symbol.toStringTag,
+  )?.get
+  return typedArrayTag?.call(value) === "Uint8Array"
 }
 
 function textContent(item: ContentSourceItem): string {
