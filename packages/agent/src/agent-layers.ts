@@ -384,10 +384,9 @@ function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>()
       readonly prototype: object
       readonly BYTES_PER_ELEMENT: number
     }[] = [Int8Array, Uint8Array, Uint8ClampedArray, Int16Array, Uint16Array, Int32Array, Uint32Array, Float32Array, Float64Array, BigInt64Array, BigUint64Array]
-    const tag = Object.prototype.toString.call(value)
-    const TypedArray = constructors.find(ctor => tag === `[object ${ctor.name}]` && nativePrototype(value, ctor))
+    const TypedArray = constructors.find(ctor => nativePrototype(value, ctor))
     const isBuffer = globalThis.Buffer !== undefined && Object.getPrototypeOf(value) === Buffer.prototype
-    const isDataView = tag === "[object DataView]" && nativePrototype(value, DataView)
+    const isDataView = nativePrototype(value, DataView)
     if (!TypedArray && !isBuffer && !isDataView) return value
     const prototype = isDataView ? DataView.prototype : typedArrayPrototype
     // SAFETY: Intrinsic view accessors return the backing buffer and numeric range without invoking application properties.
