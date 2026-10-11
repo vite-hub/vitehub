@@ -119,6 +119,20 @@ describe("Auth access handlers", () => {
     await expect(handler(new Request("https://app.example/"))).resolves.toBe(foreignResponse)
   })
 
+  it("runs authorize from a route object created in another realm", async () => {
+    const authorize = vi.fn(() => true)
+    const foreignRoute = runInNewContext(`({ route: "/private", authorize: undefined })`) as {
+      route: string
+      authorize: unknown
+    }
+    foreignRoute.authorize = authorize
+    const definition = defineAuth({ access: { routes: [foreignRoute as never] } })
+    const handler = createAuthAccessHandler([{ route: "/private", authorize: true }], definition)
+
+    await expect(handler(new Request("https://app.example/private"))).resolves.toBeUndefined()
+    expect(authorize).toHaveBeenCalledOnce()
+  })
+
   it("starts provider sign-in only for matched unauthenticated HTML requests", async () => {
     provider.getSession.mockResolvedValue(null)
     provider.handler.mockResolvedValue(Response.json({ url: "https://provider.example/sign-in" }))
