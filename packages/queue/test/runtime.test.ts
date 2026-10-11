@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 import { createServer } from "node:http"
+import { runInNewContext } from "node:vm"
 
 import { clearActiveCloudflareEnv, getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { ViteHubError } from "@vite-hub/runtime"
@@ -730,6 +731,28 @@ describe("cloudflare queue runtime", () => {
 })
 
 describe("vercel provider", () => {
+  it("preserves hosted callback Requests from another realm", async () => {
+    const request = runInNewContext(`
+      class Headers { get() { return null } }
+      class CrossRealmRequest {
+        constructor() { this.body = null; this.headers = new Headers(); this.method = "POST"; this.url = "https://queue.example.test/callback" }
+      }
+      Object.defineProperty(CrossRealmRequest.prototype, Symbol.toStringTag, { value: "Request" })
+      new CrossRealmRequest()
+    `, { Symbol })
+    let captured: unknown
+    vercelQueueMock.handleCallback.mockImplementationOnce(() => async (...values: unknown[]) => {
+      captured = values[0]
+      return "handled"
+    })
+    const definition = { handler: async () => undefined }
+    setQueueRuntimeConfig({ provider: "vercel", region: "iad1" }, createVercelQueueRuntimeClient)
+    setQueueRuntimeRegistry({ welcome: async () => ({ default: definition }) })
+
+    await expect(handleHostedVercelQueueCallback({ request }, "welcome", definition)).resolves.toBe("handled")
+    expect(captured).toBe(request)
+  })
+
   it("requires a selected client factory for default manual servers", () => {
     expect(() => createQueueVercelServer({} as never)).toThrow("requires its generated client factory")
     expect(() => createQueueVercelServer({ queue: false })).not.toThrow()

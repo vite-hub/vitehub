@@ -11,11 +11,18 @@ import type { QueueDefinition, VercelQueueCallbackOptions } from "../types.ts"
 
 export const hostedVercelWaitUntil: (promise: Promise<unknown>) => void | undefined = vercelWaitUntil
 
+function isRequestLike(value: unknown): value is Request {
+  if (value === null || typeof value !== "object" || Object.prototype.toString.call(value) !== "[object Request]") return false
+  const request = value as { headers?: unknown; method?: unknown; url?: unknown }
+  if (typeof request.method !== "string" || typeof request.url !== "string" || request.headers === null || typeof request.headers !== "object") return false
+  return typeof (request.headers as { get?: unknown }).get === "function"
+}
+
 async function toRequest(event: {
   method?: string
   request?: Request
 }) {
-  if (event.request instanceof Request) {
+  if (event.request instanceof Request || isRequestLike(event.request)) {
     return event.request
   }
 
