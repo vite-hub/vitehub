@@ -886,6 +886,16 @@ describe("workflow runtime", () => {
     )
   })
 
+  it("rejects folder steps that normalize to the same property name", () => {
+    const context = { name: "pipeline", provider: "cloudflare", payload: undefined } as const
+    const steps = [
+      { name: "01.first.ts", run: async (input: unknown) => input },
+      { name: "02.first.ts", run: async (input: unknown) => input },
+    ]
+
+    expect(() => createWorkflowSteps(context, steps)).toThrow(/both normalize to the `first` step property/)
+  })
+
   it("runs registered definitions through the Vercel provider", async () => {
     setWorkflowRuntimeConfig({ provider: "vercel" })
     setWorkflowRuntimeRegistry({
