@@ -96,7 +96,7 @@ export function disposeEmailOutbox(runtimeId: string): void {
 }
 
 function normalizeLimit(value: number | undefined): number {
-  if (value === undefined) return defaultEmailOutboxLimit
+  if (value === undefined || !Number.isFinite(value)) return defaultEmailOutboxLimit
   return Math.min(Math.max(Math.trunc(value), 1), maximumEmailOutboxLimit)
 }
 
