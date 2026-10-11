@@ -270,3 +270,18 @@ it("preserves errors raised in another runtime realm", async () => {
   const foreign = runInNewContext("new Error('foreign failure')") as Error
   expect(normalizeScheduleRuntimeError(foreign)).toBe(foreign)
 })
+
+it("wraps spoofed and hostile thrown values safely", () => {
+  const spoof = { [Symbol.toStringTag]: "Error" }
+  const hostile = new Proxy({}, {
+    get() {
+      throw new Error("tag access failed")
+    },
+    getPrototypeOf() {
+      throw new Error("prototype access failed")
+    },
+  })
+
+  expect(normalizeScheduleRuntimeError(spoof)).toMatchObject({ code: "SCHEDULE_R0035", cause: spoof })
+  expect(normalizeScheduleRuntimeError(hostile)).toMatchObject({ code: "SCHEDULE_R0035", cause: hostile })
+})

@@ -56,8 +56,36 @@ export function normalizeCron(cron: string): string {
 }
 
 export function normalizeScheduleRuntimeError(error: unknown): Error {
-  if (error instanceof Error || (error !== null && typeof error === "object" && Object.prototype.toString.call(error) === "[object Error]")) return error as Error
-  return scheduleErrorDiagnostics.SCHEDULE_R0035({ cause: error, message: String(error) })
+  if (isScheduleRuntimeError(error)) return error
+  let message: string
+  try {
+    message = String(error)
+  }
+  catch {
+    message = "[unprintable thrown value]"
+  }
+  return scheduleErrorDiagnostics.SCHEDULE_R0035({ cause: error, message })
+}
+
+function isScheduleRuntimeError(error: unknown): error is Error {
+  try {
+    if (error instanceof Error) return true
+    const nativeIsError = (Error as ErrorConstructor & { isError?: (value: unknown) => boolean }).isError
+    if (typeof nativeIsError === "function") return nativeIsError(error) === true
+  }
+  catch {
+    return false
+  }
+  if (error === null || typeof error !== "object") return false
+  try {
+    const prototype = Object.getPrototypeOf(error)
+    return prototype !== null
+      && prototype !== Object.prototype
+      && Object.prototype.toString.call(error) === "[object Error]"
+  }
+  catch {
+    return false
+  }
 }
 
 export function createStaticScheduleRun(
