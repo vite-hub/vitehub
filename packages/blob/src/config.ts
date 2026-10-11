@@ -62,13 +62,12 @@ function resolveCloudflareStore(
 
 function resolveVercelStore(
   config: Partial<VercelBlobStoreConfig> = {},
-  env: Record<string, string | undefined> = process.env,
 ): ResolvedVercelBlobStoreConfig {
   return {
     ...config,
     access: config.access ?? "public",
     driver: "vercel-blob",
-    token: resolveBuildRuntimeValue(config.token, env, "BLOB_READ_WRITE_TOKEN") ?? MASKED_BLOB_RUNTIME_VALUE,
+    token: trimmed(config.token) ?? MASKED_BLOB_RUNTIME_VALUE,
   }
 }
 
@@ -122,7 +121,7 @@ function resolveExplicitStore(
     case "netlify-blobs":
       return resolveNetlifyStore(store)
     case "vercel-blob":
-      return resolveVercelStore(store, env)
+      return resolveVercelStore(store)
     case "akamai":
     case "azure":
     case "box":
@@ -249,11 +248,11 @@ export function normalizeBlobOptions(
   }
 
   if (hasVercelBlobEnv(env)) {
-    return createResolvedConfig(resolveVercelStore({}, env), undefined, serve)
+    return createResolvedConfig(resolveVercelStore(), undefined, serve)
   }
 
   if (hosting.includes("vercel")) {
-    return createResolvedConfig(resolveVercelStore({}, env), undefined, serve)
+    return createResolvedConfig(resolveVercelStore(), undefined, serve)
   }
 
   return createResolvedConfig(resolveFsStore({}, env), undefined, serve)

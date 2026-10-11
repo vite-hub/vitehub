@@ -2,6 +2,7 @@ import { toArray } from "@vite-hub/internal/arrays"
 import { isPlainObject } from "@vite-hub/internal/object"
 import { importOptionalPeer } from "../internal/optional-peer.ts"
 import { blobErrorDiagnostics } from "../error-diagnostics.ts"
+import isBlob from "../internal/is-blob.ts"
 
 import type { BlobDriverAdapter, BlobListOptions, BlobListResult, BlobObject, BlobPutBody, BlobPutOptions, ResolvedBlobStoreConfig } from "../types.ts"
 import type { Adapter, Files, StoredFile, UploadResult } from "files-sdk"
@@ -253,7 +254,7 @@ export function createFilesSdkDriver<TOptions extends ResolvedBlobStoreConfig>(
       const client = await files(putOptions)
       const uploadOptions = {
         contentLength: putOptions.contentLength,
-        contentType: putOptions.contentType || (body instanceof Blob ? body.type : undefined),
+        contentType: putOptions.contentType || (isBlob(body) ? body.type : undefined),
         metadata: putOptions.customMetadata,
       }
       const result = await client.upload(pathname, body as never, uploadOptions)
@@ -261,7 +262,7 @@ export function createFilesSdkDriver<TOptions extends ResolvedBlobStoreConfig>(
       return {
         ...mapUploadResult(result, putOptions),
         pathname: result.key,
-        contentType: result.contentType || putOptions.contentType || (body instanceof Blob ? body.type : undefined),
+        contentType: result.contentType || putOptions.contentType || (isBlob(body) ? body.type : undefined),
         url: await getUploadUrl(client, result.key),
       }
     },
