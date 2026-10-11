@@ -63,7 +63,17 @@ function parseRequest(body: unknown): WorkflowDevRequest | undefined {
 }
 
 function isResponse(value: unknown): value is Response {
-  return value instanceof Response || Object.prototype.toString.call(value) === "[object Response]"
+  if (value instanceof Response) return true
+  if (!value || (typeof value !== "object" && typeof value !== "function")) return false
+  const statusGetter = Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get
+  if (!statusGetter) return false
+  try {
+    statusGetter.call(value)
+    return true
+  }
+  catch {
+    return false
+  }
 }
 
 function jsonReplacer(_key: string, value: unknown): unknown {
