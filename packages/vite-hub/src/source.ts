@@ -297,7 +297,7 @@ const defineCollectionImplementation = (
   const core: unknown = defineCoreCollection
   // SAFETY: This adapter forwards one of the public defineCollection overload argument sets.
   const callCore = core as (...args: unknown[]) => unknown
-  if (input instanceof Function) return callCore(input, options)
+  if (typeof input === "function") return callCore(input, options)
   const { authorize, route, source, transform } = input
   const definition = {
     authorize,
