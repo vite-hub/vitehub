@@ -10,7 +10,10 @@ const feedbackInputSchema = v.strictObject({
   version: v.optional(v.pipe(v.string(), v.regex(/^[a-f0-9]{64}$/))),
 });
 
-const identities = (item: GitHubEvidence) => [item.id, item.node_id, item.databaseId].filter(value => value !== undefined && value !== null).map(String);
+const identities = (item: GitHubEvidence) => [item.id, item.node_id, item.databaseId].reduce<string[]>((result, value) => {
+  if (value !== undefined && value !== null) result.push(String(value));
+  return result;
+}, []);
 const comments = (thread: GitHubReviewThread) => Array.isArray(thread.comments) ? thread.comments : thread.comments?.nodes ?? [];
 
 /** Read bounded feedback from this claim's durable PR, fencing edits between continuation reads. */
