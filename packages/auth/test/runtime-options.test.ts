@@ -53,6 +53,16 @@ describe("Auth option resolution", () => {
     expect(env).not.toHaveBeenCalled()
   })
 
+  it("preserves runtime placement objects with inherited metadata names", () => {
+    const database = Object.create({ name: "adapter-name" })
+    const secondaryStorage = Object.create({ store: "adapter-store" })
+    const definition = defineAuth(() => ({ appName: "ViteHub", database, secondaryStorage }))
+
+    const options = resolveAuthOptions(definition).providerOptions
+    expect(options.database).toBe(database)
+    expect(options.secondaryStorage).toBe(secondaryStorage)
+  })
+
   it("does not treat inherited trusted origins as a static configuration", () => {
     const options = Object.create({ trustedOrigins: ["https://inherited.example.com"] }) as { appName: string }
     options.appName = "ViteHub"
