@@ -158,6 +158,21 @@ describe("fs blob driver", () => {
     })
   })
 
+  it("returns no blobs for a zero folded-list limit", async () => {
+    const base = await mkdtemp(join(tmpdir(), "vitehub-blob-fs-"))
+    tempDirs.push(base)
+
+    const driver = createDriver({ base, driver: "fs" })
+    await driver.put("root.txt", "root")
+    await driver.put("nested/file.txt", "nested")
+
+    await expect(driver.list({ folded: true, limit: 0 })).resolves.toMatchObject({
+      blobs: [],
+      folders: ["nested/"],
+      hasMore: false,
+    })
+  })
+
   it("preserves content type when reading blobs", async () => {
     const base = await mkdtemp(join(tmpdir(), "vitehub-blob-fs-"))
     tempDirs.push(base)
