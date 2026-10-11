@@ -83,6 +83,13 @@ describe("direct Source readers", () => {
       { key: "guide/nested", type: "directory" },
       { key: "guide/windows", type: "directory" },
     ])
+
+    await expect(reader.list("guide/windows")).resolves.toEqual([
+      { key: "guide\\windows\\example.md", type: "file" },
+    ])
+    await expect(reader.list("guide/nested")).resolves.toEqual([
+      { key: "guide//nested///example.md", type: "file" },
+    ])
   })
 
   it("pins one revision for concurrent operations and refreshes with another reader", async () => {
