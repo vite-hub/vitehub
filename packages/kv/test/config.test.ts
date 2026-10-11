@@ -239,6 +239,10 @@ describe("normalizeKVOptions", () => {
       hosting: "",
     })).toThrow("`kv` must be a plain object.")
   })
+
+  it.each([null, [], "stores"])("rejects a non-record stores option: %j", stores => {
+    expect(() => normalizeKVOptions({ stores } as never)).toThrow("`kv.stores` must be a plain object.")
+  })
 })
 
 describe("Cloudflare integration", () => {
