@@ -572,6 +572,15 @@ function boxedObservationPrimitive(value: unknown): { type: string, value: bigin
   }
 }
 
+function reflectedSetValues(value: unknown): unknown[] | undefined {
+  try {
+    return [...Set.prototype.values.call(value)]
+  }
+  catch {
+    return
+  }
+}
+
 async function collectBoundedObservationBuiltIns(
   value: unknown,
   builtIns: Map<object, BoundedObservationBuiltIn>,
@@ -624,9 +633,10 @@ async function collectBoundedObservationBuiltIns(
     }
     return
   }
-  if (value instanceof Set) {
+  const setValues = reflectedSetValues(value)
+  if (setValues) {
     let count = 0
-    for (const child of value) {
+    for (const child of setValues) {
       if (count++ >= MAX_OBSERVATION_COLLECTION_ITEMS) break
       await collectBoundedObservationBuiltIns(child, builtIns, budget, seen, depth + 1)
     }
@@ -740,15 +750,16 @@ function boundedObservationValue(
       boundedObservationValue(child, budget, depth + 1, maxStringLength, builtIns),
     ])
   }
-  if (value instanceof Set) {
+  const setValues = reflectedSetValues(value)
+  if (setValues) {
     budget.truncated = true
     const entries: unknown[] = []
     const limit = Math.min(collectionItems, budget.items)
-    for (const entry of value) {
+    for (const entry of setValues) {
       if (entries.length >= limit) break
       entries.push(entry)
     }
-    if (entries.length < value.size) budget.truncated = true
+    if (entries.length < setValues.length) budget.truncated = true
     return entries.map(child => boundedObservationValue(child, budget, depth + 1, maxStringLength, builtIns))
   }
   if (value instanceof ArrayBuffer) {
