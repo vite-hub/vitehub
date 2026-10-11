@@ -338,6 +338,13 @@ describe("fetch sources", () => {
     })).toThrow("responseType")
   })
 
+  it.each([42, null, {}, [], Object.create(null)])("rejects non-string methods with the fetch method diagnostic: %s", (method) => {
+    expect(() => fetch({
+      method: method as never,
+      url: "https://status.example.com/image",
+    })).toThrow("not supported")
+  })
+
   it("supports query URLs and keeps source paths read-only", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({ status: "ok" }))
     registerWorkspace("fetch-readonly", defineWorkspace({
