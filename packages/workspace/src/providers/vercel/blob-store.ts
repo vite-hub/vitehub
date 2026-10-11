@@ -35,6 +35,48 @@ type BlobListResult = {
   hasMore?: boolean
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vercel Blob responses cross an untrusted provider boundary.
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+}
+
+function invalidBlobListResponse(): never {
+  throw workspaceErrorDiagnostics.WORKSPACE_R0033({ message: "Unexpected Vercel Blob list response." })
+}
+
+function parseBlobListResponse(value: unknown): BlobListResult {
+  if (!isRecord(value) || !Array.isArray(value.blobs)) invalidBlobListResponse()
+  const items = value.blobs.map((item: unknown): BlobListItem => {
+    if (!isRecord(item)) invalidBlobListResponse()
+    const pathname = item.pathname
+    const size = item.size
+    const uploadedAt = item.uploadedAt
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- List item fields cross the Vercel Blob provider boundary.
+    if (typeof pathname !== "string" || !pathname) invalidBlobListResponse()
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- List item fields cross the Vercel Blob provider boundary.
+    if (size !== undefined && (typeof size !== "number" || !Number.isFinite(size) || size < 0)) invalidBlobListResponse()
+    if (uploadedAt !== undefined && (!(uploadedAt instanceof Date) || Number.isNaN(uploadedAt.getTime()))) invalidBlobListResponse()
+    return {
+      key: pathname,
+      lastModified: uploadedAt instanceof Date ? uploadedAt.getTime() : undefined,
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- List item fields cross the Vercel Blob provider boundary.
+      size: typeof size === "number" ? size : undefined,
+    }
+  })
+  const cursor = value.cursor
+  const hasMore = value.hasMore
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Pagination fields cross the Vercel Blob provider boundary.
+  if (cursor !== undefined && typeof cursor !== "string") invalidBlobListResponse()
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Pagination fields cross the Vercel Blob provider boundary.
+  if (hasMore !== undefined && typeof hasMore !== "boolean") invalidBlobListResponse()
+  if (hasMore === true && !cursor) invalidBlobListResponse()
+  return {
+    cursor: cursor === undefined ? undefined : cursor,
+    hasMore: hasMore === undefined ? undefined : hasMore,
+    items,
+  }
+}
+
 type VercelBlobModule = {
   del(key: string, options?: { token?: string }): Promise<void>
   get(key: string, options: { access: "private" | "public", token?: string, useCache?: boolean, headers?: Record<string, string> }): Promise<{
@@ -119,15 +161,10 @@ async function createVercelBlobClient(options: VercelBlobWorkspaceStoreOptions) 
       }
     },
     async list(optionsInput: { cursor?: string, limit?: number, prefix: string }): Promise<BlobListResult> {
-      const result = await blob.list({ ...optionsInput, ...auth(options) })
+      const result: unknown = await blob.list({ ...optionsInput, ...auth(options) })
+      const parsed = parseBlobListResponse(result)
       return {
-        cursor: result.cursor,
-        hasMore: result.hasMore,
-        items: result.blobs.map(item => ({
-          key: item.pathname,
-          lastModified: item.uploadedAt?.getTime(),
-          size: item.size,
-        })),
+        ...parsed,
       }
     },
     async upload(key: string, body: Blob | Uint8Array | string, uploadOptions: { contentType?: string } = {}): Promise<void> {
