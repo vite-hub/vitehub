@@ -5,6 +5,7 @@ import { AwsClient } from "aws4fetch"
 
 import type { BlobDriverAdapter, BlobDriverMultipartUpload, BlobListOptions, BlobListResult, BlobMultipartPart, BlobObject, BlobPutBody, BlobPutOptions, BlobSignedRequest, BlobSignOptions, ResolvedCloudflareR2BlobStoreConfig } from "../types.ts"
 import { blobErrorDiagnostics } from "../error-diagnostics.ts"
+import isBlob from "../internal/is-blob.ts"
 
 interface R2ObjectLike {
   arrayBuffer?: () => Promise<ArrayBuffer>
@@ -181,7 +182,7 @@ export function createDriver(options: ResolvedCloudflareR2BlobStoreConfig): Blob
       const object = await getBucket(options).put(pathname, body, {
         customMetadata: putOptions.customMetadata,
         httpMetadata: {
-          contentType: putOptions.contentType || (body instanceof Blob ? body.type : undefined),
+          contentType: putOptions.contentType || (isBlob(body) ? body.type : undefined),
         },
       })
       return mapObject(object)
