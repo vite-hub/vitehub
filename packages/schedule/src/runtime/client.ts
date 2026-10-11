@@ -139,6 +139,12 @@ function assertRuntimeScheduleInputKeys(input: Record<string, unknown>, allowed:
       details: invalidScheduleValueDetails("input", input),
     })
   }
+  const inheritedKey = [...allowed].find(key => key in input && !Object.hasOwn(input, key))
+  if (inheritedKey) {
+    throw createScheduleError("SCHEDULE_INVALID_INPUT", {
+      details: invalidScheduleValueDetails("input", input),
+    })
+  }
 }
 
 async function validateCreateInput(input: RuntimeScheduleCreateInput): Promise<void> {
