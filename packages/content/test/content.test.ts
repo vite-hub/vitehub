@@ -10,9 +10,23 @@ import { afterEach, describe, expect, expectTypeOf, it } from "vitest"
 import { clearSources, createSource, defineSource, registerSources, useSource } from "@vite-hub/source"
 import type { SourceName } from "@vite-hub/source"
 
-import { contentSource, defineContent } from "../src/index.ts"
+import { contentSource, defineContent, defineContentHandler } from "../src/index.ts"
 
 afterEach(clearSources)
+
+it("accepts Web Requests from another realm", async () => {
+  const request = runInNewContext(`({
+    method: "POST",
+    url: "https://example.test/content",
+    headers: { get: () => null },
+    text: () => Promise.resolve("hello"),
+    get [Symbol.toStringTag]() { return "Request" },
+  })`) as Request
+  const handler = defineContentHandler({ handler: async input => new Response(await input.text()) })
+  const response = await handler({ req: request } as never) as Response
+  expect(response.status).toBe(200)
+  await expect(response.text()).resolves.toBe("hello")
+})
 
 function deferred() {
   let resolve!: () => void

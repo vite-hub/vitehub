@@ -129,7 +129,7 @@ export function defineContentHandler(
 ): ContentHandler {
   // SAFETY: ContentHandler preserves the callable and fetch contracts exposed by H3's handler.
   return defineEventHandler(async (event: H3Event) => {
-    if (event.req instanceof Request) return await content.handler(event.req)
+    if (isRequestLike(event.req)) return await content.handler(event.req)
 
     if (!event.node) throw contentErrorDiagnostics.CONTENT_R0005({ message: "[vitehub] Content received an unsupported non-Web request." })
     // SAFETY: H3 exposes a Node IncomingMessage or HTTP/2 request through event.node.req.
@@ -173,4 +173,21 @@ export function defineContentHandler(
       signal: abort.signal,
     }))
   }) as ContentHandler
+}
+
+function isRequestLike(value: unknown): value is Request {
+  if (value === null || typeof value !== "object") return false
+  try {
+    if (Object.prototype.toString.call(value) !== "[object Request]") return false
+    const request = value as { headers?: unknown, method?: unknown, text?: unknown, url?: unknown }
+    return typeof request.method === "string"
+      && typeof request.url === "string"
+      && typeof request.text === "function"
+      && request.headers !== null
+      && typeof request.headers === "object"
+      && typeof (request.headers as { get?: unknown }).get === "function"
+  }
+  catch {
+    return false
+  }
 }
