@@ -11,7 +11,12 @@ function channelError(message: string): Error {
 
 export function toChannelSendError(cause: unknown): Error {
   try {
-    return cause instanceof Error ? cause : new Error(String(cause))
+    if (cause instanceof Error) return cause
+    if (cause !== null && typeof cause === "object" && Object.prototype.toString.call(cause) === "[object Error]") {
+      // SAFETY: Error objects from another realm have the same standard Error shape.
+      return cause as Error
+    }
+    return new Error(String(cause))
   }
   catch {
     return new Error(uninspectableSendErrorMessage)

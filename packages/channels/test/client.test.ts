@@ -1,9 +1,30 @@
+import { runInNewContext } from "node:vm"
+
 import { describe, expect, it, vi } from "vitest"
 
 import { createChannel, defineOutboundChannel, useChannel } from "../src/index.ts"
 import { setChannelRuntimeRegistry } from "../src/runtime/state.ts"
 
 describe("createChannel", () => {
+  it("preserves provider errors from another realm", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => {})
+    const failure = runInNewContext("Object.assign(new Error('provider unavailable'), { code: 'RATE_LIMIT', cause: new Error('quota reached') })")
+    expect(failure).not.toBeInstanceOf(Error)
+    try {
+      const channel = createChannel("alerts", {
+        connectors: { configured: { send: async () => { throw failure } } },
+      })
+
+      const [error, receipt] = await channel.send("Build finished.", { connector: "configured" })
+      expect(error).toBe(failure)
+      expect(receipt).toBeNull()
+      expect(info).toHaveBeenLastCalledWith(expect.stringContaining('"error":"provider unavailable"'))
+    }
+    finally {
+      info.mockRestore()
+    }
+  })
+
   it("preserves connector option instances and their private state", async () => {
     class Destination {
       #id = "room-1"
