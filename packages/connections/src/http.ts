@@ -29,6 +29,9 @@ function normalizeConnectionsBasePath(value: string | undefined): string {
   if (!path.startsWith("/")) {
     throw new ConnectionError("invalid", "Connections basePath must start with `/`.");
   }
+  if (path.includes("?") || path.includes("#")) {
+    throw new ConnectionError("invalid", "Connections basePath must be a pathname without a query or fragment.");
+  }
   const normalized = path.length > 1 ? path.replace(/\/+$/g, "") : path;
   if (!normalized || normalized === "/") {
     throw new ConnectionError("invalid", "Connections basePath must include a route segment.");
