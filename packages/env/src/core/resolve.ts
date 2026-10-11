@@ -520,11 +520,16 @@ function isEnvVariableDeclaration(value: unknown): value is EnvVariableDeclarati
 }
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+  try {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+      return false
+    }
+    const prototype = Object.getPrototypeOf(value)
+    return prototype === null || prototype === Object.prototype
+  }
+  catch {
     return false
   }
-  const prototype = Object.getPrototypeOf(value)
-  return prototype === null || prototype === Object.prototype
 }
 
 function isRuntimeStaticValue(value: unknown): value is EnvRuntimeStaticValue {
@@ -532,27 +537,32 @@ function isRuntimeStaticValue(value: unknown): value is EnvRuntimeStaticValue {
 }
 
 function isBuildStaticValue(value: unknown): value is EnvBuildStaticValue {
-  if (value === null) {
-    return true
-  }
-  switch (typeof value) {
-    case "boolean":
-    case "string":
+  try {
+    if (value === null) {
       return true
-    case "number":
-      return Number.isFinite(value)
-    case "object":
-      if (!Array.isArray(value)) {
-        return false
-      }
-      for (let index = 0; index < value.length; index += 1) {
-        if (!Object.hasOwn(value, index) || !isBuildStaticValue(value[index])) {
+    }
+    switch (typeof value) {
+      case "boolean":
+      case "string":
+        return true
+      case "number":
+        return Number.isFinite(value)
+      case "object":
+        if (!Array.isArray(value)) {
           return false
         }
-      }
-      return true
-    default:
-      return false
+        for (let index = 0; index < value.length; index += 1) {
+          if (!Object.hasOwn(value, index) || !isBuildStaticValue(value[index])) {
+            return false
+          }
+        }
+        return true
+      default:
+        return false
+    }
+  }
+  catch {
+    return false
   }
 }
 
