@@ -43,6 +43,20 @@ function rejection(status: number, message: string): Response {
   })
 }
 
+function isRequestLike(value: unknown): value is Request {
+  if (value === null || typeof value !== "object" || Object.prototype.toString.call(value) !== "[object Request]") return false
+  const request = value as { headers?: unknown; method?: unknown; url?: unknown }
+  if (typeof request.method !== "string" || typeof request.url !== "string" || request.headers === null || typeof request.headers !== "object") return false
+  return typeof (request.headers as { get?: unknown }).get === "function"
+}
+
+function isResponseLike(value: unknown): value is Response {
+  if (value === null || typeof value !== "object" || Object.prototype.toString.call(value) !== "[object Response]") return false
+  const response = value as { headers?: unknown; status?: unknown; statusText?: unknown }
+  if (typeof response.status !== "number" || typeof response.statusText !== "string" || response.headers === null || typeof response.headers !== "object") return false
+  return typeof (response.headers as { get?: unknown }).get === "function"
+}
+
 /** Install the Console access policy. Generated Console output calls this before it serves a request. */
 export function installConsoleAccess(policy: ConsoleAccessPolicy): void {
   if (!(policy instanceof Object) || !modes.has(policy.mode)) {
@@ -62,7 +76,7 @@ function productionRuntime(): boolean {
 }
 
 function webRequest(event: ConsoleRequestEvent): Request {
-  if (event.req instanceof Request) return event.req
+  if (event.req instanceof Request || isRequestLike(event.req)) return event.req
   const headers = new Headers()
   for (const [name, value] of Object.entries(event.node?.req?.headers ?? {})) {
     if (value !== undefined) headers.set(name, Array.isArray(value) ? value.join(", ") : value)
@@ -81,7 +95,7 @@ async function checkConsoleAccess(event: ConsoleRequestEvent): Promise<ConsoleAc
       return rejection(500, "[vitehub] console: { exposure: \"host-managed\" } requires console.authorize. Set it to a server file that default-exports defineConsoleAuthorize().")
     }
     const result = await policy.authorize({ request: webRequest(event) })
-    if (result instanceof Response) return result
+    if (result instanceof Response || isResponseLike(result)) return result
     if (result !== true) return rejection(403, "Forbidden.")
   }
   else {
@@ -108,7 +122,7 @@ export async function consoleConnectionsActor(
   sessionActor?: () => Promise<string | undefined>,
 ): Promise<string | undefined> {
   const access = await checkConsoleAccess(event)
-  if (access instanceof Response) return undefined
+  if (access instanceof Response || isResponseLike(access)) return undefined
   if (access.mode === "auth") return sessionActor ? await sessionActor() : undefined
   return `user:${access.mode}`
 }
@@ -125,7 +139,7 @@ export function withConsoleAccess<TEvent extends ConsoleRequestEvent, TResult>(
     const bound = checkedEvents.get(event)
     if (bound && consoleAccessGrant.isValid(bound)) return handler(event, bound)
     const access = await checkConsoleAccess(event)
-    if (access instanceof Response) return access
+    if (access instanceof Response || isResponseLike(access)) return access
     checkedEvents.set(event, access)
     return handler(event, access)
   }
