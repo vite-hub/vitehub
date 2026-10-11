@@ -104,7 +104,7 @@ describe("Blob dev runtime handler", () => {
       expect(del).toHaveBeenCalledWith("recent.txt")
     }
     finally { head.mockRestore(); del.mockRestore() }
-    expect((await blob.head("recent.txt"))[0]?.code).toBe("BLOB_NOT_FOUND")
+    expect(await blob.head("recent.txt")).toEqual([null, null])
   })
 
   it.each(["", "   "])("rejects store %j without changing the default store", async (store) => {

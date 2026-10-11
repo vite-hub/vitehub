@@ -1,38 +1,39 @@
 ---
-title: Email get started
-description: Install Email, configure Resend, and send a first message from server code.
-navigation.title: Get started
+
+title: Send your first Email
+description: Send a welcome email with Resend and check the delivery result.
+layout: tutorial
+navigation.title: Tutorial
 navigation.order: 2
 icon: i-lucide-rocket
 ---
 
-## Before you begin
+Send a welcome email with Resend and check its delivery. You will configure the provider, supply its API key to the server, and call a route that sends the message. The development outbox also records it for inspection.
 
-The quick start takes about ten minutes and sends a real message through Resend. You need:
+You need Node.js 24.15 or newer, Vite 8 or newer, pnpm, a Vite application, and a POSIX-compatible shell. You also need a Resend API key, a verified sender, and an inbox you can check. Run the commands from the app root. The final request sends a real email.
 
-- Node.js 24.15 or later and an existing Vite 8 or later server application.
-- pnpm and a POSIX-compatible shell for the commands below.
-- A Resend API key and a sender address accepted by Resend.
-- A real recipient address you can check.
+::tutorial-step{title="Install the email dependencies"}
+## Install the email dependencies
 
-## Send your first message
+Install ViteHub and Nitro. The distribution includes the Resend driver; you do not need a separate driver package.
 
-::steps{level="3"}
-
-### Install the email dependencies
-
-```bash [Terminal]
-pnpm add vite-hub
+```bash [commands/install]
+pnpm add vite-hub nitro h3
+pnpm add -D vite
 ```
 
-`vite-hub` includes the Email runtime plus built-in Resend and Cloudflare Email drivers.
+::
 
-### Configure Resend
+::tutorial-step{title="Configure Resend"}
+## Configure Resend
+
+Add Email to your existing ViteHub configuration. `env.source('RESEND_API_KEY')` names the server environment variable that supplies the credential.
 
 ```ts [vite.config.ts]
 import { vitehub } from 'vite-hub'
 import { env } from 'vite-hub/env'
 import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
 
 export default defineConfig({
   plugins: [vitehub({
@@ -43,25 +44,35 @@ export default defineConfig({
         apiKey: env({ secret: true, source: env.source('RESEND_API_KEY') }),
       },
     },
-  })],
+  }), nitro() as never],
 })
 ```
 
-The stable driver name selects a ViteHub-owned provider implementation. The Env declaration is serialized, but its source value is resolved in the server runtime for every send, so the API key stays out of build output and request-scoped Cloudflare secrets stay current. Literal options and non-secret Env defaults are serialized into the build; never use literal options for credentials, and ViteHub rejects defaults on declarations marked secret.
+The server reads the API key when it sends a message. Keep the key in the environment rather than placing its value in this config. Literal options are part of the build output.
 
-### Provide the Resend secret
+::
+
+::tutorial-step{title="Provide the Resend secret"}
+## Provide the Resend secret
 
 Set `RESEND_API_KEY` in the server process:
 
-```bash [Terminal]
+Replace `re_...` with your API key in the terminal where you will start Vite. An export in another terminal does not set the server's environment.
+
+```bash [commands/secret]
 export RESEND_API_KEY='re_...'
 ```
 
 Use your deployment platform's secret store in production. Do not use a `VITE_` prefix because Vite-prefixed values can be exposed to browser code.
 
-### Send from server code
+::
+
+::tutorial-step{title="Send from server code"}
+## Send from server code
 
 Replace both addresses with values accepted by Resend. The request performs a real delivery. In `vite dev`, the [development outbox](/docs/email/hosts#development-outbox) also records the message.
+
+Replace the sender with a Resend-verified address and the recipient with an inbox you control. Each request to this route sends another message.
 
 ```ts [server/api/welcome.post.ts]
 import { defineEventHandler } from 'h3'
@@ -77,11 +88,26 @@ export default defineEventHandler(async () => {
 })
 ```
 
-### Verify the result
+::
 
-Start the application with its normal development command and send a `POST` request to `/api/welcome`. A successful response has this shape:
+::tutorial-step{title="Run and check the result"}
+## Run and check the result
 
-```json
+Nitro serves the `server/api` route. Start the server and send the request:
+
+```bash [commands/start]
+pnpm vite dev
+```
+
+Keep the server running. In another terminal, run:
+
+```bash [commands/request]
+curl -X POST http://localhost:5173/api/welcome
+```
+
+A successful response has this shape:
+
+```json [output/response.json]
 {
   "id": "<provider-message-id>",
   "driver": "resend"
