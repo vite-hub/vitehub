@@ -1,3 +1,4 @@
+import { runInNewContext } from "node:vm"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { defineWorkspace, fetch, resolveRegisteredWorkspaceDefinition, useWorkspace } from "../src/index.ts"
@@ -219,6 +220,24 @@ describe("fetch sources", () => {
       { path: ".vitehub/sources/status.json", type: "file" },
     ])
     await expect(fs.readFile(".vitehub/sources/status.json")).resolves.toContain("https://status.example.com/health")
+  })
+
+  it("preserves bytes returned by cross-realm transforms", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(textResponse("ok"))
+    const bytes = runInNewContext("new Uint8Array([1, 2, 3])") as Uint8Array
+    registerWorkspace("fetch-cross-realm-bytes", defineWorkspace({
+      store: { provider: "memory" },
+      sources: {
+        payload: fetch({
+          responseType: "text",
+          transform: () => bytes,
+          url: "https://status.example.com/bytes",
+          workspacePath: "payload.bin",
+        }),
+      },
+    }))
+
+    await expect(useWorkspace("fetch-cross-realm-bytes").fs.readFile("payload.bin", { encoding: "binary" })).resolves.toEqual(Uint8Array.from([1, 2, 3]))
   })
 
   it("supports text, POST request factories, and explicit paths", async () => {
