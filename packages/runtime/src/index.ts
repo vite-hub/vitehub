@@ -404,7 +404,17 @@ function isWebAssemblyModule(value: unknown): boolean {
   const constructor = hasRuntimeType(namespace, "object")
     ? Object.getOwnPropertyDescriptor(namespace, "Module")?.value
     : undefined
-  return hasRuntimeType(constructor, "function") && value instanceof constructor
+  if (!hasRuntimeType(constructor, "function")) return false
+  if (value instanceof constructor) return true
+  try {
+    const exports = Object.getOwnPropertyDescriptor(constructor, "exports")?.value
+    if (!hasRuntimeType(exports, "function")) return false
+    Reflect.apply(exports, constructor, [value])
+    return true
+  }
+  catch {
+    return false
+  }
 }
 
 function isSharedArrayBuffer(value: unknown): boolean {
