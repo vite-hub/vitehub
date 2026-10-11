@@ -81,9 +81,12 @@ describe("Console data route contract", () => {
 })
 
 describe("Console access policies", () => {
-  it("accepts an authorize callback created in another runtime realm", () => {
+  it("accepts an authorize callback created in another runtime realm", async () => {
     const authorize = runInNewContext("({ request }) => request.url.includes('vitehub.local')")
     expect(defineConsoleAuthorize(authorize as never)).toBe(authorize)
+    const { handler, result } = await run({ mode: "host-managed", authorize })
+    expect(handler).toHaveBeenCalledOnce()
+    expect(result).toEqual({ mode: "host-managed" })
   })
   it("fails closed when no policy is installed", async () => {
     const { handler, result } = await run(undefined)

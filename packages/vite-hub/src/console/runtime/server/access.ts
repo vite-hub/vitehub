@@ -48,10 +48,10 @@ export function installConsoleAccess(policy: ConsoleAccessPolicy): void {
   if (!(policy instanceof Object) || !modes.has(policy.mode)) {
     throw new TypeError("[vitehub] Console access requires a known access mode.")
   }
-  if ("check" in policy && policy.check !== undefined && !(policy.check instanceof Function)) {
+  if ("check" in policy && policy.check !== undefined && typeof policy.check !== "function") {
     throw new TypeError("[vitehub] Console access check must be a function.")
   }
-  if ("authorize" in policy && policy.authorize !== undefined && !(policy.authorize instanceof Function)) {
+  if ("authorize" in policy && policy.authorize !== undefined && typeof policy.authorize !== "function") {
     throw new TypeError("[vitehub] console.authorize must default-export a function.")
   }
   scope[policyKey] = Object.freeze({ ...policy })
