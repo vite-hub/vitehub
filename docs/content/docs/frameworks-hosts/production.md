@@ -42,7 +42,7 @@ Before rollout, write representative data, replace the process or container, and
 
 ## Protect every entry point
 
-Authenticate requests at their trusted entry point, then authorize the specific operation and resource. Configuring [Auth](/docs/auth) does not require authentication on every Agent. Use an [authenticated invoker](/docs/getting-started/concepts/auth-users-and-agent-invokers) and [Access policy](/docs/agents/capabilities/access) where needed.
+Authenticate requests at their trusted entry point, then authorize the specific operation and resource. Configuring [Auth](/docs/auth) does not require authentication on every Agent. Use an [authenticated invoker](/docs/agents/invokers) and [Access policy](/docs/agents/capabilities/access) where needed.
 
 Validate HTTP bodies, webhook payloads, and stored job inputs at runtime. TypeScript types and generated Definition registries check callers during development; they cannot validate JSON received over the network or records written by an earlier release. Verify webhook signatures before supplying trusted caller metadata. Derive tenant, user, and session identity from the authenticated request rather than accepting an unrestricted client value.
 
@@ -56,7 +56,7 @@ A Queue enqueue result confirms acceptance, not completion. A retry can repeat a
 
 For external effects, use the service's idempotency support. A welcome-email job can complete the send and then fail before acknowledgement; retrying it must reuse the same email-service idempotency key. If the service cannot deduplicate requests, define how the application reconciles an unknown delivery outcome before retrying. Apply the same rule to retryable Workflow steps and scheduled targets.
 
-Set execution timeouts and resource limits for model calls, shells, and sandboxes. Test cancellation and shutdown while work is active. Streaming Agent routes need a real [host background lifetime](/docs/getting-started/concepts/runtime-context#background-work-and-cleanup); a promise started after the response is not durable work by itself.
+Set execution timeouts and resource limits for model calls, shells, and sandboxes. Test cancellation and shutdown while work is active. Streaming Agent routes need a real [host background lifetime](/docs/reference/runtime-context#background-work-and-cleanup); a promise started after the response is not durable work by itself.
 
 ## Exercise the deployed application
 

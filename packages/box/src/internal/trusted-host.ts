@@ -49,8 +49,11 @@ import {
 import { markBuiltInBoxRuntime } from "./runtime.ts";
 import { acquireFileLock } from "./file-lock.ts";
 import { createBoxSession, type RuntimeSession } from "./session.ts";
+import { createSessionMemory, validateTrustedHostResources, type TrustedHostResources } from "./session-memory.ts";
 
 export interface TrustedHostOptions {
+  /** Linux-only aggregate limits for session commands. Requires cgroup v2 delegation. */
+  resources?: TrustedHostResources;
   stateRoot?: string;
 }
 
@@ -112,16 +115,21 @@ const trustedHostExecutionAuthority = {
 } as const satisfies ExecutionAuthority;
 
 export function createTrustedHostRuntime(options: TrustedHostOptions = {}): BoxRuntime {
-  const preparedInputs = new WeakMap<BoxRuntimeInput, Awaited<ReturnType<typeof resolveTrustedHostInput>>>();
+  const preparedInputs = new WeakMap<BoxRuntimeInput, Awaited<ReturnType<typeof resolveTrustedHostInput>> & {
+    resources?: TrustedHostResources;
+  }>();
   return markBuiltInBoxRuntime({
     name: "trusted-host",
     async prepare(input) {
+      const resources = options.resources ? Object.freeze({ ...options.resources }) : undefined;
+      if (resources) validateTrustedHostResources(resources);
       const { cwd, stateRoot } = await resolveTrustedHostInput(input, options);
-      preparedInputs.set(input, { cwd, stateRoot });
+      preparedInputs.set(input, { cwd, stateRoot, resources });
       return {
         cache: { state: "disposable" },
         environment: { env: {} },
         executionAuthority: trustedHostExecutionAuthority,
+        ...(resources ? { resources } : {}),
         home: stateRoot
           ? {
               state: input.plan.state.map(state => ({
@@ -141,11 +149,13 @@ export function createTrustedHostRuntime(options: TrustedHostOptions = {}): BoxR
       } satisfies BoxRuntimePlan;
     },
     async open(input, openOptions) {
-      const resolved = preparedInputs.get(input) ?? await resolveTrustedHostInput(input, options);
+      const prepared = preparedInputs.get(input);
+      const resolved = prepared ?? await resolveTrustedHostInput(input, options);
+      const resources = prepared ? prepared.resources : options.resources ? Object.freeze({ ...options.resources }) : undefined;
       let initializedSession: ReturnType<typeof createBoxSession> | undefined;
       const runtimeSession = await createSession(
         { ...input, ...(resolved.cwd ? { cwd: resolved.cwd } : {}) },
-        { stateRoot: resolved.stateRoot },
+        { ...options, resources, stateRoot: resolved.stateRoot },
         {
           abortSignal: openOptions?.signal,
           ...(openOptions?.initialize
@@ -210,6 +220,7 @@ async function createSession(
   let root: string | undefined;
   let session: TrustedHostSession | undefined;
   const initializedState: string[] = [];
+  let initializationFailed = false;
   try {
     root = await realpath(await mkdtemp(join(tmpdir(), "vitehub-box-")));
     const home = join(root, "home");
@@ -239,7 +250,15 @@ async function createSession(
     session = await createTrustedHostSession({
       env,
       home,
-      release: releases,
+      async release() {
+        // Roll back only after destroy has confirmed process and cgroup teardown,
+        // while the state lease is still held, including on background retries.
+        if (initializationFailed) {
+          await Promise.all(initializedState.map(path => rm(path, { force: true, recursive: true }).catch(() => undefined)));
+        }
+        await releases();
+      },
+      resources: options.resources,
       root,
       sessionId: createOptions.sessionId,
       workspace: input.cwd,
@@ -261,13 +280,14 @@ async function createSession(
     return session;
   } catch (error) {
     if (session) {
-      await Promise.resolve(session.stop()).catch(() => undefined);
-      await Promise.all(
-        initializedState.map((path) =>
-          rm(path, { force: true, recursive: true }).catch(() => undefined)
-        ),
-      );
-      await Promise.resolve(session.destroy?.()).catch(() => undefined);
+      initializationFailed = true;
+      try {
+        await session.destroy?.();
+      } catch {
+        // Keep the session, state and lease owned across cleanup retries. This
+        // covers cgroup teardown failures during failed initialization.
+        void retrySessionDestroy(session);
+      }
     }
     else {
       await Promise.all(
@@ -279,6 +299,23 @@ async function createSession(
       await releases();
     }
     throw error;
+  }
+}
+
+async function retrySessionDestroy(session: TrustedHostSession): Promise<void> {
+  while (true) {
+    await new Promise<void>((resolvePromise) => {
+      const timer = setTimeout(resolvePromise, 250);
+      // Cleanup is best-effort after initialization failed. Do not let an
+      // unbounded retry loop keep an otherwise idle process alive forever.
+      timer.unref?.();
+    });
+    try {
+      await session.destroy?.();
+      return;
+    } catch {
+      // Keep the lease until cgroup cleanup succeeds.
+    }
   }
 }
 
@@ -441,6 +478,7 @@ async function createTrustedHostSession(options: {
   env: Record<string, string>;
   home: string;
   release: () => Promise<void>;
+  resources?: TrustedHostResources;
   root: string;
   sessionId?: string;
   workspace?: string;
@@ -448,7 +486,9 @@ async function createTrustedHostSession(options: {
   const workspace = join(options.root, "workspace");
   if (options.workspace) await symlink(options.workspace, workspace, "dir");
   else await mkdir(workspace, { recursive: true });
+  const memory = options.resources ? await createSessionMemory(options.resources) : undefined;
   let destroyPromise: Promise<void> | undefined;
+  let closing = false;
   const processes = new Set<ChildProcessWithoutNullStreams>();
   const processGroups = new Set<number>();
   const session = {
@@ -461,18 +501,25 @@ async function createTrustedHostSession(options: {
     processes,
     root: options.root,
     async destroy() {
-      destroyPromise ??= (async () => {
+      closing = true;
+      const cleanup = async () => {
+        await this.stop();
+        // Keep the state lease while cgroup descendants may still access it.
+        await memory?.close();
         try {
-          await this.stop();
           await rm(options.root, { force: true, recursive: true });
         } finally {
           await options.release();
         }
-      })();
+      };
+      const attempt = destroyPromise ?? cleanup();
+      if (!destroyPromise) destroyPromise = attempt;
       try {
-        await destroyPromise;
+        await attempt;
       } catch (error) {
-        destroyPromise = undefined;
+        // A rejected attempt must never poison future retries. Keep an
+        // in-flight attempt shared, but allow the next call to rebuild it.
+        if (destroyPromise === attempt) destroyPromise = undefined;
         throw error;
       }
     },
@@ -567,11 +614,15 @@ async function createTrustedHostSession(options: {
         runOptions.workingDirectory ?? this.defaultWorkingDirectory,
       );
       runOptions.abortSignal?.throwIfAborted();
-      const child = spawnChildProcess(runOptions.command, {
+      await memory?.assertHealthy();
+      // No await may separate this fence from launch and process registration.
+      // Teardown either owns the registered child or prevents its launch.
+      if (closing) throw new Error("Trusted host Box session is closing.");
+      const child = (memory ? memory.spawn : spawnChildProcess)(runOptions.command, {
         cwd,
         detached: process.platform !== "win32",
         env: { ...options.env, ...runOptions.env, INIT_CWD: cwd, OLDPWD: cwd, PWD: cwd },
-        shell: true,
+        shell: !memory,
       });
       processes.add(child);
       if (child.pid && process.platform !== "win32") processGroups.add(child.pid);
@@ -580,21 +631,45 @@ async function createTrustedHostSession(options: {
         if (child.pid && process.platform !== "win32" && !processGroupExists(child.pid))
           processGroups.delete(child.pid);
       });
-      return processHandle(child, runOptions.abortSignal);
+      return processHandle(child, runOptions.abortSignal, () => memory?.assertHealthy());
     },
     async stop() {
       const active = [...processes];
       for (const pid of processGroups) signalProcessGroup(pid, "SIGTERM");
       if (process.platform === "win32")
         for (const child of active) signalProcessTree(child, "SIGTERM");
-      await Promise.race([
-        Promise.all(active.map(waitForExit)),
-        new Promise((resolvePromise) => setTimeout(resolvePromise, 250)),
-      ]);
+      let graceTimeout: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await Promise.race([
+          Promise.all(active.map(waitForExit)),
+          new Promise<void>((resolvePromise) => {
+            graceTimeout = setTimeout(resolvePromise, 250);
+          }),
+        ]);
+      } finally {
+        if (graceTimeout) clearTimeout(graceTimeout);
+      }
       for (const pid of processGroups) signalProcessGroup(pid, "SIGKILL");
       if (process.platform === "win32")
         for (const child of active) signalProcessTree(child, "SIGKILL");
-      await Promise.all(active.map(waitForExit));
+      await memory?.kill();
+      let timedOut = false;
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await Promise.race([
+          Promise.all(active.map(waitForExit)),
+          new Promise<void>((resolvePromise) => {
+            timeout = setTimeout(() => {
+              timedOut = true;
+              resolvePromise();
+            }, 10_000);
+          }),
+        ]);
+      } finally {
+        if (timeout) clearTimeout(timeout);
+      }
+      if (timedOut)
+        throw new Error("Timed out waiting for trusted-host processes to exit after SIGKILL.");
       processes.clear();
       processGroups.clear();
     },
@@ -622,8 +697,10 @@ async function createTrustedHostSession(options: {
 }
 
 function assertCommandEnvironment(env: Record<string, string> | undefined) {
-  const name = Object.keys(env || {}).find((name) => runtimeEnvironmentKeys.has(name));
-  if (name) throw boxErrorDiagnostics.BOX_R0137({ message: `[vitehub] Box commands cannot override ${name}.` });
+  const name = Object.keys(env || {}).find((name) => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(name));
+  if (name) throw boxErrorDiagnostics.BOX_R0112({ message: `[vitehub] Invalid Box environment variable: ${name}` });
+  const reservedName = Object.keys(env || {}).find((name) => runtimeEnvironmentKeys.has(name));
+  if (reservedName) throw boxErrorDiagnostics.BOX_R0137({ message: `[vitehub] Box commands cannot override ${reservedName}.` });
 }
 
 async function validateRequirements(
@@ -831,6 +908,7 @@ async function collect(stream: ReadableStream<Uint8Array>) {
 function processHandle(
   child: ChildProcessWithoutNullStreams,
   abortSignal: AbortSignal | undefined,
+  afterExit?: () => Promise<void> | undefined,
 ) {
   let abortReason: unknown;
   let forceKillTimer: ReturnType<typeof setTimeout> | undefined;
@@ -848,7 +926,7 @@ function processHandle(
       abortSignal?.removeEventListener("abort", abort);
       if (forceKillTimer) clearTimeout(forceKillTimer);
       if (abortReason) reject(abortReason);
-      else resolvePromise({ exitCode: code ?? 1 });
+      else void Promise.resolve().then(afterExit).then(() => resolvePromise({ exitCode: code ?? 1 }), reject);
     });
   });
   // A background caller may not await immediately. Observe rejection now so

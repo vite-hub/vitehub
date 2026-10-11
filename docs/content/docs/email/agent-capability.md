@@ -163,7 +163,7 @@ It cannot widen `recipients`: a configured `policy: 'allow'` still denies an add
 Without `policy`, allowed recipients send immediately. A policy function receives `{ name, input }` and can apply contextual authorization by returning `'allow'`, `'deny'`, `'require-approval'`, or `'retryable-failure'`.
 
 `'require-approval'` stops the call with `APPROVAL_REQUIRED` and an Approval Request. The message is sent only after approval.
-Read [Runtime policy, approvals, and traces](/docs/getting-started/concepts/runtime-policy-approvals-and-traces) before enabling unattended delivery.
+Read [Runtime policy, approvals, and traces](/docs/agents/runtime-policy) before enabling unattended delivery.
 
 ## Driver support
 
@@ -192,4 +192,4 @@ Read [Runtime policy, approvals, and traces](/docs/getting-started/concepts/runt
 
 - [Email primitive](/docs/email)
 - [Official capabilities](/docs/agents/capabilities/official)
-- [Runtime policy, approvals, and traces](/docs/getting-started/concepts/runtime-policy-approvals-and-traces)
+- [Runtime policy, approvals, and traces](/docs/agents/runtime-policy)

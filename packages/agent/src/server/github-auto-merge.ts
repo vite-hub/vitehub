@@ -1,5 +1,9 @@
+import { parseMarkdown } from "comark"
+import html from "comark/plugins/html"
+import type { ComarkPlugin, Node as MarkdownNode } from "comark"
 import * as v from "valibot"
 import type { GitHubHost } from "./github-host.ts"
+import type { GitHubRepairCommit } from "./github-repair.ts"
 
 const actor = v.nullable(v.object({ login: v.string(), __typename: v.string() }))
 const reviewSchema = v.object({ author: actor, state: v.string() })
@@ -65,8 +69,18 @@ export interface GitHubPullRequestOperationsOptions {
   autoMerge?: boolean
   /** Recheck the configured channel filter against current PR state before each operation. */
   eligible?: (pullRequest: GitHubPullRequestOperationSnapshot) => boolean | Promise<boolean>
+  /** Exact GitHub logins allowed by the explicit mention capability. Defaults to none. */
+  mentionAllowlist?: readonly string[]
+  /** Reject live GitHub mentions in ordinary comments. Defaults to false for generic callers. */
+  restrictCommentMentions?: boolean
+  /** Host-owned prefix that correlates comment webhooks with this worker's activity. */
+  commentPrefix?: string
   /** Host-owned checkout push, already bound to its source branch and expected-head lease. */
   push?: () => Promise<string>
+  /** Host-owned frozen installation after resolving dependency conflicts. */
+  refreshDependencies?: () => Promise<void>
+  /** Host-owned staging and commit in the assigned repair checkout. */
+  commitRepair?: (input: GitHubRepairCommit) => Promise<string>
   signal?: AbortSignal
 }
 
@@ -86,12 +100,15 @@ export interface GitHubBaseCheckEvidence {
 export interface GitHubPullRequestOperations {
   requestAutoMerge(): Promise<GitHubAutoMergeResult>
   comment(body: string): Promise<void>
+  mention(login: string, body: string): Promise<void>
   readCheckLogs(runId: number): Promise<{ text: string, truncated: boolean }>
   readBaseCheckEvidence(): Promise<GitHubBaseCheckEvidence>
   readBaseCheckLogs(runId: number): Promise<{ repository: string, headSha: string, text: string, truncated: boolean }>
   resolveThread(id: string): Promise<void>
   updateMetadata(input: { title?: string, body?: string }): Promise<void>
   push(): Promise<void>
+  refreshDependencies(): Promise<void>
+  commitRepair(input: GitHubRepairCommit): Promise<string>
 }
 
 const snapshotQuery = `query($owner:String!,$name:String!,$number:Int!){
@@ -112,6 +129,86 @@ function nonempty(value: string, name: string): string {
   return value
 }
 
+// Managed users add one underscore and an alphanumeric enterprise shortcode of 3-8 characters.
+const githubLoginPattern = /^(?=.{1,39}$)[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*(?:_[A-Za-z0-9]{3,8})?$/
+// GitHub renders mentions in Markdown, blockquotes, and quoted text. Keep
+// URL paths, email-like text, and adjacent at-signs out of the token stream.
+const githubMentionPattern = /(^|[^A-Za-z0-9@])@([A-Za-z0-9][A-Za-z0-9_-]{0,38}\/ent:[A-Za-z0-9][A-Za-z0-9_-]*|\/ent:[A-Za-z0-9][A-Za-z0-9_-]*|[A-Za-z0-9][A-Za-z0-9_-]{0,38}(?:\/[A-Za-z0-9][A-Za-z0-9_-]*)?)(?=$|[^A-Za-z0-9_-])/g
+
+export function normalizeGitHubMentionAllowlist(logins: readonly string[] = []): string[] {
+  const normalized = new Set<string>()
+  for (const login of logins) {
+    const value = login.trim().toLowerCase()
+    if (githubLoginPattern.test(value)) normalized.add(value)
+  }
+  return [...normalized]
+}
+
+async function githubMentionTokens(body: string): Promise<string[]> {
+  // Parse CommonMark with HTML structure, without automatic closing of incomplete
+  // code spans. Only rendered text can notify; code examples must stay usable.
+  const document = await parseMarkdown(body, {
+    registerDefaultPlugins: false,
+    plugins: [html(), {
+      name: "github-mention-comments",
+      markdownItPlugins: [md => {
+        // Remove actual inline comments before Comark falls back to raw text.
+        // Escaped or entity-encoded delimiters remain visible text tokens.
+        md.core.ruler.after("linkify", "github-mention-comments", state => {
+          for (const token of state.tokens) {
+            if (!token.children) continue
+            token.children = token.children.filter(child => child.type !== "html_inline" || !child.content.startsWith("<!--"))
+            for (let index = 0; index < token.children.length; index++) {
+              const child = token.children[index]!
+              if (child.type === "link_open" && child.info === "auto") child.attrSet("data-github-autolink", "true")
+              // Markdown-It ends fuzzy URLs at quotes, while GitHub keeps
+              // their adjacent path text inside the same non-notifying link.
+              const label = token.children[index - 1]
+              const suffix = token.children[index + 1]
+              if (child.type === "link_close" && child.markup === "linkify" && label?.type === "text" && /^(?:https?:\/\/|www\.)/i.test(label.content) && suffix?.type === "text") {
+                suffix.content = suffix.content.replace(/^["'][^\s<>]*/, "")
+              }
+            }
+          }
+        })
+      }],
+    } satisfies ComarkPlugin],
+    autoClose: false,
+    autoUnwrap: false,
+    linkify: true,
+  })
+  const mentions: string[] = []
+  function collectMentions(node: MarkdownNode): void {
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Comark has already parsed the body into its string-or-element node contract.
+    if (typeof node === "string") {
+      // The Markdown parser bounds automatic URL links. Remove email text
+      // using GFM local-part and domain characters only. Consume the complete
+      // domain before checking its final character so an invalid suffix cannot
+      // backtrack into a shorter valid email and hide a live mention.
+      const text = node
+        .replace(/[A-Za-z0-9._+-]+@[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)+/g, email => /[A-Za-z0-9]$/.test(email) ? " " : email)
+      for (const match of text.matchAll(githubMentionPattern)) mentions.push(match[2]!.toLowerCase())
+      return
+    }
+    const [tag, attributes, ...children] = node
+    if (tag === "code" || tag === "pre" || tag === null) return
+    // GitHub linkifies scheme URLs and www. URLs, including quote characters
+    // and entities in their paths. Fuzzy bare domains remain ordinary text.
+    if (tag === "a" && children.length === 1) {
+      const label = String(children[0])
+      if (attributes["data-github-autolink"] === "true" && /^(?:[A-Za-z][A-Za-z0-9+.-]*:|www\.)/i.test(label)) return
+      if (label === attributes.href && /^[A-Za-z][A-Za-z0-9+.-]*:/.test(label)) return
+    }
+    children.forEach(collectMentions)
+  }
+  document.nodes.forEach(collectMentions)
+  return mentions
+}
+
+async function hasGitHubMention(body: string): Promise<boolean> {
+  return (await githubMentionTokens(body)).length > 0
+}
+
 /**
  * Host-only PR operations. Keep the GitHub host and its credentials out of the
  * worker environment. Expose selected methods as capabilities, never command or access.
@@ -128,6 +225,7 @@ export function createGitHubPullRequestOperations(
   if (!/^[a-f\d]{40}$/i.test(options.expectedHeadOid)) throw new Error("Expected a full GitHub head commit SHA.")
   if (options.expectedBaseOid !== undefined && !/^[a-f\d]{40}$/i.test(options.expectedBaseOid)) throw new Error("Expected a full GitHub base commit SHA.")
   const repository = options.repository
+  const mentionAllowlist = new Set(normalizeGitHubMentionAllowlist(options.mentionAllowlist))
   let expectedHeadOid = options.expectedHeadOid
   const target = `/repos/${repository}/issues/${options.number}`
   const commandOptions = { repository, signal: options.signal, timeout: 60_000 }
@@ -308,8 +406,20 @@ export function createGitHubPullRequestOperations(
     },
     async comment(body) {
       nonempty(body, "Comment")
+      if (options.restrictCommentMentions && await hasGitHubMention(body)) throw new Error("Comments cannot contain GitHub mentions; use the guarded mention capability.")
       await snapshot()
-      await github.command(["api", `${target}/comments`, "--method", "POST", "-f", `body=${body}`], commandOptions)
+      await github.command(["api", `${target}/comments`, "--method", "POST", "-f", `body=${options.commentPrefix ?? ""}${body}`], commandOptions)
+    },
+    async mention(login, body) {
+      const targetLogin = nonempty(login, "GitHub login")
+      if (!githubLoginPattern.test(targetLogin) || !mentionAllowlist.has(targetLogin.toLowerCase())) {
+        throw new Error("GitHub login is not in the configured mention allowlist.")
+      }
+      const message = nonempty(body, "Mention body")
+      if (await hasGitHubMention(message)) throw new Error("Mention body must not contain another mention.")
+      await snapshot()
+      // Keep block Markdown at the start of the validated body on its own line.
+      await github.command(["api", `${target}/comments`, "--method", "POST", "-f", `body=${options.commentPrefix ?? ""}@${targetLogin}\n\n${message}`], commandOptions)
     },
     async resolveThread(id) {
       nonempty(id, "Review thread ID")
@@ -326,9 +436,31 @@ export function createGitHubPullRequestOperations(
       if (input.title === undefined && input.body === undefined) throw new Error("Provide a pull request title or body.")
       const args = ["api", target, "--method", "PATCH"]
       if (input.title !== undefined) args.push("-f", `title=${nonempty(input.title, "Title")}`)
-      if (input.body !== undefined) args.push("-f", `body=${input.body}`)
-      await snapshot()
+      const current = await snapshot()
+      if (input.body !== undefined) {
+        if (options.restrictCommentMentions) {
+          const existing = new Set(await githubMentionTokens(current.pullRequest.body))
+          const added = (await githubMentionTokens(input.body)).find((mention) => !existing.has(mention))
+          if (added) throw new Error("Pull request bodies cannot add GitHub mentions; use the guarded mention capability.")
+        }
+        args.push("-f", `body=${input.body}`)
+      }
+      if (input.body !== undefined) {
+        const rechecked = await snapshot()
+        if (rechecked.pullRequest.body !== current.pullRequest.body) throw new Error("Pull request body changed while validating the update; retry.")
+      }
       await github.command(args, commandOptions)
+    },
+    async refreshDependencies() {
+      if (!options.refreshDependencies) throw new Error("This worker has no dependency refresh operation.")
+      await snapshot()
+      await options.refreshDependencies()
+    },
+    async commitRepair(input) {
+      if (!options.commitRepair) throw new Error("This worker has no host-owned commit operation.")
+      await snapshot()
+      options.signal?.throwIfAborted()
+      return await options.commitRepair(input)
     },
     async push() {
       if (!options.push) throw new Error("This worker has no host-owned push operation.")

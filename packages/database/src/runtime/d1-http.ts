@@ -10,16 +10,22 @@ interface D1HttpQuery {
   sql: string
 }
 
+type D1HttpMethod = "run" | "all" | "values" | "get"
+
+type D1HttpExecutionQuery = D1HttpQuery & { method: D1HttpMethod }
+
 interface D1HttpPayload {
   errors?: D1HttpErrorInfo[]
   result?: Array<{
     error?: string
     errors?: D1HttpErrorInfo[]
-    results?: { rows?: unknown[][] }
+    results?: unknown
     success?: boolean
   }>
   success?: boolean
 }
+
+type D1HttpResult = NonNullable<D1HttpPayload["result"]>[number]
 
 interface D1HttpErrorInfo {
   message?: string
@@ -59,11 +65,19 @@ function isD1HttpPayload(value: unknown): value is D1HttpPayload {
   if (!isRecord(value)) return false
   const result = "result" in value ? value.result : undefined
   return result === undefined
-    || (Array.isArray(result) && result.every(item => isRecord(item)))
+    || (Array.isArray(result) && result.every(isD1HttpResult))
+}
+
+function isD1HttpResult(value: unknown): value is D1HttpResult {
+  return isRecord(value) && (value.success === true || value.success === false)
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Object.prototype.toString.call(value) === "[object Object]"
+}
+
+function isRowMatrix(value: unknown): value is unknown[][] {
+  return Array.isArray(value) && value.every(row => Array.isArray(row))
 }
 
 function resolveCloudflareD1HttpConnection(config: RuntimeDrizzleDatabaseConfig, databaseId: string) {
@@ -95,9 +109,10 @@ function createCloudflareD1HttpDb<TSchema extends Record<string, unknown>>(
   schema: TSchema,
   request: typeof fetch,
 ) {
-  async function execute(queries: D1HttpQuery[]) {
+  async function execute(queries: D1HttpExecutionQuery[]) {
+    const requestQueries = queries.map(({ params, sql }) => ({ params, sql }))
     const response = await request(config.url, {
-      body: JSON.stringify(queries.length === 1 ? queries[0] : { batch: queries }),
+      body: JSON.stringify(requestQueries.length === 1 ? requestQueries[0] : { batch: requestQueries }),
       headers: {
         Authorization: `Bearer ${config.token}`,
         "Content-Type": "application/json",
@@ -123,10 +138,22 @@ function createCloudflareD1HttpDb<TSchema extends Record<string, unknown>>(
     }
 
     return payload.result.map((result, index) => {
+      const query = queries[index]!
       if (result.success !== true) {
         throw cloudflareD1HttpError(response, `query ${index + 1}`, result, payload)
       }
-      return Array.isArray(result.results?.rows) ? result.results.rows : []
+      if (query.method === "run" && result.results === undefined) return []
+      if (!isRecord(result.results)) {
+        throw cloudflareD1HttpError(response, `query ${index + 1}`, result, payload)
+      }
+      if (!("rows" in result.results) || result.results.rows === undefined) {
+        if (query.method === "run") return []
+        throw cloudflareD1HttpError(response, `query ${index + 1}`, result, payload)
+      }
+      if (!isRowMatrix(result.results.rows)) {
+        throw cloudflareD1HttpError(response, `query ${index + 1}`, result, payload)
+      }
+      return result.results.rows
     })
   }
 
@@ -137,8 +164,8 @@ function createCloudflareD1HttpDb<TSchema extends Record<string, unknown>>(
 
   // SAFETY: drizzleProxy returns the runtime database interface for the supplied schema.
   return drizzleProxy(
-    async (sql, params, method) => formatResult((await execute([{ params, sql }]))[0]!, method),
-    async queries => (await execute(queries.map(({ params, sql }) => ({ params, sql }))))
+    async (sql, params, method) => formatResult((await execute([{ method, params, sql }]))[0]!, method),
+    async queries => (await execute(queries.map(({ method, params, sql }) => ({ method, params, sql }))))
       .map((rows, index) => formatResult(rows, queries[index]!.method)),
     { casing: config.casing, schema },
   ) as RuntimeDrizzleDatabase<TSchema>
