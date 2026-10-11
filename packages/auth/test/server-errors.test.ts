@@ -1,3 +1,4 @@
+import { runInNewContext } from "node:vm"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { ViteHubError } from "@vite-hub/runtime"
 
@@ -255,6 +256,15 @@ describe("server authentication provider boundaries", () => {
   })
 
   describe("withAuthorization", () => {
+    it("accepts a cross-realm authorizer on the authenticated route", async () => {
+      const authorize = runInNewContext("({ user }) => user.id === 'user-1'") as (input: unknown) => boolean
+      const accessDefinition = defineAuth({ appName: "ViteHub" })
+      providerMocks.getSession.mockResolvedValue({ session: { id: "session-1" }, user: { id: "user-1" } })
+      const handler = withAuthorization(authorize, () => "protected", accessDefinition)
+
+      await expect(handler(request)).resolves.toBe("protected")
+    })
+
     const imageRequest = new Request("https://example.com/photos/user-1/meal.jpg", {
       headers: { accept: "text/html,image/avif,image/webp,*/*" },
     })
