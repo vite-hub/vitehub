@@ -481,6 +481,17 @@ describe("contentSource", () => {
     await expect(source.getItemRaw("settings.json")).resolves.toEqual({ theme: "dark" })
   })
 
+  it("decodes binary content from another realm", async () => {
+    const binary = runInNewContext("new Uint8Array([72, 105])")
+    const source = contentSource({
+      async items() {
+        return [{ content: binary, key: "hello.txt" }]
+      },
+    } as never)
+
+    await expect(source.getItem("hello.txt")).resolves.toBe("Hi")
+  })
+
   it("refreshes a direct adapter passed to raw Comark Content", async () => {
     let revision = 0
     const parsed: string[] = []
