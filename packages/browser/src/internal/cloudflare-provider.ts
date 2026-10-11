@@ -117,7 +117,10 @@ export function createCloudflareBrowser(
 }
 
 function isCloudflareSessionId(value: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+  return value.length > 0
+    && value !== "."
+    && value !== ".."
+    && !/[\\/?#%\s]/u.test(value)
 }
 
 export type { CloudflareBrowserBindingConnection } from "../internal/connections.ts"

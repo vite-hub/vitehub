@@ -70,7 +70,15 @@ describe("cloudflareBrowser", () => {
     })
   })
 
-  it.each(["   ", "a/b"]) ("rejects an acquired session id that is not a Cloudflare UUID (%j)", async sessionId => {
+  it.each([
+    "   ",
+    "a/b",
+    "a?b",
+    "a#b",
+    "a%b",
+    ".",
+    "..",
+  ]) ("rejects an acquired session id that is not a path-safe value (%j)", async sessionId => {
     const provider = cloudflareBrowser({
       binding: { fetch: vi.fn() },
       driver: { acquire: vi.fn(async () => ({ sessionId })), connect: vi.fn() },
@@ -81,6 +89,21 @@ describe("cloudflareBrowser", () => {
       code: "BROWSER_PROVIDER_ERROR",
       details: { operation: "acquire a Browser Run session" },
     })
+  })
+
+  it("accepts an opaque path-safe session id", async () => {
+    const provider = cloudflareBrowser({
+      binding: { fetch: vi.fn() },
+      driver: {
+        acquire: vi.fn(async () => ({ sessionId: "cf-session" })),
+        connect: vi.fn(),
+      },
+      engine: "chromium",
+    })
+
+    const session = await provider.open()
+
+    expect(session.id).toBe("cf-session")
   })
 
   it("resolves a named request-scoped binding", async () => {
