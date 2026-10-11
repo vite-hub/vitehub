@@ -1097,14 +1097,22 @@ export class PullRequestInbox {
         // provider records its wait. Accept the whole owned chain, but only
         // when no feedback or check evidence changed while the claim ran.
         const settledChecks = (checks: Snapshot['checks']) => Object.fromEntries(
-          Object.entries(checks).filter(([, check]) =>
-            (check.status === 'completed' || check.conclusion) && !published.has(check.head_sha ?? ''),
-          ),
+          Object.entries(checks).filter(([, check]) => {
+            if (!published.has(check.head_sha ?? '')) return true
+            // Progress and successful completion for a published head are part of
+            // the owned publication chain. A completed non-successful check is
+            // actionable evidence and must keep the claim dirty.
+            return check.status === 'completed' && check.conclusion !== null && check.conclusion !== undefined
+              && !['success', 'skipped', 'neutral'].includes(check.conclusion)
+          }),
         )
         const settledStatuses = (statuses: Snapshot['statuses']) => Object.fromEntries(
-          Object.entries(statuses).filter(([, status]) =>
-            status.state !== 'pending' && !published.has(status.sha ?? ''),
-          ),
+          Object.entries(statuses).filter(([, status]) => {
+            if (!published.has(status.sha ?? '')) return true
+            // Successful/pending status updates are owned publication progress;
+            // failure and error statuses remain evidence for the next pass.
+            return status.state === 'failure' || status.state === 'error'
+          }),
         )
         const evidenceUnchanged = digest([
           s.comments, s.reviews, s.reviewComments, settledChecks(s.checks), settledStatuses(s.statuses), s.threads,
