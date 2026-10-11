@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { runInNewContext } from "node:vm"
 
 import { defineAuth } from "../src/index.ts"
 import { createAuthAccessHandler } from "../src/server.ts"
@@ -101,6 +102,21 @@ describe("Auth access handlers", () => {
       access: { routes: [{ route: "/**", authorize: () => response }] },
     }))
     await expect(handler(new Request("https://app.example/"))).resolves.toBe(response)
+  })
+
+  it("returns authorization responses from another realm unchanged", async () => {
+    const foreignResponse = runInNewContext(`new (class {
+      get status() { return 409 }
+      get statusText() { return "Conflict" }
+      get headers() { return { get() { return null } } }
+      get body() { return null }
+      get [Symbol.toStringTag]() { return "Response" }
+    })()`)
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => foreignResponse as never }] },
+    }))
+
+    await expect(handler(new Request("https://app.example/"))).resolves.toBe(foreignResponse)
   })
 
   it("starts provider sign-in only for matched unauthenticated HTML requests", async () => {
