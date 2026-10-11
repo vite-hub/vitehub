@@ -14,6 +14,18 @@ describe("Static Schedule runtime", () => {
     })
   })
 
+  it("rejects an invalid scheduledAt value before formatting the run id", async () => {
+    await expect(executeStaticSchedule({
+      cron: "0 4 * * *",
+      definition: { cron: "0 4 * * *", handler: async () => {} },
+      name: "report",
+      scheduledAt: new Date("invalid"),
+    })).rejects.toMatchObject({
+      code: "SCHEDULE_INVALID_SCHEDULED_AT",
+      details: { field: "scheduledAt", valueType: "date" },
+    })
+  })
+
   it("executes all static schedules matching a cron", async () => {
     const calls: string[] = []
     const registry: ScheduleDefinitionRegistry = {

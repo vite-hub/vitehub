@@ -1,5 +1,6 @@
 import type { ScheduleDefinition, ScheduleDefinitionRegistry, ScheduleRunContext } from "../types.ts"
 import { runWithScheduleWaitUntil } from "./wait-until.ts"
+import { createScheduleError, invalidScheduleValueDetails } from "../errors.ts"
 import { scheduleErrorDiagnostics } from "../error-diagnostics.ts"
 import { isViteHubBearerSecretEqual } from "@vite-hub/internal/secret"
 
@@ -58,6 +59,11 @@ export function createStaticScheduleRun(
   options: Omit<ExecuteStaticScheduleOptions, "definition" | "waitUntil"> & { waitUntil: NonNullable<ExecuteStaticScheduleOptions["waitUntil"]> },
 ): StaticScheduleRun {
   const scheduledAt = options.scheduledAt ?? new Date()
+  if (!(scheduledAt instanceof Date) || Number.isNaN(scheduledAt.getTime())) {
+    throw createScheduleError("SCHEDULE_INVALID_SCHEDULED_AT", {
+      details: invalidScheduleValueDetails("scheduledAt", scheduledAt),
+    })
+  }
   return {
     cron: options.cron,
     id: `run_${options.name}_${scheduledAt.toISOString()}`,
