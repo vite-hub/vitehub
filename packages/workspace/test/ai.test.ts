@@ -16,8 +16,8 @@ function createAssets(files: Record<string, string | Uint8Array>) {
   ))
 }
 
-async function runShell(tools: ReturnType<typeof createWorkspaceTools>, command: string): Promise<WorkspaceShellResult> {
-  return await tools.shell.execute!({ command }, { toolCallId: "test", messages: [] } as never) as WorkspaceShellResult
+async function runShell(tools: ReturnType<typeof createWorkspaceTools>, command: string, abortSignal?: AbortSignal): Promise<WorkspaceShellResult> {
+  return await tools.shell.execute!({ command }, { abortSignal, toolCallId: "test", messages: [] } as never) as WorkspaceShellResult
 }
 
 function createMutableWorkspace() {
@@ -155,6 +155,21 @@ describe("createWorkspaceTools", () => {
     })
     expect(createReadonlyWorkspaceFs).toHaveBeenCalledOnce()
     expect(runWorkspaceInspectionCommand).toHaveBeenCalledOnce()
+  })
+
+  it("forwards tool cancellation to a custom shell provider", async () => {
+    let signal: AbortSignal | undefined
+    const provider = createProvider("provider\n")
+    const exec = provider.exec
+    provider.exec = async (command, options) => {
+      signal = options?.signal
+      return await exec(command, options)
+    }
+    const tools = createWorkspaceTools(createAssets({ "README.md": "# Docs\n" }), { executionProvider: provider })
+    const controller = new AbortController()
+
+    await expect(runShell(tools, "cat README.md", controller.signal)).resolves.toMatchObject({ stdout: "provider\n" })
+    expect(signal).toBe(controller.signal)
   })
 
   it("runs real read-only shell inspection commands", async () => {
