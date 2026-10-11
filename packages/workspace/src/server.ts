@@ -2,6 +2,7 @@ import { createError, defineEventHandler, getQuery, getRouterParam } from "h3"
 import { lookup } from "mrmime"
 import { Diagnostic } from "nostics"
 import { getViteHubErrorShape } from "@vite-hub/runtime"
+import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 import { isViteHubSecretEqual } from "@vite-hub/internal/secret"
 
 import { getWorkspaceCollectionItem, queryWorkspaceCollection, workspaceCollectionEmpty } from "./collections.ts"
@@ -113,8 +114,11 @@ async function workspaceDevTokenRoot(rootDir: string, options: WorkspaceDevToken
 }
 
 function headerValue(headers: Headers | Record<string, string | string[] | undefined>, name: string): string | undefined {
-  if (headers instanceof Headers) return headers.get(name) || undefined
-  const value = headers[name]
+  if (hasRuntimeType(headers, "object") && hasRuntimeType(Reflect.get(headers, "get"), "function")) {
+    const value = Reflect.apply(Reflect.get(headers, "get") as (name: string) => unknown, headers, [name])
+    return hasRuntimeType(value, "string") && value ? value : undefined
+  }
+  const value = (headers as Record<string, string | string[] | undefined>)[name]
   return Array.isArray(value) ? value[0] : value
 }
 
