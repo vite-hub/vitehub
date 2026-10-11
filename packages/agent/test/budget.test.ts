@@ -21,7 +21,9 @@ describe("budget Capability", () => {
         run: () => ({
           // Keep the result surface configurable so stream cleanup can attach
           // resolved usage before the source reports its post-finish failure.
-          usage: { inputTokens: 8, outputTokens: 4, totalTokens: 12 },
+          usageRecord: {
+            usage: { inputTokens: 8, outputTokens: 4, totalTokens: 12 },
+          },
           fullStream: (async function* () { yield { type: "finish" } })(),
           toUIMessageStream: () => new ReadableStream<unknown>({
             start(controller) {
