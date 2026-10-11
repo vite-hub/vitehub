@@ -28,19 +28,54 @@ import { sandboxErrorDiagnostics } from "../error-diagnostics.ts"
 
 const cloudflareRunQueues = new Map<string, Promise<void>>()
 
-async function serializeCloudflareRun<TResult>(id: string | undefined, run: () => Promise<TResult>): Promise<TResult> {
+async function awaitWithAbort<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return await promise
+  if (signal.aborted) {
+    void promise.catch(() => {})
+    throw signal.reason
+  }
+  return await new Promise<T>((resolve, reject) => {
+    const onAbort = () => {
+      signal.removeEventListener('abort', onAbort)
+      reject(signal.reason)
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+    promise.then(
+      value => {
+        signal.removeEventListener('abort', onAbort)
+        resolve(value)
+      },
+      error => {
+        signal.removeEventListener('abort', onAbort)
+        reject(error)
+      },
+    )
+  })
+}
+
+async function serializeCloudflareRun<TResult>(id: string | undefined, run: () => Promise<TResult>, signal?: AbortSignal): Promise<TResult> {
   if (!id) return await run()
   const previous = cloudflareRunQueues.get(id) ?? Promise.resolve()
   let release!: () => void
   const current = new Promise<void>((resolve) => { release = resolve })
   cloudflareRunQueues.set(id, current)
-  await previous
+  let started = false
+  const releaseAfterPrevious = () => {
+    release()
+    if (cloudflareRunQueues.get(id) === current)
+      cloudflareRunQueues.delete(id)
+  }
   try {
+    await awaitWithAbort(previous, signal)
+    signal?.throwIfAborted()
+    started = true
     return await run()
   }
   finally {
-    release()
-    if (cloudflareRunQueues.get(id) === current) cloudflareRunQueues.delete(id)
+    if (started)
+      releaseAfterPrevious()
+    else
+      void previous.then(releaseAfterPrevious, releaseAfterPrevious)
   }
 }
 
@@ -126,31 +161,35 @@ async function createSandboxRunner(
         ? CLOUDFLARE_SANDBOX_RETRY_DELAYS_MS.length + 1
         : 1
 
-      return await serializeCloudflareRun(cloudflareSandboxId, async () => {
+      options.signal?.throwIfAborted()
+      const run = serializeCloudflareRun(cloudflareSandboxId, async () => {
         for (let attempt = 0; attempt < attempts; attempt++) {
           let sandbox: SandboxExecutionBox | undefined
           let handlerMayHaveStarted = false
           let runError: Error | undefined
+          let executionSettled: Promise<void> | undefined
           try {
-            const session = await box.open({ id: cloudflareSandboxId })
+            const session = options.signal
+              ? await box.open({ id: cloudflareSandboxId, signal: options.signal })
+              : await box.open({ id: cloudflareSandboxId })
             sandbox = createSandboxExecutionBox(session, provider.provider)
-            const result = await executeSandboxDefinition<TPayload>(
-              sandbox,
-              name,
-              definition.options,
-              definition.bundle,
-              payload,
-              options.context,
-              {
-                onHandlerStart() {
-                  handlerMayHaveStarted = true
-                },
+            const lifecycle = {
+              onExecution(execution: Promise<unknown>) {
+                executionSettled = execution.then(() => undefined, () => undefined)
               },
-            )
+              onHandlerStart() {
+                handlerMayHaveStarted = true
+              },
+            }
+            const result = options.signal
+              ? await executeSandboxDefinition<TPayload>(sandbox, name, definition.options, definition.bundle, payload, options.context, lifecycle, options.signal)
+              : await executeSandboxDefinition<TPayload>(sandbox, name, definition.options, definition.bundle, payload, options.context, lifecycle)
             // SAFETY: The generated registry binds this runtime Definition to its public result contract.
             return result as TResult
           }
           catch (error) {
+            if (options.signal?.aborted)
+              throw options.signal.reason ?? error
             const sandboxError = toSandboxError(error)
             runError = sandboxError
             const shouldRetry = !handlerMayHaveStarted
@@ -161,14 +200,20 @@ async function createSandboxRunner(
             if (!shouldRetry)
               throw sandboxError
 
-            await sleep(CLOUDFLARE_SANDBOX_RETRY_DELAYS_MS[attempt])
+            if (options.signal)
+              await sleep(CLOUDFLARE_SANDBOX_RETRY_DELAYS_MS[attempt], options.signal)
+            else
+              await sleep(CLOUDFLARE_SANDBOX_RETRY_DELAYS_MS[attempt])
           }
           finally {
-            if (provider.closeAfterRun !== false || (provider.provider === 'cloudflare' && !options.sandboxId && !provider.sandboxId)) {
+            await executionSettled
+            if (options.signal?.aborted || readSandboxErrorMetadata(runError)?.code === 'SANDBOX_TIMEOUT' || provider.closeAfterRun !== false || (provider.provider === 'cloudflare' && !options.sandboxId && !provider.sandboxId)) {
               try {
                 await sandbox?.close()
               }
               catch (cleanupError) {
+                if (options.signal?.aborted)
+                  throw options.signal.reason ?? cleanupError
                 if (runError) {
                   throw new AggregateError(
                     [runError, cleanupError],
@@ -185,7 +230,8 @@ async function createSandboxRunner(
           code: 'SANDBOX_RUNTIME_ERROR',
           provider: provider.provider,
         })
-      })
+      }, options.signal)
+      return await awaitWithAbort(run, options.signal)
     },
   }
 }
@@ -213,10 +259,13 @@ export async function runSandboxRuntime<TPayload = unknown, TResult = unknown>(
   options?: SandboxExecutionOptions,
 ): Promise<SandboxRunResult> {
   try {
+    options?.signal?.throwIfAborted()
     const sandbox = await resolveSandboxRunner<TPayload, TResult>(name)
     return await ok(await sandbox.run(payload, options))
   }
   catch (error) {
+    if (options?.signal?.aborted)
+      throw options.signal.reason ?? error
     return err(toSandboxError(error))
   }
 }
