@@ -2,6 +2,7 @@ import { runWithActiveCloudflareEnv, type CloudflareWorkerEnv } from "@vite-hub/
 
 import { runSerializedWorkflowHandler } from "./execute.ts"
 import { loadWorkflowDefinition, runWithWorkflowRuntimeEvent, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from "./state.ts"
+import { hasRuntimeType } from "../internal/runtime-type.ts"
 
 import type { ResolvedWorkflowOptions, WorkflowDefinitionRegistry, WorkflowProviderStep, WorkflowStepOptions } from "../types.ts"
 import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
@@ -23,7 +24,17 @@ export interface RunCloudflareWorkflowOptions {
 }
 
 function isNonRetryableError(error: unknown): error is Error & { isRetryable: false } {
-  return error instanceof Error && (error as { isRetryable?: unknown }).isRetryable === false
+  if (!hasRuntimeType(error, "object") || error === null) return false
+  try {
+    const nativeIsError: unknown = Reflect.get(Error, "isError")
+    const branded = hasRuntimeType(nativeIsError, "function")
+      ? nativeIsError(error) === true
+      : error instanceof Error || (!(Symbol.toStringTag in error) && Object.prototype.toString.call(error) === "[object Error]")
+    return branded && Reflect.get(error, "isRetryable") === false
+  }
+  catch {
+    return false
+  }
 }
 
 function translateNonRetryableError(
