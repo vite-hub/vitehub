@@ -37,11 +37,14 @@ function workspaceRepoName(name: string | undefined) {
 }
 
 export function isWorkspaceStore(value: WorkspaceStoreOptions | undefined): value is WorkspaceStore {
-  if (!value || Object.hasOwn(value, "readFile")) return Boolean(value)
+  if (!value) return false
+  if (Object.hasOwn(value, "readFile")) return typeof (value as Partial<WorkspaceStore>).readFile === "function"
   let prototype = Object.getPrototypeOf(value)
   while (prototype && prototype !== Object.prototype) {
     if (Object.hasOwn(prototype, "readFile")) {
-      return Object.hasOwn(prototype, "constructor") && prototype.constructor !== Object
+      return Object.hasOwn(prototype, "constructor")
+        && prototype.constructor !== Object
+        && typeof (value as Partial<WorkspaceStore>).readFile === "function"
     }
     prototype = Object.getPrototypeOf(prototype)
   }
