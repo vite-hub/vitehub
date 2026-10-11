@@ -78,7 +78,7 @@ export function createCloudflareBrowser(
         acquired = openOptions.idleTimeoutMs
           ? await driver.acquire(binding, { keep_alive: openOptions.idleTimeoutMs })
           : await driver.acquire(binding)
-        if (!acquired || typeof acquired.sessionId !== "string" || acquired.sessionId.length === 0) {
+        if (!acquired || typeof acquired.sessionId !== "string" || !isCloudflareSessionId(acquired.sessionId)) {
           throw new TypeError("Cloudflare Browser Run returned an invalid session id.")
         }
       }
@@ -114,6 +114,10 @@ export function createCloudflareBrowser(
       }
     },
   }
+}
+
+function isCloudflareSessionId(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
 }
 
 export type { CloudflareBrowserBindingConnection } from "../internal/connections.ts"

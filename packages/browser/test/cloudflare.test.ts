@@ -34,7 +34,7 @@ describe("cloudflareBrowser", () => {
     const browserClose = vi.fn()
     const binding = { fetch: vi.fn() }
     const driver = {
-      acquire: vi.fn(async () => ({ sessionId: "cf-session" })),
+      acquire: vi.fn(async () => ({ sessionId: "00000000-0000-4000-8000-000000000000" })),
       connect: vi.fn(async () => ({
         close: browserClose,
         newBrowserCDPSession: async () => ({ detach, send }),
@@ -43,12 +43,12 @@ describe("cloudflareBrowser", () => {
     const provider = cloudflareBrowser({ binding, driver, engine: "chromium" })
 
     const session = await provider.open()
-    expect(session.connection).toEqual({ binding, kind: "cloudflare-binding", sessionId: "cf-session" })
+    expect(session.connection).toEqual({ binding, kind: "cloudflare-binding", sessionId: "00000000-0000-4000-8000-000000000000" })
     expect(driver.acquire).toHaveBeenCalledWith(binding)
     expect(driver.connect).not.toHaveBeenCalled()
 
     await session.close()
-    expect(driver.connect).toHaveBeenCalledWith(binding, "cf-session")
+    expect(driver.connect).toHaveBeenCalledWith(binding, "00000000-0000-4000-8000-000000000000")
     expect(send).toHaveBeenCalledWith("Browser.close")
     expect(detach).not.toHaveBeenCalled()
     expect(browserClose).not.toHaveBeenCalled()
@@ -70,10 +70,23 @@ describe("cloudflareBrowser", () => {
     })
   })
 
+  it.each(["   ", "a/b"]) ("rejects an acquired session id that is not a Cloudflare UUID (%j)", async sessionId => {
+    const provider = cloudflareBrowser({
+      binding: { fetch: vi.fn() },
+      driver: { acquire: vi.fn(async () => ({ sessionId })), connect: vi.fn() },
+      engine: "chromium",
+    })
+
+    await expect(provider.open()).rejects.toMatchObject({
+      code: "BROWSER_PROVIDER_ERROR",
+      details: { operation: "acquire a Browser Run session" },
+    })
+  })
+
   it("resolves a named request-scoped binding", async () => {
     const binding = { fetch: vi.fn() }
     const driver = {
-      acquire: vi.fn(async () => ({ sessionId: "cf-session" })),
+      acquire: vi.fn(async () => ({ sessionId: "00000000-0000-4000-8000-000000000000" })),
       connect: vi.fn(async () => ({
         close: vi.fn(),
         newBrowserCDPSession: async () => ({ detach: vi.fn(), send: vi.fn() }),
@@ -94,7 +107,7 @@ describe("cloudflareBrowser", () => {
   it("does not reconnect after the attached controller terminates the session", async () => {
     const binding = { fetch: vi.fn() }
     const driver = {
-      acquire: vi.fn(async () => ({ sessionId: "cf-session" })),
+      acquire: vi.fn(async () => ({ sessionId: "00000000-0000-4000-8000-000000000000" })),
       connect: vi.fn(),
     }
     const session = await cloudflareBrowser({ binding, driver, engine: "chromium" }).open()
@@ -108,7 +121,7 @@ describe("cloudflareBrowser", () => {
   it("passes the requested idle timeout to Browser Run", async () => {
     const binding = { fetch: vi.fn() }
     const driver = {
-      acquire: vi.fn(async () => ({ sessionId: "cf-session" })),
+      acquire: vi.fn(async () => ({ sessionId: "00000000-0000-4000-8000-000000000000" })),
       connect: vi.fn(),
     }
     const provider = cloudflareBrowser({ binding, driver, engine: "chromium" })
@@ -121,7 +134,7 @@ describe("cloudflareBrowser", () => {
   it("retries provider termination after a transient connection failure", async () => {
     const send = vi.fn()
     const driver = {
-      acquire: vi.fn(async () => ({ sessionId: "cf-session" })),
+      acquire: vi.fn(async () => ({ sessionId: "00000000-0000-4000-8000-000000000000" })),
       connect: vi.fn()
         .mockRejectedValueOnce(new Error("temporary connection failure"))
         .mockResolvedValue({
@@ -143,7 +156,7 @@ describe("cloudflareBrowser", () => {
       .mockRejectedValueOnce(new Error("command not delivered"))
       .mockResolvedValue(undefined)
     const driver = {
-      acquire: vi.fn(async () => ({ sessionId: "cf-session" })),
+      acquire: vi.fn(async () => ({ sessionId: "00000000-0000-4000-8000-000000000000" })),
       connect: vi.fn(async () => ({
         close: vi.fn(),
         newBrowserCDPSession: async () => ({ detach: vi.fn(), send }),
