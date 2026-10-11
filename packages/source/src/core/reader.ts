@@ -107,7 +107,9 @@ export function createSource(source: Source, context?: Partial<SourceContext>) {
     },
     async list(prefix = "") {
       await ensurePrepared()
-      const normalizedPrefix = prefix ? normalizeSafeSourcePath(prefix, { allowEmpty: true }) : ""
+      const normalizedPrefix = prefix
+        ? normalizeSafeSourcePath(prefix, { allowEmpty: true }).split("/").filter(Boolean).join("/")
+        : ""
       const sourceKeys = await keys()
       const directories = createDirectorySet(sourceKeys, normalizedPrefix)
       const result = new Map<string, SourceListEntry<string>>()

@@ -90,6 +90,9 @@ describe("direct Source readers", () => {
     await expect(reader.list("guide/nested")).resolves.toEqual([
       { key: "guide//nested///example.md", type: "file" },
     ])
+    await expect(reader.list("guide//nested///")).resolves.toEqual([
+      { key: "guide//nested///example.md", type: "file" },
+    ])
   })
 
   it("pins one revision for concurrent operations and refreshes with another reader", async () => {

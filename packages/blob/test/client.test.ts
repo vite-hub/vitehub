@@ -51,6 +51,12 @@ describe("uploadFiles", () => {
     await expect(uploadFiles("/api/files", [], { fetch })).resolves.toEqual([])
     expect(fetch).toHaveBeenCalledTimes(1)
   })
+
+  it.each([undefined, {}, [object, undefined], Array.from({ length: 1 })])("rejects malformed successful responses", async responseBody => {
+    const fetch = vi.fn(async () => json(responseBody))
+
+    await expect(uploadFiles("/api/files", [new File(["a"], "a.txt")], { fetch })).rejects.toThrow("Upload request returned malformed JSON.")
+  })
 })
 
 describe("createMultipartUploader", () => {
@@ -95,6 +101,37 @@ describe("createMultipartUploader", () => {
 
     await expect(task.completed).resolves.toBeUndefined()
     expect(requests.at(-1)).toMatchObject({ method: "DELETE", url: "/api/multipart/abort/a.bin?uploadId=u2" })
+  })
+
+  it.each([
+    { pathname: "a.bin" },
+    { pathname: "a.bin", uploadId: 42 },
+  ])("rejects malformed create responses", async responseBody => {
+    const fetch = vi.fn(async () => json(responseBody))
+    const task = createMultipartUploader("/api/multipart", { fetch })(new File(["a"], "a.bin"))
+
+    await expect(task.completed).rejects.toThrow("Upload request returned malformed JSON.")
+  })
+
+  it("rejects malformed part responses", async () => {
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(json({ pathname: "a.bin", uploadId: "u1" }))
+      .mockResolvedValueOnce(json({ part: { etag: "p1", partNumber: "1" } }))
+      .mockResolvedValue(json({ action: "abort" }))
+    const task = createMultipartUploader("/api/multipart", { fetch, partSize: 1 })(new File(["a"], "a.bin"))
+
+    await expect(task.completed).rejects.toThrow("Upload request returned malformed JSON.")
+  })
+
+  it("rejects malformed complete responses", async () => {
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(json({ pathname: "a.bin", uploadId: "u1" }))
+      .mockResolvedValueOnce(json({ part: { etag: "p1", partNumber: 1 } }))
+      .mockResolvedValueOnce(json({ object: { pathname: "a.bin" } }))
+      .mockResolvedValue(json({ action: "abort" }))
+    const task = createMultipartUploader("/api/multipart", { fetch, partSize: 1 })(new File(["a"], "a.bin"))
+
+    await expect(task.completed).rejects.toThrow("Upload request returned malformed JSON.")
   })
 })
 

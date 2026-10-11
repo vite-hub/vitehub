@@ -10,6 +10,7 @@ import type {
   BoxToolchainPins,
 } from "../index.ts";
 import { boxErrorDiagnostics } from "../error-diagnostics.ts";
+import { abortable } from "./abortable.ts";
 import { isRuntimeString, runtimeRecord } from "./runtime-type.ts";
 
 /** Project files that can pin the toolchain, relative to the project root. */
@@ -587,16 +588,6 @@ async function fetchBytes(url: string, label: string, signal: AbortSignal | unde
     throw boxErrorDiagnostics.BOX_R0155({ message: `[vitehub] Box toolchain could not download ${label} from ${url}: HTTP ${response.status}.` });
   }
   return new Uint8Array(await response.arrayBuffer());
-}
-
-function abortable<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
-  if (!signal) return promise;
-  signal.throwIfAborted();
-  return new Promise<T>((resolve, reject) => {
-    const abort = () => reject(signal.reason);
-    signal.addEventListener("abort", abort, { once: true });
-    promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
-  });
 }
 
 function toolchainCommandError(operation: string, result: ToolchainCommandResult) {
