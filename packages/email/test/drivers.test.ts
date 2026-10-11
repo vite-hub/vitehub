@@ -1,3 +1,5 @@
+import { runInNewContext } from "node:vm";
+
 import { describe, expect, it, vi } from "vitest";
 
 import cloudflareEmail from "../src/drivers/cloudflare-email.ts";
@@ -51,6 +53,22 @@ const ambiguousOneClickMessages: Pick<EmailMessage, "headers" | "unsubscribe">[]
 ];
 
 describe("Resend Email driver", () => {
+  it("classifies AbortErrors from another realm as cancellations", async () => {
+    const abortError = runInNewContext(
+      "new DOMException('aborted', 'AbortError')",
+      { DOMException: class ForeignDOMException extends Error {
+        name = "AbortError"
+      } },
+    );
+    const request = vi.fn(async () => { throw abortError });
+    const driver = resend({ apiKey: "re_secret", fetch: request });
+
+    await expect(driver.send(message, context)).resolves.toMatchObject({
+      data: null,
+      error: { code: "CANCELLED" },
+    });
+  });
+
   it("rejects credentials that do not match Resend's API key shape", () => {
     expect(() => resend({ apiKey: "secret" })).toThrow("apiKey must start with 're_'");
   });
