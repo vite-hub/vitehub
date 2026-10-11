@@ -44,6 +44,22 @@ describe.each([
     })
   })
 
+  it("normalizes thrown error-like values to the sandbox validation code", async () => {
+    const read = await load()
+    const validate = {
+      "~standard": {
+        validate: () => {
+          throw { code: "UPSTREAM_ERROR", message: "validator exploded" }
+        },
+      },
+    }
+
+    await expect(read("payload", validate)).rejects.toMatchObject({
+      code: "SANDBOX_VALIDATION_ERROR",
+      message: "validator exploded",
+    })
+  })
+
   it.each([
     { failure: { issues: [] } },
     { failure: { issues: [], value: "must not be returned" } },
