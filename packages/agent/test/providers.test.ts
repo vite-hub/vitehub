@@ -7394,6 +7394,54 @@ describe("server helpers", () => {
     expect(largePrompt).toHaveLength(attachmentPrefix.length + attachmentBody.length)
   })
 
+  it("maps text-like file attachments from another realm to text parts", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const foreignData = runInNewContext("new Uint8Array([35, 32, 78, 111, 116, 101, 115, 10])") as never
+    const adapter = createTestChatAdapter({ attachmentFetchData: async () => foreignData })
+    const run = vi.fn(({ messages }) => messages.at(-1)?.parts)
+    const agent = defineAgent({
+      channels: {
+        // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+        telegram: testTelegram(telegram, { adapter: () => adapter as never }),
+      },
+      driver: { run },
+    })
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(
+      new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+        body: JSON.stringify({
+          update_id: 43,
+          message: {
+            chat: { id: 456, type: "private" },
+            date: 1781092800,
+            document: {
+              content: "# Notes\n",
+              file_id: "foreign-notes-file",
+              file_name: "notes.md",
+              file_size: 8,
+              mime_type: "text/markdown",
+            },
+            from: { first_name: "Maxi", id: 123, username: "maxi" },
+            message_id: 1011,
+          },
+        }),
+        method: "POST",
+      }),
+      "telegram",
+    )
+
+    expect(response.status).toBe(200)
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({
+      messages: [expect.objectContaining({
+        parts: [expect.objectContaining({ text: "\n\nText attachment (notes.md):\n\n# Notes", type: "text" })],
+      })],
+    }))
+  })
+
   it("maps audio mime file attachments for custom audio capabilities", async () => {
     const { defineAgent, defineCapability } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
