@@ -172,10 +172,10 @@ async function readCgroupResources(signal: AbortSignal): Promise<Omit<ProcessRes
   ])
   return {
     cpuPressure: parsePressure(cpuPressure ?? ""),
-    memoryCurrent: Number(current.trim()),
-    memoryHigh: parseLimit(high),
+    memoryCurrent: parseCgroupNumber(current, "memory.current"),
+    memoryHigh: parseLimit(high, "memory.high"),
     memoryHighEvents: parseEvent(events, "high"),
-    memoryMax: parseLimit(max),
+    memoryMax: parseLimit(max, "memory.max"),
     memoryPressure: parsePressure(memoryPressure ?? ""),
   }
 }
@@ -191,12 +191,18 @@ async function readOptionalCgroupFile(path: string, signal: AbortSignal): Promis
 
 function parseEvent(value: string, name: string): number {
   const line = value.split(/\r?\n/).find((entry) => entry.startsWith(`${name} `))
-  return line ? Number(line.slice(name.length + 1)) : 0
+  return line ? parseCgroupNumber(line.slice(name.length + 1), `memory.events.${name}`) : 0
 }
 
-function parseLimit(value: string): number {
+function parseLimit(value: string, name: string): number {
   const parsed = value.trim()
-  return parsed === "max" ? Number.POSITIVE_INFINITY : Number(parsed)
+  return parsed === "max" ? Number.POSITIVE_INFINITY : parseCgroupNumber(parsed, name)
+}
+
+function parseCgroupNumber(value: string, name: string): number {
+  const parsed = Number(value.trim())
+  if (!Number.isFinite(parsed) || parsed < 0) throw new Error(`Invalid cgroup ${name} value.`)
+  return parsed
 }
 
 function parsePressure(value: string): number {
