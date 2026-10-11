@@ -38,7 +38,17 @@ function detectRuntime(cloudflare: boolean): H3RuntimeName {
 function isRequest(value: unknown): value is Request {
   if (value instanceof Request) return true
   // Request constructors differ across H3 host realms, but their Web IDL tag is shared.
-  return value !== null && typeof value === "object" && Object.prototype.toString.call(value) === "[object Request]"
+  if (value === null || typeof value !== "object" || Object.prototype.toString.call(value) !== "[object Request]") {
+    return false
+  }
+  // The tag is spoofable; invoke the host object's own brand-checked clone operation
+  // before exposing it to consumers that call Fetch-specific methods.
+  try {
+    const clone = (value as Request).clone()
+    return clone !== null && typeof clone === "object"
+  } catch {
+    return false
+  }
 }
 
 /** Adapt one H3 operation. Await flushWaitUntil when the host has no lifetime API. */

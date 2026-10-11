@@ -67,6 +67,12 @@ describe("H3 Runtime Context", () => {
     await context.flushWaitUntil()
   })
 
+  it("rejects objects that only spoof the Request tag", async () => {
+    const context = getRuntimeContext({ context: {}, req: { [Symbol.toStringTag]: "Request" } })
+    expect(context.request).toBeUndefined()
+    await context.flushWaitUntil()
+  })
+
   it("uses a real host lifetime before H3 2's optional request forwarder", async () => {
     const host = { waitUntil: vi.fn() }
     const event = new H3Event(new Request("https://example.test"))
