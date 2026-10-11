@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 import { posix } from "node:path"
+import { runInNewContext } from "node:vm"
 import { unknownExecutionAuthority } from "@vite-hub/runtime"
 
 import { executeSandboxDefinition } from "../src/runtime/execute.ts"
@@ -20,6 +21,14 @@ it("bounds provider error messages while preserving the sandbox error", () => {
   const error = toSandboxError(new Error("x".repeat(20_000)))
   expect(error).toMatchObject({ code: "SANDBOX_RUNTIME_ERROR" })
   expect(error.message).toHaveLength(16_384)
+})
+
+it("preserves messages from errors created in another realm", () => {
+  const error = runInNewContext('new Error("foreign provider failure")')
+  expect(toSandboxError(error)).toMatchObject({
+    code: "SANDBOX_RUNTIME_ERROR",
+    message: "foreign provider failure",
+  })
 })
 
 it("waits for complete Cloudflare output before rejecting a malformed envelope", async () => {
