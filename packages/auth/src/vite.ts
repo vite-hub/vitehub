@@ -382,6 +382,12 @@ export function hubAuth(options?: AuthModuleOptions, internalOptions: InternalAu
           const authResponse = hasRequestRuntime
             ? await handleAuthRequest(definition, webRequest)
             : await getAuthForDefinition(definition).handler(webRequest)
+          // Better Auth returns 404 for paths that are not Auth endpoints. Let Vite
+          // handle those requests so a root Auth base path does not swallow the app.
+          if (authResponse.status === 404) {
+            next()
+            return
+          }
           await sendWebResponse(authResponse, response)
         }
         catch (error) {
