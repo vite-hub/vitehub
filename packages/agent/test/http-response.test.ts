@@ -1,3 +1,4 @@
+import vm from "node:vm"
 import { describe, expect, it } from "vitest"
 
 import {
@@ -47,6 +48,27 @@ describe("agent HTTP response helpers", () => {
 
     expect(toAgentHttpResult(response, true)).toBe(response)
     expect(toAgentFetchResponse(response, true)).toBe(response)
+  })
+
+  it("preserves Response objects created in another realm", () => {
+    const response = vm.runInNewContext(`
+      class Headers {
+        get() { return null }
+      }
+      class CrossRealmResponse {
+        constructor() {
+          this.body = null
+          this.headers = new Headers()
+          this.status = 204
+          this.statusText = "No Content"
+        }
+      }
+      Object.defineProperty(CrossRealmResponse.prototype, Symbol.toStringTag, { value: "Response" })
+      new CrossRealmResponse()
+    `)
+
+    expect(toAgentHttpResult(response, false)).toBe(response)
+    expect(toAgentFetchResponse(response, false)).toBe(response)
   })
 
   it("uses AI SDK stream response helpers when streaming Agent results provide them", async () => {
