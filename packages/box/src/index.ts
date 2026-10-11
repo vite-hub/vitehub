@@ -678,7 +678,7 @@ function normalizeFiles<Context>(
             const resolved = await resolveValue(value.contents, context);
             if (resolved === undefined) throw boxErrorDiagnostics.BOX_R0047({ message: `[vitehub] Box file ${path} is required.` });
             if (typeof resolved === "string") return new TextEncoder().encode(resolved);
-            if (resolved instanceof Uint8Array) return resolved;
+            if (isUint8ArrayValue(resolved)) return resolved;
             throw boxErrorDiagnostics.BOX_R0048({ message: `[vitehub] Box file ${path} must resolve to text or bytes.` });
           },
         },
@@ -697,6 +697,10 @@ function normalizeFiles<Context>(
     }
     return new Uint8Array(await readFile(source));
   }
+}
+
+function isUint8ArrayValue(value: unknown): value is Uint8Array {
+  return ArrayBuffer.isView(value) && Object.prototype.toString.call(value) === "[object Uint8Array]"
 }
 
 function validateFileTargets(files: readonly string[], label: string) {
