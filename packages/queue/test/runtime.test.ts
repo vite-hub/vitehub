@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 import { createServer } from "node:http"
+import { runInNewContext } from "node:vm"
 
 import { clearActiveCloudflareEnv, getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { ViteHubError } from "@vite-hub/runtime"
@@ -15,6 +16,7 @@ import { createCloudflareQueueRuntimeClient } from "../src/internal/runtime/clou
 import { createQueueClient } from "../src/runtime/create-client.ts"
 import { createQueueVercelServer } from "../src/internal/runtime/vercel-vite.ts"
 import { createVercelQueueRuntimeClient } from "../src/internal/runtime/vercel-client.ts"
+import { resolveVercelQueueRegion } from "../src/internal/vercel-region.ts"
 import { enterQueueRuntimeEvent, getQueueRuntimeClientFactory, getQueueRuntimeEvent, loadQueueDefinition, missingQueueDefinitionError, runWithQueueRuntimeEvent, setQueueRuntimeConfig, setQueueRuntimeRegistry } from "../src/internal/runtime/state.ts"
 
 import type { VercelQueueCallbackOptions } from "../src/types.ts"
@@ -934,7 +936,7 @@ describe("vercel provider", () => {
     expect(vercelQueueMock.options).toEqual({ region: "fra1" })
   })
 
-  it("does not cache regions inferred from Vercel requests", async () => {
+it("does not cache regions inferred from Vercel requests", async () => {
     setQueueRuntimeConfig({ provider: "vercel" }, createVercelQueueRuntimeClient)
     setQueueRuntimeRegistry({
       welcome: async () => ({ handler: async () => {} }),
@@ -1004,4 +1006,15 @@ describe("vercel provider", () => {
 
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))
   })
+})
+
+it("reads regions from a request created in another realm", () => {
+  const request = runInNewContext(`({
+    headers: {
+      get: name => name === "ce-vqsregion" ? "ams1" : null,
+      get [Symbol.toStringTag]() { return "Headers" },
+    },
+    get [Symbol.toStringTag]() { return "Request" },
+  })`)
+  expect(runWithQueueRuntimeEvent({ request }, () => resolveVercelQueueRegion(undefined))).toMatchObject({ region: "ams1" })
 })
