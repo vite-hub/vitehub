@@ -41,8 +41,19 @@ export interface MultipartUploadTask {
 
 const defaultPartSize = 10 * 1024 * 1024
 
+function isFile(value: unknown): value is File {
+  if (typeof value !== "object" || value === null) return false
+  if (typeof File !== "undefined" && value instanceof File) return true
+  try {
+    return Object.prototype.toString.call(value) === "[object File]"
+  }
+  catch {
+    return false
+  }
+}
+
 function toFiles(input: UploadInput): File[] {
-  if (input instanceof File) return [input]
+  if (isFile(input)) return [input]
   if ("files" in input) return Array.from(input.files ?? [])
   return Array.from(input)
 }
