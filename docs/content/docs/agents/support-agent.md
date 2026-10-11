@@ -124,6 +124,8 @@ Run these commands from the project root after enabling the Node Agent host:
 
 ```sh
 pnpm vite build
+# In another terminal, keep the dev server running for `agent info`.
+pnpm vite dev
 pnpm vitehub inspect definitions --kind agent
 pnpm vitehub agent info --agent support --json
 ```
