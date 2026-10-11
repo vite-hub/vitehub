@@ -28,8 +28,11 @@ function normalizeInput(input: BrowserActionInput): Record<string, unknown> {
 
 function actionTimeoutMs(input: Record<string, unknown>): number {
   let requestedTimeoutMs = 0
+  const visited = new WeakSet<object>()
   const visit = (value: unknown) => {
     if (!value || typeof value !== "object") return
+    if (visited.has(value)) return
+    visited.add(value)
     for (const [key, nestedValue] of Object.entries(value)) {
       if ((key === "timeout" || key.endsWith("Timeout")) && typeof nestedValue === "number" && nestedValue > 0) {
         requestedTimeoutMs += Math.min(nestedValue, MAX_PROVIDER_TIMEOUT_MS)

@@ -32,6 +32,18 @@ describe("Browser Run actions", () => {
     expect(quickAction).toHaveBeenCalledWith("content", { url: "https://example.com" })
   })
 
+  it("does not recurse forever while inspecting cyclic action input", async () => {
+    const input: Record<string, unknown> = { url: "https://example.com" }
+    input.options = input
+    const quickAction = vi.fn(async () => new Response("complete"))
+    runtime.__env__ = { BROWSER: { quickAction } }
+
+    const response = await runBrowserAction("content", input)
+
+    expect(response.status).toBe(200)
+    expect(quickAction).toHaveBeenCalledWith("content", input)
+  })
+
   it("returns raw quick action responses for binary actions", async () => {
     const response = new Response(new Uint8Array([1, 2, 3]), {
       headers: { "content-type": "image/png" },
