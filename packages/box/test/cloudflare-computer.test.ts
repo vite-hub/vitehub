@@ -10,14 +10,14 @@ import { resolveBox } from "../src/index.ts";
 describe("Cloudflare Computer Box runtime", () => {
   it("cancels a pending file read when its signal aborts", async () => {
     let cancelled = false
+    let resolveReadFile!: (stream: ReadableStream<Uint8Array>) => void
     const workspace = {
       fs: {
         async lstat() { return stat("file", 1) },
         async mkdir() {},
         async readFile() {
-          return new ReadableStream<Uint8Array>({
-            start() {},
-            cancel() { cancelled = true },
+          return await new Promise<ReadableStream<Uint8Array>>(resolve => {
+            resolveReadFile = resolve
           })
         },
         async readdir() { return [] },
@@ -37,6 +37,10 @@ describe("Cloudflare Computer Box runtime", () => {
     const pending = session.files.read("/pending", { signal: controller.signal })
     await new Promise(resolve => setTimeout(resolve, 0))
     controller.abort(new Error("cancelled"))
+    resolveReadFile(new ReadableStream<Uint8Array>({
+      start() {},
+      cancel() { cancelled = true },
+    }))
     await expect(pending).rejects.toThrow("cancelled")
     expect(cancelled).toBe(true)
     await session.close()

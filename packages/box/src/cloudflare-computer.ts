@@ -307,13 +307,17 @@ async function readStream(stream: ReadableStream<Uint8Array>, signal: AbortSigna
   const chunks: Uint8Array[] = [];
   let size = 0;
   let abort: (() => void) | undefined;
+  let wasAborted = false;
   const aborted = signal
     ? new Promise<never>((_resolve, reject) => {
         abort = () => {
+          if (wasAborted) return;
+          wasAborted = true;
           void reader.cancel(signal.reason).catch(() => {});
           reject(signal.reason);
         };
         signal.addEventListener("abort", abort, { once: true });
+        if (signal.aborted) abort();
       })
     : undefined;
   try {

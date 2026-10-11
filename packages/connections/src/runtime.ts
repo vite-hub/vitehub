@@ -184,7 +184,13 @@ async function providerMessage(response: Response): Promise<string | undefined> 
 
 async function readResponse(response: Response): Promise<unknown> {
   const text = await response.text()
-  return text ? JSON.parse(text) : undefined
+  if (!text) return undefined
+  try {
+    return JSON.parse(text)
+  }
+  catch {
+    throw new ConnectionError("provider", "Provider returned invalid JSON.")
+  }
 }
 
 /** Create the Connections runtime. Applications normally use `useConnection()` instead. */
