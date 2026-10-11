@@ -308,8 +308,11 @@ function resourceWithContentMimeType(resource: McpResourceDescriptor, contents: 
   return mimeType ? { ...resource, mimeType } : resource
 }
 
-function resourceKey<TKey extends string>(resource: McpResourceDescriptor, options: McpResourcesSourceOptions<TKey>) {
-  const resolved = options.path?.(resource) ?? defaultResourcePath(resource)
+function resourceKey<TKey extends string>(
+  resource: McpResourceDescriptor,
+  options: McpResourcesSourceOptions<TKey>,
+  resolved = options.path?.(resource) ?? defaultResourcePath(resource),
+) {
   return normalizeSafeSourcePath(resolved) as TKey
 }
 
@@ -353,13 +356,17 @@ async function createEntries<TKey extends string>(
   const entries: ResourceEntry<TKey>[] = []
   const seen = new Map<string, string>()
   for (const resource of resources) {
+    // Apply an explicit ignore before reading content to infer a missing MIME type.
+    // An excluded resource must not trigger a remote read or leak a provider error.
+    const candidate = resourceKey(resource, options)
+    if (options.ignore && matchesAny(candidate, options.ignore)) continue
     let contents: McpResourceContent[] | undefined
     let resolvedResource = resource
     if (client && resourcePathNeedsContentMimeType(resource, options)) {
       contents = await readResourceContents(client, resource, options.request)
       resolvedResource = resourceWithContentMimeType(resource, contents)
     }
-    const key = resourceKey(resolvedResource, options)
+    const key = resourceKey(resolvedResource, options, options.path ? candidate : undefined)
     if (!shouldInclude(key, options)) continue
     const existingUri = seen.get(key)
     if (existingUri) {

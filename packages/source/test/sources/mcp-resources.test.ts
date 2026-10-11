@@ -149,6 +149,24 @@ describe("mcpResources", () => {
     ])
   })
 
+  it("does not read resources excluded by ignore before key filtering", async () => {
+    const readResource = vi.fn(async () => {
+      throw new Error("excluded resource must not be read")
+    })
+    const source = mcpResources({
+      ignore: "**",
+      server: {
+        async listResources() {
+          return { resources: [{ name: "secret", uri: "resource://example/secret" }] }
+        },
+        readResource,
+      },
+    })
+
+    await expect(source.getKeys({ rootDir: "/tmp" })).resolves.toEqual([])
+    expect(readResource).not.toHaveBeenCalled()
+  })
+
   it("closes owned MCP clients created from config", async () => {
     const close = vi.fn()
     const connect = vi.fn()
