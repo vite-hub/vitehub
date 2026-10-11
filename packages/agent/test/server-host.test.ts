@@ -1376,16 +1376,19 @@ describe("Agent Invocation host recovery", () => {
 
   it("rejects a repeated cursor before recovering the same page twice", async () => {
     const store = createMemoryAgentInvocationStore()
+    const invocation = invocationSummary("interrupted", "running", "2026-08-30T10:00:00.000Z")
     const list = vi.spyOn(store, "list").mockResolvedValue({
       cursor: "same-cursor",
-      invocations: [],
+      invocations: [invocation],
     })
+    const recover = vi.fn(() => true)
 
     await expect(failInterruptedAgentInvocations(store, {
       before: Date.parse("2026-08-30T11:00:00.000Z"),
-      recover: () => true,
+      recover,
     })).rejects.toThrow("repeated pagination cursor")
     expect(list).toHaveBeenCalledTimes(2)
+    expect(recover).toHaveBeenCalledOnce()
   })
 })
 
