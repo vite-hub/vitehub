@@ -12,6 +12,10 @@ describe("Queue errors", () => {
     expect(isQueueBoundaryIdentity(abort)).toBe(true)
   })
 
+  it("does not treat plain AbortError records as boundary identities", () => {
+    expect(isQueueBoundaryIdentity({ name: "AbortError", providerPayload: "secret-token" })).toBe(false)
+  })
+
   it("uses the shared ViteHub error contract", () => {
     const cause = new Error("private provider detail")
     const error = createQueueError("QUEUE_PROVIDER_OPERATION_FAILED", {
