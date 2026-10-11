@@ -223,6 +223,7 @@ export function normalizeBlobOptions(
   const hosting = normalizeHosting(input.hosting)
   const explicit = options as BlobStoreConfig | undefined
   const optionRecord = options as { serve?: BlobServeOptions } | undefined
+  // SAFETY: `options` was validated as a plain object above, so this assertion only narrows its optional `stores` property.
   if (options !== undefined && Object.hasOwn(options, "stores") && !isPlainObject((options as { stores?: unknown }).stores)) {
     throw blobErrorDiagnostics.BLOB_C0013({ message: "`blob.stores` must be a plain object." })
   }
