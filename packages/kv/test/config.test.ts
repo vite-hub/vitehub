@@ -233,6 +233,29 @@ describe("normalizeKVOptions", () => {
     })
   })
 
+  it("accepts named stores exposed by an accessor", () => {
+    const options = {
+      get stores() {
+        return {
+          default: { base: ".vitehub/data/kv", driver: "fs-lite" as const },
+        }
+      },
+    }
+
+    expect(normalizeKVOptions(options, { env: {}, hosting: "" })).toEqual({
+      store: {
+        base: ".vitehub/data/kv",
+        driver: "fs-lite",
+      },
+      stores: {
+        default: {
+          base: ".vitehub/data/kv",
+          driver: "fs-lite",
+        },
+      },
+    })
+  })
+
   it("rejects non-object config", () => {
     expect(() => normalizeKVOptions(true as never, {
       env: {},
