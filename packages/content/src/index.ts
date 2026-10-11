@@ -37,6 +37,12 @@ type NodeContentRequest = {
   [Symbol.asyncIterator](): AsyncIterator<Uint8Array>
   once(event: "aborted", listener: () => void): unknown
 }
+
+function nodeBodyChunk(value: unknown): Uint8Array | undefined {
+  if (ArrayBuffer.isView(value)) return new Uint8Array(value.buffer, value.byteOffset, value.byteLength)
+  if (Object.prototype.toString.call(value) === "[object ArrayBuffer]") return new Uint8Array(value as ArrayBuffer)
+}
+
 type PluginMethods<TPlugin> = TPlugin extends ContentPlugin<infer TMethods, any> ? TMethods : unknown
 type UnionToIntersection<T> = (T extends unknown ? (value: T) => void : never) extends (value: infer TIntersection) => void
   ? TIntersection
@@ -152,7 +158,9 @@ export function defineContentHandler(
     if (method !== "GET" && method !== "HEAD") {
       const chunks: Uint8Array[] = []
       for await (const chunk of nodeRequest) {
-        chunks.push(chunk)
+        const bytes = nodeBodyChunk(chunk)
+        if (!bytes) throw contentErrorDiagnostics.CONTENT_R0005({ message: "[vitehub] Content received an invalid request body chunk." })
+        chunks.push(bytes)
       }
       const length = chunks.reduce((total, chunk) => total + chunk.byteLength, 0)
       body = new Uint8Array(length)
