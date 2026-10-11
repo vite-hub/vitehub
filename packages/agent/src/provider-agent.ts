@@ -2190,6 +2190,18 @@ function attachmentId(threadId: string): string {
 
 const defaultProviderAttachmentMaxBytes = 25 * 1024 * 1024
 
+export function isBlobValue(value: unknown): value is Blob {
+  return value instanceof Blob || Object.prototype.toString.call(value) === "[object Blob]"
+}
+
+export function isArrayBufferValue(value: unknown): value is ArrayBuffer {
+  return value instanceof ArrayBuffer || Object.prototype.toString.call(value) === "[object ArrayBuffer]"
+}
+
+export function isUint8ArrayValue(value: unknown): value is Uint8Array {
+  return value instanceof Uint8Array || Object.prototype.toString.call(value) === "[object Uint8Array]"
+}
+
 async function attachmentBytes(part: AttachmentPart, maxBytes: number): Promise<Uint8Array> {
   if (hasRuntimeType(part.size, "number") && part.size > maxBytes) throw agentDiagnostics.AGENT_R0702({ message: `[vitehub] Provider attachment exceeds maxBytes (${maxBytes}).` })
   const data = await resolveAttachmentData(part)
@@ -2197,12 +2209,12 @@ async function attachmentBytes(part: AttachmentPart, maxBytes: number): Promise<
     throw agentDiagnostics.AGENT_R0703({ message: "[vitehub] Provider attachment URLs require application-owned fetchData() resolution." })
   }
   if (data === undefined) throw agentDiagnostics.AGENT_R0704({ message: `[vitehub] Provider ${part.type} attachment requires data or fetchData().` })
-  const declaredSize = data instanceof Blob ? data.size : data instanceof ArrayBuffer || ArrayBuffer.isView(data) ? data.byteLength : undefined
+  const declaredSize = isBlobValue(data) ? data.size : isArrayBufferValue(data) || ArrayBuffer.isView(data) ? data.byteLength : undefined
   if (declaredSize !== undefined && declaredSize > maxBytes) throw agentDiagnostics.AGENT_R0705({ message: `[vitehub] Provider attachment exceeds maxBytes (${maxBytes}).` })
   if (hasRuntimeType(data, "string") && data.length > maxBytes * 2) throw agentDiagnostics.AGENT_R0706({ message: `[vitehub] Provider attachment exceeds maxBytes (${maxBytes}).` })
-  const bytes = data instanceof Blob
+  const bytes = isBlobValue(data)
     ? new Uint8Array(await data.arrayBuffer())
-    : data instanceof ArrayBuffer ? new Uint8Array(data) : data instanceof Uint8Array ? data : attachmentStringBytes(data, part.mediaType)
+    : isArrayBufferValue(data) ? new Uint8Array(data) : isUint8ArrayValue(data) ? new Uint8Array(data) : attachmentStringBytes(data, part.mediaType)
   if (bytes.byteLength > maxBytes) throw agentDiagnostics.AGENT_R0707({ message: `[vitehub] Provider attachment exceeds maxBytes (${maxBytes}).` })
   return bytes
 }
