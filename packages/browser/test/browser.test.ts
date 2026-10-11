@@ -1,3 +1,4 @@
+import { runInNewContext } from "node:vm"
 import { describe, expect, it, vi } from "vitest"
 import { type TraceEvent, ViteHubError } from "@vite-hub/runtime"
 
@@ -44,6 +45,25 @@ function fixture(options: { controllerHandoff?: boolean, controllerPreserves?: b
 }
 
 describe("Browser Sessions", () => {
+  it("normalizes provider expiry dates from another realm", async () => {
+    const expiresAt = runInNewContext("new Date('2030-01-02T03:04:05.000Z')") as Date
+    const provider: BrowserProvider = {
+      features: { liveHandoff: false },
+      isolation: "provider",
+      name: "fixture",
+      open: async () => ({
+        close: async () => {},
+        connection: undefined,
+        expiresAt,
+        id: "session",
+      }),
+    }
+    const session = await createBrowser({ provider }).open()
+
+    expect(session.inspect().expiresAt).toBe("2030-01-02T03:04:05.000Z")
+    await session.close()
+  })
+
   it("keeps provider termination separate from controller release", async () => {
     const { close, controller, provider, release } = fixture()
     const browser = createBrowser({ provider })
