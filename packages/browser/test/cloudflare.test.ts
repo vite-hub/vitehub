@@ -75,6 +75,19 @@ describe("cloudflareBrowser", () => {
     await session.close()
   })
 
+  it("does not resolve an inherited runtime binding", async () => {
+    const runtime = globalThis as typeof globalThis & { __env__?: Record<string, unknown> }
+    runtime.__env__ = Object.create({ BROWSER: { fetch: vi.fn() } })
+    try {
+      const provider = cloudflareBrowser({ engine: "kitesurf" })
+
+      await expect(provider.open()).rejects.toThrow("resolve Browser Run binding")
+    }
+    finally {
+      delete runtime.__env__
+    }
+  })
+
   it("does not reconnect after the attached controller terminates the session", async () => {
     const binding = { fetch: vi.fn() }
     const driver = {
