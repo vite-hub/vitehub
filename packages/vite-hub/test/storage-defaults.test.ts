@@ -114,6 +114,12 @@ describe("Node storage defaults", () => {
     expect(() => vitehub({ preset: "node", dataDir: "  " })).toThrow("non-empty")
   })
 
+  it("rejects malformed dataDir values with the configuration diagnostic", () => {
+    for (const dataDir of [null, 1, {}, []]) {
+      expect(() => withDataDir({ preset: "node", dataDir } as unknown as ViteHubOptions)).toThrow("non-empty directory path")
+    }
+  })
+
   it("keeps existing defaults when no directory is supplied", () => {
     const options = { preset: "node" as const, agent: true }
     expect(withDataDir(options)).toBe(options)
