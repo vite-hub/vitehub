@@ -20,6 +20,9 @@ export function addressValue(input: EmailAddress): { email: string; name?: strin
     const value: unknown = input
     const object = value !== null && typeof value === "object" ? value as Partial<EmailAddressValue> : undefined
     const email = object && isString(object.email) ? object.email.trim() : ""
+    if (object && "name" in object && object.name !== undefined && !isString(object.name)) {
+      return { email: "" }
+    }
     const name = object && isString(object.name) ? object.name : undefined
     return { email, ...(name !== undefined ? { name } : {}) }
   }
