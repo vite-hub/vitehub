@@ -1,6 +1,6 @@
 # Channels
 
-Use Channels to receive or deliver messages through named connectors such as HTTP, chat, GitHub, Slack, or email. A Channel selects where an Agent or application message enters the runtime.
+Use Channels for outbound message delivery through named connectors such as HTTP, chat, GitHub, Slack, or email. For inbound webhooks, chat admission, or Agent input, use the Agent Channels and Triggers guidance in [channels-triggers.md](../channels-triggers.md).
 
 Read the [Channels guide](https://vitehub.dev/docs/channels) and [Get started](https://vitehub.dev/docs/channels/get-started). Use [Server API](https://vitehub.dev/docs/channels/server-api) for delivery and [Agent Channels](https://vitehub.dev/docs/agents/channels) for Agent input.
 
