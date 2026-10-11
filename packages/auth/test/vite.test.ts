@@ -447,3 +447,9 @@ describe("hubAuth", () => {
     expect(invalidated).toEqual([`\0${AUTH_DEFINITION_ID}`])
   })
 })
+
+it("recognizes every path when Auth uses the root base path", async () => {
+  const { isAuthRequestPath } = await import("../src/shared.ts")
+  expect(isAuthRequestPath("/sign-in", "/")).toBe(true)
+  expect(isAuthRequestPath("/api/auth", "/")).toBe(true)
+})
