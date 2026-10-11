@@ -274,6 +274,24 @@ describe("package entry result transport", () => {
     })
   })
 
+  it("preserves boxed primitive results created in another realm", async () => {
+    const execution = await executePackageEntry([
+      `import { runInNewContext } from 'node:vm'`,
+      `export default async function () { return {`,
+      `  boolean: runInNewContext('new Boolean(true)'),`,
+      `  number: runInNewContext('new Number(5)'),`,
+      `  string: runInNewContext("new String('ready')"),`,
+      `} }`,
+      ``,
+    ].join("\n"))
+
+    expect(execution.code).toBe(0)
+    expect(execution.output).toEqual({
+      ok: true,
+      result: { boolean: true, number: 5, string: "ready" },
+    })
+  })
+
   it.each([
     ["path-like", `"../../etc/passwd"`],
     ["negative-zero", "-0"],
