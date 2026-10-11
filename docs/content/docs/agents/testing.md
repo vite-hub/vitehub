@@ -17,7 +17,7 @@ checks use the same Agent Definition. They answer different questions.
 | `runAgent()` test | Input validation, interception, custom `run` logic, and result handling. | Model quality, provider credentials, or host routes. |
 | Agent Eval | A repeatable model response, tool choice, refusal, or usage limit. | Workflow recovery, provider process startup, or deployment wiring. |
 | `agent dev` smoke test | Discovery, the route, host runtime, and one real Invocation. | Behavior across many prompts. |
-| Provider status | The configured provider executable and credentials are ready. | A successful Agent turn or tool result. |
+| Provider status | The configured provider executable and authentication path (local credentials or a gateway) are ready. | A successful Agent turn or tool result. |
 
 Keep the test at the smallest boundary that can fail. Do not replace the
 Agent's Capabilities or Workspace in an Eval. That would test a different
@@ -155,23 +155,33 @@ that tool, so keep a separate Eval for tool selection.
 
 ## Check provider readiness
 
-Provider-backed Agents need a local executable and credentials. Call
-`agent.status()` from a host inspection route, or use `vitehub agent info` to
-inspect the resolved configuration. A `ready` status means the provider probe
-found enough executable, authentication, and quota evidence. It does not run
-an Agent turn.
+Provider-backed Agents need a provider executable and an authentication path:
+local credentials for a local provider, or a configured `gateway`, which replaces
+local credentials. `vitehub agent info` only inspects the resolved Definition;
+it does not call the provider. To run the readiness probe, expose the authenticated
+Console status endpoint and select the Agent, for example:
+
+```bash
+curl -H "Authorization: Bearer $VITEHUB_CONSOLE_TOKEN" \
+  'http://localhost:5173/api/_vitehub/console/status?agent=support'
+```
+
+This calls `agent.status()`. A `ready` status means the provider probe found
+enough executable, authentication, and quota evidence. It does not run an Agent
+turn. See [Provider status](/docs/agents/provider-status) for Console access and
+response details.
 
 Use a real provider smoke test after readiness passes. Keep it short and
 explicitly bound the provider permissions. Provider status may be `unknown`
 when the provider does not expose quota evidence; treat that as an inspection
-result, not as proof that a turn will fail. See [Provider status](/docs/agents/provider-status).
+result, not as proof that a turn will fail.
 
 ## Verify failures at the right layer
 
 When a check fails, use the first failing boundary:
 
 1. `agent info` fails: fix discovery or Definition configuration.
-2. `agent dev` cannot start: check the host route, credentials, requirements,
+2. `agent dev` cannot start: check the host route, authentication path, requirements,
    and Capability requirements.
 3. The Invocation starts but behavior is wrong: add or update an Eval.
 4. A completed Invocation cannot be inspected or resumed: test the selected
