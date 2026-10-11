@@ -293,13 +293,36 @@ export function maskSourceLiterals(source: string): string {
   return output.join("")
 }
 
+function isTypeMemberDeclaration(source: string, index: number) {
+  const masked = maskSourceLiterals(source.slice(0, index))
+  let depth = 0
+  let openBrace = -1
+  for (let current = masked.length - 1; current >= 0; current--) {
+    if (masked[current] === "}") {
+      depth += 1
+    }
+    else if (masked[current] === "{") {
+      if (depth === 0) {
+        openBrace = current
+        break
+      }
+      depth -= 1
+    }
+  }
+  if (openBrace < 0) return false
+
+  const head = masked.slice(0, openBrace)
+  return /(?:^|[;{}])\s*(?:export\s+(?:default\s+)?)?(?:declare\s+)?(?:interface|class|namespace|module)\b[^{}]*$/s.test(head)
+    || /(?:^|[;{}])\s*(?:export\s+(?:default\s+)?)?type\b[^{}]*=\s*$/s.test(head)
+}
+
 function isMethodDeclarationName(source: string, index: number, closeParen: number) {
   const previous = previousNonWhitespace(source, index)
-  return source[skipWhitespaceAndComments(source, closeParen + 1)] === "{"
-    && previous !== "("
-    && previous !== "="
-    && previous !== ","
-    && previous !== ":"
+  if (previous === "(" || previous === "=" || previous === "," || previous === ":") return false
+
+  const next = source[skipWhitespaceAndComments(source, closeParen + 1)]
+  if (next === "{") return true
+  return (next === ":" || next === ";" || next === ",") && isTypeMemberDeclaration(source, index)
 }
 
 function isMemberAccessName(source: string, index: number) {

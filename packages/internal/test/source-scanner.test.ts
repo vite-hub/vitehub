@@ -139,6 +139,18 @@ describe("source scanner", () => {
     ])
   })
 
+  it("ignores TypeScript type member signatures with matching names", () => {
+    const source = [
+      `interface Fixture { defineThing(value: string): void }`,
+      `type Other = { defineThing(value: string): void }`,
+      `const value = defineThing({ value: "real" })`,
+    ].join("\n")
+
+    const calls = findIdentifierCalls(source, "defineThing")
+    expect(calls).toHaveLength(1)
+    expect(calls[0]?.arguments).toEqual([`{ value: "real" }`])
+  })
+
   it("ignores member calls with matching names", () => {
     const calls = findIdentifierCalls([
       `logger.defineThing("member")`,
