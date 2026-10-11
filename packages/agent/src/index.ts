@@ -4654,7 +4654,6 @@ async function createAgentInvocationContext<
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       model: agentModel as never,
       resolveCapabilityCli,
-      executionBudget,
       workspaceDefinition: resolvedWorkspaceDefinition,
     })
     const knownUnavailable = (capabilities: Awaited<typeof preparingCapabilities>) => resolveReadiness().then(status => {
@@ -8059,6 +8058,7 @@ async function executeAgentInvocation<
   }
   const executionBudget = createExecutionBudget({
     ...(input.executionBudget || {}),
+    // doctor-disable-next-line typescript/style/no-conditional-empty-object-spread -- Timeout is an optional compatibility input that tightens the shared budget.
     ...(input.timeout !== undefined && input.executionBudget?.deadlineAt === undefined ? { deadlineAt: Date.now() + input.timeout } : {}),
     signal: input.abortSignal,
   })

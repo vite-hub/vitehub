@@ -154,13 +154,19 @@ function createBudget(state: BudgetState, limits: ExecutionBudgetLimits, control
       const remainingTime = limits.deadlineAt === undefined ? undefined : Math.max(0, limits.deadlineAt - Date.now())
       return {
         cancelled: state.controller.signal.aborted || controller.signal.aborted,
+        // doctor-disable-next-line typescript/style/no-conditional-empty-object-spread -- Snapshot fields are omitted when the corresponding limit is unset.
         ...(limits.deadlineAt === undefined ? {} : { deadlineAt: limits.deadlineAt }),
         limits: { ...limits },
         remaining: {
+          // doctor-disable-next-line typescript/style/no-conditional-empty-object-spread -- Snapshot fields are omitted when the corresponding limit is unset.
           ...(limits.maxInputBytes === undefined ? {} : { inputBytes: Math.max(0, limits.maxInputBytes - state.usage.inputBytes) }),
+          // doctor-disable-next-line typescript/style/no-conditional-empty-object-spread -- Snapshot fields are omitted when the corresponding limit is unset.
           ...(limits.maxOutputBytes === undefined ? {} : { outputBytes: Math.max(0, limits.maxOutputBytes - state.usage.outputBytes) }),
+          // doctor-disable-next-line typescript/style/no-conditional-empty-object-spread -- Snapshot fields are omitted when the corresponding limit is unset.
           ...(limits.maxRetries === undefined ? {} : { retries: Math.max(0, limits.maxRetries - state.usage.retries) }),
+          // doctor-disable-next-line typescript/style/no-conditional-empty-object-spread -- Snapshot fields are omitted when the corresponding limit is unset.
           ...(limits.maxToolCalls === undefined ? {} : { toolCalls: Math.max(0, limits.maxToolCalls - state.usage.toolCalls) }),
+          // doctor-disable-next-line typescript/style/no-conditional-empty-object-spread -- Snapshot fields are omitted when the deadline is unset.
           ...(remainingTime === undefined ? {} : { timeMs: remainingTime }),
         },
         usage: { ...state.usage },

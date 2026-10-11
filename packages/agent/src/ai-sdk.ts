@@ -1334,7 +1334,7 @@ async function createAgent(
     : {
         ...settings,
         maxRetries: Math.min(
-          typeof settings.maxRetries === "number" ? settings.maxRetries : remainingRetries,
+          hasRuntimeType(settings.maxRetries, "number") ? settings.maxRetries : remainingRetries,
           remainingRetries,
         ),
       }

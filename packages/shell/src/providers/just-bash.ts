@@ -81,6 +81,7 @@ export function createJustBashProvider(options: JustBashProviderOptions): ShellE
           cwd,
           fs: options.fs,
         })
+        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Shell execution options cross a provider boundary and are validated at runtime.
         const timeoutSignal = typeof execOptions.timeout === "number"
           ? AbortSignal.timeout(execOptions.timeout)
           : undefined
