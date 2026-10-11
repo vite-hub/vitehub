@@ -57,7 +57,9 @@ function contentPath(item: ContentSourceItem): string {
 }
 
 function textContent(item: ContentSourceItem): string {
-  if (item.content instanceof Uint8Array) return new TextDecoder().decode(item.content)
+  // `instanceof` rejects bytes supplied by a Source running in another realm.
+  // The intrinsic tag check keeps the conversion limited to Uint8Array values.
+  if (isUint8Array(item.content)) return new TextDecoder().decode(item.content)
   if (item.content !== undefined) return item.content
   if (item.data !== undefined) {
     const serialized = JSON.stringify(item.data)
@@ -78,6 +80,16 @@ function isRuntimeFunction(value: unknown): value is Function {
 
 function isRuntimeObject(value: unknown): value is RuntimeObject {
   return value !== null && Object(value) === value && !isRuntimeFunction(value)
+}
+
+function isUint8Array(value: unknown): value is Uint8Array {
+  if (!ArrayBuffer.isView(value)) return false
+  try {
+    return Object.prototype.toString.call(value) === "[object Uint8Array]"
+  }
+  catch {
+    return false
+  }
 }
 
 function isConstructorPrototype(prototype: RuntimeObject): boolean {
