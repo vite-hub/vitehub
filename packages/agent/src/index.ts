@@ -5096,7 +5096,7 @@ function withEagerStreamUsageExtensions<
     for await (const chunk of stream) {
       const usageRecord = usageRecordFromStreamChunk(chunk, result)
       if (!usageRecord) {
-        if (isRecord(chunk) && chunk.type === "finish") {
+        if (isRuntimeRecord(chunk) && chunk.type === "finish") {
           deferredFinish = chunk
           continue
         }
