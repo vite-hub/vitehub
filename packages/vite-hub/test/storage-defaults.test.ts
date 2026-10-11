@@ -148,7 +148,7 @@ describe("Console journal host defaults", () => {
 
   it.each([
     ['cloudflare: { binding: "APP_DB", databaseName: "app" },', "APP_DB"],
-    ['cloudflare: { databaseName: "app" },', "DB"],
+    ['cloudflare: { databaseName: "app" },', "JOURNAL_DB"],
     ["", "JOURNAL_DB"],
   ])("selects the effective D1 binding with Definition config %s", async (config, binding) => {
     const { plugin } = await generatedConsolePlugin({ ...cloudflare, database: { driver: "d1", binding: "JOURNAL_DB" } }, "build", {

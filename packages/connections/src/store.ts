@@ -287,7 +287,7 @@ export function createDatabaseConnectionStore(options: { db: EnvDatabase, encryp
     authorizations: {
       async put(authorization) {
         await initialize()
-        await db.run(sql`DELETE FROM vitehub_connection_authorizations WHERE expires_at < ${Date.now()}`)
+        await db.run(sql`DELETE FROM vitehub_connection_authorizations WHERE expires_at <= ${Date.now()}`)
         await db.run(sql`INSERT INTO vitehub_connection_authorizations (state, name, actor, verifier, redirect_uri, expires_at) VALUES (${authorization.state}, ${authorization.name}, ${authorization.actor}, ${authorization.verifier}, ${authorization.redirectUri}, ${authorization.expiresAt})`)
       },
       async take(state) {
