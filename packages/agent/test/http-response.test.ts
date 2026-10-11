@@ -58,10 +58,17 @@ describe("agent HTTP response helpers", () => {
       class CrossRealmResponse {
         constructor() {
           this.body = null
+          this.bodyUsed = false
           this.headers = new Headers()
           this.status = 204
           this.statusText = "No Content"
         }
+        arrayBuffer() {}
+        blob() {}
+        clone() {}
+        formData() {}
+        json() {}
+        text() {}
       }
       Object.defineProperty(CrossRealmResponse.prototype, Symbol.toStringTag, { value: "Response" })
       new CrossRealmResponse()
@@ -69,6 +76,42 @@ describe("agent HTTP response helpers", () => {
 
     expect(toAgentHttpResult(response, false)).toBe(response)
     expect(toAgentFetchResponse(response, false)).toBe(response)
+  })
+
+  it("falls back when a result has an unreadable response tag", () => {
+    const result = { text: "ok" }
+    Object.defineProperty(result, Symbol.toStringTag, {
+      get() {
+        throw new Error("unreadable")
+      },
+    })
+
+    expect(toAgentHttpResult(result, false)).toEqual({
+      finishReason: undefined,
+      raw: undefined,
+      text: "ok",
+      usage: undefined,
+      usageRecord: undefined,
+      warnings: undefined,
+    })
+  })
+
+  it("does not treat a minimal Response-shaped result as a Response", () => {
+    const result = {
+      headers: { get: () => null },
+      status: 200,
+      statusText: "OK",
+    }
+    Object.defineProperty(result, Symbol.toStringTag, { value: "Response" })
+
+    expect(toAgentHttpResult(result, false)).toEqual({
+      finishReason: undefined,
+      raw: undefined,
+      text: undefined,
+      usage: undefined,
+      usageRecord: undefined,
+      warnings: undefined,
+    })
   })
 
   it("uses AI SDK stream response helpers when streaming Agent results provide them", async () => {

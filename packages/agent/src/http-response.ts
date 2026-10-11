@@ -17,13 +17,38 @@ function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
 }
 
 function isResponseLike(value: unknown): value is Response {
-  if (!hasRuntimeType(value, "object") || Object.prototype.toString.call(value) !== "[object Response]") return false
-  const response = value as { headers?: unknown; status?: unknown; statusText?: unknown }
-  if (!hasRuntimeType(response.headers, "object")) return false
-  const headers = response.headers as { get?: unknown }
-  return hasRuntimeType(headers.get, "function")
-    && hasRuntimeType(response.status, "number")
-    && hasRuntimeType(response.statusText, "string")
+  try {
+    if (!hasRuntimeType(value, "object") || Object.prototype.toString.call(value) !== "[object Response]") return false
+    const response = value as {
+      arrayBuffer?: unknown
+      blob?: unknown
+      body?: unknown
+      bodyUsed?: unknown
+      clone?: unknown
+      formData?: unknown
+      headers?: unknown
+      json?: unknown
+      status?: unknown
+      statusText?: unknown
+      text?: unknown
+    }
+    if (!hasRuntimeType(response.headers, "object")) return false
+    const headers = response.headers as { get?: unknown }
+    return hasRuntimeType(headers.get, "function")
+      && hasRuntimeType(response.status, "number")
+      && hasRuntimeType(response.statusText, "string")
+      && hasRuntimeType(response.body, "object")
+      && hasRuntimeType(response.bodyUsed, "boolean")
+      && hasRuntimeType(response.clone, "function")
+      && hasRuntimeType(response.arrayBuffer, "function")
+      && hasRuntimeType(response.blob, "function")
+      && hasRuntimeType(response.formData, "function")
+      && hasRuntimeType(response.json, "function")
+      && hasRuntimeType(response.text, "function")
+  }
+  catch {
+    return false
+  }
 }
 
 const workflowProviders = new Set(["cloudflare", "openworkflow", "vercel"])
