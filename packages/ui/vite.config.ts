@@ -26,6 +26,7 @@ export default defineConfig({
       "src/index.ts",
       "src/headless.ts",
       "src/nuxt.ts",
+      "src/primitive-rail.ts",
       "src/runtime/nuxt-plugin.ts",
       "src/vite.ts",
     ],
