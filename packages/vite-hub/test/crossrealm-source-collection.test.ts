@@ -6,7 +6,13 @@ describe("ViteHub Source collection adapter", () => {
   it("accepts a loader function from another realm", async () => {
     const loader = runInNewContext("async ({ limit }) => [{ id: limit }]") as (options: { limit: number }) => Promise<Array<{ id: number }>>
     const collection = defineCollection(loader, {
-      cursorSchema: { "~standard": { validate: (value: unknown) => ({ value }) } },
+      cursorSchema: {
+        "~standard": {
+          version: 1,
+          vendor: "vite-hub",
+          validate: (value: unknown) => ({ value }),
+        },
+      },
       defaultLimit: 3,
     })
     await expect(collection.page({ query: {}, signal: new AbortController().signal })).resolves.toEqual({ items: [{ id: 4 }], nextCursor: null })
