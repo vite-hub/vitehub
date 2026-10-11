@@ -1035,8 +1035,28 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
       }
       await Promise.all([...retainedPnpmPackages].map(async (source) => {
         const target = resolve(retainedRoot, relative(root, source))
-        if (existsSync(target)) return
-        await mkdir(dirname(target), { recursive: true })
+        // Dependency links may have created symlinked ancestors under the
+        // retained root. Materialize the package into real directories so the
+        // copy never follows a link back into the build workspace.
+        let directory = dirname(target)
+        while (pathContains(retainedRoot, directory)) {
+          try {
+            if (lstatSync(directory).isSymbolicLink()) await rm(directory, { force: true, recursive: true })
+          }
+          catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+          }
+          await mkdir(directory, { recursive: true })
+          if (directory === retainedRoot) break
+          directory = dirname(directory)
+        }
+        try {
+          if (lstatSync(target).isSymbolicLink()) await rm(target, { force: true, recursive: true })
+          else if (existsSync(target)) return
+        }
+        catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+        }
         await cp(realpathSync(source), target, { recursive: true })
       }))
       for (const source of escapedMaterializedSources) {
