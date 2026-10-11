@@ -96,8 +96,10 @@ function skipBlockComment(source: string, index: number) {
   return end === -1 ? source.length : end + 2
 }
 
+const identifierCharPattern = /[\p{ID_Continue}$]/u
+
 function isIdentifierChar(char: string | undefined) {
-  return !!char && /[\w$]/.test(char)
+  return !!char && identifierCharPattern.test(char)
 }
 
 function isRegexLiteralStart(previousSignificant: string) {

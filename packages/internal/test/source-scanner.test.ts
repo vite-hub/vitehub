@@ -139,6 +139,13 @@ describe("source scanner", () => {
     ])
   })
 
+  it("does not match names inside Unicode identifiers", () => {
+    const source = `export default αdefineThing({ value: "fake" })`
+
+    expect(findIdentifierCalls(source, "defineThing")).toEqual([])
+    expect(findDefaultExportCall(source, ["defineThing"])).toBeUndefined()
+  })
+
   it("ignores member calls with matching names", () => {
     const calls = findIdentifierCalls([
       `logger.defineThing("member")`,
