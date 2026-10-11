@@ -1,3 +1,4 @@
+import { runInNewContext } from "node:vm"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {
@@ -13,6 +14,29 @@ afterEach(() => {
 })
 
 describe("HTTP request", () => {
+  it("preserves Blob request bodies from another realm", async () => {
+    const body = runInNewContext(`
+      class CrossRealmBlob {
+        constructor() { this.size = 4; this.type = "text/plain" }
+        arrayBuffer() { return Promise.resolve(new Uint8Array([116, 101, 115, 116]).buffer) }
+        stream() { return new ReadableStream() }
+        text() { return Promise.resolve("test") }
+      }
+      Object.defineProperty(CrossRealmBlob.prototype, Symbol.toStringTag, { value: "Blob" })
+      new CrossRealmBlob()
+    `, { Symbol })
+    let captured: RequestInit | undefined
+    const send = vi.fn(async (_url: string, init: RequestInit) => {
+      captured = init
+      return new Response("ok")
+    })
+
+    await executeHttpRequest({ body, method: "POST", url: "https://api.example.com/upload" }, { fetch: send, responseType: "text" })
+
+    expect(captured?.body).toBe(body)
+    expect(new Headers(captured?.headers).has("content-type")).toBe(false)
+  })
+
   it("sends through a custom fetch and never calls the global fetch", async () => {
     const global = vi.fn(async () => new Response("unexpected"))
     vi.stubGlobal("fetch", global)

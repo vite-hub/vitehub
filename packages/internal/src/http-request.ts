@@ -83,6 +83,16 @@ function primitiveRuntimeTag(value: unknown): string | undefined {
     : undefined
 }
 
+function isBlobLike(value: unknown): value is Blob {
+  if (value === null || typeof value !== "object" || Object.prototype.toString.call(value) !== "[object Blob]") return false
+  const blob = value as { arrayBuffer?: unknown; size?: unknown; stream?: unknown; text?: unknown; type?: unknown }
+  return typeof blob.arrayBuffer === "function"
+    && typeof blob.stream === "function"
+    && typeof blob.text === "function"
+    && typeof blob.size === "number"
+    && typeof blob.type === "string"
+}
+
 const httpEffectBoundary = createEffectBoundary({
   aggregateMessage: "[vitehub] HTTP request failed.",
   interruptionMessage: "[vitehub] HTTP request was interrupted.",
@@ -225,6 +235,7 @@ function serializeRequestBody(body: unknown, headers: Headers): FetchBody | unde
     || body instanceof ArrayBuffer
     || ArrayBuffer.isView(body)
     || body instanceof Blob
+    || isBlobLike(body)
     || body instanceof FormData
     || body instanceof URLSearchParams
     || body instanceof ReadableStream
