@@ -5,14 +5,21 @@ import {
   type AgentInvocationListItem,
   type AgentInvocationView,
 } from "@vite-hub/ui";
-import { computed, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
+
+// Replace the server-rendered clock after hydration so static pages stay current.
+const now = useState("ui-dashboard-clock", () => Date.now());
+onMounted(() => {
+  now.value = Date.now();
+});
+const time = (secondsAgo: number) => new Date(now.value - secondsAgo * 1_000).toISOString();
 
 // Keep running timestamps relative to the page load, including server rendering.
 const now = useState("ui-dashboard-clock", () => Date.now());
 const time = (secondsAgo: number) => new Date(now.value - secondsAgo * 1_000).toISOString();
 
 // Synthetic, already-authorized records. In an application, load them from your Invocation store.
-const invocations: AgentInvocationView[] = [
+const invocations = computed<AgentInvocationView[]>(() => [
   {
     agentName: "reviewer",
     annotations: { "github.pullRequest": 1011, "github.repository": "vite-hub/vitehub" },
@@ -127,11 +134,11 @@ const invocations: AgentInvocationView[] = [
     traceId: "trace_release",
     updatedAt: time(2280),
   },
-];
+]);
 
 // Map full records to list summaries with the display helpers the Console uses.
 const items = computed<AgentInvocationListItem[]>(() =>
-  invocations.map((invocation) => ({
+  invocations.value.map((invocation) => ({
     agent: invocation.agentName,
     context: agentInvocationContext(invocation),
     description: invocation.error?.message,

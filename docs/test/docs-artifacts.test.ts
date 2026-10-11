@@ -709,7 +709,7 @@ describe("writeDocsArtifacts", () => {
         "",
         "Hidden content.",
       ].join("\n"));
-      writeText(resolve(docsRoot, "content/blog/1.agents.md"), "# Agents blog\n");
+      writeText(resolve(docsRoot, "content/trust/contact.md"), "# Contact ViteHub\n");
       writeText(resolve(docsRoot, "content/trust/about.md"), "# About ViteHub\n");
       writeText(resolve(outputDir, "raw/docs/removed.md"), "stale\n");
 
@@ -738,7 +738,7 @@ describe("writeDocsArtifacts", () => {
       ]);
       expect(readFileSync(resolve(outputDir, "raw/docs.md"), "utf8")).toBe("# ViteHub docs\n\nStart here.\n");
       expect(readFileSync(resolve(outputDir, "raw/docs/server-primitives.md"), "utf8")).toBe("# Overview\n\nServer content.\n");
-      expect(readFileSync(resolve(outputDir, "raw/blog/agents.md"), "utf8")).toBe("# Agents blog\n");
+      expect(readFileSync(resolve(outputDir, "raw/contact.md"), "utf8")).toBe("# Contact ViteHub\n");
       expect(readFileSync(resolve(outputDir, "raw/about.md"), "utf8")).toBe("# About ViteHub\n");
       expect(existsSync(resolve(outputDir, "raw/docs/removed.md"))).toBe(false);
     } finally {

@@ -23,6 +23,7 @@ export default defineConfig({
     },
     entry: [
       "src/ai.ts",
+      "src/blob-database.ts",
       "src/cloudflare.ts",
       "src/collections.ts",
       "src/collections/client.ts",

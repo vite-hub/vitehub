@@ -16,7 +16,7 @@ import {
 import { build, resolveConfig } from "vite"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { createRuntimeRegistry } from "../src/core/resolve.ts"
+import { createRuntimeRegistry, validateEnvConfigShape } from "../src/core/resolve.ts"
 import { resolveServerEnv } from "../src/server.ts"
 import { createEnvImportAliases, createEnvTypeScriptPaths, env, hubEnv } from "../src/vite.ts"
 
@@ -27,6 +27,43 @@ const execFileAsync = promisify(execFile)
 afterEach(() => vi.unstubAllEnvs())
 
 describe("Vite plugin", () => {
+  it("rejects cyclic nested define config without overflowing the stack", () => {
+    const cyclic: Record<string, unknown> = {}
+    cyclic.self = cyclic
+
+    let error: unknown
+    try {
+      validateEnvConfigShape({ define: cyclic as never }, "vite")
+    }
+    catch (cause) {
+      error = cause
+    }
+
+    expect(error).toMatchObject({
+      cause: { message: expect.stringContaining("cannot contain cycles") },
+      code: "ENV_DECLARATION_INVALID",
+      details: { path: "env.define.self" },
+    })
+  })
+
+  it("rejects cyclic array values without overflowing the stack", () => {
+    const cyclic: unknown[] = []
+    cyclic.push(cyclic)
+
+    let error: unknown
+    try {
+      validateEnvConfigShape({ define: { values: cyclic } as never }, "vite")
+    }
+    catch (cause) {
+      error = cause
+    }
+
+    expect(error).toMatchObject({
+      code: "ENV_DECLARATION_INVALID",
+      details: { path: "env.define.values" },
+    })
+  })
+
   it("exposes its resolved project root", () => {
     expect(hubEnv({ projectRoot: "../shared" }).api.resolveProjectRoot("/tmp/workspace/apps/site")).toBe("/tmp/workspace/apps/shared")
   })

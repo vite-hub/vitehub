@@ -45,6 +45,7 @@ export const consoleIcons: readonly string[] = [
   "lucide:folder-x",
   "lucide:gauge",
   "lucide:git-compare-arrows",
+  "lucide:github",
   "lucide:grip-vertical",
   "lucide:hash",
   "lucide:info",

@@ -30,7 +30,7 @@ interface LibsqlClient {
 }
 
 interface DrizzleSqliteAdapterOptions {
-  libsql: LibsqlClientFactory
+  libsql?: LibsqlClientFactory
   requireRemoteUrl: boolean
   resolveLocalUrl?: (url: string) => string
   missingConnectionMessage: (config: RuntimeDrizzleDatabaseConfig) => string
@@ -75,7 +75,7 @@ export function createDrizzleSqliteAdapter<TSchema extends Record<string, unknow
     if (config.cloudflare?.http) return getD1HttpDb()
 
     const url = resolveConfigValue(config.connection?.url)
-    if (!url || (options.requireRemoteUrl && !isRemoteSqliteUrl(url))) {
+    if (!url || !options.libsql || (options.requireRemoteUrl && !isRemoteSqliteUrl(url))) {
       throw databaseErrorDiagnostics.DATABASE_R0014({ message: options.missingConnectionMessage(config) })
     }
 
