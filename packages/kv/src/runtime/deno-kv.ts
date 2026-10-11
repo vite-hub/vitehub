@@ -1,7 +1,7 @@
 import type { KVListOptions, ResolvedDenoKVStoreConfig } from "../types.ts"
 import type { KVRuntimeDriver } from "./driver.ts"
 import { kvErrorDiagnostics } from "../error-diagnostics.ts"
-import { createCursorHistory } from "./cursor-history.ts"
+import { createCursorHistory, recordCursor } from "./cursor-history.ts"
 
 type DenoKVKey = [unknown, ...unknown[]]
 type ViteHubDenoKVKey = [string]
@@ -116,7 +116,7 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
       if (cursors.has(iterator.cursor)) {
         throw kvErrorDiagnostics.KV_R0024({ message: "Deno KV list returned a repeated pagination cursor." })
       }
-      cursors.add(iterator.cursor)
+      recordCursor(cursors, iterator.cursor)
       return { keys, cursor: cursorHistories.store(iterator.cursor, cursors) }
     },
     async hasItem(key) {

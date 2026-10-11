@@ -1,4 +1,5 @@
 const MAX_CURSOR_HISTORIES = 1_024
+const MAX_CURSORS_PER_HISTORY = 1_024
 type CursorHistory = Set<string>
 interface Continuation { providerCursor: string, history: CursorHistory }
 
@@ -23,4 +24,13 @@ export function createCursorHistory() {
     return token
   }
   return { take, store }
+}
+
+/** Records a provider cursor while bounding memory for abandoned long listings. */
+export function recordCursor(history: CursorHistory, cursor: string): void {
+  if (history.size >= MAX_CURSORS_PER_HISTORY) {
+    const oldest = history.values().next().value as string | undefined
+    if (oldest !== undefined) history.delete(oldest)
+  }
+  history.add(cursor)
 }

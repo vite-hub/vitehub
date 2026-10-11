@@ -3,7 +3,7 @@ import { createStorage } from "unstorage"
 import createDriver from "unstorage/drivers/cloudflare-kv-binding"
 import { normalizeKVListPrefix } from "./list-prefix.ts"
 import { kvErrorDiagnostics } from "../error-diagnostics.ts"
-import { createCursorHistory } from "./cursor-history.ts"
+import { createCursorHistory, recordCursor } from "./cursor-history.ts"
 
 import type { KVListOptions, KVListPage } from "../types.ts"
 import type { KVRuntimeDriver } from "./driver.ts"
@@ -67,7 +67,7 @@ function createCloudflareDriver(options: Record<string, unknown>): KVRuntimeDriv
       if (cursors.has(page.cursor!)) {
         throw kvErrorDiagnostics.KV_R0025({ message: "ViteHub rejected a repeated pagination cursor." })
       }
-      cursors.add(page.cursor!)
+      recordCursor(cursors, page.cursor!)
       result.cursor = cursorHistories.store(page.cursor!, cursors)
     }
     return result
