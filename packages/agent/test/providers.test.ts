@@ -22272,6 +22272,58 @@ describe("server helpers", () => {
     expect(runs).toEqual([["remember BROWSER-HISTORY"], ["what marker did I ask you to remember?"]])
   })
 
+  it.each(["local bytes", "local buffer", "foreign bytes", "foreign buffer", "foreign subarray", "foreign blob"])("exports Channel history attachment %s", async (kind) => {
+    const data: unknown = kind === "local bytes"
+      ? new Uint8Array([1, 2, 3])
+      : kind === "local buffer"
+        ? new Uint8Array([1, 2, 3]).buffer
+        : runInNewContext(kind === "foreign bytes"
+          ? "new Uint8Array([1, 2, 3])"
+          : kind === "foreign subarray"
+            ? "new Uint8Array([9, 1, 2, 3, 9]).subarray(1, 4)"
+            : kind === "foreign blob"
+              ? "(() => { class Blob { size = 3; type = 'application/octet-stream'; arrayBuffer() { return Promise.resolve(new Uint8Array([1, 2, 3]).buffer) } }; Object.defineProperty(Blob.prototype, Symbol.toStringTag, { value: 'Blob' }); return new Blob() })()"
+              : "new Uint8Array([1, 2, 3]).buffer")
+    const adapter = createTestChatAdapter({
+      historyMessages: [new Message({
+        attachments: [{
+          // SAFETY: This fixture supplies valid byte data from a separate JavaScript realm.
+          data: data as never,
+          mimeType: "application/octet-stream",
+          name: "bytes.bin",
+          size: 3,
+          type: "file",
+        }],
+        author: { fullName: "Maxi", isBot: false, isMe: false, userId: "123", userName: "maxi" },
+        formatted: { children: [], type: "root" },
+        id: "20",
+        metadata: { dateSent: new Date("2026-08-15T00:00:00.000Z"), edited: false },
+        raw: {},
+        text: "attachment",
+        threadId: "telegram:456",
+      })],
+    })
+    const agent = defineAgent({
+      channels: {
+        // SAFETY: createTestChatAdapter implements the Channel adapter contract.
+        telegram: testTelegram(telegram, { adapter: () => adapter as never, webhooks: { secretHeader: "x-test-secret", secretToken: "history-secret" } }),
+      },
+      driver: { run: () => "saved" },
+      messages: { stream: false },
+    })
+    // SAFETY: The Agent Definition is valid for the internal webhook route.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      body: JSON.stringify({ threadId: "telegram:456" }),
+      headers: { "content-type": "application/json", "x-test-secret": "history-secret", "x-vitehub-channel-history": "1" },
+      method: "POST",
+    }), "telegram")
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toMatchObject({
+      messages: [{ attachments: [{ data: "AQID", name: "bytes.bin" }], id: "20" }],
+    })
+  })
+
   it("exports authenticated Channel history with attachment data", async () => {
     const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { defineAgent } = await import("../src/index.ts")

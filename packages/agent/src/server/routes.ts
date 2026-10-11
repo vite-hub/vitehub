@@ -7010,9 +7010,33 @@ function historyBytesToBase64(data: Uint8Array): string {
 const channelHistoryAttachmentMaxBytes = 25 * 1024 * 1024
 const channelHistoryArchiveMaxBytes = 35 * 1024 * 1024
 
+function isChannelHistoryBlob(value: unknown): value is Blob {
+  if (value instanceof Blob) return true
+  if (value === null || typeof value !== "object") return false
+  try {
+    if (Object.prototype.toString.call(value) !== "[object Blob]") return false
+    const blob = value as { arrayBuffer?: unknown, size?: unknown }
+    return typeof blob.arrayBuffer === "function" && typeof blob.size === "number" && Number.isSafeInteger(blob.size) && blob.size >= 0
+  } catch {
+    return false
+  }
+}
+
 function channelHistoryAttachmentBytes(value: unknown): Uint8Array | undefined {
-  const bytes = value instanceof Blob ? undefined : value instanceof ArrayBuffer ? new Uint8Array(value) : value instanceof Uint8Array ? value : undefined
-  return bytes && bytes.byteLength <= channelHistoryAttachmentMaxBytes ? bytes : undefined
+  let bytes: Uint8Array
+  if (ArrayBuffer.isView(value) && Object.prototype.toString.call(value) === "[object Uint8Array]") {
+    bytes = new Uint8Array(value.buffer, value.byteOffset, value.byteLength)
+  } else {
+    try {
+      // The native getter checks the ArrayBuffer brand across JavaScript realms.
+      Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")!.get!.call(value)
+      // SAFETY: The native getter above accepts only genuine ArrayBuffer values.
+      bytes = new Uint8Array(value as ArrayBuffer)
+    } catch {
+      return undefined
+    }
+  }
+  return bytes.byteLength <= channelHistoryAttachmentMaxBytes ? bytes : undefined
 }
 
 async function boundedChannelHistoryOperation(operation: () => unknown | Promise<unknown>, signal: AbortSignal): Promise<unknown> {
@@ -7107,7 +7131,7 @@ async function channelHistoryAttachment(
   }
   const maxBytes = Math.min(channelHistoryAttachmentMaxBytes, budget.remaining)
   let data: unknown = isRuntimeNumber(resolved.size) && resolved.size > maxBytes ? undefined : resolved.data
-  if (data instanceof Blob) data = data.size <= maxBytes ? new Uint8Array(await data.arrayBuffer()) : undefined
+  if (isChannelHistoryBlob(data)) data = data.size <= maxBytes ? new Uint8Array(await data.arrayBuffer()) : undefined
   const boundedLazySize = isRuntimeNumber(resolved.size) && Number.isFinite(resolved.size) && resolved.size >= 0 && resolved.size <= maxBytes
   if (!data && resolved.fetchData && boundedLazySize) {
     try {
