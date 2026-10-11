@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
 import { createMultipartUploader, uploadFiles } from "../src/client.ts"
+import type { BlobMultipartPart } from "../src/types.ts"
 import { useMultipartUpload, useUpload } from "../src/vue.ts"
 
 type FetchInput = Parameters<typeof fetch>[0]
