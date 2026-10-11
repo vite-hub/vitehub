@@ -424,6 +424,12 @@ Unavailable
       .rejects.toThrow("must resolve to a safe destination")
   })
 
+  it("rejects data bindings for the HTML srcdoc sink", async () => {
+    await expect(renderMarkdownTemplate('<iframe :srcdoc="data.payload"></iframe>', {
+      data: { payload: "<script>globalThis.compromised = true</script>" },
+    })).rejects.toMatchObject({ code: "MARKDOWN_TEMPLATE_R0030" })
+  })
+
   it("preserves URL-like attributes on custom tags", async () => {
     await expect(renderMarkdownTemplate('<policy action="review now">Use it.</policy>'))
       .resolves.toBe('<policy action="review now">Use it.</policy>')

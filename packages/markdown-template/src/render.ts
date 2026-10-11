@@ -128,6 +128,14 @@ export async function renderMarkdownTemplateInternal(template: string, options: 
 }
 
 async function sanitizeUrlAttributes(tag: string, props: Record<string, unknown>, source: Record<string, unknown>, svgContext = false): Promise<Record<string, unknown>> {
+  // `srcdoc` is an HTML parser sink. Escaping its value only moves the markup
+  // into the iframe document, where the browser parses and executes it. Keep
+  // template data out of this sink while preserving authored static markup.
+  for (const key of Object.keys(source)) {
+    if (key.startsWith(":") && key.slice(1).toLowerCase() === "srcdoc") {
+      throw diagnostics.MARKDOWN_TEMPLATE_R0030({ message: `[vitehub] Markdown template binding "${String(source[key])}" cannot target the HTML srcdoc sink.` })
+    }
+  }
   const sanitized = { ...props }
   for (const [key, value] of Object.entries(props)) {
     const attribute = key.toLowerCase()
