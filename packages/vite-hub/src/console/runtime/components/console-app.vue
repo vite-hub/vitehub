@@ -10,7 +10,7 @@ import {
 import { useAgentInvocation, useAgentInvocations } from "vite-hub/agent/vue";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { resolveConsoleNewChatAgent } from "./console-new-chat";
+import { resolveConsoleAgentInvocation, resolveConsoleNewChatAgent } from "./console-new-chat";
 import {
   readConsoleAgentListOpen,
   rememberConsoleAgentListOpen,
@@ -225,7 +225,7 @@ const invocationItems = computed<AgentInvocationListItem[]>(() =>
 );
 const hasMultipleAgents = computed(() => agentNames.value.length > 1);
 const selectedAgentInvocation = computed(() =>
-  selectedAgentName.value ? agentInvocationOptions.value[selectedAgentName.value] : undefined,
+  resolveConsoleAgentInvocation(selectedAgentName.value, agentInvocationOptions.value),
 );
 const newChatTargetName = computed(() =>
   resolveConsoleNewChatAgent(selectedAgentName.value, agentInvocationOptions.value),

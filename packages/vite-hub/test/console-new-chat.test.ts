@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { resolveConsoleNewChatAgent } from "../src/console/runtime/components/console-new-chat.ts"
+import { resolveConsoleAgentInvocation, resolveConsoleNewChatAgent } from "../src/console/runtime/components/console-new-chat.ts"
 
 describe("console new chat agent", () => {
   it("keeps the selected agent when it can start invocations", () => {
@@ -14,4 +14,8 @@ describe("console new chat agent", () => {
   it("returns no target when the console has no invokable agents", () => {
     expect(resolveConsoleNewChatAgent("chat", {})).toBeUndefined()
   })
+})
+
+it.each(["constructor", "toString", "__proto__", "hasOwnProperty"])("does not resolve inherited invocation options for %s", (name) => {
+  expect(resolveConsoleAgentInvocation(name, {})).toBeUndefined()
 })
