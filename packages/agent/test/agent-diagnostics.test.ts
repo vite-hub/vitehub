@@ -30,6 +30,16 @@ describe("Agent diagnostics", () => {
     expect(isAgentTypeDiagnostic(agentDiagnostics.AGENT_R0007({ message: "Attachment too large" }))).toBe(false)
   })
 
+  it("keeps missing memory workspace failures classified as server errors", () => {
+    for (const code of ["AGENT_R0118", "AGENT_R0119"] as const) {
+      expect(isAgentTypeDiagnostic(agentDiagnostics[code]({ message: "Missing workspace" }))).toBe(false)
+    }
+  })
+
+  it("classifies MCP override contract errors as input errors", () => {
+    expect(isAgentTypeDiagnostic(agentDiagnostics.AGENT_R0983({ message: "Invalid MCP input schema" }))).toBe(true)
+  })
+
   it("keeps stable codes in generated Agent runtime errors", () => {
     for (const code of ["AGENT_R0892", "AGENT_R0893", "AGENT_R0894", "AGENT_R0895", "AGENT_R0896", "AGENT_R0897"] as const) {
       expect(agentGeneratedRuntimeError(code, "Generated runtime failed.")).toMatchObject({

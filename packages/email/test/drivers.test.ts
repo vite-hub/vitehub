@@ -727,6 +727,16 @@ describe("Resend Email driver", () => {
     expect(request).not.toHaveBeenCalled();
   });
 
+  it("returns an invalid-options result for a malformed message value", async () => {
+    const request = vi.fn();
+    const driver = resend({ apiKey: "re_secret", fetch: request });
+
+    await expect(driver.send(null as never, context)).resolves.toMatchObject({
+      error: { code: "INVALID_OPTIONS", driver: "resend" },
+    });
+    expect(request).not.toHaveBeenCalled();
+  });
+
   it.each(["", "   ", "x".repeat(257)])(
     "rejects an out-of-range idempotency key before fetch",
     async (idempotencyKey) => {

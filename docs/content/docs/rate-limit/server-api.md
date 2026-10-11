@@ -25,7 +25,7 @@ The ID, `limit`, `window`, `enforcement`, and `failure` must use static literals
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `limit` | positive integer | required | Allowed consumptions in each fixed window. |
-| `window` | duration string | required | Fixed window such as `10s`, `1m`, `1h`, or `1d`. |
+| `window` | duration string | required | Fixed window such as `10s`, `1m`, `1h`, or `1d`. It must resolve to finite milliseconds greater than zero and at most `8.64e15`. |
 | `enforcement` | `"best-effort" \| "strict"` | `"best-effort"` | Minimum enforcement guarantee the selected driver must provide. |
 | `failure` | `"deny" \| "allow"` | `"deny"` | Whether an unavailable driver returns a denied or allowed unavailable decision. |
 | `key` | `string` | request client address | Runtime identity for a user, tenant, account, or API client. |
@@ -45,6 +45,8 @@ The ID, `limit`, `window`, `enforcement`, and `failure` must use static literals
 ## Understand the decision
 
 Every driver returns `allowed`. Portable quota metadata is optional because native providers do not expose the same fields.
+
+When present, `resetAt` must be a positive Unix timestamp in milliseconds, at most `8.64e15`. The memory driver rejects a fixed window whose end exceeds that range before it stores a counter. It preserves the configured duration. Invalid custom driver timestamps throw regardless of the failure policy.
 
 ```ts
 interface RateLimitDecision {
