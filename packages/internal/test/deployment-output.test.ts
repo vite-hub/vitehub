@@ -1668,6 +1668,22 @@ describe("provider deployment outputs", () => {
     expect(existsSync(join(outputNodeModules, "optional-runtime", "index.js"))).toBe(true)
   })
 
+  it("keeps duplicated optional Node runtime dependencies optional", async () => {
+    const rootDir = await createTempProject()
+    const outputNodeModules = join(rootDir, ".output", "server", "node_modules")
+    await writePackage(rootDir, "runtime-package", {
+      dependencies: { "optional-runtime": "1.0.0" },
+      optionalDependencies: { "optional-runtime": "1.0.0" },
+    })
+    const { copyNodeRuntimePackages } = await import("../src/build/vercel-runtime-packages.ts")
+
+    await expect(copyNodeRuntimePackages({
+      outputNodeModules,
+      packages: [{ name: "runtime-package" }],
+      rootDir,
+    })).resolves.toBeUndefined()
+  })
+
   it("copies cyclic Node runtime package dependencies once", async () => {
     const rootDir = await createTempProject()
     const outputNodeModules = join(rootDir, ".output", "server", "node_modules")
