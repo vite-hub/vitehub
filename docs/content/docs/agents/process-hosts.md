@@ -107,7 +107,9 @@ export default defineConfig({
 ```
 
 The plugin starts the exported host with Nitro, closes it with the server, and
-serves `GET /api/agent-drain` with `{ status: 'starting' | 'running' | 'draining' | 'drained' }`.
+serves `GET /api/agent-drain` with `{ status: 'starting' | 'accepting' | 'draining' | 'drained' | 'failed' }`.
+The host reports `accepting` after startup; `failed` means the reconciler
+encountered a failure while draining or closing.
 `SIGUSR2` starts a drain. `SIGTERM` and `SIGINT` stop admission, wait for the
 host close, then let the HTTP server finish its shutdown. A second signal does
 not start another drain.
@@ -171,7 +173,7 @@ const capacity = createProcessAgentCapacity({
 })
 ```
 
-Start one host, confirm `status()` changes from `starting` to `running`, enqueue
+Start one host, confirm `status()` changes from `starting` to `accepting`, enqueue
 more work than its hard limit, and check that the extra work stays queued. Send
 `SIGUSR2`, wait for `draining` and then `drained`, and confirm that no new work
 starts during the drain. Restart with the same `dataDir` and inspect the journal
