@@ -47,16 +47,25 @@ function resolveDriverCapabilities(options: CreateRateLimiterOptions): RateLimit
   if (capabilities.rejectedAttempts !== "counted" && capabilities.rejectedAttempts !== "not-counted" && capabilities.rejectedAttempts !== "unknown") {
     throw rateLimitErrorDiagnostics.RATE_LIMIT_R0022({ message: `[vitehub] Rate Limit driver "${options.driver.name}" must declare rejected-attempt behavior.` })
   }
-  const windows = capabilities.windows
-  if (windows !== undefined && (!Array.isArray(windows) || windows.some(window => !Number.isInteger(window) || window <= 0))) {
+  if (capabilities.windows !== undefined && hasInvalidSupportedWindows(capabilities.windows)) {
     throw rateLimitErrorDiagnostics.RATE_LIMIT_R0023({ message: `[vitehub] Rate Limit driver "${options.driver.name}" windows must contain positive integer milliseconds.` })
   }
   return {
     enforcement: capabilities.enforcement,
     rejectedAttempts: capabilities.rejectedAttempts,
     scope: capabilities.scope,
-    ...(windows ? { windows: [...windows] } : {}),
+    ...(capabilities.windows ? { windows: [...capabilities.windows] } : {}),
   }
+}
+
+function hasInvalidSupportedWindows(value: unknown): boolean {
+  if (!Array.isArray(value)) return true
+  for (let index = 0; index < value.length; index++) {
+    const window: unknown = value[index]
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Driver capabilities cross a provider boundary as unknown values.
+    if (typeof window !== "number" || !Number.isInteger(window) || window <= 0 || window > 8.64e15) return true
+  }
+  return false
 }
 
 function normalizeOptionalInteger(value: number | undefined, label: string): number | undefined {
@@ -76,8 +85,8 @@ function normalizeDriverResult(
     throw rateLimitErrorDiagnostics.RATE_LIMIT_R0025({ message: "[vitehub] Rate Limit driver consume() must return an object with an allowed boolean." })
   }
   const resetAt = result.resetAt
-  if (resetAt !== undefined && (!v.is(v.number(), resetAt) || !Number.isFinite(resetAt) || resetAt <= 0)) {
-    throw rateLimitErrorDiagnostics.RATE_LIMIT_R0026({ message: "[vitehub] Rate Limit driver result resetAt must be a positive timestamp." })
+  if (resetAt !== undefined && (!v.is(v.number(), resetAt) || !Number.isFinite(resetAt) || resetAt <= 0 || resetAt > 8.64e15)) {
+    throw rateLimitErrorDiagnostics.RATE_LIMIT_R0026({ message: "[vitehub] Rate Limit driver result resetAt must be a positive timestamp at most 8640000000000000 milliseconds." })
   }
 
   const decision = {
@@ -109,8 +118,8 @@ function normalizePeekResult(result: unknown, policy: ResolvedRateLimitPolicy): 
     throw rateLimitErrorDiagnostics.RATE_LIMIT_R0037({ message: "[vitehub] Rate Limit driver peek() must return an object with a non-negative integer used count." })
   }
   const resetAt = result.resetAt
-  if (resetAt !== undefined && (!v.is(v.number(), resetAt) || !Number.isFinite(resetAt) || resetAt <= 0)) {
-    throw rateLimitErrorDiagnostics.RATE_LIMIT_R0037({ message: "[vitehub] Rate Limit driver peek() resetAt must be a positive timestamp." })
+  if (resetAt !== undefined && (!v.is(v.number(), resetAt) || !Number.isFinite(resetAt) || resetAt <= 0 || resetAt > 8.64e15)) {
+    throw rateLimitErrorDiagnostics.RATE_LIMIT_R0037({ message: "[vitehub] Rate Limit driver peek() resetAt must be a positive timestamp at most 8640000000000000 milliseconds." })
   }
   return {
     limit: policy.limit,

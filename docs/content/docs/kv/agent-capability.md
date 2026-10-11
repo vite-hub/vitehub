@@ -70,7 +70,7 @@ When the KV handle returns an `[error, value]` tuple, the tool throws the error 
 - `policy` applies only to `kv_edit`. `kv_read` has no policy gate.
 - `policy` accepts `'allow'`, `'require-approval'`, `'deny'`, `'retryable-failure'`, or a function that receives `{ name, input }` and returns one of these values.
 - Without `policy`, `kv_edit` runs when the Agent calls it.
-- `'require-approval'` stops the call with `APPROVAL_REQUIRED` and an Approval Request. The write runs only after approval. See [Runtime policy, approvals, and traces](/docs/getting-started/concepts/runtime-policy-approvals-and-traces).
+- `'require-approval'` stops the call with `APPROVAL_REQUIRED` and an Approval Request. The write runs only after approval. See [Runtime policy, approvals, and traces](/docs/agents/runtime-policy).
 
 ## Driver support
 
@@ -99,4 +99,4 @@ When the KV handle returns an `[error, value]` tuple, the tool throws the error 
 
 - [KV primitive](/docs/kv)
 - [Official capabilities](/docs/agents/capabilities/official)
-- [Runtime policy, approvals, and traces](/docs/getting-started/concepts/runtime-policy-approvals-and-traces)
+- [Runtime policy, approvals, and traces](/docs/agents/runtime-policy)
