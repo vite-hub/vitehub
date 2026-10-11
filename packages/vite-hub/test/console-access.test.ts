@@ -2,6 +2,7 @@ import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
+import { runInNewContext } from "node:vm"
 
 import { DatabaseSync } from "node:sqlite"
 
@@ -80,6 +81,14 @@ describe("Console data route contract", () => {
 })
 
 describe("Console access policies", () => {
+  it("accepts access callbacks created in another runtime realm", async () => {
+    const authorize = runInNewContext("({ request }) => request.headers.get('x-role') === 'admin'") as ConsoleAccessPolicy extends { authorize?: infer T } ? T : never
+    const handler = runInNewContext("(_event, access) => access.mode") as (_event: ConsoleRequestEvent, access: ConsoleAccess) => string
+
+    installConsoleAccess({ mode: "host-managed", authorize: authorize as never })
+    await expect(withConsoleAccess(handler)(event({ "x-role": "admin" }))).resolves.toBe("host-managed")
+  })
+
   it("fails closed when no policy is installed", async () => {
     const { handler, result } = await run(undefined)
     expect(handler).not.toHaveBeenCalled()

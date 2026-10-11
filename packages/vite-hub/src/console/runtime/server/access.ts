@@ -48,10 +48,10 @@ export function installConsoleAccess(policy: ConsoleAccessPolicy): void {
   if (!(policy instanceof Object) || !modes.has(policy.mode)) {
     throw new TypeError("[vitehub] Console access requires a known access mode.")
   }
-  if ("check" in policy && policy.check !== undefined && !(policy.check instanceof Function)) {
+  if ("check" in policy && policy.check !== undefined && typeof policy.check !== "function") {
     throw new TypeError("[vitehub] Console access check must be a function.")
   }
-  if ("authorize" in policy && policy.authorize !== undefined && !(policy.authorize instanceof Function)) {
+  if ("authorize" in policy && policy.authorize !== undefined && typeof policy.authorize !== "function") {
     throw new TypeError("[vitehub] console.authorize must default-export a function.")
   }
   scope[policyKey] = Object.freeze({ ...policy })
@@ -120,7 +120,7 @@ export async function consoleConnectionsActor(
 export function withConsoleAccess<TEvent extends ConsoleRequestEvent, TResult>(
   handler: ConsoleGuardedHandler<TEvent, TResult>,
 ): (event: TEvent) => Promise<TResult | Response> {
-  if (!(handler instanceof Function)) throw new TypeError("[vitehub] withConsoleAccess() requires a handler function.")
+  if (typeof handler !== "function") throw new TypeError("[vitehub] withConsoleAccess() requires a handler function.")
   return async (event) => {
     const bound = checkedEvents.get(event)
     if (bound && consoleAccessGrant.isValid(bound)) return handler(event, bound)
