@@ -165,3 +165,14 @@ describe("KV Cloudflare provision step", () => {
     expect(handler).not.toHaveBeenCalled()
   })
 })
+
+it("rejects Cloudflare namespace records with non-string ids", async () => {
+  const { context } = createContext(() => jsonResponse({
+    success: true,
+    result: [{ id: 123, title: "app-cache" }],
+  }))
+
+  await expect(createKVCloudflareProvisionStep(() => namedStore("app-cache")).plan(context)).rejects.toThrow(
+    "Cloudflare provisioning returned an invalid KV namespace list.",
+  )
+})

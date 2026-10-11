@@ -22,12 +22,27 @@ const CLOUDFLARE_KV_DUPLICATE_TITLE_CODE = 10014
 
 function parseNamespaces(value: unknown): CloudflareKVNamespace[] {
   if (!Array.isArray(value)) throw kvErrorDiagnostics.KV_R0019({ message: "Cloudflare provisioning returned an invalid KV namespace list." })
-  // SAFETY: Namespace fields are optional and consumers narrow id and title before use.
+  for (const namespace of value) {
+    if (!namespace || Object(namespace) !== namespace) {
+      throw kvErrorDiagnostics.KV_R0019({ message: "Cloudflare provisioning returned an invalid KV namespace list." })
+    }
+    const id = Reflect.get(namespace, "id")
+    const title = Reflect.get(namespace, "title")
+    if ((id !== undefined && typeof id !== "string") || (title !== undefined && typeof title !== "string")) {
+      throw kvErrorDiagnostics.KV_R0019({ message: "Cloudflare provisioning returned an invalid KV namespace list." })
+    }
+  }
+  // SAFETY: The structural checks above validate every namespace's optional fields.
   return value as CloudflareKVNamespace[]
 }
 
 function parseNamespace(value: unknown): CloudflareKVNamespace {
   if (!value || Object(value) !== value) throw kvErrorDiagnostics.KV_R0020({ message: "Cloudflare provisioning returned an invalid KV namespace." })
+  const id = Reflect.get(value, "id")
+  const title = Reflect.get(value, "title")
+  if ((id !== undefined && typeof id !== "string") || (title !== undefined && typeof title !== "string")) {
+    throw kvErrorDiagnostics.KV_R0020({ message: "Cloudflare provisioning returned an invalid KV namespace." })
+  }
   return value
 }
 
