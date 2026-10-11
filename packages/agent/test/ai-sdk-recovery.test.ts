@@ -227,6 +227,19 @@ describe("AI SDK recovery", () => {
     expect(fakeModel.calls).toHaveLength(0)
   })
 
+  it("propagates a retry budget exhaustion from tool-call repair", async () => {
+    const fakeModel = model([
+      [{ input: "{\"query\":1}", toolCallId: "call-1", toolName: "search", type: "tool-call" }],
+      "must not run",
+    ])
+
+    await expect(runAgentInline(toolCallingAgent(fakeModel, vi.fn()), runtime, {
+      executionBudget: { maxRetries: 0 },
+      prompt: "Search",
+    })).rejects.toMatchObject({ counter: "retries", name: "ExecutionBudgetExceededError" })
+    expect(fakeModel.calls).toHaveLength(1)
+  })
+
   it("repairs invalid arguments for an existing tool by default", async () => {
     const executions = vi.fn(() => "found")
     const fakeModel = model([
@@ -271,6 +284,22 @@ describe("AI SDK recovery", () => {
 
     await expect(invocation).rejects.toBe(abortError)
     expect(fakeModel.calls).toHaveLength(2)
+  })
+
+  it("stops streamed tool-call repair after budget exhaustion", async () => {
+    const fakeModel = model([
+      [{ input: "{\"query\":1}", toolCallId: "call-1", toolName: "search", type: "tool-call" }],
+      "must not run",
+    ])
+    const result = await streamAgentInline(toolCallingAgent(fakeModel, vi.fn()), runtime, {
+      executionBudget: { maxRetries: 0 },
+      prompt: "Search",
+    })
+    if (!isAsyncIterable(result)) throw new TypeError("Expected an Agent event stream")
+    await expect((async () => {
+      for await (const _event of result) { /* consume until the budget error aborts the stream */ }
+    })()).rejects.toMatchObject({ counter: "retries", name: "ExecutionBudgetExceededError" })
+    expect(fakeModel.calls).toHaveLength(1)
   })
 
   it("allows tool-call repair to be disabled", async () => {
