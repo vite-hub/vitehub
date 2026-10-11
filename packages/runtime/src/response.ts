@@ -16,11 +16,22 @@ export interface SerializedResponse {
 
 import { hasRuntimeType, isRuntimeObject } from "./internal/runtime-type.ts"
 
+function isArrayBufferValue(value: unknown): value is ArrayBuffer {
+  if (!isRuntimeObject(value)) return false
+  try {
+    Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")?.get?.call(value)
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
 /** Normalize a primitive value into the native Web Response contract. */
 export function toResponse(value: unknown): Response {
   if (value instanceof Response) return value
   if (value === undefined) return new Response(null, { status: 204 })
-  if (hasRuntimeType(value, "string") || value instanceof Blob || value instanceof ArrayBuffer || ArrayBuffer.isView(value)) {
+  if (hasRuntimeType(value, "string") || value instanceof Blob || isArrayBufferValue(value) || ArrayBuffer.isView(value)) {
     // SAFETY: The guards admit only strings, Blob, ArrayBuffer, and views accepted by Response.
     return new Response(value as ConstructorParameters<typeof Response>[0])
   }
