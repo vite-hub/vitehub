@@ -171,6 +171,7 @@ without depending on the machine's current pressure:
 const capacity = createProcessAgentCapacity({
   concurrency: 2,
   fallbackConcurrency: 0,
+  queue: { maxPending: 10 },
   sample: ({ active }) => ({
     concurrency: active === 0 ? 1 : 0,
     reason: 'test sample',
