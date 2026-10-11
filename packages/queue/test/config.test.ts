@@ -21,6 +21,12 @@ describe("normalizeQueueOptions", () => {
     })
   })
 
+  it("ignores inherited provider settings", () => {
+    const options = Object.create({ provider: "cloudflare", cache: false, binding: "INHERITED", namePrefix: "inherited-" })
+
+    expect(normalizeQueueOptions(options, { hosting: "vercel" })).toEqual({ provider: "vercel" })
+  })
+
   it.each(["deno-deploy", "netlify", "node-server"])("does not infer Vercel for %s hosting", (hosting) => {
     expect(() => normalizeQueueOptions(undefined, { hosting })).toThrow("cannot be inferred for " + hosting)
   })
