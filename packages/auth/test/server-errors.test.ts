@@ -1,3 +1,4 @@
+import { runInNewContext } from "node:vm"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { ViteHubError } from "@vite-hub/runtime"
 
@@ -30,6 +31,29 @@ describe("server authentication provider boundaries", () => {
       api: { getSession: providerMocks.getSession },
       handler: providerMocks.handler,
     })
+  })
+
+  it.each(["withAuth", "withAuthorization"] as const)("runs a foreign handler through %s after checking the session", async (wrapper) => {
+    const handler = runInNewContext("(_input, authorization) => authorization.user.id") as (input: Request, authorization: AuthAuthorization) => string
+    const guarded = wrapper === "withAuth"
+      ? withAuth(handler, definition)
+      : withAuthorization(true, handler, definition)
+
+    providerMocks.getSession.mockResolvedValue(null)
+    await expect(guarded(request)).resolves.toMatchObject({ status: 401 })
+    providerMocks.getSession.mockResolvedValue({ session: { id: "session-1" }, user: { id: "user-1" } })
+    await expect(guarded(request)).resolves.toBe("user-1")
+  })
+
+  it("runs a foreign authorization callback and enforces its verdict", async () => {
+    const authorize = runInNewContext("({ user }) => user.id === 'user-1'") as (authorization: AuthAuthorization) => boolean
+    const guarded = withAuthorization(authorize, protectedAction, definition)
+    providerMocks.getSession.mockResolvedValue({ session: { id: "session-1" }, user: { id: "user-1" } })
+    await expect(guarded(request)).resolves.toBe("protected")
+
+    providerMocks.getSession.mockResolvedValue({ session: { id: "session-2" }, user: { id: "user-2" } })
+    await expect(guarded(request)).resolves.toMatchObject({ status: 403 })
+    expect(protectedAction).toHaveBeenCalledOnce()
   })
 
   it.each([
