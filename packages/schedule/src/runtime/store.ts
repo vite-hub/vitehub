@@ -376,8 +376,8 @@ export function createMemoryScheduleRunStore(): ScheduleRunStore {
 function selectRuns(runs: ScheduleRunRecord[], options: ScheduleRunListOptions = {}): ScheduleRunRecord[] {
   const selected = runs.filter(run => (options.scheduleId === undefined || run.scheduleId === options.scheduleId)
     && (!options.runtimeOnly || run.id.startsWith("srun_runtime_")))
-  if (options.limit === undefined) return selected
-  return selected.sort((left, right) => right.scheduledAt.getTime() - left.scheduledAt.getTime()).slice(0, options.limit)
+  selected.sort((left, right) => right.scheduledAt.getTime() - left.scheduledAt.getTime())
+  return options.limit === undefined ? selected : selected.slice(0, options.limit)
 }
 
 /** Index keys carry metadata from the stored record, independent of caller-selected run IDs. */
@@ -417,7 +417,7 @@ export function createKVScheduleRunStore(options: KVScheduleStoreOptions): Sched
 
   async function readSnapshot() {
     const keys = await store.keys(scheduleRunBase(prefix))
-    const indexKeys = await store.keys(joinKey(prefix, "schedule-run-index"))
+    const indexKeys = await store.keys(`${joinKey(prefix, "schedule-run-index")}/`)
     const metadataById = new Map(indexKeys.flatMap(key => {
       const metadata = runIndexMetadata(key)
       return metadata ? [[metadata.id, metadata] as const] : []
