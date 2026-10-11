@@ -1378,6 +1378,8 @@ describe("workspace changes", () => {
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/.git::$INDEX_ALLOCATION/config" }))).toBeUndefined()
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/.git. /config" }))).toBeUndefined()
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs//file" }))).toBeUndefined()
+    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "C:/outside/file" }))).toBeUndefined()
+    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "C:outside" }))).toBeUndefined()
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "move", from: "docs/old.md", to: "docs\\new.md" }))).toBeUndefined()
     expect(decodeWorkspaceChange(new Uint8Array([4, 1, 123]))).toBeUndefined()
   })

@@ -18,7 +18,7 @@ export function isRetryableRealtimeCheckpointCode(value: unknown): boolean {
 
 function validPath(value: unknown): value is string {
   if (typeof value !== "string" || value.length === 0 || value.length > 4096 || value.includes("\0")) return false
-  if (value.startsWith("/") || value.endsWith("/") || value.includes("\\")) return false
+  if (value.startsWith("/") || value.endsWith("/") || value.includes("\\") || /^[a-z]:/i.test(value)) return false
   const parts = value.split("/")
   return !parts.some((part, index) => {
     if (!part || part === "." || part === "..") return true
