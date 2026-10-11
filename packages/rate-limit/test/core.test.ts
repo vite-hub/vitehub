@@ -250,6 +250,16 @@ describe("Rate Limit core", () => {
     })).toThrow("valid enforcement")
   })
 
+  it.each([null, "60s", {}, [0], [1.5]])("rejects malformed capability windows: %j", (windows) => {
+    const driver = {
+      capabilities: { ...strictCapabilities, windows },
+      consume: () => [null, { allowed: true }],
+      name: "malformed-windows",
+    } as never
+    expect(() => createRateLimiter({ driver, limit: 1, window: "1m" }))
+      .toThrow("windows must contain positive integer milliseconds")
+  })
+
   it("exposes resolved driver capabilities", () => {
     const limiter = createRateLimiter({ driver: memoryRateLimitDriver(), limit: 1, window: "1m" })
     expect(limiter.capabilities).toEqual({

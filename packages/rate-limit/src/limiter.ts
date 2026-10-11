@@ -47,14 +47,15 @@ function resolveDriverCapabilities(options: CreateRateLimiterOptions): RateLimit
   if (capabilities.rejectedAttempts !== "counted" && capabilities.rejectedAttempts !== "not-counted" && capabilities.rejectedAttempts !== "unknown") {
     throw rateLimitErrorDiagnostics.RATE_LIMIT_R0022({ message: `[vitehub] Rate Limit driver "${options.driver.name}" must declare rejected-attempt behavior.` })
   }
-  if (capabilities.windows?.some(window => !Number.isInteger(window) || window <= 0)) {
+  const windows = capabilities.windows
+  if (windows !== undefined && (!Array.isArray(windows) || windows.some(window => !Number.isInteger(window) || window <= 0))) {
     throw rateLimitErrorDiagnostics.RATE_LIMIT_R0023({ message: `[vitehub] Rate Limit driver "${options.driver.name}" windows must contain positive integer milliseconds.` })
   }
   return {
     enforcement: capabilities.enforcement,
     rejectedAttempts: capabilities.rejectedAttempts,
     scope: capabilities.scope,
-    ...(capabilities.windows ? { windows: [...capabilities.windows] } : {}),
+    ...(windows ? { windows: [...windows] } : {}),
   }
 }
 
