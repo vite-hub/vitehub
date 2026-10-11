@@ -14,18 +14,25 @@ import type {
 import { shellErrorDiagnostics } from "../error-diagnostics.ts"
 
 function applyOutputLimit(result: ShellObservation, maxLength?: number): ShellObservation {
-  if (maxLength === undefined) return result
-  const next = { ...result, maxOutputLength: maxLength }
+  const limit = normalizeOutputLength(maxLength)
+  if (limit === undefined) return result
+  const next = { ...result, maxOutputLength: limit }
   let truncated = false
-  if (next.stdout.length > maxLength) {
-    next.stdout = `${next.stdout.slice(0, maxLength)}\n[output truncated to ${maxLength} characters]\n`
+  if (next.stdout.length > limit) {
+    next.stdout = `${next.stdout.slice(0, limit)}\n[output truncated to ${limit} characters]\n`
     truncated = true
   }
-  if (next.stderr.length > maxLength) {
-    next.stderr = `${next.stderr.slice(0, maxLength)}\n[output truncated to ${maxLength} characters]\n`
+  if (next.stderr.length > limit) {
+    next.stderr = `${next.stderr.slice(0, limit)}\n[output truncated to ${limit} characters]\n`
     truncated = true
   }
   return truncated ? { ...next, outputTruncated: true } : next
+}
+
+function normalizeOutputLength(value: number | undefined): number | undefined {
+  if (value === undefined) return undefined
+  if (value === Number.POSITIVE_INFINITY) return undefined
+  return Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0
 }
 
 function createPolicyObservation(command: string, cwd: string | undefined, message: string): ShellObservation {
@@ -77,19 +84,39 @@ class RuntimeShellSession implements ShellSession {
 
     this.#shellCalls += 1
     const started = Date.now()
+    const requestedOutputLength = normalizeOutputLength(options.maxOutputLength)
+    const policyOutputLength = normalizeOutputLength(this.policy.maxOutputLength)
+    const maxOutputLength = requestedOutputLength === undefined
+      ? policyOutputLength
+      : policyOutputLength === undefined
+        ? requestedOutputLength
+        : Math.min(requestedOutputLength, policyOutputLength)
     const result = await this.provider.exec(command, {
       ...options,
       env: { ...this.env, ...options.env },
+      maxOutputLength,
       timeout: options.timeout ?? this.policy.timeout,
+      // Providers may stream callbacks before returning their observation. A
+      // limited session therefore removes those callbacks so they cannot
+      // bypass the session output limit.
+      onStdout: maxOutputLength === undefined ? options.onStdout : undefined,
+      onStderr: maxOutputLength === undefined ? options.onStderr : undefined,
     })
 
+    const timedOut = result.timedOut
     return applyOutputLimit({
-      ...result,
       command: result.command ?? command,
       cwd: result.cwd ?? options.cwd,
       durationMs: result.durationMs ?? Date.now() - started,
-      event: result.timedOut ? "command_timed_out" : result.event,
-    }, this.policy.maxOutputLength)
+      event: timedOut ? "command_timed_out" : result.event,
+      exitCode: result.exitCode,
+      maxOutputLength: result.maxOutputLength,
+      outputTruncated: result.outputTruncated,
+      stderr: result.stderr,
+      stdout: result.stdout,
+      timedOut,
+      workspaceGuardrail: result.workspaceGuardrail,
+    }, maxOutputLength)
   }
 
   async startProcess(command: string, options: ShellRuntimeExecOptions = {}) {
@@ -136,7 +163,12 @@ class RuntimeShellSession implements ShellSession {
       )
       return stopTask
     }
-    trackedProcess = { ...process, stop }
+    trackedProcess = {
+      get id() { return process.id },
+      get command() { return process.command },
+      get cwd() { return process.cwd },
+      stop,
+    }
     this.#processes.add(trackedProcess)
     finishStart()
     if (this.#disposed) {

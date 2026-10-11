@@ -1,6 +1,7 @@
 import { CLOUDFLARE_RETRIABLE_STARTUP_ERROR_RE, collectCloudflareErrorMessages } from '../internal/shared/cloudflare-retry'
 import { sleep } from '../internal/shared/utils'
 import { sandboxError } from '../sandbox/errors'
+import { hasRuntimeType } from '@vite-hub/runtime/internal/runtime-type'
 import { readSandboxErrorMetadata } from './error-normalization'
 import { EXEC_STDIO_OUTPUT_MARKER } from './entry-script'
 
@@ -74,7 +75,11 @@ export function tryParseSandboxOutput<TResult>(outputRaw: string) {
     return null
 
   try {
-    return JSON.parse(outputRaw) as {
+    const output: unknown = JSON.parse(outputRaw)
+    if (!hasRuntimeType(output, 'object') || output === null || Array.isArray(output) || !hasRuntimeType(Reflect.get(output, 'ok'), 'boolean'))
+      return null
+    // SAFETY: The runtime checks above establish an object with a boolean `ok` field before this generic result cast.
+    return output as {
       ok?: boolean
       result?: TResult
       error?: { message?: string, name?: string, stack?: string, cause?: string }
@@ -85,17 +90,33 @@ export function tryParseSandboxOutput<TResult>(outputRaw: string) {
   }
 }
 
+function isCompleteSandboxOutput(outputRaw: string) {
+  if (!outputRaw.trim())
+    return false
+
+  try {
+    JSON.parse(outputRaw)
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
 export function extractSandboxOutputFromExecution(execution?: { stdout?: string, stderr?: string }) {
   const streams = [execution?.stdout, execution?.stderr].filter(Boolean) as string[]
 
   for (const stream of streams) {
-    for (const line of stream.split('\n').reverse()) {
-      const markerIndex = line.indexOf(EXEC_STDIO_OUTPUT_MARKER)
-      if (markerIndex < 0)
-        continue
+    const markerOffset = stream.lastIndexOf(EXEC_STDIO_OUTPUT_MARKER)
+    if (markerOffset < 0)
+      continue
 
-      return line.slice(markerIndex + EXEC_STDIO_OUTPUT_MARKER.length)
-    }
+    const lineStart = stream.lastIndexOf('\n', markerOffset) + 1
+    const lineEnd = stream.indexOf('\n', markerOffset)
+    // Keep the first marker in the final matching line, matching the former
+    // reverse-line scan without allocating an array for the whole stream.
+    const markerIndex = stream.indexOf(EXEC_STDIO_OUTPUT_MARKER, lineStart)
+    return stream.slice(markerIndex + EXEC_STDIO_OUTPUT_MARKER.length, lineEnd < 0 ? stream.length : lineEnd)
   }
 
   return null
@@ -174,6 +195,7 @@ async function waitForExecOutput(
   timeout: number | undefined,
   execution: ExecutionMeta | undefined,
   shouldAccept: (output: string) => boolean,
+  signal?: AbortSignal,
 ) {
   const recoveryTimeout = resolveExecOutputRecoveryTimeout(timeout)
   const deadline = Date.now() + recoveryTimeout
@@ -181,8 +203,9 @@ async function waitForExecOutput(
   let lastOutput = ''
 
   while (Date.now() < deadline) {
+    signal?.throwIfAborted()
     try {
-      const output = await sandbox.readFile(outputPath)
+      const output = await sandbox.readFile(outputPath, { signal })
       lastOutput = output
       if (shouldAccept(output))
         return output
@@ -191,7 +214,7 @@ async function waitForExecOutput(
       lastError = readError
     }
 
-    await sleep(EXEC_OUTPUT_RECOVERY_POLL_MS)
+    await sleep(EXEC_OUTPUT_RECOVERY_POLL_MS, signal)
   }
 
   throw createExecOutputFailure(sandbox, outputPath, error, recoveryTimeout, execution, {
@@ -206,6 +229,7 @@ async function recoverExecOutput(
   error: unknown,
   timeout?: number,
   execution?: ExecutionMeta,
+  signal?: AbortSignal,
 ) {
   if (sandbox.provider !== 'cloudflare' || !isRecoverableCloudflareExecError(error))
     return null
@@ -216,7 +240,8 @@ async function recoverExecOutput(
     error,
     timeout,
     execution,
-    output => !!tryParseSandboxOutput(output),
+    output => isCompleteSandboxOutput(output),
+    signal,
   )
 }
 
@@ -226,6 +251,7 @@ async function waitForCloudflareOutput(
   error: unknown,
   timeout?: number,
   execution?: ExecutionMeta,
+  signal?: AbortSignal,
 ) {
   const recoveryTimeout = resolveExecOutputRecoveryTimeout(timeout)
 
@@ -238,7 +264,8 @@ async function waitForCloudflareOutput(
     error,
     timeout,
     execution,
-    output => !!tryParseSandboxOutput(output),
+    output => isCompleteSandboxOutput(output),
+    signal,
   )
 }
 
@@ -248,6 +275,7 @@ export async function readExecOutputWithRecovery(
   error: unknown,
   timeout?: number,
   execution?: ExecutionMeta,
+  signal?: AbortSignal,
 ) {
   const executionOutput = extractSandboxOutputFromExecution(execution)
     || extractSandboxOutputFromExecution(error as { stdout?: string, stderr?: string } | undefined)
@@ -255,15 +283,21 @@ export async function readExecOutputWithRecovery(
     return executionOutput
 
   try {
-    const output = await sandbox.readFile(outputPath)
+    const output = await sandbox.readFile(outputPath, { signal })
     if (tryParseSandboxOutput(output))
+      return output
+    // A complete output file belongs to this execution. Preserve malformed
+    // envelopes so the caller can report the invalid contract instead of
+    // replacing the useful diagnostic with recovery failure.
+    if (isCompleteSandboxOutput(output))
       return output
   }
   catch {
-    return await waitForCloudflareOutput(sandbox, outputPath, error, timeout, execution)
+    signal?.throwIfAborted()
+    return await waitForCloudflareOutput(sandbox, outputPath, error, timeout, execution, signal)
   }
 
-  return await waitForCloudflareOutput(sandbox, outputPath, error, timeout, execution)
+  return await waitForCloudflareOutput(sandbox, outputPath, error, timeout, execution, signal)
 }
 
 export { recoverExecOutput }

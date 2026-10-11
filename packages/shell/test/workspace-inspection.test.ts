@@ -9,6 +9,22 @@ import {
 import { MemoryWorkspace } from "./workspace-test-utils.ts"
 
 describe("@vite-hub/shell workspace inspection", () => {
+  it("preserves an infinite output limit", async () => {
+    const workspace = new MemoryWorkspace({
+      "large.txt": "x".repeat(30_001),
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "cat large.txt", {
+      commands: ["cat"],
+      cwd: workspaceMountPoint,
+      fs: createReadonlyWorkspaceFs(workspace),
+      maxOutputLength: Number.POSITIVE_INFINITY,
+    })).resolves.toMatchObject({
+      outputTruncated: false,
+      stdout: "x".repeat(30_001),
+    })
+  })
+
   it("runs workspace inspection through the real shell runtime", async () => {
     const workspace = new MemoryWorkspace({
       ".secret": "hidden\n",
