@@ -292,7 +292,11 @@ function isResponseLike(value: unknown): value is Response {
     if (typeof response.status !== "number" || !Number.isInteger(response.status) || response.status < 0 || response.status > 599) return false
     if (typeof response.statusText !== "string") return false
     const headers = response.headers
-    return headers !== null && typeof headers === "object" && typeof (headers as { get?: unknown }).get === "function"
+    if (headers === null || typeof headers !== "object") return false
+    const headerMethods = headers as { get?: unknown, getSetCookie?: unknown, forEach?: unknown }
+    if (typeof headerMethods.get !== "function" || typeof headerMethods.getSetCookie !== "function" || typeof headerMethods.forEach !== "function") return false
+    const body = (response as { body?: unknown }).body
+    return body === null || (typeof body === "object" && typeof (body as { getReader?: unknown }).getReader === "function")
   }
   catch {
     return false

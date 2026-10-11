@@ -50,7 +50,13 @@ function decodeFoldedCursor(cursor: string | undefined): FoldedCursor {
     throw new TypeError("Invalid Blob cursor.")
   }
   if (encodeBase64Url(decoded) !== cursor) throw new TypeError("Invalid Blob cursor.")
-  const parsed: unknown = JSON.parse(decoded)
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(decoded)
+  }
+  catch {
+    throw new TypeError("Invalid Blob cursor.")
+  }
   if (!isPlainObject(parsed)) throw new TypeError("Invalid Blob cursor.")
   const { index, providerCursor, providerCursorHistory } = parsed
   if (
