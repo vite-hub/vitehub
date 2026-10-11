@@ -60,14 +60,17 @@ interface RequestInitWithDuplex extends RequestInit {
 function isRequestLike(value: unknown): value is Request {
   if (value === null || typeof value !== "object") return false
   try {
-    if (Object.prototype.toString.call(value) !== "[object Request]") return false
-    const request = value as { headers?: unknown, method?: unknown, url?: unknown }
-    const headers = request.headers
-    return typeof request.url === "string"
-      && typeof request.method === "string"
-      && headers !== null
-      && typeof headers === "object"
-      && typeof (headers as { get?: unknown }).get === "function"
+    // Request accessors perform the platform's internal-slot brand check, which
+    // works across realms and cannot be spoofed with Symbol.toStringTag.
+    const prototype = Request.prototype
+    const getUrl = Object.getOwnPropertyDescriptor(prototype, "url")?.get
+    const getMethod = Object.getOwnPropertyDescriptor(prototype, "method")?.get
+    const getHeaders = Object.getOwnPropertyDescriptor(prototype, "headers")?.get
+    if (!getUrl || !getMethod || !getHeaders) return false
+    getUrl.call(value)
+    getMethod.call(value)
+    getHeaders.call(value)
+    return true
   }
   catch {
     return false

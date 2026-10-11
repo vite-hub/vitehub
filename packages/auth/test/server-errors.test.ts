@@ -129,7 +129,18 @@ describe("server authentication provider boundaries", () => {
   })
 
   it("keeps a cross-realm Request as the Better Auth input", async () => {
-    const foreignRequest = runInNewContext(`new (class {
+    const foreignRequest = runInNewContext(`new Request("https://example.com/api/private")`, { Request })
+    const response = new Response("ok")
+    providerMocks.handler.mockImplementationOnce((input: unknown) => {
+      expect(input).toBe(foreignRequest)
+      return response
+    })
+
+    await expect(Promise.resolve(handleAuthRequest(definition, foreignRequest as never))).resolves.toBe(response)
+  })
+
+  it("normalizes a request-shaped object that spoofs the Request tag", async () => {
+    const spoofedRequest = runInNewContext(`new (class {
       get body() { return null }
       get headers() { return { get() { return null } } }
       get method() { return "GET" }
@@ -139,11 +150,12 @@ describe("server authentication provider boundaries", () => {
     })()`)
     const response = new Response("ok")
     providerMocks.handler.mockImplementationOnce((input: unknown) => {
-      expect(input).toBe(foreignRequest)
+      expect(input).toBeInstanceOf(Request)
+      expect(input).not.toBe(spoofedRequest)
       return response
     })
 
-    await expect(Promise.resolve(handleAuthRequest(definition, foreignRequest as never))).resolves.toBe(response)
+    await expect(Promise.resolve(handleAuthRequest(definition, spoofedRequest as never))).resolves.toBe(response)
   })
 
   it("does not unwrap an inherited host request property", async () => {
