@@ -547,6 +547,17 @@ function isArrayBufferValue(value: unknown): value is ArrayBuffer {
   }
 }
 
+function isRegExpValue(value: unknown): value is RegExp {
+  if (value instanceof RegExp) return true
+  try {
+    Object.getOwnPropertyDescriptor(RegExp.prototype, "source")!.get!.call(value)
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
 function normalizedTimestamp(value: Date | string): string {
   const timestamp = value instanceof Date ? value : new Date(value)
   return Number.isFinite(timestamp.getTime()) ? timestamp.toISOString() : new Date().toISOString()
@@ -781,7 +792,7 @@ function boundedObservationValue(
       type: value.constructor.name,
     }
   }
-  if (value instanceof RegExp) {
+  if (isRegExpValue(value)) {
     budget.truncated = true
     return {
       flags: boundedObservationValue(value.flags, budget, depth + 1, maxStringLength, builtIns),
