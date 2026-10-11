@@ -771,7 +771,7 @@ function presetBlobOptions(
 
 function normalizePublicUrl(value: string): string {
   const url = URL.canParse(value) ? new URL(value) : undefined
-  if (!url || !["http:", "https:"].includes(url.protocol) || url.pathname !== "/" || url.search || url.hash) {
+  if (!url || !["http:", "https:"].includes(url.protocol) || url.pathname !== "/" || url.search || url.hash || url.username || url.password) {
     throw viteHubErrorDiagnostics.VITE_HUB_R0124({ message: `[vitehub] publicUrl must be an http(s) origin without a path, received ${JSON.stringify(value)}.` })
   }
   return url.origin
