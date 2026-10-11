@@ -536,8 +536,21 @@ function boundedString(value: string | undefined): string | undefined {
   return value === undefined ? undefined : value.slice(0, MAX_METADATA_STRING_LENGTH)
 }
 
+function isDateValue(value: unknown): value is Date {
+  if (value instanceof Date) return true
+  try {
+    Date.prototype.getTime.call(value)
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
 function normalizedTimestamp(value: Date | string): string {
-  const timestamp = value instanceof Date ? value : new Date(value)
+  const timestamp = isDateValue(value)
+    ? new Date(Date.prototype.getTime.call(value))
+    : new Date(value)
   return Number.isFinite(timestamp.getTime()) ? timestamp.toISOString() : new Date().toISOString()
 }
 
@@ -713,7 +726,7 @@ function boundedObservationValue(
       return boundedObservationValue(value[index], budget, depth + 1, maxStringLength, builtIns)
     })
   }
-  if (value instanceof Date) {
+  if (isDateValue(value)) {
     budget.truncated = true
     return {
       type: "Date",
