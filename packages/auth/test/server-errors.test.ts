@@ -1,3 +1,5 @@
+import { runInNewContext } from "node:vm"
+
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { ViteHubError } from "@vite-hub/runtime"
 
@@ -124,6 +126,24 @@ describe("server authentication provider boundaries", () => {
     providerMocks.handler.mockRejectedValueOnce(providerError)
 
     await expect(handleAuthRequest(definition, request)).rejects.toBe(providerError)
+  })
+
+  it("keeps a cross-realm Request as the Better Auth input", async () => {
+    const foreignRequest = runInNewContext(`new (class {
+      get body() { return null }
+      get headers() { return { get() { return null } } }
+      get method() { return "GET" }
+      get signal() { return undefined }
+      get url() { return "https://example.com/api/private" }
+      get [Symbol.toStringTag]() { return "Request" }
+    })()`)
+    const response = new Response("ok")
+    providerMocks.handler.mockImplementationOnce((input: unknown) => {
+      expect(input).toBe(foreignRequest)
+      return response
+    })
+
+    await expect(Promise.resolve(handleAuthRequest(definition, foreignRequest as never))).resolves.toBe(response)
   })
 
   it("does not unwrap an inherited host request property", async () => {

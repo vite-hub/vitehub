@@ -57,8 +57,25 @@ interface RequestInitWithDuplex extends RequestInit {
   duplex?: "half"
 }
 
+function isRequestLike(value: unknown): value is Request {
+  if (value === null || typeof value !== "object") return false
+  try {
+    if (Object.prototype.toString.call(value) !== "[object Request]") return false
+    const request = value as { headers?: unknown, method?: unknown, url?: unknown }
+    const headers = request.headers
+    return typeof request.url === "string"
+      && typeof request.method === "string"
+      && headers !== null
+      && typeof headers === "object"
+      && typeof (headers as { get?: unknown }).get === "function"
+  }
+  catch {
+    return false
+  }
+}
+
 function toRequest(request: AuthRequest): Request {
-  if (request instanceof Request) return request
+  if (request instanceof Request || isRequestLike(request)) return request
   const init: RequestInitWithDuplex = {
     headers: request.headers,
     method: request.method,
