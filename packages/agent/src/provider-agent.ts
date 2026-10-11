@@ -36,7 +36,8 @@ import { agentOutputInstructions } from "./internal/agent-structured-output.ts"
 import { registerAgentInvocationInputHandler } from "./internal/agent-invocation-control.ts"
 import { ownedAgentInvocationControlId } from "./internal/agent-invocation-response-owner.ts"
 import { isAuxiliaryAgentAdapterContext, markAuxiliaryMessageChannelInstructionContext, resolveMessageChannelInstructions } from "./internal/channels.ts"
-import { attachmentStringBytes, currentInputAttachments, getMessageText, isAttachmentPart, resolveAttachmentData } from "./messages.ts"
+import { attachmentStringBytes, currentInputAttachments, getMessageText, isArrayBufferValue, isAttachmentPart, isBlobValue, isUint8ArrayValue, resolveAttachmentData } from "./messages.ts"
+export { isArrayBufferValue, isBlobValue, isUint8ArrayValue } from "./messages.ts"
 import { workspaceAutoCommitDisabled, workspaceDefinitionWithAutoCommitRules } from "./workspace-agent.ts"
 import { approveAgentToolRequest, executeApprovedAgentTool } from "./tool-runtime.ts"
 import { agentInvocationTraceIdContextKey, createAgentStreamEventTracer } from "./trace.ts"
@@ -2189,18 +2190,6 @@ function attachmentId(threadId: string): string {
 }
 
 const defaultProviderAttachmentMaxBytes = 25 * 1024 * 1024
-
-export function isBlobValue(value: unknown): value is Blob {
-  return value instanceof Blob || Object.prototype.toString.call(value) === "[object Blob]"
-}
-
-export function isArrayBufferValue(value: unknown): value is ArrayBuffer {
-  return value instanceof ArrayBuffer || Object.prototype.toString.call(value) === "[object ArrayBuffer]"
-}
-
-export function isUint8ArrayValue(value: unknown): value is Uint8Array {
-  return value instanceof Uint8Array || Object.prototype.toString.call(value) === "[object Uint8Array]"
-}
 
 async function attachmentBytes(part: AttachmentPart, maxBytes: number): Promise<Uint8Array> {
   if (hasRuntimeType(part.size, "number") && part.size > maxBytes) throw agentDiagnostics.AGENT_R0702({ message: `[vitehub] Provider attachment exceeds maxBytes (${maxBytes}).` })

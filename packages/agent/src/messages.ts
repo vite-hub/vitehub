@@ -42,6 +42,39 @@ export interface AgentChatData {
 export type AttachmentData = ArrayBuffer | Blob | string | Uint8Array
 export type AudioData = AttachmentData
 
+const blobSizeGetter = typeof Blob === "function" ? Object.getOwnPropertyDescriptor(Blob.prototype, "size")?.get : undefined
+const arrayBufferByteLengthGetter = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")?.get
+
+/** Brand checks that work for values created in another JavaScript realm. */
+export function isBlobValue(value: unknown): value is Blob {
+  if (!blobSizeGetter) return false
+  try {
+    Reflect.apply(blobSizeGetter, value, [])
+    return true
+  } catch {
+    return false
+  }
+}
+
+export function isArrayBufferValue(value: unknown): value is ArrayBuffer {
+  if (!arrayBufferByteLengthGetter) return false
+  try {
+    Reflect.apply(arrayBufferByteLengthGetter, value, [])
+    return true
+  } catch {
+    return false
+  }
+}
+
+export function isUint8ArrayValue(value: unknown): value is Uint8Array {
+  if (!ArrayBuffer.isView(value)) return false
+  try {
+    return Object.prototype.toString.call(value) === "[object Uint8Array]"
+  } catch {
+    return false
+  }
+}
+
 export interface AttachmentPart {
   data?: AttachmentData
   fetchData?: () => Promise<AttachmentData> | AttachmentData
@@ -142,11 +175,11 @@ export type MessagePart =
 export function isAttachmentData(value: unknown): value is AttachmentData {
   return hasRuntimeType(value, "string")
     ? value.length > 0
-    : value instanceof ArrayBuffer
+    : isArrayBufferValue(value)
       ? value.byteLength > 0
-      : value instanceof Blob
+      : isBlobValue(value)
         ? value.size > 0
-        : value instanceof Uint8Array && value.byteLength > 0
+        : isUint8ArrayValue(value) && value.byteLength > 0
 }
 
 export function isAttachmentPart(value: unknown): value is AttachmentPart {
