@@ -2,7 +2,7 @@ import { runInNewContext } from "node:vm"
 
 import { describe, expect, it } from "vitest"
 
-import { executeCloudflareStaticSchedules, executeMatchingStaticSchedules, executeStaticSchedule, missingScheduleDefinitionError, unwrapScheduleDefinition } from "../src/runtime/static.ts"
+import { executeCloudflareStaticSchedules, executeMatchingStaticSchedules, executeStaticSchedule, missingScheduleDefinitionError, normalizeScheduleRuntimeError, unwrapScheduleDefinition } from "../src/runtime/static.ts"
 
 import type { ScheduleDefinitionRegistry } from "../src/types.ts"
 
@@ -264,4 +264,9 @@ describe("Static Schedule runtime", () => {
     await expect(execution).rejects.toThrow("handler failed")
     expect(deferredCompleted).toBe(true)
   })
+})
+
+it("preserves errors raised in another runtime realm", async () => {
+  const foreign = runInNewContext("new Error('foreign failure')") as Error
+  expect(normalizeScheduleRuntimeError(foreign)).toBe(foreign)
 })

@@ -56,7 +56,7 @@ export function normalizeCron(cron: string): string {
 }
 
 export function normalizeScheduleRuntimeError(error: unknown): Error {
-  if (error instanceof Error) return error
+  if (error instanceof Error || (error !== null && typeof error === "object" && Object.prototype.toString.call(error) === "[object Error]")) return error as Error
   return scheduleErrorDiagnostics.SCHEDULE_R0035({ cause: error, message: String(error) })
 }
 
