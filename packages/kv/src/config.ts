@@ -80,7 +80,8 @@ export function normalizeKVOptions(
   const env = input.env || process.env
   const hosting = normalizeHosting(input.hosting)
   const explicit = options as KVStoreConfig | undefined
-  if (options !== undefined && Object.hasOwn(options, "stores") && !isPlainObject((options as { stores?: unknown }).stores)) {
+  const stores = options !== undefined ? Object.getOwnPropertyDescriptor(options, "stores")?.value : undefined
+  if (options !== undefined && Object.hasOwn(options, "stores") && !isPlainObject(stores)) {
     throw kvErrorDiagnostics.KV_C0004({ message: "`kv.stores` must be a plain object." })
   }
 
