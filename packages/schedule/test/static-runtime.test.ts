@@ -51,6 +51,20 @@ describe("Static Schedule runtime", () => {
     ])
   })
 
+  it("matches equivalent cron whitespace from provider events", async () => {
+    const calls: string[] = []
+    await executeMatchingStaticSchedules({
+      cron: "0 4 * * *",
+      registry: {
+        report: async () => ({
+          cron: "0  4   * * *",
+          handler: async () => calls.push("report"),
+        }),
+      },
+    })
+    expect(calls).toEqual(["report"])
+  })
+
   it("executes and unwraps static definitions with cross-realm handlers", async () => {
     const calls: string[] = []
     const handler = runInNewContext('() => calls.push("cross-realm")', { calls }) as () => void
