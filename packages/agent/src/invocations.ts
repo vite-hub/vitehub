@@ -547,6 +547,16 @@ function isArrayBufferValue(value: unknown): value is ArrayBuffer {
   }
 }
 
+function isErrorValue(value: unknown): value is Error {
+  if (value instanceof Error) return true
+  return hasRuntimeType(value, "object") && Object.prototype.toString.call(value) === "[object Error]"
+}
+
+function isAggregateErrorValue(value: unknown): value is AggregateError {
+  if (!isErrorValue(value)) return false
+  return value instanceof AggregateError || (value.name === "AggregateError" && Array.isArray(value.errors))
+}
+
 function isRegExpValue(value: unknown): value is RegExp {
   if (value instanceof RegExp) return true
   try {
@@ -654,8 +664,8 @@ async function collectBoundedObservationBuiltIns(
     }
     return
   }
-  if (value instanceof Error) {
-    if (value instanceof AggregateError) {
+  if (isErrorValue(value)) {
+    if (isAggregateErrorValue(value)) {
       await collectBoundedObservationBuiltIns(value.errors, builtIns, budget, seen, depth + 1)
     }
     if (Object.hasOwn(value, "cause")) {
@@ -800,13 +810,13 @@ function boundedObservationValue(
       source: boundedObservationValue(value.source, budget, depth + 1, maxStringLength, builtIns),
     }
   }
-  if (value instanceof Error) {
+  if (isErrorValue(value)) {
     budget.truncated = true
     const details: Array<[string, unknown]> = [
       ["name", value.name],
       ["message", value.message],
     ]
-    if (value instanceof AggregateError) details.push(["errors", value.errors])
+    if (isAggregateErrorValue(value)) details.push(["errors", value.errors])
     if (Object.hasOwn(value, "cause")) details.push(["cause", value.cause])
     for (const [key, child] of Object.entries(value)) {
       if (key !== "cause" && key !== "errors") details.push([key, child])

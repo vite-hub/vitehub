@@ -4,6 +4,7 @@ import { createTraceEventLog, deriveTraceRuns, traceEventsToOpenTelemetrySpans }
 import { mkdtemp, rm } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
+import { runInNewContext } from "node:vm"
 import { describe, expect, it, vi } from "vitest"
 
 import { agentInvocationId, defineAgent, defineCapability, runAgent, runAgentInline, streamAgent } from "../src/index.ts"
@@ -2209,6 +2210,43 @@ describe("Agent Invocations", () => {
           name: "AggregateError",
         },
         pattern: { flags: "gi", lastIndex: 3, source: "vitehub" },
+      },
+      visibility: "public",
+    })
+  })
+
+  it("serializes foreign-realm Error details when bounding invocation observations", async () => {
+    const store = createMemoryAgentInvocationStore()
+    await store.create({
+      createdAt: "2026-08-27T00:00:00.000Z",
+      id: "foreign-error-details",
+      observations: [],
+      status: "running",
+      traceId: "foreign-error-details-trace",
+      updatedAt: "2026-08-27T00:00:00.000Z",
+    })
+    const error = runInNewContext('Object.assign(new AggregateError([new Error("first")], "outer", { cause: "inner" }), { code: "E_OUTER" })')
+
+    await store.update("foreign-error-details", {
+      observation: {
+        name: "workspace.materialized",
+        payload: { value: { error }, visibility: "public" },
+        sequence: 1,
+        timestamp: "2026-08-27T00:00:00.000Z",
+        type: "lifecycle",
+      },
+      timestamp: "2026-08-27T00:00:00.000Z",
+    })
+
+    expect((await store.get("foreign-error-details"))?.observations[0]?.payload).toEqual({
+      value: {
+        error: {
+          cause: "inner",
+          code: "E_OUTER",
+          errors: [{ message: "first", name: "Error" }],
+          message: "outer",
+          name: "AggregateError",
+        },
       },
       visibility: "public",
     })
