@@ -54,10 +54,17 @@ function toBlobObject(blob: {
 }
 
 function isMissingBlobError(error: unknown) {
-  return error instanceof Error && (
-    error.name === "BlobNotFoundError"
-    || /(?:requested )?blob (?:was )?not found|requested blob does not exist/i.test(error.message)
-  )
+  if (typeof error !== "object" || error === null) return false
+  try {
+    const tag = Object.prototype.toString.call(error)
+    if (tag !== "[object Error]") return false
+    const value = error as { name?: unknown, message?: unknown }
+    return value.name === "BlobNotFoundError"
+      || (typeof value.message === "string" && /(?:requested )?blob (?:was )?not found|requested blob does not exist/i.test(value.message))
+  }
+  catch {
+    return false
+  }
 }
 
 function resolveBlobAccess(url: string, fallback: "private" | "public") {
