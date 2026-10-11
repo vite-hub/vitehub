@@ -114,7 +114,7 @@ function textResult(result: unknown): { text: string } {
   return { text: result.text }
 }
 
-function toolCallingAgent(fakeModel: ReturnType<typeof model>, execute: (input: unknown) => string, repairToolCall?: boolean) {
+function toolCallingAgent(fakeModel: ReturnType<typeof model>, execute: (input: unknown) => string, repairToolCall?: boolean | ((input: unknown) => unknown)) {
   return defineAgent({
     capabilities: [defineCapability({
       id: "search-test",
@@ -127,7 +127,11 @@ function toolCallingAgent(fakeModel: ReturnType<typeof model>, execute: (input: 
       },
     })],
     driver: {
-      execution: repairToolCall === undefined ? undefined : { repairToolCall },
+      execution: repairToolCall === undefined
+        ? undefined
+        : typeof repairToolCall === "function"
+          ? { repairToolCall: repairToolCall as never }
+          : { repairToolCall },
       model: languageModel(fakeModel),
     },
     runtime: false,
@@ -237,6 +241,39 @@ describe("AI SDK recovery", () => {
       executionBudget: { maxRetries: 0 },
       prompt: "Search",
     })).rejects.toMatchObject({ counter: "retries", name: "ExecutionBudgetExceededError" })
+    expect(fakeModel.calls).toHaveLength(1)
+  })
+
+  it("spends the retry budget before a custom tool-call repair", async () => {
+    const repair = vi.fn(async (input: unknown) => input)
+    const fakeModel = model([
+      [{ input: "{\"query\":1}", toolCallId: "call-1", toolName: "search", type: "tool-call" }],
+      "must not run",
+    ])
+
+    await expect(runAgentInline(toolCallingAgent(fakeModel, vi.fn(), repair), runtime, {
+      executionBudget: { maxRetries: 0 },
+      prompt: "Search",
+    })).rejects.toMatchObject({ counter: "retries", name: "ExecutionBudgetExceededError" })
+    expect(repair).not.toHaveBeenCalled()
+    expect(fakeModel.calls).toHaveLength(1)
+  })
+
+  it("spends the retry budget before a custom streamed tool-call repair", async () => {
+    const repair = vi.fn(async (input: unknown) => input)
+    const fakeModel = model([
+      [{ input: "{\"query\":1}", toolCallId: "call-1", toolName: "search", type: "tool-call" }],
+      "must not run",
+    ])
+    const result = await streamAgentInline(toolCallingAgent(fakeModel, vi.fn(), repair), runtime, {
+      executionBudget: { maxRetries: 0 },
+      prompt: "Search",
+    })
+    if (!isAsyncIterable(result)) throw new TypeError("Expected an Agent event stream")
+    await expect((async () => {
+      for await (const _event of result) { /* consume until the budget error aborts the stream */ }
+    })()).rejects.toMatchObject({ counter: "retries", name: "ExecutionBudgetExceededError" })
+    expect(repair).not.toHaveBeenCalled()
     expect(fakeModel.calls).toHaveLength(1)
   })
 

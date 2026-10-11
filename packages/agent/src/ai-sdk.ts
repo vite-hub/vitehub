@@ -1405,11 +1405,29 @@ async function createAgent(
       }
     : undefined
   const configuredRepairToolCall = commonSettings.repairToolCall ?? commonSettings.experimental_repairToolCall
-  const repairToolCall = execution?.repairToolCall === false
+  const customRepairToolCall = execution?.repairToolCall === false
     ? undefined
     : hasRuntimeType(execution?.repairToolCall, "function")
       ? execution.repairToolCall
-      : configuredRepairToolCall ?? builtInRepairToolCall
+      : configuredRepairToolCall
+  const repairToolCall = execution?.repairToolCall === false
+    ? undefined
+    : customRepairToolCall
+      ? async (input: Parameters<ToolCallRepairFunction<ToolSet>>[0]) => {
+        try {
+          // A caller-provided repair callback still spends the shared Invocation budget.
+          context.executionBudget?.recordRetry()
+        }
+        catch (error) {
+          if (error instanceof ExecutionBudgetExceededError) {
+            repairBudgetError = error
+            return null
+          }
+          throw error
+        }
+        return await customRepairToolCall(input as never)
+        }
+      : builtInRepairToolCall
   const maxOutputAttempts = context.output && context.nativeStructuredOutput !== false
     ? outputMaxAttempts(context.output)
     : 1
