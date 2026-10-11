@@ -5092,9 +5092,14 @@ function withEagerStreamUsageExtensions<
   if (!providers.length) return stream
   return (async function* () {
     let extensionApplied = false
+    let deferredFinish: unknown
     for await (const chunk of stream) {
       const usageRecord = usageRecordFromStreamChunk(chunk, result)
       if (!usageRecord) {
+        if (isRecord(chunk) && chunk.type === "finish") {
+          deferredFinish = chunk
+          continue
+        }
         yield chunk
         continue
       }
@@ -5142,9 +5147,15 @@ function withEagerStreamUsageExtensions<
       }
       yield { type: "usage", usageRecord: usage }
     }
-    if (extensionApplied) return
+    if (extensionApplied) {
+      if (deferredFinish !== undefined) yield deferredFinish
+      return
+    }
     const usageRecord = await resolveAgentUsageRecord(result, context.run)
-    if (!usageRecord) return
+    if (!usageRecord) {
+      if (deferredFinish !== undefined) yield deferredFinish
+      return
+    }
     const usage = { ...usageRecord }
     const eventBase = {
       actor: context.actor,
@@ -5165,7 +5176,8 @@ function withEagerStreamUsageExtensions<
     // Keep deferred usage observable to stream consumers even when the provider
     // never emitted a usage chunk during iteration.
     yield { type: "usage", usageRecord: usage }
-  })()
+    if (deferredFinish !== undefined) yield deferredFinish
+    })()
 }
 
 function withEagerUiMessageStreamUsageExtensions<

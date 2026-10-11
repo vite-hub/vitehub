@@ -93,7 +93,9 @@ function budgetExceeded(usage: AgentUsage | undefined, cost: AgentUsageRecord["c
   const checks: Array<[AgentBudgetExceeded["metric"], number | undefined, number | undefined]> = [
     ["inputTokens", usage?.inputTokens, limits.tokens.input],
     ["outputTokens", usage?.outputTokens, limits.tokens.output],
-    ["totalTokens", usage?.totalTokens, limits.tokens.total],
+    ["totalTokens", usage?.totalTokens ?? (usage?.inputTokens !== undefined && usage?.outputTokens !== undefined
+      ? usage.inputTokens + usage.outputTokens
+      : undefined), limits.tokens.total],
   ]
   for (const [metric, actual, limit] of checks) {
     if (actual !== undefined && limit !== undefined && actual > limit) exceeded.push({ actual, limit, metric })
