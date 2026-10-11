@@ -81,6 +81,21 @@ function truncate(value: string): Pick<ConsoleDatabaseCell, "truncated" | "value
     : { value }
 }
 
+function isDateValue(value: unknown): value is Date {
+  if (value instanceof Date) return true
+  try {
+    Date.prototype.getTime.call(value)
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
+function isUint8ArrayValue(value: unknown): value is Uint8Array {
+  return ArrayBuffer.isView(value) && Object.prototype.toString.call(value) === "[object Uint8Array]"
+}
+
 function cell(value: unknown): ConsoleDatabaseCell {
   if (value === null || typeof value === "undefined") return { kind: "null", value: "NULL" }
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Database values cross driver boundaries and need a stable JSON representation.
@@ -91,12 +106,13 @@ function cell(value: unknown): ConsoleDatabaseCell {
   if (typeof value === "boolean") return { kind: "boolean", value: value ? "true" : "false" }
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JSON cannot serialize BigInt values, so preserve the exact decimal representation.
   if (typeof value === "bigint") return { kind: "bigint", value: String(value) }
-  if (value instanceof Date) return { kind: "date", value: value.toISOString() }
-  if (value instanceof Uint8Array) {
-    const bytes = value.subarray(0, maximumBlobBytes)
+  if (isDateValue(value)) return { kind: "date", value: Date.prototype.toISOString.call(value) }
+  if (isUint8ArrayValue(value)) {
+    const byteLength = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), "byteLength")!.get!.call(value) as number
+    const bytes = Uint8Array.prototype.subarray.call(value, 0, maximumBlobBytes)
     return {
       kind: "bytes",
-      ...(value.byteLength > maximumBlobBytes ? { truncated: true as const } : {}),
+      ...(byteLength > maximumBlobBytes ? { truncated: true as const } : {}),
       value: Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join(""),
     }
   }
