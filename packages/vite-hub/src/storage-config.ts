@@ -30,12 +30,12 @@ export function withDataDir(options: ViteHubOptions): ViteHubOptions {
     ...options,
     ...(cache ? { cache } : {}),
     dataDir: root,
-    ...(kv ? { kv: "stores" in kv
-      ? { ...kv, stores: Object.fromEntries(Object.entries(kv.stores).map(([name, store]) => [name, kvStore(store, name)])) }
-      : kvStore(kv) } : {}),
-    ...(blob ? { blob: "stores" in blob
-      ? { ...blob, stores: Object.fromEntries(Object.entries(blob.stores).map(([name, store]) => [name, blobStore(store, name)])) }
-      : !blob.driver || blob.driver === "fs" ? { ...blob, driver: "fs" as const, base: "base" in blob ? blob.base ?? join(root, "blob") : join(root, "blob") } : blob } : {}),
+    ...(kv ? { kv: Object.hasOwn(kv, "stores")
+      ? { ...kv, stores: Object.fromEntries(Object.entries((kv as { stores: Record<string, KVStoreConfig> }).stores).map(([name, store]) => [name, kvStore(store, name)])) }
+      : kvStore(kv as KVStoreConfig) } : {}),
+    ...(blob ? { blob: Object.hasOwn(blob, "stores")
+      ? { ...blob, stores: Object.fromEntries(Object.entries((blob as { stores: Record<string, BlobStoreConfig> }).stores).map(([name, store]) => [name, blobStore(store, name)])) }
+      : !(blob as { driver?: string }).driver || (blob as { driver?: string }).driver === "fs" ? { ...blob, driver: "fs" as const, base: Object.hasOwn(blob, "base") ? (blob as { base?: string }).base ?? join(root, "blob") : join(root, "blob") } : blob } : {}),
     ...(agent && state !== false && (!state?.provider || ["auto", "sqlite", "libsql"].includes(state.provider)) ? {
       agent: { ...agent, providers: { ...agent.providers, state: { ...state, provider: state?.provider ?? "libsql", url: state?.url ?? file("agent-state.sqlite") } } },
     } : {}),
