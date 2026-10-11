@@ -58,12 +58,7 @@ export function normalizeScheduleRuntimeError(error: unknown): Error {
 export function createStaticScheduleRun(
   options: Omit<ExecuteStaticScheduleOptions, "definition" | "waitUntil"> & { waitUntil: NonNullable<ExecuteStaticScheduleOptions["waitUntil"]> },
 ): StaticScheduleRun {
-  const scheduledAt = options.scheduledAt ?? new Date()
-  if (!(scheduledAt instanceof Date) || Number.isNaN(scheduledAt.getTime())) {
-    throw createScheduleError("SCHEDULE_INVALID_SCHEDULED_AT", {
-      details: invalidScheduleValueDetails("scheduledAt", scheduledAt),
-    })
-  }
+  const scheduledAt = validateScheduledAt(options.scheduledAt)
   return {
     cron: options.cron,
     id: `run_${options.name}_${scheduledAt.toISOString()}`,
@@ -81,7 +76,7 @@ export async function executeStaticSchedule(options: ExecuteStaticScheduleOption
 }
 
 export async function executeMatchingStaticSchedules(options: ExecuteMatchingStaticSchedulesOptions): Promise<unknown[]> {
-  const scheduledAt = options.scheduledAt ?? new Date()
+  const scheduledAt = validateScheduledAt(options.scheduledAt)
   const runs: Array<Promise<unknown>> = []
   for (const [name, load] of Object.entries(options.registry)) {
     const definition = unwrapScheduleDefinition(await load())
@@ -89,6 +84,16 @@ export async function executeMatchingStaticSchedules(options: ExecuteMatchingSta
     runs.push(executeStaticSchedule({ cron: options.cron, definition, name, scheduledAt, waitUntil: options.waitUntil }))
   }
   return await Promise.all(runs)
+}
+
+function validateScheduledAt(scheduledAt: Date | undefined): Date {
+  const value = scheduledAt ?? new Date()
+  if (!(value instanceof Date) || Number.isNaN(value.getTime())) {
+    throw createScheduleError("SCHEDULE_INVALID_SCHEDULED_AT", {
+      details: invalidScheduleValueDetails("scheduledAt", value),
+    })
+  }
+  return value
 }
 
 export async function executeCloudflareStaticSchedules(
