@@ -1,5 +1,6 @@
 import type { WorkflowDefinition, WorkflowExecutionContext, WorkflowProviderStep, WorkflowStepFunction, WorkflowStepOptions } from "../types.ts"
 import { serializeResponse, toResponse, type SerializedResponse } from "@vite-hub/runtime"
+import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
 
 const defaultStepOptions = {
   retries: {
@@ -38,6 +39,11 @@ export function createWorkflowSteps(
 ): Record<string, WorkflowStepFunction> {
   return Object.fromEntries(stepModules.map((module) => {
     const propertyName = toStepPropertyName(module.name)
+    if (!propertyName) {
+      throw workflowErrorDiagnostics.WORKFLOW_C0011({
+        message: `[vitehub] Workflow step file ${JSON.stringify(module.name)} normalizes to an empty step property. Rename the file so the step property is non-empty.`,
+      })
+    }
     return [
       propertyName,
       async (input: unknown) => await runProviderStep(
