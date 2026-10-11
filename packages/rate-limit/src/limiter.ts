@@ -134,7 +134,7 @@ function assertKey(input: RateLimitConsumeInput, operation: "peek" | "reset"): v
 }
 
 export function createRateLimiter(options: CreateRateLimiterOptions): RateLimiter {
-  if (!options.driver || typeof options.driver.consume !== "function") {
+  if (!options || typeof options !== "object" || Array.isArray(options) || !options.driver || typeof options.driver.consume !== "function") {
     throw rateLimitErrorDiagnostics.RATE_LIMIT_R0029({ message: "[vitehub] createRateLimiter() requires a Rate Limit driver." })
   }
   const policy = normalizeRateLimitPolicy(options)
