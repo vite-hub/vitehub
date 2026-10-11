@@ -178,14 +178,12 @@ export function defineContentHandler(
 function isRequestLike(value: unknown): value is Request {
   if (value === null || typeof value !== "object") return false
   try {
-    if (Object.prototype.toString.call(value) !== "[object Request]") return false
-    const request = value as { headers?: unknown, method?: unknown, text?: unknown, url?: unknown }
-    return typeof request.method === "string"
-      && typeof request.url === "string"
-      && typeof request.text === "function"
-      && request.headers !== null
-      && typeof request.headers === "object"
-      && typeof (request.headers as { get?: unknown }).get === "function"
+    const request = value as Request
+    const method = Object.getOwnPropertyDescriptor(Request.prototype, "method")!.get!.call(request)
+    const url = Object.getOwnPropertyDescriptor(Request.prototype, "url")!.get!.call(request)
+    const headers = Object.getOwnPropertyDescriptor(Request.prototype, "headers")!.get!.call(request)
+    Headers.prototype.get.call(headers, "x-vitehub-brand-check")
+    return typeof method === "string" && typeof url === "string"
   }
   catch {
     return false

@@ -44,11 +44,11 @@ interface VercelWorkflowApiModule {
 interface VercelWorkflowRuntimeModule {
   getWorld: () => Promise<{
     steps: {
-      list: (options: unknown) => Promise<{ cursor?: string, data: unknown[], hasMore: boolean }>
+      list: (options: unknown) => Promise<{ cursor?: string | null, data: unknown[], hasMore: boolean }>
     }
   }> | {
     steps: {
-      list: (options: unknown) => Promise<{ cursor?: string, data: unknown[], hasMore: boolean }>
+      list: (options: unknown) => Promise<{ cursor?: string | null, data: unknown[], hasMore: boolean }>
     }
   }
 }
@@ -75,11 +75,11 @@ function createVercelWorkflowRuntime(api: VercelWorkflowApiModule, runtime: Verc
       const cursors = new Set<string>()
       let cursor: string | undefined
       do {
-        const page = await (await getWorld()).steps.list({
+        const page = normalizeStepPage(await (await getWorld()).steps.list({
           pagination: { cursor, limit: 1000, sortOrder: "asc" },
           resolveData: "none",
           runId: id,
-        })
+        }))
         // SAFETY: normalizeSteps validates every provider step before public use.
         steps.push(...(page.data as VercelStep[]))
         if (!page.hasMore) break
@@ -132,6 +132,17 @@ const statusMap: Record<string, WorkflowRunStatus> = {
 
 function invalidVercelResult(field: string): Error {
   return workflowErrorDiagnostics.WORKFLOW_R0026({ message: `Vercel Workflow provider returned an invalid ${field}.` })
+}
+
+function normalizeStepPage(page: unknown): { cursor?: string, data: unknown[], hasMore: boolean } {
+  if (!hasRuntimeType(page, "object") || page === null || Array.isArray(page)) throw invalidVercelResult("step page")
+  // SAFETY: The object check establishes a provider page record whose members are validated below.
+  const value = page as { cursor?: unknown, data?: unknown, hasMore?: unknown }
+  const { cursor, data, hasMore } = value
+  if (!Array.isArray(data)) throw invalidVercelResult("step page data")
+  if (!hasRuntimeType(hasMore, "boolean")) throw invalidVercelResult("step page hasMore flag")
+  if (cursor !== undefined && cursor !== null && !hasRuntimeType(cursor, "string")) throw invalidVercelResult("step page cursor")
+  return { ...(cursor === undefined || cursor === null ? {} : { cursor }), data, hasMore }
 }
 
 function normalizeStatus(status: unknown): WorkflowRunStatus {
