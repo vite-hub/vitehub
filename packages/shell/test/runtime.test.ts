@@ -925,6 +925,17 @@ describe("@vite-hub/shell analyzer", () => {
   })
 
   it.each([
+    ["echo foo\\ #bar", ["echo"]],
+    ["echo foo\\|#bar | cat", ["echo", "cat"]],
+  ] as const)("preserves hashes after escaped shell separators in %s", async (command, commands) => {
+    await expect(analyzeShellCommand(command)).resolves.toMatchObject({
+      commands,
+      hasPipelines: command.includes(" | "),
+      ok: true,
+    })
+  })
+
+  it.each([
     ["echo 'a|b'", ["echo"], false],
     ["echo a\\|b", ["echo"], false],
     ["cat file | head", ["cat", "head"], true],
