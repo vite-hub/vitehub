@@ -239,7 +239,7 @@ export type ConsoleAuthorize = (context: ConsoleAuthorizeContext) => boolean | R
 
 /** Define the function that every Console data route calls with `exposure: "host-managed"`. */
 export function defineConsoleAuthorize(authorize: ConsoleAuthorize): ConsoleAuthorize {
-  if (!(authorize instanceof Function)) throw new TypeError("[vitehub] defineConsoleAuthorize() requires a function.")
+  if (typeof authorize !== "function") throw new TypeError("[vitehub] defineConsoleAuthorize() requires a function.")
   return authorize
 }
 

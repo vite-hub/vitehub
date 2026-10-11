@@ -1,4 +1,5 @@
 import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
+import { runInNewContext } from "node:vm"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
@@ -80,6 +81,10 @@ describe("Console data route contract", () => {
 })
 
 describe("Console access policies", () => {
+  it("accepts an authorize callback created in another runtime realm", () => {
+    const authorize = runInNewContext("({ request }) => request.url.includes('vitehub.local')")
+    expect(defineConsoleAuthorize(authorize as never)).toBe(authorize)
+  })
   it("fails closed when no policy is installed", async () => {
     const { handler, result } = await run(undefined)
     expect(handler).not.toHaveBeenCalled()
