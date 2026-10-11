@@ -424,6 +424,18 @@ Unavailable
       .rejects.toThrow("must resolve to a safe destination")
   })
 
+  it("rejects data bindings for HTML event-handler attributes", async () => {
+    await expect(renderMarkdownTemplate('<img :onerror="data.handler">', {
+      data: { handler: "globalThis.compromised = true" },
+    })).rejects.toMatchObject({ code: "MARKDOWN_TEMPLATE_R0031" })
+    await expect(renderMarkdownTemplate('<div :ONCLICK="data.handler"></div>', {
+      data: { handler: "globalThis.compromised = true" },
+    })).rejects.toMatchObject({ code: "MARKDOWN_TEMPLATE_R0031" })
+    await expect(renderMarkdownTemplate('<div :data-onclick="data.handler"></div>', {
+      data: { handler: "literal" },
+    })).resolves.toContain('data-onclick="literal"')
+  })
+
   it("preserves URL-like attributes on custom tags", async () => {
     await expect(renderMarkdownTemplate('<policy action="review now">Use it.</policy>'))
       .resolves.toBe('<policy action="review now">Use it.</policy>')

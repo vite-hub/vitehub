@@ -128,6 +128,15 @@ export async function renderMarkdownTemplateInternal(template: string, options: 
 }
 
 async function sanitizeUrlAttributes(tag: string, props: Record<string, unknown>, source: Record<string, unknown>, svgContext = false): Promise<Record<string, unknown>> {
+  // Comark's security plugin treats on* attributes as HTML sinks. Keep
+  // template data out of those sinks while preserving authored static markup.
+  for (const key of Object.keys(source)) {
+    if (!key.startsWith(":")) continue
+    const attribute = key.slice(1).toLowerCase()
+    if (attribute.startsWith("on")) {
+      throw diagnostics.MARKDOWN_TEMPLATE_R0031({ message: `[vitehub] Markdown template binding "${String(source[key])}" cannot target an HTML event-handler attribute.` })
+    }
+  }
   const sanitized = { ...props }
   for (const [key, value] of Object.entries(props)) {
     const attribute = key.toLowerCase()
