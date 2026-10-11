@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 import { createServer } from "node:http"
+import { runInNewContext } from "node:vm"
 
 import { clearActiveCloudflareEnv, getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { ViteHubError } from "@vite-hub/runtime"
@@ -287,6 +288,16 @@ describe("cloudflare queue runtime", () => {
 
     await expect(client.send({ email: "ava@example.com" })).rejects.toBe(abort)
     await expect(client.send({ email: "ava@example.com" })).rejects.toBe(custom)
+  })
+
+  it("preserves cross-realm abort errors from Cloudflare send", async () => {
+    const abort = runInNewContext("Object.assign(new Error('caller stopped queue send'), { name: 'AbortError' })") as Error
+    const client = createCloudflareQueueClient({
+      binding: { send: vi.fn().mockRejectedValue(abort), sendBatch: vi.fn(async () => {}) },
+      provider: "cloudflare",
+    })
+
+    await expect(client.send({ email: "ava@example.com" })).rejects.toBe(abort)
   })
 
   it("redacts unsafe queue identifiers from definition lookup failures", async () => {
