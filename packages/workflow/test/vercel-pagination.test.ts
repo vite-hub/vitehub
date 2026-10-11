@@ -7,7 +7,7 @@ import type { VercelRun } from "../src/runtime/vercel.ts"
 const native = Object.assign(async () => "done", { workflowId: "workflow-pagination" })
 const definition = { handler: native, options: { native } }
 
-function installStepsList(list: (options: unknown) => Promise<{ cursor?: string, data: unknown[], hasMore: boolean }>) {
+function installStepsList(list: (options: unknown) => Promise<{ cursor?: string | null, data: unknown[], hasMore: boolean }>) {
   const run: VercelRun = {
     cancel: async () => {},
     completedAt: Promise.resolve(undefined),
@@ -72,7 +72,7 @@ it.each([
   expect(calls).toBe(cursors.length)
 })
 
-it.each([undefined, ""])("rejects an unfinished page with cursor %j", async (cursor) => {
+it.each([undefined, null, ""])("rejects an unfinished page with cursor %j", async (cursor) => {
   installStepsList(async () => ({ cursor, data: [], hasMore: true }))
 
   await expect(inspectVercelWorkflowRun("pagination", definition, "run-pagination")).rejects.toMatchObject({
