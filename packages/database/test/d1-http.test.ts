@@ -79,4 +79,16 @@ describe("Cloudflare D1 HTTP resolver", () => {
     const error = await database.select().from(schema.notes).then(() => undefined, error => error)
     expect(error).toMatchObject({ cause: { code: "DATABASE_R0011", message: "Invalid D1 response" } })
   })
+
+  it("accepts successful rowless write responses", async () => {
+    vi.stubEnv("DESIGN_D1_TOKEN", "token")
+    vi.stubEnv("DESIGN_D1_URL", "https://d1.example.com/raw")
+    const request = vi.fn(async () => Response.json({
+      success: true,
+      result: [{ success: true }],
+    }))
+    const database = createCloudflareD1HttpResolver(configuration(), schema, request)()
+
+    await expect(database.insert(schema.notes).values({ id: 1, title: "hello" }).run()).resolves.toEqual({ rows: [] })
+  })
 })

@@ -66,6 +66,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Object.prototype.toString.call(value) === "[object Object]"
 }
 
+function isRowMatrix(value: unknown): value is unknown[][] {
+  return Array.isArray(value) && value.every(row => Array.isArray(row))
+}
+
 function resolveCloudflareD1HttpConnection(config: RuntimeDrizzleDatabaseConfig, databaseId: string) {
   const http = config.cloudflare?.http
   if (!http) return
@@ -126,7 +130,14 @@ function createCloudflareD1HttpDb<TSchema extends Record<string, unknown>>(
       if (result.success !== true) {
         throw cloudflareD1HttpError(response, `query ${index + 1}`, result, payload)
       }
-      if (!result.results || !Array.isArray(result.results.rows)) {
+      if (result.results === undefined) return []
+      if (!isRecord(result.results)) {
+        throw databaseErrorDiagnostics.DATABASE_R0011({ message: "Invalid D1 response" })
+      }
+      if (!("rows" in result.results) || result.results.rows === undefined) {
+        return []
+      }
+      if (!isRowMatrix(result.results.rows)) {
         throw databaseErrorDiagnostics.DATABASE_R0011({ message: "Invalid D1 response" })
       }
       return result.results.rows
