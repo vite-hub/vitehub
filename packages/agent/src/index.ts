@@ -3461,6 +3461,16 @@ type AgentInvocationContext<
   invocationJournal?: AgentInvocationJournal<TRuntimeConfig>
 }
 
+function executionBudgetHasConstraints(input: { executionBudget?: { deadlineAt?: number, maxInputBytes?: number, maxOutputBytes?: number, maxRetries?: number, maxToolCalls?: number }, timeout?: number }) {
+  const budget = input.executionBudget
+  return input.timeout !== undefined
+    || budget?.deadlineAt !== undefined
+    || budget?.maxInputBytes !== undefined
+    || budget?.maxOutputBytes !== undefined
+    || budget?.maxRetries !== undefined
+    || budget?.maxToolCalls !== undefined
+}
+
 function toAgentAdapterRunContext<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
@@ -8064,9 +8074,14 @@ async function executeAgentInvocation<
   })
   input = {
     ...input,
-    abortSignal: input.abortSignal
-      ? AbortSignal.any([input.abortSignal, executionBudget.signal])
-      : executionBudget.signal,
+    // Keep the caller's signal intact when no budget constraint is configured.
+    // This avoids introducing a synthetic signal into legacy invocation metadata
+    // while constrained runs still observe deadline and budget cancellation.
+    abortSignal: executionBudgetHasConstraints(input)
+      ? input.abortSignal
+        ? AbortSignal.any([input.abortSignal, executionBudget.signal])
+        : executionBudget.signal
+      : input.abortSignal,
   }
   let preparedInvocation: AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS> | undefined
   let release: (() => void) | undefined

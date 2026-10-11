@@ -722,7 +722,10 @@ export function createWorkspaceTools<Operations extends WorkspaceToolOperations 
         },
         type: "object",
       }),
-      execute: async ({ path, sources }) => await materializeWorkspaceSourcesTool(input, { path, sources }),
+      execute: async ({ path, sources }) => {
+        resolved.budget?.recordToolCall()
+        return await materializeWorkspaceSourcesTool(input, { path, sources })
+      },
     }), { icon: "i-lucide-folder-sync", title: "Materialized Workspace sources" })
   }
 
