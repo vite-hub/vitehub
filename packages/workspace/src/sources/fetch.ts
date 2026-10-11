@@ -312,12 +312,12 @@ async function defaultFetchSourceRequest(
   ctx: SourceContext,
   overrides: { body?: unknown, query?: Record<string, unknown> } = {},
 ) {
-  const defaultQuery = typeof overrides.query !== "undefined"
+  const defaultQuery = overrides.query !== undefined
     ? undefined
     : options.query !== undefined || concreteQueryFromOptions(options)
       ? concreteQueryFromOptions(options)
       : options.querySchema ? await parseStandardSchema(options.querySchema, {}, "fetch() query default") : undefined
-  const defaultBody = typeof overrides.body !== "undefined"
+  const defaultBody = overrides.body !== undefined
     ? undefined
     : options.body !== undefined
       ? options.body
