@@ -111,7 +111,9 @@ function outputTokenLimit(tokens: AgentBudgetTokenLimits): number | undefined {
 export function budget(options: AgentBudgetOptions): AgentCapabilityDefinition {
   const id = options.id || "budget"
   const limits = validateOptions(options)
-  const pricing = options.pricing === false ? undefined : options.pricing || modelsDevPricing()
+  const pricing = options.pricing === false || (limits.usd === undefined && options.pricing === undefined)
+    ? undefined
+    : options.pricing || modelsDevPricing()
   const mode = options.mode || "observe"
 
   const metadata = { kind: "budget", mode, tokens: limits.tokens }
