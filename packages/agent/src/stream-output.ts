@@ -32,9 +32,21 @@ export function isUIMessageStreamResult(value: unknown): value is { toUIMessageS
 }
 
 export function isUIMessageStreamResponse(value: unknown): value is Response & { body: ReadableStream<Uint8Array> } {
-  return value instanceof Response
-    && value.body !== null
-    && value.headers.get("x-vercel-ai-ui-message-stream") === "v1"
+  if (value === null || typeof value !== "object") return false
+  try {
+    if (Object.prototype.toString.call(value) !== "[object Response]") return false
+    const response = value as { body?: unknown, headers?: unknown }
+    return response.body !== null
+      && typeof response.body === "object"
+      && typeof (response.body as { pipeThrough?: unknown }).pipeThrough === "function"
+      && response.headers !== null
+      && typeof response.headers === "object"
+      && typeof (response.headers as { get?: unknown }).get === "function"
+      && (response.headers as { get: (name: string) => unknown }).get("x-vercel-ai-ui-message-stream") === "v1"
+  }
+  catch {
+    return false
+  }
 }
 
 export function uiMessageStreamFromResponse(response: Response & { body: ReadableStream<Uint8Array> }): ReadableStream<unknown> {
