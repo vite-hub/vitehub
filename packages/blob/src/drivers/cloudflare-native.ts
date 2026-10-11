@@ -124,6 +124,13 @@ async function signRequest(options: ResolvedCloudflareR2BlobStoreConfig, pathnam
   }
 }
 
+function assertListPageCursor(result: { cursor?: string, truncated?: boolean }) {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Cloudflare R2 list responses cross the provider boundary before pagination is normalized.
+  if (typeof result.truncated !== "boolean" || (result.truncated && !result.cursor) || (!result.truncated && result.cursor)) {
+    throw blobErrorDiagnostics.BLOB_R0033({ message: "Cloudflare R2 returned an invalid list page: `truncated` must be a boolean, and `cursor` is present only when `truncated` is true." })
+  }
+}
+
 export function createDriver(options: ResolvedCloudflareR2BlobStoreConfig): BlobDriverAdapter<ResolvedCloudflareR2BlobStoreConfig> {
   return {
     name: "cloudflare-r2",
@@ -162,6 +169,7 @@ export function createDriver(options: ResolvedCloudflareR2BlobStoreConfig): Blob
         limit: listOptions.limit ?? 1000,
         prefix: listOptions.prefix,
       })
+      assertListPageCursor(result)
       return {
         blobs: result.objects.map(mapObject),
         cursor: result.truncated ? result.cursor : undefined,

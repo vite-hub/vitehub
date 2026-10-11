@@ -42,6 +42,9 @@ describe("published package types", () => {
     expectTypeOf(database).toMatchTypeOf<Database<{ notes: typeof notes }>>()
     expectTypeOf(database.schema.notes).toEqualTypeOf(notes)
     expectTypeOf(database.select).toBeFunction()
+    expectTypeOf(database.batch).toBeFunction()
+    expectTypeOf(db.batch).toBeFunction()
+    expectTypeOf(useDatabase("analytics").db.batch).toBeFunction()
   })
 
   it("resolves the Nuxt bridge subpath", () => {

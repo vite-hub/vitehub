@@ -33,7 +33,7 @@ The Agent can use only the Capabilities selected for that Invocation. A Capabili
 
 A Channel can start many Invocations, and a Workflow Run can carry an Invocation. Neither one replaces the Invocation record.
 
-Run `vitehub agent info` to inspect the resolved Agent Definition. Run `vitehub agent dev` to talk to the Agent through a running Vite development server. Read [Runtime policy, approvals, and traces](/docs/getting-started/concepts/runtime-policy-approvals-and-traces) for the records produced during execution.
+Run `vitehub agent info` to inspect the resolved Agent Definition. Run `vitehub agent dev` to talk to the Agent through a running Vite development server. Read [Runtime policy, approvals, and traces](/docs/agents/runtime-policy) for the records produced during execution.
 
 ## Run an Agent
 
@@ -69,7 +69,7 @@ export default defineEventHandler(async (event) => {
 
 Authenticate the request before passing trusted identity or access facts. `context.invoker` is the current input field for an [Agent Actor](/docs/agents/actors).
 
-The second argument is [Runtime Context](/docs/getting-started/concepts/runtime-context); the third is invocation input. The H3 `getRuntimeContext()` adapter supplies `runtime`, a fresh `memo` cache, and tracked `waitUntil` work. The example drains background work before returning and reports background failures separately.
+The second argument is [Runtime Context](/docs/reference/runtime-context); the third is invocation input. The H3 `getRuntimeContext()` adapter supplies `runtime`, a fresh `memo` cache, and tracked `waitUntil` work. The example drains background work before returning and reports background failures separately.
 
 ### Run without a host context
 
@@ -107,7 +107,7 @@ export default defineEventHandler(async (event) => {
 
 Use `output: 'ui-message-stream'` for an AI SDK-compatible chat response. Use `output: 'events'` when server code needs ViteHub stream events.
 
-Streaming routes must provide a real host `waitUntil` lifetime through the event or the adapter options. A drain before returning cannot cover work scheduled when the caller consumes or cancels the stream. See [Runtime Context](/docs/getting-started/concepts/runtime-context#background-work-and-cleanup).
+Streaming routes must provide a real host `waitUntil` lifetime through the event or the adapter options. A drain before returning cannot cover work scheduled when the caller consumes or cancels the stream. See [Runtime Context](/docs/reference/runtime-context#background-work-and-cleanup).
 
 The stream becomes terminal when the caller consumes it, cancels it, or receives an error. A caller that abandons the stream also abandons completion observation.
 
