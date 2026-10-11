@@ -1364,6 +1364,16 @@ describe("tiptap-markdown documents", () => {
     restored.destroy()
   })
 
+  it("falls back to Markdown for spoofed durable buffers", () => {
+    const restored = restoreRealtimeDocument("# Fallback", "baseline", {
+      baseline_digest: "baseline",
+      update_blob: { [Symbol.toStringTag]: "ArrayBuffer" },
+    })
+
+    expect(yDocToMarkdown(restored)).toBe("# Fallback")
+    restored.destroy()
+  })
+
   it("restores durable Yjs identities only for the matching Workspace version", () => {
     const original = markdownToYDoc("# Shared draft")
     const stored = {

@@ -66,6 +66,32 @@ describe("durable Response representation", () => {
     expect(() => deserializeResponse({} as never)).toThrow(TypeError)
   })
 
+  it("rejects sparse header arrays", () => {
+    const serialized = {
+      body: { data: "", encoding: "base64" as const, mediaType: "text/plain" },
+      headers: new Array(1),
+      status: 200,
+      statusText: "",
+    }
+
+    expect(isSerializedResponse(serialized)).toBe(false)
+    expect(() => deserializeResponse(serialized as never)).toThrow(TypeError)
+  })
+
+  it("rejects response fields that the native Response constructor cannot read", async () => {
+    const serialized = await serializeResponse(new Response("ok", {
+      headers: { "x-test": "value" },
+      statusText: "OK",
+    }))
+
+    for (const data of ["!", "YQ="]) {
+      expect(isSerializedResponse({ ...serialized, body: { ...serialized.body, data } })).toBe(false)
+    }
+    expect(isSerializedResponse({ ...serialized, statusText: "\u0000" })).toBe(false)
+    expect(isSerializedResponse({ ...serialized, headers: [["invalid name", "value"]] })).toBe(false)
+    expect(isSerializedResponse({ ...serialized, headers: [["x-test", "\u0000"]] })).toBe(false)
+  })
+
   it.each([204, 205, 304])("rejects a non-empty body for status %s", (status) => {
     const serialized = {
       body: { data: "YQ==", encoding: "base64" as const, mediaType: "text/plain" },

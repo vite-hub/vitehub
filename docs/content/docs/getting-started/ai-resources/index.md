@@ -42,7 +42,7 @@ Each index lists documentation pages and links every page to its raw Markdown ve
 
 | URL | Content |
 | --- | --- |
-| `https://vitehub.dev/llms.txt` | Every docs page, plus blog, trust, and developer resources. Start here. |
+| `https://vitehub.dev/llms.txt` | Every docs page, plus trust and developer resources. Start here. |
 | `https://vitehub.dev/llms-full.txt` | The complete documentation in one file. |
 
 Give the agent the index, then let it pick only the product pages the task needs.

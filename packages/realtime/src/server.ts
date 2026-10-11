@@ -1,6 +1,7 @@
 import { Editor } from "@tiptap/core"
 import { prosemirrorJSONToYDoc, updateYFragment, yDocToProsemirrorJSON } from "@tiptap/y-tiptap"
 import { assertAuthOrigin } from "@vite-hub/auth/server"
+import { getViteHubErrorShape } from "@vite-hub/runtime"
 import { isWorkspaceConflict, normalizeSafeWorkspacePath, resolveWorkspaceStoreTarget, useWorkspace } from "@vite-hub/workspace"
 import { HTTPError, defineEventHandler, defineWebSocketHandler } from "h3"
 import * as decoding from "lib0/decoding"
@@ -221,11 +222,17 @@ function matchesBytes(actual: Uint8Array | undefined, expected: Uint8Array): boo
 }
 
 function storedUpdate(value: unknown): Uint8Array | undefined {
-  if (value instanceof ArrayBuffer || Object.prototype.toString.call(value) === "[object ArrayBuffer]") {
-    // SAFETY: The native ArrayBuffer constructor accepts buffers from other realms.
-    return new Uint8Array(value as ArrayBuffer)
+  try {
+    // The native getter checks the ArrayBuffer internal slot and accepts buffers from other realms.
+    const byteLength = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")?.get
+    if (byteLength?.call(value) !== undefined) {
+      return new Uint8Array(value as ArrayBuffer)
+    }
+    if (ArrayBuffer.isView(value)) return new Uint8Array(value.buffer, value.byteOffset, value.byteLength)
   }
-  if (ArrayBuffer.isView(value)) return new Uint8Array(value.buffer, value.byteOffset, value.byteLength)
+  catch {
+    return undefined
+  }
 }
 
 export function restoreRealtimeDocument(markdown: string, baselineDigest: string | undefined, stored: Record<string, unknown> | undefined): Y.Doc {
@@ -253,7 +260,17 @@ export async function readRealtimeWorkspaceDocument(
   writable: WritableWorkspaceFacade,
   documentId: string,
 ): Promise<{ baselineDigest: string | undefined, markdown: string }> {
-  const stat = () => writable.fs.stat(documentId)
+  const stat = async () => {
+    try {
+      return await writable.fs.stat(documentId)
+    }
+    catch (error) {
+      const shape = getViteHubErrorShape(error)
+      // Registry failures name the missing Workspace; absent document paths do not.
+      if (shape?.code === "WORKSPACE_NOT_FOUND" && shape.details?.name === undefined) return undefined
+      throw error
+    }
+  }
   for (let attempt = 0; attempt < 3; attempt++) {
     const before = await stat()
     let markdown = ""
