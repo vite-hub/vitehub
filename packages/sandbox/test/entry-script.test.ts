@@ -56,6 +56,31 @@ async function executePackageEntry(definitionSource: string, options: {
 }
 
 describe("package entry result transport", () => {
+  it("preserves a Response from another realm across the child process", async () => {
+    const execution = await executePackageEntry([
+      `import { runInNewContext } from 'node:vm'`,
+      `export default () => runInNewContext(\`new (class {`,
+      `  get [Symbol.toStringTag]() { return 'Response' }`,
+      `  get status() { return 201 }`,
+      `  get statusText() { return 'Created' }`,
+      `  get headers() { return new Headers([['x-result', 'preserved']]) }`,
+      `  get body() { return {} }`,
+      `  async arrayBuffer() { return new Uint8Array([0, 127, 255]).buffer }`,
+      `})()\`, { Headers })`,
+    ].join("\n"))
+
+    expect(execution.code).toBe(0)
+    const sandbox = {} as Parameters<typeof decodeSandboxValue>[0]
+    const response = await decodeSandboxValue(sandbox, execution.output.result, "", "result")
+
+    expect(response).toBeInstanceOf(Response)
+    if (!(response instanceof Response)) throw new TypeError("Expected Response")
+    expect(response.status).toBe(201)
+    expect(response.statusText).toBe("Created")
+    expect(response.headers.get("x-result")).toBe("preserved")
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(new Uint8Array([0, 127, 255]))
+  })
+
   it.each(["opaque", "opaqueredirect"])("preserves a %s response across the child process", async (type) => {
     const url = type === "opaqueredirect" ? "https://example.com/manual-redirect" : ""
     const execution = await executePackageEntry(
