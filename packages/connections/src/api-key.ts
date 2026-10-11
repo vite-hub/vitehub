@@ -49,7 +49,10 @@ export function apiKeyOrigin(value: string): string | undefined {
 export function isValidApiKeyProvider(provider: { header: string, origins: readonly string[], scheme?: string }): boolean {
   try {
     if (!provider || typeof provider !== "object" || Array.isArray(provider)) return false
-    if (typeof provider.header !== "string" || !Array.isArray(provider.origins) || provider.origins.some(origin => typeof origin !== "string")) return false
+    if (typeof provider.header !== "string" || !Array.isArray(provider.origins)) return false
+    for (let index = 0; index < provider.origins.length; index++) {
+      if (!(index in provider.origins) || typeof provider.origins[index] !== "string") return false
+    }
     return tokenPattern.test(provider.header)
       && provider.header === provider.header.toLowerCase()
       && (provider.scheme === undefined || typeof provider.scheme === "string" && tokenPattern.test(provider.scheme))

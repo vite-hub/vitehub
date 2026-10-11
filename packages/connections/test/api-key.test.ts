@@ -45,6 +45,7 @@ describe("apiKey()", () => {
   it("returns false for malformed validator input", () => {
     expect(isValidApiKeyProvider(null as never)).toBe(false)
     expect(isValidApiKeyProvider({ header: "authorization", origins: null as never })).toBe(false)
+    expect(isValidApiKeyProvider({ header: "authorization", origins: new Array(1) })).toBe(false)
   })
 
   it("defaults to a Bearer authorization header", () => {
