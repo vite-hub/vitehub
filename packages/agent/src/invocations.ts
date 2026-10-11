@@ -536,14 +536,12 @@ function boundedString(value: string | undefined): string | undefined {
   return value === undefined ? undefined : value.slice(0, MAX_METADATA_STRING_LENGTH)
 }
 
-function isArrayBufferValue(value: unknown): value is ArrayBuffer {
-  if (value instanceof ArrayBuffer) return true
+function arrayBufferByteLength(value: unknown): number | undefined {
   try {
-    Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")!.get!.call(value)
-    return true
+    return Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")!.get!.call(value)
   }
   catch {
-    return false
+    return undefined
   }
 }
 
@@ -762,10 +760,16 @@ function boundedObservationValue(
     if (entries.length < value.size) budget.truncated = true
     return entries.map(child => boundedObservationValue(child, budget, depth + 1, maxStringLength, builtIns))
   }
-  if (isArrayBufferValue(value)) {
+  const arrayBufferLength = arrayBufferByteLength(value)
+  if (arrayBufferLength !== undefined) {
     budget.truncated = true
-    const length = Math.min(value.byteLength, collectionItems, budget.items)
-    return boundedObservationValue(Array.from(new Uint8Array(value, 0, length)), budget, depth + 1, maxStringLength, builtIns)
+    const length = Math.min(arrayBufferLength, collectionItems, budget.items)
+    try {
+      return boundedObservationValue(Array.from(new Uint8Array(value as ArrayBuffer, 0, length)), budget, depth + 1, maxStringLength, builtIns)
+    }
+    catch {
+      return []
+    }
   }
   if (ArrayBuffer.isView(value)) {
     budget.truncated = true
@@ -812,10 +816,22 @@ function boundedObservationValue(
     if (string.length > MAX_METADATA_STRING_LENGTH) budget.truncated = true
     return boundedString(string)
   }
-  const prototype = Object.getPrototypeOf(value)
+  let prototype: object | null
+  try {
+    prototype = Object.getPrototypeOf(value)
+  }
+  catch {
+    budget.truncated = true
+    return "[unsupported object]"
+  }
   if (prototype !== null && prototype !== Object.prototype) {
     budget.truncated = true
-    return `[unsupported ${Object.prototype.toString.call(value).slice(8, -1)}]`
+    try {
+      return `[unsupported ${Object.prototype.toString.call(value).slice(8, -1)}]`
+    }
+    catch {
+      return "[unsupported object]"
+    }
   }
   // SAFETY: Invocation event normalization establishes the asserted invocation contract.
   // Match JSON object semantics: optional undefined properties are absent data, not truncated data.
