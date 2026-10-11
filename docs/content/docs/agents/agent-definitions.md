@@ -107,6 +107,8 @@ Each key is a Skill name, and each value is its `SKILL.md` content. The result k
 
 ### Named presets
 
+Use [Agent presets](/docs/agents/presets) to choose a built-in workflow and follow its setup guide.
+
 Export ordinary `defineAgent()` definitions from a preset package. Consumers import them and select a local name:
 
 ```ts
