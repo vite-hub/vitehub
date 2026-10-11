@@ -22,6 +22,18 @@ describe("defineOutboundChannel", () => {
   ])("rejects invalid definitions", (definition, message) => {
     expect(() => defineOutboundChannel(definition as never)).toThrow(message)
   })
+
+  it("turns a throwing connector getter into the connector diagnostic", () => {
+    const definition = {
+      connectors: {
+        get broken() {
+          throw new Error("connector getter failed")
+        },
+      },
+    }
+
+    expect(() => defineOutboundChannel(definition as never)).toThrow('Channel connector "broken" must expose a send function.')
+  })
 })
 
 describe("defineChannel", () => {

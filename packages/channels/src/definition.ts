@@ -2,7 +2,12 @@ import type { ChannelConnectorMap, ChannelDefinition } from "./types.ts"
 import { channelsErrorDiagnostics } from "./error-diagnostics.ts"
 
 function isConnector(value: unknown): value is { send: unknown } {
-  return Boolean(value) && typeof value === "object" && typeof (value as { send?: unknown }).send === "function"
+  try {
+    return Boolean(value) && typeof value === "object" && typeof (value as { send?: unknown }).send === "function"
+  }
+  catch {
+    return false
+  }
 }
 
 function validateChannelDefinition(value: unknown): asserts value is ChannelDefinition {
@@ -21,7 +26,14 @@ function validateChannelDefinition(value: unknown): asserts value is ChannelDefi
   }
 
   for (const name of connectorNames) {
-    if (!isConnector(definition.connectors[name])) {
+    let connector: unknown
+    try {
+      connector = definition.connectors[name]
+    }
+    catch {
+      connector = undefined
+    }
+    if (!isConnector(connector)) {
       throw channelsErrorDiagnostics.CHANNELS_C0004({ message: `Channel connector "${name}" must expose a send function.` })
     }
   }
