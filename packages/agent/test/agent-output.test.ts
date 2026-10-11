@@ -1,3 +1,5 @@
+import { runInNewContext } from "node:vm"
+
 import { describe, expect, it } from "vitest"
 
 import { applyStreamEvent } from "../src/messages.ts"
@@ -550,6 +552,16 @@ describe("agent output helpers", () => {
   it("normalizes stream error chunks", () => {
     expect(toAgentStreamEvent({ error: new Error("boom"), type: "error" })).toEqual({
       error: "boom",
+      type: "error",
+    })
+  })
+
+  it("preserves messages from cross-realm stream errors", () => {
+    const error = runInNewContext("new Error('cross-realm boom')")
+    expect(error).not.toBeInstanceOf(Error)
+    expect(toAgentStreamEvent({ error, recoverable: true, type: "error" })).toEqual({
+      error: "cross-realm boom",
+      recoverable: true,
       type: "error",
     })
   })

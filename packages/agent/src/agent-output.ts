@@ -665,8 +665,14 @@ export function toAgentStreamEvent(
       return { id: approvalId, input: request.input, ...optionalMessageId(messageId), name: capability, reason, type: "approval-request" }
     }
     // SAFETY: Agent output normalization establishes the asserted stream result contract.
-    const event = { error: value.error instanceof Error ? value.error.message : String(value.error || "Unknown error"), ...(hasRuntimeType(value.id, "string") ? { id: value.id } : {}), ...optionalMessageId(messageId), ...(value.recoverable === true ? { recoverable: true } : {}), type: "error" as const }
-    if (value.error instanceof Error) Object.defineProperty(event, agentStreamErrorSymbol, { value: value.error })
+    const error = value.error
+    const errorMessage = error instanceof Error
+      ? error.message
+      : error !== null && typeof error === "object" && Object.prototype.toString.call(error) === "[object Error]"
+        ? String((error as { message?: unknown }).message)
+        : String(error || "Unknown error")
+    const event = { error: errorMessage, ...(hasRuntimeType(value.id, "string") ? { id: value.id } : {}), ...optionalMessageId(messageId), ...(value.recoverable === true ? { recoverable: true } : {}), type: "error" as const }
+    if (error instanceof Error || error !== null && typeof error === "object" && Object.prototype.toString.call(error) === "[object Error]") Object.defineProperty(event, agentStreamErrorSymbol, { value: error })
     return event
   }
   if (type === "usage" && isUsageRecord(value.usageRecord)) {
