@@ -28,7 +28,10 @@ export type LoadCloudflarePlaywright = () => Promise<CloudflarePlaywrightDriver>
 
 async function runtimeBinding(name: string): Promise<unknown> {
   const environment = (globalThis as { __env__?: Record<string, unknown> }).__env__
-  if (environment && Object.hasOwn(environment, name)) return environment[name]
+  if (environment && Object.hasOwn(environment, name)) {
+    const globalBinding = environment[name]
+    if (globalBinding) return globalBinding
+  }
   try {
     const workers = await import("cloudflare:workers") as { env?: Record<string, unknown> }
     return workers.env && Object.hasOwn(workers.env, name) ? workers.env[name] : undefined
