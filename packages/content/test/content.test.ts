@@ -10,7 +10,7 @@ import { afterEach, describe, expect, expectTypeOf, it } from "vitest"
 import { clearSources, createSource, defineSource, registerSources, useSource } from "@vite-hub/source"
 import type { SourceName } from "@vite-hub/source"
 
-import { contentSource, defineContent } from "../src/index.ts"
+import { contentSource, defineContent, defineContentHandler } from "../src/index.ts"
 
 afterEach(clearSources)
 
@@ -763,5 +763,31 @@ describe("contentSource", () => {
     })
 
     await expect(contentSource(useSource("unsafe" as any)).keys()).rejects.toThrow("Content Source path escapes the source root")
+  })
+})
+
+describe("defineContentHandler", () => {
+  it("preserves repeated Node header values from another realm", async () => {
+    let received: string | null = null
+    const handler = defineContentHandler({
+      async handler(request) {
+        received = (request as Request).headers.get("x-test")
+        return new Response("ok")
+      },
+    })
+    const nodeHeaders = runInNewContext("['first', 'second']") as string[]
+    const nodeRequest = {
+      aborted: false,
+      headers: { "x-test": nodeHeaders },
+      method: "GET",
+      url: "/headers",
+      [Symbol.asyncIterator]() {
+        return { next: async () => ({ done: true as const, value: undefined }) }
+      },
+      once() {},
+    }
+
+    await handler({ method: "GET", node: { req: nodeRequest }, req: nodeRequest } as never)
+    expect(received).toBe("first, second")
   })
 })
