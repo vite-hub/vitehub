@@ -28,6 +28,22 @@ describe.each([
     await expect(read("payload", value => value.toUpperCase())).resolves.toBe("PAYLOAD")
   })
 
+  it("normalizes errors thrown by a Standard Schema validator", async () => {
+    const read = await load()
+    const validate = {
+      "~standard": {
+        validate: () => {
+          throw new Error("validator exploded")
+        },
+      },
+    }
+
+    await expect(read("payload", validate)).rejects.toMatchObject({
+      code: "SANDBOX_VALIDATION_ERROR",
+      message: "validator exploded",
+    })
+  })
+
   it.each([
     { failure: { issues: [] } },
     { failure: { issues: [], value: "must not be returned" } },
