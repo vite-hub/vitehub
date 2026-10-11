@@ -362,7 +362,7 @@ async function constantTimeEqual(left: string, right: string): Promise<boolean> 
 
 function stripeSignatureTolerance(signature: AgentWebhookRegistrationDefinition["signature"]): number | undefined {
   if (signature === "stripe-sha256") return 300
-  if (isRecord(signature) && "preset" in signature && signature.preset === "stripe-sha256") return signature.toleranceSeconds ?? 300
+  if (isRecord(signature) && Object.hasOwn(signature, "preset") && signature.preset === "stripe-sha256") return signature.toleranceSeconds ?? 300
   return undefined
 }
 

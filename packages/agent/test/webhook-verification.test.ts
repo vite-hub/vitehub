@@ -340,6 +340,15 @@ describe("agent webhook verification", () => {
       .rejects.toMatchObject({ statusCode: 401 })
   })
 
+  it("ignores inherited stripe preset configuration", async () => {
+    const body = "{\"id\":\"evt_1\"}"
+    const now = Math.floor(Date.now() / 1000)
+    const header = stripeSignature("secret-token", body, now)
+    const signature = Object.create({ preset: "stripe-sha256", toleranceSeconds: 300 })
+    await expect(verifyAgentWebhookRequest(stripeRegistration(signature), stripeRequest(header, body)))
+      .rejects.toMatchObject({ statusCode: 401 })
+  })
+
   it("uses integer-second maximum-age semantics", async () => {
     const body = "{\"id\":\"evt_1\"}"
     const now = Math.floor(Date.now() / 1000)
