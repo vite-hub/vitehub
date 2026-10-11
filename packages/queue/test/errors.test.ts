@@ -1,10 +1,17 @@
 import { ViteHubError } from "@vite-hub/runtime"
+import { runInNewContext } from "node:vm"
 import { describe, expect, it } from "vitest"
 
-import { createQueueError } from "../src/errors.ts"
+import { createQueueError, isQueueBoundaryIdentity } from "../src/errors.ts"
 import { createQueueDeliveryErrorReport } from "../src/internal/delivery-error.ts"
 
 describe("Queue errors", () => {
+  it("recognizes AbortErrors from another realm", () => {
+    const abort = runInNewContext("Object.assign(new Error('caller stopped queue send'), { name: 'AbortError' })")
+    expect(abort).not.toBeInstanceOf(Error)
+    expect(isQueueBoundaryIdentity(abort)).toBe(true)
+  })
+
   it("uses the shared ViteHub error contract", () => {
     const cause = new Error("private provider detail")
     const error = createQueueError("QUEUE_PROVIDER_OPERATION_FAILED", {

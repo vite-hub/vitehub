@@ -97,7 +97,10 @@ export function normalizePublicQueueIdentifier(value: unknown): string | undefin
 export function isQueueBoundaryIdentity(error: unknown): boolean {
   if (getViteHubErrorShape(error)) return true
   try {
-    return error instanceof Error && error.name === "AbortError"
+    return error !== null
+      && typeof error === "object"
+      && "name" in error
+      && error.name === "AbortError"
   }
   catch {
     return false
