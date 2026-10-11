@@ -11,6 +11,8 @@ Each invocation resolves each active plugin's CLI contributor once and uses its 
 Commands stay owned by the package that understands the workflow, while `vitehub` gives agents and developers one predictable entry point.
 The official [`vite-hub` package on npm](https://www.npmjs.com/package/vite-hub) publishes both `vitehub` and `vite-hub` binaries.
 
+CLI discovery and middleware stages load the application's Vite configuration without installing the development invocation route. Console routes remain configured, and `vite dev` keeps its development invocation endpoint inside the reserved `/_vitehub/agent` namespace. The Console catch-all and an application fallback may enclose this endpoint; exact, parameterized, and wildcard routes still conflict. User-configured routes keep strict conflict checks. The first SSR import can load the generated Agent registry before server internals finish initializing; registry refreshes still reset discovered public URL names.
+
 ## Install and open help
 
 The `vite-hub` framework distribution includes the CLI. The command reads
@@ -65,7 +67,7 @@ Available namespaces:
 | `vitehub blob del` | Available | Blob Package | Delete one blob and print what changed. |
 | `vitehub channels history` | Available | Agent Package | Download one deployed conversation and its attachments. |
 | `vitehub channels sync` | Available | Agent Package | Inspect or apply provider-owned webhook registrations for a deployed stage. |
-| `vitehub channels replay` | Available | Agent Package | Replay stored Channel history through an Agent from a development server. |
+| `vitehub channels replay` | Available | Agent Package | Replay stored Channel history through an Agent from a development server or authenticated Console. |
 | `vitehub console dev` | Available | Console integration | Start the app's development command with deterministic Console fixture data. |
 | `vitehub connections` | Available | Connections Package | Connect OAuth accounts, set API keys, list Connections, read activity, and approve or deny writes. |
 | `vitehub env inspect` | Available | Env Package | List declared Server Env variables and their status without values. |
@@ -270,7 +272,9 @@ Telegram exposes the registered URL and delivery errors through `getWebhookInfo`
 
 ## Download Channel history
 
-`channels history` loads the same stage-specific Agent and Channel configuration, then authenticates to the deployed webhook route with its configured webhook secret. It writes portable message metadata to `history.json` and downloads attachment data into `media/`; Agent traces and tool events are not included.
+`channels history` loads the same stage-specific Agent and Channel configuration, then authenticates to the deployed webhook route with its configured webhook secret. Adapter-backed Channels keep the Chat SDK export. A Channel with `history` exports its Collection items, supports `--query key=value` (repeatable), optional `--thread`, and pages until the Collection ends. Add `--invocations` to join retained Invocations and recorded deliveries to each item.
+
+The join uses `vitehub.channel.key` annotations first. For older Invocations without that annotation, a Channel can provide `history.invocationItem(invocation)`, which returns a history item or `undefined`. The exporter calls `history.key()` and optional `history.thread()` on that item. The journal retains observations and run annotations, but does not retain raw webhook trigger input or trusted `input.context`. Recover only identities supported by retained evidence. A missing item, invalid key, or throwing hook leaves the Invocation unjoined. The exporter scans the journal once per Collection page and never runs the Channel trigger or changes journal records.
 
 ```bash [Terminal]
 pnpm vitehub channels history \
@@ -283,7 +287,17 @@ pnpm vitehub channels history \
 
 A Telegram direct-message Channel infers its thread when the adapter allows exactly one user. Pass `--thread <provider-thread-id>` for group conversations and adapters where one Channel serves multiple conversations, issues, or tickets. When a Channel declares multiple webhook registrations, select the deployed route and its authentication with `--webhook <id>`.
 
-The export can only contain history available through the Chat SDK adapter or its configured State Adapter. Telegram's Bot API cannot backfill arbitrary old messages, so its durable fallback uses the configured `threadHistory` window, which defaults to 100 messages retained for seven days. Export before that window expires when the archive is intended for recovery.
+Use `--webhook-path <path>` to export through a different path on the confirmed deployment origin while keeping the selected registration's authentication. This can select the built-in route on an older deployment that does not yet serve a declared `webhooks.path`.
+
+A custom Channel export contains the items returned by its history Collection. With `--invocations`, each item includes `invocations` with `id`, `status`, `createdAt`, `updatedAt`, `dryRun`, `label`, `deliveries: [{ channel, text }]`, and optional retained final `text`. Delivery text is the validated reply before application formatting, including dry-run writes. Retaining this text requires Invocation content storage or `metadataContent` containing `channel.effect.content`.
+
+A Chat SDK export can only contain history available through the adapter or its configured State Adapter. Telegram's Bot API cannot backfill arbitrary old messages, so its durable fallback uses the configured `threadHistory` window, which defaults to 100 messages retained for seven days. Export before that window expires when the archive is intended for recovery.
+
+## Replay Channel history
+
+`vitehub channels replay --agent support --channel mailbox --dry-run --label round-one --query folder=inbox` records each run with `triggeredBy: 'round-one'` and `vitehub.channel.key`. Repeat `--query key=value` to send multiple values, as with `--filter`. Labels are separate from the history query, non-empty, and limited to 512 characters. Query fields named `label` use `--query label=value`.
+
+Replay requires the development project token or deployed Console authentication. It validates saved items through the Channel trigger without rechecking historical provider signatures. Public webhooks retain signature verification. The Vite development loop uses the host's configured Console journal, so local dry-run runs do not need app-side Invocation configuration.
 
 ## Manage Database migrations
 

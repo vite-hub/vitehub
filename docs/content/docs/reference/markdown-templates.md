@@ -8,6 +8,8 @@ icon: i-vscode-icons-file-type-markdown
 
 `@vite-hub/markdown-template` composes Markdown without evaluating JavaScript or reading files implicitly. Use it when Agent Instructions, review prompts, or other generated documents need predictable data binding and conditional sections while preserving authored Markdown structure.
 
+Start with [Render your first Markdown template](/docs/reference/markdown-template-tutorial) for a short working example. This page covers the full renderer contract.
+
 ## Install
 
 The package requires Node.js 24 or later.
