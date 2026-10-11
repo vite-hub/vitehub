@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
+import { runInNewContext } from "node:vm"
 
 import { transform } from "esbuild"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -105,6 +106,12 @@ function createNitroApp(localFetch = vi.fn()) {
 }
 
 describe("generated Nitro Process Runtime plugin", () => {
+  it("preserves runtime errors from another realm", () => {
+    const error = runInNewContext("new Error('cross-realm failure')")
+    expect(error).not.toBeInstanceOf(Error)
+    expect(normalizeScheduleRuntimeError(error)).toBe(error)
+  })
+
   it("passes separate Static and Runtime Schedule registries to execution", async () => {
     const installScheduleRuntime = vi.fn(async (_options: RuntimeInstallOptions) => ({ close: vi.fn() }))
     const plugin = await loadProcessPlugin(installScheduleRuntime)

@@ -51,6 +51,10 @@ export function isScheduleCronAuthorized(authorization: string | null | undefine
 
 export function normalizeScheduleRuntimeError(error: unknown): Error {
   if (error instanceof Error) return error
+  if (error !== null && typeof error === "object" && Object.prototype.toString.call(error) === "[object Error]") {
+    // SAFETY: Error objects from another realm have the same standard Error shape.
+    return error as Error
+  }
   return scheduleErrorDiagnostics.SCHEDULE_R0035({ cause: error, message: String(error) })
 }
 
