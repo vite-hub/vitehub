@@ -248,6 +248,9 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
   }
 
   async function definition(name: string): Promise<ConnectionDefinition> {
+    if (name !== name.trim()) {
+      throw new ConnectionError("invalid", "Connection names cannot start or end with whitespace.", { details: { connection: name } })
+    }
     if (name.length > CONNECTION_NAME_MAX_LENGTH) {
       throw new ConnectionError("invalid", `Connection names must not exceed ${CONNECTION_NAME_MAX_LENGTH} characters so their Env keys fit the 512-character limit.`, { details: { connection: name } })
     }

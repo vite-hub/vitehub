@@ -27,10 +27,11 @@ it("serializes nested API proxies without dispatching provider calls", async () 
   expect(test.provider.calls).toHaveLength(before)
 })
 
-it("trims surrounding whitespace from connection names", async () => {
+it("rejects surrounding whitespace in Connection names", async () => {
   const test = createTestRuntime()
   await connect(test)
   setConnectionsRuntime({ definitions: { mail: async () => ({ default: definition }) }, fetch: test.provider.fetch, now: () => test.now.value, store: test.store })
-  const connection = useConnection(" mail " as string) as unknown as { mail: { labels: { list: (input: { userId: string }) => Promise<unknown> } } }
-  await expect(connection.mail.labels.list({ userId: "me" })).resolves.toEqual({ labels: [{ id: "INBOX" }] })
+  expect(() => useConnection(" mail " as string)).toThrow("Connection name")
+  const connection = useConnection("mail")
+  expect(connection.name).toBe("mail")
 })
