@@ -276,8 +276,8 @@ it("rejects readiness overlaps with static, parameterized, and catch-all handler
 it("treats catch-all handlers above a reserved namespace as fallbacks", () => {
   const route = "/_vitehub/agent/invocations/dev"
   // The Console page and an application fallback match only after the static route.
-  expect(validateAgentStaticRoute(route, [{ route: "/_vitehub/**" }, { route: "/**" }, { route: "/[...path]" }], "development invocation", "/_vitehub/agent")).toBe(route)
-  for (const handler of ["/_vitehub/agent/**", "/_vitehub/agent/[...path]", "/_vitehub/agent/invocations/dev", "/_vitehub/agent/[a]/[b]"]) {
+  expect(validateAgentStaticRoute(route, [{ route: "/_vitehub/**" }, { route: "/**" }], "development invocation", "/_vitehub/agent")).toBe(route)
+  for (const handler of ["/[...path]", "/_vitehub/agent/**", "/_vitehub/agent/[...path]", "/_vitehub/agent/invocations/dev", "/_vitehub/agent/[a]/[b]"]) {
     expect(() => validateAgentStaticRoute(route, [{ route: handler }], "development invocation", "/_vitehub/agent")).toThrow("development invocation route conflicts")
   }
   expect(() => validateAgentStaticRoute(route, [{ route: "/_vitehub/**" }], "development invocation")).toThrow("development invocation route conflicts")

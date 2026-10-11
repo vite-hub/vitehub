@@ -78,7 +78,7 @@ export default defineSchedule({
 
 Run it from a ViteHub development server with `vitehub schedule run daily-report`. The command uses the discovered file name as the definition name and supports `--json`; deployments can invoke the same definition through the Console.
 
-Write `allowRuntimeSchedules` as a literal `true` or `false` in the directly exported definition. Discovery does not evaluate constants, spreads, computed properties, or getters. Unsupported forms fail with the source file and line instead of silently omitting a runtime target.
+Write `manual` and `allowRuntimeSchedules` as literal `true` or `false` values in the directly exported definition. Use identifier keys or quoted keys without escape sequences. Discovery does not evaluate constants, spreads, computed properties, or getters. Unsupported forms fail with the source file and line instead of silently omitting a runtime target.
 
 `ScheduleRunContext` includes `id`, `scheduledAt`, `waitUntil`, optional `attemptId`, optional `runId`, optional Runtime Schedule id, optional Runtime Schedule target, and optional Runtime Schedule `input`.
 

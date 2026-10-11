@@ -71,6 +71,46 @@ Running the file prints:
 node:health
 ```
 
+## Bounded runtime preflight
+
+Hosts that start an Agent can check commands, files, browsers, MCP servers, or
+tools before model execution without making those checks part of the critical
+path. `startRuntimePreflight()` runs a bounded set of checks in parallel and
+returns a promise for a compact, serializable manifest. A failed or missing
+optional capability becomes data and a Nostics diagnostic; it never rejects the
+manifest or the invocation. The diagnostic callback is best effort and does not
+delay the checks.
+
+```ts
+import { startRuntimePreflight } from "@vite-hub/runtime"
+
+const preflight = startRuntimePreflight({
+  checks: [
+    { id: "command:git", kind: "command", required: true, check: ({ signal }) => runWhich("git", signal) },
+    { id: "file:AGENTS.md", kind: "file", check: ({ signal }) => readFile("AGENTS.md", signal) },
+  ],
+  onDiagnostic: issue => reportDiagnostic(issue.diagnostic),
+})
+
+// The host may expose this to inspection or model instructions when ready.
+const manifest = await preflight.manifest
+```
+
+Keep `details` on a check result small and redacted. The framework limits each
+reason and details object, caps the check count, and bounds asynchronous waiting
+time. Check IDs are limited to 128 characters and kinds to 64 characters.
+Results must be plain data records without proxies or accessors; only the first
+12 detail properties are inspected, with 64-character keys and 256-character
+string values. More checks than `maxChecks` rejects the configuration before
+any run.
+
+Checks run on the host event loop. Use non-blocking asynchronous APIs for
+external processes, filesystem work, and network requests, and honor the
+provided `AbortSignal`. ViteHub cannot interrupt a synchronous callback; when
+one runs past its budget, the result is reported as `unknown` after that
+callback returns. A timed-out asynchronous operation may still need to cancel
+its own underlying work when it observes the signal.
+
 `createRuntimeContext()` gives each operation a fresh memo cache and tracks work
 registered with `waitUntil()`. Pass the host's `waitUntil` method to forward that
 work to a real provider lifetime. Without one, await `flushWaitUntil()` before
@@ -210,8 +250,8 @@ Do not import from `src`, `dist`, or ViteHub's `_internal` paths.
 
 ## Go deeper
 
-- [Runtime Context](https://vitehub.dev/docs/getting-started/concepts/runtime-context)
-- [Runtime policy, approvals, and traces](https://vitehub.dev/docs/getting-started/concepts/runtime-policy-approvals-and-traces)
+- [Runtime Context](https://vitehub.dev/docs/reference/runtime-context)
+- [Runtime policy, approvals, and traces](https://vitehub.dev/docs/agents/runtime-policy)
 - [Runtime events](https://vitehub.dev/docs/reference/runtime-events)
 - [Stable import paths](https://vitehub.dev/docs/reference/import-paths)
 - [Node Runtime diagnostics](https://vitehub.dev/docs/agents/capabilities/diagnostics)

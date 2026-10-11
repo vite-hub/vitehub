@@ -160,6 +160,7 @@ app.get("/api/blob/head", async (event) => {
 
   const [error, object] = await blob.head(pathname)
   if (error) throw error
+  if (!object) throw createError({ statusCode: 404, statusMessage: "Blob not found" })
   return object
 })
 

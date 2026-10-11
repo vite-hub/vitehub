@@ -35,16 +35,13 @@ function isResponse(value: unknown): value is Response {
   if (!isRuntimeObject(value)) return false
   try {
     if (Object.prototype.toString.call(value) !== "[object Response]") return false
-    // Cross-realm instances do not pass `instanceof`, but retain the Response brand and methods.
-    const response = value as Record<PropertyKey, unknown>
-    const headers = response.headers
-    return hasRuntimeType(response.arrayBuffer, "function")
-      && hasRuntimeType(response.clone, "function")
-      && hasRuntimeType(headers, "object")
-      && hasRuntimeType((headers as Record<PropertyKey, unknown>).get, "function")
-      && hasRuntimeType(response.status, "number")
-      && hasRuntimeType(response.statusText, "string")
-      && hasRuntimeType(response.body, "object")
+    // Calling a native prototype operation performs the internal-slot brand check;
+    // a configurable tag and a handful of methods are not sufficient to spoof it.
+    const clone = Response.prototype.clone.call(value)
+    const headers = Object.getOwnPropertyDescriptor(Response.prototype, "headers")?.get?.call(value)
+    if (!headers || !clone) return false
+    Array.from(Headers.prototype.entries.call(headers))
+    return true
   }
   catch {
     return false
@@ -100,12 +97,42 @@ export function isSerializedResponse(value: unknown): value is SerializedRespons
       && record.headers.length === 0 && body.isNull === true && body.data === ""
   }
   if (!hasRuntimeType(record.status, "number") || !Number.isInteger(record.status) || record.status < 200 || record.status > 599) return false
-  if (!hasRuntimeType(record.statusText, "string") || !Array.isArray(record.headers)) return false
+  if (!hasRuntimeType(record.statusText, "string") || !isSerializedHeaderEntries(record.headers)) return false
   // Responses with these status codes cannot carry a body. Reject malformed
   // records before deserialization would pass bytes to the native constructor.
   // atob ignores ASCII whitespace, so whitespace-only legacy data has no bytes.
   if ([204, 205, 304].includes(record.status) && (/[^\t\n\f\r ]/.test(body.data) || body.isNull === false)) return false
-  return record.headers.every((entry) => Array.isArray(entry) && entry.length === 2 && hasRuntimeType(entry[0], "string") && hasRuntimeType(entry[1], "string"))
+  const headers = record.headers
+  if (!isBase64(body.data)) return false
+  try {
+    // Keep validation aligned with the native constructor used by deserialization.
+    new Response(null, {
+      headers: headers.map(([name, headerValue]): [string, string] => [name, headerValue]),
+      status: record.status,
+      statusText: record.statusText,
+    })
+  }
+  catch {
+    return false
+  }
+  return true
+}
+
+function isSerializedHeaderEntry(value: unknown): value is readonly [string, string] {
+  return Array.isArray(value) && value.length === 2 && hasRuntimeType(value[0], "string") && hasRuntimeType(value[1], "string")
+}
+
+function isSerializedHeaderEntries(value: unknown): value is readonly (readonly [string, string])[] {
+  if (!Array.isArray(value)) return false
+  for (let index = 0; index < value.length; index++) {
+    if (!isSerializedHeaderEntry(value[index])) return false
+  }
+  return true
+}
+
+function isBase64(value: string): boolean {
+  const compact = value.replace(/[\t\n\f\r ]/g, "")
+  return /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}(?:==)?|[A-Za-z0-9+/]{3}=?)?$/.test(compact)
 }
 
 function bytesToBase64(bytes: Uint8Array): string {
