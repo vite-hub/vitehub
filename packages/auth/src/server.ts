@@ -287,12 +287,21 @@ async function runAccessAuthorize(
 function isResponseLike(value: unknown): value is Response {
   if (value === null || typeof value !== "object") return false
   try {
-    if (Object.prototype.toString.call(value) !== "[object Response]") return false
-    const response = value as { headers?: unknown, status?: unknown, statusText?: unknown }
-    if (typeof response.status !== "number" || !Number.isInteger(response.status) || response.status < 0 || response.status > 599) return false
-    if (typeof response.statusText !== "string") return false
-    const headers = response.headers
-    return headers !== null && typeof headers === "object" && typeof (headers as { get?: unknown }).get === "function"
+    const status = Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get?.call(value)
+    const statusText = Object.getOwnPropertyDescriptor(Response.prototype, "statusText")?.get?.call(value)
+    const headers = Object.getOwnPropertyDescriptor(Response.prototype, "headers")?.get?.call(value) as {
+      get?: unknown
+      getSetCookie?: unknown
+      forEach?: unknown
+    } | undefined
+    const body = Object.getOwnPropertyDescriptor(Response.prototype, "body")?.get?.call(value) as {
+      getReader?: unknown
+    } | null | undefined
+    if (typeof status !== "number" || !Number.isInteger(status) || status < 0 || status > 599) return false
+    if (typeof statusText !== "string") return false
+    if (headers === null || typeof headers !== "object") return false
+    if (typeof headers.get !== "function" || typeof headers.getSetCookie !== "function" || typeof headers.forEach !== "function") return false
+    return body === null || (typeof body === "object" && typeof body.getReader === "function")
   }
   catch {
     return false
