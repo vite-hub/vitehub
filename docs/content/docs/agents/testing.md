@@ -33,6 +33,7 @@ unit test independent of a Vite server and model credentials.
 import { defineAgent } from 'vite-hub/agent'
 
 export default defineAgent({
+  runtime: false,
   driver: {
     run({ prompt }) {
       const name = typeof prompt === 'string' ? prompt : 'friend'
