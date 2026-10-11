@@ -7,6 +7,10 @@ navigation.group: Start
 icon: i-lucide-bot
 ---
 
+Define an Agent under `server/agents`. Choose how it runs, which files it can
+use, which tools it may call, and where requests arrive. ViteHub records each
+run on the host you select.
+
 ::product-hero{tagline="One file under server/agents: a Driver, a Workspace, Capabilities, and Channels, run and recorded on your host." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno" channels="Web chat, HTTP, Slack, Discord, Telegram, Teams, GitHub, GitLab, Forgejo, Gmail" channel-mode="builtin"}
   :::agent-demo
   :::

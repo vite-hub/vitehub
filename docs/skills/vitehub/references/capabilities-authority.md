@@ -1,6 +1,9 @@
 # Capabilities and authority
 
-Use this whenever an Agent receives a tool, secret-backed operation, browser, storage, shell, repository, rate-limit, telemetry, or custom action.
+Use this whenever an Agent receives a tool, secret-backed operation, browser,
+storage, shell, repository, rate-limit, telemetry, or custom action. A
+Capability is the named permission that exposes one operation and its checks to
+an Agent.
 
 ## Select current pages
 

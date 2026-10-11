@@ -7,7 +7,8 @@ navigation.order: 261
 icon: i-lucide-scroll-text
 ---
 
-The ViteHub skill gives a coding agent one repeatable process for ViteHub work.
+The ViteHub skill is a small set of Markdown instructions for a coding agent.
+It gives the agent one repeatable process for ViteHub work.
 The agent orients in the project, loads only the references that match the task, checks the installed package contract, builds the file set, and proves each requested behavior.
 
 `vitehub.dev` publishes the skill at [`/.well-known/skills/vitehub/SKILL.md`](https://vitehub.dev/.well-known/skills/vitehub/SKILL.md). The [skills CLI](https://github.com/vercel-labs/skills) reads the [skill index](https://vitehub.dev/.well-known/skills/index.json) and installs the skill from the site URL.

@@ -8,7 +8,11 @@ For a first deterministic custom Driver and direct invocation, open only [First 
 
 ## Definition shape
 
-Default-export one `defineAgent()` boundary from `server/agents/<name>.ts` or `server/agents/<name>/agent.ts`. Compose only the facets the outcome needs:
+Default-export one `defineAgent()` boundary from a documented Agent discovery
+path, commonly `server/agents/<name>.ts` or `server/agents/<name>/agent.ts`.
+Check [File conventions](https://vitehub.dev/raw/docs/reference/file-conventions.md)
+when the project uses another supported suffix or location. Compose only the
+facets the outcome needs:
 
 ```text
 driver        how the Agent runs

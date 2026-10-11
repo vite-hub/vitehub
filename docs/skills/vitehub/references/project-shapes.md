@@ -22,7 +22,10 @@ vite.config.ts        ViteHub integration and provider choice
 src/server.ts         application HTTP boundary and Runtime Helper
 ```
 
-Add a discovered Definition under `server/` only when the primitive's docs require discovery. The proof must call the Runtime Helper and observe provider-backed behavior.
+Add a discovered Definition under a documented discovery path only when the
+primitive's docs require discovery. Check [File conventions](https://vitehub.dev/raw/docs/reference/file-conventions.md)
+for suffix-based paths such as `*.workflow.ts` or `*.sandbox.ts`. The proof
+must call the Runtime Helper and observe provider-backed behavior.
 
 ### Agent application
 

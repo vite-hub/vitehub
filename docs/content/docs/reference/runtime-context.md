@@ -7,9 +7,9 @@ navigation.group: Runtime and output
 icon: i-lucide-waypoints
 ---
 
-Runtime Context contains the trusted host resources available to one ViteHub operation. It can include platform resources, request data, provider bindings, background work, memoized values, and trace information.
-
-Invocation input describes the task. Runtime Context provides the host resources needed to run it.
+Invocation input describes the task. Runtime Context provides the trusted host
+resources needed to run it, such as request data, provider bindings, background
+work, memoized values, and trace information.
 
 ## Runtime Context comes from the host
 
