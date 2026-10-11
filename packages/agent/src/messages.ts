@@ -397,9 +397,20 @@ function createId(prefix: string): string {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}`
 }
 
+function isDateValue(value: unknown): value is Date {
+  if (value instanceof Date) return true
+  try {
+    Date.prototype.getTime.call(value)
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
 function normalizeCreatedAt(value: Date | string | undefined): string | undefined {
   if (!value) return undefined
-  return value instanceof Date ? value.toISOString() : value
+  return isDateValue(value) ? Date.prototype.toISOString.call(value) : value
 }
 
 function normalizePart(part: MessagePart | string, index: number): MessagePart {
@@ -515,7 +526,7 @@ function assertSerializable(value: unknown, field: string): void {
   if (!value || !hasRuntimeType(value, "object")) {
     return
   }
-  if (value instanceof Date) {
+  if (isDateValue(value)) {
     throw agentDiagnostics.AGENT_R0651({ message: `[vitehub:messages] ${field} must be serialized before storing.` })
   }
   if (Array.isArray(value)) {
