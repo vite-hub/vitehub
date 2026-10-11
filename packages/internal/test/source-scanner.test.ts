@@ -139,6 +139,12 @@ describe("source scanner", () => {
     ])
   })
 
+  it("ignores private member calls with matching names", () => {
+    const source = `const value = this.#defineThing({ value: "member" })`
+
+    expect(findIdentifierCalls(source, "defineThing")).toEqual([])
+  })
+
   it("ignores member calls with matching names", () => {
     const calls = findIdentifierCalls([
       `logger.defineThing("member")`,

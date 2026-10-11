@@ -303,7 +303,8 @@ function isMethodDeclarationName(source: string, index: number, closeParen: numb
 }
 
 function isMemberAccessName(source: string, index: number) {
-  return previousNonWhitespace(source, index) === "."
+  const previous = previousNonWhitespace(source, index)
+  return previous === "." || previous === "#"
 }
 
 export function findMatching(source: string, index: number, open: string, close: string, controlFlowRegexes = new Map<number, boolean | undefined>()): number | undefined {
