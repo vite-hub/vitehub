@@ -35,6 +35,12 @@ function detectRuntime(cloudflare: boolean): H3RuntimeName {
   return "unknown"
 }
 
+function isRequest(value: unknown): value is Request {
+  if (value instanceof Request) return true
+  // Request constructors differ across H3 host realms, but their Web IDL tag is shared.
+  return value !== null && typeof value === "object" && Object.prototype.toString.call(value) === "[object Request]"
+}
+
 /** Adapt one H3 operation. Await flushWaitUntil when the host has no lifetime API. */
 export function getRuntimeContext(event: H3RuntimeEvent): H3RuntimeContext
 export function getRuntimeContext<const TOptions extends H3RuntimeContextOptions>(
@@ -52,7 +58,7 @@ export function getRuntimeContext(
   const cloudflare = options.cloudflare ?? (env ? { env } : undefined)
   const runtime = options.runtime ?? detectRuntime(!!cloudflare)
   return createRuntimeContext({
-    ...(event.req instanceof Request ? { request: event.req } : {}),
+    ...(isRequest(event.req) ? { request: event.req } : {}),
     ...options,
     ...(cloudflare ? { cloudflare } : {}),
     event,

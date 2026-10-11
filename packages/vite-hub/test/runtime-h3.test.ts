@@ -3,6 +3,7 @@ import { Socket } from "node:net"
 
 import { H3Event } from "h3"
 import { createEvent } from "h3-v1"
+import { Request as MiniflareRequest } from "miniflare"
 import { describe, expect, expectTypeOf, it, vi } from "vitest"
 import { runWithActiveCloudflareEnv, getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import type { AgentRuntimeContext } from "@vite-hub/agent"
@@ -56,6 +57,14 @@ describe("H3 Runtime Context", () => {
     expectTypeOf(classicContext).toExtend<AgentRuntimeContext>()
     await modernContext.flushWaitUntil()
     await classicContext.flushWaitUntil()
+  })
+
+  it("preserves Request objects from another host realm", async () => {
+    const request = new MiniflareRequest("https://example.test", { method: "POST" })
+    const context = getRuntimeContext(new H3Event(request))
+    expect(request).not.toBeInstanceOf(Request)
+    expect(context.request).toBe(request)
+    await context.flushWaitUntil()
   })
 
   it("uses a real host lifetime before H3 2's optional request forwarder", async () => {
