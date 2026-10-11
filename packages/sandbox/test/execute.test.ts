@@ -31,6 +31,20 @@ it("preserves messages from errors created in another realm", () => {
   })
 })
 
+it.each([
+  {
+    label: "object message",
+    value: { [Symbol.toStringTag]: "Error", message: { toString: () => { throw new Error("message probe") } } },
+  },
+  {
+    label: "throwing message getter",
+    value: Object.defineProperty({ [Symbol.toStringTag]: "Error" }, "message", { get: () => { throw new Error("message probe") } }),
+  },
+])("does not trust spoofed Error values with a $label", ({ value }) => {
+  expect(() => toSandboxError(value)).not.toThrow()
+  expect(toSandboxError(value)).toMatchObject({ code: "SANDBOX_RUNTIME_ERROR", message: "[object Error]" })
+})
+
 it("waits for complete Cloudflare output before rejecting a malformed envelope", async () => {
   const outputs = ['{"ok":', '{"ok":1,"result":true}']
   const readFile = vi.fn(async () => outputs.shift()!)

@@ -49,7 +49,14 @@ export function toSandboxError(error: unknown) {
 
 function isErrorValue(value: unknown): value is Error {
   if (value instanceof Error) return true
-  return !!value && typeof value === 'object' && Object.prototype.toString.call(value) === '[object Error]'
+  if (!value || typeof value !== 'object') return false
+  try {
+    return Object.prototype.toString.call(value) === '[object Error]'
+      && typeof (value as { message?: unknown }).message === 'string'
+  }
+  catch {
+    return false
+  }
 }
 
 function sandboxCode(code: string | undefined): `SANDBOX_${string}` {
