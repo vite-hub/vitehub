@@ -2542,6 +2542,57 @@ describe("workflow runtime", () => {
     })
   })
 
+  it("rejects malformed Cloudflare workflow acknowledgements", async () => {
+    const createBatch = vi.fn(async () => [{}])
+    setWorkflowRuntimeConfig({ binding: "WORKFLOW_CUSTOM", provider: "cloudflare" })
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
+    })
+    enterWorkflowRuntimeEvent({
+      req: { runtime: { cloudflare: { env: { WORKFLOW_CUSTOM: {
+        createBatch,
+        get: vi.fn(),
+      } } } } },
+    })
+
+    const error = await runWorkflow("welcome", {}, { id: "welcome-1" }).catch(error => error)
+
+    expect(error).toMatchObject({
+      code: "WORKFLOW_PROVIDER_OPERATION_FAILED",
+      details: { acknowledgement: "unknown", operation: "create", provider: "cloudflare" },
+      cause: {
+        message: "Cloudflare Workflow provider returned an invalid workflow instance.",
+      },
+    })
+    expect(createBatch).toHaveBeenCalledTimes(2)
+  })
+
+  it("rejects Cloudflare workflow acknowledgements for a different run", async () => {
+    const createBatch = vi.fn(async () => [{ id: "other-run" }])
+    setWorkflowRuntimeConfig({ binding: "WORKFLOW_CUSTOM", provider: "cloudflare" })
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
+    })
+    enterWorkflowRuntimeEvent({
+      req: { runtime: { cloudflare: { env: { WORKFLOW_CUSTOM: {
+        createBatch,
+        get: vi.fn(),
+      } } } } },
+    })
+
+    const error = await runWorkflow("welcome", {}, { id: "welcome-1" }).catch(error => error)
+
+    expect(error).toMatchObject({
+      code: "WORKFLOW_PROVIDER_OPERATION_FAILED",
+      details: { acknowledgement: "unknown", operation: "create", provider: "cloudflare" },
+      cause: {
+        message: "Cloudflare Workflow provider returned an invalid workflow instance.",
+      },
+    })
+    expect(createBatch).toHaveBeenCalledTimes(2)
+    expect(createBatch).toHaveBeenCalledWith([{ id: "welcome-1", params: {} }])
+  })
+
   it("ignores inherited Cloudflare status and output fields", async () => {
     const serialized = await serializeResponse(new Response("forged"))
     const metadata = Object.create({

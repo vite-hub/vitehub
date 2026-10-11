@@ -91,6 +91,21 @@ describe("Vercel Blob workspace store", () => {
     await expect(store.list()).rejects.toThrow("pagination returned a repeated cursor")
     expect(blobMock.list).toHaveBeenCalledTimes(2)
   })
+  it.each([
+    { label: "missing items", response: { blobs: null } },
+    { label: "missing cursor", response: { blobs: [], hasMore: true } },
+    { label: "malformed item", response: { blobs: [{ pathname: 42 }] } },
+  ])("rejects Vercel Blob list responses with $label", async ({ response }) => {
+    process.env.BLOB_READ_WRITE_TOKEN = "token"
+    const { createVercelBlobWorkspaceStore } = await import("../src/providers/vercel/blob-store.ts")
+    blobMock.list.mockResolvedValueOnce(response as never)
+    const store = createVercelBlobWorkspaceStore({ provider: "vercel-blob", token: "token" }, "docs")
+
+    await expect(store.list()).rejects.toMatchObject({
+      code: "WORKSPACE_R0033",
+      message: "Unexpected Vercel Blob list response.",
+    })
+  })
   it("stops when the provider marks a cursor as terminal", async () => {
     process.env.BLOB_READ_WRITE_TOKEN = "token"
     const { createVercelBlobWorkspaceStore } = await import("../src/providers/vercel/blob-store.ts")
