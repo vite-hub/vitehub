@@ -1,7 +1,23 @@
 import { describe, expect, it } from "vitest"
-import { deserializeResponse, isSerializedResponse, serializeResponse } from "../src/response.ts"
+import { deserializeResponse, isSerializedResponse, serializeResponse, toResponse } from "../src/response.ts"
 
 describe("durable Response representation", () => {
+  it("preserves a Response-shaped object from another realm", () => {
+    const foreignPrototype = {
+      [Symbol.toStringTag]: "Response",
+      arrayBuffer: () => Promise.resolve(new ArrayBuffer(0)),
+      clone() { return this },
+    }
+    const foreign = Object.assign(Object.create(foreignPrototype), {
+      body: null,
+      headers: { get: () => null, [Symbol.toStringTag]: "Headers" },
+      status: 200,
+      statusText: "",
+    }) as Response
+
+    expect(toResponse(foreign)).toBe(foreign)
+  })
+
   it.each([204, 205, 304])("round trips a bodyless response with status %s", async (status) => {
     const restored = deserializeResponse(await serializeResponse(new Response(null, { status })))
     expect(restored.status).toBe(status)

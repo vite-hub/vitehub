@@ -18,7 +18,7 @@ import { hasRuntimeType, isRuntimeObject } from "./internal/runtime-type.ts"
 
 /** Normalize a primitive value into the native Web Response contract. */
 export function toResponse(value: unknown): Response {
-  if (value instanceof Response) return value
+  if (isResponse(value)) return value
   if (value === undefined) return new Response(null, { status: 204 })
   if (hasRuntimeType(value, "string") || value instanceof Blob || value instanceof ArrayBuffer || ArrayBuffer.isView(value)) {
     // SAFETY: The guards admit only strings, Blob, ArrayBuffer, and views accepted by Response.
@@ -27,6 +27,28 @@ export function toResponse(value: unknown): Response {
   return new Response(JSON.stringify(value), {
     headers: { "content-type": "application/json; charset=utf-8" },
   })
+}
+
+/** Recognize Responses created by another realm from their standard tag and surface. */
+function isResponse(value: unknown): value is Response {
+  if (value instanceof Response) return true
+  if (!isRuntimeObject(value)) return false
+  try {
+    if (Object.prototype.toString.call(value) !== "[object Response]") return false
+    // Cross-realm instances do not pass `instanceof`, but retain the Response brand and methods.
+    const response = value as Record<PropertyKey, unknown>
+    const headers = response.headers
+    return hasRuntimeType(response.arrayBuffer, "function")
+      && hasRuntimeType(response.clone, "function")
+      && hasRuntimeType(headers, "object")
+      && hasRuntimeType((headers as Record<PropertyKey, unknown>).get, "function")
+      && hasRuntimeType(response.status, "number")
+      && hasRuntimeType(response.statusText, "string")
+      && hasRuntimeType(response.body, "object")
+  }
+  catch {
+    return false
+  }
 }
 
 /** Convert a native Response into a JSON-safe record. The body is fully buffered. */
