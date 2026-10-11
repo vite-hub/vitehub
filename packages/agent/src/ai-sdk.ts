@@ -1370,6 +1370,8 @@ async function createAgent(
             stopWhen: isStepCount(1),
           } as never)
           // SAFETY: The one-step repair agent accepts the normalized generation callback contract supplied here.
+          // Tool-call repair is a model retry and must consume the Invocation-wide budget.
+          context.executionBudget?.recordRetry()
           const result = await toolRepairAgent.generate({
             abortSignal: context.input.abortSignal,
             onEnd: usageCapture.onEnd,
