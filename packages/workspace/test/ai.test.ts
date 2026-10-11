@@ -240,7 +240,7 @@ describe("createWorkspaceTools", () => {
       exitCode: 0,
       stdout: "session:sh -lc rg orders models /workspace\n",
     })
-    expect(workspace.startSession).toHaveBeenCalledWith({ paths: ["models"] })
+    expect(workspace.startSession).toHaveBeenCalledWith({ abortSignal: budget.signal, paths: ["models"] })
     expect(exec).toHaveBeenCalledWith("sh", ["-lc", "rg orders models"], expect.objectContaining({ abortSignal: budget.signal, cwd: "/workspace" }))
     await expect(runShell(tools, "cat $(python -c 'print(\"models/orders.sql\")')")).resolves.toMatchObject({
       event: "policy_denied",
