@@ -232,7 +232,7 @@ export default function resendEmailDriver(options: ResendEmailDriverOptions): Em
       "apiKey contains an invalid HTTP header character.",
     );
   const request = options.fetch ?? globalThis.fetch;
-  if (!(request instanceof Function))
+  if (typeof request !== "function")
     throw emailProviderError("resend", "INVALID_OPTIONS", "fetch is unavailable.");
   let endpoint: string;
   try {
