@@ -126,7 +126,10 @@ function createCloudflareD1HttpDb<TSchema extends Record<string, unknown>>(
       if (result.success !== true) {
         throw cloudflareD1HttpError(response, `query ${index + 1}`, result, payload)
       }
-      return Array.isArray(result.results?.rows) ? result.results.rows : []
+      if (!result.results || !Array.isArray(result.results.rows)) {
+        throw databaseErrorDiagnostics.DATABASE_R0011({ message: "Invalid D1 response" })
+      }
+      return result.results.rows
     })
   }
 
