@@ -21,6 +21,15 @@ describe("KV inspection values", () => {
     expect(inspectKVValue(value)).toEqual({ encoding: "base64", type: "bytes", value: "AH//" })
   })
 
+  it("rejects spoofed non-byte views and does not invoke Symbol.toStringTag", () => {
+    const typed = new Uint16Array([0x1234])
+    Object.defineProperty(typed, Symbol.toStringTag, { get: () => { throw new Error("should not run") } })
+    const dataView = new DataView(new ArrayBuffer(2))
+    Object.defineProperty(dataView, Symbol.toStringTag, { value: "Uint8Array" })
+    expect(inspectKVValue(typed)).toBeUndefined()
+    expect(inspectKVValue(dataView)).toBeUndefined()
+  })
+
   it("rejects object behavior without running getters or toJSON", () => {
     const getter = vi.fn(() => "secret")
     const toJSON = vi.fn(() => "secret")

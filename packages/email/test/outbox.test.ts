@@ -220,6 +220,15 @@ describe("Email development outbox", () => {
     expect(second?.delivery).toEqual({ error: { message: "socket closed" }, status: "failed" })
   })
 
+  it("captures provider failures whose value cannot be converted to text", async () => {
+    const failure = { toString() { throw new Error("cannot inspect") } }
+    const rejected = providerDriver(() => { throw failure })
+    const email = createEmail({ driver: () => createEmailDevOutboxDriver({ deliver: true, driver: rejected, provider: "resend" }) })
+
+    await expect(email.send(message)).rejects.toMatchObject({ code: "EMAIL_PROVIDER_FAILED" })
+    expect(getEmailOutbox()?.list()[0]?.delivery).toEqual({ error: { message: "Email delivery failed with an uninspectable error." }, status: "failed" })
+  })
+
   it("records the message when the provider driver cannot be created", async () => {
     const email = createEmail({
       driver: () => createEmailDevOutboxDriver({

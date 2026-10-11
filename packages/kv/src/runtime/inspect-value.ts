@@ -3,7 +3,16 @@ import * as v from "valibot"
 class UnsupportedValueError extends Error {}
 
 function isUint8Array(value: unknown): value is Uint8Array {
-  return ArrayBuffer.isView(value) && Object.prototype.toString.call(value) === "[object Uint8Array]"
+  if (!ArrayBuffer.isView(value)) return false
+  try {
+    // The byte-length/element-length check rejects wider typed arrays and
+    // DataView before consulting the cross-realm tag. Keep the tag access
+    // guarded because Symbol.toStringTag may be hostile.
+    return "length" in value && value.byteLength === value.length && Object.prototype.toString.call(value) === "[object Uint8Array]"
+  }
+  catch {
+    return false
+  }
 }
 
 export function kvValueType(value: unknown): string {
@@ -16,7 +25,7 @@ export function kvValueType(value: unknown): string {
 
 function encodeBase64(bytes: Uint8Array): string {
   let binary = ""
-  for (const byte of bytes) binary += String.fromCharCode(byte)
+  for (let index = 0; index < bytes.byteLength; index++) binary += String.fromCharCode(bytes[index]!)
   return btoa(binary)
 }
 
