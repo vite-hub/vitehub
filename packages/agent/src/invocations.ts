@@ -536,6 +536,17 @@ function boundedString(value: string | undefined): string | undefined {
   return value === undefined ? undefined : value.slice(0, MAX_METADATA_STRING_LENGTH)
 }
 
+function isArrayBufferValue(value: unknown): value is ArrayBuffer {
+  if (value instanceof ArrayBuffer) return true
+  try {
+    Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")!.get!.call(value)
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
 function normalizedTimestamp(value: Date | string): string {
   const timestamp = value instanceof Date ? value : new Date(value)
   return Number.isFinite(timestamp.getTime()) ? timestamp.toISOString() : new Date().toISOString()
@@ -751,7 +762,7 @@ function boundedObservationValue(
     if (entries.length < value.size) budget.truncated = true
     return entries.map(child => boundedObservationValue(child, budget, depth + 1, maxStringLength, builtIns))
   }
-  if (value instanceof ArrayBuffer) {
+  if (isArrayBufferValue(value)) {
     budget.truncated = true
     const length = Math.min(value.byteLength, collectionItems, budget.items)
     return boundedObservationValue(Array.from(new Uint8Array(value, 0, length)), budget, depth + 1, maxStringLength, builtIns)
