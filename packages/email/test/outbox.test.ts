@@ -199,6 +199,14 @@ describe("Email development outbox", () => {
     expect(getEmailOutbox()?.list()[0]?.delivery).toEqual({ error: { message: "Email driver returned an invalid message id." }, status: "failed" })
   })
 
+  it("does not throw before recording a non-string provider id as failed", async () => {
+    const driver = providerDriver(() => ({ data: { at: new Date(), driver: "resend", id: 123 as unknown as string }, error: null }))
+    const email = createEmail({ driver: () => createEmailDevOutboxDriver({ deliver: true, driver, provider: "resend" }) })
+
+    await expect(email.send(message)).rejects.toMatchObject({ code: "EMAIL_PROVIDER_FAILED" })
+    expect(getEmailOutbox()?.list()[0]?.delivery).toEqual({ error: { message: "Email driver returned an invalid message id." }, status: "failed" })
+  })
+
   it("resolves and initializes a provider for every generated factory send", async () => {
     const initialize = vi.fn()
     const factory = vi.fn(() => ({ ...providerDriver(), initialize }))

@@ -282,7 +282,7 @@ export async function createEmailDevOutboxDriver(options: EmailDevOutboxDriverOp
       if (result.error) {
         captured.delivery = failedDelivery(result.error)
       }
-      else if (result.data?.id && result.data.id.trim().length > 0) {
+      else if (typeof result.data?.id === "string" && result.data.id.trim().length > 0) {
         captured.delivery = { id: result.data.id, status: "sent" }
       }
       else {
