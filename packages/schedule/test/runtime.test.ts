@@ -611,6 +611,18 @@ describe("Schedule Run bookkeeping", () => {
     expect(run.scheduledAt.toISOString()).toBe("2026-05-23T09:00:00.000Z")
   })
 
+  it("accepts Date values with a custom toStringTag", async () => {
+    const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
+    Object.defineProperty(scheduledAt, Symbol.toStringTag, { value: "Object" })
+    const run = await executeStaticSchedule({
+      cron: "0 9 * * *",
+      definition: { cron: "0 9 * * *", handler: async () => {} },
+      name: "tagged-date",
+      scheduledAt,
+    })
+    expect(run.scheduledAt.toISOString()).toBe("2026-05-23T09:00:00.000Z")
+  })
+
   it("fails clearly for invalid scheduledAt dates", async () => {
     setScheduleRuntimeRegistry({
       report: async () => ({
