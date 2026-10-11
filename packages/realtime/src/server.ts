@@ -221,7 +221,10 @@ function matchesBytes(actual: Uint8Array | undefined, expected: Uint8Array): boo
 }
 
 function storedUpdate(value: unknown): Uint8Array | undefined {
-  if (value instanceof ArrayBuffer) return new Uint8Array(value)
+  if (value instanceof ArrayBuffer || Object.prototype.toString.call(value) === "[object ArrayBuffer]") {
+    // SAFETY: The native ArrayBuffer constructor accepts buffers from other realms.
+    return new Uint8Array(value as ArrayBuffer)
+  }
   if (ArrayBuffer.isView(value)) return new Uint8Array(value.buffer, value.byteOffset, value.byteLength)
 }
 

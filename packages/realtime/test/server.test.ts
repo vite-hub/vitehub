@@ -1,3 +1,5 @@
+import { runInNewContext } from "node:vm"
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { yDocToProsemirrorJSON } from "@tiptap/y-tiptap"
 import type { JSONContent } from "@tiptap/core"
@@ -1345,6 +1347,21 @@ describe("tiptap-markdown documents", () => {
 
     client.destroy()
     document.destroy()
+  })
+
+  it("restores durable state from a cross-realm ArrayBuffer", () => {
+    const original = markdownToYDoc("# Shared draft")
+    const bytes = Y.encodeStateAsUpdate(original)
+    const update: unknown = runInNewContext("Uint8Array.from(bytes).buffer", { bytes: [...bytes] })
+    const restored = restoreRealtimeDocument("# Fallback", "baseline", {
+      baseline_digest: "baseline",
+      update_blob: update,
+    })
+
+    expect(Y.encodeStateVector(restored)).toEqual(Y.encodeStateVector(original))
+    expect(yDocToMarkdown(restored)).toBe("# Shared draft")
+    original.destroy()
+    restored.destroy()
   })
 
   it("restores durable Yjs identities only for the matching Workspace version", () => {
