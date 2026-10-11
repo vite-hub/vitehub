@@ -225,7 +225,7 @@ export function normalizeBlobOptions(
   const optionRecord = options as { serve?: BlobServeOptions } | undefined
   // SAFETY: `options` was validated as a plain object above, so this assertion only narrows its optional `stores` property.
   const storesOption = (options as { stores?: unknown } | undefined)?.stores
-  if (options !== undefined && Object.hasOwn(options, "stores") && typeof storesOption !== "undefined" && !isPlainObject(storesOption)) {
+  if (options !== undefined && Object.hasOwn(options, "stores") && storesOption !== undefined && !isPlainObject(storesOption)) {
     throw blobErrorDiagnostics.BLOB_C0013({ message: "`blob.stores` must be a plain object." })
   }
   const serve = normalizeServeOptions(optionRecord?.serve)
