@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { yDocToProsemirrorJSON } from "@tiptap/y-tiptap"
 import type { JSONContent } from "@tiptap/core"
 import { marked } from "marked"
+import { runInNewContext } from "node:vm"
 import * as decoding from "lib0/decoding"
 import * as awarenessProtocol from "y-protocols/awareness"
 import * as Y from "yjs"
@@ -1072,6 +1073,18 @@ describe("realtime server handler", () => {
 })
 
 describe("realtime transport boundaries", () => {
+  it("copies ArrayBuffer checkpoint chunks from another realm", async () => {
+    const body = new ReadableStream<ArrayBuffer>({
+      start(controller) {
+        controller.enqueue(runInNewContext("new Uint8Array([1, 2, 3]).buffer") as ArrayBuffer)
+        controller.close()
+      },
+    })
+    const request = new Request("https://example.com", { body, duplex: "half", method: "POST" } as RequestInit)
+
+    await expect(readRealtimeCheckpointState(request, 4)).resolves.toEqual(Uint8Array.of(1, 2, 3))
+  })
+
   it("stops reading a streamed checkpoint body at the room quota", async () => {
     let pulls = 0
     const body = new ReadableStream<Uint8Array>({

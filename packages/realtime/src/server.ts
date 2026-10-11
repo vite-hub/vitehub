@@ -147,12 +147,21 @@ export async function readRealtimeCheckpointState(request: Request, maxBytes = m
     while (true) {
       const { done, value } = await reader.read()
       if (done) break
-      byteLength += value.byteLength
+      const chunk = ArrayBuffer.isView(value)
+        ? new Uint8Array(value.buffer, value.byteOffset, value.byteLength)
+        : Object.prototype.toString.call(value) === "[object ArrayBuffer]"
+          ? new Uint8Array(value as ArrayBuffer)
+          : undefined
+      if (!chunk) {
+        await reader.cancel()
+        throw new HTTPError({ status: 400, message: "Realtime checkpoint body contains invalid bytes." })
+      }
+      byteLength += chunk.byteLength
       if (byteLength > maxBytes) {
         await reader.cancel()
         throw new HTTPError({ status: 413, message: "Realtime checkpoint state exceeds 8 MiB." })
       }
-      chunks.push(value)
+      chunks.push(chunk)
     }
   }
   finally {
