@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import { runInNewContext } from "node:vm"
 
 import { describeDeploymentPlanOutput } from "../src/build/deployment-plan-output.ts"
 import { resolveDeploymentPlan } from "../src/deployment.ts"
@@ -67,6 +68,18 @@ describe("redactInspectionValue", () => {
     expect(redactInspectionValue(3)).toBe(3)
     expect(redactInspectionValue(null)).toBe(null)
     expect(redactInspectionValue("queue")).toBe("queue")
+  })
+
+  it("redacts cross-realm dates, maps, and sets", () => {
+    const values = runInNewContext(`({
+      date: new Date("2020-01-01T00:00:00.000Z"),
+      map: new Map([["token", "secret"], ["count", 3]]),
+      set: new Set(["Bearer abc", 2]),
+    })`) as { date: Date, map: Map<string, unknown>, set: Set<unknown> }
+
+    expect(redactInspectionValue(values.date)).toBe("2020-01-01T00:00:00.000Z")
+    expect(redactInspectionValue(values.map)).toEqual({ token: "[redacted]", count: 3 })
+    expect(redactInspectionValue(values.set)).toEqual(["[redacted]", 2])
   })
 })
 
