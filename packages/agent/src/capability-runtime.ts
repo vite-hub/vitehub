@@ -615,7 +615,10 @@ export function snapshotCapabilityData(value: unknown, seen: WeakMap<object, unk
       const entries = Map.prototype.entries.call(value) as Iterable<readonly [unknown, unknown]>
       for (const [key, entry] of entries) snapshot.set(snapshotCapabilityData(key, seen), snapshotCapabilityData(entry, seen))
     }
-    catch { return value }
+    catch {
+      seen.delete(value)
+      return value
+    }
     return snapshot
   }
   if (tag === "[object Set]") {
@@ -625,7 +628,10 @@ export function snapshotCapabilityData(value: unknown, seen: WeakMap<object, unk
       const entries = Set.prototype.values.call(value) as Iterable<unknown>
       for (const entry of entries) snapshot.add(snapshotCapabilityData(entry, seen))
     }
-    catch { return value }
+    catch {
+      seen.delete(value)
+      return value
+    }
     return snapshot
   }
   const prototype = Object.getPrototypeOf(value)

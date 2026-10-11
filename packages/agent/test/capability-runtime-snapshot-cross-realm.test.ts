@@ -19,7 +19,10 @@ const foreignValues = vm.runInNewContext(`({
 
 describe("capability input snapshots", () => {
   it.each(Object.entries(foreignValues))("clones cross-realm %s values", (name, value) => {
-    expect(snapshotCapabilityData(value)).not.toBe(value)
+    const snapshot = snapshotCapabilityData(value)
+    expect(snapshot).not.toBe(value)
+    if (name === "map") expect([...((snapshot as Map<string, object>).values())][0]).not.toBe([...((value as unknown as Map<string, object>).values())][0])
+    if (name === "set") expect([...((snapshot as Set<object>).values())][0]).not.toBe([...((value as unknown as Set<object>).values())][0])
   })
 
   it.each(Object.entries(foreignValues))("detects cross-realm %s mutations", async (name, value) => {
@@ -34,5 +37,14 @@ describe("capability input snapshots", () => {
     else if (name === "string") Reflect.set(value, "extra", "changed")
     else if (name === "boolean") Reflect.set(value, "extra", "changed")
     expect(resolved.inputDataChanged(), name).toBe(true)
+  })
+
+  it("snapshots URL built-ins without relying on realm constructors", () => {
+    const url = new URL("https://example.test/path?query=1")
+    const params = new URLSearchParams("query=1")
+    expect(snapshotCapabilityData(url)).toEqual(url)
+    expect(snapshotCapabilityData(params)).toEqual(params)
+    expect(snapshotCapabilityData(url)).not.toBe(url)
+    expect(snapshotCapabilityData(params)).not.toBe(params)
   })
 })
