@@ -322,6 +322,8 @@ export interface BoxResolvedRequirement {
 }
 
 export interface BoxPlan {
+  /** Configured trusted-host command limits. Absent on runtimes without this contract. */
+  readonly resources?: TrustedHostOptions["resources"];
   readonly cache: {
     readonly state: "disposable";
   };
@@ -784,9 +786,10 @@ function normalizeRequirements(
     ) {
       throw boxErrorDiagnostics.BOX_R0058({ message: "[vitehub] Box requirements must be commands or direct command checks." });
     }
-    if (value.args !== undefined && !Array.isArray(value.args))
+    const rawArgs = value.args;
+    if (rawArgs !== undefined && !Array.isArray(rawArgs))
       throw boxErrorDiagnostics.BOX_R0059({ message: "[vitehub] Box requirement arguments must be an array of strings." });
-    const args = value.args === undefined ? [] : [...value.args];
+    const args = rawArgs === undefined ? [] : [...rawArgs];
     if (args.some((argument) => typeof argument !== "string"))
       throw boxErrorDiagnostics.BOX_R0059({ message: "[vitehub] Box requirement arguments must be strings." });
     const command = value.command.trim();

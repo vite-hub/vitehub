@@ -34,4 +34,18 @@ describe("Box definition validation", () => {
       runtime,
     }, {})).rejects.toMatchObject({ code: "BOX_R0059" })
   })
+
+  it("validates a single snapshot of requirement args", async () => {
+    let reads = 0
+    const requirement = {
+      command: "echo",
+      get args() {
+        reads++
+        return reads === 1 ? ["ok"] : "oops"
+      },
+    }
+
+    await expect(resolveBox({ requires: [requirement as never], runtime }, {})).rejects.toMatchObject({ code: "BOX_R0059" })
+    expect(reads).toBe(1)
+  })
 })

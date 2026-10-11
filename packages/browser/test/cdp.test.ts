@@ -129,6 +129,44 @@ describe("cdp controller", () => {
     await expect(attached.client.send("Target.getTargets")).rejects.toThrow("after release")
   })
 
+  it.each([
+    ["invalid JSON", "not-json"],
+    ["an empty object", JSON.stringify({})],
+    ["a non-numeric response id", JSON.stringify({ id: "1", result: {} })],
+    ["a response id not yet issued", JSON.stringify({ id: 2, result: {} })],
+    ["a response id never issued", JSON.stringify({ id: 0, result: {} })],
+    ["a response without a result or error", JSON.stringify({ id: 1 })],
+    ["a response with both result and error", JSON.stringify({ error: { message: "failed" }, id: 1, result: {} })],
+    ["a null command result", JSON.stringify({ id: 1, result: null })],
+    ["an array command result", JSON.stringify({ id: 1, result: [] })],
+    ["a scalar command result", JSON.stringify({ id: 1, result: "invalid" })],
+    ["null event parameters", JSON.stringify({ method: "Page.lifecycleEvent", params: null })],
+    ["array event parameters", JSON.stringify({ method: "Page.lifecycleEvent", params: [] })],
+    ["scalar event parameters", JSON.stringify({ method: "Page.lifecycleEvent", params: 42 })],
+  ] as const)("rejects pending commands when the provider sends malformed protocol data (%s)", async (_name, data) => {
+    const socket = new FakeSocket()
+    vi.spyOn(socket, "send").mockImplementation(() => {})
+    const attached = await cdp({ connect: async () => socket }).attach({
+      endpoint: "ws://127.0.0.1:9222/devtools/browser/id",
+      kind: "cdp",
+    }, {
+      provider: { features: { liveHandoff: false }, isolation: "trusted-host", name: "local" },
+      sessionId: "public-id",
+    })
+
+    const listener = vi.fn()
+    attached.client.on("Page.lifecycleEvent", listener)
+    const command = attached.client.send("Target.getTargets")
+    socket.dispatchEvent(new MessageEvent("message", { data }))
+
+    await expect(Promise.race([command, setImmediate().then(() => "pending")])).rejects.toMatchObject({
+      code: "BROWSER_PROVIDER_ERROR",
+      details: { operation: "parse a protocol message" },
+    })
+    expect(listener).not.toHaveBeenCalled()
+    await attached.release()
+  })
+
   it("forwards protocol events to subscribers", async () => {
     const socket = new FakeSocket()
     const attached = await cdp({ connect: async () => socket }).attach({
@@ -151,6 +189,48 @@ describe("cdp controller", () => {
     stop()
     socket.emit("Page.lifecycleEvent", { loaderId: "ignored", name: "load" })
     expect(listener).toHaveBeenCalledOnce()
+    await attached.release()
+  })
+
+  it("allows protocol events with omitted parameters", async () => {
+    const socket = new FakeSocket()
+    const attached = await cdp({ connect: async () => socket }).attach({
+      endpoint: "ws://127.0.0.1:9222/devtools/browser/id",
+      kind: "cdp",
+    }, {
+      provider: { features: { liveHandoff: false }, isolation: "trusted-host", name: "local" },
+      sessionId: "public-id",
+    })
+    const listener = vi.fn()
+    attached.client.on("Debugger.resumed", listener)
+
+    socket.emit("Debugger.resumed", undefined)
+
+    expect(listener).toHaveBeenCalledWith(undefined, "page-session")
+    await expect(attached.client.send("Target.getTargets")).resolves.toEqual({ method: "Target.getTargets" })
+    await attached.release()
+  })
+
+  it("ignores late responses to rejected commands while a newer command is pending", async () => {
+    const socket = new FakeSocket()
+    vi.spyOn(socket, "send").mockImplementation(() => {})
+    const attached = await cdp({ connect: async () => socket }).attach({
+      endpoint: "ws://127.0.0.1:9222/devtools/browser/id",
+      kind: "cdp",
+    }, {
+      provider: { features: { liveHandoff: false }, isolation: "trusted-host", name: "local" },
+      sessionId: "public-id",
+    })
+    const first = attached.client.send("Target.getTargets")
+    socket.dispatchEvent(new MessageEvent("message", { data: "{}" }))
+    await expect(first).rejects.toMatchObject({ code: "BROWSER_PROVIDER_ERROR" })
+    const second = attached.client.send("Target.getTargets")
+
+    socket.dispatchEvent(new MessageEvent("message", { data: JSON.stringify({ id: 1, result: {} }) }))
+
+    await expect(Promise.race([second, setImmediate().then(() => "pending")])).resolves.toBe("pending")
+    socket.dispatchEvent(new MessageEvent("message", { data: JSON.stringify({ id: 2, result: { targetInfos: [] } }) }))
+    await expect(second).resolves.toEqual({ targetInfos: [] })
     await attached.release()
   })
 })
