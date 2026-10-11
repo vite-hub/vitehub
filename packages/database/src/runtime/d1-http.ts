@@ -10,6 +10,9 @@ interface D1HttpQuery {
   sql: string
 }
 
+type D1HttpMethod = "run" | "all" | "values" | "get"
+type D1HttpExecutionQuery = D1HttpQuery & { method: D1HttpMethod }
+
 interface D1HttpPayload {
   errors?: D1HttpErrorInfo[]
   result?: Array<{
@@ -99,9 +102,10 @@ function createCloudflareD1HttpDb<TSchema extends Record<string, unknown>>(
   schema: TSchema,
   request: typeof fetch,
 ) {
-  async function execute(queries: D1HttpQuery[]) {
+  async function execute(queries: D1HttpExecutionQuery[]) {
+    const requestQueries = queries.map(({ params, sql }) => ({ params, sql }))
     const response = await request(config.url, {
-      body: JSON.stringify(queries.length === 1 ? queries[0] : { batch: queries }),
+      body: JSON.stringify(requestQueries.length === 1 ? requestQueries[0] : { batch: requestQueries }),
       headers: {
         Authorization: `Bearer ${config.token}`,
         "Content-Type": "application/json",
@@ -127,15 +131,15 @@ function createCloudflareD1HttpDb<TSchema extends Record<string, unknown>>(
     }
 
     return payload.result.map((result, index) => {
+      const query = queries[index]!
       if (result.success !== true) {
         throw cloudflareD1HttpError(response, `query ${index + 1}`, result, payload)
       }
-      if (result.results === undefined) return []
-      if (!isRecord(result.results)) {
-        throw databaseErrorDiagnostics.DATABASE_R0011({ message: "Invalid D1 response" })
-      }
+      if (query.method === "run" && result.results === undefined) return []
+      if (!isRecord(result.results)) throw databaseErrorDiagnostics.DATABASE_R0011({ message: "Invalid D1 response" })
       if (!("rows" in result.results) || result.results.rows === undefined) {
-        return []
+        if (query.method === "run") return []
+        throw cloudflareD1HttpError(response, `query ${index + 1}`, result, payload)
       }
       if (!isRowMatrix(result.results.rows)) {
         throw databaseErrorDiagnostics.DATABASE_R0011({ message: "Invalid D1 response" })
@@ -151,8 +155,8 @@ function createCloudflareD1HttpDb<TSchema extends Record<string, unknown>>(
 
   // SAFETY: drizzleProxy returns the runtime database interface for the supplied schema.
   return drizzleProxy(
-    async (sql, params, method) => formatResult((await execute([{ params, sql }]))[0]!, method),
-    async queries => (await execute(queries.map(({ params, sql }) => ({ params, sql }))))
+    async (sql, params, method) => formatResult((await execute([{ method, params, sql }]))[0]!, method),
+    async queries => (await execute(queries.map(({ method, params, sql }) => ({ method, params, sql }))))
       .map((rows, index) => formatResult(rows, queries[index]!.method)),
     { casing: config.casing, schema },
   ) as RuntimeDrizzleDatabase<TSchema>
