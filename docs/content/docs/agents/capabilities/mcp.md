@@ -15,6 +15,35 @@ Static direct clients stay application-owned so they can be reused across invoca
 Tool names, descriptions, and schemas stay with the MCP tool contract. Put broader guidance about when to use an MCP server in Agent Driver Instructions.
 An optional approved fingerprint map can block added or changed tool definitions before they reach an Agent Driver.
 
+If a server publishes an incomplete or unstable contract, pin the application-owned
+part of that contract with `toolOverrides`. Overrides are keyed by the configured
+server name and the original MCP tool name. They change the Agent-facing
+description or schema; the arguments sent to the remote server remain unchanged.
+
+```ts [server/agents/support.ts]
+mcp({
+  servers: { support: supportMcpServer },
+  toolOverrides: {
+    support: {
+      threads_get: {
+        inputSchema: {
+          additionalProperties: false,
+          properties: { id: { type: 'string' } },
+          required: ['id'],
+          type: 'object',
+        },
+      },
+    },
+  },
+})
+```
+
+Use overrides for a contract you own and review. They do not make an unavailable
+server available, or change the server's runtime validation. Input overrides use
+object JSON Schema, without transforms or coercion. Unknown server names fail
+resolution. Unknown tool names fail for servers whose discovery succeeded;
+skipped or unavailable servers do not require discovered tool matches.
+
 ## Configure MCP servers
 
 Pass a server map.
