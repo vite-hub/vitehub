@@ -5,14 +5,14 @@ import { isAttachmentData, resolveAttachmentData } from "../src/messages.ts"
 
 describe("provider attachment binary values", () => {
   it("recognizes binary values from another realm", () => {
-    const foreign = { blob: runInNewContext("new Blob(['x'])"), buffer: runInNewContext("new ArrayBuffer(2)"), bytes: runInNewContext("new Uint8Array([1, 2])") } as Record<string, unknown>
+    const foreign = { blob: runInNewContext("new Blob(['x'])", { Blob }), buffer: runInNewContext("new ArrayBuffer(2)"), bytes: runInNewContext("new Uint8Array([1, 2])") } as Record<string, unknown>
     expect(isBlobValue(foreign.blob)).toBe(true)
     expect(isArrayBufferValue(foreign.buffer)).toBe(true)
     expect(isUint8ArrayValue(foreign.bytes)).toBe(true)
   })
 
   it("accepts foreign binaries at the attachment resolution boundary", async () => {
-    const values = [runInNewContext("new ArrayBuffer(1)"), runInNewContext("new Uint8Array([1])"), runInNewContext("new Blob(['x'])")]
+    const values = [runInNewContext("new ArrayBuffer(1)"), runInNewContext("new Uint8Array([1])"), runInNewContext("new Blob(['x'])", { Blob })]
     for (const data of values) {
       expect(isAttachmentData(data)).toBe(true)
       await expect(resolveAttachmentData({ data, mediaType: "application/octet-stream", type: "file" })).resolves.toBe(data)

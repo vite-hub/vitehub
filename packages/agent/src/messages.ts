@@ -42,8 +42,9 @@ export interface AgentChatData {
 export type AttachmentData = ArrayBuffer | Blob | string | Uint8Array
 export type AudioData = AttachmentData
 
-const blobSizeGetter = typeof Blob === "function" ? Object.getOwnPropertyDescriptor(Blob.prototype, "size")?.get : undefined
+const blobSizeGetter = hasRuntimeType(globalThis.Blob, "function") ? Object.getOwnPropertyDescriptor(globalThis.Blob.prototype, "size")?.get : undefined
 const arrayBufferByteLengthGetter = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")?.get
+const typedArrayTagGetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), Symbol.toStringTag)?.get
 
 /** Brand checks that work for values created in another JavaScript realm. */
 export function isBlobValue(value: unknown): value is Blob {
@@ -68,8 +69,9 @@ export function isArrayBufferValue(value: unknown): value is ArrayBuffer {
 
 export function isUint8ArrayValue(value: unknown): value is Uint8Array {
   if (!ArrayBuffer.isView(value)) return false
+  if (!typedArrayTagGetter) return false
   try {
-    return Object.prototype.toString.call(value) === "[object Uint8Array]"
+    return Reflect.apply(typedArrayTagGetter, value, []) === "Uint8Array"
   } catch {
     return false
   }
