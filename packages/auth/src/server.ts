@@ -288,11 +288,15 @@ function isResponseLike(value: unknown): value is Response {
   if (value === null || typeof value !== "object") return false
   try {
     if (Object.prototype.toString.call(value) !== "[object Response]") return false
-    const response = value as { headers?: unknown, status?: unknown, statusText?: unknown }
+    const response = value as { clone?: unknown, headers?: unknown, status?: unknown, statusText?: unknown, text?: unknown }
     if (typeof response.status !== "number" || !Number.isInteger(response.status) || response.status < 0 || response.status > 599) return false
     if (typeof response.statusText !== "string") return false
+    if (typeof response.text !== "function" || typeof response.clone !== "function") return false
     const headers = response.headers
-    return headers !== null && typeof headers === "object" && typeof (headers as { get?: unknown }).get === "function"
+    if (headers === null || typeof headers !== "object" || typeof (headers as { get?: unknown }).get !== "function") return false
+    const headersGetter = Object.getOwnPropertyDescriptor(Response.prototype, "headers")?.get
+    const headersGet = Object.getOwnPropertyDescriptor(Headers.prototype, "get")?.value
+    return typeof headersGetter === "function" && typeof headersGet === "function" && headersGetter.call(value) === headers && headersGet.call(headers, "") === null
   }
   catch {
     return false

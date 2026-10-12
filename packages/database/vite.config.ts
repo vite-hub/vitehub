@@ -31,6 +31,7 @@ export default defineConfig({
       "src/vite.ts",
       "src/runtime/agent.ts",
       "src/runtime/cloudflare-vite.ts",
+      "src/runtime/d1.ts",
       "src/runtime/definition-defaults.ts",
       "src/runtime/definition-hosted.ts",
       "src/runtime/definition-local.ts",
