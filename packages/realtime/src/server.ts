@@ -432,6 +432,11 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     }
   }
 
+  function ownValue(value: unknown, key: PropertyKey): unknown {
+    if (value === null || (typeof value !== "object" && typeof value !== "function") || !Object.hasOwn(value, key)) return undefined
+    return Reflect.get(value, key)
+  }
+
   async function forwardToCloudflareDurableObject(event: { context: Record<string, unknown>, req: Request }): Promise<Response | undefined> {
     const cloudflare = resolveCloudflare(event)
     const context = cloudflare?.context
@@ -439,7 +444,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
       get(id: unknown): { fetch(request: Request): Promise<Response> }
       idFromName(name: string): unknown
     } | undefined
-    if (!binding || (typeof context === "object" && context !== null && "storage" in context)) return
+    if (!binding || ownValue(context, "storage")) return
     const { definitionName, documentId, workspaceEvents } = parseRoomPath(event.req.url)
     const key = workspaceEvents
       ? JSON.stringify([definitionName, { workspaceEvents: true }])
@@ -448,8 +453,11 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
   }
 
   function resolveRealtimeRoomSql(event: { context: Record<string, unknown>, req: Request }): RealtimeRoomSql | undefined {
-    const context = resolveCloudflare(event)?.context as { storage?: { sql?: RealtimeRoomSql } } | undefined
-    return context?.storage?.sql
+    const context = resolveCloudflare(event)?.context
+    const storage = ownValue(context, "storage")
+    const sql = ownValue(storage, "sql")
+    const exec = ownValue(sql, "exec")
+    return typeof exec === "function" ? sql as RealtimeRoomSql : undefined
   }
 
   async function getDefinition(definitionName: string): Promise<RealtimeDefinition> {

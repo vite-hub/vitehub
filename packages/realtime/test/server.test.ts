@@ -99,6 +99,26 @@ describe("realtime server handler", () => {
     expect(response.status).toBe(404)
   })
 
+  it("ignores inherited Cloudflare storage contexts", async () => {
+    const exec = vi.fn(() => ({ toArray: () => [] }))
+    const context = Object.create({ storage: { sql: { exec } } })
+    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+      exists: vi.fn().mockResolvedValue(false),
+      readFile: vi.fn(),
+      stat: vi.fn().mockResolvedValue(undefined),
+    }))
+    const request = new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
+      headers: { upgrade: "websocket" },
+    }) as Request & { runtime?: unknown }
+    request.runtime = { cloudflare: { context } }
+    const handler = createRealtimeHandler(realtimeRegistry())
+
+    const response = await handler.fetch(request) as Response & { crossws?: unknown }
+
+    expect(response.crossws).toBeDefined()
+    expect(exec).not.toHaveBeenCalled()
+  })
+
   it("rejects unauthenticated definitions before opening a room", async () => {
     serverMocks.getSession.mockResolvedValue(null)
     const handler = createRealtimeHandler(realtimeRegistry({ auth: true }))
