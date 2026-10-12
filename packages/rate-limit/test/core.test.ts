@@ -134,6 +134,13 @@ describe("Rate Limit core", () => {
     expect(() => createRateLimiter({ driver: memoryRateLimitDriver(), limit: 1, window: "soon" as never })).toThrow("must use a duration")
   })
 
+  it("classifies revoked limiter options", () => {
+    const revoked = Proxy.revocable({ driver: memoryRateLimitDriver(), limit: 1, window: "1m" }, {})
+    revoked.revoke()
+
+    expect(() => createRateLimiter(revoked.proxy as never)).toThrow(expect.objectContaining({ code: "RATE_LIMIT_R0029" }))
+  })
+
   it.each(["s", "m", "d"])("rejects %s windows that overflow during conversion", (unit) => {
     const options = { driver: memoryRateLimitDriver(), limit: 1, window: "1m" as const }
     Object.assign(options, { window: `${"1" + "0".repeat(307)}${unit}` })

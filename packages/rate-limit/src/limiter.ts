@@ -143,8 +143,20 @@ function assertKey(input: RateLimitConsumeInput, operation: "peek" | "reset"): v
   }
 }
 
+function isRateLimiterOptions(value: unknown): value is CreateRateLimiterOptions {
+  if (!value || typeof value !== "object") return false
+  try {
+    if (Array.isArray(value)) return false
+    const driver = (value as { driver?: unknown }).driver
+    return Boolean(driver) && typeof (driver as { consume?: unknown }).consume === "function"
+  }
+  catch {
+    return false
+  }
+}
+
 export function createRateLimiter(options: CreateRateLimiterOptions): RateLimiter {
-  if (!options.driver || typeof options.driver.consume !== "function") {
+  if (!isRateLimiterOptions(options)) {
     throw rateLimitErrorDiagnostics.RATE_LIMIT_R0029({ message: "[vitehub] createRateLimiter() requires a Rate Limit driver." })
   }
   const policy = normalizeRateLimitPolicy(options)
