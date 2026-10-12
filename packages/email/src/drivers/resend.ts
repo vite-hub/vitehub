@@ -31,9 +31,7 @@ const REQUEST_TIMEOUT_MS = 30_000;
 
 function cancelled(signal: AbortSignal | undefined, cause: unknown): boolean {
   return signal?.aborted === true || (
-    cause !== null
-    && typeof cause === "object"
-    && "name" in cause
+    isRecord(cause)
     && cause.name === "AbortError"
   );
 }
