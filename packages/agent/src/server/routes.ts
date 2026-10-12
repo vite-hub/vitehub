@@ -43,7 +43,7 @@ import { isAgentInvocationCancellationError } from "../internal/invocation-cance
 import { finalChannelOutputContextKey, hasOnlyPortableAgentWorkflowCapabilities, requireAgentWorkflowContextKey } from "../internal/final-channel-output.ts"
 import { agentChannelHistoryHeader } from "../internal/channel-history.ts"
 import { agentChannelSyncProviderHeader } from "../internal/channel-sync.ts"
-import { attachmentStringBytes, isAttachmentData } from "../messages.ts"
+import { attachmentStringBytes, isAttachmentBlob, isAttachmentData } from "../messages.ts"
 import { agentInvokerLabel, hasResolvedAgentInvokerInput, resolveInputAgentInvoker, resolveAgentInvoker, withResolvedAgentInvokerInput } from "../invoker.ts"
 import { createAgentUIMessageStreamResponse } from "../stream-output.ts"
 import {
@@ -4198,7 +4198,7 @@ interface ChatMessagePartOptions {
 }
 
 function imageAttachmentMediaType(attachment: Attachment): string | undefined {
-  if (attachment.data instanceof Blob && attachment.data.type.startsWith("image/")) return attachment.data.type
+  if (isAttachmentBlob(attachment.data) && attachment.data.type.startsWith("image/")) return attachment.data.type
   for (const path of [attachment.name, attachment.url]) {
     const extension = path?.split(/[?#]/)[0]?.split(".").pop()?.toLowerCase()
     if (extension && imageAttachmentMimeTypes[extension]) return imageAttachmentMimeTypes[extension]
@@ -4242,8 +4242,8 @@ async function textAttachmentBytes(attachment: Attachment, options: ChatMessageP
       return undefined
     }
   }
-  if (attachment.data instanceof Blob) {
-    return checkedTextAttachmentBytes(await attachment.data.arrayBuffer(), options)
+  if (isAttachmentBlob(attachment.data)) {
+    return checkedTextAttachmentBytes(new Uint8Array(await attachment.data.arrayBuffer()), options)
   }
   return checkedTextAttachmentBytes(attachment.data, options)
 }
@@ -7107,7 +7107,7 @@ async function channelHistoryAttachment(
   }
   const maxBytes = Math.min(channelHistoryAttachmentMaxBytes, budget.remaining)
   let data: unknown = isRuntimeNumber(resolved.size) && resolved.size > maxBytes ? undefined : resolved.data
-  if (data instanceof Blob) data = data.size <= maxBytes ? new Uint8Array(await data.arrayBuffer()) : undefined
+  if (isAttachmentBlob(data)) data = data.size <= maxBytes ? new Uint8Array(await data.arrayBuffer()) : undefined
   const boundedLazySize = isRuntimeNumber(resolved.size) && Number.isFinite(resolved.size) && resolved.size >= 0 && resolved.size <= maxBytes
   if (!data && resolved.fetchData && boundedLazySize) {
     try {

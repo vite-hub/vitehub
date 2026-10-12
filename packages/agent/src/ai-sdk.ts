@@ -2,7 +2,7 @@ import { resolveAgentInstructions } from "./agent-instructions.ts"
 import { asUnknownBoundary, hasRuntimeType } from "./internal/runtime-type.ts"
 import { formatRuntimeDiagnosticError } from "@vite-hub/runtime"
 import { readAgentErrorProperty } from "./agent-error.ts"
-import { getMessageText, isAttachmentData, isAttachmentPart, resolveAttachmentData } from "./messages.ts"
+import { getMessageText, isAttachmentBlob, isAttachmentData, isAttachmentPart, resolveAttachmentData } from "./messages.ts"
 import {
   cloneWithPropertyDescriptors,
   isAsyncIterable,
@@ -116,7 +116,7 @@ function isDataMessagePart(part: MessagePart): part is Extract<MessagePart, { ty
 type UserContentPart = Exclude<UserContent, string>[number]
 
 function attachmentModelData(part: AttachmentPart): Exclude<AttachmentData, Blob> | URL | undefined {
-  if (part.data && !(part.data instanceof Blob)) return part.data
+  if (part.data && !isAttachmentBlob(part.data)) return part.data
   if (part.url) {
     try {
       const url = new URL(part.url)
@@ -126,7 +126,7 @@ function attachmentModelData(part: AttachmentPart): Exclude<AttachmentData, Blob
       // Invalid URLs are not model input.
     }
   }
-  if (part.data instanceof Blob) {
+  if (isAttachmentBlob(part.data)) {
     throw agentDiagnostics.AGENT_R0004({ message: "[vitehub] toAiSdkModelMessages() cannot convert a Blob synchronously. Pass the message through a model-backed Agent Driver or provide an HTTPS URL." })
   }
   if (part.fetchData) {
@@ -346,14 +346,14 @@ function aiSdkAttachmentMaxBytes(options: AiSdkAttachmentOptions | undefined): n
 }
 
 function attachmentDataByteLength(data: AttachmentData | undefined): number | undefined {
-  if (data instanceof Blob) return data.size
+  if (isAttachmentBlob(data)) return data.size
   if (data instanceof ArrayBuffer) return data.byteLength
   if (ArrayBuffer.isView(data)) return data.byteLength
   if (hasRuntimeType(data, "string")) return new TextEncoder().encode(data).byteLength
 }
 
 function resolvedImageMediaType(data: AttachmentData): string | undefined {
-  if (data instanceof Blob && data.type.startsWith("image/")) return data.type
+  if (isAttachmentBlob(data) && data.type.startsWith("image/")) return data.type
   if (hasRuntimeType(data, "string")) {
     const dataUrlMediaType = /^data:(image\/[^;,]+)[;,]/i.exec(data)?.[1]?.toLowerCase()
     if (dataUrlMediaType) return dataUrlMediaType
@@ -398,7 +398,7 @@ async function resolveModelAttachmentPart(part: AttachmentPart, maxBytes: number
   if (!resolved) return { byteLength: 0 }
   const byteLength = attachmentDataByteLength(resolved) ?? 0
   assertAttachmentWithinLimit(part, byteLength, maxBytes)
-  const data = resolved instanceof Blob ? await resolved.arrayBuffer() : resolved
+  const data = isAttachmentBlob(resolved) ? new Uint8Array(await resolved.arrayBuffer()) : resolved
   const { fetchData: _fetchData, fetchMetadata: _fetchMetadata, url: _url, ...rest } = part
   const mediaType = part.type === "image"
     ? resolvedImageMediaType(resolved) ?? resolvedImageMediaType(data)
