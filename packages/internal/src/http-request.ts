@@ -95,6 +95,19 @@ function isBlobLike(value: unknown): value is Blob {
   }
 }
 
+function blobMetadata(value: Blob): { arrayBuffer: () => Promise<ArrayBuffer>, type: string } | undefined {
+  try {
+    const type = Reflect.get(Blob.prototype, "type", value)
+    Reflect.get(Blob.prototype, "size", value)
+    return {
+      arrayBuffer: () => Blob.prototype.arrayBuffer.call(value),
+      type,
+    }
+  } catch {
+    return undefined
+  }
+}
+
 const httpEffectBoundary = createEffectBoundary({
   aggregateMessage: "[vitehub] HTTP request failed.",
   interruptionMessage: "[vitehub] HTTP request was interrupted.",
@@ -232,8 +245,8 @@ function applyCookies(headers: Headers, cookies: Record<string, string> | undefi
 async function serializeRequestBody(body: unknown, headers: Headers): Promise<FetchBody | undefined> {
   if (body === undefined) return undefined
   if (isBlobLike(body) && !(body instanceof Blob)) {
-    const foreignBlob = body as Blob & { arrayBuffer: () => Promise<ArrayBuffer>, type: string }
-    return new Blob([await foreignBlob.arrayBuffer()], { type: foreignBlob.type })
+    const metadata = blobMetadata(body)
+    if (metadata) return new Blob([await metadata.arrayBuffer()], { type: metadata.type })
   }
   if (
     primitiveRuntimeTag(body) === "[object String]"

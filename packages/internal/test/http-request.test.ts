@@ -1,5 +1,3 @@
-import { runInNewContext } from "node:vm"
-import { createRequire } from "node:module"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {
@@ -10,17 +8,18 @@ import {
   normalizeHttpRequest,
 } from "../src/http-request.ts"
 
-const require = createRequire(import.meta.url)
-
 afterEach(() => {
   vi.unstubAllGlobals()
 })
 
 describe("HTTP request", () => {
   it("preserves Blob request bodies from another realm", async () => {
-    const body = runInNewContext(`
-      new (require("node:buffer").Blob)(["test"], { type: "text/plain" })
-    `, { require })
+    const body = new Blob(["test"], { type: "text/plain" })
+    // Simulate a Blob crossing a realm boundary: its internal slots remain
+    // valid, while the local constructor check no longer applies.
+    Object.setPrototypeOf(body, null)
+    Object.defineProperty(body, "arrayBuffer", { value: () => Promise.reject(new Error("shadowed")) })
+    Object.defineProperty(body, "type", { value: "application/evil" })
     const spoof = { size: 4, type: "text/plain", arrayBuffer: () => Promise.resolve(new ArrayBuffer(0)) }
     Object.defineProperty(spoof, Symbol.toStringTag, { value: "Blob" })
     let captured: RequestInit | undefined
