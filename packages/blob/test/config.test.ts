@@ -150,6 +150,25 @@ describe("blob config", () => {
     })
   })
 
+  it.each(["single", "named"] as const)("masks an env-backed token in a %s Vercel Blob store", (form) => {
+    const store = { driver: "vercel-blob", token: "build-token" } as const
+    const config = normalizeBlobOptions(form === "named" ? { stores: { default: store } } : store, {
+      env: { BLOB_READ_WRITE_TOKEN: "build-token" },
+    })
+
+    expect(config?.store).toEqual({ access: "public", driver: "vercel-blob", token: "********" })
+    if (config?.store.driver !== "vercel-blob") throw new Error("Expected a Vercel Blob store.")
+    expect(resolveRuntimeVercelBlobStore(config.store, {
+      BLOB_READ_WRITE_TOKEN: "runtime-token",
+    }).token).toBe("runtime-token")
+  })
+
+  it("preserves a Vercel Blob token that differs from the default env token", () => {
+    expect(normalizeBlobOptions({ driver: "vercel-blob", token: "store-token" }, {
+      env: { BLOB_READ_WRITE_TOKEN: "default-token" },
+    })?.store).toEqual({ access: "public", driver: "vercel-blob", token: "store-token" })
+  })
+
   it("defaults Netlify hosting to Netlify Blobs", () => {
     expect(normalizeBlobOptions({}, {
       env: { BLOB_READ_WRITE_TOKEN: "vercel-token" },

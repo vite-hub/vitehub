@@ -1,4 +1,7 @@
+import { Buffer } from "node:buffer"
 import { posix } from "node:path"
+
+import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 
 import type {
   BufferEncoding,
@@ -49,14 +52,30 @@ function createReadonlyError() {
   return shellErrorDiagnostics.SHELL_R0014({ message: "[vitehub] Workspace filesystem is read-only." })
 }
 
-function toShellContent(content: ShellContent): Uint8Array {
-  return typeof content === "string" ? new TextEncoder().encode(content) : content
+function toShellContent(content: ShellContent, encoding?: BufferEncoding): Uint8Array {
+  if (!hasRuntimeType(content, "string")) return content
+  // Match Just Bash's filesystem conversion, including malformed input behavior.
+  if (encoding === "base64") return Uint8Array.from(atob(content), char => char.charCodeAt(0))
+  if (encoding === "hex") {
+    const bytes = new Uint8Array(content.length / 2)
+    for (let index = 0; index < content.length; index += 2) {
+      bytes[index / 2] = Number.parseInt(content.slice(index, index + 2), 16)
+    }
+    return bytes
+  }
+  if (encoding === "binary" || encoding === "latin1") {
+    if (content.length <= 65536) return Uint8Array.from(content, char => char.charCodeAt(0))
+    const bytes = new Uint8Array(content.length)
+    for (let index = 0; index < content.length; index++) bytes[index] = content.charCodeAt(index)
+    return bytes
+  }
+  return new TextEncoder().encode(content)
 }
 
 function decodeContent(content: Uint8Array, encoding?: BufferEncoding | null) {
   if (encoding === "base64") return Buffer.from(content).toString("base64")
   if (encoding === "hex") return Buffer.from(content).toString("hex")
-  if (encoding === "ascii" || encoding === "latin1") return Buffer.from(content).toString(encoding)
+  if (encoding === "latin1" || encoding === "binary") return Buffer.from(content).toString(encoding)
   return new TextDecoder().decode(content)
 }
 
@@ -125,18 +144,22 @@ class WorkspaceFileSystem implements WorkspaceShellFileSystem {
     return toShellContent(content)
   }
 
-  async writeFile(path: string, content: FileContent, _options?: WriteFileOptions | BufferEncoding): Promise<void> {
+  async writeFile(path: string, content: FileContent, options?: WriteFileOptions | BufferEncoding): Promise<void> {
     const workspace = this.#requireWritable()
-    await workspace.writeFile(this.#toRelativePath(path), content)
+    const encoding = hasRuntimeType(options, "string") ? options : options?.encoding
+    await workspace.writeFile(this.#toRelativePath(path), encoding ? toShellContent(content, encoding) : content)
     await this.#refreshPaths()
   }
 
-  async appendFile(path: string, content: FileContent, _options?: WriteFileOptions | BufferEncoding): Promise<void> {
+  async appendFile(path: string, content: FileContent, options?: WriteFileOptions | BufferEncoding): Promise<void> {
     const workspace = this.#requireWritable()
     const relativePath = this.#toRelativePath(path)
-    const existing = await workspace.readFile(relativePath, { encoding: "binary" } satisfies ShellReadFileOptions).catch(() => new Uint8Array())
+    const existing = await workspace.readFile(relativePath, { encoding: "binary" } satisfies ShellReadFileOptions).catch(async (error: unknown) => {
+      if (await workspace.exists(relativePath)) throw error
+      return new Uint8Array()
+    })
     const current = toShellContent(existing)
-    const next = toShellContent(content)
+    const next = toShellContent(content, hasRuntimeType(options, "string") ? options : options?.encoding)
     const merged = new Uint8Array(current.byteLength + next.byteLength)
     merged.set(current, 0)
     merged.set(next, current.byteLength)
@@ -147,6 +170,7 @@ class WorkspaceFileSystem implements WorkspaceShellFileSystem {
   async exists(path: string): Promise<boolean> {
     try {
       const relativePath = this.#toRelativePath(path)
+      if (!relativePath) return true
       return await this.workspace.exists(relativePath)
     }
     catch {
@@ -155,16 +179,21 @@ class WorkspaceFileSystem implements WorkspaceShellFileSystem {
   }
 
   async stat(path: string): Promise<FsStat> {
-    const absolutePath = this.#resolveFromRoot(path)
-    if (absolutePath === workspaceMountPoint) {
+    const relativePath = this.#toRelativePath(path)
+    if (!relativePath) {
       return statFromEntry({ path: "", type: "directory" })
     }
-    return statFromEntry(await this.workspace.stat(this.#toRelativePath(absolutePath)))
+    return statFromEntry(await this.workspace.stat(relativePath))
   }
 
   async mkdir(path: string, options?: MkdirOptions): Promise<void> {
     const workspace = this.#requireWritable()
-    await workspace.mkdir(this.#toRelativePath(path), { recursive: options?.recursive })
+    const relativePath = this.#toRelativePath(path)
+    if (!relativePath) {
+      if (options?.recursive) return
+      throw shellErrorDiagnostics.SHELL_R0023({ message: `[vitehub] Workspace directory already exists: "${path}".` })
+    }
+    await workspace.mkdir(relativePath, { recursive: options?.recursive })
     await this.#refreshPaths()
   }
 
@@ -201,8 +230,15 @@ class WorkspaceFileSystem implements WorkspaceShellFileSystem {
 
   async mv(src: string, dest: string): Promise<void> {
     const workspace = this.#requireWritable()
-    const from = this.#toRelativePath(src)
-    const to = this.#toRelativePath(dest)
+    const from = this.#toRelativePath(src).replace(/\/$/, "")
+    const to = this.#toRelativePath(dest).replace(/\/$/, "")
+    if (from === to) {
+      if (from) await workspace.stat(from)
+      return
+    }
+    if (!from || to.startsWith(`${from}/`)) {
+      throw shellErrorDiagnostics.SHELL_R0022({ message: `[vitehub] Cannot move Workspace path "${src}" into itself, "${dest}".` })
+    }
     await copyWorkspacePath(workspace, from, to)
     await workspace.rm(from, { recursive: true, force: true })
     await this.#refreshPaths()

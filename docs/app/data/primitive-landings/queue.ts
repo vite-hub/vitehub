@@ -45,7 +45,7 @@ function packageFile(framework: "vite" | "nitro" | "nuxt"): PrimitiveProjectFile
 export const QueueLanding = {
   slug: "queue",
   name: "Queue",
-  docsTo: "/docs/server-primitives/queue",
+  docsTo: "/docs/queue",
   eyebrow: "ViteHub Queue",
   description: "Move slow work out of the request and keep delivery, retries, and ownership explicit.",
   tagline: "Background work with a place to go.",

@@ -44,8 +44,12 @@ const isDocsIndex = computed(() => normalizeDocsPath(route.path) === "/docs");
 </template>
 
 <style scoped>
-.vh-sidebar-search {
-  height: 2.5rem;
+.vh-docs-panel-title {
+  flex: none;
+  margin: 0;
+  padding: 0 1rem;
+  overflow: hidden;
+  color: var(--ui-text-highlighted);
   font-size: 0.875rem;
 }
 
