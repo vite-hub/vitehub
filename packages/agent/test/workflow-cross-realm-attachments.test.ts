@@ -14,6 +14,7 @@ describe("Workflow attachment portability", () => {
       : "new Uint8Array([1, 2, 3])")
     const input: AgentRunInput = {
       messages: [{
+        id: "message-1",
         parts: [{ data: value, mediaType: "application/octet-stream", type: "file" }],
         role: "user",
       }],

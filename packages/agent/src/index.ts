@@ -1019,7 +1019,17 @@ function isPortableWorkflowArrayBuffer(value: unknown): value is ArrayBuffer {
 }
 
 function isPortableWorkflowUint8Array(value: unknown): value is Uint8Array {
-  return ArrayBuffer.isView(value) && Object.prototype.toString.call(value) === "[object Uint8Array]"
+  if (!ArrayBuffer.isView(value)) return false
+  try {
+    const getter = Object.getOwnPropertyDescriptor(
+      Object.getPrototypeOf(Uint8Array.prototype),
+      Symbol.toStringTag,
+    )?.get
+    return getter?.call(value) === "Uint8Array"
+  }
+  catch {
+    return false
+  }
 }
 
 function isPortableWorkflowBlob(value: unknown): value is Blob {
