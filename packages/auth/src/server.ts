@@ -276,7 +276,15 @@ function reject(response: Response): AuthCheck {
 }
 
 function isResponse(value: unknown): value is Response {
-  return value instanceof Response || Object.prototype.toString.call(value) === "[object Response]"
+  if (value instanceof Response) return true
+  const bodyGetter = Object.getOwnPropertyDescriptor(Response.prototype, "body")?.get
+  if (!bodyGetter) return false
+  try {
+    bodyGetter.call(value)
+    return true
+  } catch {
+    return false
+  }
 }
 
 async function runAccessAuthorize(
