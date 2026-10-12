@@ -3925,6 +3925,20 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.get('[role="note"]').text()).toContain("Some setup values were shortened");
   });
 
+  it("ignores malformed persisted channel entries", () => {
+    const invocation: AgentInvocationView = {
+      id: "malformed-channels", traceId: "malformed-channels", createdAt: "2026-09-05T00:00:00Z", updatedAt: "2026-09-05T00:00:01Z",
+      status: "completed", observations: [],
+      configuration: {
+        channels: [null, { id: "support", kind: "web-chat" }, { id: "invalid", kind: 42 }, "[truncated]"],
+      } as never,
+    };
+    const wrapper = mount(AgentInvocationInspector, { props: { invocation } });
+    expect(wrapper.findAll(".vh-invocation-inspector__badge")).toHaveLength(1);
+    expect(wrapper.text()).toContain("Some setup values were shortened");
+    expect(wrapper.text()).toContain("support");
+  });
+
   it("does not label a historical response breakdown as invocation usage", () => {
     const wrapper = mount(AgentInvocationInspector, { props: { invocation: {
       createdAt: "2026-09-08T00:00:00.000Z",
