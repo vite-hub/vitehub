@@ -31,7 +31,9 @@ function getProcess(): {
 }
 
 function isWorkflowDefinition(value: unknown): value is WorkflowDefinition {
-  return isRuntimeRecord(value) && hasRuntimeType(value.handler, "function")
+  return isRuntimeRecord(value)
+    && Object.hasOwn(value, "handler")
+    && hasRuntimeType(value.handler, "function")
 }
 
 async function loadRegistryDefinitions(registry: WorkflowDefinitionRegistry) {
