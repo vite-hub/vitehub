@@ -51,6 +51,8 @@ export interface SandboxDefinitionBundle {
 
 export interface SandboxExecutionOptions {
   context?: Record<string, unknown>
+  /** Abort this invocation and propagate the caller's abort reason. */
+  signal?: AbortSignal
   sandboxId?: string
 }
 

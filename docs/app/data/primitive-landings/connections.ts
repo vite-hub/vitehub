@@ -1,7 +1,7 @@
 import { stubLanding } from "./stub";
 import type { PrimitiveLanding } from "./types";
 
-const landing = stubLanding("connections", "Connections", "/docs/server-primitives/connections");
+const landing = stubLanding("connections", "Connections", "/docs/connections");
 
 export const ConnectionsLanding = {
   ...landing,

@@ -52,6 +52,7 @@ export const rateLimitErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     RATE_LIMIT_R0042: dynamicError,
     RATE_LIMIT_R0043: dynamicError,
     RATE_LIMIT_R0044: dynamicError,
+    RATE_LIMIT_R0045: dynamicError,
     RATE_LIMIT_B0001: dynamicError,
     RATE_LIMIT_B0002: dynamicError,
     RATE_LIMIT_B0003: dynamicError,
