@@ -164,26 +164,33 @@ describe("runtime preflight", () => {
   })
 
   it("observes a promise returned after a synchronous timeout", async () => {
+    vi.useFakeTimers()
     let rejectLate: ((reason?: unknown) => void) | undefined
     let checkSignal: AbortSignal | undefined
     const late = new Promise<never>((_, reject) => { rejectLate = reject })
-    const manifest = await runRuntimePreflight({
-      timeoutMs: 1,
-      checks: [{
-        id: "command:blocking-promise",
-        kind: "command",
-        check: ({ signal }) => {
-          checkSignal = signal
-          const until = Date.now() + 15
-          while (Date.now() < until) {}
-          return late
-        },
-      }],
-    })
-    expect(manifest.capabilities["command:blocking-promise"]).toBe("unknown")
-    expect(checkSignal?.aborted).toBe(true)
-    rejectLate?.(new Error("late failure"))
-    await new Promise(resolve => setTimeout(resolve, 0))
+    try {
+      const manifest = await runRuntimePreflight({
+        timeoutMs: 100,
+        checks: [{
+          id: "command:blocking-promise",
+          kind: "command",
+          check: ({ signal }) => {
+            checkSignal = signal
+            // Advance the fake clock after callback startup to deterministically
+            // exercise a synchronous callback that runs past its deadline.
+            vi.advanceTimersByTime(150)
+            return late
+          },
+        }],
+      })
+      expect(manifest.capabilities["command:blocking-promise"]).toBe("unknown")
+      expect(checkSignal?.aborted).toBe(true)
+      rejectLate?.(new Error("late failure"))
+      await vi.runAllTicks()
+    }
+    finally {
+      vi.useRealTimers()
+    }
   })
 
   it("keeps hostile error messages from rejecting the manifest", async () => {

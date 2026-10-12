@@ -38,6 +38,7 @@ export default defineEventHandler(async () => {
 | Option | Type | Description |
 | --- | --- | --- |
 | `context` | `Record<string, unknown>` | Second argument passed to the entrypoint. |
+| `signal` | `AbortSignal` | Abort the invocation. The caller's abort reason is preserved; this also stops cancellable provider operations. |
 | `sandboxId` | `string` | Cloudflare only. Reuse a named Box instead of a new Box for each run. |
 
 Payloads, context, and results use JSON serialization. Nested `Blob` and `Uint8Array` values cross the Box boundary through invocation-local Box files, so you do not convert them to base64. Node.js `Buffer` values keep their `Buffer` type.

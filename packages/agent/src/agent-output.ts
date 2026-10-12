@@ -453,7 +453,7 @@ function withFallbackUsageMetadata(
   const runMetadata = mergedRunMetadata(run, readableProperty(record, "run"))
   const provider = record.provider ?? (compound ? undefined : modelMetadata?.provider)
   const usage = readableProperty(record, "usage")
-  return model || provider || transport || cost || response || latency || credentialSource || runMetadata
+  return model || provider || transport || cost || response || latency || credentialSource || runMetadata || usage
     ? {
         ...record,
         ...(cost ? { cost } : {}),

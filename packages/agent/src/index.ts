@@ -10,7 +10,7 @@ import { asUnknownBoundary, hasRuntimeType, isCallableMember, isRuntimeObject, i
 import { Diagnostic } from "nostics"
 import agentRegistry from "#vitehub/agent/registry"
 import { acquireAgentCapacity, configureAgentCapacity, inspectAgentCapacity } from "./internal/agent-capacity.ts"
-import { normalizeAgentDriver } from "./internal/agent-driver.ts"
+import { normalizeAgentDriver, normalizeAgentDriverCapacity } from "./internal/agent-driver.ts"
 import { createAgentHealthHandler } from "./health.ts"
 import { agentOutputEventObserverContextKey, progressSummaryOutputContextKey, type AgentOutputEventObserver } from "./internal/agent-output-events.ts"
 import { openAgentInvocationLifecycle, type AgentInvocationLifecycle } from "./internal/invocation-lifecycle.ts"
@@ -2223,7 +2223,7 @@ function defineBaseAgent<
     throw agentDiagnostics.AGENT_R0426({ message: "[vitehub] defineAgent({ channels }) cannot be combined with the chat() capability. Move chat options to defineAgent({ messages, channels })." })
   }
   const chat = chatCapability || channelChat
-  const configuredBudget = options.budget && (options.budget.tokens !== undefined || options.budget.usd !== undefined)
+  const configuredBudget = options.budget && (options.budget.tokens !== undefined || options.budget.usd !== undefined || options.budget.capacity !== undefined)
     ? budgetCapability(options.budget)
     : undefined
   const normalizedCapabilities = channelChat
@@ -2339,7 +2339,9 @@ function defineBaseAgent<
     [baseAgentDefinitionHealth]: { value: options.health ? undefined : definition.health },
     [baseAgentDefinitionStatus]: { value: definition.status },
   })
-  configureAgentCapacity(definition, options.budget?.capacity ?? driver.capacity)
+  configureAgentCapacity(definition, options.budget?.capacity
+    ? normalizeAgentDriverCapacity(options.budget.capacity)
+    : driver.capacity)
   Object.defineProperty(definition, "__vitehubAgentSettings", {
     value: channels === options.channels ? options : { ...options, channels },
   })
@@ -5097,9 +5099,44 @@ function withEagerStreamUsageExtensions<
   const providers = context.finishExtensionProviders.filter(provider => provider.eager)
   if (!providers.length) return stream
   return (async function* () {
+    let extensionApplied = false
+    async function* finalizeUsage(): AsyncIterable<unknown> {
+      if (extensionApplied) return
+      const usageRecord = await resolveAgentUsageRecord(result, context.run)
+      if (!usageRecord) return
+      const usage = { ...usageRecord }
+      const eventBase = {
+        actor: context.actor,
+        input: context.input,
+        invoker: context.invoker,
+        invocation: {
+          durationMs: Date.now() - context.startedAt,
+          ...(context.run ? { run: context.run } : {}),
+          usage,
+        },
+        result,
+        runtime: context.runtimeContext,
+        toolResults: [...context.toolResults],
+      } satisfies Omit<AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>, "extensions">
+      // SAFETY: The event and eager providers share this invocation's normalized Agent runtime and call-option contracts.
+      await createAgentInvocationExtensions(eventBase as never, providers)
+      extensionApplied = true
+      assignResolvedUsageRecord(result, usage)
+      // Keep deferred usage observable to stream consumers even when the provider
+      // never emitted a usage chunk during iteration.
+      yield { type: "usage", usageRecord: usage }
+    }
     for await (const chunk of stream) {
       const usageRecord = usageRecordFromStreamChunk(chunk, result)
       if (!usageRecord) {
+        if (isRuntimeRecord(chunk) && chunk.type === "finish") {
+          // A terminal event must not be held until an async source closes. If
+          // no usage chunk was emitted, resolve the fallback now so consumers
+          // still observe usage before finish.
+          yield* finalizeUsage()
+          yield chunk
+          continue
+        }
         yield chunk
         continue
       }
@@ -5119,6 +5156,7 @@ function withEagerStreamUsageExtensions<
       } satisfies Omit<AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>, "extensions">
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       await createAgentInvocationExtensions(eventBase as never, providers)
+      extensionApplied = true
       if (chunk && hasRuntimeType(chunk, "object")) {
         const prototype = Object.getPrototypeOf(chunk)
         if (prototype !== Object.prototype && prototype !== null) {
@@ -5146,7 +5184,8 @@ function withEagerStreamUsageExtensions<
       }
       yield { type: "usage", usageRecord: usage }
     }
-  })()
+    yield* finalizeUsage()
+    })()
 }
 
 function withEagerUiMessageStreamUsageExtensions<

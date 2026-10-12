@@ -128,8 +128,11 @@ async function readInvocationInputTokens(invocations: Pick<AgentInvocations, "li
   if (!invocations) throw new Error("No invocation journal is assigned.");
   const usage: Array<{ id: string; updatedAt: string; tokens: number }> = [];
   let cursor: string | undefined;
+  const seenCursors = new Set<string>();
   do {
     const page = await invocations.list({ cursor, limit: 100 });
+    if (page.cursor && seenCursors.has(page.cursor)) throw new Error("[vitehub] Agent Invocation listing returned a repeated pagination cursor.");
+    if (page.cursor) seenCursors.add(page.cursor);
     for (const summary of page.invocations) {
       if (Date.parse(summary.updatedAt) < since) continue;
       const record = await invocations.get(summary.id);
