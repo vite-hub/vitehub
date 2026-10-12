@@ -7,7 +7,10 @@ function readHeader(headers: Headers | Record<string, unknown> | undefined, name
 
   if (isHeadersLike(headers)) {
     try {
-      return Headers.prototype.get.call(headers, name) || undefined
+      const descriptor = getPrototypeDescriptor(headers, "get")
+      return typeof descriptor?.value === "function"
+        ? descriptor.value.call(headers, name) || undefined
+        : undefined
     }
     catch {
       return
@@ -34,7 +37,9 @@ function readHeader(headers: Headers | Record<string, unknown> | undefined, name
 function isHeadersLike(value: unknown): value is Headers {
   if (!value || (typeof value !== "object" && typeof value !== "function")) return false
   try {
-    Headers.prototype.get.call(value, "")
+    const descriptor = getPrototypeDescriptor(value, "get")
+    if (typeof descriptor?.value !== "function") return false
+    descriptor.value.call(value, "ce-vqsregion")
     return true
   }
   catch {
@@ -45,11 +50,21 @@ function isHeadersLike(value: unknown): value is Headers {
 function getRequestHeaders(value: unknown) {
   if (!value || (typeof value !== "object" && typeof value !== "function")) return undefined
   try {
-    const headers = Object.getOwnPropertyDescriptor(Request.prototype, "headers")?.get?.call(value)
+    const descriptor = getPrototypeDescriptor(value, "headers")
+    const headers = typeof descriptor?.get === "function" ? descriptor.get.call(value) : undefined
     return isHeadersLike(headers) ? headers : undefined
   }
   catch {
     return undefined
+  }
+}
+
+function getPrototypeDescriptor(value: object, property: PropertyKey) {
+  let prototype: object | null = value
+  while (prototype) {
+    const descriptor = Object.getOwnPropertyDescriptor(prototype, property)
+    if (descriptor) return descriptor
+    prototype = Object.getPrototypeOf(prototype)
   }
 }
 

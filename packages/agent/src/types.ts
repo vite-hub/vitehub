@@ -2766,6 +2766,43 @@ export interface AgentUsageRecord {
   usage?: AgentUsage
 }
 
+export interface AgentBudgetTokenLimits {
+  input?: number
+  output?: number
+  total?: number
+}
+
+export interface AgentBudgetOptions {
+  /** Token limits for one Agent Invocation. A number is a total-token limit. */
+  tokens?: number | AgentBudgetTokenLimits
+  /** Maximum estimated or provider-reported cost in US dollars. */
+  usd?: number | string
+  /** Report exceedance or reject the completed Invocation. */
+  mode?: "observe" | "enforce"
+  /** Optional pricing resolver used when the provider does not report a cost. */
+  pricing?: false | ((context: {
+    model?: AgentUsageRecord["model"]
+    provider?: AgentUsageRecord["provider"]
+    response?: AgentUsageRecord["response"]
+    run?: Partial<AgentRunMetadata>
+    transport?: AgentUsageRecord["transport"]
+    usage: AgentUsage
+  }) => MaybePromise<{ estimated: boolean, source: string, usd: string } | undefined>)
+  id?: string
+}
+
+export interface AgentBudgetExceeded {
+  actual: number | string
+  limit: number | string
+  metric: "inputTokens" | "outputTokens" | "totalTokens" | "usd"
+}
+
+export interface AgentBudgetSnapshot {
+  exceeded: readonly AgentBudgetExceeded[]
+  limits: AgentBudgetOptions
+  usage?: AgentUsageRecord
+}
+
 /** Verified mounted Sources available to an invocation's instruction resolver. */
 export interface AgentSourceProvenance {
   mount: string
