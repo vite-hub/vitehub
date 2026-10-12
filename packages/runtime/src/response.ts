@@ -74,9 +74,11 @@ export function isSerializedResponse(value: unknown): value is SerializedRespons
   if (record.url !== undefined && !hasRuntimeType(record.url, "string")) return false
   if (record.type !== undefined && record.type !== "error" && record.type !== "opaque" && record.type !== "opaqueredirect") return false
   if (record.type !== undefined) {
+    if (record.type !== "opaqueredirect" && record.url !== undefined) return false
     return record.status === 0 && record.statusText === "" && Array.isArray(record.headers)
       && record.headers.length === 0 && body.isNull === true && body.data === ""
   }
+  if (record.url !== undefined) return false
   if (!hasRuntimeType(record.status, "number") || !Number.isInteger(record.status) || record.status < 200 || record.status > 599) return false
   if (!hasRuntimeType(record.statusText, "string") || !isSerializedHeaderEntries(record.headers)) return false
   // Responses with these status codes cannot carry a body. Reject malformed
