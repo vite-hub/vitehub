@@ -471,9 +471,18 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       const resolvedConsoleAuth = configuredConsoleAuth ? resolveConsoleAuthConfig(root, configuredConsoleAuth, options.preset) : undefined
       const consoleAuthConfig = registeredConsoleAuthMode(configuredConsoleAuth, environment.command !== "build") ? resolvedConsoleAuth : undefined
       consoleAuthMode = registeredConsoleAuthMode(configuredConsoleAuth, environment.command !== "build")
-      consoleAuthHandlers = consoleAuthConfig ? await writeConsoleAuthHandlers(root, consoleAuthConfig, baseURL) : undefined
+      const developmentSecret = (config as typeof config & { __vitehubEnvDevelopmentSecret?: string }).__vitehubEnvDevelopmentSecret
+      const inlineConsoleAuthConfig = consoleAuthConfig && "provider" in consoleAuthConfig
+        ? { ...consoleAuthConfig, developmentSecret }
+        : consoleAuthConfig
+      consoleAuthHandlers = inlineConsoleAuthConfig ? await writeConsoleAuthHandlers(root, inlineConsoleAuthConfig, baseURL) : undefined
       refreshConsoleAuthClient = consoleAuthConfig
-        ? serializeConsoleRefresh(async () => { consoleAuthHandlers = await writeConsoleAuthHandlers(root!, consoleAuthConfig, baseURL) })
+        ? serializeConsoleRefresh(async () => {
+            const refreshConfig = inlineConsoleAuthConfig && "provider" in inlineConsoleAuthConfig
+              ? { ...inlineConsoleAuthConfig, developmentSecret: (config as typeof config & { __vitehubEnvDevelopmentSecret?: string }).__vitehubEnvDevelopmentSecret }
+              : inlineConsoleAuthConfig
+            consoleAuthHandlers = await writeConsoleAuthHandlers(root!, refreshConfig!, baseURL)
+          })
         : undefined
       projectRoot = resolveViteHubProjectRoot(root)
       const configuredFixture = viteConfig.vitehubCliDiscovery

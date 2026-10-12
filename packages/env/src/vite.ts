@@ -217,10 +217,11 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
       const configStateId = String(++configStateSequence)
       pendingConfigStates.set(configStateId, state)
       for (const handler of serverRegistryHandlers) handler(serverRegistry, config)
-      if (!envConfig) return { [configStateKey]: configStateId }
+      if (!envConfig) return { [configStateKey]: configStateId, __vitehubEnvDevelopmentSecret: developmentSecret }
 
       return {
         [configStateKey]: configStateId,
+        __vitehubEnvDevelopmentSecret: developmentSecret,
         define: {
           ...Object.fromEntries(Object.entries(defineValues).map(([key, value]) => [key, JSON.stringify(value)])),
           ...config.define,
@@ -234,6 +235,12 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
       if (!state) throw envErrorDiagnostics.ENV_B0001({ message: `Missing resolved Env state for ${projectRoot}` })
       pendingConfigStates.delete(configStateId)
       resolvedConfigStates.set(config, state)
+      // Keep the selected root associated with this Vite configuration. Consumers
+      // such as inline Console Auth must not recover it from process.env.
+      Reflect.defineProperty(config, "__vitehubEnvDevelopmentSecret", {
+        configurable: true,
+        value: state.developmentSecret,
+      })
       for (const environmentConfig of Object.values(config.environments || {})) {
         resolvedConfigStates.set(environmentConfig, state)
         Reflect.defineProperty(environmentConfig, environmentStateKey, {

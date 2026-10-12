@@ -26,10 +26,10 @@ function requiredEnv(name: string): string {
  * wins, then a secret derived from `VITEHUB_SECRET` for the purpose `vitehub:console-auth`.
  * The derivation equals `deriveSecret("vitehub:console-auth")`. It is synchronous because Better Auth resolves options synchronously.
  */
-function consoleAuthSecret(secretEnv: string | undefined): string {
+function consoleAuthSecret(secretEnv: string | undefined, developmentSecret: string | undefined): string {
   if (secretEnv) return requiredEnv(secretEnv)
   if (process.env.BETTER_AUTH_SECRET) return process.env.BETTER_AUTH_SECRET
-  const root = readViteHubSecret(process.env)
+  const root = developmentSecret ?? readViteHubSecret(process.env)
   if (!root) throw new TypeError("[vitehub] Console Auth requires VITEHUB_SECRET or BETTER_AUTH_SECRET.")
   if (root.length < viteHubSecretMinimumLength) throw new TypeError(`[vitehub] VITEHUB_SECRET must be at least ${viteHubSecretMinimumLength} characters.`)
   return Buffer.from(hkdfSync("sha256", root, viteHubSecretSalt, "vitehub:console-auth", 32)).toString("hex")
@@ -104,7 +104,7 @@ export function createInlineConsoleAuth(config: InlineConsoleAuth): ConsoleAuthD
         clientSecret: requiredEnv(config.clientSecretEnv ?? "GITHUB_CLIENT_SECRET"),
       }
       if (orgs.length) github.getUserInfo = token => githubOrgUserInfo(orgs, allowedEmails, token.accessToken)
-      const secret = consoleAuthSecret(config.secretEnv)
+      const secret = consoleAuthSecret(config.secretEnv, config.developmentSecret)
       return {
         appName: "ViteHub Console",
         // Unset falls back to `vitehub({ publicUrl })`, then the request origin.
