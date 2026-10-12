@@ -241,6 +241,19 @@ describe("defineAgent workspace option", () => {
     expect(baseAgent).not.toHaveProperty("__vitehubWorkspaceAgent")
   })
 
+  it("keeps owned workspace options when name is inherited", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const workspace = Object.assign(Object.create({ name: "spoofed-reference" }), {
+      mode: "write",
+      sourceRootDir: "/tmp/owned-workspace",
+    })
+
+    const agent = defineAgent({ workspace, driver: { run: () => "ok" } })
+
+    expect(agent.__vitehubWorkspaceAgent).toBe(true)
+    expect(agent.workspace).toMatchObject({ mode: "write", sourceRootDir: "/tmp/owned-workspace" })
+  })
+
   it("fails when a capability-required workspace path is missing", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { skills } = await import("../src/capabilities.ts")
