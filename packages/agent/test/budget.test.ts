@@ -171,6 +171,6 @@ describe("budget Capability", () => {
 
   it("rejects an empty budget", async () => {
     const { budget } = await import("../src/capabilities.ts")
-    expect(() => budget({ pricing: false })).toThrow("requires tokens or usd")
+    expect(() => budget({ pricing: false })).toThrow("requires tokens, usd, or capacity")
   })
 })
