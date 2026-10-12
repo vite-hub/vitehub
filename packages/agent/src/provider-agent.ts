@@ -1,11 +1,12 @@
 import { providerCallbackMetadata, withProviderCallbackMetadata } from "./internal/provider-callback-metadata.ts"
 import { protectGeneratedProviderGitFiles } from "./internal/generated-provider-git-files.ts"
+import { preparedProviderCheckoutHead } from "./internal/prepared-provider-checkout.ts"
 import { codexLaunchArgs } from "./internal/codex-launch-args.ts"
 import { resolveAgentDriverGateway, withAgentDriverGatewayEnvironment } from "./internal/agent-gateway.ts"
 import { resolveAgentInstructions } from "./agent-instructions.ts"
 import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { browserRuntimeEnvironment } from "./internal/browser-runtime.ts"
-import { preparePullRequestCheckout, pullRequestCheckoutEnvironment, pullRequestCheckoutPlan, pullRequestRepositories } from "./internal/pull-request-checkout.ts"
+import { preparePullRequestCheckout, pullRequestCheckoutEnvironment, pullRequestCheckoutPlan, pullRequestRepositories, type PullRequestCheckoutPlan } from "./internal/pull-request-checkout.ts"
 import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
 import { once } from "node:events"
@@ -85,7 +86,7 @@ import type {
   WorkspaceSessionOptions,
 } from "@vite-hub/workspace"
 import { agentProviderCleanupTask } from "./internal/provider-cleanup-task.ts"
-import { boxSharesHostNetwork, openProviderBox, providerBoxEnvironment, startProviderBoxRelay } from "./internal/provider-box.ts"
+import { boxSharesHostNetwork, setActiveProviderBox, openProviderBox, providerBoxEnvironment, startProviderBoxRelay } from "./internal/provider-box.ts"
 import type { ProviderBoxRelay, ProviderBoxSession } from "./internal/provider-box.ts"
 import type { BoxDefinition, BoxToolchain } from "@vite-hub/box"
 import { redactCredentialText } from "./internal/credential-redaction.ts"
@@ -253,6 +254,39 @@ async function materializeProviderSkillCompatibility(root: string): Promise<Gene
     for (const [name, source] of skills) {
       for (const skillRoot of providerSkillRoots) {
         const link = await materializeProviderSkillLink(root, source, join(root, skillRoot, name))
+        if (link) generated.push(link)
+      }
+    }
+    return generated
+  }
+  catch (error) {
+    for (const entry of generated.reverse()) await restoreGeneratedProviderFile(entry)
+    throw error
+  }
+}
+
+/**
+ * A nested provider checkout has its own root, while Workspace-backed Skills
+ * are materialized in the outer session root. Bridge those Skills into the
+ * checkout before the provider starts, preserving any files already present
+ * in the checkout.
+ */
+async function materializeNestedProviderSkills(sourceRoot: string, providerRoot: string): Promise<GeneratedProviderFile[]> {
+  const checkoutSkills = new Set<string>()
+  for (const skillRoot of providerSkillRoots) {
+    for (const name of await providerSkillDirectories(providerRoot, skillRoot)) checkoutSkills.add(name)
+  }
+  const skills = new Map<string, string>()
+  for (const skillRoot of providerSkillRoots) {
+    for (const name of await providerSkillDirectories(sourceRoot, skillRoot)) {
+      if (!checkoutSkills.has(name) && !skills.has(name)) skills.set(name, join(sourceRoot, skillRoot, name))
+    }
+  }
+  const generated: GeneratedProviderFile[] = []
+  try {
+    for (const [name, source] of skills) {
+      for (const skillRoot of providerSkillRoots) {
+        const link = await materializeProviderSkillLink(providerRoot, source, join(providerRoot, skillRoot, name))
         if (link) generated.push(link)
       }
     }
@@ -477,6 +511,16 @@ function providerEnvironment(env: Record<string, string | undefined> | undefined
 function withPathPrefix(env: NodeJS.ProcessEnv, prefix: readonly string[] | undefined): NodeJS.ProcessEnv {
   if (!prefix?.length) return env
   return { ...env, PATH: [...prefix, env.PATH].filter(Boolean).join(delimiter) }
+}
+
+function workspaceBrowserEnvironment(browser: Readonly<Record<string, string>> | undefined, environment: Record<string, string> | undefined): Record<string, string> | undefined {
+  if (!browser) return environment
+  return {
+    ...environment,
+    ...browser,
+    ...(browser.PATH ? { PATH: [browser.PATH, environment?.PATH || process.env.PATH].filter(Boolean).join(delimiter) } : {}),
+    ...(browser.LD_LIBRARY_PATH ? { LD_LIBRARY_PATH: [browser.LD_LIBRARY_PATH, environment?.LD_LIBRARY_PATH || process.env.LD_LIBRARY_PATH].filter(Boolean).join(delimiter) } : {}),
+  }
 }
 
 function normalizedProviderEnvironment(value: unknown): AgentProviderEnvironment {
@@ -1724,9 +1768,9 @@ async function startToolServer(
 
 /**
  * Run Workspace commands on this host. `path` entries, such as a provisioned
- * toolchain, precede the command PATH. The array can be filled after creation.
+ * toolchain, precede the command PATH. Entries are resolved at each spawn.
  */
-export function localWorkspaceHost(hostOptions: { path?: readonly string[] } = {}): WorkspaceSessionHost {
+export function localWorkspaceHost(hostOptions: { path?: readonly string[] | (() => readonly string[]) } = {}): WorkspaceSessionHost {
   return {
     executionAuthority: normalizeExecutionAuthority({
       credentials: "ambient",
@@ -1805,7 +1849,7 @@ export function localWorkspaceHost(hostOptions: { path?: readonly string[] } = {
             INIT_CWD: cwd,
             OLDPWD: cwd,
             PWD: cwd,
-          }, hostOptions.path),
+          }, hasRuntimeType(hostOptions.path, "function") ? hostOptions.path() : hostOptions.path),
           signal,
         })
         let stdout = ""
@@ -1923,7 +1967,12 @@ interface ProviderSourceProvenance {
   source: string
 }
 
-function providerSourceProvenance(context: AgentAdapterRunContext, materialized: Awaited<ReturnType<typeof materializeWorkspaceSources>>): ProviderSourceProvenance[] {
+function providerSourceProvenance(
+  context: AgentAdapterRunContext,
+  materialized: Awaited<ReturnType<typeof materializeWorkspaceSources>>,
+  providerMount?: string,
+  providerCheckout?: PullRequestCheckoutPlan,
+): ProviderSourceProvenance[] {
   if (!materialized?.ready || !context.workspaceDefinition?.sources) return []
   let metadata
   try {
@@ -1939,6 +1988,17 @@ function providerSourceProvenance(context: AgentAdapterRunContext, materialized:
     if (status.status !== "ready" || status.provider !== "github" || status.revision?.immutable !== true || !/^(?:[\da-f]{40}|[\da-f]{64})$/i.test(status.revision.id)) return []
     const source = metadata.get(status.source)
     if (!source || source.mountPath !== status.mountPath) return []
+    // A nested pull-request checkout becomes the provider root. Keep only sources
+    // that are inside that root and rebase their mount so citations stay relative
+    // to the directory the provider actually reads.
+    const mount = !providerMount
+      ? status.mountPath
+      : status.mountPath === providerMount
+        ? ""
+        : status.mountPath.startsWith(`${providerMount}/`)
+          ? status.mountPath.slice(providerMount.length + 1)
+          : undefined
+    if (mount === undefined) return []
     // Only overlaps within the session's selected paths can make ownership ambiguous.
     if ([...metadata.values()].some(candidate => candidate.key !== source.key
       && overlaps(candidate.mountPath, source.mountPath)
@@ -1953,18 +2013,27 @@ function providerSourceProvenance(context: AgentAdapterRunContext, materialized:
     if (!hasRuntimeType(repo, "string") || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo)) return []
     if (!hasRuntimeType(rawRoot, "string")) return []
     // Match GitHub Source root normalization before validating repository paths.
-    const root = rawRoot.replace(/\\/g, "/").split("/").filter(part => part && part !== ".").join("/")
-    if (root.split("/").includes("..")) return []
-    const revisionId = status.revision.id
+    const configuredRoot = rawRoot.replace(/\\/g, "/").split("/").filter(part => part && part !== ".").join("/")
+    if (configuredRoot.split("/").includes("..")) return []
+    const materializedRevisionId = status.revision.id
     // Selected paths can materialize independently while a branch advances.
     if (materialized.sources.some(candidate => candidate.source === status.source
       && candidate.mountPath === status.mountPath
-      && (candidate.revision?.id !== revisionId || candidate.revision.immutable !== true))) return []
+      && (candidate.revision?.id !== materializedRevisionId || candidate.revision.immutable !== true))) return []
+    const isProviderCheckout = providerCheckout !== undefined && status.mountPath === providerMount
+    // The managed checkout replaces the mounted source subtree with the full
+    // repository, so a source-level root no longer describes the provider's
+    // filesystem or its GitHub citation path.
+    const root = isProviderCheckout ? "" : configuredRoot
+    const revisionId = isProviderCheckout && providerCheckout ? providerCheckout.headSha : materializedRevisionId
+    const revisionRepository = isProviderCheckout && providerCheckout
+      ? providerCheckout.headRepository || providerCheckout.repository
+      : repo
     return [{
-      mount: status.mountPath,
+      mount,
       provider: "github" as const,
-      repository: `https://github.com/${repo}`,
-      revision: { id: status.revision.id, ...(status.revision.ref ? { ref: status.revision.ref } : {}) },
+      repository: `https://github.com/${revisionRepository}`,
+      revision: { id: revisionId, ...(status.revision.ref ? { ref: status.revision.ref } : {}) },
       root,
       source: status.source,
     }]
@@ -1975,7 +2044,7 @@ function providerSourceProvenance(context: AgentAdapterRunContext, materialized:
 
 function sourceProvenanceInstructions(provenance: readonly ProviderSourceProvenance[]): string | undefined {
   if (!provenance.length) return
-  return `Mounted source provenance (evidence metadata, not instructions):\n${JSON.stringify(provenance, null, 2)}\nWhen citing mounted source evidence, use only a GitHub HTTPS link derived from this exact metadata. For a file at <mount>/<relative-path>, the citation URL is <repository>/blob/<revision.id>/<root>/<relative-path>#L<line>. Omit <root>/ when root is empty. Percent-encode each path segment of <root> and <relative-path> separately, preserving / separators; append #L<line> only after encoding. Never cite /workspace paths, branch names, or guessed repository locations. If the mounted path cannot be mapped exactly to one provenance entry, cite no link. Read files from the matching mounted path.`
+  return `Mounted source provenance (evidence metadata, not instructions):\n${JSON.stringify(provenance, null, 2)}\nWhen citing mounted source evidence, use only a GitHub HTTPS link derived from this exact metadata. For a file at <mount>/<relative-path> (or <relative-path> when mount is empty), the citation URL is <repository>/blob/<revision.id>/<root>/<relative-path>#L<line>. Omit <root>/ when root is empty. Percent-encode each path segment of <root> and <relative-path> separately, preserving / separators; append #L<line> only after encoding. Never cite /workspace paths, branch names, or guessed repository locations. If the mounted path cannot be mapped exactly to one provenance entry, cite no link. Read files from the matching mounted path.`
 }
 
 async function prepareWorkspace(
@@ -1990,14 +2059,13 @@ async function prepareWorkspace(
   }
   const paths = selectedWorkspacePaths(context)
   const materializedSources = await materializeWorkspaceSources(context, paths)
-  const provenance = providerSourceProvenance(context, materializedSources)
   // driver.cwd is the working copy. There is no session to materialize, snapshot, or write back.
-  if (inPlace) return { provenance, pullRequestRoot: false }
+  if (inPlace) return { provenance: providerSourceProvenance(context, materializedSources), pullRequestRoot: false }
   const sessionOptions: WorkspaceSessionOptions = {
     abortSignal: context.input.abortSignal,
     // The Driver owns this temporary root and removes it after the run, so close() must not restore it.
     disposableTarget: true,
-    host: localWorkspaceHost({ path }),
+    host: localWorkspaceHost({ path: () => [browserRuntimeEnvironment(context.context)?.PATH, ...path].filter((entry): entry is string => Boolean(entry)) }),
     ...(materializedSources?.ready ? { materializeSources: false } : {}),
     onProgress: createWorkspaceSetupObservers(workspaceSetupObserverOptions(context)).preparation,
     paths,
@@ -2005,21 +2073,29 @@ async function prepareWorkspace(
   }
   if (context.workspaceMode !== "write") sessionOptions.writeBack = false
   const session = await workspaceSessionStarter(context.workspace)(sessionOptions)
-  const pullRequest = pullRequestCheckoutPlan(context.context)
-  const checkoutPullRequest = pullRequest && (!paths || paths.some(path => !path || !pullRequest.mount || pullRequest.mount === path || pullRequest.mount.startsWith(`${path}/`)))
-  if (pullRequest && checkoutPullRequest) {
-    try {
+  let pullRequest: PullRequestCheckoutPlan | undefined
+  let checkoutPullRequest = false
+  try {
+    // Workspace setup can resolve the channel's pull request metadata while it
+    // creates the session. Use that current plan for both checkout validation
+    // and provenance so the provider sees the verified head SHA and repository.
+    const resolvedPullRequest = pullRequestCheckoutPlan(context.context)
+    pullRequest = resolvedPullRequest
+    checkoutPullRequest = Boolean(resolvedPullRequest && (!paths || paths.some(path => !path || !resolvedPullRequest.mount || resolvedPullRequest.mount === path || resolvedPullRequest.mount.startsWith(`${path}/`))))
+    if (resolvedPullRequest && checkoutPullRequest) {
       // Give the Driver shell a real checkout so it can fetch, commit, and push with the Agent GitHub identity.
-      await preparePullRequestCheckout(session, pullRequest, {
+      await preparePullRequestCheckout(session, resolvedPullRequest, {
         abortSignal: context.input.abortSignal,
-        env: await pullRequestCheckoutEnvironment(context.runtime.githubIdentity, pullRequest.repository, context.input.abortSignal, pullRequest.headRepository),
+        env: await pullRequestCheckoutEnvironment(context.runtime.githubIdentity, resolvedPullRequest.repository, context.input.abortSignal, resolvedPullRequest.headRepository),
       })
     }
-    catch (error) {
-      await session.close({ abortSignal: context.input.abortSignal }).catch(() => undefined)
-      throw error
-    }
   }
+  catch (error) {
+    await session.close({ abortSignal: context.input.abortSignal }).catch(() => undefined)
+    throw error
+  }
+  const providerMount = checkoutPullRequest ? pullRequest?.mount : undefined
+  const provenance = providerSourceProvenance(context, materializedSources, providerMount, checkoutPullRequest ? pullRequest : undefined)
   const gitInit = await session.exec("git", ["init", "-q"], { abortSignal: context.input.abortSignal })
   // Workspace adapters may return the legacy host-style `code` field.
   // SAFETY: legacy workspace adapters expose `code` while the production contract exposes `exitCode`.
@@ -2029,7 +2105,7 @@ async function prepareWorkspace(
     throw new Error("Unable to initialize workspace Git repository")
   }
   return {
-    ...(checkoutPullRequest && pullRequest.mount ? { projectRoot: join(root, pullRequest.mount) } : {}),
+    ...(checkoutPullRequest && pullRequest?.mount ? { projectRoot: join(root, pullRequest.mount) } : {}),
     provenance,
     pullRequestRoot: Boolean(checkoutPullRequest && pullRequest?.mount === ""),
     session,
@@ -2406,6 +2482,39 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
   }
 }
 
+function terminalUsageEvent(event: Extract<ProviderRuntimeEvent, { type: "turn.completed" | "turn.aborted" }>, options: {
+  model?: string
+  provider: "claude-code" | "codex"
+  transport?: "gateway"
+}): StreamEvent | undefined {
+  const usage = event.payload.tokenUsage
+  if (!usage || usage.usageStatus === "unavailable"
+    || usage.inputTokens === undefined || usage.outputTokens === undefined
+    || !Number.isFinite(usage.inputTokens) || !Number.isFinite(usage.outputTokens)) return
+  // The runtime accumulates these counters within this turn, including after
+  // resume. Latest-response snapshots cannot establish the same totals.
+  return {
+    type: "usage",
+    usageRecord: {
+      model: options.model,
+      provider: options.provider,
+      transport: options.transport,
+      raw: usage,
+      usage: {
+        inputTokens: usage.inputTokens,
+        outputTokens: usage.outputTokens,
+        totalTokens: usage.inputTokens + usage.outputTokens,
+        inputTokenDetails: {
+          ...(usage.cachedInputTokens === undefined ? {} : { cacheReadTokens: usage.cachedInputTokens }),
+          ...(usage.cacheCreationTokens === undefined ? {} : { cacheWriteTokens: usage.cacheCreationTokens }),
+        },
+        outputTokenDetails: { ...(usage.reasoningTokens === undefined ? {} : { reasoningTokens: usage.reasoningTokens }) },
+        details: { usageStatus: usage.usageStatus, usageScope: usage.usageScope, hasSubagents: usage.hasSubagents },
+      },
+    },
+  }
+}
+
 function providerDataEvent(event: ProviderRuntimeEvent): StreamEvent {
   // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
   const payload = event.payload as Record<string, unknown>
@@ -2576,11 +2685,15 @@ function providerEvent(event: ProviderRuntimeEvent, tools: AgentToolSet | undefi
       return event.payload.exitKind === "error" ? [{ error: event.payload.reason || "Provider session exited.", recoverable: event.payload.recoverable, type: "error" }] : [providerDataEvent(event)]
     case "turn.completed":
       const error = event.payload.errorMessage || (event.payload.state === "completed" ? undefined : `Provider turn ${event.payload.state}.`)
-      return error
+      const completedUsage = terminalUsageEvent(event, options)
+      const completedEvents: StreamEvent[] = error
         ? [{ error, type: "error" }]
         : [{ reason: event.payload.stopReason || event.payload.state, type: "finish" }]
+      return completedUsage ? [completedUsage, ...completedEvents] : completedEvents
     case "turn.aborted":
-      return [{ error: `Provider turn aborted${event.payload.reason ? `: ${event.payload.reason}` : "."}`, type: "error" }]
+      const abortedUsage = terminalUsageEvent(event, options)
+      const abortedEvents: StreamEvent[] = [{ error: `Provider turn aborted${event.payload.reason ? `: ${event.payload.reason}` : "."}`, type: "error" }]
+      return abortedUsage ? [abortedUsage, ...abortedEvents] : abortedEvents
     case "turn.plan.updated":
       return [{ data: event.payload, id: event.turnId ? `plan:${event.turnId}` : undefined, type: "data-agent-plan" }]
     case "turn.diff.updated":
@@ -2735,11 +2848,17 @@ async function* runProvider<
   let workspaceSession: WorkspaceSession | undefined
   // Filled after the checkout exists. Workspace commands read it when they run.
   const toolchainPath: string[] = []
+  // A pull request can be mounted below the Workspace root. The provider must
+  // run from the checkout itself, while the Workspace session keeps the outer
+  // root so it can preserve unrelated mounted sources.
+  let providerCwd = root
+  let workspaceCommandCwd = "/workspace"
   let sourceProvenance: ProviderSourceProvenance[] = []
   let onProviderExit: AgentProviderLaunchCommand["onExit"]
   let runtime: ProviderRuntime | undefined
   let providerLaunchDiagnosticPath: string | undefined
   let providerBox: ProviderBoxSession | undefined
+  let clearActiveBox: (() => void) | undefined
   let providerBoxRelay: ProviderBoxRelay | undefined
   const providerBoxHomeFiles: Record<string, string | Uint8Array> = {}
   let claudeBoxPromptFile: string | undefined
@@ -2872,6 +2991,11 @@ async function* runProvider<
     )
     workspaceSession = preparedWorkspace?.session
     sourceProvenance = preparedWorkspace?.provenance || []
+    if (preparedWorkspace?.projectRoot) {
+      providerCwd = preparedWorkspace.projectRoot
+      const mount = relative(root, preparedWorkspace.projectRoot).replace(/\\/g, "/")
+      if (mount && !mount.startsWith("..") && mount !== ".") workspaceCommandCwd = `/workspace/${mount}`
+    }
     if (options.toolchain !== undefined && !options.box && !auxiliary) {
       // SAFETY: The split specifier keeps @vite-hub/box optional for bundlers. It resolves to the toolchain module.
       const { prepareHostToolchain } = await import("@vite-hub/" + "box/_internal/toolchain") as typeof import("@vite-hub/box/_internal/toolchain")
@@ -2881,9 +3005,6 @@ async function* runProvider<
       )
       toolchainPath.push(...toolchain.bin)
     }
-    // An application-owned Git checkout in driver.cwd must not track generated instruction files either.
-    const pullRequestRoot = preparedWorkspace?.pullRequestRoot === true
-      || (!ownsRoot && Boolean(await lstat(join(root, ".git")).catch(() => undefined)))
     if (workspaceSession) {
       clearActiveWorkspaceFiles = setActiveAgentWorkspaceFiles(context.context, {
         async readFile(path) {
@@ -2896,7 +3017,12 @@ async function* runProvider<
         },
       })
       clearActiveWorkspaceCommands = setActiveAgentWorkspaceCommands(context.context, (command, args, execOptions) => {
-        const execution = workspaceSession!.exec(command, args, execOptions)
+        const environment = workspaceBrowserEnvironment(browserRuntimeEnvironment(context.context), execOptions?.env)
+        const execution = workspaceSession!.exec(command, args, {
+          ...execOptions,
+          ...(execOptions?.cwd === undefined && workspaceCommandCwd !== "/workspace" ? { cwd: workspaceCommandCwd } : {}),
+          ...(environment ? { env: environment } : {}),
+        })
         activeWorkspaceCommands.add(execution)
         void execution.finally(() => activeWorkspaceCommands.delete(execution)).catch(() => undefined)
         return execution
@@ -2911,7 +3037,13 @@ async function* runProvider<
         const cwd = resolve(root, suffix)
         if (cwd !== root && !cwd.startsWith(`${root}/`)) throw new Error("[vitehub] Workspace command cwd must stay inside the provider checkout.")
         const { abortSignal, ...hostOptions } = execOptions || {}
-        const execution = localWorkspaceHost({ path: toolchainPath }).exec(command, args, { ...hostOptions, cwd, signal: abortSignal }).then(result => ({
+        const environment = workspaceBrowserEnvironment(browserRuntimeEnvironment(context.context), execOptions?.env)
+        const execution = localWorkspaceHost({ path: [browserRuntimeEnvironment(context.context)?.PATH, ...toolchainPath].filter((entry): entry is string => Boolean(entry)) }).exec(command, args, {
+          ...hostOptions,
+          ...(environment ? { env: environment } : {}),
+          cwd: execOptions?.cwd === undefined ? providerCwd : cwd,
+          signal: abortSignal,
+        }).then(result => ({
           command,
           args: args || [],
           exitCode: result.code,
@@ -2922,92 +3054,6 @@ async function* runProvider<
         void execution.finally(() => activeWorkspaceCommands.delete(execution)).catch(() => undefined)
         return execution
       })
-    }
-    let instructions = await waitForProviderOperation(resolveInstructions(options, context), effectiveSignal)
-    let materializeInstructions = Boolean(instructions)
-    if (!instructions && options.provider === "claude-code") {
-      const nativeInstructions = await readFile(join(root, "CLAUDE.md"), "utf8").catch(() => undefined)
-      if (nativeInstructions !== undefined) instructions = nativeInstructions
-      else {
-        instructions = await readFile(join(root, "AGENTS.md"), "utf8").catch(() => undefined)
-        materializeInstructions = Boolean(instructions)
-      }
-    }
-    const preserveNativeInstructions = !materializeInstructions
-    const provenanceInstructions = sourceProvenanceInstructions(sourceProvenance)
-    if (!instructions && provenanceInstructions && options.provider === "codex") {
-      instructions = await readFile(join(root, "AGENTS.md"), "utf8").catch(() => undefined)
-    }
-    if (provenanceInstructions) {
-      instructions = [instructions, provenanceInstructions].filter(Boolean).join("\n\n")
-      materializeInstructions = true
-    }
-    const inspectedTools = inspectAgentTools(context.tools)
-    if (!isAuxiliaryAgentAdapterContext(context)) {
-      await updateAgentTelemetryConfiguration(context.context, {
-        driver: {
-          ...(options.model ? { model: { id: options.model, provider: options.provider } } : {}),
-          provider: options.provider,
-        },
-        ...(instructions ? { instructions: [instructions] } : {}),
-        ...(inspectedTools ? { tools: inspectedTools } : {}),
-      })
-    }
-    if (instructions && materializeInstructions && options.box) {
-      // The provider reads these from Box Home, so the checked-out tree stays unchanged.
-      if (options.provider === "claude-code") {
-        claudeBoxPromptFile = ".claude/vitehub-system-prompt.md"
-        providerBoxHomeFiles[claudeBoxPromptFile] = instructions
-      }
-      else providerBoxHomeFiles[".codex/AGENTS.md"] = instructions
-    }
-    else if (instructions && materializeInstructions) {
-      const promptFileInstructions = options.provider === "claude-code" && preserveNativeInstructions && provenanceInstructions
-        ? provenanceInstructions
-        : instructions
-      if (options.provider === "claude-code") {
-        // Deliver generated instructions once, without Claude's native @path imports.
-        // Preserve native instruction files when only adding source provenance.
-        if (!preserveNativeInstructions) {
-          generatedProviderFiles.push(await materializeGeneratedProviderFile(root, join(root, "CLAUDE.md"), ""))
-        }
-        claudePromptFile = join(root, ".claude", "vitehub-system-prompt.md")
-        generatedProviderFiles.push(await materializeGeneratedProviderFile(root, claudePromptFile, promptFileInstructions))
-      } else {
-        const generated = await materializeGeneratedProviderFile(root, join(root, "AGENTS.md"), instructions)
-        if (preserveNativeInstructions && provenanceInstructions && generated.content !== undefined) {
-          // Remove only the injected text so native instruction edits reach Workspace write-back.
-          generated.appendedContent = `${generated.content.length ? "\n\n" : ""}${provenanceInstructions}`
-        }
-        generatedProviderFiles.push(generated)
-      }
-    }
-    const colocatedSkills = context.context.get(colocatedAgentSkillsContextKey)
-    for (const source of Object.values(colocatedSkills || {})) {
-      if (!isRuntimeRecord(source)
-        || !("content" in source)
-        || !("workspacePath" in source)
-        || !(hasRuntimeType(source.content, "string") || source.content instanceof Uint8Array)
-        || !hasRuntimeType(source.workspacePath, "string")) continue
-      const target = resolve(root, source.workspacePath)
-      if (target !== root && !target.startsWith(`${root}/`)) throw agentDiagnostics.AGENT_R0712({ message: "[vitehub] Colocated Skill path must stay inside the provider Workspace." })
-      if (options.box) {
-        addProviderBoxSkill(providerBoxHomeFiles, relative(root, target), source.content)
-        continue
-      }
-      // Preserve resolved Workspace Sources only after validating the complete path.
-      const { entry } = await inspectGeneratedProviderFilePath(root, target)
-      if (entry?.isFile()) continue
-      generatedProviderFiles.push(await materializeGeneratedProviderFile(root, target, source.content))
-    }
-    generatedProviderFiles.push(...await materializeProviderSkillCompatibility(root))
-    if (pullRequestRoot) {
-      restoreGeneratedGitMetadata = await protectGeneratedProviderGitFiles(root, generatedProviderFiles.map(file => file.path))
-    }
-    // A root pull request checkout is the Driver's repository. Do not add a baseline commit to its branch.
-    if (workspaceSession && !pullRequestRoot) {
-      await workspaceSession.exec("git", ["add", "-A"], { abortSignal: effectiveSignal })
-      await workspaceSession.exec("git", ["-c", "user.name=ViteHub", "-c", "user.email=vitehub@localhost", "commit", "--allow-empty", "-qm", "vitehub provider baseline"], { abortSignal: effectiveSignal })
     }
     effectiveSignal?.throwIfAborted()
     codexCredentialHome = await waitForProviderOperation(
@@ -3109,6 +3155,16 @@ async function* runProvider<
         ? { PATH: `${[capabilityEnvironment?.PATH, ...toolchainPath].filter(Boolean).join(delimiter)}${delimiter}${providerEnvironmentOverrides?.PATH || process.env.PATH || ""}` }
         : {}),
     })
+    const nativeUnattendedTools = options.provider === "codex" && options.permissions === "allow-edits-unattended" && Object.keys(context.tools || {}).length > 0
+    if (nativeUnattendedTools) {
+      toolServer = await waitForProviderOperation(
+        startToolServer(context.tools!, effectiveSignal, emitToolEvent, capabilityApprovals, capabilityApprovalIds),
+        effectiveSignal,
+        lateToolServer => lateToolServer.close(),
+        observeLateCleanup,
+      )
+      providerRuntimeEnvironment.T3_MCP_BEARER_TOKEN = toolServer.mcp.authorizationHeader.slice("Bearer ".length)
+    }
     let providerLauncher: string | undefined
     if (options.launch !== undefined) {
       if (!hasRuntimeType(providerCommand, "string")) {
@@ -3125,7 +3181,7 @@ async function* runProvider<
         ...resolverContext,
         command: providerCommand,
         providerCommand,
-        cwd: root,
+        cwd: providerCwd,
         environment: Object.freeze({ ...providerRuntimeEnvironment }),
         requiredEnvironment,
       }
@@ -3137,11 +3193,119 @@ async function* runProvider<
       onProviderExit = launch.onExit
       if (!launchRoot) throw agentDiagnostics.AGENT_R0717({ message: "[vitehub] Provider launcher root was not prepared." })
       const materializedLauncher = await waitForProviderOperation(
-        materializeProviderLauncher(launchRoot, launch, providerLaunchSecretEnvironmentKeys, providerLaunchDiagnosticSecrets, root),
+        materializeProviderLauncher(launchRoot, launch, providerLaunchSecretEnvironmentKeys, providerLaunchDiagnosticSecrets, providerCwd),
         effectiveSignal,
       )
       providerLauncher = materializedLauncher.path
       providerLaunchDiagnosticPath = materializedLauncher.diagnosticPath
+    }
+    // Launch may restore source Git ancestry after Workspace initialization.
+    // Only host-prepared checkout ancestry owns an otherwise ordinary Workspace root.
+    let pullRequestRoot = preparedWorkspace?.pullRequestRoot === true
+      || (!ownsRoot && Boolean(await lstat(join(root, ".git")).catch(() => undefined)))
+    if (!pullRequestRoot && workspaceSession && !preparedWorkspace?.projectRoot) {
+      const expected = await waitForProviderOperation(
+        preparedProviderCheckoutHead(root),
+        effectiveSignal,
+      )
+      if (expected) {
+        const head = await waitForProviderOperation(
+          workspaceSession.exec("git", ["rev-parse", "--verify", "HEAD"], { abortSignal: effectiveSignal }),
+          effectiveSignal,
+        )
+        if (head.exitCode !== 0 || head.stdout.trim() !== expected) throw new Error("Host-prepared provider checkout HEAD changed during launch.")
+        pullRequestRoot = true
+      }
+    }
+    // Host launch preparation must see source-authored instruction files.
+    let instructions = await waitForProviderOperation(resolveInstructions(options, context), effectiveSignal)
+    let materializeInstructions = Boolean(instructions)
+    if (!instructions && options.provider === "claude-code") {
+      const nativeInstructions = await readFile(join(providerCwd, "CLAUDE.md"), "utf8").catch(() => undefined)
+      if (nativeInstructions !== undefined) instructions = nativeInstructions
+      else {
+        instructions = await readFile(join(providerCwd, "AGENTS.md"), "utf8").catch(() => undefined)
+        materializeInstructions = Boolean(instructions)
+      }
+    }
+    const preserveNativeInstructions = !materializeInstructions
+    const provenanceInstructions = sourceProvenanceInstructions(sourceProvenance)
+    if (!instructions && provenanceInstructions && options.provider === "codex") {
+      instructions = await readFile(join(providerCwd, "AGENTS.md"), "utf8").catch(() => undefined)
+    }
+    if (provenanceInstructions) {
+      instructions = [instructions, provenanceInstructions].filter(Boolean).join("\n\n")
+      materializeInstructions = true
+    }
+    const inspectedTools = inspectAgentTools(context.tools)
+    if (!isAuxiliaryAgentAdapterContext(context)) {
+      await updateAgentTelemetryConfiguration(context.context, {
+        driver: {
+          ...(options.model ? { model: { id: options.model, provider: options.provider } } : {}),
+          provider: options.provider,
+        },
+        ...(instructions ? { instructions: [instructions] } : {}),
+        ...(inspectedTools ? { tools: inspectedTools } : {}),
+      })
+    }
+    if (instructions && materializeInstructions && options.box) {
+      // The provider reads these from Box Home, so the checked-out tree stays unchanged.
+      if (options.provider === "claude-code") {
+        claudeBoxPromptFile = ".claude/vitehub-system-prompt.md"
+        providerBoxHomeFiles[claudeBoxPromptFile] = instructions
+      }
+      else providerBoxHomeFiles[".codex/AGENTS.md"] = instructions
+    }
+    else if (instructions && materializeInstructions) {
+      const promptFileInstructions = options.provider === "claude-code" && preserveNativeInstructions && provenanceInstructions
+        ? provenanceInstructions
+        : instructions
+      if (options.provider === "claude-code") {
+        // Deliver generated instructions once, without Claude's native @path imports.
+        // Preserve native instruction files when only adding source provenance.
+        if (!preserveNativeInstructions) {
+          generatedProviderFiles.push(await materializeGeneratedProviderFile(providerCwd, join(providerCwd, "CLAUDE.md"), ""))
+        }
+        claudePromptFile = join(providerCwd, ".claude", "vitehub-system-prompt.md")
+        generatedProviderFiles.push(await materializeGeneratedProviderFile(providerCwd, claudePromptFile, promptFileInstructions))
+      } else {
+        const generated = await materializeGeneratedProviderFile(providerCwd, join(providerCwd, "AGENTS.md"), instructions)
+        if (preserveNativeInstructions && provenanceInstructions && generated.content !== undefined) {
+          // Remove only the injected text so native instruction edits reach Workspace write-back.
+          generated.appendedContent = `${generated.content.length ? "\n\n" : ""}${provenanceInstructions}`
+        }
+        generatedProviderFiles.push(generated)
+      }
+    }
+    const colocatedSkills = context.context.get(colocatedAgentSkillsContextKey)
+    for (const source of Object.values(colocatedSkills || {})) {
+      if (!isRuntimeRecord(source)
+        || !("content" in source)
+        || !("workspacePath" in source)
+        || !(hasRuntimeType(source.content, "string") || source.content instanceof Uint8Array)
+        || !hasRuntimeType(source.workspacePath, "string")) continue
+      const target = resolve(providerCwd, source.workspacePath)
+      if (target !== providerCwd && !target.startsWith(`${providerCwd}/`)) throw agentDiagnostics.AGENT_R0712({ message: "[vitehub] Colocated Skill path must stay inside the provider Workspace." })
+      if (options.box) {
+        addProviderBoxSkill(providerBoxHomeFiles, relative(providerCwd, target), source.content)
+        continue
+      }
+      // Preserve resolved Workspace Sources only after validating the complete path.
+      const { entry } = await inspectGeneratedProviderFilePath(providerCwd, target)
+      if (entry?.isFile()) continue
+      generatedProviderFiles.push(await materializeGeneratedProviderFile(providerCwd, target, source.content))
+    }
+    if (preparedWorkspace?.projectRoot) {
+      generatedProviderFiles.push(...await materializeNestedProviderSkills(root, providerCwd))
+    }
+    generatedProviderFiles.push(...await materializeProviderSkillCompatibility(providerCwd))
+    if (pullRequestRoot || preparedWorkspace?.projectRoot) {
+      restoreGeneratedGitMetadata = await protectGeneratedProviderGitFiles(providerCwd, generatedProviderFiles.map(file => file.path))
+    }
+    // A root pull request checkout is the Driver's repository. Do not add a baseline commit to its branch.
+    if (workspaceSession && !pullRequestRoot) {
+      await workspaceSession.exec("git", ["add", "-A"], { abortSignal: effectiveSignal })
+      await workspaceSession.exec("git", ["-c", "user.name=ViteHub", "-c", "user.email=vitehub@localhost", "commit", "--allow-empty", "-qm", "vitehub provider baseline"], { abortSignal: effectiveSignal })
     }
     if (options.box) {
       if (!launchRoot) throw agentDiagnostics.AGENT_R0717({ message: "[vitehub] Provider launcher root was not prepared." })
@@ -3162,6 +3326,7 @@ async function* runProvider<
         lateBox => lateBox.session.close(),
         observeLateCleanup,
       )
+      clearActiveBox = setActiveProviderBox(context.context, providerBox)
       if (claudeBoxPromptFile) claudePromptFile = posix.join(providerBox.home, claudeBoxPromptFile)
       const explicitEnvironment = Object.keys(providerEnvironmentOverrides || {})
       const preparedEnvironment = { ...providerRuntimeEnvironment }
@@ -3174,6 +3339,7 @@ async function* runProvider<
         environment: received => providerBoxEnvironment({ explicit: explicitEnvironment, host: process.env, prepared: preparedEnvironment, received }),
         filterArgs: options.provider === "claude-code" ? claudeBoxArgs : undefined,
         launchRoot,
+        localCwd: providerCwd,
         localRoot: root,
       })
       providerLauncher = providerBoxRelay.launcher
@@ -3188,6 +3354,21 @@ async function* runProvider<
       auxiliaryEnvironmentLaunchArgs,
       generatedLaunchArgs,
       gateway?.launchArgs,
+      // The assigned host tools enforce Capability authorization themselves.
+      // Preauthorize their exact names so unattended native approval cannot
+      // reject them before the host receives the request. Shell policy stays intact.
+      ...(nativeUnattendedTools
+        ? [
+          ...(toolServer ? [`-c 'mcp_servers.t3-code.url=${JSON.stringify(toolServer.mcp.endpoint)}'`] : []),
+          '-c \'mcp_servers.t3-code.bearer_token_env_var="T3_MCP_BEARER_TOKEN"\'',
+          // Clear only this invocation's transport token in native shell tools.
+          // Preserve the caller's existing environment exclusions.
+          '-c \'shell_environment_policy.set.T3_MCP_BEARER_TOKEN=""\'',
+          // CLI override paths split on dots without parsing quoted TOML keys.
+          // An inline table preserves the exact tool names, including punctuation.
+          `-c '${(`mcp_servers.t3-code.tools={${Object.keys(context.tools ?? {}).map(name => `${JSON.stringify(name)}={approval_mode="approve"}`).join(",")}}`).replaceAll("'", "'\\''")}'`,
+        ]
+        : []),
       // Login profiles reset PATH and hide the invocation's managed browser CLI.
       ...(options.provider === "codex" && capabilityEnvironment?.PATH ? ['-c "allow_login_shell=false"'] : []),
       ...(codexCredentialHome ? ['-c "cli_auth_credentials_store=\\"file\\""'] : []),
@@ -3210,7 +3391,7 @@ async function* runProvider<
       ...(launchArgs === undefined ? {} : { launchArgs }),
     }).filter(([, value]) => value !== undefined))
     const runtimeOptions: Parameters<typeof createProviderRuntime>[0] = {
-      cwd: root,
+      cwd: providerCwd,
       environment: providerRuntimeEnvironment,
       provider: options.provider,
       ...(sessionStore ? { sessionStore: sessionStore.runtime } : {}),
@@ -3235,7 +3416,7 @@ async function* runProvider<
       finalizeLateRuntimeCreation,
     )
     effectiveSignal?.throwIfAborted()
-    if (Object.keys(context.tools || {}).length) {
+    if (!toolServer && Object.keys(context.tools || {}).length) {
       toolServer = await waitForProviderOperation(
         startToolServer(context.tools!, effectiveSignal, emitToolEvent, capabilityApprovals, capabilityApprovalIds),
         effectiveSignal,
@@ -3248,8 +3429,11 @@ async function* runProvider<
     const resumed = resumeCursor !== undefined
     effectiveSignal?.throwIfAborted()
     const session = await waitForProviderOperation(runtime.startSession({
-      cwd: root,
-      mcp: toolServer?.mcp,
+      cwd: providerCwd,
+      // The runtime's thread-scoped MCP map replaces server configuration,
+      // including per-tool approval modes. Use the complete launch configuration
+      // for these host-authorized unattended tools instead.
+      mcp: nativeUnattendedTools ? undefined : toolServer?.mcp,
       model: options.model,
       resumeCursor,
       runtimeMode: providerRuntimeMode[options.permissions ?? defaultAgentProviderPermissions],
@@ -3407,7 +3591,13 @@ async function* runProvider<
         caught = effectiveSignal?.aborted
           ? effectiveSignal.reason ?? new DOMException("[vitehub] Provider Agent Driver invocation aborted.", "AbortError")
           : agentDiagnostics.AGENT_R0722({ message: `[vitehub] Provider Agent Driver turn aborted${current.value.payload.reason ? `: ${current.value.payload.reason}` : "."}` })
-        if (effectiveSignal?.aborted) throw caught
+        if (effectiveSignal?.aborted) {
+          // Deliver measured terminal usage before cancellation closes the stream.
+          for (const event of normalized) {
+            if (event.type === "usage") yield event
+          }
+          throw caught
+        }
       }
       if (isTerminalEvent(current.value, turn.turnId) && !caught) completed = true
       while (pendingToolEvents.length) yield pendingToolEvents.shift()!
@@ -3452,6 +3642,7 @@ async function* runProvider<
   finally {
     acceptingSteering = false
     unregister?.()
+    clearActiveBox?.()
     clearActiveWorkspaceCommands?.()
     clearActiveWorkspaceFiles?.()
     if (abort) effectiveSignal?.removeEventListener("abort", abort)
@@ -3548,7 +3739,7 @@ async function* runProvider<
         const exitCleanup = createProviderCleanupSignal(undefined)
         try {
           await waitForProviderOperation(
-            Promise.resolve().then(() => onProviderExit!({ cwd: root, abortSignal: exitCleanup.signal })),
+            Promise.resolve().then(() => onProviderExit!({ cwd: providerCwd, abortSignal: exitCleanup.signal })),
             exitCleanup.signal,
           )
         }

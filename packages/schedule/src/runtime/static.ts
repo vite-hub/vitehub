@@ -49,7 +49,7 @@ export function isScheduleCronAuthorized(authorization: string | null | undefine
   return isViteHubBearerSecretEqual(authorization, cronSecret)
 }
 
-function normalizeCron(cron: string): string {
+export function normalizeCron(cron: string): string {
   return cron.trim().split(/\s+/).join(" ")
 }
 

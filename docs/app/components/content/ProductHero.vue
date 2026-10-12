@@ -3,30 +3,47 @@
 // section manifest. The default slot renders in the right column: a `::code-group` whose tabs become
 // a file list beside the code, or an interactive component.
 import { docsManifest, getDocsPageByPath } from "~~/modules/vitehub-docs/runtime/utils/docs";
-import { getDocsSectionForPath, getDocsSectionSubpages, getDocsSidebarGroups } from "~~/modules/vitehub-docs/runtime/utils/docs-navigation";
+import {
+  getDocsSectionForPath,
+  getDocsSectionSubpages,
+  getDocsSidebarGroups,
+} from "~~/modules/vitehub-docs/runtime/utils/docs-navigation";
 
 const props = defineProps<{
   /** One sentence of 20 words or fewer, shown instead of the frontmatter description. */
   tagline?: string;
   /** Comma-separated hosts the primitive deploys on, as the product's hosts page lists them. */
   hosts?: string;
+  /** Built-in inbound Agent Channels, or examples of application-owned outbound connectors. */
+  channels?: string;
+  channelMode?: "builtin" | "custom";
 }>();
 
 const route = useRoute();
 const page = computed(() => getDocsPageByPath(route.path));
 const section = computed(() => getDocsSectionForPath(docsManifest.sections, route.path));
-const subpages = computed(() => section.value ? getDocsSectionSubpages(section.value) : []);
-const getStarted = computed(() => subpages.value.find(candidate => candidate.id === "get-started") ?? subpages.value[0]);
-const serverApi = computed(() => subpages.value.find(candidate => candidate.id === "server-api"));
-const secondaryPage = computed(() => serverApi.value ?? subpages.value.find(candidate => candidate.id === "invocations"));
+const subpages = computed(() => (section.value ? getDocsSectionSubpages(section.value) : []));
+const getStarted = computed(
+  () => subpages.value.find((candidate) => candidate.id === "get-started") ?? subpages.value[0],
+);
+const serverApi = computed(() => subpages.value.find((candidate) => candidate.id === "server-api"));
+const secondaryPage = computed(
+  () => serverApi.value ?? subpages.value.find((candidate) => candidate.id === "invocations"),
+);
 const heroPages = computed(() => {
   if (!section.value) return [];
-  if (section.value.id !== "agents") return subpages.value;
+  if (section.value.id !== "agents")
+    return subpages.value.filter(
+      (candidate) =>
+        candidate.path !== getStarted.value?.path && candidate.path !== secondaryPage.value?.path,
+    );
   return getDocsSidebarGroups(section.value)
-    .map(group => group.pages[0])
+    .map((group) => group.pages[0])
     .filter((page): page is NonNullable<typeof page> => Boolean(page));
 });
-const hostsPage = computed(() => section.value?.pages.find(candidate => candidate.id === "hosts"));
+const hostsPage = computed(() =>
+  section.value?.pages.find((candidate) => candidate.id === "hosts"),
+);
 
 /** Host marks. The row shows where the primitive deploys, not which driver it uses. */
 const hostIcons = new Map([
@@ -44,14 +61,39 @@ const hostOrder = ["node", "docker", "cloudflare", "vercel", "netlify", "deno", 
 const hosts = computed(() =>
   (props.hosts ?? "")
     .split(",")
-    .map(name => name.trim())
+    .map((name) => name.trim())
     .filter(Boolean)
-    .map(name => ({ name, icon: hostIcons.get(name.toLowerCase()) ?? "i-lucide-server" }))
+    .map((name) => ({ name, icon: hostIcons.get(name.toLowerCase()) ?? "i-lucide-server" }))
     .sort((left, right) => {
       const leftOrder = hostOrder.indexOf(left.name.toLowerCase());
       const rightOrder = hostOrder.indexOf(right.name.toLowerCase());
-      return (leftOrder < 0 ? hostOrder.length : leftOrder) - (rightOrder < 0 ? hostOrder.length : rightOrder);
+      return (
+        (leftOrder < 0 ? hostOrder.length : leftOrder) -
+        (rightOrder < 0 ? hostOrder.length : rightOrder)
+      );
     }),
+);
+const channelIcons = new Map([
+  ["web chat", "i-lucide-messages-square"],
+  ["http", "i-lucide-globe"],
+  ["slack", "i-simple-icons-slack"],
+  ["discord", "i-simple-icons-discord"],
+  ["telegram", "i-simple-icons-telegram"],
+  ["teams", "i-lucide-users"],
+  ["github", "i-simple-icons-github"],
+  ["gitlab", "i-simple-icons-gitlab"],
+  ["forgejo", "i-simple-icons-forgejo"],
+  ["gmail", "i-simple-icons-gmail"],
+]);
+const channelItems = computed(() =>
+  (props.channels ?? "")
+    .split(",")
+    .map((name) => name.trim())
+    .filter(Boolean)
+    .map((name) => ({ name, icon: channelIcons.get(name.toLowerCase()) ?? "i-lucide-plug" })),
+);
+const channelPath = computed(() =>
+  props.channelMode === "custom" ? "/docs/channels/get-started" : "/docs/agents/channels",
 );
 </script>
 
@@ -64,7 +106,11 @@ const hosts = computed(() =>
       <div class="vh-hero-actions">
         <NuxtLink v-if="getStarted" :to="getStarted.path" class="vh-hero-cta group">
           {{ getStarted.title }}
-          <UIcon name="i-lucide-arrow-right" class="landing-cta-arrow size-4 shrink-0 transition-transform duration-200 motion-reduce:transition-none" aria-hidden="true" />
+          <UIcon
+            name="i-lucide-arrow-right"
+            class="landing-cta-arrow size-4 shrink-0 transition-transform duration-200 motion-reduce:transition-none"
+            aria-hidden="true"
+          />
         </NuxtLink>
         <NuxtLink v-if="secondaryPage" :to="secondaryPage.path" class="vh-hero-secondary">
           {{ secondaryPage.title }}
@@ -76,6 +122,25 @@ const hosts = computed(() =>
           {{ heroPage.title }}
         </NuxtLink>
       </nav>
+
+      <div v-if="channelItems.length" class="vh-hero-hosts">
+        <span class="vh-hero-hosts-label">{{
+          channelMode === "custom" ? "Example connectors" : "Built-in channels"
+        }}</span>
+        <ul class="vh-hero-hosts-list" aria-label="Channels">
+          <li v-for="channel in channelItems" :key="channel.name" class="vh-hero-host">
+            <NuxtLink :to="channelPath" class="vh-hero-host-link">
+              <UIcon :name="channel.icon" class="size-4 shrink-0" aria-hidden="true" />
+              <span>{{ channel.name }}</span>
+            </NuxtLink>
+          </li>
+        </ul>
+        <p v-if="channelMode === 'custom'" class="vh-hero-channel-note">
+          You write each connector. Use
+          <NuxtLink to="/docs/agents/channels">Agent Channels</NuxtLink> for built-in chat
+          integrations.
+        </p>
+      </div>
 
       <div v-if="hosts.length" class="vh-hero-hosts">
         <span class="vh-hero-hosts-label">Deploys on</span>
@@ -199,11 +264,21 @@ const hosts = computed(() =>
 .vh-hero-hosts-label {
   display: block;
   margin-bottom: 0.5rem;
-  color: var(--ui-text-dimmed);
-  font-size: 0.6875rem;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  color: var(--ui-text-muted);
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+
+.vh-hero-channel-note {
+  margin: 0.75rem 0 0;
+  color: var(--ui-text-muted);
+  font-size: 0.8125rem;
+  line-height: 1.6;
+}
+
+.vh-hero-channel-note a {
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 .vh-hero-hosts-list {
@@ -246,7 +321,9 @@ const hosts = computed(() =>
 
 .vh-hero-panel :deep(> div:has(> [role="tablist"])) {
   display: grid;
+  height: 28rem;
   grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
   border: 1px solid var(--ui-border);
   border-radius: var(--ui-radius);
@@ -255,7 +332,8 @@ const hosts = computed(() =>
 
 @media (min-width: 40rem) {
   .vh-hero-panel :deep(> div:has(> [role="tablist"])) {
-    grid-template-columns: 14rem minmax(0, 1fr);
+    grid-template-columns: 11rem minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
   }
 }
 
@@ -265,6 +343,7 @@ const hosts = computed(() =>
   flex-direction: column;
   align-items: stretch;
   gap: 0;
+  counter-reset: demo-file;
   min-width: 0;
   border-right: 1px solid var(--ui-border);
   border-bottom: 0;
@@ -288,6 +367,8 @@ const hosts = computed(() =>
 
 .vh-hero-panel :deep([role="tab"]) {
   display: flex;
+  counter-increment: demo-file;
+  gap: 0.625rem;
   width: 100%;
   min-width: 0;
   justify-content: flex-start;
@@ -301,6 +382,12 @@ const hosts = computed(() =>
   text-align: left;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+.vh-hero-panel :deep([role="tab"])::before {
+  content: counter(demo-file) ".";
+  color: var(--ui-text-dimmed);
+  font-variant-numeric: tabular-nums;
 }
 
 .vh-hero-panel :deep([role="tab"] > .iconify) {
@@ -317,6 +404,9 @@ const hosts = computed(() =>
 
 .vh-hero-panel :deep([role="tabpanel"]) {
   min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
 }
 
 .vh-hero-panel :deep([role="tabpanel"] > div),

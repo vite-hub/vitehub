@@ -6,6 +6,10 @@ interface ExampleBase {
   website?: string;
 }
 
+export type ExamplePreview =
+  | { kind: "mockup"; app: "drop" | "calories"; alt: string }
+  | { kind: "screenshot"; src: string; alt: string; source: string };
+
 interface PendingProject extends ExampleBase {
   kind: "project";
   status: "pending";
@@ -19,6 +23,7 @@ interface PendingProject extends ExampleBase {
 interface PublishedProject extends ExampleBase {
   kind: "project";
   status: "published";
+  preview: ExamplePreview;
   action: {
     kind: "source";
     label: "View source";
@@ -40,6 +45,7 @@ interface PendingTemplate extends ExampleBase {
 interface PublishedTemplate extends ExampleBase {
   kind: "template";
   status: "published";
+  preview: ExamplePreview;
   action: {
     kind: "use";
     label: "Use template";
@@ -55,11 +61,16 @@ export const examples: readonly Example[] = [
     slug: "drop",
     name: "Drop",
     description:
-      "Review what your agents plan. Agents drop docs and small apps; people comment on the exact spot, share links, and send the feedback back for the next version.",
+      "Review documents and small apps created by your Agent. Comment on a specific passage, share a private review link, and let the Agent use your feedback in its next version.",
     builtWith: ["Auth", "Database", "Blob", "KV", "Rate Limit", "Browser", "Schedule"],
     website: "https://drop.vitehub.dev",
     kind: "project",
     status: "published",
+    preview: {
+      kind: "mockup",
+      app: "drop",
+      alt: "App mockup of a document review in Drop, with a highlighted passage and a reviewer comment.",
+    },
     action: {
       kind: "source",
       label: "View source",
@@ -70,10 +81,15 @@ export const examples: readonly Example[] = [
     slug: "calories",
     name: "Calories",
     description:
-      "A starter template for experimenting with a ViteHub Agent. Send a meal by text, photo, or voice; the Agent estimates calories and protein, saves the meal, and shows it in a Nuxt dashboard.",
+      "Send a meal to a Telegram Agent as text, a photo, or a voice note. It estimates calories and protein, saves the meal, and updates a Nuxt meal journal. Estimates are experimental and can be inaccurate.",
     builtWith: ["Agent Definitions", "Channels", "Database", "Blob"],
     kind: "template",
     status: "published",
+    preview: {
+      kind: "mockup",
+      app: "calories",
+      alt: "App mockup of the Calories meal journal with sample calorie totals, protein totals, and saved meals.",
+    },
     action: {
       kind: "use",
       label: "Use template",
@@ -85,10 +101,17 @@ export const examples: readonly Example[] = [
     slug: "my-pull-requests",
     name: "My Pull Requests",
     description:
-      "A public dashboard for recent open source contributions, plus a shareable GitHub recap generated every month.",
+      "Browse your public GitHub pull requests and issues in one dashboard. A scheduled Workflow builds a monthly recap, stores it in KV, and sends it by email.",
     builtWith: ["Sources", "Collections", "Schedule", "Workflow", "KV", "Email"],
     kind: "template",
     status: "published",
+    website: "https://prs.onmax.me",
+    preview: {
+      kind: "screenshot",
+      src: "/examples/my-pull-requests.jpg",
+      alt: "My Pull Requests app showing contribution totals and a list of recent GitHub pull requests.",
+      source: "https://github.com/vite-hub/my-pull-requests/blob/main/.github/assets/landing.jpg",
+    },
     action: {
       kind: "use",
       label: "Use template",
@@ -109,14 +132,13 @@ export const examples: readonly Example[] = [
       label: "Template unavailable",
     },
     publicationNote:
-      "Pending an explicit license and Node 24 support for local and Vercel runtimes.",
+      "Not available yet. The template needs an explicit license and Node 24 support for local and Vercel runtimes.",
     startPath: "server/agents/nuxt/agent.ts",
   },
   {
     slug: "babysitter",
     name: "Babysitter",
-    description:
-      "A ViteHub Agent and Schedule that owns pull requests from trusted-host worktrees.",
+    description: "Run scheduled Agent work on pull requests in trusted-host worktrees.",
     builtWith: ["Agent Definitions", "Schedule"],
     kind: "project",
     status: "pending",
@@ -124,6 +146,7 @@ export const examples: readonly Example[] = [
       kind: "source",
       label: "Source unavailable",
     },
-    publicationNote: "Pending anonymous repository access and an explicit license.",
+    publicationNote:
+      "Not available yet. The project needs public repository access and an explicit license.",
   },
 ];

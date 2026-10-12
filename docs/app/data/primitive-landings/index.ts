@@ -14,6 +14,7 @@ import { ShellLanding } from "./shell";
 import { SourceLanding } from "./source";
 import { ContentLanding } from "./content";
 import { EmailLanding } from "./email";
+import { ChannelsLanding } from "./channels";
 import { EnvLanding } from "./env";
 import { RateLimitsLanding } from "./rate-limits";
 import { RealtimeLanding } from "./realtime";
@@ -36,6 +37,7 @@ export const primitiveLandings: Record<string, PrimitiveLanding> = Object.fromEn
   SourceLanding,
   ContentLanding,
   EmailLanding,
+  ChannelsLanding,
   EnvLanding,
   RateLimitsLanding,
   RealtimeLanding,
