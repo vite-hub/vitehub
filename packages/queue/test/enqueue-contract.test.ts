@@ -84,4 +84,8 @@ it.each(["cloudflare", "vercel"] as const)("ignores inherited enqueue ids throug
 
   expect(result.messageId).not.toBe("inherited-id")
   expect(sent[0]?.options).not.toHaveProperty("id", "inherited-id")
+  if (provider === "vercel") {
+    expect(sent[0]?.options).toMatchObject({ idempotencyKey: expect.any(String) })
+    expect(sent[0]?.options).not.toMatchObject({ idempotencyKey: "inherited-id" })
+  }
 })
