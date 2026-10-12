@@ -110,6 +110,12 @@ describe("workflow config", () => {
     } as never, { hosting: "node-server" })).toThrow(/workflow\.database.*not supported/)
   })
 
+  it("ignores a deprecated database property inherited from a prototype", () => {
+    const options = Object.create({ database: "legacy" }) as Record<string, unknown>
+    options.provider = "cloudflare"
+    expect(normalizeWorkflowOptions(options as never)).toEqual({ provider: "cloudflare" })
+  })
+
   it("does not infer openworkflow from docker hosting without Postgres config", () => {
     expect(normalizeWorkflowOptions({}, { hosting: "docker" })).toEqual({
       provider: "vercel",

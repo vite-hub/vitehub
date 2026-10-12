@@ -136,6 +136,8 @@ The runtime binding takes precedence. HTTP credentials are used when no active b
 | `downloadTimeoutMs` | `number` | Provider default | Sets the download timeout in milliseconds. |
 | `token` | `string` | `BLOB_READ_WRITE_TOKEN` | Supplies the Vercel Blob token. ViteHub resolves masked build-time values again at runtime. |
 
+Configured Vercel Blob tokens that match `BLOB_READ_WRITE_TOKEN` are masked at build time and read from that variable again at runtime. Other configured tokens stay unchanged.
+
 ### Netlify Blobs
 
 | Option | Type | Default | Description |

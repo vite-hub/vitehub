@@ -1,13 +1,14 @@
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 
-import { builtInChannelEnv } from "./channel-env.ts"
+import { builtInChannelEnv, builtInCodeHostEnv } from "./channel-env.ts"
 import { discoverAgentDefinitions, tokenizeAgentSource } from "./discovery.ts"
 import { builtInGatewayEnv } from "./internal/gateway-env.ts"
 
 import type { ChannelEnvField } from "./channel-env.ts"
 
 const channelFactoryModules = new Set(["@vite-hub/agent/channels", "vite-hub/agent/channels"])
+const capabilityFactoryModules = new Set(["@vite-hub/agent/capabilities", "vite-hub/agent/capabilities"])
 const gatewayFactoryModules = new Set(["@vite-hub/agent/gateways", "vite-hub/agent/gateways"])
 const agentModules = new Set(["@vite-hub/agent", "vite-hub/agent"])
 
@@ -15,6 +16,7 @@ const agentModules = new Set(["@vite-hub/agent", "vite-hub/agent"])
 export interface DiscoveredChannelUse {
   kind: string
   optionKeys?: ReadonlySet<string>
+  stringOptions?: ReadonlyMap<string, string>
 }
 
 /** Server Env that the Agents of an application need for their built-in Channels. */
@@ -181,7 +183,22 @@ export function discoverBuiltInChannelUses(
   for (let i = 0; i < tokens.length; i++) {
     if (tokens[i - 1] === "." || tokens[i - 1] === "as") continue
     const factory = !isShadowedAt(tokens, i, tokens[i]!, shadowBindings, lineBreaks) && factoryCall(tokens, i, bindings, namespaces, known, lineBreaks, typescript)
-    if (factory) uses.push({ index: i, kind: factory.name, optionKeys: staticOptionKeys(tokens, factory.open + 1, ")", typescript) })
+    if (factory) {
+      const start = skipOptionAssertions(tokens, factory.open + 1, typescript)
+      const optionKeys = staticOptionKeys(tokens, start, ")", typescript)
+      const stringOptions = new Map<string, string>()
+      let object = start
+      while (tokens[object] === "(") object = skipOptionAssertions(tokens, object + 1, typescript)
+      if (optionKeys && tokens[object] === "{") visitObjectProperties(tokens, object, (key, value) => {
+        stringOptions.delete(key)
+        if (value === undefined || !isValueEnd(tokens, value + 1, new Set([",", "}"]))) return
+        const token = tokens[value]!
+        if (token.startsWith("`") && /(?<!\\)(?:\\\\)*\$\{/.test(token)) return
+        const string = stringTokenValue(token)
+        if (string !== undefined) stringOptions.set(key, string)
+      })
+      uses.push({ index: i, kind: factory.name, optionKeys, stringOptions })
+    }
     // Shorthands count only in the top-level `channels` option of defineAgent(), not in types or other objects.
     const agent = options.shorthands !== false && !isShadowedAt(tokens, i, tokens[i]!, agentShadowBindings, lineBreaks) && factoryCall(tokens, i, agentBindings, agentNamespaces, agentNames, lineBreaks, typescript)
     if (!agent) continue
@@ -214,7 +231,11 @@ export function discoverBuiltInChannelUses(
       })
     })
   }
-  return uses.sort((left, right) => left.index - right.index).map(({ kind, optionKeys }) => ({ kind, optionKeys }))
+  return uses.sort((left, right) => left.index - right.index).map(({ kind, optionKeys, stringOptions }) => {
+    const use: DiscoveredChannelUse = { kind, optionKeys }
+    if (stringOptions) use.stringOptions = stringOptions
+    return use
+  })
 }
 
 function channelFactoryReference(
@@ -868,11 +889,27 @@ export function discoverAgentChannelEnv(options: { rootDir: string, serverDirs?:
   const fields: Readonly<Record<string, Readonly<Record<string, ChannelEnvField>>>> = builtInChannelEnv
   const declared: AgentChannelEnv = {}
   for (const handler of agentHandlers(options)) {
-    for (const { kind, optionKeys } of discoverBuiltInChannelUses(readFileSync(handler, "utf8"), Object.keys(fields), { typescript: /\.(?:c|m)?ts$/i.test(handler) })) {
+    const source = readFileSync(handler, "utf8")
+    for (const { kind, optionKeys } of discoverBuiltInChannelUses(source, Object.keys(fields), { typescript: /\.(?:c|m)?ts$/i.test(handler) })) {
       const group = declared[kind] ??= {}
       for (const [field, spec] of Object.entries(fields[kind] ?? {})) {
         const entry = group[field] ??= { names: [...spec.names], required: false, secret: spec.secret === true }
         if (optionKeys && spec.requiredUnless && !spec.requiredUnless.some(key => optionKeys.has(key))) entry.required = true
+      }
+    }
+    const uses = discoverBuiltInChannelUses(source, ["codeHost"], {
+      modules: capabilityFactoryModules,
+      shorthands: false,
+      typescript: /\.(?:c|m)?ts$/i.test(handler),
+    })
+    for (const use of uses) {
+      const selected = use.stringOptions?.get("host") ?? (use.optionKeys && !use.optionKeys.has("host") ? "github" : undefined)
+      for (const [host, specs] of Object.entries(builtInCodeHostEnv)) {
+        if (selected !== undefined && selected !== host) continue
+        const group = declared[host] ??= {}
+        for (const [field, spec] of Object.entries(specs)) {
+          group[field] ??= { names: [...spec.names], required: false, secret: "secret" in spec && spec.secret === true }
+        }
       }
     }
   }
