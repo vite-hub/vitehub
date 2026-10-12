@@ -1,5 +1,4 @@
 import { runInNewContext } from "node:vm"
-
 import { describe, expect, it } from "vitest"
 
 import { applyStreamEvent } from "../src/messages.ts"
@@ -570,8 +569,13 @@ describe("agent output helpers", () => {
   it("does not treat spoofed or hostile values as stream errors", () => {
     const spoofed = { message: "spoofed", [Symbol.toStringTag]: "Error" }
     const spoofedEvent = toAgentStreamEvent({ error: spoofed, type: "error" })
-    expect(spoofedEvent).toMatchObject({ error: "[object Object]", type: "error" })
+    expect(spoofedEvent).toMatchObject({ error: "[object Error]", type: "error" })
     expect(Object.getOwnPropertySymbols(spoofedEvent!)).not.toContain(agentStreamErrorSymbol)
+
+    const forged = Object.create(Error.prototype)
+    const forgedEvent = toAgentStreamEvent({ error: forged, type: "error" })
+    expect(forgedEvent).toMatchObject({ error: "[object Object]", type: "error" })
+    expect(Object.getOwnPropertySymbols(forgedEvent!)).not.toContain(agentStreamErrorSymbol)
 
     const hostile = Object.defineProperty({}, Symbol.toStringTag, { get() { throw new Error("hostile tag") } })
     Object.defineProperty(hostile, "message", { get() { throw new Error("hostile message") } })
@@ -797,6 +801,16 @@ describe("agent output helpers", () => {
       },
       { type: "finish" },
     ])
+  })
+
+  it("preserves response timestamps from another realm", () => {
+    const timestamp = runInNewContext('new Date("2026-06-22T20:00:00.000Z")') as Date
+
+    expect(timestamp instanceof Date).toBe(false)
+    expect(toAgentRunResult({
+      response: { id: "resp_1", timestamp },
+      usage: { inputTokens: 1 },
+    }).usageRecord?.response).toEqual({ id: "resp_1", timestamp })
   })
 
   it("includes model metadata in derived raw-result usage records", async () => {
