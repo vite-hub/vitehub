@@ -343,7 +343,7 @@ Read [Instructions](/docs/agents/instructions) for model-facing behavior and [Wo
 
 ## Use an ask Driver
 
-Use `driver.ask` when the Agent only has to answer a few typed questions, such as a label or a score. The Driver sends every question to [TypeSafe Jev](https://typesafe.ai) in one request through the `advocaat` client. It does not run a chat model, tools, or instructions.
+Use `driver.ask` when the Agent only has to answer a few typed questions, such as a label or a score. The Driver sends questions to [TypeSafe Jev](https://typesafe.ai) through the `advocaat` client in deterministic sequential batches when needed to stay within the provider request budget. For each question, the serialized shared state plus that question and request overhead must fit below 30,000 bytes; exceeding the combined limit fails the Invocation. An empty question map skips Jev. It does not run a chat model, tools, or instructions.
 
 Install the client. It is an optional peer dependency, so Agents without `driver.ask` bundle without it:
 

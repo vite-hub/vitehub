@@ -3,8 +3,8 @@ import type { ContentPage } from "../composables/useDocsPage";
 import type { DocsSection } from "~~/modules/vitehub-docs/runtime/utils/docs";
 
 // The Markdown body opens with `::product-hero` and continues with `::product-features`.
-// This component appends the footer that lists every package.
-defineProps<{
+// This component appends the footer that lists every documented area.
+const props = defineProps<{
   page: ContentPage;
   section: DocsSection;
 }>();
@@ -25,8 +25,21 @@ defineProps<{
 </template>
 
 <style scoped>
+/* The landing has no page header or page body padding, so it sets the same insets itself. */
 .vh-product-landing {
-  padding-bottom: 4rem;
+  padding: 0 1rem 4rem;
+}
+
+@media (min-width: 40rem) {
+  .vh-product-landing {
+    padding-inline: 2rem;
+  }
+}
+
+@media (min-width: 80rem) {
+  .vh-product-landing {
+    padding-inline: 3rem;
+  }
 }
 
 .vh-product-actions {
@@ -37,7 +50,6 @@ defineProps<{
 
 /* The landing body spans the full landing width. Its sections manage their own measure. */
 .vh-product-body {
-  max-width: none;
   padding-bottom: 0;
 }
 </style>

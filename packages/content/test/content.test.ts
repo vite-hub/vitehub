@@ -74,6 +74,21 @@ describe("contentSource", () => {
     await expect(content.cache.keys("docs")).resolves.toEqual(["docs:guide/index.md"])
   })
 
+  it("accepts source name arrays from another JavaScript realm", async () => {
+    const content = defineContent({
+      sources: {
+        docs: {
+          keys: () => ["index.md"],
+          getItem: () => "# Docs",
+          getItemRaw: () => "# Docs",
+        },
+      },
+    })
+    const names = runInNewContext("['docs']") as string[]
+
+    await expect(content.list(names)).resolves.toEqual([expect.objectContaining({ path: "/" })])
+  })
+
   it("routes named-source cache and plugin operations across multiple instances", async () => {
     function source(title: string) {
       return {
