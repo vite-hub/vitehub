@@ -51,7 +51,9 @@ async function collectContributors(plugins: readonly unknown[]): Promise<ViteHub
   const contributors: ViteHubInspectionContributor[] = []
   for (const plugin of plugins) {
     if (!plugin || typeof plugin !== "object" || !Object.hasOwn(plugin, "vitehub")) continue
-    const value = (plugin as ViteHubInspectionContributingPlugin).vitehub?.inspect
+    const metadata = (plugin as ViteHubInspectionContributingPlugin).vitehub
+    if (!metadata || typeof metadata !== "object" || !Object.hasOwn(metadata, "inspect")) continue
+    const value = metadata.inspect
     const contributor = typeof value === "function" ? await value() : value
     if (contributor) contributors.push(contributor)
   }
