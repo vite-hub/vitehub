@@ -287,12 +287,12 @@ async function runAccessAuthorize(
 function isResponseLike(value: unknown): value is Response {
   if (value === null || typeof value !== "object") return false
   try {
-    if (Object.prototype.toString.call(value) !== "[object Response]") return false
-    const response = value as { headers?: unknown, status?: unknown, statusText?: unknown }
-    if (typeof response.status !== "number" || !Number.isInteger(response.status) || response.status < 0 || response.status > 599) return false
-    if (typeof response.statusText !== "string") return false
-    const headers = response.headers
-    return headers !== null && typeof headers === "object" && typeof (headers as { get?: unknown }).get === "function"
+    // The native getter performs an internal-slot brand check that cannot be
+    // forged with Symbol.toStringTag or other user-controlled properties.
+    const headersGetter = Object.getOwnPropertyDescriptor(Response.prototype, "headers")?.get
+    if (typeof headersGetter !== "function") return false
+    headersGetter.call(value)
+    return true
   }
   catch {
     return false
