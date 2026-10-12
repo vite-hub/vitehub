@@ -665,11 +665,15 @@ describe("Schedule Run bookkeeping", () => {
       }),
     })
     await schedules.dynamic.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
+    const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
+    const first = await schedules.run("schedule-1", { scheduledAt })
     await schedules.disable("schedule-1")
 
-    await expect(schedules.run("schedule-1")).rejects.toMatchObject({
+    await expect(schedules.run("schedule-1", { scheduledAt })).rejects.toMatchObject({
       code: "SCHEDULE_DISABLED",
     })
+    await schedules.enable("schedule-1")
+    await expect(schedules.run("schedule-1", { scheduledAt })).resolves.toEqual(first)
   })
 
   it("returns an existing run before revalidating a Runtime Schedule", async () => {
@@ -1257,6 +1261,17 @@ describe("KV Schedule Run Store", () => {
       for (const key of await kvStore.keys("vitehub:schedule/schedule-run-index")) await kvStore.del(key)
       expect((await store.listRuns({ scheduleId: "actual", limit: 10 })).map(run => run.id).sort()).toEqual(ids.toSorted())
     }
+  })
+
+  it.each(["memory", "kv"])("lists schedule runs newest first when no limit is provided: %s", async kind => {
+    const kvStore = createTestKVStore()
+    const store = kind === "memory" ? createMemoryScheduleRunStore() : createKVScheduleRunStore({ kvStore })
+    const older = new Date("2026-05-23T09:00:00.000Z")
+    const newer = new Date("2026-05-24T09:00:00.000Z")
+    await store.createRun({ id: "older", scheduleId: "daily", target: "report", scheduledAt: older, createdAt: older, updatedAt: older, status: "succeeded", attemptCount: 1 })
+    await store.createRun({ id: "newer", scheduleId: "daily", target: "report", scheduledAt: newer, createdAt: newer, updatedAt: newer, status: "succeeded", attemptCount: 1 })
+
+    expect((await store.listRuns()).map(run => run.id)).toEqual(["newer", "older"])
   })
 
   it.each([false, true])("keeps history authoritative when index publication fails after writing %s", async (published) => {

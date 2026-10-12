@@ -285,13 +285,14 @@ async function runAccessAuthorize(
 }
 
 function isResponseLike(value: unknown): value is Response {
-  if (value === null || typeof value !== "object") return false
+  if (value === null || typeof value !== "object" || typeof Response === "undefined") return false
   try {
-    if (Object.prototype.toString.call(value) !== "[object Response]") return false
-    const response = value as { headers?: unknown, status?: unknown, statusText?: unknown }
-    if (typeof response.status !== "number" || !Number.isInteger(response.status) || response.status < 0 || response.status > 599) return false
-    if (typeof response.statusText !== "string") return false
-    const headers = response.headers
+    const prototype = Response.prototype
+    const status = Object.getOwnPropertyDescriptor(prototype, "status")?.get?.call(value)
+    const statusText = Object.getOwnPropertyDescriptor(prototype, "statusText")?.get?.call(value)
+    const headers = Object.getOwnPropertyDescriptor(prototype, "headers")?.get?.call(value)
+    if (typeof status !== "number" || !Number.isInteger(status) || status < 0 || status > 599) return false
+    if (typeof statusText !== "string") return false
     return headers !== null && typeof headers === "object" && typeof (headers as { get?: unknown }).get === "function"
   }
   catch {

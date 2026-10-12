@@ -1,14 +1,17 @@
 <script setup lang="ts">
 import { createAuthClient } from "@vite-hub/auth/vue";
+import { PrimitiveIcon, PrimitiveRail, PrimitiveRailGroup, PrimitiveRailItem } from "@vite-hub/ui/primitive-rail";
 import { defineShortcuts } from "@nuxt/ui/composables";
-import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from "vue";
+import { computed, inject, onBeforeUnmount, onMounted, ref, shallowRef } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
+import type { DropdownMenuItem } from "@nuxt/ui";
 import type { ConsoleNavigation } from "../client/sections";
 import type { ConsoleSectionId } from "../sections";
+import { consoleAppearanceKey, consoleAppearanceOptions, consoleAppearances } from "../client/appearance";
 import { loadConsoleNavigation, resolveConsoleSectionDetails, subscribeConsoleNavigation } from "../client/sections";
 import { decodeAgentRouteParam, resolveConsoleRouteName } from "../console-route";
-import { consoleGoToKey, consoleOverviewShortcut, consoleSectionShortcut, groupConsoleSections } from "../sections";
+import { consoleGoToKey, consoleOverviewShortcut, consoleSectionRailIcon, consoleSectionShortcut, groupConsoleSections } from "../sections";
 import ConsoleMark from "./console-mark.vue";
 
 const props = defineProps<{
@@ -35,9 +38,23 @@ const projectName = computed(() => navigation.value?.projectName || "ViteHub");
 const sections = computed(() =>
   (navigation.value?.sections ?? []).flatMap((section) => {
     const details = resolveConsoleSectionDetails(navigation.value, section);
-    return details ? [{ id: section, ...details, shortcut: consoleSectionShortcut(section) }] : [];
+    return details ? [{ id: section, ...details, railIcon: consoleSectionRailIcon(section), shortcut: consoleSectionShortcut(section) }] : [];
   }),
 );
+// The standalone Console provides its appearance. A Nuxt host owns color mode, so the rail hides the control there.
+const appearance = inject(consoleAppearanceKey, undefined);
+const currentAppearance = computed(() => consoleAppearanceOptions[appearance?.preference.value ?? "system"]);
+const appearanceLabel = computed(() => `Appearance: ${currentAppearance.value.label}`);
+const appearanceItems = computed<DropdownMenuItem[]>(() => [
+  { type: "label", label: "Appearance" },
+  ...consoleAppearances.map((option): DropdownMenuItem => ({
+    type: "checkbox",
+    icon: consoleAppearanceOptions[option].icon,
+    label: consoleAppearanceOptions[option].label,
+    checked: appearance?.preference.value === option,
+    onSelect: () => appearance?.select(option),
+  })),
+]);
 const groups = computed(() => groupConsoleSections(sections.value));
 const signOutLabel = computed(() => (accessIdentity.value?.label ? `Sign out ${accessIdentity.value.label}` : "Sign out"));
 
@@ -173,188 +190,101 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <nav class="vitehub-console__rail" aria-label="Console">
-    <UTooltip :text="`${projectName} overview`" :kbds="[...consoleOverviewShortcut]" :content="{ side: 'right' }">
-      <button
-        type="button"
-        class="vitehub-console__rail-item vitehub-console__rail-home"
-        :aria-current="active ? undefined : 'page'"
-        :aria-label="`${projectName} overview`"
-        @click="open('vitehub-console')"
-      >
-        <ConsoleMark class="size-[1.125rem]" />
-      </button>
-    </UTooltip>
-
-    <div class="vitehub-console__rail-sections">
-      <template v-if="!navigation && !navigationFailed">
-        <USkeleton v-for="index in 5" :key="index" class="size-8 rounded-md" />
-      </template>
-      <UTooltip v-if="navigationFailed && !navigation" text="Retry loading primitives" :content="{ side: 'right' }">
-        <button
-          type="button"
-          class="vitehub-console__rail-item"
-          aria-label="Retry loading primitives"
-          @click="loadNavigation"
+  <!-- The expanded rail shows each label, so the tooltips turn off while it is open. -->
+  <PrimitiveRail class="vitehub-console__rail" label="Console">
+    <template #header="{ expanded }">
+      <UTooltip :text="`${projectName} overview`" :kbds="[...consoleOverviewShortcut]" :content="{ side: 'right' }" :disabled="expanded">
+        <PrimitiveRailItem
+          class="vitehub-console__rail-home"
+          :current="!active"
+          :label="`${projectName} overview`"
+          @click="open('vitehub-console')"
         >
-          <UIcon name="i-ph-arrows-clockwise-light" class="size-[1.125rem]" />
-        </button>
+          <ConsoleMark class="size-[1.125rem]" />
+        </PrimitiveRailItem>
       </UTooltip>
-      <div v-for="(group, index) in groups" :key="index" class="vitehub-console__rail-group">
+    </template>
+
+    <template #default="{ expanded }">
+      <template v-if="!navigation && !navigationFailed">
+        <USkeleton v-for="index in 5" :key="index" class="my-px size-9 rounded-md" />
+      </template>
+      <UTooltip v-if="navigationFailed && !navigation" text="Retry loading primitives" :content="{ side: 'right' }" :disabled="expanded">
+        <PrimitiveRailItem label="Retry loading primitives" @click="loadNavigation">
+          <UIcon name="i-ph-arrows-clockwise-light" class="size-[1.125rem]" />
+        </PrimitiveRailItem>
+      </UTooltip>
+      <PrimitiveRailGroup v-for="(group, index) in groups" :key="index">
         <UTooltip
           v-for="section in group"
           :key="section.id"
           :text="section.label"
           :kbds="section.shortcut ? [...section.shortcut] : undefined"
           :content="{ side: 'right' }"
+          :disabled="expanded"
         >
-          <button
-            type="button"
-            class="vitehub-console__rail-item"
-            :aria-current="section.id === active ? 'page' : undefined"
-            :aria-label="section.label"
+          <PrimitiveRailItem
+            :current="section.id === active"
+            :label="section.label"
             @click="open(section.routeName)"
           >
-            <UIcon :name="section.icon" class="size-[1.125rem]" />
-          </button>
+            <!-- Known primitives use the shared icon family. A contributed section keeps the icon of its descriptor. -->
+            <PrimitiveIcon v-if="section.railIcon" :name="section.railIcon" />
+            <UIcon v-else :name="section.icon" class="size-[1.125rem]" />
+          </PrimitiveRailItem>
         </UTooltip>
-      </div>
-    </div>
+      </PrimitiveRailGroup>
+    </template>
 
-    <div class="vitehub-console__rail-footer">
-      <UDashboardSearchButton
-        class="vitehub-console__rail-item vitehub-console__rail-search"
-        collapsed
-        :tooltip="{ content: { side: 'right' } }"
-        label="Search"
-      />
-      <UTooltip v-if="signedIn" :text="signOutFailed ? 'Could not sign out. Try again.' : signOutLabel" :content="{ side: 'right' }">
-        <button
-          type="button"
-          class="vitehub-console__rail-item"
-          :aria-label="signOutFailed ? 'Retry sign out' : signOutLabel"
+    <template #footer="{ expanded }">
+      <!--
+        The search button stays collapsed, because a change to that prop mounts a new button and keyboard focus is lost.
+        Its slots give it the same icon box and label as a rail item.
+      -->
+      <UTooltip text="Search" :content="{ side: 'right' }" :disabled="expanded">
+        <UDashboardSearchButton class="vh-primitive-rail__item vitehub-console__rail-search" collapsed label="Search">
+          <template #leading>
+            <span class="vh-primitive-rail__icon" aria-hidden="true">
+              <UIcon name="i-lucide-search" class="size-4" />
+            </span>
+          </template>
+          <span class="vh-primitive-rail__label">Search</span>
+        </UDashboardSearchButton>
+      </UTooltip>
+      <UDropdownMenu
+        v-if="appearance"
+        :items="appearanceItems"
+        :content="{ side: 'right', align: 'end', sideOffset: 8 }"
+        :ui="{ content: 'min-w-40' }"
+      >
+        <UTooltip :text="appearanceLabel" :content="{ side: 'right' }" :disabled="expanded">
+          <PrimitiveRailItem :label="appearanceLabel">
+            <UIcon :name="currentAppearance.icon" class="size-4" />
+          </PrimitiveRailItem>
+        </UTooltip>
+      </UDropdownMenu>
+      <UTooltip v-if="signedIn" :text="signOutFailed ? 'Could not sign out. Try again.' : signOutLabel" :content="{ side: 'right' }" :disabled="expanded">
+        <PrimitiveRailItem
+          :label="signOutFailed ? 'Retry sign out' : signOutLabel"
           :disabled="signingOut"
           @click="signOut"
         >
           <UIcon :name="signingOut ? 'i-lucide-loader-circle' : 'i-lucide-log-out'" class="size-4" :class="signingOut ? 'animate-spin' : ''" />
-        </button>
+        </PrimitiveRailItem>
       </UTooltip>
-    </div>
-  </nav>
+    </template>
+  </PrimitiveRail>
 </template>
 
 <style>
-.vitehub-console__rail {
-  align-items: center;
-  background: var(--ui-bg-muted);
-  border-inline-end: 1px solid var(--ui-border);
-  display: flex;
-  flex: none;
-  flex-direction: column;
-  gap: 0.25rem;
-  height: 100%;
-  padding-block: 0.5rem;
-  width: 3rem;
-}
-
-.dark .vitehub-console__rail {
-  background: #000;
-  border-inline-end-color: rgb(255 255 255 / 8%);
-}
-
-.vitehub-console__rail-sections {
-  align-items: center;
-  display: flex;
-  flex: 1 1 auto;
-  flex-direction: column;
-  min-height: 0;
-  overflow-y: auto;
-  scrollbar-width: none;
-  width: 100%;
-}
-
-/* Groups separate with a short hairline, like the product rail in Supabase. */
-.vitehub-console__rail-group {
-  align-items: center;
-  display: flex;
-  flex-direction: column;
-  gap: 0.125rem;
-  padding-block: 0.375rem;
-  position: relative;
-  width: 100%;
-}
-
-.vitehub-console__rail-group + .vitehub-console__rail-group::before {
-  background: var(--ui-border);
-  content: "";
-  height: 1px;
-  inset-block-start: 0;
-  inset-inline-start: 50%;
-  position: absolute;
-  transform: translateX(-50%);
-  width: 1.25rem;
-}
-
-.vitehub-console__rail-footer {
-  align-items: center;
-  display: flex;
-  flex-direction: column;
-  gap: 0.125rem;
-}
-
-.vitehub-console .vitehub-console__rail-item {
-  align-items: center;
-  border-radius: 0.375rem;
-  color: var(--ui-text-muted);
-  display: inline-flex;
-  height: 2rem;
-  justify-content: center;
-  position: relative;
-  transition:
-    background-color 150ms ease,
-    color 150ms ease;
-  width: 2rem;
-}
-
-.vitehub-console .vitehub-console__rail-item:hover {
-  background: var(--ui-bg-elevated);
+.vh-primitive-rail .vitehub-console__rail-home {
   color: var(--ui-text-highlighted);
 }
 
-.vitehub-console .vitehub-console__rail-item:focus-visible {
-  outline: 2px solid var(--ui-border-inverted);
-  outline-offset: 1px;
-}
-
-.vitehub-console .vitehub-console__rail-item[aria-current="page"] {
-  background: var(--ui-bg-accented);
-  color: var(--ui-text-highlighted);
-}
-
-/* The active section also shows a short bar on the rail edge. */
-.vitehub-console .vitehub-console__rail-item[aria-current="page"]::before {
-  background: var(--ui-text-highlighted);
-  border-radius: 0 2px 2px 0;
-  content: "";
-  height: 1rem;
-  inset-block-start: 50%;
-  inset-inline-start: -0.5rem;
-  position: absolute;
-  transform: translateY(-50%);
-  width: 2px;
-}
-
-.vitehub-console .vitehub-console__rail-home {
-  color: var(--ui-text-highlighted);
-  margin-block-end: 0.25rem;
-}
-
-.vitehub-console .vitehub-console__rail-home[aria-current="page"]::before {
-  display: none;
-}
-
+/* The search button is a Nuxt UI button. The rail item class sets its size and states, and its slots set the icon box and label. */
 .vitehub-console .vitehub-console__rail-search {
   box-shadow: none !important;
+  gap: 0 !important;
   padding: 0 !important;
 }
 

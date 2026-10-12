@@ -5,7 +5,7 @@ import { ViteHubError } from "@vite-hub/runtime"
 import { isScheduleDevOperation, scheduleDevHeader, scheduleDevHeaderValue } from "../dev.ts"
 import { schedules } from "./client.ts"
 import { nextRuntimeScheduleRunAt } from "./due.ts"
-import { toRunId } from "./execute.ts"
+import { executeRuntimeSchedule } from "./execute.ts"
 import { getRuntimeScheduleStore, getScheduleRunStore, getScheduleRuntimeRegistry, isScheduleWakeDriverActive } from "./state.ts"
 import { ScheduleHistoryIncompleteError } from "./store.ts"
 
@@ -396,12 +396,10 @@ async function runOperation(body: ScheduleDevRequestBody): Promise<Response> {
     case "run": {
       const scheduledAt = new Date()
       try {
-        return json({ run: summarizeScheduleRun(await schedules.run(id, { scheduledAt })) })
+        return json({ run: summarizeScheduleRun(await executeRuntimeSchedule({ id, scheduledAt, captureHandlerFailure: true })) })
       }
       catch (error) {
-        // The handler failed after the run started. Return the stored failed run.
-        const run = await getScheduleRunStore().getRun(toRunId("runtime", id, scheduledAt))
-        return run ? json({ run: summarizeScheduleRun(run) }) : scheduleFailure(error)
+        return scheduleFailure(error)
       }
     }
     case "enable":
