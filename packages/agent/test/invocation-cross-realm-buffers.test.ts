@@ -23,7 +23,7 @@ describe("Agent invocation buffer boundaries", () => {
 
   it("does not read shadowed byteLength properties", async () => {
     const { store, timestamp, invocations } = await createInvocation()
-    const bytes = runInNewContext("Object.assign(new Uint8Array([4, 5]).buffer, { byteLength: () => { throw new Error('shadowed') } })")
+    const bytes = runInNewContext("Object.defineProperty(new Uint8Array([4, 5]).buffer, 'byteLength', { value: () => { throw new Error('shadowed') } })")
     await invocations.appendObservation("fixture", { name: "report", type: "capability", timestamp, attributes: { bytes } }, { id: "report" })
     expect((await store.get("fixture"))?.observations[0]?.attributes?.bytes).toEqual([4, 5])
   })

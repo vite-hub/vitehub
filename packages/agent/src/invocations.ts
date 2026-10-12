@@ -554,6 +554,24 @@ function isInstance<T>(value: unknown, constructor: { prototype: T }): value is 
   }
 }
 
+function isArray(value: unknown): value is unknown[] {
+  try {
+    return Array.isArray(value)
+  }
+  catch {
+    return false
+  }
+}
+
+function isArrayBufferView(value: unknown): value is ArrayBufferView {
+  try {
+    return ArrayBuffer.isView(value)
+  }
+  catch {
+    return false
+  }
+}
+
 function normalizedTimestamp(value: Date | string): string {
   const timestamp = value instanceof Date ? value : new Date(value)
   return Number.isFinite(timestamp.getTime()) ? timestamp.toISOString() : new Date().toISOString()
@@ -628,7 +646,7 @@ async function collectBoundedObservationBuiltIns(
     builtIns.set(value, { truncated: true, value: primitive })
       return
     }
-    if (Array.isArray(value)) {
+    if (isArray(value)) {
     const length = Math.min(value.length, MAX_OBSERVATION_COLLECTION_ITEMS, budget.items)
     for (let index = 0; index < length; index++) {
       if (Object.hasOwn(value, index)) await collectBoundedObservationBuiltIns(value[index], builtIns, budget, seen, depth + 1)
@@ -726,7 +744,7 @@ function boundedObservationValue(
     budget.truncated = true
     return "[truncated]"
   }
-  if (Array.isArray(value)) {
+  if (isArray(value)) {
     const length = Math.min(value.length, collectionItems, budget.items)
     if (length < value.length) budget.truncated = true
     return Array.from({ length }, (_, index) => {
@@ -786,7 +804,7 @@ function boundedObservationValue(
       return []
     }
   }
-  if (ArrayBuffer.isView(value)) {
+  if (isArrayBufferView(value)) {
     budget.truncated = true
     const length = Math.min(value.byteLength, collectionItems, budget.items)
     return {
