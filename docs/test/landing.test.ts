@@ -2,11 +2,11 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import {
   agentStory,
+  closingPaths,
   installOptions,
   landingPrimitives,
   nuxtHubMigration,
   portabilityExamples,
-  sharedApi,
 } from "../app/components/landing/content";
 import { primitiveLandings } from "../app/data/primitive-landings";
 
@@ -15,6 +15,7 @@ const landingFiles = [
   "InstallCommand.vue",
   "Primitives.vue",
   "Portability.vue",
+  "AgentStory.vue",
   "Closing.vue",
   "PrimitiveMotion.vue",
   "content.ts",
@@ -49,18 +50,18 @@ describe("landing page", () => {
     }
   });
 
-  it("shows one primitive called from a route and from an Agent Capability", () => {
-    const [route, agent] = sharedApi.panes;
-    const routeCode = route.code.join("\n");
-    const agentCode = agent.code.join("\n");
+  it("reads the store the Agent writes from an ordinary route", () => {
+    const agentCode = agentStory.code.join("\n");
+    const routeCode = agentStory.route.code.join("\n");
 
+    expect(agentCode).toContain('import { browser, kv } from "vite-hub/agent/capabilities"');
+    expect(agentCode).toContain('kv({ mode: "write", store: "reviews" })');
     expect(routeCode).toContain('import { kv } from "vite-hub/kv"');
-    expect(routeCode).toContain("kv.get(");
-    expect(agentCode).toContain('import { kv } from "vite-hub/agent/capabilities"');
-    expect(agentCode).toContain("capabilities: [kv(");
-    expect(`${routeCode}\n${agentCode}`).not.toContain("@vite-hub/");
-    expect(sharedApi.primitiveTo).toBe("/docs/kv");
-    expect(sharedApi.capabilityTo).toBe("/docs/kv/agent-capability");
+    expect(routeCode).toContain('kv.store("reviews")');
+    expect(`${agentCode}\n${routeCode}`).not.toContain("@vite-hub/");
+    expect(agentStory.route.to).toBe("/docs/kv/agent-capability");
+    // Flue and Eve are open and self-hostable, so the line must not claim openness or naming them.
+    expect(agentStory.positioning).not.toMatch(/flue|eve|lock-in|open/i);
   });
 
   it("links NuxtHub users to a migration guide with real import paths", async () => {
@@ -70,6 +71,8 @@ describe("landing page", () => {
     );
 
     expect(nuxtHubMigration.to).toBe("/docs/getting-started/migrate-from-nuxthub");
+    expect(closingPaths.map((path) => path.id)).toEqual(["primitive", "agent", "nuxthub", "hosts"]);
+    for (const path of closingPaths) expect(path.to).toMatch(/^\/docs\//);
     for (const entry of nuxtHubMigration.imports) {
       expect(guide).toContain(entry.from);
       expect(guide).toContain(entry.to);
@@ -104,9 +107,9 @@ describe("landing page", () => {
 
     expect(source).toContain("The server layer for Vite apps.");
     expect(normalizedSource).toContain("Write once.<br>Deploy anywhere.");
-    expect(normalizedSource).toContain(
-      "Your application owns the logic. ViteHub connects it to the host's services.",
-    );
+    expect(normalizedSource).toContain("Same code on every host. The host picks the provider.");
+    // One radius system: the landing is square like the primitive grid.
+    expect(source).not.toMatch(/rounded-(?:full|sm|md|lg)\b|999px/);
     expect(source).toContain('aria-label="ViteHub APIs"');
     expect(source).toContain("MotionConfig");
     expect(source).toContain("prefers-reduced-motion");
@@ -153,9 +156,19 @@ describe("landing page", () => {
       expect(primitiveMotion).toContain(`name === '${primitive.id}'`);
       expect(primitive.to).toMatch(/^\/docs\//);
     }
-    expect(portabilityExamples.map((example) => example.id)).toEqual(["storage", "queue", "schedule"]);
+    expect(portabilityExamples.map((example) => example.id)).toEqual([
+      "storage",
+      "blob",
+      "database",
+      "queue",
+      "workflow",
+      "schedule",
+      "sandbox",
+    ]);
     for (const example of portabilityExamples) {
       expect(example.code.join("\n")).toContain("vite-hub/");
+      expect(example.code.join("\n")).not.toContain("@vite-hub/");
+      expect(example.hosts.length).toBeGreaterThanOrEqual(3);
       expect(example.to).toMatch(/^\/docs\//);
     }
   });
@@ -192,9 +205,7 @@ describe("landing page", () => {
     expect(primitives).not.toContain("Replay scenes");
     expect(primitives).toContain(':play="visible"');
     expect(primitives).toContain("useIntersectionObserver(");
-    expect(installCommand).toContain(
-      `:class="activeTab === 'package' ? 'w-[16.5rem]' : 'w-0'"`,
-    );
+    expect(installCommand).toContain(":tabindex=\"activeTab === 'package' ? 0 : -1\"");
     expect(installCommand).toContain("transition: none;");
   });
 
@@ -204,7 +215,8 @@ describe("landing page", () => {
     expect(source).toContain("<LandingHero />");
     expect(source).toContain("<LandingPortability />");
     expect(source.indexOf("<LandingHero />")).toBeLessThan(source.indexOf("<LandingPortability />"));
-    expect(source).not.toContain("<LandingAgentStory />");
+    expect(source.indexOf("<LandingPortability />")).toBeLessThan(source.indexOf("<LandingAgentStory />"));
+    expect(source.indexOf("<LandingAgentStory />")).toBeLessThan(source.indexOf("<LandingClosing />"));
     expect(source).not.toContain("<LandingSharedApi />");
     expect(source).not.toContain("<LandingNuxtHubMigration />");
     expect(source).toContain("useSeo({");

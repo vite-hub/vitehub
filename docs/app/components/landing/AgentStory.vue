@@ -59,6 +59,7 @@ function selectStep(index: number) {
 onBeforeUnmount(stopTour);
 
 const codeLines = agentStory.code.map(tokenize);
+const routeLines = agentStory.route.code.map(tokenize);
 </script>
 
 <template>
@@ -73,7 +74,7 @@ const codeLines = agentStory.code.map(tokenize);
           One file. One Agent.
         </h2>
         <p class="max-w-[38ch] text-lg/8 text-muted lg:justify-self-end">
-          Each field answers one question. ViteHub discovers the file and runs it on your host.
+          {{ agentStory.positioning }}
         </p>
       </div>
 
@@ -152,6 +153,48 @@ const codeLines = agentStory.code.map(tokenize);
             </div>
           </div>
         </div>
+      </div>
+
+      <div class="grid border-x border-b border-default bg-default lg:grid-cols-[minmax(0,0.78fr)_minmax(0,1.22fr)]">
+        <div class="flex flex-col gap-5 p-5 sm:p-6 lg:p-8">
+          <div>
+            <h3 class="text-lg/7 font-medium text-highlighted">Same store, from a route</h3>
+            <p class="mt-1 max-w-[44ch] text-sm/6 text-muted">
+              The Agent writes reviews through its KV Capability. Your route reads the same store
+              with the same API.
+            </p>
+          </div>
+          <div class="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
+            <NuxtLink
+              :to="agentStory.tutorialPath"
+              class="group inline-flex min-h-10 items-center gap-2 border-b border-highlighted font-medium text-highlighted focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary"
+            >
+              Build your first Agent
+              <UIcon name="i-lucide-arrow-right" class="landing-cta-arrow size-4 shrink-0 transition-transform duration-200 motion-reduce:transition-none" aria-hidden="true" />
+            </NuxtLink>
+            <NuxtLink
+              :to="agentStory.route.to"
+              class="inline-flex min-h-10 items-center text-muted transition-colors hover:text-highlighted focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary"
+            >
+              How Capabilities use primitives
+            </NuxtLink>
+          </div>
+        </div>
+        <figure class="min-w-0 border-t border-default lg:border-t-0 lg:border-l">
+          <figcaption class="flex min-h-11 items-center gap-2 border-b border-default px-4 font-mono text-xs text-muted">
+            <UIcon name="i-lucide-file-code-2" class="size-3.5 shrink-0" aria-hidden="true" />
+            <span class="truncate">{{ agentStory.route.path }}</span>
+          </figcaption>
+          <pre class="story-code overflow-x-auto py-5 font-mono text-xs/6 sm:text-[0.8125rem]/7"><code><span
+            v-for="(line, index) in routeLines"
+            :key="index"
+            class="story-line"
+          ><span class="story-line-number" aria-hidden="true">{{ index + 1 }}</span><span
+            v-for="(token, tokenIndex) in line"
+            :key="tokenIndex"
+            :class="`token-${token.kind}`"
+          >{{ token.text }}</span>{{ "\n" }}</span></code></pre>
+        </figure>
       </div>
     </div>
   </section>
@@ -327,7 +370,7 @@ const codeLines = agentStory.code.map(tokenize);
   width: 0.625rem;
   height: 0.625rem;
   border: 1px solid var(--ui-border-accented);
-  border-radius: 999px;
+  border-radius: 50%;
   background: var(--ui-bg);
   transition: background-color 200ms ease 250ms, border-color 200ms ease 250ms, transform 200ms ease 250ms;
 }

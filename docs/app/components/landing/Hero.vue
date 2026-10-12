@@ -1,8 +1,9 @@
 <template>
   <section class="border-b border-default bg-default">
     <div class="mx-auto max-w-[90rem] px-4 py-12 sm:px-8 sm:py-16 lg:px-12">
-      <div class="vh-landing-reveal grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(22rem,0.8fr)] lg:items-center lg:gap-20">
-        <div class="min-w-0">
+      <!-- Seven columns match the catalog, so the install panel starts on a tile border. -->
+      <div class="vh-landing-reveal grid gap-8 xl:grid-cols-7 xl:items-end xl:gap-0">
+        <div class="min-w-0 xl:col-span-4 xl:pr-12">
           <h1 class="vh-hero-title max-w-[13ch] font-semibold text-highlighted text-balance">
             The server layer for Vite apps.
           </h1>
@@ -11,15 +12,15 @@
             choice of cloud.
           </p>
         </div>
-        <div class="min-w-0">
+        <div class="w-full min-w-0 max-w-[38rem] xl:col-span-3 xl:max-w-none">
           <LandingInstallCommand />
-          <div class="mt-5 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
+          <div class="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
             <UButton
               to="/docs/getting-started/first-server-primitive"
               label="Start building"
               trailing-icon="i-lucide-arrow-right"
               color="neutral"
-              class="hero-cta rounded-sm px-4 py-2.5"
+              class="hero-cta h-10 rounded-none px-4"
             />
             <NuxtLink
               to="/docs"
@@ -32,7 +33,7 @@
         </div>
       </div>
 
-      <LandingPrimitives class="vh-landing-reveal vh-landing-reveal-delay mt-12" />
+      <LandingPrimitives class="vh-landing-reveal vh-landing-reveal-delay mt-10 xl:mt-12" />
     </div>
   </section>
 </template>
