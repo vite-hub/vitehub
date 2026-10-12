@@ -1098,19 +1098,20 @@ export class PullRequestInbox {
         // when no feedback or check evidence changed while the claim ran.
         const settledChecks = (checks: Snapshot['checks']) => Object.fromEntries(
           Object.entries(checks).filter(([, check]) => {
-            // Only queued/running deliveries are progress for this pass.
-            // Terminal conclusions remain evidence so a failure cannot be
-            // consumed while recording a pinned wait.
-            const progress = check.status === 'queued' || check.status === 'in_progress' ||
-              (check.status == null && check.conclusion == null)
-            return !(progress && published.has(check.head_sha ?? ''))
+            // Check deliveries for a head this pass verified are part of the
+            // publication chain, regardless of whether they are still
+            // progressing or already terminal. The generation remains dirty
+            // (handled stays fenced at the claim generation), so terminal
+            // failures are still observed by the next wait evaluation.
+            return !published.has(check.head_sha ?? '')
           }),
         )
         const settledStatuses = (statuses: Snapshot['statuses']) => Object.fromEntries(
           Object.entries(statuses).filter(([, status]) => {
-            // Pending status updates are progress; success/failure/error remain
-            // evidence for the next wait evaluation.
-            return !(status.state === 'pending' && published.has(status.sha ?? ''))
+            // Status deliveries for verified publication heads are owned by
+            // this pass. As with checks, the generation fence preserves any
+            // terminal failure for the next wait evaluation.
+            return !published.has(status.sha ?? '')
           }),
         )
         const evidenceUnchanged = digest([
