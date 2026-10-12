@@ -35,7 +35,10 @@ export type ContentSourceInput =
 
 const contentSourceFactory = Symbol("vitehub.contentSourceFactory")
 
-function normalizeContentSourcePath(path = ""): string {
+function normalizeContentSourcePath(path: unknown = ""): string {
+  if (typeof path !== "string") {
+    throw contentErrorDiagnostics.CONTENT_R0001({ message: "[vitehub] Content Source paths must be strings." })
+  }
   const raw = path.replace(/\\/g, "/")
   const normalized = raw.replace(/^\/+/, "").replace(/\/+$/, "")
   const parts = normalized.split("/").filter(Boolean)

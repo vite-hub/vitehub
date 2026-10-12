@@ -764,4 +764,12 @@ describe("contentSource", () => {
 
     await expect(contentSource(useSource("unsafe" as any)).keys()).rejects.toThrow("Content Source path escapes the source root")
   })
+
+  it("reports malformed source paths with the content diagnostic", async () => {
+    const malformed = contentSource({
+      items: async () => [{ key: 42, content: "# Invalid" }],
+    } as never)
+
+    await expect(malformed.keys()).rejects.toMatchObject({ code: "CONTENT_R0001" })
+  })
 })
