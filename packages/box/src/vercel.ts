@@ -175,19 +175,27 @@ function allowsAllNetworkDestinations(
   networkPolicy: Exclude<VercelBoxNetworkPolicy, string>,
 ): boolean {
   const subnets = ownNetworkPolicyMember(networkPolicy, "subnets");
-  if (ownNetworkPolicyMember(subnets, "deny")?.length) return false;
+  if (hasOwnArrayEntries(ownNetworkPolicyMember(subnets, "deny"))) return false;
   const allow = ownNetworkPolicyMember(networkPolicy, "allow");
-  return Array.isArray(allow) ? allow.includes("*") : Boolean(allow && Object.hasOwn(allow, "*"));
+  return Array.isArray(allow) ? hasOwnArrayValue(allow, "*") : Boolean(allow && Object.hasOwn(allow, "*"));
 }
 
 function hasEffectiveNetworkPolicy(
   networkPolicy: Exclude<VercelBoxNetworkPolicy, string>,
 ): boolean {
   const allow = ownNetworkPolicyMember(networkPolicy, "allow");
-  if (Array.isArray(allow) && allow.length > 0) return true;
+  if (hasOwnArrayEntries(allow)) return true;
   if (allow && !Array.isArray(allow) && Object.keys(allow).length > 0) return true;
   const subnets = ownNetworkPolicyMember(networkPolicy, "subnets");
-  return Boolean(ownNetworkPolicyMember(subnets, "allow")?.length || ownNetworkPolicyMember(subnets, "deny")?.length);
+  return hasOwnArrayEntries(ownNetworkPolicyMember(subnets, "allow")) || hasOwnArrayEntries(ownNetworkPolicyMember(subnets, "deny"));
+}
+
+function hasOwnArrayEntries(value: unknown): boolean {
+  return Array.isArray(value) && value.some((_, index) => Object.hasOwn(value, index));
+}
+
+function hasOwnArrayValue<T>(value: readonly T[], expected: T): boolean {
+  return value.some((item, index) => Object.hasOwn(value, index) && item === expected);
 }
 
 function ownNetworkPolicyMember<T extends object, K extends keyof T>(
