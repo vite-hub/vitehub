@@ -265,6 +265,19 @@ describe("server authentication provider boundaries", () => {
       await expect(handler(request)).resolves.toBe("protected")
     })
 
+    it("preserves a cross-realm custom response", async () => {
+      const denied = runInNewContext(`({
+        [Symbol.toStringTag]: "Response",
+        status: 402,
+      })`) as Response
+      const authorize = runInNewContext("() => denied", { denied }) as () => Response
+      const accessDefinition = defineAuth({ appName: "ViteHub" })
+      providerMocks.getSession.mockResolvedValue({ session: { id: "session-1" }, user: { id: "user-1" } })
+
+      await expect(withAuthorization(authorize, protectedAction, accessDefinition)(request)).resolves.toBe(denied)
+      expect(protectedAction).not.toHaveBeenCalled()
+    })
+
     const imageRequest = new Request("https://example.com/photos/user-1/meal.jpg", {
       headers: { accept: "text/html,image/avif,image/webp,*/*" },
     })
