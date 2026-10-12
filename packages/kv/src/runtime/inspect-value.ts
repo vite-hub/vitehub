@@ -3,12 +3,13 @@ import * as v from "valibot"
 class UnsupportedValueError extends Error {}
 
 function isUint8Array(value: unknown): value is Uint8Array {
-  if (!ArrayBuffer.isView(value)) return false
   try {
+    if (!ArrayBuffer.isView(value)) return false
     // The byte-length/element-length check rejects wider typed arrays and
     // DataView before consulting the cross-realm tag. Keep the tag access
     // guarded because Symbol.toStringTag may be hostile.
-    return "length" in value && value.byteLength === value.length && Object.prototype.toString.call(value) === "[object Uint8Array]"
+    const tagGetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), Symbol.toStringTag)?.get
+    return Boolean(tagGetter && "length" in value && value.byteLength === value.length && tagGetter.call(value) === "Uint8Array")
   }
   catch {
     return false
