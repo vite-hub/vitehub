@@ -23,6 +23,11 @@ describe("budget Capability", () => {
     expect(agent.capabilities?.map(capability => capability.id)).toContain("budget")
   })
 
+  it("rejects a malformed falsy top-level capacity", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    expect(() => defineAgent({ budget: { capacity: null } as never, driver: { run: () => "ok" } })).toThrow("driver.capacity")
+  })
+
   it("emits fallback usage and every finish before a UI source closes or fails", async () => {
     const { budget } = await import("../src/capabilities.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")

@@ -184,7 +184,6 @@ import type {
   AgentChannelDeliveryFinishEffectContext,
   AgentDataCarrier,
   AgentDataOutputCarrier,
-  AgentBudgetOptions,
   AgentRunInputContextValues,
   AgentInterceptHandler,
   AgentDefinition,
@@ -2339,7 +2338,7 @@ function defineBaseAgent<
     [baseAgentDefinitionHealth]: { value: options.health ? undefined : definition.health },
     [baseAgentDefinitionStatus]: { value: definition.status },
   })
-  configureAgentCapacity(definition, options.budget?.capacity
+  configureAgentCapacity(definition, options.budget?.capacity !== undefined
     ? normalizeAgentDriverCapacity(options.budget.capacity)
     : driver.capacity)
   Object.defineProperty(definition, "__vitehubAgentSettings", {

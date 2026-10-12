@@ -3,7 +3,6 @@ import { enrichAgentUsageCost, modelsDevPricing } from "../internal/usage-pricin
 import { ViteHubError } from "@vite-hub/runtime"
 import type { ViteHubErrorDetail } from "@vite-hub/runtime"
 import { hasRuntimeType } from "../internal/runtime-type.ts"
-import { normalizeAgentDriverCapacity } from "../internal/agent-driver.ts"
 
 import type {
   AgentBudgetExceeded,
