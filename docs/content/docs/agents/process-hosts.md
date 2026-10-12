@@ -42,6 +42,24 @@ export default await createProcessAgentHost({
 })
 ```
 
+The host resources are not attached to an Agent Definition automatically. Wire
+the host's journal and provider session store into the definition, and share its
+capacity object with the driver:
+
+```ts [server/agents/reviewer.ts]
+import { defineAgent } from 'vite-hub/agent'
+import host from '../host'
+
+export default defineAgent({
+  invocations: host.invocations,
+  driver: {
+    model: 'openai/gpt-5.1-mini',
+    capacity: host.capacity,
+    sessionStorePath: host.providerSessionStorePath,
+  },
+})
+```
+
 `start()` is idempotent and wakes the reconciler at startup. The reconciler checks
 for new work on its interval and also wakes when the host calls `wake(reason)`.
 `accepting()` becomes false during a drain. Stop discovering or starting work when
