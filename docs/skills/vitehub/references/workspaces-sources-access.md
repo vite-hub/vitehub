@@ -4,7 +4,7 @@ Use this when an Agent or application needs files, repository content, external 
 
 ## Select current pages
 
-Start with [Workspaces and Sources](https://vitehub.dev/raw/docs/getting-started/concepts/workspace-and-sources.md). Open [Workspace context](https://vitehub.dev/raw/docs/agents/workspace-context.md) for Agent materialization, or [Access Capability](https://vitehub.dev/raw/docs/agents/capabilities/access.md) when an Agent selects or narrows Sources.
+Start with [Workspaces and Sources](https://vitehub.dev/raw/docs/workspace/concepts.md). Open [Workspace context](https://vitehub.dev/raw/docs/agents/workspace-context.md) for Agent materialization, or [Access Capability](https://vitehub.dev/raw/docs/agents/capabilities/access.md) when an Agent selects or narrows Sources.
 
 ## Compose the boundary
 

@@ -1,5 +1,8 @@
+import type { AgentInvocationContextStore } from "../../types.ts";
 import { defineCapability } from "../../capability-runtime.ts";
 import type { GitHubPullRequestOperations } from "../../server/github.ts";
+import { isRuntimeRecord, hasRuntimeType } from "../../internal/runtime-type.ts";
+import { normalizeGitHubMentionAllowlist } from "../../server/github-auto-merge.ts";
 
 const noArguments = { type: "object", properties: {}, additionalProperties: false } as const;
 
@@ -14,10 +17,16 @@ function stringField(input: unknown, key: string, allowEmpty = false): string {
   return value;
 }
 
-export function repairCapability(operations: GitHubPullRequestOperations, autoMerge: boolean) {
+export function repairCapability(operations: GitHubPullRequestOperations, autoMerge: boolean, mentionAllowlist: readonly string[] = [], beforePush?: (context: AgentInvocationContextStore) => Promise<void>, workspace?: {
+  beforeRepair(context: AgentInvocationContextStore, paths?: readonly string[]): Promise<void>;
+  afterRefresh(context: AgentInvocationContextStore): Promise<void>;
+  runRepair?<T>(execute: () => Promise<T>): Promise<T>;
+}) {
+  const withinRepair = <T>(execute: () => Promise<T>) => workspace?.runRepair ? workspace.runRepair(execute) : execute();
+  const allowedMentions = normalizeGitHubMentionAllowlist(mentionAllowlist)
   return defineCapability({
     id: "babysitter.github",
-    tools: {
+    tools: context => ({
       readCheckLogs: {
         name: "readCheckLogs",
         description: "Read failed logs for a GitHub Actions run associated with this PR head.",
@@ -61,15 +70,38 @@ export function repairCapability(operations: GitHubPullRequestOperations, autoMe
           return operations.readBaseCheckLogs(input.runId);
         },
       },
+      refreshDependencies: {
+        name: "refreshDependencies",
+        description: "Install frozen dependencies after resolving dependency conflicts or changing manifests or lockfiles. Run before validation.",
+        inputSchema: noArguments,
+        execute: () => withinRepair(async () => { await workspace?.beforeRepair(context.context); await operations.refreshDependencies(); await workspace?.afterRefresh(context.context); return { refreshed: true }; }),
+      },
+      commitRepair: {
+        name: "commitRepair",
+        description: "Stage the named repair files and commit them on the host. Git metadata is read-only in the provider sandbox. Call pushRepair after validation and this commit.",
+        inputSchema: {
+          type: "object",
+          properties: { message: { type: "string", minLength: 1 }, paths: { type: "array", minItems: 1, items: { type: "string", minLength: 1 } } },
+          required: ["message", "paths"],
+          additionalProperties: false,
+        },
+        execute: (input: unknown) => withinRepair(async () => {
+          if (!isRuntimeRecord(input) || !Array.isArray(input.paths) || !input.paths.every(path => hasRuntimeType(path, "string"))) throw new Error("Expected explicit repair paths.");
+          await workspace?.beforeRepair(context.context, input.paths);
+          const head = await operations.commitRepair({ message: stringField(input, "message"), paths: input.paths });
+          return { head };
+        }),
+      },
       pushRepair: {
         name: "pushRepair",
         description:
           "Push committed repairs to this PR's pinned source branch. After pushing, resolve any review threads fixed by the push before ending the pass.",
         inputSchema: noArguments,
-        execute: async () => {
+        execute: () => withinRepair(async () => {
+          await beforePush?.(context.context);
           await operations.push();
           return { pushed: true };
-        },
+        }),
       },
       commentOnPullRequest: {
         name: "commentOnPullRequest",
@@ -81,12 +113,27 @@ export function repairCapability(operations: GitHubPullRequestOperations, autoMe
           additionalProperties: false,
         },
         execute: async (input: unknown) => {
-          // Mark host-authored repair comments so inbox admission can correlate
-          // their webhook with this pass instead of treating it as feedback.
-          await operations.comment(`<!-- vitehub-babysitter-repair:repair -->\n${stringField(input, "body")}`);
+          await operations.comment(stringField(input, "body"));
           return { commented: true };
         },
       },
+      // doctor-disable-next-line typescript/style/no-conditional-empty-object-spread -- The mention tool is intentionally absent until the application configures recipients.
+      ...(allowedMentions.length ? {
+        mentionOnPullRequest: {
+          name: "mentionOnPullRequest",
+          description: `Mention one configured human (${allowedMentions.map(login => `@${login}`).join(", ")}) about a verified blocker that needs their action. This sends a notification; use it sparingly.`,
+          inputSchema: {
+            type: "object",
+            properties: { login: { type: "string", enum: allowedMentions }, body: { type: "string" } },
+            required: ["login", "body"],
+            additionalProperties: false,
+          },
+          execute: async (input: unknown) => {
+            await operations.mention(stringField(input, "login"), stringField(input, "body"));
+            return { mentioned: true };
+          },
+        },
+      } : {}),
       resolveReviewThread: {
         name: "resolveReviewThread",
         description: "Resolve an addressed review thread belonging to this PR.",
@@ -132,7 +179,7 @@ export function repairCapability(operations: GitHubPullRequestOperations, autoMe
             },
           }
         : {}),
-    },
+    }),
   });
 }
 

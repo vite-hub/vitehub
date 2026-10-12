@@ -19,8 +19,21 @@ export function isRetryableRealtimeCheckpointCode(value: unknown): boolean {
 function validPath(value: unknown): value is string {
   if (typeof value !== "string" || value.length === 0 || value.length > 4096 || value.includes("\0")) return false
   if (value.startsWith("/") || value.endsWith("/") || value.includes("\\")) return false
-  const parts = value.split("/")
-  return !parts.some(part => !part || part === "." || part === ".." || part.toLowerCase() === ".git") && parts[0] !== ".vitehub"
+  const raw = value
+  const normalized = raw.replace(/^\/+/, "").replace(/\/+$/, "")
+  if (!normalized || /^[a-z]:/i.test(raw)) return false
+  const parts = normalized.split("/").filter(Boolean)
+  return !parts.some((part, index) => {
+    const name = part.toLowerCase()
+    const withoutStream = name.split(":", 1)[0]!
+    const canonical = withoutStream.replace(/[ .]+$/, "")
+    const traversal = /^(?:\.(?: +[. ]*)?|\.\.(?: +[. ]*)?)$/.test(withoutStream)
+    const reserved = canonical === ".git"
+      || /^git~\d+$/.test(canonical)
+      || (index === 0 && canonical === ".vitehub")
+      || (index === 0 && /^vitehu~\d+$/.test(canonical))
+    return !part || traversal || reserved
+  })
 }
 
 export function decodeWorkspaceChangePayload(decoder: decoding.Decoder): RealtimeWorkspaceChange | undefined {

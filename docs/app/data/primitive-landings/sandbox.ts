@@ -1,7 +1,7 @@
 import { stubLanding } from "./stub";
 import type { PrimitiveLanding, PrimitiveProjectFile } from "./types";
 
-const sandbox = stubLanding("sandbox", "Sandbox", "/docs/server-primitives/sandbox");
+const sandbox = stubLanding("sandbox", "Sandbox", "/docs/sandbox");
 
 const sandboxFiles = [
   {
