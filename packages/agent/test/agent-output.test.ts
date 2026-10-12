@@ -7,6 +7,7 @@ import { finalChannelOutputSelectedSymbol } from "../src/internal/final-channel-
 import { synthesizedAgentOutputSymbol } from "../src/internal/synthesized-agent-output.ts"
 import {
   agentToolStreamDefaults,
+  agentStreamErrorSymbol,
   finalTextFromAgentOutput,
   streamAgentOutputToEvents,
   toAgentRunResult,
@@ -564,6 +565,18 @@ describe("agent output helpers", () => {
       recoverable: true,
       type: "error",
     })
+  })
+
+  it("does not treat spoofed or hostile values as stream errors", () => {
+    const spoofed = { message: "spoofed", [Symbol.toStringTag]: "Error" }
+    const spoofedEvent = toAgentStreamEvent({ error: spoofed, type: "error" })
+    expect(spoofedEvent).toMatchObject({ error: "[object Object]", type: "error" })
+    expect(Object.getOwnPropertySymbols(spoofedEvent!)).not.toContain(agentStreamErrorSymbol)
+
+    const hostile = Object.defineProperty({}, Symbol.toStringTag, { get() { throw new Error("hostile tag") } })
+    Object.defineProperty(hostile, "message", { get() { throw new Error("hostile message") } })
+    expect(() => toAgentStreamEvent({ error: hostile, type: "error" })).not.toThrow()
+    expect(toAgentStreamEvent({ error: hostile, type: "error" })).toMatchObject({ error: "Unknown error", type: "error" })
   })
 
   it("keeps approval events when converting normalized streams", async () => {

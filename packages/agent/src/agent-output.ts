@@ -666,13 +666,12 @@ export function toAgentStreamEvent(
     }
     // SAFETY: Agent output normalization establishes the asserted stream result contract.
     const error = value.error
-    const errorMessage = error instanceof Error
-      ? error.message
-      : error !== null && typeof error === "object" && Object.prototype.toString.call(error) === "[object Error]"
-        ? String((error as { message?: unknown }).message)
-        : String(error || "Unknown error")
+    const crossRealmError = crossRealmStreamError(error)
+    const errorMessage = crossRealmError
+      ? crossRealmError.message
+      : safeStreamErrorString(error)
     const event = { error: errorMessage, ...(hasRuntimeType(value.id, "string") ? { id: value.id } : {}), ...optionalMessageId(messageId), ...(value.recoverable === true ? { recoverable: true } : {}), type: "error" as const }
-    if (error instanceof Error || error !== null && typeof error === "object" && Object.prototype.toString.call(error) === "[object Error]") Object.defineProperty(event, agentStreamErrorSymbol, { value: error })
+    if (crossRealmError) Object.defineProperty(event, agentStreamErrorSymbol, { value: crossRealmError.value })
     return event
   }
   if (type === "usage" && isUsageRecord(value.usageRecord)) {
@@ -683,6 +682,30 @@ export function toAgentStreamEvent(
     return { ...optionalMessageId(messageId), ...(reason ? { reason } : {}), type: "finish" }
   }
   return undefined
+}
+
+function crossRealmStreamError(error: unknown): { message: string; value: object } | undefined {
+  if (error === null || typeof error !== "object") return
+  try {
+    const nativeIsError: unknown = Reflect.get(Error, "isError")
+    const branded = hasRuntimeType(nativeIsError, "function")
+      ? nativeIsError(error) === true
+      : error instanceof Error || (!(Symbol.toStringTag in error) && Object.prototype.toString.call(error) === "[object Error]")
+    if (!branded) return
+    return { message: String(Reflect.get(error, "message")), value: error }
+  }
+  catch {
+    return
+  }
+}
+
+function safeStreamErrorString(error: unknown): string {
+  try {
+    return String(error || "Unknown error")
+  }
+  catch {
+    return "Unknown error"
+  }
 }
 
 export const agentStreamErrorSymbol: unique symbol = Symbol("vitehub.agent-stream-error")
