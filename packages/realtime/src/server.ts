@@ -456,8 +456,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     const context = resolveCloudflare(event)?.context
     const storage = ownValue(context, "storage")
     const sql = ownValue(storage, "sql")
-    const exec = ownValue(sql, "exec")
-    return typeof exec === "function" ? sql as RealtimeRoomSql : undefined
+    return typeof (sql as { exec?: unknown } | undefined)?.exec === "function" ? sql as RealtimeRoomSql : undefined
   }
 
   async function getDefinition(definitionName: string): Promise<RealtimeDefinition> {

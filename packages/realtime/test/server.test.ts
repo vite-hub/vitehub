@@ -119,6 +119,25 @@ describe("realtime server handler", () => {
     expect(exec).not.toHaveBeenCalled()
   })
 
+  it("accepts prototype-backed Cloudflare SQL methods", async () => {
+    const exec = vi.fn(() => ({ toArray: () => [] }))
+    const sql = Object.create({ exec })
+    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+      exists: vi.fn().mockResolvedValue(false),
+      readFile: vi.fn(),
+      stat: vi.fn().mockResolvedValue(undefined),
+    }))
+    const request = new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
+      headers: { upgrade: "websocket" },
+    }) as Request & { runtime?: unknown }
+    request.runtime = { cloudflare: { context: { storage: { sql } } } }
+
+    const response = await createRealtimeHandler(realtimeRegistry()).fetch(request) as Response & { crossws?: unknown }
+
+    expect(response.crossws).toBeDefined()
+    expect(exec).toHaveBeenCalled()
+  })
+
   it("rejects unauthenticated definitions before opening a room", async () => {
     serverMocks.getSession.mockResolvedValue(null)
     const handler = createRealtimeHandler(realtimeRegistry({ auth: true }))
