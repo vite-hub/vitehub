@@ -196,7 +196,12 @@ export async function extractSandboxDefinitionMetadata(file: string): Promise<Ex
       project = value
     }
     else {
-      options[key] = value
+      Object.defineProperty(options, key, {
+        configurable: true,
+        enumerable: true,
+        value,
+        writable: true,
+      })
     }
   }
   if (!hasRun)
