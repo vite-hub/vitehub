@@ -385,7 +385,7 @@ function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>()
       readonly BYTES_PER_ELEMENT: number
     }[] = [Int8Array, Uint8Array, Uint8ClampedArray, Int16Array, Uint16Array, Int32Array, Uint32Array, Float32Array, Float64Array, BigInt64Array, BigUint64Array]
     const TypedArray = constructors.find(ctor => nativePrototype(value, ctor))
-    const isBuffer = globalThis.Buffer !== undefined && Object.getPrototypeOf(value) === Buffer.prototype
+    const isBuffer = globalThis.Buffer !== undefined && nativePrototype(value, Buffer)
     const isDataView = nativePrototype(value, DataView)
     if (!TypedArray && !isBuffer && !isDataView) return value
     const prototype = isDataView ? DataView.prototype : typedArrayPrototype
@@ -399,8 +399,8 @@ function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>()
     const byteOffset = Object.getOwnPropertyDescriptor(prototype, "byteOffset")!.get!.call(value) as number
     // SAFETY: The intrinsic byteLength accessor returns a number.
     const byteLength = Object.getOwnPropertyDescriptor(prototype, "byteLength")!.get!.call(value) as number
-    const bufferPrototype = Object.getPrototypeOf(buffer)
-    const standardBuffer = bufferPrototype === ArrayBuffer.prototype || (globalThis.SharedArrayBuffer && bufferPrototype === SharedArrayBuffer.prototype)
+    const standardBuffer = nativePrototype(buffer, ArrayBuffer)
+      || (globalThis.SharedArrayBuffer !== undefined && nativePrototype(buffer, SharedArrayBuffer))
     const populateBacking = standardBuffer && !memo.has(buffer) && !active.has(buffer)
     // Allocate the backing store before traversing its properties. It may point back to this view.
     // SAFETY: Buffer clones and existing memo entries retain the backing store type.
