@@ -56,3 +56,32 @@ it.each(["cloudflare", "vercel"] as const)("preserves business option names thro
     await expect(client.send(payloads[0], { region: "iad1" })).rejects.toMatchObject({ code: "CLOUDFLARE_UNSUPPORTED_ENQUEUE_OPTIONS" })
   }
 })
+
+it.each(["cloudflare", "vercel"] as const)("ignores inherited enqueue ids through %s", async (provider) => {
+  const sent: { options: unknown }[] = []
+  const client = provider === "cloudflare"
+    ? createCloudflareQueueClient({
+        provider,
+        binding: {
+          send: async (_payload, options) => { sent.push({ options }) },
+          sendBatch: vi.fn(async () => {}),
+        },
+      })
+    : await createVercelQueueClient({
+        provider,
+        topic: "audit",
+        client: {
+          send: async (_topic, _payload, options) => {
+            sent.push({ options })
+            return { messageId: "provider-id" }
+          },
+          handleCallback: vi.fn(),
+        },
+      })
+
+  const options = Object.create({ id: "inherited-id" }) as { id?: string }
+  const result = await client.send("event", options)
+
+  expect(result.messageId).not.toBe("inherited-id")
+  expect(sent[0]?.options).not.toHaveProperty("id", "inherited-id")
+})
