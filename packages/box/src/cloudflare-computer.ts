@@ -306,6 +306,11 @@ async function readStream(stream: ReadableStream<Uint8Array>, signal: AbortSigna
   const reader = stream.getReader();
   const chunks: Uint8Array[] = [];
   let size = 0;
+  let abort: (() => void) | undefined;
+  if (signal) {
+    abort = () => { void reader.cancel(signal.reason).catch(() => {}); };
+    signal.addEventListener("abort", abort, { once: true });
+  }
   try {
     while (true) {
       signal?.throwIfAborted();
@@ -316,6 +321,7 @@ async function readStream(stream: ReadableStream<Uint8Array>, signal: AbortSigna
       size += value.byteLength;
     }
   } finally {
+    if (abort) signal?.removeEventListener("abort", abort);
     reader.releaseLock();
   }
   const result = new Uint8Array(size);
