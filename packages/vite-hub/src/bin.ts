@@ -3,6 +3,7 @@ import { runViteHubCliEntrypoint } from "@vite-hub/cli"
 import { createBoxCliNamespace } from "./box-cli.ts"
 import { loadViteHubCliConfig } from "./internal/cli-config.ts"
 import { isAgentCliEnabled } from "./internal/runtime-feature-guard.ts"
+import { secretCliFeatures } from "@vite-hub/env"
 
 import type { ViteHubCliCommandNamespace } from "@vite-hub/internal/cli"
 
@@ -15,9 +16,15 @@ const agentRuntimeFeatures: ViteHubCliCommandNamespace = {
   name: "agent",
 }
 
+const secretRuntimeNamespace: ViteHubCliCommandNamespace = {
+  description: "Generate and derive app secrets without loading project configuration.",
+  features: secretCliFeatures,
+  name: "secret",
+}
+
 runViteHubCliEntrypoint({
   loadConfig: loadViteHubCliConfig,
   runtimeFeatureGuard: (namespace, feature, cwd) => namespace !== "agent" || feature !== "invocations" || isAgentCliEnabled(cwd),
   runtimeFeatures: [agentRuntimeFeatures],
-  runtimeNamespaces: [createBoxCliNamespace()],
+  runtimeNamespaces: [createBoxCliNamespace(), secretRuntimeNamespace],
 })
