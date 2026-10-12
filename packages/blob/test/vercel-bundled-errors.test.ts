@@ -26,4 +26,12 @@ describe("Vercel Blob missing errors", () => {
 
     await expect(driver.head("missing.txt")).resolves.toBeNull()
   })
+
+  it("does not treat an object with a spoofed Error tag as a missing object", async () => {
+    const error = { [Symbol.toStringTag]: "Error", name: "BlobNotFoundError" }
+    vercel.head.mockRejectedValue(error)
+    const driver = createDriver(options)
+
+    await expect(driver.head("missing.txt")).rejects.toBe(error)
+  })
 })

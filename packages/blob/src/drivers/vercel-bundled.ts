@@ -56,8 +56,11 @@ function toBlobObject(blob: {
 function isMissingBlobError(error: unknown) {
   if (typeof error !== "object" || error === null) return false
   try {
-    const tag = Object.prototype.toString.call(error)
-    if (tag !== "[object Error]") return false
+    const nativeIsError: unknown = Reflect.get(Error, "isError")
+    const isError = typeof nativeIsError === "function"
+      ? nativeIsError(error) === true
+      : !(Symbol.toStringTag in error) && Object.prototype.toString.call(error) === "[object Error]"
+    if (!isError) return false
     const value = error as { name?: unknown, message?: unknown }
     return value.name === "BlobNotFoundError"
       || (typeof value.message === "string" && /(?:requested )?blob (?:was )?not found|requested blob does not exist/i.test(value.message))
