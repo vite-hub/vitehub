@@ -17,13 +17,16 @@ export interface SerializedResponse {
 import { hasRuntimeType, isRuntimeObject } from "./internal/runtime-type.ts"
 
 function isBlobLike(value: unknown): value is Blob {
-  if (value === null || typeof value !== "object" || Object.prototype.toString.call(value) !== "[object Blob]") return false
-  const blob = value as { arrayBuffer?: unknown; size?: unknown; stream?: unknown; text?: unknown; type?: unknown }
-  return typeof blob.arrayBuffer === "function"
-    && typeof blob.stream === "function"
-    && typeof blob.text === "function"
-    && typeof blob.size === "number"
-    && typeof blob.type === "string"
+  if (value === null || (typeof value !== "object" && typeof value !== "function")) return false
+  try {
+    // Blob methods perform an unforgeable internal-slot check, which accepts
+    // native Blobs from other realms without invoking user-defined getters.
+    Blob.prototype.slice.call(value, 0, 0)
+    return true
+  }
+  catch {
+    return false
+  }
 }
 
 /** Normalize a primitive value into the native Web Response contract. */

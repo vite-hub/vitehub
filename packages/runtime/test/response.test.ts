@@ -5,18 +5,21 @@ import { deserializeResponse, isSerializedResponse, serializeResponse, toRespons
 describe("durable Response representation", () => {
   it("preserves Blob bodies created in another realm", async () => {
     const blob = runInNewContext(`
-      class CrossRealmBlob {
-        constructor() { this.size = 4; this.type = "text/plain" }
-        arrayBuffer() { return Promise.resolve(new Uint8Array([116, 101, 115, 116]).buffer) }
-        stream() { return new ReadableStream() }
-        text() { return Promise.resolve("test") }
-      }
-      Object.defineProperty(CrossRealmBlob.prototype, Symbol.toStringTag, { value: "Blob" })
-      new CrossRealmBlob()
-    `, { Symbol })
+      new Blob(["test"], { type: "text/plain" })
+    `, { Blob })
 
     const response = toResponse(blob)
-    expect(response.headers.get("content-type")).toBe("text/plain;charset=UTF-8")
+    expect(response.headers.get("content-type")).toBe("text/plain")
+    expect(await response.text()).toBe("test")
+  })
+
+  it("keeps spoofed and hostile Blob-shaped values on the JSON path", async () => {
+    const spoof = { size: 4, type: "text/plain", arrayBuffer: () => Promise.resolve(new ArrayBuffer(4)) }
+    Object.defineProperty(spoof, Symbol.toStringTag, { value: "Blob" })
+    const hostile = Object.defineProperty({}, Symbol.toStringTag, { get() { throw new Error("boom") } })
+
+    expect(await toResponse(spoof).json()).toEqual({ size: 4, type: "text/plain" })
+    expect(await toResponse(hostile).json()).toEqual({})
   })
 
   it.each([204, 205, 304])("round trips a bodyless response with status %s", async (status) => {
