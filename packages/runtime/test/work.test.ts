@@ -15,6 +15,14 @@ describe("work checkpoints", () => {
     expect(await tracker.eligible("a", "v1")).toBe(false)
     expect(await tracker.eligible("a", "v2")).toBe(true)
   })
+  it("does not trust inherited checkpoint fields", async () => {
+    const { tracker, records } = fixture()
+    records.set("a", Object.create({ version: 1, fingerprint: "v1", disposition: "park", attempt: 0 }))
+    const run = vi.fn(async () => ({ disposition: "park" as const }))
+
+    expect(await tracker.run("a", "v1", run)).toBe(true)
+    expect(run).toHaveBeenCalledOnce()
+  })
   it("parks the new version produced by a repair", async () => {
     const { tracker } = fixture()
     await tracker.run("a", "v1", async () => ({ disposition: "park", fingerprint: "v2" }))
