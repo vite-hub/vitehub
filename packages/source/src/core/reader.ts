@@ -124,6 +124,7 @@ export function createSource(source: Source, context?: Partial<SourceContext>) {
         if (!isNestedUnder(normalizedKey, normalizedPrefix)) continue
         const rest = normalizedKey.slice(normalizedPrefix.length).replace(/^\//, "")
         if (rest.includes("/")) continue
+        result.delete(normalizedKey)
         result.set(key, { key, type: "file" })
       }
 
