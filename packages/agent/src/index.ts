@@ -6663,7 +6663,7 @@ async function finalizeAgentInvocationResult<
 ): Promise<Response | AsyncIterable<unknown> | TResult> {
   const shouldWrapOutput = options.holdOutput === true || shouldWrapInvocationOutput(context)
   try {
-    if (result instanceof Response) {
+    if (result instanceof Response || isUIMessageStreamResponse(result)) {
       const finalized = await options.finalizeResponse?.(result)
       if (finalized) {
         if (!finalized.deferFinish) {

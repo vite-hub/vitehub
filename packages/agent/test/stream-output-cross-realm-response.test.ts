@@ -1,8 +1,9 @@
 import { createRequire } from "node:module"
 import { runInNewContext } from "node:vm"
 
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
+import { streamAgent, defineAgent } from "../src/index.ts"
 import { isUIMessageStreamResponse, uiMessageStreamFromResponse } from "../src/stream-output.ts"
 
 function foreignResponse(): Response {
@@ -44,6 +45,18 @@ describe("Agent UI stream response boundaries", () => {
     if (!isUIMessageStreamResponse(response)) throw new Error("Expected UI stream response")
     const chunks: unknown[] = []
     for await (const chunk of uiMessageStreamFromResponse(response)) chunks.push(chunk)
+    expect(chunks).toEqual([{ text: "foreign", type: "text" }])
+  })
+
+  it("routes a foreign UI stream Response through Agent finalization", async () => {
+    const agent = defineAgent({ driver: { run: () => foreignResponse() } })
+    const stream = await streamAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, {}, { output: "ui-message-stream" }) as ReadableStream<unknown>
+    const chunks: unknown[] = []
+    for await (const chunk of stream) chunks.push(chunk)
     expect(chunks).toEqual([{ text: "foreign", type: "text" }])
   })
 
