@@ -38,9 +38,9 @@ export const AgentTrace = defineComponent({
                         ? "error"
                         : props.run.status === "running"
                           ? "info"
-                          : props.run.status === "cancelled"
-                            ? "neutral"
-                            : "success",
+                          : props.run.status === "completed"
+                            ? "success"
+                            : "neutral",
                     size: "xs",
                     variant: "outline",
                   },
@@ -51,7 +51,7 @@ export const AgentTrace = defineComponent({
                         completed: "Completed",
                         failed: "Failed",
                         running: "Working",
-                      })[props.run.status],
+                      })[props.run.status] ?? "Unknown",
                   },
                 ),
                 h("span", { class: "vh-trace__duration" }, formatDuration(props.run.durationMs)),

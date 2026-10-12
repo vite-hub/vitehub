@@ -71,10 +71,10 @@ Return only invocation-scoped behavior from the callback. Capabilities that cont
 
 ## Use an Eve extension
 
-ViteHub detects compatible Eve extension packages in a static Capability list and compiles their tools into a Capability. Install the extension, then use its existing factory and options:
+ViteHub detects compatible Eve extension packages in a static Capability list and compiles their tools into a Capability. Install the extension and its Eve peer, then use the extension's mount factory:
 
 ```bash
-pnpm add @github-tools/eve-extension
+pnpm add @github-tools/eve-extension@0.8.0 eve@0.72.1
 ```
 
 ```ts [server/agents/reviewer.ts]
@@ -89,11 +89,25 @@ export default defineAgent({
 })
 ```
 
-`repositoryHost()` and `repositoryHostContext()` are no longer built in. Replace their GitHub tools with the extension above. GitHub Channel invocations still expose trusted pull request context through `pullRequest.read(invocation)` from `vite-hub/agent/channels`; ViteHub no longer creates a provider-neutral repository client or materialized repository context.
+`repositoryHost()` and `repositoryHostContext()` are no longer built in. Replace their GitHub tools with the extension above. GitHub Channel invocations still expose trusted pull request context through `pullRequest.read(invocation)` from `vite-hub/agent/channels`; use [`codeHost()`](/docs/agents/capabilities/code-host) for host-neutral repository tools.
 
-The Vite plugin reads the package's Eve manifest and fails the build when a declared contract version is unsupported. The bridge supports one mount per extension package, direct default-import factory calls, static tools, and dynamic tools with one `session.started` or `step.started` handler. It preserves tool schemas, output conversion, and Eve's `always`, `never`, and `once` approval modes. ViteHub maps the supported dynamic handler to Capability tool resolution at the start of each Agent Invocation and uses the invocation's `runId` as the Eve session ID, so every invocation resolves a fresh tool set without relying on process-local state. The built-in HTTP chat route persists pending approvals in its configured Chat state, reconstructs the authoritative tool call server-side, and consumes each response once under a session lock. Client-supplied chat history never creates approval authority. Eve `once` approvals come only from that Chat state for the current invoker and chat session. The route passes them to the Invocation as a request-scoped grant, so Invocation context values, including values set by `admission.context` or `mapInput`, cannot approve a tool. Unsupported dynamic events fail when ViteHub resolves the extension's tools for an Agent Invocation.
+The Vite plugin reads the package's Eve manifest and fails the build when a declared contract version is unsupported. For format 2, the bridge accepts `config@1`, `extension@1`, `tool@20` or `tool@54`, and `dynamicTool@20` or `dynamicTool@52`. GitHub Tools 0.7.0 uses the older pair; 0.8.0 uses the newer pair. The optional Eve peer also accepts 0.46.1 for GitHub Tools 0.7.0. Native Eve 0.72 `tool@76` and `dynamicTool@72` contracts remain unsupported. The manifest check does not validate the installed Eve version. Use the tested Eve 0.72.1 and GitHub Tools 0.8.0 pair above.
 
-This bridge is not yet a complete Eve runtime. Tool and approval contexts do not support `getSandbox()`, `getSkill()`, `getToken()`, or `requireAuth()`; using one throws at runtime. Session authentication and turn sequence metadata are unavailable. A `step.started` handler resolves once per ViteHub Agent Invocation, not before every model step. ViteHub Agent Invocations are not Eve durable sessions, so extensions that depend on one `session.started` resolution spanning several invocations are not supported yet.
+The bridge accepts one mount per Eve package in a Vite app. The mount must be a direct default import called with at most one config argument inside a top-level static Capability list. ViteHub then loads the package's generated `/tools` entry point. Calls from a dynamic Capability callback, nested runtime code, or a separate runtime import are unsupported. The Vite plugin rejects detected direct mounts in these forms, but mounts hidden in helpers or other modules can escape build validation. Eve's `defineExtension` API belongs to the extension package. ViteHub does not call it as a separate mount API; it consumes the package's callable default export and validates the generated manifest. The `0.8.0` package uses this API and declares the contract versions listed above.
+
+Static tools and one dynamic handler are supported for the accepted manifest contracts. The handler may use `session.started`, `turn.started`, or `step.started`, but it must not require an authoritative session sequence or step index, an effective model or `modelId`, or a real per-step hook. Multiple active handlers on one dynamic tool are rejected. ViteHub resolves the selected handler once while preparing each Agent Invocation, so `step.started` does not run before every model step. The handler can read the following event data:
+
+| Event | Data |
+| --- | --- |
+| `session.started` | `{}` |
+| `turn.started` | `turnId` |
+| `step.started` | `turnId` |
+
+The session ID uses `run.threadId` and falls back to `run.runId` or the invoker ID. The turn ID uses `run.runId` and falls back to the session ID. Reading `session.turn.sequence` or an event's `data.sequence` throws `AGENT_R0415` because ViteHub has no authoritative persisted Eve turn counter. Reading a step event's `data.stepIndex` or `data.modelId`, or a step resolver context's `model`, throws the same diagnostic. Other preparation resolver contexts expose `model: null`. Legacy resolvers that ignore these unavailable fields continue to work. ViteHub does not persist an Eve session object across process restarts.
+
+The bridge preserves tool input and output schemas, `toModelOutput` including content and file parts, and Eve's `always`, `never`, and `once` approval modes. `endsTurn`, labels, `approvalKey`, and `availableInSubagents` have no ViteHub execution semantics and do not appear in current CLI inspection. Approval definitions may provide a `{ request }` callback. A `response` authorizer is rejected because ViteHub has no responder-auth context. The built-in HTTP Chat route stores pending approvals in its configured Chat state, reconstructs the authoritative tool call on the server, and consumes each response once under a session lock. Client-supplied chat history never creates approval authority. Eve `once` approvals come only from Chat state for the current invoker and chat session. Invocation context values, including values set by `admission.context` or `mapInput`, cannot approve a tool.
+
+This bridge is not yet a complete Eve runtime. Tool and approval contexts do not support `getSandbox()`, `getToken()`, or `requireAuth()`; using one throws at runtime. Accepted older contracts retain a `getSkill()` diagnostic stub; Eve removed that accessor in version 0.66. ViteHub does not mount Eve dynamic skill contributions. Session authentication fields remain `null`. Eve auth providers and sandbox access are not connected to ViteHub Connections or the Sandbox primitive. Use ViteHub Workspace Skills where the Agent Driver supports them.
 
 ## What Capabilities can contribute
 
