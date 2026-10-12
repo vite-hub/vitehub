@@ -516,8 +516,36 @@ function objectTag(value: object): string {
   }
 }
 
+function isBuiltinObject(value: object, tag: string): boolean {
+  try {
+    switch (tag) {
+      case "[object Date]": Date.prototype.getTime.call(value); return true
+      case "[object RegExp]": Object.getOwnPropertyDescriptor(RegExp.prototype, "source")!.get!.call(value); return true
+      case "[object URL]": Object.getOwnPropertyDescriptor(URL.prototype, "href")!.get!.call(value); return true
+      case "[object URLSearchParams]": URLSearchParams.prototype.toString.call(value); return true
+      case "[object ArrayBuffer]": Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")!.get!.call(value); return true
+      case "[object SharedArrayBuffer]":
+        if (typeof SharedArrayBuffer === "undefined") return false
+        Object.getOwnPropertyDescriptor(SharedArrayBuffer.prototype, "byteLength")!.get!.call(value)
+        return true
+      case "[object Map]": Object.getOwnPropertyDescriptor(Map.prototype, "size")!.get!.call(value); return true
+      case "[object Set]": Object.getOwnPropertyDescriptor(Set.prototype, "size")!.get!.call(value); return true
+      case "[object Number]": Number.prototype.valueOf.call(value); return true
+      case "[object String]": String.prototype.valueOf.call(value); return true
+      case "[object Boolean]": Boolean.prototype.valueOf.call(value); return true
+      case "[object BigInt]": BigInt.prototype.valueOf.call(value); return true
+      case "[object Symbol]": Symbol.prototype.valueOf.call(value); return true
+      default: return false
+    }
+  }
+  catch {
+    return false
+  }
+}
+
 function isPlainObjectPrototype(prototype: object | null): boolean {
-  if (prototype === null || objectTag(prototype) !== "[object Object]") return false
+  if (prototype === null) return true
+  if (objectTag(prototype) !== "[object Object]") return false
   try {
     const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
     return typeof constructor === "function"
@@ -562,10 +590,11 @@ export function snapshotCapabilityData(value: unknown, seen: WeakMap<object, unk
   if (!value || !hasRuntimeType(value, "object")) return value
   const existing = seen.get(value)
   if (existing) return existing
-  const tag = objectTag(value)
+  const rawTag = objectTag(value)
+  const tag = isBuiltinObject(value, rawTag) ? rawTag : ""
   if (tag === "[object Date]") {
     try { return new Date((Date.prototype.getTime as (this: object) => number).call(value)) }
-    catch { return value }
+    catch { /* spoofed tag; continue with ordinary object handling */ }
   }
   if (tag === "[object RegExp]") {
     try {
@@ -575,18 +604,18 @@ export function snapshotCapabilityData(value: unknown, seen: WeakMap<object, unk
       snapshot.lastIndex = Reflect.get(value, "lastIndex") as number
       return snapshot
     }
-    catch { return value }
+    catch { /* spoofed tag; continue with ordinary object handling */ }
   }
   if (tag === "[object URL]") {
     try {
       const href = Object.getOwnPropertyDescriptor(URL.prototype, "href")!.get!.call(value) as string
       return new URL(href)
     }
-    catch { return value }
+    catch { /* spoofed tag; continue with ordinary object handling */ }
   }
   if (tag === "[object URLSearchParams]") {
     try { return new URLSearchParams(URLSearchParams.prototype.toString.call(value)) }
-    catch { return value }
+    catch { /* spoofed tag; continue with ordinary object handling */ }
   }
   if (tag === "[object ArrayBuffer]") {
     try {
@@ -595,7 +624,7 @@ export function snapshotCapabilityData(value: unknown, seen: WeakMap<object, unk
       new Uint8Array(snapshot).set(new Uint8Array(value as ArrayBuffer))
       return snapshot
     }
-    catch { return value }
+    catch { /* spoofed tag; continue with ordinary object handling */ }
   }
   if (tag === "[object SharedArrayBuffer]" && typeof SharedArrayBuffer !== "undefined") {
     try {
@@ -604,7 +633,7 @@ export function snapshotCapabilityData(value: unknown, seen: WeakMap<object, unk
       new Uint8Array(snapshot).set(new Uint8Array(value as SharedArrayBuffer))
       return snapshot
     }
-    catch { return value }
+    catch { /* spoofed tag; continue with ordinary object handling */ }
   }
   const boxed = snapshotBoxedValue(value, tag, seen)
   if (boxed) return boxed
@@ -617,7 +646,7 @@ export function snapshotCapabilityData(value: unknown, seen: WeakMap<object, unk
     }
     catch {
       seen.delete(value)
-      return value
+      /* spoofed tag; continue with ordinary object handling */
     }
     return snapshot
   }
@@ -630,7 +659,7 @@ export function snapshotCapabilityData(value: unknown, seen: WeakMap<object, unk
     }
     catch {
       seen.delete(value)
-      return value
+      /* spoofed tag; continue with ordinary object handling */
     }
     return snapshot
   }
@@ -663,8 +692,10 @@ function capabilityDataEqual(left: unknown, right: unknown, seen = new WeakMap<o
   const matched = seen.get(left)
   if (matched === right) return true
   seen.set(left, right)
-  const leftTag = objectTag(left)
-  const rightTag = objectTag(right)
+  const leftRawTag = objectTag(left)
+  const rightRawTag = objectTag(right)
+  const leftTag = isBuiltinObject(left, leftRawTag) ? leftRawTag : ""
+  const rightTag = isBuiltinObject(right, rightRawTag) ? rightRawTag : ""
   if (leftTag !== rightTag) return false
   if (leftTag === "[object Date]") {
     try {
@@ -694,6 +725,11 @@ function capabilityDataEqual(left: unknown, right: unknown, seen = new WeakMap<o
   }
   if (leftTag === "[object ArrayBuffer]" || leftTag === "[object SharedArrayBuffer]") {
     try {
+      const byteLengthGetter = leftTag === "[object ArrayBuffer]"
+        ? Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")!.get!
+        : Object.getOwnPropertyDescriptor(SharedArrayBuffer.prototype, "byteLength")!.get!
+      byteLengthGetter.call(left)
+      byteLengthGetter.call(right)
       const leftBytes = new Uint8Array(left as ArrayBufferLike)
       const rightBytes = new Uint8Array(right as ArrayBufferLike)
       return leftBytes.length === rightBytes.length && leftBytes.every((byte, index) => byte === rightBytes[index])
