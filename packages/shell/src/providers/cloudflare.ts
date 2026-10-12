@@ -17,6 +17,7 @@ export interface CloudflareShellClient {
       onStderr?: (data: string) => void
       onStdout?: (data: string) => void
       stdin?: string
+      signal?: AbortSignal
       timeout?: number
     },
   ) => Promise<{
@@ -52,6 +53,16 @@ export function createCloudflareShellProvider(options: CloudflareShellProviderOp
       enforcedBy: "provider",
       supported: true,
     },
+    execution: {
+      isolation: "provider_managed",
+      model: "host",
+    },
+    resources: {
+      output: {
+        enforcedBy: "runtime",
+        unit: "characters",
+      },
+    },
   }
 
   return {
@@ -62,6 +73,7 @@ export function createCloudflareShellProvider(options: CloudflareShellProviderOp
       const clientOptions: NonNullable<Parameters<CloudflareShellClient["exec"]>[2]> = {
         onStderr: execOptions.onStderr,
         onStdout: execOptions.onStdout,
+        signal: execOptions.signal,
         stdin: execOptions.stdin,
         timeout: execOptions.timeout,
       }

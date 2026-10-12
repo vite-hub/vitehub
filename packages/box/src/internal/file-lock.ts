@@ -3,6 +3,7 @@ import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { hostname } from "node:os";
 import { join } from "node:path";
 
+import { abortable } from "./abortable.ts";
 import { isRuntimeNumber, isRuntimeString, runtimeRecord } from "./runtime-type.ts";
 
 /**
@@ -81,26 +82,4 @@ async function staleLock(path: string) {
   } catch (error) {
     return error instanceof Error && "code" in error && error.code === "ESRCH" ? token : undefined;
   }
-}
-
-function abortable<T>(promise: Promise<T>, abortSignal?: AbortSignal): Promise<T> {
-  if (!abortSignal) return promise;
-  abortSignal.throwIfAborted();
-  return new Promise<T>((resolvePromise, reject) => {
-    const abort = () => {
-      abortSignal.removeEventListener("abort", abort);
-      reject(abortSignal.reason);
-    };
-    abortSignal.addEventListener("abort", abort, { once: true });
-    promise.then(
-      (value) => {
-        abortSignal.removeEventListener("abort", abort);
-        resolvePromise(value);
-      },
-      (error) => {
-        abortSignal.removeEventListener("abort", abort);
-        reject(error);
-      },
-    );
-  });
 }
