@@ -221,7 +221,7 @@ function portableWorkflowValue(value: unknown, seen = new WeakMap<object, unknow
   if (isRuntimeNumber(value)) return Number.isFinite(value) && !Object.is(value, -0) ? value : unportableWorkflowValue
   if (!value || !isRuntimeObject(value)) return unportableWorkflowValue
   if (value instanceof Map || value instanceof Set || value instanceof ArrayBuffer || ArrayBuffer.isView(value)) return unportableWorkflowValue
-  if (isDateValue(value)) return unportableWorkflowValue
+  if (value instanceof Date || isDateValue(value)) return unportableWorkflowValue
   if (seen.has(value)) return unportableWorkflowValue
   if (Array.isArray(value)) {
     const projected: unknown[] = []
