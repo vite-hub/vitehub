@@ -194,7 +194,12 @@ async function resolveBrowserDefinition(name: string): Promise<BrowserDefinition
   const entry = Object.hasOwn(browserRegistry, name) ? browserRegistry[name] : undefined
   if (!entry) throw browserDefinitionNotFoundError(name)
   const loaded = typeof entry === "function" ? await entry() : entry
-  const definition = "default" in loaded && loaded.default ? loaded.default : loaded
+  const definition = loaded
+    && (typeof loaded === "object" || typeof loaded === "function")
+    && "default" in loaded
+    && loaded.default
+    ? loaded.default
+    : loaded
   if (!isBrowserDefinition(definition)) {
     throw browserErrorDiagnostics.BROWSER_R0009({ message: `[vitehub:browser] Browser Definition ${JSON.stringify(name)} must default-export defineBrowser().` })
   }
