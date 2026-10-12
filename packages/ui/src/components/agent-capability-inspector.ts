@@ -67,9 +67,9 @@ export function capabilityInspectionSpec(value: unknown): Spec | undefined {
   return visit(view.root, new Set()) ? { root: view.root, elements: parsed } : undefined;
 }
 
-function safeInspectionState(value: unknown): unknown | undefined {
+function safeInspectionState(value: unknown): Record<string, unknown> | undefined {
   const text = payloadText(value);
-  try { return JSON.parse(text); } catch { return undefined; }
+  try { return record(JSON.parse(text)); } catch { return undefined; }
 }
 
 function display(value: unknown): string {
