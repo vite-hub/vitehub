@@ -23,19 +23,29 @@ type AiSdkStreamTranscriptionResult = ReturnType<AiSdkStreamTranscribe>
 type TranscribeArtifactValue<T, TInput> = T | ((input: TInput) => MaybePromise<T>)
 const DEFAULT_TRANSCRIBE_MAX_BYTES = 25 * 1024 * 1024
 const resolvedAudioData = new WeakMap<AudioPart, Promise<AudioData>>()
+const typedArrayToStringTag = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), Symbol.toStringTag)?.get
+const arrayBufferByteLength = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")?.get
+const blobSize = Object.getOwnPropertyDescriptor(Blob.prototype, "size")?.get
+const blobArrayBuffer = Blob.prototype.arrayBuffer
 
 function isTranscribeUint8Array(value: unknown): value is Uint8Array {
-  return ArrayBuffer.isView(value) && Object.prototype.toString.call(value) === "[object Uint8Array]"
+  return ArrayBuffer.isView(value) && typedArrayToStringTag?.call(value) === "Uint8Array"
+}
+
+function isTranscribeArrayBuffer(value: unknown): value is ArrayBuffer {
+  try {
+    return hasRuntimeType(arrayBufferByteLength?.call(value), "number")
+  }
+  catch {
+    return false
+  }
 }
 
 function isTranscribeBlob(value: unknown): value is Blob {
   try {
-    if (value === null || !hasRuntimeType(value, "object") || Object.prototype.toString.call(value) !== "[object Blob]") return false
-    const blob = value as { arrayBuffer?: unknown, size?: unknown }
-    return hasRuntimeType(blob.arrayBuffer, "function")
-      && hasRuntimeType(blob.size, "number")
-      && Number.isSafeInteger(blob.size)
-      && blob.size >= 0
+    if (value === null || !hasRuntimeType(value, "object") || !blobSize || !blobArrayBuffer) return false
+    const size = blobSize.call(value)
+    return Number.isSafeInteger(size) && size >= 0
   }
   catch {
     return false
@@ -175,8 +185,8 @@ function assertWithinMaxBytes(byteLength: number | undefined, maxBytes: number, 
 
 async function resolveAudioData(audio: AudioPart, maxBytes: number): Promise<AudioData | undefined> {
   assertWithinMaxBytes(audio.size, maxBytes, "audio")
-  if (isTranscribeBlob(audio.data)) assertWithinMaxBytes(audio.data.size, maxBytes, "audio data")
-  else if (audio.data instanceof ArrayBuffer) assertWithinMaxBytes(audio.data.byteLength, maxBytes, "audio data")
+  if (isTranscribeBlob(audio.data)) assertWithinMaxBytes(blobSize?.call(audio.data), maxBytes, "audio data")
+  else if (isTranscribeArrayBuffer(audio.data)) assertWithinMaxBytes(audio.data.byteLength, maxBytes, "audio data")
   else if (ArrayBuffer.isView(audio.data)) assertWithinMaxBytes(audio.data.byteLength, maxBytes, "audio data")
   if (audio.data) return audio.data
   if (!audio.fetchData) return
@@ -190,8 +200,8 @@ async function resolveAudioData(audio: AudioPart, maxBytes: number): Promise<Aud
     resolvedAudioData.set(audio, cached)
   }
   const data = await cached
-  if (isTranscribeBlob(data)) assertWithinMaxBytes(data.size, maxBytes, "downloaded audio")
-  else if (data instanceof ArrayBuffer) assertWithinMaxBytes(data.byteLength, maxBytes, "downloaded audio")
+  if (isTranscribeBlob(data)) assertWithinMaxBytes(blobSize?.call(data), maxBytes, "downloaded audio")
+  else if (isTranscribeArrayBuffer(data)) assertWithinMaxBytes(data.byteLength, maxBytes, "downloaded audio")
   else if (ArrayBuffer.isView(data)) assertWithinMaxBytes(data.byteLength, maxBytes, "downloaded audio")
   else if (hasRuntimeType(data, "string") && !/^data:/i.test(data)) assertWithinMaxBytes(data.length, maxBytes, "downloaded audio")
   return data
@@ -199,13 +209,18 @@ async function resolveAudioData(audio: AudioPart, maxBytes: number): Promise<Aud
 
 async function toAiSdkAudio(audio: AudioPart, maxBytes: number): Promise<Parameters<AiSdkTranscribe>[0]["audio"]> {
   const data = await resolveAudioData(audio, maxBytes)
-  if (isTranscribeBlob(data)) return await data.arrayBuffer()
+  if (isTranscribeBlob(data)) {
+    const bytes = new Uint8Array(await blobArrayBuffer.call(data))
+    assertWithinMaxBytes(bytes.byteLength, maxBytes, "audio data")
+    return bytes.buffer
+  }
   if (hasRuntimeType(data, "string") && /^data:/i.test(data)) {
     assertWithinMaxBytes(attachmentStringByteLength(data, audio.mediaType), maxBytes, "audio data")
     return attachmentStringBytes(data, audio.mediaType)
   }
-  if (isTranscribeUint8Array(data)) return new Uint8Array(data)
-  if (data) return data
+  if (isTranscribeUint8Array(data) || isTranscribeArrayBuffer(data)) return new Uint8Array(data)
+  if (ArrayBuffer.isView(data)) return new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
+  if (hasRuntimeType(data, "string")) return data
   if (audio.url) return new URL(audio.url)
   throw agentDiagnostics.AGENT_R0237({ message: "[vitehub] transcribe() requires audio data, fetchData, or url." })
 }
@@ -277,8 +292,12 @@ async function responseBytes(response: Response, maxBytes: number): Promise<Uint
 export async function audioBytes(audio: AudioPart, options?: { maxBytes?: number }): Promise<Uint8Array> {
   const maxBytes = normalizeMaxBytes(options?.maxBytes)
   const data = await resolveAudioData(audio, maxBytes)
-  if (isTranscribeBlob(data)) return new Uint8Array(await data.arrayBuffer())
-  if (isTranscribeUint8Array(data)) return new Uint8Array(data)
+  if (isTranscribeBlob(data)) {
+    const bytes = new Uint8Array(await blobArrayBuffer.call(data))
+    assertWithinMaxBytes(bytes.byteLength, maxBytes, "audio data")
+    return bytes
+  }
+  if (isTranscribeUint8Array(data) || isTranscribeArrayBuffer(data)) return new Uint8Array(data)
   if (ArrayBuffer.isView(data)) return new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
   if (hasRuntimeType(data, "string")) {
     if (/^data:/i.test(data)) {
