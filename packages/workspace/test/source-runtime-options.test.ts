@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { file, github, glob, markdown, mcpResources } from "../src/index.ts"
+import { fetch, file, github, glob, markdown, mcpResources } from "../src/index.ts"
 import { normalizeWorkspaceSource } from "../src/sources/config.ts"
 import { syncWorkspaceDefinition } from "../src/lifecycle.ts"
 import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
@@ -95,5 +95,12 @@ describe("Workspace Source runtime options", () => {
     const source = file({ content: "docs", workspacePath: "README.md", ...runtimeOptions })
     const binding = Object.assign(Object.create(null), { source, cache: false, materialize: "build", mount: "", sync: false, validate: false }) as WorkspaceSourceInput
     expect(normalizeWorkspaceSource("docs", binding)).toMatchObject({ cache: false, materialize: "build", mountPath: "", sync: false, validate: false })
+  })
+
+  it("ignores inherited runtime options in direct fetch()", () => {
+    const options = Object.assign(Object.create({ materialize: "startup", sync: true }), {
+      url: "https://status.example.com/health",
+    })
+    expect(fetch(options as never)).toMatchObject({ materialize: "lazy", sync: undefined })
   })
 })

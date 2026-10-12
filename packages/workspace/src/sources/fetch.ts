@@ -116,6 +116,9 @@ export function fetch<TResponse = unknown, TOutput = TResponse>(input: FetchSour
 }
 
 function createFetchSource<TResponse = unknown, TOutput = TResponse>(options: FetchSourceOptions<TResponse, TOutput>): WorkspaceSource {
+  // Runtime options are part of the public Source configuration contract and
+  // must not be inherited from an options object's prototype.
+  options = { ...options }
   const responseType = normalizePublicResponseType(options.responseType || "json")
   const method = normalizeMethod(options.method)
   assertRequestShape(options, method)
@@ -317,12 +320,16 @@ async function defaultFetchSourceRequest(
   ctx: SourceContext,
   overrides: { body?: unknown, query?: Record<string, unknown> } = {},
 ) {
-  const defaultQuery = options.query !== undefined || concreteQueryFromOptions(options)
-    ? concreteQueryFromOptions(options)
-    : options.querySchema ? await parseStandardSchema(options.querySchema, {}, "fetch() query default") : undefined
-  const defaultBody = options.body !== undefined
-    ? options.body
-    : options.bodySchema ? await parseStandardSchema(options.bodySchema, {}, "fetch() body default") : undefined
+  const defaultQuery = overrides.query !== undefined
+    ? undefined
+    : options.query !== undefined || concreteQueryFromOptions(options)
+      ? concreteQueryFromOptions(options)
+      : options.querySchema ? await parseStandardSchema(options.querySchema, {}, "fetch() query default") : undefined
+  const defaultBody = overrides.body !== undefined
+    ? undefined
+    : options.body !== undefined
+      ? options.body
+      : options.bodySchema ? await parseStandardSchema(options.bodySchema, {}, "fetch() body default") : undefined
   const query = overrides.query ?? defaultQuery
   const body = typeof overrides.body === "undefined" ? defaultBody : overrides.body
   const context = sourceRequestContext(options, method, { body, query }, ctx)
@@ -433,7 +440,7 @@ async function validateFetchRequestBody(
   body: unknown,
 ): Promise<unknown> {
   if (options.bodySchema) {
-    return await parseStandardSchema(options.bodySchema, body ?? {}, "HTTP request body")
+    return await parseStandardSchema(options.bodySchema, typeof body === "undefined" ? {} : body, "HTTP request body")
   }
   if (typeof options.body !== "undefined") {
     if (typeof body !== "undefined" && !requestJsonEqual(body, options.body)) {

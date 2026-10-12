@@ -71,6 +71,15 @@ describe("connect", () => {
     expect(await rejection(test.runtime.complete({ code: "code-1", state }))).toMatchObject({ code: "CONNECTION_INVALID" })
   })
 
+  it("rejects an authorization callback at its exact expiry timestamp", async () => {
+    const test = createTestRuntime()
+    const { state } = await test.runtime.authorize({ name: "mail", redirectUri: "http://127.0.0.1:8976/callback" })
+
+    test.now.value += 10 * 60_000
+    await expect(test.runtime.complete({ code: "expired", state })).rejects.toMatchObject({ code: "CONNECTION_INVALID" })
+    expect(test.provider.calls).toHaveLength(0)
+  })
+
   it("rejects redirect URIs that are not HTTPS or loopback", async () => {
     const test = createTestRuntime()
     expect(await rejection(test.runtime.authorize({ name: "mail", redirectUri: "http://example.com/callback" }))).toMatchObject({ code: "CONNECTION_INVALID" })
@@ -542,6 +551,21 @@ describe("calls", () => {
     expect(await rejection(client.call("mail.labels.list", { userId: "me" }))).toMatchObject({ code: "CONNECTION_REAUTH_REQUIRED" })
     expect(test.provider.calls).toHaveLength(count)
     expect(rotations).toBe(1)
+  })
+
+  it("maps malformed successful provider JSON to a Connection error", async () => {
+    const test = createTestRuntime()
+    await connect(test)
+    const runtime = createConnectionsRuntime({
+      definitions: { mail: mailConnection() },
+      fetch: async (input, init) => String(input) === "https://mail.example.com/mail/v1/users/me/labels"
+        ? new Response("truncated response", { status: 200 })
+        : await test.provider.fetch(input, init),
+      now: () => test.now.value,
+      store: test.store,
+    })
+    await expect(runtime.client("mail", {}).call("mail.labels.list", { userId: "me" }))
+      .rejects.toMatchObject({ code: "CONNECTION_PROVIDER", message: "Provider returned invalid JSON." })
   })
 
   it("marks the Connection for reauthorization after invalid_grant", async () => {

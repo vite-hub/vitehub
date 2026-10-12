@@ -285,7 +285,7 @@ function withArtifactLock<T>(outputDir: string, callback: () => T) {
 function writeRawMarkdownArtifacts(docsRoot: string, outputDir: string, capabilityReferences?: CapabilityReferences) {
   const rawOutputDir = resolve(outputDir, "raw");
   const expectedPaths = new Set<string>();
-  for (const [directory, prefix] of [["docs", "docs"], ["blog", "blog"], ["trust", ""]] as const) {
+  for (const [directory, prefix] of [["docs", "docs"], ["trust", ""]] as const) {
     const contentRoot = resolve(docsRoot, "content", directory);
     for (const absolutePath of listFiles(contentRoot, ".md")) {
       const destination = resolve(rawOutputDir, rawPagePath(contentRoot, absolutePath, prefix));
@@ -380,6 +380,11 @@ function optionalString(value: unknown) {
   return result.success ? result.output : null;
 }
 
+function pageLayout(value: unknown): "article" | "tutorial" | null {
+  const layout = optionalString(value);
+  return layout === "article" || layout === "tutorial" ? layout : null;
+}
+
 function stringList(value: unknown) {
   const result = safeParse(array(string()), value);
   return result.success ? result.output : [];
@@ -409,6 +414,8 @@ function collectPages(rootDir: string, sectionId: string) {
       sourceTitle: optionalString(meta.title),
       description: optionalString(meta.description),
       icon: optionalString(meta.icon),
+      layout: pageLayout(meta.layout),
+      kind: optionalString(meta["navigation.kind"]),
       group: optionalString(meta["navigation.group"]),
       navigation: meta.navigation !== false,
       order: pageOrderFromMeta(meta),
@@ -444,6 +451,7 @@ function collectRootPage(localDocsRoot: string) {
     sourceTitle: optionalString(meta.title),
     description: optionalString(meta.description),
     icon: optionalString(meta.icon),
+    kind: optionalString(meta["navigation.kind"]),
     navigation: meta.navigation !== false,
     order: pageOrderFromMeta(meta),
   };
