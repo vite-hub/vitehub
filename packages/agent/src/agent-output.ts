@@ -210,7 +210,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function readNumber(record: Record<string, unknown>, ...keys: string[]): number | undefined {
   for (const key of keys) {
-    const value = record[key]
+    const value = readableRecordValue(record, key)
     if (hasRuntimeType(value, "number") && Number.isFinite(value)) return value
   }
 }
@@ -218,8 +218,40 @@ function readNumber(record: Record<string, unknown>, ...keys: string[]): number 
 function readString(record: Record<string, unknown> | undefined, ...keys: string[]): string | undefined {
   if (!record) return
   for (const key of keys) {
-    const value = record[key]
+    const value = readableRecordValue(record, key)
     if (hasRuntimeType(value, "string") && value) return value
+  }
+}
+
+/** Read own data and accessor properties while ignoring ambient prototype data. */
+function readableRecordValue(record: Record<string, unknown>, key: string): unknown {
+  const visited = new WeakSet<object>()
+  let source: object | null = record
+  for (let hops = 0; source && source !== Object.prototype && hops < 100; hops++) {
+    if (visited.has(source)) return
+    visited.add(source)
+    let descriptor: PropertyDescriptor | undefined
+    try {
+      descriptor = Object.getOwnPropertyDescriptor(source, key)
+    }
+    catch {
+      return
+    }
+    if (descriptor) {
+      if (source !== record && !("get" in descriptor)) return
+      try {
+        return Reflect.get(record, key)
+      }
+      catch {
+        return
+      }
+    }
+    try {
+      source = Object.getPrototypeOf(source)
+    }
+    catch {
+      return
+    }
   }
 }
 
@@ -312,7 +344,8 @@ async function resolveUsageValue(value: unknown): Promise<unknown> {
 
 function modelMetadataFromResult(result: unknown): Pick<AgentUsageRecord, "model" | "provider" | "transport"> | undefined {
   if (!isRecord(result)) return
-  const response = isRecord(result.response) ? result.response : undefined
+  const responseValue = readableRecordValue(result, "response")
+  const response = isRecord(responseValue) ? responseValue : undefined
   const rawModel = readString(response, "modelId", "model") ?? readString(result, "modelId", "model")
   const provider = readString(result, "provider")
   if (rawModel === undefined && provider !== "gateway") return
@@ -343,10 +376,11 @@ function modelVendorScope(provider: string): string {
 
 function responseFromResult(result: unknown): AgentUsageRecord["response"] | undefined {
   if (!isRecord(result)) return
-  const response = isRecord(result.response) ? result.response : undefined
+  const responseValue = readableRecordValue(result, "response")
+  const response = isRecord(responseValue) ? responseValue : undefined
   const id = readString(response, "id")
-  const timestamp = response?.timestamp
-  const finishReason = result.finishReason
+  const timestamp = response ? readableRecordValue(response, "timestamp") : undefined
+  const finishReason = readableRecordValue(result, "finishReason")
   if (id === undefined && timestamp === undefined) return
   return {
     ...(finishReason !== undefined ? { finishReason } : {}),
@@ -357,7 +391,8 @@ function responseFromResult(result: unknown): AgentUsageRecord["response"] | und
 
 function latencyFromResult(result: unknown): AgentUsageRecord["latency"] | undefined {
   if (!isRecord(result)) return
-  const source = isRecord(result.latency) ? result.latency : result
+  const latencyValue = readableRecordValue(result, "latency")
+  const source = isRecord(latencyValue) ? latencyValue : result
   const durationMs = readNumber(source, "durationMs", "duration_ms")
   const timeToFirstTokenMs = readNumber(source, "timeToFirstTokenMs", "ttftMs", "time_to_first_token_ms")
   const tokensPerSecond = readNumber(source, "tokensPerSecond", "tokens_per_second")
@@ -370,8 +405,10 @@ function latencyFromResult(result: unknown): AgentUsageRecord["latency"] | undef
 }
 
 function providerCostFromResult(result: unknown): AgentUsageRecord["cost"] | undefined {
-  if (!isRecord(result) || !isRecord(result.providerMetadata)) return
-  for (const metadata of Object.values(result.providerMetadata)) {
+  if (!isRecord(result)) return
+  const providerMetadata = readableRecordValue(result, "providerMetadata")
+  if (!isRecord(providerMetadata)) return
+  for (const metadata of Object.values(providerMetadata)) {
     const cost = isRecord(metadata) && isRecord(metadata.usage) ? metadata.usage.cost : undefined
     if (hasRuntimeType(cost, "number") && Number.isFinite(cost) && cost >= 0) {
       return materializeAgentUsageCost({
@@ -404,8 +441,14 @@ function usageRecordFromUsage(
   const outputTokens = readNumber(rawUsage, "outputTokens", "completionTokens", "output_tokens", "completion_tokens")
   const totalTokens = readNumber(rawUsage, "totalTokens", "tokens", "total_tokens")
     ?? (inputTokens !== undefined && outputTokens !== undefined ? inputTokens + outputTokens : undefined)
-  const inputTokenDetails = readDetails(rawUsage.inputTokenDetails || rawUsage.input_token_details || rawUsage.promptTokenDetails || rawUsage.prompt_token_details)
-  const outputTokenDetails = readDetails(rawUsage.outputTokenDetails || rawUsage.output_token_details || rawUsage.completionTokenDetails || rawUsage.completion_token_details)
+  const inputTokenDetails = readDetails(readableRecordValue(rawUsage, "inputTokenDetails")
+    ?? readableRecordValue(rawUsage, "input_token_details")
+    ?? readableRecordValue(rawUsage, "promptTokenDetails")
+    ?? readableRecordValue(rawUsage, "prompt_token_details"))
+  const outputTokenDetails = readDetails(readableRecordValue(rawUsage, "outputTokenDetails")
+    ?? readableRecordValue(rawUsage, "output_token_details")
+    ?? readableRecordValue(rawUsage, "completionTokenDetails")
+    ?? readableRecordValue(rawUsage, "completion_token_details"))
   const usage: AgentUsage = {
     ...(inputTokens !== undefined ? { inputTokens } : {}),
     ...(outputTokens !== undefined ? { outputTokens } : {}),
@@ -486,7 +529,7 @@ export function usageRecordFromStreamChunk(chunk: unknown, fallbackMetadataSourc
 
 async function usageFromResult(result: unknown, run?: Partial<AgentRunMetadata>): Promise<AgentUsageRecord | undefined> {
   if (!isRecord(result)) return
-  return usageRecordFromUsage(await resolveUsageValue(result.usage ?? result.totalUsage), result, undefined, run)
+  return usageRecordFromUsage(await resolveUsageValue(readableRecordValue(result, "usage") ?? readableRecordValue(result, "totalUsage")), result, undefined, run)
 }
 
 export async function resolveAgentUsageRecord(value: unknown, run?: Partial<AgentRunMetadata>): Promise<AgentUsageRecord | undefined> {

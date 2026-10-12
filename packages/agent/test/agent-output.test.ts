@@ -28,6 +28,28 @@ describe("agent output helpers", () => {
     })
   })
 
+  it("ignores inherited usage fields", () => {
+    const usage = Object.create({ inputTokens: 99, outputTokens: 1 }) as object
+
+    expect(toAgentRunResult({ usage }).usageRecord).toBeUndefined()
+  })
+
+  it("accepts usage fields exposed through class getters", () => {
+    class Usage {
+      get inputTokens() {
+        return 2
+      }
+
+      get outputTokens() {
+        return 1
+      }
+    }
+
+    expect(toAgentRunResult({ usage: new Usage() }).usageRecord).toMatchObject({
+      usage: { inputTokens: 2, outputTokens: 1, totalTokens: 3 },
+    })
+  })
+
   it("does not loop on cyclic usage record prototypes", () => {
     const target = {}
     let usageRecord: object
