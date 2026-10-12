@@ -71,6 +71,15 @@ describe("connect", () => {
     expect(await rejection(test.runtime.complete({ code: "code-1", state }))).toMatchObject({ code: "CONNECTION_INVALID" })
   })
 
+  it("rejects an authorization callback at its exact expiry timestamp", async () => {
+    const test = createTestRuntime()
+    const { state } = await test.runtime.authorize({ name: "mail", redirectUri: "http://127.0.0.1:8976/callback" })
+
+    test.now.value += 10 * 60_000
+    await expect(test.runtime.complete({ code: "expired", state })).rejects.toMatchObject({ code: "CONNECTION_INVALID" })
+    expect(test.provider.calls).toHaveLength(0)
+  })
+
   it("rejects redirect URIs that are not HTTPS or loopback", async () => {
     const test = createTestRuntime()
     expect(await rejection(test.runtime.authorize({ name: "mail", redirectUri: "http://example.com/callback" }))).toMatchObject({ code: "CONNECTION_INVALID" })

@@ -756,6 +756,6 @@ describe("hosted drizzle runtime", () => {
 
     const { db } = await createHostedAnalyticsDb()
     const error = await db.select().from(analyticsSchema.analyticsEvents).then(() => undefined, error => error)
-    expect(error).toMatchObject({ cause: { message: "[vitehub] Cloudflare D1 query 1 failed (200)." } })
+    expect(error).toMatchObject({ cause: { code: "DATABASE_R0011", message: "Invalid D1 response" } })
   })
 })
