@@ -60,6 +60,23 @@ describe.each([
     })
   })
 
+  it("preserves thrown Errors with HTTP metadata", async () => {
+    const read = await load()
+    const error = Object.assign(new Error("upstream failed"), {
+      statusCode: 502,
+      statusMessage: "Bad gateway",
+      code: "UPSTREAM_ERROR",
+    })
+    const validate = { "~standard": { validate: () => { throw error } } }
+
+    await expect(read("payload", validate)).rejects.toBe(error)
+    expect(error).toMatchObject({
+      statusCode: 502,
+      statusMessage: "Bad gateway",
+      code: "UPSTREAM_ERROR",
+    })
+  })
+
   it.each([
     { failure: { issues: [] } },
     { failure: { issues: [], value: "must not be returned" } },
