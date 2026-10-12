@@ -280,19 +280,32 @@ async function runAccessAuthorize(
   context: AuthAccessAuthorizationContext,
 ): Promise<Response | undefined> {
   const result = await authorize(context)
-  if (isResponseLike(result)) return result
+  if (isResponseLike(result)) {
+    try {
+      return result instanceof Response
+        ? result
+        : new Response((result as unknown as { body: ConstructorParameters<typeof Response>[0] }).body, {
+            headers: (result as unknown as { headers: ConstructorParameters<typeof Response>[1] extends infer Init ? Init extends { headers?: infer Headers } ? Headers : never : never }).headers,
+            status: (result as unknown as { status: number }).status,
+            statusText: (result as unknown as { statusText: string }).statusText,
+          })
+    }
+    catch {
+      return createForbiddenResponse(context.request)
+    }
+  }
   if (result !== true) return createForbiddenResponse(context.request)
 }
 
 function isResponseLike(value: unknown): value is Response {
   if (value === null || typeof value !== "object") return false
   try {
-    if (Object.prototype.toString.call(value) !== "[object Response]") return false
-    const response = value as { headers?: unknown, status?: unknown, statusText?: unknown }
-    if (typeof response.status !== "number" || !Number.isInteger(response.status) || response.status < 0 || response.status > 599) return false
-    if (typeof response.statusText !== "string") return false
-    const headers = response.headers
-    return headers !== null && typeof headers === "object" && typeof (headers as { get?: unknown }).get === "function"
+    const response = value as Response
+    // Accessors on the native prototype perform an unforgeable Web IDL brand check.
+    const status = Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get?.call(response)
+    const statusText = Object.getOwnPropertyDescriptor(Response.prototype, "statusText")?.get?.call(response)
+    Object.getOwnPropertyDescriptor(Response.prototype, "headers")?.get?.call(response)
+    return typeof status === "number" && Number.isInteger(status) && status >= 0 && status <= 599 && typeof statusText === "string"
   }
   catch {
     return false

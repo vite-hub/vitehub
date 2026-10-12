@@ -1,4 +1,4 @@
-import { link, mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from "node:fs/promises"
+import { link, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -59,8 +59,9 @@ describe("fs blob driver", () => {
     tempDirs.push(base)
     const driver = createDriver({ base, driver: "fs" })
     await driver.put("safe.txt", "safe")
-    const key = Buffer.from("safe.txt").toString("base64url")
-    await writeFile(join(base, ".vitehub", "blob-meta", `${key}.json`), JSON.stringify(metadata))
+    const metadataDirectory = join(base, ".vitehub", "blob-meta")
+    const sidecar = (await readdir(metadataDirectory)).find(name => name.startsWith("generation-"))!
+    await writeFile(join(metadataDirectory, sidecar), JSON.stringify(metadata))
 
     await expect(driver.head("safe.txt")).rejects.toThrow()
     await expect(driver.get("safe.txt")).rejects.toThrow()
