@@ -181,7 +181,30 @@ function createCloudflareComputerSession(
     async readBinaryFile({ abortSignal, path }) {
       abortSignal?.throwIfAborted();
       try {
-        return await readStream(await workspace.fs.readFile(path), abortSignal);
+        const pending = workspace.fs.readFile(path);
+        const stream = abortSignal
+          ? await new Promise<ReadableStream<Uint8Array>>((resolve, reject) => {
+              let settled = false;
+              const abort = () => {
+                settled = true;
+                reject(abortSignal.reason);
+              };
+              abortSignal.addEventListener("abort", abort, { once: true });
+              void pending.then((value) => {
+                abortSignal.removeEventListener("abort", abort);
+                if (settled || abortSignal.aborted) {
+                  void value.cancel(abortSignal.reason).catch(() => {});
+                  return;
+                }
+                resolve(value);
+              }, (error) => {
+                abortSignal.removeEventListener("abort", abort);
+                if (!settled) reject(error);
+              });
+              if (abortSignal.aborted) abort();
+            })
+          : await pending;
+        return await readStream(stream, abortSignal);
       } catch (error) {
         if (isMissingFile(error)) return null;
         throw error;

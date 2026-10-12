@@ -32,7 +32,7 @@ export async function runWorkspaceInspectionCommand(
   const maxOutputLength = options.maxOutputLength === undefined
     ? 30_000
     : normalizeOutputLength(options.maxOutputLength)
-  const timeout = options.timeout || 30_000
+  const timeout = options.timeout ?? 30_000
   const provider = options.networkGrants && usesWorkspaceNetworkGrant(command) ? undefined : options.provider
   const unsupportedSyntax = preflightUnsupportedWorkspaceSyntax(command, options.commands, Boolean(provider))
   if (unsupportedSyntax) return unsupportedSyntax
