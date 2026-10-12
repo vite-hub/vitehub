@@ -6,11 +6,12 @@ describe("ViteHub Source collection adapter", () => {
   it("accepts a loader function from another realm", async () => {
     const loader = runInNewContext("async ({ limit }) => [{ id: limit }]") as (options: { limit: number }) => Promise<Array<{ id: number }>>
     const collection = defineCollection(loader, {
+      cursor: (item: { id: number }) => item.id,
       cursorSchema: {
         "~standard": {
           version: 1,
           vendor: "vite-hub",
-          validate: (value: unknown) => ({ value }),
+          validate: (value: number) => ({ value }),
         },
       },
       defaultLimit: 3,
