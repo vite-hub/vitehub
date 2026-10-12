@@ -36,7 +36,7 @@ export const installOptions = {
 export const agentStory = {
   path: "server/agents/review.ts",
   // Flue and Eve are open and self-hostable too. The real difference is that the Agent lives inside the app.
-  positioning: "Your Agents live in your app, not beside it. Same server, same storage, same deploy.",
+  positioning: "Your Agents live in your app, not beside it. They share its server, storage, and deploy.",
   tutorialPath: "/docs/getting-started/first-agent",
   code: [
     'import { defineAgent } from "vite-hub/agent"',

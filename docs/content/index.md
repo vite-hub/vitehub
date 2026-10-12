@@ -11,7 +11,7 @@ ViteHub gives Vite apps one API for storage, queues, workflows, schedules, and m
 
 Same code on every host. The host picks the provider: Workers KV or Upstash Redis for KV, R2 or Vercel Blob for Blob, Cloudflare Queues or Vercel Queues for Queue. Host support depends on the primitive and provider. Check the [support matrix](/docs/frameworks-hosts/support-matrix) for each target.
 
-## One file. One Agent.
+## Define an Agent in one file.
 
 Your Agents live in your app, not beside it. An Agent Definition in `server/agents/` picks its Channels, Driver, Workspace, and Capabilities. Capabilities wrap the same primitives your routes call, so a route can read the KV store an Agent writes.
 

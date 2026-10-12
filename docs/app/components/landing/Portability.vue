@@ -19,7 +19,7 @@ function select(index: number, event: MouseEvent) {
   <section class="border-b border-default bg-default">
     <div class="mx-auto max-w-[90rem] px-4 py-16 sm:px-8 sm:py-20 lg:px-12 lg:py-24">
       <div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(22rem,0.8fr)] lg:items-end lg:gap-20">
-        <h2 class="max-w-[13ch] text-4xl/10 font-semibold tracking-[-0.05em] text-highlighted text-balance sm:text-5xl/12 lg:text-6xl/14">
+        <h2 class="max-w-[13ch] text-4xl/10 font-semibold tracking-[-0.04em] text-highlighted text-balance sm:text-5xl/12 lg:text-6xl/14">
           Write once.<br>Deploy anywhere.
         </h2>
         <p class="max-w-[36ch] text-lg/7 text-muted text-pretty">

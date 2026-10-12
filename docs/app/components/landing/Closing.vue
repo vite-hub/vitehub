@@ -7,7 +7,7 @@ import { closingPaths, nuxtHubMigration } from "./content";
     <div class="mx-auto max-w-[90rem] px-4 py-16 sm:px-8 sm:py-20 lg:px-12 lg:py-24">
       <div class="flex flex-col gap-8 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <h2 class="max-w-[15ch] text-4xl/10 font-semibold tracking-[-0.04em] text-highlighted text-balance sm:text-5xl/12">
+          <h2 class="max-w-[15ch] text-4xl/10 font-semibold tracking-[-0.04em] text-highlighted text-balance sm:text-5xl/12 lg:text-6xl/14">
             Ship the server part with your Vite app.
           </h2>
           <p class="mt-4 max-w-[44ch] text-lg/8 text-muted">
@@ -55,13 +55,18 @@ import { closingPaths, nuxtHubMigration } from "./content";
   position: relative;
   display: flex;
   height: 100%;
-  min-height: 9rem;
   flex-direction: column;
   justify-content: space-between;
   border-right: 1px solid var(--ui-border);
   border-bottom: 1px solid var(--ui-border);
   padding: 1.25rem 2.5rem 1.25rem 1.25rem;
   transition: background-color 200ms ease;
+}
+
+@media (min-width: 640px) {
+  .closing-cell {
+    min-height: 9rem;
+  }
 }
 
 .closing-cell:focus-visible {

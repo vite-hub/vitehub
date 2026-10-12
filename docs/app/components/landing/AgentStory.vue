@@ -71,7 +71,7 @@ const routeLines = agentStory.route.code.map(tokenize);
         <h2
           class="max-w-[13ch] text-4xl/10 font-semibold tracking-[-0.04em] text-highlighted text-balance sm:text-5xl/12 lg:text-6xl/14"
         >
-          One file. One Agent.
+          Define an Agent in one file.
         </h2>
         <p class="max-w-[38ch] text-lg/8 text-muted lg:justify-self-end">
           {{ agentStory.positioning }}
@@ -90,10 +90,10 @@ const routeLines = agentStory.route.code.map(tokenize);
               :aria-pressed="index === activeIndex"
               @click="selectStep(index)"
             >
-              <span class="font-mono text-xs text-dimmed">
+              <span class="font-mono text-xs text-muted">
                 {{ String(index + 1).padStart(2, "0") }} · {{ step.label }}
               </span>
-              <span class="mt-1.5 block text-lg/7 font-medium text-highlighted sm:text-xl/7">
+              <span class="story-step-title mt-1.5 block text-lg/7 font-medium sm:text-xl/7">
                 {{ step.title }}
               </span>
               <span class="mt-1 block max-w-[52ch] text-sm/6 text-muted">
@@ -158,10 +158,10 @@ const routeLines = agentStory.route.code.map(tokenize);
       <div class="grid border-x border-b border-default bg-default lg:grid-cols-[minmax(0,0.78fr)_minmax(0,1.22fr)]">
         <div class="flex flex-col gap-5 p-5 sm:p-6 lg:p-8">
           <div>
-            <h3 class="text-lg/7 font-medium text-highlighted">Same store, from a route</h3>
+            <h3 class="text-lg/7 font-medium text-highlighted">Read the store from a route</h3>
             <p class="mt-1 max-w-[44ch] text-sm/6 text-muted">
-              The Agent writes reviews through its KV Capability. Your route reads the same store
-              with the same API.
+              The Agent writes reviews through its KV Capability. Your route reads that store with
+              the same API.
             </p>
           </div>
           <div class="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
@@ -240,12 +240,19 @@ const routeLines = agentStory.route.code.map(tokenize);
   height: 100%;
   padding: 1.125rem 1.25rem 1.125rem 1.5rem;
   text-align: left;
-  opacity: 0.62;
-  transition: opacity 240ms ease, background-color 240ms ease;
+  transition: background-color 240ms ease;
+}
+
+.story-step-title {
+  color: var(--ui-text-toned);
+  transition: color 240ms ease;
+}
+
+.story-step.is-active .story-step-title {
+  color: var(--ui-text-highlighted);
 }
 
 .story-step.is-active {
-  opacity: 1;
   background: color-mix(in srgb, var(--ui-bg-muted) 45%, transparent);
 }
 
@@ -255,8 +262,8 @@ const routeLines = agentStory.route.code.map(tokenize);
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .story-step:hover {
-    opacity: 1;
+  .story-step:hover .story-step-title {
+    color: var(--ui-text-highlighted);
   }
 
   .group:hover .landing-cta-arrow {
@@ -388,7 +395,7 @@ const routeLines = agentStory.route.code.map(tokenize);
 .story-trace-label {
   max-width: 100%;
   overflow: hidden;
-  color: var(--ui-text-dimmed);
+  color: var(--ui-text-muted);
   font-size: 0.6875rem;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -406,6 +413,7 @@ const routeLines = agentStory.route.code.map(tokenize);
 @media (prefers-reduced-motion: reduce) {
   .story-steps::after,
   .story-step,
+  .story-step-title,
   .story-line,
   .story-line::before,
   .story-trace-rail > span,
