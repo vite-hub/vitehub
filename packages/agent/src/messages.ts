@@ -398,7 +398,6 @@ function createId(prefix: string): string {
 }
 
 function isDateValue(value: unknown): value is Date {
-  if (value instanceof Date) return true
   try {
     Date.prototype.getTime.call(value)
     return true
@@ -408,8 +407,15 @@ function isDateValue(value: unknown): value is Date {
   }
 }
 
+function isDateProxy(value: unknown): boolean {
+  return value instanceof Date && !isDateValue(value)
+}
+
 function normalizeCreatedAt(value: Date | string | undefined): string | undefined {
   if (!value) return undefined
+  if (isDateProxy(value)) {
+    throw agentDiagnostics.AGENT_R0651({ message: "[vitehub:messages] message.createdAt must be serialized before storing." })
+  }
   return isDateValue(value) ? Date.prototype.toISOString.call(value) : value
 }
 
@@ -526,7 +532,7 @@ function assertSerializable(value: unknown, field: string): void {
   if (!value || !hasRuntimeType(value, "object")) {
     return
   }
-  if (isDateValue(value)) {
+  if (isDateValue(value) || isDateProxy(value)) {
     throw agentDiagnostics.AGENT_R0651({ message: `[vitehub:messages] ${field} must be serialized before storing.` })
   }
   if (Array.isArray(value)) {
