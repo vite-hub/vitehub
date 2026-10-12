@@ -33,12 +33,25 @@ it("preserves messages from errors created in another realm", () => {
 
 it.each([
   {
+    label: "string message",
+    value: { [Symbol.toStringTag]: "Error", message: "spoofed" },
+  },
+  {
     label: "object message",
     value: { [Symbol.toStringTag]: "Error", message: { toString: () => { throw new Error("message probe") } } },
   },
   {
     label: "throwing message getter",
     value: Object.defineProperty({ [Symbol.toStringTag]: "Error" }, "message", { get: () => { throw new Error("message probe") } }),
+  },
+  {
+    label: "stateful message getter",
+    value: (() => {
+      let reads = 0
+      return Object.defineProperty({ [Symbol.toStringTag]: "Error" }, "message", {
+        get: () => reads++ === 0 ? "spoofed" : (() => { throw new Error("message probe") })(),
+      })
+    })(),
   },
 ])("does not trust spoofed Error values with a $label", ({ value }) => {
   expect(() => toSandboxError(value)).not.toThrow()

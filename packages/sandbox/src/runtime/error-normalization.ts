@@ -1,5 +1,6 @@
 import { isSandboxError, sandboxError } from '../sandbox/errors'
 import { getViteHubErrorShape } from '@vite-hub/runtime'
+import { types as nodeTypes } from 'node:util'
 
 export function readSandboxErrorMetadata(error: unknown) {
   if (!error || typeof error !== 'object')
@@ -31,7 +32,10 @@ export function toSandboxError(error: unknown) {
 
   const metadata = readSandboxErrorMetadata(error)
   if (isErrorValue(error)) {
-    return sandboxError(error.message || "Sandbox execution failed.", {
+    const message = readErrorMessage(error)
+    return sandboxError(typeof message === 'string' && message
+      ? message
+      : "Sandbox execution failed.", {
       code: sandboxCode(metadata?.code),
       provider: metadata?.provider,
       details: metadata?.details,
@@ -49,13 +53,20 @@ export function toSandboxError(error: unknown) {
 
 function isErrorValue(value: unknown): value is Error {
   if (value instanceof Error) return true
-  if (!value || typeof value !== 'object') return false
   try {
-    return Object.prototype.toString.call(value) === '[object Error]'
-      && typeof (value as { message?: unknown }).message === 'string'
+    return nodeTypes.isNativeError(value)
   }
   catch {
     return false
+  }
+}
+
+function readErrorMessage(error: Error): unknown {
+  try {
+    return error.message
+  }
+  catch {
+    return undefined
   }
 }
 
