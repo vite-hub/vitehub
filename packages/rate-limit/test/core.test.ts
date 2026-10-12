@@ -149,6 +149,21 @@ describe("Rate Limit core", () => {
       enforcement: "best-effort",
       failure: "deny",
     })
+
+    const bestEffortDriver = {
+      ...memoryRateLimitDriver(),
+      capabilities: {
+        enforcement: "best-effort",
+        rejectedAttempts: "not-counted",
+        scope: "process",
+      },
+    } satisfies RateLimitDriver
+    const inheritedEnforcement = Object.assign(Object.create({ enforcement: "strict" }), {
+      driver: bestEffortDriver,
+      limit: 1,
+      window: "1m",
+    })
+    expect(createRateLimiter(inheritedEnforcement as never).policy.enforcement).toBe("best-effort")
   })
 
   it.each(["s", "m", "d"])("rejects %s windows that overflow during conversion", (unit) => {
