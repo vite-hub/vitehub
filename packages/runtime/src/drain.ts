@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { hasRuntimeType } from "./internal/runtime-type.ts"
-import { isProcessRunning } from "./internal/drain-process.ts"
+import { isProcessRunning, signalProcess } from "./internal/drain-process.ts"
 import { runtimeErrorDiagnostics } from "./error-diagnostics.ts"
 
 const pidInput: string | undefined = process.argv[2]
@@ -41,7 +41,7 @@ try {
     if (status === "failed" || status === "invalid") throw runtimeErrorDiagnostics.RUNTIME_R0004({ message: `Process drain reported ${status}.` })
     if (status === "drained") process.exit(0)
     if (status === "accepting" && !signaled) {
-      process.kill(pid, "SIGUSR2")
+      signalProcess(pid)
       signaled = true
     }
     await new Promise(resolve => setTimeout(resolve, 1_000))

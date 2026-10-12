@@ -16,3 +16,17 @@ export function isProcessRunning(pid: number): boolean {
     }
   }
 }
+
+/** Request a drain signal, allowing status polling when signal permission is denied. */
+export function signalProcess(pid: number): "signaled" | "permission-denied" {
+  try {
+    process.kill(pid, "SIGUSR2")
+    return "signaled"
+  }
+  catch (error) {
+    if (typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === "EPERM") {
+      return "permission-denied"
+    }
+    throw error
+  }
+}

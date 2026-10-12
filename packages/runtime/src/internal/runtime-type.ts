@@ -12,40 +12,25 @@ type RuntimeTypeMap = {
   undefined: undefined
 }
 
-function isCallableRepresentation(value: unknown): boolean {
-  if (value === null || value === undefined || Object(value) !== value) return false
-  try {
-    Function.prototype.toString.call(value)
-    return true
-  }
-  catch {
-    return false
-  }
-}
-
-/** Parses JavaScript runtime representation categories at Runtime boundaries. */
+/** Narrows opaque inputs without reading their properties. */
 export function hasRuntimeType<TType extends keyof RuntimeTypeMap>(
   value: unknown,
   expected: TType,
 ): value is RuntimeTypeMap[TType] {
-  if (expected === "undefined") return value === undefined
-  if (expected === "object" && value === null) return true
-  if (value === null || value === undefined) return false
-  const boxed = Object(value)
-  const isPrimitive = boxed !== value
-  if (!isPrimitive) {
-    if (expected === "function") return isCallableRepresentation(value)
-    return expected === "object" && !isCallableRepresentation(value)
-  }
-  const tag = Object.prototype.toString.call(value)
   switch (expected) {
-    case "bigint": return isPrimitive && tag === "[object BigInt]"
-    case "boolean": return isPrimitive && tag === "[object Boolean]"
-    case "function": return false
-    case "number": return isPrimitive && tag === "[object Number]"
-    case "object": return false
-    case "string": return isPrimitive && tag === "[object String]"
-    case "symbol": return isPrimitive && tag === "[object Symbol]"
+    case "bigint":
+    case "boolean":
+    case "function":
+    case "number":
+    case "object":
+    case "string":
+    case "symbol":
+    case "undefined": {
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This shared guard classifies opaque JavaScript inputs without coercion or exceptions.
+      const representation = typeof value
+      // Callable HTMLDDA browser values report undefined without being undefined.
+      return (representation === "undefined" && value !== undefined ? "function" : representation) === expected
+    }
   }
   throw runtimeErrorDiagnostics.RUNTIME_R0008({ message: `Unsupported runtime type: ${expected}` })
 }
