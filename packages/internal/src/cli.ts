@@ -71,6 +71,7 @@ export async function collectViteHubCliContribution(plugins: readonly unknown[])
   const steps = new Map<string, ProvisionStep>()
 
   for (const plugin of plugins) {
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vite plugin discovery accepts unknown runtime values and only object plugins can own CLI metadata.
     if (!plugin || typeof plugin !== "object" || !Object.hasOwn(plugin, "vitehub")) continue
     const metadata = (plugin as ViteHubCliContributingPlugin).vitehub
     const contributor = await resolveContributor(metadata?.cli)
