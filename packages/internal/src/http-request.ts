@@ -84,13 +84,15 @@ function primitiveRuntimeTag(value: unknown): string | undefined {
 }
 
 function isBlobLike(value: unknown): value is Blob {
-  if (value === null || typeof value !== "object" || Object.prototype.toString.call(value) !== "[object Blob]") return false
-  const blob = value as { arrayBuffer?: unknown; size?: unknown; stream?: unknown; text?: unknown; type?: unknown }
-  return typeof blob.arrayBuffer === "function"
-    && typeof blob.stream === "function"
-    && typeof blob.text === "function"
-    && typeof blob.size === "number"
-    && typeof blob.type === "string"
+  if (value === null || typeof value !== "object") return false
+  try {
+    // Blob accessors perform an internal-slot brand check, unlike toStringTag.
+    Reflect.get(Blob.prototype, "size", value)
+    Reflect.get(Blob.prototype, "type", value)
+    return true
+  } catch {
+    return false
+  }
 }
 
 const httpEffectBoundary = createEffectBoundary({
@@ -169,11 +171,11 @@ function fetchOnce(
     Effect.sync(() => new AbortController()),
     controller => Effect.tryPromise({
       catch: cause => new HttpAttemptFailure({ cause, retryable: retryFetchError(cause) }),
-      try: () => {
+      try: async () => {
         const headers = new Headers(definition.headers)
         applyCookies(headers, definition.cookies)
         return send(urlWithQuery(definition).toString(), {
-          body: serializeRequestBody(definition.body, headers),
+          body: await serializeRequestBody(definition.body, headers),
           headers,
           method: definition.method,
           signal: controller.signal,
@@ -227,15 +229,18 @@ function applyCookies(headers: Headers, cookies: Record<string, string> | undefi
   headers.set("cookie", existing ? `${existing}; ${value}` : value)
 }
 
-function serializeRequestBody(body: unknown, headers: Headers): FetchBody | undefined {
+async function serializeRequestBody(body: unknown, headers: Headers): Promise<FetchBody | undefined> {
   if (body === undefined) return undefined
+  if (isBlobLike(body) && !(body instanceof Blob)) {
+    const foreignBlob = body as Blob & { arrayBuffer: () => Promise<ArrayBuffer>, type: string }
+    return new Blob([await foreignBlob.arrayBuffer()], { type: foreignBlob.type })
+  }
   if (
     primitiveRuntimeTag(body) === "[object String]"
     || body instanceof Uint8Array
     || body instanceof ArrayBuffer
     || ArrayBuffer.isView(body)
     || body instanceof Blob
-    || isBlobLike(body)
     || body instanceof FormData
     || body instanceof URLSearchParams
     || body instanceof ReadableStream

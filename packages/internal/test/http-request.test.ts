@@ -1,4 +1,5 @@
 import { runInNewContext } from "node:vm"
+import { createRequire } from "node:module"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {
@@ -9,6 +10,8 @@ import {
   normalizeHttpRequest,
 } from "../src/http-request.ts"
 
+const require = createRequire(import.meta.url)
+
 afterEach(() => {
   vi.unstubAllGlobals()
 })
@@ -16,15 +19,10 @@ afterEach(() => {
 describe("HTTP request", () => {
   it("preserves Blob request bodies from another realm", async () => {
     const body = runInNewContext(`
-      class CrossRealmBlob {
-        constructor() { this.size = 4; this.type = "text/plain" }
-        arrayBuffer() { return Promise.resolve(new Uint8Array([116, 101, 115, 116]).buffer) }
-        stream() { return new ReadableStream() }
-        text() { return Promise.resolve("test") }
-      }
-      Object.defineProperty(CrossRealmBlob.prototype, Symbol.toStringTag, { value: "Blob" })
-      new CrossRealmBlob()
-    `, { Symbol })
+      new (require("node:buffer").Blob)(["test"], { type: "text/plain" })
+    `, { require })
+    const spoof = { size: 4, type: "text/plain", arrayBuffer: () => Promise.resolve(new ArrayBuffer(0)) }
+    Object.defineProperty(spoof, Symbol.toStringTag, { value: "Blob" })
     let captured: RequestInit | undefined
     const send = vi.fn(async (_url: string, init: RequestInit) => {
       captured = init
@@ -33,8 +31,14 @@ describe("HTTP request", () => {
 
     await executeHttpRequest({ body, method: "POST", url: "https://api.example.com/upload" }, { fetch: send, responseType: "text" })
 
-    expect(captured?.body).toBe(body)
+    expect(captured?.body).toBeInstanceOf(Blob)
+    await expect(new Response(captured?.body).text()).resolves.toBe("test")
     expect(new Headers(captured?.headers).has("content-type")).toBe(false)
+
+    captured = undefined
+    await executeHttpRequest({ body: spoof, method: "POST", url: "https://api.example.com/upload" }, { fetch: send, responseType: "text" })
+    expect(captured?.body).toBe(JSON.stringify(spoof))
+    expect(new Headers(captured?.headers).get("content-type")).toBe("application/json")
   })
 
   it("sends through a custom fetch and never calls the global fetch", async () => {
