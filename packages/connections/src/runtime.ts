@@ -184,7 +184,13 @@ async function providerMessage(response: Response): Promise<string | undefined> 
 
 async function readResponse(response: Response): Promise<unknown> {
   const text = await response.text()
-  return text ? JSON.parse(text) : undefined
+  if (!text) return undefined
+  try {
+    return JSON.parse(text)
+  }
+  catch {
+    throw new ConnectionError("provider", "Provider returned invalid JSON.")
+  }
 }
 
 /** Create the Connections runtime. Applications normally use `useConnection()` instead. */
@@ -700,7 +706,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     const connections = await getStore()
     // Taking the state consumes it, so a rejected callback cannot be replayed.
     const authorization = await connections.authorizations.take(input.state)
-    if (!authorization || authorization.expiresAt < now()) throw new ConnectionError("invalid", "The authorization request is unknown or expired. Start the connection again.")
+    if (!authorization || authorization.expiresAt <= now()) throw new ConnectionError("invalid", "The authorization request is unknown or expired. Start the connection again.")
     if (authorization.actor !== (input.actor ?? "user:local")) throw new ConnectionError("denied", "Another user started this authorization request. Start the connection again.")
     const name = authorization.name
     const loaded = await definition(name)
@@ -889,7 +895,17 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     catch (error) {
       // A check failure message could contain the key, so only Connection errors pass through.
       const connectionError = normalizeConnectionError(error)
-      if (connectionError) throw connectionError
+      if (connectionError) {
+        const details: Record<string, string | number | undefined> = {}
+        for (const [detailKey, value] of Object.entries(connectionError.details ?? {})) {
+          if (typeof value === "string" && value.includes(key)) continue
+          details[detailKey] = value
+        }
+        throw new ConnectionError(connectionError.reason, `Provider "${provider.id}" could not verify the key.`, {
+          details,
+          requestId: connectionError.requestId,
+        })
+      }
       throw new ConnectionError("provider", `Provider "${provider.id}" could not verify the key.`, { details: { connection: name } })
     }
     const verification = v.safeParse(apiKeyVerificationSchema, result)

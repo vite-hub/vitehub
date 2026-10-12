@@ -5,6 +5,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PullRequestInbox, normalizePullRequest } from '../src/server/github-inbox.ts'
+import { resolveBabysitterLifecycleFilter } from '../src/presets/babysitter.ts'
 const repository = 'vite-hub/vitehub'
 const repo = { full_name: repository }
 const pr = (patch = {}) => ({ number: 7, state: 'open', user: { login: 'onmax' }, head: { sha: 'a', ref: 'fix' }, base: { sha: 'base', ref: 'main' }, updated_at: '2026-09-13T10:00:00Z', ...patch })
@@ -18,6 +19,15 @@ test('GraphQL bootstrap normalizes state, author and head into a claimable snaps
   const [claim] = await inbox.claim(1)
   assert.equal(claim?.snapshot.pr?.head?.sha, 'a')
   assert.equal(claim?.snapshot.pr?.state, 'open')
+})
+test('summary marks dirty stacked children as blocked by their open parent', async t => {
+  const inbox = memory(t)
+  await inbox.seed(repository, pr({ number: 1, head: { sha: 'parent-sha', ref: 'parent', repo } }))
+  await inbox.seed(repository, pr({ number: 2, head: { sha: 'child-sha', ref: 'child' }, base: { sha: 'base', ref: 'parent' } }))
+  const child = (await inbox.summary()).find(item => item.number === 2)!
+  assert.equal(child.stackBlocked, true)
+  assert.deepEqual(child.stackParent, { number: 1, state: 'open' })
+  assert.ok(!(await inbox.claim(2)).some(claim => claim.snapshot.number === 2))
 })
 test('delivery dedupe and three comments coalesce into one claim', async t => {
   const inbox = memory(t); await inbox.seed(repository, pr())
@@ -56,6 +66,43 @@ test('new event during claim is preserved when old pass finishes', async t => {
   await post(inbox, 'new', 'issue_comment', { action: 'created', issue: { number: 7, pull_request: {} }, comment: comment() })
   assert.equal(await inbox.hydrate(claim, { comments: {} }), false)
   await inbox.finish(claim, { text: 'done' }); assert.equal((await inbox.claim(1)).length, 1)
+})
+test('a verified resolution retains concurrent feedback without renewing the old claim', async t => {
+  const inbox = memory(t); await inbox.seed(repository, pr()); const [claim] = await inbox.claim(1); assert.ok(claim)
+  assert.ok(await inbox.hydrate(claim, { threads: [{ id: 'thread', isResolved: false, comments: [] }], threadsHydrated: true }))
+  const observed = structuredClone(claim.snapshot)
+  await post(inbox, 'new-feedback', 'issue_comment', { action: 'created', issue: { number: 7, pull_request: {} }, comment: comment() })
+  assert.equal(await inbox.recordThreadResolution(claim, 'thread', observed), true)
+  assert.equal(await inbox.isClaimCurrent(claim), false)
+  assert.equal(await inbox.finish(claim, { text: 'Old feedback reviewed', wait: { reason: 'checks', evidenceKey: 'old-feedback' } }), false)
+  const [next] = await inbox.claim(1); assert.ok(next)
+  assert.equal(next.snapshot.threads[0]?.isResolved, true)
+  assert.equal(next.snapshot.comments['1']?.body, 'Please repair this')
+})
+for (const change of ['head', 'closure', 'release', 'reopen', 'source push']) test(`a verified resolution cannot override ${change} received during the mutation`, async t => {
+  const inbox = memory(t); await inbox.seed(repository, pr()); const [claim] = await inbox.claim(1); assert.ok(claim)
+  assert.ok(await inbox.hydrate(claim, { threads: [{ id: 'thread', isResolved: false, comments: [] }], threadsHydrated: true }))
+  const observed = structuredClone(claim.snapshot)
+  if (change === 'head') await post(inbox, 'head-changed', 'pull_request', { action: 'synchronize', pull_request: pr({ head: { sha: 'b', ref: 'fix' }, updated_at: '2026-09-13T11:00:00Z' }) })
+  else if (change === 'closure') await post(inbox, 'closed', 'pull_request', { action: 'closed', pull_request: pr({ state: 'closed', updated_at: '2026-09-13T11:00:00Z' }) })
+  else if (change === 'release') await inbox.release(claim)
+  else if (change === 'source push') await post(inbox, 'source-changed', 'push', { ref: 'refs/heads/fix', after: 'b'.repeat(40) })
+  else {
+    await post(inbox, 'resolved', 'pull_request_review_thread', { action: 'resolved', pull_request: pr(), thread: { node_id: 'thread', comments: [] } })
+    await post(inbox, 'reopened', 'pull_request_review_thread', { action: 'unresolved', pull_request: pr(), thread: { node_id: 'thread', comments: [] } })
+  }
+  assert.equal(await inbox.recordThreadResolution(claim, 'thread', observed), false)
+  assert.notEqual((await inbox.get(repository, 7))?.threads[0]?.isResolved, true)
+})
+test('a verified resolution cannot use an expired lease', async t => {
+  let now = Date.now()
+  const inbox = new PullRequestInbox({ path: ':memory:', repositories: [repository], clock: () => now })
+  t.onTestFinished(() => inbox.close())
+  await inbox.seed(repository, pr()); const [claim] = await inbox.claim(1); assert.ok(claim)
+  assert.ok(await inbox.hydrate(claim, { threads: [{ id: 'thread', isResolved: false, comments: [] }], threadsHydrated: true }))
+  now = claim.snapshot.leaseUntil + 1
+  assert.equal(await inbox.recordThreadResolution(claim, 'thread', claim.snapshot), false)
+  assert.equal((await inbox.get(repository, 7))?.threads[0]?.isResolved, false)
 })
 test('close then reopen during active claim is not lost by stale terminal result', async t => {
   const inbox = memory(t); await inbox.seed(repository, pr()); const [claim] = await inbox.claim(1); assert.ok(claim)
@@ -215,6 +262,19 @@ test('persistent filters apply to discovery, labels, and claims; event rules onl
   assert.equal(await inbox.get(repository, 8), undefined)
 })
 
+test('a newly opened PR is admitted when its lifecycle label is present', async t => {
+  const inbox = new PullRequestInbox({
+    path: ':memory:',
+    repositories: [repository],
+    filter: resolveBabysitterLifecycleFilter({}, { labels: { require: ['repair'], deny: ['paused'] } }),
+  })
+  t.onTestFinished(() => inbox.close())
+  await post(inbox, 'opened-with-label', 'pull_request', { action: 'opened', sender: { login: 'maintainer' }, pull_request: pr({ labels: ['repair'] }) })
+  assert.equal((await inbox.claim(1)).length, 1)
+  await post(inbox, 'opened-paused', 'pull_request', { action: 'opened', sender: { login: 'maintainer' }, pull_request: pr({ number: 8, labels: ['repair', 'paused'] }) })
+  assert.equal((await inbox.claim(1)).length, 0)
+})
+
 test('another process cannot recover a live lease, and an expired owner cannot finish the replacement claim', async t => {
   const dir = mkdtempSync(join(tmpdir(), 'github-inbox-'))
   let now = 0
@@ -318,4 +378,12 @@ test('persisted status values are validated without coercion by both snapshot re
     await assert.rejects(async () => inbox.get(repository, 7), /Invalid inbox snapshot/)
     await assert.rejects(async () => inbox.all(), /Invalid inbox snapshot/)
   }
+})
+
+test('fork branch names do not block unrelated stack children', async t => {
+  const inbox = memory(t)
+  await inbox.seed(repository, pr({ number: 1, head: { sha: 'parent', ref: 'feature', repo: { full_name: 'fork/vitehub' } } }))
+  await inbox.seed(repository, pr({ number: 2, head: { sha: 'child', ref: 'child' }, base: { ref: 'feature', repo } }))
+  assert.equal((await inbox.summary()).find(item => item.number === 2)!.stackBlocked, undefined)
+  assert.ok((await inbox.claim(2)).some(claim => claim.snapshot.number === 2))
 })

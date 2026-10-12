@@ -47,6 +47,8 @@ export interface Collection<
   readonly [collectionQueryInput]?: TQueryInput
   /** Access rule for the generated route. Omit it for a public Collection. */
   readonly authorize?: AccessAuthorizeOption
+  readonly route?: false
+  readonly get?: (key: string, options?: { signal?: AbortSignal }) => Promise<TItem | null | undefined>
   page(options: CollectionPageOptions<TQuery>): Promise<CollectionPage<TItem>>
   parseQuery(input: CollectionRequestQuery): Promise<TQuery>
   /** The query schema, when the Collection has one. Tools read it to describe accepted query keys. */
@@ -138,6 +140,13 @@ export type CollectionLoader<TSourceItem, TQuery extends object, TCursor extends
   options: CollectionLoadOptions<TQuery, TCursor>,
 ) => Promise<readonly TSourceItem[]>
 
+export type ProviderCollectionLoader<TSourceItem, TQuery extends object> = (options: {
+  cursor?: string
+  limit: number
+  query: TQuery
+  signal?: AbortSignal
+}) => Promise<{ items: readonly TSourceItem[]; nextCursor: string | null }>
+
 type CollectionTransform<TSourceItem> = (item: NoInfer<TSourceItem>) => unknown
 
 export interface CollectionOptions<
@@ -154,6 +163,19 @@ export interface CollectionOptions<
   maxLimit?: number
   querySchema?: StandardSchemaV1<unknown, TQuery>
   transform?: CollectionTransform<TSourceItem>
+  get?: (key: string, options: { signal?: AbortSignal }) => Promise<TSourceItem | null | undefined>
+  route?: false
+}
+
+export interface ProviderCollectionOptions<TSourceItem, TQuery extends object, TItem = TSourceItem> {
+  authorize?: AccessAuthorizeOption
+  route?: false
+  pagination: "provider"
+  get?: (key: string, options: { signal?: AbortSignal }) => Promise<TSourceItem | null | undefined>
+  defaultLimit?: number
+  maxLimit?: number
+  querySchema?: StandardSchemaV1<unknown, TQuery>
+  transform?: (item: NoInfer<TSourceItem>) => Promise<TItem> | TItem
 }
 
 type CollectionDefinition<TSourceItem, TQuery extends object, TCursorInput extends CollectionCursorValue> = Omit<
@@ -242,6 +264,20 @@ export function defineCollection<
 ): Collection<TSourceItem, StandardSchemaV1.InferOutput<TQuerySchema>, QueryInput<TQuerySchema>>
 export function defineCollection<
   TSourceItem,
+  TQuerySchema extends StandardSchemaV1<unknown, object>,
+  TItem = TSourceItem,
+>(
+  load: ProviderCollectionLoader<TSourceItem, StandardSchemaV1.InferOutput<TQuerySchema>>,
+  options: ProviderCollectionOptions<TSourceItem, StandardSchemaV1.InferOutput<TQuerySchema>, TItem> & {
+    querySchema: TQuerySchema
+  },
+): Collection<TItem, StandardSchemaV1.InferOutput<TQuerySchema>, QueryInput<TQuerySchema>>
+export function defineCollection<TSourceItem, TItem = TSourceItem>(
+  load: ProviderCollectionLoader<TSourceItem, CollectionRequestQuery>,
+  options: ProviderCollectionOptions<TSourceItem, CollectionRequestQuery, TItem> & { querySchema?: undefined },
+): Collection<TItem, CollectionRequestQuery, CollectionRequestQuery>
+export function defineCollection<
+  TSourceItem,
   TCursorSchema extends StandardSchemaV1,
   TTransform extends CollectionTransform<TSourceItem>,
 >(
@@ -267,8 +303,8 @@ export function defineCollection<
   const TQuery extends object,
   TItem = TSourceItem,
 >(
-  load: CollectionLoader<TSourceItem, TQuery, TCursorOutput>,
-  definition: CollectionOptions<TSourceItem, TQuery, TCursorInput, TCursorOutput> & {
+  load: CollectionLoader<TSourceItem, TQuery, TCursorOutput> | ProviderCollectionLoader<TSourceItem, TQuery>,
+  definition: (CollectionOptions<TSourceItem, TQuery, TCursorInput, TCursorOutput> | ProviderCollectionOptions<TSourceItem, TQuery, TItem>) & {
     transform?: (item: NoInfer<TSourceItem>) => Promise<TItem> | TItem
   },
 ): Collection<TItem, TQuery, object> {
@@ -279,22 +315,31 @@ export function defineCollection<
   if (defaultLimit > maxLimit) {
     throw sourceErrorDiagnostics.SOURCE_R0008({ message: "[vitehub] Collection defaultLimit cannot exceed maxLimit." })
   }
-  const cursorCodec = createCollectionCursorCodec(definition.cursorSchema)
+  const cursorDefinition = "cursorSchema" in definition ? definition : undefined
+  const cursorCodec = cursorDefinition ? createCollectionCursorCodec(cursorDefinition.cursorSchema) : undefined
   const authorize = definition.authorize
   if (authorize !== undefined && authorize !== true && !(authorize instanceof Function)) {
     throw sourceErrorDiagnostics.SOURCE_R0024({ message: "[vitehub] Collection authorize must be true or a function." })
   }
 
-  return {
+  const collection: Collection<TItem, TQuery, object> = {
     ...(authorize ? { authorize } : {}),
+    route: definition.route,
     async page(request) {
       const limit = resolveLimit(request.limit, defaultLimit, maxLimit)
-      const sourceItems = await load({
-        cursor: await cursorCodec.decode(request.cursor),
-        limit: limit + 1,
-        query: request.query,
-        signal: request.signal,
-      })
+      if (!cursorDefinition || !cursorCodec) {
+        // SAFETY: The provider overload pairs a provider definition with a provider loader.
+        const result = await (load as ProviderCollectionLoader<TSourceItem, TQuery>)({ cursor: request.cursor, limit, query: request.query, signal: request.signal })
+        if (!result || !Array.isArray(result.items) || (result.nextCursor !== null && !isProviderCursor(result.nextCursor))) {
+          throw sourceErrorDiagnostics.SOURCE_R0009({ message: "[vitehub] Provider Collection load() must return items and nextCursor." })
+        }
+        const transformedItems = definition.transform ? await Promise.all(result.items.map(definition.transform)) : result.items
+        // SAFETY: Without transform the overload fixes TItem to TSourceItem; otherwise each item was transformed.
+        const items = transformedItems as TItem[]
+        return { items, nextCursor: result.nextCursor }
+      }
+      // SAFETY: A cursor definition is paired with a cursor loader by the public overloads.
+      const sourceItems = await (load as CollectionLoader<TSourceItem, TQuery, TCursorOutput>)({ cursor: await cursorCodec.decode(request.cursor), limit: limit + 1, query: request.query, signal: request.signal })
       if (!Array.isArray(sourceItems)) {
         throw sourceErrorDiagnostics.SOURCE_R0009({ message: "[vitehub] Collection load() must return an array." })
       }
@@ -302,7 +347,7 @@ export function defineCollection<
       const pageItems = sourceItems.slice(0, limit)
       const nextCursor =
         hasMore && pageItems.length
-          ? cursorCodec.encode(definition.cursor(pageItems[pageItems.length - 1]!))
+          ? cursorCodec.encode(cursorDefinition.cursor(pageItems[pageItems.length - 1]!))
           : null
       const transformedItems = definition.transform ? await Promise.all(pageItems.map(definition.transform)) : pageItems
       // SAFETY: The overload without transform fixes TItem to TSourceItem; the other branch ran the typed transform.
@@ -319,4 +364,19 @@ export function defineCollection<
     },
     ...(definition.querySchema ? { querySchema: definition.querySchema } : {}),
   }
+  const get = definition.get
+  if (get) {
+    const lookup = async (key: string, options?: { signal?: AbortSignal }) => {
+      const item = await get(key, options ?? {})
+      if (item === null || item === undefined) return item
+      return definition.transform ? await definition.transform(item) : item
+    }
+    // SAFETY: The overload without transform fixes TItem to TSourceItem; otherwise lookup applies the typed transform.
+    Object.assign(collection, { get: lookup as NonNullable<Collection<TItem>["get"]> })
+  }
+  return collection
+}
+
+function isProviderCursor(value: unknown): value is string {
+  return value === String(value)
 }

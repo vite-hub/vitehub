@@ -62,7 +62,9 @@ export function normalizeConnectionError(error: unknown): ConnectionError | unde
             if (typeof value === "string" || typeof value === "number" || value === undefined) details[key] = value
           }
         }
-        shape = { code, message, details, name: "ViteHubError", requestId: read("requestId") as string | undefined }
+        const requestId = read("requestId")
+        if (requestId !== undefined && (typeof requestId !== "string" || requestId.length === 0 || requestId.length > 256)) return undefined
+        shape = { code, message, details, name: "ViteHubError", requestId }
       }
     }
   }
