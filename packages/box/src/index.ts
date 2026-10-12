@@ -701,11 +701,8 @@ function normalizeFiles<Context>(
 
 function isUint8ArrayValue(value: unknown): value is Uint8Array {
   if (!ArrayBuffer.isView(value)) return false;
-  const tagGetter = Object.getOwnPropertyDescriptor(
-    Object.getPrototypeOf(Uint8Array.prototype),
-    Symbol.toStringTag,
-  )?.get;
-  return tagGetter?.call(value) === "Uint8Array";
+  const prototype = Object.getPrototypeOf(value);
+  return Object.getOwnPropertyDescriptor(prototype, "BYTES_PER_ELEMENT")?.value === 1;
 }
 
 function validateFileTargets(files: readonly string[], label: string) {
