@@ -1130,6 +1130,15 @@ function inspectorChannels(channels: NonNullable<AgentInvocationConfiguration["c
   ]);
 }
 
+function isRecordedChannel(value: unknown): value is NonNullable<AgentInvocationConfiguration["channels"]>[number] {
+  if (value === null || !hasRuntimeType(value, "object") || Array.isArray(value)) return false;
+  const channel = value as Record<string, unknown>;
+  return Object.hasOwn(channel, "id")
+    && hasRuntimeType(channel.id, "string")
+    && Object.hasOwn(channel, "kind")
+    && hasRuntimeType(channel.kind, "string");
+}
+
 function inspectorExecution(configuration: AgentInvocationConfiguration) {
   const model = configuration.driver?.model;
   const modelId = model?.id;
@@ -1203,7 +1212,14 @@ function renderConfiguration(
   const recordedTools = Array.isArray(configuration.tools) ? configuration.tools : [];
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Persisted catalogs can contain truncation markers; validate tool names at the inspector boundary.
   const tools = recordedTools.filter(tool => tool && typeof tool.name === "string");
-  configuration = { ...configuration, tools, truncated: configuration.truncated || tools.length !== recordedTools.length };
+  const recordedChannels = Array.isArray(configuration.channels) ? configuration.channels : [];
+  const channels = recordedChannels.filter(isRecordedChannel);
+  configuration = {
+    ...configuration,
+    channels,
+    tools,
+    truncated: configuration.truncated || tools.length !== recordedTools.length || channels.length !== recordedChannels.length,
+  };
   const driver = driverLabel(configuration);
   const workspace = workspaceLabel(configuration);
   const setup = [
