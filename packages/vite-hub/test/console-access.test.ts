@@ -88,6 +88,14 @@ describe("Console access policies", () => {
     expect(handler).toHaveBeenCalledOnce()
     expect(result).toEqual({ mode: "host-managed" })
   })
+  it("returns a custom Response created in another runtime realm", async () => {
+    const foreignPrototype = runInNewContext("({ get [Symbol.toStringTag]() { return 'Response' } })")
+    const response = Object.create(foreignPrototype)
+    const authorize = runInNewContext("() => response", { response })
+    const { handler, result } = await run({ mode: "host-managed", authorize })
+    expect(handler).not.toHaveBeenCalled()
+    expect(result).toBe(response)
+  })
   it("fails closed when no policy is installed", async () => {
     const { handler, result } = await run(undefined)
     expect(handler).not.toHaveBeenCalled()

@@ -35,6 +35,11 @@ const scope = globalThis as typeof globalThis & { [policyKey]?: ConsoleAccessPol
 const consoleAccessGrant = defineGrant("vitehub.console.access", (mode: ConsoleAccessMode) => mode)
 const checkedEvents = new WeakMap<object, ConsoleAccess>()
 const modes = new Set<ConsoleAccessMode>(["auth", "cloudflare-access", "host-managed", "local"])
+const objectToString = Object.prototype.toString
+
+function isResponse(value: unknown): value is Response {
+  return value instanceof Response || objectToString.call(value) === "[object Response]"
+}
 
 function rejection(status: number, message: string): Response {
   return Response.json({ message, ok: false, status }, {
@@ -81,7 +86,7 @@ async function checkConsoleAccess(event: ConsoleRequestEvent): Promise<ConsoleAc
       return rejection(500, "[vitehub] console: { exposure: \"host-managed\" } requires console.authorize. Set it to a server file that default-exports defineConsoleAuthorize().")
     }
     const result = await policy.authorize({ request: webRequest(event) })
-    if (result instanceof Response) return result
+    if (isResponse(result)) return result
     if (result !== true) return rejection(403, "Forbidden.")
   }
   else {
@@ -108,7 +113,7 @@ export async function consoleConnectionsActor(
   sessionActor?: () => Promise<string | undefined>,
 ): Promise<string | undefined> {
   const access = await checkConsoleAccess(event)
-  if (access instanceof Response) return undefined
+  if (isResponse(access)) return undefined
   if (access.mode === "auth") return sessionActor ? await sessionActor() : undefined
   return `user:${access.mode}`
 }
@@ -125,7 +130,7 @@ export function withConsoleAccess<TEvent extends ConsoleRequestEvent, TResult>(
     const bound = checkedEvents.get(event)
     if (bound && consoleAccessGrant.isValid(bound)) return handler(event, bound)
     const access = await checkConsoleAccess(event)
-    if (access instanceof Response) return access
+    if (isResponse(access)) return access
     checkedEvents.set(event, access)
     return handler(event, access)
   }
