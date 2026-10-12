@@ -5,8 +5,9 @@ import { deserializeResponse, isSerializedResponse, serializeResponse, toRespons
 describe("durable Response representation", () => {
   it("preserves Blob bodies created in another realm", async () => {
     const blob = runInNewContext(`
+      const { Blob } = require("node:buffer")
       new Blob(["test"], { type: "text/plain" })
-    `, { Blob })
+    `, { require: (id: string) => require(id) })
 
     const response = toResponse(blob)
     expect(response.headers.get("content-type")).toBe("text/plain")
