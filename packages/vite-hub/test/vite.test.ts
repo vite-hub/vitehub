@@ -578,6 +578,7 @@ describe("vitehub", () => {
 
   it("keeps coherent defaults and opt-in integrations", () => {
     expect(pluginNames(vitehub({ preset: "node" }))).toEqual([
+      "vite-hub/doctor",
       "@vite-hub/markdown-template/vite",
       "vite-hub/deployment-preset",
       "vite-hub/deployment-output",
@@ -607,6 +608,7 @@ describe("vitehub", () => {
       workflow: true,
       workspace: true,
     }))).toEqual([
+      "vite-hub/doctor",
       "@vite-hub/markdown-template/vite",
       "vite-hub/agent-channel-env",
       "vite-hub/deployment-preset",
@@ -1021,6 +1023,7 @@ describe("vitehub", () => {
     expect(aliases).not.toHaveProperty("vite-hub")
     expect(aliases).not.toHaveProperty("unstorage/drivers/upstash")
     expect(aliases).not.toHaveProperty("@vite-hub/kv/runtime/upstash-driver")
+    expect(aliases["vite-hub/_internal/agent/server/registry"]).toMatch(/packages\/vite-hub\/dist\/_internal\/agent\/server\/registry\.js$/)
     expect(aliases["vite-hub/_internal/agent/server/internal"]).toMatch(/packages\/vite-hub\/dist\/_internal\/agent\/server\/internal\.js$/)
     expect(aliases["vite-hub/_internal/sandbox/runtime/state"]).toMatch(/packages\/vite-hub\/dist\/_internal\/sandbox\/runtime\/state\.js$/)
     expect(aliases["vite-hub/shell/workspace"]).toMatch(/packages\/vite-hub\/dist\/shell\/workspace\.js$/)

@@ -226,6 +226,48 @@ describe("cloudflare queue runtime", () => {
     expect(report.mock.calls[0]?.[1]).toMatchObject({ queue: "image-expiry", retryable: true })
   })
 
+  it("falls back to retry when the Cloudflare onError hook throws", async () => {
+    const report = vi.spyOn(console, "error").mockImplementation(() => {})
+    const retry = vi.fn()
+    const onError = vi.fn(() => { throw new Error("error hook failed") })
+    const batchHandler = createCloudflareQueueBatchHandler({
+      onError,
+      onMessage: async () => { throw new Error("handler failed") },
+    })
+
+    await expect(batchHandler({
+      ackAll: vi.fn(),
+      messages: [{ ack: vi.fn(), attempts: 1, body: "fail", id: "1", retry }],
+      queue: "queue--666f6f",
+      retryAll: vi.fn(),
+    })).resolves.toBeUndefined()
+
+    expect(onError).toHaveBeenCalledOnce()
+    expect(retry).toHaveBeenCalledOnce()
+    expect(report).toHaveBeenCalledTimes(2)
+  })
+
+  it("retries non-retryable Cloudflare errors when the onError hook throws", async () => {
+    const report = vi.spyOn(console, "error").mockImplementation(() => {})
+    const retry = vi.fn()
+    const onError = vi.fn(() => { throw new Error("error hook failed") })
+    const batchHandler = createCloudflareQueueBatchHandler({
+      onError,
+      onMessage: async () => { throw new ViteHubError("INVALID_PAYLOAD", "Invalid payload.") },
+    })
+
+    await expect(batchHandler({
+      ackAll: vi.fn(),
+      messages: [{ ack: vi.fn(), attempts: 1, body: "fail", id: "1", retry }],
+      queue: "queue--666f6f",
+      retryAll: vi.fn(),
+    })).resolves.toBeUndefined()
+
+    expect(onError).toHaveBeenCalledOnce()
+    expect(retry).toHaveBeenCalledOnce()
+    expect(report).toHaveBeenCalledTimes(2)
+  })
+
   it.each([
     ["inherited", Object.create({ retry: { delaySeconds: 30 } })],
     ["callable", Object.assign(() => undefined, { retry: { delaySeconds: 30 } })],
@@ -730,6 +772,59 @@ describe("vercel provider", () => {
     const response = await client.callback(async () => {}, {})(new Request("https://example.com"))
     expect(response).toBeInstanceOf(Response)
     expect(handleCallback).toHaveBeenCalledTimes(1)
+  })
+
+  it("rejects inherited direct Vercel SDK clients", async () => {
+    const inherited = {
+      handleCallback: vi.fn(() => async () => new Response("inherited")),
+      send: vi.fn(async () => ({ messageId: "inherited" })),
+    }
+
+    await expect(createVercelQueueClient({
+      client: Object.create(inherited),
+      provider: "vercel",
+      topic: "topic--77656c636f6d65",
+    })).rejects.toMatchObject({
+      code: "VERCEL_QUEUE_SDK_INVALID",
+      details: { provider: "vercel" },
+    })
+
+    await expect(createVercelQueueClient({
+      client: null as never,
+      provider: "vercel",
+      topic: "topic--77656c636f6d65",
+    })).rejects.toMatchObject({ code: "VERCEL_QUEUE_SDK_INVALID" })
+
+    const revoked = Proxy.revocable({}, {})
+    revoked.revoke()
+    await expect(createVercelQueueClient({
+      client: revoked.proxy as never,
+      provider: "vercel",
+      topic: "topic--77656c636f6d65",
+    })).rejects.toMatchObject({ code: "VERCEL_QUEUE_SDK_INVALID" })
+  })
+
+  it("accepts class-backed direct Vercel SDK clients", async () => {
+    class QueueClient {
+      handleCallback() {
+        return async () => new Response("class")
+      }
+
+      async send() {
+        return { messageId: "class" }
+      }
+    }
+
+    const client = await createVercelQueueClient({
+      client: new QueueClient(),
+      provider: "vercel",
+      topic: "topic--77656c636f6d65",
+    })
+
+    await expect(client.send({ email: "ava@example.com" })).resolves.toMatchObject({
+      messageId: "class",
+      status: "queued",
+    })
   })
 
   it("uses provider region as the default send region", async () => {

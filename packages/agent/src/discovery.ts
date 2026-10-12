@@ -217,7 +217,7 @@ function invalidModuleLiteral(token: string | undefined): boolean {
 // adds a Capability of its own: the pull request Workspace. The other helpers
 // contribute only the Capabilities passed in their `capabilities` option.
 const firstPartyCapabilityFactories = new Set(["blob", "db", "usage", "transcribe"])
-const firstPartyChannelFactories = new Set(["discord", "github", "http", "slack", "teams", "telegram", "webChat"])
+const firstPartyChannelFactories = new Set(["discord", "github", "gitlab", "forgejo", "http", "slack", "teams", "telegram", "webChat"])
 const channelModuleExtensions = [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"]
 
 function importedChannelError(): Error {
