@@ -6,7 +6,11 @@ function isError(value: unknown): value is Error {
   try {
     const nativeIsError = Reflect.get(Error, "isError")
     if (typeof nativeIsError === "function") return nativeIsError(value) === true
-    return !(Symbol.toStringTag in value) && Object.prototype.toString.call(value) === "[object Error]"
+    if (value instanceof Error) return true
+    const prototype = Object.getPrototypeOf(value)
+    return prototype !== null
+      && prototype !== Object.prototype
+      && Object.prototype.toString.call(value) === "[object Error]"
   }
   catch {
     return false

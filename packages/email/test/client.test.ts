@@ -240,6 +240,25 @@ describe("createEmail", () => {
     })
   })
 
+  it("preserves tagged provider errors without native Error.isError", async () => {
+    const cause = Object.assign(new Error("slow down"), {
+      code: "RATE_LIMIT" as const,
+      driver: "custom",
+      retryable: true,
+      [Symbol.toStringTag]: "ProviderError",
+    })
+    const descriptor = Object.getOwnPropertyDescriptor(Error, "isError")
+    Object.defineProperty(Error, "isError", { configurable: true, value: undefined })
+    try {
+      const client = createEmail({ driver: fixtureDriver(async () => ({ data: null, error: cause })) })
+      await expect(client.send(message)).rejects.toMatchObject({ code: "EMAIL_RATE_LIMITED", details: { driver: "custom" } })
+    }
+    finally {
+      if (descriptor) Object.defineProperty(Error, "isError", descriptor)
+      else Reflect.deleteProperty(Error, "isError")
+    }
+  })
+
   it("preserves structurally valid custom provider errors", async () => {
     const cause = Object.assign(new Error("slow down"), { code: "RATE_LIMIT" as const, driver: "custom", retryable: true })
     const client = createEmail({ driver: fixtureDriver(async () => ({ data: null, error: cause })) })
