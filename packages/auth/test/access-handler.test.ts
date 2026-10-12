@@ -104,7 +104,7 @@ describe("Auth access handlers", () => {
     await expect(handler(new Request("https://app.example/"))).resolves.toBe(response)
   })
 
-  it("returns authorization responses from another realm unchanged", async () => {
+  it("rejects response-shaped authorization results without native slots", async () => {
     const foreignResponse = runInNewContext(`new (class {
       get status() { return 409 }
       get statusText() { return "Conflict" }
@@ -112,6 +112,16 @@ describe("Auth access handlers", () => {
       get body() { return null }
       get [Symbol.toStringTag]() { return "Response" }
     })()`)
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => foreignResponse as never }] },
+    }))
+
+    const result = await handler(new Request("https://app.example/"))
+    expect(result?.status).toBe(403)
+  })
+
+  it("returns native authorization responses created in another realm", async () => {
+    const foreignResponse = runInNewContext("new (class extends Response {})('Policy rejected', { status: 409 })", { Response })
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
       access: { routes: [{ route: "/**", authorize: () => foreignResponse as never }] },
     }))
