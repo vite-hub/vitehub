@@ -42,10 +42,11 @@ export interface MultipartUploadTask {
 const defaultPartSize = 10 * 1024 * 1024
 
 function isFile(value: unknown): value is File {
-  if (typeof value !== "object" || value === null) return false
-  if (typeof File !== "undefined" && value instanceof File) return true
   try {
-    return Object.prototype.toString.call(value) === "[object File]"
+    // The native name getter validates File slots across realms without trusting
+    // Symbol.toStringTag or the value's prototype chain.
+    const name = Object.getOwnPropertyDescriptor(File.prototype, "name")?.get
+    return name?.call(value) !== undefined
   }
   catch {
     return false
@@ -170,7 +171,7 @@ export async function uploadFiles(apiBase: string, input: UploadInput, options: 
   const files = toFiles(input)
   if (!files.length) return []
   const form = new FormData()
-  for (const file of files) form.append(options.formKey ?? "files", file)
+  for (const file of files) form.append(options.formKey ?? "files", file, file.name)
   const request = options.fetch ?? globalThis.fetch
   const response = await request(apiBase, { body: form, headers: mergeHeaders(options.headers), method: options.method ?? "POST" })
   return await readJson(response, parseSerializedBlobObjectArray)
