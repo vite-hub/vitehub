@@ -139,7 +139,7 @@ export type MessagePart =
   | ToolCallPart
   | ToolResultPart
 
-function isArrayBufferValue(value: unknown): value is ArrayBuffer {
+export function isArrayBufferValue(value: unknown): value is ArrayBuffer {
   if (value instanceof ArrayBuffer) return true
   try {
     Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")!.get!.call(value)
@@ -149,8 +149,10 @@ function isArrayBufferValue(value: unknown): value is ArrayBuffer {
   }
 }
 
-function isUint8ArrayValue(value: unknown): value is Uint8Array {
-  return ArrayBuffer.isView(value) && Object.prototype.toString.call(value) === "[object Uint8Array]"
+const typedArrayTag = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), Symbol.toStringTag)?.get
+
+export function isUint8ArrayValue(value: unknown): value is Uint8Array {
+  return ArrayBuffer.isView(value) && typedArrayTag?.call(value) === "Uint8Array"
 }
 
 export function isAttachmentData(value: unknown): value is AttachmentData {

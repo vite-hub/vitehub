@@ -11,4 +11,11 @@ describe("Agent attachment byte boundaries", () => {
     expect(isAttachmentData(data)).toBe(true)
     await expect(resolveAttachmentData({ data, mediaType: "application/octet-stream", type: "file" })).resolves.toBe(data)
   })
+
+  it("uses the intrinsic Uint8Array brand", () => {
+    const bytes = new Uint8Array([1, 2, 3])
+    Object.defineProperty(bytes, Symbol.toStringTag, { configurable: true, get: () => { throw new Error("tag accessed") } })
+    expect(isAttachmentData(bytes)).toBe(true)
+    expect(isAttachmentData(new DataView(new ArrayBuffer(3)))).toBe(false)
+  })
 })
