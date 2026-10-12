@@ -183,11 +183,10 @@ function resolveContentType(path: string, mediaType: string | undefined, content
 }
 
 function errorMessage(error: unknown): string | undefined {
-  if (!error || typeof error !== "object") return
+  if (Object(error) !== error) return
   try {
-    if (!Object.prototype.hasOwnProperty.call(error, "message")) return
-    const message = (error as { message?: unknown }).message
-    return typeof message === "string" ? message : undefined
+    const message = Object.getOwnPropertyDescriptor(error, "message")?.value
+    return message === String(message) ? String(message) : undefined
   }
   catch {
     return
