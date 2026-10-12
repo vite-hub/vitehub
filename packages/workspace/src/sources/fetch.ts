@@ -1,7 +1,7 @@
 import { executeHttpRequest, parseStandardSchema } from "@vite-hub/internal/http-request"
 import { posix } from "node:path"
 
-import { normalizeSafeWorkspacePath } from "../core/path.ts"
+import { isWorkspaceBytes, normalizeSafeWorkspacePath } from "../core/path.ts"
 import { markLiveWorkspaceSource } from "./live.ts"
 import { requestJsonEqual } from "./request-json.ts"
 import {
@@ -467,7 +467,7 @@ function serializedQuery(query: Record<string, unknown> | undefined): Record<str
 }
 
 function serializeFetchSourceContent(value: unknown, responseType: FetchSourceResponseType): WorkspaceContent {
-  if (ArrayBuffer.isView(value) && Object.prototype.toString.call(value) === "[object Uint8Array]") {
+  if (isWorkspaceBytes(value)) {
     return value instanceof Uint8Array ? value : Uint8Array.from(value as Uint8Array)
   }
   if (responseType === "json") return JSON.stringify(value, null, 2) ?? "null"
