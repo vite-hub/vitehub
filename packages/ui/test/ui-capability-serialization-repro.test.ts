@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { AgentCapabilityInspector } from "../src/components/agent-capability-inspector.ts";
 import type { AgentInvocationView } from "../src/types.ts";
 
-function invocation(state: unknown, metadata?: unknown): AgentInvocationView {
+function invocation(state: unknown, metadata?: unknown, view?: unknown): AgentInvocationView {
   return {
     id: "capability-boundary",
     traceId: "trace",
@@ -14,7 +14,7 @@ function invocation(state: unknown, metadata?: unknown): AgentInvocationView {
     updatedAt: "2026-09-10T00:00:01Z",
     status: "completed",
     observations: [],
-    configuration: { capabilities: [{ id: "custom", inspection: { label: "Custom", state: state as never }, metadata: metadata as never }] },
+    configuration: { capabilities: [{ id: "custom", inspection: { label: "Custom", state: state as never, view: view as never }, metadata: metadata as never }] },
   };
 }
 
@@ -39,4 +39,17 @@ describe("AgentCapabilityInspector serialization", () => {
     const html = await renderToString(createSSRApp({ render: () => h(AgentCapabilityInspector, { invocation: props }) }));
     expect(html.replaceAll("&quot;", "\"" )).toContain(expected);
   });
+  it("guards hostile state before rendering a valid inspection view", async () => {
+    const props = invocation(cyclic, undefined, {
+      root: "message",
+      elements: { message: { type: "Text", props: { text: "Safe view" } } },
+    });
+    const wrapper = mount(AgentCapabilityInspector, { props: { invocation: props } });
+    expect(wrapper.text()).toContain("Safe view");
+    expect(wrapper.text()).not.toContain("[object Object]");
+    wrapper.unmount();
+    const html = await renderToString(createSSRApp({ render: () => h(AgentCapabilityInspector, { invocation: props }) }));
+    expect(html).toContain("Safe view");
+  });
+
 });

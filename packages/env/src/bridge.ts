@@ -305,7 +305,7 @@ export function createEnvBridge(options: EnvBridgeOptions): EnvBridge {
     },
     async grant(context, grant) {
       validateActor(grant.actor);
-      if (!grant.permissions.length || grant.permissions.some(permission => !["inspect", "preview", "replace", "use"].includes(permission))) throw envBridgeError("invalid");
+      if (!Array.isArray(grant.permissions) || !grant.permissions.length || grant.permissions.some(permission => !["inspect", "preview", "replace", "use"].includes(permission))) throw envBridgeError("invalid");
       return audited(context, grant.key, "grant", "admin", () => options.access.setGrant(grant), undefined, { target: grant.actor, permissions: grant.permissions });
     },
     async revoke(context, actor, key) {

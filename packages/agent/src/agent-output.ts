@@ -452,19 +452,19 @@ function withFallbackUsageMetadata(
   const credentialSource = record.credentialSource
   const runMetadata = mergedRunMetadata(run, readableProperty(record, "run"))
   const provider = record.provider ?? (compound ? undefined : modelMetadata?.provider)
-  return model || provider || transport || cost || response || latency || credentialSource || runMetadata
-    ? {
-        ...record,
-        ...(cost ? { cost } : {}),
-        ...(credentialSource ? { credentialSource } : {}),
-        ...(latency ? { latency } : {}),
-        ...(model ? { model } : {}),
-        ...(provider ? { provider } : {}),
-        ...(response ? { response } : {}),
-        ...(runMetadata ? { run: runMetadata } : {}),
-        ...(transport ? { transport } : {}),
-      }
-    : record
+  const usage = readableProperty(record, "usage")
+  if (!model && !provider && !transport && !cost && !response && !latency && !credentialSource && !runMetadata && !usage) return record
+  const result = { ...record }
+  if (cost) result.cost = cost
+  if (credentialSource) result.credentialSource = credentialSource
+  if (latency) result.latency = latency
+  if (model) result.model = model
+  if (provider) result.provider = provider
+  if (response) result.response = response
+  if (runMetadata) result.run = runMetadata
+  if (transport) result.transport = transport
+  if (usage) result.usage = usage
+  return result
 }
 
 export function usageRecordFromStreamChunk(chunk: unknown, fallbackMetadataSource?: unknown, run?: Partial<AgentRunMetadata>): AgentUsageRecord | undefined {
