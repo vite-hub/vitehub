@@ -71,7 +71,7 @@ The guard rejects multi-statement input before the statement reaches the databas
 - `policy` applies only to `db_exec`. The single-statement, rationale, and SQL-kind checks run also when `policy` allows the call.
 - `policy` accepts `'allow'`, `'require-approval'`, `'deny'`, `'retryable-failure'`, or a function that receives `{ name, input }` and returns one of these values.
 - Without `policy`, an enabled `db_exec` call runs when the Agent calls it.
-- `'require-approval'` stops the call with `APPROVAL_REQUIRED` and an Approval Request. The request input contains the statement and the rationale. See [Runtime policy, approvals, and traces](/docs/getting-started/concepts/runtime-policy-approvals-and-traces).
+- `'require-approval'` stops the call with `APPROVAL_REQUIRED` and an Approval Request. The request input contains the statement and the rationale. See [Runtime policy, approvals, and traces](/docs/agents/runtime-policy).
 
 ## Driver support
 
@@ -101,4 +101,4 @@ The guard rejects multi-statement input before the statement reaches the databas
 
 - [Database primitive](/docs/database)
 - [Official capabilities](/docs/agents/capabilities/official)
-- [Runtime policy, approvals, and traces](/docs/getting-started/concepts/runtime-policy-approvals-and-traces)
+- [Runtime policy, approvals, and traces](/docs/agents/runtime-policy)
