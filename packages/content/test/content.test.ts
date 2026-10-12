@@ -812,6 +812,6 @@ describe("defineContentHandler", () => {
     }
 
     await expect(handler({ method: "POST", node: { req: nodeRequest }, req: nodeRequest } as never))
-      .rejects.toThrow("CONTENT_R0005")
+      .rejects.toThrow(expect.objectContaining({ code: "CONTENT_R0005" }))
   })
 })

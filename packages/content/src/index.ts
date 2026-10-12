@@ -41,12 +41,14 @@ type NodeContentRequest = {
 function nodeBodyChunk(value: unknown): Uint8Array | undefined {
   try {
     if (ArrayBuffer.isView(value)) {
+      // SAFETY: ArrayBuffer.isView narrows value to an ArrayBufferView with the required buffer offsets.
       const view = value as ArrayBufferView
       return new Uint8Array(view.buffer, view.byteOffset, view.byteLength)
     }
     // Calling the intrinsic getter performs the ArrayBuffer brand check and
     // works for genuine buffers created in another realm.
     Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")!.get!.call(value)
+    // SAFETY: The intrinsic byteLength getter above verified the ArrayBuffer internal slot.
     return new Uint8Array(value as ArrayBuffer)
   }
   catch {
