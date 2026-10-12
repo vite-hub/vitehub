@@ -383,7 +383,7 @@ describe("output transfer limits", () => {
     expect(execution.code).toBe(1)
     expect(execution.output.error).toMatchObject({ code: "SANDBOX_TRANSFER_LIMIT" })
     expect(execution.output.error?.message).toContain(limit)
-    expect(await execution.readOutputFile(0)).toEqual(Buffer.from([1, 2]))
+    await expect(execution.readOutputFile(0)).rejects.toMatchObject({ code: "ENOENT" })
     await expect(execution.readOutputFile(1)).rejects.toMatchObject({ code: "ENOENT" })
     await expect(execution.readOutputFile(2)).rejects.toMatchObject({ code: "ENOENT" })
   })
