@@ -28,9 +28,9 @@ defineProps<{
   border-inline-end: 1px solid var(--ui-border);
 }
 
+/* The context panel matches the primitive rail from @vite-hub/ui: the same surface and hairline. */
 .dark .vitehub-console__nav[data-slot="root"] {
   background: #000;
-  border-inline-end-color: rgb(255 255 255 / 8%);
 }
 
 .vitehub-console__nav [data-slot="header"] {
@@ -83,7 +83,7 @@ defineProps<{
   color: var(--ui-text-highlighted);
   display: flex;
   font-size: 0.875rem;
-  font-weight: 500;
+  font-weight: 600;
   gap: 0.5rem;
   height: 2rem;
   min-width: 0;

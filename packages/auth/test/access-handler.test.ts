@@ -105,18 +105,27 @@ describe("Auth access handlers", () => {
   })
 
   it("returns authorization responses from another realm unchanged", async () => {
-    const foreignResponse = runInNewContext(`new (class {
-      get status() { return 409 }
-      get statusText() { return "Conflict" }
-      get headers() { return { get() { return null } } }
-      get body() { return null }
-      get [Symbol.toStringTag]() { return "Response" }
-    })()`)
+    const foreignResponse = runInNewContext('new Response("Policy rejected", { status: 409 })', { Response })
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
       access: { routes: [{ route: "/**", authorize: () => foreignResponse as never }] },
     }))
 
     await expect(handler(new Request("https://app.example/"))).resolves.toBe(foreignResponse)
+  })
+
+  it("rejects spoofed authorization responses", async () => {
+    const spoofedResponse = {
+      status: 409,
+      statusText: "Conflict",
+      headers: { get() { return null } },
+      [Symbol.toStringTag]: "Response",
+    }
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => spoofedResponse as never }] },
+    }))
+
+    const response = await handler(new Request("https://app.example/"))
+    expect(response?.status).toBe(403)
   })
 
   it("starts provider sign-in only for matched unauthenticated HTML requests", async () => {

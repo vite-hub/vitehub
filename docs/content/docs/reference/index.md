@@ -66,6 +66,12 @@ unless a reference page documents that path.
 Provider-specific behavior belongs to the package that owns the primitive.
 For example, Blob Provider SDK Adapters belong behind Blob Driver Modules, and Workspace Provider Adapters stay behind Workspace configuration and generated runtime wiring.
 
+## Package tutorials
+
+- [Build your first UI view](/docs/ui/get-started) for `@vite-hub/ui`.
+- [Run your first Box](/docs/agents/box-tutorial) for `@vite-hub/box`.
+- [Render your first Markdown template](/docs/reference/markdown-template-tutorial) for `@vite-hub/markdown-template`.
+
 ## Related
 
 - [Import paths](/docs/reference/import-paths)
