@@ -1044,7 +1044,7 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.findAll('.vh-invocation-message[data-role="assistant"]').map(message => message.get(".vh-invocation-message__body").text()))
       .toEqual(finalResponse === "Finished." ? ["Done.", "Done.", "Finished."] : ["Done.", "Done."]);
     const inspector = mount(AgentInvocationInspector, { props: { invocation } });
-    expect(inspector.get(".vh-invocation-inspector__metrics").text()).toContain(`Messages${visibleMessageCount}`);
+    expect(inspector.get(".vh-invocation-inspector__metrics").text()).toContain(`Messages (including collapsed)${visibleMessageCount}`);
   });
 
   it.each(["reply", "update"].flatMap(kind =>
@@ -1078,7 +1078,7 @@ describe("Agent Invocation UI", () => {
     const receipt = wrapper.get('.vh-invocation-work__activities [data-kind="delivery"]');
     expect(receipt.find(".vh-invocation-delivery__body").exists()).toBe(false);
     const inspector = mount(AgentInvocationInspector, { props: { invocation } });
-    expect(inspector.get(".vh-invocation-inspector__metrics").text()).toContain(`Messages${expectedAnswers.length}`);
+    expect(inspector.get(".vh-invocation-inspector__metrics").text()).toContain(`Messages (including collapsed)${expectedAnswers.length}`);
   });
 
   it("keeps active work visible and collapses it when the run completes", async () => {
