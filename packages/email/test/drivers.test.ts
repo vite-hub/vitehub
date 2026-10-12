@@ -51,6 +51,32 @@ const ambiguousOneClickMessages: Pick<EmailMessage, "headers" | "unsubscribe">[]
 ];
 
 describe("Resend Email driver", () => {
+  it("rejects inherited provider options", () => {
+    const request = vi.fn();
+    const options = Object.create({ apiKey: "re_secret", fetch: request }) as ResendEmailDriverOptions;
+
+    expect(() => resend(options)).toThrow("apiKey is required");
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it("ignores inherited optional provider options", async () => {
+    const inheritedFetch = vi.fn();
+    const request = vi.fn(async () => new Response(JSON.stringify({ id: "email-1" }), { status: 200 }));
+    vi.stubGlobal("fetch", request);
+    try {
+      const options = Object.assign(
+        Object.create({ endpoint: "https://inherited.example.test", fetch: inheritedFetch }),
+        { apiKey: "re_secret" },
+      ) as ResendEmailDriverOptions;
+      await expect(resend(options).send(message, context)).resolves.toMatchObject({ error: null });
+      expect(request).toHaveBeenCalledWith("https://api.resend.com/emails", expect.any(Object));
+      expect(inheritedFetch).not.toHaveBeenCalled();
+    }
+    finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("rejects credentials that do not match Resend's API key shape", () => {
     expect(() => resend({ apiKey: "secret" })).toThrow("apiKey must start with 're_'");
   });
