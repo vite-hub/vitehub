@@ -728,10 +728,11 @@ function boundedObservationValue(
   }
   if (isDateValue(value)) {
     budget.truncated = true
+    const timestamp = Date.prototype.getTime.call(value)
     return {
       type: "Date",
       value: boundedObservationValue(
-        Number.isFinite(value.getTime()) ? value.toISOString() : String(value),
+        Number.isFinite(timestamp) ? Date.prototype.toISOString.call(value) : String(value),
         budget,
         depth + 1,
         maxStringLength,
