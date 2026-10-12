@@ -29,3 +29,24 @@ it("preserves cross-realm Date values in OTLP attributes", async () => {
     { key: "value", value: { stringValue: "2026-01-01T00:00:00.000Z" } },
   ] } })
 })
+
+it.each([
+  ["a Proxy around a Date", new Proxy(new Date("2026-01-01T00:00:00.000Z"), {})],
+  ["an object inheriting from Date.prototype", Object.create(Date.prototype)],
+])("preserves Date errors for %s", async (_description, dateShapedValue) => {
+  const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(null, { status: 200 }))
+  vi.stubGlobal("fetch", fetch)
+
+  await expect(otlpHttpJson({ endpoint: "https://telemetry.example/otlp" })({
+    agent: {},
+    records: [{
+      attributes: { "vitehub.payload.value": dateShapedValue },
+      eventName: "agent.test",
+      spanId: "0123456789abcdef",
+      time: "2026-01-01T00:00:00.001Z",
+      traceId: "0123456789abcdef0123456789abcdef",
+    }],
+    runtime: { capabilities: {}, memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
+    signal: "logs",
+  })).rejects.toThrow(TypeError)
+})

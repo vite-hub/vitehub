@@ -103,6 +103,9 @@ async function otlpAnyValue(value: unknown, budget: OtlpEncodingBudget, ancestor
       },
     }
   }
+  // Preserve the previous failure semantics for Date-shaped values whose
+  // internal slot is invalid (for example, a Proxy around a Date).
+  if (value instanceof Date) Date.prototype.getTime.call(value)
   if (value instanceof RegExp) {
     return {
       kvlistValue: {
