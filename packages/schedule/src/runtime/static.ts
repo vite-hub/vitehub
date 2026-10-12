@@ -81,11 +81,19 @@ function isScheduleRuntimeError(error: unknown): error is Error {
     const prototype = Object.getPrototypeOf(error)
     return prototype !== null
       && prototype !== Object.prototype
+      && !hasToStringTagProperty(error, prototype)
       && Object.prototype.toString.call(error) === "[object Error]"
   }
   catch {
     return false
   }
+}
+
+function hasToStringTagProperty(error: object, prototype: object): boolean {
+  for (let current: object | null = error; current !== null; current = current === error ? prototype : Object.getPrototypeOf(current)) {
+    if (Object.prototype.hasOwnProperty.call(current, Symbol.toStringTag)) return true
+  }
+  return false
 }
 
 export function createStaticScheduleRun(

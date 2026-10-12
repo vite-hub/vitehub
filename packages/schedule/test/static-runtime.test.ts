@@ -273,6 +273,7 @@ it("preserves errors raised in another runtime realm", async () => {
 
 it("wraps spoofed and hostile thrown values safely", () => {
   const spoof = { [Symbol.toStringTag]: "Error" }
+  const customPrototypeSpoof = Object.create({ [Symbol.toStringTag]: "Error" })
   const hostile = new Proxy({}, {
     get() {
       throw new Error("tag access failed")
@@ -283,5 +284,6 @@ it("wraps spoofed and hostile thrown values safely", () => {
   })
 
   expect(normalizeScheduleRuntimeError(spoof)).toMatchObject({ code: "SCHEDULE_R0035", cause: spoof })
+  expect(normalizeScheduleRuntimeError(customPrototypeSpoof)).toMatchObject({ code: "SCHEDULE_R0035", cause: customPrototypeSpoof })
   expect(normalizeScheduleRuntimeError(hostile)).toMatchObject({ code: "SCHEDULE_R0035", cause: hostile })
 })
