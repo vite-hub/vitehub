@@ -12,10 +12,17 @@ import type { QueueDefinition, VercelQueueCallbackOptions } from "../types.ts"
 export const hostedVercelWaitUntil: (promise: Promise<unknown>) => void | undefined = vercelWaitUntil
 
 function isRequestLike(value: unknown): value is Request {
-  if (value === null || typeof value !== "object" || Object.prototype.toString.call(value) !== "[object Request]") return false
-  const request = value as { headers?: unknown; method?: unknown; url?: unknown }
-  if (typeof request.method !== "string" || typeof request.url !== "string" || request.headers === null || typeof request.headers !== "object") return false
-  return typeof (request.headers as { get?: unknown }).get === "function"
+  if (value === null || typeof value !== "object") return false
+
+  // Request methods perform a native brand check, including for Requests from
+  // another realm. Unlike Symbol.toStringTag and public fields, this cannot be
+  // spoofed by an ordinary object.
+  try {
+    Request.prototype.clone.call(value)
+    return true
+  } catch {
+    return false
+  }
 }
 
 async function toRequest(event: {

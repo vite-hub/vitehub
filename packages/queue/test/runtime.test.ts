@@ -732,14 +732,7 @@ describe("cloudflare queue runtime", () => {
 
 describe("vercel provider", () => {
   it("preserves hosted callback Requests from another realm", async () => {
-    const request = runInNewContext(`
-      class Headers { get() { return null } }
-      class CrossRealmRequest {
-        constructor() { this.body = null; this.headers = new Headers(); this.method = "POST"; this.url = "https://queue.example.test/callback" }
-      }
-      Object.defineProperty(CrossRealmRequest.prototype, Symbol.toStringTag, { value: "Request" })
-      new CrossRealmRequest()
-    `, { Symbol })
+    const request = runInNewContext("new Request('https://queue.example.test/callback', { method: 'POST' })", { Request })
     let captured: unknown
     vercelQueueMock.handleCallback.mockImplementationOnce(() => async (...values: unknown[]) => {
       captured = values[0]
@@ -751,6 +744,27 @@ describe("vercel provider", () => {
 
     await expect(handleHostedVercelQueueCallback({ request }, "welcome", definition)).resolves.toBe("handled")
     expect(captured).toBe(request)
+  })
+
+  it("converts spoofed Request-shaped objects through H3", async () => {
+    const request = runInNewContext(`
+      const headers = { get() { return null } }
+      const request = { headers, method: "POST", url: "https://queue.example.test/callback" }
+      Object.defineProperty(request, Symbol.toStringTag, { value: "Request" })
+      request
+    `, { Symbol })
+    let captured: unknown
+    vercelQueueMock.handleCallback.mockImplementationOnce(() => async (...values: unknown[]) => {
+      captured = values[0]
+      return "handled"
+    })
+    const definition = { handler: async () => undefined }
+    setQueueRuntimeConfig({ provider: "vercel", region: "iad1" }, createVercelQueueRuntimeClient)
+    setQueueRuntimeRegistry({ welcome: async () => ({ default: definition }) })
+
+    await expect(handleHostedVercelQueueCallback({ request }, "welcome", definition)).resolves.toBe("handled")
+    expect(captured).not.toBe(request)
+    expect(captured).toBeInstanceOf(Request)
   })
 
   it("requires a selected client factory for default manual servers", () => {
