@@ -325,17 +325,19 @@ body {
   }
 }
 
+/* The footer uses the same insets as the docs landing pages. The root sets every inset; the container adds none. */
 .vh-site-footer {
-  padding: 2rem 1rem;
+  border-top: 1px solid var(--ui-border);
+  padding: 1.5rem 1rem;
 }
 
-@media (min-width: 640px) {
+@media (min-width: 40rem) {
   .vh-site-footer {
-    padding: 2.5rem 2rem;
+    padding: 1rem 2rem;
   }
 }
 
-@media (min-width: 1024px) {
+@media (min-width: 80rem) {
   .vh-site-footer {
     padding-inline: 3rem;
   }
