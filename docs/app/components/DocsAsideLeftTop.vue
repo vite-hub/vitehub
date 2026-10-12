@@ -10,7 +10,7 @@ const sectionCategory = computed(() => {
   const category = currentSection.value?.category;
   return category && category !== currentSection.value?.title ? category : "Getting started";
 });
-const isDocsIndex = computed(() => normalizeDocsPath(route.path) === "/docs");
+const isDocsIndex = computed(() => normalizeDocsPath(route.path) === normalizeDocsPath(sectionPath.value));
 </script>
 
 <template>
