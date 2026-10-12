@@ -5,6 +5,19 @@ import * as v from "valibot"
 import type { GitHubHost } from "./github-host.ts"
 import type { GitHubRepairCommit } from "./github-repair.ts"
 
+interface GithubMentionToken {
+  attrSet: (name: string, value: string) => void
+  children?: GithubMentionToken[] | null
+  content: string
+  info: string
+  markup: string
+  type: string
+}
+
+interface GithubMentionState {
+  tokens: GithubMentionToken[]
+}
+
 const actor = v.nullable(v.object({ login: v.string(), __typename: v.string() }))
 const reviewSchema = v.object({ author: actor, state: v.string() })
 const pageSchema = v.object({ hasNextPage: v.boolean(), endCursor: v.nullable(v.string()) })
@@ -154,7 +167,7 @@ async function githubMentionTokens(body: string): Promise<string[]> {
       markdownItPlugins: [md => {
         // Remove actual inline comments before Comark falls back to raw text.
         // Escaped or entity-encoded delimiters remain visible text tokens.
-        md.core.ruler.after("linkify", "github-mention-comments", state => {
+        md.core.ruler.after("linkify", "github-mention-comments", (state: GithubMentionState) => {
           for (const token of state.tokens) {
             if (!token.children) continue
             token.children = token.children.filter(child => child.type !== "html_inline" || !child.content.startsWith("<!--"))

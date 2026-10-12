@@ -1,5 +1,6 @@
 import * as decoding from "lib0/decoding"
 import * as encoding from "lib0/encoding"
+import { normalizeSafeWorkspacePath } from "@vite-hub/workspace"
 
 import type { RealtimeWorkspaceChange } from "./types.ts"
 import { realtimeErrorDiagnostics } from "./error-diagnostics.ts"
@@ -30,7 +31,7 @@ function validPath(value: unknown): value is string {
     const traversal = /^(?:\.(?: +[. ]*)?|\.\.(?: +[. ]*)?)$/.test(withoutStream)
     const reserved = canonical === ".git"
       || /^git~\d+$/.test(canonical)
-      || (index === 0 && canonical === ".vitehub")
+      || canonical === ".vitehub"
       || (index === 0 && /^vitehu~\d+$/.test(canonical))
     return !part || traversal || reserved
   })
