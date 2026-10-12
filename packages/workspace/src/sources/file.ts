@@ -15,13 +15,16 @@ export function file<const TKey extends string>(input: TKey): WorkspaceSource
 export function file<const TKey extends string = string, const TOptions extends FileSourceOptions<TKey> = FileSourceOptions<TKey>>(input: ExactOptions<TOptions, FileSourceOptions<TKey>>): WorkspaceSource
 export function file<const TKey extends string = string>(input: FileSourceInput<TKey>): WorkspaceSource {
   const options = (typeof input === "string" ? { path: input } : input) as FileSourceOptions<TKey>
-  const key = normalizeSafeWorkspacePath(options.workspacePath || options.path || "")
+  const workspacePath = Object.hasOwn(options, "workspacePath") && options.workspacePath
+    ? options.workspacePath
+    : Object.hasOwn(options, "path") && options.path ? options.path : ""
+  const key = normalizeSafeWorkspacePath(workspacePath)
   const mount = typeof options.mount === "object" && options.mount && !("path" in options.mount)
     ? { ...options.mount, path: "" }
     : options.mount ?? ""
   const source = createFileSource(options)
   return {
     ...withWorkspaceRuntimeOptions(source, { ...options, mount }),
-    probeKeys: options.probeKeys || [key],
+    probeKeys: Object.hasOwn(options, "probeKeys") && options.probeKeys ? options.probeKeys : [key],
   }
 }

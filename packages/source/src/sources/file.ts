@@ -32,7 +32,7 @@ function normalizeFileSourceOptions<TKey extends string>(input: FileSourceInput<
 
 function sourceKey<TKey extends string>(options: FileSourceOptions<TKey>): TKey {
   if (Object.hasOwn(options, "workspacePath") && options.workspacePath) {
-    return normalizeSourcePath(options.workspacePath) as TKey
+    return normalizeSafeSourcePath(options.workspacePath) as TKey
   }
   if (Object.hasOwn(options, "path") && options.path) {
     return normalizeSourcePath(normalizeSafeSourcePath(options.path)) as TKey

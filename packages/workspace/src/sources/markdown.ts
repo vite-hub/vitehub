@@ -7,10 +7,13 @@ import type { FileSourceOptions } from "./file.ts"
 import type { WorkspaceSource } from "../core/types.ts"
 
 export function markdown(options: FileSourceOptions): WorkspaceSource {
-  const key = normalizeSafeWorkspacePath(options.workspacePath || options.path || "")
+  const workspacePath = Object.hasOwn(options, "workspacePath") && options.workspacePath
+    ? options.workspacePath
+    : Object.hasOwn(options, "path") && options.path ? options.path : ""
+  const key = normalizeSafeWorkspacePath(workspacePath)
   const source = createMarkdownSource(options)
   return {
     ...withWorkspaceRuntimeOptions(source, options),
-    probeKeys: options.probeKeys || [key],
+    probeKeys: Object.hasOwn(options, "probeKeys") && options.probeKeys ? options.probeKeys : [key],
   }
 }
