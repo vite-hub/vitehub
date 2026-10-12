@@ -4,7 +4,7 @@ Use this for Vite, Nitro, Nuxt, integration ordering, generated types, or deploy
 
 ## Select one current page
 
-Start with [Vite Integrations and Provider Output](https://vitehub.dev/raw/docs/getting-started/concepts/vite-integrations-and-provider-output.md). Open [Config options](https://vitehub.dev/raw/docs/reference/config-options.md) only for an option mismatch, or the selected page under [Frameworks and hosts](https://vitehub.dev/raw/docs/frameworks-hosts.md) only for a named framework or deployment target.
+Start with [Vite Integrations and Provider Output](https://vitehub.dev/raw/docs/development/integrations-and-output.md). Open [Config options](https://vitehub.dev/raw/docs/reference/config-options.md) only for an option mismatch, or the selected page under [Frameworks and hosts](https://vitehub.dev/raw/docs/frameworks-hosts.md) only for a named framework or deployment target.
 
 ## Current application contract
 

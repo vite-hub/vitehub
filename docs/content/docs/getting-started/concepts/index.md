@@ -1,48 +1,64 @@
 ---
-title: Concepts
-description: Learn the ViteHub terms that help you choose an API and understand what runs where.
-navigation.title: Overview
-navigation.order: 101
-navigation.group: Concepts
+title: How ViteHub works
+description: Understand the few parts that connect application code, server features, and Agents.
+navigation.title: How ViteHub works
+navigation.order: 7
 icon: i-lucide-map
 ---
 
-ViteHub adds server features to Vite applications and lets Agents use selected features through Capabilities. These pages explain the terms that connect those two paths.
+ViteHub connects your server code to the resources provided by your host.
+You choose the features in your configuration. Your application calls their
+server APIs. The build prepares the routes, bindings, and files that your host
+needs.
 
-For setup and API options, go to [Server primitives](/docs/getting-started/server-primitives), [Agents](/docs/agents), [Capabilities](/docs/agents/capabilities), or [Reference](/docs/reference).
+## Server features belong to your application
 
-## Start here
+A Server Primitive is an API for one server feature, such as KV, Database,
+Blob, or Queue. You can use it directly from a route. You do not need an Agent.
 
-| Page | Read it when |
-| --- | --- |
-| [Server primitives](/docs/getting-started/server-primitives) | You need storage, background work, auth, isolated execution, or another server feature. |
-| [Agents](/docs/agents) | You need a named actor that runs with a model, coding provider, or application code. |
+For example, a settings route can read a value with `kv.get()`. During local
+development, KV can use a local store. On Cloudflare, the same route can use
+a Workers KV binding. Your configuration selects the provider, while the
+route keeps the same ViteHub import. Provider limits still apply. Each
+package documents them under its host and error pages.
 
-## Core vocabulary
+Start with [your first Server Primitive](/docs/getting-started/first-server-primitive)
+to see this path work in a route.
 
-| Page | Defines |
-| --- | --- |
-| [Definition discovery](/docs/getting-started/concepts/definitions-and-discovery) | How ViteHub finds and names a definition file. |
-| [Agent Invocations](/docs/agents/invocations#what-happens-during-an-invocation) | What ViteHub resolves and records for one Agent request. |
-| [Capabilities](/docs/agents/capabilities#choose-the-api-by-its-caller) | How an Agent receives a selected ability. |
-| [Workspace and Sources](/docs/getting-started/concepts/workspace-and-sources) | How a writable file tree differs from the read-only content mounted into it. |
-| [Auth Users and Agent Invokers](/docs/getting-started/concepts/auth-users-and-agent-invokers) | How application identity becomes trusted invocation identity. |
-| [Channels](/docs/agents/channels#channels-and-invocations) | How messages and delivery facts reach an Agent. |
+## Definitions give state and work a name
 
-## Runtime execution
+Some features need a Definition file. A Queue Definition declares the handler
+for background jobs. An Agent Definition declares what an Agent can do.
+ViteHub discovers these files and gives them names based on their locations.
 
-| Page | Defines |
-| --- | --- |
-| [Runtime Context](/docs/getting-started/concepts/runtime-context) | The host resources available to a server operation or Agent request. |
-| [Runtime Helpers and stable imports](/docs/getting-started/concepts/runtime-helpers-and-stable-imports) | The imports application code uses to call ViteHub. |
-| [Runtime policy, approvals, and traces](/docs/getting-started/concepts/runtime-policy-approvals-and-traces) | The records that explain whether work ran, waited, or failed. |
+Your code calls the named feature. It does not import generated provider
+files. Read [Definition discovery](/docs/development/definition-discovery)
+when you add a new Definition or need to check its name.
 
-## Host and build model
+## Agents use the same server features
 
-| Page | Defines |
-| --- | --- |
-| [Vite Integrations and Provider Output](/docs/getting-started/concepts/vite-integrations-and-provider-output) | How ViteHub prepares a package for development and deployment. |
+An Agent is a named actor that runs instructions through a model, a coding
+provider, or application code. An Invocation is one run of that Agent.
 
-## Next steps
+A Capability gives the Agent a selected operation. For example, a KV
+Capability can let a support Agent read settings, while your application
+continues to call KV directly. Add only the operations the Agent needs.
+Your server decides who can invoke it and which resources it can access.
 
-Open [Installation](/docs/getting-started/installation) for a runnable project. If you already know what you need, go to [Server primitives](/docs/getting-started/server-primitives) or [Agents](/docs/agents).
+Follow [your first Agent](/docs/getting-started/first-agent), then read
+[Capabilities](/docs/agents/capabilities) and
+[Invocations](/docs/agents/invocations) as you add behavior.
+
+## Choose the next page by your task
+
+Each product has a tutorial for its first result, guides for specific tasks,
+and API reference for options and return values. Keep the detailed topics
+with the feature that owns them:
+
+- [Workspaces and Sources](/docs/workspace/concepts) explain writable files and read-only mounts.
+- [Invoker identity](/docs/agents/invokers) explains the trusted caller of an Agent run.
+- [Runtime policy](/docs/agents/runtime-policy) explains approval decisions and recorded events.
+- [Frameworks and hosts](/docs/frameworks-hosts) explains deployment configuration.
+
+Browse [Guides](/guides) to choose a result to build, or use the
+[documentation catalog](/docs) to find an API.

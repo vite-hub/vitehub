@@ -12,6 +12,49 @@ import { getGitSparsePatterns, loadGitArchiveFiles } from "./git.ts"
 import type { FileSource, SourceContext, SourceRevision } from "../../core/types.ts"
 import type { GitHubCommitResponse, GitHubContentResponse, GitHubFile, GitHubRepositoryResponse, GitHubSourceOptions } from "./types.ts"
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- GitHub JSON crosses the untrusted HTTP boundary as an unknown value.
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- GitHub JSON fields must be validated before the typed response is used.
+  return typeof value === "string" && value.length > 0
+}
+
+function isGitHubRepositoryResponse(value: unknown): value is GitHubRepositoryResponse {
+  return isRecord(value) && isNonEmptyString(value.default_branch)
+}
+
+function isGitHubCommitResponse(value: unknown): value is GitHubCommitResponse {
+  return isRecord(value) && isNonEmptyString(value.sha)
+}
+
+function isGitHubContentResponse(value: unknown): value is GitHubContentResponse {
+  return isRecord(value)
+    && isNonEmptyString(value.type)
+    && isNonEmptyString(value.sha)
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- GitHub JSON fields must be validated before the typed response is used.
+    && (value.content === undefined || typeof value.content === "string")
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- GitHub JSON fields must be validated before the typed response is used.
+    && (value.encoding === undefined || typeof value.encoding === "string")
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- GitHub JSON fields must be validated before the typed response is used.
+    && (value.path === undefined || typeof value.path === "string")
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- GitHub JSON fields must be validated before the typed response is used.
+    && (value.sha === undefined || typeof value.sha === "string")
+}
+
+function isGitHubContentResult(value: unknown): value is GitHubContentResponse | GitHubContentResponse[] {
+  return Array.isArray(value) ? value.every(isGitHubContentResponse) : isGitHubContentResponse(value)
+}
+
+function requireGitHubResponse<T>(value: unknown, valid: (value: unknown) => value is T, repo: string, description: string): T {
+  if (!valid(value)) {
+    throw sourceError(`[vitehub] github(${JSON.stringify(repo)}) returned a malformed ${description} response.`)
+  }
+  return value
+}
+
 function normalizeGitHubRoot(path = "") {
   const root = path.replace(/\\/g, "/").split("/").filter(part => part !== ".").join("/")
   return normalizeSafeSourcePath(root, { allowEmpty: true, allowReserved: true }).split("/").filter(Boolean).join("/")
@@ -105,22 +148,22 @@ export function github(options: GitHubSourceOptions): FileSource<string> {
   async function resolveSourceRevision(token = auth, signal?: AbortSignal): Promise<SourceRevision> {
     if (!configuredRef) {
       try {
-        const repo = await requestGitHubJson<GitHubRepositoryResponse>({
+        const repo = requireGitHubResponse(await requestGitHubJson<unknown>({
           ref: "default",
           repo: options.repo,
           signal,
           token,
           url: `https://api.github.com/repos/${options.repo}`,
-        })
-        const ref = repo.default_branch || "main"
-        const commit = await requestGitHubJson<GitHubCommitResponse>({
+        }), isGitHubRepositoryResponse, options.repo, "repository")
+        const ref = repo.default_branch
+        const commit = requireGitHubResponse(await requestGitHubJson<unknown>({
           ref,
           repo: options.repo,
           signal,
           token,
           url: `https://api.github.com/repos/${options.repo}/commits/${encodeURIComponent(ref)}`,
-        })
-        return { id: commit.sha || ref, immutable: Boolean(commit.sha), ref }
+        }), isGitHubCommitResponse, options.repo, "commit")
+        return { id: commit.sha, immutable: true, ref }
       }
       catch (error) {
         if (shouldResolveMainFallback(error)) return { id: "main", immutable: false, ref: "main" }
@@ -129,14 +172,14 @@ export function github(options: GitHubSourceOptions): FileSource<string> {
     }
 
     try {
-      const commit = await requestGitHubJson<GitHubCommitResponse>({
+      const commit = requireGitHubResponse(await requestGitHubJson<unknown>({
         ref: configuredRef,
         repo: options.repo,
         signal,
         token,
         url: `https://api.github.com/repos/${options.repo}/commits/${encodeURIComponent(configuredRef)}`,
-      })
-      return { id: commit.sha || configuredRef, immutable: Boolean(commit.sha), ref: configuredRef }
+      }), isGitHubCommitResponse, options.repo, "commit")
+      return { id: commit.sha, immutable: true, ref: configuredRef }
     }
     catch (error) {
       if (shouldResolveMainFallback(error)) return { id: configuredRef, immutable: false, ref: configuredRef }
@@ -170,13 +213,13 @@ export function github(options: GitHubSourceOptions): FileSource<string> {
 
   async function validateConfiguredRef(token = auth, signal?: AbortSignal): Promise<void> {
     if (!configuredRef) return
-    await requestGitHubJson<GitHubCommitResponse>({
+    requireGitHubResponse(await requestGitHubJson<unknown>({
       ref: configuredRef,
       repo: options.repo,
       signal,
       token,
       url: `https://api.github.com/repos/${options.repo}/commits/${encodeURIComponent(configuredRef)}`,
-    })
+    }), isGitHubCommitResponse, options.repo, "commit")
   }
 
   async function loadArchiveFiles(token = auth, signal?: AbortSignal, resolvedRef?: string) {
@@ -251,13 +294,13 @@ export function github(options: GitHubSourceOptions): FileSource<string> {
     const repoPath = repoPathForKey(normalizedKey)
     let file: GitHubContentResponse | GitHubContentResponse[] | undefined
     try {
-      file = await requestGitHubJson<GitHubContentResponse | GitHubContentResponse[]>({
+      file = requireGitHubResponse(await requestGitHubJson<unknown>({
         ref,
         repo: options.repo,
         signal,
         token,
         url: contentsUrl(repoPath, ref),
-      })
+      }), isGitHubContentResult, options.repo, "content")
     }
     catch (error) {
       if (isGitHubAccessError(error)) {
@@ -313,13 +356,13 @@ export function github(options: GitHubSourceOptions): FileSource<string> {
     }
     const ref = resolvedRef ?? await getRef(token, signal)
     const repoPath = repoPathForKey(normalizedKey)
-    const file = await requestGitHubJson<GitHubContentResponse | GitHubContentResponse[]>({
+    const file = requireGitHubResponse(await requestGitHubJson<unknown>({
       ref,
       repo: options.repo,
       signal,
       token,
       url: contentsUrl(repoPath, ref),
-    })
+    }), isGitHubContentResult, options.repo, "content")
     if (Array.isArray(file) || file.type === "dir") {
       throw sourceError(`[vitehub] github(${JSON.stringify(options.repo)}) expected ${JSON.stringify(key)} to be a file, but it is a directory.`)
     }

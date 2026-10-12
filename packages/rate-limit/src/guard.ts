@@ -1,4 +1,5 @@
 import { getRequestIP, HTTPError } from "h3"
+import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 
 import { cloudflareRateLimitDriver } from "./drivers/cloudflare.ts"
 import { getCloudflareRateLimitBindingName } from "./integrations/cloudflare.ts"
@@ -14,22 +15,10 @@ import type { CloudflareRateLimitBinding } from "./drivers/cloudflare.ts"
 import type { RateLimiter, RateLimitPolicy, RateLimitRequestEvent, RequireRateLimitOptions } from "./types.ts"
 import { rateLimitErrorDiagnostics } from "./error-diagnostics.ts"
 
-interface CloudflareEnvCarrier {
-  context?: { cloudflare?: { env?: Record<string, unknown> }, _platform?: { cloudflare?: { env?: Record<string, unknown> } } }
-  env?: Record<string, unknown>
-  node?: { req?: { runtime?: { cloudflare?: { env?: Record<string, unknown> } } } }
-  req?: { runtime?: { cloudflare?: { env?: Record<string, unknown> } } }
-}
-
 const guardOptionKeys = new Set([...rateLimitPolicyKeys, "key"])
 
 function getCloudflareEventEnv(event: RateLimitRequestEvent): Record<string, unknown> | undefined {
-  const target = event as unknown as CloudflareEnvCarrier
-  return target.env
-    ?? target.context?.cloudflare?.env
-    ?? target.context?._platform?.cloudflare?.env
-    ?? target.req?.runtime?.cloudflare?.env
-    ?? target.node?.req?.runtime?.cloudflare?.env
+  return getCloudflareEnv(event, { fallback: false })
 }
 
 function isCloudflareBinding(value: unknown): value is CloudflareRateLimitBinding {
