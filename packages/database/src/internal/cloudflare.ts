@@ -1,6 +1,69 @@
-import { resolveConfigValue } from "../config-value.ts"
+import { resolveConfigValue, withConfigValueFallback } from "../config-value.ts"
+import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
 
-import type { DatabaseConfigValue, ResolvedDBViteConfig } from "../types.ts"
+import type { CloudflareD1BindingConfig, CloudflareD1Projection, DatabaseConfigValue, DBModulePublicOptions, ResolvedDBViteConfig } from "../types.ts"
+
+export function cloudflareOptions(
+  options: DBModulePublicOptions | undefined,
+): CloudflareD1BindingConfig | undefined {
+  if (options === false || !options || options.driver !== "d1") return
+  const value: CloudflareD1BindingConfig = {}
+  if (options.binding !== undefined) value.binding = options.binding
+  if (options.databaseId !== undefined) value.databaseId = options.databaseId
+  if (options.databaseName !== undefined) value.databaseName = options.databaseName
+  if (options.cloudflare?.http !== undefined) value.http = options.cloudflare.http
+  if (options.migrationsTable !== undefined) value.migrationsTable = options.migrationsTable
+  if (options.previewDatabaseId !== undefined) value.previewDatabaseId = options.previewDatabaseId
+  return Object.keys(value).length ? value : undefined
+}
+
+export function mergeCloudflareConfig(
+  defaults: CloudflareD1BindingConfig | undefined,
+  definition: CloudflareD1BindingConfig | undefined,
+  ownsResource = definition?.databaseId !== undefined || definition?.databaseName !== undefined,
+): CloudflareD1BindingConfig | undefined {
+  if (!defaults) return definition
+  if (!definition && !ownsResource) return defaults
+  definition ??= {}
+  const value: CloudflareD1BindingConfig = { ...defaults }
+  if (definition.binding !== undefined) value.binding = definition.binding
+  if (ownsResource) {
+    value.databaseId = definition.databaseId
+    value.databaseName = definition.databaseName
+  }
+  const defaultHttp = defaults.http
+  const definitionHttp = definition.http
+  if (definitionHttp !== undefined) {
+    value.http = definitionHttp !== true && defaultHttp && defaultHttp !== true
+      ? {
+          authToken: definitionHttp.authToken ?? defaultHttp.authToken,
+          url: definitionHttp.url ?? defaultHttp.url,
+        }
+      : definitionHttp
+  }
+  if (definition.migrationsTable !== undefined) value.migrationsTable = definition.migrationsTable
+  if (ownsResource || definition.previewDatabaseId !== undefined) value.previewDatabaseId = definition.previewDatabaseId
+  return value
+}
+
+export function resolveRuntimeCloudflareConfig(
+  defaults: CloudflareD1BindingConfig | undefined,
+  definition: CloudflareD1BindingConfig | undefined,
+  options: Partial<CloudflareD1Projection> & { migrationsDir?: string, name: string },
+) {
+  const inheritsResource = options.resource !== "configured" && definition?.databaseId === undefined && definition?.databaseName === undefined
+  const value = mergeCloudflareConfig(defaults, definition, !inheritsResource)
+  if (!value) return
+  const inheritedBinding = options.name === "default" ? defaults?.binding : undefined
+  const binding = options.resource === "opaque" && !inheritsResource
+    ? undefined
+    : definition?.binding?.trim() || options.binding
+      || (inheritsResource || !defaults ? resolveCloudflareD1BindingName(options.name, inheritedBinding) : undefined)
+  const config: CloudflareD1BindingConfig & { migrationsDir?: string } = { ...value, binding }
+  if (inheritsResource || options.resource !== "opaque") config.databaseId = withConfigValueFallback(config.databaseId, options.provisionedId)
+  if (options.migrationsDir) config.migrationsDir = options.migrationsDir
+  return config
+}
 
 interface CloudflareD1ProvisionState {
   cloudflare?: {
@@ -55,8 +118,7 @@ interface ResolveCloudflareD1BindingsOptions {
 }
 
 function resolveProvisionedD1Id(provisionState: CloudflareD1ProvisionState | undefined, name: string) {
-  const value = provisionState?.cloudflare?.d1?.[name]
-  return typeof value === "string" && value.trim() ? value.trim() : undefined
+  return provisionState?.cloudflare?.d1?.[name]
 }
 
 function resolveNonEmptyConfigValue(value: DatabaseConfigValue | undefined) {
@@ -90,15 +152,16 @@ function createUnresolvedBinding(
 ): CloudflareD1UnresolvedBinding {
   const databaseName = resolveNonEmptyConfigValue(database.databaseName)
   const previewDatabaseId = resolveNonEmptyConfigValue(database.previewDatabaseId)
-  return {
+  const unresolved: CloudflareD1UnresolvedBinding = {
     binding,
     database: name,
-    ...(databaseName ? { databaseName } : {}),
     ...(database.migrationsDir ? { migrationsDir: database.migrationsDir } : {}),
     ...(database.migrationsTable ? { migrationsTable: database.migrationsTable } : {}),
     ...(previewDatabaseId ? { previewDatabaseId } : {}),
     reason,
   }
+  if (databaseName?.trim()) unresolved.databaseName = databaseName
+  return unresolved
 }
 
 export function resolveCloudflareD1Binding(
@@ -111,13 +174,13 @@ export function resolveCloudflareD1Binding(
   const databaseName = resolveNonEmptyConfigValue(input.databaseName)
   const previewDatabaseId = resolveNonEmptyConfigValue(input.previewDatabaseId)
 
-  if (!databaseId) {
+  if (!databaseId?.trim()) {
     return {
       bindingName,
       unresolved: createUnresolvedBinding(database, bindingName, input, "missing-database-id"),
     }
   }
-  if (!databaseName) {
+  if (!databaseName?.trim()) {
     return {
       bindingName,
       unresolved: createUnresolvedBinding(database, bindingName, input, "missing-database-name"),
@@ -143,6 +206,7 @@ export function resolveCloudflareD1Bindings(
 ): ResolvedCloudflareD1Bindings {
   const d1Databases: CloudflareD1WranglerBinding[] = []
   const unresolved: CloudflareD1UnresolvedBinding[] = []
+  const bindingDatabases = new Map<string, string>()
 
   for (const name of config.databaseNames) {
     const database = config.databases[name]?.cloudflare
@@ -157,7 +221,14 @@ export function resolveCloudflareD1Bindings(
       migrationsTable: database.migrationsTable,
       previewDatabaseId: database.previewDatabaseId,
     })
-    if (projection.d1Database) d1Databases.push(projection.d1Database)
+    if (projection.d1Database) {
+      const previous = bindingDatabases.get(projection.bindingName)
+      if (previous) {
+        throw databaseErrorDiagnostics.DATABASE_B0006({ message: `[vitehub] Database Definitions ${JSON.stringify(previous)} and ${JSON.stringify(name)} use the same Cloudflare D1 binding ${JSON.stringify(projection.bindingName)}. Set cloudflare.binding to a distinct name for each Definition.` })
+      }
+      bindingDatabases.set(projection.bindingName, name)
+      d1Databases.push(projection.d1Database)
+    }
     if (projection.unresolved) unresolved.push(projection.unresolved)
   }
 
