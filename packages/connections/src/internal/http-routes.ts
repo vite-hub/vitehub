@@ -280,7 +280,7 @@ const action: ConnectionsRoute = {
         return json({ ...result, approvals: result.approvals.map(approvalSummary) });
       }
       case "approval-counts": {
-        const counts: Record<string, number> = {};
+        const counts: Record<string, number> = Object.create(null);
         for (const connection of await connections.list()) {
           let before: string | undefined;
           const seenCursors = new Set<string>();
