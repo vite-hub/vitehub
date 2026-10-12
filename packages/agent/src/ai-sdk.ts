@@ -737,7 +737,11 @@ function withWorkspaceFallbackFullStream(
         continue
       }
       yield event
-      if (type === "error") return
+      if (type === "error") {
+        const errorRecord = hasRuntimeType(event, "object") && event !== null ? event as { error?: unknown } : undefined
+        const streamError = errorRecord?.error
+        if (streamError instanceof ExecutionBudgetExceededError || context.executionBudget?.signal.aborted && context.executionBudget.signal.reason instanceof ExecutionBudgetExceededError) return
+      }
     }
 
     const fallbackEvidence = evidence.length ? evidence : capturedEvidence?.() ?? []
@@ -1340,9 +1344,11 @@ async function createAgent(
     const candidate = aiSdk.wrapLanguageModel
     if (hasRuntimeType(candidate, "function")) wrapLanguageModel = candidate
   }
-  catch {
-    // Vitest's partial-module proxy throws for missing optional exports.
-    optionalWrapperMocked = true
+  catch (error) {
+    // Vitest partial-module proxies throw a distinctive missing-export error.
+    const message = error instanceof Error ? error.message : String(error)
+    if (message.includes("wrapLanguageModel") && message.includes("export is defined") && message.includes("mock")) optionalWrapperMocked = true
+    else throw error
   }
   if (context.executionBudget && !wrapLanguageModel && !optionalWrapperMocked) {
     throw new Error("[vitehub] Execution budgets require AI SDK wrapLanguageModel support.")
