@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { runInNewContext } from "node:vm"
+import { Response as FetchResponse } from "undici"
 
 import { defineAuth } from "../src/index.ts"
 import { createAuthAccessHandler } from "../src/server.ts"
@@ -105,18 +106,33 @@ describe("Auth access handlers", () => {
   })
 
   it("returns authorization responses from another realm unchanged", async () => {
-    const foreignResponse = runInNewContext(`new (class {
-      get status() { return 409 }
-      get statusText() { return "Conflict" }
-      get headers() { return { get() { return null } } }
-      get body() { return null }
-      get [Symbol.toStringTag]() { return "Response" }
-    })()`)
+    const foreignResponse = runInNewContext(`new Response("Policy rejected", {
+      status: 409, headers: { "x-policy": "rejected" },
+    })`, { Response: FetchResponse })
+    expect(foreignResponse).not.toBeInstanceOf(Response)
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
       access: { routes: [{ route: "/**", authorize: () => foreignResponse as never }] },
     }))
 
     await expect(handler(new Request("https://app.example/"))).resolves.toBe(foreignResponse)
+    expect(foreignResponse.headers.get("x-policy")).toBe("rejected")
+    expect(foreignResponse.bodyUsed).toBe(false)
+    await expect(foreignResponse.clone().text()).resolves.toBe("Policy rejected")
+    await expect(foreignResponse.text()).resolves.toBe("Policy rejected")
+  })
+
+  it("rejects objects that only spoof the Response brand", async () => {
+    const spoofedResponse = {
+      get status() { return 409 },
+      get statusText() { return "Conflict" },
+      get headers() { return { get() { return null } } },
+      get [Symbol.toStringTag]() { return "Response" },
+    }
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => spoofedResponse as never }] },
+    }))
+
+    await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
   })
 
   it("starts provider sign-in only for matched unauthenticated HTML requests", async () => {

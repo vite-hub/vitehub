@@ -206,11 +206,16 @@ When a custom host installs a wake driver, call and await `controller.close()` d
 
 Set `manual: true` on a Static Schedule Definition to allow an on-demand run, then invoke it with `vitehub schedule run <name>`. The name is the discovered schedule file name. Runtime Schedules use the separate `run-runtime` command.
 
+Discovery reads `manual` and `allowRuntimeSchedules` as literal booleans from directly exported Definitions. Use identifier keys or quoted keys without escape sequences. Spreads, computed keys, escaped keys, and metadata getters or methods fail with the source file and line.
+
 The Console Schedules section is a record table. Build-time records list Schedule Definitions. `readScheduleConsoleRecords()` from `@vite-hub/schedule/runtime/console` adds Runtime Schedules with enabled state, next run, last run, and run history on each request. The Console is read-only. A Runtime Schedule with `console: { enabled: false }` is hidden there. The CLI and the Console redact credentials in Schedule input and error messages.
 
 ## Import runtime helpers
 
 The main `@vite-hub/schedule` entry exports `defineSchedule`, `defineScheduleTarget`, `schedules`, `validateRuntimeScheduleCron`, and public types. Import execution, storage, and runtime state helpers from `@vite-hub/schedule/runtime`. Import `discoverScheduleDefinitions` from `@vite-hub/schedule/vite` when writing a build integration. Applications use `vite-hub/schedule` and `vite-hub/schedule/runtime`.
+
+Runtime execution helpers accept `captureHandlerFailure: true` to return the persisted failed run after a handler error. Pre-execution guards, including disabled schedules, still throw. The dev endpoint uses this option to distinguish a rejected operation from a handler failure.
+Manual calls reject an existing disabled Runtime Schedule even when the same occurrence has a saved run. Provider wakes acknowledge saved occurrences after disablement without another handler attempt. A new provider occurrence still requires an enabled schedule.
 
 This is a breaking import change. Move existing execution, store, and state helper imports to `/runtime`, and discovery imports to `/vite`. Helper behavior is unchanged. The main entry no longer loads file discovery or its build dependencies.
 

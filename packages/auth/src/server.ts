@@ -287,12 +287,18 @@ async function runAccessAuthorize(
 function isResponseLike(value: unknown): value is Response {
   if (value === null || typeof value !== "object") return false
   try {
-    if (Object.prototype.toString.call(value) !== "[object Response]") return false
-    const response = value as { headers?: unknown, status?: unknown, statusText?: unknown }
-    if (typeof response.status !== "number" || !Number.isInteger(response.status) || response.status < 0 || response.status > 599) return false
-    if (typeof response.statusText !== "string") return false
+    if (value instanceof Response) return true
+    // Fetch implementations from another realm can have a different constructor.
+    // Require the body and header APIs callers use, not just a spoofable brand.
+    const response = value as Response
+    if (Object.prototype.toString.call(response) !== "[object Response]") return false
+    if (!Number.isInteger(response.status) || response.status < 0 || response.status > 599) return false
+    if (typeof response.statusText !== "string" || typeof response.bodyUsed !== "boolean") return false
+    if (!["clone", "arrayBuffer", "blob", "formData", "json", "text"].every(method => typeof Reflect.get(response, method) === "function")) return false
     const headers = response.headers
-    return headers !== null && typeof headers === "object" && typeof (headers as { get?: unknown }).get === "function"
+    if (!headers || typeof headers.get !== "function" || typeof headers[Symbol.iterator] !== "function") return false
+    const body = response.body
+    return body === null || (typeof body === "object" && typeof body.getReader === "function" && typeof body.cancel === "function" && typeof body.tee === "function")
   }
   catch {
     return false

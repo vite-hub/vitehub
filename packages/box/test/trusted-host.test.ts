@@ -228,6 +228,9 @@ describe("createTrustedHostRuntime", () => {
     await expect(session.run({ command: "true", env: { CODEX_HOME: ambientHome } })).rejects.toThrow(
       "cannot override CODEX_HOME",
     );
+    await expect(session.run({ command: "true", env: { "A.B": "unsupported" } })).rejects.toThrow(
+      "Invalid Box environment variable: A.B",
+    );
     await session.destroy?.();
   });
 
