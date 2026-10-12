@@ -25,7 +25,7 @@ function normalizeConnectionsBasePath(value: string | undefined): string {
   if (value !== undefined && typeof value !== "string") {
     throw new ConnectionError("invalid", "Connections basePath must be a string.");
   }
-  const path = value?.trim() || CONNECTIONS_ROUTE;
+  const path = value === undefined ? CONNECTIONS_ROUTE : value.trim();
   if (!path.startsWith("/")) {
     throw new ConnectionError("invalid", "Connections basePath must start with `/`.");
   }
