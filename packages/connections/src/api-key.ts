@@ -50,8 +50,13 @@ export function isValidApiKeyProvider(provider: { header: string, origins: reado
   try {
     if (!provider || typeof provider !== "object" || Array.isArray(provider)) return false
     if (typeof provider.header !== "string" || !Array.isArray(provider.origins)) return false
-    for (let index = 0; index < provider.origins.length; index++) {
-      if (!(index in provider.origins) || typeof provider.origins[index] !== "string") return false
+    const originIndexes = Object.getOwnPropertyNames(provider.origins).filter(key => {
+      const index = Number(key)
+      return String(index) === key && index >= 0 && index < 2 ** 32 - 1
+    })
+    if (originIndexes.length !== provider.origins.length) return false
+    for (const key of originIndexes) {
+      if (typeof provider.origins[Number(key)] !== "string") return false
     }
     return tokenPattern.test(provider.header)
       && provider.header === provider.header.toLowerCase()
