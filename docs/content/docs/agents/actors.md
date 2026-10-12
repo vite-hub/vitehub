@@ -56,7 +56,7 @@ export default defineEventHandler(async (event) => {
 ViteHub trusts this server-owned value. Never copy unverified request fields
 into `context.invoker`. The `finally` block drains tracked background work
 when the host has no lifetime API. See
-[Runtime Context](/docs/getting-started/concepts/runtime-context#background-work-and-cleanup).
+[Runtime Context](/docs/reference/runtime-context#background-work-and-cleanup).
 
 Without an Actor, ViteHub uses an anonymous Actor with the id
 `anonymous:<origin>`. A `chat.message` Trigger without `invoker` derives a

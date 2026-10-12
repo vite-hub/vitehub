@@ -76,7 +76,7 @@ function matchesGitHubRemote(
 
 function githubRemoteFile(path: string, entry: GitHubTreeEntry): GitHubWorkspaceStoreFile {
   return {
-    gitSha: entry.sha!,
+    gitSha: entry.sha,
     metadata: gitHubFileMetadata(entry),
     path,
     size: entry.size,
@@ -586,7 +586,7 @@ class GitHubWorkspaceStore implements WorkspaceStore {
             ...(previous && previous.gitSha === entry.sha && gitHubFileMode(previous.metadata) === (entry.mode || "100644")
               ? { bytes: previous.bytes }
               : {}),
-            gitSha: entry.sha!,
+            gitSha: entry.sha,
             metadata: gitHubFileMetadata(entry),
             path,
             size: entry.size,
