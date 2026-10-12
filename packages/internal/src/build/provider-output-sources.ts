@@ -1031,7 +1031,13 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
       const retainedPnpmPackages = new Set<string>()
       for (const source of materializedSources) {
         const packageRoot = pnpmStorePackageRoot(root, source)
-        if (packageRoot && existsSync(packageRoot)) retainedPnpmPackages.add(packageRoot)
+        // Sources outside the selected root are materialized under the capture
+        // container above. Their pnpm roots must not be rebased through
+        // `retainedRoot`, since a `..` relative path would escape the retained
+        // artifact and could target the build workspace instead.
+        if (packageRoot && pathContains(root, packageRoot) && existsSync(packageRoot)) {
+          retainedPnpmPackages.add(packageRoot)
+        }
       }
       await Promise.all([...retainedPnpmPackages].map(async (source) => {
         const target = resolve(retainedRoot, relative(root, source))
