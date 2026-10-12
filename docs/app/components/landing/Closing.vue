@@ -25,7 +25,7 @@ import { closingPaths, nuxtHubMigration } from "./content";
         />
       </div>
 
-      <ul class="closing-grid mt-10 grid sm:grid-cols-2 lg:mt-14 lg:grid-cols-4" aria-label="Where to start">
+      <ul class="closing-grid mt-10 grid lg:mt-14 lg:grid-cols-3" aria-label="Where to start">
         <li v-for="path in closingPaths" :key="path.id" class="min-w-0">
           <NuxtLink :to="path.to" class="closing-cell group">
             <div>

@@ -71,7 +71,9 @@ describe("landing page", () => {
     );
 
     expect(nuxtHubMigration.to).toBe("/docs/getting-started/migrate-from-nuxthub");
-    expect(closingPaths.map((path) => path.id)).toEqual(["primitive", "agent", "nuxthub", "hosts"]);
+    expect(closingPaths.map((path) => path.id)).toEqual(["agent", "nuxthub", "hosts"]);
+    // The closing button opens the first primitive tutorial. A cell for the same page would be a second door.
+    expect(closingPaths.map((path) => path.to)).not.toContain("/docs/getting-started/first-server-primitive");
     for (const path of closingPaths) expect(path.to).toMatch(/^\/docs\//);
     for (const entry of nuxtHubMigration.imports) {
       expect(guide).toContain(entry.from);

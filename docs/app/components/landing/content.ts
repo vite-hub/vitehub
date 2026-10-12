@@ -113,13 +113,8 @@ export const nuxtHubMigration = {
   ],
 } as const;
 
+// The closing button already opens the first primitive tutorial, so the cells list the other ways in.
 export const closingPaths = [
-  {
-    id: "primitive",
-    title: "First Server Primitive",
-    description: "Add local KV to a Vite server and return one stored value.",
-    to: "/docs/getting-started/first-server-primitive",
-  },
   {
     id: "agent",
     title: "First Agent",
