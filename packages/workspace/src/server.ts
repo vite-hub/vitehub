@@ -114,12 +114,14 @@ async function workspaceDevTokenRoot(rootDir: string, options: WorkspaceDevToken
 }
 
 function headerValue(headers: Headers | Record<string, string | string[] | undefined>, name: string): string | undefined {
-  if (hasRuntimeType(headers, "object") && hasRuntimeType(Reflect.get(headers, "get"), "function")) {
-    const value = Reflect.apply(Reflect.get(headers, "get") as (name: string) => unknown, headers, [name])
+  const get = hasRuntimeType(headers, "object") ? Reflect.get(headers, "get") : undefined
+  if (hasRuntimeType(get, "function")) {
+    const value = Reflect.apply(get, headers, [name])
     return hasRuntimeType(value, "string") && value ? value : undefined
   }
-  const value = (headers as Record<string, string | string[] | undefined>)[name]
-  return Array.isArray(value) ? value[0] : value
+  const value: unknown = Reflect.get(headers, name)
+  if (Array.isArray(value)) return hasRuntimeType(value[0], "string") ? value[0] : undefined
+  return hasRuntimeType(value, "string") ? value : undefined
 }
 
 function randomToken(): string {
