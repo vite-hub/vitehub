@@ -287,12 +287,15 @@ async function runAccessAuthorize(
 function isResponseLike(value: unknown): value is Response {
   if (value === null || typeof value !== "object") return false
   try {
-    if (Object.prototype.toString.call(value) !== "[object Response]") return false
-    const response = value as { headers?: unknown, status?: unknown, statusText?: unknown }
-    if (typeof response.status !== "number" || !Number.isInteger(response.status) || response.status < 0 || response.status > 599) return false
-    if (typeof response.statusText !== "string") return false
-    const headers = response.headers
-    return headers !== null && typeof headers === "object" && typeof (headers as { get?: unknown }).get === "function"
+    // Accessors on the native prototype perform an internal-slot brand check,
+    // which accepts genuine cross-realm Responses while rejecting lookalikes.
+    const responsePrototype = Response.prototype
+    const status = Object.getOwnPropertyDescriptor(responsePrototype, "status")!.get!.call(value)
+    const statusText = Object.getOwnPropertyDescriptor(responsePrototype, "statusText")!.get!.call(value)
+    const headers = Object.getOwnPropertyDescriptor(responsePrototype, "headers")!.get!.call(value)
+    return Number.isInteger(status) && status >= 0 && status <= 599
+      && typeof statusText === "string"
+      && headers !== null && typeof headers === "object"
   }
   catch {
     return false
