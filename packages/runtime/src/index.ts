@@ -425,29 +425,43 @@ function isWebAssemblyModule(value: unknown): boolean {
   return hasRuntimeType(constructor, "function") && value instanceof constructor
 }
 
+function sharedArrayBufferByteLengthGetter(): CallableFunction | undefined {
+  try {
+    const constructor = Object.getOwnPropertyDescriptor(globalThis, "SharedArrayBuffer")?.value
+    let prototype: unknown
+    if (hasRuntimeType(constructor, "function")) {
+      prototype = Object.getOwnPropertyDescriptor(constructor, "prototype")?.value
+    }
+    else {
+      // Shared WebAssembly memory exposes the intrinsic even when the global constructor is hidden.
+      // SAFETY: The optional host constructor is checked before creating a shared memory instance.
+      const Memory = (globalThis as typeof globalThis & {
+        WebAssembly?: { Memory?: new (descriptor: { initial: number, maximum: number, shared: boolean }) => { buffer: ArrayBufferLike } }
+      }).WebAssembly?.Memory
+      if (!Memory) return
+      prototype = Object.getPrototypeOf(new Memory({ initial: 0, maximum: 1, shared: true }).buffer)
+    }
+    if (!isRuntimeObject(prototype)) return
+    if (Object.getOwnPropertyDescriptor(prototype, Symbol.toStringTag)?.value !== "SharedArrayBuffer") return
+    return Object.getOwnPropertyDescriptor(prototype, "byteLength")?.get
+  }
+  catch {
+    return
+  }
+}
+
+const sharedArrayBufferByteLength = sharedArrayBufferByteLengthGetter()
+
 function isSharedArrayBuffer(value: unknown): boolean {
-  if (!value || !hasRuntimeType(value, "object")) return false
-  const constructor = Object.getOwnPropertyDescriptor(globalThis, "SharedArrayBuffer")?.value
-  const prototypes: object[] = []
-  if (hasRuntimeType(constructor, "function")) {
-    const prototype = Object.getOwnPropertyDescriptor(constructor, "prototype")?.value
-    if (prototype && hasRuntimeType(prototype, "object")) prototypes.push(prototype)
+  if (!value || !hasRuntimeType(value, "object") || !sharedArrayBufferByteLength) return false
+  try {
+    Reflect.apply(sharedArrayBufferByteLength, value, [])
+    return true
   }
-  const valuePrototype = Object.getPrototypeOf(value)
-  if (valuePrototype && hasRuntimeType(valuePrototype, "object") && !prototypes.includes(valuePrototype)) prototypes.push(valuePrototype)
-  for (const prototype of prototypes) {
-    const byteLength = Object.getOwnPropertyDescriptor(prototype, "byteLength")?.get
-    if (!hasRuntimeType(byteLength, "function")) continue
-    try {
-      const length = Reflect.apply(byteLength, value, [])
-      if (!hasRuntimeType(length, "number")) continue
-      if (Object.getOwnPropertyDescriptor(prototype, Symbol.toStringTag)?.value === "SharedArrayBuffer") return true
-    }
-    catch {
-      // The intrinsic getter rejects values without SharedArrayBuffer backing memory.
-    }
+  catch {
+    // The intrinsic getter rejects values without SharedArrayBuffer backing memory.
+    return false
   }
-  return false
 }
 
 function containsSharedArrayBuffer(value: unknown, seen = new Set<object>()): boolean {

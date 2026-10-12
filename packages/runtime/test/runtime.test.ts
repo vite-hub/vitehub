@@ -755,8 +755,42 @@ describe("@vite-hub/runtime", () => {
       expect(log.entries()[0]?.payload).toEqual({ value: { files: 1 }, visibility: "public" })
     }
     finally {
-      delete Object.prototype[Symbol.toStringTag]
+      Reflect.deleteProperty(Object.prototype, Symbol.toStringTag)
     }
+  })
+
+  it.each([false, true])("rejects forged shared-memory getters (constructor hidden: %s)", async (hidden) => {
+    const getter = vi.fn(() => 0)
+    Object.defineProperty(Object.prototype, "byteLength", { configurable: true, get: getter })
+    Object.defineProperty(Object.prototype, Symbol.toStringTag, { configurable: true, value: "SharedArrayBuffer" })
+    if (hidden) vi.stubGlobal("SharedArrayBuffer", undefined)
+    try {
+      vi.resetModules()
+      const runtime = await import("../src/index.ts")
+      const log = runtime.createTraceEventLog()
+      await log.append({
+        name: "custom.event",
+        payload: { value: { files: 1 }, visibility: "public" },
+        type: "lifecycle",
+      })
+      expect(log.entries()[0]?.payload).toEqual({ value: { files: 1 }, visibility: "public" })
+      expect(getter).not.toHaveBeenCalled()
+    }
+    finally {
+      Reflect.deleteProperty(Object.prototype, "byteLength")
+      Reflect.deleteProperty(Object.prototype, Symbol.toStringTag)
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it("rejects cross-realm shared buffer payloads", async () => {
+    const log = createTraceEventLog()
+    await log.append({
+      name: "custom.event",
+      payload: { value: runInNewContext("new SharedArrayBuffer(1)"), visibility: "public" },
+      type: "lifecycle",
+    })
+    expect(log.entries()[0]?.payload).toEqual({ visibility: "private" })
   })
 
   it("preserves public Blob payload snapshots", async () => {
@@ -1179,7 +1213,9 @@ describe("@vite-hub/runtime", () => {
     const memory = new WebAssemblyMemory({ initial: 1, maximum: 1, shared: true })
     vi.stubGlobal("SharedArrayBuffer", undefined)
     try {
-      const log = createTraceEventLog()
+      vi.resetModules()
+      const runtime = await import("../src/index.ts")
+      const log = runtime.createTraceEventLog()
       await log.append({
         name: "custom.public",
         payload: { value: { files: 1 }, visibility: "public" },
