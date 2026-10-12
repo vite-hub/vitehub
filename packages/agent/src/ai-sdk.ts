@@ -1333,8 +1333,16 @@ async function createAgent(
     ...(Object.keys(toolSet).length ? { tools: toolSet as AgentToolSet } : {}),
   })
   const settings = instrumentedCallSettings ? { ...baseCallSettings, ...instrumentedCallSettings } : baseCallSettings
-  const instrumentedModel = context.executionBudget && hasRuntimeType(aiSdk.wrapLanguageModel, "function")
-    ? aiSdk.wrapLanguageModel({
+  // Partial AI SDK mocks can throw when a missing export is read through Vitest's proxy.
+  let wrapLanguageModel: typeof aiSdk.wrapLanguageModel | undefined
+  try {
+    const candidate = aiSdk.wrapLanguageModel
+    if (hasRuntimeType(candidate, "function")) wrapLanguageModel = candidate
+  } catch {
+    wrapLanguageModel = undefined
+  }
+  const instrumentedModel = context.executionBudget && wrapLanguageModel
+    ? wrapLanguageModel({
         // SAFETY: materializeAgentModel resolves the configured model before wrapping.
         model: observedModel as Parameters<typeof aiSdk.wrapLanguageModel>[0]["model"],
         middleware: executionBudgetMiddleware(context.executionBudget, hasRuntimeType(settings.maxRetries, "number") ? settings.maxRetries : undefined),
