@@ -128,6 +128,14 @@ export async function renderMarkdownTemplateInternal(template: string, options: 
 }
 
 async function sanitizeUrlAttributes(tag: string, props: Record<string, unknown>, source: Record<string, unknown>, svgContext = false): Promise<Record<string, unknown>> {
+  // CSS values remain active after HTML escaping. Keep template data out of
+  // style attributes so scalar bindings cannot create network requests or
+  // other CSS behavior in the rendered document.
+  for (const key of Object.keys(source)) {
+    if (key.startsWith(":") && key.slice(1).toLowerCase() === "style") {
+      throw diagnostics.MARKDOWN_TEMPLATE_R0032({ message: `[vitehub] Markdown template binding "${String(source[key])}" cannot target a style attribute.` })
+    }
+  }
   const sanitized = { ...props }
   for (const [key, value] of Object.entries(props)) {
     const attribute = key.toLowerCase()
