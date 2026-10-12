@@ -79,7 +79,7 @@ onBeforeUnmount(() => {
 <template>
   <div class="flex w-full flex-col border border-default bg-default">
     <MotionConfig reduced-motion="user">
-      <div class="flex h-10 items-stretch justify-between border-b border-default">
+      <div class="flex min-h-10 flex-wrap items-stretch justify-between border-b border-default">
         <div class="flex items-stretch text-sm" role="group" aria-label="Install ViteHub">
           <button
             v-for="tab in commandTabs"
@@ -104,7 +104,7 @@ onBeforeUnmount(() => {
         </div>
 
         <div
-          class="package-managers flex items-stretch"
+          class="package-managers flex items-stretch max-sm:w-full max-sm:justify-end"
           :class="activeTab === 'package' ? 'package-managers-visible' : 'package-managers-hidden'"
           role="group"
           aria-label="Package manager"
@@ -182,6 +182,7 @@ onBeforeUnmount(() => {
 }
 
 .package-managers-hidden {
+  display: none;
   visibility: hidden;
   pointer-events: none;
   opacity: 0;

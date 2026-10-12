@@ -50,7 +50,7 @@ export const agentStory = {
     "  },",
     '  driver: "codex",',
     '  workspace: { mode: "write" },',
-    '  capabilities: [browser(), kv({ mode: "write", store: "reviews" })],',
+    '  capabilities: [browser(), kv({ mode: "write" })],',
     "})",
   ],
   steps: [
@@ -96,7 +96,7 @@ export const agentStory = {
       'import { kv } from "vite-hub/kv"',
       "",
       "export default defineEventHandler(async () => {",
-      '  const [error, keys] = await kv.store("reviews").keys()',
+      '  const [error, keys] = await kv.keys()',
       "  if (error) throw error",
       "  return keys",
       "})",

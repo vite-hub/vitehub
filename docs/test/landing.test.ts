@@ -55,9 +55,9 @@ describe("landing page", () => {
     const routeCode = agentStory.route.code.join("\n");
 
     expect(agentCode).toContain('import { browser, kv } from "vite-hub/agent/capabilities"');
-    expect(agentCode).toContain('kv({ mode: "write", store: "reviews" })');
+    expect(agentCode).toContain('kv({ mode: "write" })');
     expect(routeCode).toContain('import { kv } from "vite-hub/kv"');
-    expect(routeCode).toContain('kv.store("reviews")');
+    expect(routeCode).toContain('kv.keys()');
     expect(`${agentCode}\n${routeCode}`).not.toContain("@vite-hub/");
     expect(agentStory.route.to).toBe("/docs/kv/agent-capability");
     // Flue and Eve are open and self-hostable, so the line must not claim openness or naming them.
