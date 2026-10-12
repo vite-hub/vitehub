@@ -886,6 +886,16 @@ describe("workflow runtime", () => {
     )
   })
 
+  it("rejects folder steps that normalize to the same property name", () => {
+    const context = { name: "pipeline", provider: "cloudflare", payload: undefined } as const
+    const steps = [
+      { name: "01.first.ts", run: async (input: unknown) => input },
+      { name: "02.first.ts", run: async (input: unknown) => input },
+    ]
+
+    expect(() => createWorkflowSteps(context, steps)).toThrow(/both normalize to the `first` step property/)
+  })
+
   it("runs registered definitions through the Vercel provider", async () => {
     setWorkflowRuntimeConfig({ provider: "vercel" })
     setWorkflowRuntimeRegistry({
@@ -1928,6 +1938,21 @@ describe("workflow runtime", () => {
     expect(openWorkflowMock.definitions.has("inline-worker")).toBe(true)
   })
 
+  it("ignores OpenWorkflow definitions whose handler is inherited", async () => {
+    setWorkflowRuntimeConfig({
+      postgres: { url: "postgres://localhost/vitehub" },
+      provider: "openworkflow",
+    })
+    const inherited = Object.create({ handler: async () => "inherited" })
+    setWorkflowRuntimeRegistry({
+      inherited: async () => inherited,
+    })
+
+    await createOpenWorkflowWorker()
+
+    expect(openWorkflowMock.definitions.has("inherited")).toBe(false)
+  })
+
   it("registers exported inline handles under discovered names in OpenWorkflow workers", async () => {
     setWorkflowRuntimeConfig({
       postgres: { url: "postgres://localhost/vitehub" },
@@ -2540,6 +2565,57 @@ describe("workflow runtime", () => {
       operation: "create",
       provider: "cloudflare",
     })
+  })
+
+  it("rejects malformed Cloudflare workflow acknowledgements", async () => {
+    const createBatch = vi.fn(async () => [{}])
+    setWorkflowRuntimeConfig({ binding: "WORKFLOW_CUSTOM", provider: "cloudflare" })
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
+    })
+    enterWorkflowRuntimeEvent({
+      req: { runtime: { cloudflare: { env: { WORKFLOW_CUSTOM: {
+        createBatch,
+        get: vi.fn(),
+      } } } } },
+    })
+
+    const error = await runWorkflow("welcome", {}, { id: "welcome-1" }).catch(error => error)
+
+    expect(error).toMatchObject({
+      code: "WORKFLOW_PROVIDER_OPERATION_FAILED",
+      details: { acknowledgement: "unknown", operation: "create", provider: "cloudflare" },
+      cause: {
+        message: "Cloudflare Workflow provider returned an invalid workflow instance.",
+      },
+    })
+    expect(createBatch).toHaveBeenCalledTimes(2)
+  })
+
+  it("rejects Cloudflare workflow acknowledgements for a different run", async () => {
+    const createBatch = vi.fn(async () => [{ id: "other-run" }])
+    setWorkflowRuntimeConfig({ binding: "WORKFLOW_CUSTOM", provider: "cloudflare" })
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
+    })
+    enterWorkflowRuntimeEvent({
+      req: { runtime: { cloudflare: { env: { WORKFLOW_CUSTOM: {
+        createBatch,
+        get: vi.fn(),
+      } } } } },
+    })
+
+    const error = await runWorkflow("welcome", {}, { id: "welcome-1" }).catch(error => error)
+
+    expect(error).toMatchObject({
+      code: "WORKFLOW_PROVIDER_OPERATION_FAILED",
+      details: { acknowledgement: "unknown", operation: "create", provider: "cloudflare" },
+      cause: {
+        message: "Cloudflare Workflow provider returned an invalid workflow instance.",
+      },
+    })
+    expect(createBatch).toHaveBeenCalledTimes(2)
+    expect(createBatch).toHaveBeenCalledWith([{ id: "welcome-1", params: {} }])
   })
 
   it("ignores inherited Cloudflare status and output fields", async () => {

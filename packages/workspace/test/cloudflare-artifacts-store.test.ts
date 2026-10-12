@@ -133,6 +133,7 @@ describe("Cloudflare Artifacts workspace store", () => {
     const store = await createStore({ create: vi.fn(), get: vi.fn(async () => artifactsRepo()) })
     await store.mkdir("empty")
     await store.removeEmptyDirectory!("empty")
+    await expect(store.removeEmptyDirectory!("")).resolves.toBeUndefined()
     await expect(store.stat("empty")).resolves.toBeUndefined()
     await expect(store.removeEmptyDirectory!("missing")).resolves.toBeUndefined()
     await store.writeFile("replacement", { path: "replacement", content: "keep" })

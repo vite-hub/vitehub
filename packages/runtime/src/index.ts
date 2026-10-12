@@ -5,6 +5,24 @@ import { normalizeTraceAttributes } from "./internal/trace-attributes.ts"
 
 export { runtimeErrorDiagnostics }
 
+export {
+  runRuntimePreflight,
+  startRuntimePreflight,
+  type RuntimePreflightCheck,
+  type RuntimePreflightCheckContext,
+  type RuntimePreflightCheckResult,
+  type RuntimePreflightCheckSummary,
+  type RuntimePreflightDetails,
+  type RuntimePreflightDiagnosticData,
+  type RuntimePreflightHandle,
+  type RuntimePreflightIssue,
+  type RuntimePreflightKind,
+  type RuntimePreflightManifest,
+  type RuntimePreflightOptions,
+  type RuntimePreflightState,
+  type RuntimePreflightValue,
+} from "./preflight.ts"
+
 export { isTraceContentAttributeKey } from "./internal/trace-attributes.ts"
 
 export { decodeRouteSegment, encodeRouteSegment } from "./route-segment.ts"
@@ -83,53 +101,57 @@ export const unknownExecutionAuthority: ExecutionAuthority = Object.freeze({
 }) satisfies ExecutionAuthority
 
 export function isExecutionAuthority(value: unknown): value is ExecutionAuthority {
+  return inspectExecutionAuthority(value) !== undefined
+}
+
+interface InspectedExecutionAuthority {
+  authority: ExecutionAuthority
+  filesystem: object
+}
+
+function inspectExecutionAuthority(value: unknown): InspectedExecutionAuthority | undefined {
   try {
-    if (!value || !hasRuntimeType(value, "object") || Array.isArray(value)) return false
+    if (!value || !hasRuntimeType(value, "object") || Array.isArray(value)) return undefined
     // SAFETY: Runtime Capability normalization establishes the asserted host contract.
     const authority = value as Record<string, unknown>
     const filesystem = authority.filesystem
-    if (!filesystem || !hasRuntimeType(filesystem, "object") || Array.isArray(filesystem)) return false
+    if (!filesystem || !hasRuntimeType(filesystem, "object") || Array.isArray(filesystem)) return undefined
     // SAFETY: Runtime Capability normalization establishes the asserted host contract.
     const files = filesystem as Record<string, unknown>
-    return hasRuntimeType(authority.credentials, "string")
-      && ["ambient", "none", "provisioned", "unknown"].includes(authority.credentials)
-      && hasRuntimeType(authority.environment, "string")
-      && ["ambient", "none", "selected", "unknown"].includes(authority.environment)
-      && hasRuntimeType(files.access, "string")
-      && ["none", "read-only", "read-write", "unknown"].includes(files.access)
-      && hasRuntimeType(files.scope, "string")
-      && ["host", "none", "sandbox", "unknown", "workspace"].includes(files.scope)
-      && hasRuntimeType(authority.isolation, "string")
-      && ["container", "microvm", "none", "process", "unknown"].includes(authority.isolation)
-      && hasRuntimeType(authority.network, "string")
-      && ["none", "restricted", "unrestricted", "unknown"].includes(authority.network)
-      && hasRuntimeType(authority.processes, "string")
-      && ["arbitrary", "none", "restricted", "unknown"].includes(authority.processes)
+    const credentials = authority.credentials
+    const environment = authority.environment
+    const access = files.access
+    const scope = files.scope
+    const isolation = authority.isolation
+    const network = authority.network
+    const processes = authority.processes
+    if (!(hasRuntimeType(credentials, "string") && ["ambient", "none", "provisioned", "unknown"].includes(credentials)
+      && hasRuntimeType(environment, "string") && ["ambient", "none", "selected", "unknown"].includes(environment)
+      && hasRuntimeType(access, "string") && ["none", "read-only", "read-write", "unknown"].includes(access)
+      && hasRuntimeType(scope, "string") && ["host", "none", "sandbox", "unknown", "workspace"].includes(scope)
+      && hasRuntimeType(isolation, "string") && ["container", "microvm", "none", "process", "unknown"].includes(isolation)
+      && hasRuntimeType(network, "string") && ["none", "restricted", "unrestricted", "unknown"].includes(network)
+      && hasRuntimeType(processes, "string") && ["arbitrary", "none", "restricted", "unknown"].includes(processes))) return undefined
+    return {
+      authority: { credentials, environment, filesystem: { access, scope }, isolation, network, processes } as ExecutionAuthority,
+      filesystem,
+    }
   }
   catch {
-    return false
+    return undefined
   }
 }
 
 export function normalizeExecutionAuthority(value: unknown): ExecutionAuthority {
-  if (!isExecutionAuthority(value)) {
+  const inspected = inspectExecutionAuthority(value)
+  if (!inspected) {
     throw runtimeErrorDiagnostics.RUNTIME_R0007({ message: "[vitehub] Invalid execution authority descriptor." })
   }
   if (
     hasCanonicalFrozenProperties(value, ["credentials", "environment", "filesystem", "isolation", "network", "processes"])
-    && hasCanonicalFrozenProperties(value.filesystem, ["access", "scope"])
-  ) return value
-  return Object.freeze({
-    credentials: value.credentials,
-    environment: value.environment,
-    filesystem: Object.freeze({
-      access: value.filesystem.access,
-      scope: value.filesystem.scope,
-    }),
-    isolation: value.isolation,
-    network: value.network,
-    processes: value.processes,
-  })
+    && hasCanonicalFrozenProperties(inspected.filesystem, ["access", "scope"])
+  ) return value as ExecutionAuthority
+  return Object.freeze({ ...inspected.authority, filesystem: Object.freeze({ ...inspected.authority.filesystem }) })
 }
 
 function hasCanonicalFrozenProperties(value: unknown, keys: readonly string[]): boolean {
