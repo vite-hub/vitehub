@@ -47,4 +47,21 @@ describe("capability input snapshots", () => {
     expect(snapshotCapabilityData(url)).not.toBe(url)
     expect(snapshotCapabilityData(params)).not.toBe(params)
   })
+
+  it.each([
+    ["Map", () => {
+      const entry = Proxy.revocable({}, {})
+      entry.revoke()
+      return new Map([["key", entry.proxy]])
+    }],
+    ["Set", () => {
+      const entry = Proxy.revocable({}, {})
+      entry.revoke()
+      return new Set([entry.proxy])
+    }],
+  ])("does not retain a partial %s snapshot when an entry cannot be copied", (_name, create) => {
+    const value = create()
+    expect(() => snapshotCapabilityData(value)).not.toThrow()
+    expect(snapshotCapabilityData(value)).toBe(value)
+  })
 })

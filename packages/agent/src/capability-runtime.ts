@@ -648,7 +648,6 @@ export function snapshotCapabilityData(value: unknown, seen: WeakMap<object, unk
       seen.delete(value)
       /* spoofed tag; continue with ordinary object handling */
     }
-    return snapshot
   }
   if (tag === "[object Set]") {
     const snapshot = new Set<unknown>()
@@ -661,7 +660,6 @@ export function snapshotCapabilityData(value: unknown, seen: WeakMap<object, unk
       seen.delete(value)
       /* spoofed tag; continue with ordinary object handling */
     }
-    return snapshot
   }
   const prototype = Object.getPrototypeOf(value)
   if (!Array.isArray(value) && !isPlainObjectPrototype(prototype)) return value
