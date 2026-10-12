@@ -1,8 +1,10 @@
 import { describeServerEnv } from "./server.ts"
-import { stat } from "node:fs/promises"
+import { randomBytes } from "node:crypto"
+import { chmod, mkdir, readFile, stat, writeFile } from "node:fs/promises"
 import { dirname, isAbsolute, relative, resolve, win32 } from "node:path"
 
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
+import { readViteHubSecret } from "@vite-hub/internal/secret"
 import {
   createViteHubEnvImportAliases,
   resolveViteHubProjectRoot,
@@ -194,6 +196,7 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
       cli: () => createEnvCliContributor({ resolveProjectRoot }),
     },
     async config(config, env) {
+      if (env.command === "serve") await resolveDevelopmentSecret(resolveProjectRoot(config.root || process.cwd()))
       const envConfig = (config as UserConfig & EnvViteUserConfig).env
       const { defineValues, state } = await resolveState(config as UserConfig & EnvViteUserConfig, env.mode)
       buildPublicConfig = state.publicConfig
@@ -352,6 +355,27 @@ function assertConfiguredProviders(registry: EnvRuntimeRegistry, providers: Reco
   }
 }
 
+const generatedSecretPattern = /^[0-9a-f]{64}$/
+
+/**
+ * Give the development server a root secret when none is configured, so `deriveSecret()` works without setup.
+ * The secret is kept in `.vitehub/env/secret` with mode 0600 and survives restarts. Builds never generate one.
+ */
+async function resolveDevelopmentSecret(projectRoot: string): Promise<void> {
+  const generated = process.env.VITEHUB_SECRET_GENERATED === "1"
+  if (readViteHubSecret(process.env) && !generated) return
+  const secretPath = resolve(projectRoot, ".vitehub", "env", "secret")
+  let secret = await readFile(secretPath, "utf8").then(value => value.trim(), () => "")
+  if (!generatedSecretPattern.test(secret)) {
+    secret = randomBytes(32).toString("hex")
+    await mkdir(dirname(secretPath), { recursive: true })
+    await writeFile(secretPath, secret, { mode: 0o600 })
+    await chmod(secretPath, 0o600)
+  }
+  process.env.VITEHUB_SECRET = secret
+  process.env.VITEHUB_SECRET_GENERATED = "1"
+}
+
 async function refreshEnvGeneratedFiles(
   root: string,
   packageRoot: string | undefined,
@@ -469,6 +493,7 @@ function createServerEnvModule(
     createServerEnvDescriptionModule(serverRegistry).trimEnd(),
     'export const manageServerEnv = envRuntime.createServerEnvManagement?.(registry, providers) ?? (async () => Response.json({ message: "Env management is unavailable." }, { status: 503 }));',
     "export function useServerEnv(event) { return envRuntime.resolveServerEnv(registry, event); }",
+    "export async function deriveSecret(purpose, event) { return await envRuntime.deriveSecret(purpose, event); }",
     "export async function loadServerEnv(event, options) { return await envRuntime.loadServerEnv(registry, event, { ...options, providers }); }",
     "export async function inspectServerEnv(event, options) { return await envRuntime.inspectServerEnv(registry, event, { ...options, providers }); }",
     "export async function runWithServerEnv(event, callback, options) { return await callback(await loadServerEnv(event, options)); }",
@@ -525,6 +550,7 @@ function createServerEnvModuleTypes(serverRegistry: EnvRuntimeRegistry, runtimeI
     ...createServerTypeFields(serverRegistry, 2),
     "}",
     "export function useServerEnv(event?: unknown): ServerEnv",
+    "export function deriveSecret(purpose: string, event?: unknown): Promise<string>",
     ...createReadonlyServerEnvTypes(0, "SecretEnv"),
     `export function loadServerEnv(event?: unknown, options?: { signal?: AbortSignal; access?: import(${JSON.stringify(runtimeImports.server)}).EnvAccessContext }): Promise<ReadonlyServerEnv>`,
     `export function inspectServerEnv(event?: unknown, options?: { signal?: AbortSignal; access?: import(${JSON.stringify(runtimeImports.server)}).EnvAccessContext }): Promise<ServerEnvInspection>`,
@@ -552,6 +578,7 @@ function createViteTypes(
     ...createServerTypeFields(serverRegistry, 4, `import(${JSON.stringify(runtimeImports.secret)}).SecretEnv`),
     "  }",
     "  export function useServerEnv(event?: unknown): ServerEnv",
+    "  export function deriveSecret(purpose: string, event?: unknown): Promise<string>",
     ...createReadonlyServerEnvTypes(2, `import(${JSON.stringify(runtimeImports.secret)}).SecretEnv`),
     `  export function loadServerEnv(event?: unknown, options?: { signal?: AbortSignal; access?: import(${JSON.stringify(runtimeImports.server)}).EnvAccessContext }): Promise<ReadonlyServerEnv>`,
     `  export function inspectServerEnv(event?: unknown, options?: { signal?: AbortSignal; access?: import(${JSON.stringify(runtimeImports.server)}).EnvAccessContext }): Promise<ServerEnvInspection>`,

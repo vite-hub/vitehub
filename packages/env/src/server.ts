@@ -1,5 +1,6 @@
 export type { EnvAccessContext } from "./bridge.ts"
 import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
+import { deriveViteHubSecret, readViteHubSecret, viteHubSecretMinimumLength } from "@vite-hub/internal/secret"
 import { isViteHubError } from "@vite-hub/runtime"
 
 import {
@@ -41,6 +42,28 @@ function processEnv(): RuntimeEnv {
 
 function runtimeEnv(event?: unknown): RuntimeEnv {
   return { ...processEnv(), ...getCloudflareEnv(event) }
+}
+
+let warnedGeneratedSecret = false
+
+/**
+ * Derives a 32-byte hex secret for one purpose from the root app secret, `VITEHUB_SECRET` (or `NUXT_APP_SECRET`).
+ * It uses HKDF-SHA256, so the result is stable while the root is unchanged and distinct for every purpose.
+ * Namespace the purpose to its owner, such as `my-module:session`. ViteHub reserves the `vitehub:` prefix.
+ * Throws `ENV_REQUIRED_MISSING` when no root secret is set, and `ENV_RUNTIME_VALUE_INVALID` when it is shorter than 32 characters.
+ */
+export async function deriveSecret(purpose: string, event?: unknown): Promise<string> {
+  const env = runtimeEnv(event)
+  const root = readViteHubSecret(env)
+  if (!root) throw missingRequiredEnv("env", "deriveSecret() requires VITEHUB_SECRET. Generate one with `openssl rand -base64 32`.", "VITEHUB_SECRET")
+  if (root.length < viteHubSecretMinimumLength) {
+    throw invalidRuntimeEnvValue("env", `VITEHUB_SECRET must be at least ${viteHubSecretMinimumLength} characters. Generate one with \`openssl rand -base64 32\`.`, "VITEHUB_SECRET")
+  }
+  if (env.VITEHUB_SECRET_GENERATED === "1" && !warnedGeneratedSecret) {
+    warnedGeneratedSecret = true
+    console.warn("[vitehub] A generated development VITEHUB_SECRET is in use. Set VITEHUB_SECRET for deployments: builds never generate one.")
+  }
+  return await deriveViteHubSecret(root, purpose)
 }
 
 function hasRuntimeName(entry: RuntimeEnvEntry, env: RuntimeEnv, name: string): boolean {

@@ -7,6 +7,7 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 import { defineAuth } from "@vite-hub/auth"
 import type { AuthRuntimeContext } from "@vite-hub/auth"
 import { handleAuthRequest, requireAuthAccessRoutes } from "@vite-hub/auth/server"
+import { deriveViteHubSecret } from "@vite-hub/internal/secret"
 import { describe, expect, it, vi } from "vitest"
 import { build } from "esbuild"
 import { resolveConfig } from "vite"
@@ -520,6 +521,31 @@ describe("independent Console Auth", () => {
       database?.close()
       vi.unstubAllEnvs()
       vi.unstubAllGlobals()
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("derives the Console Auth secret from VITEHUB_SECRET when BETTER_AUTH_SECRET is unset", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-auth-derived-"))
+    vi.stubEnv("GITHUB_CLIENT_ID", "client-id")
+    vi.stubEnv("GITHUB_CLIENT_SECRET", "client-secret")
+    vi.stubEnv("BETTER_AUTH_SECRET", "")
+    vi.stubEnv("VITEHUB_SECRET", "root-secret-at-least-32-characters-long")
+    let database: DatabaseSync | undefined
+    try {
+      const input = createInlineConsoleAuth({ provider: "github", allowedEmails: ["user@example.com"], databasePath: join(root, "auth.sqlite") })
+      const definition = createConsoleAuthDefinition(input, "/")
+      const resolveOptions = definition.options
+      if (typeof resolveOptions !== "function") throw new TypeError("Expected resolved Console Auth options.")
+      const options = resolveOptions({ env: {}, requestOrigin: "https://example.com" })
+      if (options.database instanceof DatabaseSync) database = options.database
+      expect(options.secret).toBe(await deriveViteHubSecret("root-secret-at-least-32-characters-long", "vitehub:console-auth"))
+      vi.stubEnv("VITEHUB_SECRET", "")
+      expect(() => resolveOptions({ env: {}, requestOrigin: "https://example.com" })).toThrow("Console Auth requires VITEHUB_SECRET or BETTER_AUTH_SECRET")
+    }
+    finally {
+      database?.close()
+      vi.unstubAllEnvs()
       await rm(root, { recursive: true, force: true })
     }
   })

@@ -59,10 +59,11 @@ const broken: ServerEnvInspection = {
 }
 
 describe("env CLI", () => {
-  it("registers inspect and check under the env namespace", () => {
+  it("registers inspect and check under env, and generate and derive under secret", () => {
     const contributor = hubEnv().vitehub.cli()
-    expect(contributor.namespaces.map(namespace => namespace.name)).toEqual(["env"])
+    expect(contributor.namespaces.map(namespace => namespace.name)).toEqual(["env", "secret"])
     expect(contributor.namespaces[0]?.features.map(item => item.name)).toEqual(["inspect", "check"])
+    expect(contributor.namespaces[1]?.features.map(item => item.name)).toEqual(["generate", "derive"])
   })
 
   it("treats only failing loadServerEnv() conditions as blocking", () => {

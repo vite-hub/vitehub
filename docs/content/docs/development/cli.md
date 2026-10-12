@@ -72,6 +72,8 @@ Available namespaces:
 | `vitehub connections` | Available | Connections Package | Connect OAuth accounts, set API keys, list Connections, read activity, and approve or deny writes. |
 | `vitehub env inspect` | Available | Env Package | List declared Server Env variables and their status without values. |
 | `vitehub env check` | Available | Env Package | Fail CI or a deploy step when Server Env would not load for a stage. |
+| `vitehub secret generate` | Available | Env Package | Print a new root secret for `VITEHUB_SECRET`. |
+| `vitehub secret derive` | Available | Env Package | Print the secret derived from `VITEHUB_SECRET` for one purpose. |
 | `vitehub email outbox` | Available | Email Package | List, show, or clear messages captured by a running Vite + Nitro Development Server. |
 | `vitehub email preview` | Available | Email Package | Render a `server/emails` template locally without sending it. |
 | `vitehub db generate` | Available | Database Package | Refresh generated Database artifacts and generate Drizzle migrations. |
@@ -158,6 +160,15 @@ pnpm vitehub env check [--stage <name>] [--json]
 ```
 
 Both commands load the Vite config in the selected stage mode, including `.env.<stage>` files, with process environment values taking precedence. They list each declared variable with its status, source, required, and secret flags. `env check` exits with status `1` when loading Server Env would fail, so it can gate CI or deployment steps.
+
+## Generate and derive secrets
+
+```bash [Terminal]
+pnpm vitehub secret generate
+VITEHUB_SECRET=... pnpm vitehub secret derive vitehub:dispatch
+```
+
+`secret generate` prints 32 random bytes as base64 for [`VITEHUB_SECRET`](/docs/env/app-secret). `secret derive <purpose>` prints what `deriveSecret(purpose)` returns for the `VITEHUB_SECRET` (or `NUXT_APP_SECRET`) in the shell environment. Neither command loads the project.
 
 ## Inspect Definitions and Provider Output
 

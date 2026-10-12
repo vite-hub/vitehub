@@ -1,9 +1,10 @@
-import { createHmac } from "node:crypto"
+import { createHmac, hkdfSync } from "node:crypto"
 import { chmodSync, mkdirSync } from "node:fs"
 import { dirname } from "node:path"
 import { DatabaseSync } from "node:sqlite"
 
 import { defineAuth } from "@vite-hub/auth"
+import { readViteHubSecret, viteHubSecretMinimumLength, viteHubSecretSalt } from "@vite-hub/internal/secret"
 import type { AuthResolvedDefinitionOptions } from "@vite-hub/auth"
 
 import { defineConsoleAuth, type ConsoleAuthDefinition } from "./auth.ts"
@@ -18,6 +19,20 @@ function requiredEnv(name: string): string {
   const value = process.env[name]
   if (!value) throw new TypeError(`[vitehub] Console Auth requires ${name}.`)
   return value
+}
+
+/**
+ * The Better Auth secret of inline Console Auth. An explicit `secretEnv` is required. Otherwise `BETTER_AUTH_SECRET`
+ * wins, then a secret derived from `VITEHUB_SECRET` for the purpose `vitehub:console-auth`.
+ * The derivation equals `deriveSecret("vitehub:console-auth")`. It is synchronous because Better Auth resolves options synchronously.
+ */
+function consoleAuthSecret(secretEnv: string | undefined): string {
+  if (secretEnv) return requiredEnv(secretEnv)
+  if (process.env.BETTER_AUTH_SECRET) return process.env.BETTER_AUTH_SECRET
+  const root = readViteHubSecret(process.env)
+  if (!root) throw new TypeError("[vitehub] Console Auth requires VITEHUB_SECRET or BETTER_AUTH_SECRET.")
+  if (root.length < viteHubSecretMinimumLength) throw new TypeError(`[vitehub] VITEHUB_SECRET must be at least ${viteHubSecretMinimumLength} characters.`)
+  return Buffer.from(hkdfSync("sha256", root, viteHubSecretSalt, "vitehub:console-auth", 32)).toString("hex")
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -89,7 +104,7 @@ export function createInlineConsoleAuth(config: InlineConsoleAuth): ConsoleAuthD
         clientSecret: requiredEnv(config.clientSecretEnv ?? "GITHUB_CLIENT_SECRET"),
       }
       if (orgs.length) github.getUserInfo = token => githubOrgUserInfo(orgs, allowedEmails, token.accessToken)
-      const secret = requiredEnv(config.secretEnv ?? "BETTER_AUTH_SECRET")
+      const secret = consoleAuthSecret(config.secretEnv)
       return {
         appName: "ViteHub Console",
         // Unset falls back to `vitehub({ publicUrl })`, then the request origin.

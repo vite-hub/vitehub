@@ -20,6 +20,7 @@ icon: i-lucide-code-2
 | `isBlockingServerEnvEntry` from `@vite-hub/env` | Check whether an inspection entry makes `loadServerEnv()` fail. |
 | `usePublicEnv` from `#vitehub/env/public` | Read generated Public Env from browser-safe code. |
 | `useServerEnv` from `#vitehub/env/server` | Read generated Server Env from server code. |
+| `deriveSecret` from `#vitehub/env/server` | Derive a purpose-specific secret from [`VITEHUB_SECRET`](/docs/env/app-secret). |
 | `SecretEnv` from `@vite-hub/env` or `@vite-hub/env/secret` | Represent Secret Env values that redact by default. |
 | `resolveServerEnv` from `@vite-hub/env` or `@vite-hub/env/server` | Resolve a server env registry manually. |
 | `openWorkflowEnv` from `@vite-hub/env` or `@vite-hub/env/presets` | Use the OpenWorkflow env preset. |
