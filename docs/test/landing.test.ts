@@ -2,10 +2,10 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import {
   agentStory,
-  closingPaths,
+  closingFacts,
+  closingHosts,
   installOptions,
   landingPrimitives,
-  nuxtHubMigration,
   portabilityExamples,
 } from "../app/components/landing/content";
 import { primitiveLandings } from "../app/data/primitive-landings";
@@ -64,21 +64,23 @@ describe("landing page", () => {
     expect(agentStory.positioning).not.toMatch(/flue|eve|lock-in|open/i);
   });
 
-  it("links NuxtHub users to a migration guide with real import paths", async () => {
-    const guide = await readFile(
-      new URL("../content/docs/getting-started/migrate-from-nuxthub.md", import.meta.url),
+  it("closes with one button and short facts that the docs back up", async () => {
+    const tutorial = await readFile(
+      new URL("../content/docs/getting-started/first-server-primitive.md", import.meta.url),
       "utf8",
     );
+    const license = await readFile(new URL("../../LICENSE", import.meta.url), "utf8");
+    const closing = await readFile(new URL("../app/components/landing/Closing.vue", import.meta.url), "utf8");
 
-    expect(nuxtHubMigration.to).toBe("/docs/getting-started/migrate-from-nuxthub");
-    expect(closingPaths.map((path) => path.id)).toEqual(["agent", "nuxthub", "hosts"]);
-    // The closing button opens the first primitive tutorial. A cell for the same page would be a second door.
-    expect(closingPaths.map((path) => path.to)).not.toContain("/docs/getting-started/first-server-primitive");
-    for (const path of closingPaths) expect(path.to).toMatch(/^\/docs\//);
-    for (const entry of nuxtHubMigration.imports) {
-      expect(guide).toContain(entry.from);
-      expect(guide).toContain(entry.to);
+    expect(closingFacts.map((fact) => fact.id)).toEqual(["local", "license", "nuxthub", "hosts"]);
+    expect(tutorial).toContain("needs no provider account or credentials");
+    expect(license).toContain("Apache License");
+    expect(closingHosts.map((host) => host.name)).toEqual(["Cloudflare", "Vercel", "Netlify", "Deno", "Node"]);
+    // The button opens the first primitive tutorial. No fact may be a second door to the same page.
+    for (const fact of closingFacts) {
+      if ("to" in fact) expect(fact.to).not.toBe("/docs/getting-started/first-server-primitive");
     }
+    expect(closing.match(/<UButton/g)).toHaveLength(1);
   });
 
   it("offers one-click skill and package commands in the hero", () => {

@@ -104,35 +104,20 @@ export const agentStory = {
   },
 } as const;
 
-export const nuxtHubMigration = {
-  to: "/docs/getting-started/migrate-from-nuxthub",
-  imports: [
-    { from: "@nuxthub/kv", to: "vite-hub/kv" },
-    { from: "@nuxthub/blob", to: "vite-hub/blob" },
-    { from: "@nuxthub/db", to: "vite-hub/database/drizzle" },
-  ],
-} as const;
+// Short facts that answer "what does trying this cost me". Each one is checked by test/landing.test.ts.
+export const closingFacts = [
+  { id: "local", label: "No account to start" },
+  { id: "license", label: "Apache-2.0", to: "https://github.com/vite-hub/vitehub/blob/main/LICENSE" },
+  { id: "nuxthub", label: "Migrate from NuxtHub", to: "/docs/getting-started/migrate-from-nuxthub" },
+  { id: "hosts", label: "Runs on", to: "/docs/frameworks-hosts" },
+] as const;
 
-// The closing button already opens the first primitive tutorial, so the cells list the other ways in.
-export const closingPaths = [
-  {
-    id: "agent",
-    title: "First Agent",
-    description: "Define an Agent, call it from H3, and read the response.",
-    to: "/docs/getting-started/first-agent",
-  },
-  {
-    id: "nuxthub",
-    title: "Coming from NuxtHub",
-    description: "Swap the imports and keep your server code.",
-    to: nuxtHubMigration.to,
-  },
-  {
-    id: "hosts",
-    title: "Supported hosts",
-    description: "Cloudflare, Vercel, Netlify, Deno, and Node.",
-    to: "/docs/frameworks-hosts",
-  },
+export const closingHosts = [
+  { name: "Cloudflare", icon: "i-simple-icons-cloudflare" },
+  { name: "Vercel", icon: "i-simple-icons-vercel" },
+  { name: "Netlify", icon: "i-simple-icons-netlify" },
+  { name: "Deno", icon: "i-simple-icons-deno" },
+  { name: "Node", icon: "i-simple-icons-nodedotjs" },
 ] as const;
 
 // Start with the primitives most Vite apps reach for. Agent stays in the catalog without taking over the page.

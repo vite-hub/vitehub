@@ -1,44 +1,53 @@
 <script setup lang="ts">
-import { closingPaths, nuxtHubMigration } from "./content";
+import { NuxtLink } from "#components";
+import { closingFacts, closingHosts } from "./content";
+
+const hostNames = closingHosts.map((host) => host.name).join(", ");
 </script>
 
 <template>
   <section class="bg-default">
     <div class="mx-auto max-w-[90rem] px-4 py-16 sm:px-8 sm:py-20 lg:px-12 lg:py-24">
-      <div class="flex flex-col gap-8 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <h2 class="max-w-[15ch] text-4xl/10 font-semibold tracking-[-0.04em] text-highlighted text-balance sm:text-5xl/12 lg:text-6xl/14">
-            Ship the server part with your Vite app.
-          </h2>
-          <p class="mt-4 max-w-[44ch] text-lg/8 text-muted">
-            Start with one primitive. Built on UnJS, with TypeScript and native responses.
-          </p>
-        </div>
+      <div class="flex flex-col items-center text-center">
+        <h2 class="max-w-[16ch] text-4xl/10 font-semibold tracking-[-0.04em] text-highlighted text-balance sm:text-5xl/12 lg:text-6xl/14">
+          Ship the server part with your Vite app.
+        </h2>
 
-        <UButton
-          to="/docs/getting-started/first-server-primitive"
-          label="Build your first primitive"
-          trailing-icon="i-lucide-arrow-right"
-          color="neutral"
-          size="lg"
-          class="closing-cta h-10 self-start rounded-none px-4 lg:self-end"
-        />
+        <div class="mt-8 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm">
+          <UButton
+            to="/docs/getting-started/first-server-primitive"
+            label="Build your first primitive"
+            trailing-icon="i-lucide-arrow-right"
+            color="neutral"
+            size="lg"
+            class="closing-cta h-10 rounded-none px-4"
+          />
+          <NuxtLink
+            to="/docs/getting-started/first-agent"
+            class="inline-flex min-h-10 items-center gap-1.5 text-muted transition-colors hover:text-highlighted focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary"
+          >
+            Build your first Agent
+            <UIcon name="i-lucide-arrow-up-right" class="size-3.5" aria-hidden="true" />
+          </NuxtLink>
+        </div>
       </div>
 
-      <ul class="closing-grid mt-10 grid lg:mt-14 lg:grid-cols-3" aria-label="Where to start">
-        <li v-for="path in closingPaths" :key="path.id" class="min-w-0">
-          <NuxtLink :to="path.to" class="closing-cell group">
-            <div>
-              <h3 class="text-sm font-medium text-highlighted">{{ path.title }}</h3>
-              <p v-if="path.id !== 'nuxthub'" class="mt-1 text-sm/6 text-muted">{{ path.description }}</p>
-              <ul v-else class="mt-2 space-y-1 font-mono text-[0.6875rem]/5 whitespace-nowrap text-muted">
-                <li v-for="entry in nuxtHubMigration.imports" :key="entry.from">
-                  {{ entry.from }} <span class="text-dimmed">→</span> {{ entry.to }}
-                </li>
-              </ul>
-            </div>
-            <UIcon name="i-lucide-arrow-up-right" class="closing-arrow size-3.5" aria-hidden="true" />
-          </NuxtLink>
+      <ul class="closing-facts mt-12 grid sm:grid-cols-2 lg:mt-16 lg:grid-cols-4" aria-label="Before you start">
+        <li v-for="fact in closingFacts" :key="fact.id" class="min-w-0">
+          <component
+            :is="'to' in fact ? NuxtLink : 'div'"
+            v-bind="'to' in fact ? { to: fact.to } : {}"
+            class="closing-fact"
+            :class="{ 'is-link': 'to' in fact }"
+          >
+            <UIcon name="i-lucide-check" class="size-4 shrink-0 text-muted" aria-hidden="true" />
+            <span>{{ fact.label }}</span>
+            <span v-if="fact.id === 'hosts'" class="flex items-center gap-2 text-muted">
+              <UIcon v-for="host in closingHosts" :key="host.name" :name="host.icon" class="size-4" aria-hidden="true" />
+              <span class="sr-only">{{ hostNames }}</span>
+            </span>
+            <UIcon v-if="'to' in fact" name="i-lucide-arrow-up-right" class="closing-arrow ml-auto size-3.5 shrink-0" aria-hidden="true" />
+          </component>
         </li>
       </ul>
     </div>
@@ -46,38 +55,31 @@ import { closingPaths, nuxtHubMigration } from "./content";
 </template>
 
 <style scoped>
-.closing-grid {
+.closing-facts {
   border-top: 1px solid var(--ui-border);
   border-left: 1px solid var(--ui-border);
 }
 
-.closing-cell {
-  position: relative;
+.closing-fact {
   display: flex;
   height: 100%;
-  flex-direction: column;
-  justify-content: space-between;
+  min-height: 3.5rem;
+  align-items: center;
+  gap: 0.75rem;
   border-right: 1px solid var(--ui-border);
   border-bottom: 1px solid var(--ui-border);
-  padding: 1.25rem 2.5rem 1.25rem 1.25rem;
+  padding: 0.75rem 1.25rem;
+  color: var(--ui-text-highlighted);
+  font-size: 0.875rem;
   transition: background-color 200ms ease;
 }
 
-@media (min-width: 640px) {
-  .closing-cell {
-    min-height: 9rem;
-  }
-}
-
-.closing-cell:focus-visible {
+.closing-fact.is-link:focus-visible {
   outline: 2px solid var(--ui-text-highlighted);
   outline-offset: -2px;
 }
 
 .closing-arrow {
-  position: absolute;
-  top: 1.25rem;
-  right: 1.25rem;
   color: var(--ui-text-muted);
   transition: color 180ms ease, transform 180ms ease;
 }
@@ -87,11 +89,11 @@ import { closingPaths, nuxtHubMigration } from "./content";
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .closing-cell:hover {
+  .closing-fact.is-link:hover {
     background: color-mix(in srgb, var(--ui-bg-muted) 45%, transparent);
   }
 
-  .closing-cell:hover .closing-arrow {
+  .closing-fact.is-link:hover .closing-arrow {
     color: var(--ui-text-highlighted);
     transform: translate(1px, -1px);
   }
@@ -102,7 +104,7 @@ import { closingPaths, nuxtHubMigration } from "./content";
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .closing-cell,
+  .closing-fact,
   .closing-arrow,
   .closing-cta :deep(.iconify) {
     transition: none;
