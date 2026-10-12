@@ -129,6 +129,32 @@ describe("@vite-hub/shell just-bash runtime", () => {
     await expect(session.dispose()).resolves.toMatchObject({ event: "session_disposed" })
   })
 
+  it("bounds streaming callbacks for limited sessions", async () => {
+    const stdout: string[] = []
+    const stderr: string[] = []
+    const runtime = createShellRuntime({
+      provider: {
+        boundary: {
+          cwd: true, env: true, filesystem: { writable: false }, network: false,
+          processes: { background: false, interactive: false }, streaming: true,
+          timeout: { enforcedBy: "runtime", supported: true },
+        },
+        async exec(_command, options) {
+          options?.onStdout?.("abcdef")
+          options?.onStdout?.("ghi")
+          options?.onStderr?.("123456")
+          return { event: "command_finished", exitCode: 0, stderr: "123456", stdout: "abcdefghi" }
+        },
+      },
+    })
+    await runtime.createSession({ policy: { maxOutputLength: 4 } }).exec("echo", {
+      onStdout: value => stdout.push(value),
+      onStderr: value => stderr.push(value),
+    })
+    expect(stdout.join("")).toBe("abcd")
+    expect(stderr.join("")).toBe("1234")
+  })
+
   it.each([
     { maxOutputLength: undefined, stderr: "error-message", stdout: "output-message", limit: 100 },
     { maxOutputLength: Number.POSITIVE_INFINITY, stderr: "error-message", stdout: "output-message", limit: 100 },
