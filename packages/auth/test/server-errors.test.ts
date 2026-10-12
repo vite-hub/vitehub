@@ -129,14 +129,34 @@ describe("server authentication provider boundaries", () => {
   })
 
   it("keeps a cross-realm Request as the Better Auth input", async () => {
-    const foreignRequest = runInNewContext(`new Request("https://example.com/api/private")`, { Request })
+    // Node's native accessors use its built-in Request brand. Give each realm
+    // its own constructor over that shared platform implementation, as browsers
+    // do, so the native accessors still work without sharing an instanceof path.
+    const NativeRequest = Request
+    class LocalRequest extends NativeRequest {}
+    for (const property of ["url", "method", "headers"]) {
+      Object.defineProperty(LocalRequest.prototype, property, Object.getOwnPropertyDescriptor(NativeRequest.prototype, property)!)
+    }
+    const foreignRequest = runInNewContext(`
+      class ForeignRequest extends NativeRequest {}
+      new ForeignRequest("https://example.com/api/private")
+    `, { NativeRequest })
+    expect(foreignRequest).not.toBeInstanceOf(LocalRequest)
+    expect(foreignRequest.clone().url).toBe(foreignRequest.url)
     const response = new Response("ok")
     providerMocks.handler.mockImplementationOnce((input: unknown) => {
       expect(input).toBe(foreignRequest)
       return response
     })
 
-    await expect(Promise.resolve(handleAuthRequest(definition, foreignRequest as never))).resolves.toBe(response)
+    vi.stubGlobal("Request", LocalRequest)
+    try {
+      expect(foreignRequest instanceof Request).toBe(false)
+      await expect(Promise.resolve(handleAuthRequest(definition, foreignRequest as never))).resolves.toBe(response)
+    }
+    finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   it("normalizes a request-shaped object that spoofs the Request tag", async () => {
