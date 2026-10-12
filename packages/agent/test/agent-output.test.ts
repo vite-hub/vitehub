@@ -1129,23 +1129,29 @@ describe("agent output helpers", () => {
   })
 
   it("emits body chunks from a Response created in another realm", async () => {
-    const body = new ReadableStream<Uint8Array>({
-      start(controller) {
-        controller.enqueue(new TextEncoder().encode("foreign"))
-        controller.close()
-      },
-    })
     const response = runInNewContext(`(() => {
-      const value = { body, headers: { get: () => null }, status: 200, statusText: "OK" }
-      Object.defineProperty(value, Symbol.toStringTag, { value: "Response" })
-      return value
-    })()`, { body }) as Response
+      return new Response("foreign")
+    })()`, { Response }) as Response
     const events = []
     for await (const event of streamAgentOutputToEvents(response)) events.push(event)
     expect(events).toEqual([
       { text: "foreign", type: "text-delta" },
       { type: "finish" },
     ])
+  })
+
+  it("does not classify spoofed Response-shaped objects", async () => {
+    const value = {
+      body: new Response("spoofed").body,
+      headers: { get: () => null },
+      status: 200,
+      statusText: "OK",
+      textStream: (async function* () { yield "generic" })(),
+    }
+    Object.defineProperty(value, Symbol.toStringTag, { value: "Response" })
+    const events = []
+    for await (const event of streamAgentOutputToEvents(value)) events.push(event)
+    expect(events).toEqual([{ text: "generic", type: "text-delta" }, { type: "finish" }])
   })
 
   it("emits usage from promise-backed textStream results", async () => {

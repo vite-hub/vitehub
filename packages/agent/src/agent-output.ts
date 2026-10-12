@@ -803,19 +803,13 @@ function hasPropertyGetter(value: unknown, key: PropertyKey): boolean {
 }
 
 function isResponseLike(value: unknown): value is Response {
-  if (value === null || typeof value !== "object") return false
+  // Invoke the platform getter directly: reading a tag or a caller-owned
+  // property cannot establish the Response's internal brand.
+  const getStatus = Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get
+  if (!getStatus) return false
   try {
-    if (Object.prototype.toString.call(value) !== "[object Response]") return false
-    const response = value as { body?: unknown, headers?: unknown, status?: unknown, statusText?: unknown }
-    return typeof response.status === "number"
-      && Number.isInteger(response.status)
-      && response.status >= 0
-      && response.status <= 599
-      && typeof response.statusText === "string"
-      && response.headers !== null
-      && typeof response.headers === "object"
-      && typeof (response.headers as { get?: unknown }).get === "function"
-      && (response.body === null || (response.body !== null && typeof response.body === "object" && typeof (response.body as { pipeThrough?: unknown }).pipeThrough === "function"))
+    Reflect.apply(getStatus, value, [])
+    return true
   }
   catch {
     return false
