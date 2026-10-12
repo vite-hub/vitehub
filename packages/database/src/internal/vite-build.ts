@@ -90,7 +90,7 @@ function renderRuntimeModule(file: string, runtimeConfig: ResolvedDBViteConfig) 
     `import schema_${index} from ${JSON.stringify(createImportPath(file, runtimeConfig.generatedSchemaFilesByDatabase[definition.name]!))}`,
   ])
   const databaseEntries = runtimeConfig.databaseNames.map((name, index) => [
-    `  ${JSON.stringify(name)}: {`,
+    `  [${JSON.stringify(name)}]: {`,
     `    db: createHostedDrizzleDb(${renderDatabaseConfigExpression(name, runtimeConfig, `definition_${index}`)}, schema_${index}),`,
     `    schema: schema_${index},`,
     "  },",

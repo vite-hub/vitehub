@@ -414,10 +414,10 @@ export function resolveDBViteConfig(
   const definitions = discoverDatabaseDefinitions(rootDir, context)
   if (!definitions.length) return
 
-  const databases: Record<string, ResolvedDrizzleDatabaseConfig> = {}
-  const cloudflareProjections: Record<string, CloudflareD1Projection> = {}
-  const generatedDrizzleConfigFilesByDatabase: Record<string, string> = {}
-  const generatedSchemaFilesByDatabase: Record<string, string> = {}
+  const databases: Record<string, ResolvedDrizzleDatabaseConfig> = Object.create(null)
+  const cloudflareProjections: Record<string, CloudflareD1Projection> = Object.create(null)
+  const generatedDrizzleConfigFilesByDatabase: Record<string, string> = Object.create(null)
+  const generatedSchemaFilesByDatabase: Record<string, string> = Object.create(null)
   const provisionState = readProvisionStateSync(context.provisionRoot ?? rootDir)
   for (const definition of definitions) {
     const migrationsDir = getDefaultMigrationsDir(rootDir, definition)

@@ -104,7 +104,7 @@ function renderDatabasesModule(config: ResolvedDBViteConfig | undefined) {
     `import schema_${index} from ${JSON.stringify(config.generatedSchemaFilesByDatabase[definition.name])}`,
   ].join("\n"))
   const entries = config.definitions.map((definition, index) => [
-    `  ${JSON.stringify(definition.name)}: {`,
+    `  [${JSON.stringify(definition.name)}]: {`,
     `    config: ${renderDatabaseConfigExpression(definition.name, config, `definition_${index}`)},`,
     `    schema: schema_${index},`,
     "  },",
