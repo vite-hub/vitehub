@@ -9,6 +9,8 @@
   --vh-ui-bg: var(--ui-bg, Canvas);
   --vh-ui-bg-muted: var(--ui-bg-muted, color-mix(in oklab, Canvas 94%, currentColor));
   --vh-ui-bg-elevated: var(--ui-bg-elevated, color-mix(in oklab, Canvas 96%, currentColor));
+  --vh-ui-bg-accented: var(--ui-bg-accented, color-mix(in oklab, Canvas 90%, currentColor));
+  --vh-ui-highlighted: var(--ui-text-highlighted, currentColor);
   --vh-ui-error: var(--ui-error, #df3030);
   --vh-ui-info: var(--ui-info, #2563eb);
   --vh-ui-success: var(--ui-success, #16a34a);
@@ -3358,4 +3360,335 @@ button.vh-agent-tool-list__count:focus-visible {
 
 .vh-capability-inspector__content > code {
   overflow-wrap: anywhere;
+}
+
+/*
+ * Primitive rail: the narrow icon column that ViteHub docs and the Console share.
+ * The rail always takes 3.5rem of the layout. Its surface expands over the next element to show the labels,
+ * so the page never moves. Icons keep their position: each item starts with an icon box the size of the collapsed square.
+ */
+.vh-primitive-rail {
+  /* The inset centers the square in the rail width minus the 1px border. */
+  --vh-primitive-rail-inset: calc((3.5rem - 1px - var(--vh-primitive-rail-item)) / 2);
+  --vh-primitive-rail-item: 2.25rem;
+  box-sizing: border-box;
+  flex: none;
+  height: 100%;
+  min-height: 0;
+  position: relative;
+  width: 3.5rem;
+  /* Above the next element in the page, below the site header and the popovers. */
+  z-index: 10;
+}
+
+.vh-primitive-rail__surface {
+  background: var(--vh-ui-bg-muted);
+  border-inline-end: 1px solid var(--vh-ui-border);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  inset-block: 0;
+  inset-inline-start: 0;
+  overflow: hidden;
+  padding-block: 0.5rem;
+  position: absolute;
+  width: 100%;
+}
+
+.vh-primitive-rail[data-expanded] .vh-primitive-rail__surface {
+  width: 13.5rem;
+}
+
+.dark .vh-primitive-rail__surface {
+  background: #000;
+}
+
+.vh-primitive-rail__header,
+.vh-primitive-rail__footer {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 0.125rem;
+  padding-inline: var(--vh-primitive-rail-inset);
+}
+
+.vh-primitive-rail__body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-inline: var(--vh-primitive-rail-inset);
+  scrollbar-width: none;
+}
+
+.vh-primitive-rail__body::-webkit-scrollbar {
+  display: none;
+}
+
+/* Items in a group are 0.125rem apart. Groups are 1rem apart, with the rule in the middle. */
+.vh-primitive-rail__group {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 0.125rem;
+  padding-block: 0.5rem;
+  position: relative;
+}
+
+/* The rule stays centered under the icons when the rail expands. */
+.vh-primitive-rail__group + .vh-primitive-rail__group::before {
+  background: var(--vh-ui-border);
+  content: "";
+  height: 1px;
+  inset-block-start: 0;
+  inset-inline-start: calc(var(--vh-primitive-rail-item) / 2 - 0.625rem);
+  position: absolute;
+  width: 1.25rem;
+}
+
+/* The item fills the column, so it is a square when the rail is collapsed and a row when it is expanded. */
+.vh-primitive-rail__item {
+  align-items: center;
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-radius: 0.375rem;
+  box-sizing: border-box;
+  color: var(--vh-ui-muted);
+  cursor: pointer;
+  display: flex;
+  flex: none;
+  font: inherit;
+  height: var(--vh-primitive-rail-item);
+  justify-content: flex-start;
+  margin: 0;
+  overflow: hidden;
+  padding: 0;
+  text-decoration: none;
+  transition:
+    background-color 150ms ease,
+    color 150ms ease;
+  width: 100%;
+}
+
+.vh-primitive-rail__icon {
+  align-items: center;
+  display: flex;
+  flex: none;
+  height: 100%;
+  justify-content: center;
+  width: var(--vh-primitive-rail-item);
+}
+
+/* The label shows only when the rail is expanded. The item's aria-label holds the same text. */
+.vh-primitive-rail__label {
+  flex: 1 1 auto;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  line-height: 1.25rem;
+  min-width: 0;
+  opacity: 0;
+  overflow: hidden;
+  padding-inline-end: 0.5rem;
+  text-align: start;
+  text-overflow: ellipsis;
+  transition: opacity 150ms ease;
+  white-space: nowrap;
+}
+
+.vh-primitive-rail[data-expanded] .vh-primitive-rail__label {
+  opacity: 1;
+}
+
+/* Under reduced motion the surface opens and closes at once. The labels still fade. */
+@media (prefers-reduced-motion: no-preference) {
+  .vh-primitive-rail__surface {
+    transition: width 150ms cubic-bezier(0.2, 0, 0, 1);
+  }
+}
+
+/* Escape and a menu trigger close the rail at once, so a menu opens next to an icon that does not move. */
+.vh-primitive-rail[data-dismissed] .vh-primitive-rail__surface {
+  transition: none;
+}
+
+.vh-primitive-rail__item:focus-visible {
+  color: var(--vh-ui-highlighted);
+  outline: 2px solid var(--vh-ui-highlighted);
+  outline-offset: -2px;
+}
+
+.vh-primitive-rail__item[aria-current="page"] {
+  background: var(--vh-ui-bg-accented);
+  color: var(--vh-ui-highlighted);
+}
+
+.vh-primitive-rail__item:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+@media (hover: hover) {
+  .vh-primitive-rail__item:hover {
+    background: var(--vh-ui-bg-elevated);
+    color: var(--vh-ui-highlighted);
+  }
+
+  .vh-primitive-rail__item[aria-current="page"]:hover {
+    background: var(--vh-ui-bg-accented);
+  }
+}
+
+/* Touch targets grow to 2.75rem. The icon keeps its size, and the rail keeps its width. */
+@media (pointer: coarse) {
+  .vh-primitive-rail {
+    --vh-primitive-rail-item: 2.75rem;
+  }
+}
+
+.vh-primitive-icon {
+  display: block;
+  flex: none;
+  height: 1.125rem;
+  width: 1.125rem;
+}
+
+.vh-primitive-icon__motion {
+  transform-box: view-box;
+  transform-origin: var(--vh-primitive-icon-origin, 12px 12px);
+}
+
+/* Each icon moves once when a pointer enters or keyboard focus arrives. Nothing moves while idle. */
+@media (prefers-reduced-motion: no-preference) {
+  .vh-primitive-rail__item:focus-visible .vh-primitive-icon__motion {
+    animation: vh-primitive-icon 320ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+}
+
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .vh-primitive-rail__item:hover .vh-primitive-icon__motion {
+    animation: vh-primitive-icon 320ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+}
+
+@keyframes vh-primitive-icon {
+  50% {
+    opacity: var(--vh-primitive-icon-opacity, 1);
+    transform: var(--vh-primitive-icon-motion, none);
+  }
+}
+
+.vh-primitive-icon[data-icon="agent"] {
+  --vh-primitive-icon-motion: scaleY(0.2);
+  --vh-primitive-icon-origin: 12px 14.5px;
+}
+
+.vh-primitive-icon[data-icon="auth"] {
+  --vh-primitive-icon-motion: translateY(-1.5px);
+}
+
+.vh-primitive-icon[data-icon="blob"] {
+  --vh-primitive-icon-motion: translate(1px, -1px);
+}
+
+.vh-primitive-icon[data-icon="browser"] {
+  --vh-primitive-icon-motion: translate(1.5px, 1.5px);
+}
+
+.vh-primitive-icon[data-icon="channel"] {
+  --vh-primitive-icon-motion: translateX(1.5px);
+}
+
+.vh-primitive-icon[data-icon="connection"] {
+  --vh-primitive-icon-motion: translateY(1.5px);
+}
+
+.vh-primitive-icon[data-icon="content"] {
+  --vh-primitive-icon-motion: translateX(1.5px);
+}
+
+.vh-primitive-icon[data-icon="database"] {
+  --vh-primitive-icon-motion: translateY(-1.5px);
+}
+
+.vh-primitive-icon[data-icon="development"] {
+  --vh-primitive-icon-motion: rotate(14deg);
+}
+
+.vh-primitive-icon[data-icon="email"] {
+  --vh-primitive-icon-motion: translateY(1.5px);
+}
+
+.vh-primitive-icon[data-icon="env"] {
+  --vh-primitive-icon-motion: rotate(-16deg);
+  --vh-primitive-icon-origin: 8px 16px;
+}
+
+.vh-primitive-icon[data-icon="hosts"] {
+  --vh-primitive-icon-motion: translateY(-1.5px);
+}
+
+.vh-primitive-icon[data-icon="kv"] {
+  --vh-primitive-icon-motion: translateX(1.5px);
+}
+
+.vh-primitive-icon[data-icon="queue"] {
+  --vh-primitive-icon-motion: translateX(2px);
+}
+
+.vh-primitive-icon[data-icon="rate-limit"] {
+  --vh-primitive-icon-motion: rotate(-70deg);
+  --vh-primitive-icon-origin: 12px 15px;
+}
+
+.vh-primitive-icon[data-icon="realtime"] {
+  --vh-primitive-icon-motion: scale(1.12);
+  --vh-primitive-icon-opacity: 0.4;
+}
+
+.vh-primitive-icon[data-icon="reference"] {
+  --vh-primitive-icon-motion: skewY(-8deg);
+  --vh-primitive-icon-origin: 12px 12px;
+}
+
+.vh-primitive-icon[data-icon="sandbox"] {
+  --vh-primitive-icon-motion: scale(0.7);
+}
+
+.vh-primitive-icon[data-icon="schedule"] {
+  --vh-primitive-icon-motion: translateX(4.5px);
+}
+
+.vh-primitive-icon[data-icon="shell"] {
+  --vh-primitive-icon-opacity: 0;
+}
+
+.vh-primitive-icon[data-icon="source"] {
+  --vh-primitive-icon-motion: translateY(1.5px);
+}
+
+.vh-primitive-icon[data-icon="start"] {
+  --vh-primitive-icon-motion: skewY(-10deg);
+  --vh-primitive-icon-origin: 6px 8px;
+}
+
+.vh-primitive-icon[data-icon="ui"] {
+  --vh-primitive-icon-motion: translate(-1px, -1px);
+}
+
+.vh-primitive-icon[data-icon="usage"] {
+  --vh-primitive-icon-motion: scaleY(0.75);
+  --vh-primitive-icon-origin: 12px 16px;
+}
+
+.vh-primitive-icon[data-icon="workflow"] {
+  --vh-primitive-icon-motion: translateX(1.5px);
+}
+
+.vh-primitive-icon[data-icon="workspace"] {
+  --vh-primitive-icon-motion: translateY(-1px);
 }

@@ -4,7 +4,6 @@ import {
   clearSources,
   defineSource,
   defineSources,
-  registerSource,
   registerSources,
   useSource,
 } from "../src/index.ts"
