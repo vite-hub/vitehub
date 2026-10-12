@@ -8,6 +8,8 @@ export type ShellObservationEvent =
 
 export interface ShellRuntimeExecOptions {
   budget?: ExecutionBudget
+  /** Set when the caller has already charged this invocation to the shared budget. */
+  recordInputBytes?: boolean
   cwd?: string
   env?: Record<string, string>
   /** Abort the command and any provider-owned work, such as a Source request. */
