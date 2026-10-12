@@ -17,3 +17,11 @@ export function resolveConsoleAgentInvocation<T>(
     ? invocationOptions[selectedAgentName]
     : undefined;
 }
+
+/** Read an Agent's invocation options from the API response without inherited properties. */
+export function resolveConsoleAgentInvocationOptions<T>(
+  invocation: Record<string, T> | undefined,
+  agentName: string,
+): T | undefined {
+  return invocation && Object.hasOwn(invocation, agentName) ? invocation[agentName] : undefined;
+}
