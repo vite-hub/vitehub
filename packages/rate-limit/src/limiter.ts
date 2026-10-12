@@ -155,13 +155,35 @@ function isRateLimiterOptions(value: unknown): value is CreateRateLimiterOptions
   }
 }
 
+function isRateLimitDiagnostic(value: unknown): boolean {
+  try {
+    return Boolean(
+      value
+      && typeof value === "object"
+      && typeof (value as { code?: unknown }).code === "string"
+      && (value as { code: string }).code.startsWith("RATE_LIMIT_"),
+    )
+  }
+  catch {
+    return false
+  }
+}
+
 export function createRateLimiter(options: CreateRateLimiterOptions): RateLimiter {
   if (!isRateLimiterOptions(options)) {
     throw rateLimitErrorDiagnostics.RATE_LIMIT_R0029({ message: "[vitehub] createRateLimiter() requires a Rate Limit driver." })
   }
-  const policy = normalizeRateLimitPolicy(options)
-  const capabilities = resolveDriverCapabilities(options)
-  assertDriverSupportsPolicy(options, capabilities, policy.windowMs)
+  let policy: ResolvedRateLimitPolicy
+  let capabilities: RateLimitDriverCapabilities
+  try {
+    policy = normalizeRateLimitPolicy(options)
+    capabilities = resolveDriverCapabilities(options)
+    assertDriverSupportsPolicy(options, capabilities, policy.windowMs)
+  }
+  catch (error) {
+    if (isRateLimitDiagnostic(error)) throw error
+    throw rateLimitErrorDiagnostics.RATE_LIMIT_R0029({ message: "[vitehub] createRateLimiter() requires inspectable Rate Limit options." })
+  }
 
   const driverInput = (input: RateLimitConsumeInput): RateLimitDriverInput => ({
     key: input.key,
