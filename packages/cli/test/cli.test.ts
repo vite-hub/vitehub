@@ -361,6 +361,37 @@ describe("ViteHub CLI", () => {
     expect(run).not.toHaveBeenCalled()
   })
 
+  it.each([
+    {
+      name: "runtime namespace",
+      loadConfig: async () => ({ plugins: [], root: "/repo" }),
+      runtimeNamespaces: [{ features: [{ name: "run", run: () => 42 }], name: "provision" }],
+    },
+    {
+      name: "project contribution",
+      loadConfig: async () => ({
+        plugins: [{ vitehub: { cli: { namespaces: [{ features: [{ name: "run", run: () => 42 }], name: "provision" }] } } }],
+        root: "/repo",
+      }),
+      runtimeNamespaces: undefined,
+    },
+  ])("reserves the provision namespace from a $name", async ({ loadConfig, runtimeNamespaces }) => {
+    const stdout = stream()
+    const stderr = stream()
+    const exitCode = await runViteHubCli({
+      args: ["provision", "run"],
+      cwd: "/repo",
+      loadConfig,
+      runtimeNamespaces,
+      stderr,
+      stdout,
+    })
+
+    expect(exitCode).toBe(1)
+    expect(stderr.output()).toContain("Provision requires --provider cloudflare|vercel.")
+    expect(stdout.output()).toBe("")
+  })
+
   it("runs runtime namespaces without loading the project config", async () => {
     const stdout = stream()
     const stderr = stream()
