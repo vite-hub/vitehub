@@ -2,6 +2,7 @@ import { createHmac } from "node:crypto"
 import { access, mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises"
 import { basename, dirname, join, resolve } from "node:path"
 
+import { hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
 import { deployedChannelWebhookUrl, loadChannelTargets, type LoadedChannelTarget } from "./channel-sync-cli.ts"
 import { agentChannelHistoryHeader } from "./channel-history.ts"
 import { agentChannelSyncProviderHeader } from "./channel-sync.ts"
@@ -29,25 +30,36 @@ interface ParsedChannelHistoryArgs {
   output?: string
   stage?: string
   threadId?: string
+  query: Array<[string, string]>
+  invocations: boolean
   webhook?: string
+  webhookPath?: string
 }
 
 function writeUsage(context: ChannelHistoryCliContext): void {
   context.stdout.write([
-    "Usage: vitehub channels history --stage <name> --url <https-origin> --output <directory> [--agent <name>] [--channel <id>] [--webhook <id>] [--thread <id>]",
+    "Usage: vitehub channels history --stage <name> --url <https-origin> --output <directory> [--agent <name>] [--channel <id>] [--webhook <id>] [--webhook-path <path>] [--thread <id>] [--query <key=value>]... [--invocations]",
     "",
-    "Download one deployed Channel conversation and its attachments.",
-    "Telegram direct messages infer the thread when exactly one user is allowed; other conversations require --thread.",
+    "Export deployed Channel history or a conversation and its attachments.",
+    "Custom history accepts optional --thread and --query filters. Chat SDK conversations require --thread unless Telegram can infer one allowed user.",
     "",
   ].join("\n"))
 }
 
 function parseArgs(args: string[]): ParsedChannelHistoryArgs {
-  const parsed: ParsedChannelHistoryArgs = { help: false }
+  const parsed: ParsedChannelHistoryArgs = { help: false, invocations: false, query: [] }
   for (let index = 0; index < args.length; index++) {
     const arg = args[index]!
     if (arg === "-h" || arg === "--help") parsed.help = true
-    else if (["--agent", "--channel", "--output", "--stage", "--thread", "--url", "--webhook"].includes(arg)) {
+    else if (arg === "--invocations") parsed.invocations = true
+    else if (arg === "--query") {
+      const value = args[++index]
+      if (!value || value.startsWith("--")) throw agentDiagnostics.AGENT_R0521({ message: "--query requires a value." })
+      const separator = value.indexOf("=")
+      if (separator < 1) throw agentDiagnostics.AGENT_R0521({ message: "--query expects key=value." })
+      parsed.query.push([value.slice(0, separator), value.slice(separator + 1)])
+    }
+    else if (["--agent", "--channel", "--output", "--stage", "--thread", "--url", "--webhook", "--webhook-path"].includes(arg)) {
       const value = args[++index]
       if (!value || value.startsWith("--")) throw agentDiagnostics.AGENT_R0521({ message: `${arg} requires a value.` })
       if (arg === "--agent") parsed.agent = value
@@ -56,6 +68,10 @@ function parseArgs(args: string[]): ParsedChannelHistoryArgs {
       else if (arg === "--stage") parsed.stage = value
       else if (arg === "--thread") parsed.threadId = value
       else if (arg === "--webhook") parsed.webhook = value
+      else if (arg === "--webhook-path") {
+        if (!value.startsWith("/") || value.startsWith("//")) throw agentDiagnostics.AGENT_R0521({ message: "--webhook-path expects an absolute deployment path." })
+        parsed.webhookPath = value
+      }
       else parsed.origin = value
     }
     else throw agentDiagnostics.AGENT_R0522({ message: `Unknown channels history option: ${arg}` })
@@ -179,11 +195,22 @@ export async function runAgentChannelHistoryCli(
     })
     if (targets.length !== 1) throw agentDiagnostics.AGENT_R0530({ message: `channels history requires exactly one matching Channel; found ${targets.length}.` })
     const target = targets[0]!
-    const threadId = parsed.threadId || target.defaultThreadId
-    if (!threadId) throw agentDiagnostics.AGENT_R0531({ message: `Channel ${target.agent}/${target.channel} requires --thread <id>.` })
-    const url = deployedChannelWebhookUrl(target, normalizedOrigin(parsed.origin))
+    const threadId = parsed.threadId || (!target.history ? target.defaultThreadId : undefined)
+    if (!target.history && !threadId) throw agentDiagnostics.AGENT_R0531({ message: `Channel ${target.agent}/${target.channel} requires --thread <id>.` })
+    const url = deployedChannelWebhookUrl(parsed.webhookPath && target.registration
+      ? { ...target, registration: { ...target.registration, path: parsed.webhookPath, url: undefined } }
+      : target, normalizedOrigin(parsed.origin))
     if (!url) throw agentDiagnostics.AGENT_R0532({ message: `Channel ${target.agent}/${target.channel} has no deployed webhook route.` })
-    const body = JSON.stringify({ threadId })
+    const query: Record<string, string | string[]> = {}
+    for (const [key, value] of parsed.query) {
+      const current = query[key]
+      query[key] = current === undefined ? value : [...(Array.isArray(current) ? current : [current]), value]
+    }
+    const body = JSON.stringify({
+      ...(threadId ? { threadId } : {}),
+      ...(Object.keys(query).length ? { query } : {}),
+      ...(parsed.invocations ? { invocations: true } : {}),
+    })
     const outputDir = resolve(context.cwd, parsed.output)
     await mkdir(dirname(outputDir), { recursive: true })
     await access(outputDir).then(
@@ -206,10 +233,44 @@ export async function runAgentChannelHistoryCli(
         throw agentDiagnostics.AGENT_R0534({ message: `Channel history export failed with HTTP ${response.status}${detail ? `: ${detail}` : ""}.` })
       }
       const history = await response.json()
-      const materialized = await materializeHistory(history, join(stagingDir, "media"), { value: 0 })
+      const historyRecord = isRuntimeRecord(history) ? history : undefined
+      const allItems: unknown[] = Array.isArray(historyRecord?.items) ? [...historyRecord.items] : []
+      let cursor = historyRecord?.nextCursor
+      const seen = new Set<string>()
+      while (hasRuntimeType(cursor, "string") && cursor) {
+        if (seen.has(cursor)) throw agentDiagnostics.AGENT_R0534({ message: "Channel history export returned a repeated pagination cursor." })
+        seen.add(cursor)
+        const nextBody = JSON.stringify({
+          ...(threadId ? { threadId } : {}),
+          cursor,
+          ...(Object.keys(query).length ? { query } : {}),
+          ...(parsed.invocations ? { invocations: true } : {}),
+        })
+        const nextResponse = await fetchImpl(url, {
+          body: nextBody,
+          headers: historyHeaders(target, nextBody),
+          method: "POST",
+          redirect: "error",
+          signal: AbortSignal.timeout(120_000),
+        })
+        if (!nextResponse.ok) throw agentDiagnostics.AGENT_R0534({ message: `Channel history export failed with HTTP ${nextResponse.status}.` })
+        const next = await nextResponse.json()
+        if (!isRuntimeRecord(next) || !Array.isArray(next.items)) throw agentDiagnostics.AGENT_R0534({ message: "Channel history export returned an invalid page." })
+        allItems.push(...next.items)
+        cursor = next.nextCursor
+      }
+      const archive = historyRecord && Array.isArray(historyRecord.items)
+        ? (() => {
+            const { nextCursor: _nextCursor, ...base } = historyRecord
+            return { ...base, items: allItems }
+          })()
+        : history
+      const materialized = await materializeHistory(archive, join(stagingDir, "media"), { value: 0 })
       await writeFile(join(stagingDir, "history.json"), `${JSON.stringify(materialized, null, 2)}\n`)
       await rename(stagingDir, outputDir)
-      const messageCount = Array.isArray((materialized as { messages?: unknown }).messages) ? (materialized as { messages: unknown[] }).messages.length : 0
+      const archiveRecord = isRuntimeRecord(materialized) ? materialized : undefined
+      const messageCount = Array.isArray(archiveRecord?.messages) ? archiveRecord.messages.length
+        : Array.isArray(archiveRecord?.items) ? archiveRecord.items.length : 0
       context.stdout.write(`Downloaded ${messageCount} messages to ${outputDir}\n`)
       return 0
     }
