@@ -32,17 +32,17 @@ export function isUIMessageStreamResult(value: unknown): value is { toUIMessageS
 }
 
 export function isUIMessageStreamResponse(value: unknown): value is Response & { body: ReadableStream<Uint8Array> } {
-  if (value === null || typeof value !== "object") return false
   try {
-    if (Object.prototype.toString.call(value) !== "[object Response]") return false
-    const response = value as { body?: unknown, headers?: unknown }
-    return response.body !== null
-      && typeof response.body === "object"
-      && typeof (response.body as { pipeThrough?: unknown }).pipeThrough === "function"
-      && response.headers !== null
-      && typeof response.headers === "object"
-      && typeof (response.headers as { get?: unknown }).get === "function"
-      && (response.headers as { get: (name: string) => unknown }).get("x-vercel-ai-ui-message-stream") === "v1"
+    if (!isRuntimeRecord(value) || Object.prototype.toString.call(value) !== "[object Response]") return false
+    // This is a structural interoperability boundary, not a native-brand or
+    // trust check: independently loaded Response implementations have distinct
+    // internal slots, so borrowing the host's accessors rejects valid responses.
+    const { body, headers } = value
+    return isRuntimeRecord(body)
+      && hasRuntimeType(body.pipeThrough, "function")
+      && isRuntimeRecord(headers)
+      && hasRuntimeType(headers.get, "function")
+      && headers.get("x-vercel-ai-ui-message-stream") === "v1"
   }
   catch {
     return false
