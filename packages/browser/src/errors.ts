@@ -48,11 +48,40 @@ function isBrowserError(value: unknown): value is ViteHubError<`BROWSER_${string
 
 export function toBrowserError(error: unknown): ViteHubError<`BROWSER_${string}`> {
   if (isBrowserError(error)) return error
-  const message = error instanceof Error
-    ? error.message
-    : error !== null && typeof error === "object" && Object.prototype.toString.call(error) === "[object Error]"
-      ? String((error as { message?: unknown }).message)
-      : String(error)
+  let message: string | undefined
+  if (error instanceof Error) {
+    try {
+      message = String(error.message)
+    }
+    catch {
+      // Fall through to the safe string conversion below.
+    }
+  }
+  else if (error !== null && typeof error === "object") {
+    let isError = false
+    try {
+      isError = Object.prototype.toString.call(error) === "[object Error]"
+    }
+    catch {
+      // A hostile Symbol.toStringTag must not escape error normalization.
+    }
+    if (isError) {
+      try {
+        message = String((error as { message?: unknown }).message)
+      }
+      catch {
+        // Fall through to the safe string conversion below.
+      }
+    }
+  }
+  if (message === undefined) {
+    try {
+      message = String(error)
+    }
+    catch {
+      message = ""
+    }
+  }
   return new ViteHubError(
     "BROWSER_RUNTIME_ERROR",
     message || "[vitehub:browser] Browser Definition execution failed.",
