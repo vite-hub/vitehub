@@ -572,10 +572,10 @@ function boxedObservationPrimitive(value: unknown): { type: string, value: bigin
   }
 }
 
-function reflectedMapEntries(value: unknown): Array<[unknown, unknown]> | undefined {
+function reflectedMapEntries(value: unknown): IterableIterator<[unknown, unknown]> | undefined {
   if (!value || !hasRuntimeType(value, "object")) return
   try {
-    return Array.from(Map.prototype.entries.call(value))
+    return Map.prototype.entries.call(value)
   }
   catch {
     return
@@ -741,11 +741,15 @@ function boundedObservationValue(
   if (mapEntries) {
     budget.truncated = true
     const limit = Math.min(collectionItems, budget.items)
-    if (limit < mapEntries.length) budget.truncated = true
-    return mapEntries.slice(0, limit).map(([key, child]) => [
-      boundedObservationValue(key, budget, depth + 1, maxStringLength, builtIns),
-      boundedObservationValue(child, budget, depth + 1, maxStringLength, builtIns),
-    ])
+    const entries: unknown[] = []
+    for (const entry of mapEntries) {
+      if (entries.length >= limit) break
+      entries.push([
+        boundedObservationValue(entry[0], budget, depth + 1, maxStringLength, builtIns),
+        boundedObservationValue(entry[1], budget, depth + 1, maxStringLength, builtIns),
+      ])
+    }
+    return entries
   }
   if (value instanceof Set) {
     budget.truncated = true
