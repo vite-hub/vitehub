@@ -153,10 +153,16 @@ function createBudget(state: BudgetState, limits: ExecutionBudgetLimits, control
       state.usage.retries += 1
     },
     recordToolCall(inputBytes = 0) {
-      assertAvailable("toolCalls", 1)
-      if (inputBytes) assertAvailable("inputBytes", inputBytes)
-      state.usage.toolCalls += 1
-      if (inputBytes) state.usage.inputBytes += inputBytes
+      try {
+        assertAvailable("toolCalls", 1)
+        if (inputBytes) assertAvailable("inputBytes", inputBytes)
+        state.usage.toolCalls += 1
+        if (inputBytes) state.usage.inputBytes += inputBytes
+      }
+      catch (error) {
+        if (error instanceof ExecutionBudgetExceededError) controller.abort(error)
+        throw error
+      }
     },
     snapshot() {
       const remainingTime = limits.deadlineAt === undefined ? undefined : Math.max(0, limits.deadlineAt - Date.now())

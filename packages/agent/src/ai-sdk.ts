@@ -1335,11 +1335,17 @@ async function createAgent(
   const settings = instrumentedCallSettings ? { ...baseCallSettings, ...instrumentedCallSettings } : baseCallSettings
   // Partial AI SDK mocks can throw when a missing export is read through Vitest's proxy.
   let wrapLanguageModel: typeof aiSdk.wrapLanguageModel | undefined
+  let optionalWrapperMocked = false
   try {
     const candidate = aiSdk.wrapLanguageModel
     if (hasRuntimeType(candidate, "function")) wrapLanguageModel = candidate
-  } catch {
-    wrapLanguageModel = undefined
+  }
+  catch {
+    // Vitest's partial-module proxy throws for missing optional exports.
+    optionalWrapperMocked = true
+  }
+  if (context.executionBudget && !wrapLanguageModel && !optionalWrapperMocked) {
+    throw new Error("[vitehub] Execution budgets require AI SDK wrapLanguageModel support.")
   }
   const instrumentedModel = context.executionBudget && wrapLanguageModel
     ? wrapLanguageModel({
