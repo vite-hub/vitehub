@@ -38,4 +38,16 @@ describe("Agent attachment boundaries", () => {
     const portable = await portableAgentWorkflowInput({ messages: [message] })
     expect(portable.messages?.[0]?.parts[0]).toEqual({ data: "data:text/plain;base64,AQID", mediaType: "text/plain", type: "file" })
   })
+
+  it("enforces byte limits after materializing a spoofed Blob", async () => {
+    const blob = {
+      size: 1,
+      type: "audio/wav",
+      arrayBuffer: () => Promise.resolve(new Uint8Array([1, 2, 3]).buffer),
+      [Symbol.toStringTag]: "Blob",
+    } as unknown as Blob
+
+    expect(isAttachmentData(blob)).toBe(true)
+    await expect(audioBytes({ data: blob, mediaType: "audio/wav", type: "audio" }, { maxBytes: 2 })).rejects.toThrow("exceeds maxBytes")
+  })
 })

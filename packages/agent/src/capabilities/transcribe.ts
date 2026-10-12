@@ -181,7 +181,11 @@ async function resolveAudioData(audio: AudioPart, maxBytes: number): Promise<Aud
 
 async function toAiSdkAudio(audio: AudioPart, maxBytes: number): Promise<Parameters<AiSdkTranscribe>[0]["audio"]> {
   const data = await resolveAudioData(audio, maxBytes)
-  if (isAttachmentBlob(data)) return new Uint8Array(await data.arrayBuffer())
+  if (isAttachmentBlob(data)) {
+    const bytes = new Uint8Array(await data.arrayBuffer())
+    assertWithinMaxBytes(bytes.byteLength, maxBytes, "audio data")
+    return bytes
+  }
   if (hasRuntimeType(data, "string") && /^data:/i.test(data)) {
     assertWithinMaxBytes(attachmentStringByteLength(data, audio.mediaType), maxBytes, "audio data")
     return attachmentStringBytes(data, audio.mediaType)
@@ -258,7 +262,11 @@ async function responseBytes(response: Response, maxBytes: number): Promise<Uint
 export async function audioBytes(audio: AudioPart, options?: { maxBytes?: number }): Promise<Uint8Array> {
   const maxBytes = normalizeMaxBytes(options?.maxBytes)
   const data = await resolveAudioData(audio, maxBytes)
-  if (isAttachmentBlob(data)) return new Uint8Array(await data.arrayBuffer())
+  if (isAttachmentBlob(data)) {
+    const bytes = new Uint8Array(await data.arrayBuffer())
+    assertWithinMaxBytes(bytes.byteLength, maxBytes, "audio data")
+    return bytes
+  }
   if (data instanceof ArrayBuffer) return new Uint8Array(data)
   if (ArrayBuffer.isView(data)) return new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
   if (hasRuntimeType(data, "string")) {
