@@ -120,6 +120,15 @@ export type {
   UsageOptions,
 } from "./usage.ts"
 export {
+  budget,
+} from "./budget.ts"
+export type {
+  AgentBudgetExceeded,
+  AgentBudgetOptions,
+  AgentBudgetSnapshot,
+  AgentBudgetTokenLimits,
+} from "./budget.ts"
+export {
   workspaceShell,
 } from "./workspace-shell.ts"
 export type {
