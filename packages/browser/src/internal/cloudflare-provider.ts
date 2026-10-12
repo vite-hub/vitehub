@@ -118,9 +118,25 @@ export function createCloudflareBrowser(
 
 function isCloudflareSessionId(value: string): boolean {
   return value.length > 0
+    && isWellFormedUnicode(value)
     && value !== "."
     && value !== ".."
     && !/[\\/?#%\s]/u.test(value)
+}
+
+function isWellFormedUnicode(value: string): boolean {
+  for (let index = 0; index < value.length; index++) {
+    const codeUnit = value.charCodeAt(index)
+    if (codeUnit >= 0xD800 && codeUnit <= 0xDBFF) {
+      const next = value.charCodeAt(index + 1)
+      if (next < 0xDC00 || next > 0xDFFF) return false
+      index++
+    }
+    else if (codeUnit >= 0xDC00 && codeUnit <= 0xDFFF) {
+      return false
+    }
+  }
+  return true
 }
 
 export type { CloudflareBrowserBindingConnection } from "../internal/connections.ts"

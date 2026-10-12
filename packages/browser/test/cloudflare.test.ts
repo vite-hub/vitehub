@@ -76,6 +76,8 @@ describe("cloudflareBrowser", () => {
     "a?b",
     "a#b",
     "a%b",
+    "\uD800",
+    "\uDC00",
     ".",
     "..",
   ]) ("rejects an acquired session id that is not a path-safe value (%j)", async sessionId => {
