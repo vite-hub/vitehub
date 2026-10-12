@@ -38,6 +38,32 @@ const syncUpdateIntervalMs = 50
 const pendingCheckpointRetentionMs = 30_000
 const durableUpdateCompactionInterval = 128
 const messageSync = 0
+
+const arrayBufferByteLengthGetter = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")!.get!
+const typedArrayByteLengthGetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), "byteLength")!.get!
+const typedArrayLengthGetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), "length")!.get!
+
+function normalizeRealtimeCheckpointChunk(value: unknown): Uint8Array | undefined {
+  if (ArrayBuffer.isView(value)) {
+    try {
+      const byteLength = Reflect.apply(typedArrayByteLengthGetter, value, []) as number
+      const length = Reflect.apply(typedArrayLengthGetter, value, []) as number
+      if (byteLength !== length) return undefined
+      return new Uint8Array(value.buffer, value.byteOffset, value.byteLength)
+    }
+    catch {
+      return undefined
+    }
+  }
+
+  try {
+    Reflect.apply(arrayBufferByteLengthGetter, value, [])
+    return new Uint8Array(value as ArrayBuffer)
+  }
+  catch {
+    return undefined
+  }
+}
 const fragmentName = "default"
 
 export function markdownToYDoc(markdown: string): Y.Doc {
@@ -147,11 +173,7 @@ export async function readRealtimeCheckpointState(request: Request, maxBytes = m
     while (true) {
       const { done, value } = await reader.read()
       if (done) break
-      const chunk = ArrayBuffer.isView(value)
-        ? new Uint8Array(value.buffer, value.byteOffset, value.byteLength)
-        : Object.prototype.toString.call(value) === "[object ArrayBuffer]"
-          ? new Uint8Array(value as ArrayBuffer)
-          : undefined
+      const chunk = normalizeRealtimeCheckpointChunk(value)
       if (!chunk) {
         await reader.cancel()
         throw new HTTPError({ status: 400, message: "Realtime checkpoint body contains invalid bytes." })

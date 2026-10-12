@@ -1085,6 +1085,24 @@ describe("realtime transport boundaries", () => {
     await expect(readRealtimeCheckpointState(request, 4)).resolves.toEqual(Uint8Array.of(1, 2, 3))
   })
 
+  it("rejects spoofed and non-byte checkpoint chunks", async () => {
+    const chunks = [
+      { [Symbol.toStringTag]: "ArrayBuffer" },
+      new Uint16Array([1, 2]),
+    ]
+    for (const value of chunks) {
+      const body = new ReadableStream<unknown>({
+        start(controller) {
+          controller.enqueue(value)
+          controller.close()
+        },
+      })
+      const request = new Request("https://example.com", { body, duplex: "half", method: "POST" } as RequestInit)
+
+      await expect(readRealtimeCheckpointState(request)).rejects.toMatchObject({ statusCode: 400 })
+    }
+  })
+
   it("stops reading a streamed checkpoint body at the room quota", async () => {
     let pulls = 0
     const body = new ReadableStream<Uint8Array>({
