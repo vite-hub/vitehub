@@ -1395,12 +1395,19 @@ export function createRuntimeWaitUntilController(options: {
 }
 
 function isCapabilityHandle(value: unknown): value is CapabilityHandle {
-  return hasRuntimeType(value, "object")
-    && value !== null
-    && "kind" in value
-    // SAFETY: Runtime Capability normalization establishes the asserted host contract.
-    && hasRuntimeType((value as { kind?: unknown }).kind, "string")
-    && "value" in value
+  if (!hasRuntimeType(value, "object") || value === null) return false
+  try {
+    const kind = Object.getOwnPropertyDescriptor(value, "kind")
+    const implementation = Object.getOwnPropertyDescriptor(value, "value")
+    return kind !== undefined
+      && "value" in kind
+      && hasRuntimeType(kind.value, "string")
+      && implementation !== undefined
+      && "value" in implementation
+  }
+  catch {
+    return false
+  }
 }
 
 export function hasCapability(context: RuntimeHostContext, name: string): boolean {

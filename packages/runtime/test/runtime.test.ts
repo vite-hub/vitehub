@@ -324,6 +324,23 @@ describe("@vite-hub/runtime", () => {
     })
   })
 
+  it("does not treat inherited capability fields as a handle", () => {
+    const raw = Object.create({ kind: "spoofed", value: "unexpected" }) as { ready: boolean }
+    raw.ready = true
+    const context = createExecutionContext({
+      capabilities: { raw },
+      memo: vi.fn(),
+      runtime: "vite",
+      waitUntil: vi.fn(),
+    })
+
+    expect(getCapability(context, "raw")).toEqual({
+      kind: "raw",
+      name: "raw",
+      value: raw,
+    })
+  })
+
   it("resolves only capabilities registered as own properties", () => {
     const inherited = { inherited: defineCapability("inherited", {}) }
     const context = createExecutionContext({
