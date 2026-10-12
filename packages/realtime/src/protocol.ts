@@ -1,5 +1,6 @@
 import * as decoding from "lib0/decoding"
 import * as encoding from "lib0/encoding"
+import { normalizeSafeWorkspacePath } from "@vite-hub/workspace"
 
 import type { RealtimeWorkspaceChange } from "./types.ts"
 import { realtimeErrorDiagnostics } from "./error-diagnostics.ts"
