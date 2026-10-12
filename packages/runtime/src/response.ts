@@ -37,9 +37,8 @@ function isResponse(value: unknown): value is Response {
     if (Object.prototype.toString.call(value) !== "[object Response]") return false
     // Calling a native prototype operation performs the internal-slot brand check;
     // a configurable tag and a handful of methods are not sufficient to spoof it.
-    const clone = Response.prototype.clone.call(value)
     const headers = Object.getOwnPropertyDescriptor(Response.prototype, "headers")?.get?.call(value)
-    if (!headers || !clone) return false
+    if (!headers) return false
     Array.from(Headers.prototype.entries.call(headers))
     return true
   }
