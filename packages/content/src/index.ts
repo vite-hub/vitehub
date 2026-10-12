@@ -90,7 +90,7 @@ export function defineContent<
   }
   const runtime = {
     ...hub,
-    list: (names?: string | string[]) => hub.list(names instanceof Array ? names : names ? [names] : undefined),
+    list: (names?: string | string[]) => hub.list(Array.isArray(names) ? names : names ? [names] : undefined),
     search: (names: string[], query: string, opts?: Parameters<ContentHub["search"]>[1]) => hub.search(query, { ...opts, instances: names }),
     getSource: (name = "default") => byName.get(name)?.getSource(name),
     cache: {
