@@ -1,5 +1,7 @@
 import { expect, it, vi } from "vitest"
+import { browser } from "../src/capabilities/browser.ts"
 import { blob } from "../src/capabilities/storage/blob.ts"
+import { createAgentInvocationContextStore } from "../src/invocation-context.ts"
 import { setAgentWorkspaceDiff } from "../src/agent-workspace-runtime.ts"
 import type { AgentCapabilityRuntimeContext, AgentOutputRenderer } from "../src/types.ts"
 
@@ -26,4 +28,26 @@ it.each([false, true])("publishes response image bytes before exposing links, fa
     await expect(result).resolves.toMatchObject({ text: "![Chart](</blob/persistent.png>)", artifacts: [{ path: "artifacts/chart.png", url: "/blob/persistent.png" }] })
     expect(put.mock.calls[0]?.[1]).toEqual(bytes)
   }
+})
+
+it("keeps the Workspace diff available to later output Capabilities", async () => {
+  const renders: AgentOutputRenderer[] = []
+  const context = {
+    capabilities: { blob: { put: vi.fn(async () => [null, { url: "/blob/persistent.png" }]) } },
+    context: createAgentInvocationContextStore(),
+    driver: { kind: "provider" },
+    output: { final(renderer: AgentOutputRenderer) { renders.push(renderer) } },
+    request: new Request("http://vitehub.local/api/_vitehub/console/agents/test/invocations"),
+    run: { runId: "test" },
+    workspace: { fs: { stat: async () => ({ type: "file", mediaType: "image/png" }), readFile: async () => new Uint8Array([137, 80, 78, 71]) } },
+  } as unknown as AgentCapabilityRuntimeContext
+  setAgentWorkspaceDiff(context.context, { to: "after", entries: [{ path: "screenshots/chart.png", type: "added", after: { type: "file" } }] })
+
+  // Blob owns a different asset root. It must not consume the diff before browser() sees screenshots.
+  await blob({ mode: "write", assetPaths: ["artifacts"] }).output!(context)
+  await browser().output!(context)
+  let result: unknown = { text: "![Chart](screenshots/chart.png)" }
+  for (const render of renders) result = await render(result, context)
+
+  expect(result).toMatchObject({ text: "", artifacts: [{ path: "screenshots/chart.png", placement: "attachment" }] })
 })
