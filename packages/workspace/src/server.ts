@@ -176,9 +176,9 @@ function resolveWorkspaceFilePath(path: string, root: string | undefined): strin
 
 function resolveContentType(path: string, mediaType: string | undefined, contentTypes: Record<string, string> | undefined): string {
   if (mediaType) return mediaType
-  if (contentTypes?.[path]) return contentTypes[path]
+  if (contentTypes && Object.hasOwn(contentTypes, path) && contentTypes[path]) return contentTypes[path]
   const extension = path.includes(".") ? `.${path.split(".").at(-1)}` : ""
-  if (extension && contentTypes?.[extension]) return contentTypes[extension]
+  if (extension && contentTypes && Object.hasOwn(contentTypes, extension) && contentTypes[extension]) return contentTypes[extension]
   return lookup(path) || "application/octet-stream"
 }
 
