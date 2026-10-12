@@ -287,12 +287,18 @@ async function runAccessAuthorize(
 function isResponseLike(value: unknown): value is Response {
   if (value === null || typeof value !== "object") return false
   try {
-    if (Object.prototype.toString.call(value) !== "[object Response]") return false
-    const response = value as { headers?: unknown, status?: unknown, statusText?: unknown }
-    if (typeof response.status !== "number" || !Number.isInteger(response.status) || response.status < 0 || response.status > 599) return false
-    if (typeof response.statusText !== "string") return false
-    const headers = response.headers
-    return headers !== null && typeof headers === "object" && typeof (headers as { get?: unknown }).get === "function"
+    // Accessors on the native prototype perform an internal-slot brand check,
+    // which works across realms and cannot be forged with Symbol.toStringTag.
+    const getStatus = Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get
+    const getStatusText = Object.getOwnPropertyDescriptor(Response.prototype, "statusText")?.get
+    const getHeaders = Object.getOwnPropertyDescriptor(Response.prototype, "headers")?.get
+    if (!getStatus || !getStatusText || !getHeaders) return false
+    const status = getStatus.call(value)
+    const statusText = getStatusText.call(value)
+    const headers = getHeaders.call(value)
+    return Number.isInteger(status) && status >= 0 && status <= 599
+      && typeof statusText === "string"
+      && headers !== null && typeof headers === "object"
   }
   catch {
     return false

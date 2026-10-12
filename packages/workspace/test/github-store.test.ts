@@ -24,6 +24,8 @@ let commitIndex = 0;
 let treeIndex = 0;
 let mirrorRefSha: string | undefined;
 let mirrorRefStatus = 404;
+let malformedResponsePath: string | undefined;
+let malformedResponse: unknown;
 let archiveFailures = 0;
 let archiveBytes = textBytes("archive");
 const blobs = new Map<string, Uint8Array>();
@@ -68,6 +70,8 @@ beforeEach(() => {
   treeIndex = 0;
   mirrorRefSha = undefined;
   mirrorRefStatus = 404;
+  malformedResponsePath = undefined;
+  malformedResponse = undefined;
   archiveFailures = 0;
   archiveBytes = textBytes("archive");
   blobs.clear();
@@ -85,6 +89,8 @@ beforeEach(() => {
       const parsedBody: unknown = typeof init.body === "string" ? JSON.parse(init.body) : undefined;
       const body = isGitHubRequestBody(parsedBody) ? parsedBody : undefined;
       requests.push({ body, headers: new Headers(init.headers), method, path: url.pathname });
+
+      if (url.pathname === malformedResponsePath) return jsonResponse(malformedResponse);
 
       if (url.hostname === "codeload.github.com") {
         if (archiveFailures-- > 0) {
@@ -200,6 +206,43 @@ afterEach(() => {
 });
 
 describe("GitHub workspace store", () => {
+  it.each([
+    {
+      message: "branch reference",
+      path: "/repos/onmax/repo/git/ref/heads/main",
+      response: null,
+    },
+    {
+      message: "commit",
+      path: "/repos/onmax/repo/git/commits/base-sha",
+      response: { tree: {} },
+    },
+    {
+      message: "tree",
+      path: "/repos/onmax/repo/git/trees/base-tree",
+      response: { tree: null },
+    },
+    ...[undefined, null, ""].map(sha => ({
+      message: "tree",
+      path: "/repos/onmax/repo/git/trees/base-tree",
+      response: { tree: [{ path: ".vitehub/workspaces/docs/file.md", sha, type: "blob" }] },
+    })),
+  ])("rejects malformed successful GitHub $message responses", async ({ message, path, response }) => {
+    malformedResponsePath = path;
+    malformedResponse = response;
+    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+    const store = createGitHubWorkspaceStore({
+      provider: "github",
+      repository: "onmax/repo",
+      token: "token",
+    }, "docs");
+
+    await expect(store.list()).rejects.toMatchObject({
+      code: "WORKSPACE_FAILED",
+      message: `[vitehub] GitHub workspace returned a malformed ${message} response.`,
+    });
+  });
+
   it("matches glob patterns relative to cwd", async () => {
     for (const path of globCwdPaths) seedRemote(`.vitehub/workspaces/docs/${path}`, path);
     const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");

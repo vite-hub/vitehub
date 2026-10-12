@@ -3,6 +3,11 @@
   "diagnostics": [
     {
       "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/workspace/src/sources/resolution.ts",
+      "fingerprint": "d5b2ee099b69ae773df99f109d8b142431fed0fd7c8530b58f2d4f042db97cc3"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
       "file": "packages/sandbox/src/module-types.ts",
       "fingerprint": "361a1c4d43c08324ed8e10ebf404b39fbe85f94db2a4eadac509cbb0a2e0fdff"
     },
