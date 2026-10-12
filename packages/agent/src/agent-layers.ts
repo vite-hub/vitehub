@@ -56,6 +56,17 @@ function nativePrototype(value: unknown, constructor: { readonly prototype: obje
     && Object.getOwnPropertyDescriptor(descriptor.value, "prototype")?.value === prototype
 }
 
+function nativeBuffer(value: unknown): boolean {
+  if (globalThis.Buffer === undefined || !Buffer.isBuffer(value)) return false
+  const prototype = Object.getPrototypeOf(value)
+  if (!prototype || !hasRuntimeType(prototype, "object")) return false
+  const descriptor = Object.getOwnPropertyDescriptor(prototype, "constructor")
+  // Buffer constructors from another realm do not always have the same native
+  // source representation, but their intrinsic prototype still identifies them.
+  return !!descriptor && "value" in descriptor && descriptor.value?.name === "Buffer"
+    && Object.getOwnPropertyDescriptor(descriptor.value, "prototype")?.value === prototype
+}
+
 function record(value: unknown): value is Record<string, unknown> {
   return value !== null && hasRuntimeType(value, "object")
     && !Array.isArray(value)
@@ -385,7 +396,7 @@ function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>()
       readonly BYTES_PER_ELEMENT: number
     }[] = [Int8Array, Uint8Array, Uint8ClampedArray, Int16Array, Uint16Array, Int32Array, Uint32Array, Float32Array, Float64Array, BigInt64Array, BigUint64Array]
     const TypedArray = constructors.find(ctor => nativePrototype(value, ctor))
-    const isBuffer = globalThis.Buffer !== undefined && nativePrototype(value, Buffer)
+    const isBuffer = nativeBuffer(value)
     const isDataView = nativePrototype(value, DataView)
     if (!TypedArray && !isBuffer && !isDataView) return value
     const prototype = isDataView ? DataView.prototype : typedArrayPrototype
@@ -393,14 +404,16 @@ function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>()
     const buffer = Object.getOwnPropertyDescriptor(prototype, "buffer")!.get!.call(value) as ArrayBufferLike
     // The platform cannot report whether a view tracks buffer length. Preserve these
     // views atomically, including out-of-bounds views whose range accessors throw.
-    const sharedBuffer = globalThis.SharedArrayBuffer !== undefined && nativePrototype(buffer, SharedArrayBuffer)
+    const sharedBuffer = globalThis.SharedArrayBuffer !== undefined
+      && (nativePrototype(buffer, SharedArrayBuffer) || Object.prototype.toString.call(buffer) === "[object SharedArrayBuffer]")
     if (variablePresetBacking(buffer, sharedBuffer) || detachedPresetBacking(buffer, sharedBuffer)) return value
     // SAFETY: The intrinsic byteOffset accessor returns a number.
     const byteOffset = Object.getOwnPropertyDescriptor(prototype, "byteOffset")!.get!.call(value) as number
     // SAFETY: The intrinsic byteLength accessor returns a number.
     const byteLength = Object.getOwnPropertyDescriptor(prototype, "byteLength")!.get!.call(value) as number
-    const standardBuffer = nativePrototype(buffer, ArrayBuffer)
-      || (globalThis.SharedArrayBuffer !== undefined && nativePrototype(buffer, SharedArrayBuffer))
+    // Every recognized view has an ArrayBuffer or SharedArrayBuffer backing
+    // store. Clone it even when its realm's intrinsic prototype is foreign.
+    const standardBuffer = true
     const populateBacking = standardBuffer && !memo.has(buffer) && !active.has(buffer)
     // Allocate the backing store before traversing its properties. It may point back to this view.
     // SAFETY: Buffer clones and existing memo entries retain the backing store type.
