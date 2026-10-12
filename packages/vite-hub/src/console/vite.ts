@@ -426,7 +426,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       resolveKVRegistration(viteConfig.kv)
       resolveQueueRegistration(viteConfig.queue)
       resolveWorkflowRegistration(viteConfig.workflow ?? options.sections?.includes("workflows"))
-      if ("database" in viteConfig) {
+      if (Object.hasOwn(viteConfig, "database")) {
         sections = sections.filter(section => section !== "databases")
         if (viteConfig.database) sections = [...sections, "databases"]
       }
@@ -573,10 +573,10 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
         && typeof value.projectRoot === "string"
         ? resolve(root!, value.projectRoot)
         : undefined
-      databaseDiscoveryRoot = "database" in viteConfig
+      databaseDiscoveryRoot = Object.hasOwn(viteConfig, "database")
         ? configuredProjectRoot(viteConfig.database)
         : databaseDiscoveryRoot
-      if ("database" in viteConfig) {
+      if (Object.hasOwn(viteConfig, "database")) {
         sections = sections.filter(section => section !== "databases")
         if (viteConfig.database) sections = [...sections, "databases"]
       }
