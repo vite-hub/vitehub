@@ -2,7 +2,7 @@ import { defu } from "defu"
 import { createHash } from "node:crypto"
 
 import { workspaceError } from "../core/errors.ts"
-import { decodeFile, normalizeSafeWorkspacePath } from "../core/path.ts"
+import { decodeFile, isWorkspaceBytes, normalizeSafeWorkspacePath } from "../core/path.ts"
 import { fetch as fetchSource } from "./fetch.ts"
 import { getLiveWorkspaceSourcePaths, markLiveWorkspaceSource } from "./live.ts"
 import { resolveGitHubIgnore } from "./github-ignore.ts"
@@ -331,19 +331,15 @@ function createInferredWorkspaceSource(family: WorkspaceSourceFamily, input: Wor
   return livePaths ? markLiveWorkspaceSource(source, livePaths) : source
 }
 
-function isWorkspaceByteContent(value: unknown): value is Uint8Array {
-  return ArrayBuffer.isView(value) && Object.prototype.toString.call(value) === "[object Uint8Array]"
-}
-
 function inferredSourceFingerprintOptions(family: WorkspaceSourceFamily, input: WorkspaceSourceInput) {
   if (family === "file" && isPlainRecord(input)) {
     const options: Record<string, unknown> = input
-    if (isWorkspaceByteContent(options.content)) {
+    if (isWorkspaceBytes(options.content)) {
       return {
         ...options,
         get content() {
           const content = options.content
-          return isWorkspaceByteContent(content) ? { sha256: createHash("sha256").update(content).digest("hex") } : content
+          return isWorkspaceBytes(content) ? { sha256: createHash("sha256").update(content).digest("hex") } : content
         },
       }
     }
