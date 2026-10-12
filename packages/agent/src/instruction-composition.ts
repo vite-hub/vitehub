@@ -2,6 +2,7 @@ import { parseMarkdown } from "comark"
 import binding from "comark/plugins/binding"
 import { renderMarkdownTemplateInternal } from "@vite-hub/markdown-template/internal/composition"
 import { agentDiagnostics, isAgentTypeDiagnostic } from "./agent-diagnostics.ts"
+import { hasRuntimeType } from "./internal/runtime-type.ts"
 
 export interface ComposeInstructionDocumentOptions {
   context?: Record<string, unknown>
@@ -36,9 +37,40 @@ interface InstructionTemplateTags {
 const contextConditionPathPattern = /^context(?:\.[A-Za-z_$][\w$-]*)+$/
 
 export async function composeInstructionDocument(content: string, options: ComposeInstructionDocumentOptions = {}): Promise<string> {
-  const state = { context: options.context || {}, workspace: options.workspace || {} }
+  const context = options.context || {}
+  const { customInstructions, ...renderContext } = context
+  const state = { context: renderContext, workspace: options.workspace || {} }
+  const customPattern = /\{\{\{\s*context\.customInstructions\s*\}\}\}/g
+  const customPrefix = `VITEHUBCUSTOMINSTRUCTIONS${crypto.randomUUID().replaceAll("-", "")}`
+  const customMatches = [...content.matchAll(customPattern)]
+  let customCount = 0
+  let customMasked = content.replace(customPattern, () => `${customPrefix}${customCount++}END`)
+  const indentedCustomPrefix = `vitehub-indented-custom-${crypto.randomUUID().replaceAll("-", "")}-`
+  const indentedCustomLiterals: string[] = []
+  customMasked = customMasked.replace(/^(?:(?: {4}|\t)[^\n]*(?:\n|$))+/gm, block => block.replace(/\{\{[\s\S]*?data\.context\.customInstructions[\s\S]*?\}\}|:insert\{[^\n]*data\.context\.customInstructions[^\n]*\}/g, match => {
+    indentedCustomLiterals.push(match)
+    return `${indentedCustomPrefix}${indentedCustomLiterals.length - 1}END`
+  }))
+  const rawHtmlPrefix = `vitehub-raw-custom-code-${crypto.randomUUID().replaceAll("-", "")}-`
+  const rawHtmlBlocks: string[] = []
+  customMasked = customMasked.replace(/<(?:code|pre)\b[^>]*>[\s\S]*?<\/(?:code|pre)\s*>/gi, block => {
+    rawHtmlBlocks.push(block)
+    return `${rawHtmlPrefix}${rawHtmlBlocks.length - 1}END`
+  })
+  const { tree: customTree } = await parseInstructionTemplate(customMasked)
+  const customInCode = instructionTokensInCode(customTree.nodes, customPrefix)
+  for (const index of rawHtmlCodeSlotIndexes(content, customPattern)) customInCode.add(index)
+  if (customInstructions !== undefined && !hasRuntimeType(customInstructions, "string")) {
+    throw new TypeError("[vitehub] context.customInstructions must be a string.")
+  }
+  if (hasExecutableCustomInstructionReference(content)) {
+    throw new TypeError("[vitehub] context.customInstructions is available only through the authored {{{ context.customInstructions }}} slot.")
+  }
+  if (customInstructions && customCount === customInCode.size) {
+    throw new TypeError("[vitehub] context.customInstructions requires a {{{ context.customInstructions }}} slot outside code in the Agent instructions.")
+  }
   const coverageMarker = createInstructionCoverageMarker()
-  const marked = await markInstructionCoverage(content, coverageMarker)
+  const marked = await markInstructionCoverage(customMasked, coverageMarker)
 
   try {
     const rendered = await renderMarkdownTemplateInternal(marked, {
@@ -46,11 +78,40 @@ export async function composeInstructionDocument(content: string, options: Compo
       validateFragmentPath: path => path.startsWith("context.") || path.startsWith("workspace."),
       validateConditionPath: path => contextConditionPathPattern.test(path),
     })
-    return await stripMarkedInstructionCoverage(rendered, coverageMarker, options.coverage)
+    let stripped = await stripMarkedInstructionCoverage(rendered, coverageMarker, options.coverage)
+    stripped = stripped.replace(new RegExp(`${rawHtmlPrefix}(\\d+)END`, "g"), (_match, index: string) => rawHtmlBlocks[Number(index)]!)
+    for (const blockMatch of content.matchAll(/<(?:code|pre)\b[^>]*>[\s\S]*?<\/(?:code|pre)\s*>/gi)) {
+      const block = blockMatch[0]
+      if (stripped.includes(block)) continue
+      stripped = stripped.replace(/<(code|pre)([^>]*)>[\s\S]*?<\/\1>/i, block)
+    }
+    stripped = stripped.replace(new RegExp(`${indentedCustomPrefix}(\\d+)END`, "g"), (_match, index: string) => indentedCustomLiterals[Number(index)]!)
+    return stripped.replace(new RegExp(`${customPrefix}(\\d+)END`, "g"), (_match, index: string) =>
+      customInCode.has(Number(index)) ? customMatches[Number(index)]![0] : customInstructions || "")
   }
   catch (error) {
     rethrowInstructionCompositionError(error)
   }
+}
+
+function rawHtmlCodeSlotIndexes(content: string, pattern: RegExp): Set<number> {
+  const found = new Set<number>()
+  const codeBlock = /<(?:code|pre)\b[^>]*>[\s\S]*?<\/(?:code|pre)\s*>/gi
+  let match: RegExpExecArray | null
+  while ((match = codeBlock.exec(content))) {
+    for (const slot of content.slice(match.index, match.index + match[0].length).matchAll(pattern)) {
+      found.add([...content.slice(0, match.index + slot.index).matchAll(pattern)].length - 1)
+    }
+  }
+  return found
+}
+
+function hasExecutableCustomInstructionReference(content: string): boolean {
+  let masked = content.replace(/<(?:code|pre)\b[^>]*>[\s\S]*?<\/(?:code|pre)\s*>/gi, block => " ".repeat(block.length))
+  masked = masked.replace(/^ {0,3}(`{3,}|~{3,})[^\n]*\n[\s\S]*?^ {0,3}\1[ \t]*$/gm, block => " ".repeat(block.length))
+  masked = masked.replace(/(`+)[\s\S]*?\1/g, match => " ".repeat(match.length))
+  masked = masked.replace(/^(?:(?: {4}|\t)[^\n]*(?:\n|$))+/gm, block => " ".repeat(block.length))
+  return /data\.context\.customInstructions\b/.test(masked)
 }
 
 export function createInstructionCoverage(): InstructionCoverage {
