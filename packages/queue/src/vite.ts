@@ -87,7 +87,7 @@ function mergeNitroExternal(value: unknown, addition: string): unknown {
 
 function resolveQueueHosting(queue: QueueModuleOptions | undefined, nitro: Record<string, unknown>): string {
   const preset = typeof nitro.preset === "string" ? nitro.preset : process.env.NITRO_PRESET || process.env.SERVER_PRESET || process.env.VITEHUB_HOSTING
-  return getHostingProvider(preset) || (queue !== false && queue?.provider) || "vercel"
+  return getHostingProvider(preset) || normalizeQueueOptions(queue)?.provider || "vercel"
 }
 
 function resolveNitroHosting(nitro: Record<string, unknown>): string | undefined {
@@ -109,7 +109,8 @@ function mergeNitroConfig(config: object, value: unknown, queue: QueueModuleOpti
   const providerOutput = useProviderOutputCatalog(config)
   const nitro = cloneNitroConfig(value)
   const nitroHosting = resolveNitroHosting(nitro)
-  const providerMismatch = queue !== false && queue?.provider && nitroHosting && queue.provider !== nitroHosting
+  const resolvedQueue = normalizeQueueOptions(queue, { hosting: nitroHosting })
+  const providerMismatch = resolvedQueue?.provider && nitroHosting && resolvedQueue.provider !== nitroHosting
   const runtimeEnabled = queue !== false && !providerMismatch
   const nitroOwnsPaths = hasNitroConfigContext(config)
   const plugin = nitroOwnsPaths ? resolve(root, generatedQueueNitroPlugin) : generatedQueueNitroPlugin
@@ -138,8 +139,8 @@ function mergeNitroConfig(config: object, value: unknown, queue: QueueModuleOpti
   if (!compatibilityFlags.includes("nodejs_compat")) compatibilityFlags.push("nodejs_compat")
   const cloudflareQueues = supportsCloudflareQueues(nitro)
   const rollupConfig = cloneNitroConfig(nitro.rollupConfig)
-  const resolvedQueue = normalizeQueueOptions(queue, { hosting: queueHosting })
-  const generated = createCloudflareQueueBindings(definitions, resolvedQueue?.provider === "cloudflare" ? resolvedQueue.namePrefix : undefined)
+  const queueOptions = normalizeQueueOptions(queue, { hosting: queueHosting })
+  const generated = createCloudflareQueueBindings(definitions, queueOptions?.provider === "cloudflare" ? queueOptions.namePrefix : undefined)
   const baseNitro = {
     ...nitro,
     ...(cloudflareQueues ? { rollupConfig: { ...rollupConfig, external: mergeNitroExternal(rollupConfig.external, "cloudflare:workers") } } : {}),
@@ -151,7 +152,7 @@ function mergeNitroConfig(config: object, value: unknown, queue: QueueModuleOpti
     contributeCloudflareProviderOutput(providerOutput, { owner: "queue" })
     return composeNitroCloudflareProviderOutput(providerOutput, baseNitro, value)
   }
-  const binding = resolvedQueue?.provider === "cloudflare" && typeof resolvedQueue.binding === "string" ? resolvedQueue.binding : undefined
+  const binding = queueOptions?.provider === "cloudflare" && typeof queueOptions.binding === "string" ? queueOptions.binding : undefined
   if (binding && generated.producers.length > 1) {
     throw queueErrorDiagnostics.QUEUE_B0003({ message: "A custom Cloudflare queue binding can only be used with one Queue Definition." })
   }
@@ -254,7 +255,8 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
           const configuredNitro = mergeNitroConfig(config, nitro, queue, projectRoot, definitions)
           hosting = resolveQueueHosting(queue, configuredNitro)
           const nitroHosting = resolveNitroHosting(configuredNitro)
-          nitroQueue = queue !== false && queue?.provider && nitroHosting && queue.provider !== nitroHosting ? false : queue
+          const resolvedQueue = normalizeQueueOptions(queue, { hosting: nitroHosting })
+          nitroQueue = resolvedQueue?.provider && nitroHosting && resolvedQueue.provider !== nitroHosting ? false : queue
           cloudflareQueues = supportsCloudflareQueues(configuredNitro)
           nuxtOwnsCloudflareWorker = nitroQueue !== false && nitroHosting === "cloudflare" && cloudflareQueues
           localDevelopment = development
@@ -283,7 +285,8 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
       hosting = resolveQueueHosting(queue, nitro)
       cloudflareQueues = supportsCloudflareQueues(nitro)
       const nitroHosting = resolveNitroHosting(nitro)
-      nitroQueue = queue !== false && queue?.provider && nitroHosting && queue.provider !== nitroHosting ? false : queue
+      const resolvedQueue = normalizeQueueOptions(queue, { hosting: nitroHosting })
+      nitroQueue = resolvedQueue?.provider && nitroHosting && resolvedQueue.provider !== nitroHosting ? false : queue
       validatesNitroDefinitions = hasNitroConfigContext(config) && nitroQueue !== false
       localDevelopment = config.command === "serve"
       buildOptions.set(resolvedProviderOutput, captureBuildOptions())
