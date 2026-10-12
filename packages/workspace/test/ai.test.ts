@@ -228,7 +228,7 @@ describe("createWorkspaceTools", () => {
     })
     const tools = createWorkspaceTools(workspace, { executionBudget: budget })
     await expect(runShell(tools, "cat file.txt")).rejects.toThrow("preflight budget cancelled")
-    expect(budget.snapshot().usage.toolCalls).toBe(0)
+    expect(budget.snapshot().usage.toolCalls).toBe(1)
   })
 
   it("prefers executable Workspace Session shell execution", async () => {

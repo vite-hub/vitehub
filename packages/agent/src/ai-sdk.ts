@@ -1333,7 +1333,7 @@ async function createAgent(
     ...(Object.keys(toolSet).length ? { tools: toolSet as AgentToolSet } : {}),
   })
   const settings = instrumentedCallSettings ? { ...baseCallSettings, ...instrumentedCallSettings } : baseCallSettings
-  const instrumentedModel = context.executionBudget
+  const instrumentedModel = context.executionBudget && hasRuntimeType(aiSdk.wrapLanguageModel, "function")
     ? aiSdk.wrapLanguageModel({
         // SAFETY: materializeAgentModel resolves the configured model before wrapping.
         model: observedModel as Parameters<typeof aiSdk.wrapLanguageModel>[0]["model"],
