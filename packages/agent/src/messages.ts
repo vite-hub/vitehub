@@ -65,6 +65,10 @@ export function blobType(value: Blob): string {
   return Object.getOwnPropertyDescriptor(globalThis.Blob.prototype, "type")!.get!.call(value) as string
 }
 
+export function blobArrayBuffer(value: Blob): Promise<ArrayBuffer> {
+  return Object.getOwnPropertyDescriptor(globalThis.Blob.prototype, "arrayBuffer")!.value.call(value) as Promise<ArrayBuffer>
+}
+
 export interface AttachmentPart {
   data?: AttachmentData
   fetchData?: () => Promise<AttachmentData> | AttachmentData

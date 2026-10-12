@@ -36,7 +36,7 @@ import { agentOutputInstructions } from "./internal/agent-structured-output.ts"
 import { registerAgentInvocationInputHandler } from "./internal/agent-invocation-control.ts"
 import { ownedAgentInvocationControlId } from "./internal/agent-invocation-response-owner.ts"
 import { isAuxiliaryAgentAdapterContext, markAuxiliaryMessageChannelInstructionContext, resolveMessageChannelInstructions } from "./internal/channels.ts"
-import { attachmentStringBytes, currentInputAttachments, getMessageText, isAttachmentPart, resolveAttachmentData } from "./messages.ts"
+import { attachmentStringBytes, blobArrayBuffer, blobSize, currentInputAttachments, getMessageText, isAttachmentPart, isBlob, resolveAttachmentData } from "./messages.ts"
 import { workspaceAutoCommitDisabled, workspaceDefinitionWithAutoCommitRules } from "./workspace-agent.ts"
 import { approveAgentToolRequest, executeApprovedAgentTool } from "./tool-runtime.ts"
 import { agentInvocationTraceIdContextKey, createAgentStreamEventTracer } from "./trace.ts"
@@ -2197,11 +2197,11 @@ async function attachmentBytes(part: AttachmentPart, maxBytes: number): Promise<
     throw agentDiagnostics.AGENT_R0703({ message: "[vitehub] Provider attachment URLs require application-owned fetchData() resolution." })
   }
   if (data === undefined) throw agentDiagnostics.AGENT_R0704({ message: `[vitehub] Provider ${part.type} attachment requires data or fetchData().` })
-  const declaredSize = data instanceof Blob ? data.size : data instanceof ArrayBuffer || ArrayBuffer.isView(data) ? data.byteLength : undefined
+  const declaredSize = isBlob(data) ? blobSize(data) : data instanceof ArrayBuffer || ArrayBuffer.isView(data) ? data.byteLength : undefined
   if (declaredSize !== undefined && declaredSize > maxBytes) throw agentDiagnostics.AGENT_R0705({ message: `[vitehub] Provider attachment exceeds maxBytes (${maxBytes}).` })
   if (hasRuntimeType(data, "string") && data.length > maxBytes * 2) throw agentDiagnostics.AGENT_R0706({ message: `[vitehub] Provider attachment exceeds maxBytes (${maxBytes}).` })
-  const bytes = data instanceof Blob
-    ? new Uint8Array(await data.arrayBuffer())
+  const bytes = isBlob(data)
+    ? new Uint8Array(await blobArrayBuffer(data))
     : data instanceof ArrayBuffer ? new Uint8Array(data) : data instanceof Uint8Array ? data : attachmentStringBytes(data, part.mediaType)
   if (bytes.byteLength > maxBytes) throw agentDiagnostics.AGENT_R0707({ message: `[vitehub] Provider attachment exceeds maxBytes (${maxBytes}).` })
   return bytes
