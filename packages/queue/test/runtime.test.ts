@@ -732,7 +732,8 @@ describe("cloudflare queue runtime", () => {
 
 describe("vercel provider", () => {
   it("preserves hosted callback Requests from another realm", async () => {
-    const request = runInNewContext("new Request('https://queue.example.test/callback', { method: 'POST' })", { Request })
+    const request = runInNewContext("new Request('https://queue.example.test/callback', { method: 'POST', body: 'payload' })", { Request })
+    await request.text()
     let captured: unknown
     vercelQueueMock.handleCallback.mockImplementationOnce(() => async (...values: unknown[]) => {
       captured = values[0]

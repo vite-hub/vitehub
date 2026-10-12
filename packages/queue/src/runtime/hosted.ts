@@ -18,7 +18,9 @@ function isRequestLike(value: unknown): value is Request {
   // another realm. Unlike Symbol.toStringTag and public fields, this cannot be
   // spoofed by an ordinary object.
   try {
-    Request.prototype.clone.call(value)
+    const getter = Object.getOwnPropertyDescriptor(Request.prototype, "url")?.get
+    if (!getter) return false
+    getter.call(value)
     return true
   } catch {
     return false
