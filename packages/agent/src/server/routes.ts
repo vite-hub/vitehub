@@ -7010,15 +7010,16 @@ function historyBytesToBase64(data: Uint8Array): string {
 const channelHistoryAttachmentMaxBytes = 25 * 1024 * 1024
 const channelHistoryArchiveMaxBytes = 35 * 1024 * 1024
 
-function isChannelHistoryBlob(value: unknown): value is Blob {
-  if (value instanceof Blob) return true
-  if (value === null || typeof value !== "object") return false
+function isChannelHistoryBlob(value: unknown): { size: number, arrayBuffer: () => Promise<ArrayBuffer> } | undefined {
+  if (value === null || typeof value !== "object") return
   try {
-    if (Object.prototype.toString.call(value) !== "[object Blob]") return false
-    const blob = value as { arrayBuffer?: unknown, size?: unknown }
-    return typeof blob.arrayBuffer === "function" && typeof blob.size === "number" && Number.isSafeInteger(blob.size) && blob.size >= 0
+    const size = Object.getOwnPropertyDescriptor(Blob.prototype, "size")!.get!.call(value)
+    if (typeof size !== "number" || !Number.isSafeInteger(size) || size < 0) return
+    const arrayBuffer = Object.getOwnPropertyDescriptor(Blob.prototype, "arrayBuffer")!.value
+    if (typeof arrayBuffer !== "function") return
+    return { size, arrayBuffer: () => arrayBuffer.call(value) }
   } catch {
-    return false
+    return
   }
 }
 
@@ -7131,7 +7132,16 @@ async function channelHistoryAttachment(
   }
   const maxBytes = Math.min(channelHistoryAttachmentMaxBytes, budget.remaining)
   let data: unknown = isRuntimeNumber(resolved.size) && resolved.size > maxBytes ? undefined : resolved.data
-  if (isChannelHistoryBlob(data)) data = data.size <= maxBytes ? new Uint8Array(await data.arrayBuffer()) : undefined
+  const blob = isChannelHistoryBlob(data)
+  if (blob) {
+    if (blob.size <= maxBytes) {
+      try {
+        data = new Uint8Array(await boundedChannelHistoryOperation(blob.arrayBuffer, signal) as ArrayBuffer)
+      } catch {
+        data = undefined
+      }
+    } else data = undefined
+  }
   const boundedLazySize = isRuntimeNumber(resolved.size) && Number.isFinite(resolved.size) && resolved.size >= 0 && resolved.size <= maxBytes
   if (!data && resolved.fetchData && boundedLazySize) {
     try {

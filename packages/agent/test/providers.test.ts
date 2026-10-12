@@ -22282,8 +22282,8 @@ describe("server helpers", () => {
           : kind === "foreign subarray"
             ? "new Uint8Array([9, 1, 2, 3, 9]).subarray(1, 4)"
             : kind === "foreign blob"
-              ? "(() => { class Blob { size = 3; type = 'application/octet-stream'; arrayBuffer() { return Promise.resolve(new Uint8Array([1, 2, 3]).buffer) } }; Object.defineProperty(Blob.prototype, Symbol.toStringTag, { value: 'Blob' }); return new Blob() })()"
-              : "new Uint8Array([1, 2, 3]).buffer")
+              ? "new Blob([new Uint8Array([1, 2, 3])], { type: 'application/octet-stream' })"
+              : "new Uint8Array([1, 2, 3]).buffer", { Blob })
     const adapter = createTestChatAdapter({
       historyMessages: [new Message({
         attachments: [{
