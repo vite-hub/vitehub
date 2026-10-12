@@ -758,6 +758,21 @@ describe("@vite-hub/runtime", () => {
     expect(Array.from(entry.payload.value as Uint8Array)).toEqual([1, 2, 3])
   })
 
+  it("keeps a cross-realm typed-array subclass named Buffer public", async () => {
+    const log = createTraceEventLog()
+    const value = runInNewContext("class Buffer extends Uint8Array {}; new Buffer([1, 2, 3])")
+    await log.append({
+      name: "custom.event",
+      payload: { value, visibility: "public" },
+      type: "lifecycle",
+    })
+
+    const entry = log.entries()[0]
+    expect(entry?.payload?.visibility).toBe("public")
+    if (!entry || !entry.payload || entry.payload.visibility !== "public") throw new Error("Expected a public typed-array payload.")
+    expect(Array.from(entry.payload.value as Uint8Array)).toEqual([1, 2, 3])
+  })
+
 
   it("preserves public Blob payload snapshots", async () => {
     const log = createTraceEventLog()

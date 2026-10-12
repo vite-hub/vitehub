@@ -475,18 +475,17 @@ function reflectedArrayBufferViewState(value: unknown): { byteLength: number, ki
   if (!ArrayBuffer.isView(value)) return
   try {
     const bufferConstructor = Object.getOwnPropertyDescriptor(globalThis, "Buffer")?.value
+      ?? (typeof Buffer === "function" ? Buffer : undefined)
     const isBuffer = hasRuntimeType(bufferConstructor, "function")
       ? Object.getOwnPropertyDescriptor(bufferConstructor, "isBuffer")?.value
       : undefined
-    if (hasRuntimeType(isBuffer, "function") && Reflect.apply(isBuffer, bufferConstructor, [value]) === true) return
-    const viewPrototype = Object.getPrototypeOf(value)
-    const viewConstructor = viewPrototype && Object.getOwnPropertyDescriptor(viewPrototype, "constructor")?.value
-    if (hasRuntimeType(viewConstructor, "function")
-      && Object.getOwnPropertyDescriptor(viewConstructor, "name")?.value === "Buffer") {
+    const isNodeBuffer = hasRuntimeType(isBuffer, "function")
+      && Reflect.apply(isBuffer, bufferConstructor, [value]) === true
+    const typedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype)
+    if (isNodeBuffer) {
       const byteLength = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), "byteLength")?.get?.call(value)
       return hasRuntimeType(byteLength, "number") ? { byteLength, kind: "Buffer" } : undefined
     }
-    const typedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype)
     const typedArrayTag = Object.getOwnPropertyDescriptor(typedArrayPrototype, Symbol.toStringTag)?.get?.call(value)
     if (hasRuntimeType(typedArrayTag, "string")) {
       const byteLength = Object.getOwnPropertyDescriptor(typedArrayPrototype, "byteLength")?.get?.call(value)
