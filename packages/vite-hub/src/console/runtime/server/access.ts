@@ -46,7 +46,8 @@ function rejection(status: number, message: string): Response {
 function isRequestLike(value: unknown): value is Request {
   if (value === null || typeof value !== "object") return false
   try {
-    const prototype = Request.prototype
+    let prototype = Object.getPrototypeOf(value)
+    while (prototype && !Object.getOwnPropertyDescriptor(prototype, "method")?.get) prototype = Object.getPrototypeOf(prototype)
     const method = Object.getOwnPropertyDescriptor(prototype, "method")?.get?.call(value)
     const url = Object.getOwnPropertyDescriptor(prototype, "url")?.get?.call(value)
     Object.getOwnPropertyDescriptor(prototype, "headers")?.get?.call(value)
@@ -60,7 +61,8 @@ function isRequestLike(value: unknown): value is Request {
 function isResponseLike(value: unknown): value is Response {
   if (value === null || typeof value !== "object") return false
   try {
-    const prototype = Response.prototype
+    let prototype = Object.getPrototypeOf(value)
+    while (prototype && !Object.getOwnPropertyDescriptor(prototype, "status")?.get) prototype = Object.getPrototypeOf(prototype)
     const status = Object.getOwnPropertyDescriptor(prototype, "status")?.get?.call(value)
     const statusText = Object.getOwnPropertyDescriptor(prototype, "statusText")?.get?.call(value)
     Object.getOwnPropertyDescriptor(prototype, "headers")?.get?.call(value)

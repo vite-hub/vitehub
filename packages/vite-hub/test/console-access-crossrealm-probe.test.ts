@@ -1,4 +1,4 @@
-import { runInNewContext } from "node:vm"
+import { Window } from "happy-dom"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { installConsoleAccess, withConsoleAccess } from "../src/console/runtime/server/access.ts"
 
@@ -8,12 +8,11 @@ afterEach(() => Reflect.deleteProperty(globalThis, policyKey))
 
 describe("cross-realm console access probe", () => {
   it("preserves foreign requests and responses", async () => {
-    const request = runInNewContext(`
-      new Request("https://console.example.test/")
-    `, { Request })
-    const response = runInNewContext(`
-      new Response(null, { status: 401, statusText: "Unauthorized" })
-    `, { Response })
+    const foreignRealm = new Window()
+    const request = new foreignRealm.Request("https://console.example.test/")
+    const response = new foreignRealm.Response(null, { status: 401, statusText: "Unauthorized" })
+    expect(request).not.toBeInstanceOf(Request)
+    expect(response).not.toBeInstanceOf(Response)
     const authorize = vi.fn(() => response)
     installConsoleAccess({ mode: "host-managed", authorize })
     const result = await withConsoleAccess(() => "unreachable")({ req: request })
