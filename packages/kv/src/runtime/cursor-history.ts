@@ -9,7 +9,18 @@ export function createCursorHistory() {
   let nextId = 0
   function take(cursor: string): Continuation {
     const continuation = continuations.get(cursor)
-    if (!continuation) return { providerCursor: cursor, history: new Set<string>() }
+    if (!continuation) {
+      // Tokens are process-local, but callers may resume on another driver
+      // instance. Recover the provider cursor from the token as a portable
+      // fallback; the new instance starts a fresh repeat-detection history.
+      if (cursor.startsWith("vhc:")) {
+        const separator = cursor.indexOf(":", 4)
+        if (separator !== -1) {
+          return { providerCursor: cursor.slice(separator + 1), history: new Set<string>() }
+        }
+      }
+      return { providerCursor: cursor, history: new Set<string>() }
+    }
     continuations.delete(cursor)
     return continuation
   }
