@@ -256,6 +256,30 @@ describe("normalizeKVOptions", () => {
     })
   })
 
+  it("preserves proxy-backed named stores access", () => {
+    const options = new Proxy({ stores: null }, {
+      get(target, property, receiver) {
+        if (property === "stores") {
+          return { default: { base: ".vitehub/data/kv", driver: "fs-lite" as const } }
+        }
+        return Reflect.get(target, property, receiver)
+      },
+    })
+
+    expect(normalizeKVOptions(options as never, { env: {}, hosting: "" })).toEqual({
+      store: {
+        base: ".vitehub/data/kv",
+        driver: "fs-lite",
+      },
+      stores: {
+        default: {
+          base: ".vitehub/data/kv",
+          driver: "fs-lite",
+        },
+      },
+    })
+  })
+
   it("rejects non-object config", () => {
     expect(() => normalizeKVOptions(true as never, {
       env: {},

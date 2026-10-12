@@ -80,11 +80,10 @@ export function normalizeKVOptions(
   const env = input.env || process.env
   const hosting = normalizeHosting(input.hosting)
   const explicit = options as KVStoreConfig | undefined
-  const storesDescriptor = options !== undefined ? Object.getOwnPropertyDescriptor(options, "stores") : undefined
-  const stores = storesDescriptor && "value" in storesDescriptor
-    ? storesDescriptor.value
-    : storesDescriptor?.get?.call(options)
-  if (options !== undefined && Object.hasOwn(options, "stores") && !isPlainObject(stores)) {
+  const hasOwnStores = options !== undefined && Object.hasOwn(options, "stores")
+  // SAFETY: Reflect.get preserves the effective value exposed by a Proxy or accessor; ownness is checked separately above.
+  const stores = hasOwnStores ? Reflect.get(options, "stores", options) : undefined
+  if (hasOwnStores && !isPlainObject(stores)) {
     throw kvErrorDiagnostics.KV_C0004({ message: "`kv.stores` must be a plain object." })
   }
 
