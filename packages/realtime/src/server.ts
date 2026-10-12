@@ -222,13 +222,20 @@ function matchesBytes(actual: Uint8Array | undefined, expected: Uint8Array): boo
 }
 
 function storedUpdate(value: unknown): Uint8Array | undefined {
+  if (ArrayBuffer.isView(value)) {
+    try {
+      return new Uint8Array(value.buffer, value.byteOffset, value.byteLength)
+    }
+    catch {
+      return undefined
+    }
+  }
   try {
     // The native getter checks the ArrayBuffer internal slot and accepts buffers from other realms.
     const byteLength = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")?.get
     if (byteLength?.call(value) !== undefined) {
       return new Uint8Array(value as ArrayBuffer)
     }
-    if (ArrayBuffer.isView(value)) return new Uint8Array(value.buffer, value.byteOffset, value.byteLength)
   }
   catch {
     return undefined
