@@ -30,7 +30,7 @@ function isUint8Array(value: unknown): value is Uint8Array {
   return ArrayBuffer.isView(value) && Object.prototype.toString.call(value) === '[object Uint8Array]'
 }
 
-function unboxJsonPrimitive(value: object): { value: unknown } | undefined {
+function unboxJsonPrimitive(value: unknown): { value: unknown } | undefined {
   for (const unbox of [Boolean.prototype.valueOf, Number.prototype.valueOf, String.prototype.valueOf, BigInt.prototype.valueOf]) {
     try {
       return { value: Reflect.apply(unbox, value, []) }
