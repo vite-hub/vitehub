@@ -85,7 +85,7 @@ describe("Console access policies", () => {
     const authorize = runInNewContext("({ request }) => request.headers.get('x-role') === 'admin'") as ConsoleAccessPolicy extends { authorize?: infer T } ? T : never
     const handler = runInNewContext("(_event, access) => access.mode") as (_event: ConsoleRequestEvent, access: ConsoleAccess) => string
 
-    installConsoleAccess({ mode: "host-managed", authorize: authorize as never })
+    installConsoleAccess({ mode: "host-managed", authorize: defineConsoleAuthorize(authorize as never) })
     await expect(withConsoleAccess(handler)(event({ "x-role": "admin" }))).resolves.toBe("host-managed")
   })
 
