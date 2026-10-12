@@ -993,6 +993,20 @@ describe("Agent Invocations", () => {
     expect(list).toHaveBeenCalledTimes(2)
   })
 
+  it.each([
+    ["Agent names", "listAgentNames"],
+    ["trigger labels", "listTriggeredBy"],
+    ["Capability IDs", "listCapabilityIds"],
+  ] as const)("rejects repeated cursors while listing %s", async (_label, method) => {
+    const memory = createMemoryAgentInvocationStore()
+    const { listAgentNames: _listAgentNames, listCapabilityIds: _listCapabilityIds, listTriggeredBy: _listTriggeredBy, ...fallback } = memory
+    const list = vi.fn(async () => ({ cursor: "same-page", invocations: [] }))
+    const invocations = defineAgentInvocations({ store: { ...fallback, list } })
+
+    await expect(invocations[method]()).rejects.toThrow("Agent Invocation listing returned a repeated pagination cursor")
+    expect(list).toHaveBeenCalledTimes(2)
+  })
+
   it("rejects startup when a stalled store prevents cancellation verification", async () => {
     const memory = createMemoryAgentInvocationStore()
     const invocations = defineAgentInvocations({

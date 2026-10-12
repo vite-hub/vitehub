@@ -12,8 +12,8 @@ import type { KVModuleOptions } from "./types.ts"
 import { kvErrorDiagnostics } from "./error-diagnostics.ts"
 
 interface CloudflareKVNamespace {
-  id?: string
-  title?: string
+  id: string
+  title: string
 }
 
 const CLOUDFLARE_KV_NAMESPACE_LIST_PER_PAGE = 100
@@ -28,11 +28,11 @@ function parseNamespaces(value: unknown): CloudflareKVNamespace[] {
     }
     const id = Reflect.get(namespace, "id")
     const title = Reflect.get(namespace, "title")
-    if ((id !== undefined && typeof id !== "string") || (title !== undefined && typeof title !== "string")) {
+    if (typeof id !== "string" || typeof title !== "string") {
       throw kvErrorDiagnostics.KV_R0019({ message: "Cloudflare provisioning returned an invalid KV namespace list." })
     }
   }
-  // SAFETY: The structural checks above validate every namespace's optional fields.
+  // SAFETY: The structural checks above validate every namespace's required fields.
   return value as CloudflareKVNamespace[]
 }
 
@@ -40,10 +40,11 @@ function parseNamespace(value: unknown): CloudflareKVNamespace {
   if (!value || Object(value) !== value) throw kvErrorDiagnostics.KV_R0020({ message: "Cloudflare provisioning returned an invalid KV namespace." })
   const id = Reflect.get(value, "id")
   const title = Reflect.get(value, "title")
-  if ((id !== undefined && typeof id !== "string") || (title !== undefined && typeof title !== "string")) {
+  if (typeof id !== "string" || typeof title !== "string") {
     throw kvErrorDiagnostics.KV_R0020({ message: "Cloudflare provisioning returned an invalid KV namespace." })
   }
-  return value
+  // SAFETY: The structural checks above validate the namespace's required fields.
+  return value as CloudflareKVNamespace
 }
 
 async function listNamespaceIds(request: CloudflareProvisionRequest): Promise<Map<string, string>> {

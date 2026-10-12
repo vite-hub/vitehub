@@ -16,7 +16,7 @@ export type CiEvidenceReaders = {
 }
 const failures = new Set(['failure', 'timed_out', 'startup_failure', 'action_required', 'cancelled', 'stale'])
 const key = (kind: string, value: unknown) => `ci-evidence:v1:${kind}:${createHash('sha256').update(JSON.stringify(value)).digest('hex')}`
-const failed = (item: Pick<GitHubEvidence, 'status' | 'conclusion'>) => item.status === 'completed' && failures.has(item.conclusion ?? '')
+export const failed = (item: Pick<GitHubEvidence, 'status' | 'conclusion'>) => item.status === 'completed' && failures.has(item.conclusion ?? '')
 const sourceUrl = (repository: string, job: ActionJob) => `https://github.com/${repository}/actions/runs/${job.run_id}/job/${job.id}`
 
 /** Bound log context explicitly; the full fetched log remains in the local cache. */
@@ -55,7 +55,7 @@ export function diagnosticExcerpt(log: string, limit = 16_000, failedSteps: stri
   return { excerpt: chunks.join('\n'), complete: false, totalLines: lines.length, includedLineRanges, partialLines }
 }
 
-function actionLocation(repository: string, check: GitHubEvidence): { runId: number; jobId?: number } | undefined {
+export function actionLocation(repository: string, check: GitHubEvidence): { runId: number; jobId?: number } | undefined {
   if (check.app?.slug && check.app.slug !== 'github-actions') return undefined
   for (const value of [check.html_url, check.details_url]) {
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- URL fields are untrusted GitHub evidence and must be checked before parsing.

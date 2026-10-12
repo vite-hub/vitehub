@@ -166,13 +166,19 @@ describe("KV Cloudflare provision step", () => {
   })
 })
 
-it("rejects Cloudflare namespace records with non-string ids", async () => {
-  const { context } = createContext(() => jsonResponse({
-    success: true,
-    result: [{ id: 123, title: "app-cache" }],
-  }))
+describe("Cloudflare namespace response validation", () => {
+  for (const result of [
+    { title: "app-cache" },
+    { id: "ns-app" },
+    { id: 123, title: "app-cache" },
+    { id: "ns-app", title: 123 },
+  ]) {
+    it(`rejects malformed namespace records: ${JSON.stringify(result)}`, async () => {
+      const { context } = createContext(() => jsonResponse({ success: true, result: [result] }))
 
-  await expect(createKVCloudflareProvisionStep(() => namedStore("app-cache")).plan(context)).rejects.toThrow(
-    "Cloudflare provisioning returned an invalid KV namespace list.",
-  )
+      await expect(createKVCloudflareProvisionStep(() => namedStore("app-cache")).plan(context)).rejects.toThrow(
+        "Cloudflare provisioning returned an invalid KV namespace list.",
+      )
+    })
+  }
 })
