@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { PrimitiveIcon } from "@vite-hub/ui/primitive-rail";
 
 import {
   docsManifest,
@@ -15,6 +16,7 @@ import {
 const route = useRoute();
 const currentPath = computed(() => normalizeDocsPath(route.path));
 const section = computed(() => getDocsSectionForPath(docsManifest.sections, route.path));
+const platformSections = docsManifest.sections.filter(candidate => candidate.category === "Platform");
 
 const pageGroups = computed(() => {
   if (!section.value) return [];
@@ -28,7 +30,8 @@ const pageGroups = computed(() => {
 const related = computed(() =>
   section.value ? getDocsRelatedSections(docsManifest.sections, section.value) : [],
 );
-// Outside every section, for example on the catalog, the sidebar lists every product by category.const catalog = getDocsCatalog(docsManifest.sections);
+// Outside every section, for example on the catalog, the sidebar lists every product by category.
+const catalog = getDocsCatalog(docsManifest.sections);
 
 function isActive(path: string) {
   return currentPath.value === normalizeDocsPath(path);
