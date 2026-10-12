@@ -287,12 +287,15 @@ async function runAccessAuthorize(
 function isResponseLike(value: unknown): value is Response {
   if (value === null || typeof value !== "object") return false
   try {
-    if (Object.prototype.toString.call(value) !== "[object Response]") return false
-    const response = value as { headers?: unknown, status?: unknown, statusText?: unknown }
-    if (typeof response.status !== "number" || !Number.isInteger(response.status) || response.status < 0 || response.status > 599) return false
-    if (typeof response.statusText !== "string") return false
-    const headers = response.headers
-    return headers !== null && typeof headers === "object" && typeof (headers as { get?: unknown }).get === "function"
+    // Calling the native accessors performs the Response internal-slot check,
+    // which works across realms and rejects objects that merely spoof the tag.
+    const response = value as Response
+    const status = Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get?.call(response)
+    const statusText = Object.getOwnPropertyDescriptor(Response.prototype, "statusText")?.get?.call(response)
+    const headers = Object.getOwnPropertyDescriptor(Response.prototype, "headers")?.get?.call(response)
+    return typeof status === "number" && Number.isInteger(status) && status >= 0 && status <= 599
+      && typeof statusText === "string"
+      && headers !== null && typeof headers === "object"
   }
   catch {
     return false

@@ -1,21 +1,14 @@
 <script setup lang="ts">
-import { docsManifest } from "~~/modules/vitehub-docs/runtime/utils/docs";
-import { isDocsLandingPath } from "~~/modules/vitehub-docs/runtime/utils/docs-navigation";
-
 const route = useRoute();
 // On docs routes the brand opens the product catalog, like a docs site logo. Elsewhere it opens the home page.
 const isDocsRoute = computed(() => route.path.startsWith("/docs"));
-// Landing pages center their content, so the header container matches that width and the brand aligns with the hero.
-const isLanding = computed(() => isDocsLandingPath(docsManifest.sections, route.path));
-const isSupportMatrix = computed(
-  () => route.path.replace(/\/+$/, "") === "/docs/frameworks-hosts/support-matrix",
-);
 
-// Agents is one product in the docs catalog and the sidebar select, so the header links only to site areas.
+// Agents is one product in the docs rail and catalog, so the header links only to site areas.
 const navLinks = [
   { label: "Docs", to: "/docs" },
-  { label: "Examples", to: "/examples" },
-  { label: "Blog", to: "/blog" },
+  { label: "Tutorials", to: "/tutorials" },
+  { label: "Projects", to: "/projects" },
+  { label: "Templates", to: "/templates" },
 ];
 
 const mobileLinks = [
@@ -38,8 +31,8 @@ const touchIconButton = "pointer-coarse:h-10 pointer-coarse:w-9 pointer-coarse:j
   <div class="sticky top-0 z-50">
     <UHeader
       :ui="{
-        // Landing pages share the landing column width. Other docs pages pin the sidebar left, so the header spans the full width.
-        container: isLanding ? 'max-w-(--vh-landing-width) mx-auto !ps-4 !pe-4 sm:!ps-8 sm:!pe-8' : isDocsRoute && !isSupportMatrix ? 'max-w-none' : undefined,
+        // Docs pages pin the rail to the left edge, so the header spans the full width.
+        container: isDocsRoute ? 'max-w-none' : undefined,
         left: 'gap-6',
         right: 'pointer-coarse:gap-0.5',
         toggle: touchIconButton,
@@ -63,7 +56,7 @@ const touchIconButton = "pointer-coarse:h-10 pointer-coarse:w-9 pointer-coarse:j
           </ULink>
         </UTooltip>
 
-        <nav class="hidden items-center gap-1 lg:flex" aria-label="Primary">
+        <nav v-if="!isDocsRoute" class="hidden items-center gap-1 lg:flex" aria-label="Primary">
           <UButton
             v-for="link in navLinks"
             :key="link.to"
@@ -114,8 +107,8 @@ const touchIconButton = "pointer-coarse:h-10 pointer-coarse:w-9 pointer-coarse:j
       </template>
 
       <template #body>
-        <div v-if="isDocsRoute" class="-mx-4 -my-2">
-          <nav class="flex items-center gap-1 border-b border-default px-2 py-1.5" aria-label="Site">
+        <div v-if="isDocsRoute" class="vh-docs-menu -mx-4 -my-2">
+          <nav class="flex shrink-0 items-center gap-1 border-b border-default px-2 py-1.5" aria-label="Site">
             <UButton
               v-for="link in docsMobileLinks"
               :key="link.to"
@@ -126,8 +119,7 @@ const touchIconButton = "pointer-coarse:h-10 pointer-coarse:w-9 pointer-coarse:j
               size="sm"
             />
           </nav>
-          <DocsAsideLeftTop />
-          <DocsAsideLeftBody />
+          <DocsSidebars class="vh-docs-menu-sidebars" panel />
         </div>
         <nav v-else-if="!isDocsRoute" class="grid gap-1">
           <UButton
@@ -147,6 +139,34 @@ const touchIconButton = "pointer-coarse:h-10 pointer-coarse:w-9 pointer-coarse:j
 </template>
 
 <style scoped>
+/*
+ * In the mobile menu the rail and the page panel sit side by side, as on wide screens.
+ * The menu fills the visible body of the fullscreen menu (its padding minus this block's negative margin),
+ * so the rail and the panel each scroll inside a bounded height.
+ */
+.vh-docs-menu {
+  display: flex;
+  height: calc(100dvh - var(--ui-header-height) - 1rem);
+  flex-direction: column;
+}
+
+.vh-docs-menu-sidebars {
+  min-height: 0;
+  flex: 1 1 0;
+}
+
+@media (min-width: 40rem) {
+  .vh-docs-menu {
+    height: calc(100dvh - var(--ui-header-height) - 2rem);
+  }
+}
+
+.vh-docs-menu-sidebars :deep(.vh-docs-panel) {
+  flex: 1 1 auto;
+  width: auto;
+  border-right: 0;
+}
+
 .vh-brand {
   display: inline-flex;
   flex-shrink: 0;

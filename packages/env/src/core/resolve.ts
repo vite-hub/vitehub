@@ -458,24 +458,37 @@ async function resolveBuiltInSource<T>(source: string, resolveSource: () => T | 
   }
 }
 
-function validateBuildDeclarations(declarations: EnvBuildConfigOptions | undefined, path: string): void {
+function validateBuildDeclarations(
+  declarations: EnvBuildConfigOptions | undefined,
+  path: string,
+  ancestors: Set<object> = new Set(),
+): void {
   if (typeof declarations === "undefined") return
   if (!isPlainRecord(declarations)) {
     throw invalidEnvDeclaration(path, `Invalid declaration at ${path}. Use env(), a serializable static value, or a nested object.`)
   }
-  for (const [key, declaration] of Object.entries(declarations)) {
-    const valuePath = `${path}.${key}`
-    if (isEnvVariableDeclaration(declaration)) {
-      if (declaration.mode !== "build") {
-        throw invalidEnvDeclaration(valuePath, `${valuePath} must use mode: "build".`)
+  if (ancestors.has(declarations)) {
+    throw invalidEnvDeclaration(path, `Invalid declaration at ${path}. Nested environment declarations cannot contain cycles.`)
+  }
+  ancestors.add(declarations)
+  try {
+    for (const [key, declaration] of Object.entries(declarations)) {
+      const valuePath = `${path}.${key}`
+      if (isEnvVariableDeclaration(declaration)) {
+        if (declaration.mode !== "build") {
+          throw invalidEnvDeclaration(valuePath, `${valuePath} must use mode: "build".`)
+        }
+        if (declaration.secret) {
+          throw invalidEnvDeclaration(valuePath, `${valuePath} cannot be marked secret because Vite define values are bundled.`)
+        }
+        continue
       }
-      if (declaration.secret) {
-        throw invalidEnvDeclaration(valuePath, `${valuePath} cannot be marked secret because Vite define values are bundled.`)
-      }
-      continue
+      if (isBuildStaticValue(declaration)) continue
+      validateBuildDeclarations(declaration as EnvBuildConfigOptions, valuePath, ancestors)
     }
-    if (isBuildStaticValue(declaration)) continue
-    validateBuildDeclarations(declaration as EnvBuildConfigOptions, valuePath)
+  }
+  finally {
+    ancestors.delete(declarations)
   }
 }
 
