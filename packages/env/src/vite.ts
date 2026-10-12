@@ -60,6 +60,7 @@ const defaultRuntimeImports = {
   server: "@vite-hub/env/server",
 }
 let envVitePluginSequence = 0
+let activeGeneratedSecretRoot: string | undefined
 
 export { env }
 
@@ -196,7 +197,10 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
       cli: () => createEnvCliContributor({ resolveProjectRoot }),
     },
     async config(config, env) {
-      if (env.command === "serve") await resolveDevelopmentSecret(resolveProjectRoot(config.root || process.cwd()))
+      if (env.command === "serve") {
+        const projectRoot = resolveProjectRoot(config.root || process.cwd())
+        await resolveDevelopmentSecret(projectRoot, loadEnv(env.mode, projectRoot, ""))
+      }
       const envConfig = (config as UserConfig & EnvViteUserConfig).env
       const { defineValues, state } = await resolveState(config as UserConfig & EnvViteUserConfig, env.mode)
       buildPublicConfig = state.publicConfig
@@ -361,9 +365,15 @@ const generatedSecretPattern = /^[0-9a-f]{64}$/
  * Give the development server a root secret when none is configured, so `deriveSecret()` works without setup.
  * The secret is kept in `.vitehub/env/secret` with mode 0600 and survives restarts. Builds never generate one.
  */
-async function resolveDevelopmentSecret(projectRoot: string): Promise<void> {
+async function resolveDevelopmentSecret(projectRoot: string, loadedEnv: Record<string, string>): Promise<void> {
   const generated = process.env.VITEHUB_SECRET_GENERATED === "1"
-  if (readViteHubSecret(process.env) && !generated) return
+  const configured = readViteHubSecret(generated ? loadedEnv : { ...loadedEnv, ...process.env })
+  if (configured) {
+    process.env.VITEHUB_SECRET = configured
+    delete process.env.VITEHUB_SECRET_GENERATED
+    activeGeneratedSecretRoot = undefined
+    return
+  }
   const secretPath = resolve(projectRoot, ".vitehub", "env", "secret")
   let secret = await readFile(secretPath, "utf8").then(value => value.trim(), () => "")
   if (!generatedSecretPattern.test(secret)) {
@@ -372,8 +382,11 @@ async function resolveDevelopmentSecret(projectRoot: string): Promise<void> {
     await writeFile(secretPath, secret, { mode: 0o600 })
     await chmod(secretPath, 0o600)
   }
-  process.env.VITEHUB_SECRET = secret
-  process.env.VITEHUB_SECRET_GENERATED = "1"
+  if (!activeGeneratedSecretRoot || activeGeneratedSecretRoot === projectRoot) {
+    process.env.VITEHUB_SECRET = secret
+    process.env.VITEHUB_SECRET_GENERATED = "1"
+    activeGeneratedSecretRoot = projectRoot
+  }
 }
 
 async function refreshEnvGeneratedFiles(

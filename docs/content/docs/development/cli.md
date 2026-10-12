@@ -43,6 +43,7 @@ Available namespaces:
   db          Database development workflows.
   kv          Read and write keys of the KV stores in a running Vite + Nitro Development Server.
   env         Server Env inspection workflows.
+  secret      Generate and derive application secrets.
   email       Inspect and preview development Email messages.
   schedule    Run Static Schedule Definitions and inspect or control Runtime Schedules.
   workflow    Start and inspect Workflow runs in development.
