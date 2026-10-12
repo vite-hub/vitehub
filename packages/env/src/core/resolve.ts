@@ -91,7 +91,7 @@ export function createSourceContext(input: {
 
 function envValue(env: Record<string, string | undefined>, names: string[]): string | undefined {
   for (const name of names) {
-    const value = env[name]
+    const value = Object.hasOwn(env, name) ? env[name] : undefined
     if (value) return value
   }
 }
@@ -423,7 +423,7 @@ async function resolveSourceValue(source: EnvSource, context: EnvSourceContext):
       return { label: source.label, value: await source.resolver(context) }
     case "env":
       for (const name of source.names || [source.name]) {
-        const value = context.env[name]
+        const value = Object.hasOwn(context.env, name) ? context.env[name] : undefined
         if (typeof value !== "undefined" && !(source.skipEmpty && value === "")) {
           return { label: `env:${name}`, value }
         }
