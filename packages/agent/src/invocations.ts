@@ -545,6 +545,15 @@ function arrayBufferByteLength(value: unknown): number | undefined {
   }
 }
 
+function isInstance<T>(value: unknown, constructor: { prototype: T }): value is T {
+  try {
+    return value instanceof (constructor as any)
+  }
+  catch {
+    return false
+  }
+}
+
 function normalizedTimestamp(value: Date | string): string {
   const timestamp = value instanceof Date ? value : new Date(value)
   return Number.isFinite(timestamp.getTime()) ? timestamp.toISOString() : new Date().toISOString()
@@ -589,17 +598,19 @@ async function collectBoundedObservationBuiltIns(
   depth = 0,
 ): Promise<void> {
   if (!value || !hasRuntimeType(value, "object") || seen.has(value) || budget.items <= 0 || depth >= MAX_OBSERVATION_DEPTH) return
-  budget.items--
-  seen.add(value)
-  const BlobConstructor = globalThis.Blob
-  if (hasRuntimeType(BlobConstructor, "function") && value instanceof BlobConstructor) {
+  try {
+    budget.items--
+    seen.add(value)
+    const BlobConstructor = globalThis.Blob
+    if (hasRuntimeType(BlobConstructor, "function") && isInstance(value, BlobConstructor)) {
+    const blob = value as Blob
     const FileConstructor = globalThis.File
-    const file = hasRuntimeType(FileConstructor, "function") && value instanceof FileConstructor ? value : undefined
-    const bytes = Array.from(new Uint8Array(await value.slice(0, MAX_OBSERVATION_COLLECTION_ITEMS).arrayBuffer()))
+    const file = hasRuntimeType(FileConstructor, "function") && isInstance(value, FileConstructor) ? value as File : undefined
+    const bytes = Array.from(new Uint8Array(await blob.slice(0, MAX_OBSERVATION_COLLECTION_ITEMS).arrayBuffer()))
     const representation: Record<string, unknown> = {
       bytes,
-      mediaType: value.type,
-      size: value.size,
+      mediaType: blob.type,
+      size: blob.size,
       type: file ? "File" : "Blob",
     }
     if (file) {
@@ -610,39 +621,39 @@ async function collectBoundedObservationBuiltIns(
       truncated: true,
       value: representation,
     })
-    return
-  }
-  const primitive = boxedObservationPrimitive(value)
-  if (primitive) {
+      return
+    }
+    const primitive = boxedObservationPrimitive(value)
+    if (primitive) {
     builtIns.set(value, { truncated: true, value: primitive })
-    return
-  }
-  if (Array.isArray(value)) {
+      return
+    }
+    if (Array.isArray(value)) {
     const length = Math.min(value.length, MAX_OBSERVATION_COLLECTION_ITEMS, budget.items)
     for (let index = 0; index < length; index++) {
       if (Object.hasOwn(value, index)) await collectBoundedObservationBuiltIns(value[index], builtIns, budget, seen, depth + 1)
     }
-    return
-  }
-  if (value instanceof Map) {
+      return
+    }
+    if (isInstance(value, Map)) {
     let count = 0
     for (const [key, child] of value) {
       if (count++ >= MAX_OBSERVATION_COLLECTION_ITEMS) break
       await collectBoundedObservationBuiltIns(key, builtIns, budget, seen, depth + 1)
       await collectBoundedObservationBuiltIns(child, builtIns, budget, seen, depth + 1)
     }
-    return
-  }
-  if (value instanceof Set) {
+      return
+    }
+    if (isInstance(value, Set)) {
     let count = 0
     for (const child of value) {
       if (count++ >= MAX_OBSERVATION_COLLECTION_ITEMS) break
       await collectBoundedObservationBuiltIns(child, builtIns, budget, seen, depth + 1)
     }
-    return
-  }
-  if (value instanceof Error) {
-    if (value instanceof AggregateError) {
+      return
+    }
+    if (isInstance(value, Error)) {
+    if (isInstance(value, AggregateError)) {
       await collectBoundedObservationBuiltIns(value.errors, builtIns, budget, seen, depth + 1)
     }
     if (Object.hasOwn(value, "cause")) {
@@ -653,12 +664,16 @@ async function collectBoundedObservationBuiltIns(
         await collectBoundedObservationBuiltIns(child, builtIns, budget, seen, depth + 1)
       }
     }
-    return
+      return
+    }
+    const prototype = Object.getPrototypeOf(value)
+    if (prototype !== null && prototype !== Object.prototype) return
+    for (const child of Object.values(value).slice(0, MAX_OBSERVATION_COLLECTION_ITEMS)) {
+      await collectBoundedObservationBuiltIns(child, builtIns, budget, seen, depth + 1)
+    }
   }
-  const prototype = Object.getPrototypeOf(value)
-  if (prototype !== null && prototype !== Object.prototype) return
-  for (const child of Object.values(value).slice(0, MAX_OBSERVATION_COLLECTION_ITEMS)) {
-    await collectBoundedObservationBuiltIns(child, builtIns, budget, seen, depth + 1)
+  catch {
+    // Hostile objects such as revoked proxies are left to bounded serialization.
   }
 }
 
@@ -722,7 +737,7 @@ function boundedObservationValue(
       return boundedObservationValue(value[index], budget, depth + 1, maxStringLength, builtIns)
     })
   }
-  if (value instanceof Date) {
+  if (isInstance(value, Date)) {
     budget.truncated = true
     return {
       type: "Date",
@@ -735,7 +750,7 @@ function boundedObservationValue(
       ),
     }
   }
-  if (value instanceof Map) {
+  if (isInstance(value, Map)) {
     budget.truncated = true
     const entries: [unknown, unknown][] = []
     const limit = Math.min(collectionItems, budget.items)
@@ -749,7 +764,7 @@ function boundedObservationValue(
       boundedObservationValue(child, budget, depth + 1, maxStringLength, builtIns),
     ])
   }
-  if (value instanceof Set) {
+  if (isInstance(value, Set)) {
     budget.truncated = true
     const entries: unknown[] = []
     const limit = Math.min(collectionItems, budget.items)
@@ -785,7 +800,7 @@ function boundedObservationValue(
       type: value.constructor.name,
     }
   }
-  if (value instanceof RegExp) {
+  if (isInstance(value, RegExp)) {
     budget.truncated = true
     return {
       flags: boundedObservationValue(value.flags, budget, depth + 1, maxStringLength, builtIns),
@@ -793,13 +808,13 @@ function boundedObservationValue(
       source: boundedObservationValue(value.source, budget, depth + 1, maxStringLength, builtIns),
     }
   }
-  if (value instanceof Error) {
+  if (isInstance(value, Error)) {
     budget.truncated = true
     const details: Array<[string, unknown]> = [
       ["name", value.name],
       ["message", value.message],
     ]
-    if (value instanceof AggregateError) details.push(["errors", value.errors])
+    if (isInstance(value, AggregateError)) details.push(["errors", value.errors])
     if (Object.hasOwn(value, "cause")) details.push(["cause", value.cause])
     for (const [key, child] of Object.entries(value)) {
       if (key !== "cause" && key !== "errors") details.push([key, child])
