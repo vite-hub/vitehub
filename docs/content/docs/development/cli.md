@@ -383,7 +383,7 @@ VITEHUB_SECRET=... pnpm vitehub secret derive vitehub:dispatch
 VITEHUB_DISPATCH_KEY=... pnpm vitehub schedule run sync --url https://app.example.com
 ```
 
-The signature covers the operation, the exact body, the time, a one-time nonce, and the actor. The deployment rejects a request older or newer than five minutes, a reused nonce, and a key of another deployment. A request with a dispatch signature never falls back to a Console session, so a bad signature is always `401`. The actor is `VITEHUB_ACTOR`, else the OS user. It is self-asserted and the deployment only logs it. Nonces are kept per server process: a deployment with several instances can accept a replay on another instance inside the window.
+The signature covers the operation, the exact body, the time, a one-time nonce, and the actor. The deployment rejects a request older or newer than five minutes, a reused nonce, and a key of another deployment. A request with a dispatch signature skips the Console sign-in check and never falls back to a Console session, so a bad signature is always `401`. An edge in front of the app, such as Cloudflare Access, still applies: set its service token as well. The actor is `VITEHUB_ACTOR`, else the OS user. It is self-asserted and the deployment only logs it. Nonces are kept per server process: a deployment with several instances can accept a replay on another instance inside the window.
 
 | Variable | Value |
 | --- | --- |
