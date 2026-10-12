@@ -444,6 +444,23 @@ describe("cloudflare queue runtime", () => {
     expect(observed.get("second")).toEqual(["second", "second"])
   })
 
+  it("ignores inherited physical queue definitions", async () => {
+    const handler = vi.fn(async () => {})
+    const definitions = Object.create({ evil: "welcome" }) as Record<string, string>
+    const worker = createQueueCloudflareWorker({
+      definitions,
+      registry: { welcome: async () => ({ default: { handler } }) },
+    })
+
+    await expect(worker.queue({
+      ackAll: vi.fn(),
+      messages: [{ ack: vi.fn(), attempts: 1, body: "x", id: "1", retry: vi.fn() }],
+      queue: "evil",
+      retryAll: vi.fn(),
+    }, {}, { waitUntil: vi.fn() })).rejects.toMatchObject({ code: "QUEUE_R0005" })
+    expect(handler).not.toHaveBeenCalled()
+  })
+
   it("dispatches prefixed physical names in manually constructed Cloudflare workers", async () => {
     const handler = vi.fn(async () => {})
     const worker = createQueueCloudflareWorker({
