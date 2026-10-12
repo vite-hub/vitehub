@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import * as fs from "node:fs/promises";
-import { createBabysitterProcessHost, cleanupLegacyBabysitterCheckouts } from "../src/presets/babysitter/host.ts";
+import { createBabysitterProcessHost, cleanupLegacyBabysitterCheckouts, readGitHubAppEnvironment } from "../src/presets/babysitter/host.ts";
 
 vi.mock("node:fs/promises", async (importOriginal) => {
   const original = await importOriginal<typeof import("node:fs/promises")>();
@@ -33,6 +33,17 @@ it("removes the complete legacy checkout pool, including metadata sidecars", asy
   const quarantines = await fs.readdir(dataDir);
   expect(quarantines).toHaveLength(1);
   expect(await fs.readdir(join(dataDir, quarantines[0]!, "checkouts"))).toEqual([]);
+});
+
+it("normalizes escaped PEM newlines from host environment secrets", async () => {
+  const { privateKey } = await import("node:crypto").then(({ generateKeyPairSync }) => generateKeyPairSync("rsa", { modulusLength: 2048 }));
+  const pem = privateKey.export({ format: "pem", type: "pkcs1" }).toString();
+  vi.stubEnv("GITHUB_APP_ID", "123");
+  vi.stubEnv("GITHUB_APP_INSTALLATION_ID", "456");
+  vi.stubEnv("GITHUB_APP_OWNER", "acme");
+  vi.stubEnv("GITHUB_APP_PRIVATE_KEY", pem.replaceAll("\n", "\\n"));
+
+  await expect(readGitHubAppEnvironment()).resolves.toMatchObject({ appId: 123, installationId: 456, privateKey: pem });
 });
 
 it("refuses to remove a replaced or symlinked checkout root", async () => {

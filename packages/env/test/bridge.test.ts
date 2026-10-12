@@ -224,19 +224,15 @@ it("sanitizes access-store failures in SDK authorization and history", async () 
   }
 });
 
-it("sanitizes malformed grants returned by a custom access store", async () => {
-  const { store } = setup();
-  const bridge = createEnvBridge({
-    ...store,
-    access: {
-      ...store.access,
-      grants: async () => [{ actor: null } as never],
-    },
-    runtimeActor: agent.actor,
-  });
-  await expect(bridge.permissions(agent, "key")).rejects.toMatchObject({
-    code: "ENV_BRIDGE_OPERATION_FAILED",
-  });
+it("rejects malformed grant permissions through the public bridge error", async () => {
+  const { bridge } = setup();
+  await expect(
+    bridge.grant(admin, {
+      actor: agent.actor,
+      key: "key",
+      permissions: undefined as never,
+    }),
+  ).rejects.toMatchObject({ code: "ENV_BRIDGE_INVALID" });
 });
 
 describe("Env access grants", () => {
