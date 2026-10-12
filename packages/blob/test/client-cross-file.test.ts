@@ -2,6 +2,8 @@ import { runInNewContext } from "node:vm"
 import { describe, expect, it, vi } from "vitest"
 import { uploadFiles } from "../src/client.ts"
 
+type FetchInput = Parameters<typeof fetch>[0]
+
 describe("uploadFiles cross-realm inputs", () => {
   it("uploads a native File with a separate realm's prototype", async () => {
     // Node VM contexts do not provide File. Supply the native constructor to
@@ -14,7 +16,7 @@ describe("uploadFiles cross-realm inputs", () => {
     `, { File, Blob })
     expect(file).not.toBeInstanceOf(File)
     expect(await file.text()).toBe("hello")
-    const fetch = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+    const fetch = vi.fn(async (_url: FetchInput, init?: RequestInit) => {
       const form = init?.body as FormData
       const entries = form.getAll("files")
       expect(entries).toHaveLength(1)
