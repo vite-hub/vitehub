@@ -93,8 +93,11 @@ function isDateValue(value: unknown): value is Date {
 }
 
 function isUint8ArrayValue(value: unknown): value is Uint8Array {
-  return ArrayBuffer.isView(value) && Object.prototype.toString.call(value) === "[object Uint8Array]"
+  return ArrayBuffer.isView(value) && typedArrayTag?.call(value) === "Uint8Array"
 }
+
+// The intrinsic getter reads the typed array kind without trusting Symbol.toStringTag.
+const typedArrayTag = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), Symbol.toStringTag)?.get
 
 function cell(value: unknown): ConsoleDatabaseCell {
   if (value === null || typeof value === "undefined") return { kind: "null", value: "NULL" }
