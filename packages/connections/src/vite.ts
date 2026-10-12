@@ -571,7 +571,7 @@ export function hubConnectionsTypesCleanup(): Plugin<{ prepareTypes: (options: {
     name: "@vite-hub/connections/types-cleanup",
     enforce: "pre",
     api: { prepareTypes },
-    config: config => prepareTypes({ projectRoot: resolve(config.root || process.cwd()) }),
-    configResolved: config => prepareTypes({ projectRoot: config.root }),
+    config: config => prepareTypes({ projectRoot: resolveViteHubProjectRoot(resolve(config.root || process.cwd())) }),
+    configResolved: config => prepareTypes({ projectRoot: resolveViteHubProjectRoot(config.root) }),
   }
 }

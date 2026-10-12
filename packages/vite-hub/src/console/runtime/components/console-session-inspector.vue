@@ -123,6 +123,9 @@ const workspaceLabel = computed(() =>
       : `${workspace.value.repository}@${workspace.value.revision.slice(0, 7)}`
     : "Agent Workspace",
 );
+const workspaceSources = computed(() => props.invocation.configuration?.workspace?.sources
+  ?.map(source => source instanceof Object ? source.id : source)
+  .join(" · "));
 const breadcrumbs = computed(() => selectedPath.value?.split("/") ?? []);
 type InspectorSurfaceItem = TabsItem & {
   icon: string;
@@ -503,7 +506,12 @@ function message(error: unknown) {
           @update:model-value="activateSurface"
         >
           <TabsList data-slot="list">
-            <div v-for="item in surfaceItems" :key="String(item.value)" class="session-inspector__tab">
+            <div
+              v-for="item in surfaceItems"
+              :key="String(item.value)"
+              class="session-inspector__tab"
+              :data-active="activeSurface === String(item.value)"
+            >
               <TabsTrigger
                 :value="String(item.value)"
                 data-slot="trigger"
@@ -597,6 +605,7 @@ function message(error: unknown) {
       v-else-if="tab === 'details'"
       :invocation="invocation"
       :show-error="false"
+      :show-sources="!workspace || !!workspaceError"
       :show-status="false"
       :show-timeline="false"
       class="session-inspector__details"
@@ -714,6 +723,7 @@ function message(error: unknown) {
                   · PR #{{ workspace.pullRequest }}</span
                 >
               </small>
+              <small v-if="workspaceSources">Recorded sources · {{ workspaceSources }}</small>
             </div>
             <div v-if="fileLoading" class="session-inspector__state">
               <UIcon name="i-lucide-loader-circle" class="animate-spin" />Loading file…

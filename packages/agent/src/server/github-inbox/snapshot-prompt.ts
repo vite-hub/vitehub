@@ -50,7 +50,15 @@ function projectSnapshotContext(snapshot: Snapshot) {
   }).sort((left, right) => resolutionPriority[left.resolution] - resolutionPriority[right.resolution]
     || currentHeadFirst(left, right)
     || timestamp(right.updatedAt ?? right.createdAt) - timestamp(left.updatedAt ?? left.createdAt))
-  const knownChecks = Object.values(snapshot.checks).filter(value => !value.deleted && value.head_sha === head && Boolean(head))
+  // Only the newest run of each check is current. A passing check needs no output text; ciEvidence carries failure logs.
+  const newestChecks = new Map<string, GitHubEvidence>()
+  for (const value of Object.values(snapshot.checks)) {
+    if (value.deleted || !head || value.head_sha !== head) continue
+    const key = `${String(value.name)}\0${String(value.app?.id ?? value.app?.slug ?? '')}`
+    if (!newestChecks.has(key) || Number(value.id ?? 0) >= Number(newestChecks.get(key)?.id ?? 0)) newestChecks.set(key, value)
+  }
+  const knownChecks = [...newestChecks.values()]
+  const passed = (value: GitHubEvidence) => ['success', 'neutral', 'skipped'].includes(String(value.conclusion ?? '').toLowerCase())
   const knownStatuses = Object.values(snapshot.statuses).filter(value => !value.deleted && value.sha === head && Boolean(head))
   return {
     repository: snapshot.repository, number: snapshot.number, generation: snapshot.generation,
@@ -58,9 +66,10 @@ function projectSnapshotContext(snapshot: Snapshot) {
     previousPass: { report: snapshot.lastResult, authority: 'Historical report: verify claims against current code and CI, then continue unfinished repairs.' },
     pullRequest: { title: pr.title ?? '', body: pr.body ?? '', author: author(pr), state: pr.state, draft: pr.draft,
       head, branch: pr.head?.ref, base: pr.base?.ref, mergeable: pr.mergeable, mergeState: pr.mergeable_state },
-    checks: knownChecks.map(value => ({ id: value.id, name: value.name, status: value.status, conclusion: value.conclusion,
+    checks: knownChecks.map(value => passed(value) ? { id: value.id, name: value.name, conclusion: value.conclusion, app: value.app?.slug } : {
+      id: value.id, name: value.name, status: value.status, conclusion: value.conclusion,
       startedAt: value.started_at, completedAt: value.completed_at, app: value.app?.slug,
-      url: value.details_url, summary: value.output?.summary, text: value.output?.text })),
+      url: value.details_url, summary: value.output?.summary, text: value.output?.text }),
     statuses: knownStatuses.map(value => ({ context: value.context, state: value.state, description: value.description, url: value.target_url })),
     ciEvidence: snapshot.ciEvidence ?? [],
     feedback,
