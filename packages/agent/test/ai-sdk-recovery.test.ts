@@ -1,3 +1,4 @@
+import { APICallError } from "ai"
 import { describe, expect, it, vi } from "vitest"
 import { defineDiagnostics } from "nostics"
 import { normalizeRuntimeDiagnosticError } from "@vite-hub/runtime"
@@ -227,6 +228,89 @@ describe("AI SDK recovery", () => {
     expect(executions).toHaveBeenCalledWith({ query: "fixed" }, expect.anything())
     expect(fakeModel.calls).toHaveLength(3)
     expect(fakeModel.calls[1]?.responseFormat).toBeDefined()
+  })
+
+  it("surfaces an exhausted tool repair budget", async () => {
+    const fakeModel = model([
+      [{ input: '{"query":1}', toolCallId: "call-1", toolName: "search", type: "tool-call" }],
+      '{"query":"fixed"}',
+    ])
+    await expect(runAgentInline(toolCallingAgent(fakeModel, () => "found"), runtime, {
+      prompt: "Search", executionBudget: { maxRetries: 0 },
+    })).rejects.toThrow(/retries/)
+    expect(fakeModel.calls).toHaveLength(1)
+  })
+
+  it("shares provider retry usage with later output repair", async () => {
+    const fakeModel = model([
+      async () => { throw new APICallError({ message: "temporary", url: "https://model.test", requestBodyValues: {}, statusCode: 503, isRetryable: true }) },
+      '{"text":1}',
+      '{"text":"repaired"}',
+    ])
+    const agent = defineAgent({
+      driver: { model: languageModel(fakeModel), output: { schema: outputSchema } },
+      runtime: false,
+    })
+    await expect(runAgentInline(agent, runtime, {
+      prompt: "Respond", executionBudget: { maxRetries: 1 },
+    })).rejects.toThrow(/retries/)
+    expect(fakeModel.calls).toHaveLength(2)
+  })
+
+  it("does not replenish provider retries for a later tool step", async () => {
+    const unavailable = async () => { throw new APICallError({ message: "temporary", url: "https://model.test", requestBodyValues: {}, statusCode: 503, isRetryable: true }) }
+    const fakeModel = model([
+      unavailable,
+      [{ input: '{"query":"valid"}', toolCallId: "call-1", toolName: "search", type: "tool-call" }],
+      unavailable,
+      "Must not run",
+    ])
+    await expect(runAgentInline(toolCallingAgent(fakeModel, () => "found"), runtime, {
+      prompt: "Search", executionBudget: { maxRetries: 1 },
+    })).rejects.toThrow(/retries/)
+    expect(fakeModel.calls).toHaveLength(3)
+  })
+
+  it("shares provider retries across streaming tool steps", async () => {
+    const unavailable = async () => { throw new APICallError({ message: "temporary", url: "https://model.test", requestBodyValues: {}, statusCode: 503, isRetryable: true }) }
+    const fakeModel = model([
+      unavailable,
+      [{ input: '{"query":"valid"}', toolCallId: "call-1", toolName: "search", type: "tool-call" }],
+      unavailable,
+      "Must not run",
+    ])
+    const result = await streamAgentInline(toolCallingAgent(fakeModel, () => "found"), runtime, {
+      prompt: "Search", executionBudget: { maxRetries: 1 },
+    })
+    if (!isAsyncIterable(result)) throw new TypeError("Expected an Agent event stream")
+    const events: unknown[] = []
+    for await (const event of result) events.push(event)
+    expect(events).toContainEqual(expect.objectContaining({ type: "error", error: expect.stringContaining("retries") }))
+    expect(fakeModel.calls).toHaveLength(3)
+  })
+
+  it.each(["maxInputBytes", "maxOutputBytes"] as const)("enforces %s for a model-only invocation", async (limit) => {
+    const fakeModel = model(["Response exceeding the allowance"])
+    const agent = defineAgent({ driver: { model: languageModel(fakeModel) }, runtime: false })
+    await expect(runAgentInline(agent, runtime, {
+      prompt: "Prompt exceeding the allowance", executionBudget: { [limit]: 1 },
+    })).rejects.toThrow(/Bytes/)
+    expect(fakeModel.calls).toHaveLength(limit === "maxInputBytes" ? 0 : 1)
+  })
+
+  it("enforces output bytes while streaming a model-only response", async () => {
+    const fakeModel = model(["Response exceeding the allowance"])
+    const agent = defineAgent({ driver: { model: languageModel(fakeModel) }, runtime: false })
+    const consume = async () => {
+      const result = await streamAgentInline(agent, runtime, { prompt: "Respond", executionBudget: { maxOutputBytes: 1 } })
+      if (!isAsyncIterable(result)) throw new TypeError("Expected an Agent event stream")
+      const events: unknown[] = []
+      for await (const event of result) events.push(event)
+      return events
+    }
+    const events = await consume()
+    expect(events).toContainEqual(expect.objectContaining({ type: "error", error: expect.stringContaining("outputBytes") }))
+    expect(events).not.toContainEqual(expect.objectContaining({ type: "text-delta" }))
   })
 
   it("cancels a pending tool-call repair with its invocation", async () => {

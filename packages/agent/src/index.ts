@@ -47,7 +47,7 @@ import { parseStandardSchema } from "@vite-hub/internal/http-request"
 import { agentResultKind, agentStreamErrorSymbol, agentToolStreamDefaults, appendLatestFinalText, finalTextFromAgentOutput, hasTraceableStreamResult, isAsyncIterable, resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent, usageRecordFromStreamChunk } from "./agent-output.ts"
 import { defineChatCapability, durableChatErrorFallbackTimeout, getAgentChatContext, getChatCapabilityOptions, isDurableChatErrorFallbackEffect, resolveChatMessageContextInstructions, resolveChatMessageRunMetadata, resolveDurableChatErrorFallbackIntents } from "./chat-trigger.ts"
 import { agentWorkflowExecutionContextKey } from "./internal/workflow-execution.ts"
-import { consumeParsedAgentWorkflowInput } from "./internal/workflow-parsed-input.ts"
+import { consumeParsedAgentWorkflowInput, transferParsedAgentWorkflowInput } from "./internal/workflow-parsed-input.ts"
 import { parsedAgentMessageMetaState, parseAgentMessageMeta, withParsedAgentMessageMeta } from "./internal/message-meta.ts"
 import type { ParsedAgentMessageMetaState } from "./internal/message-meta.ts"
 import {
@@ -8072,16 +8072,17 @@ async function executeAgentInvocation<
     ...(input.timeout !== undefined && input.executionBudget?.deadlineAt === undefined ? { deadlineAt: Date.now() + input.timeout } : {}),
     signal: input.abortSignal,
   })
-  input = {
-    ...input,
-    // Keep the caller's signal intact when no budget constraint is configured.
-    // This avoids introducing a synthetic signal into legacy invocation metadata
-    // while constrained runs still observe deadline and budget cancellation.
-    abortSignal: executionBudgetHasConstraints(input)
-      ? input.abortSignal
+  if (executionBudgetHasConstraints(input)) {
+    const callerAbortSignal = agentInvocationCallerAbortSignal(input)
+    const budgetedInput = {
+      ...input,
+      abortSignal: input.abortSignal
         ? AbortSignal.any([input.abortSignal, executionBudget.signal])
-        : executionBudget.signal
-      : input.abortSignal,
+        : executionBudget.signal,
+    }
+    transferParsedAgentWorkflowInput(input, budgetedInput)
+    input = budgetedInput
+    markAgentInvocationCallerAbortSignal(input, callerAbortSignal)
   }
   let preparedInvocation: AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS> | undefined
   let release: (() => void) | undefined

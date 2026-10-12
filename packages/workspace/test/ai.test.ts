@@ -217,6 +217,20 @@ describe("createWorkspaceTools", () => {
     expect(tools.shell.description).not.toContain("controlled `curl`")
   })
 
+  it("stops preflight when the shared budget is cancelled during a filesystem check", async () => {
+    const workspace = createMutableWorkspace()
+    await workspace.writeFile("file.txt", "hello")
+    const budget = createExecutionBudget()
+    const exists = workspace.exists.bind(workspace)
+    vi.spyOn(workspace, "exists").mockImplementation(async (path) => {
+      budget.cancel(new Error("preflight budget cancelled"))
+      return await exists(path)
+    })
+    const tools = createWorkspaceTools(workspace, { executionBudget: budget })
+    await expect(runShell(tools, "cat file.txt")).rejects.toThrow("preflight budget cancelled")
+    expect(budget.snapshot().usage.toolCalls).toBe(0)
+  })
+
   it("prefers executable Workspace Session shell execution", async () => {
     const workspace = createMutableWorkspace()
     await workspace.mkdir("models")

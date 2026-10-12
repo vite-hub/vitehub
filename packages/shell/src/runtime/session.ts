@@ -87,7 +87,7 @@ class RuntimeShellSession implements ShellSession {
 
     this.#shellCalls += 1
     const started = Date.now()
-    const signal = options.budget && options.signal
+    const signal = options.budget && options.signal && options.signal !== options.budget.signal
       ? AbortSignal.any([options.signal, options.budget.signal])
       : options.budget?.signal ?? options.signal
     const requestedOutputLength = normalizeOutputLength(options.maxOutputLength)

@@ -435,7 +435,9 @@ async function runShellCommand(
     fs: createReadonlyWorkspaceFs(input),
     maxOutputLength: options.maxOutputLength,
     networkGrants,
-    signal: options.signal,
+    signal: options.budget
+      ? options.signal ? AbortSignal.any([options.signal, options.budget.signal]) : options.budget.signal
+      : options.signal,
     timeout: options.timeout,
   }
   const starter = getWorkspaceSessionStarter(input)
@@ -729,7 +731,10 @@ export function createWorkspaceTools<Operations extends WorkspaceToolOperations 
     }), { icon: "i-lucide-folder-sync", title: "Materialized Workspace sources" })
   }
 
-  if (writeEnabled) Object.assign(result, createWriteTools(input as Workspace, resolved.write, resolved.budget))
+  if (writeEnabled) {
+    // SAFETY: writeEnabled is only set for a mutable Workspace with write operations.
+    Object.assign(result, createWriteTools(input as Workspace, resolved.write, resolved.budget))
+  }
 
   // Resolved flags select the shell, materialize_sources, and write tool contracts declared by WorkspaceTools.
   // SAFETY: These flags match its type parameters; Source requests require an executor and empty configurations throw above.

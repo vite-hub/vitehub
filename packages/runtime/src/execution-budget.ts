@@ -48,6 +48,7 @@ export class ExecutionBudgetExceededError extends Error {
 
 export interface ExecutionBudget {
   readonly signal: AbortSignal
+  cancel(reason?: unknown): void
   child(options?: ExecutionBudgetOptions): ExecutionBudget
   consume(counter: ExecutionBudgetCounter, amount?: number): void
   recordInputBytes(amount: number): void
@@ -85,9 +86,10 @@ function scheduleDeadline(controller: AbortController, deadlineAt: number) {
   const schedule = () => {
     if (controller.signal.aborted) return
     const remaining = deadlineAt - Date.now()
-    if (remaining <= 0) controller.abort(new DOMException("Execution budget deadline exceeded.", "TimeoutError"))
+    if (remaining <= 0) controller.abort(new DOMException("Execution budget timed out: deadline exceeded.", "TimeoutError"))
     else {
       timer = setTimeout(schedule, Math.min(remaining, 2_147_483_647))
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Timer handles are numbers in browsers and objects with unref in Node.
       if (typeof timer === "object" && timer && "unref" in timer && typeof timer.unref === "function") timer.unref()
     }
   }
@@ -112,6 +114,9 @@ function createBudget(state: BudgetState, limits: ExecutionBudgetLimits, control
 
   return {
     signal: controller.signal,
+    cancel(reason) {
+      controller.abort(reason)
+    },
     child(options = {}) {
       const childLimits = normalizeLimits(options)
       const childController = new AbortController()
