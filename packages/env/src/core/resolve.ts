@@ -79,7 +79,9 @@ export function createSourceContext(input: {
       tag: async () => {
         const tag = envValue(input.env, ["GIT_TAG"])
         if (tag) return tag
-        if (input.env.GITHUB_REF_TYPE === "tag") return envValue(input.env, ["GITHUB_REF_NAME"])
+        if (Object.hasOwn(input.env, "GITHUB_REF_TYPE") && input.env.GITHUB_REF_TYPE === "tag") {
+          return envValue(input.env, ["GITHUB_REF_NAME"])
+        }
         return await gitOutput(input.rootDir, ["describe", "--tags", "--exact-match", "HEAD"]).catch(() => undefined)
       },
     },

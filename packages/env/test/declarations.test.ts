@@ -274,6 +274,15 @@ describe("env declarations", () => {
     expect(await github.git.sha()).toBe("github-sha")
     expect(await github.git.ref()).toBe("v1.2.3")
     expect(await github.git.tag()).toBe("v1.2.3")
+
+    const inheritedGithubRefType = Object.create({ GITHUB_REF_TYPE: "tag" }) as Record<string, string | undefined>
+    inheritedGithubRefType.GITHUB_REF_NAME = "inherited-tag"
+    const inheritedGithub = createSourceContext({
+      env: inheritedGithubRefType,
+      mode: "build",
+      rootDir: "/missing-git-root",
+    })
+    await expect(inheritedGithub.git.tag()).resolves.toBeUndefined()
   })
 
   it("rejects flat runtime declarations in Vite config", () => {
