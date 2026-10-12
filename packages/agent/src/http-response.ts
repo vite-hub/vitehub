@@ -18,33 +18,16 @@ function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
 
 function isResponseLike(value: unknown): value is Response {
   try {
-    if (!hasRuntimeType(value, "object") || Object.prototype.toString.call(value) !== "[object Response]") return false
-    const response = value as {
-      arrayBuffer?: unknown
-      blob?: unknown
-      body?: unknown
-      bodyUsed?: unknown
-      clone?: unknown
-      formData?: unknown
-      headers?: unknown
-      json?: unknown
-      status?: unknown
-      statusText?: unknown
-      text?: unknown
-    }
-    if (!hasRuntimeType(response.headers, "object")) return false
-    const headers = response.headers as { get?: unknown }
-    return hasRuntimeType(headers.get, "function")
-      && hasRuntimeType(response.status, "number")
-      && hasRuntimeType(response.statusText, "string")
-      && hasRuntimeType(response.body, "object")
-      && hasRuntimeType(response.bodyUsed, "boolean")
-      && hasRuntimeType(response.clone, "function")
-      && hasRuntimeType(response.arrayBuffer, "function")
-      && hasRuntimeType(response.blob, "function")
-      && hasRuntimeType(response.formData, "function")
-      && hasRuntimeType(response.json, "function")
-      && hasRuntimeType(response.text, "function")
+    if (!hasRuntimeType(value, "object")) return false
+    const response = value as Response
+    const prototype = Response.prototype
+    const get = (name: string) => Object.getOwnPropertyDescriptor(prototype, name)?.get?.call(response)
+    get("headers")
+    get("status")
+    get("statusText")
+    get("body")
+    get("bodyUsed")
+    return Object.prototype.toString.call(response) === "[object Response]"
   }
   catch {
     return false

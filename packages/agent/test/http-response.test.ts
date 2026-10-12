@@ -51,31 +51,31 @@ describe("agent HTTP response helpers", () => {
   })
 
   it("preserves Response objects created in another realm", () => {
-    const response = vm.runInNewContext(`
-      class Headers {
-        get() { return null }
-      }
-      class CrossRealmResponse {
-        constructor() {
-          this.body = null
-          this.bodyUsed = false
-          this.headers = new Headers()
-          this.status = 204
-          this.statusText = "No Content"
-        }
-        arrayBuffer() {}
-        blob() {}
-        clone() {}
-        formData() {}
-        json() {}
-        text() {}
-      }
-      Object.defineProperty(CrossRealmResponse.prototype, Symbol.toStringTag, { value: "Response" })
-      new CrossRealmResponse()
-    `)
+    const response = vm.runInNewContext("new Response('ok', { status: 200 })", { Response })
 
     expect(toAgentHttpResult(response, false)).toBe(response)
     expect(toAgentFetchResponse(response, false)).toBe(response)
+  })
+
+  it("does not treat a complete Response spoof as a Response", () => {
+    const result = {
+      arrayBuffer: () => Promise.resolve(new ArrayBuffer(0)),
+      blob: () => Promise.resolve(new Blob()),
+      body: null,
+      bodyUsed: false,
+      clone: () => result,
+      formData: () => Promise.resolve(new FormData()),
+      headers: { get: () => null },
+      json: () => Promise.resolve({}),
+      status: 200,
+      statusText: "OK",
+      text: () => Promise.resolve(""),
+    }
+    Object.defineProperty(result, Symbol.toStringTag, { value: "Response" })
+
+    const converted = toAgentHttpResult(result, false)
+    expect(converted).not.toBe(result)
+    expect(converted).toMatchObject({ finishReason: undefined, raw: undefined, usage: undefined })
   })
 
   it("falls back when a result has an unreadable response tag", () => {
