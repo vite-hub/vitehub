@@ -44,17 +44,31 @@ function rejection(status: number, message: string): Response {
 }
 
 function isRequestLike(value: unknown): value is Request {
-  if (value === null || typeof value !== "object" || Object.prototype.toString.call(value) !== "[object Request]") return false
-  const request = value as { headers?: unknown; method?: unknown; url?: unknown }
-  if (typeof request.method !== "string" || typeof request.url !== "string" || request.headers === null || typeof request.headers !== "object") return false
-  return typeof (request.headers as { get?: unknown }).get === "function"
+  if (value === null || typeof value !== "object") return false
+  try {
+    const prototype = Request.prototype
+    const method = Object.getOwnPropertyDescriptor(prototype, "method")?.get?.call(value)
+    const url = Object.getOwnPropertyDescriptor(prototype, "url")?.get?.call(value)
+    Object.getOwnPropertyDescriptor(prototype, "headers")?.get?.call(value)
+    return typeof method === "string" && typeof url === "string"
+  }
+  catch {
+    return false
+  }
 }
 
 function isResponseLike(value: unknown): value is Response {
-  if (value === null || typeof value !== "object" || Object.prototype.toString.call(value) !== "[object Response]") return false
-  const response = value as { headers?: unknown; status?: unknown; statusText?: unknown }
-  if (typeof response.status !== "number" || typeof response.statusText !== "string" || response.headers === null || typeof response.headers !== "object") return false
-  return typeof (response.headers as { get?: unknown }).get === "function"
+  if (value === null || typeof value !== "object") return false
+  try {
+    const prototype = Response.prototype
+    const status = Object.getOwnPropertyDescriptor(prototype, "status")?.get?.call(value)
+    const statusText = Object.getOwnPropertyDescriptor(prototype, "statusText")?.get?.call(value)
+    Object.getOwnPropertyDescriptor(prototype, "headers")?.get?.call(value)
+    return typeof status === "number" && typeof statusText === "string"
+  }
+  catch {
+    return false
+  }
 }
 
 /** Install the Console access policy. Generated Console output calls this before it serves a request. */

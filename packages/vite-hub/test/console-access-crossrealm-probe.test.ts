@@ -9,28 +9,30 @@ afterEach(() => Reflect.deleteProperty(globalThis, policyKey))
 describe("cross-realm console access probe", () => {
   it("preserves foreign requests and responses", async () => {
     const request = runInNewContext(`
-      class Headers { get() { return null } }
-      class CrossRealmRequest {
-        constructor() { this.headers = new Headers(); this.method = "GET"; this.url = "https://console.example.test/" }
-      }
-      Object.defineProperty(CrossRealmRequest.prototype, Symbol.toStringTag, { value: "Request" })
-      new CrossRealmRequest()
-    `, { Symbol })
+      new Request("https://console.example.test/")
+    `, { Request })
     const response = runInNewContext(`
-      class Headers { get() { return null } }
-      class CrossRealmResponse {
-        constructor() { this.body = null; this.headers = new Headers(); this.status = 401; this.statusText = "Unauthorized" }
-      }
-      Object.defineProperty(CrossRealmResponse.prototype, Symbol.toStringTag, { value: "Response" })
-      new CrossRealmResponse()
-    `, { Symbol })
+      new Response(null, { status: 401, statusText: "Unauthorized" })
+    `, { Response })
     const authorize = vi.fn(() => response)
-    expect(Object.prototype.toString.call(request)).toBe("[object Request]")
-    expect(Object.prototype.toString.call(response)).toBe("[object Response]")
     installConsoleAccess({ mode: "host-managed", authorize })
     const result = await withConsoleAccess(() => "unreachable")({ req: request })
     expect(authorize).toHaveBeenCalledWith({ request })
     expect(authorize.mock.results[0]?.value).toBe(response)
     expect(result).toBe(response)
+  })
+
+  it("rejects spoofed response-shaped objects", async () => {
+    const request = new Request("https://console.example.test/")
+    const response = Object.create({
+      headers: { get() { return null } },
+      status: 401,
+      statusText: "Unauthorized",
+    })
+    Object.defineProperty(response, Symbol.toStringTag, { value: "Response" })
+    installConsoleAccess({ mode: "host-managed", authorize: () => response })
+    const result = await withConsoleAccess(() => "unreachable")({ req: request })
+    expect(result).toBeInstanceOf(Response)
+    expect((result as Response).status).toBe(403)
   })
 })
