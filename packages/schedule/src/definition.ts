@@ -13,6 +13,13 @@ function isCronString(value: unknown): value is string {
   return value !== null && value !== undefined && String(value) === value
 }
 
+function assertOwnDefinitionFields(input: Record<string, unknown>, keys: ReadonlySet<string>, message: string, diagnostic: (options: { message: string }) => Error): void {
+  const inheritedKey = [...keys].find(key => key in input && !Object.hasOwn(input, key))
+  if (inheritedKey) {
+    throw diagnostic({ message: `${message} The "${inheritedKey}" option must be an own property.` })
+  }
+}
+
 function validateCron(cron: string): void {
   if (typeof cron !== "string" || cron.trim() !== cron || cron.length === 0) {
     throw scheduleErrorDiagnostics.SCHEDULE_C0001({ message: "`defineSchedule()` requires a cron string." })
@@ -37,6 +44,11 @@ export function defineSchedule<TResult = unknown>(cronOrInput: string | Schedule
   if (!isPlainObject(input)) {
     throw scheduleErrorDiagnostics.SCHEDULE_C0003({ message: "`defineSchedule()` expects an object with `cron` and `handler`." })
   }
+
+  if (!Object.hasOwn(input, "cron") || !Object.hasOwn(input, "handler")) {
+    throw scheduleErrorDiagnostics.SCHEDULE_C0003({ message: "`defineSchedule()` expects an object with `cron` and `handler`." })
+  }
+  assertOwnDefinitionFields(input, scheduleDefinitionKeys, "`defineSchedule()` does not accept inherited options.", scheduleErrorDiagnostics.SCHEDULE_C0004)
 
   const unknownKey = Object.keys(input).find(key => !scheduleDefinitionKeys.has(key))
   if (unknownKey) {
@@ -74,6 +86,11 @@ export function defineScheduleTarget<TInput = unknown, TResult = unknown>(input:
   if (!isPlainObject(input)) {
     throw scheduleErrorDiagnostics.SCHEDULE_C0007({ message: "`defineScheduleTarget()` expects an object with `handler`." })
   }
+
+  if (!Object.hasOwn(input, "handler")) {
+    throw scheduleErrorDiagnostics.SCHEDULE_C0007({ message: "`defineScheduleTarget()` expects an object with `handler`." })
+  }
+  assertOwnDefinitionFields(input, scheduleTargetDefinitionKeys, "`defineScheduleTarget()` does not accept inherited options.", scheduleErrorDiagnostics.SCHEDULE_C0008)
 
   const unknownKey = Object.keys(input).find(key => !scheduleTargetDefinitionKeys.has(key))
   if (unknownKey) {
