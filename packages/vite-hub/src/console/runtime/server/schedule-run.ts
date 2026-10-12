@@ -1,6 +1,9 @@
+import { hasViteHubDispatch, verifyViteHubDispatch } from "@vite-hub/internal/dispatch"
+import { defineGrant } from "@vite-hub/runtime/internal/grant"
+
 import { getConsoleSchedules } from "./definitions.ts"
 import { withConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
-import { assertConsoleRequest, consoleRequestJSON } from "./request.ts"
+import { assertConsoleRequest, consoleRequestJSON, consoleRequestText } from "./request.ts"
 import { getConsoleSections } from "./sections.ts"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
@@ -73,7 +76,7 @@ function failure(message: string, status: number): Response {
 
 /**
  * `POST /_vitehub/schedules/run` for `vitehub schedule run --url`.
- * The default export checks Console access first. A JSON body and a same-origin check keep browsers from sending cross-site runs.
+ * The default export verifies a dispatch signature when the request has one, and checks Console access otherwise. A JSON body and a same-origin check keep browsers from sending cross-site runs.
  */
 export async function handleConsoleScheduleRunRequest(request: Request): Promise<Response> {
   if (request.method !== "POST") return failure("Method not allowed.", 405)
@@ -96,5 +99,56 @@ export async function handleConsoleScheduleRunRequest(request: Request): Promise
     : failure(outcome.message, outcome.status)
 }
 
-const guardedHandler: (event: H3Event) => Promise<Response> = withConsoleAccess((event: H3Event) => handleConsoleScheduleRunRequest(event.req))
+// Issued only after a dispatch signature matches. Bound to the parsed request body, so the run uses what was signed.
+const scheduleDispatchGrant = defineGrant("vitehub.console.schedule-dispatch", (body: unknown) => body)
+
+/** Runs the Schedule named by a verified dispatch body. The grant works once. */
+async function runDispatchedSchedule(grant: ReturnType<typeof scheduleDispatchGrant.issue>): Promise<ConsoleScheduleRunOutcome> {
+  return await runConsoleSchedule(scheduleDispatchGrant.consume(grant))
+}
+
+function processEnv(): Record<string, unknown> {
+  return globalThis.process?.env ?? {}
+}
+
+/**
+ * A signed `vitehub schedule run --url` request. The signature replaces Console access for this route only, and the
+ * request never falls back to a Console session: a bad signature is always `401`. The actor claim is self-asserted.
+ */
+export async function handleDispatchScheduleRunRequest(request: Request, env: Record<string, unknown> = processEnv()): Promise<Response> {
+  if (request.method !== "POST") return failure("Method not allowed.", 405)
+  if (!request.headers.get("content-type")?.toLowerCase().startsWith("application/json")) return failure("Schedule run requires application/json.", 415)
+  const contentLength = request.headers.get("content-length")
+  if (contentLength && Number.parseInt(contentLength, 10) > maximumBodyBytes) return failure("Schedule run request body is too large.", 413)
+  let text = ""
+  try {
+    if (request.body) text = await consoleRequestText(request.body, maximumBodyBytes)
+  }
+  catch (error) {
+    if (Reflect.get(Object(error), "statusCode") === 413) return failure("Schedule run request body is too large.", 413)
+    return failure("Malformed Schedule run payload.", 400)
+  }
+  const verified = await verifyViteHubDispatch({ body: text, env, headers: request.headers, operation: "schedule.run" })
+  if (!verified.ok) return failure(verified.message, verified.status)
+  let body: unknown
+  try {
+    body = JSON.parse(text)
+  }
+  catch {
+    return failure("Malformed Schedule run payload.", 400)
+  }
+  const grant = scheduleDispatchGrant.issue(body)
+  const name: unknown = body instanceof Object && "name" in body ? body.name : undefined
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Schedule run requests are untrusted JSON.
+  console.info(`[vitehub] Dispatch schedule.run ${typeof name === "string" ? name : "<invalid>"}${verified.actor ? ` by ${verified.actor} (self-asserted)` : ""}`)
+  const outcome = await runDispatchedSchedule(grant)
+  return outcome.ok
+    ? Response.json({ run: outcome.run }, { headers: responseHeaders })
+    : failure(outcome.message, outcome.status)
+}
+
+const consoleGuardedHandler: (event: H3Event) => Promise<Response> = withConsoleAccess((event: H3Event) => handleConsoleScheduleRunRequest(event.req))
+const guardedHandler = (event: H3Event): Promise<Response> => hasViteHubDispatch(event.req.headers)
+  ? handleDispatchScheduleRunRequest(event.req)
+  : consoleGuardedHandler(event)
 export default guardedHandler

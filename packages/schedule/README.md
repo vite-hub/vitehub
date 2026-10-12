@@ -204,7 +204,7 @@ When a custom host installs a wake driver, call and await `controller.close()` d
 
 `hubSchedule()` contributes the `vitehub schedule` CLI namespace: `list`, `get <id>`, `runs <id> [--limit <n>]`, `attempts <runId>`, `run <name>`, `run-runtime <id>`, `enable <id>`, and `disable <id>`. Each command accepts `--json`. The commands call a guarded endpoint that exists only on the Vite Development Server. The endpoint forwards each operation into the Nitro dev environment, so it reads the same stores and registry as the running app. Nuxt and plain Vite do not run Nitro in the Vite process, so the endpoint returns status 501 there.
 
-Set `manual: true` on a Static Schedule Definition to allow an on-demand run, then invoke it with `vitehub schedule run <name>`. The name is the discovered schedule file name. Runtime Schedules use the separate `run-runtime` command.
+Set `manual: true` on a Static Schedule Definition to allow an on-demand run, then invoke it with `vitehub schedule run <name>`. The name is the discovered schedule file name. Add `--url <app-url>` with `VITEHUB_DISPATCH_KEY` (from `vitehub secret derive vitehub:dispatch`) to run it on a deployment with a signed dispatch instead of a Console session. Runtime Schedules use the separate `run-runtime` command.
 
 Discovery reads `manual` and `allowRuntimeSchedules` as literal booleans from directly exported Definitions. Use identifier keys or quoted keys without escape sequences. Spreads, computed keys, escaped keys, and metadata getters or methods fail with the source file and line.
 

@@ -58,33 +58,38 @@ function stringByteLength(value: string): number {
 }
 
 /** Read bounded JSON across Fetch, H3 v1, and already-decoded RPC request bodies. */
+/**
+ * Reads a fetch request body as text and stops at `maximumBytes`, so an oversized body is not read in full.
+ * Throws a `413` Console request error when the body is larger.
+ */
+export async function consoleRequestText(fetchBody: ReadableStream<Uint8Array>, maximumBytes: number = maximumConsoleRequestBodyBytes): Promise<string> {
+  const reader = fetchBody.getReader()
+  const decoder = new TextDecoder()
+  let body = ""
+  let bytes = 0
+  try {
+    while (true) {
+      const chunk = await reader.read()
+      if (chunk.done) break
+      bytes += chunk.value.byteLength
+      if (bytes > maximumBytes) throw consoleRequestError(413, "Console request body exceeds the byte limit.")
+      body += decoder.decode(chunk.value, { stream: true })
+    }
+    return body + decoder.decode()
+  }
+  catch (error) {
+    // Cleanup must not replace a size or read failure with a cancellation failure.
+    await reader.cancel().catch(() => undefined)
+    throw error
+  }
+  finally {
+    reader.releaseLock()
+  }
+}
+
 export async function consoleRequestJSON(event: ConsoleRequestEvent, maximumBytes: number = maximumConsoleRequestBodyBytes): Promise<unknown> {
   const fetchBody = event.req?.body
-  if (fetchBody) {
-    const reader = fetchBody.getReader()
-    const decoder = new TextDecoder()
-    let body = ""
-    let bytes = 0
-    try {
-      while (true) {
-        const chunk = await reader.read()
-        if (chunk.done) break
-        bytes += chunk.value.byteLength
-        if (bytes > maximumBytes) throw consoleRequestError(413, "Console request body exceeds the byte limit.")
-        body += decoder.decode(chunk.value, { stream: true })
-      }
-      body += decoder.decode()
-      return JSON.parse(body)
-    }
-    catch (error) {
-      // Cleanup must not replace a size, read, or JSON failure with a cancellation failure.
-      await reader.cancel().catch(() => undefined)
-      throw error
-    }
-    finally {
-      reader.releaseLock()
-    }
-  }
+  if (fetchBody) return JSON.parse(await consoleRequestText(fetchBody, maximumBytes))
   if (event.req?.json) {
     const body = await event.req.json()
     if (stringByteLength(JSON.stringify(body) ?? "") > maximumBytes) throw consoleRequestError(413, "Console request body exceeds the byte limit.")

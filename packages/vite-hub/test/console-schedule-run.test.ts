@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest"
 
 import { defineSchedule } from "@vite-hub/schedule"
 import { resetScheduleRuntime } from "@vite-hub/schedule/runtime"
+import { resolveViteHubDispatchKey, signViteHubDispatch } from "@vite-hub/internal/dispatch"
 
 import { consoleDefinitionsKey, consoleDefinitionsRegistryKey, consoleDefinitionsRootKey, consoleSchedulesKey, consoleSchedulesRegistryKey, consoleSchedulesRootKey, consoleSectionsKey, consoleSectionsRegistryKey, consoleSectionsRootKey } from "../src/console/internal.ts"
 import { discoverConsoleBuildCatalog } from "../src/console/build.ts"
@@ -14,7 +15,7 @@ import { writeConsoleNitroPlugin } from "../src/console/plugin.ts"
 import { consoleRpcHeader, consoleRpcMethods } from "../src/console/runtime/rpc.ts"
 import definitionsHandlerRoute from "../src/console/runtime/server/definitions.get.ts"
 import { installConsoleDefinitions, installConsoleSchedules } from "../src/console/runtime/server/definitions.ts"
-import { handleConsoleScheduleRunRequest } from "../src/console/runtime/server/schedule-run.ts"
+import scheduleRunRoute, { handleConsoleScheduleRunRequest, handleDispatchScheduleRunRequest } from "../src/console/runtime/server/schedule-run.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 
 import type { ConsoleInvocationScope } from "../src/console/internal.ts"
@@ -200,6 +201,34 @@ describe("Console Schedule runs", () => {
         status: "failed",
       },
     })
+  })
+
+  it("runs a signed dispatch request without a Console session and rejects a replay or a bad signature", async () => {
+    installSchedules()
+    const env = { VITEHUB_SECRET: "dispatch-root-secret-at-least-32-characters" }
+    const body = JSON.stringify({ name: "sync" })
+    const key = await resolveViteHubDispatchKey(env)
+    const headers = { "content-type": "application/json", ...await signViteHubDispatch({ actor: "ci", body, key: key!, operation: "schedule.run" }) }
+    const request = () => new Request("https://app.example/_vitehub/schedules/run", { body, headers, method: "POST" })
+
+    const signed = await handleDispatchScheduleRunRequest(request(), env)
+    const replay = await handleDispatchScheduleRunRequest(request(), env)
+    const otherDeployment = await handleDispatchScheduleRunRequest(request(), { VITEHUB_SECRET: "another-root-secret-at-least-32-characters" })
+
+    expect(signed.status).toBe(200)
+    expect(await signed.json()).toMatchObject({ run: { scheduleId: "sync", status: "succeeded" } })
+    expect([replay.status, otherDeployment.status]).toEqual([401, 401])
+    expect(await replay.json()).toEqual({ message: "Dispatch nonce was already used." })
+  })
+
+  it("never falls back to Console access for a request with a dispatch signature", async () => {
+    installSchedules()
+    const response = await scheduleRunRoute(Object.assign(Object.create(null), {
+      req: runRequest({ name: "sync" }, { "x-vitehub-dispatch-signature": "v1=forged" }),
+    }))
+
+    expect(response.status).toBe(401)
+    expect(await response.json()).toEqual({ message: expect.stringMatching(/Dispatch is not configured|Malformed dispatch signature/) })
   })
 
   it("accepts only same-origin JSON requests on the Console route", async () => {
