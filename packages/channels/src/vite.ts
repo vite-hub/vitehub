@@ -141,7 +141,10 @@ export function hubChannels(options: ChannelsVitePluginOptions = {}): ChannelsVi
       }),
     },
     async config(config) {
-      serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? serverDirs
+      const configuredServerDirs = Object.hasOwn(config, VITEHUB_SERVER_DIRS)
+        ? (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS]
+        : undefined
+      serverDirs = configuredServerDirs ?? serverDirs
       if (hasNitroConfigContext(config)) {
         const root = resolveViteHubProjectRoot(resolve(config.root || process.cwd()), { projectRoot: options.projectRoot })
         const nitroDefinitions = discoverChannelDefinitions({ rootDir: root, serverDirs })
