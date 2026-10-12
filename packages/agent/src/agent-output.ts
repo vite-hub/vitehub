@@ -803,10 +803,23 @@ function hasPropertyGetter(value: unknown, key: PropertyKey): boolean {
 }
 
 function isResponseLike(value: unknown): value is Response {
-  // Invoke the platform getter directly: reading a tag or a caller-owned
-  // property cannot establish the Response's internal brand.
-  const getStatus = Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get
-  if (!getStatus) return false
+  if (!isRuntimeObject(value)) return false
+  // A Response implementation exposes status as a branded prototype getter.
+  // Looking up that getter on the value's own prototype chain supports other
+  // realms while rejecting plain objects that merely copy Response fields.
+  let current: object | null = value
+  let getStatus: (() => number) | undefined
+  while (current) {
+    const descriptor = Object.getOwnPropertyDescriptor(current, "status")
+    if (descriptor) {
+      getStatus = hasRuntimeType(descriptor.get, "function")
+        ? descriptor.get as () => number
+        : undefined
+      break
+    }
+    current = Object.getPrototypeOf(current) as object | null
+  }
+  if (!getStatus || !("body" in value) || !("headers" in value) || !("statusText" in value)) return false
   try {
     Reflect.apply(getStatus, value, [])
     return true

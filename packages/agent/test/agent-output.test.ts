@@ -1129,9 +1129,29 @@ describe("agent output helpers", () => {
   })
 
   it("emits body chunks from a Response created in another realm", async () => {
+    const body = new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("foreign"))
+        controller.close()
+      },
+    })
     const response = runInNewContext(`(() => {
-      return new Response("foreign")
-    })()`, { Response }) as Response
+      const brands = new WeakSet()
+      class ForeignResponse {
+        constructor(body) {
+          brands.add(this)
+          this.body = body
+          this.headers = { get() { return null } }
+          this.statusText = "OK"
+        }
+        get status() {
+          if (!brands.has(this)) throw new TypeError("Illegal invocation")
+          return 200
+        }
+      }
+      return new ForeignResponse(body)
+    })()`, { body }) as Response
+    expect(response).not.toBeInstanceOf(Response)
     const events = []
     for await (const event of streamAgentOutputToEvents(response)) events.push(event)
     expect(events).toEqual([
