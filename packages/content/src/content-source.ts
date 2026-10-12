@@ -56,7 +56,8 @@ function normalizeContentSourcePath(path: unknown = ""): string {
 }
 
 function contentPath(item: ContentSourceItem): string {
-  return normalizeContentSourcePath(item.path || item.key)
+  const path = Object.hasOwn(item, "path") ? item.path : item.key
+  return normalizeContentSourcePath(path)
 }
 
 function textContent(item: ContentSourceItem): string {
