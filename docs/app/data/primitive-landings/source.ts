@@ -2,7 +2,7 @@ import { stubLanding } from "./stub";
 import type { PrimitiveLanding } from "./types";
 
 export const SourceLanding = {
-  ...stubLanding("source", "Source", "/docs/server-primitives/source"),
+  ...stubLanding("source", "Source", "/docs/source"),
   eyebrow: "ViteHub Source",
   description: "Read content from local files, records, or remote providers with one typed access contract.",
   tagline: "Read the project without giving it away.",
