@@ -222,7 +222,7 @@ export function workspaceAutoCommitDisabled(definition: WorkspaceDefinition, com
 function isWorkspaceReference(workspace: WorkspaceAgentWorkspaceConfig): workspace is { mode?: AgentCapabilityMode, name: string } {
   return hasRuntimeType(workspace, "object")
     && workspace !== null
-    && "name" in workspace
+    && Object.hasOwn(workspace, "name")
     && hasRuntimeType(workspace.name, "string")
 }
 
