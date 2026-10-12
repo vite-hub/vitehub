@@ -22,6 +22,60 @@ function isRuntimeFunction(value: unknown): boolean {
   }
 }
 
+function isVercelQueueSDK(value: unknown): value is VercelQueueSDK {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Direct SDK clients cross the untyped provider boundary.
+  if (value === null || typeof value !== "object") return false
+  try {
+    if (Array.isArray(value)) return false
+  }
+  catch {
+    return false
+  }
+
+  const hasCallableMethod = (name: "send" | "handleCallback") => {
+    let owner: object | null = value
+    while (owner && owner !== Object.prototype) {
+      let descriptor: PropertyDescriptor | undefined
+      try {
+        descriptor = Object.getOwnPropertyDescriptor(owner, name)
+      }
+      catch {
+        return false
+      }
+      if (descriptor) {
+        if (owner !== value) {
+          let constructor: PropertyDescriptor | undefined
+          try {
+            constructor = Object.getOwnPropertyDescriptor(owner, "constructor")
+            if (!constructor || !("value" in constructor) || !isRuntimeFunction(constructor.value) || constructor.value.prototype !== owner) {
+              return false
+            }
+          }
+          catch {
+            return false
+          }
+        }
+        if ("value" in descriptor) return isRuntimeFunction(descriptor.value)
+        try {
+          return isRuntimeFunction(Reflect.get(value, name))
+        }
+        catch {
+          return false
+        }
+      }
+      try {
+        owner = Object.getPrototypeOf(owner)
+      }
+      catch {
+        return false
+      }
+    }
+    return false
+  }
+
+  return hasCallableMethod("send") && hasCallableMethod("handleCallback")
+}
+
 function parseVercelMessageId(value: unknown): string | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) invalidVercelSendResponse(value)
 
@@ -97,7 +151,12 @@ export async function createVercelQueueClient(provider: VercelQueueProviderOptio
     })
   }
 
-  const client = provider.client || await loadVercelQueueClient(provider.region)
+  const client = provider.client === undefined ? await loadVercelQueueClient(provider.region) : provider.client
+  if (!isVercelQueueSDK(client)) {
+    throw createQueueError("VERCEL_QUEUE_SDK_INVALID", {
+      details: { provider: "vercel" },
+    })
+  }
   return {
     provider: "vercel",
     native: client,

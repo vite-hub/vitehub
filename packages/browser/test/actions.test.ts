@@ -172,4 +172,23 @@ describe("Browser Run actions", () => {
       vi.useRealTimers()
     }
   })
+
+  it("preserves timeout accumulation for shared nested options", async () => {
+    vi.useFakeTimers()
+    try {
+      runtime.__env__ = { BROWSER: { quickAction: async () => {
+        await new Promise(resolve => setTimeout(resolve, 45_000))
+        return new Response("complete")
+      } } }
+      const shared = { timeout: 20_000 }
+
+      const action = runBrowserContent({ firstOptions: shared, secondOptions: shared, url: "https://example.com" })
+      await vi.advanceTimersByTimeAsync(45_000)
+
+      await expect(action).resolves.toBe("complete")
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
 })

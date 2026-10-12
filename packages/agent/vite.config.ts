@@ -1,10 +1,13 @@
 import { defineConfig } from "vite-plus";
+import { fileURLToPath } from "node:url";
+import { agentBuildRevision } from "./src/internal/build-revision.ts";
 
 // These entries resolve only through the "#vitehub/agent/provider-agent" package import, so they are not public exports.
 const privateEntryExports = new Set(["./provider-agent", "./runtime/provider-agent-worker"]);
 
 export default defineConfig({
   pack: {
+    define: { __VITEHUB_AGENT_BUILD_REVISION__: JSON.stringify(agentBuildRevision(fileURLToPath(new URL(".", import.meta.url)))) },
     tsconfig: "tsconfig.build.json",
     deps: {
       alwaysBundle: [/^@vite-hub\/internal/],
@@ -63,9 +66,11 @@ export default defineConfig({
       "src/runtime/workflow.ts",
       "src/server.ts",
       "src/presets/babysitter.ts",
+      "src/presets/babysitter/server.ts",
       "src/server/github.ts",
       "src/server/github-inbox.ts",
       "src/server/internal.ts",
+      "src/server/registry.ts",
       "src/server/workspace.ts",
       "src/test.ts",
       "src/vue.ts",

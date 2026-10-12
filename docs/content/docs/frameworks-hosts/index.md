@@ -25,7 +25,7 @@ Both integrations use Nitro to build the server output.
 packages register Nitro handlers.
 
 To move a Nuxt application from NuxtHub, read
-[Migrate from NuxtHub](/docs/frameworks-hosts/migrate-from-nuxthub).
+[Migrate from NuxtHub](/docs/getting-started/migrate-from-nuxthub).
 
 ## Choose a preset
 

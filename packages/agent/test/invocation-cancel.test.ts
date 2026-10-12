@@ -1250,6 +1250,7 @@ describe("Agent Invocation cancel", () => {
     const requested = deferred()
     const requestRelease = deferred()
     const driverRelease = deferred<string>()
+    const driverEntered = deferred()
     const store = {
       ...backing,
       async update(...args: Parameters<typeof backing.update>) {
@@ -1262,7 +1263,8 @@ describe("Agent Invocation cancel", () => {
       },
     }
     const invocations = defineAgentInvocations({ store })
-    const run = runAgent(defineAgent({ invocations, driver: { run: () => driverRelease.promise } }), runtime("terminal-race"), {})
+    const run = runAgent(defineAgent({ invocations, driver: { run: () => { driverEntered.resolve(); return driverRelease.promise } } }), runtime("terminal-race"), {})
+    await driverEntered.promise
     const { id } = await recordWithStatus(invocations, "terminal-race", "running")
     const cancel = invocations.cancel(id)
     await requested.promise
