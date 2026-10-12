@@ -2,7 +2,7 @@ import { resolveAgentInstructions } from "./agent-instructions.ts"
 import { asUnknownBoundary, hasRuntimeType } from "./internal/runtime-type.ts"
 import { formatRuntimeDiagnosticError } from "@vite-hub/runtime"
 import { readAgentErrorProperty } from "./agent-error.ts"
-import { getMessageText, isAttachmentData, isAttachmentPart, resolveAttachmentData } from "./messages.ts"
+import { blobSize, blobType, getMessageText, isAttachmentData, isAttachmentPart, isBlob, resolveAttachmentData } from "./messages.ts"
 import {
   cloneWithPropertyDescriptors,
   isAsyncIterable,
@@ -114,20 +114,6 @@ function isDataMessagePart(part: MessagePart): part is Extract<MessagePart, { ty
 }
 
 type UserContentPart = Exclude<UserContent, string>[number]
-
-function isBlob(value: unknown): value is Blob {
-  const BlobConstructor = globalThis.Blob
-  if (!hasRuntimeType(BlobConstructor, "function") || !value || !hasRuntimeType(value, "object")) return false
-  try {
-    const prototype = BlobConstructor.prototype
-    const size = Object.getOwnPropertyDescriptor(prototype, "size")?.get?.call(value)
-    const type = Object.getOwnPropertyDescriptor(prototype, "type")?.get?.call(value)
-    return hasRuntimeType(size, "number") && hasRuntimeType(type, "string")
-  }
-  catch {
-    return false
-  }
-}
 
 function attachmentModelData(part: AttachmentPart): Exclude<AttachmentData, Blob> | URL | undefined {
   if (part.data && !isBlob(part.data)) return part.data
@@ -360,14 +346,14 @@ function aiSdkAttachmentMaxBytes(options: AiSdkAttachmentOptions | undefined): n
 }
 
 function attachmentDataByteLength(data: AttachmentData | undefined): number | undefined {
-  if (isBlob(data)) return data.size
+  if (isBlob(data)) return blobSize(data)
   if (data instanceof ArrayBuffer) return data.byteLength
   if (ArrayBuffer.isView(data)) return data.byteLength
   if (hasRuntimeType(data, "string")) return new TextEncoder().encode(data).byteLength
 }
 
 function resolvedImageMediaType(data: AttachmentData): string | undefined {
-  if (isBlob(data) && data.type.startsWith("image/")) return data.type
+  if (isBlob(data) && blobType(data).startsWith("image/")) return blobType(data)
   if (hasRuntimeType(data, "string")) {
     const dataUrlMediaType = /^data:(image\/[^;,]+)[;,]/i.exec(data)?.[1]?.toLowerCase()
     if (dataUrlMediaType) return dataUrlMediaType

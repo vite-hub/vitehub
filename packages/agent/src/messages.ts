@@ -42,6 +42,29 @@ export interface AgentChatData {
 export type AttachmentData = ArrayBuffer | Blob | string | Uint8Array
 export type AudioData = AttachmentData
 
+/** Recognizes Blob values even when they originate from another JavaScript realm. */
+export function isBlob(value: unknown): value is Blob {
+  const BlobConstructor = globalThis.Blob
+  if (!hasRuntimeType(BlobConstructor, "function") || !value || !hasRuntimeType(value, "object")) return false
+  try {
+    const prototype = BlobConstructor.prototype
+    const size = Object.getOwnPropertyDescriptor(prototype, "size")?.get?.call(value)
+    const type = Object.getOwnPropertyDescriptor(prototype, "type")?.get?.call(value)
+    return hasRuntimeType(size, "number") && hasRuntimeType(type, "string")
+  }
+  catch {
+    return false
+  }
+}
+
+export function blobSize(value: Blob): number {
+  return Object.getOwnPropertyDescriptor(globalThis.Blob.prototype, "size")!.get!.call(value) as number
+}
+
+export function blobType(value: Blob): string {
+  return Object.getOwnPropertyDescriptor(globalThis.Blob.prototype, "type")!.get!.call(value) as string
+}
+
 export interface AttachmentPart {
   data?: AttachmentData
   fetchData?: () => Promise<AttachmentData> | AttachmentData
@@ -144,8 +167,8 @@ export function isAttachmentData(value: unknown): value is AttachmentData {
     ? value.length > 0
     : value instanceof ArrayBuffer
       ? value.byteLength > 0
-      : value instanceof Blob
-        ? value.size > 0
+      : isBlob(value)
+        ? blobSize(value) > 0
         : value instanceof Uint8Array && value.byteLength > 0
 }
 
