@@ -792,4 +792,26 @@ describe("defineContentHandler", () => {
     await handler({ method: "POST", node: { req: nodeRequest }, req: nodeRequest } as never)
     expect(received).toEqual(Uint8Array.of(1, 2, 3))
   })
+
+  it.each([
+    { name: "a forged ArrayBuffer", value: { [Symbol.toStringTag]: "ArrayBuffer" } },
+    { name: "an invalid chunk", value: { bytes: [1, 2, 3] } },
+  ])("rejects $name with CONTENT_R0005", async ({ value }) => {
+    const handler = defineContentHandler({ handler: async () => new Response("ok") })
+    const nodeRequest = {
+      aborted: false,
+      headers: {},
+      method: "POST",
+      url: "/body",
+      [Symbol.asyncIterator]() {
+        return (async function* () {
+          yield value as unknown as Uint8Array
+        })()
+      },
+      once() {},
+    }
+
+    await expect(handler({ method: "POST", node: { req: nodeRequest }, req: nodeRequest } as never))
+      .rejects.toThrow("CONTENT_R0005")
+  })
 })

@@ -39,8 +39,19 @@ type NodeContentRequest = {
 }
 
 function nodeBodyChunk(value: unknown): Uint8Array | undefined {
-  if (ArrayBuffer.isView(value)) return new Uint8Array(value.buffer, value.byteOffset, value.byteLength)
-  if (Object.prototype.toString.call(value) === "[object ArrayBuffer]") return new Uint8Array(value as ArrayBuffer)
+  try {
+    if (ArrayBuffer.isView(value)) {
+      const view = value as ArrayBufferView
+      return new Uint8Array(view.buffer, view.byteOffset, view.byteLength)
+    }
+    // Calling the intrinsic getter performs the ArrayBuffer brand check and
+    // works for genuine buffers created in another realm.
+    Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")!.get!.call(value)
+    return new Uint8Array(value as ArrayBuffer)
+  }
+  catch {
+    return undefined
+  }
 }
 
 type PluginMethods<TPlugin> = TPlugin extends ContentPlugin<infer TMethods, any> ? TMethods : unknown
