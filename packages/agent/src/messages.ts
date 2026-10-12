@@ -408,7 +408,20 @@ function isDateValue(value: unknown): value is Date {
 }
 
 function isDateProxy(value: unknown): boolean {
-  return value instanceof Date && !isDateValue(value)
+  if (!value || !hasRuntimeType(value, "object") || isDateValue(value)) return false
+  if (value instanceof Date) return true
+  try {
+    const prototype = Object.getPrototypeOf(value)
+    if (!prototype) return false
+    const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+    const getTime = Object.getOwnPropertyDescriptor(prototype, "getTime")?.value
+    const toISOString = Object.getOwnPropertyDescriptor(prototype, "toISOString")?.value
+    return hasRuntimeType(constructor, "function") && constructor.name === "Date"
+      && hasRuntimeType(getTime, "function") && hasRuntimeType(toISOString, "function")
+  }
+  catch {
+    return false
+  }
 }
 
 function normalizeCreatedAt(value: Date | string | undefined): string | undefined {

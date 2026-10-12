@@ -23,4 +23,14 @@ describe("Agent message date boundaries", () => {
     const createdAt = new Proxy(new Date("2026-01-02T03:04:05.000Z"), {})
     expect(() => validateMessage({ createdAt: createdAt as unknown as string, id: "message-1", parts: [{ text: "hello", type: "text" }], role: "user" })).toThrow()
   })
+
+  it("rejects a cross-realm Date proxy when creating a message", () => {
+    const createdAt = runInNewContext("new Proxy(new Date('2026-01-02T03:04:05.000Z'), {})") as Date
+    expect(() => createMessage({ createdAt, role: "user", text: "hello" })).toThrow()
+  })
+
+  it("rejects a cross-realm Date proxy in an already assembled message", () => {
+    const createdAt = runInNewContext("new Proxy(new Date('2026-01-02T03:04:05.000Z'), {})") as Date
+    expect(() => validateMessage({ createdAt: createdAt as unknown as string, id: "message-1", parts: [{ text: "hello", type: "text" }], role: "user" })).toThrow()
+  })
 })
