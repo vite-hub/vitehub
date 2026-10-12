@@ -7,5 +7,11 @@ export default defineConfig({
       "@vite-hub/agent/env-identity": fileURLToPath(new URL("../agent/src/env-identity.ts", import.meta.url)),
       "@vite-hub/env": fileURLToPath(new URL("../env/src", import.meta.url)),
   } },
-  test: { include: ["test/**/*.test.ts"] },
+  test: {
+    include: ["test/**/*.test.ts"],
+    typecheck: {
+      enabled: true,
+      include: ["test/**/*.test-d.ts"],
+    },
+  },
 })

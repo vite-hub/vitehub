@@ -56,10 +56,14 @@ describe("vitehub channels replay", () => {
   it("parses options, typed query flags, and filters", () => {
     const parsed = parseChannelReplayArgs([
       "--agent", "labeller", "--channel=mailbox", "--dry-run", "--force", "--limit", "25",
-      "--cursor", "abc", "--folder", "inbox", "--label=work", "--filter", "label=home",
+      "--cursor", "abc", "--folder", "inbox", "--label=round-one", "--query", "label=work", "--filter", "label=home",
     ])
-    expect(parsed).toMatchObject({ agent: "labeller", channel: "mailbox", cursor: "abc", dryRun: true, force: true, limit: 25 })
+    expect(parsed).toMatchObject({ agent: "labeller", channel: "mailbox", cursor: "abc", dryRun: true, force: true, limit: 25, label: "round-one" })
     expect(channelReplayQuery(parsed, querySchema)).toEqual({ folder: "inbox", label: ["work", "home"] })
+  })
+
+  it.each(["", "  ", "x".repeat(513)])("rejects an invalid replay label %j", label => {
+    expect(() => parseChannelReplayArgs(["--label", label])).toThrow(/label.*non-empty|--label requires/)
   })
 
   it("rejects malformed options and query keys outside the schema", () => {
@@ -77,7 +81,7 @@ describe("vitehub channels replay", () => {
     const { fetcher } = replayFetch([])
     await expect(runAgentChannelReplayCli(["--agent", "labeller", "--channel", "mailbox", "--help"], { env: {}, rootDir, stderr: output(), stdout }, { fetch: fetcher as typeof fetch })).resolves.toBe(0)
     expect(stdout.chunks.join("")).toContain("  --folder <archive|inbox>  required")
-    expect(stdout.chunks.join("")).toContain("  --label <array>  repeatable")
+    expect(stdout.chunks.join("")).toContain("  --query label=<array>  repeatable")
     expect(channelReplayQueryHelp(undefined)).toEqual(["  This history query has no JSON Schema. Use --filter key=value."])
   })
 

@@ -594,17 +594,20 @@ async function runCapabilityCliWithTimeout(
   }
 }
 
-async function resolveDevRuntimeCapabilities(
+export async function resolveDevRuntimeCapabilities(
   server: ViteDevServer,
   definitions: AgentDevRuntimeCapability[],
   options: Pick<AgentDevRuntimeOptions, "schedule" | "scheduleRuntimeImport">,
 ): Promise<Record<string, unknown>> {
   const capabilities: Record<string, unknown> = {}
-  for (const definition of definitions) {
-    capabilities[definition.name] = definition.packageName === false
+  // Generated capability modules are independent package imports. Resolve them together so one slow module does not block the others.
+  const resolved = await Promise.all(definitions.map(async definition => ({
+    name: definition.name,
+    value: definition.packageName === false
       ? false
-      : (await server.ssrLoadModule(definition.packageName))[definition.importName]
-  }
+      : (await server.ssrLoadModule(definition.packageName))[definition.importName],
+  })))
+  for (const { name, value } of resolved) capabilities[name] = value
   if (options.schedule) {
     const [registry, runtime] = await Promise.all([
       server.ssrLoadModule("#vitehub/schedule/registry"),
