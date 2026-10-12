@@ -27,9 +27,15 @@ import type {
   ResolvedDBViteConfig,
   ResolvedDrizzleDatabaseConfig,
 } from "./types.ts"
+
 import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
 
 export { resolveConfigValue } from "./config-value.ts"
+
+/** Serialize generated registries without invoking the legacy __proto__ setter. */
+export function serializeGeneratedRegistry(value: unknown): string {
+  return JSON.stringify(value).replace(/"__proto__":/g, '["__proto__"]:')
+}
 
 const configFilePattern = /^config\.(?:c|m)?[jt]s$/i
 const viteDatabaseSuffixPattern = /\.database\.(?:c|m)?[jt]s$/i

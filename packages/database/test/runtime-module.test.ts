@@ -16,6 +16,12 @@ it("keeps prototype-named databases addressable in hosted modules", async () => 
     const output = join(root, ".vitehub/database")
     await writeHostedDatabaseRuntimeModules(output, config)
 
+    const defaultsCode = await readFile(join(output, "definition-defaults.mjs"), "utf8")
+    const defaults = new Function(`${defaultsCode.replace(/^export default /, "return ")}\n`)() as {
+      cloudflareProjections: Record<string, unknown>
+    }
+    expect(Object.hasOwn(defaults.cloudflareProjections, "__proto__")).toBe(true)
+
     for (const provider of ["cloudflare", "vercel"]) {
       const code = await readFile(join(output, `${provider}-runtime.mjs`), "utf8")
       const evaluable = code.replace(/^import .+$/gm, "").replace(/^export /gm, "") + "\nreturn { databases, useDatabase }"
