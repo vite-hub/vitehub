@@ -318,11 +318,19 @@ async function readStream(stream: ReadableStream<Uint8Array>, signal: AbortSigna
   try {
     while (true) {
       signal?.throwIfAborted();
-      const { done, value } = await (aborted ? Promise.race([reader.read(), aborted]) : reader.read());
+      const read = reader.read().then(
+        value => ({ ok: true as const, value }),
+        error => ({ ok: false as const, error }),
+      );
+      const result = await (aborted ? Promise.race([read, aborted]) : read);
+      if (!result.ok) {
+        if (signal?.aborted && aborted) await aborted;
+        throw result.error;
+      }
       if (signal?.aborted && aborted) await aborted;
-      if (done) break;
-      chunks.push(value);
-      size += value.byteLength;
+      if (result.value.done) break;
+      chunks.push(result.value.value);
+      size += result.value.value.byteLength;
     }
   } finally {
     if (abort) signal?.removeEventListener("abort", abort);
