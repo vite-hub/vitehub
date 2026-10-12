@@ -113,7 +113,12 @@ async function workspaceDevTokenRoot(rootDir: string, options: WorkspaceDevToken
 }
 
 function headerValue(headers: Headers | Record<string, string | string[] | undefined>, name: string): string | undefined {
-  if (headers instanceof Headers) return headers.get(name) || undefined
+  if (typeof headers === "object" && headers !== null && typeof (headers as { get?: unknown }).get === "function") {
+    try {
+      return (headers as Headers).get(name) || undefined
+    }
+    catch {}
+  }
   if (!Object.hasOwn(headers, name)) return undefined
   const value = headers[name]
   return Array.isArray(value) ? value[0] : value

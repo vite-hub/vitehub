@@ -5,16 +5,16 @@ describe("sitemap", () => {
   it("emits unique paths in the canonical form", () => {
     const urls = sitemapUrls([
       { path: "/" },
-      { path: "/blog/" },
-      { path: "/blog/agents" },
-      { path: "/blog/agents/" },
+      { path: "/guides/" },
+      { path: "/docs/agents" },
+      { path: "/docs/agents/" },
       { path: "/docs/agents/.navigation" },
     ]);
 
     expect(urls).toEqual([
       { loc: "/" },
-      { loc: "/blog" },
-      { loc: "/blog/agents" },
+      { loc: "/docs/agents" },
+      { loc: "/guides" },
     ]);
   });
 
