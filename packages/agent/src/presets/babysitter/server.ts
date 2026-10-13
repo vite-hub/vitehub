@@ -1423,13 +1423,15 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                   { schedule: { ...schedule, runId }, output: "drained" },
                 );
               }, abortSignal);
-              const validated = passResultSchema["~standard"].validate(result);
-              if ("issues" in validated)
-                throw new Error("Babysitter returned an invalid pass result.");
-              passResult = validated.value;
+              // The structured worker driver validates its output with
+              // passResultSchema before runAgent returns. Revalidating here
+              // would invoke the diagnostic reporter a second time.
+              // SAFETY: The configured worker output schema guarantees this
+              // shape before runAgent resolves.
+              passResult = result as BabysitterPassResult;
               if (passResult?.reviewedHead && passResult.reviewedHead !== pullRequest.headRefOid) schedulerEvent("babysitter.result.stale_assessment", { ...owner, reviewed_head: passResult.reviewedHead, head_sha: pullRequest.headRefOid });
-              disposition = validated.value.disposition;
-              resultText = validated.value.text;
+              disposition = passResult.disposition;
+              resultText = passResult.text;
             },
             { signal: passSignal, timeout: 60 * 60 * 1000 },
           );
