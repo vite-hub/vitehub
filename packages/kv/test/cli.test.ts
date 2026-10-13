@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events"
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Readable, Writable } from "node:stream"
@@ -527,6 +527,23 @@ describe("hubKv dev handler", () => {
       const handler = join(root, ".vitehub/nitro/kv/dev-handler.ts")
       expect(serve.nitro).toEqual({ baseURL: "/app/", handlers: [{ handler, route: kvDevRuntimeRoute }], plugins: [] })
       expect(await readFile(handler, "utf8")).toContain("import { handleKVDevRequest as handleViteHubDevRequest } from \"vite-hub/_internal/kv/runtime/dev\"")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("writes the Nitro dev handler at the project root when Vite runs from app/", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-kv-project-root-"))
+    try {
+      const appRoot = join(root, "app")
+      await mkdir(appRoot)
+      await writeFile(join(root, "package.json"), "{}")
+      const serve: Record<string, unknown> = { nitro: { handlers: [] }, root: appRoot }
+      await configHook()(serve, { command: "serve", mode: "development" })
+      const handler = join(root, ".vitehub/nitro/kv/dev-handler.ts")
+      expect(serve.nitro).toEqual({ handlers: [{ handler, route: kvDevRuntimeRoute }], plugins: [] })
+      await expect(readFile(handler, "utf8")).resolves.toContain("handleKVDevRequest")
     }
     finally {
       await rm(root, { force: true, recursive: true })

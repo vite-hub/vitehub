@@ -48,6 +48,12 @@ Use the operational code to choose application behavior. Use a Nostics code to l
 
 ## Agent diagnostics
 
+<a id="runtime-preflight"></a>
+
+### Runtime preflight diagnostics
+
+Runtime preflight checks report missing or unverified capabilities with `RUNTIME_R0012` and `RUNTIME_R0013`. Inspect the check identifier, kind, state, and reason, then provide the capability or adjust the check when it is optional. Invalid preflight options use `RUNTIME_R0014` and must be corrected before checks start.
+
 Agent configuration, build, and runtime defects use the `AGENT_C####`, `AGENT_B####`, and `AGENT_R####` families. Application tools can use their own Nostics catalog:
 
 ```ts
@@ -93,6 +99,10 @@ Replace native `TypeError` and `RangeError` checks for ViteHub-owned defects wit
 | `AGENT_CAPABILITY_DUPLICATE` | `AGENT_C0009` |
 | `AGENT_CAPABILITY_DYNAMIC_UNSUPPORTED` | `AGENT_C0010` |
 | `AGENT_TOOL_POLICY_RETRYABLE` | `AGENT_R0003` |
+
+Code Host uses `AGENT_C0011` for invalid options. Diagnostics `AGENT_R0941` through `AGENT_R0945` cover credentials, repository access, context, requests and tool input. See [Code Host diagnostics](/docs/agents/capabilities/code-host#diagnostics).
+
+The `gitlab()` and `forgejo()` Channels use `AGENT_R0946` for a missing webhook secret, failed host requests, and activity errors. See [Code Host Channels](/docs/agents/code-host-channels#limits).
 
 ## Agent public errors
 
