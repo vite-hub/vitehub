@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url"
 import { afterEach, describe, expect, it } from "vitest"
 import { createServer, mergeConfig, resolveConfig } from "vite"
 
-import { AUTH_DEFINITION_ID, AUTH_SERVER_ID, createAuthNitroConfig, hubAuth } from "../src/vite.ts"
+import { AUTH_DEFINITION_ID, AUTH_SERVER_ID, createAuthNitroConfig, hubAuth, shouldPassThroughAuthResponse } from "../src/vite.ts"
 
 const tempDirs: string[] = []
 const workspaceRoot = fileURLToPath(new URL("../../..", import.meta.url))
@@ -446,4 +446,16 @@ describe("hubAuth", () => {
 
     expect(invalidated).toEqual([`\0${AUTH_DEFINITION_ID}`])
   })
+})
+
+it("recognizes every path when Auth uses the root base path", async () => {
+  const { isAuthRequestPath } = await import("../src/shared.ts")
+  expect(isAuthRequestPath("/sign-in", "/")).toBe(true)
+  expect(isAuthRequestPath("/api/auth", "/")).toBe(true)
+})
+
+it("only passes Better Auth 404 responses through for the root base path", () => {
+  expect(shouldPassThroughAuthResponse("/", 404)).toBe(true)
+  expect(shouldPassThroughAuthResponse("/auth", 404)).toBe(false)
+  expect(shouldPassThroughAuthResponse("/", 200)).toBe(false)
 })
