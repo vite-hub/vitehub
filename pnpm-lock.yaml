@@ -955,6 +955,9 @@ importers:
       typescript:
         specifier: catalog:tooling
         version: 6.0.3
+      undici:
+        specifier: ^7.30.0
+        version: 7.30.0
       vite-plus:
         specifier: catalog:tooling
         version: 0.3.3(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(esbuild@0.28.2)(happy-dom@20.14.5)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1)

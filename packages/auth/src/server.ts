@@ -287,24 +287,34 @@ async function runAccessAuthorize(
 function isResponseLike(value: unknown): value is Response {
   if (value === null || typeof value !== "object") return false
   try {
-    const status = Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get?.call(value)
-    const statusText = Object.getOwnPropertyDescriptor(Response.prototype, "statusText")?.get?.call(value)
-    const headers = Object.getOwnPropertyDescriptor(Response.prototype, "headers")?.get?.call(value) as {
+    if (Object.prototype.toString.call(value) !== "[object Response]") return false
+    const status = readResponseProperty(value, "status")
+    const statusText = readResponseProperty(value, "statusText")
+    const headers = readResponseProperty(value, "headers") as {
       get?: unknown
-      getSetCookie?: unknown
       forEach?: unknown
     } | undefined
-    const body = Object.getOwnPropertyDescriptor(Response.prototype, "body")?.get?.call(value) as {
+    const body = readResponseProperty(value, "body") as {
       getReader?: unknown
     } | null | undefined
     if (typeof status !== "number" || !Number.isInteger(status) || status < 0 || status > 599) return false
     if (typeof statusText !== "string") return false
     if (headers === null || typeof headers !== "object") return false
-    if (typeof headers.get !== "function" || typeof headers.getSetCookie !== "function" || typeof headers.forEach !== "function") return false
+    if (typeof headers.get !== "function" || typeof headers.forEach !== "function") return false
     return body === null || (typeof body === "object" && typeof body.getReader === "function")
   }
   catch {
     return false
+  }
+}
+
+function readResponseProperty(value: object, key: string): unknown {
+  // Use the owning runtime's getters so its Response brand checks apply.
+  let prototype = Object.getPrototypeOf(value) as object | null
+  while (prototype) {
+    const descriptor = Object.getOwnPropertyDescriptor(prototype, key)
+    if (descriptor) return descriptor.get?.call(value)
+    prototype = Object.getPrototypeOf(prototype) as object | null
   }
 }
 

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { runInNewContext } from "node:vm"
+import { Response as ForeignResponse } from "undici"
 
 import { defineAuth } from "../src/index.ts"
 import { createAuthAccessHandler } from "../src/server.ts"
@@ -104,13 +104,33 @@ describe("Auth access handlers", () => {
     await expect(handler(new Request("https://app.example/"))).resolves.toBe(response)
   })
 
-  it("returns authorization responses from another realm unchanged", async () => {
-    const foreignResponse = runInNewContext(`new Response("Policy rejected", { status: 409 })`, { Response })
+  it("returns authorization responses from another runtime unchanged", async () => {
+    const foreignResponse = new ForeignResponse("Policy rejected", { status: 409 })
+    expect(foreignResponse).not.toBeInstanceOf(Response)
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
       access: { routes: [{ route: "/**", authorize: () => foreignResponse as never }] },
     }))
 
     await expect(handler(new Request("https://app.example/"))).resolves.toBe(foreignResponse)
+  })
+
+  it.each([["local", Response], ["foreign", ForeignResponse]] as const)("preserves authorization responses without getSetCookie from the %s runtime", async (_runtime, ResponseConstructor) => {
+    const response = new ResponseConstructor("Policy rejected", { status: 409 })
+    Object.defineProperty(response.headers, "getSetCookie", { value: undefined })
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => response as never }] },
+    }))
+
+    await expect(handler(new Request("https://app.example/"))).resolves.toBe(response)
+  })
+
+  it.each([["local", Response], ["foreign", ForeignResponse]] as const)("rejects unbranded objects with a Response prototype from the %s runtime", async (_runtime, ResponseConstructor) => {
+    const spoof = Object.create(ResponseConstructor.prototype) as never
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => spoof }] },
+    }))
+
+    await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
   })
 
   it("rejects response-shaped authorization spoofs", async () => {
