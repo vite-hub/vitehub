@@ -64,7 +64,7 @@ describe("Source Collections through the Nitro Vite plugin", () => {
       expect(resolved.define?.__VITEHUB_APP_BASE_URL__).toBe(JSON.stringify("/portal/"));
       expect(resolved.environments.client?.define?.__VITEHUB_APP_BASE_URL__).toBe(JSON.stringify("/portal/"));
     } finally {
-      await rm(root, { force: true, recursive: true });
+      await rm(root, { force: true, recursive: true, maxRetries: 3 });
     }
   });
 
@@ -148,7 +148,7 @@ describe("Source Collections through the Nitro Vite plugin", () => {
         expect(response.headers.get("content-type")).toContain("application/json");
         await expect(response.json()).resolves.toMatchObject({ items: [{ id: "a", title: "A" }] });
       } finally {
-        await rm(root, { force: true, recursive: true });
+        await rm(root, { force: true, recursive: true, maxRetries: 3 });
       }
     },
     120_000,
