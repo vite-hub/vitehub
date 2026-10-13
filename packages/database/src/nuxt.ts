@@ -262,7 +262,7 @@ async function installNitroLocalDatabaseRuntime(
   const imports = runtime.definitions.map((definition, index) =>
     `import definition_${index} from ${JSON.stringify(pathToFileURL(definition.handler).href)}`)
   const entries = runtime.definitions.map((definition, index) => [
-    `  ${JSON.stringify(definition.name)}: {`,
+    `  [${JSON.stringify(definition.name)}]: {`,
     `    db: createDefinitionRuntime(definition_${index}, definitionDefaults),`,
     `    schema: definition_${index}.schema,`,
     "  },",
