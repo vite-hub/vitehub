@@ -7471,7 +7471,7 @@ describe("server helpers", () => {
       await expect(handler(
         new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
           body: JSON.stringify({
-            update_id: 43,
+            update_id: 222044,
             message: {
               chat: { id: 456, type: "private" },
               date: 1781092800,
@@ -7483,7 +7483,7 @@ describe("server helpers", () => {
                 mime_type: "text/markdown",
               },
               from: { first_name: "Maxi", id: 123, username: "maxi" },
-              message_id: 1011,
+              message_id: 2221012,
             },
           }),
           method: "POST",
