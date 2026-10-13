@@ -207,12 +207,21 @@ function isTextResponseMediaType(mediaType: string): boolean {
   return mediaType.toLowerCase().startsWith("text/") || /^(?:application\/(?:[^;]+\+)?(?:json|xml|yaml|javascript)|image\/svg\+xml)(?:;|$)/i.test(mediaType)
 }
 
+function isDateValue(value: unknown): value is Date {
+  try {
+    Date.prototype.getTime.call(value)
+    return true
+  } catch {
+    return false
+  }
+}
+
 function portableWorkflowValue(value: unknown, seen = new WeakMap<object, unknown>()): unknown {
   if (value === null || isRuntimeString(value) || isRuntimeBoolean(value)) return value
   if (isRuntimeNumber(value)) return Number.isFinite(value) && !Object.is(value, -0) ? value : unportableWorkflowValue
   if (!value || !isRuntimeObject(value)) return unportableWorkflowValue
   if (value instanceof Map || value instanceof Set || value instanceof ArrayBuffer || ArrayBuffer.isView(value)) return unportableWorkflowValue
-  if (value instanceof Date) return unportableWorkflowValue
+  if (value instanceof Date || isDateValue(value)) return unportableWorkflowValue
   if (seen.has(value)) return unportableWorkflowValue
   if (Array.isArray(value)) {
     const projected: unknown[] = []
