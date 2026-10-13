@@ -126,6 +126,18 @@ export function getDocsSidebarGroups(section: DocsSection): DocsSidebarGroup[] {
     return entries.map(({ label, pages }) => ({ label: pages.length > 1 ? label : null, pages }));
   }
 
+  return entries
+    .sort((left, right) => {
+      const leftOrder = primitiveSidebarGroupOrder.indexOf(left.label);
+      const rightOrder = primitiveSidebarGroupOrder.indexOf(right.label);
+      const normalizedLeft = leftOrder === -1 ? primitiveSidebarGroupOrder.length : leftOrder;
+      const normalizedRight = rightOrder === -1 ? primitiveSidebarGroupOrder.length : rightOrder;
+      return normalizedLeft - normalizedRight
+        || left.index - right.index;
+    })
+    .map(({ label, pages }) => ({ label: pages.length > 1 ? label : null, pages }));
+}
+
 /** Sections listed under Related in a section's sidebar, in the order `.navigation.yml` declares them. */
 export function getDocsRelatedSections(sections: DocsSection[], section: DocsSection) {
   return section.related
