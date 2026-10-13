@@ -57,7 +57,7 @@ export function toBrowserError(error: unknown): ViteHubError<`BROWSER_${string}`
       // Fall through to the safe string conversion below.
     }
   }
-  else if (error !== null && typeof error === "object") {
+  else {
     let isError = false
     try {
       isError = Object.prototype.toString.call(error) === "[object Error]"
@@ -67,7 +67,9 @@ export function toBrowserError(error: unknown): ViteHubError<`BROWSER_${string}`
     }
     if (isError) {
       try {
-        message = String((error as { message?: unknown }).message)
+        // SAFETY: The Error tag permits probing an optional message as unknown; the catch guards hostile access.
+        const value = (error as { message?: unknown }).message
+        if (value != null) message = String(value)
       }
       catch {
         // Fall through to the safe string conversion below.

@@ -30,4 +30,14 @@ describe("toBrowserError", () => {
     expect(() => toBrowserError(error)).not.toThrow()
     expect(toBrowserError(error).code).toBe("BROWSER_RUNTIME_ERROR")
   })
+
+  it.each([undefined, null])("falls back when an Error-like message is %s", (message) => {
+    const error = {
+      [Symbol.toStringTag]: "Error",
+      message,
+      toString: () => "provider failed",
+    }
+
+    expect(toBrowserError(error).message).toBe("provider failed")
+  })
 })
