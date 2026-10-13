@@ -224,7 +224,7 @@ it("sanitizes access-store failures in SDK authorization and history", async () 
   }
 });
 
- it("sanitizes malformed grants returned by a custom access store", async () => {
+it("sanitizes malformed grants returned by a custom access store", async () => {
   const { store } = setup();
   const bridge = createEnvBridge({
     ...store,
@@ -239,7 +239,7 @@ it("sanitizes access-store failures in SDK authorization and history", async () 
   });
 });
 
- it("rejects malformed grant permissions through the public bridge error", async () => {
+it("rejects malformed grant permissions through the public bridge error", async () => {
   const { bridge } = setup();
   await expect(
     bridge.grant(admin, {
