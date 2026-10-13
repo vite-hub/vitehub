@@ -105,6 +105,18 @@ describe("Auth access handlers", () => {
     await expect(handler(new Request("https://app.example/"))).resolves.toBe(response)
   })
 
+  it("returns same-realm Response subclasses with custom tags unchanged", async () => {
+    class TaggedResponse extends Response {
+      get [Symbol.toStringTag]() { return "CustomResponse" }
+    }
+    const response = new TaggedResponse("Policy rejected", { status: 409 })
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => response }] },
+    }))
+
+    await expect(handler(new Request("https://app.example/"))).resolves.toBe(response)
+  })
+
   it("returns authorization responses from another realm unchanged", async () => {
     const foreignResponse = new ForeignResponse("Policy rejected", { status: 409 })
     expect(ForeignResponse).not.toBe(Response)

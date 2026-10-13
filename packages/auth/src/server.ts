@@ -288,6 +288,7 @@ function isResponseLike(value: unknown): value is Response {
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- A cross-realm Response needs structural checks before accessing its runtime getters.
   if (value === null || typeof value !== "object") return false
   try {
+    if (value instanceof Response) return true
     if (Object.prototype.toString.call(value) !== "[object Response]") return false
     const status = readResponseProperty(value, "status")
     const statusText = readResponseProperty(value, "statusText")
