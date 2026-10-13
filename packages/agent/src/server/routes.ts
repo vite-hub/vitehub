@@ -4252,6 +4252,10 @@ async function textAttachmentBytes(attachment: Attachment, options: ChatMessageP
     }
   }
   if (isAttachmentBlob(attachment.data)) {
+    if (attachment.data.size > chatTextAttachmentMaxBytes) {
+      if (!options.rejectOversizedTextAttachments) return
+      throw agentDiagnostics.AGENT_R0814({ message: chatTextAttachmentOversizeMessage })
+    }
     return checkedTextAttachmentBytes(new Uint8Array(await attachment.data.arrayBuffer()), options)
   }
   return checkedTextAttachmentBytes(attachment.data, options)
