@@ -937,6 +937,9 @@ importers:
         specifier: npm:@voidzero-dev/vite-plus-core@0.3.3
         version: '@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1)'
     devDependencies:
+      undici:
+        specifier: 7.30.0
+        version: 7.30.0
       '@types/json-schema':
         specifier: catalog:ai
         version: 7.0.15
