@@ -49,6 +49,7 @@ const hasPanel = computed(
 @media (min-width: 64rem) {
   .vh-docs-shell {
     display: flex;
+    overflow: hidden;
     align-items: flex-start;
   }
 
