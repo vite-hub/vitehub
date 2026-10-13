@@ -44,7 +44,7 @@ async function executePackageEntry(definitionSource: string, options: {
     child.once("close", resolve)
   })
   const output = JSON.parse(await readFile(outputPath, "utf8")) as {
-    error?: { message?: string }
+    error?: { code?: string; message?: string }
     ok: boolean
     result?: unknown
   }
@@ -238,6 +238,38 @@ describe("package entry result transport", () => {
 
     expect(execution.code).toBe(0)
     expect(execution.output).toEqual({ ok: true, result: escaped })
+  })
+
+  it.each([
+    ["prefix-only toJSON getter", "export default () => Object.defineProperty({}, 'toJSON', { get() { throw new TypeError('Sandbox result must be JSON-serializable') } })"],
+    ["prefixed toJSON getter", "export default () => Object.defineProperty({}, 'toJSON', { get() { throw new TypeError('Sandbox result must be JSON-serializable; user getter.') } })"],
+    ["nested toJSON getter", "export default () => ({ nested: Object.defineProperty({}, 'toJSON', { get() { throw new TypeError('Sandbox result must be JSON-serializable; cyclic value.') } }) })"],
+    ["toJSON callback", "export default () => ({ toJSON() { throw new TypeError('Sandbox result must be JSON-serializable; unsupported undefined.') } })"],
+    ["property getter", "export default () => Object.defineProperty({}, 'value', { enumerable: true, get() { throw new TypeError('Sandbox result must be JSON-serializable; user property.') } })"],
+    ["cyclic result", "export default () => { const result = {}; result.self = result; return result }"],
+    ["undefined result property", "export default () => ({ value: undefined })"],
+    ["non-finite result property", "export default () => ({ value: Infinity })"],
+  ])("marks %s as a generated serialization error", async (_label, source) => {
+    const execution = await executePackageEntry(source)
+
+    expect(execution.code).toBe(1)
+    expect(execution.output).toMatchObject({
+      error: { code: "SANDBOX_SERIALIZATION_ERROR", message: expect.stringContaining("Sandbox result must be JSON-serializable") },
+      ok: false,
+    })
+  })
+
+  it("preserves a handler error even when its message matches a serialization diagnostic", async () => {
+    const execution = await executePackageEntry(
+      "export default () => { throw new TypeError('Sandbox result must be JSON-serializable; handler failure.') }",
+    )
+
+    expect(execution.code).toBe(1)
+    expect(execution.output).toMatchObject({
+      error: { message: "Sandbox result must be JSON-serializable; handler failure." },
+      ok: false,
+    })
+    expect(execution.output.error?.code).toBeUndefined()
   })
 
   it("applies result toJSON before staging nested binary values", async () => {
