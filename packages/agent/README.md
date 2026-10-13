@@ -523,7 +523,7 @@ Import `observability()` and `createAgentEvlog()` from `@vite-hub/agent/evlog`, 
 
 `createPapercutReporter()` from `@vite-hub/agent/capabilities` journals reports in persistent Agent Invocations before delivery and replays pending reports after restart. See [observability](../../docs/content/docs/agents/observability.md) for delivery, privacy and shutdown contracts.
 
-GitHub Channels with `activity: true` keep one managed comment per pull request. A single table lists current and recent session links, status, relative start times, and completed durations. Task checkboxes and the newest available session's final answer appear below; all session answers are collapsed in newest-first order with one link and one paragraph per answer. Full transcripts stay in the linked sessions.
+GitHub Channels with `activity: true` keep one managed comment per pull request. The comment shows the current run state, including Queued before a session link is ready. A single table lists current and recent session links, status, relative start times, and completed durations. Task checkboxes and the newest available session's final answer appear below; all session answers are collapsed in newest-first order with one link and one paragraph per answer. Full transcripts stay in the linked sessions.
 
 ### Process-owned agents
 

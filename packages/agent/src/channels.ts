@@ -1916,9 +1916,13 @@ function renderGithubActivity(
     queued: "Starting", running: "Running", waiting: "Waiting",
     completed: "Completed", failed: "Failed", cancelled: "Cancelled",
   }
+  const status = githubActivityStatus(activity)
   if (activity.status === "queued" && !current?.links.length) {
+    if (!sessions.length) {
+      if (status) sections.push(status)
+      return sections.join("\n\n")
+    }
     sections.push(activity.summary ? githubActivityText(activity.summary, 2_000) : "Waiting to start.")
-    if (!sessions.length) return sections.join("\n\n")
   }
   sections.push([
     "| Session | Status | Started | Duration |",
@@ -1928,7 +1932,6 @@ function renderGithubActivity(
       return `| ${links || "Pending"} | ${entry !== current && entry.status === "running" ? "Last seen running" : entry.status ? labels[entry.status] : "Unknown"} | ${entry.startedAt ? githubActivityTime(entry.startedAt) : "Not started"} | ${githubActivityDuration(entry, entry === current)} |`
     }),
   ].join("\n"))
-  const status = githubActivityStatus(activity)
   if (status) sections.push(status)
   // Earlier answers stay in "Final answers"; only a finished current run has a latest result.
   const latestAnswer = current && ["completed", "failed", "cancelled"].includes(current.status ?? "") ? githubActivityAnswer(current) : undefined

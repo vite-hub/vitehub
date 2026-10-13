@@ -532,7 +532,8 @@ describe("agent channels", () => {
       releaseIdentity!()
       await background[0]
       expect(fetcher).toHaveBeenCalledWith(expect.stringContaining("/repos/acme/app/issues/42/comments"), expect.objectContaining({ method: "POST" }))
-      expect(storedBody).toContain("Waiting to start.")
+      expect(storedBody).toContain("Waiting for a worker slot.")
+      expect(storedBody).toContain("Queued\n\n")
       expect(storedBody).not.toContain("| Session |")
 
       // SAFETY: This fixture supplies the callback fields consumed by the activity updater.
