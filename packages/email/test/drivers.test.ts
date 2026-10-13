@@ -1,7 +1,6 @@
 import { runInNewContext } from "node:vm";
 
 import { describe, expect, it, vi } from "vitest";
-import { runInNewContext } from "node:vm";
 
 import cloudflareEmail from "../src/drivers/cloudflare-email.ts";
 import resend from "../src/drivers/resend.ts";
