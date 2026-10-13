@@ -14,12 +14,12 @@ import {
 const route = useRoute();
 const currentPath = computed(() => normalizeDocsPath(route.path));
 const section = computed(() => getDocsSectionForPath(docsManifest.sections, route.path));
-const pageGroups = computed(() => section.value ? getDocsSidebarGroups(section.value) : []);
 const platformSections = docsManifest.sections.filter(candidate => candidate.category === "Platform");
+const pageGroups = computed(() => section.value ? getDocsSidebarGroups(section.value) : []);
 const related = computed(() =>
   section.value ? getDocsRelatedSections(docsManifest.sections, section.value) : [],
 );
-// Outside every section, for example on the catalog in the mobile menu, the panel lists every product by category.
+// Outside every section, for example on the catalog, the sidebar lists every product by category.
 const catalog = getDocsCatalog(docsManifest.sections);
 
 function isActive(path: string) {
@@ -151,6 +151,7 @@ function isActive(path: string) {
   color: var(--ui-text-muted);
   font-size: 0.875rem;
   transition:
+    border-color 150ms ease,
     background-color 150ms ease,
     color 150ms ease;
 }

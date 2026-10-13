@@ -421,6 +421,15 @@ describe("Runtime Schedule helper", () => {
 })
 
 describe("KV Runtime Schedule Store", () => {
+  it("does not read sibling keys as Runtime Schedules", async () => {
+    const kvStore = createTestKVStore()
+    await kvStore.set("tests/schedules/runtime-schedules-other", "unrelated")
+
+    const store = createKVRuntimeScheduleStore({ kvStore, prefix: "tests/schedules" })
+
+    await expect(store.list()).resolves.toEqual([])
+  })
+
   it("matches the RuntimeScheduleStore create, list, update, get, and delete contract", async () => {
     const store = createKVRuntimeScheduleStore({ kvStore: createTestKVStore(), prefix: "tests/schedules" })
     const createdAt = new Date("2026-05-23T09:00:00.000Z")
@@ -1260,6 +1269,18 @@ describe("KV Schedule Run Store", () => {
     await store.createRun({ id: "newer", scheduleId: "daily", target: "report", scheduledAt: newer, createdAt: newer, updatedAt: newer, status: "succeeded", attemptCount: 1 })
 
     expect((await store.listRuns()).map(run => run.id)).toEqual(["newer", "older"])
+  })
+
+  it("ignores sibling schedule-run index namespaces", async () => {
+    const kvStore = createTestKVStore()
+    const store = createKVScheduleRunStore({ kvStore })
+    const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
+    await store.createRun({ id: "run-1", scheduleId: "actual", target: "report", scheduledAt,
+      createdAt: scheduledAt, updatedAt: scheduledAt, status: "succeeded", attemptCount: 1 })
+    await kvStore.set(`vitehub:schedule/schedule-run-index-other/run-1/other/${scheduledAt.toISOString()}`, true)
+
+    expect(await store.listRuns({ scheduleId: "other" })).toEqual([])
+    expect((await store.listRuns({ scheduleId: "actual" })).map(run => run.id)).toEqual(["run-1"])
   })
 
   it.each([false, true])("keeps history authoritative when index publication fails after writing %s", async (published) => {
