@@ -10,14 +10,14 @@ Agent Definitions expose `status(context, { abortSignal })` for provider inspect
 
 The Console shows this evidence on Usage and exposes it through its authenticated `status` RPC operation and `GET /api/_vitehub/console/status`. The optional `agent` query selects a discovered Agent Definition. Console access rules protect this endpoint in production, including when the application uses a custom base path. Inspection remains available when `console.invoke` is disabled; task execution still requires its explicit opt-in.
 
-A result includes `agent`, `provider`, `checkedAt`, `stale`, `installed`, `authenticated`, `readiness`, and optional subscription `usageLimits`. Quota windows contain percentages and reset times. They are separate from monetary usage costs.
+A result includes `agent`, `provider`, `checkedAt`, `stale`, `installed`, `authenticated`, `readiness`, and optional subscription `usageLimits`. When the provider supplies authoritative evidence, it also includes `modelCompatibility` for the configured model and `workspaceCapacity` for workspace or project spending capacity. Each check is `ready`, `unavailable`, `unknown`, or `unsupported`. Quota windows contain percentages and reset times. They are separate from monetary usage costs.
 
 - `ready` means the executable, authentication, and available quota evidence passed inspection.
 - `unavailable` means an executable is missing, authentication failed, the provider reported an error, or a quota window is exhausted.
-- `unknown` means inspection could not establish readiness, including when quota is unsupported or its probe failed.
+- `unknown` means inspection could not establish readiness, including when quota, configured model compatibility, or workspace capacity is unsupported or its probe failed.
 - `unsupported` means the Driver does not implement account inspection.
 
-Readiness is evidence at `checkedAt`, not a guarantee that a later model request succeeds. Console shares concurrent probes for each Agent Definition, caches results for 30 seconds, and aborts probes after 15 seconds. A failed refresh preserves previous evidence with `stale: true` and `readiness: "unknown"`.
+Readiness is evidence at `checkedAt`, not a guarantee that a later model request succeeds. A definitive incompatible-model or workspace-capacity signal makes readiness `unavailable`; invocation preflight rejects before capability preparation or checkout. Missing provider evidence remains `unknown` and does not claim that the dimension is available. Console shares concurrent probes for each Agent Definition, caches results for 30 seconds, and aborts probes after 15 seconds. A failed refresh preserves previous evidence with `stale: true` and `readiness: "unknown"`.
 
 The built-in Drivers also keep each probe result for 30 seconds per Agent Definition. Results are grouped by credential source when `driver.credentials` is set, and by the host account otherwise. An invocation preflight in that window reuses the result and does not start a second probe.
 
