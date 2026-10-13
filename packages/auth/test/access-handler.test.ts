@@ -129,6 +129,18 @@ describe("Auth access handlers", () => {
     await expect(handler(new Request("https://app.example/"))).resolves.toBe(foreignResponse)
   })
 
+  it("returns cross-realm Response subclasses with custom tags unchanged", async () => {
+    class TaggedForeignResponse extends ForeignResponse {
+      get [Symbol.toStringTag]() { return "CustomResponse" }
+    }
+    const response = new TaggedForeignResponse("Policy rejected", { status: 409 })
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => response as never }] },
+    }))
+
+    await expect(handler(new Request("https://app.example/"))).resolves.toBe(response)
+  })
+
   it("rejects forged Response-shaped authorization values", async () => {
     const forgedResponse = runInNewContext(`new (class {
       get status() { return 409 }

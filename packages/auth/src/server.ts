@@ -289,7 +289,6 @@ function isResponseLike(value: unknown): value is Response {
   if (value === null || typeof value !== "object") return false
   try {
     if (value instanceof Response) return true
-    if (Object.prototype.toString.call(value) !== "[object Response]") return false
     const status = readResponseProperty(value, "status")
     const statusText = readResponseProperty(value, "statusText")
     // SAFETY: The owning Response getter supplies this value; its optional methods remain unknown until the checks below.
