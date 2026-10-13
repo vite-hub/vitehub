@@ -34,6 +34,13 @@ describe("defineOutboundChannel", () => {
     }))
   })
 
+  it("turns a throwing connectors getter into the connectors diagnostic", () => {
+    const definition = { get connectors() { throw new Error("connectors getter failed") } }
+    expect(() => defineOutboundChannel(definition as never)).toThrowError(expect.objectContaining({
+      code: "CHANNELS_C0002",
+    }))
+  })
+
   it.each([
     [{ connectors: { "": connector }, defaultConnector: "" }, "CHANNELS_C0006"],
     [{ connectors: { fixture: {} } }, "CHANNELS_C0004"],

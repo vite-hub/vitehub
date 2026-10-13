@@ -21,11 +21,25 @@ function validateChannelDefinition(value: unknown): asserts value is ChannelDefi
     throw channelsErrorDiagnostics.CHANNELS_C0001({ message: "`defineOutboundChannel()` expects an object with connectors." })
   }
 
-  if (!definition.connectors || typeof definition.connectors !== "object" || Array.isArray(definition.connectors)) {
+  let connectors: ChannelDefinition["connectors"]
+  try {
+    connectors = definition.connectors
+  }
+  catch {
     throw channelsErrorDiagnostics.CHANNELS_C0002({ message: "`defineOutboundChannel()` expects a connectors object." })
   }
 
-  const connectorNames = Object.keys(definition.connectors)
+  if (!connectors || typeof connectors !== "object" || Array.isArray(connectors)) {
+    throw channelsErrorDiagnostics.CHANNELS_C0002({ message: "`defineOutboundChannel()` expects a connectors object." })
+  }
+
+  let connectorNames: string[]
+  try {
+    connectorNames = Object.keys(connectors)
+  }
+  catch {
+    throw channelsErrorDiagnostics.CHANNELS_C0002({ message: "`defineOutboundChannel()` expects a connectors object." })
+  }
   if (connectorNames.length === 0) {
     throw channelsErrorDiagnostics.CHANNELS_C0003({ message: "`defineOutboundChannel()` requires at least one connector." })
   }
@@ -36,7 +50,7 @@ function validateChannelDefinition(value: unknown): asserts value is ChannelDefi
     }
     let connector: unknown
     try {
-      connector = definition.connectors[name]
+      connector = connectors[name]
     }
     catch {
       connector = undefined
@@ -46,8 +60,15 @@ function validateChannelDefinition(value: unknown): asserts value is ChannelDefi
     }
   }
 
-  if (definition.defaultConnector !== undefined && !connectorNames.includes(definition.defaultConnector)) {
-    throw channelsErrorDiagnostics.CHANNELS_C0005({ message: `Channel default connector "${definition.defaultConnector}" is not configured.` })
+  let defaultConnector: ChannelDefinition["defaultConnector"]
+  try {
+    defaultConnector = definition.defaultConnector
+  }
+  catch {
+    throw channelsErrorDiagnostics.CHANNELS_C0005({ message: "Channel default connector could not be read." })
+  }
+  if (defaultConnector !== undefined && !connectorNames.includes(defaultConnector)) {
+    throw channelsErrorDiagnostics.CHANNELS_C0005({ message: `Channel default connector "${defaultConnector}" is not configured.` })
   }
 }
 
