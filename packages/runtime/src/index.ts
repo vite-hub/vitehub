@@ -474,8 +474,7 @@ function reflectedRegExpState(value: unknown): { flags: string, lastIndex: numbe
 function reflectedArrayBufferViewState(value: unknown): { byteLength: number, kind: string } | undefined {
   if (!ArrayBuffer.isView(value)) return
   try {
-    const bufferConstructor = Object.getOwnPropertyDescriptor(globalThis, "Buffer")?.value
-      ?? (typeof Buffer === "function" ? Buffer : undefined)
+    const bufferConstructor = Object.getOwnPropertyDescriptor(globalThis, "Buffer")?.value ?? globalThis.Buffer
     const isBuffer = hasRuntimeType(bufferConstructor, "function")
       ? Object.getOwnPropertyDescriptor(bufferConstructor, "isBuffer")?.value
       : undefined
