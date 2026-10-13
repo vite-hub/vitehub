@@ -1,4 +1,5 @@
 import { createChannel, defineOutboundChannel, useChannel } from "../src/index.ts"
+import type { ChannelSendOptions } from "../src/index.ts"
 
 interface NamedConnectorOptions {
   destination: string
@@ -28,6 +29,16 @@ const definition = defineOutboundChannel({
 })
 
 const channel = createChannel("alerts", definition)
+
+const arrayOptions = Object.assign([], { connector: "telegram" as const, chatId: "chat-1" })
+// @ts-expect-error Send options cannot be arrays, even when they carry a connector property.
+channel.send("Build finished.", arrayOptions)
+// @ts-expect-error The public options type also excludes arrays with otherwise valid properties.
+const publicArrayOptions: ChannelSendOptions<typeof definition.connectors> = arrayOptions
+void publicArrayOptions
+const readonlyArrayOptions = Object.assign([] as const, { connector: "telegram" as const, chatId: "chat-1" })
+// @ts-expect-error Readonly tuples are also invalid send options.
+channel.send("Build finished.", readonlyArrayOptions)
 
 const namedInterfaceChannel = createChannel("named-interface", defineOutboundChannel({
   connectors: {
@@ -73,6 +84,10 @@ defineOutboundChannel({
 
 defineOutboundChannel({
   connectors: {
+    // @ts-expect-error Array-only connector options cannot be supplied by channel dispatch.
+    arrayOptions: {
+      send: (_text: string, _options: readonly string[]) => ({ status: "accepted" }),
+    },
     // @ts-expect-error Connector options must be objects because send passes an options object.
     primitiveOptions: {
       send: (_text: string, _options: string) => ({ status: "accepted" }),
@@ -141,6 +156,8 @@ const defaultChannel = createChannel("defaults", defineOutboundChannel({
   defaultConnector: "telegram",
 }))
 defaultChannel.send("Build finished.", { chatId: "chat-1" })
+// @ts-expect-error Default connector selection cannot make array options valid.
+defaultChannel.send("Build finished.", Object.assign([], { chatId: "chat-1" }))
 
 // @ts-expect-error Default connectors reject misspelled option properties.
 defaultChannel.send("Build finished.", { chatId: "chat-1", slient: true })
@@ -163,6 +180,10 @@ dynamic.send("Build finished.", dynamicOptions)
 const dynamicDefaultOptions: NamedConnectorOptions = { destination: "room-1" }
 dynamic.send("Build finished.", dynamicDefaultOptions)
 dynamic.send("Build finished.", { destination: "room-1" })
+// @ts-expect-error Dynamic channels also reject arrays with a connector property.
+dynamic.send("Build finished.", arrayOptions)
+// @ts-expect-error Dynamic default options cannot be arrays.
+dynamic.send("Build finished.", [])
 
 // @ts-expect-error Dynamic channel options cannot be callable.
 dynamic.send("Build finished.", Object.assign(() => {}, { connector: "runtime" }))
