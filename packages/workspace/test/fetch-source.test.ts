@@ -610,4 +610,50 @@ describe("fetch sources", () => {
       url: "https://status.example.com/query",
     })).toThrow("GET requests cannot declare body")
   })
+
+  it("passes an explicit null body to bodySchema", async () => {
+    const request = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({ status: "ok" }))
+    const bodySchema = {
+      "~standard": {
+        jsonSchema: { input: () => ({ type: ["null", "object"] }) },
+        validate(input: unknown) {
+          return input === null ? { value: null } : { issues: [{ message: "expected null" }] }
+        },
+      },
+    } as const
+    const execution = createWorkspaceSourceRequestExecution({
+      name: "fetch-null-body-schema",
+      sources: { status: fetch({ bodySchema, method: "POST", url: "https://status.example.com/query" }) },
+    })!
+
+    await expect(execution.executeSourceRequest({
+      body: null,
+      method: "POST",
+      url: "https://status.example.com/query",
+    })).resolves.toMatchObject({ status: 200 })
+    expect(request).toHaveBeenCalledOnce()
+  })
+
+  it("validates supplied query values before applying schema defaults", async () => {
+    const request = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({ status: "ok" }))
+    const querySchema = {
+      "~standard": {
+        jsonSchema: { input: () => ({ properties: { region: { type: "string" } }, required: ["region"], type: "object" }) },
+        validate(input: unknown) {
+          const region = (input as Record<string, unknown>).region
+          return typeof region === "string" ? { value: { region } } : { issues: [{ message: "region is required" }] }
+        },
+      },
+    } as const
+    const execution = createWorkspaceSourceRequestExecution({
+      name: "fetch-required-query-schema",
+      sources: { status: fetch({ querySchema, url: "https://status.example.com/query" }) },
+    })!
+
+    await expect(execution.executeSourceRequest({
+      method: "GET",
+      url: "https://status.example.com/query?region=eu",
+    })).resolves.toMatchObject({ status: 200 })
+    expect(request).toHaveBeenCalledOnce()
+  })
 })
