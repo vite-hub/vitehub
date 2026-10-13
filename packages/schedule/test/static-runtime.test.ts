@@ -14,6 +14,49 @@ describe("Static Schedule runtime", () => {
     })
   })
 
+  it("rejects an invalid scheduledAt value before formatting the run id", async () => {
+    await expect(executeStaticSchedule({
+      cron: "0 4 * * *",
+      definition: { cron: "0 4 * * *", handler: async () => {} },
+      name: "report",
+      scheduledAt: new Date("invalid"),
+    })).rejects.toMatchObject({
+      code: "SCHEDULE_INVALID_SCHEDULED_AT",
+      details: { field: "scheduledAt", valueType: "date" },
+    })
+  })
+
+  it("normalizes scheduledAt values with throwing cross-realm tags", async () => {
+    const scheduledAt = { get [Symbol.toStringTag]() { throw new Error("tag access") } } as unknown as Date
+    await expect(executeStaticSchedule({
+      cron: "0 4 * * *",
+      definition: { cron: "0 4 * * *", handler: async () => {} },
+      name: "report",
+      scheduledAt,
+    })).rejects.toMatchObject({
+      code: "SCHEDULE_INVALID_SCHEDULED_AT",
+      details: { field: "scheduledAt", valueType: "object" },
+    })
+  })
+
+  it("rejects an invalid scheduledAt value before loading matching definitions", async () => {
+    let loaded = false
+    await expect(executeMatchingStaticSchedules({
+      cron: "0 4 * * *",
+      registry: {
+        report: async () => {
+          loaded = true
+          return { cron: "0 4 * * *", handler: async () => {} }
+        },
+      },
+      scheduledAt: new Date("invalid"),
+    })).rejects.toMatchObject({
+      code: "SCHEDULE_INVALID_SCHEDULED_AT",
+      details: { field: "scheduledAt", valueType: "date" },
+    })
+    expect(loaded).toBe(false)
+  })
+
   it("executes all static schedules matching a cron", async () => {
     const calls: string[] = []
     const registry: ScheduleDefinitionRegistry = {

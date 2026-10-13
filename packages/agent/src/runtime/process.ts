@@ -1,5 +1,5 @@
-import { readFile } from "node:fs/promises"
-import { freemem } from "node:os"
+import { readFile, stat } from "node:fs/promises"
+import { posix } from "node:path"
 
 import { resolveLinuxCgroupV2Path } from "@vite-hub/runtime/node"
 
@@ -19,8 +19,12 @@ export interface ProcessAgentCapacityOptions {
   intervalMs?: number
   memory?: {
     pausePressure?: number
+    /** Reserve this much future growth for every active invocation as well as new work. */
     perInvocationBytes?: number
+    /** Memory reserved for other services on the host. */
     reserveBytes?: number
+    /** Memory reserved inside the process/service budget. Defaults to 1 GiB. */
+    serviceReserveBytes?: number
     resumePressure?: number
   }
   queue?: AgentDriverCapacityQueueOptions
@@ -35,6 +39,7 @@ interface PressurePolicy {
 }
 
 interface ProcessResourceSample {
+  hostAvailableMemory: number
   availableMemory: number
   cpuPressure: number
   memoryCurrent: number
@@ -73,6 +78,7 @@ export function createProcessAgentCapacity(options: ProcessAgentCapacityOptions)
     pausePressure: options.memory?.pausePressure ?? 0.05,
     perInvocationBytes: options.memory?.perInvocationBytes ?? 1024 ** 3,
     reserveBytes: options.memory?.reserveBytes ?? 1024 ** 3,
+    serviceReserveBytes: options.memory?.serviceReserveBytes ?? 1024 ** 3,
     resumePressure: options.memory?.resumePressure ?? 0.01,
   }
   assertPressurePolicy(cpu, "cpu")
@@ -82,6 +88,9 @@ export function createProcessAgentCapacity(options: ProcessAgentCapacityOptions)
   }
   if (!Number.isFinite(memory.reserveBytes) || memory.reserveBytes < 0) {
     throw agentDiagnostics.AGENT_R0738({ message: "[vitehub] createProcessAgentCapacity({ memory.reserveBytes }) must be a non-negative finite number." })
+  }
+  if (!Number.isFinite(memory.serviceReserveBytes) || memory.serviceReserveBytes < 0) {
+    throw agentDiagnostics.AGENT_R0738({ message: "[vitehub] createProcessAgentCapacity({ memory.serviceReserveBytes }) must be a non-negative finite number." })
   }
   if (options.sample !== undefined && typeof options.sample !== "function") {
     throw agentDiagnostics.AGENT_R0739({ message: "[vitehub] createProcessAgentCapacity({ sample }) must be a function." })
@@ -114,8 +123,12 @@ export function createProcessAgentCapacity(options: ProcessAgentCapacityOptions)
 
       const limit = Math.min(resources.memoryHigh, resources.memoryMax)
       const cgroupAvailableMemory = Number.isFinite(limit) ? Math.max(0, limit - resources.memoryCurrent) : Number.POSITIVE_INFINITY
-      const availableMemory = Math.min(resources.availableMemory, cgroupAvailableMemory)
-      const additional = Math.max(0, Math.floor((availableMemory - memory.reserveBytes) / memory.perInvocationBytes))
+      const availableMemory = Math.min(resources.hostAvailableMemory, resources.availableMemory, cgroupAvailableMemory)
+      const admissionMemory = Math.min(
+        resources.hostAvailableMemory - memory.reserveBytes,
+        Math.min(resources.availableMemory, cgroupAvailableMemory) - memory.serviceReserveBytes,
+      )
+      const additional = Math.max(0, Math.floor((admissionMemory - context.active * memory.perInvocationBytes) / memory.perInvocationBytes))
       const memoryConcurrency = context.active + additional
       const concurrency = Math.max(0, Math.min(context.concurrency, memoryConcurrency))
       return concurrency > context.active
@@ -140,43 +153,80 @@ function assertPressurePolicy(value: PressurePolicy, name: "cpu" | "memory"): vo
 }
 
 async function readProcessResources(signal: AbortSignal): Promise<ProcessResourceSample> {
-  const cgroup = await readCgroupResources(signal).catch((error) => {
-    if (signal.aborted) throw error
-    return undefined
-  })
+  const [cgroup, meminfo, cpu, memory] = await Promise.all([
+    readCgroupResources(signal),
+    readOptionalCgroupFile("/proc/meminfo", signal),
+    readOptionalCgroupFile("/proc/pressure/cpu", signal),
+    readOptionalCgroupFile("/proc/pressure/memory", signal),
+  ])
+  const hostAvailable = /^MemAvailable:\s+(\d+)\s+kB$/m.exec(meminfo ?? "")
+  const nodeAvailable = process.availableMemory()
   return {
-    availableMemory: typeof process.availableMemory === "function" ? process.availableMemory() : freemem(),
-    cpuPressure: cgroup?.cpuPressure ?? 0,
+    availableMemory: nodeAvailable,
+    hostAvailableMemory: hostAvailable ? Number(hostAvailable[1]) * 1024 : nodeAvailable,
+    cpuPressure: Math.max(cgroup?.cpuPressure ?? 0, parsePressure(cpu ?? "")),
     memoryCurrent: cgroup?.memoryCurrent ?? 0,
     memoryHigh: cgroup?.memoryHigh ?? Number.POSITIVE_INFINITY,
     memoryHighEvents: cgroup?.memoryHighEvents ?? 0,
     memoryMax: cgroup?.memoryMax ?? Number.POSITIVE_INFINITY,
-    memoryPressure: cgroup?.memoryPressure ?? 0,
+    memoryPressure: Math.max(cgroup?.memoryPressure ?? 0, parsePressure(memory ?? "")),
   }
 }
 
-async function readCgroupResources(signal: AbortSignal): Promise<Omit<ProcessResourceSample, "availableMemory">> {
-  const membership = await readFile("/proc/self/cgroup", { encoding: "utf8", signal })
-  const relative = membership.split(/\r?\n/).find((line) => line.startsWith("0::"))?.slice(3)
-  if (relative === undefined) throw agentDiagnostics.AGENT_R0742({ message: "cgroup v2 membership is unavailable" })
-  const mountinfo = await readFile("/proc/self/mountinfo", { encoding: "utf8", signal })
-  const root = resolveLinuxCgroupV2Path(mountinfo, relative)
-  if (root === undefined) throw agentDiagnostics.AGENT_R0743({ message: "cgroup v2 mount is unavailable" })
-  const [current, high, max, events, cpuPressure, memoryPressure] = await Promise.all([
-    readFile(`${root}/memory.current`, { encoding: "utf8", signal }),
-    readFile(`${root}/memory.high`, { encoding: "utf8", signal }),
-    readFile(`${root}/memory.max`, { encoding: "utf8", signal }),
-    readFile(`${root}/memory.events`, { encoding: "utf8", signal }),
-    readOptionalCgroupFile(`${root}/cpu.pressure`, signal),
-    readOptionalCgroupFile(`${root}/memory.pressure`, signal),
-  ])
+async function readCgroupResources(signal: AbortSignal): Promise<Omit<ProcessResourceSample, "availableMemory" | "hostAvailableMemory"> | undefined> {
+  const membership = await readOptionalCgroupFile("/proc/self/cgroup", signal)
+  const relative = membership?.split(/\r?\n/).find((line) => line.startsWith("0::"))?.slice(3)
+  if (relative === undefined) return
+  const mountinfo = await readOptionalCgroupFile("/proc/self/mountinfo", signal)
+  if (mountinfo === undefined) return
+  const roots: { path: string, rootCandidate: boolean }[] = []
+  // Resolve each visible ancestor through the mount mapping. Never read above a namespaced mount.
+  for (let member = relative; ; member = posix.dirname(member)) {
+    const root = resolveLinuxCgroupV2Path(mountinfo, member)
+    if (root === undefined) break
+    roots.push({ path: root, rootCandidate: member === "/" })
+    if (member === "/") break
+  }
+  const groups = await Promise.all(roots.map(async ({ path: root, rootCandidate }) => {
+    const [current, high, max, events, cpuPressure, memoryPressure] = await Promise.all([
+      readCgroupMemoryFile(`${root}/memory.current`, signal, rootCandidate),
+      readCgroupMemoryFile(`${root}/memory.high`, signal, rootCandidate),
+      readCgroupMemoryFile(`${root}/memory.max`, signal, rootCandidate),
+      readCgroupMemoryFile(`${root}/memory.events`, signal, rootCandidate),
+      readOptionalCgroupFile(`${root}/cpu.pressure`, signal),
+      readOptionalCgroupFile(`${root}/memory.pressure`, signal),
+    ])
+    return {
+      cpuPressure: parsePressure(cpuPressure ?? ""),
+      memoryCurrent: current === undefined ? 0 : Number(current.trim()),
+      memoryHigh: high === undefined ? Infinity : parseLimit(high),
+      memoryHighEvents: parseEvent(events ?? "", "high"),
+      memoryMax: max === undefined ? Infinity : parseLimit(max),
+      memoryPressure: parsePressure(memoryPressure ?? ""),
+    }
+  }))
+  let limiting = groups[0]
+  if (!limiting) return
+  const headroom = (group: typeof limiting) => Math.min(group.memoryHigh, group.memoryMax) - group.memoryCurrent
+  for (const group of groups) if (headroom(group) < headroom(limiting)) limiting = group
   return {
-    cpuPressure: parsePressure(cpuPressure ?? ""),
-    memoryCurrent: Number(current.trim()),
-    memoryHigh: parseLimit(high),
-    memoryHighEvents: parseEvent(events, "high"),
-    memoryMax: parseLimit(max),
-    memoryPressure: parsePressure(memoryPressure ?? ""),
+    ...limiting,
+    cpuPressure: Math.max(...groups.map(group => group.cpuPressure)),
+    memoryHighEvents: groups.reduce((sum, group) => sum + group.memoryHighEvents, 0),
+    memoryPressure: Math.max(...groups.map(group => group.memoryPressure)),
+  }
+}
+
+// Only the actual hierarchy root may omit memory controller files. A cgroup namespace
+// can also expose a delegated cgroup as `/`; kernfs inode 1 identifies the real root.
+async function readCgroupMemoryFile(path: string, signal: AbortSignal, rootCandidate: boolean): Promise<string | undefined> {
+  try { return await readFile(path, { encoding: "utf8", signal }) }
+  catch (error) {
+    if (rootCandidate && !signal.aborted && isRuntimeRecord(error) && error.code === "ENOENT") {
+      const directory = await stat(posix.dirname(path))
+      if (!signal.aborted && directory.ino === 1) return
+    }
+    throw error
   }
 }
 
