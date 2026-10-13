@@ -611,6 +611,17 @@ describe("Schedule Run bookkeeping", () => {
     expect(run.scheduledAt.toISOString()).toBe("2026-05-23T09:00:00.000Z")
   })
 
+  it("reports malformed scheduledAt values without reading a throwing Date tag", async () => {
+    const scheduledAt = Object.defineProperty({}, Symbol.toStringTag, { get: () => { throw new Error("unexpected tag read") } })
+    await expect(executeStaticSchedule({
+      cron: "0 9 * * *",
+      definition: { cron: "0 9 * * *", handler: async () => {} },
+      name: "malformed-date-tag",
+      // @ts-expect-error Exercise malformed values arriving at the runtime boundary.
+      scheduledAt,
+    })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT" })
+  })
+
   it("fails clearly for invalid scheduledAt dates", async () => {
     setScheduleRuntimeRegistry({
       report: async () => ({

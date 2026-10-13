@@ -7,6 +7,7 @@ import { synthesizedAgentOutputSymbol } from "../src/internal/synthesized-agent-
 import {
   agentToolStreamDefaults,
   finalTextFromAgentOutput,
+  resolveAgentUsageRecord,
   streamAgentOutputToEvents,
   toAgentRunResult,
   toAgentStreamEvent,
@@ -27,6 +28,34 @@ describe("agent output helpers", () => {
       usage: undefined,
       usageRecord: undefined,
     })
+  })
+
+  it.each(["usage", "cost"] as const)("ignores inherited provider %s when computing usage cost", field => {
+    const provider = field === "usage"
+      ? Object.create({ usage: { cost: 9 } })
+      : { usage: Object.create({ cost: 9 }) }
+    const result = toAgentRunResult({ usage: { inputTokens: 1 }, providerMetadata: { gateway: provider } })
+    expect(result.usageRecord?.cost).toBeUndefined()
+  })
+
+  it("ignores inherited metadata on an otherwise valid usage record", () => {
+    const usageRecord = Object.assign(Object.create({
+      cost: { usd: "9", estimated: false, source: "provider" },
+      latency: { durationMs: 999 },
+      provider: "polluted",
+    }), { usage: { inputTokens: 1 } })
+    expect(toAgentRunResult({ usageRecord }).usageRecord).toEqual({ usage: { inputTokens: 1 } })
+  })
+
+  it.each(["finish", "usage"] as const)("ignores inherited usage carriers on %s stream events", type => {
+    const carrier = type === "finish" ? { usage: { inputTokens: 99 } } : { usageRecord: { usage: { inputTokens: 99 } } }
+    const chunk = Object.assign(Object.create(carrier), { type })
+    expect(usageRecordFromStreamChunk(chunk)).toBeUndefined()
+  })
+
+  it("ignores inherited raw provider results", async () => {
+    const result = Object.create({ raw: { usage: { inputTokens: 99 } } })
+    await expect(resolveAgentUsageRecord(result)).resolves.toBeUndefined()
   })
 
   it("ignores inherited usage fields", () => {

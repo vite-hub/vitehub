@@ -224,7 +224,9 @@ function readString(record: Record<string, unknown> | undefined, ...keys: string
 }
 
 /** Read own data and accessor properties while ignoring ambient prototype data. */
-function readableRecordValue(record: Record<string, unknown>, key: string): unknown {
+function readableRecordValue<T extends object, K extends keyof T>(record: T, key: K): T[K] | undefined
+function readableRecordValue(record: object, key: string): unknown
+function readableRecordValue(record: object, key: string): unknown {
   const visited = new WeakSet<object>()
   let source: object | null = record
   for (let hops = 0; source && source !== Object.prototype && hops < 100; hops++) {
@@ -420,7 +422,8 @@ function providerCostFromResult(result: unknown): AgentUsageRecord["cost"] | und
   const providerMetadata = readableRecordValue(result, "providerMetadata")
   if (!isRecord(providerMetadata)) return
   for (const metadata of Object.values(providerMetadata)) {
-    const cost = isRecord(metadata) && isRecord(metadata.usage) ? metadata.usage.cost : undefined
+    const usage = isRecord(metadata) ? readableRecordValue(metadata, "usage") : undefined
+    const cost = isRecord(usage) ? readableRecordValue(usage, "cost") : undefined
     if (hasRuntimeType(cost, "number") && Number.isFinite(cost) && cost >= 0) {
       return materializeAgentUsageCost({
         estimated: false,
@@ -490,23 +493,24 @@ function withFallbackUsageMetadata(
   fallbackMetadataSource: unknown,
   run?: Partial<AgentRunMetadata>,
 ): AgentUsageRecord {
-  const compound = Boolean(record.calls?.length)
+  const compound = Boolean(readableRecordValue(record, "calls")?.length)
   const modelMetadata = modelMetadataFromResult(fallbackMetadataSource)
-  const model = record.model ?? (compound ? undefined : modelMetadata?.model)
-  const transport = record.transport ?? (compound ? undefined : modelMetadata?.transport)
+  const model = readableRecordValue(record, "model") ?? (compound ? undefined : modelMetadata?.model)
+  const transport = readableRecordValue(record, "transport") ?? (compound ? undefined : modelMetadata?.transport)
   let cost = compound ? undefined : providerCostFromResult(fallbackMetadataSource)
   try {
-    if (record.cost) cost = materializeAgentUsageCost(record.cost)
+    const recordCost = readableRecordValue(record, "cost")
+    if (recordCost) cost = materializeAgentUsageCost(recordCost)
   }
   catch {
     cost = compound ? undefined : providerCostFromResult(fallbackMetadataSource)
   }
-  const response = record.response ?? (compound ? undefined : responseFromResult(fallbackMetadataSource))
-  const latency = record.latency ?? (compound ? undefined : latencyFromResult(fallbackMetadataSource))
-  const credentialSource = record.credentialSource
-  const runMetadata = mergedRunMetadata(run, readableProperty(record, "run"))
-  const provider = record.provider ?? (compound ? undefined : modelMetadata?.provider)
-  const usage = readableProperty(record, "usage")
+  const response = readableRecordValue(record, "response") ?? (compound ? undefined : responseFromResult(fallbackMetadataSource))
+  const latency = readableRecordValue(record, "latency") ?? (compound ? undefined : latencyFromResult(fallbackMetadataSource))
+  const credentialSource = readableRecordValue(record, "credentialSource")
+  const runMetadata = mergedRunMetadata(run, readableRecordValue(record, "run"))
+  const provider = readableRecordValue(record, "provider") ?? (compound ? undefined : modelMetadata?.provider)
+  const usage = readableRecordValue(record, "usage")
   if (!model && !provider && !transport && !cost && !response && !latency && !credentialSource && !runMetadata && !usage) return record
   const result = { ...record }
   if (cost) result.cost = cost
@@ -523,18 +527,19 @@ function withFallbackUsageMetadata(
 
 export function usageRecordFromStreamChunk(chunk: unknown, fallbackMetadataSource?: unknown, run?: Partial<AgentRunMetadata>): AgentUsageRecord | undefined {
   if (!isRecord(chunk)) return
-  const type = String(chunk.type || "")
-  if (type === "usage" && isUsageRecord(chunk.usageRecord)) {
+  const type = String(readableRecordValue(chunk, "type") || "")
+  const usageRecord = readableRecordValue(chunk, "usageRecord")
+  if (type === "usage" && isUsageRecord(usageRecord)) {
     return withFallbackUsageMetadata(
-      withFallbackUsageMetadata(chunk.usageRecord, chunk, run),
+      withFallbackUsageMetadata(usageRecord, chunk, run),
       fallbackMetadataSource,
       run,
     )
   }
   return usageRecordFromUsage(type === "finish-step"
-    ? chunk.usage
+    ? readableRecordValue(chunk, "usage")
     : type === "finish"
-      ? chunk.usage ?? chunk.totalUsage
+      ? readableRecordValue(chunk, "usage") ?? readableRecordValue(chunk, "totalUsage")
       : undefined, chunk, fallbackMetadataSource, run)
 }
 
@@ -547,7 +552,7 @@ export async function resolveAgentUsageRecord(value: unknown, run?: Partial<Agen
   if (!isRecord(value)) return
   const usageRecord = ownValue(value, "usageRecord")
   if (isUsageRecord(usageRecord)) return withFallbackUsageMetadata(usageRecord, value, run)
-  return await usageFromResult(value, run) ?? await usageFromResult(value.raw, run)
+  return await usageFromResult(value, run) ?? await usageFromResult(readableRecordValue(value, "raw"), run)
 }
 
 function optionalMessageId(messageId: string | undefined): { messageId?: string } {
