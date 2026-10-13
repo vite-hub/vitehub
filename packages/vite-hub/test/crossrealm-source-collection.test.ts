@@ -10,7 +10,7 @@ describe("ViteHub Source collection adapter", () => {
       "~standard": {
         version: 1,
         vendor: "vite-hub",
-        validate: value => ({ value }),
+        validate: (value: number) => ({ value }),
       },
     }
     const collection = defineCollection(loader, {
