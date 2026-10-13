@@ -804,25 +804,33 @@ function hasPropertyGetter(value: unknown, key: PropertyKey): boolean {
 
 function isResponseLike(value: unknown): value is Response {
   if (!isRuntimeObject(value)) return false
-  // A Response implementation exposes status as a branded prototype getter.
-  // Looking up that getter on the value's own prototype chain supports other
-  // realms while rejecting plain objects that merely copy Response fields.
-  let current: object | null = value
-  let getStatus: (() => number) | undefined
-  while (current) {
-    const descriptor = Object.getOwnPropertyDescriptor(current, "status")
-    if (descriptor) {
-      getStatus = hasRuntimeType(descriptor.get, "function")
-        ? descriptor.get as () => number
-        : undefined
-      break
-    }
-    current = Object.getPrototypeOf(current) as object | null
-  }
-  if (!getStatus || !("body" in value) || !("headers" in value) || !("statusText" in value)) return false
   try {
-    Reflect.apply(getStatus, value, [])
-    return true
+    if (!("body" in value)) return false
+    if (Object.prototype.toString.call(value) !== "[object Response]") return false
+    // The foreign implementation owns its getters. Require the full Response
+    // accessor contract before accepting an output as a byte stream.
+    const read = (key: string): unknown => {
+      let prototype: object | null = Object.getPrototypeOf(value) as object | null
+      while (prototype) {
+        const descriptor = Object.getOwnPropertyDescriptor(prototype, key)
+        if (descriptor) return descriptor.get?.call(value)
+        prototype = Object.getPrototypeOf(prototype) as object | null
+      }
+    }
+    const status = read("status")
+    const statusText = read("statusText")
+    const headers = read("headers")
+    const body = read("body")
+    if (!hasRuntimeType(status, "number") || !Number.isInteger(status) || status < 0 || status > 599) return false
+    if (!hasRuntimeType(statusText, "string")) return false
+    if (!isRuntimeObject(headers) || !("get" in headers) || !("forEach" in headers)) return false
+    if (!hasRuntimeType(headers.get, "function") || !hasRuntimeType(headers.forEach, "function")) return false
+    if (body === null) return value.body === null
+    if (!isRuntimeObject(body) || !("pipeThrough" in body) || !hasRuntimeType(body.pipeThrough, "function")) return false
+    const getLocked = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
+    return hasRuntimeType(getLocked, "function")
+      && hasRuntimeType(Reflect.apply(getLocked, body, []), "boolean")
+      && value.body === body
   }
   catch {
     return false
@@ -832,15 +840,6 @@ function isResponseLike(value: unknown): value is Response {
 export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<StreamEvent> {
   if (hasRuntimeType(value, "string")) {
     if (value) yield { text: value, type: "text-delta" }
-    yield { type: "finish" }
-    return
-  }
-  if (isResponseLike(value)) {
-    if (value.body) {
-      for await (const text of value.body.pipeThrough(new TextDecoderStream())) {
-        if (text) yield { text, type: "text-delta" }
-      }
-    }
     yield { type: "finish" }
     return
   }
@@ -880,6 +879,16 @@ export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<
     }
     const usageRecord = await resolveAgentUsageRecord(value)
     if (usageRecord) yield { type: "usage", usageRecord }
+    yield { type: "finish" }
+    return
+  }
+  // Explicit Agent streams take precedence over response-shaped output fields.
+  if (isResponseLike(value)) {
+    if (value.body) {
+      for await (const text of value.body.pipeThrough(new TextDecoderStream())) {
+        if (text) yield { text, type: "text-delta" }
+      }
+    }
     yield { type: "finish" }
     return
   }

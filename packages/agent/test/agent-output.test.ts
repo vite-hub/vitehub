@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { runInNewContext } from "node:vm"
+import { Response as ForeignResponse } from "undici"
 
 import { applyStreamEvent } from "../src/messages.ts"
 import { finalChannelOutputSelectedSymbol } from "../src/internal/final-channel-output.ts"
@@ -1128,36 +1128,39 @@ describe("agent output helpers", () => {
     ])
   })
 
-  it("emits body chunks from a Response created in another realm", async () => {
-    const body = new ReadableStream({
-      start(controller) {
-        controller.enqueue(new TextEncoder().encode("foreign"))
-        controller.close()
-      },
-    })
-    const response = runInNewContext(`(() => {
-      const brands = new WeakSet()
-      class ForeignResponse {
-        constructor(body) {
-          brands.add(this)
-          this.body = body
-          this.headers = { get() { return null } }
-          this.statusText = "OK"
-        }
-        get status() {
-          if (!brands.has(this)) throw new TypeError("Illegal invocation")
-          return 200
-        }
-      }
-      return new ForeignResponse(body)
-    })()`, { body }) as Response
+  it("emits body chunks from a genuine foreign Response implementation", async () => {
+    const response = new ForeignResponse("foreign")
     expect(response).not.toBeInstanceOf(Response)
     const events = []
     for await (const event of streamAgentOutputToEvents(response)) events.push(event)
-    expect(events).toEqual([
-      { text: "foreign", type: "text-delta" },
-      { type: "finish" },
-    ])
+    expect(events).toEqual([{ text: "foreign", type: "text-delta" }, { type: "finish" }])
+  })
+
+  it.each([new Response("wrong stream").body, { incompatible: true }])("preserves textStream on outputs with a caller-controlled status getter and body %j", async (body) => {
+    class Output {
+      body = body
+      headers = new Headers()
+      statusText = "OK"
+      get status() { return 200 }
+      get [Symbol.toStringTag]() { return "Response" }
+      textStream = (async function* () { yield "generic" })()
+    }
+    const events = []
+    for await (const event of streamAgentOutputToEvents(new Output())) events.push(event)
+    expect(events).toEqual([{ text: "generic", type: "text-delta" }, { type: "finish" }])
+  })
+
+  it("does not treat a caller-defined status getter as a Response without an Agent stream", async () => {
+    class Output {
+      body = new Response("wrong stream").body
+      headers = new Headers()
+      statusText = "OK"
+      get status() { return 200 }
+      get [Symbol.toStringTag]() { return "Response" }
+    }
+    const events = []
+    for await (const event of streamAgentOutputToEvents(new Output())) events.push(event)
+    expect(events).toEqual([])
   })
 
   it("does not classify spoofed Response-shaped objects", async () => {
