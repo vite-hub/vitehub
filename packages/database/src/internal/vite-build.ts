@@ -222,6 +222,7 @@ function getCloudflareDatabasesMissingNames(runtimeConfig: ResolvedDBViteConfig,
     const cloudflare = runtimeConfig.databases[name]?.cloudflare
     return hasConfigValue(resolveDatabaseId(runtimeConfig, name, provisionState))
       && !hasConfigValue(resolveConfigValue(cloudflare?.databaseName))
+      && !cloudflare?.http
       && !isRemoteLibsqlConnectionUrl(database?.connection?.url)
   })
 }
@@ -260,7 +261,7 @@ function createCloudflareOutput({ artifacts, provisionState, runtimeConfig }: Pr
   const d1Projection = resolveCloudflareD1Bindings(runtimeConfig, { provisionState })
   const unresolvedNativeBindings = d1Projection.unresolved.filter((binding) => {
     const database = runtimeConfig.databases[binding.database]
-    return !isRemoteLibsqlConnectionUrl(database?.connection?.url)
+    return !database?.cloudflare?.http && !isRemoteLibsqlConnectionUrl(database?.connection?.url)
   })
   if (unresolvedNativeBindings.length) {
     const missingNames = unresolvedNativeBindings.filter(binding => binding.reason === "missing-database-name").map(binding => binding.database)

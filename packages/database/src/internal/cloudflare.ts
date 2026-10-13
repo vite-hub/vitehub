@@ -123,8 +123,7 @@ function resolveProvisionedD1Id(provisionState: CloudflareD1ProvisionState | und
 
 function resolveNonEmptyConfigValue(value: DatabaseConfigValue | undefined) {
   const resolved = resolveConfigValue(value)
-  const trimmed = resolved?.trim()
-  return trimmed || undefined
+  return resolved?.trim() ? resolved : undefined
 }
 
 export function resolveCloudflareD1BindingName(database: string, binding: string | undefined) {
@@ -140,8 +139,11 @@ export function resolveCloudflareD1BindingName(database: string, binding: string
 }
 
 function resolveDatabaseId(config: ResolvedDBViteConfig, name: string, provisionState: CloudflareD1ProvisionState | undefined): string | undefined {
-  return resolveNonEmptyConfigValue(config.databases[name]?.cloudflare?.databaseId)
-    ?? resolveProvisionedD1Id(provisionState, name)
+  const configured = config.databases[name]?.cloudflare?.databaseId
+  const resolved = resolveConfigValue(configured)
+  return typeof resolved !== "undefined"
+    ? (resolved.trim() ? resolved : undefined)
+    : resolveProvisionedD1Id(provisionState, name)
 }
 
 function createUnresolvedBinding(
@@ -170,7 +172,10 @@ export function resolveCloudflareD1Binding(
 ): ResolvedCloudflareD1Binding {
   const database = input.database?.trim() || "default"
   const bindingName = resolveCloudflareD1BindingName(database, input.binding)
-  const databaseId = resolveNonEmptyConfigValue(input.databaseId) ?? resolveProvisionedD1Id(options.provisionState, database)
+  const configuredId = resolveConfigValue(input.databaseId)
+  const databaseId = typeof configuredId !== "undefined"
+    ? (configuredId.trim() ? configuredId : undefined)
+    : resolveProvisionedD1Id(options.provisionState, database)
   const databaseName = resolveNonEmptyConfigValue(input.databaseName)
   const previewDatabaseId = resolveNonEmptyConfigValue(input.previewDatabaseId)
 
