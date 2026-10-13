@@ -155,10 +155,16 @@ function assertWithinMaxBytes(byteLength: number | undefined, maxBytes: number, 
   }
 }
 
+const arrayBufferByteLength = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")!.get!
+
+function arrayBufferLength(value: unknown): number | undefined {
+  return isArrayBufferValue(value) ? arrayBufferByteLength.call(value) : undefined
+}
+
 async function resolveAudioData(audio: AudioPart, maxBytes: number): Promise<AudioData | undefined> {
   assertWithinMaxBytes(audio.size, maxBytes, "audio")
   if (isBlobValue(audio.data)) assertWithinMaxBytes(audio.data.size, maxBytes, "audio data")
-  else if (isArrayBufferValue(audio.data)) assertWithinMaxBytes(audio.data.byteLength, maxBytes, "audio data")
+  else if (isArrayBufferValue(audio.data)) assertWithinMaxBytes(arrayBufferLength(audio.data), maxBytes, "audio data")
   else if (ArrayBuffer.isView(audio.data)) assertWithinMaxBytes(audio.data.byteLength, maxBytes, "audio data")
   if (audio.data) return audio.data
   if (!audio.fetchData) return
@@ -173,7 +179,7 @@ async function resolveAudioData(audio: AudioPart, maxBytes: number): Promise<Aud
   }
   const data = await cached
   if (isBlobValue(data)) assertWithinMaxBytes(data.size, maxBytes, "downloaded audio")
-  else if (isArrayBufferValue(data)) assertWithinMaxBytes(data.byteLength, maxBytes, "downloaded audio")
+  else if (isArrayBufferValue(data)) assertWithinMaxBytes(arrayBufferLength(data), maxBytes, "downloaded audio")
   else if (ArrayBuffer.isView(data)) assertWithinMaxBytes(data.byteLength, maxBytes, "downloaded audio")
   else if (hasRuntimeType(data, "string") && !/^data:/i.test(data)) assertWithinMaxBytes(data.length, maxBytes, "downloaded audio")
   return data
