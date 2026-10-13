@@ -41,44 +41,49 @@ export function isConnectionError(error: unknown): error is ConnectionError {
 
 /** Normalize a ConnectionError thrown by another ViteHub package instance. */
 export function normalizeConnectionError(error: unknown): ConnectionError | undefined {
-  if (error instanceof ConnectionError) return error
-  let shape = getViteHubErrorShape(error)
-  if (!shape && typeof error === "object" && error !== null) {
-    const read = (key: string): unknown => {
-      const descriptor = Object.getOwnPropertyDescriptor(error, key)
-      return descriptor && "value" in descriptor ? descriptor.value : undefined
-    }
-    if (read("name") === "ViteHubError") {
-      const code = read("code")
-      const message = read("message")
-      if (typeof code === "string" && typeof message === "string") {
-        const rawDetails = read("details")
-        const details: Record<string, string | number | undefined> = {}
-        if (typeof rawDetails === "object" && rawDetails !== null) {
-          for (const key of Reflect.ownKeys(rawDetails)) {
-            if (typeof key !== "string") continue
-            const descriptor = Object.getOwnPropertyDescriptor(rawDetails, key)
-            const value = descriptor && "value" in descriptor ? descriptor.value : undefined
-            if (typeof value === "string" || typeof value === "number" || value === undefined) details[key] = value
+  try {
+    if (error instanceof ConnectionError) return error
+    let shape = getViteHubErrorShape(error)
+    if (!shape && typeof error === "object" && error !== null) {
+      const read = (key: string): unknown => {
+        const descriptor = Object.getOwnPropertyDescriptor(error, key)
+        return descriptor && "value" in descriptor ? descriptor.value : undefined
+      }
+      if (read("name") === "ViteHubError") {
+        const code = read("code")
+        const message = read("message")
+        if (typeof code === "string" && typeof message === "string") {
+          const rawDetails = read("details")
+          const details: Record<string, string | number | undefined> = {}
+          if (typeof rawDetails === "object" && rawDetails !== null) {
+            for (const key of Reflect.ownKeys(rawDetails)) {
+              if (typeof key !== "string") continue
+              const descriptor = Object.getOwnPropertyDescriptor(rawDetails, key)
+              const value = descriptor && "value" in descriptor ? descriptor.value : undefined
+              if (typeof value === "string" || typeof value === "number" || value === undefined) details[key] = value
+            }
           }
+          const requestId = read("requestId")
+          if (requestId !== undefined && (typeof requestId !== "string" || requestId.length === 0 || requestId.length > 256)) return undefined
+          shape = { code, message, details, name: "ViteHubError", requestId }
         }
-        const requestId = read("requestId")
-        if (requestId !== undefined && (typeof requestId !== "string" || requestId.length === 0 || requestId.length > 256)) return undefined
-        shape = { code, message, details, name: "ViteHubError", requestId }
       }
     }
+    if (!shape) return undefined
+    const entry = (Object.entries(errorCodes) as [ConnectionErrorReason, ConnectionErrorCode][]).find(([, code]) => code === shape.code)
+    if (!entry) return undefined
+    const details: ConnectionErrorDetails = {}
+    for (const [key, value] of Object.entries(shape.details ?? {})) {
+      if (typeof value === "string" || typeof value === "number" || value === undefined) details[key] = value
+    }
+    return new ConnectionError(entry[0], shape.message, {
+      details,
+      requestId: shape.requestId,
+    })
   }
-  if (!shape) return undefined
-  const entry = (Object.entries(errorCodes) as [ConnectionErrorReason, ConnectionErrorCode][]).find(([, code]) => code === shape.code)
-  if (!entry) return undefined
-  const details: ConnectionErrorDetails = {}
-  for (const [key, value] of Object.entries(shape.details ?? {})) {
-    if (typeof value === "string" || typeof value === "number" || value === undefined) details[key] = value
+  catch {
+    return undefined
   }
-  return new ConnectionError(entry[0], shape.message, {
-    details,
-    requestId: shape.requestId,
-  })
 }
 
 export function isEnvBridgeError(error: unknown, code: string): boolean {

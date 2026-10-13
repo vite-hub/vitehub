@@ -898,12 +898,12 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
       if (connectionError) {
         const details: Record<string, string | number | undefined> = {}
         for (const [detailKey, value] of Object.entries(connectionError.details ?? {})) {
-          if (typeof value === "string" && value.includes(key)) continue
+          if (detailKey.includes(key) || (typeof value === "string" && value.includes(key))) continue
           details[detailKey] = value
         }
         throw new ConnectionError(connectionError.reason, `Provider "${provider.id}" could not verify the key.`, {
           details,
-          requestId: connectionError.requestId,
+          requestId: connectionError.requestId?.includes(key) ? undefined : connectionError.requestId,
         })
       }
       throw new ConnectionError("provider", `Provider "${provider.id}" could not verify the key.`, { details: { connection: name } })
