@@ -49,7 +49,7 @@ describe("agent trigger cross realm responses", () => {
       ok: true, redirected: false, url: "", type: "default", bodyUsed: false,
       clone() { return this },
       arrayBuffer() { return Promise.resolve(new ArrayBuffer(0)) },
-      blob() { return Promise.resolve(new Blob()) },
+      blob() { return Promise.resolve(new Blob([])) },
       formData() { return Promise.resolve(new FormData()) },
       json() { return Promise.resolve(null) },
       text() { return Promise.resolve("impostor") },
