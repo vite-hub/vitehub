@@ -41,11 +41,17 @@ function isRequest(value: unknown): value is Request {
   if (value === null || typeof value !== "object" || Object.prototype.toString.call(value) !== "[object Request]") {
     return false
   }
-  // The tag is spoofable; invoke the host object's own brand-checked clone operation
-  // before exposing it to consumers that call Fetch-specific methods.
+  // The tag is spoofable. Require the clone operation on the Request prototype,
+  // rather than accepting an arbitrary method supplied by the candidate.
   try {
-    const clone = (value as Request).clone()
-    return clone !== null && typeof clone === "object"
+    const prototype = Object.getPrototypeOf(value)
+    const clone = Object.getOwnPropertyDescriptor(prototype, "clone")?.value
+    if (typeof clone !== "function") return false
+    // Cloning a consumed request throws, but the prototype method still proves
+    // that the object is a Fetch Request and its metadata remains usable.
+    if ((value as Request).bodyUsed) return true
+    const cloned = clone.call(value)
+    return cloned !== null && typeof cloned === "object"
   } catch {
     return false
   }

@@ -67,8 +67,22 @@ describe("H3 Runtime Context", () => {
     await context.flushWaitUntil()
   })
 
+  it("preserves cross-realm Requests after their body is consumed", async () => {
+    const request = new MiniflareRequest("https://example.test", { body: "payload", method: "POST" })
+    await request.text()
+    const context = getRuntimeContext(new H3Event(request))
+    expect(context.request).toBe(request)
+    await context.flushWaitUntil()
+  })
+
   it("rejects objects that only spoof the Request tag", async () => {
     const context = getRuntimeContext({ context: {}, req: { [Symbol.toStringTag]: "Request" } })
+    expect(context.request).toBeUndefined()
+    await context.flushWaitUntil()
+  })
+
+  it("rejects a tag spoof with a candidate-owned clone method", async () => {
+    const context = getRuntimeContext({ context: {}, req: { [Symbol.toStringTag]: "Request", clone: () => ({}) } })
     expect(context.request).toBeUndefined()
     await context.flushWaitUntil()
   })
