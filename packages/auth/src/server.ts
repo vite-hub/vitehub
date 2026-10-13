@@ -280,43 +280,84 @@ async function runAccessAuthorize(
   context: AuthAccessAuthorizationContext,
 ): Promise<Response | undefined> {
   const result = await authorize(context)
-  if (isResponseLike(result)) return result
+  const response = normalizeAuthorizationResponse(result)
+  if (response) return response
   if (result !== true) return createForbiddenResponse(context.request)
 }
 
-function isResponseLike(value: unknown): value is Response {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- A cross-realm Response needs structural checks before accessing its runtime getters.
-  if (value === null || typeof value !== "object") return false
-  try {
-    if (Object.prototype.toString.call(value) !== "[object Response]") return false
-    const status = readResponseProperty(value, "status")
-    const statusText = readResponseProperty(value, "statusText")
-    // SAFETY: The owning Response getter supplies this value; its optional methods remain unknown until the checks below.
-    const headers = readResponseProperty(value, "headers") as {
-      get?: unknown
-      forEach?: unknown
-    } | undefined
-    const body = readResponseProperty(value, "body") as {
-      getReader?: unknown
-    } | null | undefined
-    if (typeof status !== "number" || !Number.isInteger(status) || status < 0 || status > 599) return false
-    if (typeof statusText !== "string") return false
-    if (headers === null || typeof headers !== "object") return false
-    if (typeof headers.get !== "function" || typeof headers.forEach !== "function") return false
-    return body === null || (typeof body === "object" && typeof body.getReader === "function")
-  }
-  catch {
-    return false
+const authorizationResponseProperties = ["status", "statusText", "headers", "body"] as const
+
+function responsePropertyDescriptor(value: unknown, key: PropertyKey): PropertyDescriptor | undefined {
+  let current: object | null = Object(value)
+  while (current) {
+    const descriptor = Object.getOwnPropertyDescriptor(current, key)
+    if (descriptor) return descriptor
+    current = Object.getPrototypeOf(current)
   }
 }
 
-function readResponseProperty(value: unknown, key: string): unknown {
-  // Use the owning runtime's getters so its Response brand checks apply.
-  let prototype: unknown = Object.getPrototypeOf(value)
+function hasResponsePrototype(value: unknown): boolean {
+  let prototype: object | null = Object.getPrototypeOf(Object(value))
   while (prototype) {
-    const descriptor = Object.getOwnPropertyDescriptor(prototype, key)
-    if (descriptor) return descriptor.get?.call(value)
+    const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+    const owner = prototype
+    if (constructor?.name === "Response"
+      && authorizationResponseProperties.every(key => Object.getOwnPropertyDescriptor(owner, key)?.get)) return true
     prototype = Object.getPrototypeOf(prototype)
+  }
+  return false
+}
+
+function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<Uint8Array> | null {
+  if (body === null) return true
+  if (Object(body) !== body) return false
+  const locked = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
+  if (!locked || Reflect.apply(locked, body, [])) return false
+  return responsePropertyDescriptor(Object(body), "getReader")?.value === ReadableStream.prototype.getReader
+}
+
+function normalizeAuthorizationResponse(value: unknown): Response | undefined {
+  if (value === null || Object(value) !== value) return
+  try {
+    const candidate = Object(value)
+    if (!hasResponsePrototype(candidate)) return
+    // Snapshot ordinary property reads once. Prototype shape is not proof of origin.
+    const status: unknown = Reflect.get(candidate, "status")
+    const statusText: unknown = Reflect.get(candidate, "statusText")
+    const headers: unknown = Reflect.get(candidate, "headers")
+    const body: unknown = Reflect.get(candidate, "body")
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- A response snapshot needs an integer HTTP status before constructing the local Response.
+    if (typeof status !== "number" || !Number.isInteger(status) || status < 0 || status > 599) return
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Response status text is an opaque boundary string validated by the local Response constructor below.
+    if (typeof statusText !== "string") return
+    if (headers === null || Object(headers) !== headers || !isSerializableAuthorizationBody(body)) return
+
+    const headerCarrier = Object(headers)
+    const forEach = Reflect.get(headerCarrier, "forEach")
+    const getSetCookie = Reflect.get(headerCarrier, "getSetCookie")
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Headers.getSetCookie is optional across runtimes; capture its result once when callable.
+    const cookies: unknown = typeof getSetCookie === "function" ? Reflect.apply(getSetCookie, headers, []) : []
+    if (!Array.isArray(cookies)) return
+    const normalizedHeaders = new Headers()
+    Reflect.apply(forEach, headers, [(value: string, key: string) => {
+      if (key.toLowerCase() !== "set-cookie" || cookies.length === 0) normalizedHeaders.append(key, value)
+    }])
+    for (const cookie of cookies) normalizedHeaders.append("set-cookie", cookie)
+
+    const nativeProperties = value instanceof Response && authorizationResponseProperties.every(key =>
+      responsePropertyDescriptor(candidate, key)?.get === Object.getOwnPropertyDescriptor(Response.prototype, key)?.get)
+    const nativeHeaderMethods = ["get", "forEach"].every(key =>
+      responsePropertyDescriptor(headerCarrier, key)?.value === Object.getOwnPropertyDescriptor(Headers.prototype, key)?.value)
+    const cookieDescriptor = responsePropertyDescriptor(headerCarrier, "getSetCookie")
+    const nativeCookieMethod = !cookieDescriptor?.get && (cookieDescriptor?.value === undefined
+      || cookieDescriptor.value === Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value)
+    if (nativeProperties && nativeHeaderMethods && nativeCookieMethod) return value
+    if (status === 0 && statusText === "" && body === null && [...normalizedHeaders].length === 0) return Response.error()
+    // Foreign implementations and shadowed native values become stable local responses.
+    return new Response(body, { status, statusText, headers: normalizedHeaders })
+  }
+  catch {
+    return
   }
 }
 

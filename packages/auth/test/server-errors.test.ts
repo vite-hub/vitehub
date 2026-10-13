@@ -315,12 +315,15 @@ describe("server authentication provider boundaries", () => {
       expect(protectedAction).not.toHaveBeenCalled()
     })
 
-    it("preserves a genuine foreign runtime authorization response", async () => {
+    it("normalizes a genuine foreign runtime authorization response", async () => {
       const denied = new ForeignResponse("Not your photo", { status: 404 })
       expect(denied).not.toBeInstanceOf(Response)
       providerMocks.getSession.mockResolvedValue({ session: { id: "session-1" }, user: { id: "user-1" } })
 
-      await expect(withAuthorization(() => denied as never, protectedAction, definition)(request)).resolves.toBe(denied)
+      const response = await withAuthorization(() => denied as never, protectedAction, definition)(request)
+      expect(response).toBeInstanceOf(Response)
+      expect(response.status).toBe(404)
+      await expect(response.text()).resolves.toBe("Not your photo")
       expect(protectedAction).not.toHaveBeenCalled()
     })
 
