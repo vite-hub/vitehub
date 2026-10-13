@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { createAuthClient } from "@vite-hub/auth/vue";
-import { PrimitiveIcon, PrimitiveRail, PrimitiveRailGroup, PrimitiveRailItem } from "@vite-hub/ui/primitive-rail";
+import { PrimitiveRail, PrimitiveRailGroup, PrimitiveRailItem } from "@vite-hub/ui/primitive-rail";
 import { defineShortcuts } from "@nuxt/ui/composables";
 import { computed, inject, onBeforeUnmount, onMounted, ref, shallowRef } from "vue";
 import { useRoute, useRouter } from "vue-router";
@@ -11,8 +11,9 @@ import type { ConsoleSectionId } from "../sections";
 import { consoleAppearanceKey, consoleAppearanceOptions, consoleAppearances } from "../client/appearance";
 import { loadConsoleNavigation, resolveConsoleSectionDetails, subscribeConsoleNavigation } from "../client/sections";
 import { decodeAgentRouteParam, resolveConsoleRouteName } from "../console-route";
-import { consoleGoToKey, consoleOverviewShortcut, consoleSectionRailIcon, consoleSectionShortcut, groupConsoleSections } from "../sections";
+import { consoleGoToKey, consoleOverviewShortcut, consoleSectionShortcut, groupConsoleSections } from "../sections";
 import ConsoleMark from "./console-mark.vue";
+import ConsoleSectionIcon from "./console-section-icon.vue";
 
 const props = defineProps<{
   /** Section that the current page shows. Leave it unset on the Overview. */
@@ -38,7 +39,7 @@ const projectName = computed(() => navigation.value?.projectName || "ViteHub");
 const sections = computed(() =>
   (navigation.value?.sections ?? []).flatMap((section) => {
     const details = resolveConsoleSectionDetails(navigation.value, section);
-    return details ? [{ id: section, ...details, railIcon: consoleSectionRailIcon(section), shortcut: consoleSectionShortcut(section) }] : [];
+    return details ? [{ id: section, ...details, shortcut: consoleSectionShortcut(section) }] : [];
   }),
 );
 // The standalone Console provides its appearance. A Nuxt host owns color mode, so the rail hides the control there.
@@ -228,9 +229,7 @@ onBeforeUnmount(() => {
             :label="section.label"
             @click="open(section.routeName)"
           >
-            <!-- Known primitives use the shared icon family. A contributed section keeps the icon of its descriptor. -->
-            <PrimitiveIcon v-if="section.railIcon" :name="section.railIcon" />
-            <UIcon v-else :name="section.icon" class="size-[1.125rem]" />
+            <ConsoleSectionIcon :section="section.id" :icon="section.icon" class="size-[1.125rem]" />
           </PrimitiveRailItem>
         </UTooltip>
       </PrimitiveRailGroup>

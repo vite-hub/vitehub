@@ -16,6 +16,7 @@ import { relativeDuration } from "../client/time"
 import { encodeAgentRouteParam, resolveConsoleRouteName } from "../console-route"
 import { consoleOverviewShortcut, consoleSectionDetails, consoleSectionShortcut, groupConsoleSections } from "../sections"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
+import ConsoleSectionIcon from "./console-section-icon.vue";
 
 interface ConsoleSearchFilter {
   search?: string;
@@ -34,6 +35,7 @@ interface ConsoleDefinitionSearchItem {
   details: ConsoleSectionDetails
   file: string
   name: string
+  section: ConsoleSectionId
   source: string
 }
 
@@ -124,6 +126,8 @@ const definitionSearchItems = computed<CommandPaletteItem[]>(() =>
     description: `${item.details.label.slice(0, -1)} · ${item.file}`,
     icon: item.details.icon,
     label: item.name,
+    section: item.section,
+    slot: "section",
     onSelect: () => selectDefinition(item),
   })),
 )
@@ -131,6 +135,8 @@ const kvSearchItems = computed<CommandPaletteItem[]>(() =>
   kvItems.value.map(item => ({
     description: item.store,
     icon: consoleSectionDetails.kv.icon,
+    section: "kv",
+    slot: "section",
     label: item.key || "(empty key)",
     onSelect: () => selectKVKey(item),
   })),
@@ -171,6 +177,8 @@ const groups = computed<CommandPaletteGroup[]>(() => [
               icon: details.icon,
               ...(shortcut ? { kbds: [...shortcut] } : {}),
               label: details.label,
+              section,
+              slot: "section",
               onSelect: () => selectPage(details.routeName),
             }]
           : []
@@ -182,8 +190,10 @@ const groups = computed<CommandPaletteGroup[]>(() => [
     ? [{
         id: "agents",
         items: availableAgentNames.value.map(name => ({
-          icon: "i-ph-robot-light",
+          icon: consoleSectionDetails.agents.icon,
           label: name,
+          section: "agents",
+          slot: "section",
           onSelect: () => selectAgent(name),
         })),
         label: "Agents",
@@ -274,12 +284,13 @@ async function loadContent(installed: ConsoleSectionId[], signal: AbortSignal): 
   })
   const catalogs = await Promise.all(definitionSections.map(async ({ details, section }) => ({
     details,
+    section,
     value: record(await requestConsole(props.definitionsBase, {
       query: { section },
       signal,
     })),
   })))
-  definitionItems.value = catalogs.flatMap(({ details, value }) =>
+  definitionItems.value = catalogs.flatMap(({ details, section, value }) =>
     Array.isArray(value?.definitions)
       ? value.definitions.flatMap((entry) => {
           const definition = record(entry)
@@ -289,7 +300,7 @@ async function loadContent(installed: ConsoleSectionId[], signal: AbortSignal): 
             && typeof definition.file === "string"
             // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
             && typeof definition.source === "string"
-            ? [{ details, file: definition.file, name: definition.name, source: definition.source }]
+            ? [{ details, file: definition.file, name: definition.name, section, source: definition.source }]
             : []
         })
       : [],
@@ -476,6 +487,10 @@ onBeforeUnmount(() => {
           {{ value.trim() ? "Try a page, Agent, definition, key, or session." : "No Console results are available yet." }}
         </p>
       </div>
+    </template>
+    <!-- Items with the `section` slot show the same section icon as the rail and the Overview. -->
+    <template #section-leading="{ item, ui }">
+      <ConsoleSectionIcon :section="item.section" :icon="item.icon" :class="ui.itemLeadingIcon()" />
     </template>
     <template #footer>
       <div class="vitehub-console__search-footer">
