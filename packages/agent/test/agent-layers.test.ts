@@ -106,6 +106,20 @@ describe("Agent definition layers", () => {
     expect(child.__vitehubWorkspaceAgentOptions.workspace).toEqual({ name: "registered" })
   })
 
+  it.each(["parent", "child"] as const)("inherits owned Workspace fields when the %s has an inherited name", (layer) => {
+    const source = github({ repo: "owner/base" })
+    const parentWorkspace = { mode: "write" as const, sourceRootDir: "/parent/source", sources: { docs: source } }
+    const childWorkspace = { mode: "read" as const }
+    Object.setPrototypeOf(layer === "parent" ? parentWorkspace : childWorkspace, { name: "inherited" })
+    const base = defineAgent({ driver: "codex", workspace: parentWorkspace })
+    const child = defineAgent({ extends: base, workspace: childWorkspace })
+
+    expect(child.__vitehubWorkspaceAgentOptions.workspace).toMatchObject({
+      mode: "read", sourceRootDir: "/parent/source", sources: { docs: source },
+    })
+    expect(child.__vitehubWorkspaceAgentOptions.workspace).not.toHaveProperty("name")
+  })
+
   it("resolves colocated Skills that discovery attaches after a child extends the parent", async () => {
     const seen: unknown[] = []
     const base = defineAgent({

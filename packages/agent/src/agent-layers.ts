@@ -85,7 +85,12 @@ function merge(parent: unknown, child: unknown, path: string): unknown {
     }
     if (record(child) && hasRuntimeType(child.model, "object")) return child
   }
-  if (path === "workspace" && record(parent) && record(child) && (("name" in parent) !== ("name" in child))) return child
+  if (path === "workspace" && parent && child && hasRuntimeType(parent, "object") && hasRuntimeType(child, "object")
+    && !Array.isArray(parent) && !Array.isArray(child)) {
+    if (Object.hasOwn(parent, "name") !== Object.hasOwn(child, "name")) return child
+    parent = { ...parent }
+    child = { ...child }
+  }
   if (opaqueOptions.has(path)) return child
   if (path === "capabilities") {
     if (!Array.isArray(parent) || !Array.isArray(child)) return child

@@ -993,7 +993,7 @@ function generatedWorkspaceSourceRootHelper(name: string, workspaceDefinitionFro
     "  }",
     "  const options = resolvedAgent?.__vitehubWorkspaceAgentOptions",
     "  const workspace = options?.workspace",
-    "  if (!workspace || typeof workspace !== 'object' || 'name' in workspace) return resolvedAgent",
+    "  if (!workspace || typeof workspace !== 'object' || Object.hasOwn(workspace, 'name')) return resolvedAgent",
     "  const existingSources = resolvedAgent.sources && typeof resolvedAgent.sources === 'object' ? resolvedAgent.sources : undefined",
     "  const sources = {",
     "    ...existingSources,",

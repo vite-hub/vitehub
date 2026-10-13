@@ -257,7 +257,7 @@ function withSiblingWorkspaceSourceRoot<TRuntimeConfig extends AgentRuntimeConfi
 
   const options = agent.__vitehubWorkspaceAgentOptions as WorkspaceAgentOptions<TRuntimeConfig>
   if (typeof options.workspace !== "object" || !options.workspace) return agent
-  if ("name" in options.workspace) return agent
+  if (Object.hasOwn(options.workspace, "name")) return agent
   if (options.workspace.sourceRootDir) return agent
 
   // SAFETY: These validated Workspace Agent options retain their runtime, Channel, and Workspace contracts when only sourceRootDir changes.
