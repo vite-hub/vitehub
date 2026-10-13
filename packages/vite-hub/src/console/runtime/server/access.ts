@@ -57,6 +57,12 @@ function authorizationResponse(value: unknown): Response | undefined {
     // SAFETY: Headers validates the foreign iterable and all its entries at this boundary.
     const headers = new Headers(value.headers as Headers)
     const init = { headers, status: value.status, statusText: value.statusText }
+    // Calling the response's own clone method verifies its Fetch internal slots
+    // in the response's realm; a toStringTag alone is user-definable.
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The callable clone method is the cross-realm Response brand probe.
+    if (!("clone" in value) || typeof value.clone !== "function") return undefined
+    const clone = value.clone()
+    if (!clone || clone === value || objectToString.call(clone) !== "[object Response]") return undefined
     // Validate init before taking ownership of a foreign stream.
     const empty = new Response(null, init)
     if (value.body === null) return empty
@@ -64,7 +70,8 @@ function authorizationResponse(value: unknown): Response | undefined {
     // Calling the native stream method checks its internal brand across realms;
     // piping into a local stream also avoids realm-sensitive Fetch body checks.
     const body = ReadableStream.prototype.pipeThrough.call(value.body, new TransformStream())
-    return new Response(body, init)
+    // SAFETY: ReadableStream.prototype.pipeThrough preserves the byte stream produced by a Fetch Response body.
+    return new Response(body as ReadableStream<Uint8Array>, init)
   }
   catch {
     return undefined
