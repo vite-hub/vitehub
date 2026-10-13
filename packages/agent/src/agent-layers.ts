@@ -87,7 +87,9 @@ function merge(parent: unknown, child: unknown, path: string): unknown {
   }
   if (path === "workspace" && parent && child && hasRuntimeType(parent, "object") && hasRuntimeType(child, "object")
     && !Array.isArray(parent) && !Array.isArray(child)) {
-    if (Object.hasOwn(parent, "name") !== Object.hasOwn(child, "name")) return child
+    const parentIsReference = Object.hasOwn(parent, "name") && hasRuntimeType((parent as Record<string, unknown>).name, "string")
+    const childIsReference = Object.hasOwn(child, "name") && hasRuntimeType((child as Record<string, unknown>).name, "string")
+    if (parentIsReference !== childIsReference) return child
     parent = { ...parent }
     child = { ...child }
   }
