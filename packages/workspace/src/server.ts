@@ -2,6 +2,7 @@ import { createError, defineEventHandler, getQuery, getRouterParam } from "h3"
 import { lookup } from "mrmime"
 import { Diagnostic } from "nostics"
 import { getViteHubErrorShape } from "@vite-hub/runtime"
+import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 import { isViteHubSecretEqual } from "@vite-hub/internal/secret"
 
 import { getWorkspaceCollectionItem, queryWorkspaceCollection, workspaceCollectionEmpty } from "./collections.ts"
@@ -113,15 +114,18 @@ async function workspaceDevTokenRoot(rootDir: string, options: WorkspaceDevToken
 }
 
 function headerValue(headers: Headers | Record<string, string | string[] | undefined>, name: string): string | undefined {
-  if (typeof headers === "object" && headers !== null && typeof (headers as { get?: unknown }).get === "function") {
+  const get = hasRuntimeType(headers, "object") ? Reflect.get(headers, "get") : undefined
+  if (hasRuntimeType(get, "function")) {
     try {
-      return (headers as Headers).get(name) || undefined
+      const value = Reflect.apply(get, headers, [name])
+      return hasRuntimeType(value, "string") && value ? value : undefined
     }
     catch {}
   }
   if (!Object.hasOwn(headers, name)) return undefined
-  const value = (headers as Record<string, string | string[] | undefined>)[name]
-  return Array.isArray(value) ? value[0] : value
+  const value: unknown = Reflect.get(headers, name)
+  if (Array.isArray(value)) return hasRuntimeType(value[0], "string") ? value[0] : undefined
+  return hasRuntimeType(value, "string") ? value : undefined
 }
 
 function randomToken(): string {
@@ -188,12 +192,24 @@ function resolveContentType(path: string, mediaType: string | undefined, content
   return lookup(path) || "application/octet-stream"
 }
 
+function errorMessage(error: unknown): string | undefined {
+  if (Object(error) !== error) return
+  try {
+    const message = Object.getOwnPropertyDescriptor(error, "message")?.value
+    return message === String(message) ? String(message) : undefined
+  }
+  catch {
+    return
+  }
+}
+
 function isNotFoundError(error: unknown): boolean {
   const code = getViteHubErrorShape(error)?.code
+  const message = errorMessage(error)
   return code === "WORKSPACE_NOT_FOUND"
     || code === "WORKSPACE_PATH_INVALID"
-    || (error instanceof Error && error.message.includes("Workspace file does not exist:"))
-    || (error instanceof Error && error.message.includes("Workspace path does not exist:"))
+    || message?.includes("Workspace file does not exist:") === true
+    || message?.includes("Workspace path does not exist:") === true
 }
 
 class WorkspaceCollectionRequestError extends Diagnostic {

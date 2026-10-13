@@ -21,6 +21,7 @@ export const blobErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     BLOB_C0010: dynamicError,
     BLOB_C0011: dynamicError,
     BLOB_C0012: dynamicError,
+    BLOB_C0013: dynamicError,
     BLOB_B0001: dynamicError,
     BLOB_B0002: dynamicError,
     BLOB_B0003: dynamicError,
