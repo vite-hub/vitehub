@@ -290,6 +290,24 @@ describe("createEmail", () => {
     }
   })
 
+  it("rejects objects that only inherit Error.prototype without native Error.isError", async () => {
+    const cause = Object.assign(Object.create(Error.prototype), {
+      code: "RATE_LIMIT" as const,
+      driver: "custom",
+      message: "slow down",
+    }) as EmailProviderError
+    const descriptor = Object.getOwnPropertyDescriptor(Error, "isError")
+    Object.defineProperty(Error, "isError", { configurable: true, value: undefined })
+    try {
+      const client = createEmail({ driver: fixtureDriver(async () => ({ data: null, error: cause })) })
+      await expect(client.send(message)).rejects.toMatchObject({ code: "EMAIL_PROVIDER_FAILED", details: { driver: "fixture" } })
+    }
+    finally {
+      if (descriptor) Object.defineProperty(Error, "isError", descriptor)
+      else Reflect.deleteProperty(Error, "isError")
+    }
+  })
+
   it.each([
     { realm: "same realm", create: () => Object.assign(new (class Error {})(), { code: "RATE_LIMIT", driver: "custom", message: "slow down" }) },
     { realm: "foreign realm", create: () => runInNewContext('Object.assign(new (class Error {})(), { code: "RATE_LIMIT", driver: "custom", message: "slow down" })') },

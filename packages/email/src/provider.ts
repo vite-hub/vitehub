@@ -6,6 +6,9 @@ function isError(value: unknown): value is Error {
   try {
     const nativeIsError = Reflect.get(Error, "isError")
     if (typeof nativeIsError === "function") return nativeIsError(value) === true
+    // Native Error instances materialize their stack as an own property. An
+    // object that merely inherits Error.prototype has no native error slots.
+    if (!Object.prototype.hasOwnProperty.call(value, "stack")) return false
     const seen = new Set<object>()
     let prototype = Object.getPrototypeOf(value)
     for (let depth = 0; depth < 64 && prototype !== null && prototype !== Object.prototype; depth++) {
