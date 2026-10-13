@@ -84,6 +84,13 @@ it("snapshots cross realm built-ins while preserving their data", () => {
 it("keeps custom Buffer subclasses atomic and clones native foreign Buffers", () => {
   class CustomBuffer extends globalThis.Buffer {
     marker = true
+
+    constructor(bytes: Uint8Array) {
+      const buffer = super(bytes)
+      // Node's Buffer constructor returns a Buffer instance. Restore the
+      // subclass prototype so this test models application-defined subclasses.
+      return Object.setPrototypeOf(buffer, new.target.prototype)
+    }
   }
   const custom = new CustomBuffer([1, 2])
   const foreign = vm.runInNewContext("Buffer.from([3, 4])", { Buffer }) as Buffer
@@ -97,6 +104,20 @@ it("keeps custom Buffer subclasses atomic and clones native foreign Buffers", ()
   expect([...inherited.options.foreign]).toEqual([3, 4])
   inherited.options.foreign[0] = 9
   expect(foreign[0]).toBe(3)
+})
+
+it("keeps a custom Buffer subclass named Buffer atomic", () => {
+  class Buffer extends globalThis.Buffer {
+    marker = true
+
+    constructor(bytes: Uint8Array) {
+      const buffer = super(bytes)
+      return Object.setPrototypeOf(buffer, new.target.prototype)
+    }
+  }
+  const custom = new Buffer(new Uint8Array([1, 2]))
+  const inherited = defineAgent({ extends: defineAgent({ options: { custom } }) })
+  expect(inherited.options.custom).toBe(custom)
 })
 
 it("does not trust a backing store's Symbol.toStringTag", () => {

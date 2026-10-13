@@ -403,6 +403,8 @@ function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>()
     return finish(new URLSearchParams(URLSearchParams.prototype.toString.call(value)))
   }
   if (nativePrototype(value, ArrayBuffer)) {
+    // SAFETY: ArrayBuffer's intrinsic accessors accept only genuine ArrayBuffers;
+    // the nativePrototype check excludes application-defined subclasses.
     if (variablePresetBacking(value as ArrayBuffer, false) || detachedPresetBacking(value as ArrayBuffer, false)) return value
     return finish(clonePresetBacking(value as ArrayBuffer, false))
   }
