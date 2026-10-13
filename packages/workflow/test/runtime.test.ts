@@ -18,6 +18,11 @@ import { runCloudflareWorkflow } from "../src/runtime/cloudflare-runner.ts"
 import { createWorkflowCloudflareWorker } from "../src/runtime/cloudflare-vite.ts"
 import { cancelWorkflow, createWorkflow, deferWorkflow, getWorkflowRun, resumeWorkflowSignal, runWorkflow } from "../src/runtime/client.ts"
 import { createWorkflowSteps } from "../src/runtime/execute.ts"
+
+it("rejects workflow step files that normalize to an empty property name", () => {
+  expect(() => createWorkflowSteps({ name: "demo", payload: undefined, provider: "cloudflare" }, [{ name: "01-.ts", run: async () => "ok" }]))
+    .toThrow(/empty step property/i)
+})
 import { enterWorkflowRuntimeEvent, getInlineWorkflowDefinitions, getWorkflowRuntimeEvent, resetWorkflowRuntime, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry, takeInlineWorkflowDefinition } from "../src/runtime/state.ts"
 import { setVercelWorkflowRuntimeLoader } from "../src/runtime/vercel.ts"
 
@@ -884,6 +889,16 @@ describe("workflow runtime", () => {
       { retries: { backoff: "exponential", delay: "10 seconds", limit: 3 } },
       expect.any(Function),
     )
+  })
+
+  it("rejects folder steps that normalize to the same property name", () => {
+    const context = { name: "pipeline", provider: "cloudflare", payload: undefined } as const
+    const steps = [
+      { name: "01.first.ts", run: async (input: unknown) => input },
+      { name: "02.first.ts", run: async (input: unknown) => input },
+    ]
+
+    expect(() => createWorkflowSteps(context, steps)).toThrow(/both normalize to the `first` step property/)
   })
 
   it("runs registered definitions through the Vercel provider", async () => {
@@ -1928,6 +1943,21 @@ describe("workflow runtime", () => {
     expect(openWorkflowMock.definitions.has("inline-worker")).toBe(true)
   })
 
+  it("ignores OpenWorkflow definitions whose handler is inherited", async () => {
+    setWorkflowRuntimeConfig({
+      postgres: { url: "postgres://localhost/vitehub" },
+      provider: "openworkflow",
+    })
+    const inherited = Object.create({ handler: async () => "inherited" })
+    setWorkflowRuntimeRegistry({
+      inherited: async () => inherited,
+    })
+
+    await createOpenWorkflowWorker()
+
+    expect(openWorkflowMock.definitions.has("inherited")).toBe(false)
+  })
+
   it("registers exported inline handles under discovered names in OpenWorkflow workers", async () => {
     setWorkflowRuntimeConfig({
       postgres: { url: "postgres://localhost/vitehub" },
@@ -2612,6 +2642,20 @@ describe("workflow runtime", () => {
       id: "run",
       provider: "cloudflare",
       result: undefined,
+      status: "unknown",
+    })
+  })
+
+  it("ignores inherited Cloudflare environment members as bindings", async () => {
+    setWorkflowRuntimeConfig({ binding: "toString", provider: "cloudflare" })
+    setWorkflowRuntimeRegistry({
+      inherited: async () => ({ default: { handler: async () => "inline" } }),
+    })
+    enterWorkflowRuntimeEvent({ req: { runtime: { cloudflare: { env: {} } } } })
+
+    await expect(getWorkflowRun("inherited", "run")).resolves.toEqual({
+      id: "run",
+      provider: "cloudflare",
       status: "unknown",
     })
   })

@@ -310,7 +310,7 @@ async function readStream(stream: ReadableStream<Uint8Array>, signal: AbortSigna
   let aborted: Promise<never> | undefined;
   try {
     if (signal?.aborted) {
-      await reader.cancel(signal.reason);
+      await reader.cancel(signal.reason).catch(() => {});
       signal.throwIfAborted();
     }
     aborted = signal
