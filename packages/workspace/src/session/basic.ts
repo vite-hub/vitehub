@@ -76,12 +76,13 @@ export async function createBasicWorkspaceSession(workspace: Workspace, options?
       if (!scoped) return []
       const roots = (scoped.paths?.length ? scoped.paths : [scoped.cwd || ""]).map(path => normalizeSessionPath(path, { allowEmpty: true }))
       const hits: WorkspaceSearchHit[] = []
+      const limit = scoped.limit ?? 100
       for (const entry of filterSessionEntries(await overlay.list("", { recursive: true }), sessionPaths).filter(entry => entry.type === "file")) {
         if (!roots.some(root => !root || entry.path === root || entry.path.startsWith(`${root}/`))) continue
         const file = await overlay.readFile(entry.path)
         if (!file) continue
-        hits.push(...searchText(entry.path, decodeFile(file.content), { ...scoped, limit: (scoped.limit || 100) - hits.length }))
-        if (hits.length >= (scoped.limit || 100)) break
+        hits.push(...searchText(entry.path, decodeFile(file.content), { ...scoped, limit: limit - hits.length }))
+        if (hits.length >= limit) break
       }
       return hits
     },

@@ -538,6 +538,15 @@ describe("@vite-hub/runtime", () => {
     expect(trace).toHaveBeenCalledWith({ name: "agent.run", type: "run" }, context)
   })
 
+  it("preserves timestamps from another JavaScript realm", async () => {
+    const log = createTraceEventLog()
+    const timestamp = runInNewContext('new Date("2020-01-02T03:04:05.000Z")')
+
+    await log.append({ name: "cross-realm-date", timestamp, type: "lifecycle" })
+
+    expect(log.entries()[0]?.timestamp).toBe("2020-01-02T03:04:05.000Z")
+  })
+
   it("records metadata-only trace events and derives run views", async () => {
     const log = createTraceEventLog()
     const context = createExecutionContext({
@@ -815,6 +824,36 @@ describe("@vite-hub/runtime", () => {
     }
   })
 
+  it.each(["DataView", "ArrayBuffer.byteLength"])("ignores replaced %s buffer operations before module import", async (operation) => {
+    const ordinary = new ArrayBuffer(4)
+    const shared = runInNewContext("new SharedArrayBuffer(0)")
+    const descriptor = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")
+    if (!descriptor) throw new Error("Expected the native ArrayBuffer byteLength descriptor")
+    const replacement = vi.fn(() => { throw new Error("replaced byte length") })
+    if (operation === "DataView") {
+      vi.stubGlobal("DataView", class { constructor() {} })
+    }
+    else {
+      Object.defineProperty(ArrayBuffer.prototype, "byteLength", { configurable: true, get: replacement })
+    }
+    try {
+      vi.resetModules()
+      const runtime = await import("../src/index.ts")
+      const log = runtime.createTraceEventLog()
+      await log.append({ name: "object", payload: { value: { files: 1 }, visibility: "public" }, type: "lifecycle" })
+      await log.append({ name: "array-buffer", payload: { value: ordinary, visibility: "public" }, type: "lifecycle" })
+      await log.append({ name: "shared", payload: { value: shared, visibility: "public" }, type: "lifecycle" })
+      expect(log.entries()[0]?.payload).toEqual({ value: { files: 1 }, visibility: "public" })
+      expect(log.entries()[1]?.payload?.visibility).toBe("public")
+      expect(log.entries()[2]?.payload).toEqual({ visibility: "private" })
+      expect(replacement).not.toHaveBeenCalled()
+    }
+    finally {
+      Object.defineProperty(ArrayBuffer.prototype, "byteLength", descriptor)
+      vi.unstubAllGlobals()
+    }
+  })
+
   it.each([
     new ArrayBuffer(0),
     new ArrayBuffer(4),
@@ -836,6 +875,38 @@ describe("@vite-hub/runtime", () => {
     })
     expect(log.entries()[0]?.payload).toEqual({ visibility: "private" })
   })
+
+  it("keeps a cross-realm typed array public payload", async () => {
+    const log = createTraceEventLog()
+    const value = runInNewContext("new Uint8Array([1, 2, 3])")
+    await log.append({
+      name: "custom.event",
+      payload: { value, visibility: "public" },
+      type: "lifecycle",
+    })
+
+    const entry = log.entries()[0]
+    expect(entry?.payload?.visibility).toBe("public")
+    if (!entry || !entry.payload || entry.payload.visibility !== "public") throw new Error("Expected a public typed-array payload.")
+    expect(entry.payload.value).toBeInstanceOf(Uint8Array)
+    expect(Array.from(entry.payload.value as Uint8Array)).toEqual([1, 2, 3])
+  })
+
+  it("keeps a cross-realm typed-array subclass named Buffer public", async () => {
+    const log = createTraceEventLog()
+    const value = runInNewContext("class Buffer extends Uint8Array {}; new Buffer([1, 2, 3])")
+    await log.append({
+      name: "custom.event",
+      payload: { value, visibility: "public" },
+      type: "lifecycle",
+    })
+
+    const entry = log.entries()[0]
+    expect(entry?.payload?.visibility).toBe("public")
+    if (!entry || !entry.payload || entry.payload.visibility !== "public") throw new Error("Expected a public typed-array payload.")
+    expect(Array.from(entry.payload.value as Uint8Array)).toEqual([1, 2, 3])
+  })
+
 
   it("preserves public Blob payload snapshots", async () => {
     const log = createTraceEventLog()
