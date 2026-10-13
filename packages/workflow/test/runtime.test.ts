@@ -891,6 +891,16 @@ describe("workflow runtime", () => {
     )
   })
 
+  it("rejects folder steps that normalize to the same property name", () => {
+    const context = { name: "pipeline", provider: "cloudflare", payload: undefined } as const
+    const steps = [
+      { name: "01.first.ts", run: async (input: unknown) => input },
+      { name: "02.first.ts", run: async (input: unknown) => input },
+    ]
+
+    expect(() => createWorkflowSteps(context, steps)).toThrow(/both normalize to the `first` step property/)
+  })
+
   it("runs registered definitions through the Vercel provider", async () => {
     setWorkflowRuntimeConfig({ provider: "vercel" })
     setWorkflowRuntimeRegistry({
@@ -1931,6 +1941,21 @@ describe("workflow runtime", () => {
     await createOpenWorkflowWorker()
 
     expect(openWorkflowMock.definitions.has("inline-worker")).toBe(true)
+  })
+
+  it("ignores OpenWorkflow definitions whose handler is inherited", async () => {
+    setWorkflowRuntimeConfig({
+      postgres: { url: "postgres://localhost/vitehub" },
+      provider: "openworkflow",
+    })
+    const inherited = Object.create({ handler: async () => "inherited" })
+    setWorkflowRuntimeRegistry({
+      inherited: async () => inherited,
+    })
+
+    await createOpenWorkflowWorker()
+
+    expect(openWorkflowMock.definitions.has("inherited")).toBe(false)
   })
 
   it("registers exported inline handles under discovered names in OpenWorkflow workers", async () => {
