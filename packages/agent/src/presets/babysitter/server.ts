@@ -1526,7 +1526,13 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
         } finally {
           clearTimeout(pushedAt);
           stopPullRequestWatch();
-          placementLease?.release();
+          try {
+            await placementLease?.release();
+          } catch (error) {
+            // Placement is user supplied; a failed release must not strand the
+            // durable inbox claim or the in-memory owner slot.
+            schedulerError("babysitter.placement.release.failed", error, owner);
+          }
           // A rejected or ambiguous host merge retains its durable attempt
           // fence, but a finished owner must never retain a queue lease.
           // Normal finish/release paths have already cleared this token.

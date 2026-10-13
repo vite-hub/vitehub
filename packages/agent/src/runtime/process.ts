@@ -138,7 +138,14 @@ export function createProcessAgentCapacity(options: ProcessAgentCapacityOptions)
         resources.hostAvailableMemory - memory.reserveBytes,
         Math.min(resources.availableMemory, cgroupAvailableMemory) - memory.serviceReserveBytes,
       )
-      const localActive = Math.max(0, context.active - (options.remoteActive?.() ?? 0))
+      const remoteActive = options.remoteActive?.()
+      // Runtime configuration is untyped at this boundary. Invalid remote
+      // counts must not poison admission arithmetic or trigger adaptive
+      // fallback; treat them as no remote work.
+      const validRemoteActive = typeof remoteActive === "number" && Number.isFinite(remoteActive) && remoteActive >= 0
+        ? remoteActive
+        : 0
+      const localActive = Math.max(0, context.active - validRemoteActive)
       const additional = Math.max(0, Math.floor((admissionMemory - localActive * memory.perInvocationBytes) / memory.perInvocationBytes))
       const memoryConcurrency = context.active + additional
       const concurrency = Math.max(0, Math.min(context.concurrency, memoryConcurrency))
