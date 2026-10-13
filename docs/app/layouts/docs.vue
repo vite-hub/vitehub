@@ -59,6 +59,7 @@ const hasPanel = computed(
     display: flex;
     flex: none;
     height: calc(100dvh - var(--ui-header-height));
+    overflow: hidden;
   }
 
   .vh-docs-content {
