@@ -70,7 +70,7 @@ describe("root app secret", () => {
     expect(firstSecret).not.toBe(lastSecret)
     for (const [index, secret] of [firstSecret, configuredSecret, lastSecret].entries()) {
       expect(configs[index]).toHaveProperty("__vitehubEnvDevelopmentSecret", secret)
-      expect(await readFile(join(projectRoots[index]!, ".vitehub/env/server.mjs"), "utf8")).toContain(JSON.stringify(secret))
+      expect(await readFile(join(projectRoots[index]!, ".vitehub/env/server.mjs"), "utf8")).not.toContain(JSON.stringify(secret))
     }
     await expect(stat(join(configured!, ".vitehub/env/secret"))).rejects.toThrow()
   })

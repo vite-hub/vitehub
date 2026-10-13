@@ -1,5 +1,5 @@
 import { describeServerEnv } from "./server.ts"
-import { randomBytes } from "node:crypto"
+import { createHash, randomBytes } from "node:crypto"
 import { chmod, mkdir, readFile, stat, writeFile } from "node:fs/promises"
 import { dirname, isAbsolute, relative, resolve, win32 } from "node:path"
 
@@ -86,6 +86,7 @@ interface ResolvedEnvState {
   serverRegistry: EnvRuntimeRegistry
   developmentSecret?: string
   developmentSecretGenerated?: boolean
+  developmentSecretEnvKey?: string
 }
 
 export interface EnvGeneratedPathOptions {
@@ -129,7 +130,7 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
     assertConfiguredProviders(registry, resolveProviderModules(options.providers, root))
     await prepareEnvGeneratedTypes(root, packageRoot, config?.public, registry, runtimeImports)
   }
-  const resolveState = async (config: UserConfig & EnvViteUserConfig, mode: string, developmentSecret?: string, developmentSecretGenerated?: boolean) => {
+  const resolveState = async (config: UserConfig & EnvViteUserConfig, mode: string, developmentSecret?: string, developmentSecretGenerated?: boolean, developmentSecretEnvKey?: string) => {
     const envConfig = config.env
     validateEnvConfigShape(envConfig, "vite")
     const projectRoot = resolveProjectRoot(config.root || process.cwd())
@@ -146,6 +147,7 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
           serverRegistry: {},
           developmentSecret,
           developmentSecretGenerated,
+          developmentSecretEnvKey,
         } satisfies ResolvedEnvState,
       }
     }
@@ -184,6 +186,7 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
         serverRegistry: registry,
         developmentSecret,
         developmentSecretGenerated,
+        developmentSecretEnvKey,
       } satisfies ResolvedEnvState,
     }
   }
@@ -204,15 +207,18 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
     async config(config, env) {
       let developmentSecret: string | undefined
       let developmentSecretGenerated = false
+      let developmentSecretEnvKey: string | undefined
       if (env.command === "serve") {
         const projectRoot = resolveProjectRoot(config.root || process.cwd())
         const resolvedSecret = await resolveDevelopmentSecret(projectRoot, loadEnv(env.mode, projectRoot, ""))
         developmentSecret = resolvedSecret.secret
         developmentSecretGenerated = resolvedSecret.generated
+        developmentSecretEnvKey = resolvedSecret.envKey
+        if (developmentSecretEnvKey) process.env[developmentSecretEnvKey] = developmentSecret
       }
       const envConfig = (config as UserConfig & EnvViteUserConfig).env
       // SAFETY: Env extends UserConfig with the optional env field validated by resolveState.
-      const { defineValues, state } = await resolveState(config as UserConfig & EnvViteUserConfig, env.mode, developmentSecret, developmentSecretGenerated)
+      const { defineValues, state } = await resolveState(config as UserConfig & EnvViteUserConfig, env.mode, developmentSecret, developmentSecretGenerated, developmentSecretEnvKey)
       buildPublicConfig = state.publicConfig
       serverRegistry = state.serverRegistry
       const configStateId = String(++configStateSequence)
@@ -255,7 +261,7 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
       const previousGeneratedStateWrite = generatedStateWrites.get(projectRoot) ?? Promise.resolve()
       const generatedStateWrite = previousGeneratedStateWrite.catch(() => undefined).then(async () => {
         const packageRoot = await resolvePackageRoot(config.root, projectRoot)
-        await refreshEnvGeneratedFiles(projectRoot, packageRoot, state.publicConfig, state.serverRegistry, runtimeImports, state.providerModules, state.developmentSecret, state.developmentSecretGenerated)
+        await refreshEnvGeneratedFiles(projectRoot, packageRoot, state.publicConfig, state.serverRegistry, runtimeImports, state.providerModules, state.developmentSecretEnvKey, state.developmentSecretGenerated)
       })
       generatedStateWrites.set(projectRoot, generatedStateWrite)
       try {
@@ -285,7 +291,7 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
         return createPublicEnvModule(publicConfig)
       }
       if (id === RESOLVED_SERVER_ID) {
-        return createServerEnvModule(registry, runtimeImports, providerModules, undefined, state?.developmentSecret, state?.developmentSecretGenerated)
+        return createServerEnvModule(registry, runtimeImports, providerModules, undefined, state?.developmentSecretEnvKey, state?.developmentSecretGenerated)
       }
     },
     resolveId: {
@@ -382,11 +388,12 @@ const generatedSecretPattern = /^[0-9a-f]{64}$/
  * Give the development server a root secret when none is configured, so `deriveSecret()` works without setup.
  * The secret is kept in `.vitehub/env/secret` with mode 0600 and survives restarts. Builds never generate one.
  */
-async function resolveDevelopmentSecret(projectRoot: string, loadedEnv: Record<string, string>): Promise<{ secret: string, generated: boolean }> {
+async function resolveDevelopmentSecret(projectRoot: string, loadedEnv: Record<string, string>): Promise<{ secret: string, generated: boolean, envKey: string }> {
   // loadEnv includes external process values with Vite's normal precedence.
   // Keep the selected root in this project's config and runtime module only.
   const configured = readViteHubSecret(loadedEnv)
-  if (configured) return { generated: false, secret: configured }
+  const envKey = `VITEHUB_SECRET_${createHash("sha256").update(resolve(projectRoot)).digest("hex").slice(0, 16)}`
+  if (configured) return { generated: false, secret: configured, envKey }
   const secretPath = resolve(projectRoot, ".vitehub", "env", "secret")
   let secret = await readFile(secretPath, "utf8").then(value => value.trim(), () => "")
   if (!generatedSecretPattern.test(secret)) {
@@ -395,7 +402,7 @@ async function resolveDevelopmentSecret(projectRoot: string, loadedEnv: Record<s
     await writeFile(secretPath, secret, { mode: 0o600 })
     await chmod(secretPath, 0o600)
   }
-  return { generated: true, secret }
+  return { generated: true, secret, envKey }
 }
 
 async function refreshEnvGeneratedFiles(
@@ -405,14 +412,14 @@ async function refreshEnvGeneratedFiles(
   serverRegistry: EnvRuntimeRegistry,
   runtimeImports: Required<EnvRuntimeImportSpecifiers>,
   providerModules: Record<string, string>,
-  developmentSecret?: string,
+  developmentSecretEnvKey?: string,
   developmentSecretGenerated?: boolean,
 ): Promise<void> {
   const publicTypes = createPublicTypeEntries(publicConfig)
   await Promise.all([
     ...(packageRoot && packageRoot !== root
       ? [
-          ...packageEnvModuleWrites(packageRoot, publicConfig, serverRegistry, runtimeImports, providerModules, developmentSecret, developmentSecretGenerated),
+          ...packageEnvModuleWrites(packageRoot, publicConfig, serverRegistry, runtimeImports, providerModules, developmentSecretEnvKey, developmentSecretGenerated),
           writeFileIfChanged(
             viteHubEnvAmbientTypesPath(packageRoot),
             createAmbientTypesReference(packageRoot, root),
@@ -425,7 +432,7 @@ async function refreshEnvGeneratedFiles(
     writeFileIfChanged(viteHubEnvDescriptionModulePath(root), createServerEnvDescriptionModule(serverRegistry)),
     writeFileIfChanged(
       viteHubEnvServerModulePath(root),
-      createServerEnvModule(serverRegistry, runtimeImports, providerModules, viteHubEnvServerModulePath(root), developmentSecret, developmentSecretGenerated),
+      createServerEnvModule(serverRegistry, runtimeImports, providerModules, viteHubEnvServerModulePath(root), developmentSecretEnvKey, developmentSecretGenerated),
     ),
     writeFileIfChanged(viteHubEnvServerModuleTypesPath(root), createServerEnvModuleTypes(serverRegistry, runtimeImports)),
   ])
@@ -443,7 +450,7 @@ function packageEnvModuleWrites(
   serverRegistry: EnvRuntimeRegistry,
   runtimeImports: Required<EnvRuntimeImportSpecifiers>,
   providerModules: Record<string, string>,
-  developmentSecret?: string,
+  developmentSecretEnvKey?: string,
   developmentSecretGenerated?: boolean,
 ): Promise<void>[] {
   const publicTypes = createPublicTypeEntries(publicConfig)
@@ -452,7 +459,7 @@ function packageEnvModuleWrites(
     writeFileIfChanged(viteHubEnvPublicModuleTypesPath(root), createPublicEnvModuleTypes(publicTypes)),
     writeFileIfChanged(
       viteHubEnvServerModulePath(root),
-      createServerEnvModule(serverRegistry, runtimeImports, providerModules, viteHubEnvServerModulePath(root), developmentSecret, developmentSecretGenerated),
+      createServerEnvModule(serverRegistry, runtimeImports, providerModules, viteHubEnvServerModulePath(root), developmentSecretEnvKey, developmentSecretGenerated),
     ),
     writeFileIfChanged(viteHubEnvServerModuleTypesPath(root), createServerEnvModuleTypes(serverRegistry, runtimeImports)),
   ]
@@ -507,7 +514,7 @@ function createServerEnvModule(
   runtimeImports: Required<EnvRuntimeImportSpecifiers>,
   providerModules: Record<string, string>,
   outputPath?: string,
-  developmentSecret?: string,
+  developmentSecretEnvKey?: string,
   developmentSecretGenerated?: boolean,
 ): string {
   const referenced = referencedProviderNames(serverRegistry)
@@ -521,7 +528,7 @@ function createServerEnvModule(
     createServerEnvDescriptionModule(serverRegistry).trimEnd(),
     'export const manageServerEnv = envRuntime.createServerEnvManagement?.(registry, providers) ?? (async () => Response.json({ message: "Env management is unavailable." }, { status: 503 }));',
     "export function useServerEnv(event) { return envRuntime.resolveServerEnv(registry, event); }",
-    `export async function deriveSecret(purpose, event) { return await envRuntime.deriveSecret(purpose, event, ${JSON.stringify(developmentSecret)}, ${JSON.stringify(developmentSecretGenerated)}); }`,
+    `export async function deriveSecret(purpose, event) { return await envRuntime.deriveSecret(purpose, event, undefined, ${JSON.stringify(developmentSecretGenerated)}, ${JSON.stringify(developmentSecretEnvKey)}); }`,
     "export async function loadServerEnv(event, options) { return await envRuntime.loadServerEnv(registry, event, { ...options, providers }); }",
     "export async function inspectServerEnv(event, options) { return await envRuntime.inspectServerEnv(registry, event, { ...options, providers }); }",
     "export async function runWithServerEnv(event, callback, options) { return await callback(await loadServerEnv(event, options)); }",

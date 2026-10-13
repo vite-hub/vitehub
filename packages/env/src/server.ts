@@ -52,9 +52,9 @@ let warnedGeneratedSecret = false
  * Namespace the purpose to its owner, such as `my-module:session`. ViteHub reserves the `vitehub:` prefix.
  * Throws `ENV_REQUIRED_MISSING` when no root secret is set, and `ENV_RUNTIME_VALUE_INVALID` when it is shorter than 32 characters.
  */
-export async function deriveSecret(purpose: string, event?: unknown, rootOverride?: string, generatedOverride = false): Promise<string> {
+export async function deriveSecret(purpose: string, event?: unknown, rootOverride?: string, generatedOverride = false, rootEnvKey?: string): Promise<string> {
   const env = runtimeEnv(event)
-  const root = rootOverride ?? readViteHubSecret(env)
+  const root = rootOverride ?? (rootEnvKey ? env[rootEnvKey] as string | undefined : undefined) ?? readViteHubSecret(env)
   if (!root) throw missingRequiredEnv("env", "deriveSecret() requires VITEHUB_SECRET. Generate one with `openssl rand -base64 32`.", "VITEHUB_SECRET")
   if (root.length < viteHubSecretMinimumLength) {
     throw invalidRuntimeEnvValue("env", `VITEHUB_SECRET must be at least ${viteHubSecretMinimumLength} characters. Generate one with \`openssl rand -base64 32\`.`, "VITEHUB_SECRET")
