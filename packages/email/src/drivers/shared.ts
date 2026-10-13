@@ -1,6 +1,10 @@
+import * as v from "valibot";
+
 import { emailProviderError } from "../provider.ts";
 
-import type { EmailAddress, EmailAddressList, EmailAddressValue, EmailMessage } from "../types.ts";
+import type { EmailAddress, EmailAddressList, EmailMessage } from "../types.ts";
+
+const mailboxSchema = v.object({ email: v.string(), name: v.optional(v.string()) });
 
 function isAddressArray(input: EmailAddressList): input is readonly EmailAddress[] {
   return Array.isArray(input);
@@ -17,14 +21,10 @@ export function addresses(input: EmailAddressList): EmailAddress[] {
 
 export function addressValue(input: EmailAddress): { email: string; name?: string } {
   if (!isString(input)) {
-    const value: unknown = input
-    const object = value !== null && typeof value === "object" ? value as Partial<EmailAddressValue> : undefined
-    const email = object && isString(object.email) ? object.email.trim() : ""
-    if (object && "name" in object && object.name !== undefined && !isString(object.name)) {
-      return { email: "" }
-    }
-    const name = object && isString(object.name) ? object.name : undefined
-    return { email, ...(name !== undefined ? { name } : {}) }
+    const parsed = v.safeParse(mailboxSchema, input);
+    if (!parsed.success) return { email: "" };
+    const { email, name } = parsed.output;
+    return name === undefined ? { email: email.trim() } : { email: email.trim(), name };
   }
   const match = /^\s*(.*?)\s*<([^<>]+)>\s*$/.exec(input);
   if (!match) return { email: input.trim() };
