@@ -23,6 +23,35 @@ describe("work checkpoints", () => {
     expect(await tracker.run("a", "v1", run)).toBe(true)
     expect(run).toHaveBeenCalledOnce()
   })
+  it("does not trust inherited descriptor values", async () => {
+    const { tracker, records } = fixture()
+    const record = { fingerprint: "v1", disposition: "park", attempt: 0 }
+    Object.defineProperty(record, "version", { get: () => 1, enumerable: true })
+    records.set("a", record)
+    const run = vi.fn(async () => ({ disposition: "park" as const }))
+    const polluted = Object.prototype as Record<string, unknown>
+    polluted.value = 1
+    try {
+      const result = await tracker.run("a", "v1", run)
+      delete polluted.value
+      expect(result).toBe(true)
+      expect(run).toHaveBeenCalledOnce()
+    }
+    finally {
+      delete polluted.value
+    }
+  })
+  it("does not trust proxy-fabricated checkpoint descriptors", async () => {
+    const { tracker, records } = fixture()
+    records.set("a", new Proxy({}, {
+      getOwnPropertyDescriptor: () => ({ value: 1, enumerable: true, configurable: true, writable: true }),
+      ownKeys: () => ["version", "fingerprint", "disposition", "attempt"],
+    }))
+    const run = vi.fn(async () => ({ disposition: "park" as const }))
+
+    expect(await tracker.run("a", "v1", run)).toBe(true)
+    expect(run).toHaveBeenCalledOnce()
+  })
   it("parks the new version produced by a repair", async () => {
     const { tracker } = fixture()
     await tracker.run("a", "v1", async () => ({ disposition: "park", fingerprint: "v2" }))
