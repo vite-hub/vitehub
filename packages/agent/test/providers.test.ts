@@ -22272,22 +22272,38 @@ describe("server helpers", () => {
     expect(runs).toEqual([["remember BROWSER-HISTORY"], ["what marker did I ask you to remember?"]])
   })
 
-  it.each(["local bytes", "local buffer", "foreign bytes", "foreign buffer", "foreign subarray", "foreign blob"])("exports Channel history attachment %s", async (kind) => {
+  it.each(["local bytes", "local buffer", "foreign bytes", "foreign buffer", "foreign subarray", "foreign prototype blob", "spoofed blob"])("exports Channel history attachment %s", async (kind) => {
     const data: unknown = kind === "local bytes"
       ? new Uint8Array([1, 2, 3])
       : kind === "local buffer"
         ? new Uint8Array([1, 2, 3]).buffer
-        : runInNewContext(kind === "foreign bytes"
-          ? "new Uint8Array([1, 2, 3])"
-          : kind === "foreign subarray"
-            ? "new Uint8Array([9, 1, 2, 3, 9]).subarray(1, 4)"
-            : kind === "foreign blob"
-              ? "new Blob([new Uint8Array([1, 2, 3])], { type: 'application/octet-stream' })"
-              : "new Uint8Array([1, 2, 3]).buffer", { Blob })
+        : kind === "foreign prototype blob"
+          ? runInNewContext(`
+            // Native Blob slots with a constructor and prototype created in this VM.
+            class RealmBlob {
+              constructor(parts, options) {
+                return Reflect.construct(NativeBlob, [parts, options], new.target)
+              }
+            }
+            new RealmBlob([new Uint8Array([1, 2, 3])], { type: "application/octet-stream" })
+          `, { NativeBlob: Blob })
+          : kind === "spoofed blob"
+            ? { [Symbol.toStringTag]: "Blob", size: 3, arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer }
+            : runInNewContext(kind === "foreign bytes"
+              ? "new Uint8Array([1, 2, 3])"
+              : kind === "foreign subarray"
+                ? "new Uint8Array([9, 1, 2, 3, 9]).subarray(1, 4)"
+                : "new Uint8Array([1, 2, 3]).buffer")
+    if (kind === "foreign prototype blob") {
+      expect(data).not.toBeInstanceOf(Blob)
+      expect(Object.getOwnPropertyDescriptor(Blob.prototype, "size")!.get!.call(data)).toBe(3)
+      const nativeBytes: ArrayBuffer = await Blob.prototype.arrayBuffer.call(data)
+      expect([...new Uint8Array(nativeBytes)]).toEqual([1, 2, 3])
+    }
     const adapter = createTestChatAdapter({
       historyMessages: [new Message({
         attachments: [{
-          // SAFETY: This fixture supplies valid byte data from a separate JavaScript realm.
+          // SAFETY: The fixtures include foreign byte brands and a native-slot Blob with a VM-created prototype; the spoof deliberately lacks Blob slots.
           data: data as never,
           mimeType: "application/octet-stream",
           name: "bytes.bin",
@@ -22319,9 +22335,16 @@ describe("server helpers", () => {
       method: "POST",
     }), "telegram")
     expect(response.status).toBe(200)
-    await expect(response.json()).resolves.toMatchObject({
-      messages: [{ attachments: [{ data: "AQID", name: "bytes.bin" }], id: "20" }],
-    })
+    if (kind === "spoofed blob") {
+      const history = await response.json()
+      expect(history).toMatchObject({ messages: [{ attachments: [{ name: "bytes.bin", unavailable: true }] }] })
+      expect(history).toMatchObject({ messages: [{ attachments: [expect.not.objectContaining({ data: expect.anything() })] }] })
+    }
+    else {
+      await expect(response.json()).resolves.toMatchObject({
+        messages: [{ attachments: [{ data: "AQID", name: "bytes.bin" }], id: "20" }],
+      })
+    }
   })
 
   it("exports authenticated Channel history with attachment data", async () => {
