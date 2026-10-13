@@ -379,6 +379,7 @@ export function createConsoleUsageIndex(
               updatedAt: String(row.revision),
             },
             row.usage ? JSON.parse(String(row.usage)) : undefined,
+            Number(row.incomplete) === 1,
           ),
           models: JSON.parse(String(row.model_names)),
         })),
