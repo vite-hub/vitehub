@@ -19,15 +19,18 @@ function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
 function isResponseLike(value: unknown): value is Response {
   try {
     if (!hasRuntimeType(value, "object")) return false
-    const response = value as Response
     const prototype = Response.prototype
-    const get = (name: string) => Object.getOwnPropertyDescriptor(prototype, name)?.get?.call(response)
+    const get = (name: string) => {
+      const getter = Object.getOwnPropertyDescriptor(prototype, name)?.get
+      if (!getter) throw new TypeError(`Missing Response accessor: ${name}`)
+      getter.call(value)
+    }
     get("headers")
     get("status")
     get("statusText")
     get("body")
     get("bodyUsed")
-    return Object.prototype.toString.call(response) === "[object Response]"
+    return true
   }
   catch {
     return false

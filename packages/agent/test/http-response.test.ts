@@ -1,5 +1,5 @@
 import vm from "node:vm"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import {
   toAgentEventStreamResponse,
@@ -57,10 +57,31 @@ describe("agent HTTP response helpers", () => {
     expect(toAgentFetchResponse(response, false)).toBe(response)
   })
 
+  it("preserves branded Responses with a custom observable tag", () => {
+    const response = vm.runInNewContext("new Response('ok')", { Response })
+    Object.defineProperty(response, Symbol.toStringTag, { value: "Object" })
+    // Node's VM has no separate fetch globals. Simulate the constructor identity
+    // mismatch while retaining the native accessors and the response's slots.
+    vi.stubGlobal("Response", new Proxy(Response, {
+      get(target, key, receiver) {
+        if (key === Symbol.hasInstance) return () => false
+        return Reflect.get(target, key, receiver)
+      },
+    }))
+    try {
+      expect(response instanceof Response).toBe(false)
+      expect(toAgentHttpResult(response, false)).toBe(response)
+      expect(toAgentFetchResponse(response, false)).toBe(response)
+    }
+    finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it("does not treat a complete Response spoof as a Response", () => {
     const result = {
       arrayBuffer: () => Promise.resolve(new ArrayBuffer(0)),
-      blob: () => Promise.resolve(new Blob()),
+      blob: () => Promise.resolve(new Blob([])),
       body: null,
       bodyUsed: false,
       clone: () => result,
