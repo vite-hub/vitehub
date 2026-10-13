@@ -251,6 +251,7 @@ function renderProviderEntry(file: string, registryFile: string, provider: "clou
           "    return new Response('ViteHub schedule provider wake endpoint')",
           "  },",
           "  async scheduled(event, env, ctx) {",
+          "    if (typeof event.cron !== 'string' || !event.cron.trim()) return",
           "    const tasks = Object.entries(scheduleRegistry).map(async ([name]) => {",
           "      const definition = await loadScheduleDefinition(name)",
           "      if (!definition || normalizeCron(definition.cron) !== normalizeCron(event.cron)) return",

@@ -81,11 +81,17 @@ export async function executeStaticSchedule(options: ExecuteStaticScheduleOption
 }
 
 export async function executeMatchingStaticSchedules(options: ExecuteMatchingStaticSchedulesOptions): Promise<unknown[]> {
+  if (!hasRuntimeType(options.cron, "string") || !options.cron.trim()) {
+    throw createScheduleError("SCHEDULE_INVALID_CRON", {
+      details: invalidScheduleValueDetails("cron", options.cron),
+    })
+  }
+  const cron = normalizeCron(options.cron)
   const scheduledAt = validateScheduledAt(options.scheduledAt)
   const runs: Array<Promise<unknown>> = []
   for (const [name, load] of Object.entries(options.registry)) {
     const definition = unwrapScheduleDefinition(await load())
-    if (!definition || normalizeCron(definition.cron) !== normalizeCron(options.cron)) continue
+    if (!definition || normalizeCron(definition.cron) !== cron) continue
     runs.push(executeStaticSchedule({ cron: options.cron, definition, name, scheduledAt, waitUntil: options.waitUntil }))
   }
   return await Promise.all(runs)
@@ -119,7 +125,7 @@ export async function executeCloudflareStaticSchedules(
 
 function readCloudflareScheduledEvent(event: CloudflareScheduledEventLike): { cron: string, scheduledAt: Date } {
   const cron = event.controller?.cron ?? event.cron
-  if (!cron) {
+  if (!hasRuntimeType(cron, "string") || !cron.trim()) {
     throw scheduleErrorDiagnostics.SCHEDULE_R0027({ message: "[vitehub:schedule] Cloudflare scheduled event is missing a cron string." })
   }
   const scheduledTime = event.controller?.scheduledTime ?? event.scheduledTime

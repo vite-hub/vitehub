@@ -44,6 +44,19 @@ describe("Static Schedule runtime", () => {
     expect(loaded).toBe(false)
   })
 
+  it.each([42, true, {}, ["0 4 * * *"], "   "])("rejects malformed provider cron values before loading definitions: %j", async (cron) => {
+    let loaded = false
+    const registry = { report: async () => {
+      loaded = true
+      return { cron: "0 4 * * *", handler: async () => {} }
+    } }
+    await expect(executeMatchingStaticSchedules({ cron: cron as never, registry }))
+      .rejects.toMatchObject({ code: "SCHEDULE_INVALID_CRON", details: { field: "cron" } })
+    await expect(executeCloudflareStaticSchedules({ controller: { cron: cron as never } }, { registry }))
+      .rejects.toMatchObject({ code: "SCHEDULE_R0027" })
+    expect(loaded).toBe(false)
+  })
+
   it("executes all static schedules matching a cron", async () => {
     const calls: string[] = []
     const registry: ScheduleDefinitionRegistry = {
@@ -100,7 +113,7 @@ describe("Static Schedule runtime", () => {
     await executeMatchingStaticSchedules({
       cron: "0 4 * * *",
       registry: {
-        malformed: async () => ({ cron: 42, handler: () => calls.push("invalid") }),
+        malformed: async () => ({ cron: 42 as never, handler: () => calls.push("invalid") }),
         report: async () => ({ cron: "0  4 * * *", handler: () => calls.push("report") }),
       },
     })
