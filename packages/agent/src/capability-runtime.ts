@@ -507,7 +507,7 @@ function isPlainRecord(input: unknown): input is Record<string, unknown> {
 
 const objectToString = Object.prototype.toString
 
-function objectTag(value: object): string {
+function objectTag(value: unknown): string {
   try {
     return objectToString.call(value)
   }
@@ -516,7 +516,7 @@ function objectTag(value: object): string {
   }
 }
 
-function isBuiltinObject(value: object, tag: string): boolean {
+function isBuiltinObject(value: unknown, tag: string): boolean {
   try {
     switch (tag) {
       case "[object Date]": Date.prototype.getTime.call(value); return true
@@ -525,6 +525,7 @@ function isBuiltinObject(value: object, tag: string): boolean {
       case "[object URLSearchParams]": URLSearchParams.prototype.toString.call(value); return true
       case "[object ArrayBuffer]": Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")!.get!.call(value); return true
       case "[object SharedArrayBuffer]":
+        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- SharedArrayBuffer may not exist in this runtime; typeof safely checks the global.
         if (typeof SharedArrayBuffer === "undefined") return false
         Object.getOwnPropertyDescriptor(SharedArrayBuffer.prototype, "byteLength")!.get!.call(value)
         return true
@@ -543,11 +544,11 @@ function isBuiltinObject(value: object, tag: string): boolean {
   }
 }
 
-function isPlainObjectPrototype(prototype: object | null): boolean {
+function isPlainObjectPrototype(prototype: unknown): boolean {
   if (prototype === null) return true
   try {
     const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
-    return typeof constructor === "function"
+    return hasRuntimeType(constructor, "function")
       && Object.getOwnPropertyDescriptor(constructor, "prototype")?.value === prototype
       && Function.prototype.toString.call(constructor) === Function.prototype.toString.call(Object)
   }
@@ -556,6 +557,7 @@ function isPlainObjectPrototype(prototype: object | null): boolean {
   }
 }
 
+// doctor-disable-next-line typescript/evidence/no-object-parameters -- Descriptor copying accepts arbitrary built-ins and records without requiring named properties.
 function copySnapshotProperties(source: object, target: object, seen: WeakMap<object, unknown>, skip?: PropertyKey): void {
   for (const key of Reflect.ownKeys(source)) {
     if (key === skip) continue
@@ -566,6 +568,7 @@ function copySnapshotProperties(source: object, target: object, seen: WeakMap<ob
   }
 }
 
+// doctor-disable-next-line typescript/evidence/no-object-parameters -- Intrinsic valueOf methods validate the boxed receiver; its own properties may have any shape.
 function snapshotBoxedValue(value: object, tag: string, seen: WeakMap<object, unknown>): object | undefined {
   let snapshot: object
   try {
@@ -593,14 +596,17 @@ export function snapshotCapabilityData(value: unknown, seen: WeakMap<object, unk
   const rawTag = objectTag(value)
   const tag = isBuiltinObject(value, rawTag) ? rawTag : ""
   if (tag === "[object Date]") {
-    try { return new Date((Date.prototype.getTime as (this: object) => number).call(value)) }
+    try { return new Date(Date.prototype.getTime.call(value)) }
     catch { /* spoofed tag; continue with ordinary object handling */ }
   }
   if (tag === "[object RegExp]") {
     try {
+      // SAFETY: The intrinsic RegExp source getter returns a string after validating the receiver.
       const source = Object.getOwnPropertyDescriptor(RegExp.prototype, "source")!.get!.call(value) as string
+      // SAFETY: The intrinsic RegExp flags getter returns a string.
       const flags = Object.getOwnPropertyDescriptor(RegExp.prototype, "flags")!.get!.call(value) as string
       const snapshot = new RegExp(source, flags)
+      // SAFETY: Preserve the branded RegExp lastIndex slot verbatim, including user-assigned values outside its declared number type.
       snapshot.lastIndex = Reflect.get(value, "lastIndex") as number
       return snapshot
     }
@@ -608,6 +614,7 @@ export function snapshotCapabilityData(value: unknown, seen: WeakMap<object, unk
   }
   if (tag === "[object URL]") {
     try {
+      // SAFETY: The intrinsic URL href getter validates the receiver and returns a string.
       const href = Object.getOwnPropertyDescriptor(URL.prototype, "href")!.get!.call(value) as string
       return new URL(href)
     }
@@ -619,17 +626,22 @@ export function snapshotCapabilityData(value: unknown, seen: WeakMap<object, unk
   }
   if (tag === "[object ArrayBuffer]") {
     try {
+      // SAFETY: The intrinsic ArrayBuffer byteLength getter validates the receiver and returns a number.
       const byteLength = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")!.get!.call(value) as number
       const snapshot = new ArrayBuffer(byteLength)
+      // SAFETY: The intrinsic byteLength getter above verified the ArrayBuffer internal slot.
       new Uint8Array(snapshot).set(new Uint8Array(value as ArrayBuffer))
       return snapshot
     }
     catch { /* spoofed tag; continue with ordinary object handling */ }
   }
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- SharedArrayBuffer may not exist in this runtime; typeof safely checks the global.
   if (tag === "[object SharedArrayBuffer]" && typeof SharedArrayBuffer !== "undefined") {
     try {
+      // SAFETY: The intrinsic SharedArrayBuffer byteLength getter validates the receiver and returns a number.
       const byteLength = Object.getOwnPropertyDescriptor(SharedArrayBuffer.prototype, "byteLength")!.get!.call(value) as number
       const snapshot = new SharedArrayBuffer(byteLength)
+      // SAFETY: The intrinsic byteLength getter above verified the SharedArrayBuffer internal slot.
       new Uint8Array(snapshot).set(new Uint8Array(value as SharedArrayBuffer))
       return snapshot
     }
@@ -641,6 +653,7 @@ export function snapshotCapabilityData(value: unknown, seen: WeakMap<object, unk
     const snapshot = new Map<unknown, unknown>()
     seen.set(value, snapshot)
     try {
+      // SAFETY: The intrinsic Map iterator validates its receiver and yields key/value pairs of unknown values.
       const entries = Map.prototype.entries.call(value) as Iterable<readonly [unknown, unknown]>
       for (const [key, entry] of entries) snapshot.set(snapshotCapabilityData(key, seen), snapshotCapabilityData(entry, seen))
       return snapshot
@@ -654,6 +667,7 @@ export function snapshotCapabilityData(value: unknown, seen: WeakMap<object, unk
     const snapshot = new Set<unknown>()
     seen.set(value, snapshot)
     try {
+      // SAFETY: The intrinsic Set iterator validates its receiver and yields unknown values.
       const entries = Set.prototype.values.call(value) as Iterable<unknown>
       for (const entry of entries) snapshot.add(snapshotCapabilityData(entry, seen))
       return snapshot
@@ -671,6 +685,7 @@ export function snapshotCapabilityData(value: unknown, seen: WeakMap<object, unk
   return snapshot
 }
 
+// doctor-disable-next-line typescript/evidence/no-object-parameters -- Descriptor comparison accepts any already-validated object shape.
 function compareCapabilityProperties(left: object, right: object, seen: WeakMap<object, object>): boolean {
   const leftKeys = Reflect.ownKeys(left)
   const rightKeys = Reflect.ownKeys(right)
@@ -699,7 +714,7 @@ function capabilityDataEqual(left: unknown, right: unknown, seen = new WeakMap<o
   if (leftTag !== rightTag) return false
   if (leftTag === "[object Date]") {
     try {
-      const getTime = Date.prototype.getTime as (this: object) => number
+      const getTime = Date.prototype.getTime
       return Object.is(getTime.call(left), getTime.call(right))
     }
     catch { return false }
@@ -730,7 +745,9 @@ function capabilityDataEqual(left: unknown, right: unknown, seen = new WeakMap<o
         : Object.getOwnPropertyDescriptor(SharedArrayBuffer.prototype, "byteLength")!.get!
       byteLengthGetter.call(left)
       byteLengthGetter.call(right)
+      // SAFETY: The matching intrinsic byteLength getter above verified the buffer internal slot.
       const leftBytes = new Uint8Array(left as ArrayBufferLike)
+      // SAFETY: The matching intrinsic byteLength getter above verified the buffer internal slot.
       const rightBytes = new Uint8Array(right as ArrayBufferLike)
       return leftBytes.length === rightBytes.length && leftBytes.every((byte, index) => byte === rightBytes[index])
     }
@@ -740,7 +757,9 @@ function capabilityDataEqual(left: unknown, right: unknown, seen = new WeakMap<o
     try {
       const size = Object.getOwnPropertyDescriptor(Map.prototype, "size")!.get!
       if (size.call(left) !== size.call(right)) return false
+      // SAFETY: The intrinsic Map iterator validates its receiver and yields key/value pairs.
       const leftEntries = [...Map.prototype.entries.call(left) as Iterable<[unknown, unknown]>]
+      // SAFETY: The intrinsic Map iterator validates its receiver and yields key/value pairs.
       const rightEntries = [...Map.prototype.entries.call(right) as Iterable<[unknown, unknown]>]
       return leftEntries.every(([key, value], index) => capabilityDataEqual(key, rightEntries[index]?.[0], seen) && capabilityDataEqual(value, rightEntries[index]?.[1], seen))
     }
@@ -750,18 +769,21 @@ function capabilityDataEqual(left: unknown, right: unknown, seen = new WeakMap<o
     try {
       const size = Object.getOwnPropertyDescriptor(Set.prototype, "size")!.get!
       if (size.call(left) !== size.call(right)) return false
+      // SAFETY: The intrinsic Set iterator validates its receiver and yields unknown values.
       const rightEntries = [...Set.prototype.values.call(right) as Iterable<unknown>]
+      // SAFETY: The intrinsic Set iterator validates its receiver and yields unknown values.
       return [...Set.prototype.values.call(left) as Iterable<unknown>].every((value, index) => capabilityDataEqual(value, rightEntries[index], seen))
     }
     catch { return false }
   }
   if (["[object Number]", "[object String]", "[object Boolean]", "[object BigInt]", "[object Symbol]"].includes(leftTag)) {
     try {
+      // SAFETY: Each selected intrinsic valueOf validates its receiver and returns the corresponding primitive; comparison only needs unknown.
       const valueOf = (leftTag === "[object Number]" ? Number.prototype.valueOf
         : leftTag === "[object String]" ? String.prototype.valueOf
           : leftTag === "[object Boolean]" ? Boolean.prototype.valueOf
             : leftTag === "[object BigInt]" ? BigInt.prototype.valueOf
-              : Symbol.prototype.valueOf) as (this: object) => unknown
+              : Symbol.prototype.valueOf) as (this: unknown) => unknown
       if (!Object.is(valueOf.call(left), valueOf.call(right))) return false
     }
     catch { return false }
