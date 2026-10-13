@@ -545,10 +545,10 @@ function isBuiltinObject(value: object, tag: string): boolean {
 
 function isPlainObjectPrototype(prototype: object | null): boolean {
   if (prototype === null) return true
-  if (objectTag(prototype) !== "[object Object]") return false
   try {
     const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
     return typeof constructor === "function"
+      && Object.getOwnPropertyDescriptor(constructor, "prototype")?.value === prototype
       && Function.prototype.toString.call(constructor) === Function.prototype.toString.call(Object)
   }
   catch {
@@ -643,6 +643,7 @@ export function snapshotCapabilityData(value: unknown, seen: WeakMap<object, unk
     try {
       const entries = Map.prototype.entries.call(value) as Iterable<readonly [unknown, unknown]>
       for (const [key, entry] of entries) snapshot.set(snapshotCapabilityData(key, seen), snapshotCapabilityData(entry, seen))
+      return snapshot
     }
     catch {
       seen.delete(value)
@@ -655,6 +656,7 @@ export function snapshotCapabilityData(value: unknown, seen: WeakMap<object, unk
     try {
       const entries = Set.prototype.values.call(value) as Iterable<unknown>
       for (const entry of entries) snapshot.add(snapshotCapabilityData(entry, seen))
+      return snapshot
     }
     catch {
       seen.delete(value)

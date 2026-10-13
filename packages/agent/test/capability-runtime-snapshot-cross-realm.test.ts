@@ -39,6 +39,33 @@ describe("capability input snapshots", () => {
     expect(resolved.inputDataChanged(), name).toBe(true)
   })
 
+  it.each(["local", "foreign"])("snapshots %s records with tagged Object prototypes", async (realm) => {
+    // The VM expression returns the same record shape as the local fixture.
+    const value = realm === "local" ? { nested: { count: 1 } } : vm.runInNewContext("({ nested: { count: 1 } })") as { nested: { count: number } }
+    const prototype = Object.getPrototypeOf(value)
+    const original = Object.getOwnPropertyDescriptor(prototype, Symbol.toStringTag)
+    const resolved = await resolveAgentCapabilities(undefined, runtime(), { data: { value } })
+    let snapshot: unknown
+    let unchanged = false
+    let changed = false
+    try {
+      Object.defineProperty(prototype, Symbol.toStringTag, { configurable: true, value: "TaggedRecord" })
+      snapshot = snapshotCapabilityData(value)
+      unchanged = !resolved.inputDataChanged()
+      value.nested.count = 2
+      changed = resolved.inputDataChanged()
+    }
+    finally {
+      if (original) Object.defineProperty(prototype, Symbol.toStringTag, original)
+      else Reflect.deleteProperty(prototype, Symbol.toStringTag)
+    }
+    expect(snapshot).not.toBe(value)
+    expect(snapshot).toEqual({ nested: { count: 1 } })
+    expect(Object.getPrototypeOf(snapshot)).toBe(prototype)
+    expect(unchanged).toBe(true)
+    expect(changed).toBe(true)
+  })
+
   it("snapshots URL built-ins without relying on realm constructors", () => {
     const url = new URL("https://example.test/path?query=1")
     const params = new URLSearchParams("query=1")
