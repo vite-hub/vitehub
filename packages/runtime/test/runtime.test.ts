@@ -783,6 +783,50 @@ describe("@vite-hub/runtime", () => {
     }
   })
 
+  it.each(["SharedArrayBuffer", "WebAssembly.Memory"])("ignores a replaced %s constructor when checking shared memory", async (constructor) => {
+    const shared = runInNewContext("new SharedArrayBuffer(0)")
+    const getter = vi.fn(() => 0)
+    class ForgedSharedArrayBuffer {}
+    Object.defineProperty(ForgedSharedArrayBuffer.prototype, "byteLength", { get: getter })
+    Object.defineProperty(ForgedSharedArrayBuffer.prototype, Symbol.toStringTag, { value: "SharedArrayBuffer" })
+    if (constructor === "SharedArrayBuffer") {
+      vi.stubGlobal("SharedArrayBuffer", ForgedSharedArrayBuffer)
+    }
+    else {
+      vi.stubGlobal("SharedArrayBuffer", undefined)
+      vi.stubGlobal("WebAssembly", {
+        Memory: class {
+          buffer = new ForgedSharedArrayBuffer()
+        },
+      })
+    }
+    try {
+      vi.resetModules()
+      const runtime = await import("../src/index.ts")
+      const log = runtime.createTraceEventLog()
+      await log.append({ name: "ordinary", payload: { value: { files: 1 }, visibility: "public" }, type: "lifecycle" })
+      await log.append({ name: "shared", payload: { value: shared, visibility: "public" }, type: "lifecycle" })
+      expect(log.entries()[0]?.payload).toEqual({ value: { files: 1 }, visibility: "public" })
+      expect(log.entries()[1]?.payload).toEqual({ visibility: "private" })
+      expect(getter).not.toHaveBeenCalled()
+    }
+    finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it.each([
+    new ArrayBuffer(0),
+    new ArrayBuffer(4),
+    new Uint8Array(4),
+    new DataView(new ArrayBuffer(4)),
+    runInNewContext("new ArrayBuffer(4)"),
+  ])("preserves ordinary buffer and view payloads (%#)", async (value) => {
+    const log = createTraceEventLog()
+    await log.append({ name: "ordinary", payload: { value, visibility: "public" }, type: "lifecycle" })
+    expect(log.entries()[0]?.payload?.visibility).toBe("public")
+  })
+
   it("rejects cross-realm shared buffer payloads", async () => {
     const log = createTraceEventLog()
     await log.append({
