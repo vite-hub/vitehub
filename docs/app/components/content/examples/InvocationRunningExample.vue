@@ -2,6 +2,11 @@
 import type { AgentInvocationView } from "@vite-hub/ui";
 
 const now = useState("ui-running-clock", () => Date.now());
+
+// Reset synthetic timestamps in the browser after prerendered state hydrates.
+onMounted(() => {
+  now.value = Date.now();
+});
 const time = (secondsAgo: number) => new Date(now.value - secondsAgo * 1_000).toISOString();
 
 const invocation: AgentInvocationView = {

@@ -5,10 +5,15 @@ import {
   type AgentInvocationListItem,
   type AgentInvocationView,
 } from "@vite-hub/ui";
-import { computed, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 
 // Keep running timestamps relative to the page load, including server rendering.
 const now = useState("ui-dashboard-clock", () => Date.now());
+
+// Reset synthetic timestamps in the browser after prerendered state hydrates.
+onMounted(() => {
+  now.value = Date.now();
+});
 const time = (secondsAgo: number) => new Date(now.value - secondsAgo * 1_000).toISOString();
 
 // Synthetic, already-authorized records. In an application, load them from your Invocation store.
