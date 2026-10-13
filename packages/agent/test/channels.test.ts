@@ -476,6 +476,47 @@ describe("agent channels", () => {
     expect(storedBody).toContain("| Running |")
   })
 
+  it.each([undefined, "A worker will resume this review."])("renders one queued status with linked history and summary %s", async summary => {
+    const { github } = await import("../src/channels.ts")
+    let storedBody = ""
+    const channel = github({ activity: true, app: {
+      token: "queued-history-token",
+      identity: { login: "queued-history-bot" },
+      fetch: async (_input, init) => {
+        if (!init?.method || init.method === "GET") {
+          return Response.json(storedBody ? [{ id: 7, body: storedBody, user: { login: "queued-history-bot" } }] : [])
+        }
+        const payload: unknown = JSON.parse(String(init.body))
+        if (!isRuntimeRecord(payload) || !hasRuntimeType(payload.body, "string")) throw new Error("Invalid comment body")
+        storedBody = payload.body
+        return Response.json({ id: 7 })
+      },
+    } })
+    const update = channel.activity?.update
+    if (!update) throw new Error("Missing activity updater")
+    const context = (queued: boolean) => ({
+      activity: {
+        agentName: "queued-reviewer",
+        links: queued ? [] : [{ label: "Session", url: "https://console.test/invocations/previous" }],
+        runId: queued ? "next-queued-run" : "previous-run",
+        status: queued ? "queued" : "completed",
+        summary: queued ? summary : "Previous review complete.",
+        tasks: [],
+      },
+      channel, memo: vi.fn(), run: { runId: queued ? "next-queued-run" : "previous-run" },
+      runtime: "unknown", target: { repository: "acme/queued-history", issue: 42 }, waitUntil: vi.fn(),
+    })
+    // SAFETY: These fixtures supply the callback fields consumed by GitHub activity updates.
+    await update(context(false) as never)
+    await update(context(true) as never)
+    expect(storedBody).toContain("[View session](<https://console.test/invocations/previous>)")
+    expect(storedBody).toContain("Previous review complete.")
+    expect(storedBody.match(/Queued\n\n/g)).toHaveLength(1)
+    expect(storedBody).not.toContain("Waiting to start.")
+    if (summary) expect(storedBody.split(summary)).toHaveLength(2)
+    else expect(storedBody).toContain("Waiting for a worker slot.")
+  })
+
   it("creates queued GitHub activity when a pull request opens", async () => {
     const { github } = await import("../src/channels.ts")
     let storedBody = ""

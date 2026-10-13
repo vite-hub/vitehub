@@ -1922,7 +1922,6 @@ function renderGithubActivity(
       if (status) sections.push(status)
       return sections.join("\n\n")
     }
-    sections.push(activity.summary ? githubActivityText(activity.summary, 2_000) : "Waiting to start.")
   }
   sections.push([
     "| Session | Status | Started | Duration |",
