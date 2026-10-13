@@ -224,7 +224,26 @@ function matchesBytes(actual: Uint8Array | undefined, expected: Uint8Array): boo
 function storedUpdate(value: unknown): Uint8Array | undefined {
   if (ArrayBuffer.isView(value)) {
     try {
-      return new Uint8Array(value.buffer, value.byteOffset, value.byteLength)
+      const typedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype)
+      const typedBuffer = Object.getOwnPropertyDescriptor(typedArrayPrototype, "buffer")?.get
+      const typedOffset = Object.getOwnPropertyDescriptor(typedArrayPrototype, "byteOffset")?.get
+      const typedLength = Object.getOwnPropertyDescriptor(typedArrayPrototype, "byteLength")?.get
+      let buffer: ArrayBuffer
+      let byteOffset: number
+      let byteLength: number
+      try {
+        buffer = typedBuffer!.call(value)
+        byteOffset = typedOffset!.call(value)
+        byteLength = typedLength!.call(value)
+      }
+      catch {
+        const dataViewPrototype = DataView.prototype
+        buffer = Object.getOwnPropertyDescriptor(dataViewPrototype, "buffer")!.get!.call(value)
+        byteOffset = Object.getOwnPropertyDescriptor(dataViewPrototype, "byteOffset")!.get!.call(value)
+        byteLength = Object.getOwnPropertyDescriptor(dataViewPrototype, "byteLength")!.get!.call(value)
+      }
+      if (!buffer || byteOffset === undefined || byteLength === undefined) return undefined
+      return new Uint8Array(buffer, byteOffset, byteLength)
     }
     catch {
       return undefined

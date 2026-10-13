@@ -1374,6 +1374,23 @@ describe("tiptap-markdown documents", () => {
     restored.destroy()
   })
 
+  it("ignores shadowed metadata on durable views", () => {
+    const original = markdownToYDoc("# Durable")
+    const view = new Uint8Array(Y.encodeStateAsUpdate(original)) as Uint8Array & Record<string, unknown>
+    Object.defineProperties(view, {
+      buffer: { value: new ArrayBuffer(0) },
+      byteOffset: { value: 0 },
+      byteLength: { value: 0 },
+    })
+    const restored = restoreRealtimeDocument("# Fallback", "baseline", {
+      baseline_digest: "baseline",
+      update_blob: view,
+    })
+    expect(yDocToMarkdown(restored)).toBe("# Fallback")
+    original.destroy()
+    restored.destroy()
+  })
+
   it("restores durable Yjs identities only for the matching Workspace version", () => {
     const original = markdownToYDoc("# Shared draft")
     const stored = {
