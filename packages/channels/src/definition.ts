@@ -21,6 +21,9 @@ function validateChannelDefinition(value: unknown): asserts value is ChannelDefi
   }
 
   for (const name of connectorNames) {
+    if (!name) {
+      throw channelsErrorDiagnostics.CHANNELS_C0006({ message: "Channel connector names must be non-empty." })
+    }
     if (!isConnector(definition.connectors[name])) {
       throw channelsErrorDiagnostics.CHANNELS_C0004({ message: `Channel connector "${name}" must expose a send function.` })
     }
