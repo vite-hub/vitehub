@@ -195,6 +195,7 @@ async function waitForExecOutput(
   timeout: number | undefined,
   execution: ExecutionMeta | undefined,
   shouldAccept: (output: string) => boolean,
+  signal?: AbortSignal,
 ) {
   const recoveryTimeout = resolveExecOutputRecoveryTimeout(timeout)
   const deadline = Date.now() + recoveryTimeout
@@ -202,8 +203,9 @@ async function waitForExecOutput(
   let lastOutput = ''
 
   while (Date.now() < deadline) {
+    signal?.throwIfAborted()
     try {
-      const output = await sandbox.readFile(outputPath)
+      const output = await sandbox.readFile(outputPath, { signal })
       lastOutput = output
       if (shouldAccept(output))
         return output
@@ -212,7 +214,7 @@ async function waitForExecOutput(
       lastError = readError
     }
 
-    await sleep(EXEC_OUTPUT_RECOVERY_POLL_MS)
+    await sleep(EXEC_OUTPUT_RECOVERY_POLL_MS, signal)
   }
 
   throw createExecOutputFailure(sandbox, outputPath, error, recoveryTimeout, execution, {
@@ -227,6 +229,7 @@ async function recoverExecOutput(
   error: unknown,
   timeout?: number,
   execution?: ExecutionMeta,
+  signal?: AbortSignal,
 ) {
   if (sandbox.provider !== 'cloudflare' || !isRecoverableCloudflareExecError(error))
     return null
@@ -238,6 +241,7 @@ async function recoverExecOutput(
     timeout,
     execution,
     output => isCompleteSandboxOutput(output),
+    signal,
   )
 }
 
@@ -247,6 +251,7 @@ async function waitForCloudflareOutput(
   error: unknown,
   timeout?: number,
   execution?: ExecutionMeta,
+  signal?: AbortSignal,
 ) {
   const recoveryTimeout = resolveExecOutputRecoveryTimeout(timeout)
 
@@ -260,6 +265,7 @@ async function waitForCloudflareOutput(
     timeout,
     execution,
     output => isCompleteSandboxOutput(output),
+    signal,
   )
 }
 
@@ -269,6 +275,7 @@ export async function readExecOutputWithRecovery(
   error: unknown,
   timeout?: number,
   execution?: ExecutionMeta,
+  signal?: AbortSignal,
 ) {
   const executionOutput = extractSandboxOutputFromExecution(execution)
     || extractSandboxOutputFromExecution(error as { stdout?: string, stderr?: string } | undefined)
@@ -276,7 +283,7 @@ export async function readExecOutputWithRecovery(
     return executionOutput
 
   try {
-    const output = await sandbox.readFile(outputPath)
+    const output = await sandbox.readFile(outputPath, { signal })
     if (tryParseSandboxOutput(output))
       return output
     // A complete output file belongs to this execution. Preserve malformed
@@ -286,10 +293,11 @@ export async function readExecOutputWithRecovery(
       return output
   }
   catch {
-    return await waitForCloudflareOutput(sandbox, outputPath, error, timeout, execution)
+    signal?.throwIfAborted()
+    return await waitForCloudflareOutput(sandbox, outputPath, error, timeout, execution, signal)
   }
 
-  return await waitForCloudflareOutput(sandbox, outputPath, error, timeout, execution)
+  return await waitForCloudflareOutput(sandbox, outputPath, error, timeout, execution, signal)
 }
 
 export { recoverExecOutput }

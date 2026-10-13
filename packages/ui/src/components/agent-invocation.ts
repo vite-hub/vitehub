@@ -26,6 +26,7 @@ import { AgentInvocationTimeline, invocationTimeline } from "./agent-invocation-
 export { invocationActivities } from "../internal/invocation-activity.ts";
 import { buildInvocationConversation, type InvocationConversation } from "../internal/invocation-conversation.ts";
 import { hasRuntimeType, runtimeType } from "../internal/runtime-type.ts";
+import { payloadText } from "../internal/payload-text.ts";
 import { AgentPatchDiff } from "./agent-code-view.ts";
 import { AgentMarkdown } from "./agent-markdown.ts";
 import { AgentToolList } from "./agent-tool-list.ts";
@@ -128,22 +129,6 @@ function renderFolderIcon() {
 type InspectTarget = "agent" | "workspace";
 type InspectHandler = (target: InspectTarget, path?: string) => void;
 
-function payloadText(value: unknown): string {
-  if (hasRuntimeType(value, "string")) return value;
-  const ancestors: object[] = [];
-  try {
-    return JSON.stringify(value, function (this: unknown, _key, item: unknown) {
-      if (hasRuntimeType(item, "bigint")) return `${item}n`;
-      if (!hasRuntimeType(item, "object") || item === null) return item;
-      while (ancestors.length && ancestors.at(-1) !== this) ancestors.pop();
-      if (ancestors.includes(item)) return "[Circular]";
-      ancestors.push(item);
-      return item;
-    }, 2) ?? String(value);
-  } catch (error) {
-    return error instanceof Error ? `[Unable to display payload: ${error.message}]` : "[Unable to display payload]";
-  }
-}
 
 function payloadPreview(value: unknown, text: string): string {
   const source = hasRuntimeType(value, "string") ? value : text.replaceAll(/\s+/g, " ");

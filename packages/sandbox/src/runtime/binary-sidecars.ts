@@ -131,15 +131,16 @@ export async function decodeSandboxValue(
   value: unknown,
   assetsDir: string,
   label: string,
+  signal?: AbortSignal,
 ): Promise<unknown> {
   if (Array.isArray(value))
-    return await Promise.all(value.map(entry => decodeSandboxValue(sandbox, entry, assetsDir, label)))
+    return await Promise.all(value.map(entry => decodeSandboxValue(sandbox, entry, assetsDir, label, signal)))
   if (!isPlainObject(value)) return value
 
   if (!hasMarker(value)) {
     return Object.fromEntries(await Promise.all(Object.entries(value).map(async ([key, entry]) => [
       key,
-      await decodeSandboxValue(sandbox, entry, assetsDir, label),
+      await decodeSandboxValue(sandbox, entry, assetsDir, label, signal),
     ])))
   }
 
@@ -158,7 +159,7 @@ export async function decodeSandboxValue(
       throw serializationError(`Sandbox ${label} contains an invalid binary sidecar descriptor.`, { label })
     return Object.fromEntries(await Promise.all(descriptor.entries.map(async ([key, entry]) => [
       key,
-      await decodeSandboxValue(sandbox, entry, assetsDir, label),
+      await decodeSandboxValue(sandbox, entry, assetsDir, label, signal),
     ])))
   }
 
@@ -171,7 +172,7 @@ export async function decodeSandboxValue(
     throw serializationError(`Sandbox ${label} contains an invalid binary sidecar descriptor.`, { label })
   }
 
-  const bytes = await sandbox.files.read(`${assetsDir}/${descriptor.id}`)
+  const bytes = await sandbox.files.read(`${assetsDir}/${descriptor.id}`, { signal })
   if (!bytes) {
     throw serializationError(`Sandbox ${label} binary sidecar ${descriptor.id} does not exist.`, {
       id: descriptor.id,

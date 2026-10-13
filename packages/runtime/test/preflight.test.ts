@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
+import { runInNewContext } from "node:vm"
 
 import { runRuntimePreflight, startRuntimePreflight, type RuntimePreflightCheckResult } from "../src/index.ts"
 
@@ -164,20 +165,21 @@ describe("runtime preflight", () => {
   })
 
   it("observes a promise returned after a synchronous timeout", async () => {
-    const clock = vi.spyOn(Date, "now").mockReturnValue(0)
+    vi.useFakeTimers()
     let rejectLate: ((reason?: unknown) => void) | undefined
     let checkSignal: AbortSignal | undefined
     const late = new Promise<never>((_, reject) => { rejectLate = reject })
     try {
       const manifest = await runRuntimePreflight({
-        timeoutMs: 1,
+        timeoutMs: 100,
         checks: [{
           id: "command:blocking-promise",
           kind: "command",
           check: ({ signal }) => {
             checkSignal = signal
-            // Exceed the deadline only after the callback starts.
-            clock.mockReturnValue(15)
+            // Advance the fake clock after callback startup to deterministically
+            // exercise a synchronous callback that runs past its deadline.
+            vi.advanceTimersByTime(150)
             return late
           },
         }],
@@ -185,10 +187,10 @@ describe("runtime preflight", () => {
       expect(manifest.capabilities["command:blocking-promise"]).toBe("unknown")
       expect(checkSignal?.aborted).toBe(true)
       rejectLate?.(new Error("late failure"))
-      await new Promise(resolve => setTimeout(resolve, 0))
+      await vi.runAllTicks()
     }
     finally {
-      clock.mockRestore()
+      vi.useRealTimers()
     }
   })
 
@@ -199,6 +201,15 @@ describe("runtime preflight", () => {
       checks: [{ id: "command:throws", kind: "command", check: () => { throw error } }],
     })
     expect(manifest.checks[0]).toMatchObject({ state: "unknown", reason: "The preflight check failed." })
+  })
+
+  it("preserves messages from cross-realm errors", async () => {
+    const error = runInNewContext("new Error('provider unavailable')") as Error
+    const manifest = await runRuntimePreflight({
+      checks: [{ id: "command:cross-realm-error", kind: "command", check: () => { throw error } }],
+    })
+
+    expect(manifest.checks[0]).toMatchObject({ state: "unknown", reason: "provider unavailable" })
   })
 
   it("does not treat callable result records as available", async () => {
