@@ -43,7 +43,7 @@ import { isAgentInvocationCancellationError } from "../internal/invocation-cance
 import { finalChannelOutputContextKey, hasOnlyPortableAgentWorkflowCapabilities, requireAgentWorkflowContextKey } from "../internal/final-channel-output.ts"
 import { agentChannelHistoryHeader } from "../internal/channel-history.ts"
 import { agentChannelSyncProviderHeader } from "../internal/channel-sync.ts"
-import { attachmentStringBytes, isAttachmentData } from "../messages.ts"
+import { attachmentStringBytes, blobArrayBuffer, blobType, isArrayBufferValue, isAttachmentData, isBlob, isUint8ArrayValue } from "../messages.ts"
 import { agentInvokerLabel, hasResolvedAgentInvokerInput, resolveInputAgentInvoker, resolveAgentInvoker, withResolvedAgentInvokerInput } from "../invoker.ts"
 import { createAgentUIMessageStreamResponse } from "../stream-output.ts"
 import {
@@ -4199,7 +4199,10 @@ interface ChatMessagePartOptions {
 }
 
 function imageAttachmentMediaType(attachment: Attachment): string | undefined {
-  if (attachment.data instanceof Blob && attachment.data.type.startsWith("image/")) return attachment.data.type
+  if (isBlob(attachment.data)) {
+    const type = blobType(attachment.data)
+    if (type.startsWith("image/")) return type
+  }
   for (const path of [attachment.name, attachment.url]) {
     const extension = path?.split(/[?#]/)[0]?.split(".").pop()?.toLowerCase()
     if (extension && imageAttachmentMimeTypes[extension]) return imageAttachmentMimeTypes[extension]
@@ -4217,7 +4220,7 @@ function isTextAttachment(attachment: Attachment): boolean {
 }
 
 function checkedTextAttachmentBytes(value: unknown, options: ChatMessagePartOptions = {}): Uint8Array | undefined {
-  const bytes = value instanceof ArrayBuffer ? new Uint8Array(value) : value instanceof Uint8Array ? value : undefined
+  const bytes = isArrayBufferValue(value) ? new Uint8Array(value) : isUint8ArrayValue(value) ? value : undefined
   if (!bytes) return
   if (bytes.byteLength > chatTextAttachmentMaxBytes) {
     if (!options.rejectOversizedTextAttachments) return
@@ -4237,16 +4240,14 @@ async function textAttachmentBytes(attachment: Attachment, options: ChatMessageP
   }
   if (isRuntimeFunction(attachment.fetchData)) {
     try {
-      return checkedTextAttachmentBytes(await attachment.fetchData(), options)
+      const data = await attachment.fetchData()
+      return checkedTextAttachmentBytes(isBlob(data) ? await blobArrayBuffer(data) : data, options)
     } catch (error) {
       if (isTextAttachmentOversizeError(error)) throw error
       return undefined
     }
   }
-  if (attachment.data instanceof Blob) {
-    return checkedTextAttachmentBytes(await attachment.data.arrayBuffer(), options)
-  }
-  return checkedTextAttachmentBytes(attachment.data, options)
+  return checkedTextAttachmentBytes(isBlob(attachment.data) ? await blobArrayBuffer(attachment.data) : attachment.data, options)
 }
 
 async function textPartFromAttachment(
