@@ -287,10 +287,10 @@ async function runAccessAuthorize(
 function isResponseLike(value: unknown): value is Response {
   if (value === null || typeof value !== "object") return false
   try {
-    // Calling a native Response method performs the platform brand check, which
-    // also accepts genuine Responses created in another realm.
-    Response.prototype.clone.call(value as Response)
     const response = value as Response
+    // Accessing an intrinsic Response property performs the platform brand
+    // check without depending on the body's disturbed or locked state.
+    Object.getOwnPropertyDescriptor(Response.prototype, "body")!.get!.call(response)
     const status = Object.getOwnPropertyDescriptor(Response.prototype, "status")!.get!.call(response)
     const statusText = Object.getOwnPropertyDescriptor(Response.prototype, "statusText")!.get!.call(response)
     const headers = Object.getOwnPropertyDescriptor(Response.prototype, "headers")!.get!.call(response)
