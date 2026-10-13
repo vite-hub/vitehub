@@ -46,7 +46,12 @@ export function redactProvisionState(state: ProvisionState): ProvisionState {
 
 // Reads a single provisioned identifier, e.g. ("cloudflare", "d1", "primary").
 export function readProvisionedId(state: ProvisionState, provider: keyof ProvisionState, category: string, key: string): string | undefined {
-  return state[provider]?.[category]?.[key]
+  if (!Object.hasOwn(state, provider)) return
+  const categories = state[provider]
+  if (!categories || !Object.hasOwn(categories, category)) return
+  const ids = categories[category]
+  if (!ids || !Object.hasOwn(ids, key)) return
+  return ids[key]
 }
 
 export async function writeProvisionState(rootDir: string, next: ProvisionState): Promise<void> {
@@ -63,7 +68,7 @@ export function mergeProvisionState(base: ProvisionState, next: ProvisionState):
     if (!categories) continue
     const target = (merged[provider] ??= {})
     for (const [category, ids] of Object.entries(categories)) {
-      setOwn(target, category, { ...target[category], ...ids })
+      setOwn(target, category, { ...(Object.hasOwn(target, category) ? target[category] : {}), ...ids })
     }
   }
   return merged

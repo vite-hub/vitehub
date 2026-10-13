@@ -47,6 +47,28 @@ describe("provision state", () => {
     expect(raw).not.toMatch(/token|secret/i)
   })
 
+  it("does not return inherited categories or identifiers", () => {
+    const state = { cloudflare: { d1: { primary: "id-1" } } }
+    for (const name of ["__proto__", "constructor", "toString"]) {
+      expect(readProvisionedId(state, "cloudflare", "d1", name)).toBeUndefined()
+      expect(readProvisionedId(state, "cloudflare", name, "constructor")).toBeUndefined()
+    }
+  })
+
+  it("merges and round-trips prototype-named categories and identifiers", async () => {
+    const rootDir = await createTempDir()
+    const initial = JSON.parse('{"cloudflare":{"__proto__":{"__proto__":"id-1"},"constructor":{"toString":"id-2"}}}')
+    const next = JSON.parse('{"cloudflare":{"__proto__":{"constructor":"id-3"}}}')
+    await writeProvisionState(rootDir, initial)
+    await writeProvisionState(rootDir, next)
+    const state = await readProvisionState(rootDir)
+    expect(readProvisionedId(state, "cloudflare", "__proto__", "__proto__")).toBe("id-1")
+    expect(readProvisionedId(state, "cloudflare", "__proto__", "constructor")).toBe("id-3")
+    expect(readProvisionedId(state, "cloudflare", "constructor", "toString")).toBe("id-2")
+    expect(Object.getPrototypeOf(state.cloudflare)).toBe(Object.prototype)
+    expect(Object.hasOwn(state.cloudflare!, "__proto__")).toBe(true)
+  })
+
   it("preserves provision categories and identifiers named __proto__", async () => {
     const rootDir = await createTempDir()
     await mkdir(join(rootDir, ".vitehub"), { recursive: true })
