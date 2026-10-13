@@ -71,4 +71,29 @@ describe("Cloudflare workflow errors", () => {
     }
   })
 
+  it("does not translate a spoofed error tag when Error.isError is unavailable", async () => {
+    const original = { isRetryable: false, [Symbol.toStringTag]: "Error" }
+    const createNonRetryableError = vi.fn((_error: Error & { isRetryable: false }) => new Error("converted"))
+    const descriptor = Object.getOwnPropertyDescriptor(Error, "isError")
+    try {
+      Reflect.deleteProperty(Error, "isError")
+      await expect(runCloudflareWorkflow({
+        config: { provider: "cloudflare" },
+        createNonRetryableError,
+        env: {},
+        event: { id: "spoofed-error" },
+        name: "spoofed-error",
+        registry: {
+          "spoofed-error": async () => ({
+            default: { handler: async () => { throw original } },
+          }),
+        },
+      })).rejects.toBe(original)
+      expect(createNonRetryableError).not.toHaveBeenCalled()
+    }
+    finally {
+      if (descriptor) Object.defineProperty(Error, "isError", descriptor)
+    }
+  })
+
 })

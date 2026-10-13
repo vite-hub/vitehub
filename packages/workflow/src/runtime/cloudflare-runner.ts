@@ -29,7 +29,13 @@ function isNonRetryableError(error: unknown): error is Error & { isRetryable: fa
     const nativeIsError: unknown = Reflect.get(Error, "isError")
     const branded = hasRuntimeType(nativeIsError, "function")
       ? nativeIsError(error) === true
-      : error instanceof Error || Object.prototype.toString.call(error) === "[object Error]"
+      : error instanceof Error || (() => {
+        const prototype = Object.getPrototypeOf(error)
+        return prototype !== null
+          && prototype !== Object.prototype
+          && Object.prototype.toString.call(error) === "[object Error]"
+          && ("message" in error || "stack" in error)
+      })()
     return branded && Reflect.get(error, "isRetryable") === false
   }
   catch {
