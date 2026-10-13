@@ -195,6 +195,21 @@ describe("createConnectionsHandler", () => {
     expect(await counts.json()).toEqual({ counts: { mail: 1 } })
   })
 
+  it("preserves approval counts for a connection named __proto__", async () => {
+    const test = createTestRuntime()
+    const runtime = createConnectionsRuntime({
+      definitions: Object.fromEntries([["__proto__", mailConnection()]]),
+      fetch: test.provider.fetch,
+      store: test.store,
+    })
+    await test.store.approvals.create({ action: "mail.messages.modify", actor: "agent:test", createdAt: new Date().toISOString(), id: "proto-1", input: {}, name: "__proto__", status: "pending" })
+    const handler = createConnectionsHandler({ actor: () => "user:local", runtime: () => runtime })
+
+    const counts = await handler(post({ action: "approval-counts" }))
+
+    expect(await counts.json()).toEqual({ counts: Object.fromEntries([["__proto__", 1]]) })
+  })
+
   it("rejects approval counts when a store repeats a pagination cursor", async () => {
     const test = createTestRuntime()
     const approvals = vi.spyOn(test.runtime, "approvals").mockResolvedValue({

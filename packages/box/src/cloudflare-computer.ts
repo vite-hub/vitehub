@@ -322,6 +322,7 @@ async function readStream(stream: ReadableStream<Uint8Array>, signal: AbortSigna
     }
   } finally {
     if (abort) signal?.removeEventListener("abort", abort);
+    if (signal?.aborted) await reader.cancel(signal.reason).catch(() => {});
     reader.releaseLock();
   }
   const result = new Uint8Array(size);
