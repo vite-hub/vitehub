@@ -430,6 +430,9 @@ Unavailable
     })).rejects.toThrow("cannot target a style attribute")
     await expect(renderMarkdownTemplate('<div style="color: red">Content</div>'))
       .resolves.toContain('style="color: red"')
+    await expect(renderMarkdownTemplate('[Open](){:href="data.url" :style="data.css"}', {
+      data: { url: "https://example.com", css: "color: red" },
+    })).rejects.toThrow("cannot target a style attribute")
   })
 
   it("preserves URL-like attributes on custom tags", async () => {
