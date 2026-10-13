@@ -331,9 +331,31 @@ function hasResponsePrototype(value: unknown): boolean {
 function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<Uint8Array> | null {
   if (body === null) return true
   if (Object(body) !== body) return false
-  const locked = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
-  if (!locked || Reflect.apply(locked, body, [])) return false
-  return responsePropertyDescriptor(Object(body), "getReader")?.value === ReadableStream.prototype.getReader
+  try {
+    const candidate = Object(body)
+    // Resolve the stream intrinsics from the body's own realm. Applying the
+    // getter performs the brand check and works across JavaScript realms.
+    if (Object.getOwnPropertyDescriptor(candidate, "getReader")) return false
+    let prototype: object | null = Object.getPrototypeOf(candidate)
+    const seen = new Set<object>()
+    let locked: (() => boolean) | undefined
+    let getReader: (() => unknown) | undefined
+    for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
+      if (seen.has(prototype)) return false
+      seen.add(prototype)
+      const lockedDescriptor = Object.getOwnPropertyDescriptor(prototype, "locked")
+      const readerDescriptor = Object.getOwnPropertyDescriptor(prototype, "getReader")
+      if (!locked && typeof lockedDescriptor?.get === "function") locked = lockedDescriptor.get
+      if (!getReader && typeof readerDescriptor?.value === "function") getReader = readerDescriptor.value
+      if (locked && getReader) break
+      prototype = Object.getPrototypeOf(prototype)
+    }
+    if (!locked || !getReader || Reflect.apply(locked, candidate, [])) return false
+    return responsePropertyDescriptor(candidate, "getReader")?.value === getReader
+  }
+  catch {
+    return false
+  }
 }
 
 function normalizeAuthorizationResponse(value: unknown): Response | undefined {
@@ -371,7 +393,8 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
     const cookieDescriptor = responsePropertyDescriptor(headerCarrier, "getSetCookie")
     const nativeCookieMethod = !cookieDescriptor?.get && (cookieDescriptor?.value === undefined
       || cookieDescriptor.value === Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value)
-    const nativeBodyMethod = body === null || responsePropertyDescriptor(Object(body), "getReader")?.value === ReadableStream.prototype.getReader
+    const nativeBodyMethod = body === null
+      || responsePropertyDescriptor(Object(body), "getReader")?.value === ReadableStream.prototype.getReader
     if (value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod && nativeBodyMethod) return value
     if (!isSerializableAuthorizationBody(body)) return
     const forEach = Reflect.get(headerCarrier, "forEach")
