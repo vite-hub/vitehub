@@ -290,7 +290,12 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
   if (value === null || !hasRuntimeType(value, "object")) return
   try {
     if (Object.prototype.toString.call(value) !== "[object Response]") return
-    if (value instanceof Response) return value
+    if (value instanceof Response) {
+      // A callback may have consumed or locked the body before returning it.
+      // Do not pass such a response to an adapter that will need to read it.
+      if (value.body && (value.bodyUsed || value.body.locked)) return
+      return value
+    }
     const response = value as Response
     // Copy through the standard Fetch interfaces. Adapters only receive host
     // headers and body readers, never methods supplied by a tagged object.

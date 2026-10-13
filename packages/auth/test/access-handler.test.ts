@@ -100,7 +100,7 @@ describe("Auth access handlers", () => {
     const response = runInNewContext(`new (class {
       get status() { return 409 }
       get statusText() { return "Conflict" }
-      get headers() { return { get() { return null } forEach() {} } }
+      get headers() { return { get() { return null }, forEach() {} } }
       get body() { return null }
       get [Symbol.toStringTag]() { return "Response" }
     })()`)
@@ -110,6 +110,16 @@ describe("Auth access handlers", () => {
     const result = await handler(new Request("https://app.example/"))
     expect(result?.status).toBe(409)
     expect(result?.headers).toBeInstanceOf(Headers)
+  })
+
+  it("rejects consumed same-realm authorization responses", async () => {
+    const response = new Response("consumed", { status: 409 })
+    await response.text()
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => response as never }] },
+    }))
+    const result = await handler(new Request("https://app.example/"))
+    expect(result?.status).toBe(403)
   })
 
   it("starts provider sign-in only for matched unauthenticated HTML requests", async () => {
