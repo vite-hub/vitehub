@@ -119,14 +119,11 @@ describe("realtime server handler", () => {
     expect(exec).not.toHaveBeenCalled()
   })
 
-  it("accepts prototype-backed Cloudflare SQL methods", async () => {
+  it.each(["method", "getter"])("ignores fabricated inherited SQL %s", async (kind) => {
     const exec = vi.fn(() => ({ toArray: () => [] }))
-    class SqlStorage {
-      exec() {
-        return exec()
-      }
-    }
-    const sql = new SqlStorage()
+    const getter = vi.fn(() => exec)
+    const prototype = Object.defineProperty({}, "exec", kind === "getter" ? { get: getter } : { value: exec })
+    const sql = Object.create(prototype)
     serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
       exists: vi.fn().mockResolvedValue(false),
       readFile: vi.fn(),
@@ -140,7 +137,39 @@ describe("realtime server handler", () => {
     const response = await createRealtimeHandler(realtimeRegistry()).fetch(request) as Response & { crossws?: unknown }
 
     expect(response.crossws).toBeDefined()
-    expect(exec).toHaveBeenCalled()
+    expect(exec).not.toHaveBeenCalled()
+    expect(getter).not.toHaveBeenCalled()
+  })
+
+  it.each(["method", "getter"])("ignores polluted Object.prototype SQL %s", async (kind) => {
+    const exec = vi.fn(() => ({ toArray: () => [] }))
+    const getter = vi.fn(() => exec)
+    const previous = Object.getOwnPropertyDescriptor(Object.prototype, "exec")
+    Object.defineProperty(Object.prototype, "exec", {
+      configurable: true,
+      ...kind === "getter" ? { get: getter } : { value: exec },
+    })
+    try {
+      serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+        exists: vi.fn().mockResolvedValue(false),
+        readFile: vi.fn(),
+        stat: vi.fn().mockResolvedValue(undefined),
+      }))
+      const request = new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
+        headers: { upgrade: "websocket" },
+      }) as Request & { runtime?: unknown }
+      request.runtime = { cloudflare: { context: { storage: { sql: {} } } } }
+
+      const response = await createRealtimeHandler(realtimeRegistry()).fetch(request) as Response & { crossws?: unknown }
+
+      expect(response.crossws).toBeDefined()
+      expect(exec).not.toHaveBeenCalled()
+      expect(getter).not.toHaveBeenCalled()
+    }
+    finally {
+      if (previous) Object.defineProperty(Object.prototype, "exec", previous)
+      else Reflect.deleteProperty(Object.prototype, "exec")
+    }
   })
 
   it("rejects polluted inherited SQL methods on plain storage carriers", async () => {

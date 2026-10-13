@@ -15,6 +15,8 @@ import type { WebSocketMessage, WebSocketPeer } from "h3"
 import type { RealtimeIdentity } from "./presence.ts"
 import type { RealtimeCheckpoint, RealtimeDefinition, RealtimeRegistry } from "./types.ts"
 import { createRealtimeIdentity } from "./presence.ts"
+import { hasCloudflareSqlExec } from "./cloudflare-sql.ts"
+import type { RealtimeRoomSql } from "./cloudflare-sql.ts"
 import { AwarenessOwnershipConflict, compactRealtimeAwareness, createRealtimeAwarenessOwners } from "./awareness.ts"
 export { applyRealtimeAwarenessUpdate, bindAwarenessIdentity, claimAwarenessClientIds, compactRealtimeAwareness } from "./awareness.ts"
 import { decodeWorkspaceChangePayload, encodeWorkspaceChange, messageAwareness, messageQueryAwareness, messageWorkspaceChange, realtimeCheckpointRejectedCode, realtimeSyncPendingCode } from "./protocol.ts"
@@ -158,10 +160,6 @@ interface Room {
   peers: Set<WebSocketPeer>
   persistedUpdates: number
   sql?: RealtimeRoomSql
-}
-
-interface RealtimeRoomSql {
-  exec(query: string, ...bindings: unknown[]): { toArray(): Array<Record<string, unknown>> }
 }
 
 export function realtimeRoomKey(definitionName: string, documentId: string): string {
@@ -433,19 +431,9 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
   }
 
   function ownValue(value: unknown, key: PropertyKey): unknown {
-    if (value === null || (typeof value !== "object" && typeof value !== "function") || !Object.hasOwn(value, key)) return undefined
-    return Reflect.get(value, key)
-  }
-
-  function isCloudflareSqlStorage(value: unknown): value is RealtimeRoomSql {
-    if (value === null || typeof value !== "object") return false
-    const prototype = Object.getPrototypeOf(value)
-    if (prototype === null) return false
-    const exec = Object.getOwnPropertyDescriptor(prototype, "exec")
-    const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
-    return typeof exec?.value === "function"
-      && typeof constructor === "function"
-      && constructor.name === "SqlStorage"
+    const carrier = Object(value)
+    if (carrier !== value || !Object.hasOwn(carrier, key)) return undefined
+    return Reflect.get(carrier, key)
   }
 
   async function forwardToCloudflareDurableObject(event: { context: Record<string, unknown>, req: Request }): Promise<Response | undefined> {
@@ -467,7 +455,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     const context = resolveCloudflare(event)?.context
     const storage = ownValue(context, "storage")
     const sql = ownValue(storage, "sql")
-    return isCloudflareSqlStorage(sql) ? sql : undefined
+    return hasCloudflareSqlExec(sql) ? sql : undefined
   }
 
   async function getDefinition(definitionName: string): Promise<RealtimeDefinition> {
