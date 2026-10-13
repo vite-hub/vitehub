@@ -3,7 +3,7 @@
 title: Connect your first provider account
 description: Connect a Google account with OAuth and read its Gmail labels.
 layout: tutorial
-navigation.title: Tutorial
+navigation.title: Get started
 navigation.order: 2
 icon: i-lucide-rocket
 ---
