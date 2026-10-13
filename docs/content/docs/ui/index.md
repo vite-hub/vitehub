@@ -18,7 +18,7 @@ Select an Invocation to read its messages, tool calls, and result. The inspector
 ::component-preview{name="InvocationDashboardBlock" flush reset}
 ::
 
-[Install the package](/docs/ui/installation), then copy the [Invocation dashboard](/docs/ui/blocks/invocation-dashboard), [Chat app](/docs/ui/blocks/chat-app), or [Code review](/docs/ui/blocks/code-review) into your application. Each block explains how to connect real data.
+Start with [the UI tutorial](/docs/ui/get-started), then read [Installation](/docs/ui/installation) for Nuxt and Vue with Vite. Copy the [Invocation dashboard](/docs/ui/blocks/invocation-dashboard), [Chat app](/docs/ui/blocks/chat-app), or [Code review](/docs/ui/blocks/code-review) into your application. Each block explains how to connect real data.
 
 ## Components
 

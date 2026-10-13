@@ -611,6 +611,40 @@ describe("Schedule Run bookkeeping", () => {
     expect(run.scheduledAt.toISOString()).toBe("2026-05-23T09:00:00.000Z")
   })
 
+  it("accepts genuine dates with custom or throwing toString tags", async () => {
+    for (const tag of [() => "CustomDate", () => { throw new Error("Do not inspect tags") }]) {
+      const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
+      Object.defineProperty(scheduledAt, Symbol.toStringTag, { get: tag })
+      const run = await executeStaticSchedule({
+        cron: "0 9 * * *",
+        definition: { cron: "0 9 * * *", handler: async () => {} },
+        name: "custom-tag-date",
+        scheduledAt,
+      })
+      expect(run.scheduledAt.toISOString()).toBe("2026-05-23T09:00:00.000Z")
+    }
+  })
+
+
+  it("rejects scheduledAt objects whose date tag cannot be inspected", async () => {
+    const throwingTag = Object.defineProperty({}, Symbol.toStringTag, {
+      get() { throw new Error("tag inspection failed") },
+    })
+    const revoked = Proxy.revocable(new Date(), {})
+    revoked.revoke()
+
+    for (const scheduledAt of [throwingTag, revoked.proxy]) {
+      await expect(executeStaticSchedule({
+        cron: "0 9 * * *",
+        definition: { cron: "0 9 * * *", handler: async () => {} },
+        name: "invalid-date-tag",
+        // @ts-expect-error JavaScript callers can pass objects that are not dates.
+        scheduledAt,
+      })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT" })
+    }
+    expect(await schedules.listRuns()).toEqual([])
+  })
+
   it("fails clearly for invalid scheduledAt dates", async () => {
     setScheduleRuntimeRegistry({
       report: async () => ({
@@ -648,8 +682,11 @@ describe("Schedule Run bookkeeping", () => {
       get() {
         throw new Error("unsafe date tag")
       },
-    }) as Date
-    await expect(schedules.run("schedule-1", { scheduledAt })).rejects.toMatchObject({
+    })
+    await expect(schedules.run("schedule-1", {
+      // @ts-expect-error JavaScript callers can pass objects that are not dates.
+      scheduledAt,
+    })).rejects.toMatchObject({
       code: "SCHEDULE_INVALID_SCHEDULED_AT",
     })
   })
