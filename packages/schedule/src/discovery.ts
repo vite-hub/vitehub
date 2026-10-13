@@ -10,7 +10,7 @@ import {
   normalizeSuffixDefinitionName,
   resolveDefinitionScanRoots,
 } from "@vite-hub/internal/definition-catalog"
-import { findDefaultExportCall, findIdentifierCalls, readObjectProperty, splitTopLevel, stripBoundaryComments } from "@vite-hub/internal/source-scanner"
+import { createSourceScanner } from "@vite-hub/internal/source-scanner"
 
 import type { DiscoveredScheduleDefinition } from "./types.ts"
 import { scheduleErrorDiagnostics } from "./error-diagnostics.ts"
@@ -19,6 +19,7 @@ const scheduleSuffixPattern = /\.schedule\.(?:c|m)?[jt]s$/i
 
 function readScheduleDiscoveryMetadata(file: string): Pick<DiscoveredScheduleDefinition, "allowRuntimeSchedules" | "manual" | "runtimeOnly"> {
   const source = readFileSync(file, "utf8")
+  const { findDefaultExportCall, findIdentifierCalls, readObjectProperty, readObjectPropertyNames, splitTopLevel, stripBoundaryComments } = createSourceScanner(file)
   const names = ["defineSchedule", "defineScheduleTarget"]
   const definition = findDefaultExportCall(source, ["defineSchedule"], { positionalOptionsIndex: 2 })
     ?? findDefaultExportCall(source, ["defineScheduleTarget"])
@@ -35,8 +36,7 @@ function readScheduleDiscoveryMetadata(file: string): Pick<DiscoveredScheduleDef
     return { allowRuntimeSchedules: true, runtimeOnly: true }
   }
 
-  const positional = definition.arguments.length > 1
-  const options = positional ? stripBoundaryComments(definition.arguments[2] || "{}") : definition.argument
+  const options = definition.argument
   if (!options.startsWith("{") || !options.endsWith("}")) {
     unsupported(definition.start, "Schedule discovery requires an options object literal.")
   }
@@ -44,17 +44,18 @@ function readScheduleDiscoveryMetadata(file: string): Pick<DiscoveredScheduleDef
   let manual = false
   for (const entry of splitTopLevel(options.slice(1, -1))) {
     const property = stripBoundaryComments(entry)
-    if (property.startsWith("...") || property.startsWith("[")) {
-      unsupported(definition.start, "Schedule discovery cannot resolve spread or computed options. Declare allowRuntimeSchedules as a literal true or false in the definition object.")
+    const names = readObjectPropertyNames(`{${property}}`)
+    if (names.includes(undefined)) {
+      unsupported(definition.start, "Schedule discovery cannot resolve spread, computed, or escaped option keys. Declare manual and allowRuntimeSchedules with unescaped literal keys and literal true or false values.")
     }
     const value = readObjectProperty(`{${property}}`, "allowRuntimeSchedules")
     const manualValue = readObjectProperty(`{${property}}`, "manual")
     if (manualValue === "true" || manualValue === "false") manual = manualValue === "true"
-    else if (manualValue !== undefined || /^(?:(?:get|set)\s+)?manual\b/.test(property)) unsupported(definition.start, "Schedule discovery requires manual to be a literal true or false; it cannot evaluate this expression.")
+    else if (names.includes("manual")) unsupported(definition.start, "Schedule discovery requires manual to be a literal true or false; it cannot evaluate this expression.")
     if (value === "true" || value === "false") {
       allowRuntimeSchedules = value === "true"
     }
-    else if (value !== undefined || /^(?:(?:get|set)\s+)?allowRuntimeSchedules\b/.test(property)) {
+    else if (names.includes("allowRuntimeSchedules")) {
       unsupported(definition.start, "Schedule discovery requires allowRuntimeSchedules to be a literal true or false; it cannot evaluate this expression.")
     }
   }

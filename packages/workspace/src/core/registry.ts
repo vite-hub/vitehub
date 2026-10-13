@@ -1,5 +1,5 @@
 import { workspaceNotFoundError } from "./errors.ts"
-import { hasRuntimeType } from "../internal/runtime-type.ts"
+import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 import type { Workspace, WorkspaceDefinition, WorkspaceDefinitionInput } from "./types.ts"
 import { createWorkspace } from "./workspace.ts"
 import runtimeRegistry from "#vitehub-workspace-registry"

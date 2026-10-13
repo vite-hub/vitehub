@@ -392,6 +392,23 @@ describe("ViteHub CLI", () => {
     expect(stdout.output()).toBe("")
   })
 
+  it.each([
+    { args: ["inspect", "definitions"], feature: "definitions" },
+    { args: ["provision", "run"], feature: "run" },
+  ])("reserves built-in namespaces from runtime features ($args)", async ({ args, feature }) => {
+    const runtime = vi.fn(() => 42)
+    const stdout = stream()
+    const stderr = stream()
+    const loadConfig = vi.fn(async () => ({ plugins: [], root: "/repo" }))
+    const runtimeFeatures = [{ name: args[0], features: [{ name: feature, run: runtime }] }]
+
+    const exitCode = await runViteHubCli({ args, cwd: "/repo", loadConfig, runtimeFeatures, stderr, stdout })
+
+    expect(exitCode).toBe(1)
+    expect(runtime).not.toHaveBeenCalled()
+    expect(loadConfig).toHaveBeenCalledOnce()
+  })
+
   it("runs runtime namespaces without loading the project config", async () => {
     const stdout = stream()
     const stderr = stream()

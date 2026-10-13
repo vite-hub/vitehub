@@ -206,7 +206,7 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
   const spawn = options.spawn || defaultSpawn
   const runtimeNamespace = options.runtimeNamespaces?.find(namespace => namespace.name === args[0] && !BUILTIN_NAMESPACE_NAMES.has(namespace.name))
   if (runtimeNamespace) return await runNamespace(runtimeNamespace, args, { cwd, env, rootDir: cwd, spawn, stderr, stdout })
-  const runtimeFeatures = options.runtimeFeatures?.find(namespace => namespace.name === args[0] && namespace.features.some(feature => feature.name === args[1]))
+  const runtimeFeatures = options.runtimeFeatures?.find(namespace => !BUILTIN_NAMESPACE_NAMES.has(namespace.name) && namespace.name === args[0] && namespace.features.some(feature => feature.name === args[1]))
   if (runtimeFeatures && (await options.runtimeFeatureGuard?.(args[0]!, args[1]!, cwd) ?? true)) {
     return await runNamespace(runtimeFeatures, args, { cwd, env, rootDir: cwd, spawn, stderr, stdout })
   }
