@@ -10,7 +10,7 @@ const isLanding = computed(() => isDocsLandingPath(docsManifest.sections, route.
 // On docs pages the sidebar sits on the left edge of the viewport. The page content centers in the remaining space.
 const docsShellUi = {
   root: "lg:!flex lg:!flex-row lg:!items-start lg:!gap-0",
-  left: "lg:!w-(--vh-sidebar-width) lg:shrink-0",
+  left: "lg:!w-(--vh-panel-width) lg:shrink-0",
   center: "lg:!flex-1 lg:!min-w-0",
 };
 </script>

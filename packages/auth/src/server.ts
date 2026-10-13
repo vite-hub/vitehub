@@ -291,9 +291,9 @@ function isResponseLike(value: unknown): value is Response {
     // which accepts genuine responses from another realm while rejecting
     // objects that merely imitate Response's public shape.
     const status = Object.getOwnPropertyDescriptor(Response.prototype, "status")!.get!.call(value)
-    const statusText = Object.getOwnPropertyDescriptor(Response.prototype, "statusText")!.get!.call(value)
+    Object.getOwnPropertyDescriptor(Response.prototype, "statusText")!.get!.call(value)
     Object.getOwnPropertyDescriptor(Response.prototype, "headers")!.get!.call(value)
-    return Number.isInteger(status) && status >= 0 && status <= 599 && typeof statusText === "string"
+    return Number.isInteger(status) && status >= 0 && status <= 599
   }
   catch {
     return false

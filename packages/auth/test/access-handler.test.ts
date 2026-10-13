@@ -120,8 +120,16 @@ describe("Auth access handlers", () => {
     expect(result?.status).toBe(403)
   })
 
-  it("returns native authorization responses created in another realm", async () => {
-    const foreignResponse = runInNewContext("new (class extends Response {})('Policy rejected', { status: 409 })", { Response })
+  it("returns native authorization responses created in another realm", async (context) => {
+    // Node VM contexts normally lack Fetch globals; never substitute the outer
+    // constructor, which would only test a same-realm Response subclass.
+    const ForeignResponse = runInNewContext("typeof Response === 'function' ? Response : undefined")
+    if (!ForeignResponse || ForeignResponse === Response) {
+      context.skip()
+      return
+    }
+    const foreignResponse = new ForeignResponse("Policy rejected", { status: 409 })
+    expect(foreignResponse).not.toBeInstanceOf(Response)
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
       access: { routes: [{ route: "/**", authorize: () => foreignResponse as never }] },
     }))
