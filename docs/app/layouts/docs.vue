@@ -50,6 +50,7 @@ const hasPanel = computed(
   .vh-docs-shell {
     display: flex;
     align-items: flex-start;
+    overflow: hidden;
   }
 
   .vh-docs-shell > .vh-docs-desktop-nav {
