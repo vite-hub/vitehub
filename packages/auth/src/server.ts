@@ -285,7 +285,6 @@ async function runAccessAuthorize(
 }
 
 function isResponseLike(value: unknown): value is Response {
-  if (value === null || typeof value !== "object") return false
   try {
     // Accessors on the native prototype perform an internal-slot brand check,
     // which accepts genuine responses from another realm while rejecting

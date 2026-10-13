@@ -4229,6 +4229,10 @@ describe("Agent Invocation UI", () => {
       "https://github.com/vite-hub/vitehub", "https://github.com/legacy/repo",
     ]);
     expect(sources?.findAll("a")[0]?.attributes("title")).toBe("docs: vite-hub/vitehub");
+    const hidden = mount(AgentInvocationInspector, { props: { invocation, showSources: false } });
+    expect(hidden.findAll(".vh-invocation-inspector__group").some(group =>
+      group.find("strong").exists() && group.find("strong").text() === "Sources",
+    )).toBe(false);
   });
 
   describe("conversation view", () => {

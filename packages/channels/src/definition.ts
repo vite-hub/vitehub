@@ -3,7 +3,12 @@ import { channelsErrorDiagnostics } from "./error-diagnostics.ts"
 
 function isConnector(value: unknown): value is { send: unknown } {
   try {
-    return Boolean(value) && typeof value === "object" && typeof (value as { send?: unknown }).send === "function"
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Connector configuration is an opaque input; reject primitives before reading its send member.
+    if (value === null || typeof value !== "object") return false
+    // SAFETY: The object guard permits reading the optional send member, whose callable representation is checked below.
+    const connector = value as { send?: unknown }
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The connector contract requires a callable send member; getter failures are handled by this boundary.
+    return typeof connector.send === "function"
   }
   catch {
     return false
