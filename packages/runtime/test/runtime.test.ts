@@ -309,6 +309,46 @@ describe("@vite-hub/runtime", () => {
     expect(() => getCapability(context, "kv")).toThrow('Capability "kv" was not found')
   })
 
+  it("preserves structural handles supplied by an external host", () => {
+    const implementation = { query: vi.fn() }
+    const handle = { kind: "db", value: implementation }
+    const context = createExecutionContext({
+      capabilities: { db: handle },
+      memo: vi.fn(),
+      runtime: "vite",
+      waitUntil: vi.fn(),
+    })
+
+    expect(getCapability(context, "db")).toBe(handle)
+    expect(getCapability(context, "db").value).toBe(implementation)
+  })
+
+  it("does not invoke accessor capability fields", () => {
+    const readKind = vi.fn(() => "spoofed")
+    const raw = Object.defineProperty({ value: "unexpected" }, "kind", { enumerable: true, get: readKind })
+    const context = createExecutionContext({
+      capabilities: { raw },
+      memo: vi.fn(),
+      runtime: "vite",
+      waitUntil: vi.fn(),
+    })
+
+    expect(getCapability(context, "raw").value).toBe(raw)
+    expect(readKind).not.toHaveBeenCalled()
+  })
+
+  it("wraps capability values when proxy ownership inspection throws", () => {
+    const raw = new Proxy({}, { ownKeys() { throw new Error("unavailable") } })
+    const context = createExecutionContext({
+      capabilities: { raw },
+      memo: vi.fn(),
+      runtime: "vite",
+      waitUntil: vi.fn(),
+    })
+
+    expect(getCapability(context, "raw").value).toBe(raw)
+  })
+
   it("wraps raw capability values as handles", () => {
     const context = createExecutionContext({
       capabilities: { queue: { send: vi.fn() } },

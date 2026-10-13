@@ -1399,7 +1399,20 @@ export function createRuntimeWaitUntilController(options: {
 const capabilityHandles = new WeakSet<object>()
 
 function isCapabilityHandle(value: unknown): value is CapabilityHandle {
-  return hasRuntimeType(value, "object") && value !== null && capabilityHandles.has(value)
+  if (!hasRuntimeType(value, "object") || value === null) return false
+  if (capabilityHandles.has(value)) return true
+  try {
+    // Enumerate own keys before inspecting fields so inherited fields and
+    // descriptors fabricated for keys absent from the object are not handles.
+    const descriptors = Object.getOwnPropertyDescriptors(value)
+    const kind = descriptors.kind
+    const implementation = descriptors.value
+    return !!kind && Object.hasOwn(kind, "value") && hasRuntimeType(kind.value, "string")
+      && !!implementation && Object.hasOwn(implementation, "value")
+  }
+  catch {
+    return false
+  }
 }
 
 export function hasCapability(context: RuntimeHostContext, name: string): boolean {
