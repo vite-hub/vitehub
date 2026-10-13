@@ -10,7 +10,7 @@ const sectionCategory = computed(() => {
   const category = currentSection.value?.category;
   return category && category !== currentSection.value?.title ? category : "Getting started";
 });
-const isDocsIndex = computed(() => normalizeDocsPath(route.path) === "/docs");
+const isSectionCurrent = computed(() => normalizeDocsPath(route.path) === normalizeDocsPath(sectionPath.value));
 </script>
 
 <template>
@@ -27,8 +27,8 @@ const isDocsIndex = computed(() => normalizeDocsPath(route.path) === "/docs");
     <NuxtLink
       :to="sectionPath"
       class="vh-docs-context"
-      :class="{ 'is-current': isDocsIndex }"
-      :aria-current="isDocsIndex ? 'page' : undefined"
+      :class="{ 'is-current': isSectionCurrent }"
+      :aria-current="isSectionCurrent ? 'page' : undefined"
     >
       <UIcon
         :name="currentSection ? sidebarSectionIcon(currentSection) : 'i-ph-squares-four-light'"
