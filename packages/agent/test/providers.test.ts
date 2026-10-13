@@ -22272,7 +22272,7 @@ describe("server helpers", () => {
     expect(runs).toEqual([["remember BROWSER-HISTORY"], ["what marker did I ask you to remember?"]])
   })
 
-  it.each(["local bytes", "local buffer", "foreign bytes", "foreign buffer", "foreign subarray", "foreign prototype blob", "spoofed blob", "shadowed local bytes", "shadowed foreign bytes"])("exports Channel history attachment %s", async (kind) => {
+  it.each(["local bytes", "local buffer", "foreign bytes", "foreign buffer", "foreign subarray", "foreign prototype blob", "spoofed blob", "shadowed local bytes", "shadowed foreign bytes", "tagged local bytes", "tagged foreign bytes", "prototype-tagged foreign bytes", "throwing-tag foreign bytes"])("exports Channel history attachment %s", async (kind) => {
     let data: unknown = kind === "local bytes"
       ? new Uint8Array([1, 2, 3])
       : kind === "local buffer"
@@ -22303,6 +22303,16 @@ describe("server helpers", () => {
         byteOffset: { value: 0 },
         byteLength: { value: 1 },
       })
+    }
+    let tagReads = 0
+    if (kind.includes("tagged") || kind === "throwing-tag foreign bytes") {
+      data = kind === "tagged local bytes"
+        ? new Uint8Array([1, 2, 3])
+        : runInNewContext("new Uint8Array([9, 1, 2, 3, 9]).subarray(1, 4)")
+      const target = kind === "prototype-tagged foreign bytes" ? Object.getPrototypeOf(data) : data
+      Object.defineProperty(target, Symbol.toStringTag, kind === "throwing-tag foreign bytes"
+        ? { get() { tagReads++; throw new Error("Do not read the supplied tag") } }
+        : { value: "ProviderBytes" })
     }
     if (kind === "foreign prototype blob") {
       expect(data).not.toBeInstanceOf(Blob)
@@ -22345,6 +22355,7 @@ describe("server helpers", () => {
       method: "POST",
     }), "telegram")
     expect(response.status).toBe(200)
+    expect(tagReads).toBe(0)
     if (kind === "spoofed blob") {
       const history = await response.json()
       expect(history).toMatchObject({ messages: [{ attachments: [{ name: "bytes.bin", unavailable: true }] }] })
