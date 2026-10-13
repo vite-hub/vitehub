@@ -167,10 +167,13 @@ describe("UI documentation", () => {
     expect(sidebar).not.toContain("<details");
     expect(sidebar).not.toContain("<summary");
     expect(layout).toContain("height: calc(100dvh - var(--ui-header-height));");
-    expect(layout).toContain("overflow: hidden;");
+    // The expandable rail must be able to cover the page; only the page panel clips.
+    expect(layout).not.toContain("overflow: hidden;");
+    const sidebars = readFileSync(resolve(docsRoot, "app/components/DocsSidebars.vue"), "utf8");
+    expect(sidebars).toContain("overflow: hidden;");
   });
 
-  it("lists the Vue ecosystem perspective in the getting started sidebar", () => {
+  it("lists the Vue ecosystem perspective in the UI sidebar", () => {
     const page = readFileSync(resolve(docsRoot, "content/docs/ui/built-for-vue.md"), "utf8");
 
     expect(page).not.toContain("navigation: false");
