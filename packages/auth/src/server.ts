@@ -288,7 +288,6 @@ function isResponseLike(value: unknown): value is Response {
   if (value === null || typeof value !== "object") return false
   try {
     if (Object.prototype.toString.call(value) !== "[object Response]") return false
-    const response = value as { headers?: unknown, status?: unknown, statusText?: unknown }
     const status = Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get?.call(value)
     const statusText = Object.getOwnPropertyDescriptor(Response.prototype, "statusText")?.get?.call(value)
     if (typeof status !== "number" || !Number.isInteger(status) || status < 0 || status > 599) return false
@@ -298,7 +297,7 @@ function isResponseLike(value: unknown): value is Response {
     const responseHeaders = headers as { forEach?: unknown, get?: unknown }
     if (typeof responseHeaders.get !== "function"
       || typeof responseHeaders.forEach !== "function") return false
-    const body = (response as { body?: unknown }).body
+    const body = Object.getOwnPropertyDescriptor(Response.prototype, "body")?.get?.call(value)
     return body === null || (body !== undefined && typeof body === "object" && typeof (body as { getReader?: unknown }).getReader === "function")
   }
   catch {
