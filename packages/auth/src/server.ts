@@ -331,18 +331,23 @@ function hasResponsePrototype(value: unknown): boolean {
 function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<Uint8Array> | null {
   if (body === null) return true
   if (Object(body) !== body) return false
-  const locked = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
-  if (!locked || Reflect.apply(locked, body, [])) return false
-  const ownReader = Object.getOwnPropertyDescriptor(body, "getReader")
-  return !ownReader || ownReader.value === ReadableStream.prototype.getReader
+  try {
+    const locked = Reflect.get(body, "locked")
+    const getReader = Reflect.get(body, "getReader")
+    return locked === false && typeof getReader === "function"
+  }
+  catch {
+    return false
+  }
 }
 
 function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
-  // Use native operations on native stream state, never caller-supplied reader methods.
-  const getReader: () => ReadableStreamDefaultReader<Uint8Array> = ReadableStream.prototype.getReader
+  // Invoke the source stream's native operations so separate realms retain their brand.
+  const getReader = Reflect.get(body, "getReader") as () => ReadableStreamDefaultReader<Uint8Array>
   const reader = Reflect.apply(getReader, body, [])
-  const read: ReadableStreamDefaultReader<Uint8Array>["read"] = ReadableStreamDefaultReader.prototype.read
-  const { cancel, releaseLock } = ReadableStreamDefaultReader.prototype
+  const read = Reflect.get(reader, "read") as ReadableStreamDefaultReader<Uint8Array>["read"]
+  const cancel = Reflect.get(reader, "cancel") as ReadableStreamDefaultReader<Uint8Array>["cancel"]
+  const releaseLock = Reflect.get(reader, "releaseLock") as ReadableStreamDefaultReader<Uint8Array>["releaseLock"]
   let released = false
   const release = () => {
     if (released) return
