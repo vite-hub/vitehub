@@ -64,12 +64,25 @@ function isResponseLike(value: unknown): value is Response {
   try {
     const response = value as Record<string, unknown>
     const headers = response.headers
+    const headerMethods = ["get", "set", "has", "append", "delete", "forEach"]
+    const responseMethods = ["clone", "arrayBuffer", "blob", "formData", "json", "text"]
+    let prototype = Object.getPrototypeOf(value)
+    let hasBodyGetter = false
+    while (prototype) {
+      if (typeof Object.getOwnPropertyDescriptor(prototype, "body")?.get === "function") {
+        hasBodyGetter = true
+        break
+      }
+      prototype = Object.getPrototypeOf(prototype)
+    }
     return typeof response.status === "number"
       && typeof response.statusText === "string"
       && "body" in response
+      && hasBodyGetter
       && headers !== null
       && typeof headers === "object"
-      && typeof (headers as { get?: unknown }).get === "function"
+      && headerMethods.every((method) => typeof (headers as Record<string, unknown>)[method] === "function")
+      && responseMethods.every((method) => typeof response[method] === "function")
   }
   catch {
     return false

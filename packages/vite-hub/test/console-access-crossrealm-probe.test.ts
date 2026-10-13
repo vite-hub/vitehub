@@ -1,7 +1,7 @@
 import { Window } from "happy-dom"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { installConsoleAccess, withConsoleAccess } from "../src/console/runtime/server/access.ts"
-import type { ConsoleAuthorize } from "../src/auth.ts"
+import type { ConsoleAuthorize } from "../src/console/auth.ts"
 
 const policyKey = Symbol.for("vitehub.console.access")
 
@@ -25,9 +25,23 @@ describe("cross-realm console access probe", () => {
   it("rejects spoofed response-shaped objects", async () => {
     const request = new Request("https://console.example.test/")
     const response = Object.create({
-      headers: { get() { return null } },
+      headers: {
+        get() { return null },
+        set() {},
+        has() { return false },
+        append() {},
+        delete() {},
+        forEach() {},
+      },
       status: 401,
       statusText: "Unauthorized",
+      body: null,
+      clone() { return this },
+      arrayBuffer() { return Promise.resolve(new ArrayBuffer(0)) },
+      blob() { return Promise.resolve(new Blob([])) },
+      formData() { return Promise.resolve(new FormData()) },
+      json() { return Promise.resolve(null) },
+      text() { return Promise.resolve("") },
     })
     Object.defineProperty(response, Symbol.toStringTag, { value: "Response" })
     installConsoleAccess({ mode: "host-managed", authorize: () => response })
