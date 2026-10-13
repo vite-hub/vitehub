@@ -2646,6 +2646,20 @@ describe("workflow runtime", () => {
     })
   })
 
+  it("ignores inherited Cloudflare environment members as bindings", async () => {
+    setWorkflowRuntimeConfig({ binding: "toString", provider: "cloudflare" })
+    setWorkflowRuntimeRegistry({
+      inherited: async () => ({ default: { handler: async () => "inline" } }),
+    })
+    enterWorkflowRuntimeEvent({ req: { runtime: { cloudflare: { env: {} } } } })
+
+    await expect(getWorkflowRun("inherited", "run")).resolves.toEqual({
+      id: "run",
+      provider: "cloudflare",
+      status: "unknown",
+    })
+  })
+
   it("honors custom bindings for user Workflows with recovery-like names", async () => {
     const name = "vitehub-agent-invocation-recovery-user-defined"
     const createBatch = vi.fn(async () => [{ id: "custom-run", status: async () => "queued" }])

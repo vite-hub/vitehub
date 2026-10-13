@@ -4,6 +4,7 @@ import { createUnstorageDriver } from "mountx/drivers/unstorage"
 
 import type { WorkspaceEntry, WorkspaceSession, WorkspaceSessionWriteFileOptions } from "./core/types.ts"
 import type { FsDriver } from "mountx"
+import { isWorkspaceBytes } from "./core/path.ts"
 import { workspaceErrorDiagnostics } from "./error-diagnostics.ts"
 
 export interface WorkspaceMountXDriverOptions {
@@ -19,7 +20,7 @@ function pathToKey(path: string) {
 }
 
 function valueToBytes(value: unknown): Uint8Array {
-  if (value instanceof Uint8Array) return value
+  if (isWorkspaceBytes(value)) return value
   if (value instanceof ArrayBuffer) return new Uint8Array(value)
   if (ArrayBuffer.isView(value)) return new Uint8Array(value.buffer, value.byteOffset, value.byteLength)
   return new TextEncoder().encode(typeof value === "string" ? value : JSON.stringify(value))
@@ -94,7 +95,7 @@ function createWorkspaceStorage(session: WorkspaceSession, readOnly: boolean) {
           async setItemRaw(key: string, value: unknown) {
             const path = keyToPath(key)
             const entry = assertProjectableEntry(await findEntry(session, path))
-            const writeOptions = value instanceof Uint8Array
+            const writeOptions = isWorkspaceBytes(value)
               ? writeOptionsByValue.get(value)
               : undefined
             await session.writeFile(path, valueToBytes(value), writeOptions ?? {

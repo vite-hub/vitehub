@@ -480,6 +480,33 @@ function reflectedRegExpState(value: unknown): { flags: string, lastIndex: numbe
   }
 }
 
+function reflectedArrayBufferViewState(value: unknown): { byteLength: number, kind: string } | undefined {
+  if (!ArrayBuffer.isView(value)) return
+  try {
+    const bufferConstructor = Object.getOwnPropertyDescriptor(globalThis, "Buffer")?.value ?? globalThis.Buffer
+    const isBuffer = hasRuntimeType(bufferConstructor, "function")
+      ? Object.getOwnPropertyDescriptor(bufferConstructor, "isBuffer")?.value
+      : undefined
+    const isNodeBuffer = hasRuntimeType(isBuffer, "function")
+      && Reflect.apply(isBuffer, bufferConstructor, [value]) === true
+    const typedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype)
+    if (isNodeBuffer) {
+      const byteLength = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), "byteLength")?.get?.call(value)
+      return hasRuntimeType(byteLength, "number") ? { byteLength, kind: "Buffer" } : undefined
+    }
+    const typedArrayTag = Object.getOwnPropertyDescriptor(typedArrayPrototype, Symbol.toStringTag)?.get?.call(value)
+    if (hasRuntimeType(typedArrayTag, "string")) {
+      const byteLength = Object.getOwnPropertyDescriptor(typedArrayPrototype, "byteLength")?.get?.call(value)
+      return hasRuntimeType(byteLength, "number") ? { byteLength, kind: typedArrayTag } : undefined
+    }
+    const dataViewByteLength = Object.getOwnPropertyDescriptor(DataView.prototype, "byteLength")?.get?.call(value)
+    return hasRuntimeType(dataViewByteLength, "number") ? { byteLength: dataViewByteLength, kind: "DataView" } : undefined
+  }
+  catch {
+    return
+  }
+}
+
 interface ReflectedBlobState {
   intrinsicSymbols: ReadonlySet<symbol>
   lastModified?: number
@@ -555,10 +582,11 @@ function preservesEnumerableFields(source: unknown, snapshot: unknown, seen = ne
   if (seen.has(source)) return seen.get(source) === snapshot
   seen.set(source, snapshot)
 
-  if (ArrayBuffer.isView(source)
-    && (!ArrayBuffer.isView(snapshot)
-      || Object.getPrototypeOf(source) !== Object.getPrototypeOf(snapshot)
-      || source.byteLength !== snapshot.byteLength)) return false
+  const sourceView = reflectedArrayBufferViewState(source)
+  if (sourceView) {
+    const snapshotView = reflectedArrayBufferViewState(snapshot)
+    if (!snapshotView || sourceView.kind !== snapshotView.kind || sourceView.byteLength !== snapshotView.byteLength) return false
+  }
   if (source instanceof Date && (!(snapshot instanceof Date) || !Object.is(source.getTime(), snapshot.getTime()))) return false
   const sourceRegExp = reflectedRegExpState(source)
   if (sourceRegExp) {
