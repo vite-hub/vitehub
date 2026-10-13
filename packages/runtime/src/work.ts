@@ -45,10 +45,12 @@ export function createWorkTracker(options: {
     try {
       // Inspect descriptors before cloning. Cloning first would invoke an
       // enumerable accessor and let untrusted store data run code. Reject any
-      // accessor-backed own property without reading its value.
+      // accessor-backed own property without reading its value. Checkpoint
+      // fields are scalar; reject containers before cloning can traverse their getters.
       for (const key of Reflect.ownKeys(value)) {
         const descriptor = Object.getOwnPropertyDescriptor(value, key)
-        if (!descriptor || !Object.prototype.hasOwnProperty.call(descriptor, "value")) return
+        if (!descriptor || !Object.prototype.hasOwnProperty.call(descriptor, "value")
+          || isRuntimeObject(descriptor.value)) return
       }
       // Store results must be cloneable records. A proxy can fabricate
       // descriptors, but structuredClone rejects the proxy itself.

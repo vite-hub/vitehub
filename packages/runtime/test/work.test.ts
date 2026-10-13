@@ -41,11 +41,41 @@ describe("work checkpoints", () => {
       delete polluted.value
     }
   })
+  it.each(["version", "metadata"])("rejects an accessor on %s without invoking it", async (key) => {
+    const { tracker, records } = fixture()
+    const record = { version: 1, fingerprint: "v1", disposition: "park", attempt: 0 }
+    const getter = vi.fn(() => {
+      record.fingerprint = "mutated"
+      throw new Error("checkpoint getter executed")
+    })
+    Object.defineProperty(record, key, { get: getter, enumerable: true })
+    records.set("a", record)
+    const run = vi.fn(async () => ({ disposition: "park" as const }))
+
+    expect(await tracker.eligible("a", "v1")).toBe(true)
+    expect(await tracker.run("a", "v1", run)).toBe(true)
+    expect(run).toHaveBeenCalledOnce()
+    expect(getter).not.toHaveBeenCalled()
+    expect(record.fingerprint).toBe("v1")
+  })
+  it("rejects nested checkpoint data without traversing its accessors", async () => {
+    const { tracker, records } = fixture()
+    const getter = vi.fn(() => { throw new Error("nested checkpoint getter executed") })
+    const metadata = Object.defineProperty({}, "detail", { get: getter, enumerable: true })
+    records.set("a", { version: 1, fingerprint: "v1", disposition: "park", attempt: 0, metadata })
+    const run = vi.fn(async () => ({ disposition: "park" as const }))
+
+    expect(await tracker.eligible("a", "v1")).toBe(true)
+    expect(await tracker.run("a", "v1", run)).toBe(true)
+    expect(run).toHaveBeenCalledOnce()
+    expect(getter).not.toHaveBeenCalled()
+  })
   it("does not trust proxy-fabricated checkpoint descriptors", async () => {
     const { tracker, records } = fixture()
+    const fabricated: Record<string, unknown> = { version: 1, fingerprint: "v1", disposition: "park", attempt: 0 }
     records.set("a", new Proxy({}, {
-      getOwnPropertyDescriptor: () => ({ value: 1, enumerable: true, configurable: true, writable: true }),
-      ownKeys: () => ["version", "fingerprint", "disposition", "attempt"],
+      getOwnPropertyDescriptor: (_target, key) => ({ value: fabricated[String(key)], enumerable: true, configurable: true, writable: true }),
+      ownKeys: () => Object.keys(fabricated),
     }))
     const run = vi.fn(async () => ({ disposition: "park" as const }))
 
