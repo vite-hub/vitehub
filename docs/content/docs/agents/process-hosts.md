@@ -142,7 +142,7 @@ Agent Driver without creating an Invocation or sending a model prompt:
 
 ```ts [server/health.ts]
 import { createAgentHealth } from 'vite-hub/agent/server'
-import agent from './agents/reviewer/agent'
+import agent from './agents/reviewer'
 import host from './host'
 
 export const health = createAgentHealth({
