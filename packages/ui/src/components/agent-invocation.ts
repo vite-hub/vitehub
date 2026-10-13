@@ -1132,6 +1132,7 @@ function inspectorChannels(channels: NonNullable<AgentInvocationConfiguration["c
 
 function isRecordedChannel(value: unknown): value is NonNullable<AgentInvocationConfiguration["channels"]>[number] {
   if (value === null || !hasRuntimeType(value, "object") || Array.isArray(value)) return false;
+  // SAFETY: The guard above establishes a non-null, non-array object; its field values remain unknown until checked below.
   const channel = value as Record<string, unknown>;
   return Object.hasOwn(channel, "id")
     && hasRuntimeType(channel.id, "string")
