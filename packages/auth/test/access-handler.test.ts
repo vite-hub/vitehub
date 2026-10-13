@@ -122,10 +122,19 @@ describe("Auth access handlers", () => {
   })
 
   it("rejects objects that only spoof the Response brand", async () => {
+    const spoofedHeaders = { get() { return null }, *[Symbol.iterator]() {} }
     const spoofedResponse = {
       get status() { return 409 },
       get statusText() { return "Conflict" },
-      get headers() { return { get() { return null } } },
+      get bodyUsed() { return false },
+      body: null,
+      headers: spoofedHeaders,
+      clone() { return this },
+      arrayBuffer() { return Promise.resolve(new ArrayBuffer(0)) },
+      blob() { return Promise.resolve(new Blob()) },
+      formData() { return Promise.resolve(new FormData()) },
+      json() { return Promise.resolve({}) },
+      text() { return Promise.resolve("") },
       get [Symbol.toStringTag]() { return "Response" },
     }
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({

@@ -289,8 +289,14 @@ function isResponseLike(value: unknown): value is Response {
   try {
     if (value instanceof Response) return true
     // Fetch implementations from another realm can have a different constructor.
-    // Require the body and header APIs callers use, not just a spoofable brand.
+    // Read internal slots through trusted accessors so a spoofed brand cannot pass.
     const response = value as Response
+    const responsePrototype = Object.getPrototypeOf(response)
+    const statusGetter = Object.getOwnPropertyDescriptor(responsePrototype, "status")?.get
+    const headersGetter = Object.getOwnPropertyDescriptor(responsePrototype, "headers")?.get
+    if (!statusGetter || !headersGetter) return false
+    statusGetter.call(response)
+    headersGetter.call(response)
     if (Object.prototype.toString.call(response) !== "[object Response]") return false
     if (!Number.isInteger(response.status) || response.status < 0 || response.status > 599) return false
     if (typeof response.statusText !== "string" || typeof response.bodyUsed !== "boolean") return false
