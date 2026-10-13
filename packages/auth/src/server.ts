@@ -280,10 +280,12 @@ async function runAccessAuthorize(
   context: AuthAccessAuthorizationContext,
 ): Promise<Response | undefined> {
   const result = await authorize(context)
+
   const response = normalizeAuthorizationResponse(result)
   if (response) return response
   if (result !== true) return createForbiddenResponse(context.request)
 }
+
 
 const authorizationResponseProperties = ["status", "statusText", "headers", "body"] as const
 
@@ -356,9 +358,18 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
   const streamPrototype = streamIntrinsic(body, "locked")!.owner
   const getReader = streamIntrinsic(streamPrototype, "getReader")!.value as (this: ReadableStream<Uint8Array>) => ReadableStreamDefaultReader<Uint8Array>
   const reader = Reflect.apply(getReader, body, [])
-  const read = streamIntrinsic(reader, "read")!.value as (this: ReadableStreamDefaultReader<Uint8Array>) => Promise<{ done: true, value?: undefined } | { done: false, value: Uint8Array }>
-  const cancel = streamIntrinsic(reader, "cancel")!.value as (this: ReadableStreamDefaultReader<Uint8Array>, reason?: unknown) => Promise<void>
-  const releaseLock = streamIntrinsic(reader, "releaseLock")!.value as (this: ReadableStreamDefaultReader<Uint8Array>) => void
+  const readerPrototype = Object.getPrototypeOf(reader)
+  if (!readerPrototype || Object.prototype.hasOwnProperty.call(reader, "read")
+    || Object.prototype.hasOwnProperty.call(reader, "cancel")
+    || Object.prototype.hasOwnProperty.call(reader, "releaseLock")) throw new Error("Non-native response reader")
+  const freshReader = Reflect.apply(getReader, body, [])
+  const freshPrototype = Object.getPrototypeOf(freshReader)
+  Reflect.apply((streamIntrinsic(freshReader, "releaseLock")!.value as (this: ReadableStreamDefaultReader<Uint8Array>) => void), freshReader, [])
+  if (freshPrototype !== readerPrototype) throw new Error("Non-native response reader")
+  const read = Object.getOwnPropertyDescriptor(readerPrototype, "read")?.value as ((this: ReadableStreamDefaultReader<Uint8Array>) => Promise<{ done: true, value?: undefined } | { done: false, value: Uint8Array }>) | undefined
+  const cancel = Object.getOwnPropertyDescriptor(readerPrototype, "cancel")?.value as ((this: ReadableStreamDefaultReader<Uint8Array>, reason?: unknown) => Promise<void>) | undefined
+  const releaseLock = Object.getOwnPropertyDescriptor(readerPrototype, "releaseLock")?.value as ((this: ReadableStreamDefaultReader<Uint8Array>) => void) | undefined
+  if (typeof read !== "function" || typeof cancel !== "function" || typeof releaseLock !== "function") throw new Error("Non-native response reader")
   let released = false
   const release = () => {
     if (released) return

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+
 import { Response as ForeignResponse } from "undici"
 
 import { defineAuth } from "../src/index.ts"
@@ -104,6 +105,7 @@ describe("Auth access handlers", () => {
     await expect(handler(new Request("https://app.example/"))).resolves.toBe(response)
   })
 
+
   it("normalizes a local Response proxy with unstable ordinary reads", async () => {
     const source = new Response("Policy rejected", { status: 409 })
     let headerReads = 0
@@ -135,6 +137,7 @@ describe("Auth access handlers", () => {
 
     const response = await handler(new Request("https://app.example/"))
     expect(response).toBeInstanceOf(Response)
+
     expect(response?.status).toBe(409)
     await expect(response?.text()).resolves.toBe("Policy rejected")
   })
