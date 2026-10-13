@@ -3,6 +3,7 @@ import type { Spec } from "@json-render/core";
 import { computed, defineComponent, h, ref, watch, type PropType, type VNodeChild } from "vue";
 import { invocationActivities, invocationToolUsage } from "../internal/invocation-activity.ts";
 import { hasRuntimeType } from "../internal/runtime-type.ts";
+import { payloadText } from "../internal/payload-text.ts";
 import { AgentToolList } from "./agent-tool-list.ts";
 import type { AgentInvocationView } from "../types.ts";
 
@@ -66,6 +67,11 @@ export function capabilityInspectionSpec(value: unknown): Spec | undefined {
   return visit(view.root, new Set()) ? { root: view.root, elements: parsed } : undefined;
 }
 
+function safeInspectionState(value: unknown): Record<string, unknown> | undefined {
+  const text = payloadText(value);
+  try { return record(JSON.parse(text)); } catch { return undefined; }
+}
+
 function display(value: unknown): string {
   if (value === undefined || value === null) return "Not recorded";
   return hasRuntimeType(value, "string") ? value : JSON.stringify(value, null, 2);
@@ -105,6 +111,7 @@ export const AgentCapabilityInspector = defineComponent({
     const selected = computed(() => capabilities.value.find(capability => capability.id === selectedId.value) ?? capabilities.value[0]);
     const tools = computed(() => props.invocation.configuration?.tools?.filter(tool => tool.capabilityId === selected.value?.id) ?? []);
     const spec = computed(() => capabilityInspectionSpec(selected.value?.inspection?.view));
+    const safeState = computed(() => safeInspectionState(selected.value?.inspection?.state));
     watch(() => props.invocation.id, () => { selectedId.value = undefined; });
     const registry: ComponentRegistry = {
       Stack: catalogComponent((_props, children) => h("div", { class: "vh-capability-inspector__stack" }, [children])),
@@ -130,15 +137,15 @@ export const AgentCapabilityInspector = defineComponent({
         h("h2", selected.value.inspection?.label ?? selected.value.id),
         selected.value.inspection?.truncated ? h("p", { role: "status" }, "Capability inspection was truncated. Some recorded data is missing.") : null,
         selected.value.inspection?.label && selected.value.inspection.label !== selected.value.id ? h("code", selected.value.id) : null,
-        spec.value && selected.value.inspection?.state
-          ? h(JSONUIProvider, { registry, initialState: selected.value.inspection.state }, { default: () => h(Renderer, { spec: spec.value, registry }) })
+        spec.value && safeState.value !== undefined
+          ? h(JSONUIProvider, { registry, initialState: safeState.value }, { default: () => h(Renderer, { spec: spec.value, registry }) })
           : [
               selected.value.inspection && (!selected.value.inspection.state || selected.value.inspection.view) ? h("p", { class: "vh-capability-inspector__empty" }, selected.value.inspection.view && !spec.value
                 ? "This view is unavailable. Recorded tools and data are shown below."
                 : "Inspection data was not recorded. Configuration capture may be disabled for this run.") : null,
               tools.value.length ? h(AgentToolList, { calls: calls.value, onSelect: selectTool, tools: tools.value }) : null,
-              selected.value.inspection?.state ? h("pre", JSON.stringify(selected.value.inspection.state, null, 2)) : null,
-              selected.value.metadata ? h("details", [h("summary", "Configuration"), h("pre", JSON.stringify(selected.value.metadata, null, 2))]) : null,
+              selected.value.inspection?.state ? h("pre", payloadText(selected.value.inspection.state)) : null,
+              selected.value.metadata ? h("details", [h("summary", "Configuration"), h("pre", payloadText(selected.value.metadata))]) : null,
               !tools.value.length && !selected.value.metadata && !selected.value.inspection ? h("p", "No tools or configuration recorded.") : null,
             ],
       ]) : null,

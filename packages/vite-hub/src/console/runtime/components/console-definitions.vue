@@ -35,7 +35,7 @@ const content = ref<ConsoleSectionContent>();
 const selectedName = ref<string>();
 const loading = ref(true);
 const error = ref<unknown>();
-const scheduleRuns = ref<Record<string, ConsoleScheduleRunView>>({});
+const scheduleRuns = ref(new Map<string, ConsoleScheduleRunView>());
 const runningSchedule = ref<string>();
 let request: AbortController | undefined;
 
@@ -64,7 +64,7 @@ const canRunSelected = computed(() =>
   Boolean(props.scheduleRunBase && (selectedDefinition.value?.runnable || selectedRecord.value?.runnable)),
 );
 const selectedRun = computed(() =>
-  selectedName.value ? scheduleRuns.value[selectedName.value] : undefined,
+  selectedName.value ? scheduleRuns.value.get(selectedName.value) : undefined,
 );
 const selectedEntry = computed(() => entries.value.find((entry) => entry.id === selectedName.value));
 
@@ -84,7 +84,7 @@ async function runSelectedSchedule(): Promise<void> {
   runningSchedule.value = selection;
   try {
     const run = await runConsoleScheduleDefinition(props.scheduleRunBase, name);
-    scheduleRuns.value = { ...scheduleRuns.value, [selection]: run };
+    scheduleRuns.value.set(selection, run);
   } finally {
     runningSchedule.value = undefined;
   }
@@ -168,7 +168,7 @@ onMounted(() => {
 
 watch(section, (current) => {
   rememberConsoleSection(current);
-  scheduleRuns.value = {};
+  scheduleRuns.value.clear();
   content.value = undefined;
   error.value = undefined;
   selectedName.value = queryValue();

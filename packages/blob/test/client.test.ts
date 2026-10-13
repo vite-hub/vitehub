@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
 import { createMultipartUploader, uploadFiles } from "../src/client.ts"
+import type { BlobMultipartPart } from "../src/types.ts"
 import { useMultipartUpload, useUpload } from "../src/vue.ts"
 
 type FetchInput = Parameters<typeof fetch>[0]
@@ -82,6 +83,26 @@ describe("createMultipartUploader", () => {
       { etag: "\"p3\"", partNumber: 3 },
     ])
     expect(progress).toEqual([0, 33, 67, 100])
+  })
+
+  it("completes concurrent uploads with parts in part-number order", async () => {
+    const { fetch } = multipartServer()
+    let completeParts: BlobMultipartPart[] | undefined
+    fetch.mockImplementation(async (url, init = {}) => {
+      const href = String(url)
+      if (href.includes("/create/")) return json({ pathname: "concurrent.bin", uploadId: "u3" })
+      if (href.includes("/upload/")) {
+        const partNumber = Number(new URL(href, "http://x").searchParams.get("partNumber"))
+        await new Promise(resolve => setTimeout(resolve, (4 - partNumber) * 5))
+        return json({ part: { etag: `"p${partNumber}"`, partNumber } })
+      }
+      completeParts = JSON.parse(String(init.body)).parts as BlobMultipartPart[]
+      return json({ object: { ...object, pathname: "concurrent.bin" } })
+    })
+
+    await createMultipartUploader("/api/multipart", { fetch, partSize: 1, concurrency: 3 })(new File(["abc"], "concurrent.bin")).completed
+
+    expect(completeParts?.map(part => part.partNumber)).toEqual([1, 2, 3])
   })
 
   it("aborts the server upload and resolves with undefined", async () => {
