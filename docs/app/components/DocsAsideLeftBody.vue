@@ -10,6 +10,7 @@ import {
   getDocsSectionForPath,
   getDocsSidebarGroups,
 } from "~~/modules/vitehub-docs/runtime/utils/docs-navigation";
+import { PrimitiveIcon } from "@vite-hub/ui/primitive-rail";
 
 const route = useRoute();
 const currentPath = computed(() => normalizeDocsPath(route.path));
@@ -23,6 +24,7 @@ const pageGroups = computed(() => {
     group.label === "Start" ? { ...group, pages: [...group.pages, perspective] } : group,
   );
 });
+const platformSections = docsManifest.sections.filter((candidate) => candidate.category === "Platform");
 const related = computed(() =>
   section.value ? getDocsRelatedSections(docsManifest.sections, section.value) : [],
 );

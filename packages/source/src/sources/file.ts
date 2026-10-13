@@ -32,7 +32,7 @@ function normalizeFileSourceOptions<TKey extends string>(input: FileSourceInput<
 
 function sourceKey<TKey extends string>(options: FileSourceOptions<TKey>): TKey {
   if (options.workspacePath) {
-    // SAFETY: TKey tracks the caller's key; validation canonicalizes that same key for the FileSource contract.
+    // SAFETY: Normalizing a caller-provided workspace path preserves its string key contract.
     return normalizeSafeSourcePath(options.workspacePath) as TKey
   }
   if ("path" in options && options.path) return normalizeSourcePath(normalizeSafeSourcePath(options.path)) as TKey
