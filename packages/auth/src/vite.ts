@@ -11,6 +11,10 @@ import { discoverAuthDefinitions } from "./discovery.ts"
 import { resetAuth } from "./runtime-state.ts"
 import { isAuthRequestPath } from "./shared.ts"
 
+export function shouldPassThroughAuthResponse(basePath: string, status: number): boolean {
+  return basePath === "/" && status === 404
+}
+
 import type { ViteHubDefinitionSummary, ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
 import type { IncomingMessage, ServerResponse } from "node:http"
 import type { Plugin, ResolvedConfig, UserConfig } from "vite"
@@ -382,6 +386,12 @@ export function hubAuth(options?: AuthModuleOptions, internalOptions: InternalAu
           const authResponse = hasRequestRuntime
             ? await handleAuthRequest(definition, webRequest)
             : await getAuthForDefinition(definition).handler(webRequest)
+          // Better Auth returns 404 for paths that are not Auth endpoints. Let Vite
+          // handle those requests so a root Auth base path does not swallow the app.
+          if (shouldPassThroughAuthResponse(config.basePath, authResponse.status)) {
+            next()
+            return
+          }
           await sendWebResponse(authResponse, response)
         }
         catch (error) {
