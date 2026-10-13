@@ -4236,7 +4236,8 @@ async function textAttachmentBytes(attachment: Attachment, options: ChatMessageP
   }
   if (isRuntimeFunction(attachment.fetchData)) {
     try {
-      return checkedTextAttachmentBytes(await attachment.fetchData(), options)
+      const data = await attachment.fetchData()
+      return checkedTextAttachmentBytes(isAttachmentBlob(data) ? new Uint8Array(await data.arrayBuffer()) : data, options)
     } catch (error) {
       if (isTextAttachmentOversizeError(error)) throw error
       return undefined
