@@ -20,6 +20,7 @@ export type {
   BlobSignedRequest,
   BlobSignOptions,
   BlobServeAuthorize,
+  BlobServeResponseOptions,
   BlobSize,
   BlobStorage,
   BlobOperation,

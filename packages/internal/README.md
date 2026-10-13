@@ -25,6 +25,8 @@ import { discoverViteHubDevServer } from "@vite-hub/internal/cli"
 import { registerViteHubDevEndpoint } from "@vite-hub/internal/dev-endpoint"
 ```
 
+Source readers use `createSourceScanner(file)` from `@vite-hub/internal/source-scanner` to bind the file grammar. Its matching, splitting, object, and comment readers keep that grammar for source fragments. The standalone readers use JavaScript and TypeScript grammar without JSX. Filenames that end in `.jsx` or `.tsx` enable JSX, with TypeScript generic heads recognized only for `.tsx`.
+
 ## Used by
 
 Packages use it for definition discovery, generated runtime registries, Provider Output, hosted runtime helpers, and hosting normalization.

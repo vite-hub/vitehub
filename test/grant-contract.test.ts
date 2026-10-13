@@ -67,12 +67,6 @@ type GrantException = GrantFinding & ({ pr: number, reason?: undefined } | { pr?
  * The test fails when an entry no longer matches the source, so remove the entry in the PR that removes the shape.
  */
 const exceptions: readonly GrantException[] = [
-  // remove when #1875 merges
-  { file: "packages/agent/src/capabilities/access.ts", pattern: "Symbol.for(\"vitehub.workspace.metadataTarget\")", pr: 1875, rule: "symbol-for-capability" },
-  // remove when #1875 merges
-  { file: "packages/agent/src/capabilities/access.ts", pattern: "Symbol.for(\"vitehub.workspace.storeTarget\")", pr: 1875, rule: "symbol-for-capability" },
-  // remove when #1875 merges
-  { file: "packages/workspace/src/storage/metadata-target.ts", pattern: "Symbol.for(\"vitehub.workspace.metadataTarget\")", pr: 1875, rule: "symbol-for-capability" },
   { file: "packages/agent/src/access-runtime.ts", pattern: "Symbol.for(\"vitehub.agent.workspaceOverride\")", reason: "Follow-up: no open PR replaces this key yet.", rule: "symbol-for-capability" },
   { file: "packages/agent/src/internal/channel-delivery.ts", pattern: "Symbol.for(\"vitehub.agent.channel-delivery-ownership-verifier\")", reason: "Follow-up: no open PR replaces this key yet.", rule: "symbol-for-capability" },
   { file: "packages/workspace/src/storage/materialization.ts", pattern: "Symbol.for(\"vitehub.workspace.revisionMaterializer\")", reason: "Follow-up: no open PR replaces this key yet.", rule: "symbol-for-capability" },

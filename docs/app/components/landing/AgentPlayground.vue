@@ -766,6 +766,11 @@ function selectHost(key: string) {
 
 <template>
   <section class="playground-stage min-w-0">
+    <ol class="flex flex-wrap gap-x-5 gap-y-1 px-3 py-2.5 text-xs text-muted" aria-label="Explore an Agent">
+      <li><span class="me-1.5 font-medium tabular-nums text-highlighted">1</span>Choose an Agent</li>
+      <li><span class="me-1.5 font-medium tabular-nums text-highlighted">2</span>Edit its configuration</li>
+      <li><span class="me-1.5 font-medium tabular-nums text-highlighted">3</span>Explore frameworks and hosts</li>
+    </ol>
     <div class="workbench-body">
       <aside class="file-tree">
         <USelect
@@ -795,6 +800,7 @@ function selectHost(key: string) {
           :key="file.path"
           class="tree-file"
           :class="{ 'is-active': selectedFile.path === file.path }"
+          :aria-pressed="selectedFile.path === file.path"
           type="button"
           @click="selectedFilePath = file.path"
         >
@@ -1039,12 +1045,15 @@ function selectHost(key: string) {
             <p>})</p>
           </div>
         </div>
-        <MDCRenderer
-          v-else-if="highlightedContent"
-          :body="highlightedContent.body"
-          :data="highlightedContent.data"
-          class="code-block-wrapper editor-code"
-        />
+        <div v-else class="editor-code">
+          <MDCRenderer
+            v-if="highlightedContent"
+            :body="highlightedContent.body"
+            :data="highlightedContent.data"
+            class="code-block-wrapper"
+          />
+          <p v-else role="status" class="p-4 text-xs text-muted">Loading file...</p>
+        </div>
       </div>
     </div>
 
@@ -1096,11 +1105,14 @@ function selectHost(key: string) {
 
 <style scoped>
 .playground-stage {
+  display: grid;
+  height: var(--agent-playground-height, 48rem);
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  container-type: inline-size;
   overflow: hidden;
   border: 1px solid var(--ui-border);
   border-radius: 0.75rem;
   background: var(--ui-bg);
-  box-shadow: 0 24px 70px -52px rgb(15 23 42 / 0.55);
 }
 
 .project-select {
@@ -1111,11 +1123,13 @@ function selectHost(key: string) {
 
 .workbench-body {
   display: grid;
-  min-height: 28.25rem;
+  min-height: 0;
   grid-template-columns: 13rem minmax(0, 1fr);
 }
 
 .file-tree {
+  min-height: 0;
+  overflow: auto;
   border-right: 1px solid var(--ui-border);
   padding: 0.55rem 0.4rem 0.7rem;
   background: color-mix(in srgb, var(--ui-bg-muted) 34%, transparent);
@@ -1154,13 +1168,14 @@ function selectHost(key: string) {
 }
 
 .editor-pane {
+  min-height: 0;
   min-width: 0;
   background: color-mix(in srgb, var(--ui-bg) 96%, var(--ui-bg-muted));
 }
 
 .agent-code {
   position: relative;
-  height: 25.85rem;
+  height: 100%;
   overflow: auto;
   padding: 0 1.25rem 1rem;
   scrollbar-color: var(--ui-border-accented) transparent;
@@ -1301,7 +1316,7 @@ function selectHost(key: string) {
 }
 
 .editor-code {
-  height: 25.85rem;
+  height: 100%;
   overflow: auto;
 }
 
@@ -1401,6 +1416,12 @@ function selectHost(key: string) {
 :global(.dark) .channel-select { color: #6ee7b7; }
 
 @media (min-width: 40rem) {
+  .playground-stage {
+    height: var(--agent-playground-height, 38rem);
+  }
+}
+
+@container (min-width: 40rem) {
   .framework-row {
     grid-template-columns: repeat(5, minmax(0, 1fr));
   }
@@ -1451,10 +1472,11 @@ function selectHost(key: string) {
   }
 }
 
-@media (max-width: 639px) {
+@container (max-width: 639px) {
   .workbench-body {
     min-height: 0;
     grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
   }
 
   .file-tree {
@@ -1462,9 +1484,5 @@ function selectHost(key: string) {
     border-bottom: 1px solid var(--ui-border);
   }
 
-  .agent-code,
-  .editor-code {
-    height: 22rem;
-  }
 }
 </style>

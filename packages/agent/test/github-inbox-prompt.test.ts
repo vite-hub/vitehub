@@ -54,6 +54,22 @@ test('approval, unknown historical thread state, and current-head checks remain 
   expect(prompt).not.toContain('unscoped-ci')
 })
 
+test('checks show only the newest run, and passing runs omit their output', async () => {
+  const value = await snapshot()
+  const output = (summary: string) => ({ summary, text: `${summary} details` })
+  value.checks = {
+    'check_run:1': { id: 1, name: 'build', head_sha: 'current', app: { id: 5, slug: 'ci' }, status: 'completed', conclusion: 'failure', output: output('first build failed') },
+    'check_run:2': { id: 2, name: 'build', head_sha: 'current', app: { id: 5, slug: 'ci' }, status: 'completed', conclusion: 'success', output: output('rerun passed') },
+    'check_run:3': { id: 3, name: 'lint', head_sha: 'current', app: { id: 5, slug: 'ci' }, status: 'completed', conclusion: 'failure', output: output('lint failed') },
+  }
+  const prompt = snapshotPrompt(value)
+  expect(prompt.match(/<check>/g)).toHaveLength(2)
+  expect(prompt).not.toContain('first build failed')
+  expect(prompt).not.toContain('rerun passed')
+  expect(prompt).toContain('<summary>lint failed</summary>')
+  expect(prompt).toContain('<text>lint failed details</text>')
+})
+
 test('missing thread bodies remain unknown while repair addressing metadata survives', async () => {
   const value = await snapshot()
   value.reviewComments[1] = { id: 1, body: 'Repair', pull_request_review_id: 8, original_commit_id: 'original', start_side: 'LEFT' }

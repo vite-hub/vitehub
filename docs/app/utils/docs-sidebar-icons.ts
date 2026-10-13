@@ -1,7 +1,8 @@
+import type { PrimitiveIconName } from "@vite-hub/ui/primitive-rail";
 import type { DocsPage, DocsSection } from "~~/modules/vitehub-docs/runtime/utils/docs";
 import { normalizeDocsPath } from "~~/modules/vitehub-docs/runtime/utils/docs";
 
-/** Frontmatter icons map to the light Phosphor set so the sidebar and product select share one style. */
+/** Frontmatter icons map to the light Phosphor set so every sidebar page row shares one style. */
 const sidebarIconMap = {
   "i-lucide-activity": "i-ph-activity-light",
   "i-lucide-audio-lines": "i-ph-waveform-light",
@@ -96,6 +97,41 @@ const sidebarPageIconMap = {
   "/docs/getting-started/server-primitives": "i-ph-cube-light",
   "/docs/reference": "i-ph-package-light",
 } satisfies Record<string, string>;
+
+/** Rail icon of each docs section. The Console uses the same icons for its sections. */
+export const railSectionIconMap: Readonly<Record<string, PrimitiveIconName>> = {
+  "agents": "agent",
+  "auth": "auth",
+  "blob": "blob",
+  "browser": "browser",
+  "channels": "channel",
+  "connections": "connection",
+  "content": "content",
+  "database": "database",
+  "development": "development",
+  "email": "email",
+  "env": "env",
+  "frameworks-hosts": "hosts",
+  "getting-started": "start",
+  "kv": "kv",
+  "queue": "queue",
+  "rate-limit": "rate-limit",
+  "realtime": "realtime",
+  "reference": "reference",
+  "sandbox": "sandbox",
+  "schedule": "schedule",
+  "shell": "shell",
+  "source": "source",
+  "ui": "ui",
+  "workflows": "workflow",
+  "workspace": "workspace",
+};
+
+/** Returns the rail icon of a section. A new section without an entry falls back to the Reference icon. */
+export function railSectionIcon(section: Pick<DocsSection, "id">): PrimitiveIconName {
+  const icon = Object.hasOwn(railSectionIconMap, section.id) ? railSectionIconMap[section.id] : undefined;
+  return icon ?? "reference";
+}
 
 export function sidebarIcon(icon: string | null | undefined, fallback = "i-ph-file-text-light") {
   return icon ? lookupIcon(sidebarIconMap, icon) || (icon.startsWith("i-ph-") ? icon : fallback) : fallback;
