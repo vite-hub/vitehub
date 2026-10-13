@@ -7442,6 +7442,62 @@ describe("server helpers", () => {
     }))
   })
 
+  it("rejects oversized foreign text attachment bytes before copying them", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const foreignData = runInNewContext("new Uint8Array(8 * 1024 * 1024 + 1)") as never
+    const adapter = createTestChatAdapter({ attachmentFetchData: async () => foreignData })
+    const run = vi.fn(({ messages }) => messages.at(-1)?.parts)
+    const agent = defineAgent({
+      channels: {
+        // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+        telegram: testTelegram(telegram, { adapter: () => adapter as never }),
+      },
+      driver: { run },
+    })
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const copyAttachment = vi.fn()
+    vi.stubGlobal("Uint8Array", new Proxy(Uint8Array, {
+      construct(target, args, newTarget) {
+        if (args[0] === foreignData) copyAttachment()
+        return Reflect.construct(target, args, newTarget)
+      },
+    }))
+
+    try {
+      await expect(handler(
+        new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+          body: JSON.stringify({
+            update_id: 43,
+            message: {
+              chat: { id: 456, type: "private" },
+              date: 1781092800,
+              document: {
+                content: "# Notes\n",
+                file_id: "foreign-notes-file",
+                file_name: "notes.md",
+                file_size: 8,
+                mime_type: "text/markdown",
+              },
+              from: { first_name: "Maxi", id: 123, username: "maxi" },
+              message_id: 1011,
+            },
+          }),
+          method: "POST",
+        }),
+        "telegram",
+      )).rejects.toThrow("[vitehub] Chat text attachment exceeds 8388608 bytes.")
+
+      expect(copyAttachment).not.toHaveBeenCalled()
+      expect(run).not.toHaveBeenCalled()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it("maps audio mime file attachments for custom audio capabilities", async () => {
     const { defineAgent, defineCapability } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")

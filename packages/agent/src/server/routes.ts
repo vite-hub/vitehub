@@ -4251,7 +4251,7 @@ function isTextAttachment(attachment: Attachment): boolean {
 }
 
 function checkedTextAttachmentBytes(value: unknown, options: ChatMessagePartOptions = {}): Uint8Array | undefined {
-  const bytes = isChatArrayBuffer(value) ? new Uint8Array(value) : isChatUint8Array(value) ? new Uint8Array(value) : undefined
+  const bytes = isChatArrayBuffer(value) ? new Uint8Array(value) : isChatUint8Array(value) ? value : undefined
   if (!bytes) return
   if (bytes.byteLength > chatTextAttachmentMaxBytes) {
     if (!options.rejectOversizedTextAttachments) return
