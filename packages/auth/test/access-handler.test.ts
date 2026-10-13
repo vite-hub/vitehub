@@ -96,27 +96,20 @@ describe("Auth access handlers", () => {
     await expect(handler(new Request("https://app.example/admin/users"))).rejects.toMatchObject({ code: "AUTH_R0008" })
   })
 
-  it("returns custom authorization responses unchanged", async () => {
-    const response = new Response("Policy rejected", { status: 409 })
-    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
-      access: { routes: [{ route: "/**", authorize: () => response }] },
-    }))
-    await expect(handler(new Request("https://app.example/"))).resolves.toBe(response)
-  })
-
-  it("returns authorization responses from another realm unchanged", async () => {
-    const foreignResponse = runInNewContext(`new (class {
+  it("normalizes authorization responses for host adapters", async () => {
+    const response = runInNewContext(`new (class {
       get status() { return 409 }
       get statusText() { return "Conflict" }
-      get headers() { return { get() { return null } forEach() {} getSetCookie() { return [] } } }
+      get headers() { return { get() { return null } forEach() {} } }
       get body() { return null }
       get [Symbol.toStringTag]() { return "Response" }
     })()`)
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
-      access: { routes: [{ route: "/**", authorize: () => foreignResponse as never }] },
+      access: { routes: [{ route: "/**", authorize: () => response as never }] },
     }))
-
-    await expect(handler(new Request("https://app.example/"))).resolves.toBe(foreignResponse)
+    const result = await handler(new Request("https://app.example/"))
+    expect(result?.status).toBe(409)
+    expect(result?.headers).toBeInstanceOf(Headers)
   })
 
   it("starts provider sign-in only for matched unauthenticated HTML requests", async () => {

@@ -281,27 +281,30 @@ async function runAccessAuthorize(
   context: AuthAccessAuthorizationContext,
 ): Promise<Response | undefined> {
   const result = await authorize(context)
-  if (isResponseLike(result)) return result
+  const response = await normalizeAuthorizationResponse(result)
+  if (response) return response
   if (result !== true) return createForbiddenResponse(context.request)
 }
 
-function isResponseLike(value: unknown): value is Response {
-  if (value === null || !hasRuntimeType(value, "object")) return false
+async function normalizeAuthorizationResponse(value: unknown): Promise<Response | undefined> {
+  if (value === null || !hasRuntimeType(value, "object")) return
   try {
-    if (Object.prototype.toString.call(value) !== "[object Response]") return false
-    const status: unknown = Reflect.get(value, "status")
-    if (!hasRuntimeType(status, "number") || !Number.isInteger(status) || status < 0 || status > 599) return false
-    if (!hasRuntimeType(Reflect.get(value, "statusText"), "string")) return false
-    const headers: unknown = Reflect.get(value, "headers")
-    if (headers === null || !hasRuntimeType(headers, "object")) return false
-    if (!hasRuntimeType(Reflect.get(headers, "get"), "function")) return false
-    if (!hasRuntimeType(Reflect.get(headers, "forEach"), "function")) return false
-    if (!hasRuntimeType(Reflect.get(headers, "getSetCookie"), "function")) return false
-    const body = Reflect.get(value, "body")
-    return body === null || (body !== null && body !== undefined && hasRuntimeType(body, "object") && hasRuntimeType(Reflect.get(body as object, "getReader"), "function"))
+    if (Object.prototype.toString.call(value) !== "[object Response]") return
+    if (value instanceof Response) return value
+    const response = value as Response
+    // Copy through the standard Fetch interfaces. Adapters only receive host
+    // headers and body readers, never methods supplied by a tagged object.
+    const headers = new Headers(response.headers)
+    const body = response.body === null ? null : await response.arrayBuffer()
+    if (body !== null) {
+      // Check the intrinsic buffer state, including buffers from other realms.
+      Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")!.get!.call(body)
+    }
+    return new Response(body, { headers, status: response.status, statusText: response.statusText })
   }
   catch {
-    return false
+    // Malformed authorization values fail closed like other non-true results.
+    return
   }
 }
 
