@@ -52,6 +52,18 @@ describe("work checkpoints", () => {
     expect(await tracker.run("a", "v1", run)).toBe(true)
     expect(run).toHaveBeenCalledOnce()
   })
+  it("does not invoke checkpoint accessors", async () => {
+    const { tracker, records } = fixture()
+    const getter = vi.fn(() => 1)
+    const record = { fingerprint: "v1", disposition: "park", attempt: 0 }
+    Object.defineProperty(record, "version", { enumerable: true, get: getter })
+    records.set("a", record)
+    const run = vi.fn(async () => ({ disposition: "park" as const }))
+
+    expect(await tracker.run("a", "v1", run)).toBe(true)
+    expect(getter).not.toHaveBeenCalled()
+    expect(run).toHaveBeenCalledOnce()
+  })
   it("parks the new version produced by a repair", async () => {
     const { tracker } = fixture()
     await tracker.run("a", "v1", async () => ({ disposition: "park", fingerprint: "v2" }))

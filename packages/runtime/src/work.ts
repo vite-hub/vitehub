@@ -43,8 +43,15 @@ export function createWorkTracker(options: {
   function checkpoint(value: unknown): WorkCheckpoint | undefined {
     if (!isRuntimeObject(value)) return
     try {
-      // Store results must be cloneable records. A proxy can fabricate every
-      // own-property descriptor, so reject it before consulting descriptors.
+      // Inspect descriptors before cloning. Cloning first would invoke an
+      // enumerable accessor and let untrusted store data run code. Reject any
+      // accessor-backed own property without reading its value.
+      for (const key of Reflect.ownKeys(value)) {
+        const descriptor = Object.getOwnPropertyDescriptor(value, key)
+        if (!descriptor || !Object.prototype.hasOwnProperty.call(descriptor, "value")) return
+      }
+      // Store results must be cloneable records. A proxy can fabricate
+      // descriptors, but structuredClone rejects the proxy itself.
       structuredClone(value)
       const read = (key: string): unknown => {
         const descriptor = Object.getOwnPropertyDescriptor(value, key)
