@@ -2,7 +2,7 @@ import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 import { executeHttpRequest, parseStandardSchema } from "@vite-hub/internal/http-request"
 import { posix } from "node:path"
 
-import { normalizeSafeWorkspacePath } from "../core/path.ts"
+import { isWorkspaceBytes, normalizeSafeWorkspacePath } from "../core/path.ts"
 import { markLiveWorkspaceSource } from "./live.ts"
 import { requestJsonEqual } from "./request-json.ts"
 import {
@@ -478,7 +478,7 @@ function serializedQuery(query: Record<string, unknown> | undefined): Record<str
 }
 
 function serializeFetchSourceContent(value: unknown, responseType: FetchSourceResponseType): WorkspaceContent {
-  if (value instanceof Uint8Array) return value
+  if (isWorkspaceBytes(value)) return value
   if (responseType === "json") return JSON.stringify(value, null, 2) ?? "null"
   if (typeof value === "string") return value
   return typeof value === "undefined" ? "" : String(value)
