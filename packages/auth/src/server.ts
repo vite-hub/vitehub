@@ -331,9 +331,12 @@ function hasResponsePrototype(value: unknown): boolean {
 function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<Uint8Array> | null {
   if (body === null) return true
   if (Object(body) !== body) return false
-  const locked = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
-  if (!locked || Reflect.apply(locked, body, [])) return false
-  return responsePropertyDescriptor(Object(body), "getReader")?.value === ReadableStream.prototype.getReader
+  // Read the stream's own intrinsic accessors so bodies from another runtime
+  // or realm are accepted without applying this realm's brand checks.
+  const locked = responsePropertyDescriptor(body, "locked")?.get
+  const getReader = responsePropertyDescriptor(body, "getReader")?.value
+  if (typeof locked !== "function" || typeof getReader !== "function") return false
+  return !Reflect.apply(locked, body, [])
 }
 
 function normalizeAuthorizationResponse(value: unknown): Response | undefined {
