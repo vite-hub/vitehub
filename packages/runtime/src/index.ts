@@ -371,6 +371,15 @@ export interface RunLifecycleHooks<TContext extends RuntimeHostContext<any> = Ru
 function timestamp(value: Date | string | undefined): string {
   if (value instanceof Date) return value.toISOString()
   if (hasRuntimeType(value, "string")) return value
+  if (isRuntimeObject(value)) {
+    try {
+      // Date.prototype's intrinsic methods recognize Date objects from other realms.
+      return Reflect.apply(Date.prototype.toISOString, value, [])
+    }
+    catch (error) {
+      if (!(error instanceof TypeError)) throw error
+    }
+  }
   return new Date().toISOString()
 }
 
