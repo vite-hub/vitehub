@@ -241,11 +241,17 @@ function createWebRequest(request: IncomingMessage): Request {
   return new Request(url, init)
 }
 
+function splitSetCookieHeader(value: string): string[] {
+  return value ? value.split(/,\s*(?=[^;,=\s]+=)/) : []
+}
+
 async function sendWebResponse(response: Response, target: ServerResponse): Promise<void> {
   target.statusCode = response.status
   target.statusMessage = response.statusText
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Older Headers implementations can omit getSetCookie; preserve their header forwarding behavior.
-  const setCookieHeaders = typeof response.headers.getSetCookie === "function" ? response.headers.getSetCookie() : []
+  const setCookieHeaders = typeof response.headers.getSetCookie === "function"
+    ? response.headers.getSetCookie()
+    : splitSetCookieHeader(response.headers.get("set-cookie") ?? "")
   response.headers.forEach((value, key) => {
     if (key.toLowerCase() === "set-cookie" && setCookieHeaders.length > 0) return
     target.appendHeader(key, value)
