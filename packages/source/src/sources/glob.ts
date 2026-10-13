@@ -10,7 +10,9 @@ export interface GlobSourceOptions {
   cwd?: string
   dot?: boolean
   followSymlinks?: boolean
+  /** Portable glob patterns: backslashes are separators, never escapes. Use [*], [?], [[] for literals. */
   include: string | string[]
+  /** Uses the same portable separator and literal syntax as include. */
   ignore?: string | readonly string[]
   keyCache?: boolean
   prefix?: string
@@ -52,7 +54,7 @@ export function glob(options: GlobSourceOptions): FileSource<string> {
     })
     let keys = files
       .map(file => normalizeSafeSourcePath(file, { allowReserved: true }))
-      .filter(file => matchesAny(file, options.include) && !matchesAny(file, ignore))
+      .filter(file => matchesAny(file, include) && !matchesAny(file, ignore))
     if (options.followSymlinks) {
       const rooted: string[] = []
       for (const key of keys) {

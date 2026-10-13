@@ -36,6 +36,15 @@ const serverPrimitiveSections = [
 ];
 
 describe("docs product navigation", () => {
+  it("includes the canonical Vue perspective once in the UI Start group", () => {
+    const section = getDocsSectionForPath(docsManifest.sections, "/docs/ui/installation")!;
+    const groups = getDocsSidebarGroups(section);
+    const perspective = getDocsPageByPath("/docs/ui/built-for-vue");
+    expect(perspective?.title).toBe("Why Vue?");
+    expect(groups.find(group => group.label === "Start")?.pages).toContain(perspective);
+    expect(groups.flatMap(group => group.pages).filter(page => page === perspective)).toHaveLength(1);
+  });
+
   it("files every section under one catalog category", () => {
     expect(getUncategorizedDocsSections(docsManifest.sections)).toEqual([]);
 

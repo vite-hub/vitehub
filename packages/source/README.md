@@ -34,6 +34,13 @@ reader. Revision-aware loaders receive the same pinned revision on every
 operation. Loaders without revision support can observe origin changes. Create
 another reader to resolve a new revision. No registration or global type map is needed.
 
+`glob()` treats both `/` and `\` as path separators in `include` and `ignore`,
+including before wildcards: the JavaScript string `"docs\\*.md"` means
+`"docs/*.md"`. Backslashes never escape glob metacharacters. To match literal
+characters, use bracket expressions: `[*]` for `*`, `[?]` for `?`, and `[[]`
+for `[`. For example, `"docs/file[[]1].md"` matches `docs/file[1].md`.
+The same normalized patterns are used for discovery and final filtering.
+
 `glob()` keeps its cached key listing in each reader. Opening another reader
 refreshes that reader's listing without changing existing readers. File content
 and metadata are read from the current file system. Set `keyCache: false` to
