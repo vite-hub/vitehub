@@ -270,7 +270,26 @@ describe("Auth access handlers", () => {
     expect(() => response?.headers.forEach(() => {})).not.toThrow()
   })
 
-  it.each([["local", Response], ["foreign", ForeignResponse]] as const)("rejects an already-consumed body from the %s runtime", async (_runtime, ResponseConstructor) => {
+  it.each(["consumed", "locked"] as const)("preserves a native authorization Response with a %s body unchanged", async state => {
+    const response = new Response("Policy rejected", { status: 409, headers: { "x-policy": "custom" } })
+    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
+    if (state === "consumed") await response.text()
+    else reader = response.body!.getReader()
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => response }] },
+    }))
+    try {
+      await expect(handler(new Request("https://app.example/"))).resolves.toBe(response)
+      expect(response.status).toBe(409)
+      expect(response.headers.get("x-policy")).toBe("custom")
+    }
+    finally {
+      reader?.releaseLock()
+    }
+  })
+
+  it("rejects an already-consumed body from the foreign runtime", async () => {
+    const ResponseConstructor = ForeignResponse
     const source = new ResponseConstructor("Policy rejected", { status: 409 })
     const reader = source.body!.getReader()
     await reader.read()
