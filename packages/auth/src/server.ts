@@ -294,7 +294,7 @@ function isResponseLike(value: unknown): value is Response {
     const status = Object.getOwnPropertyDescriptor(Response.prototype, "status")!.get!.call(response)
     const statusText = Object.getOwnPropertyDescriptor(Response.prototype, "statusText")!.get!.call(response)
     const headers = Object.getOwnPropertyDescriptor(Response.prototype, "headers")!.get!.call(response)
-    Headers.prototype.get.call(headers, "")
+    Headers.prototype.has.call(headers, "content-type")
     return Number.isInteger(status) && status >= 0 && status <= 599 && typeof statusText === "string"
   }
   catch {

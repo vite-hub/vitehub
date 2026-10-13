@@ -40,6 +40,8 @@ describe("Console section preferences", () => {
     expect(isConsoleConnectionsEnabled({ connections: { management: true } })).toBe(true)
     expect(isConsoleConnectionsEnabled({ connections: true })).toBe(false)
     expect(isConsoleConnectionsEnabled({ connections: { management: false } })).toBe(false)
+    const inherited = Object.create({ management: true })
+    expect(isConsoleConnectionsEnabled({ connections: inherited })).toBe(false)
   })
 
   it("derives enabled primitive sections, including Agent-enabled Workflow", () => {
