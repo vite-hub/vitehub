@@ -333,6 +333,26 @@ describe("resolveDBViteConfig", () => {
     }))
   })
 
+  it.each(["reference", "spread"] as const)("does not check opaque %s resources as native D1 bindings", async (form) => {
+    const rootDir = await createTempProject()
+    for (const name of ["foo-bar", "foo_bar"]) {
+      const file = join(rootDir, "server/databases", name, "config.ts")
+      await mkdir(dirname(file), { recursive: true })
+      await writeFile(file, [
+        "import { defineDatabase } from '@vite-hub/database'",
+        `const cloudflare = { databaseId: '${name}-id', databaseName: '${name}-db', http: true }`,
+        `export default defineDatabase({ name: '${name}', cloudflare: ${form === "reference" ? "cloudflare" : "{ ...cloudflare }"}, schema: {} })`,
+      ].join("\n"))
+    }
+
+    const resolved = resolveDBViteConfig(undefined, rootDir)!
+    for (const name of resolved.databaseNames) {
+      expect(resolved.definitionDefaults.cloudflareProjections[name]?.resource).toBe("opaque")
+      const definition = { cloudflare: { databaseId: `${name}-id`, databaseName: `${name}-db`, http: true as const }, drizzle: {}, name, schema: {} }
+      expect(runtimeConfig(definition, resolved.definitionDefaults).cloudflare?.binding).toBeUndefined()
+    }
+  })
+
   it("resolves default migrations from a forwarded server directory", async () => {
     const rootDir = await createTempProject()
     const serverDir = join(rootDir, "backend")
