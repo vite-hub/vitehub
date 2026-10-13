@@ -207,7 +207,7 @@ describe("createConnectionsHandler", () => {
 
     const counts = await handler(post({ action: "approval-counts" }))
 
-    expect(await counts.json()).toEqual({ counts: { "__proto__": 1 } })
+    expect(await counts.json()).toEqual({ counts: Object.fromEntries([["__proto__", 1]]) })
   })
 
   it("rejects approval counts when a store repeats a pagination cursor", async () => {
