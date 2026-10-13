@@ -103,6 +103,24 @@ it("publishes dependencies into the active Box and removes obsolete root outputs
   } finally { await f.session.close(); }
 });
 
+it("lets a Box session import the workspace and install dependencies itself", async () => {
+  const f = await fixture();
+  try {
+    const importWorkspace = vi.fn(async () => {});
+    const refreshDependencies = vi.fn(async () => {});
+    const session = Object.assign(Object.create(f.session), { importWorkspace, refreshDependencies });
+    await mkdir(join(f.checkout, "node_modules", "example"), { recursive: true });
+    await writeFile(join(f.checkout, "untracked.txt"), "host only\n");
+    await importBoxRepairWorkspace(session, f.checkout, f.signal);
+    await publishBoxDependencies(session, f.checkout, f.signal);
+    expect(importWorkspace).toHaveBeenCalledWith(f.checkout, f.signal);
+    expect(refreshDependencies).toHaveBeenCalledWith(f.checkout, f.signal);
+    // The session owns both transfers; the generic file copy must not run as well.
+    await expect(lstat(join(f.remote, "untracked.txt"))).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(lstat(join(f.remote, "node_modules"))).rejects.toMatchObject({ code: "ENOENT" });
+  } finally { await f.session.close(); }
+});
+
 it("imports a remote repair commit before the Box closes, including a second push", async () => {
   const f = await fixture();
   try {

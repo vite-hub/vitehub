@@ -165,12 +165,13 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/connections` and `@vite-hub/connections/google` | Connections Package | Connection Definitions, `oauth2()`, `apiKey()`, `useConnection()`, the Google preset, and typed Gmail Operations. |
 | `@vite-hub/connections/server`, `@vite-hub/connections/http`, and `@vite-hub/connections/agent` | Connections Runtime | Runtime access, management and OAuth routes, and the Agent primitive handle. |
 | `@vite-hub/content` and `@vite-hub/content/client` | Content Package | Comark Content runtime definition, ViteHub Source adaptation, server handler, and typed client. |
+| `@vite-hub/cli` | CLI Package | The `vitehub` command and its programmatic CLI entry. Use the `vite-hub` distribution for application integration. |
 | `@vite-hub/email` | Email Package | Explicit clients, portable types, and normalized errors. |
 | `@vite-hub/email/server` | Email Runtime | Server-only configured `email` Runtime Helper. |
 | `@vite-hub/email/markdown` | Email Package | Dynamic Markdown composition into HTML and a composed Markdown text fallback. |
 | `@vite-hub/email/test` | Email Package | Isolated in-memory message capture for tests. |
 | `#vitehub/emails/<name>` | Email Package | Generated async renderer for a discovered `server/emails/**/*.md` template. |
-| `@vite-hub/database/drizzle` | Database Package | Generated `useDatabase()` access to a Drizzle database and schema. |
+| `@vite-hub/database` and `@vite-hub/database/drizzle` | Database Package | Database Definition helpers and generated `useDatabase()` access to a Drizzle database and schema. |
 | `@vite-hub/env` | Env Package | Env Declaration helpers. |
 | `@vite-hub/env/auth` | Env Package | Env Bridge authentication adapters. |
 | `@vite-hub/env/http` | Env Package | Authenticated HTTP adapter for declared credentials. |
@@ -195,11 +196,12 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/shell/workspace` | Shell Package | Read-only Workspace filesystem adapters and mount paths for Shell providers. |
 | `@vite-hub/ui`, `@vite-hub/ui/agent-*`, and `@vite-hub/ui/headless` | UI Package | AI SDK-native Vue components and headless message scrolling. |
 | `@vite-hub/sandbox` | Sandbox Package | Sandbox Definition and Sandbox Run helpers. |
-| `@vite-hub/schedule/runtime` | Schedule Package | Runtime schedule helpers. |
+| `@vite-hub/schedule` and `@vite-hub/schedule/runtime` | Schedule Package | Schedule Definition helpers and Runtime Schedule helpers. |
 | `@vite-hub/schedule/runtime/kv` | Schedule Package | Explicit storage adapter; requires the optional `@vite-hub/kv` peer. |
 | `@vite-hub/schedule/runtime/driver` | Schedule Package | Host integration boundary for reconciling stored Runtime Schedules with native wake registrations. |
 | `#vitehub/schedule/registry` | Schedule Package | Generated static schedule registry for host bridges. |
 | `@vite-hub/workflow` | Workflow Package | Workflow Definition and run helpers. |
+| `@vite-hub/source` | Source Package | Source Definitions, loaders, and registry APIs. |
 | `@vite-hub/workflow/runtime/openworkflow-worker` | Workflow Package | OpenWorkflow-specific worker lifecycle helpers; install `openworkflow` explicitly. |
 | `@vite-hub/workspace` | Workspace Package | Workspace Definition, Source helpers, history contracts, Workspace facade access, and authoring types. |
 | `@vite-hub/workspace/runtime` | Workspace Package | Workspace runtime registry, `useWorkspace()`, and source resolution/request helpers for integrations. |

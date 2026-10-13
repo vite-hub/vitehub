@@ -43,6 +43,7 @@ const hasPanel = computed(
 .vh-docs-content {
   min-width: 0;
   max-width: none;
+  flex: 1;
 }
 
 /* On wide screens the rail and the page panel stay at the left edge. The page fills the remaining space. */
@@ -50,6 +51,8 @@ const hasPanel = computed(
   .vh-docs-shell {
     display: flex;
     align-items: flex-start;
+    /* Clip the expanded rail horizontally without creating a vertical scroll ancestor for sticky navigation. */
+    overflow-x: clip;
   }
 
   .vh-docs-shell > .vh-docs-desktop-nav {
