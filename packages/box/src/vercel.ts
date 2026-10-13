@@ -191,11 +191,18 @@ function hasEffectiveNetworkPolicy(
 }
 
 function hasOwnArrayEntries(value: unknown): boolean {
-  return Array.isArray(value) && value.some((_, index) => Object.hasOwn(value, index));
+  if (!Array.isArray(value)) return false;
+  for (let index = 0; index < value.length; index++) {
+    if (Object.hasOwn(value, index)) return true;
+  }
+  return false;
 }
 
 function hasOwnArrayValue<T>(value: readonly T[], expected: T): boolean {
-  return value.some((item, index) => Object.hasOwn(value, index) && item === expected);
+  for (let index = 0; index < value.length; index++) {
+    if (Object.hasOwn(value, index) && value[index] === expected) return true;
+  }
+  return false;
 }
 
 function ownNetworkPolicyMember<T extends object, K extends keyof T>(

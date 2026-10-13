@@ -308,10 +308,10 @@ describe("remote Box providers", () => {
   it.each([
     Object.create({ allow: ["*"] }) as Exclude<VercelBoxNetworkPolicy, string>,
     Object.create({ subnets: { deny: ["10.0.0.0/8"] } }) as Exclude<VercelBoxNetworkPolicy, string>,
-    { allow: Object.setPrototypeOf(Array.from({ length: 1 }), { 0: "*" }) },
-    { allow: Array.from({ length: 1 }) },
-    { subnets: { allow: Array.from({ length: 1 }) } },
-    { subnets: { deny: Array.from({ length: 1 }) } },
+    { allow: Object.setPrototypeOf(Object.assign([], { length: 1 }), { 0: "*" }) },
+    { allow: Object.assign([], { length: 1 }) },
+    { subnets: { allow: Object.assign([], { length: 1 }) } },
+    { subnets: { deny: Object.assign([], { length: 1 }) } },
   ])("does not infer Vercel network authority from inherited policy members", async networkPolicy => {
     const box = await resolveBox({
       runtime: createVercelRuntime({
