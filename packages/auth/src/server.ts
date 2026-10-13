@@ -287,14 +287,24 @@ async function runAccessAuthorize(
 function isResponseLike(value: unknown): value is Response {
   if (value === null || typeof value !== "object") return false
   try {
-    const responsePrototype = Response.prototype
-    const status = Object.getOwnPropertyDescriptor(responsePrototype, "status")?.get?.call(value)
-    const statusText = Object.getOwnPropertyDescriptor(responsePrototype, "statusText")?.get?.call(value)
-    const headers = Object.getOwnPropertyDescriptor(responsePrototype, "headers")?.get?.call(value)
-    Object.getOwnPropertyDescriptor(responsePrototype, "body")?.get?.call(value)
+    const getAccessor = (name: string) => {
+      for (let prototype = Object.getPrototypeOf(value); prototype; prototype = Object.getPrototypeOf(prototype)) {
+        const descriptor = Object.getOwnPropertyDescriptor(prototype, name)
+        if (descriptor?.get) return descriptor.get
+      }
+      return undefined
+    }
+    const status = getAccessor("status")?.call(value)
+    const statusText = getAccessor("statusText")?.call(value)
+    const headers = getAccessor("headers")?.call(value)
+    const body = getAccessor("body")?.call(value)
     if (typeof status !== "number" || !Number.isInteger(status) || status < 0 || status > 599) return false
     if (typeof statusText !== "string" || headers === null || typeof headers !== "object") return false
-    Headers.prototype.get.call(headers as Headers, "x-vitehub-probe")
+    const get = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(headers), "get")?.value
+    const forEach = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(headers), "forEach")?.value
+    if (typeof get !== "function" || typeof forEach !== "function") return false
+    get.call(headers, "x-vitehub-probe")
+    if (body !== null && (typeof body !== "object" || typeof Object.getOwnPropertyDescriptor(Object.getPrototypeOf(body), "getReader")?.value !== "function")) return false
     return true
   }
   catch {
