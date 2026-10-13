@@ -88,6 +88,7 @@ Include instruction content only when the current viewer may inspect it. The com
 | `showStatus`       | `boolean`             | `true`   | Shows the status row in the outcome section.          |
 | `showError`        | `boolean`             | `true`   | Shows the terminal error in the outcome section.      |
 | `showTimeline`     | `boolean`             | `true`   | Shows the run timeline.                               |
+| `showSources`      | `boolean`             | `true`   | Shows recorded Workspace Sources.                    |
 | `showCapabilities` | `boolean`             | `false`  | Shows the embedded Capability summary.                |
 
 #### Events
