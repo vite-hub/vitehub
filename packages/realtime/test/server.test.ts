@@ -1366,6 +1366,12 @@ describe("tiptap-markdown documents", () => {
 })
 
 describe("workspace changes", () => {
+  it.each(["docs/.. /secret", "docs/.git /config", "docs/git~1/config", "vitehu~1/config"])("rejects Windows-unsafe path %s", (path) => {
+    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path }))).toBeUndefined()
+    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "move", from: path, to: "docs/new.md" }))).toBeUndefined()
+    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "move", from: "docs/old.md", to: path }))).toBeUndefined()
+  })
+
   it("round-trips typed filesystem changes and rejects malformed payloads", () => {
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/new.md" })))
       .toEqual({ operation: "create", path: "docs/new.md" })

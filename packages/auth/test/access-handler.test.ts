@@ -118,7 +118,7 @@ describe("Auth access handlers", () => {
 
     const result = await handler(new Request("https://app.example/"))
     expect(result).toBeInstanceOf(Response)
-    expect(result.status).toBe(403)
+    expect(result?.status).toBe(403)
   })
 
   it("starts provider sign-in only for matched unauthenticated HTML requests", async () => {

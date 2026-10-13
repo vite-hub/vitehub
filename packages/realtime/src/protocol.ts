@@ -20,8 +20,13 @@ export function isRetryableRealtimeCheckpointCode(value: unknown): boolean {
 function validPath(value: unknown): value is string {
   if (typeof value !== "string" || value.length === 0 || value.length > 4096 || value.includes("\0")) return false
   if (value.startsWith("/") || value.endsWith("/") || value.includes("\\")) return false
-  const parts = value.split("/")
-  return !parts.some(part => !part || part === "." || part === ".." || part.toLowerCase() === ".git") && parts[0] !== ".vitehub"
+  if (value.split("/").some(part => !part || part === "." || part === "..")) return false
+  try {
+    return normalizeSafeWorkspacePath(value) === value
+  }
+  catch {
+    return false
+  }
 }
 
 export function decodeWorkspaceChangePayload(decoder: decoding.Decoder): RealtimeWorkspaceChange | undefined {
