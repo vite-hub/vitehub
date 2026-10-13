@@ -129,11 +129,13 @@ pnpm vitehub agent dev --agent support --prompt 'Summarize the support policy.'
 ```
 
 This checks discovery, the development route, input preparation, Capability
-setup, the Driver, and streamed output together. Use `--json` when a script
-needs machine-readable output. Use `--timeout <milliseconds>` to set the
-stream inactivity timeout when a valid long-running tool or provider turn
-needs more time between emitted events; it is not a wall-clock deadline for
-the whole Invocation.
+setup, the Driver, and streamed output together. Use `--timeout <milliseconds>`
+to set the stream inactivity timeout for a normal streamed Agent Invocation
+when a valid long-running tool or provider turn needs more time between emitted
+events; it is not a wall-clock deadline for the whole Invocation. For
+machine-readable Definition data, use `agent info --json` below. When using
+`--cli` or a direct Workspace command, `--timeout` is a wall-clock command
+deadline instead.
 
 Inspect the resolved Definition before debugging model output:
 
