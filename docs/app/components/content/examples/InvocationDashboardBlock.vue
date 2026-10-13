@@ -136,7 +136,7 @@ const invocations = computed<AgentInvocationView[]>(() => [
     traceId: "trace_release",
     updatedAt: time(2280),
   },
-];
+]);
 
 // Map full records to list summaries with the display helpers the Console uses.
 const items = computed<AgentInvocationListItem[]>(() =>
