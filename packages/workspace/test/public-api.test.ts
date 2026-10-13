@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { runInNewContext } from "node:vm"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -773,6 +774,24 @@ describe("workspace public API", () => {
     await expect(serverB.validateWorkspaceDevToken(runtimeRoot, new Headers({
       [serverB.workspaceDevTokenHeader]: token,
     }), tokenOptions)).resolves.toBe(true)
+  })
+
+  it("accepts workspace dev tokens from cross-realm Headers", async () => {
+    const root = await createRoot()
+    const { refreshWorkspaceDevToken, validateWorkspaceDevToken, workspaceDevTokenHeader } = await import("../src/server.ts")
+    const token = await refreshWorkspaceDevToken(root)
+    const headers = runInNewContext(`(() => {
+      class Headers {
+        #values = new Map()
+        constructor(entries) {
+          for (const [key, value] of entries) this.#values.set(key.toLowerCase(), value)
+        }
+        get(name) { return this.#values.get(name.toLowerCase()) ?? null }
+      }
+      return new Headers([[name, token]])
+    })()`, { name: workspaceDevTokenHeader, token }) as Headers
+
+    await expect(validateWorkspaceDevToken(root, headers)).resolves.toBe(true)
   })
 
   it("uses runtime workspace root for default local stores", async () => {

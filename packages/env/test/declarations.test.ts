@@ -42,6 +42,21 @@ describe("env declarations", () => {
     expect(defined.values).toEqual({ "nested.token": "conventional", "api-key": { token: "conventional" } })
   })
 
+  it("ignores inherited values when resolving environment sources", async () => {
+    const inheritedEnv = Object.create({ INHERITED_TOKEN: "ambient-secret" }) as Record<string, string | undefined>
+    const result = await resolveEnvEntries({
+      token: env({ optional: true, source: env.source("INHERITED_TOKEN") }),
+    }, {
+      context: createSourceContext({ env: inheritedEnv, mode: "build", rootDir: process.cwd() }),
+      exposure: "build public",
+      section: "env.public",
+      timing: "test",
+    })
+
+    expect(result.entries).toEqual([{ key: "token", masked: false, source: "env:VITEHUB_PUBLIC_TOKEN|INHERITED_TOKEN", type: "undefined", value: undefined }])
+    expect(result.diagnostics).toMatchObject([{ key: "env.public.token", status: "missing" }])
+  })
+
   it("allows build collisions when canonical names are disabled", async () => {
     const input = {
       context: createSourceContext({ env: { PUBLIC_API_KEY: "public", DEFINE_API_KEY: "define" }, mode: "build", rootDir: process.cwd() }),
@@ -53,6 +68,37 @@ describe("env declarations", () => {
     expect(result.entries.map(entry => entry.value)).toEqual(["public", "public"])
     const defined = await resolveBuildConfig(declarations, { ...input, exposure: "compile-time replacement", section: "env.define" })
     expect(defined.values).toEqual({ apiKey: "define", api_key: "define" })
+  })
+
+  it("preserves prototype-named build declaration keys", async () => {
+    const declarations = {
+      ...Object.fromEntries([["__proto__", env({ mode: "build", source: env.source("PROTO_VALUE") })]]),
+      nested: Object.fromEntries([
+        ["constructor", env({ mode: "build", source: env.source("CONSTRUCTOR_VALUE") })],
+        ["__proto__", env({ mode: "build", source: env.source("NESTED_PROTO_VALUE") })],
+      ]),
+    }
+    const result = await resolveBuildConfig(declarations, {
+      context: createSourceContext({
+        env: { PROTO_VALUE: "proto-value", CONSTRUCTOR_VALUE: "constructor-value", NESTED_PROTO_VALUE: "nested-proto-value" },
+        mode: "runtime",
+        rootDir: process.cwd(),
+      }),
+      exposure: "compile-time replacement",
+      prefix: false,
+      section: "env.define",
+      timing: "test",
+    })
+
+    expect(result.values).toEqual({
+      ["__proto__"]: "proto-value",
+      nested: { constructor: "constructor-value", ["__proto__"]: "nested-proto-value" },
+    })
+    expect(Object.hasOwn(result.values, "__proto__")).toBe(true)
+    expect(Object.getPrototypeOf(result.values)).toBe(Object.prototype)
+    expect(Object.hasOwn(result.values.nested as object, "constructor")).toBe(true)
+    expect(Object.hasOwn(result.values.nested as object, "__proto__")).toBe(true)
+    expect(Object.getPrototypeOf(result.values.nested)).toBe(Object.prototype)
   })
 
   it("rejects sparse build arrays whose values only exist on the prototype", async () => {
@@ -259,6 +305,15 @@ describe("env declarations", () => {
     expect(await github.git.sha()).toBe("github-sha")
     expect(await github.git.ref()).toBe("v1.2.3")
     expect(await github.git.tag()).toBe("v1.2.3")
+
+    const inheritedGithubRefType = Object.create({ GITHUB_REF_TYPE: "tag" }) as Record<string, string | undefined>
+    inheritedGithubRefType.GITHUB_REF_NAME = "inherited-tag"
+    const inheritedGithub = createSourceContext({
+      env: inheritedGithubRefType,
+      mode: "build",
+      rootDir: "/missing-git-root",
+    })
+    await expect(inheritedGithub.git.tag()).resolves.toBeUndefined()
   })
 
   it("rejects flat runtime declarations in Vite config", () => {
