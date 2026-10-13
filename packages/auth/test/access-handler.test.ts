@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { Response as ForeignResponse } from "undici"
 import { runInNewContext } from "node:vm"
 
 import { defineAuth } from "../src/index.ts"
@@ -105,7 +106,10 @@ describe("Auth access handlers", () => {
   })
 
   it("returns authorization responses from another realm unchanged", async () => {
-    const foreignResponse = runInNewContext("new Response('Policy rejected', { status: 409 })", { Response })
+    const foreignResponse = new ForeignResponse("Policy rejected", { status: 409 })
+    expect(ForeignResponse).not.toBe(Response)
+    expect(foreignResponse).not.toBeInstanceOf(Response)
+    expect(await foreignResponse.clone().text()).toBe("Policy rejected")
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
       access: { routes: [{ route: "/**", authorize: () => foreignResponse as never }] },
     }))

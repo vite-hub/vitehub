@@ -285,20 +285,38 @@ async function runAccessAuthorize(
 }
 
 function isResponseLike(value: unknown): value is Response {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- A cross-realm Response needs structural checks before accessing its runtime getters.
   if (value === null || typeof value !== "object") return false
   try {
-    // Calling the native accessors performs the Response internal-slot check,
-    // which works across realms and rejects objects that merely spoof the tag.
-    const response = value as Response
-    const status = Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get?.call(response)
-    const statusText = Object.getOwnPropertyDescriptor(Response.prototype, "statusText")?.get?.call(response)
-    const headers = Object.getOwnPropertyDescriptor(Response.prototype, "headers")?.get?.call(response)
-    return typeof status === "number" && Number.isInteger(status) && status >= 0 && status <= 599
-      && typeof statusText === "string"
-      && headers !== null && typeof headers === "object"
+    if (Object.prototype.toString.call(value) !== "[object Response]") return false
+    const status = readResponseProperty(value, "status")
+    const statusText = readResponseProperty(value, "statusText")
+    // SAFETY: The owning Response getter supplies this value; its optional methods remain unknown until the checks below.
+    const headers = readResponseProperty(value, "headers") as {
+      get?: unknown
+      forEach?: unknown
+    } | undefined
+    const body = readResponseProperty(value, "body") as {
+      getReader?: unknown
+    } | null | undefined
+    if (typeof status !== "number" || !Number.isInteger(status) || status < 0 || status > 599) return false
+    if (typeof statusText !== "string") return false
+    if (headers === null || typeof headers !== "object") return false
+    if (typeof headers.get !== "function" || typeof headers.forEach !== "function") return false
+    return body === null || (typeof body === "object" && typeof body.getReader === "function")
   }
   catch {
     return false
+  }
+}
+
+function readResponseProperty(value: unknown, key: string): unknown {
+  // Use the owning runtime's getters so its Response brand checks apply.
+  let prototype: unknown = Object.getPrototypeOf(value)
+  while (prototype) {
+    const descriptor = Object.getOwnPropertyDescriptor(prototype, key)
+    if (descriptor) return descriptor.get?.call(value)
+    prototype = Object.getPrototypeOf(prototype)
   }
 }
 
