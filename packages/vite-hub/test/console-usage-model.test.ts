@@ -1,13 +1,20 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import {
   consoleUsageCacheHitRate,
+  consoleUsageChartState,
+  consoleUsageChartTicks,
   consoleUsageCostPerMillionTokens,
-  consoleUsageModelPeriods,
+  consoleUsageModelChartPoints,
   consoleUsageModelShare,
+  consoleUsagePointEvidence,
   consoleUsageTokenSegments,
+  describeConsoleUsageChart,
   formatConsoleUsageCostEvidence,
+  formatConsoleUsageDateTime,
+  formatConsoleUsagePeriod,
   formatConsoleUsageShare,
+  formatConsoleUsageTimestamp,
   formatConsoleUsageValue,
   sortConsoleUsageModels,
   type ConsoleUsageEvidence,
@@ -151,21 +158,58 @@ describe("Console usage model rates", () => {
   });
 });
 
-describe("Console usage model periods", () => {
-  it("keeps every period and leaves periods without the model empty", () => {
+describe("Console usage model chart points", () => {
+  it("shows zero for a complete period without the model and unavailable for an incomplete one", () => {
     const sonnet = model("sonnet", "1", 10);
-    expect(
-      consoleUsageModelPeriods(
-        [
-          { models: [sonnet], start: "2026-08-01T00:00:00.000Z" },
-          { models: [model("haiku", "1", 5)], start: "2026-08-02T00:00:00.000Z" },
-        ],
-        "sonnet",
-      ),
-    ).toEqual([
-      { start: "2026-08-01T00:00:00.000Z", totals: sonnet },
-      { start: "2026-08-02T00:00:00.000Z", totals: undefined },
+    const points = consoleUsageModelChartPoints(
+      [
+        { ...evidence({ costUsd: "1", totalTokens: 10 }), models: [sonnet], start: "2026-08-01T00:00:00.000Z" },
+        { ...evidence({ costUsd: "1", totalTokens: 5 }), models: [model("haiku", "1", 5)], start: "2026-08-02T00:00:00.000Z" },
+        { ...evidence({ totalTokensAvailable: false }), models: [], start: "2026-08-03T00:00:00.000Z" },
+      ],
+      "sonnet",
+      "tokens",
+      "day",
+    );
+    expect(points.map(({ display, evidence, period, value }) => ({ display, evidence, period, value }))).toEqual([
+      { display: "10", evidence: "complete", period: "Aug 1", value: 10 },
+      { display: "0", evidence: "complete", period: "Aug 2", value: 0 },
+      { display: "Unavailable", evidence: "unavailable", period: "Aug 3", value: 0 },
     ]);
+  });
+});
+
+describe("Console usage chart ticks", () => {
+  it("uses 1, 2, or 5 steps for small costs", () => {
+    expect(consoleUsageChartTicks(0.46)).toEqual([0, 0.2, 0.4, 0.6]);
+    expect(consoleUsageChartTicks(0.003)).toEqual([0, 0.001, 0.002, 0.003]);
+    expect(consoleUsageChartTicks(0.3)).toEqual([0, 0.1, 0.2, 0.3]);
+  });
+
+  it("uses 1, 2, or 5 steps for large token counts", () => {
+    expect(consoleUsageChartTicks(1_234_567)).toEqual([0, 500_000, 1_000_000, 1_500_000]);
+    expect(consoleUsageChartTicks(80_000)).toEqual([0, 20_000, 40_000, 60_000, 80_000]);
+    expect(consoleUsageChartTicks(7)).toEqual([0, 2, 4, 6, 8]);
+  });
+
+  it("keeps one zero tick without a positive peak", () => {
+    expect(consoleUsageChartTicks(0)).toEqual([0]);
+  });
+});
+
+describe("Console usage period labels", () => {
+  const timeZone = process.env.TZ;
+  afterEach(() => {
+    if (timeZone === undefined) delete process.env.TZ;
+    else process.env.TZ = timeZone;
+  });
+
+  it("labels server buckets in UTC in a browser west of UTC", () => {
+    process.env.TZ = "America/Los_Angeles";
+    // The local date is Oct 12 here, but the server bucket is the UTC day Oct 13.
+    expect(new Date("2026-10-13T00:00:00.000Z").getDate()).toBe(12);
+    expect(formatConsoleUsagePeriod("2026-10-13T00:00:00.000Z", "day")).toBe("Oct 13");
+    expect(formatConsoleUsagePeriod("2026-10-13T05:00:00.000Z", "hour")).toBe("Oct 13, 5 AM");
   });
 });
 
@@ -176,5 +220,38 @@ describe("Console usage evidence wording", () => {
     expect(
       formatConsoleUsageValue(evidence({ totalTokens: 12_000, totalTokensAvailable: false }), "tokens"),
     ).toBe("12K recorded");
+  });
+});
+
+describe("Console usage chart evidence", () => {
+  it("keeps unknown periods apart from zero periods", () => {
+    expect(consoleUsagePointEvidence(evidence(), "cost")).toBe("complete");
+    expect(consoleUsagePointEvidence(evidence({ costAvailable: false }), "cost")).toBe("unavailable");
+    expect(consoleUsagePointEvidence(evidence({ costAvailable: false, costUsd: "0.2" }), "cost")).toBe("partial");
+    expect(consoleUsagePointEvidence(evidence({ totalTokensAvailable: false }), "tokens")).toBe("unavailable");
+  });
+
+  it("reports an unavailable chart only when no period recorded a value", () => {
+    expect(consoleUsageChartState([])).toBe("zero");
+    expect(consoleUsageChartState([{ evidence: "complete", value: 0 }])).toBe("zero");
+    expect(consoleUsageChartState([{ evidence: "complete", value: 0 }, { evidence: "unavailable", value: 0 }])).toBe("unavailable");
+    expect(consoleUsageChartState([{ evidence: "unavailable", value: 0 }, { evidence: "partial", value: 2 }])).toBe("data");
+  });
+
+  it("describes the range, the peak, and the periods without evidence", () => {
+    const point = (period: string, value: number, evidence: "complete" | "partial" | "unavailable" = "complete") =>
+      ({ display: evidence === "unavailable" ? "Unavailable" : `${value} tokens`, evidence, period, start: period, value });
+    expect(describeConsoleUsageChart(
+      [point("Oct 1", 5), point("Oct 2", 9, "partial"), point("Oct 3", 0, "unavailable")],
+      { from: "Oct 1", to: "Oct 3" },
+    )).toBe("Oct 1 to Oct 3 UTC, 3 periods. Peak 9 tokens on Oct 2. 1 period has no evidence. 1 period has partial evidence.");
+    expect(describeConsoleUsageChart([point("Oct 1", 0)], { from: "Oct 1", to: "Oct 1" })).toBe("Oct 1 to Oct 1 UTC, 1 period.");
+  });
+});
+
+describe("Console usage timestamps", () => {
+  it("shows minutes in the row and the full date and time in the title", () => {
+    expect(formatConsoleUsageTimestamp("2026-10-13T14:05:09.000Z", "UTC")).toBe("Oct 13, 2:05 PM");
+    expect(formatConsoleUsageDateTime("2026-10-13T14:05:09.000Z", "UTC")).toBe("Tuesday, October 13, 2026 at 2:05:09 PM UTC");
   });
 });

@@ -159,20 +159,6 @@ export function formatConsoleUsageShare(share: number | null): string {
   return `${percent.toFixed(1)}%`;
 }
 
-/**
- * One model's totals in each period. A period without the model has no
- * recorded usage for it, so its totals are undefined.
- */
-export function consoleUsageModelPeriods<Model extends { model: string }>(
-  buckets: readonly { models: readonly Model[]; start: string }[],
-  model: string,
-): Array<{ start: string; totals: Model | undefined }> {
-  return buckets.map(bucket => ({
-    start: bucket.start,
-    totals: bucket.models.find(item => item.model === model),
-  }));
-}
-
 /** One model row of the Console usage summary. */
 export interface ConsoleUsageModelTotals extends ConsoleUsageEvidence {
   averageCostUsd?: string;
@@ -222,12 +208,13 @@ export function formatConsoleUsageCostEvidence(
   return complete ? display : `${display} recorded`;
 }
 
+/** The server groups usage into UTC days and hours, so period labels use UTC as well. */
 export function formatConsoleUsagePeriod(value: string, resolution: "day" | "hour"): string {
   return new Intl.DateTimeFormat(
     "en",
     resolution === "hour"
-      ? { day: "numeric", hour: "numeric", month: "short" }
-      : { day: "numeric", month: "short" },
+      ? { day: "numeric", hour: "numeric", month: "short", timeZone: "UTC" }
+      : { day: "numeric", month: "short", timeZone: "UTC" },
   ).format(new Date(value));
 }
 
@@ -242,4 +229,134 @@ export function formatConsoleUsageValue(
   return metric === "cost"
     ? formatConsoleUsageCostEvidence(totals.costUsd, totals.costEstimated, totals.costAvailable)
     : formatConsoleUsageTokenEvidence(totals.totalTokens, totals.totalTokensAvailable);
+}
+
+/** How much evidence one chart period has for the selected metric. */
+export type ConsoleUsagePointEvidence = "complete" | "partial" | "unavailable";
+
+export interface ConsoleUsageChartPoint {
+  /** The value with the same evidence wording as the totals, for example "Unavailable" or "1.2K recorded". */
+  display: string;
+  evidence: ConsoleUsagePointEvidence;
+  period: string;
+  start: string;
+  value: number;
+}
+
+type ConsoleUsageChartTotals = Pick<
+  ConsoleUsageEvidence,
+  "costAvailable" | "costEstimated" | "costUsd" | "totalTokens" | "totalTokensAvailable"
+>;
+
+/** One chart point. The period label uses UTC, like the server buckets. */
+export function consoleUsageChartPoint(
+  start: string,
+  totals: ConsoleUsageChartTotals,
+  metric: ConsoleUsageMetric,
+  resolution: "day" | "hour",
+): ConsoleUsageChartPoint {
+  return {
+    display: formatConsoleUsageValue(totals, metric),
+    evidence: consoleUsagePointEvidence(totals, metric),
+    period: formatConsoleUsagePeriod(start, resolution),
+    start,
+    value: consoleUsageMetricValue(totals, metric),
+  };
+}
+
+/**
+ * Chart points of one model. A period without the model is zero only when that period has complete evidence.
+ * Otherwise a session without usage evidence could have used the model, so the period is unavailable.
+ */
+export function consoleUsageModelChartPoints(
+  buckets: readonly (ConsoleUsageChartTotals & { models: readonly (ConsoleUsageChartTotals & { model: string })[]; start: string })[],
+  model: string,
+  metric: ConsoleUsageMetric,
+  resolution: "day" | "hour",
+): ConsoleUsageChartPoint[] {
+  return buckets.map(bucket => consoleUsageChartPoint(
+    bucket.start,
+    bucket.models.find(item => item.model === model) ?? {
+      costAvailable: bucket.costAvailable,
+      costEstimated: false,
+      costUsd: "0",
+      totalTokens: 0,
+      totalTokensAvailable: bucket.totalTokensAvailable,
+    },
+    metric,
+    resolution,
+  ));
+}
+
+/**
+ * Axis ticks from zero with a 1, 2, or 5 step, so labels read as round values.
+ * Uses at most `count` steps. The last tick is the axis maximum.
+ */
+export function consoleUsageChartTicks(peak: number, count = 4): number[] {
+  if (!(peak > 0) || !Number.isFinite(peak)) return [0];
+  const rough = peak / count;
+  const magnitude = 10 ** Math.floor(Math.log10(rough));
+  const normalized = rough / magnitude;
+  const step = (normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10) * magnitude;
+  // Round each tick to the step precision, so 3 × 0.1 shows as 0.3.
+  const digits = Math.max(0, -Math.floor(Math.log10(step)));
+  return Array.from({ length: Math.ceil(peak / step - 1e-9) + 1 }, (_, index) => Number((index * step).toFixed(digits)));
+}
+
+/** A period without evidence is unknown, not zero. A period with some evidence is partial. */
+export function consoleUsagePointEvidence(
+  totals: Pick<ConsoleUsageEvidence, "costAvailable" | "costUsd" | "totalTokens" | "totalTokensAvailable">,
+  metric: ConsoleUsageMetric,
+): ConsoleUsagePointEvidence {
+  if (metric === "cost" ? totals.costAvailable : totals.totalTokensAvailable) return "complete";
+  return consoleUsageMetricValue(totals, metric) > 0 ? "partial" : "unavailable";
+}
+
+/**
+ * `data` when a period recorded a value. `unavailable` when no period recorded a value and some periods have no
+ * evidence, so a flat zero line would be wrong. `zero` when every period reports zero.
+ */
+export function consoleUsageChartState(
+  points: readonly Pick<ConsoleUsageChartPoint, "evidence" | "value">[],
+): "data" | "unavailable" | "zero" {
+  if (points.some(point => point.value > 0)) return "data";
+  return points.some(point => point.evidence === "unavailable") ? "unavailable" : "zero";
+}
+
+/** A short text alternative for the chart: the range, the peak, and the periods without evidence. */
+export function describeConsoleUsageChart(
+  points: readonly ConsoleUsageChartPoint[],
+  options: { from: string; to: string },
+): string {
+  const parts = [`${options.from} to ${options.to} UTC, ${points.length} ${points.length === 1 ? "period" : "periods"}.`];
+  const peak = points.reduce<ConsoleUsageChartPoint | undefined>(
+    (current, point) => (point.value > (current?.value ?? 0) ? point : current),
+    undefined,
+  );
+  if (peak) parts.push(`Peak ${peak.display} on ${peak.period}.`);
+  const unavailable = points.filter(point => point.evidence === "unavailable").length;
+  const partial = points.filter(point => point.evidence === "partial").length;
+  if (unavailable) parts.push(`${unavailable} ${unavailable === 1 ? "period has" : "periods have"} no evidence.`);
+  if (partial) parts.push(`${partial} ${partial === 1 ? "period has" : "periods have"} partial evidence.`);
+  return parts.join(" ");
+}
+
+/** A session time to the minute, for example "Oct 13, 2:05 PM". */
+export function formatConsoleUsageTimestamp(value: string, timeZone?: string): string {
+  return new Intl.DateTimeFormat("en", {
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    month: "short",
+    ...(timeZone ? { timeZone } : {}),
+  }).format(new Date(value));
+}
+
+/** The full date and time with seconds and time zone, for a title. */
+export function formatConsoleUsageDateTime(value: string, timeZone?: string): string {
+  return new Intl.DateTimeFormat("en", {
+    dateStyle: "full",
+    timeStyle: "long",
+    ...(timeZone ? { timeZone } : {}),
+  }).format(new Date(value));
 }
