@@ -7011,12 +7011,12 @@ const channelHistoryAttachmentMaxBytes = 25 * 1024 * 1024
 const channelHistoryArchiveMaxBytes = 35 * 1024 * 1024
 
 function isChannelHistoryBlob(value: unknown): { size: number, arrayBuffer: () => Promise<ArrayBuffer> } | undefined {
-  if (value === null || typeof value !== "object") return
+  if (!isRuntimeObject(value)) return
   try {
     const size = Object.getOwnPropertyDescriptor(Blob.prototype, "size")!.get!.call(value)
-    if (typeof size !== "number" || !Number.isSafeInteger(size) || size < 0) return
+    if (!isRuntimeNumber(size) || !Number.isSafeInteger(size) || size < 0) return
     const arrayBuffer = Object.getOwnPropertyDescriptor(Blob.prototype, "arrayBuffer")!.value
-    if (typeof arrayBuffer !== "function") return
+    if (!isRuntimeFunction(arrayBuffer)) return
     return { size, arrayBuffer: () => arrayBuffer.call(value) }
   } catch {
     return
@@ -7136,6 +7136,7 @@ async function channelHistoryAttachment(
   if (blob) {
     if (blob.size <= maxBytes) {
       try {
+        // SAFETY: Blob.arrayBuffer() is the native method applied to a branded Blob, so it resolves to an ArrayBuffer.
         data = new Uint8Array(await boundedChannelHistoryOperation(blob.arrayBuffer, signal) as ArrayBuffer)
       } catch {
         data = undefined
