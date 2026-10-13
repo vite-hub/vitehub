@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { runInNewContext } from "node:vm"
+import { createRequire } from "node:module"
 
 import { defineAuth } from "../src/index.ts"
 import { createAuthAccessHandler } from "../src/server.ts"
@@ -105,20 +106,44 @@ describe("Auth access handlers", () => {
   })
 
   it("normalizes branded authorization responses from another realm", async () => {
-    const foreignResponse = runInNewContext("response", { response: new Response("Policy rejected", { status: 409 }) })
+    // Node VM contexts have no fetch globals. Evaluate Node's own bundled fetch
+    // implementation in the context so its Response has a distinct native brand.
+    const natives = (process as unknown as { binding(name: string): Record<string, string> }).binding("natives")
+    const foreignResponse = runInNewContext(`${natives["internal/deps/undici/undici"]};
+      new module.exports.Response("Policy rejected", {
+        status: 409,
+        headers: { "x-policy": "rejected", "set-cookie": "policy=denied" },
+      })`, {
+      module: { exports: {} }, require: createRequire(import.meta.url),
+      process, Buffer, URL, URLSearchParams, TextEncoder, TextDecoder,
+      ReadableStream, TransformStream, AbortController, AbortSignal, DOMException,
+      Blob, File, MessagePort, Event, EventTarget, performance, setTimeout, clearTimeout, setInterval, clearInterval, queueMicrotask,
+    })
+    expect(foreignResponse).not.toBeInstanceOf(Response)
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
       access: { routes: [{ route: "/**", authorize: () => foreignResponse as never }] },
     }))
 
     const response = await handler(new Request("https://app.example/"))
+    expect(response).toBeInstanceOf(Response)
+    expect(response).not.toBe(foreignResponse)
     expect(response?.status).toBe(409)
-    expect(await response?.text()).toBe("Policy rejected")
+    expect(response?.headers.get("x-policy")).toBe("rejected")
+    expect(response?.headers.getSetCookie()).toEqual(["policy=denied"])
+    const headers: string[] = []
+    response?.headers.forEach((_value, key) => headers.push(key))
+    expect(headers).toContain("x-policy")
+    const reader = response!.body!.getReader()
+    expect(new TextDecoder().decode((await reader.read()).value)).toBe("Policy rejected")
+    expect((await reader.read()).done).toBe(true)
   })
 
-  it("rejects forged response-like authorization results", async () => {
+  it.each([
+    { body: null, headers: { get: () => null } },
+    { body: { getReader: () => ({}) }, headers: new Headers() },
+  ])("rejects forged response-like authorization results: %j", async (transport) => {
     const forgedResponse = {
-      body: null,
-      headers: { get: () => null },
+      ...transport,
       status: 409,
       statusText: "Conflict",
       [Symbol.toStringTag]: "Response",

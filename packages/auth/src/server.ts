@@ -280,36 +280,32 @@ async function runAccessAuthorize(
   context: AuthAccessAuthorizationContext,
 ): Promise<Response | undefined> {
   const result = await authorize(context)
-  if (isResponseLike(result)) {
-    try {
-      return result instanceof Response
-        ? result
-        : new Response((result as unknown as { body: ConstructorParameters<typeof Response>[0] }).body, {
-            headers: (result as unknown as { headers: ConstructorParameters<typeof Response>[1] extends infer Init ? Init extends { headers?: infer Headers } ? Headers : never : never }).headers,
-            status: (result as unknown as { status: number }).status,
-            statusText: (result as unknown as { statusText: string }).statusText,
-          })
-    }
-    catch {
-      return createForbiddenResponse(context.request)
-    }
-  }
-  if (result !== true) return createForbiddenResponse(context.request)
-}
-
-function isResponseLike(value: unknown): value is Response {
-  if (value === null || typeof value !== "object") return false
+  if (result === true) return
   try {
-    const response = value as Response
-    // Accessors on the native prototype perform an unforgeable Web IDL brand check.
-    const status = Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get?.call(response)
-    const statusText = Object.getOwnPropertyDescriptor(Response.prototype, "statusText")?.get?.call(response)
-    Object.getOwnPropertyDescriptor(Response.prototype, "headers")?.get?.call(response)
-    return typeof status === "number" && Number.isInteger(status) && status >= 0 && status <= 599 && typeof statusText === "string"
+    if (result instanceof Response) {
+      // Check native slots even when an object forges Response.prototype.
+      Object.getOwnPropertyDescriptor(Response.prototype, "status")!.get!.call(result)
+      return result
+    }
+    if (result && typeof result === "object" && Object.prototype.toString.call(result) === "[object Response]") {
+      // Separate fetch implementations have incompatible native brands. Never
+      // return these candidates directly: validate and copy their transport data.
+      const { body, headers, status, statusText } = result as Response
+      if (typeof status !== "number" || !Number.isInteger(status) || typeof statusText !== "string"
+        || typeof headers?.[Symbol.iterator] !== "function") {
+        return createForbiddenResponse(context.request)
+      }
+      if (body !== null) {
+        // Calling the native stream accessor rejects forged body operations.
+        Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")!.get!.call(body)
+      }
+      return new Response(body, { headers: new Headers(headers), status, statusText })
+    }
   }
   catch {
-    return false
+    // Invalid response data must not reach the host adapter.
   }
+  return createForbiddenResponse(context.request)
 }
 
 async function checkAuthRequest(
