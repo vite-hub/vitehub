@@ -471,6 +471,33 @@ describe("Database Nuxt integration", () => {
     }
   })
 
+  it("keeps prototype-named Definitions addressable in Nitro development", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-local-proto-"))
+    const buildDir = join(rootDir, ".nuxt")
+    const definition = join(rootDir, "server/databases/__proto__/config.ts")
+    try {
+      await mkdir(dirname(definition), { recursive: true })
+      await writeFile(definition, 'export default defineDatabase({ name: "__proto__", schema: {} })\n')
+      const { hooks, nuxt } = createNuxt({ buildDir, dev: true, rootDir, vite: {} })
+      await hubDb()(undefined, nuxt)
+      await callHook(hooks, "nitro:config", {})
+      const code = await readFile(join(buildDir, "vitehub/database/local-runtime.mjs"), "utf8")
+      const evaluable = code.replace(/^import .+$/gm, "").replace(/^export /gm, "") + "\nreturn { databases, useDatabase }"
+      const runtime = new Function("definition_0", "createDefinitionRuntime", "createAgentDatabase", "defaultDatabaseNotConfiguredError", evaluable)(
+        { name: "__proto__", schema: { marker: "schema" } },
+        () => ({ marker: "database" }),
+        () => ({}),
+        () => new Error("missing"),
+      ) as { databases: Record<string, unknown>, useDatabase: (name: string) => unknown }
+
+      expect(Object.hasOwn(runtime.databases, "__proto__")).toBe(true)
+      expect(runtime.useDatabase("__proto__")).toEqual({ db: { marker: "database" }, schema: { marker: "schema" } })
+    }
+    finally {
+      await rm(rootDir, { force: true, recursive: true })
+    }
+  })
+
   it("maintains the discovered database runtime for Nitro development", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-local-"))
     const buildDir = join(rootDir, ".nuxt")
@@ -495,7 +522,7 @@ describe("Database Nuxt integration", () => {
       await callHook(hooks, "nitro:config", nitroConfig)
       expect(nitroConfig.alias).toEqual({ "@vite-hub/database/drizzle": runtimeFile })
       await expect(readFile(runtimeFile, "utf8")).resolves.toMatch(
-        /databases\/analytics\/config\.ts[\s\S]+"connection":\{"authToken":"dev-token","url":"libsql:\/\/dev\.example\.com"\}[\s\S]+"analytics":[\s\S]+export const databases[\s\S]+export const db[\s\S]+export const schema/,
+        /databases\/analytics\/config\.ts[\s\S]+"connection":\{"authToken":"dev-token","url":"libsql:\/\/dev\.example\.com"\}[\s\S]+\["analytics"\]:[\s\S]+export const databases[\s\S]+export const db[\s\S]+export const schema/,
       )
 
       await rm(join(serverDir, "databases/analytics"), { force: true, recursive: true })
