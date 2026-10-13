@@ -33,7 +33,7 @@ export function toSandboxError(error: unknown) {
   const metadata = readSandboxErrorMetadata(error)
   if (isErrorValue(error)) {
     const message = readErrorMessage(error)
-    return sandboxError(typeof message === 'string' && message
+    return sandboxError(message
       ? message
       : "Sandbox execution failed.", {
       code: sandboxCode(metadata?.code),
@@ -61,9 +61,12 @@ function isErrorValue(value: unknown): value is Error {
   }
 }
 
-function readErrorMessage(error: Error): unknown {
+function readErrorMessage(error: Error): string | undefined {
   try {
-    return error.message
+    const message = error.message
+    return message === String(message) && message.length > 0
+      ? message
+      : undefined
   }
   catch {
     return undefined
