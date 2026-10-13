@@ -162,16 +162,22 @@ function isRateLimiterOptions(value: unknown): value is CreateRateLimiterOptions
 
 function isRateLimitDiagnostic(value: unknown): boolean {
   try {
-    if (!(value instanceof Diagnostic) || !rateLimitDiagnosticCodes.has(value.code)) {
-      if (!value || typeof value !== "object" || !rateLimitDiagnosticCodes.has(Reflect.get(value, "code"))) return false
-      const prototype = Object.getPrototypeOf(value)
-      if (!prototype || Object.getPrototypeOf(prototype) === null) return false
-      const constructor = Reflect.get(prototype, "constructor")
-      const toJSON = Object.getOwnPropertyDescriptor(prototype, "toJSON")?.value
-      const why = Object.getOwnPropertyDescriptor(prototype, "why")?.get
-      if (typeof constructor !== "function" || constructor.name !== "Diagnostic" || typeof toJSON !== "function" || typeof why !== "function") return false
+    if (value instanceof Diagnostic) return rateLimitDiagnosticCodes.has(value.code)
+    if (!value || typeof value !== "object") return false
+    const code = Reflect.get(value, "code")
+    if (!rateLimitDiagnosticCodes.has(code) || Reflect.get(value, "name") !== code) return false
+    const prototype = Object.getPrototypeOf(value)
+    if (!prototype || Object.getPrototypeOf(prototype) === null) return false
+    const constructor = Reflect.get(prototype, "constructor")
+    const toJSON = Object.getOwnPropertyDescriptor(prototype, "toJSON")?.value
+    const why = Object.getOwnPropertyDescriptor(prototype, "why")?.get
+    if (typeof constructor !== "function" || constructor.name !== "Diagnostic" || typeof toJSON !== "function" || typeof why !== "function") return false
+    // These own fields are assigned by every nostics Diagnostic, including
+    // diagnostics created by another package instance or runtime realm.
+    for (const key of ["cause", "data", "docs", "fix", "name", "sources", "code"] as const) {
+      if (!Object.prototype.hasOwnProperty.call(value, key)) return false
     }
-    return true
+    return Reflect.get(value, "why") === Reflect.get(value, "message")
   }
   catch {
     return false

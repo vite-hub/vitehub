@@ -24,7 +24,11 @@ describe("Rate Limit core", () => {
   it("preserves diagnostics from another JavaScript realm", () => {
     const foreign: unknown = runInNewContext(`(() => {
       class Diagnostic extends Error {
-        constructor() { super("foreign"); this.name = this.code = "RATE_LIMIT_R0031" }
+        constructor() {
+          super("foreign")
+          this.name = this.code = "RATE_LIMIT_R0031"
+          this.cause = this.data = this.docs = this.fix = this.sources = undefined
+        }
         get why() { return this.message }
         toJSON() { return { name: this.name, why: this.why } }
       }
