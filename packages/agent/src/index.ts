@@ -2223,7 +2223,7 @@ function defineBaseAgent<
   }
   const chat = chatCapability || channelChat
   const configuredBudget = options.budget && (options.budget.tokens !== undefined || options.budget.usd !== undefined || options.budget.capacity !== undefined)
-    ? budgetCapability(options.budget)
+    ? budgetCapability(options.budget, { allowCapacity: true })
     : undefined
   const normalizedCapabilities = channelChat
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.

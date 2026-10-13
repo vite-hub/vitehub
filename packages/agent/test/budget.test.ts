@@ -178,4 +178,9 @@ describe("budget Capability", () => {
     const { budget } = await import("../src/capabilities.ts")
     expect(() => budget({ pricing: false })).toThrow("requires tokens, usd, or capacity")
   })
+
+  it("rejects capacity on standalone budget capabilities", async () => {
+    const { budget } = await import("../src/capabilities.ts")
+    expect(() => budget({ capacity: { concurrency: 1 }, pricing: false })).toThrow("capacity is only supported through defineAgent")
+  })
 })

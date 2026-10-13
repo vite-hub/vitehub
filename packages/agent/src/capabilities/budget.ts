@@ -71,7 +71,7 @@ function decimalExceeds(actual: string, limit: number | string): boolean {
   return left.units * right.scale > right.units * left.scale
 }
 
-function validateOptions(options: AgentBudgetOptions): { tokens: AgentBudgetTokenLimits, usd?: number | string } {
+function validateOptions(options: AgentBudgetOptions, allowCapacity: boolean): { tokens: AgentBudgetTokenLimits, usd?: number | string } {
   const tokens = normalizeTokens(options.tokens)
   let usd: number | string | undefined
   if (options.usd !== undefined) {
@@ -79,7 +79,10 @@ function validateOptions(options: AgentBudgetOptions): { tokens: AgentBudgetToke
     decimalParts(options.usd)
     usd = options.usd
   }
-  if (!Object.keys(tokens).length && usd === undefined && options.capacity === undefined) {
+  if (!allowCapacity && options.capacity !== undefined) {
+    throw new TypeError("[vitehub] budget capacity is only supported through defineAgent({ budget }).")
+  }
+  if (!Object.keys(tokens).length && usd === undefined && (!allowCapacity || options.capacity === undefined)) {
     throw new TypeError("[vitehub] budget requires tokens, usd, or capacity.")
   }
   const result: { tokens: AgentBudgetTokenLimits, usd?: number | string } = { tokens }
@@ -110,9 +113,9 @@ function outputTokenLimit(tokens: AgentBudgetTokenLimits): number | undefined {
   return tokens.output === undefined ? undefined : Math.max(0, Math.floor(tokens.output))
 }
 
-export function budget(options: AgentBudgetOptions): AgentCapabilityDefinition {
+export function budget(options: AgentBudgetOptions, internal?: { allowCapacity?: boolean }): AgentCapabilityDefinition {
   const id = options.id || "budget"
-  const limits = validateOptions(options)
+  const limits = validateOptions(options, internal?.allowCapacity === true)
   const pricing = options.pricing === false || (limits.usd === undefined && options.pricing === undefined)
     ? undefined
     : options.pricing || modelsDevPricing()
