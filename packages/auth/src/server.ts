@@ -333,6 +333,19 @@ type AuthorizationStreamOperations = {
   isLocked: (this: unknown) => boolean
 }
 
+const authorizationReaderPrototype = typeof ReadableStreamDefaultReader === "function"
+  ? ReadableStreamDefaultReader.prototype
+  : undefined
+const authorizationReaderRead = authorizationReaderPrototype
+  ? Object.getOwnPropertyDescriptor(authorizationReaderPrototype, "read")?.value
+  : undefined
+const authorizationReaderCancel = authorizationReaderPrototype
+  ? Object.getOwnPropertyDescriptor(authorizationReaderPrototype, "cancel")?.value
+  : undefined
+const authorizationReaderReleaseLock = authorizationReaderPrototype
+  ? Object.getOwnPropertyDescriptor(authorizationReaderPrototype, "releaseLock")?.value
+  : undefined
+
 function getAuthorizationStreamOperations(body: unknown): AuthorizationStreamOperations | undefined {
   if (body === null) return
   if (Object(body) !== body) return
@@ -366,9 +379,9 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
 function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
   const getReader = ReadableStream.prototype.getReader
   const reader = Reflect.apply(getReader, body, []) as ReadableStreamDefaultReader<Uint8Array>
-  const read = responsePropertyDescriptor(reader, "read")?.value
-  const cancel = responsePropertyDescriptor(reader, "cancel")?.value
-  const releaseLock = responsePropertyDescriptor(reader, "releaseLock")?.value
+  const read = authorizationReaderRead
+  const cancel = authorizationReaderCancel
+  const releaseLock = authorizationReaderReleaseLock
   if (typeof read !== "function" || typeof cancel !== "function" || typeof releaseLock !== "function") {
     throw new TypeError("Invalid authorization response reader")
   }
@@ -416,6 +429,7 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
     const statusText: unknown = Reflect.get(candidate, "statusText")
     const headers: unknown = Reflect.get(candidate, "headers")
     const body: unknown = Reflect.get(candidate, "body")
+    const bodyUsed: unknown = Reflect.get(candidate, "bodyUsed")
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- A response snapshot needs an integer HTTP status before constructing the local Response.
     if (typeof status !== "number" || !Number.isInteger(status) || status < 0 || status > 599) return
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Response status text is an opaque boundary string validated by the local Response constructor below.
@@ -443,6 +457,7 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
       || cookieDescriptor.value === Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value)
     const nativeBodyMethod = body === null || responsePropertyDescriptor(Object(body), "getReader")?.value === ReadableStream.prototype.getReader
     if (value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod && nativeBodyMethod) return value
+    if (!(value instanceof Response && nativeProperties) && bodyUsed === true) return
     if (!isSerializableAuthorizationBody(body)) return
     const forEach = Reflect.get(headerCarrier, "forEach")
     const getSetCookie = Reflect.get(headerCarrier, "getSetCookie")
