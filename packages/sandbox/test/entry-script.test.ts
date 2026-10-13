@@ -2,7 +2,7 @@ import { spawn } from "node:child_process"
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { pathToFileURL } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { afterEach, describe, expect, it } from "vitest"
 
@@ -58,9 +58,10 @@ async function executePackageEntry(definitionSource: string, options: {
 
 describe("package entry result transport", () => {
   it("preserves a Response from another realm across the child process", async () => {
-    const undiciDirectory = (await readdir(join(process.cwd(), "node_modules/.pnpm"))).find(name => name.startsWith("undici@"))
+    const workspaceRoot = fileURLToPath(new URL("../../..", import.meta.url))
+    const undiciDirectory = (await readdir(join(workspaceRoot, "node_modules/.pnpm"))).find(name => name.startsWith("undici@"))
     if (!undiciDirectory) throw new Error("undici package not found")
-    const foreignResponseModule = pathToFileURL(join(process.cwd(), "node_modules/.pnpm", undiciDirectory, "node_modules/undici/index.js")).href
+    const foreignResponseModule = pathToFileURL(join(workspaceRoot, "node_modules/.pnpm", undiciDirectory, "node_modules/undici/index.js")).href
     const execution = await executePackageEntry([
       `import { Response as ForeignResponse } from ${JSON.stringify(foreignResponseModule)}`,
       `export default () => new ForeignResponse(new Uint8Array([0, 127, 255]), { status: 201, statusText: 'Created', headers: { 'x-result': 'preserved' } })`,
@@ -84,7 +85,7 @@ describe("package entry result transport", () => {
       `  const headers = {}`,
       `  Object.defineProperties(headers, { get: { value: () => 'preserved' }, [Symbol.iterator]: { value: function* () {} } })`,
       `  const value = { status: 201, statusText: 'Created', headers, extra: 'kept' }`,
-      `  return Object.defineProperties(value, { [Symbol.toStringTag]: { value: 'Response' }, arrayBuffer: { value: async () => new ArrayBuffer() } })`,
+      `  return Object.defineProperties(value, { [Symbol.toStringTag]: { value: 'Response' }, clone: { value: () => value }, arrayBuffer: { value: async () => new ArrayBuffer() } })`,
       `}`,
     ].join("\n"))
 
