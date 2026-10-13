@@ -271,6 +271,25 @@ it("preserves errors raised in another runtime realm", async () => {
   expect(normalizeScheduleRuntimeError(foreign)).toBe(foreign)
 })
 
+it("uses the intrinsic Error prototype when Error.isError is unavailable", () => {
+  const errorConstructor = Error as ErrorConstructor & { isError?: (value: unknown) => boolean }
+  const nativeIsError = errorConstructor.isError
+  errorConstructor.isError = undefined
+  try {
+    const taggedForeign = runInNewContext(`(() => {
+      const error = new Error('tagged foreign failure')
+      Object.defineProperty(error, Symbol.toStringTag, { value: 'ProviderError' })
+      return error
+    })()`) as Error
+    const fake = Object.create({ [Symbol.toStringTag]: "Error" })
+    expect(normalizeScheduleRuntimeError(taggedForeign)).toBe(taggedForeign)
+    expect(normalizeScheduleRuntimeError(fake)).toMatchObject({ code: "SCHEDULE_R0035", cause: fake })
+  }
+  finally {
+    errorConstructor.isError = nativeIsError
+  }
+})
+
 it("wraps spoofed and hostile thrown values safely", () => {
   const spoof = { [Symbol.toStringTag]: "Error" }
   const customPrototypeSpoof = Object.create({ [Symbol.toStringTag]: "Error" })

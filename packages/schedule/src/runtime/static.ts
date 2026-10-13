@@ -78,21 +78,21 @@ function isScheduleRuntimeError(error: unknown): error is Error {
   }
   if (error === null || typeof error !== "object") return false
   try {
-    const prototype = Object.getPrototypeOf(error)
-    return prototype !== null
-      && prototype !== Object.prototype
-      && hasErrorConstructor(prototype)
-      && Object.prototype.toString.call(error) === "[object Error]"
+    return hasIntrinsicErrorPrototype(error)
   }
   catch {
     return false
   }
 }
 
-function hasErrorConstructor(prototype: object): boolean {
-  const descriptor = Object.getOwnPropertyDescriptor(prototype, "constructor")
-  if (!descriptor || typeof descriptor.value !== "function") return false
-  return descriptor.value.prototype === prototype
+function hasIntrinsicErrorPrototype(value: object): boolean {
+  const nativeErrorSource = Function.prototype.toString.call(Error)
+  for (let prototype: object | null = Object.getPrototypeOf(value); prototype !== null; prototype = Object.getPrototypeOf(prototype)) {
+    const descriptor = Object.getOwnPropertyDescriptor(prototype, "constructor")
+    if (!descriptor || typeof descriptor.value !== "function" || descriptor.value.prototype !== prototype) continue
+    if (Function.prototype.toString.call(descriptor.value) === nativeErrorSource) return true
+  }
+  return false
 }
 
 export function createStaticScheduleRun(
