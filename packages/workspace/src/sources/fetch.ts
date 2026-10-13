@@ -1,3 +1,4 @@
+import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 import { executeHttpRequest, parseStandardSchema } from "@vite-hub/internal/http-request"
 import { posix } from "node:path"
 
@@ -226,11 +227,12 @@ function normalizePublicResponseType(responseType: string): FetchSourceResponseT
 function normalizeMethod(method: FetchSourceMethod | undefined): FetchSourceMethod {
   const normalized = method === undefined
     ? "GET"
-    : typeof method === "string"
+    : hasRuntimeType(method, "string")
       ? method.toUpperCase()
       : ""
   if (normalized !== "GET" && normalized !== "HEAD" && normalized !== "POST") {
-    const label = typeof method === "string" ? method : typeof method
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The diagnostic reports the runtime type of an invalid method.
+    const label = hasRuntimeType(method, "string") ? method : typeof method
     throw workspaceErrorDiagnostics.WORKSPACE_R0050({ message: `[vitehub] fetch() method "${label}" is not supported in v1. Use GET, HEAD, or POST.` })
   }
   return normalized

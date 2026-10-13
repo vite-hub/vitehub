@@ -122,6 +122,34 @@ describe("Auth access handlers", () => {
     await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
   })
 
+  it.each([
+    ["headers", null],
+    ["body", {}],
+    ["status", "invalid"],
+    ["statusText", null],
+  ])("rejects a native authorization Response with a shadowed %s", async (key, value) => {
+    const response = new Response("Policy rejected", { status: 409 });
+    Object.defineProperty(response, key, { value });
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => response }] },
+    }));
+
+    const rejected = await handler(new Request("https://app.example/"));
+    expect(rejected?.status).toBe(403);
+    expect(() => rejected?.headers.getSetCookie()).not.toThrow();
+  });
+
+  it("does not read Response-shaped getters before establishing native state", async () => {
+    const headers = vi.fn(() => { throw new Error("hostile headers"); });
+    const response = Object.defineProperty({}, "headers", { get: headers });
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => response as never }] },
+    }));
+
+    await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 });
+    expect(headers).not.toHaveBeenCalled();
+  });
+
   it("starts provider sign-in only for matched unauthenticated HTML requests", async () => {
     provider.getSession.mockResolvedValue(null)
     provider.handler.mockResolvedValue(Response.json({ url: "https://provider.example/sign-in" }))

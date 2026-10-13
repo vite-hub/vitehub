@@ -1,5 +1,6 @@
 import discoveredDefinition from "#vitehub/auth/definition"
 import { betterAuth } from "better-auth"
+import { hasRuntimeType, isRuntimeObject } from "@vite-hub/runtime/internal/runtime-type"
 
 import { normalizeAuthBasePath } from "./shared.ts"
 import { resolveAuthOptions } from "./runtime-options.ts"
@@ -285,13 +286,19 @@ async function runAccessAuthorize(
 }
 
 function isResponseLike(value: unknown): value is Response {
-  if (value === null || typeof value !== "object") return false
+  if (!isRuntimeObject(value)) return false
   try {
     const status = Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get?.call(value)
-    if (typeof status !== "number") return false
-    if (typeof Object.getOwnPropertyDescriptor(Response.prototype, "statusText")?.get?.call(value) !== "string") return false
+    const statusText = Object.getOwnPropertyDescriptor(Response.prototype, "statusText")?.get?.call(value)
     const headers = Object.getOwnPropertyDescriptor(Response.prototype, "headers")?.get?.call(value)
-    return headers !== null && typeof headers === "object" && typeof (headers as { get?: unknown }).get === "function"
+    const body = Object.getOwnPropertyDescriptor(Response.prototype, "body")?.get?.call(value)
+    if (!hasRuntimeType(status, "number") || !hasRuntimeType(statusText, "string")) return false
+    if (!isRuntimeObject(headers)) return false
+    // The host consumes ordinary properties on the original Response, so shadows must match native state.
+    if (Reflect.get(value, "status") !== status || Reflect.get(value, "statusText") !== statusText
+      || Reflect.get(value, "headers") !== headers || Reflect.get(value, "body") !== body) return false
+    if (!["get", "forEach", "getSetCookie"].every(method => hasRuntimeType(Reflect.get(headers, method), "function"))) return false
+    return body === null || (isRuntimeObject(body) && hasRuntimeType(Reflect.get(body, "getReader"), "function"))
   }
   catch {
     return false
