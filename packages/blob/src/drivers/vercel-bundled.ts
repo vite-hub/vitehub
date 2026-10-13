@@ -63,10 +63,15 @@ function isMissingBlobError(error: unknown) {
       ? nativeIsError(error) === true
       : (() => {
           const stack = Object.getOwnPropertyDescriptor(candidate, "stack")
-          // Native errors expose their lazily materialized stack through an own accessor.
-          // Requiring that shape rejects objects that merely inherit Error.prototype and
-          // attach a forged data property while retaining cross-realm errors.
-          if (!stack || (typeof stack.get !== "function" && typeof stack.set !== "function")) return false
+          // Native errors expose their lazily materialized stack through an intrinsic
+          // accessor. Match that accessor's native source and verify it can read the
+          // candidate's branded stack; forged accessors and Error.prototype descendants
+          // therefore fail even when they mimic the descriptor shape.
+          if (!stack || typeof stack.get !== "function") return false
+          const nativeStackGetter = Object.getOwnPropertyDescriptor(new Error(), "stack")?.get
+          if (typeof nativeStackGetter !== "function"
+            || Function.prototype.toString.call(stack.get) !== Function.prototype.toString.call(nativeStackGetter)) return false
+          if (typeof stack.get.call(candidate) !== "string") return false
           const seen = new Set<object>()
           let prototype = Object.getPrototypeOf(candidate)
           for (let depth = 0; depth < 64 && prototype !== null && prototype !== Object.prototype; depth++) {

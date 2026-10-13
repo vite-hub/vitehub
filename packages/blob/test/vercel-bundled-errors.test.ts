@@ -46,6 +46,16 @@ describe("Vercel Blob missing errors", () => {
     await withoutNativeErrorCheck(() => expect(driver.head("missing.txt")).rejects.toBe(error))
   })
 
+  it.each(["head", "get", "getArrayBuffer"] as const)("preserves an Error prototype accessor spoof in %s", async operation => {
+    const error = Object.create(Error.prototype) as { name: string }
+    Object.defineProperty(error, "name", { value: "BlobNotFoundError", configurable: true })
+    Object.defineProperty(error, "stack", { get: () => "forged", configurable: true })
+    vercel.head.mockRejectedValue(error)
+    const driver = createDriver(options)
+
+    await withoutNativeErrorCheck(() => expect(driver[operation]("missing.txt")).rejects.toBe(error))
+  })
+
   it("does not treat an Error prototype chain spoof as a missing object", async () => {
     const error = Object.create(Error.prototype) as { name: string }
     error.name = "BlobNotFoundError"
