@@ -58,11 +58,14 @@ export function isValidApiKeyProvider(provider: { header: string, origins: reado
     for (const key of originIndexes) {
       if (typeof provider.origins[Number(key)] !== "string") return false
     }
+    for (const key of originIndexes) {
+      const origin = provider.origins[Number(key)]
+      if (apiKeyOrigin(origin) !== origin) return false
+    }
     return tokenPattern.test(provider.header)
       && provider.header === provider.header.toLowerCase()
       && (provider.scheme === undefined || typeof provider.scheme === "string" && tokenPattern.test(provider.scheme))
       && provider.origins.length > 0
-      && provider.origins.every(origin => apiKeyOrigin(origin) === origin)
   }
   catch {
     return false

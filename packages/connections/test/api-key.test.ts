@@ -53,6 +53,9 @@ describe("apiKey()", () => {
     finally {
       delete Array.prototype[0]
     }
+    const overriddenEvery = ["http://api.example.com"]
+    Object.defineProperty(overriddenEvery, "every", { value: () => true })
+    expect(isValidApiKeyProvider({ header: "authorization", origins: overriddenEvery })).toBe(false)
     const hugeSparse: string[] = []
     hugeSparse.length = 0xffffffff
     expect(isValidApiKeyProvider({ header: "authorization", origins: hugeSparse })).toBe(false)
