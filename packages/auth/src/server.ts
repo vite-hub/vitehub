@@ -340,17 +340,28 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
     const seen = new Set<object>()
     let locked: (() => boolean) | undefined
     let getReader: (() => unknown) | undefined
+    let lockedOwner: object | undefined
+    let getReaderOwner: object | undefined
     for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
       if (seen.has(prototype)) return false
       seen.add(prototype)
       const lockedDescriptor = Object.getOwnPropertyDescriptor(prototype, "locked")
       const readerDescriptor = Object.getOwnPropertyDescriptor(prototype, "getReader")
-      if (!locked && typeof lockedDescriptor?.get === "function") locked = lockedDescriptor.get
-      if (!getReader && typeof readerDescriptor?.value === "function") getReader = readerDescriptor.value
+      if (!locked && typeof lockedDescriptor?.get === "function") {
+        locked = lockedDescriptor.get
+        lockedOwner = prototype
+      }
+      if (!getReader && typeof readerDescriptor?.value === "function") {
+        getReader = readerDescriptor.value
+        getReaderOwner = prototype
+      }
       if (locked && getReader) break
       prototype = Object.getPrototypeOf(prototype)
     }
-    if (!locked || !getReader || Reflect.apply(locked, candidate, [])) return false
+    if (!locked || !getReader || lockedOwner !== getReaderOwner || Reflect.apply(locked, candidate, [])) return false
+    // Genuine Web Streams intrinsics are native functions in every realm. A
+    // prototype-level replacement cannot be distinguished by identity alone.
+    if (!/\[native code\]/.test(Function.prototype.toString.call(getReader))) return false
     return responsePropertyDescriptor(candidate, "getReader")?.value === getReader
   }
   catch {

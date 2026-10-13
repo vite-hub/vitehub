@@ -408,6 +408,23 @@ describe("Auth access handlers", () => {
     expect(getReader).not.toHaveBeenCalled()
   })
 
+  it("rejects a foreign response with a prototype-level body reader override", async () => {
+    const source = new ForeignResponse("Policy rejected", { status: 409 })
+    const prototype = Object.getPrototypeOf(source.body!)
+    const original = Object.getOwnPropertyDescriptor(prototype, "getReader")
+    Object.defineProperty(prototype, "getReader", { value: () => { throw new Error("unstable reader") } })
+    try {
+      const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+        access: { routes: [{ route: "/**", authorize: () => source as never }] },
+      }))
+
+      await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
+    }
+    finally {
+      if (original) Object.defineProperty(prototype, "getReader", original)
+    }
+  })
+
   it("starts provider sign-in only for matched unauthenticated HTML requests", async () => {
     provider.getSession.mockResolvedValue(null)
     provider.handler.mockResolvedValue(Response.json({ url: "https://provider.example/sign-in" }))
