@@ -43,6 +43,32 @@ describe("createChannel", () => {
     }
   })
 
+  it("rejects spoofed errors when native Error branding is unavailable", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => {})
+    class SpoofedError {
+      message = "spoofed"
+    }
+    const failure = new SpoofedError()
+    Object.defineProperty(failure, Symbol.toStringTag, { configurable: true, value: "Error" })
+    const descriptor = Object.getOwnPropertyDescriptor(Error, "isError")
+    Object.defineProperty(Error, "isError", { configurable: true, value: undefined })
+    try {
+      const channel = createChannel("alerts", {
+        connectors: { configured: { send: async () => { throw failure } } },
+      })
+
+      const [error, receipt] = await channel.send("Build finished.", { connector: "configured" })
+      expect(error).toBeInstanceOf(Error)
+      expect(error).not.toBe(failure)
+      expect(receipt).toBeNull()
+    }
+    finally {
+      if (descriptor) Object.defineProperty(Error, "isError", descriptor)
+      else Reflect.deleteProperty(Error, "isError")
+      info.mockRestore()
+    }
+  })
+
   it("preserves connector option instances and their private state", async () => {
     class Destination {
       #id = "room-1"
