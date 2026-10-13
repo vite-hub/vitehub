@@ -1,5 +1,5 @@
 import { hasRuntimeType, isRuntimeObject, runtimeType } from "./internal/runtime-type.ts"
-import { getViteHubErrorShape } from "@vite-hub/runtime"
+import { ExecutionBudgetExceededError, getViteHubErrorShape } from "@vite-hub/runtime"
 import { publishedDeliveryArtifactsFromUnknown } from "./delivery-artifacts.ts"
 import { isAsyncIterable } from "./internal/stream-result.ts"
 import { finalChannelOutputSelectedSymbol } from "./internal/final-channel-output.ts"
@@ -708,6 +708,10 @@ export function toAgentStreamEvent(
 
 export const agentStreamErrorSymbol: unique symbol = Symbol("vitehub.agent-stream-error")
 
+function isBudgetExhaustionEvent(event: StreamEvent): boolean {
+  return event.type === "error" && event[agentStreamErrorSymbol] instanceof ExecutionBudgetExceededError
+}
+
 async function* streamChunksToEvents(
   chunks: AsyncIterable<unknown>,
   usageSource?: unknown,
@@ -745,7 +749,7 @@ async function* streamChunksToEvents(
         usageRecord = undefined
       }
       yield event
-      if (event.type === "error" && !event.recoverable) return
+      if (isBudgetExhaustionEvent(event)) return
     }
   }
   catch (error) {
@@ -782,7 +786,7 @@ async function* streamChunksToEventsWithTextFallback(
         }
       }
       yield event
-      if (event.type === "error" && !event.recoverable) return
+      if (isBudgetExhaustionEvent(event)) return
     }
     if (!hasText && !observation.explicitTextPhaseSeen) {
       textIterator ??= getTextIterator()
