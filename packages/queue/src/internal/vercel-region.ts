@@ -49,7 +49,13 @@ function isHeadersLike(value: unknown): value is Headers {
 }
 
 function isNativeFunction(value: unknown): value is (this: unknown, ...args: unknown[]) => unknown {
-  return typeof value === "function" && /\[native code\]/.test(Function.prototype.toString.call(value))
+  if (typeof value !== "function") return false
+  // Fetch implementations in Node expose Web IDL methods as JavaScript
+  // wrappers containing an internal brand check instead of `[native code]`.
+  // Accept those wrappers as well as browser-native methods, while still
+  // rejecting ordinary user-defined lookalikes.
+  const source = Function.prototype.toString.call(value)
+  return /\[native code\]|(?:webidl\.)?brandCheck\s*\(/.test(source)
 }
 
 function getRequestHeaders(value: unknown) {
