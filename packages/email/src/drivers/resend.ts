@@ -232,7 +232,8 @@ export default function resendEmailDriver(options: ResendEmailDriverOptions): Em
       "apiKey contains an invalid HTTP header character.",
     );
   const request = options.fetch ?? globalThis.fetch;
-  if (!(request instanceof Function))
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Fetch callbacks cross JavaScript realms, so callability must be validated at this runtime boundary.
+  if (typeof request !== "function")
     throw emailProviderError("resend", "INVALID_OPTIONS", "fetch is unavailable.");
   let endpoint: string;
   try {
