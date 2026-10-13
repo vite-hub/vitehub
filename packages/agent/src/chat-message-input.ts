@@ -278,10 +278,20 @@ function uiMessageSessionId(message: UIMessageLike, metadataKey?: string): strin
   )
 }
 
+function dateTime(value: unknown): number | undefined {
+  if (value instanceof Date) return value.getTime()
+  try {
+    return Date.prototype.getTime.call(value)
+  }
+  catch {
+    return undefined
+  }
+}
+
 function uiMessageTime(message: UIMessageLike): number | undefined {
   const metadata = metadataRecord(message)
   const raw = message.createdAt || metadata?.createdAt || metadata?.updatedAt
-  const time = raw instanceof Date ? raw.getTime() : typeof raw === "string" ? Date.parse(raw) : undefined
+  const time = dateTime(raw) ?? (typeof raw === "string" ? Date.parse(raw) : undefined)
   return typeof time === "number" && Number.isFinite(time) ? time : undefined
 }
 
