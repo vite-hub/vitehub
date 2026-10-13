@@ -22,6 +22,7 @@ import { assertConsoleProductionAccess, consoleVitePlugin } from "../src/console
 import { hostManagedAuthorize } from "./support/console-authorize.ts"
 
 import type { ResolvedAuthViteConfig } from "@vite-hub/auth"
+import type { ConsoleAuthorize } from "../src/console/auth.ts"
 import type { ConsoleAccess, ConsoleAccessPolicy } from "../src/console/runtime/server/access.ts"
 import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.ts"
 
@@ -82,10 +83,10 @@ describe("Console data route contract", () => {
 
 describe("Console access policies", () => {
   it("accepts access callbacks created in another runtime realm", async () => {
-    const authorize = runInNewContext("({ request }) => request.headers.get('x-role') === 'admin'") as ConsoleAccessPolicy extends { authorize?: infer T } ? T : never
+    const authorize = runInNewContext("({ request }) => request.headers.get('x-role') === 'admin'") as unknown as ConsoleAuthorize
     const handler = runInNewContext("(_event, access) => access.mode") as (_event: ConsoleRequestEvent, access: ConsoleAccess) => string
 
-    installConsoleAccess({ mode: "host-managed", authorize: defineConsoleAuthorize(authorize as never) })
+    installConsoleAccess({ mode: "host-managed", authorize: defineConsoleAuthorize(authorize) })
     await expect(withConsoleAccess(handler)(event({ "x-role": "admin" }))).resolves.toBe("host-managed")
   })
 
