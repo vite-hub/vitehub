@@ -95,6 +95,19 @@ describe("hubQueue", () => {
     expect(await inspectors[0]!.list()).toHaveLength(1)
   })
 
+  it("ignores an inherited provider when resolving standalone output", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-queue-inherited-provider-"))
+    roots.push(root)
+    const options = Object.create({ provider: "cloudflare" }) as { provider: "cloudflare" }
+    const plugin = hubQueue(options)
+
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({ root, command: "build", nitro: {} })
+
+    expect(await collectViteHubProviderOutputEntries([plugin])).toMatchObject([{
+      path: resolve(root, ".vercel/output/config.json"),
+    }])
+  })
+
   it("omits explicitly disabled Queue Definitions and provider output", async () => {
     const options = false
     const nitro = {}
