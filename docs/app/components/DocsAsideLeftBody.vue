@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { PrimitiveIcon } from "@vite-hub/ui/primitive-rail";
 import {
   docsManifest,
   getDocsPageByPath,
@@ -23,6 +24,7 @@ const pageGroups = computed(() => {
     group.label === "Start" ? { ...group, pages: [...group.pages, perspective] } : group,
   );
 });
+const platformSections = docsManifest.sections.filter(candidate => candidate.category === "Platform");
 const related = computed(() =>
   section.value ? getDocsRelatedSections(docsManifest.sections, section.value) : [],
 );
