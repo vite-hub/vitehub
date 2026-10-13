@@ -411,13 +411,22 @@ function isDateProxy(value: unknown): boolean {
   if (!value || !hasRuntimeType(value, "object") || isDateValue(value)) return false
   if (value instanceof Date) return true
   try {
-    const prototype = Object.getPrototypeOf(value)
-    if (!prototype) return false
-    const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
-    const getTime = Object.getOwnPropertyDescriptor(prototype, "getTime")?.value
-    const toISOString = Object.getOwnPropertyDescriptor(prototype, "toISOString")?.value
-    return hasRuntimeType(constructor, "function") && constructor.name === "Date"
-      && hasRuntimeType(getTime, "function") && hasRuntimeType(toISOString, "function")
+    const nativeFunction = (candidate: unknown): candidate is (...args: never[]) => unknown => {
+      return hasRuntimeType(candidate, "function") && /\{\s*\[native code\]\s*\}$/.test(Function.prototype.toString.call(candidate))
+    }
+    let prototype = Object.getPrototypeOf(value)
+    while (prototype) {
+      const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+      const getTime = Object.getOwnPropertyDescriptor(prototype, "getTime")?.value
+      const toISOString = Object.getOwnPropertyDescriptor(prototype, "toISOString")?.value
+      if (nativeFunction(constructor) && constructor.name === "Date"
+        && nativeFunction(getTime) && nativeFunction(toISOString)
+        && prototype !== Date.prototype) {
+        return true
+      }
+      prototype = Object.getPrototypeOf(prototype)
+    }
+    return false
   }
   catch {
     return false
