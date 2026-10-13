@@ -46,7 +46,9 @@ const typedArrayLengthGetter = Object.getOwnPropertyDescriptor(Object.getPrototy
 function normalizeRealtimeCheckpointChunk(value: unknown): Uint8Array | undefined {
   if (ArrayBuffer.isView(value)) {
     try {
+      // SAFETY: The intrinsic TypedArray byteLength getter returns a number and throws for incompatible receivers.
       const byteLength = Reflect.apply(typedArrayByteLengthGetter, value, []) as number
+      // SAFETY: The intrinsic TypedArray length getter returns a number and throws for incompatible receivers.
       const length = Reflect.apply(typedArrayLengthGetter, value, []) as number
       if (byteLength !== length) return undefined
       return new Uint8Array(value.buffer, value.byteOffset, value.byteLength)
@@ -58,6 +60,7 @@ function normalizeRealtimeCheckpointChunk(value: unknown): Uint8Array | undefine
 
   try {
     Reflect.apply(arrayBufferByteLengthGetter, value, [])
+    // SAFETY: The intrinsic ArrayBuffer byteLength getter above rejects values without the ArrayBuffer internal slots.
     return new Uint8Array(value as ArrayBuffer)
   }
   catch {
