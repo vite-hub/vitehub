@@ -2,7 +2,7 @@ import { resolveAgentInstructions } from "./agent-instructions.ts"
 import { asUnknownBoundary, hasRuntimeType } from "./internal/runtime-type.ts"
 import { formatRuntimeDiagnosticError } from "@vite-hub/runtime"
 import { readAgentErrorProperty } from "./agent-error.ts"
-import { blobSize, blobType, getMessageText, isAttachmentData, isAttachmentPart, isBlob, resolveAttachmentData } from "./messages.ts"
+import { blobArrayBuffer, blobSize, blobType, getMessageText, isAttachmentData, isAttachmentPart, isBlob, resolveAttachmentData } from "./messages.ts"
 import {
   cloneWithPropertyDescriptors,
   isAsyncIterable,
@@ -398,7 +398,7 @@ async function resolveModelAttachmentPart(part: AttachmentPart, maxBytes: number
   if (!resolved) return { byteLength: 0 }
   const byteLength = attachmentDataByteLength(resolved) ?? 0
   assertAttachmentWithinLimit(part, byteLength, maxBytes)
-  const data = isBlob(resolved) ? await Blob.prototype.arrayBuffer.call(resolved) : resolved
+  const data = isBlob(resolved) ? await blobArrayBuffer(resolved) : resolved
   const { fetchData: _fetchData, fetchMetadata: _fetchMetadata, url: _url, ...rest } = part
   const mediaType = part.type === "image"
     ? resolvedImageMediaType(resolved) ?? resolvedImageMediaType(data)

@@ -3,6 +3,7 @@ import { expect, it } from "vitest"
 
 import { createAiSdkAdapter, toAiSdkModelMessages } from "../src/ai-sdk.ts"
 import { isAttachmentData, resolveAttachmentData } from "../src/messages.ts"
+import { portableAgentWorkflowInput } from "../src/index.ts"
 
 it("rejects cross-realm Blob attachments in synchronous model conversion", () => {
   const foreignBlob = new Blob(["image"])
@@ -51,7 +52,10 @@ for (const source of ["direct", "callback"] as const) {
       },
     })
     const context = {
+      context: {},
       input: {},
+      runtime: {},
+      tools: {},
       messages: [{
         id: "message-1",
         role: "user",
@@ -72,5 +76,27 @@ for (const source of ["direct", "callback"] as const) {
     const limited = createAiSdkAdapter({ model: "test/model", execution: { attachments: { maxBytes: 4 } } })
     // SAFETY: Attachment validation runs before model creation and only reads these context fields.
     await expect(limited.generate(context as never)).rejects.toThrow("exceeds maxBytes (4)")
+  })
+}
+
+for (const source of ["direct", "callback"] as const) {
+  it(`encodes ${source} cross-realm Blobs in durable workflow inputs`, async () => {
+    const foreignBlob = new Blob([new Uint8Array([0, 128, 255])], { type: "image/png" })
+    Object.setPrototypeOf(foreignBlob, runInNewContext("Object.prototype"))
+    const message = {
+      id: "message-1",
+      role: "user" as const,
+      parts: [{
+        ...(source === "direct" ? { data: foreignBlob } : { fetchData: () => foreignBlob }),
+        mediaType: "image/png",
+        type: "image" as const,
+      }],
+    }
+    const portable = await portableAgentWorkflowInput({ messages: [message] })
+    expect(portable.messages?.[0]?.parts).toEqual([{
+      data: "data:image/png;base64,AID/",
+      mediaType: "image/png",
+      type: "image",
+    }])
   })
 }

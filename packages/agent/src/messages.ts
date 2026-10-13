@@ -66,6 +66,7 @@ export function blobType(value: Blob): string {
 }
 
 export function blobArrayBuffer(value: Blob): Promise<ArrayBuffer> {
+  // SAFETY: The intrinsic Blob arrayBuffer method returns a Promise<ArrayBuffer> for a branded Blob.
   return Object.getOwnPropertyDescriptor(globalThis.Blob.prototype, "arrayBuffer")!.value.call(value) as Promise<ArrayBuffer>
 }
 
