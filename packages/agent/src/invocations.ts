@@ -608,6 +608,25 @@ function boxedObservationPrimitive(value: unknown): { type: string, value: bigin
   }
 }
 
+function reflectedSetValues(value: unknown): Iterator<unknown> | undefined {
+  try {
+    return Set.prototype.values.call(value)
+  }
+  catch {
+    return
+  }
+}
+
+function reflectedMapEntries(value: unknown): IterableIterator<[unknown, unknown]> | undefined {
+  if (!value || !hasRuntimeType(value, "object")) return
+  try {
+    return Map.prototype.entries.call(value)
+  }
+  catch {
+    return
+  }
+}
+
 async function collectBoundedObservationBuiltIns(
   value: unknown,
   builtIns: Map<object, BoundedObservationBuiltIn>,
@@ -796,7 +815,6 @@ function boundedObservationValue(
       if (next.done) break
       entries.push(next.value)
     }
-    if (entries.length < value.size) budget.truncated = true
     return entries.map(child => boundedObservationValue(child, budget, depth + 1, maxStringLength, builtIns))
   }
   const arrayBufferLength = arrayBufferByteLength(value)
