@@ -80,18 +80,38 @@ export function isUIMessageStreamResponse(value: unknown): value is Response & {
 
 function isPortableUIMessageBody(body: unknown): body is ReadableStream<Uint8Array> {
   if (!isRuntimeRecord(body)) return false
-  const lockedGetter = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
-  if (!lockedGetter || Reflect.apply(lockedGetter, body, [])) return false
+  const lockedGetter = readableStreamDescriptor(body, "locked")?.get
+  const getReader = readableStreamDescriptor(body, "getReader")?.value
+  if (!lockedGetter || !hasRuntimeType(getReader, "function")) return false
+  if (Reflect.apply(lockedGetter, body, [])) return false
   const ownReader = Object.getOwnPropertyDescriptor(body, "getReader")
-  return !ownReader || ownReader.value === ReadableStream.prototype.getReader
+  return !ownReader || ownReader.value === getReader
+}
+
+function readableStreamDescriptor(value: unknown, key: PropertyKey): PropertyDescriptor | undefined {
+  let current: object | null = Object(value)
+  const seen = new Set<object>()
+  for (let depth = 0; current && depth < responsePrototypeLimit; depth++) {
+    if (seen.has(current)) return
+    seen.add(current)
+    const descriptor = Object.getOwnPropertyDescriptor(current, key)
+    if (descriptor) {
+      const constructor = Object.getOwnPropertyDescriptor(current, "constructor")?.value
+      if (constructor?.name !== "ReadableStream") return
+      return descriptor
+    }
+    current = Object.getPrototypeOf(current)
+  }
 }
 
 function bridgeUIMessageBody(body: ReadableStream<Uint8Array>) {
-  // Use native operations on native stream state, never caller-supplied reader methods.
-  const getReader: () => ReadableStreamDefaultReader<Uint8Array> = ReadableStream.prototype.getReader
+  // Use the source realm's native operations, never caller-supplied methods.
+  const getReader = readableStreamDescriptor(body, "getReader")?.value as () => ReadableStreamDefaultReader<Uint8Array>
   const reader = Reflect.apply(getReader, body, [])
-  const read: ReadableStreamDefaultReader<Uint8Array>["read"] = ReadableStreamDefaultReader.prototype.read
-  const { cancel, releaseLock } = ReadableStreamDefaultReader.prototype
+  const readerPrototype = Object.getPrototypeOf(reader)
+  const read = Object.getOwnPropertyDescriptor(readerPrototype, "read")?.value as ReadableStreamDefaultReader<Uint8Array>["read"]
+  const cancel = Object.getOwnPropertyDescriptor(readerPrototype, "cancel")?.value as ReadableStreamDefaultReader<Uint8Array>["cancel"]
+  const releaseLock = Object.getOwnPropertyDescriptor(readerPrototype, "releaseLock")?.value as ReadableStreamDefaultReader<Uint8Array>["releaseLock"]
   let released = false
   const release = () => {
     if (released) return
