@@ -90,6 +90,16 @@ describe("Console access policies", () => {
     await expect(withConsoleAccess(handler)(event({ "x-role": "admin" }))).resolves.toBe("host-managed")
   })
 
+  it("preserves responses created in another runtime realm", async () => {
+    const authorize = runInNewContext("() => ({ [Symbol.toStringTag]: 'Response', status: 401, text: () => Promise.resolve('Sign in elsewhere.') })") as unknown as ConsoleAuthorize
+
+    installConsoleAccess({ mode: "host-managed", authorize: defineConsoleAuthorize(authorize) })
+    const result = await withConsoleAccess(() => "unreachable")(event())
+
+    expect(result).toMatchObject({ status: 401 })
+    await expect((result as Response).text()).resolves.toBe("Sign in elsewhere.")
+  })
+
   it("fails closed when no policy is installed", async () => {
     const { handler, result } = await run(undefined)
     expect(handler).not.toHaveBeenCalled()
