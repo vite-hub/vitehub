@@ -145,6 +145,10 @@ export default defineConfig({
         to: "dist/console/runtime/components",
       },
       {
+        from: "src/console/runtime/components/console-section-icon.vue",
+        to: "dist/console/runtime/components",
+      },
+      {
         from: "src/console/runtime/components/console-session-code-preview.vue",
         to: "dist/console/runtime/components",
       },
