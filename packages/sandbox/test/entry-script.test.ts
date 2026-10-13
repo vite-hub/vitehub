@@ -1,7 +1,8 @@
 import { spawn } from "node:child_process"
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { pathToFileURL } from "node:url"
 
 import { afterEach, describe, expect, it } from "vitest"
 
@@ -57,9 +58,12 @@ async function executePackageEntry(definitionSource: string, options: {
 
 describe("package entry result transport", () => {
   it("preserves a Response from another realm across the child process", async () => {
+    const undiciDirectory = (await readdir(join(process.cwd(), "node_modules/.pnpm"))).find(name => name.startsWith("undici@"))
+    if (!undiciDirectory) throw new Error("undici package not found")
+    const foreignResponseModule = pathToFileURL(join(process.cwd(), "node_modules/.pnpm", undiciDirectory, "node_modules/undici/index.js")).href
     const execution = await executePackageEntry([
-      `import { runInNewContext } from 'node:vm'`,
-      `export default () => runInNewContext(\`new Response(new Uint8Array([0, 127, 255]), { status: 201, statusText: 'Created', headers: { 'x-result': 'preserved' } })\`, { Response })`,
+      `import { Response as ForeignResponse } from ${JSON.stringify(foreignResponseModule)}`,
+      `export default () => new ForeignResponse(new Uint8Array([0, 127, 255]), { status: 201, statusText: 'Created', headers: { 'x-result': 'preserved' } })`,
     ].join("\n"))
 
     expect(execution.code).toBe(0)
