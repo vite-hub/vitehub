@@ -1085,6 +1085,55 @@ describe("realtime transport boundaries", () => {
     await expect(readRealtimeCheckpointState(request, 4)).resolves.toEqual(Uint8Array.of(1, 2, 3))
   })
 
+  it.each(["buffer", "byteOffset", "byteLength"])("ignores a byte chunk's shadowed %s", async (key) => {
+    const value = Uint8Array.of(99, 1, 2, 3, 88).subarray(1, 4)
+    const shadows = { buffer: Uint8Array.of(9, 9, 9, 9, 9).buffer, byteOffset: 0, byteLength: 1 }
+    Object.defineProperty(value, key, { value: shadows[key as keyof typeof shadows] })
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) { controller.enqueue(value); controller.close() },
+    })
+    const request = new Request("https://example.com", { body, duplex: "half", method: "POST" } as RequestInit)
+
+    await expect(readRealtimeCheckpointState(request, 4)).resolves.toEqual(Uint8Array.of(1, 2, 3))
+  })
+
+  it.each(["buffer", "byteOffset", "byteLength"])("does not read a byte chunk's own %s getter", async (key) => {
+    const getter = vi.fn(() => { throw new Error("shadow getter") })
+    const value = Uint8Array.of(99, 1, 2, 3, 88).subarray(1, 4)
+    Object.defineProperty(value, key, { get: getter })
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) { controller.enqueue(value); controller.close() },
+    })
+    const request = new Request("https://example.com", { body, duplex: "half", method: "POST" } as RequestInit)
+
+    await expect(readRealtimeCheckpointState(request, 4)).resolves.toEqual(Uint8Array.of(1, 2, 3))
+    expect(getter).not.toHaveBeenCalled()
+  })
+
+  it("uses the real byte chunk length for quotas and cancellation", async () => {
+    const value = Uint8Array.of(1, 2, 3)
+    Object.defineProperty(value, "byteLength", { value: 0 })
+    const cancel = vi.fn()
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) { controller.enqueue(value) },
+      cancel,
+    })
+    const request = new Request("https://example.com", { body, duplex: "half", method: "POST" } as RequestInit)
+
+    await expect(readRealtimeCheckpointState(request, 2)).rejects.toMatchObject({ statusCode: 413 })
+    expect(cancel).toHaveBeenCalledOnce()
+  })
+
+  it("copies byte views with nonzero offsets from another realm", async () => {
+    const value = runInNewContext("new Uint8Array([99, 1, 2, 3, 88]).subarray(1, 4)")
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) { controller.enqueue(value); controller.close() },
+    })
+    const request = new Request("https://example.com", { body, duplex: "half", method: "POST" } as RequestInit)
+
+    await expect(readRealtimeCheckpointState(request, 4)).resolves.toEqual(Uint8Array.of(1, 2, 3))
+  })
+
   it("rejects spoofed and non-byte checkpoint chunks", async () => {
     const chunks = [
       { [Symbol.toStringTag]: "ArrayBuffer" },

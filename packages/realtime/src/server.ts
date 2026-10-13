@@ -42,6 +42,8 @@ const messageSync = 0
 const arrayBufferByteLengthGetter = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")!.get!
 const typedArrayByteLengthGetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), "byteLength")!.get!
 const typedArrayLengthGetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), "length")!.get!
+const typedArrayBufferGetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), "buffer")!.get!
+const typedArrayByteOffsetGetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), "byteOffset")!.get!
 
 function normalizeRealtimeCheckpointChunk(value: unknown): Uint8Array | undefined {
   if (ArrayBuffer.isView(value)) {
@@ -51,7 +53,11 @@ function normalizeRealtimeCheckpointChunk(value: unknown): Uint8Array | undefine
       // SAFETY: The intrinsic TypedArray length getter returns a number and throws for incompatible receivers.
       const length = Reflect.apply(typedArrayLengthGetter, value, []) as number
       if (byteLength !== length) return undefined
-      return new Uint8Array(value.buffer, value.byteOffset, value.byteLength)
+      // SAFETY: Intrinsic TypedArray getters return the branded view's backing buffer and byte offset.
+      const buffer = Reflect.apply(typedArrayBufferGetter, value, []) as ArrayBufferLike
+      // SAFETY: The intrinsic TypedArray byteOffset getter returns a number for this branded view.
+      const byteOffset = Reflect.apply(typedArrayByteOffsetGetter, value, []) as number
+      return new Uint8Array(buffer, byteOffset, byteLength)
     }
     catch {
       return undefined
