@@ -171,6 +171,8 @@ export type BoxRuntimeDefinition = BuiltInBoxRuntime | BoxRuntime;
 
 export interface BoxRuntime {
   readonly name: string;
+  /** Set when sessions reach loopback services of the ViteHub process, for example through SSH tunnels. */
+  readonly network?: "direct";
   open(input: BoxRuntimeInput, options: BoxRuntimeOpenOptions): Promise<BoxSession>;
   prepare(input: BoxRuntimeInput): Promise<BoxRuntimePlan>;
 }
@@ -270,6 +272,10 @@ export interface BoxSession {
     args?: readonly string[],
     options?: BoxExecOptions,
   ): Promise<BoxExecResult>;
+  /** Replace the session workspace with a host checkout's working tree, when the runtime has a faster transfer. */
+  importWorkspace?(checkout: string, signal?: AbortSignal): Promise<void>;
+  /** Install the workspace's dependencies inside the session instead of receiving the host's installed outputs. */
+  refreshDependencies?(checkout: string, signal?: AbortSignal): Promise<void>;
 }
 
 export interface ResolvedBoxFile {
