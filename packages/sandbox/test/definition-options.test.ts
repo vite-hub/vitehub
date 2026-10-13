@@ -39,6 +39,34 @@ describe("extractSandboxDefinitionMetadata", () => {
     })
   })
 
+  it("preserves a static __proto__ environment key", async () => {
+    const file = await writeDefinition([
+      `import { defineSandbox } from "@vite-hub/sandbox"`,
+      `export default defineSandbox({`,
+      `  env: { "__proto__": "sandbox-value" },`,
+      `  run: async () => null,`,
+      `})`,
+    ].join("\n"))
+
+    const metadata = await extractSandboxDefinitionMetadata(file)
+    expect(metadata?.options?.env).toHaveProperty("__proto__", "sandbox-value")
+    expect(Object.hasOwn(metadata?.options?.env || {}, "__proto__")).toBe(true)
+  })
+
+  it("preserves a static top-level __proto__ option key", async () => {
+    const file = await writeDefinition([
+      `import { defineSandbox } from "@vite-hub/sandbox"`,
+      `export default defineSandbox({`,
+      `  "__proto__": { enabled: true },`,
+      `  run: async () => null,`,
+      `})`,
+    ].join("\n"))
+
+    const metadata = await extractSandboxDefinitionMetadata(file)
+    expect(metadata?.options).toHaveProperty("__proto__", { enabled: true })
+    expect(Object.hasOwn(metadata?.options || {}, "__proto__")).toBe(true)
+  })
+
   it("separates the compiler project policy from runtime options", async () => {
     const file = await writeDefinition([
       `import { defineSandbox } from "@vite-hub/sandbox"`,
