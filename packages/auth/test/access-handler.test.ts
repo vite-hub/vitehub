@@ -155,7 +155,7 @@ describe("Auth access handlers", () => {
     expect(() => response!.headers.forEach(() => {})).not.toThrow()
   })
 
-  it("normalizes a complete structural spoof before adapter delivery", async () => {
+  it("fails closed for a complete structural response spoof", async () => {
     const headers = {
       [Symbol.toStringTag]: "Headers",
       append() {}, delete() {}, get: () => null, has: () => false, set() {},
@@ -176,9 +176,7 @@ describe("Auth access handlers", () => {
     const response = await handler(new Request("https://app.example/"))
     expect(response).toBeInstanceOf(Response)
     expect(response).not.toBe(spoof)
-    expect(response?.status).toBe(409)
-    expect(response?.headers.getSetCookie()).toEqual([])
-    expect(await response?.text()).toBe("")
+    expect(response?.status).toBe(403)
   })
 
   it("fails closed for a response spoof with an unusable body", async () => {

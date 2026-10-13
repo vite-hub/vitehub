@@ -288,7 +288,7 @@ async function runAccessAuthorize(
 async function normalizeAuthorizationResponse(value: unknown): Promise<Response | undefined> {
   if (value instanceof Response) return value
   try {
-    if (Object.prototype.toString.call(value) !== "[object Response]") return
+    if (Object.prototype.toString.call(value) !== "[object Response]" || !isNativeResponseShape(value)) return
     // SAFETY: Foreign responses are untrusted. Copy their data into a local
     // Response so adapters only receive native Headers and body operations.
     const response = value as Response
@@ -299,6 +299,23 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
   catch {
     return
   }
+}
+
+function isNativeResponseShape(value: unknown): value is {
+  headers: Headers
+  body: BodyInit | null
+  arrayBuffer: () => Promise<ArrayBuffer>
+  status: number
+  statusText: string
+} {
+  if (!value || (typeof value !== "object" && typeof value !== "function")) return false
+  const prototype = Object.getPrototypeOf(value)
+  const status = Object.getOwnPropertyDescriptor(prototype, "status")
+  const statusText = Object.getOwnPropertyDescriptor(prototype, "statusText")
+  const headers = Object.getOwnPropertyDescriptor(prototype, "headers")
+  const body = Object.getOwnPropertyDescriptor(prototype, "body")
+  if (typeof status?.get !== "function" || typeof statusText?.get !== "function" || typeof headers?.get !== "function" || typeof body?.get !== "function") return false
+  return typeof (prototype as { arrayBuffer?: unknown }).arrayBuffer === "function"
 }
 
 async function checkAuthRequest(
