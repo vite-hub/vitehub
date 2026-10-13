@@ -594,6 +594,8 @@ describe("Agent invocation console", () => {
 
       await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
 
+      await callPluginHook(plugin.configResolved, {}, [withViteLogger(config)])
+
       const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
       expect(generated).toContain('"databases":{"definitions":[]')
       expect(generated).not.toContain("inherited/server/databases/config.ts")
