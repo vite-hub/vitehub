@@ -126,6 +126,7 @@ describe("hubDb", () => {
   it.each([
     { name: "local SQLite", connection: "url: 'file:local.db',", cloudflare: undefined, providers: [] },
     { name: "remote libSQL", connection: "url: 'libsql://database.example',", cloudflare: undefined, providers: ["cloudflare", "vercel"] },
+    { name: "remote libSQL with unresolved D1 fallback", connection: "url: 'libsql://database.example',", cloudflare: "databaseId: '   ', databaseName: '   ',", providers: ["cloudflare", "vercel"] },
     { name: "D1 binding", connection: undefined, cloudflare: "databaseId: 'database-id', databaseName: 'database-name',", providers: ["cloudflare"] },
     { name: "D1 HTTP", connection: undefined, cloudflare: "databaseId: 'database-id', databaseName: 'database-name', http: true,", providers: ["cloudflare", "vercel"] },
     { name: "D1 HTTP without a database name", connection: undefined, cloudflare: "databaseId: 'database-id', http: true,", providers: ["vercel"] },
