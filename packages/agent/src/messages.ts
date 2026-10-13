@@ -422,9 +422,9 @@ function hasFailingJSONSerialization(value: unknown): boolean {
 }
 
 function normalizeCreatedAt(value: Date | string | undefined): string | undefined {
-  if (!value) return undefined
+  if (value === undefined) return undefined
   if (isDateValue(value)) return Date.prototype.toISOString.call(value)
-  if (hasFailingJSONSerialization(value)) {
+  if (!hasRuntimeType(value, "string")) {
     throw agentDiagnostics.AGENT_R0651({ message: "[vitehub:messages] message.createdAt must be serialized before storing." })
   }
   return value
@@ -558,7 +558,12 @@ function assertSerializable(value: unknown, field: string): void {
 export function validateMessage(message: Message): void {
   assertString(message.id, "message.id")
   assertSerializable(message.id, "message.id")
-  if (message.createdAt !== undefined) assertSerializable(message.createdAt, "message.createdAt")
+  if (message.createdAt !== undefined) {
+    if (!hasRuntimeType(message.createdAt, "string")) {
+      throw agentDiagnostics.AGENT_R0651({ message: "[vitehub:messages] message.createdAt must be serialized before storing." })
+    }
+    assertSerializable(message.createdAt, "message.createdAt")
+  }
   if (message.metadata !== undefined) assertSerializable(message.metadata, "message.metadata")
   if (!["assistant", "system", "tool", "user"].includes(message.role)) {
     throw agentDiagnostics.AGENT_R0652({ message: `[vitehub:messages] Unsupported message role: ${String(message.role)}.` })
