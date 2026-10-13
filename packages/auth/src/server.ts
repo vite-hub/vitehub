@@ -288,29 +288,34 @@ function isResponseLike(value: unknown): value is Response {
   if (value === null || typeof value !== "object") return false
   try {
     const response = value as Response
-    // Use the candidate's own prototype so Web IDL brand checks work across
-    // realms and fetch implementations. Require a Response constructor before
-    // reading any candidate accessors; ordinary prototype-based spoofs inherit
-    // Object and are rejected at this boundary.
-    const responsePrototype = Object.getPrototypeOf(response)
-    const responseConstructor = responsePrototype?.constructor
-    if (typeof responseConstructor !== "function" || responseConstructor.name !== "Response") return false
+    let responsePrototype: object | null = Object.getPrototypeOf(response)
+    let responseConstructor: Function | undefined
+    let statusGetter: (() => unknown) | undefined
+    let statusTextGetter: (() => unknown) | undefined
+    let headersGetter: (() => unknown) | undefined
+    let bodyUsedGetter: (() => unknown) | undefined
+    let bodyGetter: (() => unknown) | undefined
+    while (responsePrototype) {
+      const constructor = Object.getOwnPropertyDescriptor(responsePrototype, "constructor")?.value
+      if (typeof constructor === "function" && constructor.name === "Response") responseConstructor = constructor
+      statusGetter ??= Object.getOwnPropertyDescriptor(responsePrototype, "status")?.get
+      statusTextGetter ??= Object.getOwnPropertyDescriptor(responsePrototype, "statusText")?.get
+      headersGetter ??= Object.getOwnPropertyDescriptor(responsePrototype, "headers")?.get
+      bodyUsedGetter ??= Object.getOwnPropertyDescriptor(responsePrototype, "bodyUsed")?.get
+      bodyGetter ??= Object.getOwnPropertyDescriptor(responsePrototype, "body")?.get
+      responsePrototype = Object.getPrototypeOf(responsePrototype)
+    }
+    if (!responseConstructor || !statusGetter || !statusTextGetter || !headersGetter || !bodyUsedGetter || !bodyGetter) return false
     if (!["error", "json", "redirect"].every(method => typeof responseConstructor[method] === "function")) return false
-    const getStatus = Object.getOwnPropertyDescriptor(responsePrototype, "status")?.get
-    const getStatusText = Object.getOwnPropertyDescriptor(responsePrototype, "statusText")?.get
-    const getHeaders = Object.getOwnPropertyDescriptor(responsePrototype, "headers")?.get
-    const getBodyUsed = Object.getOwnPropertyDescriptor(responsePrototype, "bodyUsed")?.get
-    const getBody = Object.getOwnPropertyDescriptor(responsePrototype, "body")?.get
-    if (!getStatus || !getStatusText || !getHeaders || !getBodyUsed || !getBody) return false
-    const status = getStatus.call(response)
-    const statusText = getStatusText.call(response)
-    const headers = getHeaders.call(response)
-    const bodyUsed = getBodyUsed.call(response)
-    const body = getBody.call(response)
+    const status = statusGetter.call(response)
+    const statusText = statusTextGetter.call(response)
+    const headers = headersGetter.call(response)
+    const bodyUsed = bodyUsedGetter.call(response)
+    const body = bodyGetter.call(response)
     if (!Number.isInteger(status) || status < 0 || status > 599) return false
     if (typeof statusText !== "string" || typeof bodyUsed !== "boolean") return false
     const methods = ["clone", "arrayBuffer", "blob", "formData", "json", "text"] as const
-    if (!methods.every(method => typeof Reflect.get(responsePrototype, method) === "function")) return false
+    if (!methods.every(method => typeof response[method] === "function")) return false
     if (!headers || typeof headers.get !== "function" || typeof headers[Symbol.iterator] !== "function") return false
     return body === null || (typeof body === "object" && typeof body.getReader === "function" && typeof body.cancel === "function" && typeof body.tee === "function")
   }

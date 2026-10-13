@@ -110,6 +110,7 @@ describe("Auth access handlers", () => {
       status: 409, headers: { "x-policy": "rejected" },
     })`, { Response: FetchResponse })
     expect(foreignResponse).not.toBeInstanceOf(Response)
+
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
       access: { routes: [{ route: "/**", authorize: () => foreignResponse as never }] },
     }))
