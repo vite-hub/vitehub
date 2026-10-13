@@ -95,14 +95,13 @@ function isBlobLike(value: unknown): value is Blob {
   }
 }
 
-function blobMetadata(value: Blob): { arrayBuffer: () => Promise<ArrayBuffer>, type: string } | undefined {
+function normalizeForeignBlob(value: Blob): Blob | undefined {
   try {
     const type = Reflect.get(Blob.prototype, "type", value)
     Reflect.get(Blob.prototype, "size", value)
-    return {
-      arrayBuffer: () => Blob.prototype.arrayBuffer.call(value),
-      type,
-    }
+    // Slice preserves the backing data without eagerly reading a file or
+    // allocating a second payload. Use intrinsics to ignore own properties.
+    return Blob.prototype.slice.call(value, 0, undefined, type)
   } catch {
     return undefined
   }
@@ -245,8 +244,8 @@ function applyCookies(headers: Headers, cookies: Record<string, string> | undefi
 async function serializeRequestBody(body: unknown, headers: Headers): Promise<FetchBody | undefined> {
   if (body === undefined) return undefined
   if (isBlobLike(body) && !(body instanceof Blob)) {
-    const metadata = blobMetadata(body)
-    if (metadata) return new Blob([await metadata.arrayBuffer()], { type: metadata.type })
+    const normalized = normalizeForeignBlob(body)
+    if (normalized) return normalized
   }
   if (
     primitiveRuntimeTag(body) === "[object String]"
