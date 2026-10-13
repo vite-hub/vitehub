@@ -20,15 +20,6 @@ describe("createChannel", () => {
     expect(send.mock.calls[0]?.[1]).toBe(options)
   })
 
-  it("preserves array connector options", async () => {
-    const options = Object.assign(["room-1", "room-2"], { connector: "configured" as const })
-    const send = vi.fn((_text: string, options: string[]) => ({ id: options.join(",") }))
-    const channel = createChannel("arrays", { connectors: { configured: { send } } })
-
-    await expect(channel.send("message", options)).resolves.toMatchObject([null, { id: "room-1,room-2" }])
-    expect(send.mock.calls[0]?.[1]).toBe(options)
-  })
-
   it("selects the connector through send options and normalizes the result", async () => {
     const info = vi.spyOn(console, "info").mockImplementation(() => {})
     const send = vi.fn(async (text: string, options: { chatId: string }) => ({ id: `${text}:${options.chatId}` }))

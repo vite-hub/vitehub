@@ -60,4 +60,17 @@ describe("Cloudflare Sandbox runtime provider", () => {
 
     expect(provider.closeAfterRun).toBe(true)
   })
+
+  it.each(["__proto__", "constructor", "toString"])("rejects inherited Cloudflare binding %s", async (binding) => {
+    const env = Object.create(Object.prototype) as Record<string, unknown>
+    resolveCloudflareBox.mockClear()
+
+    await expect(resolveCloudflareSandboxBox({
+      local: {},
+      provider: { provider: "cloudflare", binding },
+    }, {
+      event: { context: { cloudflare: { env } } },
+    })).rejects.toThrow(`Cloudflare sandbox requires the ${JSON.stringify(binding)} binding`)
+    expect(resolveCloudflareBox).not.toHaveBeenCalled()
+  })
 })

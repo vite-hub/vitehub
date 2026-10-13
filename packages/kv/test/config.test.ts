@@ -233,11 +233,62 @@ describe("normalizeKVOptions", () => {
     })
   })
 
+  it("accepts named stores exposed by an accessor", () => {
+    const options = {
+      get stores() {
+        return {
+          default: { base: ".vitehub/data/kv", driver: "fs-lite" as const },
+        }
+      },
+    }
+
+    expect(normalizeKVOptions(options, { env: {}, hosting: "" })).toEqual({
+      store: {
+        base: ".vitehub/data/kv",
+        driver: "fs-lite",
+      },
+      stores: {
+        default: {
+          base: ".vitehub/data/kv",
+          driver: "fs-lite",
+        },
+      },
+    })
+  })
+
+  it("preserves proxy-backed named stores access", () => {
+    const options = new Proxy({ stores: null }, {
+      get(target, property, receiver) {
+        if (property === "stores") {
+          return { default: { base: ".vitehub/data/kv", driver: "fs-lite" as const } }
+        }
+        return Reflect.get(target, property, receiver)
+      },
+    })
+
+    expect(normalizeKVOptions(options as never, { env: {}, hosting: "" })).toEqual({
+      store: {
+        base: ".vitehub/data/kv",
+        driver: "fs-lite",
+      },
+      stores: {
+        default: {
+          base: ".vitehub/data/kv",
+          driver: "fs-lite",
+        },
+      },
+    })
+  })
+
   it("rejects non-object config", () => {
     expect(() => normalizeKVOptions(true as never, {
       env: {},
       hosting: "",
     })).toThrow("`kv` must be a plain object.")
+  })
+
+  it.each([null, [], "stores"])("rejects a non-record stores option: %j", stores => {
+    expect(() => normalizeKVOptions({ stores } as never)).toThrow("`kv.stores` must be a plain object.")
   })
 })
 
