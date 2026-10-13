@@ -24,7 +24,13 @@ export function hasCloudflareSqlExec(sql: unknown): sql is RealtimeRoomSql {
       if (typeof value !== "function") return false
       return /\[native code\]/.test(Function.prototype.toString.call(value))
     }
-    if (!isNativeFunction(constructor) || !isNativeFunction(exec) || !isNativeFunction(databaseSize)) return false
+    const isNativeMethod = (value: unknown): value is Function => {
+      if (!isNativeFunction(value)) return false
+      // Platform methods and accessors have no user-function `prototype`
+      // own property. A Proxy around an ordinary callback retains it.
+      return !Object.hasOwn(value, "prototype")
+    }
+    if (!isNativeFunction(constructor) || !isNativeMethod(exec) || !isNativeMethod(databaseSize)) return false
 
     // This read-only native getter checks workerd's internal SqlStorage receiver.
     // Copying its prototype onto an ordinary object does not pass the check.
