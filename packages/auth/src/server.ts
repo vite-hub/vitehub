@@ -288,13 +288,22 @@ function isResponseLike(value: unknown): value is Response {
   if (value === null || typeof value !== "object") return false
   try {
     const response = value as Response
-    // Accessing an intrinsic Response property performs the platform brand
-    // check without depending on the body's disturbed or locked state.
-    Object.getOwnPropertyDescriptor(Response.prototype, "body")!.get!.call(response)
-    const status = Object.getOwnPropertyDescriptor(Response.prototype, "status")!.get!.call(response)
-    const statusText = Object.getOwnPropertyDescriptor(Response.prototype, "statusText")!.get!.call(response)
-    const headers = Object.getOwnPropertyDescriptor(Response.prototype, "headers")!.get!.call(response)
-    Headers.prototype.has.call(headers, "content-type")
+    // Use the response's own realm intrinsics so native responses from another
+    // realm pass the brand checks without touching their body state.
+    const responsePrototype = Object.getPrototypeOf(response)
+    const body = Object.getOwnPropertyDescriptor(responsePrototype, "body")?.get
+    const statusGetter = Object.getOwnPropertyDescriptor(responsePrototype, "status")?.get
+    const statusTextGetter = Object.getOwnPropertyDescriptor(responsePrototype, "statusText")?.get
+    const headersGetter = Object.getOwnPropertyDescriptor(responsePrototype, "headers")?.get
+    if (!body || !statusGetter || !statusTextGetter || !headersGetter) return false
+    body.call(response)
+    const status = statusGetter.call(response)
+    const statusText = statusTextGetter.call(response)
+    const headers = headersGetter.call(response)
+    const headersPrototype = Object.getPrototypeOf(headers)
+    const has = Object.getOwnPropertyDescriptor(headersPrototype, "has")?.value
+    if (typeof has !== "function") return false
+    has.call(headers, "content-type")
     return Number.isInteger(status) && status >= 0 && status <= 599 && typeof statusText === "string"
   }
   catch {

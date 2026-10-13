@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { runInNewContext } from "node:vm"
+import { createRequire } from "node:module"
+import { dirname, join } from "node:path"
 
 import { defineAuth } from "../src/index.ts"
 import { createAuthAccessHandler } from "../src/server.ts"
@@ -13,6 +15,9 @@ const provider = vi.hoisted(() => ({
 vi.mock("better-auth", () => ({ betterAuth: provider.betterAuth }))
 
 const session = { session: { id: "session" }, user: { id: "user" } }
+const authRequire = createRequire(import.meta.url)
+const betterAuthRoot = dirname(dirname(authRequire.resolve("better-auth")))
+const { Response: ForeignResponse } = authRequire(join(betterAuthRoot, "node_modules/undici")) as { Response: typeof Response }
 
 describe("Auth access handlers", () => {
   beforeEach(() => {
@@ -114,7 +119,7 @@ describe("Auth access handlers", () => {
   })
 
   it("returns authorization responses from another realm unchanged", async () => {
-    const foreignResponse = runInNewContext('(class ForeignResponse extends Response {})("Policy rejected", { status: 409 })', { Response })
+    const foreignResponse = runInNewContext('new ForeignResponse("Policy rejected", { status: 409 })', { ForeignResponse })
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
       access: { routes: [{ route: "/**", authorize: () => foreignResponse as never }] },
     }))
