@@ -276,7 +276,14 @@ function reject(response: Response): AuthCheck {
 }
 
 function isResponse(value: unknown): value is Response {
-  return value instanceof Response || Object.prototype.toString.call(value) === "[object Response]"
+  if (value instanceof Response) return true
+  if (value === null || typeof value !== "object") return false
+  try {
+    Response.prototype.clone.call(value)
+    return true
+  } catch {
+    return false
+  }
 }
 
 async function runAccessAuthorize(

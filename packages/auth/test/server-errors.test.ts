@@ -266,15 +266,25 @@ describe("server authentication provider boundaries", () => {
     })
 
     it("preserves a cross-realm custom response", async () => {
-      const denied = runInNewContext(`({
-        [Symbol.toStringTag]: "Response",
-        status: 402,
-      })`) as Response
+      const denied = runInNewContext("new Response('Payment required', { status: 402 })", { Response }) as Response
       const authorize = runInNewContext("() => denied", { denied }) as () => Response
       const accessDefinition = defineAuth({ appName: "ViteHub" })
       providerMocks.getSession.mockResolvedValue({ session: { id: "session-1" }, user: { id: "user-1" } })
 
       await expect(withAuthorization(authorize, protectedAction, accessDefinition)(request)).resolves.toBe(denied)
+      expect(protectedAction).not.toHaveBeenCalled()
+    })
+
+    it("rejects objects that spoof the Response tag", async () => {
+      const denied = { [Symbol.toStringTag]: "Response" } as unknown as Response
+      const authorize = () => denied
+      const accessDefinition = defineAuth({ appName: "ViteHub" })
+      providerMocks.getSession.mockResolvedValue({ session: { id: "session-1" }, user: { id: "user-1" } })
+
+      const response = await withAuthorization(authorize, protectedAction, accessDefinition)(request)
+      expect(response).toBeInstanceOf(Response)
+      if (!(response instanceof Response)) return
+      expect(response.status).toBe(403)
       expect(protectedAction).not.toHaveBeenCalled()
     })
 
