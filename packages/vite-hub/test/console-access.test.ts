@@ -8,6 +8,7 @@ import { DatabaseSync } from "node:sqlite"
 
 import { defineAuth } from "@vite-hub/auth"
 import { handleAuthRequest, withAuthorization } from "@vite-hub/auth/server"
+import { Window } from "happy-dom"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createConsoleAuthDefinition, defineConsoleAuth, defineConsoleAuthorize, prepareConsoleAuth } from "../src/console/auth.ts"
@@ -89,12 +90,34 @@ describe("Console access policies", () => {
     expect(result).toEqual({ mode: "host-managed" })
   })
   it("returns a custom Response created in another runtime realm", async () => {
-    const foreignPrototype = runInNewContext("({ get [Symbol.toStringTag]() { return 'Response' } })")
-    const response = Object.create(foreignPrototype)
-    const authorize = runInNewContext("() => response", { response })
-    const { handler, result } = await run({ mode: "host-managed", authorize })
+    const window = new Window()
+    try {
+      const response = new window.Response("Sign in at the host.", { status: 401, headers: { "x-host-auth": "required" } })
+      expect(response).not.toBeInstanceOf(Response)
+      const authorize = runInNewContext("() => response", { response })
+      const { handler, result } = await run({ mode: "host-managed", authorize })
+      expect(handler).not.toHaveBeenCalled()
+      expect(result).toBeInstanceOf(Response)
+      expect(result).toMatchObject({ status: 401 })
+      if (!(result instanceof Response)) throw new TypeError("Expected a Response")
+      expect(result.headers.get("x-host-auth")).toBe("required")
+      await expect(result.text()).resolves.toBe("Sign in at the host.")
+      installConsoleAccess({ mode: "host-managed", authorize: runInNewContext("() => response", { response: new window.Response(null, { status: 401 }) }) })
+      await expect(consoleConnectionsActor(event())).resolves.toBeUndefined()
+    }
+    finally {
+      await window.happyDOM.close()
+    }
+  })
+  it.each([
+    "({ [Symbol.toStringTag]: 'Response' })",
+    "({ [Symbol.toStringTag]: 'Response', status: 401, statusText: '', headers: [], body: {} })",
+    "({ [Symbol.toStringTag]: 'Response', status: 401, statusText: '', headers: [['invalid header', 'value']], body: null })",
+  ])("rejects malformed Response fields: %s", async source => {
+    const response = runInNewContext(source)
+    const { handler, result } = await run({ mode: "host-managed", authorize: () => response })
     expect(handler).not.toHaveBeenCalled()
-    expect(result).toBe(response)
+    await expect(rejection(result)).resolves.toMatchObject({ status: 403 })
   })
   it("fails closed when no policy is installed", async () => {
     const { handler, result } = await run(undefined)

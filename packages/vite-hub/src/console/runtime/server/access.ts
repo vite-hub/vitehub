@@ -37,8 +37,38 @@ const checkedEvents = new WeakMap<object, ConsoleAccess>()
 const modes = new Set<ConsoleAccessMode>(["auth", "cloudflare-access", "host-managed", "local"])
 const objectToString = Object.prototype.toString
 
-function isResponse(value: unknown): value is Response {
-  return value instanceof Response || objectToString.call(value) === "[object Response]"
+function authorizationResponse(value: unknown): Response | undefined {
+  if (value instanceof Response) return value
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This boundary validates foreign Fetch fields before constructing a local Response.
+  if (!value || typeof value !== "object") return undefined
+  try {
+    // A foreign Response cannot be branded by this realm's constructor. Validate
+    // its transferable fields and let Fetch construct the route's actual Response.
+    if (objectToString.call(value) !== "[object Response]"
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Fetch validates these primitive response-init fields below.
+      || !("status" in value) || typeof value.status !== "number"
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- These response-init strings are validated by Fetch below.
+      || !("statusText" in value) || typeof value.statusText !== "string"
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Headers validates the iterable below.
+      || !("headers" in value) || !value.headers || typeof value.headers !== "object"
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This is the iterable protocol check before Headers consumes it.
+      || !(Symbol.iterator in value.headers) || typeof value.headers[Symbol.iterator] !== "function"
+      || !("body" in value)) return undefined
+    // SAFETY: Headers validates the foreign iterable and all its entries at this boundary.
+    const headers = new Headers(value.headers as Headers)
+    const init = { headers, status: value.status, statusText: value.statusText }
+    // Validate init before taking ownership of a foreign stream.
+    const empty = new Response(null, init)
+    if (value.body === null) return empty
+    if ([204, 205, 304].includes(value.status)) return undefined
+    // Calling the native stream method checks its internal brand across realms;
+    // piping into a local stream also avoids realm-sensitive Fetch body checks.
+    const body = ReadableStream.prototype.pipeThrough.call(value.body, new TransformStream())
+    return new Response(body, init)
+  }
+  catch {
+    return undefined
+  }
 }
 
 function rejection(status: number, message: string): Response {
@@ -86,7 +116,8 @@ async function checkConsoleAccess(event: ConsoleRequestEvent): Promise<ConsoleAc
       return rejection(500, "[vitehub] console: { exposure: \"host-managed\" } requires console.authorize. Set it to a server file that default-exports defineConsoleAuthorize().")
     }
     const result = await policy.authorize({ request: webRequest(event) })
-    if (isResponse(result)) return result
+    const response = authorizationResponse(result)
+    if (response) return response
     if (result !== true) return rejection(403, "Forbidden.")
   }
   else {
@@ -96,7 +127,7 @@ async function checkConsoleAccess(event: ConsoleRequestEvent): Promise<ConsoleAc
         : "[vitehub] Cloudflare Access Console Auth is not configured.")
     }
     const response = await policy.check(event)
-    if (response) return response
+    if (response) return authorizationResponse(response) ?? rejection(403, "Forbidden.")
   }
   return consoleAccessGrant.issue(policy.mode, { mode: policy.mode })
 }
@@ -113,7 +144,7 @@ export async function consoleConnectionsActor(
   sessionActor?: () => Promise<string | undefined>,
 ): Promise<string | undefined> {
   const access = await checkConsoleAccess(event)
-  if (isResponse(access)) return undefined
+  if (access instanceof Response) return undefined
   if (access.mode === "auth") return sessionActor ? await sessionActor() : undefined
   return `user:${access.mode}`
 }
@@ -130,7 +161,7 @@ export function withConsoleAccess<TEvent extends ConsoleRequestEvent, TResult>(
     const bound = checkedEvents.get(event)
     if (bound && consoleAccessGrant.isValid(bound)) return handler(event, bound)
     const access = await checkConsoleAccess(event)
-    if (isResponse(access)) return access
+    if (access instanceof Response) return access
     checkedEvents.set(event, access)
     return handler(event, access)
   }
