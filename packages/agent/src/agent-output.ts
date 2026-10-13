@@ -827,10 +827,14 @@ function isResponseLike(value: unknown): value is Response {
     if (!hasRuntimeType(headers.get, "function") || !hasRuntimeType(headers.forEach, "function")) return false
     if (body === null) return value.body === null
     if (!isRuntimeObject(body) || !("pipeThrough" in body) || !hasRuntimeType(body.pipeThrough, "function")) return false
-    const getLocked = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
-    return hasRuntimeType(getLocked, "function")
-      && hasRuntimeType(Reflect.apply(getLocked, body, []), "boolean")
-      && value.body === body
+    // Calling the stream's own getReader performs a cross-realm brand check.
+    // The current realm's ReadableStream accessors reject foreign streams.
+    const getReader = body.getReader
+    if (!hasRuntimeType(getReader, "function")) return false
+    const reader = Reflect.apply(getReader, body, [])
+    if (!isRuntimeObject(reader) || !hasRuntimeType(reader.releaseLock, "function")) return false
+    Reflect.apply(reader.releaseLock, reader, [])
+    return value.body === body
   }
   catch {
     return false
