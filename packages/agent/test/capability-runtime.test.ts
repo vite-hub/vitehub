@@ -2582,6 +2582,8 @@ describe("agent capability runtime", () => {
   it("runs model-backed capability lifecycle once per agent run", async () => {
     vi.doMock("ai", () => ({
       jsonSchema: vi.fn(schema => schema),
+      // This SDK double executes fixture responses without invoking a language model.
+      wrapLanguageModel: ({ model }: { model: unknown }) => model,
       ToolLoopAgent: class {
         async generate() {
           return { text: "ok" }
@@ -2613,6 +2615,8 @@ describe("agent capability runtime", () => {
   it("does not close model-backed capability contexts twice when cleanup fails", async () => {
     vi.doMock("ai", () => ({
       jsonSchema: vi.fn(schema => schema),
+      // This SDK double executes fixture responses without invoking a language model.
+      wrapLanguageModel: ({ model }: { model: unknown }) => model,
       ToolLoopAgent: class {
         async generate() {
           return { text: "ok" }
@@ -2645,6 +2649,8 @@ describe("agent capability runtime", () => {
   it("does not run invocation-scoped capability phases during agent resolution", async () => {
     vi.doMock("ai", () => ({
       jsonSchema: vi.fn(schema => schema),
+      // This SDK double executes fixture responses without invoking a language model.
+      wrapLanguageModel: ({ model }: { model: unknown }) => model,
       ToolLoopAgent: class {
         async generate() {
           return { text: "ok" }

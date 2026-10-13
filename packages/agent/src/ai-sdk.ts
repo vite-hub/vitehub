@@ -738,6 +738,7 @@ function withWorkspaceFallbackFullStream(
       }
       yield event
       if (type === "error") {
+        // SAFETY: The object check permits reading the optional error payload of a stream event.
         const errorRecord = hasRuntimeType(event, "object") && event !== null ? event as { error?: unknown } : undefined
         const streamError = errorRecord?.error
         if (streamError instanceof ExecutionBudgetExceededError || context.executionBudget?.signal.aborted && context.executionBudget.signal.reason instanceof ExecutionBudgetExceededError) return
@@ -1337,20 +1338,8 @@ async function createAgent(
     ...(Object.keys(toolSet).length ? { tools: toolSet as AgentToolSet } : {}),
   })
   const settings = instrumentedCallSettings ? { ...baseCallSettings, ...instrumentedCallSettings } : baseCallSettings
-  // Partial AI SDK mocks can throw when a missing export is read through Vitest's proxy.
-  let wrapLanguageModel: typeof aiSdk.wrapLanguageModel | undefined
-  let optionalWrapperMocked = false
-  try {
-    const candidate = aiSdk.wrapLanguageModel
-    if (hasRuntimeType(candidate, "function")) wrapLanguageModel = candidate
-  }
-  catch (error) {
-    // Vitest partial-module proxies throw a distinctive missing-export error.
-    const message = error instanceof Error ? error.message : String(error)
-    if (message.includes("wrapLanguageModel") && message.includes("export is defined") && message.includes("mock")) optionalWrapperMocked = true
-    else throw error
-  }
-  if (context.executionBudget && !wrapLanguageModel && !optionalWrapperMocked) {
+  const wrapLanguageModel = context.executionBudget ? aiSdk.wrapLanguageModel : undefined
+  if (context.executionBudget && !hasRuntimeType(wrapLanguageModel, "function")) {
     throw new Error("[vitehub] Execution budgets require AI SDK wrapLanguageModel support.")
   }
   const instrumentedModel = context.executionBudget && wrapLanguageModel

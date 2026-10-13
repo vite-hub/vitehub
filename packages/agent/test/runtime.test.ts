@@ -1713,12 +1713,38 @@ describe("agent message protocol", () => {
     }))
   })
 
+  it.each(["missing", "throwing"])("fails closed for a %s model budget wrapper", async (kind) => {
+    const { createAiSdkAdapter } = await import("../src/ai-sdk.ts")
+    const generate = vi.fn()
+    const failure = new Error('No "wrapLanguageModel" export is defined on the production mock compatibility proxy')
+    loadAiSdk.mockResolvedValue({
+      isStepCount: () => () => false,
+      jsonSchema: (schema: unknown) => schema,
+      get wrapLanguageModel() {
+        if (kind === "throwing") throw failure
+        return undefined
+      },
+      ToolLoopAgent: class { generate = generate },
+    })
+    const agent = adapterDefinition(createAiSdkAdapter({
+      // SAFETY: Wrapper resolution must fail before this model can be invoked.
+      model: {} as never,
+    }))
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      executionBudget: { maxInputBytes: 1 },
+      prompt: "Hello",
+    })).rejects.toThrow(kind === "throwing" ? failure : "Execution budgets require AI SDK wrapLanguageModel support")
+    expect(generate).not.toHaveBeenCalled()
+  })
+
   it.each(["static", "resolved"])("includes %s adapter-local tool titles in AI SDK telemetry", async (kind) => {
     const { createAiSdkAdapter } = await import("../src/ai-sdk.ts")
     const traceLog = createTraceEventLog({ content: "content" })
     loadAiSdk.mockResolvedValue({
       isStepCount: () => () => false,
       jsonSchema: vi.fn(schema => schema),
+      // This SDK double executes fixture responses without invoking a language model.
+      wrapLanguageModel: ({ model }: { model: unknown }) => model,
       ToolLoopAgent: class {
         constructor(private settings: Record<string, unknown>) {}
 
@@ -1944,6 +1970,8 @@ describe("agent message protocol", () => {
     aiGlobal.AI_SDK_TELEMETRY_INTEGRATIONS = [globalIntegration]
     vi.doMock("ai", () => ({
       jsonSchema: vi.fn(schema => schema),
+      // This SDK double executes fixture responses without invoking a language model.
+      wrapLanguageModel: ({ model }: { model: unknown }) => model,
       ToolLoopAgent: class {
         settings: Record<string, unknown>
 
@@ -2091,6 +2119,8 @@ describe("agent message protocol", () => {
       isStepCount: () => () => false,
       jsonSchema: vi.fn(schema => schema),
       Output: { object: vi.fn(() => nativeOutput) },
+      // This SDK double executes fixture responses without invoking a language model.
+      wrapLanguageModel: ({ model }: { model: unknown }) => model,
       ToolLoopAgent: class {
         constructor(settings: Record<string, unknown>) {
           agentSettings.push(settings)
@@ -2734,6 +2764,8 @@ describe("agent message protocol", () => {
     loadAiSdk.mockResolvedValue({
       isStepCount: vi.fn(count => ({ count })),
       jsonSchema,
+      // This SDK double executes fixture responses without invoking a language model.
+      wrapLanguageModel: ({ model }: { model: unknown }) => model,
       ToolLoopAgent: class {
         constructor(settings: Record<string, unknown>) {
           agentSettings.push(settings)
@@ -2817,6 +2849,8 @@ describe("agent message protocol", () => {
     loadAiSdk.mockResolvedValue({
       isStepCount: vi.fn(count => ({ count })),
       jsonSchema: vi.fn(schema => schema),
+      // This SDK double executes fixture responses without invoking a language model.
+      wrapLanguageModel: ({ model }: { model: unknown }) => model,
       ToolLoopAgent: class {
         constructor(_settings: unknown) {}
 
@@ -6030,6 +6064,8 @@ describe("agent message protocol", () => {
     const agentSettings: Record<string, unknown>[] = []
     loadAiSdk.mockResolvedValue({
       jsonSchema: vi.fn(schema => schema),
+      // This SDK double executes fixture responses without invoking a language model.
+      wrapLanguageModel: ({ model }: { model: unknown }) => model,
       ToolLoopAgent: class {
         constructor(settings: Record<string, unknown>) {
           agentSettings.push(settings)
@@ -6758,6 +6794,8 @@ describe("agent message protocol", () => {
   it("runs agent finish hooks for model-backed object results", async () => {
     vi.doMock("ai", () => ({
       jsonSchema: vi.fn(schema => schema),
+      // This SDK double executes fixture responses without invoking a language model.
+      wrapLanguageModel: ({ model }: { model: unknown }) => model,
       ToolLoopAgent: class {
         async generate() {
           return { finishReason: "stop", text: "ok" }
@@ -6890,6 +6928,8 @@ describe("agent message protocol", () => {
   it("runs stream finish hooks with rendered model-backed object results", async () => {
     vi.doMock("ai", () => ({
       jsonSchema: vi.fn(schema => schema),
+      // This SDK double executes fixture responses without invoking a language model.
+      wrapLanguageModel: ({ model }: { model: unknown }) => model,
       ToolLoopAgent: class {
         async generate() {
           return { finishReason: "stop", text: "ok" }
@@ -6940,6 +6980,8 @@ describe("agent message protocol", () => {
   it("runs stream finish hooks with accumulated model-backed text", async () => {
     vi.doMock("ai", () => ({
       jsonSchema: vi.fn(schema => schema),
+      // This SDK double executes fixture responses without invoking a language model.
+      wrapLanguageModel: ({ model }: { model: unknown }) => model,
       ToolLoopAgent: class {
         async generate() {
           return { text: "unused" }
@@ -6989,6 +7031,8 @@ describe("agent message protocol", () => {
   it("finalizes model-backed results before finish hooks", async () => {
     vi.doMock("ai", () => ({
       jsonSchema: vi.fn(schema => schema),
+      // This SDK double executes fixture responses without invoking a language model.
+      wrapLanguageModel: ({ model }: { model: unknown }) => model,
       ToolLoopAgent: class {
         async generate() {
           return {
@@ -8687,6 +8731,8 @@ describe("agent message protocol", () => {
       generateText,
       isStepCount: vi.fn(count => ({ count })),
       jsonSchema: vi.fn(schema => schema),
+      // This SDK double executes fixture responses without invoking a language model.
+      wrapLanguageModel: ({ model }: { model: unknown }) => model,
       ToolLoopAgent: class {
         async generate() {
           return { finishReason: "stop", text: "ok" }
@@ -8735,6 +8781,8 @@ describe("agent message protocol", () => {
       generateText,
       isStepCount: vi.fn(count => ({ count })),
       jsonSchema: vi.fn(schema => schema),
+      // This SDK double executes fixture responses without invoking a language model.
+      wrapLanguageModel: ({ model }: { model: unknown }) => model,
       ToolLoopAgent: class {
         async generate() {
           return { finishReason: "stop", text: "ok" }
@@ -8963,6 +9011,8 @@ describe("agent message protocol", () => {
   it("emits title data for adapter text streams", async () => {
     vi.doMock("ai", () => ({
       jsonSchema: vi.fn(schema => schema),
+      // This SDK double executes fixture responses without invoking a language model.
+      wrapLanguageModel: ({ model }: { model: unknown }) => model,
       ToolLoopAgent: class {
         async generate() {
           return { finishReason: "stop", text: "ok" }

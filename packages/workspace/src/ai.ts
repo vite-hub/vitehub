@@ -516,8 +516,8 @@ function createWriteTools(workspace: Workspace, enabled: ReturnType<typeof resol
         type: "object",
       }),
       execute: async ({ content, mediaType, path }) => {
-        const normalized = cleanMutationPath(path)
         budget?.recordToolCall(sizeOf(content))
+        const normalized = cleanMutationPath(path)
         await workspace.writeFile(normalized, content, { mediaType } satisfies WriteFileOptions)
         return { path: normalized }
       },
@@ -537,8 +537,8 @@ function createWriteTools(workspace: Workspace, enabled: ReturnType<typeof resol
         type: "object",
       }),
       execute: async ({ content, path }) => {
-        const normalized = cleanMutationPath(path)
         budget?.recordToolCall(sizeOf(content))
+        const normalized = cleanMutationPath(path)
         await appendWorkspaceFile(workspace, normalized, content)
         return { path: normalized }
       },
@@ -559,8 +559,8 @@ function createWriteTools(workspace: Workspace, enabled: ReturnType<typeof resol
         type: "object",
       }),
       execute: async ({ force, path, recursive }) => {
-        const normalized = cleanMutationPath(path)
         budget?.recordToolCall()
+        const normalized = cleanMutationPath(path)
         await workspace.rm(normalized, { force, recursive })
         return { path: normalized }
       },
@@ -580,8 +580,8 @@ function createWriteTools(workspace: Workspace, enabled: ReturnType<typeof resol
         type: "object",
       }),
       execute: async ({ path, recursive }) => {
-        const normalized = cleanMutationPath(path)
         budget?.recordToolCall()
+        const normalized = cleanMutationPath(path)
         await workspace.mkdir(normalized, { recursive })
         return { path: normalized }
       },
@@ -602,9 +602,9 @@ function createWriteTools(workspace: Workspace, enabled: ReturnType<typeof resol
         type: "object",
       }),
       execute: async ({ from, overwrite = false, to }) => {
+        budget?.recordToolCall()
         const source = cleanMutationPath(from)
         const target = cleanMutationPath(to)
-        budget?.recordToolCall()
         await copyWorkspacePath(workspace, source, target, overwrite)
         return { from: source, to: target }
       },
@@ -625,9 +625,9 @@ function createWriteTools(workspace: Workspace, enabled: ReturnType<typeof resol
         type: "object",
       }),
       execute: async ({ from, overwrite = false, to }) => {
+        budget?.recordToolCall()
         const source = cleanMutationPath(from)
         const target = cleanMutationPath(to)
-        budget?.recordToolCall()
         await copyWorkspacePath(workspace, source, target, overwrite)
         await workspace.rm(source, { recursive: true, force: true })
         return { from: source, to: target }

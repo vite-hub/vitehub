@@ -610,6 +610,21 @@ describe("createWorkspaceTools", () => {
     })).toThrow("Write operations require a mutable Workspace")
   })
 
+  it.each(["writeFile", "appendFile", "deletePath", "makeDir", "copyPath", "movePath"] as const)("charges rejected %s paths before validation", async (operation) => {
+    const budget = createExecutionBudget({ maxToolCalls: 1 })
+    const tools = createWorkspaceTools(createMutableWorkspace(), {
+      executionBudget: budget,
+      operations: { write: true },
+    })
+    const input = { content: "abc", from: "/", path: "/", to: "target" }
+    const execute = () => tools[operation].execute!(input, { context: {}, toolCallId: "test", messages: [] })
+    await expect(execute()).rejects.toThrow()
+    expect(budget.snapshot().usage.toolCalls).toBe(1)
+    expect(budget.snapshot().usage.inputBytes).toBe(operation === "writeFile" || operation === "appendFile" ? 3 : 0)
+    await expect(execute()).rejects.toThrow("toolCalls")
+    expect(budget.signal.aborted).toBe(true)
+  })
+
   it("applies structured write operations to mutable workspaces", async () => {
     const workspace = createMutableWorkspace()
     const tools = createWorkspaceTools(workspace, {
