@@ -133,7 +133,7 @@ describe("Auth access handlers", () => {
       body: null,
       clone() { return this },
       arrayBuffer() { return Promise.resolve(new ArrayBuffer(0)) },
-      blob() { return Promise.resolve(new Blob()) },
+      blob() { return Promise.resolve(new Blob([])) },
       formData() { return Promise.resolve(new FormData()) },
       json() { return Promise.resolve({}) },
       text() { return Promise.resolve("") },

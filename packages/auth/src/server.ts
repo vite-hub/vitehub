@@ -306,12 +306,12 @@ function isResponseLike(value: unknown): value is Response {
       responsePrototype = Object.getPrototypeOf(responsePrototype)
     }
     if (!responseConstructor || !statusGetter || !statusTextGetter || !headersGetter || !bodyUsedGetter || !bodyGetter) return false
-    if (!["error", "json", "redirect"].every(method => typeof responseConstructor[method] === "function")) return false
-    const status = statusGetter.call(response)
+    if (!["error", "json", "redirect"].every(method => typeof (responseConstructor as Record<string, unknown>)[method] === "function")) return false
+    const status = statusGetter.call(response) as unknown
     const statusText = statusTextGetter.call(response)
-    const headers = headersGetter.call(response)
+    const headers = headersGetter.call(response) as Headers
     const bodyUsed = bodyUsedGetter.call(response)
-    const body = bodyGetter.call(response)
+    const body = bodyGetter.call(response) as ReadableStream<Uint8Array> | null
     if (!Number.isInteger(status) || status < 0 || status > 599) return false
     if (typeof statusText !== "string" || typeof bodyUsed !== "boolean") return false
     const methods = ["clone", "arrayBuffer", "blob", "formData", "json", "text"] as const
