@@ -134,7 +134,7 @@ export function getDocsSidebarGroups(section: DocsSection): DocsSidebarGroup[] {
         - (rightOrder === -1 ? primitiveSidebarGroupOrder.length : rightOrder)
         || left.index - right.index;
     })
-    .map(({ label, pages }) => ({ label, pages }));
+    .map(({ label, pages }) => ({ label: pages.length > 1 ? label : null, pages }));
 }
 
 /** Sections listed under Related in a section's sidebar, in the order `.navigation.yml` declares them. */
