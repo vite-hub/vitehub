@@ -10,6 +10,13 @@ interface SecretCliContext {
   stdout: { write: (chunk: string) => unknown }
 }
 
+interface SecretCliFeature {
+  description: string
+  name: string
+  run: (args: string[], context: SecretCliContext) => Promise<number>
+  usage: string
+}
+
 const generateUsage = "vitehub secret generate"
 const deriveUsage = "vitehub secret derive <purpose>"
 
@@ -60,7 +67,7 @@ async function derive(args: string[], context: SecretCliContext): Promise<number
 }
 
 /** `vitehub secret` features. They read only the process env and never load the project. */
-export const secretCliFeatures = [
+export const secretCliFeatures: SecretCliFeature[] = [
   {
     description: "Print a new random root secret for VITEHUB_SECRET.",
     name: "generate",
