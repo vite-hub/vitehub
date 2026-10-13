@@ -29,7 +29,15 @@ function validateChannelDefinition(value: unknown): asserts value is ChannelDefi
     throw channelsErrorDiagnostics.CHANNELS_C0002({ message: "`defineOutboundChannel()` expects a connectors object." })
   }
 
-  if (!connectors || typeof connectors !== "object" || Array.isArray(connectors)) {
+  let validConnectors = false
+  try {
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Connector configuration is an opaque input; reject primitives before enumerating it.
+    validConnectors = Boolean(connectors) && typeof connectors === "object" && !Array.isArray(connectors)
+  }
+  catch {
+    validConnectors = false
+  }
+  if (!validConnectors) {
     throw channelsErrorDiagnostics.CHANNELS_C0002({ message: "`defineOutboundChannel()` expects a connectors object." })
   }
 

@@ -41,6 +41,14 @@ describe("defineOutboundChannel", () => {
     }))
   })
 
+  it("turns a revoked connectors proxy into the connectors diagnostic", () => {
+    const { proxy, revoke } = Proxy.revocable({ broken: connector }, {})
+    revoke()
+    expect(() => defineOutboundChannel({ connectors: proxy } as never)).toThrowError(expect.objectContaining({
+      code: "CHANNELS_C0002",
+    }))
+  })
+
   it.each([
     [{ connectors: { "": connector }, defaultConnector: "" }, "CHANNELS_C0006"],
     [{ connectors: { fixture: {} } }, "CHANNELS_C0004"],
