@@ -869,6 +869,30 @@ describe("source scanner", () => {
     ])
   })
 
+  it.each(["\n", "\r\n", "\u2028", " /* next overload */\n"])("ignores class overload signatures without delimiters: %j", (separator) => {
+    const source = [
+      `class Agent {`,
+      `  defineThing(value: string)${separator}`,
+      `  defineThing(value: number): void${separator}`,
+      `  defineThing(value: string | number) { return defineThing("implementation") }`,
+      `  direct = defineThing("direct")`,
+      `  continued = ready ||${separator}    defineThing("continued")`,
+      `  arrow = () =>${separator}    defineThing("arrow")`,
+      `  chained = other()${separator}    || defineThing("chained")`,
+      `}`,
+      `declare class Ambient { defineThing(value: string) }`,
+      `interface Shape { defineThing(value: string) }`,
+    ].join("\n")
+
+    expect(findIdentifierCalls(source, "defineThing").map(call => call.arguments)).toEqual([
+      [`"implementation"`],
+      [`"direct"`],
+      [`"continued"`],
+      [`"arrow"`],
+      [`"chained"`],
+    ])
+  })
+
   it("ignores member calls with matching names", () => {
     const calls = findIdentifierCalls([
       `logger.defineThing("member")`,

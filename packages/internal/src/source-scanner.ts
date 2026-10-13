@@ -773,7 +773,9 @@ function isTypeMemberDeclaration(source: string, index: number) {
     const head = masked.slice(0, brace)
     if (/(?:^|[;{}])\s*(?:export\s+(?:default\s+)?)?(?:declare\s+)?interface\b[^{}]*$/s.test(head)) return true
     if (/(?:^|[;{}])\s*(?:export\s+(?:default\s+)?)?(?:declare\s+)?(?:abstract\s+)?class\b[^{}]*$/s.test(head)) {
-      return /(?:^|[;{}])\s*(?:(?:public|private|protected|static|abstract|declare|override|readonly|async|get|set|accessor)\s+)*$/.test(masked.slice(brace + 1))
+      // Overload signatures can end at a line break without a semicolon.
+      // Keep expression continuation operators outside the member prefix.
+      return /(?:^|[;{}]|\)(?:[^\S\r\n\u2028\u2029]*:[^;{}=\r\n\u2028\u2029]*)?[^\S\r\n\u2028\u2029]*[\r\n\u2028\u2029])\s*(?:(?:public|private|protected|static|abstract|declare|override|readonly|async|get|set|accessor)\s+)*$/.test(masked.slice(brace + 1))
     }
     if (/(?:^|[;{}])\s*(?:export\s+(?:default\s+)?)?type\b[^{}]*=\s*$/s.test(head)) return true
     if (/(?:^|[;{}])\s*(?:export\s+)?declare\s+(?:namespace|module)\b[^{}]*$/s.test(head)) return true
@@ -798,7 +800,7 @@ function isMethodDeclarationName(source: string, index: number, closeParen: numb
   if (previous === "(" || previous === "=" || previous === "," || previous === ":") return false
   const next = source[skipWhitespaceAndComments(source, closeParen + 1)]
   if (next === "{") return true
-  return (next === ":" || next === ";" || next === ",") && isTypeMemberDeclaration(source, index)
+  return isTypeMemberDeclaration(source, index)
 }
 function isMemberAccessName(source: string, index: number) {
   return previousNonWhitespace(source, index) === "."
