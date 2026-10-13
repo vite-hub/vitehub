@@ -27,6 +27,14 @@ describe("normalizeQueueOptions", () => {
     expect(normalizeQueueOptions(options, { hosting: "vercel" })).toEqual({ provider: "vercel" })
   })
 
+  it("does not read options for the other provider", () => {
+    const vercelOptions = { get binding(): never { throw new Error("binding should not be read") } }
+    const cloudflareOptions = { get region(): never { throw new Error("region should not be read") } }
+
+    expect(normalizeQueueOptions(vercelOptions as never, { hosting: "vercel" })).toEqual({ provider: "vercel" })
+    expect(normalizeQueueOptions(cloudflareOptions as never, { hosting: "cloudflare" })).toEqual({ provider: "cloudflare" })
+  })
+
   it.each(["deno-deploy", "netlify", "node-server"])("does not infer Vercel for %s hosting", (hosting) => {
     expect(() => normalizeQueueOptions(undefined, { hosting })).toThrow("cannot be inferred for " + hosting)
   })

@@ -18,9 +18,6 @@ function readOwnOption(options: Record<string, unknown>, key: string): unknown {
 
 function resolveProvider(options: Record<string, unknown>, hosting: string): ResolvedQueueOptions {
   const cache = readOwnOption(options, "cache")
-  const binding = readOwnOption(options, "binding")
-  const namePrefix = readOwnOption(options, "namePrefix")
-  const region = readOwnOption(options, "region")
   const shared: QueueSharedOptions = typeof cache === "boolean" ? { cache } : {}
   const provider = readOwnOption(options, "provider")
 
@@ -35,6 +32,8 @@ function resolveProvider(options: Record<string, unknown>, hosting: string): Res
   const resolved = provider || (hosting.includes("cloudflare") ? "cloudflare" : "vercel")
 
   if (resolved === "cloudflare") {
+    const binding = readOwnOption(options, "binding")
+    const namePrefix = readOwnOption(options, "namePrefix")
     return defu(
       {
         ...(typeof binding === "string" ? { binding } : {}),
@@ -45,6 +44,7 @@ function resolveProvider(options: Record<string, unknown>, hosting: string): Res
     )
   }
 
+  const region = readOwnOption(options, "region")
   return defu(
     typeof region === "string" ? { region } : {},
     shared,
