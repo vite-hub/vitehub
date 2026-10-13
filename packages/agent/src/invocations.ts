@@ -653,19 +653,23 @@ async function collectBoundedObservationBuiltIns(
     }
       return
     }
-    if (isInstance(value, Map)) {
+    const mapEntries = reflectedMapEntries(value)
+    if (mapEntries) {
     let count = 0
-    for (const [key, child] of value) {
+    for (const [key, child] of mapEntries) {
       if (count++ >= MAX_OBSERVATION_COLLECTION_ITEMS) break
       await collectBoundedObservationBuiltIns(key, builtIns, budget, seen, depth + 1)
       await collectBoundedObservationBuiltIns(child, builtIns, budget, seen, depth + 1)
     }
       return
     }
-    if (isInstance(value, Set)) {
+    const setValues = reflectedSetValues(value)
+    if (setValues) {
     let count = 0
-    for (const child of value) {
-      if (count++ >= MAX_OBSERVATION_COLLECTION_ITEMS) break
+    while (count++ < MAX_OBSERVATION_COLLECTION_ITEMS) {
+      const next = setValues.next()
+      if (next.done) break
+      const child = next.value
       await collectBoundedObservationBuiltIns(child, builtIns, budget, seen, depth + 1)
     }
       return
@@ -768,27 +772,29 @@ function boundedObservationValue(
       ),
     }
   }
-  if (isInstance(value, Map)) {
+  const mapEntries = reflectedMapEntries(value)
+  if (mapEntries) {
     budget.truncated = true
     const entries: [unknown, unknown][] = []
     const limit = Math.min(collectionItems, budget.items)
-    for (const entry of value) {
+    for (const entry of mapEntries) {
       if (entries.length >= limit) break
       entries.push(entry)
     }
-    if (entries.length < value.size) budget.truncated = true
     return entries.map(([key, child]) => [
       boundedObservationValue(key, budget, depth + 1, maxStringLength, builtIns),
       boundedObservationValue(child, budget, depth + 1, maxStringLength, builtIns),
     ])
   }
-  if (isInstance(value, Set)) {
+  const setValues = reflectedSetValues(value)
+  if (setValues) {
     budget.truncated = true
     const entries: unknown[] = []
     const limit = Math.min(collectionItems, budget.items)
-    for (const entry of value) {
-      if (entries.length >= limit) break
-      entries.push(entry)
+    while (entries.length < limit) {
+      const next = setValues.next()
+      if (next.done) break
+      entries.push(next.value)
     }
     if (entries.length < value.size) budget.truncated = true
     return entries.map(child => boundedObservationValue(child, budget, depth + 1, maxStringLength, builtIns))

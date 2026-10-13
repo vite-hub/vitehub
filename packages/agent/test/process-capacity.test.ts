@@ -18,6 +18,7 @@ const resources = vi.hoisted(() => ({
   memoryHighEvents: 0,
   memoryMax: 10 * 1024 ** 3,
   memoryPressure: 0,
+  memoryReclaimable: 0,
   parallelism: 8,
   pressureAvailable: true,
 }))
@@ -40,6 +41,7 @@ vi.mock("node:fs/promises", () => ({
     if (value.endsWith("/memory.high")) return String(resources.memoryHigh)
     if (value.endsWith("/memory.max")) return String(resources.memoryMax)
     if (value.endsWith("/memory.events")) return `low 0\nhigh ${resources.memoryHighEvents}\nmax 0\n`
+    if (value.endsWith("/memory.stat")) return `anon 0\nactive_file 0\ninactive_file ${resources.memoryReclaimable}\n`
     if (value.endsWith(".pressure") && !resources.pressureAvailable) throw new Error("PSI unavailable")
     if (value.endsWith("/cpu.pressure")) return pressure(resources.cpuPressure)
     if (value.endsWith("/memory.pressure")) return pressure(resources.memoryPressure)
@@ -81,6 +83,7 @@ beforeEach(() => {
     memoryHighEvents: 0,
     memoryMax: 10 * GiB,
     memoryPressure: 0,
+    memoryReclaimable: 0,
     parallelism: 8,
     pressureAvailable: true,
   })
@@ -278,6 +281,38 @@ describe("process Agent capacity", () => {
     await expect(sample(context)).resolves.toEqual({ concurrency: 0, reason: "memory.high event" })
 
     await expect(sample(context)).resolves.toMatchObject({ concurrency: 5 })
+  })
+
+  it("does not count reclaimable page cache against worker headroom", async () => {
+    // A Babysitter host after many checkouts and installs: 9 GiB charged, 7 GiB of it inactive cache.
+    Object.assign(resources, {
+      availableMemory: 2 * GiB,
+      hostAvailableMemory: 18 * GiB,
+      memoryCurrent: 9 * GiB,
+      memoryHigh: 11 * GiB,
+      memoryMax: 12 * GiB,
+      memoryReclaimable: 7 * GiB,
+    })
+    const sample = createBuiltInSample({ concurrency: 25 })
+
+    await expect(sample({ active: 2, concurrency: 25, pending: 23, signal: new AbortController().signal })).resolves.toEqual({
+      concurrency: 8,
+      reason: "capacity available (9.0 GiB memory headroom)",
+    })
+  })
+
+  it("ignores memory.high events while the cgroup still holds reclaimable cache", async () => {
+    resources.memoryReclaimable = 1.5 * GiB
+    const sample = createBuiltInSample()
+    const context = { active: 0, concurrency: 6, pending: 1, signal: new AbortController().signal }
+    await sample(context)
+
+    resources.memoryHighEvents = 50
+    await expect(sample(context)).resolves.toMatchObject({ concurrency: 6 })
+
+    resources.memoryReclaimable = GiB / 2
+    resources.memoryHighEvents = 51
+    await expect(sample(context)).resolves.toEqual({ concurrency: 0, reason: "memory.high event" })
   })
 
   it("resolves colon-containing membership paths through a namespaced cgroup v2 mount", async () => {
