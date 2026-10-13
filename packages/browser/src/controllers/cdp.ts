@@ -122,8 +122,26 @@ async function localSocket(
   }
   const socket = new WebSocket(connection.endpoint)
   await new Promise<void>((resolve, reject) => {
-    socket.addEventListener("open", () => resolve(), { once: true })
-    socket.addEventListener("error", () => reject(browserProviderError("cdp", "connect to the browser")), { once: true })
+    const cleanup = () => {
+      socket.removeEventListener("open", onOpen)
+      socket.removeEventListener("error", onError)
+      socket.removeEventListener("close", onClose)
+    }
+    const onOpen = () => {
+      cleanup()
+      resolve()
+    }
+    const onError = () => {
+      cleanup()
+      reject(browserProviderError("cdp", "connect to the browser"))
+    }
+    const onClose = () => {
+      cleanup()
+      reject(browserProviderError("cdp", "connect to the browser"))
+    }
+    socket.addEventListener("open", onOpen, { once: true })
+    socket.addEventListener("error", onError, { once: true })
+    socket.addEventListener("close", onClose, { once: true })
   })
   return socket
 }

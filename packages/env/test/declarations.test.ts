@@ -55,6 +55,37 @@ describe("env declarations", () => {
     expect(defined.values).toEqual({ apiKey: "define", api_key: "define" })
   })
 
+  it("preserves prototype-named build declaration keys", async () => {
+    const declarations = {
+      ...Object.fromEntries([["__proto__", env({ mode: "build", source: env.source("PROTO_VALUE") })]]),
+      nested: Object.fromEntries([
+        ["constructor", env({ mode: "build", source: env.source("CONSTRUCTOR_VALUE") })],
+        ["__proto__", env({ mode: "build", source: env.source("NESTED_PROTO_VALUE") })],
+      ]),
+    }
+    const result = await resolveBuildConfig(declarations, {
+      context: createSourceContext({
+        env: { PROTO_VALUE: "proto-value", CONSTRUCTOR_VALUE: "constructor-value", NESTED_PROTO_VALUE: "nested-proto-value" },
+        mode: "runtime",
+        rootDir: process.cwd(),
+      }),
+      exposure: "compile-time replacement",
+      prefix: false,
+      section: "env.define",
+      timing: "test",
+    })
+
+    expect(result.values).toEqual({
+      ["__proto__"]: "proto-value",
+      nested: { constructor: "constructor-value", ["__proto__"]: "nested-proto-value" },
+    })
+    expect(Object.hasOwn(result.values, "__proto__")).toBe(true)
+    expect(Object.getPrototypeOf(result.values)).toBe(Object.prototype)
+    expect(Object.hasOwn(result.values.nested as object, "constructor")).toBe(true)
+    expect(Object.hasOwn(result.values.nested as object, "__proto__")).toBe(true)
+    expect(Object.getPrototypeOf(result.values.nested)).toBe(Object.prototype)
+  })
+
   it("rejects sparse build arrays whose values only exist on the prototype", async () => {
     const sparse: string[] = []
     sparse.length = 1
