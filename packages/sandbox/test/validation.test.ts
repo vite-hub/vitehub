@@ -60,6 +60,16 @@ describe.each([
     })
   })
 
+  it("falls back when a thrown validation error has an empty message", async () => {
+    const read = await load()
+    const validate = { "~standard": { validate: () => { throw new Error("") } } }
+
+    await expect(read("payload", validate)).rejects.toMatchObject({
+      code: "SANDBOX_VALIDATION_ERROR",
+      message: "Validation failed",
+    })
+  })
+
   it("preserves thrown Errors with HTTP metadata", async () => {
     const read = await load()
     const error = Object.assign(new Error("upstream failed"), {
