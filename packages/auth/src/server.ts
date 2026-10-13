@@ -331,9 +331,20 @@ function hasResponsePrototype(value: unknown): boolean {
 function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<Uint8Array> | null {
   if (body === null) return true
   if (Object(body) !== body) return false
-  const locked = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
-  if (!locked || Reflect.apply(locked, body, [])) return false
-  return responsePropertyDescriptor(Object(body), "getReader")?.value === ReadableStream.prototype.getReader
+  const locked = responsePropertyDescriptor(Object(body), "locked")?.get
+  const getReader = responsePropertyDescriptor(Object(body), "getReader")?.value
+  if (typeof locked !== "function" || typeof getReader !== "function") return false
+  try {
+    if (Reflect.apply(locked, body, [])) return false
+    const reader = Reflect.apply(getReader, body, [])
+    if (Object(reader) !== reader || typeof Reflect.get(reader, "read") !== "function") return false
+    const releaseLock = Reflect.get(reader, "releaseLock")
+    if (typeof releaseLock === "function") Reflect.apply(releaseLock, reader, [])
+    return true
+  }
+  catch {
+    return false
+  }
 }
 
 function normalizeAuthorizationResponse(value: unknown): Response | undefined {
