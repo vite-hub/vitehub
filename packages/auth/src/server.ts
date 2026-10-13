@@ -288,16 +288,26 @@ function isResponseLike(value: unknown): value is Response {
   if (value === null || typeof value !== "object") return false
   try {
     if (Object.prototype.toString.call(value) !== "[object Response]") return false
-    const status = Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get?.call(value)
-    const statusText = Object.getOwnPropertyDescriptor(Response.prototype, "statusText")?.get?.call(value)
+    const responsePrototype = Object.getPrototypeOf(value)
+    const getter = (name: string) => {
+      let prototype = responsePrototype
+      while (prototype !== null) {
+        const descriptor = Object.getOwnPropertyDescriptor(prototype, name)
+        if (descriptor?.get) return descriptor.get
+        prototype = Object.getPrototypeOf(prototype)
+      }
+      return undefined
+    }
+    const status = getter("status")?.call(value)
+    const statusText = getter("statusText")?.call(value)
     if (typeof status !== "number" || !Number.isInteger(status) || status < 0 || status > 599) return false
     if (typeof statusText !== "string") return false
-    const headers = Object.getOwnPropertyDescriptor(Response.prototype, "headers")?.get?.call(value)
+    const headers = getter("headers")?.call(value)
     if (headers === null || typeof headers !== "object") return false
     const responseHeaders = headers as { forEach?: unknown, get?: unknown }
     if (typeof responseHeaders.get !== "function"
       || typeof responseHeaders.forEach !== "function") return false
-    const body = Object.getOwnPropertyDescriptor(Response.prototype, "body")?.get?.call(value)
+    const body = getter("body")?.call(value)
     return body === null || (body !== undefined && typeof body === "object" && typeof (body as { getReader?: unknown }).getReader === "function")
   }
   catch {
