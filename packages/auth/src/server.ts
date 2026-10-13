@@ -285,6 +285,7 @@ async function runAccessAuthorize(
 }
 
 function isResponseLike(value: unknown): value is Response {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Response input is untrusted at the authorization boundary; reject primitives before invoking the native brand-checking getters.
   if (value === null || typeof value !== "object") return false
   try {
     // Accessors on the native prototype perform an internal-slot brand check,
@@ -294,7 +295,9 @@ function isResponseLike(value: unknown): value is Response {
     const statusText = Object.getOwnPropertyDescriptor(responsePrototype, "statusText")!.get!.call(value)
     const headers = Object.getOwnPropertyDescriptor(responsePrototype, "headers")!.get!.call(value)
     return Number.isInteger(status) && status >= 0 && status <= 599
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The native getter has checked Response internal slots; validate its status text before returning the Response contract.
       && typeof statusText === "string"
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The native getter has checked Response internal slots; validate its Headers object before returning the Response contract.
       && headers !== null && typeof headers === "object"
   }
   catch {
