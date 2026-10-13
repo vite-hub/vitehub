@@ -1,3 +1,4 @@
+import { runInNewContext } from "node:vm"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { Response as ForeignResponse } from "undici"
 
@@ -366,6 +367,50 @@ describe("Auth access handlers", () => {
     expect(response?.headers.get("x-policy")).toBe("reject")
     expect(response?.headers.getSetCookie()).toEqual(["first=1", "second=2"])
     await expect(response?.text()).resolves.toBe("Policy rejected")
+  })
+
+  it.each(["read", "cancel"] as const)("preserves a foreign stream with a different reader method on %s", async action => {
+    const cancel = vi.fn()
+    const body: ReadableStream<Uint8Array> = runInNewContext(`
+      new (class extends ReadableStream {
+        getReader(...args) { return super.getReader(...args) }
+      })({
+        start(controller) { controller.enqueue(bytes) },
+        cancel,
+      })
+    `, { ReadableStream, bytes: new TextEncoder().encode("Policy rejected"), cancel })
+    expect(body.getReader).not.toBe(ReadableStream.prototype.getReader)
+    const foreign = new ForeignResponse(body, {
+      status: 409,
+      headers: { "x-policy": "reject" },
+    })
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => foreign as never }] },
+    }))
+
+    const response = await handler(new Request("https://app.example/"))
+
+    expect(response?.status).toBe(409)
+    expect(response?.headers.get("x-policy")).toBe("reject")
+    if (action === "read") {
+      const reader = response!.body!.getReader()
+      expect(await reader.read()).toEqual({ done: false, value: new TextEncoder().encode("Policy rejected") })
+      await reader.cancel()
+    }
+    else {
+      await response?.body?.cancel("client disconnected")
+      expect(cancel).toHaveBeenCalledWith("client disconnected")
+    }
+  })
+
+  it("rejects a body carrier that would be stringified instead of streamed", async () => {
+    const foreign = new ForeignResponse(null, { status: 409 })
+    Object.defineProperty(foreign, "body", { value: { locked: false, getReader() {} } })
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => foreign as never }] },
+    }))
+
+    await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
   })
 
   it("forwards cancellation to the foreign response body", async () => {

@@ -331,9 +331,13 @@ function hasResponsePrototype(value: unknown): boolean {
 function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<Uint8Array> | null {
   if (body === null) return true
   if (Object(body) !== body) return false
-  const locked = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
-  if (!locked || Reflect.apply(locked, body, [])) return false
-  return responsePropertyDescriptor(Object(body), "getReader")?.value === ReadableStream.prototype.getReader
+  const locked = Reflect.get(Object(body), "locked")
+  if (locked !== false) return false
+  // The Response constructor accepts foreign async iterables. Require readable behavior
+  // so malformed carriers cannot fall through to its string conversion path.
+  return ["getReader", Symbol.asyncIterator].every(key =>
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Foreign streams have different method identities; reject accessor carriers without invoking them.
+    typeof responsePropertyDescriptor(Object(body), key)?.value === "function")
 }
 
 function normalizeAuthorizationResponse(value: unknown): Response | undefined {
