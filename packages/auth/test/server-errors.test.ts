@@ -1,4 +1,5 @@
 import { runInNewContext } from "node:vm"
+import { Window } from "happy-dom"
 
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { ViteHubError } from "@vite-hub/runtime"
@@ -129,33 +130,28 @@ describe("server authentication provider boundaries", () => {
   })
 
   it("keeps a cross-realm Request as the Better Auth input", async () => {
-    // Node's native accessors use its built-in Request brand. Give each realm
-    // its own constructor over that shared platform implementation, as browsers
-    // do, so the native accessors still work without sharing an instanceof path.
-    const NativeRequest = Request
-    class LocalRequest extends NativeRequest {}
-    for (const property of ["url", "method", "headers"]) {
-      Object.defineProperty(LocalRequest.prototype, property, Object.getOwnPropertyDescriptor(NativeRequest.prototype, property)!)
-    }
-    const foreignRequest = runInNewContext(`
-      class ForeignRequest extends NativeRequest {}
-      new ForeignRequest("https://example.com/api/private")
-    `, { NativeRequest })
-    expect(foreignRequest).not.toBeInstanceOf(LocalRequest)
-    expect(foreignRequest.clone().url).toBe(foreignRequest.url)
-    const response = new Response("ok")
-    providerMocks.handler.mockImplementationOnce((input: unknown) => {
-      expect(input).toBe(foreignRequest)
-      return response
-    })
-
-    vi.stubGlobal("Request", LocalRequest)
+    const window = new Window()
     try {
+      const foreignRequest = new window.Request("https://example.com/api/private", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ message: "foreign body" }),
+      })
       expect(foreignRequest instanceof Request).toBe(false)
-      await expect(Promise.resolve(handleAuthRequest(definition, foreignRequest as never))).resolves.toBe(response)
+      const response = new Response("ok")
+      providerMocks.handler.mockImplementationOnce(async (input: Request) => {
+        expect(input).toBe(foreignRequest)
+        expect(input.bodyUsed).toBe(false)
+        await expect(input.clone().json()).resolves.toEqual({ message: "foreign body" })
+        expect(input.bodyUsed).toBe(false)
+        await expect(input.json()).resolves.toEqual({ message: "foreign body" })
+        return response
+      })
+
+      await expect(handleAuthRequest(definition, foreignRequest as unknown as Request)).resolves.toBe(response)
     }
     finally {
-      vi.unstubAllGlobals()
+      await window.happyDOM.close()
     }
   })
 

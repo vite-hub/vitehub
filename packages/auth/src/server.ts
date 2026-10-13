@@ -57,20 +57,15 @@ interface RequestInitWithDuplex extends RequestInit {
   duplex?: "half"
 }
 
-function isRequestLike(value: unknown): value is Request {
-  if (value === null || typeof value !== "object") return false
+function isRequestLike(value: AuthRequest): value is Request {
   try {
-    // Request accessors perform the platform's internal-slot brand check, which
-    // works across realms and cannot be spoofed with Symbol.toStringTag.
-    const prototype = Request.prototype
-    const getUrl = Object.getOwnPropertyDescriptor(prototype, "url")?.get
-    const getMethod = Object.getOwnPropertyDescriptor(prototype, "method")?.get
-    const getHeaders = Object.getOwnPropertyDescriptor(prototype, "headers")?.get
-    if (!getUrl || !getMethod || !getHeaders) return false
-    getUrl.call(value)
-    getMethod.call(value)
-    getHeaders.call(value)
-    return true
+    // Native accessor brands are implementation-specific. Preserve independent
+    // Request implementations only when they provide Better Auth's body API.
+    if (Object.prototype.toString.call(value) !== "[object Request]") return false
+    return ["clone", "arrayBuffer", "blob", "formData", "json", "text"].every((method) => {
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Check the foreign Request's capabilities before bypassing host-input normalization.
+      return typeof Reflect.get(value, method) === "function"
+    })
   }
   catch {
     return false
