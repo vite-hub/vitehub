@@ -2,7 +2,7 @@
 
 Use Workspace for persistent file-tree state, Sources, access rules, snapshots, diffs, and sessions. A Workspace is the boundary for file authority and write-back.
 
-Read the [Workspace guide](https://vitehub.dev/docs/workspace), then [Get started](https://vitehub.dev/docs/workspace/get-started), [Configure](https://vitehub.dev/docs/workspace/configure), [Server API](https://vitehub.dev/docs/workspace/server-api), or [Hosts](https://vitehub.dev/docs/workspace/hosts).
+Read the [Workspace guide](https://vitehub.dev/raw/docs/workspace.md), then [Get started](https://vitehub.dev/raw/docs/workspace/get-started.md), [Configure](https://vitehub.dev/raw/docs/workspace/configure.md), [Server API](https://vitehub.dev/raw/docs/workspace/server-api.md), or [Hosts](https://vitehub.dev/raw/docs/workspace/hosts.md).
 
 Set the root, provider, mode, and write rules explicitly. Mount only the Sources an invocation needs. A mounted Source is context and does not imply write access.
 

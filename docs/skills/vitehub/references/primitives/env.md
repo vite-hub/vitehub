@@ -2,7 +2,7 @@
 
 Use Env to declare public, build-time, server runtime, and secret values with typed accessors. Keep secret values out of source and client bundles.
 
-Read the [Env guide](https://vitehub.dev/docs/env), then [Get started](https://vitehub.dev/docs/env/get-started), [Configure](https://vitehub.dev/docs/env/configure), or [Server API](https://vitehub.dev/docs/env/server-api).
+Read the [Env guide](https://vitehub.dev/raw/docs/env.md), then [Get started](https://vitehub.dev/raw/docs/env/get-started.md), [Configure](https://vitehub.dev/raw/docs/env/configure.md), or [Server API](https://vitehub.dev/raw/docs/env/server-api.md).
 
 Use `#vitehub/env/public` in browser-safe code and `#vitehub/env/server` in server code. Provider-backed Env values are read through the declared provider and do not become public automatically.
 

@@ -2,7 +2,7 @@
 
 Use Email for outbound transactional messages. Email keeps delivery behind a provider-neutral driver and supports Markdown templates with a text fallback.
 
-Read the [Email guide](https://vitehub.dev/docs/email), then [Get started](https://vitehub.dev/docs/email/get-started), [Configure](https://vitehub.dev/docs/email/configure), and [Server API](https://vitehub.dev/docs/email/server-api).
+Read the [Email guide](https://vitehub.dev/raw/docs/email.md), then [Get started](https://vitehub.dev/raw/docs/email/get-started.md), [Configure](https://vitehub.dev/raw/docs/email/configure.md), and [Server API](https://vitehub.dev/raw/docs/email/server-api.md).
 
 Keep recipients, sender identity, and delivery authorization in application policy. Use test capture or a local driver before sending to real recipients.
 
