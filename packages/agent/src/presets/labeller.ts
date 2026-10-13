@@ -147,9 +147,18 @@ function selectedConfidence(result: LabellerResult): number | undefined {
   return hasRuntimeType(confidence, "number") && Number.isFinite(confidence) && confidence >= 0 && confidence <= 1 ? confidence : undefined
 }
 
+function validateAction(name: string, action: LabellerAction): void {
+  for (const key of ["archive", "read", "star", "trash"] as const) {
+    if (action[key] !== undefined && !hasRuntimeType(action[key], "boolean")) {
+      throw new TypeError(`[vitehub] Labeller ${name} ${key} must be a boolean.`)
+    }
+  }
+}
+
 function validateRule(name: string, rule: LabellerRule, labels: Readonly<Record<string, LabellerLabel>>, depth = 0): void {
   if (depth > 8) throw new TypeError("[vitehub] Labeller rules may nest at most eight not clauses.")
   if (!isRuntimeObject(rule)) throw new TypeError(`[vitehub] Labeller rule "${name}" must be an object.`)
+  validateAction(`rule "${name}"`, rule)
   for (const field of [rule.from, rule.to, rule.subject, rule.body, rule.listId, rule.hasLabel]) {
     for (const pattern of patternList(field) || []) compilePattern(pattern)
   }
@@ -167,6 +176,9 @@ function validateRule(name: string, rule: LabellerRule, labels: Readonly<Record<
 }
 
 function validateOptions(options: LabellerOptions): void {
+  for (const key of ["dryRun", "trashEnabled"] as const) {
+    if (!hasRuntimeType(options[key], "boolean")) throw new TypeError(`[vitehub] Labeller ${key} must be a boolean.`)
+  }
   validateLabels(options.labels)
   const labelCount = Object.keys(options.labels).length
   if (labelCount < 1 || labelCount > 254) throw new TypeError("[vitehub] Labeller labels must contain between 1 and 254 labels.")
@@ -182,6 +194,7 @@ function validateOptions(options: LabellerOptions): void {
   for (const [label, action] of Object.entries(options.actions || {})) {
     if (!Object.hasOwn(options.labels, label)) throw new TypeError(`[vitehub] Labeller action "${label}" refers to an undeclared label.`)
     if (!isRuntimeObject(action) || Array.isArray(action)) throw new TypeError(`[vitehub] Labeller action "${label}" must be an object.`)
+    validateAction(`action "${label}"`, action)
   }
 }
 

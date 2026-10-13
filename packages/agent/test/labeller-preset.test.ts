@@ -78,6 +78,41 @@ describe("labeller preset", () => {
     await expect(attempt({ labels: { Work: {} }, rules: { bad: { archive: true } } })).rejects.toThrow(/must declare a label/)
   })
 
+  it.each(["archive", "read", "star", "trash"])("rejects non-boolean %s flags from untyped options", (flag) => {
+    for (const value of ["false", "true", 0, 1, null, {}, []]) {
+      expect(() => configured({ actions: { Receipts: { [flag]: value } } })).toThrow(/must be a boolean/)
+      expect(() => configured({ rules: { receipt: { label: "Receipts", [flag]: value } } })).toThrow(/must be a boolean/)
+      expect(() => configured({ rules: { receipt: { not: { label: "Receipts", [flag]: value } } } })).toThrow(/must be a boolean/)
+    }
+  })
+
+  it.each(["dryRun", "trashEnabled"])("rejects non-boolean %s policy options", (policy) => {
+    for (const value of ["false", "true", 0, 1, null, {}, []]) {
+      expect(() => configured({ [policy]: value })).toThrow(/must be a boolean/)
+    }
+  })
+
+  it("keeps explicit false action flags disabled for matching rules", async () => {
+    const calls: string[] = []
+    const message = {
+      channel: "gmail",
+      label: async (name: string) => { calls.push(`label:${name}`) },
+      archive: async () => { calls.push("archive") },
+      markRead: async () => { calls.push("read") },
+      star: async () => { calls.push("star") },
+      trash: async () => { calls.push("trash") },
+    }
+    const flags = { archive: false, read: false, star: false, trash: false }
+    const agent = configured({
+      actions: { Receipts: { archive: true, read: true, star: true, trash: true } },
+      rules: { receipt: { label: "Receipts", ...flags } },
+      trashEnabled: true,
+    })
+    const finish = agent.hooks?.["agent:finish"] as unknown as (event: { message: unknown, result: unknown }) => Promise<void>
+    await finish({ message, result: { label: "Receipts", rule: "receipt" } })
+    expect(calls).toEqual(["label:Receipts"])
+  })
+
   it("accepts trash policy declarations while keeping the gate explicit", () => {
     const agent = configured({ rules: { cleanup: { subject: "invoice", label: "Receipts", trash: true } } })
     expect(agent.options.trashEnabled).toBe(false)
