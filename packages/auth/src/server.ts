@@ -287,23 +287,27 @@ async function runAccessAuthorize(
 function isResponseLike(value: unknown): value is Response {
   if (value === null || typeof value !== "object") return false
   try {
-    if (value instanceof Response) return true
-    // Fetch implementations from another realm can have a different constructor.
-    // Read internal slots through trusted accessors so a spoofed brand cannot pass.
     const response = value as Response
-    const responsePrototype = Object.getPrototypeOf(response)
-    const statusGetter = Object.getOwnPropertyDescriptor(responsePrototype, "status")?.get
-    const headersGetter = Object.getOwnPropertyDescriptor(responsePrototype, "headers")?.get
-    if (!statusGetter || !headersGetter) return false
-    statusGetter.call(response)
-    headersGetter.call(response)
-    if (Object.prototype.toString.call(response) !== "[object Response]") return false
-    if (!Number.isInteger(response.status) || response.status < 0 || response.status > 599) return false
-    if (typeof response.statusText !== "string" || typeof response.bodyUsed !== "boolean") return false
-    if (!["clone", "arrayBuffer", "blob", "formData", "json", "text"].every(method => typeof Reflect.get(response, method) === "function")) return false
-    const headers = response.headers
+    // Use accessors and methods from this realm. Their Web IDL brand checks read
+    // the Response internal slots, so candidate-controlled properties/prototypes
+    // cannot spoof a response while genuine cross-realm Responses still work.
+    const responsePrototype = Response.prototype
+    const getStatus = Object.getOwnPropertyDescriptor(responsePrototype, "status")?.get
+    const getStatusText = Object.getOwnPropertyDescriptor(responsePrototype, "statusText")?.get
+    const getHeaders = Object.getOwnPropertyDescriptor(responsePrototype, "headers")?.get
+    const getBodyUsed = Object.getOwnPropertyDescriptor(responsePrototype, "bodyUsed")?.get
+    const getBody = Object.getOwnPropertyDescriptor(responsePrototype, "body")?.get
+    if (!getStatus || !getStatusText || !getHeaders || !getBodyUsed || !getBody) return false
+    const status = getStatus.call(response)
+    const statusText = getStatusText.call(response)
+    const headers = getHeaders.call(response)
+    const bodyUsed = getBodyUsed.call(response)
+    const body = getBody.call(response)
+    if (!Number.isInteger(status) || status < 0 || status > 599) return false
+    if (typeof statusText !== "string" || typeof bodyUsed !== "boolean") return false
+    const methods = ["clone", "arrayBuffer", "blob", "formData", "json", "text"] as const
+    if (!methods.every(method => typeof Reflect.get(responsePrototype, method) === "function")) return false
     if (!headers || typeof headers.get !== "function" || typeof headers[Symbol.iterator] !== "function") return false
-    const body = response.body
     return body === null || (typeof body === "object" && typeof body.getReader === "function" && typeof body.cancel === "function" && typeof body.tee === "function")
   }
   catch {
