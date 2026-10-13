@@ -71,7 +71,7 @@ export function toRunId(source: ExecuteScheduleOptions["source"], scheduleId: st
   return `srun_${normalizeRunSource(source)}_${encodeURIComponent(scheduleId)}_${scheduledAt.toISOString()}${runIdSuffix ? `_${runIdSuffix}` : ""}`
 }
 
-function isDate(value: unknown): value is Date {
+export function isScheduleDate(value: unknown): value is Date {
   if (Object.prototype.toString.call(value) !== "[object Date]") return false
   try {
     return !Number.isNaN(Date.prototype.getTime.call(value as Date))
@@ -81,13 +81,14 @@ function isDate(value: unknown): value is Date {
   }
 }
 
-function validateScheduledAt(scheduledAt: Date): Date {
-  if (!isDate(scheduledAt)) {
+export function validateScheduledAt(scheduledAt: Date | undefined): Date {
+  const value = scheduledAt ?? new Date()
+  if (!isScheduleDate(value)) {
     throw createScheduleError("SCHEDULE_INVALID_SCHEDULED_AT", {
-      details: invalidScheduleValueDetails("scheduledAt", scheduledAt),
+      details: invalidScheduleValueDetails("scheduledAt", value),
     })
   }
-  return new Date(Date.prototype.getTime.call(scheduledAt))
+  return new Date(Date.prototype.getTime.call(value))
 }
 
 function toRunError(error: unknown): ScheduleRunError {

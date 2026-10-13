@@ -314,7 +314,11 @@ async function runAccessAuthorize(
         if (!reader || typeof reader.releaseLock !== "function") return createForbiddenResponse(context.request)
         reader.releaseLock()
       }
-      return new Response(body as BodyInit | null, { headers: new Headers(headers as HeadersInit), status, statusText })
+      return new Response(body as ConstructorParameters<typeof Response>[0], {
+        headers: new Headers(headers as ConstructorParameters<typeof Headers>[0]),
+        status,
+        statusText,
+      })
     }
   }
   catch {
