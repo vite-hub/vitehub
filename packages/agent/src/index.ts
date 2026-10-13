@@ -116,7 +116,7 @@ import {
 } from "./capability-runtime.ts"
 import type { AgentCapabilityRegistries, CapabilityCleanupOutcome, ResolvedAgentFinishExtensionProvider, ResolvedAgentOutputExtensionProvider } from "./capability-runtime.ts"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
-import { cancellableAsyncIterableSource, createAgentUIMessageStreamResponse, finalizeUiMessageStreamOutput, isUIMessageStreamResponse, isUIMessageStreamResult, normalizeUiMessageStream, uiMessageStreamFromResponse, uiMessageTextDelta, withReadableStreamCleanup } from "./stream-output.ts"
+import { cancellableAsyncIterableSource, createAgentUIMessageStreamResponse, finalizeUiMessageStreamOutput, isUIMessageStreamResponse, isUIMessageStreamResult, normalizeUiMessageStream, normalizeUIMessageStreamResponse, uiMessageStreamFromResponse, uiMessageTextDelta, withReadableStreamCleanup } from "./stream-output.ts"
 import {
   applyAgentToolPolicies,
   withAgentToolStepReporting,
@@ -6663,7 +6663,8 @@ async function finalizeAgentInvocationResult<
 ): Promise<Response | AsyncIterable<unknown> | TResult> {
   const shouldWrapOutput = options.holdOutput === true || shouldWrapInvocationOutput(context)
   try {
-    if (result instanceof Response || isUIMessageStreamResponse(result)) {
+    result = normalizeUIMessageStreamResponse(result) ?? result
+    if (result instanceof Response) {
       const finalized = await options.finalizeResponse?.(result)
       if (finalized) {
         if (!finalized.deferFinish) {

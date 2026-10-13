@@ -31,25 +31,159 @@ export function isUIMessageStreamResult(value: unknown): value is { toUIMessageS
   return isRuntimeRecord(value) && hasRuntimeType(value.toUIMessageStream, "function")
 }
 
+const responseSnapshotProperties = ["status", "statusText", "headers", "body"] as const
+const responsePrototypeLimit = 32
+
+function responsePropertyDescriptor(value: unknown, key: PropertyKey): PropertyDescriptor | undefined {
+  let current: object | null = Object(value)
+  const seen = new Set<object>()
+  for (let depth = 0; current && depth < responsePrototypeLimit; depth++) {
+    if (seen.has(current)) throw new Error("Cyclic Response prototype")
+    seen.add(current)
+    const descriptor = Object.getOwnPropertyDescriptor(current, key)
+    if (descriptor) return descriptor
+    current = Object.getPrototypeOf(current)
+  }
+  if (current) throw new Error("Response prototype chain is too deep")
+}
+
+function hasResponsePrototype(value: unknown): boolean {
+  let prototype: object | null = Object.getPrototypeOf(Object(value))
+  const seen = new Set<object>()
+  for (let depth = 0; prototype && depth < responsePrototypeLimit; depth++) {
+    if (seen.has(prototype)) return false
+    seen.add(prototype)
+    const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+    const owner = prototype
+    if (constructor?.name === "Response"
+      && responseSnapshotProperties.every(key => Object.getOwnPropertyDescriptor(owner, key)?.get)) return true
+    prototype = Object.getPrototypeOf(prototype)
+  }
+  return false
+}
+
 export function isUIMessageStreamResponse(value: unknown): value is Response & { body: ReadableStream<Uint8Array> } {
   try {
-    if (!isRuntimeRecord(value) || Object.prototype.toString.call(value) !== "[object Response]") return false
-    // This is a structural interoperability boundary, not a native-brand or
-    // trust check: independently loaded Response implementations have distinct
-    // internal slots, so borrowing the host's accessors rejects valid responses.
-    const { body, headers } = value
-    return isRuntimeRecord(body)
-      && hasRuntimeType(body.pipeThrough, "function")
-      && isRuntimeRecord(headers)
-      && hasRuntimeType(headers.get, "function")
-      && headers.get("x-vercel-ai-ui-message-stream") === "v1"
+    const bodyGetter = Object.getOwnPropertyDescriptor(Response.prototype, "body")?.get
+    const headersGetter = Object.getOwnPropertyDescriptor(Response.prototype, "headers")?.get
+    const body = bodyGetter && Reflect.apply(bodyGetter, value, [])
+    const headers = headersGetter && Reflect.apply(headersGetter, value, [])
+    const lockedGetter = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
+    if (!body || !headers || !lockedGetter) return false
+    Reflect.apply(lockedGetter, body, [])
+    return Reflect.apply(Headers.prototype.get, headers, ["x-vercel-ai-ui-message-stream"]) === "v1"
   }
   catch {
     return false
   }
 }
 
+function isPortableUIMessageBody(body: unknown): body is ReadableStream<Uint8Array> {
+  if (!isRuntimeRecord(body)) return false
+  const lockedGetter = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
+  if (!lockedGetter || Reflect.apply(lockedGetter, body, [])) return false
+  const ownReader = Object.getOwnPropertyDescriptor(body, "getReader")
+  return !ownReader || ownReader.value === ReadableStream.prototype.getReader
+}
+
+function bridgeUIMessageBody(body: ReadableStream<Uint8Array>) {
+  // Use native operations on native stream state, never caller-supplied reader methods.
+  const getReader: () => ReadableStreamDefaultReader<Uint8Array> = ReadableStream.prototype.getReader
+  const reader = Reflect.apply(getReader, body, [])
+  const read: ReadableStreamDefaultReader<Uint8Array>["read"] = ReadableStreamDefaultReader.prototype.read
+  const { cancel, releaseLock } = ReadableStreamDefaultReader.prototype
+  let released = false
+  const release = () => {
+    if (released) return
+    released = true
+    Reflect.apply(releaseLock, reader, [])
+  }
+  const stream = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const result = await Reflect.apply(read, reader, [])
+        if (result.done) {
+          release()
+          controller.close()
+        }
+        else controller.enqueue(result.value)
+      }
+      catch (error) {
+        release()
+        controller.error(error)
+      }
+    },
+    async cancel(reason) {
+      try {
+        await Reflect.apply(cancel, reader, [reason])
+      }
+      finally {
+        release()
+      }
+    },
+  }, { highWaterMark: 0 })
+  return { stream, release }
+}
+
+export function normalizeUIMessageStreamResponse(value: unknown): (Response & { body: ReadableStream<Uint8Array> }) | undefined {
+  if (!isRuntimeRecord(value)) return
+  try {
+    // This shape only selects compatibility candidates. It does not prove origin.
+    if (!hasResponsePrototype(value)) return
+    const status: unknown = Reflect.get(value, "status")
+    const statusText: unknown = Reflect.get(value, "statusText")
+    const headers: unknown = Reflect.get(value, "headers")
+    const body: unknown = Reflect.get(value, "body")
+    if (!hasRuntimeType(status, "number") || !Number.isInteger(status) || status < 200 || status > 599) return
+    if (!hasRuntimeType(statusText, "string") || !isRuntimeRecord(headers) || !isRuntimeRecord(body)) return
+    const snapshot = { status, statusText, headers, body }
+    const nativeProperties = isUIMessageStreamResponse(value) && responseSnapshotProperties.every(key => {
+      const getter = Object.getOwnPropertyDescriptor(Response.prototype, key)?.get
+      return getter && responsePropertyDescriptor(value, key)?.get === getter
+        && Reflect.apply(getter, value, []) === snapshot[key]
+    })
+    const nativeHeaders = ["get", "forEach"].every(key =>
+      responsePropertyDescriptor(headers, key)?.value === Object.getOwnPropertyDescriptor(Headers.prototype, key)?.value)
+    const cookieDescriptor = responsePropertyDescriptor(headers, "getSetCookie")
+    const nativeCookies = !cookieDescriptor?.get && (cookieDescriptor?.value === undefined
+      || cookieDescriptor.value === Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value)
+    const nativeReader = responsePropertyDescriptor(body, "getReader")?.value === ReadableStream.prototype.getReader
+    if (nativeProperties && nativeHeaders && nativeCookies && nativeReader && isUIMessageStreamResponse(value)) return value
+    if (!isPortableUIMessageBody(body)) return
+    const forEach = Reflect.get(headers, "forEach")
+    if (!hasRuntimeType(forEach, "function")) return
+    const getSetCookie = Reflect.get(headers, "getSetCookie")
+    const cookies: unknown = hasRuntimeType(getSetCookie, "function") ? Reflect.apply(getSetCookie, headers, []) : []
+    if (!Array.isArray(cookies)) return
+    const normalizedHeaders = new Headers()
+    Reflect.apply(forEach, headers, [(headerValue: string, key: string) => {
+      if (key.toLowerCase() !== "set-cookie" || cookies.length === 0) normalizedHeaders.append(key, headerValue)
+    }])
+    for (const cookie of cookies) normalizedHeaders.append("set-cookie", cookie)
+    if (normalizedHeaders.get("x-vercel-ai-ui-message-stream") !== "v1") return
+    // Consumption uses a stable local snapshot and the branded stream, never
+    // methods supplied by a Response-shaped carrier.
+    // Validate response metadata before taking ownership of the source reader.
+    new Response(body, { status, statusText, headers: normalizedHeaders })
+    const bridgedBody = bridgeUIMessageBody(body)
+    try {
+      const response = new Response(bridgedBody.stream, { status, statusText, headers: normalizedHeaders })
+      return isUIMessageStreamResponse(response) ? response : undefined
+    }
+    catch (error) {
+      bridgedBody.release()
+      throw error
+    }
+  }
+  catch {
+    return
+  }
+}
+
 export function uiMessageStreamFromResponse(response: Response & { body: ReadableStream<Uint8Array> }): ReadableStream<unknown> {
+  const normalized = normalizeUIMessageStreamResponse(response)
+  if (!normalized) throw new TypeError("Expected a readable UI message stream Response")
+  const body = normalized.body
   const decoder = new TextDecoder()
   let buffer = ""
   const enqueueFrames = (controller: TransformStreamDefaultController<unknown>, flush = false) => {
@@ -64,7 +198,8 @@ export function uiMessageStreamFromResponse(response: Response & { body: Readabl
       controller.enqueue(JSON.parse(data))
     }
   }
-  return response.body.pipeThrough(new TransformStream<Uint8Array, unknown>({
+  // SAFETY: The local native stream is piped through a TransformStream whose output type is unknown.
+  return Reflect.apply(ReadableStream.prototype.pipeThrough, body, [new TransformStream<Uint8Array, unknown>({
     flush(controller) {
       buffer += decoder.decode()
       if (buffer.trim()) buffer += "\n\n"
@@ -74,7 +209,7 @@ export function uiMessageStreamFromResponse(response: Response & { body: Readabl
       buffer += decoder.decode(chunk, { stream: true })
       enqueueFrames(controller)
     },
-  }))
+  })]) as ReadableStream<unknown>
 }
 
 export function createAgentUIMessageStream(options: {
