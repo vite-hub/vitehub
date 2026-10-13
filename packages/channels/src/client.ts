@@ -13,10 +13,7 @@ export function toChannelSendError(cause: unknown): Error {
   try {
     const isError = "isError" in Error && typeof Error.isError === "function"
       ? Error.isError(cause) === true
-      : cause instanceof Error || (cause !== null && typeof cause === "object"
-          && Object.getPrototypeOf(cause) !== Object.prototype
-          && Object.getPrototypeOf(cause) !== null
-          && Object.prototype.toString.call(cause) === "[object Error]")
+      : cause instanceof Error
     if (isError) return cause as Error
     return new Error(String(cause))
   }
