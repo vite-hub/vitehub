@@ -63,6 +63,7 @@ import type { WorkflowModuleOptions } from "@vite-hub/workflow"
 import type { WorkspaceModuleOptions } from "@vite-hub/workspace"
 import type { PublicUrlConfig } from "@vite-hub/runtime"
 import type { Plugin, PluginOption, ResolvedConfig, UserConfig } from "vite"
+import type { DoctorPluginApi } from "vite-doctor/extension"
 import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
 
 export type { CacheOptions } from "./cache.ts"
@@ -770,7 +771,10 @@ function presetBlobOptions(
 
 function normalizePublicUrl(value: string): string {
   const url = URL.canParse(value) ? new URL(value) : undefined
-  if (!url || !["http:", "https:"].includes(url.protocol) || url.pathname !== "/" || url.search || url.hash) {
+  // WHATWG URL parsing drops empty userinfo, so inspect the original authority
+  // to reject credential syntax such as `https://@host` as well.
+  const authority = value.trim().match(/^[a-z][a-z\d+.-]*:\/\/([^/?#]*)/i)?.[1]
+  if (!url || !["http:", "https:"].includes(url.protocol) || url.pathname !== "/" || url.search || url.hash || url.username || url.password || authority?.includes("@")) {
     throw viteHubErrorDiagnostics.VITE_HUB_R0124({ message: `[vitehub] publicUrl must be an http(s) origin without a path, received ${JSON.stringify(value)}.` })
   }
   return url.origin
@@ -800,6 +804,18 @@ function publicUrlPlugin(publicUrl: ViteHubOptions["publicUrl"]): Plugin {
       if (!isServerEnvironment(name, config)) return
       const noExternal = addRuntimeNoExternal(config.resolve?.noExternal)
       if (noExternal) return { resolve: { noExternal } }
+    },
+  }
+}
+
+// Vite Doctor reads `api.doctor` from installed plugins and loads the extension only during a Doctor Run.
+function doctorPlugin(): Plugin {
+  return {
+    name: "vite-hub/doctor",
+    api: {
+      doctor: {
+        extensions: [() => import("./doctor.ts")],
+      } satisfies DoctorPluginApi,
     },
   }
 }
@@ -834,7 +850,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
     : []
   const workflowEnabled = options.workflow !== false && Boolean(options.agent || options.workflow)
   const consoleSections = resolveConsoleSectionIds({ ...options, env: options.env !== false, blob: blobEnabled, preset: plan.preset, sandbox: sandboxEnabled })
-  const plugins: unknown[] = [hubMarkdownTemplate()]
+  const plugins: unknown[] = [doctorPlugin(), hubMarkdownTemplate()]
   const requestedServices: DeploymentService[] = []
   if (options.blob !== undefined && options.blob !== false && !hasExplicitBlobStore(options.blob)) requestedServices.push("blob")
   if (options.queue) requestedServices.push("queue")
