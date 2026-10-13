@@ -20,7 +20,9 @@ const pageGroups = computed(() => {
   const perspective = getDocsPageByPath("/docs/ui/built-for-vue");
   if (section.value.id !== "ui" || !perspective) return groups;
   return groups.map((group) =>
-    group.label === "Start" ? { ...group, pages: [...group.pages, perspective] } : group,
+    group.label === "Start" && !group.pages.some((page) => page.path === perspective.path)
+      ? { ...group, pages: [...group.pages, perspective] }
+      : group,
   );
 });
 const related = computed(() =>
