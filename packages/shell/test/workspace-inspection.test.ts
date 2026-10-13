@@ -976,4 +976,21 @@ describe("@vite-hub/shell workspace inspection", () => {
     })
   })
 
+  it("honors an explicit zero timeout", async () => {
+    const workspace = new MemoryWorkspace({ "README.md": "# Docs\n", "models/orders.sql": "select 1\n" })
+    const slowFs = createReadonlyWorkspaceFs(workspace)
+    slowFs.readdirWithFileTypes = async () => await new Promise(() => {})
+
+    await expect(runWorkspaceInspectionCommand(workspace, "ls models", {
+      commands: ["ls"],
+      cwd: workspaceMountPoint,
+      fs: slowFs,
+      timeout: 0,
+    })).resolves.toMatchObject({
+      event: "command_timed_out",
+      timedOut: true,
+      stderr: expect.stringContaining("timed out after 0ms"),
+    })
+  })
+
 })
