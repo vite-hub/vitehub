@@ -1,3 +1,4 @@
+import { isResponse } from "./internal/response.ts"
 import { isAsyncIterable } from "./internal/stream-result.ts"
 import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { usageRecordFromStreamChunk } from "./agent-output.ts"
@@ -32,7 +33,7 @@ export function isUIMessageStreamResult(value: unknown): value is { toUIMessageS
 }
 
 export function isUIMessageStreamResponse(value: unknown): value is Response & { body: ReadableStream<Uint8Array> } {
-  return value instanceof Response
+  return isResponse(value)
     && value.body !== null
     && value.headers.get("x-vercel-ai-ui-message-stream") === "v1"
 }

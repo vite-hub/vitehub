@@ -1,3 +1,4 @@
+import { isResponse } from "./internal/response.ts"
 import {
   channelDeliveryEffectsContextKey,
   channelDeliveryFinishEffectsContextKey,
@@ -321,32 +322,6 @@ export interface AgentWebhookVerificationResult {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null
-}
-
-function isResponse(value: unknown): value is Response {
-  try {
-    if (value instanceof Response) return true
-    if (!isRecord(value)) return false
-    const headers = value.headers
-    const body = value.body
-    return (
-      isRecord(headers) &&
-      typeof value.status === "number" &&
-      typeof value.statusText === "string" &&
-      typeof value.ok === "boolean" &&
-      typeof value.redirected === "boolean" &&
-      typeof value.url === "string" &&
-      (body === null || (isRecord(body) && typeof body.getReader === "function")) &&
-      typeof value.clone === "function" &&
-      typeof value.arrayBuffer === "function" &&
-      typeof value.blob === "function" &&
-      typeof value.formData === "function" &&
-      typeof value.json === "function" &&
-      typeof value.text === "function"
-    )
-  } catch {
-    return false
-  }
 }
 
 async function resolveWebhookSecret(
