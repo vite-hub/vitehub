@@ -89,6 +89,20 @@ it("reads paginated usage from the assigned journal", async () => {
   expect(await check(now)).toMatchObject({ accepting: false, reason: "token-budget-hourly", state: { hourlyInputTokens: 303, dailyInputTokens: 303 } });
 });
 
+it("reports repeated invocation cursors instead of looping during budget reads", async () => {
+  const list = vi.fn(async () => ({ cursor: "same-page", invocations: [] }));
+  const invocations = { list, get: vi.fn() } as never;
+  const check = createBabysitterAdmission({
+    invocations,
+    limits: resolveBabysitterAdmissionLimits({ minFreeTmpMb: false, inputTokens: { hourly: 1 } }),
+  });
+
+  const result = await check(Date.now());
+
+  expect(result.state.errors).toContain("tokens: [vitehub] Agent Invocation listing returned a repeated pagination cursor.");
+  expect(list).toHaveBeenCalledTimes(2);
+});
+
 it("gates recovery model work on host admission and the same-head progress budget", () => {
   const snapshot = { pr: { number: 1, head: { sha: "a" } }, progressBudget: { head: "a", exhausted: true, count: 3, limit: 3, creditedEvidence: [] } };
   expect(babysitterModelAdmission(true, snapshot)).toBe(false);

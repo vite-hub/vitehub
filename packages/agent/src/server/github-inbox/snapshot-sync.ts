@@ -208,7 +208,12 @@ export async function detectChangedPullRequests(inbox: PullRequestInbox, graphql
   try {
   if (((await inbox.metaNumber('change-detect-next')) ?? 0) > now) return
   await inbox.setMeta('change-detect-next', now + 60_000)
+  // The summary query already contains every tracked PR. Reuse it for both
+  // change detection and the closed-PR sweep instead of issuing one SQLite
+  // read per open PR. On a busy inbox this turns an O(open PRs) sequence of
+  // transactions into one indexed read.
   const tracked = await inbox.summary()
+  const trackedKeys = new Set(tracked.map(item => `${item.repository}:${item.number}`))
   for (const repository of repositories.map(r => r.toLowerCase())) {
     try {
     const [owner, name] = repository.split('/')
@@ -235,7 +240,11 @@ export async function detectChangedPullRequests(inbox: PullRequestInbox, graphql
     }
     for (const [number, pr] of open) {
       const fingerprint = openPullRequestFingerprint(pr)
-      if (await inbox.get(repository, number)) { await mark(number, fingerprint); continue }
+      const key = `${repository}:${number}`
+      // The summary is a point-in-time snapshot. A delivery can insert a row
+      // while GraphQL is scanning, so confirm only summary misses before
+      // deciding to bootstrap the PR. Existing rows keep the no-read fast path.
+      if (trackedKeys.has(key) || await inbox.get(repository, number)) { await mark(number, fingerprint); continue }
       if (!allowSeed) continue
       // A PR that no delivery reported yet. Seeding applies the filter; the claim hydrates it over REST.
       await inbox.seed(repository, { number, title: pr.title, state: 'open', draft: pr.isDraft, user: pr.author ? { login: pr.author.login } : null,

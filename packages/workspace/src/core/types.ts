@@ -518,6 +518,8 @@ export interface WorkspaceSourceRequestDescriptor {
 
 export interface WorkspaceSourceRequestExecutionInput {
   body?: unknown
+  /** Abort a controlled request when its owning Shell invocation ends. */
+  signal?: AbortSignal
   method: WorkspaceSourceRequestMethod
   url: string
 }
