@@ -312,12 +312,16 @@ async function defaultFetchSourceRequest(
   ctx: SourceContext,
   overrides: { body?: unknown, query?: Record<string, unknown> } = {},
 ) {
-  const defaultQuery = options.query !== undefined || concreteQueryFromOptions(options)
-    ? concreteQueryFromOptions(options)
-    : options.querySchema ? await parseStandardSchema(options.querySchema, {}, "fetch() query default") : undefined
-  const defaultBody = options.body !== undefined
-    ? options.body
-    : options.bodySchema ? await parseStandardSchema(options.bodySchema, {}, "fetch() body default") : undefined
+  const defaultQuery = overrides.query !== undefined
+    ? undefined
+    : options.query !== undefined || concreteQueryFromOptions(options)
+      ? concreteQueryFromOptions(options)
+      : options.querySchema ? await parseStandardSchema(options.querySchema, {}, "fetch() query default") : undefined
+  const defaultBody = overrides.body !== undefined
+    ? undefined
+    : options.body !== undefined
+      ? options.body
+      : options.bodySchema ? await parseStandardSchema(options.bodySchema, {}, "fetch() body default") : undefined
   const query = overrides.query ?? defaultQuery
   const body = typeof overrides.body === "undefined" ? defaultBody : overrides.body
   const context = sourceRequestContext(options, method, { body, query }, ctx)
@@ -428,7 +432,7 @@ async function validateFetchRequestBody(
   body: unknown,
 ): Promise<unknown> {
   if (options.bodySchema) {
-    return await parseStandardSchema(options.bodySchema, body ?? {}, "HTTP request body")
+    return await parseStandardSchema(options.bodySchema, typeof body === "undefined" ? {} : body, "HTTP request body")
   }
   if (typeof options.body !== "undefined") {
     if (typeof body !== "undefined" && !requestJsonEqual(body, options.body)) {
