@@ -5,14 +5,14 @@ import {
   type AgentInvocationListItem,
   type AgentInvocationView,
 } from "@vite-hub/ui";
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, onMounted, ref, shallowRef } from "vue";
 
 // Keep running timestamps relative to the page load, then refresh after hydration.
 const now = useState("ui-dashboard-clock", () => Date.now());
 const time = (secondsAgo: number) => new Date(now.value - secondsAgo * 1_000).toISOString();
 
 // Synthetic, already-authorized records. In an application, load them from your Invocation store.
-const invocations = reactive<AgentInvocationView[]>([
+const invocations = shallowRef<AgentInvocationView[]>([
   {
     agentName: "reviewer",
     annotations: { "github.pullRequest": 1011, "github.repository": "vite-hub/vitehub" },
@@ -145,13 +145,14 @@ function refreshDates(value: unknown, offset: number): void {
 
 onMounted(() => {
   const refreshedAt = Date.now();
-  refreshDates(invocations, refreshedAt - now.value);
+  refreshDates(invocations.value, refreshedAt - now.value);
   now.value = refreshedAt;
+  invocations.value = [...invocations.value];
 });
 
 // Map full records to list summaries with the display helpers the Console uses.
 const items = computed<AgentInvocationListItem[]>(() =>
-  invocations.map((invocation) => ({
+  invocations.value.map((invocation) => ({
     agent: invocation.agentName,
     context: agentInvocationContext(invocation),
     description: invocation.error?.message,
@@ -162,9 +163,9 @@ const items = computed<AgentInvocationListItem[]>(() =>
     updatedAt: invocation.updatedAt,
   })),
 );
-const selectedId = ref(invocations[0]!.id);
+const selectedId = ref(invocations.value[0]!.id);
 const selected = computed(() =>
-  invocations.find((invocation) => invocation.id === selectedId.value)!,
+  invocations.value.find((invocation) => invocation.id === selectedId.value)!,
 );
 const selectedActivityId = ref<string>();
 const detailsOpen = ref(true);
