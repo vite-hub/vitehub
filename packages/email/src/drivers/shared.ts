@@ -7,11 +7,19 @@ import type { EmailAddress, EmailAddressList, EmailMessage } from "../types.ts";
 const mailboxSchema = v.object({ email: v.string(), name: v.optional(v.string()) });
 
 function isAddressArray(input: EmailAddressList): input is readonly EmailAddress[] {
-  return Array.isArray(input);
+  try {
+    return Array.isArray(input);
+  } catch {
+    return false;
+  }
 }
 
 function isString(value: unknown): value is string {
-  return Object.prototype.toString.call(value) === "[object String]" && !(value instanceof String);
+  try {
+    return Object.prototype.toString.call(value) === "[object String]" && !(value instanceof String);
+  } catch {
+    return false;
+  }
 }
 
 export function addresses(input: EmailAddressList): EmailAddress[] {
