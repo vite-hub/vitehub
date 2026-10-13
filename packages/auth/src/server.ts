@@ -293,7 +293,12 @@ function isResponseLike(value: unknown): value is Response {
     if (!hasRuntimeType(status, "number") || !Number.isInteger(status) || status < 0 || status > 599) return false
     if (!hasRuntimeType(Reflect.get(value, "statusText"), "string")) return false
     const headers: unknown = Reflect.get(value, "headers")
-    return headers !== null && hasRuntimeType(headers, "object") && hasRuntimeType(Reflect.get(headers, "get"), "function")
+    if (headers === null || !hasRuntimeType(headers, "object")) return false
+    if (!hasRuntimeType(Reflect.get(headers, "get"), "function")) return false
+    if (!hasRuntimeType(Reflect.get(headers, "forEach"), "function")) return false
+    if (!hasRuntimeType(Reflect.get(headers, "getSetCookie"), "function")) return false
+    const body = Reflect.get(value, "body")
+    return body === null || (body !== null && body !== undefined && hasRuntimeType(body, "object") && hasRuntimeType(Reflect.get(body as object, "getReader"), "function"))
   }
   catch {
     return false
