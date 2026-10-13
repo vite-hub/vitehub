@@ -280,8 +280,25 @@ async function runAccessAuthorize(
   context: AuthAccessAuthorizationContext,
 ): Promise<Response | undefined> {
   const result = await authorize(context)
-  if (result instanceof Response) return result
+  const response = await normalizeAuthorizationResponse(result)
+  if (response) return response
   if (result !== true) return createForbiddenResponse(context.request)
+}
+
+async function normalizeAuthorizationResponse(value: unknown): Promise<Response | undefined> {
+  if (value instanceof Response) return value
+  try {
+    if (Object.prototype.toString.call(value) !== "[object Response]") return
+    // SAFETY: Foreign responses are untrusted. Copy their data into a local
+    // Response so adapters only receive native Headers and body operations.
+    const response = value as Response
+    const headers = new Headers(response.headers)
+    const body = response.body === null ? null : new Uint8Array(await response.arrayBuffer())
+    return new Response(body, { headers, status: response.status, statusText: response.statusText })
+  }
+  catch {
+    return
+  }
 }
 
 async function checkAuthRequest(
