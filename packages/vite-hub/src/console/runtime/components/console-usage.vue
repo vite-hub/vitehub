@@ -471,6 +471,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
         <UTabs
           v-model="section"
           :items="sections"
+          aria-label="Usage sections"
           color="neutral"
           size="sm"
           :ui="{ root: 'items-stretch gap-3', list: 'w-fit', trigger: 'data-[state=inactive]:text-default' }"
