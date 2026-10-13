@@ -1,4 +1,5 @@
 import * as v from "valibot"
+import { Diagnostic } from "nostics"
 import { normalizeRateLimitPolicy } from "./policy.ts"
 
 import type {
@@ -157,17 +158,20 @@ function isRateLimiterOptions(value: unknown): value is CreateRateLimiterOptions
 
 function isRateLimitDiagnostic(value: unknown): boolean {
   try {
-    return Boolean(
-      value
-      && typeof value === "object"
-      && typeof (value as { code?: unknown }).code === "string"
-      && (value as { code: string }).code.startsWith("RATE_LIMIT_"),
-    )
+    return value instanceof Diagnostic && rateLimitDiagnosticCodes.has(value.code)
   }
   catch {
     return false
   }
 }
+
+const rateLimitDiagnosticCodes = new Set([
+  ...Array.from({ length: 45 }, (_, index) => `RATE_LIMIT_R${String(index + 1).padStart(4, "0")}`),
+  "RATE_LIMIT_B0001",
+  "RATE_LIMIT_B0002",
+  "RATE_LIMIT_B0003",
+  "RATE_LIMIT_B0004",
+])
 
 export function createRateLimiter(options: CreateRateLimiterOptions): RateLimiter {
   if (!isRateLimiterOptions(options)) {
