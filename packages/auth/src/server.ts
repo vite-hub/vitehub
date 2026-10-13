@@ -287,23 +287,43 @@ async function runAccessAuthorize(
 
 const authorizationResponseProperties = ["status", "statusText", "headers", "body"] as const
 
+const authorizationResponsePrototypeLimit = 32
+
 function responsePropertyDescriptor(value: unknown, key: PropertyKey): PropertyDescriptor | undefined {
-  let current: object | null = Object(value)
-  while (current) {
-    const descriptor = Object.getOwnPropertyDescriptor(current, key)
-    if (descriptor) return descriptor
-    current = Object.getPrototypeOf(current)
+  try {
+    let current: object | null = Object(value)
+    const seen = new Set<object>()
+    for (let depth = 0; current && depth < authorizationResponsePrototypeLimit; depth++) {
+      if (seen.has(current)) throw new Error("Cyclic authorization response prototype")
+      seen.add(current)
+      const descriptor = Object.getOwnPropertyDescriptor(current, key)
+      if (descriptor) return descriptor
+      current = Object.getPrototypeOf(current)
+    }
+    if (current) throw new Error("Authorization response prototype chain is too deep")
+  }
+  catch {
+    // Fail the whole snapshot rather than treating malformed reflection as a missing method.
+    throw new Error("Malformed authorization response prototype")
   }
 }
 
 function hasResponsePrototype(value: unknown): boolean {
-  let prototype: object | null = Object.getPrototypeOf(Object(value))
-  while (prototype) {
-    const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
-    const owner = prototype
-    if (constructor?.name === "Response"
-      && authorizationResponseProperties.every(key => Object.getOwnPropertyDescriptor(owner, key)?.get)) return true
-    prototype = Object.getPrototypeOf(prototype)
+  try {
+    let prototype: object | null = Object.getPrototypeOf(Object(value))
+    const seen = new Set<object>()
+    for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
+      if (seen.has(prototype)) return false
+      seen.add(prototype)
+      const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+      const owner = prototype
+      if (constructor?.name === "Response"
+        && authorizationResponseProperties.every(key => Object.getOwnPropertyDescriptor(owner, key)?.get)) return true
+      prototype = Object.getPrototypeOf(prototype)
+    }
+  }
+  catch {
+    return false
   }
   return false
 }
@@ -349,12 +369,13 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
       ? Response.error()
       : new Response(body, { status, statusText, headers: normalizedHeaders })
     const snapshot = { status, statusText, headers, body }
+    const nativeDescriptors = value instanceof Response && authorizationResponseProperties.every(key =>
+      responsePropertyDescriptor(candidate, key)?.get === Object.getOwnPropertyDescriptor(Response.prototype, key)?.get)
     let nativeProperties = false
     try {
-      nativeProperties = value instanceof Response && authorizationResponseProperties.every(key => {
+      nativeProperties = nativeDescriptors && authorizationResponseProperties.every(key => {
         const getter = Object.getOwnPropertyDescriptor(Response.prototype, key)?.get
-        return getter && responsePropertyDescriptor(candidate, key)?.get === getter
-          && Reflect.apply(getter, candidate, []) === snapshot[key]
+        return getter && Reflect.apply(getter, candidate, []) === snapshot[key]
       })
     }
     catch {
