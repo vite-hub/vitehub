@@ -341,6 +341,17 @@ function modelVendorScope(provider: string): string {
   return provider.includes(".") ? provider.split(".", 1)[0]! : provider
 }
 
+function isDateValue(value: unknown): value is Date {
+  if (!isRecord(value)) return false
+  try {
+    Date.prototype.getTime.call(value)
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
 function responseFromResult(result: unknown): AgentUsageRecord["response"] | undefined {
   if (!isRecord(result)) return
   const response = isRecord(result.response) ? result.response : undefined
@@ -351,7 +362,7 @@ function responseFromResult(result: unknown): AgentUsageRecord["response"] | und
   return {
     ...(finishReason !== undefined ? { finishReason } : {}),
     ...(id !== undefined ? { id } : {}),
-    ...((timestamp instanceof Date || hasRuntimeType(timestamp, "string")) ? { timestamp } : {}),
+    ...((isDateValue(timestamp) || hasRuntimeType(timestamp, "string")) ? { timestamp } : {}),
   }
 }
 
@@ -452,19 +463,19 @@ function withFallbackUsageMetadata(
   const credentialSource = record.credentialSource
   const runMetadata = mergedRunMetadata(run, readableProperty(record, "run"))
   const provider = record.provider ?? (compound ? undefined : modelMetadata?.provider)
-  return model || provider || transport || cost || response || latency || credentialSource || runMetadata
-    ? {
-        ...record,
-        ...(cost ? { cost } : {}),
-        ...(credentialSource ? { credentialSource } : {}),
-        ...(latency ? { latency } : {}),
-        ...(model ? { model } : {}),
-        ...(provider ? { provider } : {}),
-        ...(response ? { response } : {}),
-        ...(runMetadata ? { run: runMetadata } : {}),
-        ...(transport ? { transport } : {}),
-      }
-    : record
+  const usage = readableProperty(record, "usage")
+  if (!model && !provider && !transport && !cost && !response && !latency && !credentialSource && !runMetadata && !usage) return record
+  const result = { ...record }
+  if (cost) result.cost = cost
+  if (credentialSource) result.credentialSource = credentialSource
+  if (latency) result.latency = latency
+  if (model) result.model = model
+  if (provider) result.provider = provider
+  if (response) result.response = response
+  if (runMetadata) result.run = runMetadata
+  if (transport) result.transport = transport
+  if (usage) result.usage = usage
+  return result
 }
 
 export function usageRecordFromStreamChunk(chunk: unknown, fallbackMetadataSource?: unknown, run?: Partial<AgentRunMetadata>): AgentUsageRecord | undefined {
@@ -692,29 +703,37 @@ async function* streamChunksToEvents(
   let usageRecord: AgentUsageRecord | undefined
   let explicitUsageEvent = false
   let finishEvent: StreamEvent | undefined
-  for await (const chunk of chunks) {
-    const explicitlyPhasedTextChunk = chunk && hasRuntimeType(chunk, "object")
-      // SAFETY: Agent output normalization establishes the asserted stream result contract.
-      && "phase" in chunk && (chunk as { phase?: unknown }).phase !== undefined
-      // SAFETY: Agent output normalization establishes the asserted stream result contract.
-      && "type" in chunk && ["text", "text-delta", "text-end", "text-start"].includes(String((chunk as { type?: unknown }).type))
-    if (explicitlyPhasedTextChunk && observation) observation.explicitTextPhaseSeen = true
-    if (!explicitUsageEvent) usageRecord = usageRecordFromStreamChunk(chunk, usageSource) ?? usageRecord
-    const event = toAgentStreamEvent(chunk, toolNames, textPhases, undefined, messageState)
-    if (!event) continue
-    if (event.type === "text-delta" && event.phase !== undefined && observation) {
-      observation.explicitTextPhaseSeen = true
+  try {
+    for await (const chunk of chunks) {
+      const explicitlyPhasedTextChunk = chunk && hasRuntimeType(chunk, "object")
+        && "phase" in chunk && chunk.phase !== undefined
+        && "type" in chunk && ["text", "text-delta", "text-end", "text-start"].includes(String(chunk.type))
+      if (explicitlyPhasedTextChunk && observation) observation.explicitTextPhaseSeen = true
+      if (!explicitUsageEvent) usageRecord = usageRecordFromStreamChunk(chunk, usageSource) ?? usageRecord
+      const event = toAgentStreamEvent(chunk, toolNames, textPhases, undefined, messageState)
+      if (!event) continue
+      if (event.type === "text-delta" && event.phase !== undefined && observation) {
+        observation.explicitTextPhaseSeen = true
+      }
+      if (event.type === "usage") {
+        usageRecord = withFallbackUsageMetadata(event.usageRecord, usageSource)
+        explicitUsageEvent = true
+        continue
+      }
+      if (event.type === "finish") {
+        finishEvent = event
+        continue
+      }
+      if (event.type === "error" && !event.recoverable && usageRecord) {
+        yield { type: "usage", usageRecord }
+        usageRecord = undefined
+      }
+      yield event
     }
-    if (event.type === "usage") {
-      usageRecord = withFallbackUsageMetadata(event.usageRecord, usageSource)
-      explicitUsageEvent = true
-      continue
-    }
-    if (event.type === "finish") {
-      finishEvent = event
-      continue
-    }
-    yield event
+  }
+  catch (error) {
+    if (usageRecord) yield { type: "usage", usageRecord }
+    throw error
   }
   usageRecord ??= await usageFromResult(usageSource)
   if (usageRecord) yield { type: "usage", usageRecord }
@@ -739,6 +758,12 @@ async function* streamChunksToEventsWithTextFallback(
         terminalEvents.push(event)
         continue
       }
+      if (event.type === "error" && !event.recoverable) {
+        // Fatal consumers stop pulling here, so flush retained accounting first.
+        for (const terminal of terminalEvents.splice(0)) {
+          if (terminal.type === "usage") yield terminal
+        }
+      }
       yield event
     }
     if (!hasText && !observation.explicitTextPhaseSeen) {
@@ -759,6 +784,14 @@ async function* streamChunksToEventsWithTextFallback(
         }
       }
     }
+  }
+  catch (error) {
+    // The source may fail after measuring usage or during fallback text.
+    // Preserve its counters without reporting a successful finish.
+    for (const event of terminalEvents) {
+      if (event.type === "usage") yield event
+    }
+    throw error
   }
   finally {
     if (textIterator && !textIteratorClosed) {

@@ -1997,3 +1997,11 @@ it.each([
   expect(definition).toBeDefined()
   expect(definition?.workspace).toBeUndefined()
 })
+
+it.each(["gitlab", "forgejo"])("inspects an imported %s Channel without adding a Workspace", async kind => {
+  const definition = await discover(`import { defineAgent } from "vite-hub/agent"; import channel from "../../channel.ts"; export default defineAgent({ channels: { review: channel } })`, {
+    "channel.ts": `import { ${kind} } from "vite-hub/agent/channels"; export default ${kind}({ pullRequest: true, activity: true })`,
+  })
+  expect(definition).toBeDefined()
+  expect(definition?.workspace).toBeUndefined()
+})

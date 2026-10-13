@@ -4,6 +4,7 @@ import { scheduleErrorDiagnostics } from "./error-diagnostics.ts"
 const cronFieldPattern = /^[^\s]+$/
 const scheduleDefinitionKeys = new Set(["allowRuntimeSchedules", "manual", "cron", "handler"])
 const scheduleTargetDefinitionKeys = new Set(["handler"])
+const scheduleOptionsKeys = new Set(["allowRuntimeSchedules", "manual"])
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value)
@@ -37,6 +38,7 @@ export function defineSchedule<TResult = unknown>(cronOrInput: string | Schedule
   if (!isPlainObject(options)) {
     throw scheduleErrorDiagnostics.SCHEDULE_C0003({ message: "`defineSchedule()` options must be an object." })
   }
+  assertOwnDefinitionFields(options, scheduleOptionsKeys, "`defineSchedule()` does not accept inherited options.", scheduleErrorDiagnostics.SCHEDULE_C0004)
   if (!isCronString(cronOrInput) && !isPlainObject(cronOrInput)) {
     throw scheduleErrorDiagnostics.SCHEDULE_C0003({ message: "`defineSchedule()` expects an object with `cron` and `handler`." })
   }

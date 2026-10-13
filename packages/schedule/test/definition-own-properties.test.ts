@@ -12,6 +12,12 @@ describe("Schedule definition property ownership", () => {
     expect(() => defineSchedule(inherited)).toThrow(/expects an object with `cron` and `handler`/)
   })
 
+  it("rejects positional options inherited from a prototype", () => {
+    const options = Object.create({ manual: true })
+
+    expect(() => defineSchedule("0 9 * * *", () => "ok", options)).toThrow(/inherited.*manual|own property/)
+  })
+
   it("rejects options inherited from a prototype", () => {
     const inherited = Object.assign(Object.create({ manual: true }), {
       cron: "0 9 * * *",
