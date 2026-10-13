@@ -45,7 +45,7 @@
     "build": "vp pack",
     "dev": "vp pack --watch",
     "typecheck": "tsc --noEmit -p ./tsconfig.json",
-    "test": "vp run -t @vite-hub/workflow#build && vp test"
+    "test": "vp run -t @vite-hub/workflow#build && vp run -t @vite-hub/agent#build && vp test"
   },
   "dependencies": {
     "@vercel/functions": "catalog:vercel",

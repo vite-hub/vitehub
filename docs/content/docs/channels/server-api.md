@@ -10,6 +10,8 @@ icon: i-lucide-code-2
 
 `useChannel()` returns immediately. `send()` performs the connector call and returns `[null, receipt]` on success or `[error, null]` on failure. The receipt has the Channel name, connector name, ViteHub delivery id, and optional provider message id. Check the error before using the receipt.
 
+The optional provider `id` must be a string. Unreadable or non-string IDs are omitted from successful receipts and delivery logs.
+
 Named clients share one definition load for the active runtime registry. A failed load can retry on a later send. Replacing the runtime registry invalidates the cached definition for existing clients.
 
 ```ts [server/api/build-finished.post.ts]
@@ -42,6 +44,8 @@ For each connector delivery, Channels attempts to write `outbound.started` and e
 The events include `deliveryId`, Channel, connector, and, when available, a provider message id or error message. ViteHub omits message text and connector options. Failed events include up to 2,000 characters of the thrown error message, so connectors must redact credentials and message content before throwing provider errors.
 
 Configure the application's log drain to retain received events. This outbound-only package has no State Adapter. Use Agent Channels when inbound custody and recovery are required.
+
+Channels passes the original options object to the selected connector, including the `connector` selector when supplied. It preserves object identity, methods, and private state.
 
 ## Add another connector
 

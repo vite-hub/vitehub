@@ -339,8 +339,24 @@ export function evaluateGitHubRequiredChecks(
       };
     },
   );
+  // Without required checks, every current-head check gates the merge while it runs.
+  // Failures do not block here; the merge gate asks for their assessment.
+  const newest = new Map<string, GitHubCheckRun>();
+  for (const value of evidence.checkRuns) {
+    if (value.head_sha !== evidence.headSha) continue;
+    const key = `${value.name}\0${value.app?.id ?? ""}`;
+    const previous = newest.get(key);
+    if (!previous || value.id > previous.id) newest.set(key, value);
+  }
+  const running =
+    [...newest.values()].some((value) => stateOfCheck(value) === "pending") ||
+    evidence.statuses.some((value) => value.sha === evidence.headSha && value.state === "pending");
   return {
-    state: policy.required.length ? combine(checks.map((item) => item.state)) : "passed",
+    state: policy.required.length
+      ? combine(checks.map((item) => item.state))
+      : running
+        ? "pending"
+        : "passed",
     checks,
     missing,
   };

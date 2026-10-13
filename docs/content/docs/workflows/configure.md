@@ -2,7 +2,7 @@
 title: Workflows configuration
 description: Set Workflow integration options, define Workflows, and add a durable Vercel entry.
 navigation.title: Configure
-navigation.order: 3
+navigation.order: 4
 icon: i-lucide-sliders-horizontal
 ---
 

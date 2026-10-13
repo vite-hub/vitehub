@@ -2,7 +2,7 @@
 title: Sandbox hosts
 description: Sandbox providers, host support, provider options, and Provider Output.
 navigation.title: Hosts
-navigation.order: 6
+navigation.order: 7
 icon: i-lucide-cloud-cog
 ---
 

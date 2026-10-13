@@ -78,7 +78,7 @@ describe("realtime server handler", () => {
     expect(response.status).toBe(400)
   })
 
-  it.each(["%2e%2e%2fsecret", ".vitehub/secret", "docs%5csecret.md"])("rejects unsafe Workspace room path %s", async (path) => {
+  it.each(["%2e%2e%2fsecret", ".vitehub/secret", ".VITEHUB/secret", "docs%5csecret.md"])("rejects unsafe Workspace room path %s", async (path) => {
     const handler = createRealtimeHandler(realtimeRegistry())
 
     const response = await handler.fetch(new Request(`https://example.com/api/_vitehub/realtime/docs/${path}`, {

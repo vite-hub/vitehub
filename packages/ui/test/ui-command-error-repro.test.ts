@@ -19,6 +19,7 @@ describe("ui command error repro", () => {
   it.each([
     ["cyclic", (() => { const value: Record<string, unknown> = {}; value.self = value; return value; })(), '"self": "[Circular]"'],
     ["bigint", { count: 1n }, '"count": "1n"'],
+    ["boxed string", new String("failed"), "failed"],
     ["throwing toJSON", { toJSON() { throw new Error("cannot serialize"); } }, "Unable to display payload: cannot serialize"],
   ])("renders %s command errors without crashing", (_name, error, expected) => {
     const wrapper = mount(AgentInvocation, { props: { invocation: view(error) } });

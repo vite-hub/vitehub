@@ -121,12 +121,40 @@ describe("Vite provider builds", () => {
     }
   })
 
-  it("resolves the shared generated-artifact root", () => {
-    expect(resolveViteHubGeneratedRoot({ root: "/app" })).toBe("/app/.vitehub")
-    expect(resolveViteHubGeneratedRoot({
-      [VITEHUB_GENERATED_ROOT]: "/app/.nuxt/vitehub",
-      root: "/app",
-    })).toBe("/app/.nuxt/vitehub")
+  it("prefers a Nuxt project root when app has its own package marker", async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-nuxt-app-root-"))
+    const appRoot = join(projectRoot, "app")
+    try {
+      await mkdir(appRoot)
+      await Promise.all([
+        writeFile(join(projectRoot, "package.json"), '{"private":true}\n'),
+        writeFile(join(projectRoot, "nuxt.config.ts"), "export default {}\n"),
+        writeFile(join(appRoot, "package.json"), '{"private":true}\n'),
+      ])
+
+      expect(resolveViteHubProjectRoot(appRoot)).toBe(projectRoot)
+    }
+    finally {
+      await rm(projectRoot, { force: true, recursive: true })
+    }
+  })
+
+  it("resolves generated artifacts at the project root for nested Vite apps", async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-generated-root-"))
+    const appRoot = join(projectRoot, "app")
+    try {
+      await mkdir(appRoot)
+      await writeFile(join(projectRoot, "package.json"), '{"private":true}\n')
+
+      expect(resolveViteHubGeneratedRoot({ root: appRoot })).toBe(join(projectRoot, ".vitehub"))
+      expect(resolveViteHubGeneratedRoot({
+        [VITEHUB_GENERATED_ROOT]: join(projectRoot, ".nuxt/vitehub"),
+        root: appRoot,
+      })).toBe(join(projectRoot, ".nuxt/vitehub"))
+    }
+    finally {
+      await rm(projectRoot, { force: true, recursive: true })
+    }
   })
 
   it("distinguishes the Nitro host plugin from ViteHub bridge plugins", () => {
