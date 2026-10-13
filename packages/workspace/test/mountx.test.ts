@@ -1,4 +1,5 @@
 import { createLoopback } from "mountx"
+import { runInNewContext } from "node:vm"
 import { describe, expect, it } from "vitest"
 
 import { defineWorkspace } from "../src/core/define.ts"
@@ -13,6 +14,18 @@ function workspace() {
 }
 
 describe("MountX Workspace driver", () => {
+  it("writes byte arrays from another realm without JSON encoding", async () => {
+    const docs = workspace()
+    const session = await docs.startSession()
+    const fs = createLoopback(createWorkspaceDriver(session))
+    const bytes = runInNewContext("new Uint8Array([1, 2, 3])") as Uint8Array
+
+    await fs.writeFile("/foreign.bin", bytes)
+
+    await expect(session.readFile("foreign.bin", { encoding: "binary" })).resolves.toEqual(new Uint8Array([1, 2, 3]))
+    await session.close()
+  })
+
   it("projects a transactional Workspace Session through the MountX filesystem contract", async () => {
     const docs = workspace()
     await docs.writeFile("README.md", "before", {
