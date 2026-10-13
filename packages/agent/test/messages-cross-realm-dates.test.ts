@@ -99,6 +99,38 @@ describe("Agent message date boundaries", () => {
     expect(JSON.parse(JSON.stringify(message)).metadata).toEqual({ value: { timestamp: "date-like" } })
   })
 
+  it.each(["Date.prototype", "Object.getPrototypeOf(new (class Timestamp extends Date {})())"])("preserves an own serializer shadowing %s", (prototype) => {
+    const value: unknown = runInNewContext(`Object.defineProperty(Object.create(${prototype}), 'toJSON', { value() { return 'custom' } })`)
+    const message = createMessage({ metadata: { value }, parts: [{ data: value, type: "data" }], role: "user" })
+    expect(() => validateMessage(message)).not.toThrow()
+    expect(JSON.parse(JSON.stringify(message)).metadata).toEqual({ value: "custom" })
+  })
+
+  it("does not execute mutating serializers at either boundary", () => {
+    let calls = 0
+    const value = { bad: () => {} } as { bad?: () => void }
+    Object.defineProperty(value, "toJSON", { value() { calls++; delete value.bad; return {} } })
+    expect(() => createMessage({ metadata: { value }, role: "user" })).toThrow("must be JSON serializable")
+    expect(() => validateMessage({ id: "message-1", parts: [{ type: "data", data: value }], role: "user" })).toThrow("must be JSON serializable")
+    expect(calls).toBe(0)
+    expect(value.bad).toBeTypeOf("function")
+  })
+
+  it.each(["getTime", "toISOString", "toJSON"])("does not invoke a non-enumerable %s getter", (key) => {
+    let calls = 0
+    const value = Object.defineProperty({}, key, { get() { calls++; throw new Error("unrelated getter") } })
+    const message = createMessage({ metadata: { value }, parts: [{ type: "data", data: value }], role: "user" })
+    expect(() => validateMessage(message)).not.toThrow()
+    expect(calls).toBe(0)
+  })
+
+  it("does not classify a failed prototype probe as a Date", () => {
+    const value = new Proxy({}, { getPrototypeOf() { throw new Error("unrelated trap") } })
+    expect(JSON.stringify(value)).toBe("{}")
+    expect(() => createMessage({ metadata: { value }, role: "user" })).not.toThrow()
+    expect(() => validateMessage({ id: "message-1", parts: [{ type: "data", data: value }], role: "user" })).not.toThrow()
+  })
+
   it("normalizes a genuine Date without invoking its custom serialization hook", () => {
     const createdAt = new Date("2026-01-02T03:04:05.000Z")
     let calls = 0

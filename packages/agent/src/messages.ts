@@ -407,43 +407,28 @@ function isDateValue(value: unknown): value is Date {
   }
 }
 
-function isDateProxy(value: unknown): boolean {
-  if (!value || !hasRuntimeType(value, "object") || isDateValue(value)) return false
+function hasNativeDateJSONHook(value: object): boolean {
+  const nativeSource = /\[native code\]/
+  const isNative = (hook: unknown): boolean => hasRuntimeType(hook, "function") && nativeSource.test(Function.prototype.toString.call(hook))
   try {
+    const own = Reflect.getOwnPropertyDescriptor(value, "toJSON")
+    if (own) return false
     const getTime = Reflect.get(value, "getTime")
     const toISOString = Reflect.get(value, "toISOString")
-    if (!hasRuntimeType(getTime, "function") || !hasRuntimeType(toISOString, "function")) return false
-    let prototype = Reflect.getPrototypeOf(value)
-    while (prototype) {
-      if (Object.prototype.hasOwnProperty.call(prototype, "toJSON")) {
-        // Native Date prototypes expose the intrinsic serialization hook. A
-        // regular Date-like object with similarly named methods does not.
-        const toJSON = Reflect.getOwnPropertyDescriptor(prototype, "toJSON")?.value
-        if (hasRuntimeType(toJSON, "function") && /\[native code\]/.test(Function.prototype.toString.call(toJSON))) {
-          return true
-        }
-        return false
-      }
+    if (!isNative(getTime) || !isNative(toISOString)) return false
+    let prototype: object | null = Reflect.getPrototypeOf(value)
+    const visited = new Set<object>()
+    while (prototype && !visited.has(prototype)) {
+      visited.add(prototype)
+      const descriptor = Reflect.getOwnPropertyDescriptor(prototype, "toJSON")
+      if (descriptor) return isNative(descriptor.value)
       prototype = Reflect.getPrototypeOf(prototype)
     }
+    // Hidden prototype proxies still expose the native Date methods.
+    return isNative(Reflect.get(value, "toJSON"))
   }
   catch {
-    return true
-  }
-  return false
-}
-
-function hasFailingJSONSerialization(value: unknown): boolean {
-  if (!value || !hasRuntimeType(value, "object")) return false
-  if (isDateProxy(value)) return true
-  try {
-    // Test the selected serialization behavior directly. This also catches
-    // proxies whose Date serialization hook is hidden from property lookup.
-    JSON.stringify(value)
     return false
-  }
-  catch {
-    return true
   }
 }
 
@@ -569,7 +554,7 @@ function assertSerializable(value: unknown, field: string): void {
   if (!value || !hasRuntimeType(value, "object")) {
     return
   }
-  if (isDateValue(value) || hasFailingJSONSerialization(value)) {
+  if (isDateValue(value) || hasNativeDateJSONHook(value)) {
     throw agentDiagnostics.AGENT_R0651({ message: `[vitehub:messages] ${field} must be serialized before storing.` })
   }
   if (Array.isArray(value)) {
