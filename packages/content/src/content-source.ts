@@ -56,8 +56,17 @@ function contentPath(item: ContentSourceItem): string {
   return normalizeContentSourcePath(item.path || item.key)
 }
 
+function isUint8Array(value: unknown): value is Uint8Array {
+  if (!ArrayBuffer.isView(value)) return false
+  const typedArrayTag = Object.getOwnPropertyDescriptor(
+    Object.getPrototypeOf(Uint8Array.prototype),
+    Symbol.toStringTag,
+  )?.get
+  return typedArrayTag?.call(value) === "Uint8Array"
+}
+
 function textContent(item: ContentSourceItem): string {
-  if (item.content instanceof Uint8Array) return new TextDecoder().decode(item.content)
+  if (isUint8Array(item.content)) return new TextDecoder().decode(item.content)
   if (item.content !== undefined) return item.content
   if (item.data !== undefined) {
     const serialized = JSON.stringify(item.data)
