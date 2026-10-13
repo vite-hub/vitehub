@@ -95,14 +95,25 @@ function isZodSchemaMethod(schema: ZodLikeSchema, method: string): boolean {
     return false
   }
   const metadata = schema._zod
+  if (!metadata) {
+    return false
+  }
   const constructor = metadata?.constr
-  return metadata?.traits instanceof Set
-    && metadata.traits.has("ZodType")
+  return hasSetValue(metadata?.traits, "ZodType")
     && Object.hasOwn(metadata, "constr")
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Check untyped constructor metadata before using its prototype.
     && typeof constructor === "function"
     && Object.getPrototypeOf(schema) === constructor.prototype
     && Object.hasOwn(constructor.prototype, method)
+}
+
+function hasSetValue(value: unknown, entry: string): boolean {
+  try {
+    return Set.prototype.has.call(value, entry)
+  }
+  catch {
+    return false
+  }
 }
 
 function formatIssues(issues: unknown): string {

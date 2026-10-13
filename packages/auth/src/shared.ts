@@ -6,9 +6,13 @@ export function normalizeAuthBasePath(value: string | undefined): string {
   if (!path.startsWith("/")) {
     throw authErrorDiagnostics.AUTH_R0013({ message: "`defineAuth()` basePath must start with `/`." })
   }
-  return path.length > 1 ? path.replace(/\/+$/g, "") : path
+  const normalized = path.replace(/\/+$/g, "")
+  if (!normalized) {
+    throw authErrorDiagnostics.AUTH_R0013({ message: "`defineAuth()` basePath must resolve to a non-empty path." })
+  }
+  return normalized
 }
 
 export function isAuthRequestPath(pathname: string, basePath: string): boolean {
-  return pathname === basePath || pathname.startsWith(`${basePath}/`)
+  return basePath === "/" || pathname === basePath || pathname.startsWith(`${basePath}/`)
 }

@@ -119,6 +119,20 @@ describe("Auth access handlers", () => {
     await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
   })
 
+  it("returns genuine authorization responses created in another realm unchanged", async () => {
+    const response = runInNewContext(`new (class extends Response {})("Policy rejected", {
+      status: 409,
+      headers: { "x-policy": "restricted" },
+    })`, { Response }) as Response
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => response }] },
+    }))
+
+    await expect(handler(new Request("https://app.example/"))).resolves.toBe(response)
+    expect(response.headers.get("x-policy")).toBe("restricted")
+    await expect(response.text()).resolves.toBe("Policy rejected")
+  })
+
   it("starts provider sign-in only for matched unauthenticated HTML requests", async () => {
     provider.getSession.mockResolvedValue(null)
     provider.handler.mockResolvedValue(Response.json({ url: "https://provider.example/sign-in" }))
