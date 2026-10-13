@@ -767,7 +767,8 @@ function isMethodDeclarationName(source: string, index: number, closeParen: numb
 }
 
 function isMemberAccessName(source: string, index: number) {
-  return previousNonWhitespace(source, index) === "."
+  const previous = previousNonWhitespace(source, index)
+  return previous === "." || previous === "#"
 }
 
 function findMatchingWithContext(source: string, index: number, open: string, close: string, controlFlowRegexes: ControlFlowRegexCache): number | undefined {

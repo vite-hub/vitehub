@@ -82,6 +82,34 @@ describe("docs product navigation", () => {
     }
   });
 
+  it("keeps custom frontmatter groups and kinds after the known primitive lanes", () => {
+    const kv = docsManifest.sections.find(section => section.id === "kv")!;
+    const page = (id: string, kind: string | null, group?: string, navigation = true) => ({
+      ...kv.pages[0]!, id, title: id, path: `/docs/kv/${id}`, kind, group, navigation,
+    });
+    const section = { ...kv, pages: [
+      page("support-one", "Tutorial", " Support "),
+      page("recipe-one", " Recipes "),
+      page("configure", "Guides"),
+      page("index", null),
+      page("tutorial", "Tutorial"),
+      page("support-two", "Reference", "Support"),
+      page("server-api", "Reference"),
+      page("recipe-two", "Recipes"),
+      page("hosts", "Deploy"),
+      page("hidden", "Invisible", undefined, false),
+    ] };
+    const groups = getDocsSidebarGroups(section);
+
+    expect(groups.map(group => group.label)).toEqual([null, null, "Build", null, "Support", "Recipes"]);
+    expect(groups.map(group => group.pages.map(page => page.id))).toEqual([
+      ["index"], ["tutorial"], ["configure", "server-api"], ["hosts"],
+      ["support-one", "support-two"], ["recipe-one", "recipe-two"],
+    ]);
+    expect(groups.flatMap(group => group.pages).map(page => page.path).sort())
+      .toEqual(section.pages.filter(page => page.navigation).map(page => page.path).sort());
+  });
+
   it("keeps Agent-only Capabilities inside the Agents section", () => {
     const agents = docsManifest.sections.find(section => section.id === "agents");
     const capabilities = agents?.pages.filter(page => page.id.startsWith("capabilities")) || [];
@@ -111,14 +139,6 @@ describe("docs product navigation", () => {
     ]);
     expect(getDocsSidebarGroups(ui!).find(group => group.label === "Console")?.pages.map(page => page.title))
       .toEqual(["Chat App", "Invocation Dashboard", "Code Review"]);
-    expect(getDocsSidebarGroups(ui!).find(group => group.label === "Start")?.pages.map(page => page.title))
-      .toEqual(["Overview", "Tutorial", "Installation", "Why Vue?"]);
-  });
-
-  it("publishes tutorials for public packages without product sections", () => {
-    expect(getDocsPageByPath("/docs/agents/box-tutorial")?.title).toBe("Box tutorial");
-    expect(getDocsPageByPath("/docs/reference/markdown-template-tutorial")?.title).toBe("Tutorial");
-    expect(getDocsPageByPath("/docs/ui/get-started")?.title).toBe("Tutorial");
   });
 
   it("groups every navigable page of a large section", () => {

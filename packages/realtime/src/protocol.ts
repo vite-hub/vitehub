@@ -28,7 +28,7 @@ function validPath(value: unknown): value is string {
     const traversal = /^(?:\.(?: +[. ]*)?|\.\.(?: +[. ]*)?)$/.test(withoutStream)
     const reserved = normalized === ".git"
       || /^git~\d+$/.test(normalized)
-      || (index === 0 && normalized === ".vitehub")
+      || normalized === ".vitehub"
       || (index === 0 && /^vitehu~\d+$/.test(normalized))
     return traversal || reserved
   })
