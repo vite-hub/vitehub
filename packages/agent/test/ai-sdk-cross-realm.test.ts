@@ -1,9 +1,12 @@
 import { runInNewContext } from "node:vm"
-import { expect, it } from "vitest"
+import { expect, it, vi } from "vitest"
+import { createRuntimeContext } from "@vite-hub/runtime"
 
 import { createAiSdkAdapter, toAiSdkModelMessages } from "../src/ai-sdk.ts"
 import { isAttachmentData, resolveAttachmentData } from "../src/messages.ts"
 import { portableAgentWorkflowInput } from "../src/index.ts"
+import { createAgentInvocationContextStore } from "../src/invocation-context.ts"
+import type { AgentAdapterRunContext } from "../src/types.ts"
 
 it("rejects cross-realm Blob attachments in synchronous model conversion", () => {
   const foreignBlob = new Blob(["image"])
@@ -37,6 +40,10 @@ for (const source of ["direct", "callback"] as const) {
     Object.setPrototypeOf(foreignBlob, runInNewContext("Object.prototype"))
     const reachedModel = new Error("reached model")
     let prompt: unknown
+    const doGenerate = vi.fn(async (options: { prompt: unknown }) => {
+      prompt = options.prompt
+      throw reachedModel
+    })
     const adapter = createAiSdkAdapter({
       execution: { attachments: { maxBytes: 5 }, workspaceFallback: false },
       model: {
@@ -44,17 +51,16 @@ for (const source of ["direct", "callback"] as const) {
         provider: "test",
         modelId: "cross-realm-test",
         supportedUrls: {},
-        doGenerate: async (options: { prompt: unknown }) => {
-          prompt = options.prompt
-          throw reachedModel
-        },
+        doGenerate,
         doStream: async () => { throw new Error("Unexpected stream") },
       },
     })
-    const context = {
-      context: {},
+    const context: AgentAdapterRunContext = {
+      actor: { id: "actor" },
+      context: createAgentInvocationContextStore(),
       input: {},
-      runtime: {},
+      invoker: { id: "invoker", kind: "user" },
+      runtime: createRuntimeContext({ runtime: "unknown" }),
       tools: {},
       messages: [{
         id: "message-1",
@@ -66,16 +72,26 @@ for (const source of ["direct", "callback"] as const) {
         }],
       }],
     }
-    // SAFETY: This context provides the fields used before the model deliberately throws.
-    await expect(adapter.generate(context as never)).rejects.toBe(reachedModel)
-    expect(prompt).toEqual(expect.arrayContaining([{
+    await expect(adapter.generate(context)).rejects.toBe(reachedModel)
+    expect(doGenerate).toHaveBeenCalledOnce()
+    expect(prompt).toEqual(expect.arrayContaining([expect.objectContaining({
       role: "user",
-      content: [{ type: "image", image: new TextEncoder().encode("image"), mediaType: "image/png" }],
-    }]))
+      content: [expect.objectContaining({ type: "file", data: new TextEncoder().encode("image"), mediaType: "image/png" })],
+    })]))
 
-    const limited = createAiSdkAdapter({ model: "test/model", execution: { attachments: { maxBytes: 4 } } })
-    // SAFETY: Attachment validation runs before model creation and only reads these context fields.
-    await expect(limited.generate(context as never)).rejects.toThrow("exceeds maxBytes (4)")
+    const limited = createAiSdkAdapter({
+      model: {
+        specificationVersion: "v3",
+        provider: "test",
+        modelId: "cross-realm-test",
+        supportedUrls: {},
+        doGenerate,
+        doStream: async () => { throw new Error("Unexpected stream") },
+      },
+      execution: { attachments: { maxBytes: 4 }, workspaceFallback: false },
+    })
+    await expect(limited.generate(context)).rejects.toThrow("exceeds maxBytes (4)")
+    expect(doGenerate).toHaveBeenCalledOnce()
   })
 }
 
