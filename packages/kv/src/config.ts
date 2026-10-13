@@ -62,9 +62,9 @@ function createResolvedConfig(store: ResolvedKVModuleOptions["store"], stores?: 
   return stores ? { store, stores: { default: store, ...stores } } : { store }
 }
 
-function hasStoresConfig(options: KVModuleOptions | undefined): options is KVStoresConfig {
+function hasStoresConfig(options: KVModuleOptions | undefined, stores: unknown): stores is KVStoresConfig["stores"] {
   // SAFETY: The own-property check establishes stores exists; its value stays unknown until isPlainObject validates it.
-  return !!options && Object.hasOwn(options, "stores") && isPlainObject((options as { stores?: unknown }).stores)
+  return !!options && Object.hasOwn(options, "stores") && isPlainObject(stores)
 }
 
 export function normalizeKVOptions(
@@ -80,10 +80,16 @@ export function normalizeKVOptions(
   const env = input.env || process.env
   const hosting = normalizeHosting(input.hosting)
   const explicit = options as KVStoreConfig | undefined
+  const hasOwnStores = options !== undefined && Object.hasOwn(options, "stores")
+  // SAFETY: Reflect.get preserves the effective value exposed by a Proxy or accessor; ownness is checked separately above.
+  const stores = hasOwnStores ? Reflect.get(options, "stores", options) : undefined
+  if (hasOwnStores && !isPlainObject(stores)) {
+    throw kvErrorDiagnostics.KV_C0004({ message: "`kv.stores` must be a plain object." })
+  }
 
-  if (hasStoresConfig(options)) {
+  if (hasStoresConfig(options, stores)) {
     const resolvedStores = Object.fromEntries(
-      Object.entries(options.stores).map(([name, store]) => [name, resolveExplicitStore(store, env)]),
+      Object.entries(stores).map(([name, store]) => [name, resolveExplicitStore(store, env)]),
     )
     const defaultStore = resolvedStores.default
     if (!defaultStore) throw kvErrorDiagnostics.KV_C0003({ message: "`kv.stores.default` is required when using named KV stores." })

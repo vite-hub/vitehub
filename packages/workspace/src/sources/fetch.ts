@@ -226,12 +226,12 @@ function normalizePublicResponseType(responseType: string): FetchSourceResponseT
 function normalizeMethod(method: FetchSourceMethod | undefined): FetchSourceMethod {
   const normalized = method === undefined
     ? "GET"
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Fetch methods cross an untrusted runtime boundary and must be strings before normalization.
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- fetch() accepts untrusted runtime options at its public boundary.
     : typeof method === "string"
       ? method.toUpperCase()
       : ""
   if (normalized !== "GET" && normalized !== "HEAD" && normalized !== "POST") {
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Report the primitive type without coercing malformed caller values.
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Preserve a safe diagnostic label for malformed runtime method values.
     const label = typeof method === "string" ? method : typeof method
     throw workspaceErrorDiagnostics.WORKSPACE_R0050({ message: `[vitehub] fetch() method "${label}" is not supported in v1. Use GET, HEAD, or POST.` })
   }

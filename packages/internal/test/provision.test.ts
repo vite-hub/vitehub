@@ -89,6 +89,18 @@ describe("provision planning", () => {
 })
 
 describe("provision request errors", () => {
+  it("ignores inherited request options", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json({ id: "raw" }))
+    const request = createVercelProvisionClient({ token: "token" }, fetch)
+    const options = Object.create({ method: "POST", body: { unexpected: true }, query: { unexpected: "1" } }) as { method: string, body: unknown }
+
+    await expect(request("/v1/storage/connections", options)).resolves.toEqual({ id: "raw" })
+    const init = fetch.mock.calls[0]?.[1]
+    expect(init?.method).toBe("GET")
+    expect(init?.body).toBeUndefined()
+    expect(new URL(String(fetch.mock.calls[0]?.[0])).search).toBe("")
+  })
+
   it("ignores an inherited response parser", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json({ id: "raw" }))
     const parse = vi.fn(() => ({ id: "parsed" }))
