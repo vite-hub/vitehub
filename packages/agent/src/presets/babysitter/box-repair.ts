@@ -62,6 +62,7 @@ export async function importBoxRepairFiles(session: BoxSession, checkout: string
 
 /** Refresh uses the Box's current source graph, including new and deleted files. */
 export async function importBoxRepairWorkspace(session: BoxSession, checkout: string, signal: AbortSignal): Promise<void> {
+  if (session.importWorkspace) return await session.importWorkspace(checkout, signal)
   const remote = await boxCommand(session, "git", ["-c", "core.fsmonitor=false", "ls-files", "--cached", "--others", "--exclude-standard", "-z"], signal);
   const local = (await exec("git", ["-C", checkout, "-c", "core.fsmonitor=false", "ls-files", "--cached", "--others", "--exclude-standard", "-z"], { signal })).stdout;
   await importBoxRepairFiles(session, checkout, [...new Set([...remote.split("\0"), ...local.split("\0")].filter(Boolean))], signal);
@@ -69,6 +70,7 @@ export async function importBoxRepairWorkspace(session: BoxSession, checkout: st
 
 /** Return installed artifacts to the live Box without copying protected host Git state. */
 export async function publishBoxDependencies(session: BoxSession, checkout: string, signal: AbortSignal): Promise<void> {
+  if (session.refreshDependencies) return await session.refreshDependencies(checkout, signal)
   const { readdir } = await import("node:fs/promises");
   const outputs = new Set(["node_modules", ".pnp.cjs", ".pnp.loader.mjs", ".pnp.data.json", ".yarn/cache", ".yarn/unplugged", ".yarn/install-state.gz"]);
   async function visit(path: string) {

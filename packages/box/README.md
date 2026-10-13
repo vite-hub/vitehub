@@ -248,6 +248,10 @@ Commands must remain owned by their Box session. ViteHub adds the reserved `VITE
 
 The marker is read from each process's environment at launch. A process that starts with the marker remains owned by that Box, even if it later changes its environment. A process started without the marker is not owned by that Box, even if it references the Box directory. This cleanup does not add process isolation.
 
+## Bring a custom runtime
+
+A `runtime` can also be an object with `name`, `prepare(input)` and `open(input, options)`. Set `network: "direct"` only when its sessions reach the ViteHub process loopback services, for example through SSH reverse tunnels. Agents then pass host Capability tools into the Box. A session may implement `importWorkspace(checkout, signal)` and `refreshDependencies(checkout, signal)` to replace the generic working-tree copy and the publishing of host-installed dependencies. Use them when the runtime can transfer or install faster on its own host.
+
 ## Security boundary
 
 A Box isolates Home, configuration, and declared process environment from ambient machine state. It does not necessarily isolate the filesystem, network, installed executables, or trusted project code; the complete normalized provider declaration is `box.plan.executionAuthority` and is copied unchanged onto every opened session. Dimensions the provider cannot establish remain `unknown`. Use `"trusted-host"` only when the Agent may act with the host user's authority, and use a real sandbox for untrusted code.
