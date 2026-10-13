@@ -1,6 +1,7 @@
 import { asc, count, desc, getTableColumns, is, or, sql } from "drizzle-orm"
 import { getTableConfig, SQLiteTable } from "drizzle-orm/sqlite-core"
 
+import { withConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
 import { assertConsoleRequest, consoleRequestURL } from "./request.ts"
 import { getConsoleDatabase } from "./database.ts"
 
@@ -180,7 +181,7 @@ function tableMetadata(entries: readonly DatabaseTableEntry[]): {
   return { relationships, tables }
 }
 
-export default async function consoleDatabaseHandler(event: ConsoleRequestEvent): Promise<ConsoleDatabaseResponse> {
+async function consoleDatabaseHandler(event: ConsoleRequestEvent): Promise<ConsoleDatabaseResponse> {
   assertConsoleRequest(event, ["GET"])
   const url = consoleRequestURL(event)
   const inspection = getConsoleDatabase()
@@ -247,3 +248,6 @@ export default async function consoleDatabaseHandler(event: ConsoleRequestEvent)
     total,
   }
 }
+
+const guardedHandler: ConsoleAccessRoute<typeof consoleDatabaseHandler> = withConsoleAccess(consoleDatabaseHandler)
+export default guardedHandler

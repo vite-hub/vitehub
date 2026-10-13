@@ -9,7 +9,7 @@
 
 `@vite-hub/workflow` discovers named long-running work and exposes one provider-neutral API for starting and inspecting runs.
 
-Use a Workflow when the application needs a run id, durable state, retries, cancellation, or resumable work. Use [Queue](https://vitehub.dev/docs/server-primitives/queue) when background delivery is enough and the application does not need to inspect a run.
+Use a Workflow when the application needs a run id, durable state, retries, cancellation, or resumable work. Use [Queue](https://vitehub.dev/docs/queue) when background delivery is enough and the application does not need to inspect a run.
 
 ## Install
 
@@ -222,7 +222,7 @@ async function transcribe(recordingId: string) {
 
 ## Documentation
 
-- [Workflow guide](https://vitehub.dev/docs/server-primitives/workflows)
+- [Workflow guide](https://vitehub.dev/docs/workflows)
 - [Runtime and host support](https://vitehub.dev/docs/frameworks-hosts/support-matrix)
 - [OpenWorkflow](https://openworkflow.dev/docs/overview)
 - [Cloudflare Workflows](https://developers.cloudflare.com/workflows/)
@@ -242,9 +242,3 @@ await welcome.run({ email: "ada@example.com" })
 ```
 
 This is a breaking type correction. Supply the required payload at each handle call. Named operational functions do not infer a handler from a string, and persisted run results remain unknown.
-
-## Replacing the runtime registry
-
-`setWorkflowRuntimeRegistry()` from `@vite-hub/workflow/runtime/state` installs a fresh discovered-definition registry. New calls load from that registry even when an earlier registry still has pending imports. Calls already loading a definition finish with their original definition. Their completion cannot replace cached definitions or inline registrations in the new registry. Standalone inline definitions remain registered until `resetWorkflowRuntime()` clears them.
-
-Inline handles exported by a shared module retain their definitions for replacement loaders. Reset invalidates these retained definitions, including handles created later by imports that started before reset. OpenWorkflow worker startup captures the registry installation before loading definitions, so retired worker imports cannot overwrite or consume current inline registrations.

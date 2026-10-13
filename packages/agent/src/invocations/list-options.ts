@@ -1,5 +1,5 @@
 import { agentDiagnostics } from "../agent-diagnostics.ts"
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
+import { hasRuntimeType } from "../internal/runtime-type.ts"
 
 import type { AgentInvocationListOptions } from "../invocations.ts"
 

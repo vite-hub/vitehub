@@ -1,7 +1,36 @@
-import { del, get, head, list, put } from "@vercel/blob"
+import { completeMultipartUpload, createMultipartUpload, del, get, head, list, put, uploadPart } from "@vercel/blob"
 
-import type { BlobDriverAdapter, BlobObject, BlobPutBody, BlobPutOptions, ResolvedVercelBlobStoreConfig } from "../types.ts"
+import { isPlainObject } from "@vite-hub/internal/object"
+
+import type { BlobDriverAdapter, BlobDriverMultipartUpload, BlobObject, BlobPutBody, BlobPutOptions, ResolvedVercelBlobStoreConfig } from "../types.ts"
 import { blobErrorDiagnostics } from "../error-diagnostics.ts"
+
+// Vercel needs the object key and upload ID on every multipart call, so the public upload ID carries both.
+// The client returns this ID, so it holds no authority: access always comes from the store config.
+interface VercelMultipartState {
+  contentType?: string
+  key: string
+  uploadId: string
+}
+
+function encodeMultipartState(state: VercelMultipartState): string {
+  return btoa(JSON.stringify(state)).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "")
+}
+
+function decodeMultipartState(uploadId: string): VercelMultipartState {
+  try {
+    const value: unknown = JSON.parse(atob(uploadId.replaceAll("-", "+").replaceAll("_", "/")))
+    if (isPlainObject(value)) {
+      const { contentType, key, uploadId: id } = value
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The upload ID comes from the client and is checked before use.
+      if (typeof key === "string" && typeof id === "string" && (contentType === undefined || typeof contentType === "string")) {
+        return { contentType, key, uploadId: id }
+      }
+    }
+  }
+  catch {}
+  throw blobErrorDiagnostics.BLOB_R0032({ message: "Unknown Vercel Blob multipart upload." })
+}
 
 function toBlobObject(blob: {
   contentType?: string
@@ -62,9 +91,44 @@ export function createBundledVercelBlobDriver(options: ResolvedVercelBlobStoreCo
     }
   }
 
+  function multipartUpload(pathname: string, state: VercelMultipartState): BlobDriverMultipartUpload {
+    const partOptions = { ...auth, access: options.access, key: state.key, uploadId: state.uploadId }
+    return {
+      pathname,
+      uploadId: encodeMultipartState(state),
+      // Vercel Blob has no abort call; the service discards unfinished uploads.
+      async abort() {},
+      async complete(parts) {
+        const result = await completeMultipartUpload(pathname, parts, { ...partOptions, contentType: state.contentType })
+        return toBlobObject(await head(result.url, auth))
+      },
+      async uploadPart(partNumber, body) {
+        // SAFETY: The multipart protocol passes a Blob-compatible body to the Vercel SDK.
+        const part = await uploadPart(pathname, body as Parameters<typeof uploadPart>[1], { ...partOptions, partNumber })
+        return { etag: part.etag, partNumber: part.partNumber }
+      },
+    }
+  }
+
   return {
     name: options.driver,
     options,
+    async createMultipartUpload(pathname, multipartOptions) {
+      if (multipartOptions.customMetadata && Object.keys(multipartOptions.customMetadata).length > 0) {
+        throw blobErrorDiagnostics.BLOB_R0011({ message: "The Vercel Blob driver does not support custom metadata" })
+      }
+      const created = await createMultipartUpload(pathname, {
+        ...auth,
+        access: options.access,
+        addRandomSuffix: false,
+        allowOverwrite: options.allowOverwrite ?? true,
+        contentType: multipartOptions.contentType,
+      })
+      return multipartUpload(pathname, { contentType: multipartOptions.contentType, key: created.key, uploadId: created.uploadId })
+    },
+    async resumeMultipartUpload(pathname, uploadId) {
+      return multipartUpload(pathname, decodeMultipartState(uploadId))
+    },
     async delete(pathnames) {
       await del(pathnames, auth)
     },

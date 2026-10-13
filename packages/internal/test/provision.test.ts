@@ -89,6 +89,25 @@ describe("provision planning", () => {
 })
 
 describe("provision request errors", () => {
+  it("ignores an inherited response parser", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json({ id: "raw" }))
+    const parse = vi.fn(() => ({ id: "parsed" }))
+    const request = createVercelProvisionClient({ token: "token" }, fetch)
+    const options = Object.create({ parse }) as { parse: typeof parse }
+
+    await expect(request("/v1/storage/connections", options)).resolves.toEqual({ id: "raw" })
+    expect(parse).not.toHaveBeenCalled()
+  })
+
+  it("uses an own response parser", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json({ id: "raw" }))
+    const parse = vi.fn(() => ({ id: "parsed" }))
+    const request = createVercelProvisionClient({ token: "token" }, fetch)
+
+    await expect(request("/v1/storage/connections", { parse })).resolves.toEqual({ id: "parsed" })
+    expect(parse).toHaveBeenCalledWith({ id: "raw" })
+  })
+
   it("reports Vercel error codes without leaking provider response details", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json({
       error: { code: "invalid_connection_type", message: "provider-secret" },

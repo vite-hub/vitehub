@@ -13,7 +13,7 @@ import { createImportPath, ensureGeneratedDir } from "@vite-hub/internal/build/p
 import { publishProviderSourcesToDeploymentOutputs, rebasePublishedProviderSourceLinks, removeProviderOutputArtifactDir, rewriteRetainedProviderSourcePaths } from "@vite-hub/internal/build/provider-output-sources"
 import { createNodeFunctionConfig, createVercelConfigJson } from "@vite-hub/internal/build/vercel-config"
 import { writeRuntimeRegistryFile } from "@vite-hub/internal/definition-catalog"
-import { findDefaultExportCall, readObjectProperty } from "@vite-hub/internal/source-scanner"
+import { createSourceScanner } from "@vite-hub/internal/source-scanner"
 
 import { discoverScheduleDefinitions } from "../discovery.ts"
 import { getVercelSchedulePath } from "../integrations/vercel.ts"
@@ -32,6 +32,24 @@ const denoCronFileName = "deno-cron.mjs"
 const generatedRegistryFileName = "registry.mjs"
 
 type ImportResolver = (specifier: string) => string
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Provider output config is parsed as unknown and must be narrowed before reading fields.
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+function readStringArray(value: unknown): string[] {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Provider output config entries are untrusted JSON values.
+  return Array.isArray(value)
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Provider output config entries are untrusted JSON values.
+    ? value.filter((entry): entry is string => typeof entry === "string")
+    : []
+}
+
+function isVercelCron(value: unknown): value is { path: string, schedule: string } {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Provider output config entries are untrusted JSON values.
+  return isRecord(value) && typeof value.path === "string" && typeof value.schedule === "string"
+}
 
 export function resolveScheduleRuntimeEntry(resolveImport: ImportResolver = specifier => import.meta.resolve(specifier)) {
   return fileURLToPath(resolveImport(scheduleStaticRuntimeImport))
@@ -168,6 +186,7 @@ export function validateProviderCron(cron: string, scheduleName: string): void {
 }
 
 function readStaticScheduleCron(file: string, scheduleName: string): string {
+  const { findDefaultExportCall, readObjectProperty } = createSourceScanner(file)
   const source = readFileSync(file, "utf8")
   const definition = findDefaultExportCall(source, ["defineSchedule"], { positionalOptionsIndex: 2 })
   const cron = definition && readStaticString(definition.arguments.length > 1 ? definition.arguments[0] : readObjectProperty(definition.argument, "cron"))
@@ -193,7 +212,7 @@ function renderProviderEntry(file: string, registryFile: string, provider: "clou
   const workflowRuntime = provider === "vercel" ? workflow : undefined
   return [
     `import scheduleRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
-    `import { executeStaticSchedule, missingScheduleDefinitionError } from ${JSON.stringify(runtimeImport)}`,
+    `import { executeStaticSchedule, ${provider === "vercel" ? "isScheduleCronAuthorized, " : ""}missingScheduleDefinitionError, unwrapScheduleDefinition } from ${JSON.stringify(runtimeImport)}`,
     ...(workflowRuntime
       ? [
           `import workflowRegistry from ${JSON.stringify(createImportPath(file, workflowRuntime.registryFile))}`,
@@ -214,7 +233,7 @@ function renderProviderEntry(file: string, registryFile: string, provider: "clou
     "  const loader = scheduleRegistry[name]",
     "  if (!loader) return undefined",
     "  const loaded = await loader()",
-    "  return loaded?.default ?? loaded",
+    "  return unwrapScheduleDefinition(loaded)",
     "}",
     "",
     "async function runSchedule(name, cron, scheduledAt) {",
@@ -245,7 +264,7 @@ function renderProviderEntry(file: string, registryFile: string, provider: "clou
           "export default async function scheduleHandler(req, res) {",
           "  const cronSecret = process.env.CRON_SECRET",
           "  const authorization = req.headers?.authorization || req.headers?.Authorization",
-          "  if (cronSecret && authorization !== `Bearer ${cronSecret}`) {",
+          "  if (cronSecret && !isScheduleCronAuthorized(authorization, cronSecret)) {",
           "    res.statusCode = 401",
           "    res.end('Unauthorized.')",
           "    return",
@@ -282,13 +301,13 @@ function renderNetlifyScheduleFunction(file: string, registryFile: string, sched
   const runtimeImport = createImportPath(file, scheduleRuntimeEntry)
   return [
     `import scheduleRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
-    `import { executeStaticSchedule } from ${JSON.stringify(runtimeImport)}`,
+    `import { executeStaticSchedule, unwrapScheduleDefinition } from ${JSON.stringify(runtimeImport)}`,
     "",
     `const scheduleName = ${JSON.stringify(scheduleName)}`,
     "",
     "export default async function netlifyScheduleHandler(request) {",
     "  const loaded = await scheduleRegistry[scheduleName]?.()",
-    "  const definition = loaded?.default ?? loaded",
+    "  const definition = unwrapScheduleDefinition(loaded)",
     "  if (!definition) return new Response('Missing schedule definition.', { status: 404 })",
     `  await executeStaticSchedule({ cron: ${JSON.stringify(cron)}, definition, name: scheduleName, scheduledAt: new Date() })`,
     "  return new Response(null, { status: 204 })",
@@ -318,7 +337,7 @@ function renderDenoCronEntry(file: string, registryFile: string, crons: Map<stri
     })
   return [
     `import scheduleRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
-    `import { executeStaticSchedule, missingScheduleDefinitionError } from ${JSON.stringify(runtimeImport)}`,
+    `import { executeStaticSchedule, missingScheduleDefinitionError, unwrapScheduleDefinition } from ${JSON.stringify(runtimeImport)}`,
     "",
     `const scheduleCrons = ${JSON.stringify(scheduleCrons, null, 2)}`,
     "",
@@ -326,7 +345,7 @@ function renderDenoCronEntry(file: string, registryFile: string, crons: Map<stri
     "  const loader = scheduleRegistry[name]",
     "  if (!loader) return undefined",
     "  const loaded = await loader()",
-    "  return loaded?.default ?? loaded",
+    "  return unwrapScheduleDefinition(loaded)",
     "}",
     "",
     "for (const { cron, cronName, name } of scheduleCrons) {",
@@ -499,9 +518,14 @@ export async function writeVercelScheduleFunctions(options: {
       vercelConfig = createVercelConfigJson()
     }
     const schedulePathPrefix = "/api/vitehub/schedules/vercel/"
-    const previousCrons = vercelConfig.crons ?? []
+    const rawPreviousCrons = vercelConfig.crons
+    const previousCrons = Array.isArray(rawPreviousCrons)
+      ? rawPreviousCrons.filter(isVercelCron)
+      : []
+    const hasMalformedCrons = rawPreviousCrons !== undefined
+      && (!Array.isArray(rawPreviousCrons) || previousCrons.length !== rawPreviousCrons.length)
     const existingCrons = previousCrons.filter(cron => !cron.path.startsWith(schedulePathPrefix))
-    if (!definitions.length && existingCrons.length === previousCrons.length) {
+    if (!definitions.length && !hasMalformedCrons && existingCrons.length === previousCrons.length) {
       await removeEmptyDirectories(functionRoot, options.rootDir)
       options.signal?.throwIfAborted()
       if (previousCrons.length === 0) {
@@ -732,12 +756,13 @@ async function writeCloudflareScheduleOutput(options: {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
   }
 
-  const existingTriggers = typeof wranglerConfig.triggers === "object" && wranglerConfig.triggers !== null
-    ? wranglerConfig.triggers as { crons?: string[] }
+  const existingTriggers = isRecord(wranglerConfig.triggers)
+    ? wranglerConfig.triggers
     : {}
   const previousState = await readCloudflareOutputState(options.previousStateFile ?? options.stateFile)
   options.signal?.throwIfAborted()
-  const externalCrons = (existingTriggers.crons ?? []).filter(cron => !previousState?.crons.includes(cron))
+  const existingCrons = readStringArray(existingTriggers.crons)
+  const externalCrons = existingCrons.filter(cron => !previousState?.crons.includes(cron))
   const ownedCrons = options.crons.filter(cron => !externalCrons.includes(cron))
   const main = typeof wranglerConfig.main === "string" && wranglerConfig.main
     ? wranglerConfig.main

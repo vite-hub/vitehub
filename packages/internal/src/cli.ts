@@ -164,6 +164,7 @@ export function resolveViteHubDevServerUrl(env: NodeJS.ProcessEnv): string {
 }
 
 function parseViteHubDevTimeout(value: string, error: (message: string) => Error): number {
+  if (!/^\d+$/.test(value)) throw error("--timeout must be an integer from 1 to 2147483647 milliseconds.")
   const timeout = Number(value)
   if (timeout > 2_147_483_647) throw error("--timeout must be at most 2147483647 milliseconds.")
   if (!Number.isInteger(timeout) || timeout < 1) {
@@ -197,7 +198,9 @@ export function readViteHubDevTargetOption(
     return 1
   }
   if (arg.startsWith("--url=")) {
-    target.url = arg.slice("--url=".length)
+    const value = arg.slice("--url=".length)
+    if (!value) throw errors.missingValue(`Missing value for ${arg}.`)
+    target.url = value
     return 0
   }
   if (arg === "--timeout") {
@@ -228,6 +231,7 @@ export async function fetchViteHubDevEndpoint(
 ): Promise<Response> {
   return await fetchImpl(url, {
     ...init,
+    redirect: "manual",
     headers: {
       ...init.headers,
       [endpoint.header]: endpoint.headerValue,
@@ -310,7 +314,7 @@ export async function discoverViteHubDevServer<TDiscovery extends { root?: unkno
   try {
     response = await fetchViteHubDevEndpoint(options.fetch, url, options.endpoint, {
       headers: { accept: "application/json" },
-      signal: options.signal,
+      ...(options.signal ? { signal: options.signal } : {}),
     })
   }
   catch {

@@ -1,7 +1,7 @@
 <script setup lang="ts">
-const title = "Portable Agents for Vite";
+const title = "Server primitives for Vite";
 const description =
-  "Define an Agent in one file. Choose its Driver, Workspace, and Capabilities, then run it across supported hosts.";
+  "Write server code once and deploy it across supported Vite hosts with one API for storage, queues, workflows, and more.";
 
 useSeo({
   title,
@@ -17,7 +17,7 @@ defineOgImage("Landing", {
 useSchemaOrg([
   defineOrganization({
     name: "ViteHub",
-    description: "The open-source project that builds portable Agents and Server Primitives for Vite applications.",
+    description: "The open-source server layer for portable Vite applications.",
     url: "https://vitehub.dev",
     logo: "https://vitehub.dev/vitehub-logo.png",
     sameAs: [
@@ -32,9 +32,9 @@ useSchemaOrg([
     operatingSystem: "Cross-platform",
     downloadUrl: "https://www.npmjs.com/package/vite-hub",
     featureList: [
-      "Inspectable Agent Definitions and Capabilities",
-      "Portable Server Primitives for Vite applications",
-      "Provider Output for supported deployment hosts",
+      "One server API for every supported host",
+      "Server primitives for storage, queues, and workflows",
+      "Inspectable provider output for production",
     ],
     offers: {
       price: 0,
@@ -48,8 +48,7 @@ useSchemaOrg([
 <template>
   <UMain class="bg-default text-default">
     <LandingHero />
-    <LandingAgentStory />
-    <LandingPrimitives />
+    <LandingPortability />
     <LandingClosing />
   </UMain>
 </template>

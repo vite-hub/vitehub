@@ -97,6 +97,45 @@ function textResponse(message: string, status: number): Response {
   })
 }
 
+type CloudflareAccessCheck = { identity: CloudflareAccessIdentity, response?: undefined } | { identity?: undefined, response: Response }
+
+async function checkCloudflareAccessToken(
+  request: Request,
+  resolveSettings: () => { audience?: unknown, teamDomain?: unknown },
+  verify: CloudflareAccessVerifier,
+): Promise<CloudflareAccessCheck> {
+  let settings: { audience?: unknown, teamDomain?: unknown }
+  try {
+    settings = resolveSettings()
+  }
+  catch {
+    settings = {}
+  }
+  const teamDomain = settingValue(settings.teamDomain)
+  const issuer = teamDomain ? cloudflareAccessIssuer(teamDomain) : undefined
+  const audience = settingValue(settings.audience)
+  if (!issuer || !audience) {
+    return { response: textResponse("Cloudflare Access Console Auth requires a valid team domain and audience.", 500) }
+  }
+  const token = request.headers.get(cloudflareAccessAssertionHeader)
+  if (!token) return { response: textResponse("Cloudflare Access did not authenticate this request.", 401) }
+  const identity = await verify(token, { audience, issuer })
+  if (!identity) return { response: textResponse("The Cloudflare Access token is not valid for this Console.", 401) }
+  return { identity }
+}
+
+/**
+ * Check one Console data request with the Cloudflare Access application token, whatever its path.
+ * Returns a rejection response, or `undefined` when the request continues to its handler.
+ */
+export async function verifyCloudflareAccessConsoleRequest(
+  request: Request,
+  resolveSettings: () => { audience?: unknown, teamDomain?: unknown },
+  verify: CloudflareAccessVerifier = defaultVerifier,
+): Promise<Response | undefined> {
+  return (await checkCloudflareAccessToken(request, resolveSettings, verify)).response
+}
+
 /**
  * Guard Console routes with the Cloudflare Access application token. Returns a response for a rejected request or
  * the identity route, and `undefined` when the request continues to its handler.
@@ -111,23 +150,8 @@ export async function handleCloudflareAccessConsoleRequest(
   const publicPath = event.url.pathname
   const path = mountBase && publicPath.startsWith(`${mountBase}/`) ? publicPath.slice(mountBase.length) : publicPath
   if (!(path === "/_vitehub" || path.startsWith("/_vitehub/") || path === "/api/_vitehub/console" || path.startsWith("/api/_vitehub/console/"))) return
-  let settings: { audience?: unknown, teamDomain?: unknown }
-  try {
-    settings = resolveSettings()
-  }
-  catch {
-    settings = {}
-  }
-  const teamDomain = settingValue(settings.teamDomain)
-  const issuer = teamDomain ? cloudflareAccessIssuer(teamDomain) : undefined
-  const audience = settingValue(settings.audience)
-  if (!issuer || !audience) {
-    return textResponse("Cloudflare Access Console Auth requires a valid team domain and audience.", 500)
-  }
-  const token = event.req.headers.get(cloudflareAccessAssertionHeader)
-  if (!token) return textResponse("Cloudflare Access did not authenticate this request.", 401)
-  const identity = await verify(token, { audience, issuer })
-  if (!identity) return textResponse("The Cloudflare Access token is not valid for this Console.", 401)
+  const { identity, response } = await checkCloudflareAccessToken(event.req, resolveSettings, verify)
+  if (response) return response
   if (path === cloudflareAccessIdentityPath) {
     if (event.req.method !== "GET") return textResponse("Method not allowed.", 405)
     return Response.json({ ...identity, signOutURL: cloudflareAccessSignOutPath }, { headers: { "cache-control": "no-store" } })

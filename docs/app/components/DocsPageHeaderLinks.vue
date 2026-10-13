@@ -60,7 +60,7 @@ const items = computed(() => {
       },
       { label: "Add MCP server to Cursor", icon: "i-simple-icons-cursor", to: cursorMcpInstallUrl(), external: true },
       { label: "Add MCP server to VS Code", icon: "i-simple-icons-visualstudiocode", to: vscodeMcpInstallUrl(), external: true },
-      { label: "Set up other AI tools", icon: "i-lucide-book-open", to: "/docs/ai-resources/mcp-server" },
+      { label: "Set up other AI tools", icon: "i-lucide-book-open", to: "/docs/getting-started/ai-resources/mcp-server" },
     ],
   ];
 });

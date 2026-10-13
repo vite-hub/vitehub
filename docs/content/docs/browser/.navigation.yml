@@ -1,0 +1,5 @@
+title: Browser
+icon: i-lucide-monitor
+order: 25
+category: Compute
+related: [sandbox, workspace]

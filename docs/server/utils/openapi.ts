@@ -179,7 +179,7 @@ export const viteHubOpenApi = {
         description: "Returns the canonical rendered-page URLs published by vitehub.dev.",
         tags: ["Discovery"],
         responses: {
-          "200": textResponse("The ViteHub XML sitemap.", "application/xml"),
+          "200": textResponse("The ViteHub XML sitemap.", "text/xml"),
           "404": problemResponse,
         },
       },

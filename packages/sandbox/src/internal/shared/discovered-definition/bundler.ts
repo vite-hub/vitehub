@@ -1,7 +1,7 @@
 import { builtinModules } from 'node:module'
 import { findDynamicImports } from 'mlly'
 import { dirname, relative, resolve as resolvePath } from 'pathe'
-import { build, type Loader, type Plugin } from 'esbuild'
+import type { Loader, Plugin } from 'esbuild'
 import { sandboxErrorDiagnostics } from "../../../error-diagnostics.ts"
 
 export interface DiscoveredDefinitionBundleOptions {
@@ -50,6 +50,7 @@ function usesRuntimeModuleResolution(contents: string) {
 }
 
 export async function bundleDiscoveredDefinitionModule(options: DiscoveredDefinitionBundleOptions) {
+  const { build } = await import('esbuild')
   const result = await build({
     alias: options.alias,
     stdin: {
@@ -82,6 +83,7 @@ export async function bundleDiscoveredDefinitionModuleGraph(
   options: DiscoveredDefinitionBundleOptions,
 ): Promise<DiscoveredDefinitionModuleGraph> {
   const outdir = resolvePath(dirname(options.filename), '.vitehub-discovered-definition')
+  const { build } = await import('esbuild')
   const result = await build({
     alias: options.alias,
     stdin: {

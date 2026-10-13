@@ -14,11 +14,13 @@ export {
   setAgentChannelDeliveryWorkflowStateResolver,
 } from "./routes.ts"
 export { defineScheduledAgentTarget } from "./scheduled-turn.ts"
+export { isViteHubBearerSecretEqual } from "@vite-hub/internal/secret"
 export { observabilityStatus } from "../internal/observability-host.ts"
 export { handleChannelReplayRequest } from "../channel-replay.ts"
 export type { ChannelReplayRequestOptions } from "../channel-replay.ts"
 export { createAgentWebhookRequest } from "../internal/webhook-request.ts"
 export { markDiscoveredAgentName, resetPublicUrlAgentNames } from "../internal/discovered-agent-name.ts"
+export { resolvePublicUrl } from "@vite-hub/runtime"
 export { markDiscoveredWorkspaceAgentDefinitionRegistered } from "../workspace-agent.ts"
 export type { AgentWebhookRequestInput } from "../internal/webhook-request.ts"
 export { setAgentWorkflowCapabilityLoaders, setAgentWorkflowRuntimeLoaders } from "../internal/workflow-runtime-loaders.ts"

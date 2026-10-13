@@ -1,5 +1,5 @@
 import type { TraceEventLogEntry } from "@vite-hub/runtime"
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
+import { hasRuntimeType } from "./runtime-type.ts"
 import { consumeAuthorization, consumeCredentialAssignment, credentialTextLineContext, credentialTextMayContinue, pendingAuthorizationState, pendingCredentialAssignmentState, pendingCredentialQuote, pendingCredentialScheme, pendingCredentialTextSuffix, pendingCredentialUri, redactCredentialText } from "./credential-redaction.ts"
 import type { AuthorizationState, CredentialAssignmentState } from "./credential-redaction.ts"
 

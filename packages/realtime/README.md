@@ -119,7 +119,7 @@ Generated files under `.vitehub/nitro/realtime` are inspectable build output, no
 
 ## Learn more
 
-- [Realtime collaboration](https://vitehub.dev/docs/reference/realtime) covers authorities, checkpoints, workspace events, quotas, and generated output.
-- [Workspace](https://vitehub.dev/docs/server-primitives/workspace) covers stores, write rules, snapshots, and persistence.
-- [Auth](https://vitehub.dev/docs/server-primitives/auth) covers session setup and trusted origins.
+- [Realtime collaboration](https://vitehub.dev/docs/realtime) covers authorities, checkpoints, workspace events, quotas, and generated output.
+- [Workspace](https://vitehub.dev/docs/workspace) covers stores, write rules, snapshots, and persistence.
+- [Auth](https://vitehub.dev/docs/auth) covers session setup and trusted origins.
 - [Configuration options](https://vitehub.dev/docs/reference/config-options) lists every Realtime module option.

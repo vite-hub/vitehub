@@ -8,7 +8,7 @@ describe("docs color mode", () => {
       "utf8",
     );
 
-    expect(header).toContain("<UColorModeButton />");
+    expect(header).toContain("<UColorModeButton");
   });
 
   it("defines browser schemes and a ViteHub-owned dark palette", async () => {

@@ -176,7 +176,7 @@ function allowsAllNetworkDestinations(
 ): boolean {
   if (networkPolicy.subnets?.deny?.length) return false;
   const allow = networkPolicy.allow;
-  return Array.isArray(allow) ? allow.includes("*") : Boolean(allow && "*" in allow);
+  return Array.isArray(allow) ? allow.includes("*") : Boolean(allow && Object.hasOwn(allow, "*"));
 }
 
 function hasEffectiveNetworkPolicy(

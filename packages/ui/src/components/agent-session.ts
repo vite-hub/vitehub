@@ -17,7 +17,12 @@ export const AgentSession = defineComponent({
       );
       return h(
         "section",
-        { ...attrs, class: ["vh-session", attrs.class], "data-session-id": props.session.id },
+        {
+          ...attrs,
+          "aria-label": attrs["aria-label"] ?? props.session.title ?? "Agent session",
+          class: ["vh-session", attrs.class],
+          "data-session-id": props.session.id,
+        },
         [
           slots.header?.({ session: props.session }) ??
             (props.session.title

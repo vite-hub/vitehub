@@ -96,7 +96,7 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-This streaming route requires a host lifetime API that stays active until the stream is consumed or cancelled. Calling `flushWaitUntil()` before returning the stream does not cover work scheduled later. See [Runtime Context](/docs/concepts/runtime-context#background-work-and-cleanup) for host lifetime ownership.
+This streaming route requires a host lifetime API that stays active until the stream is consumed or cancelled. Calling `flushWaitUntil()` before returning the stream does not cover work scheduled later. See [Runtime Context](/docs/reference/runtime-context#background-work-and-cleanup) for host lifetime ownership.
 
 `run` contains origin and trace metadata; it is not chat context. Authenticate before passing Actor identity, session selection, or trusted metadata into the Trigger input.
 
@@ -148,6 +148,30 @@ export default defineAgent({
 The Trigger translates the validated event and attaches trusted context. Keep model selection, tools, and execution behavior in the Agent Definition.
 
 When the Channel declares message methods, also return `message`: JSON data that identifies the provider message. Hooks use it through `event.message`. See [Act on the Channel message in hooks](/docs/agents/channels#act-on-the-channel-message-in-hooks).
+
+### Report a failed webhook delivery
+
+When a Trigger result sets `webhook: { deliveryId, concurrencyLimit }` and the Agent has a state provider, ViteHub queues the webhook delivery and retries a failed execution. A delivery gets three execution attempts. Add `failed` to the Trigger to report the failure to the provider when the queue stops retrying.
+
+```ts
+defineChannelTrigger({
+  input: ticketOpened,
+  invoke: (context, event) => ({
+    input: { prompt: `Triage ticket ${event.ticketId}: ${event.summary}` },
+    run: { runId: event.ticketId },
+    webhook: { concurrencyLimit: 1, deliveryId: event.ticketId },
+  }),
+  async failed(event) {
+    await commentOnTicket(event.run?.runId, `Triage failed: ${event.publicError.error} ${event.invocation?.consoleUrl ?? ''}`)
+  },
+})
+```
+
+ViteHub dispatches `failed` at most once per delivery: after the last failed attempt, after an execution timeout, or when the delivery used all its execution leases because the process stopped during each attempt. It does not call `failed` for an attempt that the queue retries, or for a cancelled Invocation. The event has `attempts`, `deliveryId`, `error`, `publicError`, and, when they are known, `input`, `run`, and `invocation: { id, consoleUrl? }`. `consoleUrl` needs a [public URL](/docs/development/integrations-and-output#public-url).
+
+The delivery is already marked as failed when `failed` runs. ViteHub logs an error from `failed` and does not retry the delivery or change its outcome. Keep the callback short, because the queue worker waits for it.
+
+With the built-in SQLite state providers, a pending notification survives a restart until a worker claims it. Its `failure.notificationStarted` dispatch marker is permanent, so another worker cannot repeat the callback after a lease expires. Queue ownership still expires: recovery completes the terminal delivery and records the channel failure without replaying `failed`, even if the original callback is paused or its process exited before recording completion. Queue completion therefore does not prove that the callback finished or that its external effects succeeded. Reconcile uncertain effects with the destination using `deliveryId`. `webhookDeliveries(scope)` exposes the dispatch marker until queue completion. Custom queue adapters without durable notification claims provide best-effort, at-most-once dispatch.
 
 ## Choose how to call the Agent
 

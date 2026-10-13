@@ -1,11 +1,12 @@
 import { defineConfig } from "vite-plus";
+import { componentEntryName, componentNames } from "./src/component-entries.ts";
 
 export default defineConfig({
   pack: {
     tsconfig: "tsconfig.build.json",
     copy: [{ from: "styles.css", to: "dist" }],
     deps: {
-      alwaysBundle: [/@pierre\//, /^@vite-hub\/runtime(?:\/|$)/],
+      alwaysBundle: [/@pierre\//, "@vite-hub/runtime"],
       neverBundle: [
         "#app",
         "@comark/vue",
@@ -21,9 +22,11 @@ export default defineConfig({
       onlyBundle: false,
     },
     entry: [
+      ...componentNames.map((name) => `src/${componentEntryName(name)}.ts`),
       "src/index.ts",
       "src/headless.ts",
       "src/nuxt.ts",
+      "src/primitive-rail.ts",
       "src/runtime/nuxt-plugin.ts",
       "src/vite.ts",
     ],

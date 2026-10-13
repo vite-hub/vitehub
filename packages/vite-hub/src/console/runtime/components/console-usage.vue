@@ -5,8 +5,25 @@ import * as v from "valibot";
 import { useRoute, useRouter } from "vue-router";
 import { encodeAgentRouteParam, resolveConsoleRouteName } from "../console-route";
 import { requestConsole } from "../client/request";
+import ConsoleUsageChart from "./console-usage-chart.vue";
+import ConsoleUsageModelDetail from "./console-usage-model-detail.vue";
+import ConsoleUsageShareBar from "./console-usage-share-bar.vue";
+import {
+  consoleUsageCacheHitRate,
+  consoleUsageMetricValue,
+  consoleUsageModelShare,
+  consoleUsageTokenSegments,
+  formatConsoleUsageCost as formatCost,
+  formatConsoleUsageCostEvidence as formatCostEvidence,
+  formatConsoleUsagePeriod as formatPeriod,
+  formatConsoleUsageShare,
+  formatConsoleUsageTokenEvidence as formatTokenEvidence,
+  formatConsoleUsageTokens as formatTokens,
+  formatConsoleUsageValue,
+  sortConsoleUsageModels,
+  type ConsoleUsageMetric as UsageMetric,
+} from "./console-usage-model";
 
-type UsageMetric = "cost" | "tokens";
 type UsageBreakdown = "model" | "time";
 type UsageWindow = "24h" | "7d" | "30d" | "90d";
 const usageTotalsEntries = {
@@ -114,7 +131,7 @@ type UsageSummary = v.InferOutput<typeof usageSummarySchema>;
 const route = useRoute();
 const router = useRouter();
 const props = defineProps<{ base: string }>();
-const emit = defineEmits<{ openSessions: [] }>();
+const emit = defineEmits<{ "open-sessions": [] }>();
 function setFilter(key: string, value: string) {
   void router.replace({ query: { ...route.query, [key]: value || undefined } });
 }
@@ -222,41 +239,16 @@ const breakdownOptions = computed<Array<{ label: string; value: UsageBreakdown }
 ]);
 const metricComplete = (totals: UsageTotals): boolean =>
   metric.value === "cost" ? totals.costAvailable : totals.totalTokensAvailable;
-const value = (totals: UsageTotals): number =>
-  metric.value === "cost" ? Number(totals.costUsd) || 0 : totals.totalTokens;
-const chartWidth = 1_000;
-const chartHeight = 220;
-const chartTickCount = 4;
-const chartMaximum = computed(() =>
-  niceMaximum(Math.max(0, ...(summary.value?.buckets.map(value) ?? []))),
+const value = (totals: UsageTotals): number => consoleUsageMetricValue(totals, metric.value);
+const chartPoints = computed(() =>
+  (summary.value?.buckets ?? []).map(bucket => ({
+    label: `${formatPeriod(bucket.start, summary.value?.resolution ?? "day")}: ${formatValue(bucket)}`,
+    partial: !metricComplete(bucket),
+    start: bucket.start,
+    value: value(bucket),
+  })),
 );
-const chartTicks = computed(() =>
-  Array.from(
-    { length: chartTickCount + 1 },
-    (_, index) => (chartMaximum.value / chartTickCount) * index,
-  ),
-);
-const chartBuckets = computed(() => {
-  const buckets = summary.value?.buckets ?? [];
-  return buckets.map((bucket, index) => ({
-    ...bucket,
-    recorded: value(bucket),
-    x: buckets.length === 1 ? chartWidth / 2 : (index / (buckets.length - 1)) * chartWidth,
-    y: chartY(value(bucket)),
-  }));
-});
-const chartLine = computed(() =>
-  chartBuckets.value
-    .map((bucket, index) => `${index ? "L" : "M"}${bucket.x.toFixed(2)},${bucket.y.toFixed(2)}`)
-    .join(" "),
-);
-const chartArea = computed(() =>
-  chartLine.value ? `${chartLine.value} L${chartWidth},${chartHeight} L0,${chartHeight} Z` : "",
-);
-const chartHasActivity = computed(() => chartBuckets.value.some((bucket) => bucket.recorded > 0));
-const partialChartBuckets = computed(() =>
-  chartBuckets.value.filter((bucket) => !metricComplete(bucket) && bucket.recorded > 0),
-);
+const partialChart = computed(() => chartPoints.value.some(point => point.partial && point.value > 0));
 const breakdownBuckets = computed(() =>
   (summary.value?.buckets ?? [])
     .filter(
@@ -265,94 +257,38 @@ const breakdownBuckets = computed(() =>
     )
     .toReversed(),
 );
-const breakdownModels = computed(() =>
-  [...(summary.value?.models ?? [])].sort((left, right) =>
-    metric.value === "cost"
-      ? (Number(right.costUsd) || 0) - (Number(left.costUsd) || 0) ||
-        right.totalTokens - left.totalTokens
-      : right.totalTokens - left.totalTokens ||
-        (Number(right.costUsd) || 0) - (Number(left.costUsd) || 0),
-  ),
+const breakdownModels = computed(() => sortConsoleUsageModels(summary.value?.models ?? [], metric.value));
+// Row bars scale to the largest model, so the ranking reads at a glance.
+const breakdownPeak = computed(() =>
+  Math.max(0, ...breakdownModels.value.map(model => consoleUsageMetricValue(model, metric.value))),
 );
+const tokenSegments = computed(() => summary.value ? consoleUsageTokenSegments(summary.value.totals) : undefined);
+const cacheHitRate = computed(() => summary.value ? consoleUsageCacheHitRate(summary.value.totals) : null);
+const selectedModelName = ref<string>();
+const selectedModel = computed(() =>
+  summary.value?.models.find(model => model.model === selectedModelName.value),
+);
+const modelDetailOpen = computed({
+  get: () => selectedModel.value !== undefined,
+  set: (open: boolean) => { if (!open) selectedModelName.value = undefined; },
+});
 
-function niceMaximum(peak: number): number {
-  if (peak <= 0) return 0;
-  const roughStep = peak / chartTickCount;
-  const magnitude = 10 ** Math.floor(Math.log10(roughStep));
-  const normalized = roughStep / magnitude;
-  const step = (normalized > 5 ? 10 : normalized > 2 ? 5 : normalized > 1 ? 2 : 1) * magnitude;
-  return Math.ceil(peak / step) * step;
+function modelShare(model: (typeof breakdownModels.value)[number]): string {
+  return summary.value ? formatConsoleUsageShare(consoleUsageModelShare(model, summary.value.totals, metric.value)) : "—";
 }
 
-function chartY(recorded: number): number {
-  return chartMaximum.value === 0
-    ? chartHeight
-    : chartHeight - (recorded / chartMaximum.value) * chartHeight;
-}
-
-function chartTickPosition(tick: number): string {
-  return `${chartMaximum.value === 0 ? 100 : 100 - (tick / chartMaximum.value) * 100}%`;
-}
-
-function formatTokens(value: number): string {
-  return new Intl.NumberFormat("en", {
-    maximumFractionDigits: 1,
-    notation: value >= 10_000 ? "compact" : "standard",
-  }).format(value);
-}
-
-function formatCost(value: string, estimated = false): string {
-  const resolved = Number(value) || 0;
-  if (resolved > 0 && resolved < 0.01 && /^0\.\d+$/.test(value)) {
-    return `${estimated ? "~" : ""}$${value}`;
-  }
-  const display = new Intl.NumberFormat("en", {
-    currency: "USD",
-    maximumFractionDigits: 2,
-    minimumFractionDigits: 2,
-    style: "currency",
-  }).format(resolved);
-  return estimated ? `~${display}` : display;
+function modelBarWidth(model: (typeof breakdownModels.value)[number]): string {
+  const recorded = consoleUsageMetricValue(model, metric.value);
+  // A short minimum keeps a tiny share visible as a dash, not a dot.
+  return recorded > 0 && breakdownPeak.value > 0 ? `max(0.5rem, ${(recorded / breakdownPeak.value) * 100}%)` : "0";
 }
 
 function formatValue(totals: UsageTotals): string {
-  const recorded = value(totals);
-  if (!metricComplete(totals) && recorded === 0) return "Unavailable";
-  const display =
-    metric.value === "cost"
-      ? formatCost(totals.costUsd, totals.costEstimated)
-      : formatTokens(totals.totalTokens);
-  return metricComplete(totals) ? display : `${display} recorded`;
+  return formatConsoleUsageValue(totals, metric.value);
 }
 
 function formatMetricNumber(value: number): string {
   return metric.value === "cost" ? formatCost(String(value)) : formatTokens(value);
-}
-
-function formatTokenEvidence(value: number, complete: boolean): string {
-  if (!complete && value === 0) return "Unavailable";
-  const display = formatTokens(value);
-  return complete ? display : `${display} recorded`;
-}
-
-function formatCostEvidence(value: string, estimated: boolean, complete: boolean): string {
-  if (!complete && (Number(value) || 0) === 0) return "Unavailable";
-  const display = formatCost(value, estimated);
-  return complete ? display : `${display} recorded`;
-}
-
-function formatShare(value: string, total: string): string {
-  const denominator = Number(total) || 0;
-  return denominator > 0 ? `${(((Number(value) || 0) / denominator) * 100).toFixed(1)}%` : "—";
-}
-
-function formatPeriod(value: string, resolution: "day" | "hour"): string {
-  return new Intl.DateTimeFormat(
-    "en",
-    resolution === "hour"
-      ? { day: "numeric", hour: "numeric", month: "short" }
-      : { day: "numeric", month: "short" },
-  ).format(new Date(value));
 }
 
 function errorMessage(value: unknown): string | undefined {
@@ -433,9 +369,9 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
 <template>
   <UDashboardPanel id="console-usage" class="console-usage" :ui="{ body: 'min-h-0 overflow-y-auto p-0 gap-0' }">
     <template #header>
-      <UDashboardNavbar title="Usage" :ui="{ root: 'border-b border-default' }">
+      <UDashboardNavbar title="Usage" :toggle="false" :ui="{ root: 'border-b border-default' }">
         <template #right>
-          <UButton class="md:hidden" icon="i-lucide-panel-left" color="neutral" variant="ghost" size="sm" aria-label="Open sessions" @click="emit('openSessions')" />
+          <UButton class="md:hidden" aria-label="Open agent sessions" color="neutral" icon="i-lucide-list" label="Sessions" size="sm" variant="ghost" @click="emit('open-sessions')" />
           <USelect v-model="window" aria-label="Usage period" class="w-28" size="sm" value-key="value" :items="windowOptions" />
           <UButton aria-label="Refresh usage" color="neutral" icon="i-lucide-refresh-cw" size="sm" variant="ghost" :disabled="loading" @click="refresh(); loadStatus();" />
         </template>
@@ -580,105 +516,20 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
                     {{ metric === "cost" ? "cost" : "tokens" }}
                   </h2>
                   <p
-                    v-if="partialChartBuckets.length"
+                    v-if="partialChart"
                     class="inline-flex items-center gap-1.5 text-xs text-warning"
                   >
                     <span class="size-1.5 rounded-full bg-warning" /> Partial points
                   </p>
                 </div>
-                <div class="relative mt-6 h-40 pl-14 pb-6" aria-label="Usage over time">
-                  <div
-                    class="absolute inset-y-6 left-0 w-12 text-right text-[10px] tabular-nums text-muted"
-                  >
-                    <span
-                      v-for="tick in chartTicks"
-                      :key="tick"
-                      class="absolute right-0 -translate-y-1/2"
-                      :style="{ top: chartTickPosition(tick) }"
-                      >{{ formatMetricNumber(tick) }}</span
-                    >
-                  </div>
-                  <div class="relative h-full border-b border-default">
-                    <svg
-                      class="absolute inset-0 size-full overflow-visible"
-                      :viewBox="`0 0 ${chartWidth} ${chartHeight}`"
-                      preserveAspectRatio="none"
-                      role="img"
-                    >
-                      <defs>
-                        <linearGradient id="usage-area" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stop-color="currentColor" stop-opacity="0.22" />
-                          <stop offset="100%" stop-color="currentColor" stop-opacity="0.02" />
-                        </linearGradient>
-                      </defs>
-                      <line
-                        v-for="tick in chartTicks"
-                        :key="`grid-${tick}`"
-                        x1="0"
-                        :y1="chartY(tick)"
-                        :x2="chartWidth"
-                        :y2="chartY(tick)"
-                        vector-effect="non-scaling-stroke"
-                        class="stroke-default"
-                        stroke-width="1"
-                        stroke-dasharray="3 4"
-                      />
-                      <path
-                        v-if="chartHasActivity"
-                        :d="chartArea"
-                        fill="url(#usage-area)"
-                        class="text-primary"
-                      />
-                      <path
-                        v-if="chartHasActivity"
-                        :d="chartLine"
-                        fill="none"
-                        class="stroke-primary"
-                        stroke-width="2"
-                        vector-effect="non-scaling-stroke"
-                      />
-                      <circle
-                        v-for="bucket in partialChartBuckets"
-                        :key="`partial-${bucket.start}`"
-                        :cx="bucket.x"
-                        :cy="bucket.y"
-                        r="4"
-                        class="fill-warning stroke-default"
-                        stroke-width="2"
-                        vector-effect="non-scaling-stroke"
-                      />
-                    </svg>
-                    <p
-                      v-if="!chartHasActivity"
-                      class="absolute inset-0 grid place-items-center text-xs text-muted"
-                    >
-                      No recorded {{ metric }} for this period
-                    </p>
-                    <div
-                      class="absolute inset-0 grid"
-                      :style="{
-                        gridTemplateColumns: `repeat(${Math.max(chartBuckets.length, 1)}, minmax(0, 1fr))`,
-                      }"
-                    >
-                      <UTooltip
-                        v-for="bucket in chartBuckets"
-                        :key="bucket.start"
-                        :text="`${formatPeriod(bucket.start, summary.resolution)}: ${formatValue(bucket)}`"
-                      >
-                        <button
-                          class="h-full w-full cursor-crosshair"
-                          :aria-label="`${formatPeriod(bucket.start, summary.resolution)}: ${formatValue(bucket)}`"
-                        />
-                      </UTooltip>
-                    </div>
-                    <span class="absolute top-full left-0 mt-2 text-[10px] text-muted">
-                      {{ formatPeriod(summary.from, summary.resolution) }}
-                    </span>
-                    <span class="absolute top-full right-0 mt-2 text-[10px] text-muted">
-                      {{ formatPeriod(summary.to, summary.resolution) }}
-                    </span>
-                  </div>
-                </div>
+                <ConsoleUsageChart
+                  class="mt-6"
+                  :points="chartPoints"
+                  :format="formatMetricNumber"
+                  :empty="`No recorded ${metric} for this period`"
+                  :from="formatPeriod(summary.from, summary.resolution)"
+                  :to="formatPeriod(summary.to, summary.resolution)"
+                />
               </div>
             </div>
           </section>
@@ -783,6 +634,23 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
             </dl>
           </section>
 
+          <section
+            v-if="tokenSegments?.segments.length && summary.totals.totalTokens > 0"
+            class="grid gap-x-12 gap-y-6 py-2 lg:grid-cols-2"
+            aria-label="Usage mix"
+          >
+            <ConsoleUsageShareBar
+              label="Tokens by type"
+              :segments="tokenSegments.segments"
+              :format="formatTokens"
+              :note="tokenSegments.complete ? undefined : 'Recorded evidence only. Some sessions did not report every token type. Input can include their cache tokens.'"
+            >
+              <template v-if="cacheHitRate !== null" #aside>
+                <span class="text-xs text-muted">Cache hit <span class="text-highlighted tabular-nums">{{ formatConsoleUsageShare(cacheHitRate) }}</span></span>
+              </template>
+            </ConsoleUsageShareBar>
+          </section>
+
           <section class="overflow-hidden border-t border-default">
             <div
               class="flex items-center justify-between gap-3 border-b border-default px-4 py-3 sm:px-5"
@@ -801,33 +669,48 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
               </div>
             </div>
             <div class="overflow-x-auto">
-              <table v-if="breakdown === 'model' && summary.models.length" class="w-full min-w-2xl text-xs">
+              <table v-if="breakdown === 'model' && summary.models.length" class="w-full min-w-2xl text-xs" data-slot="usage-model-breakdown">
                 <thead class="text-left text-xs text-muted">
                   <tr>
-                    <th class="px-4 py-3 font-medium sm:px-5">Model</th>
-                    <th class="px-4 py-3 text-right font-medium">Runs</th>
-                    <th v-if="costSupported" class="px-4 py-3 text-right font-medium">Cost</th>
-                    <th v-if="costSupported" class="px-4 py-3 text-right font-medium">Share</th>
-                    <th class="px-4 py-3 text-right font-medium sm:px-5">Tokens</th>
+                    <th class="w-10 py-3 pr-2 pl-4 font-medium sm:pl-5" scope="col">#</th>
+                    <th class="py-3 pr-4 font-medium" scope="col">Model</th>
+                    <th class="px-4 py-3 text-right font-medium" scope="col">Runs</th>
+                    <th v-if="costSupported" class="px-4 py-3 text-right font-medium" scope="col">Cost</th>
+                    <th class="px-4 py-3 text-right font-medium" scope="col">Share</th>
+                    <th class="px-4 py-3 text-right font-medium sm:px-5" scope="col">Tokens</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr
-                    v-for="model in breakdownModels"
+                    v-for="(model, index) in breakdownModels"
                     :key="model.model"
-                    class="border-t border-default"
+                    class="relative border-t border-default transition-colors hover:bg-elevated/50 has-focus-visible:bg-elevated/50"
                   >
-                    <td class="px-4 py-3 font-medium sm:px-5">{{ model.model }}</td>
+                    <td class="py-3 pr-2 pl-4 text-muted tabular-nums sm:pl-5">{{ index + 1 }}</td>
+                    <td class="py-3 pr-4">
+                      <!-- The button overlay makes the whole row open the model. Focus shows as the row fill. -->
+                      <button
+                        type="button"
+                        class="text-left font-medium outline-none after:absolute after:inset-0"
+                        :aria-label="`${model.model} usage details`"
+                        @click="selectedModelName = model.model"
+                      >
+                        {{ model.model }}
+                      </button>
+                      <div aria-hidden="true" class="mt-1.5 h-0.5 max-w-48">
+                        <div class="h-full rounded-full bg-primary" :style="{ width: modelBarWidth(model) }" />
+                      </div>
+                    </td>
                     <td class="px-4 py-3 text-right tabular-nums text-muted">
                       {{ formatTokenEvidence(model.invocations, model.invocationsAvailable) }}
                     </td>
-                    <td v-if="costSupported" class="px-4 py-3 text-right tabular-nums">
+                    <td v-if="costSupported" class="px-4 py-3 text-right tabular-nums" :class="model.pricedInvocations ? '' : 'text-muted'">
                       {{
                         formatCostEvidence(model.costUsd, model.costEstimated, model.costAvailable)
                       }}
                     </td>
-                    <td v-if="costSupported" class="px-4 py-3 text-right tabular-nums text-muted">
-                      {{ formatShare(model.costUsd, summary.totals.costUsd) }}
+                    <td class="px-4 py-3 text-right tabular-nums text-muted">
+                      {{ modelShare(model) }}
                     </td>
                     <td class="px-4 py-3 text-right tabular-nums sm:px-5">
                       {{ formatTokenEvidence(model.totalTokens, model.totalTokensAvailable) }}
@@ -1001,6 +884,26 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
 
           </div>
         </section>
+        <USlideover
+          v-model:open="modelDetailOpen"
+          :title="selectedModel?.model || 'Model'"
+          description="Model usage in this period"
+          :ui="{ description: 'sr-only' }"
+        >
+          <template #body>
+            <ConsoleUsageModelDetail
+              v-if="summary && selectedModel"
+              :model="selectedModel"
+              :totals="summary.totals"
+              :buckets="summary.buckets"
+              :metric="metric"
+              :cost-supported="costSupported"
+              :resolution="summary.resolution"
+              :from="summary.from"
+              :to="summary.to"
+            />
+          </template>
+        </USlideover>
         <section v-if="section === 'accounts'">
           <p class="mb-3 text-xs text-muted">Provider limits apply to the shared account or credential. Recorded session tokens and API cost estimates are shown separately.</p>
 

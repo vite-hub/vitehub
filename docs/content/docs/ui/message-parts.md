@@ -1,7 +1,7 @@
 ---
 title: Message Parts
 description: "Render every AI SDK UIMessage part type, with a slot for each type."
-navigation.order: 12
+navigation.order: 22
 navigation.group: Chat
 icon: i-lucide-blocks
 ---

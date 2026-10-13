@@ -293,6 +293,18 @@ describe("remote Box providers", () => {
     });
   });
 
+  it("does not infer unrestricted network access from an inherited wildcard", async () => {
+    const allow = Object.create({ "*": [] }) as Record<string, readonly unknown[]>;
+    const box = await resolveBox({
+      runtime: createVercelRuntime({
+        create: async () => vercelInstance(),
+        networkPolicy: { allow },
+      }),
+    }, {});
+
+    expect(box.plan.executionAuthority.network).toBe("unknown");
+  });
+
   it("keeps Cloudflare network authority explicit when the namespace policy is opaque", async () => {
     const stub = cloudflareStub(async () => ({ exitCode: 0, stderr: "", stdout: "", success: true }));
     const box = await resolveBox({

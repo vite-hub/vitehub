@@ -2,6 +2,8 @@ import { createServer } from "node:http"
 
 import * as v from "valibot"
 
+import { isViteHubSecretEqual } from "@vite-hub/internal/secret"
+
 import { isLoopbackHost } from "./api-key.ts"
 import { CONNECTIONS_ROUTE } from "./route.ts"
 
@@ -20,6 +22,7 @@ export interface ConnectionsCliOptions {
 
 interface ParsedArgs {
   confirm?: string
+  cookie?: string
   flags: Map<string, string | true>
   json: boolean
   positionals: string[]
@@ -28,7 +31,7 @@ interface ParsedArgs {
 
 class CliError extends Error {}
 
-const valueFlags = new Set(["--before", "--confirm", "--name", "--port", "--status", "--url"])
+const valueFlags = new Set(["--before", "--confirm", "--cookie", "--name", "--port", "--status", "--url"])
 
 function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
   const flags = new Map<string, string | true>()
@@ -55,6 +58,7 @@ function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
   const url = flags.get("--url")
   return {
     confirm: stringFlag(flags.get("--confirm")),
+    cookie: stringFlag(flags.get("--cookie")) ?? env.VITEHUB_CONNECTIONS_COOKIE,
     flags,
     json: flags.has("--json"),
     positionals,
@@ -81,6 +85,15 @@ function appUrl(parsed: ParsedArgs): URL {
   }
   if (url.protocol !== "http:" && url.protocol !== "https:") throw new CliError("--url must use http or https.")
   return url
+}
+
+function managementUrl(base: URL, suffix = ""): URL {
+  const endpoint = new URL(base)
+  const basePath = endpoint.pathname.replace(/\/+$/, "")
+  endpoint.pathname = `${basePath}${CONNECTIONS_ROUTE}${suffix}`
+  endpoint.search = ""
+  endpoint.hash = ""
+  return endpoint
 }
 
 function isLoopback(url: URL): boolean {
@@ -110,12 +123,16 @@ const activityResponse = v.looseObject({ activity: v.array(v.looseObject({
 
 async function request<T>(parsed: ParsedArgs, options: ConnectionsCliOptions, body: Record<string, unknown>, schema: v.BaseSchema<unknown, T, v.BaseIssue<unknown>>, redirect?: RequestInit["redirect"]): Promise<T> {
   const base = appUrl(parsed)
-  const endpoint = new URL(CONNECTIONS_ROUTE, base)
+  const endpoint = managementUrl(base)
   let response: Response
   try {
     const init: RequestInit = {
       body: JSON.stringify(body),
-      headers: { "content-type": "application/json", origin: base.origin },
+      headers: {
+        "content-type": "application/json",
+        origin: base.origin,
+        ...(parsed.cookie ? { cookie: parsed.cookie } : {}),
+      },
       method: "POST",
     }
     if (redirect) init.redirect = redirect
@@ -207,7 +224,7 @@ async function connectLoopback(name: string, parsed: ParsedArgs, context: CliCon
       rejectCallback(new CliError("The provider did not grant access."))
       return
     }
-    if (!state || !code || state !== expectedState) {
+    if (!state || !code || !isViteHubSecretEqual(state, expectedState)) {
       done(400, "The authorization response does not match this request.")
       return
     }
@@ -265,7 +282,7 @@ const commands: Record<string, { description: string, run: Command, usage: strin
       const name = requireName(parsed, "connect")
       const base = appUrl(parsed)
       if (!isLoopback(base)) {
-        const url = new URL(`${CONNECTIONS_ROUTE}/connect/${encodeURIComponent(name)}`, base)
+        const url = managementUrl(base, `/connect/${encodeURIComponent(name)}`)
         write(context, parsed, { url: url.href }, () => `Open this URL while signed in to the Console:\n\n  ${url.href}`)
         return
       }
@@ -354,7 +371,8 @@ function usage(): string {
     ...Object.values(commands).map(command => `  ${command.usage}`),
     "",
     "Options:",
-    "  --url <url>   App origin. Defaults to VITEHUB_CONNECTIONS_URL or http://localhost:5173.",
+    "  --url <url>   App URL, including its Vite base path. Defaults to VITEHUB_CONNECTIONS_URL or http://localhost:5173.",
+    "  --cookie <value>  Console session cookie (or VITEHUB_CONNECTIONS_COOKIE) for protected apps.",
     "  --port <port> Loopback callback port for connect. The OAuth client must allow http://127.0.0.1:<port>/callback.",
     "  --json        Print JSON.",
     "",

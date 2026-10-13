@@ -1,9 +1,13 @@
 import { describe, expect, it, vi } from "vitest"
 
 import {
+  agentChatApprovedTools,
   createAgentChatApprovalCustody,
   resolveAgentChatApprovalTtl,
+  withAgentChatApprovalGrant,
 } from "../src/internal/chat-approvals.ts"
+
+import type { AgentChatApprovalGrant } from "../src/internal/chat-approvals.ts"
 
 import type { UIMessageLike } from "../src/chat-message-input.ts"
 import type { Lock, StateAdapter } from "chat"
@@ -131,6 +135,10 @@ function custody(state: StateAdapter, options: { authenticated?: boolean; ttlMs?
   })
 }
 
+function grantedTools(grant: AgentChatApprovalGrant | undefined, invokerId = "user/1", sessionId = "session/1"): string[] {
+  return [...agentChatApprovedTools(withAgentChatApprovalGrant({ invoker: { id: invokerId } }, grant), sessionId)]
+}
+
 async function issueApproval(owner: ReturnType<typeof custody>, id = "approval-1"): Promise<void> {
   await consumeStream(owner.observe(eventStream(approvalRequestEvents(id))))
 }
@@ -177,7 +185,9 @@ describe("Agent Chat approval custody", () => {
 
     const authorized = await owner.authorize(approvalResponse())
 
-    expect(authorized.approvedTools).toEqual(["github__createOrUpdateFile"])
+    expect(grantedTools(authorized.grant)).toEqual(["github__createOrUpdateFile"])
+    expect(grantedTools(authorized.grant, "user/2")).toEqual([])
+    expect(grantedTools(authorized.grant, "user/1", "session/2")).toEqual([])
     expect(authorized.messages[0]?.parts).toEqual([
       expect.objectContaining({
         approval: { approved: true, id: "approval-1" },
@@ -195,13 +205,11 @@ describe("Agent Chat approval custody", () => {
       toolCallId: "call:approval-1",
     })
     expect(findValue(fixture.values, ":approval:approval-1")).toBeUndefined()
-    await expect(
-      owner.authorize([
-        { id: "user-2", parts: [{ text: "continue", type: "text" }], role: "user" },
-      ]),
-    ).resolves.toMatchObject({
-      approvedTools: ["github__createOrUpdateFile"],
-    })
+    const continued = await owner.authorize([
+      { id: "user-2", parts: [{ text: "continue", type: "text" }], role: "user" },
+    ])
+    expect(grantedTools(continued.grant)).toEqual(["github__createOrUpdateFile"])
+    expect(continued.grant).not.toBe(authorized.grant)
     expect(fixture.set).toHaveBeenCalledWith(
       expect.stringMatching(/:eve:approved-tools$/),
       ["github__createOrUpdateFile"],
@@ -271,7 +279,7 @@ describe("Agent Chat approval custody", () => {
     await issueApproval(rejectedOwner)
     const rejected = await rejectedOwner.authorize(approvalResponse("approval-1", false))
 
-    expect(rejected.approvedTools).toEqual([])
+    expect(rejected.grant).toBeUndefined()
     expect(findValue(rejectedFixture.values, ":approval:approval-1:consumed")).toEqual(
       expect.objectContaining({ approved: false }),
     )
@@ -287,6 +295,15 @@ describe("Agent Chat approval custody", () => {
       message: 'Agent chat approval "approval-2" requires an approved decision.',
       statusCode: 400,
     })
+  })
+
+  it("ignores forged chat approval grants", async () => {
+    const context = { invoker: { id: "user/1" } }
+    // @ts-expect-error Only the approval owner can create a chat approval grant.
+    const forged = withAgentChatApprovalGrant(context, Object.freeze({ tools: ["github__createOrUpdateFile"] }))
+    expect([...agentChatApprovedTools(forged, "session/1")]).toEqual([])
+    const forgedContext = { ...context, "vitehub.eve.approvedTools": ["github__createOrUpdateFile"] }
+    expect([...agentChatApprovedTools(forgedContext, "session/1")]).toEqual([])
   })
 
   it("rejects anonymous approval responses before reading or mutating session state", async () => {

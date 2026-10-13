@@ -1,4 +1,5 @@
 import { defu } from "defu"
+import { createHash } from "node:crypto"
 
 import { workspaceError } from "../core/errors.ts"
 import { decodeFile, normalizeSafeWorkspacePath } from "../core/path.ts"
@@ -331,6 +332,18 @@ function createInferredWorkspaceSource(family: WorkspaceSourceFamily, input: Wor
 }
 
 function inferredSourceFingerprintOptions(family: WorkspaceSourceFamily, input: WorkspaceSourceInput) {
+  if (family === "file" && isPlainRecord(input)) {
+    const options: Record<string, unknown> = input
+    if (options.content instanceof Uint8Array) {
+      return {
+        ...options,
+        get content() {
+          const content = options.content
+          return content instanceof Uint8Array ? { sha256: createHash("sha256").update(content).digest("hex") } : content
+        },
+      }
+    }
+  }
   if (family !== "github" || !isPlainRecord(input)) return input
   return {
     ...input,

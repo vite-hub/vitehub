@@ -132,7 +132,23 @@ Generated route middleware uses `createAuthAccessHandler(routes, definition?)` f
 
 ViteHub runs `authorize` only after authentication. Return `true` to allow the request, `false` for a `403`, or a `Response` for a custom result. The callback receives the authenticated `user`, `session`, and request; role semantics remain owned by the host.
 
-`authorizeRequest(input, authorize, definition?)` from `@vite-hub/auth/server` applies the same rule to one request. `authorize` is `true` for any session or a callback. It returns JSON `401` without a session and never redirects to sign-in. Blob serve routes and Source Collections use it for their `authorize` option.
+Guard your own server handlers with `withAuth(handler, definition?)` or `withAuthorization(authorize, handler, definition?)` from `@vite-hub/auth/server`. The guard returns a new handler. That handler checks the request first and calls your handler only when the check passes. Your handler receives the input and a frozen `authorization` with the checked `request`, `session`, and `user`. Otherwise the guard returns the rejection `Response`, so a missed `if` cannot run the protected action.
+
+```ts
+import { withAuth, withAuthorization } from "@vite-hub/auth/server";
+import type { H3Event } from "h3";
+
+export const me = withAuth((event: H3Event, { user }) => ({ id: user.id }));
+
+export const photo = withAuthorization(
+  ({ request, user }) => new URL(request.url).pathname.startsWith(`/photos/${user.id}/`),
+  (event: H3Event) => readPhoto(event),
+);
+```
+
+Annotate the input type when the host does not infer it, for example inside `defineEventHandler()`.
+
+`withAuth()` returns JSON `401` without a session and starts the `access.signIn` redirect for HTML requests. `withAuthorization()` applies one `authorize` rule: `true` for any session or a callback. It returns JSON `401` without a session, `403` when the callback returns `false`, or the callback's `Response`. It never redirects to sign-in. Blob serve routes and Source Collections use it for their `authorize` option.
 
 ## Vite Integration
 
@@ -149,6 +165,8 @@ export default defineAuth({
 Manual hosts can mount the stable `#vitehub/auth/server` handler directly.
 
 Better Auth options stay top-level. ViteHub-owned wiring reserves `access`, `database`, `secondaryStorage`, `basePath`, `route`, and `runtime`. The Better Auth fields `baseURL`, `secret`, and `secrets` are runtime-only: return them from the Definition callback or place them under `runtime`. `access.routes` must be static route strings or `{ authorize, method, route }` objects so the Vite Integration can register Nitro middleware.
+
+`access.routes` must use a dense array. Empty slots, including commented-out entries that leave commas, fail configuration.
 
 ```ts
 export default defineAuth({
@@ -195,7 +213,7 @@ export const userSession = useUserSession(authClient);
 
 The exported `createAuthClient` keeps Better Auth's option and plugin inference for custom base paths and client plugins. The zero-config composables use ViteHub's shared default client. React, Svelte, Solid, and other framework clients remain available from Better Auth's framework entrypoints.
 
-Read [Better Auth's client docs](https://www.better-auth.com/docs/concepts/client) for framework entrypoints and session helpers.
+Read [Better Auth's client docs](https://www.better-auth.com/docs/getting-started/concepts/client) for framework entrypoints and session helpers.
 
 ## Authenticated Agents
 
@@ -224,7 +242,7 @@ import { ViteHubError } from "@vite-hub/runtime";
 const error = new ViteHubError("AUTHENTICATION_REQUIRED", "Sign in to use this Agent.");
 ```
 
-`error.toJSON()` includes `name`, `code`, and `message`, while omitting `cause` and stack data. If a default Better Auth request or session operation fails, `authenticated()` and `requireAuth()` throw the same shared error with code `AUTH_PROVIDER_OPERATION_FAILED` and safe operation details; raw provider diagnostics remain available only through `cause`. Existing ViteHub errors and structural `AbortError` objects keep their identity. Missing APIs, malformed responses, invalid Auth configuration, and invalid custom callback results use package-owned `AUTH_C####`, `AUTH_B####`, or `AUTH_R####` Nostics codes.
+`error.toJSON()` includes `name`, `code`, and `message`, while omitting `cause` and stack data. If a default Better Auth request or session operation fails, `authenticated()`, `withAuth()`, and `withAuthorization()` throw the same shared error with code `AUTH_PROVIDER_OPERATION_FAILED` and safe operation details; raw provider diagnostics remain available only through `cause`. Existing ViteHub errors and structural `AbortError` objects keep their identity. Missing APIs, malformed responses, invalid Auth configuration, and invalid custom callback results use package-owned `AUTH_C####`, `AUTH_B####`, or `AUTH_R####` Nostics codes.
 
 ## Production checks
 
@@ -234,4 +252,4 @@ const error = new ViteHubError("AUTHENTICATION_REQUIRED", "Sign in to use this A
 - Protect application and Console page/API routes explicitly. Authentication proves a session; application-owned `authorize` callbacks define roles and permissions.
 - Keep automatic `/api/auth/**` exposure enabled unless the host mounts the stable handler itself, and verify the chosen `basePath` on both server and client.
 
-Read the complete [Auth guide](https://vitehub.dev/docs/server-primitives/auth), [Auth Users and Agent Invokers](https://vitehub.dev/docs/concepts/auth-users-and-agent-invokers), the [host support matrix](https://vitehub.dev/docs/frameworks-hosts/support-matrix), and the project's [pre-1.0 security policy](https://github.com/vite-hub/vitehub/blob/main/SECURITY.md).
+Read the complete [Auth guide](https://vitehub.dev/docs/auth), [Auth Users and Agent Invokers](https://vitehub.dev/docs/agents/invokers), the [host support matrix](https://vitehub.dev/docs/frameworks-hosts/support-matrix), and the project's [pre-1.0 security policy](https://github.com/vite-hub/vitehub/blob/main/SECURITY.md).

@@ -1,6 +1,7 @@
 import { normalizeAgentInvocationListOptions } from "./list-options.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { applyAgentInvocationStoreUpdate, byteBoundedObservations, isAppendedObservation, observationLimits } from "../invocations.ts"
+import { countRetentionDue } from "./retention.ts"
 import { searchableAgentInvocationText } from "./search.ts"
 import { filteredObservationRecord } from "./observation-projection.ts"
 import { sqlTrimWhitespace } from "./sql-whitespace.ts"
@@ -30,7 +31,7 @@ export interface D1AgentInvocationStoreOptions extends AgentInvocationRetentionO
   database: AgentInvocationD1Database | (() => AgentInvocationD1Database | Promise<AgentInvocationD1Database>)
   /** Maximum age of terminal records. Defaults to 30 days; false disables this limit. */
   maxAgeMs?: false | number
-  /** Maximum count of terminal records. Defaults to 10,000; false disables this limit. */
+  /** Maximum count of terminal records. Defaults to 10,000; false disables this limit. Writes apply it on about 1 in `ceil(maxRecords / 100)` prunes, so the count can exceed it by about 1%. */
   maxRecords?: false | number
   /** Create the table and indexes on first use of each binding in an isolate. Defaults to true. Set false when your own migrations apply `d1AgentInvocationSchema()`. */
   migrate?: boolean
@@ -157,38 +158,37 @@ export function createD1AgentInvocationStore(options: D1AgentInvocationStoreOpti
     }
     return db
   }
-  const pruneSelection = (updatedBefore?: string) => {
-    const filters: string[] = []
-    const values: (string | number)[] = []
-    if (updatedBefore !== undefined) {
-      filters.push("updated_at < ?")
-      values.push(updatedBefore)
-    }
-    else {
-      if (maxAgeMs !== false) {
-        filters.push("updated_at < ?")
-        values.push(new Date(Date.now() - maxAgeMs).toISOString())
-      }
-      if (maxRecords !== false) {
-        filters.push(`sequence NOT IN (SELECT sequence FROM ${table} WHERE status IN (${terminal}) ORDER BY sequence DESC LIMIT ?)`)
-        values.push(maxRecords)
-      }
-    }
-    return filters.length ? { values, where: `status IN (${terminal}) AND (${filters.join(" OR ")})` } : undefined
+  // Each selection uses one index. An OR across updated_at and sequence makes SQLite read every terminal row.
+  const ageSelection = (updatedBefore: string) => ({ values: [updatedBefore], where: `status IN (${terminal}) AND updated_at < ?` })
+  // Merge the three ordered status-index scans, stopping at maxRecords without reading active rows.
+  const countSelection = (limit: number) => ({
+    values: [limit - 1],
+    where: `status IN (${terminal}) AND sequence < (SELECT sequence FROM ${table} WHERE status = 'completed'
+      UNION ALL SELECT sequence FROM ${table} WHERE status = 'failed'
+      UNION ALL SELECT sequence FROM ${table} WHERE status = 'cancelled'
+      ORDER BY sequence DESC LIMIT 1 OFFSET ?)`,
+  })
+  // The count limit runs first, so both limits select from the same terminal records.
+  const pruneSelections = (count: boolean, updatedBefore?: string) => {
+    if (updatedBefore !== undefined) return [ageSelection(updatedBefore)]
+    return [
+      ...(count && maxRecords !== false ? [countSelection(maxRecords)] : []),
+      ...(maxAgeMs !== false ? [ageSelection(new Date(Date.now() - maxAgeMs).toISOString())] : []),
+    ]
   }
-  const prune = (db: AgentInvocationD1Database) => {
-    const selection = pruneSelection()
-    return selection ? [db.prepare(`DELETE FROM ${table} WHERE ${selection.where}`).bind(...selection.values)] : []
-  }
+  const prune = (db: AgentInvocationD1Database, count: boolean) =>
+    pruneSelections(count).map(selection => db.prepare(`DELETE FROM ${table} WHERE ${selection.where}`).bind(...selection.values))
   return {
     async create(input) {
       const { stored, values } = fitRecord(input)
       const db = await database()
-      const before = prune(db)
+      const count = countRetentionDue(maxRecords)
+      // Retention before the insert lets a retried ID replace its expired record.
+      const before = prune(db, count)
       const results = await db.batch<RecordRow>([
         ...before,
         db.prepare(`INSERT OR IGNORE INTO ${table} (id, status, agent_name, search, summary, updated_at, record) VALUES (?, ?, ?, ?, ?, ?, ?)`).bind(stored.id, ...values),
-        ...prune(db),
+        ...(input.status === "completed" || input.status === "failed" || input.status === "cancelled" ? prune(db, count) : []),
         db.prepare(`SELECT sequence, record, revision FROM ${table} WHERE id = ?`).bind(input.id),
       ])
       const row = results.at(-1)?.results[0]
@@ -206,13 +206,16 @@ export function createD1AgentInvocationStore(options: D1AgentInvocationStoreOpti
     },
     async prune(pruneOptions) {
       const dryRun = pruneOptions.dryRun === true
-      const selection = pruneSelection(pruneOptions.updatedBefore)
-      if (!selection) return { dryRun, ids: [] }
+      const selections = pruneSelections(true, pruneOptions.updatedBefore)
+      if (!selections.length) return { dryRun, ids: [] }
       const db = await database()
-      const result = await db.prepare(dryRun
-        ? `SELECT id FROM ${table} WHERE ${selection.where} ORDER BY sequence`
-        : `DELETE FROM ${table} WHERE ${selection.where} RETURNING id`).bind(...selection.values).all<{ id: string }>()
-      return { dryRun, ids: result.results.map(row => row.id) }
+      if (dryRun) {
+        const result = await db.prepare(`${selections.map(selection => `SELECT id, sequence FROM ${table} WHERE ${selection.where}`).join(" UNION ")} ORDER BY sequence`)
+          .bind(...selections.flatMap<number | string>(selection => selection.values)).all<{ id: string }>()
+        return { dryRun, ids: result.results.map(row => row.id) }
+      }
+      const results = await db.batch<{ id: string }>(selections.map(selection => db.prepare(`DELETE FROM ${table} WHERE ${selection.where} RETURNING id`).bind(...selection.values)))
+      return { dryRun, ids: results.flatMap(result => result.results.map(row => row.id)) }
     },
     async get(id, options) {
       const db = await database()
@@ -252,6 +255,7 @@ export function createD1AgentInvocationStore(options: D1AgentInvocationStoreOpti
       const claimFilter = claimId === undefined ? "" : " AND claim_id = ?"
       const identity = claimId === undefined ? [id] : [id, claimId]
       let sequence: number | undefined
+      const count = countRetentionDue(maxRecords)
       // D1 has no interactive transactions. Retry the full update when another writer changes the revision.
       for (let attempt = 0; attempt < 32; attempt++) {
         const selected = await db.prepare(`SELECT sequence, record, revision FROM ${table} WHERE id = ?${claimFilter}`).bind(...identity).all<RecordRow>()
@@ -264,7 +268,7 @@ export function createD1AgentInvocationStore(options: D1AgentInvocationStoreOpti
         const result = await db.batch<RecordRow>([
           db.prepare(`UPDATE ${table} SET status = ?, agent_name = ?, search = ?, summary = ?, updated_at = ?, record = ?, revision = revision + 1
             WHERE id = ?${claimFilter} AND sequence = ? AND revision = ? RETURNING sequence, record, revision`).bind(...values, ...identity, row.sequence, row.revision),
-          ...(updated.status === "completed" || updated.status === "failed" || updated.status === "cancelled" ? prune(db) : []),
+          ...(updated.status === "completed" || updated.status === "failed" || updated.status === "cancelled" ? prune(db, count) : []),
         ])
         if (result[0]?.results[0]) return record(result[0].results[0])
       }

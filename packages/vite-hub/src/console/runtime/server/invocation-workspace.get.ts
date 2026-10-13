@@ -3,6 +3,7 @@ import { useWorkspace } from "@vite-hub/workspace/runtime"
 import * as v from "valibot"
 import { getConsoleAgentDefinition } from "./agents.ts"
 import { getConsoleInvocations } from "./invocations.ts"
+import { withConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
 import { assertConsoleRequest, consoleRequestURL } from "./request.ts"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 import type { ConsoleRequestEvent } from "./request.ts"
@@ -24,7 +25,7 @@ function visiblePath(path: string): boolean {
     && !path.split("/").some(part => !part || part === ".." || part === "." || /^(?:\.git|\.ssh|\.env(?:\..*)?|auth\.json|credentials(?:\..*)?)$/i.test(part))
 }
 
-export default async function consoleInvocationWorkspaceHandler(event: ConsoleRequestEvent): Promise<{ paths: string[], repository: string, revision: string } | { content: string, path: string, provenance?: { source: string }, revision: string, size: number }> {
+async function consoleInvocationWorkspaceHandler(event: ConsoleRequestEvent): Promise<{ paths: string[], repository: string, revision: string } | { content: string, path: string, provenance?: { source: string }, revision: string, size: number }> {
   assertConsoleRequest(event)
   const id = event.context?.params?.id ?? ""
   const path = consoleRequestURL(event).searchParams.get("path")
@@ -63,3 +64,6 @@ export default async function consoleInvocationWorkspaceHandler(event: ConsoleRe
   const paths = entries.filter(entry => entry.type === "file" && visiblePath(entry.path)).map(entry => entry.path).sort()
   return { paths, repository: name, revision }
 }
+
+const guardedHandler: ConsoleAccessRoute<typeof consoleInvocationWorkspaceHandler> = withConsoleAccess(consoleInvocationWorkspaceHandler)
+export default guardedHandler

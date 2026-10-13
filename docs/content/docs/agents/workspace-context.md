@@ -8,6 +8,8 @@ icon: i-lucide-folder-search
 
 Workspace context gives an Agent a named file tree and optional Sources. The Workspace decides what exists; Capabilities and the selected Driver decide how the Agent can access it.
 
+Use the [Workspace preset](/docs/agents/workspace-preset) for a read-only Codex Agent with Source citation instructions.
+
 Use a Workspace for project files, documentation, generated state, Source-backed paths, and controlled writeback. Do not use it as hidden prompt storage; model-facing policy belongs in [Instructions](/docs/agents/instructions).
 
 ## Add a read-only Workspace
@@ -120,7 +122,7 @@ export default defineAgent({
 
 ## Preserve GitHub PR history
 
-A Node process host can use `createGitHubHost()` from `@vite-hub/agent/server/github` to prepare an exact PR head with Git. Supply `repository`, `number`, `headSha`, `headRepository`, and `headRef` to `withPullRequestCheckout()`. The host fetches the source branch directly and rejects a changed head. Set `checkouts: { root }` on the host to reuse checkouts per repository: reuse keeps ignored files such as dependencies, resets tracked and untracked files, Git hooks, and Git configuration, and fetches only the new head. Use one `root` for each process.
+A Node process host can use `createGitHubHost()` from `@vite-hub/agent/server/github` to prepare an exact PR head with Git. Supply `repository`, `number`, `headSha`, `headRepository`, and `headRef` to `withPullRequestCheckout()`. The host fetches the source branch directly and rejects a changed head. Each pass uses a fresh temporary checkout. The host removes its contents when the callback finishes, including after failure, cancellation, or timeout. Cleanup is best effort and preserves the callback result or error if filesystem discovery or deletion fails. Cleanup retains an empty temporary directory to preserve concurrent pathname replacements.
 
 When a provider materializes a separate directory, call the checkout callback's `prepareWorkspace(cwd)` in the provider launch hook. It restores independent Git history and removes saved authentication configuration. Set Workspace `commit: false` if the host will push the provider's commits instead of copying files back through Workspace writeback. When `commit: false` leaves no Workspace or Capability rule with `commit`, the invocation also skips the whole-tree Workspace diff after the run.
 

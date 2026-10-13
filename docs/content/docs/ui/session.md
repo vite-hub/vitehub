@@ -1,12 +1,12 @@
 ---
 title: Session
 description: Present an application-owned chat session with a title and the same AI SDK message contract.
-navigation.order: 16
+navigation.order: 25
 navigation.group: Chat
 icon: i-ph-chats-circle-light
 ---
 
-`AgentSession` renders a saved chat session: a title header, an `AgentChat` for the messages, and an optional footer. Use it for history views and multi-session chat apps. AI SDK does not define a session schema, so `ViteHubUISession` stays small: an ID, messages, an optional title and timestamps, and your own metadata.
+`AgentSession` is the small shell around a saved conversation. It gives the Console a title, an `AgentChat` that fills the available space, and an optional footer for the prompt or session actions. AI SDK does not define a session schema, so `ViteHubUISession` stays small: an ID, messages, an optional title and timestamps, and your own metadata.
 
 ::component-preview{name="SessionExample" flush}
 ::
@@ -26,7 +26,7 @@ const session: ViteHubUISession = {
 <AgentSession :session :status />
 ```
 
-The component does not fetch, change, or save the session. Extend the session type and keep control of tenancy and authorization.
+The component does not fetch, change, or save the session. Load the record in your application, extend its metadata when needed, and keep tenancy and authorization at that boundary.
 
 ## Examples
 

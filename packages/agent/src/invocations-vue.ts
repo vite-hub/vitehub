@@ -8,7 +8,7 @@ import type {
   AgentInvocationSummary,
 } from "./invocations.ts";
 import { agentDiagnostics } from "./agent-diagnostics.ts"
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
+import { hasRuntimeType } from "./internal/runtime-type.ts"
 
 export interface AgentInvocationRequestOptions {
   signal?: AbortSignal;
@@ -513,6 +513,9 @@ export function useAgentInvocations(
         cursor.value = paginationCursor;
         remainingStatuses.value = paginationRemainingStatuses;
         loadMoreError.value = null;
+        if (result.cursor && visited.has(result.cursor)) {
+          throw new Error("[vitehub] Agent Invocation pagination returned a repeated cursor.");
+        }
         if (additions.length > 0 || !result.cursor || visited.size >= maximumPaginationRequestsPerLoad) return result;
         nextCursor = result.cursor;
       }

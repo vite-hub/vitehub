@@ -1,8 +1,7 @@
-import { isTrustedSourceFreeInspection, markTrustedWorkspaceAccessScope, markTrustedWorkspaceSourceResolutionDefinition, registerWorkspaceAccessWrapper, workspaceOverrideSymbol } from "../access-runtime.ts"
+import { isTrustedSourceFreeInspection, grantWorkspaceAccessScope, markTrustedWorkspaceSourceResolutionDefinition, registerWorkspaceAccessWrapper, workspaceOverrideSymbol } from "../access-runtime.ts"
 import { defineCapability } from "../capability-runtime.ts"
 import { agentInvocationSourceContext } from "../invocation-context.ts"
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
-import { isRuntimeRecord } from "../internal/runtime-type.ts"
+import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts"
 
 import type {
   AgentCallbackContext,
@@ -44,13 +43,16 @@ type WorkspaceAccessRuntime = Pick<
   | "attachWorkspaceSourceRequestExecution"
   | "assertModelWorkspaceGlobPattern"
   | "createWorkspaceSourceResolutionFacade"
+  | "createWorkspaceHistoryReader"
   | "createWorkspaceTools"
+  | "forwardWorkspaceMetadataView"
   | "getWorkspaceSourceRequestExecution"
   | "hasWorkspaceSourceResolvers"
   | "isWorkspaceSourceRequestOnly"
   | "resolveWorkspaceSources"
   | "workspaceSourceGrantPaths"
   | "workspaceSourceRequestDescriptorPath"
+  | "workspaceSourceRequestMatches"
 >
 
 type WorkspaceSourceRequestExecution = ReturnType<WorkspaceAccessRuntime["getWorkspaceSourceRequestExecution"]>
@@ -427,16 +429,7 @@ export function access(options: AccessCapabilityOptions): AgentCapabilityDefinit
         // SAFETY: Access scope normalization establishes the asserted Workspace facade contract.
         : createScopedWorkspaceFacade(workspaceForScope as ReadonlyWorkspaceFacade<WorkspaceName>, finalScope, workspaceRuntime)
       const modelSafeWorkspace = createModelSafeWorkspaceFacade(scopedWorkspace as ReadonlyWorkspaceFacade<WorkspaceName>, workspaceRuntime)
-      context.context.set("access", {
-        workspaceScope: {
-          all: finalScope.all,
-          paths: finalScope.paths,
-          role: finalScope.role,
-          scope: finalScope.scope,
-          sources: finalScope.sources,
-        },
-      })
-      markTrustedWorkspaceAccessScope(context.context)
+      grantWorkspaceAccessScope(context.context, finalScope)
       registerWorkspaceAccessWrapper(context.context, workspace => createModelSafeWorkspaceFacade(workspace, workspaceRuntime))
       if (sourceResolution.definition && sourceResolution.definition !== context.workspaceDefinition) {
         context.context.set("workspace.sourceResolution.definition", sourceResolution.definition)
@@ -481,6 +474,9 @@ function createModelSafeWorkspaceFacade<Name extends WorkspaceName>(
         }
       : {}),
   }) as ReadonlyWorkspaceFacade<Name> & Partial<WorkspaceSessionStarter>
+  // The proxies do not carry Workspace metadata, so forward a read-only view.
+  workspaceRuntime.forwardWorkspaceMetadataView(workspace.fs, fs)
+  workspaceRuntime.forwardWorkspaceMetadataView(workspace, facade)
   return facade
 }
 
@@ -991,31 +987,11 @@ function createScopedWorkspaceFacade<Name extends WorkspaceName>(
 
   const facade: ReadonlyWorkspaceFacade<Name> & Partial<WorkspaceSessionStarter> = {
     fs,
+    history: workspaceRuntime.createWorkspaceHistoryReader(workspace.history, scope.all),
     tools,
   }
-  const metadataTarget = Symbol.for("vitehub.workspace.metadataTarget")
-  const resolveMetadata = Reflect.get(workspace, metadataTarget)
-  if (hasRuntimeType(resolveMetadata, "function")) {
-    Reflect.set(facade, metadataTarget, async () => {
-      // SAFETY: workspaceMetadataTarget is ViteHub-owned and returns the narrow metadata contract below.
-      const metadata = await Reflect.apply(resolveMetadata, workspace, []) as { workspaceName?: string, getMeta?: (key: string) => Promise<unknown>, list?: (path: string, options?: ListOptions) => Promise<WorkspaceEntry[]> } | undefined
-      if (!metadata) return
-      const list = metadata.list?.bind(metadata)
-      const scopedMetadata = {
-        workspaceName: metadata.workspaceName,
-        getMeta: metadata.getMeta?.bind(metadata),
-        list: list
-          ? async (path: string, options?: ListOptions) => filterEntries(scope, await list(path, options))
-          : undefined,
-      }
-      const storeTarget = Symbol.for("vitehub.workspace.storeTarget")
-      const resolveStoreTarget = Reflect.get(metadata, storeTarget)
-      if (hasRuntimeType(resolveStoreTarget, "function")) {
-        Reflect.set(scopedMetadata, storeTarget, resolveStoreTarget.bind(metadata))
-      }
-      return scopedMetadata
-    })
-  }
+  // Only a read-only metadata view crosses into the Agent package. It has no Store writes.
+  workspaceRuntime.forwardWorkspaceMetadataView(workspace, facade, entries => filterEntries(scope, entries))
   if (facadeStarter) {
     facade.startSession = async (options?: WorkspaceSessionOptions) => {
       return await facadeStarter.startSession({
@@ -1054,10 +1030,11 @@ async function sourceRequestVisible(
     return false
   }
 
+  const { workspaceSourceRequestMatches } = await loadWorkspaceAccessRuntime()
   for (const entry of entries) {
     if (entry.type !== "file" || !entry.path.endsWith(".json")) continue
     const descriptor = await readSourceRequestDescriptor(fs, entry.path)
-    if (descriptor && sourceRequestMatches(descriptor, input)) return true
+    if (descriptor && workspaceSourceRequestMatches(descriptor, input)) return true
   }
   return false
 }
@@ -1078,55 +1055,4 @@ async function readSourceRequestDescriptor(
   catch {
     return undefined
   }
-}
-
-function sourceRequestMatches(
-  descriptor: WorkspaceSourceRequestDescriptor,
-  input: WorkspaceSourceRequestExecutionInput,
-): boolean {
-  if (descriptor.method !== input.method) return false
-  if (!sameRequestTarget(descriptor.url, input.url)) return false
-  return requestShapeMatches(descriptor, input)
-}
-
-function sameRequestTarget(left: string, right: string): boolean {
-  const leftUrl = new URL(left)
-  const rightUrl = new URL(right)
-  return leftUrl.origin === rightUrl.origin && leftUrl.pathname === rightUrl.pathname
-}
-
-function requestShapeMatches(descriptor: WorkspaceSourceRequestDescriptor, input: WorkspaceSourceRequestExecutionInput): boolean {
-  const request = descriptor.request
-  if (request?.querySchema) return bodyShapeMatches(request, input)
-  if (!jsonEqual(queryFromUrl(new URL(input.url)) || {}, serializedQuery(request?.query) || {})) return false
-  return bodyShapeMatches(request, input)
-}
-
-function bodyShapeMatches(request: NonNullable<WorkspaceSourceRequestDescriptor["request"]> | undefined, input: WorkspaceSourceRequestExecutionInput): boolean {
-  if (request?.bodySchema) return true
-  if (!hasRuntimeType(request?.body, "undefined")) return jsonEqual(input.body, request.body)
-  return hasRuntimeType(input.body, "undefined")
-}
-
-function queryFromUrl(url: URL): Record<string, unknown> | undefined {
-  const query: Record<string, unknown> = {}
-  for (const key of new Set(url.searchParams.keys())) {
-    const values = url.searchParams.getAll(key)
-    query[key] = values.length > 1 ? values : values[0]
-  }
-  return Object.keys(query).length ? query : undefined
-}
-
-function serializedQuery(query: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
-  if (!query) return undefined
-  const params = new URLSearchParams()
-  for (const [key, value] of Object.entries(query)) {
-    const values = Array.isArray(value) ? value : [value]
-    for (const item of values) params.append(key, String(item))
-  }
-  return queryFromUrl(new URL(`https://vitehub.local/?${params}`))
-}
-
-function jsonEqual(left: unknown, right: unknown): boolean {
-  return JSON.stringify(left) === JSON.stringify(right)
 }

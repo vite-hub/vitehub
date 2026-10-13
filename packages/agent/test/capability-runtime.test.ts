@@ -78,52 +78,9 @@ const workspaceWithFiles = (files: Record<string, string>) => {
 }
 
 const writableWorkspace = () => {
-  const files = new Map<string, string>()
-  const fs = {
-    appendFile: vi.fn(async (path: string, content: string) => {
-      files.set(path, `${files.get(path) || ""}${content}`)
-    }),
-    copyPath: vi.fn(async (from: string, to: string) => {
-      files.set(to, files.get(from) || "")
-    }),
-    exists: vi.fn(async (path: string) => files.has(path)),
-    glob: vi.fn(async () => []),
-    list: vi.fn(async () => []),
-    mkdir: vi.fn(async () => {}),
-    movePath: vi.fn(async (from: string, to: string) => {
-      files.set(to, files.get(from) || "")
-      files.delete(from)
-    }),
-    readFile: vi.fn(async (path: string) => {
-      const content = files.get(path)
-      if (content === undefined) throw new Error("missing")
-      return content
-    }),
-    rm: vi.fn(async (path: string) => {
-      files.delete(path)
-    }),
-    search: vi.fn(async () => []),
-    stat: vi.fn(async () => { throw new Error("missing") }),
-    writeFile: vi.fn(async (path: string, content: string) => {
-      files.set(path, content)
-    }),
-  }
-  return {
-    diff: vi.fn(async () => ({ changes: [] })),
-    fs,
-    history: {
-      rebase: vi.fn(async () => {}),
-    },
-    materializeSources: vi.fn(async () => ({ bytes: 0, directories: 0, durationMs: 0, files: 0, path: "", sources: [] })),
-    snapshot: vi.fn(async () => ({ id: "snapshot" })),
-    startSession: vi.fn(async () => ({ close: vi.fn() })),
-    sync: vi.fn(async () => ({ bytes: 0, created: 0, deleted: 0, updated: 0 })),
-    tools: {
-      inspect: vi.fn(() => ({})),
-      none: vi.fn(() => ({})),
-      write: vi.fn(() => ({})),
-    },
-  }
+  const name = `capability-write-${crypto.randomUUID()}`
+  registerWorkspace(name, defineWorkspace({ store: { provider: "memory" } }))
+  return useWorkspace(name, { mode: "write" })
 }
 
 function schema<T>(validate: (value: unknown) => T) {
@@ -142,6 +99,19 @@ function schema<T>(validate: (value: unknown) => T) {
 }
 
 describe("agent capability runtime", () => {
+  it("accepts workspace source names that shadow object prototype keys", async () => {
+    const { capabilityWorkspaceSources } = await import("../src/capability-runtime.ts")
+    const workspaceSources = {
+      ["__proto__"]: {} as never,
+      constructor: {} as never,
+    }
+
+    const result = capabilityWorkspaceSources([{ id: "sources", workspaceSources }])
+
+    expect(result).toEqual(workspaceSources)
+    expect(Object.keys(result ?? {})).toEqual(["__proto__", "constructor"])
+  })
+
   it.each(["lazy", "startup"] as const)("overlays the matching GitHub checkout for a PR invocation (%s)", async (materialize) => {
     const { resolveAgentCapabilities, trustGitHubPullRequestWorkspaceCapability } = await import("../src/capability-runtime.ts")
     const { github } = await import("@vite-hub/workspace")
@@ -2321,7 +2291,7 @@ describe("agent capability runtime", () => {
       throw new Error("Expected a writable Workspace facade.")
     }
     await resolvedWorkspace.fs.writeFile("artifacts/review.md", "ok")
-    expect(workspace.fs.writeFile).toHaveBeenCalledWith("artifacts/review.md", "ok", undefined)
+    await expect(workspace.fs.readFile("artifacts/review.md")).resolves.toBe("ok")
     expect(resolvedWorkspace.tools).toHaveProperty("write", expect.any(Function))
   })
 

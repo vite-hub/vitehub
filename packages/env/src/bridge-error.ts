@@ -6,6 +6,7 @@ const messages = {
   invalid: "Invalid Env request.",
   operation_failed: "Env operation failed.",
   audit_failed: "Env activity could not be persisted.",
+  untrusted: "Env did not create this access context.",
 } as const;
 
 export function envBridgeError(code: keyof typeof messages): ViteHubError {
@@ -21,6 +22,7 @@ export function sanitizeEnvBridgeError(error: unknown): ViteHubError {
       "invalid",
       "operation_failed",
       "audit_failed",
+      "untrusted",
     ] as const) {
       if (error.code === `ENV_BRIDGE_${code.toUpperCase()}`) return envBridgeError(code);
     }

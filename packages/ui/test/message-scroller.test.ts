@@ -156,7 +156,7 @@ describe("message scroller behavior", () => {
         components: {
           UChatMessage: defineComponent({
             setup(_props, { slots }) {
-              return () => h("div", slots.body?.());
+              return () => h("div", slots.body?.() ?? slots.content?.());
             },
           }),
         },

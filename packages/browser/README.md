@@ -183,4 +183,4 @@ Handoff references expire after 60 seconds by default. Set `policy.handoffTtl` o
 - Test the deployed Worker when the result depends on Browser Run bindings. A successful package build proves imports and generated output, not provider availability.
 - Handle `BROWSER_*` failures at the route, Queue, or Workflow that can retry, reject input, or report the failure.
 
-Read the [Browser guide](https://vitehub.dev/docs/server-primitives/browser) for configuration, actions, sessions, and live handoff. See [Cloudflare deployment](https://vitehub.dev/docs/frameworks-hosts/cloudflare) for the generated binding and local Wrangler choices.
+Read the [Browser guide](https://vitehub.dev/docs/browser) for configuration, actions, sessions, and live handoff. See [Cloudflare deployment](https://vitehub.dev/docs/frameworks-hosts/cloudflare) for the generated binding and local Wrangler choices.

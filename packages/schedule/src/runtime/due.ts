@@ -101,8 +101,6 @@ export function isRuntimeScheduleDue(schedule: RuntimeScheduleRecord, scheduledA
  * years matches. The result uses the same cron and time zone rules as {@link isRuntimeScheduleDue}. It does not
  * check `enabled`, and it does not mean that a wake driver will run the Schedule.
  */
-const nextRunCache = new Map<string, { after: number, next?: number }>()
-
 function safeAdvance(cursor: number, minutes: number, fields: ScheduleDateFields, timeZone: string | undefined): number {
   if (!timeZone || timeZone === "UTC" || minutes === 1) return cursor + minutes * minuteMs
   const advanced = scheduleDateFields(new Date(cursor + minutes * minuteMs), timeZone)
@@ -112,20 +110,7 @@ function safeAdvance(cursor: number, minutes: number, fields: ScheduleDateFields
 }
 
 export function nextRuntimeScheduleRunAt(schedule: RuntimeScheduleRecord, after: Date): Date | undefined {
-  const cacheKey = `${schedule.timeZone ?? "UTC"}:${schedule.cron}`
-  const cached = nextRunCache.get(cacheKey)
-  if (cached && after.getTime() >= cached.after
-    && (cached.next === undefined ? after.getTime() < cached.after + minuteMs : after.getTime() < cached.next)) {
-    return cached.next === undefined ? undefined : new Date(cached.next)
-  }
   const cron = parseScheduleCron(schedule)
-  const maximumMonthDays = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-  if (cron.weekdays.length === 7 && !cron.months.some(month => cron.days.some(day => day <= maximumMonthDays[month]!))) return
-  const remember = (next?: number): Date | undefined => {
-    if (nextRunCache.size >= 256) nextRunCache.delete(nextRunCache.keys().next().value!)
-    nextRunCache.set(cacheKey, { after: after.getTime(), next })
-    return next === undefined ? undefined : new Date(next)
-  }
   let cursor = Math.floor(after.getTime() / minuteMs) * minuteMs + minuteMs
   const end = cursor + nextRunHorizonMs
   while (cursor <= end) {
@@ -134,7 +119,7 @@ export function nextRuntimeScheduleRunAt(schedule: RuntimeScheduleRecord, after:
       const minute = cron.minutes.find(value => value >= fields.minute)
       if (minute !== undefined) {
         const candidate = new Date(safeAdvance(cursor, minute - fields.minute, fields, schedule.timeZone))
-        if (isRuntimeScheduleDue(schedule, candidate)) return remember(candidate.getTime())
+        if (isRuntimeScheduleDue(schedule, candidate)) return candidate
         // A time zone offset change can move the candidate out of this local hour. Check the next minute.
         cursor += minuteMs
         continue
@@ -142,5 +127,5 @@ export function nextRuntimeScheduleRunAt(schedule: RuntimeScheduleRecord, after:
     }
     cursor = safeAdvance(cursor, hourMinutes - fields.minute, fields, schedule.timeZone)
   }
-  return remember()
+  return undefined
 }

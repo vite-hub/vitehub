@@ -1,8 +1,8 @@
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
-import { isRuntimeRecord } from "./internal/runtime-type.ts"
+import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { emitTraceEvent } from "@vite-hub/runtime"
 
 import { redactCredentialText } from "./internal/credential-redaction.ts"
+import { agentInvocationCallerAbortSignal } from "./internal/invocation-input.ts"
 
 import { agentErrorDetails } from "./agent-error.ts"
 import { agentInvokerLabel, hasResolvedAgentInvokerInput, hasResolverDerivedAgentInvoker, hasUnreplayableAgentInputContext, resolveInputAgentInvoker } from "./invoker.ts"
@@ -107,7 +107,7 @@ function invocationAttributes(
     "input.hasRunMetadata": Object.entries(context.runtime.run ?? {}).some(([key, value]) => key !== "runId" && value !== undefined),
     "input.hasDryRun": context.input.dryRun === true,
     "input.hasTimeout": context.input.timeout !== undefined,
-    "input.hasAbortSignal": context.input.abortSignal !== undefined,
+    "input.hasAbortSignal": agentInvocationCallerAbortSignal(context.input),
     "input.hasData": context.input.data !== undefined,
     "input.hasMessages": context.input.message !== undefined || context.input.messages !== undefined,
     "input.hasOptions": context.input.options !== undefined,
@@ -553,7 +553,7 @@ export async function traceAgentStreamEvent<TRuntimeConfig extends AgentRuntimeC
     usage: "agent.usage.recorded",
   } as const
   // SAFETY: Trace normalization establishes the asserted telemetry event contract.
-  const name = streamEvent.type in names ? names[streamEvent.type as keyof typeof names] : undefined
+  const name = Object.hasOwn(names, streamEvent.type) ? names[streamEvent.type as keyof typeof names] : undefined
   if (!name) return
 
   await traceAgentEvent(context, {

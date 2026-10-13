@@ -1,4 +1,4 @@
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
+import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { defineCapability } from "../capability-runtime.ts"
 import { appendMessageText, attachmentStringByteLength, attachmentStringBytes } from "../messages.ts"
 import { loadAiSdk } from "../internal/ai-sdk-runtime.ts"

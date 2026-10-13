@@ -1,7 +1,6 @@
 import type { EnvSource, EnvSourceResolver, EnvTypedVariableOptions, EnvValueSchema, EnvVariableDeclaration, EnvVariableOptions } from "../types.ts"
 import { envErrorDiagnostics } from "../error-diagnostics.ts"
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
-import { isRuntimeRecord } from "../internal/runtime-type.ts"
+import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts"
 import { envValueTypeName, parseEnvValue, stringValueSchema } from "./values.ts"
 
 type SafeParse = (input: unknown) => { data: unknown, success: true } | { error: Error, success: false }
@@ -49,11 +48,11 @@ interface EnvNamespace {
   number: (options?: EnvTypedVariableOptions<number>) => EnvVariableDeclaration
   packageJson: (path: string) => EnvSource
   provider: (provider: string, key: string) => EnvSource
-  source: (name: string | string[], options?: { skipEmpty?: boolean }) => EnvSource
+  source: (name: string | string[], options?: { canonical?: boolean, skipEmpty?: boolean }) => EnvSource
   variable: (options?: EnvVariableOptions) => EnvVariableDeclaration
 }
 
-function source(name: string | string[], options: { skipEmpty?: boolean } = {}): EnvSource {
+function source(name: string | string[], options: { canonical?: boolean, skipEmpty?: boolean } = {}): EnvSource {
   const names = Array.isArray(name) ? name : [name]
   if (!names.length || names.some(value => typeof value !== "string" || !value.trim())) {
     throw envErrorDiagnostics.ENV_R0002({ message: "env.source() requires one or more non-empty env variable names." })
@@ -63,6 +62,7 @@ function source(name: string | string[], options: { skipEmpty?: boolean } = {}):
     kind: "env",
     label: `env:${normalized.join("|")}`,
     name: normalized[0]!,
+    ...(options.canonical === false ? { canonical: false as const } : {}),
     ...(normalized.length > 1 ? { names: normalized } : {}),
     ...(options.skipEmpty ? { skipEmpty: true } : {}),
     serializable: true,

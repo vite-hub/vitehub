@@ -1,3 +1,4 @@
+import { H3Event } from "h3"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { ensureBlob } from "../src/ensure.ts"
@@ -9,7 +10,16 @@ import {
   setBlobRuntimeConfig,
   setBlobRuntimeStorage,
 } from "../src/runtime/state.ts"
-import type { BlobResult } from "../src/types.ts"
+import type { BlobEnsureOptions, BlobResult } from "../src/types.ts"
+
+it("forwards response options through the runtime Blob helper", async () => {
+  const storage = { serve: vi.fn(async () => [null, null] as const) }
+  setBlobRuntimeStorage(storage as unknown as ReturnType<typeof createBlobStorage>)
+  const event = new H3Event(new Request("https://example.test/photo"))
+  const options = { cacheControl: "public, max-age=300", transform: { key: "v1", run: (original: Blob) => original } }
+  expect(await blob.serve(event, "original", options)).toEqual([null, null])
+  expect(storage.serve).toHaveBeenCalledWith(event, "original", options)
+})
 
 function expectBlobSuccess<TResult>(result: BlobResult<TResult>): TResult {
   const [error, value] = result
@@ -54,8 +64,8 @@ const vercelBlobMock = vi.hoisted(() => ({
   })),
 }))
 
-const filesSdkMock = vi.hoisted(() => ({
-  list: vi.fn(async (_options?: unknown) => ({
+const filesSdkMock = vi.hoisted(() => {
+  const defaultPage = {
     items: [
       {
         etag: "\"etag\"",
@@ -66,12 +76,15 @@ const filesSdkMock = vi.hoisted(() => ({
         type: "text/plain",
       },
     ],
-  })),
-  minio: vi.fn(() => ({ provider: "minio" })),
-  r2: vi.fn((options: unknown) => ({ options, provider: "r2" })),
-  s3: vi.fn(() => ({ provider: "s3" })),
-  vercelBlob: vi.fn((options: unknown) => ({ options, provider: "vercel-blob" })),
-}))
+  }
+  return {
+    list: vi.fn(async (_options?: unknown): Promise<typeof defaultPage & { cursor?: string }> => defaultPage),
+    minio: vi.fn(() => ({ provider: "minio" })),
+    r2: vi.fn((options: unknown) => ({ options, provider: "r2" })),
+    s3: vi.fn(() => ({ provider: "s3" })),
+    vercelBlob: vi.fn((options: unknown) => ({ options, provider: "vercel-blob" })),
+  }
+})
 
 vi.mock("@vercel/blob", () => vercelBlobMock)
 
@@ -175,7 +188,18 @@ afterEach(() => {
   vercelBlobMock.head.mockClear()
   vercelBlobMock.list.mockClear()
   vercelBlobMock.put.mockClear()
-  filesSdkMock.list.mockClear()
+  filesSdkMock.list.mockReset().mockImplementation(async () => ({
+    items: [
+      {
+        etag: "\"etag\"",
+        key: "notes/hello.txt",
+        lastModified: "2026-01-01T00:00:00.000Z",
+        metadata: {},
+        size: 5,
+        type: "text/plain",
+      },
+    ],
+  }))
   filesSdkMock.minio.mockClear()
   filesSdkMock.r2.mockClear()
   filesSdkMock.s3.mockClear()
@@ -285,6 +309,26 @@ function createMemoryBucket() {
 }
 
 describe("blob runtime", () => {
+  it.each([false, true])("returns null for missing R2 metadata with serving %s", async (serve) => {
+    setBlobRuntimeConfig({
+      store: { binding: "BLOB", bucketName: "assets", driver: "cloudflare-r2" },
+      ...(serve ? { serve: { route: "/f", store: "default" } } : {}),
+    })
+    const bucket = createMemoryBucket()
+    setActiveCloudflareEnv({ BLOB: bucket })
+
+    expect(await blob.head("missing.txt")).toEqual([null, null])
+    expect(await blob.get("missing.txt")).toEqual([null, null])
+    expectBlobSuccess(await blob.put("exists.txt", "hello"))
+    expect(expectBlobSuccess(await blob.head("exists.txt"))?.pathname).toBe("exists.txt")
+
+    const cause = new Error("R2 unavailable")
+    vi.spyOn(bucket, "head").mockRejectedValue(cause)
+    const [error, value] = await blob.head("exists.txt")
+    expect(error).toMatchObject({ code: "BLOB_OPERATION_FAILED", cause, details: { operation: "head", store: "default" } })
+    expect(value).toBeUndefined()
+  })
+
   it("returns provider failures as Blob results", async () => {
     const cause = new Error("provider unavailable")
     const storage = createBlobStorage({
@@ -490,9 +534,12 @@ describe("blob runtime", () => {
     const otherStore = expectBlobSuccess(await blob.put("notes/private.txt", "value"))
 
     expect(put.url).toBe("https://assets.example/api/_vitehub/blob/notes/served.txt")
-    expect(head.url).toBe("https://assets.example/api/_vitehub/blob/notes/served.txt")
+    expect(head?.url).toBe("https://assets.example/api/_vitehub/blob/notes/served.txt")
     expect(list.blobs[0]?.url).toBe("https://assets.example/api/_vitehub/blob/notes/served.txt")
     expect(otherStore.url).toBe("https://blob.example/notes/private.txt")
+
+    const reserved = expectBlobSuccess(await blob.store("assets").put("notes/query?draft#one.txt", "value"))
+    expect(reserved.url).toBe("https://assets.example/api/_vitehub/blob/notes/query%3Fdraft%23one.txt")
   })
 
   it.each([
@@ -550,6 +597,58 @@ describe("blob runtime", () => {
     })
   })
 
+  it("shares store initialization across concurrent runtime operations", async () => {
+    setBlobRuntimeConfig({ store: { bucket: "assets", driver: "s3" } })
+
+    const results = await Promise.all([blob.list(), blob.list(), blob.list()])
+
+    for (const result of results) expectBlobSuccess(result)
+    expect(filesSdkMock.s3).toHaveBeenCalledOnce()
+  })
+
+  it("invalidates default and named stores when runtime configuration changes", async () => {
+    const first = { access: "public" as const, driver: "vercel-blob" as const, token: "first-token" }
+    const second = { access: "public" as const, driver: "vercel-blob" as const, token: "second-token" }
+    setBlobRuntimeConfig({ store: first, stores: { default: first, assets: first } })
+    expectBlobSuccess(await blob.put("first.txt", "first"))
+    expectBlobSuccess(await blob.store("assets").put("first.txt", "first"))
+
+    setBlobRuntimeConfig({ store: second, stores: { default: second, assets: second } })
+    expectBlobSuccess(await blob.put("second.txt", "second"))
+    expectBlobSuccess(await blob.store("assets").put("second.txt", "second"))
+
+    expect(vercelBlobMock.put).toHaveBeenNthCalledWith(3, "second.txt", "second", expect.objectContaining({ token: "second-token" }))
+    expect(vercelBlobMock.put).toHaveBeenNthCalledWith(4, "second.txt", "second", expect.objectContaining({ token: "second-token" }))
+    setBlobRuntimeConfig(false)
+    expect((await blob.list())[0]).toMatchObject({ cause: { code: "BLOB_R0023" } })
+    expect((await blob.store("assets").list())[0]).toMatchObject({ cause: { code: "BLOB_R0023" } })
+  })
+
+  it("does not resolve inherited named stores at runtime", async () => {
+    const inheritedStores = Object.create({
+      inherited: {
+        access: "public",
+        driver: "vercel-blob",
+        token: "inherited-token",
+      },
+    }) as Record<string, { access: "public", driver: "vercel-blob", token: string }>
+    inheritedStores.default = {
+      access: "public",
+      driver: "vercel-blob",
+      token: "default-token",
+    }
+    setBlobRuntimeConfig({
+      store: inheritedStores.default,
+      stores: inheritedStores,
+    })
+
+    await expect(blob.store("inherited").get("notes/inherited.txt")).rejects.toMatchObject({
+      code: "BLOB_R0027",
+      message: "Unknown Blob store \"inherited\".",
+    })
+    expect(vercelBlobMock.get).not.toHaveBeenCalled()
+  })
+
   it("uses the active Cloudflare binding", async () => {
     setBlobRuntimeConfig({
       store: {
@@ -570,14 +669,13 @@ describe("blob runtime", () => {
     const body = expectBlobSuccess(await blob.get("notes/hello.txt"))
 
     expect(list.blobs).toHaveLength(1)
-    expect(head.customMetadata).toEqual({ test: "true" })
+    expect(head?.customMetadata).toEqual({ test: "true" })
     expect(body?.type).toBe("text/plain")
     expect(await body?.text()).toBe("hello")
     expect(filesSdkMock.r2).not.toHaveBeenCalled()
 
     expectBlobSuccess(await blob.del("notes/hello.txt"))
-    const [missingError] = await blob.head("notes/hello.txt")
-    expect(missingError).toMatchObject({ code: "BLOB_NOT_FOUND", details: { operation: "head", store: "default" } })
+    expect(await blob.head("notes/hello.txt")).toEqual([null, null])
   })
 
   it("falls back to Files SDK R2 when no Cloudflare binding exists", async () => {
@@ -749,8 +847,79 @@ describe("blob runtime", () => {
     ])
   })
 
+  it("rejects a repeated folded files-sdk cursor before requesting the page again", async () => {
+    filesSdkMock.list
+      .mockResolvedValueOnce({ cursor: "same", items: [] })
+      .mockResolvedValueOnce({ cursor: "same", items: [] })
+      .mockRejectedValueOnce(new Error("repeated-cursor sentinel"))
+    const { createDriver } = await import("../src/drivers/s3.ts")
+    const driver = createDriver({ bucket: "assets", driver: "s3" })
+
+    await expect(driver.list({ folded: true })).rejects.toThrow("Blob provider listing returned a repeated pagination cursor.")
+    expect(filesSdkMock.list).toHaveBeenCalledTimes(2)
+  })
+
+  it("rejects a repeated folded files-sdk cursor when the resumed page reaches the limit", async () => {
+    const page = {
+      cursor: "same",
+      items: [{
+        etag: "\"etag\"",
+        key: "hello.txt",
+        lastModified: "2026-01-01T00:00:00.000Z",
+        metadata: {},
+        size: 5,
+        type: "text/plain",
+      }],
+    }
+    filesSdkMock.list.mockResolvedValueOnce(page).mockResolvedValueOnce(page)
+    const { createDriver } = await import("../src/drivers/s3.ts")
+    const driver = createDriver({ bucket: "assets", driver: "s3" })
+    const first = await driver.list({ folded: true, limit: 1 })
+
+    await expect(driver.list({ cursor: first.cursor, folded: true, limit: 1 })).rejects.toThrow("Blob provider listing returned a repeated pagination cursor.")
+    expect(filesSdkMock.list).toHaveBeenCalledTimes(2)
+  })
+
+  it("rejects folded files-sdk cycles across public pages", async () => {
+    const item = { etag: "etag", key: "file.txt", lastModified: "2026-01-01T00:00:00.000Z", metadata: {}, size: 5, type: "text/plain" }
+    filesSdkMock.list
+      .mockResolvedValueOnce({ cursor: "A", items: [item] })
+      .mockResolvedValueOnce({ cursor: "B", items: [item] })
+      .mockResolvedValueOnce({ cursor: "A", items: [item] })
+      .mockRejectedValueOnce(new Error("cycle sentinel"))
+    const { createDriver } = await import("../src/drivers/s3.ts")
+    const driver = createDriver({ bucket: "assets", driver: "s3" })
+
+    const first = await driver.list({ folded: true, limit: 1 })
+    const second = await driver.list({ cursor: first.cursor, folded: true, limit: 1 })
+    await expect(driver.list({ cursor: second.cursor, folded: true, limit: 1 })).rejects.toThrow("Blob provider listing returned a repeated pagination cursor.")
+    expect(filesSdkMock.list).toHaveBeenCalledTimes(3)
+  })
+
+  it("preserves cursor history while resuming inside a provider page", async () => {
+    const item = { etag: "etag", key: "file.txt", lastModified: "2026-01-01T00:00:00.000Z", metadata: {}, size: 5, type: "text/plain" }
+    filesSdkMock.list
+      .mockResolvedValueOnce({ cursor: "A", items: [item] })
+      .mockResolvedValueOnce({ cursor: "B", items: [item, item] })
+      .mockResolvedValueOnce({ cursor: "B", items: [item, item] })
+      .mockResolvedValueOnce({ cursor: "A", items: [item] })
+    const { createDriver } = await import("../src/drivers/s3.ts")
+    const driver = createDriver({ bucket: "assets", driver: "s3" })
+
+    const first = await driver.list({ folded: true, limit: 1 })
+    const second = await driver.list({ cursor: first.cursor, folded: true, limit: 1 })
+    const third = await driver.list({ cursor: second.cursor, folded: true, limit: 1 })
+    expect(third.hasMore).toBe(true)
+    await expect(driver.list({ cursor: third.cursor, folded: true, limit: 1 })).rejects.toThrow("Blob provider listing returned a repeated pagination cursor.")
+    expect(filesSdkMock.list).toHaveBeenCalledTimes(4)
+  })
+
+  const validFilesSdkCursor = Buffer.from(JSON.stringify({ index: 0 })).toString("base64url")
   it.each([
     ["invalid encoding", "!"],
+    ["padded valid cursor", `${validFilesSdkCursor}==`],
+    ["ignored punctuation", `${validFilesSdkCursor}?`],
+    ["nonzero trailing bits", `${validFilesSdkCursor.slice(0, -1)}1`],
     ["invalid JSON", btoa("invalid JSON")],
     ["null", Buffer.from(JSON.stringify(null)).toString("base64url")],
     ["array", Buffer.from(JSON.stringify([])).toString("base64url")],
@@ -758,6 +927,7 @@ describe("blob runtime", () => {
     ["string index", Buffer.from(JSON.stringify({ index: "0" })).toString("base64url")],
     ["negative index", Buffer.from(JSON.stringify({ index: -1 })).toString("base64url")],
     ["fractional index", Buffer.from(JSON.stringify({ index: 0.5 })).toString("base64url")],
+    ["invalid provider cursor history", Buffer.from(JSON.stringify({ index: 0, providerCursorHistory: [1] })).toString("base64url")],
     ["non-string provider cursor", Buffer.from(JSON.stringify({ index: 0, providerCursor: 1 })).toString("base64url")],
   ])("rejects malformed files-sdk cursor with %s before listing", async (_, cursor) => {
     const { createDriver } = await import("../src/drivers/s3.ts")
@@ -845,8 +1015,7 @@ describe("blob runtime", () => {
 
     expect(await expectBlobSuccess(await blob.get("notes/100%25.txt"))?.text()).toBe("value")
     expectBlobSuccess(await blob.del("notes/h%C3%A9llo.txt"))
-    const [missingError] = await blob.head("notes/h%C3%A9llo.txt")
-    expect(missingError?.code).toBe("BLOB_NOT_FOUND")
+    expect(await blob.head("notes/h%C3%A9llo.txt")).toEqual([null, null])
   })
 
   it("passes decoded pathnames to the Vercel driver", async () => {
@@ -1084,5 +1253,11 @@ describe("ensureBlob", () => {
     expect(() => ensureBlob(new Blob(["hello"], { type: "text/plain" }), {
       types: ["image"],
     })).toThrow("File type is invalid")
+  })
+
+  it("rejects fractional max sizes instead of truncating them", () => {
+    const options = { maxSize: "1.5KB" as BlobEnsureOptions["maxSize"] }
+
+    expect(() => ensureBlob(new Blob([]), options)).toThrow("Invalid file size format: 1.5KB")
   })
 })

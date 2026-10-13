@@ -3,9 +3,7 @@ import { describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({ request: vi.fn() }))
 vi.mock("../src/console/runtime/client/request", () => ({ requestConsole: mocks.request }))
-vi.mock("../src/console/runtime/components/console-brand.vue", () => ({ default: {} }))
 vi.mock("../src/console/runtime/components/console-frame.vue", () => ({ default: {} }))
-vi.mock("../src/console/runtime/components/console-primitive-switcher.vue", () => ({ default: {} }))
 vi.mock("../src/console/runtime/components/console-search.vue", () => ({ default: {} }))
 
 import Blob from "../src/console/runtime/components/console-blob.vue"

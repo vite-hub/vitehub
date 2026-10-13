@@ -76,7 +76,7 @@ function matchesGitHubRemote(
 
 function githubRemoteFile(path: string, entry: GitHubTreeEntry): GitHubWorkspaceStoreFile {
   return {
-    gitSha: entry.sha!,
+    gitSha: entry.sha,
     metadata: gitHubFileMetadata(entry),
     path,
     size: entry.size,
@@ -347,16 +347,17 @@ class GitHubWorkspaceStore implements WorkspaceStore {
       await this.#ensure({ refresh: false });
       const file = this.#files.get(normalized);
       if (options.ifDigest !== undefined) assertWorkspaceDigest(path, options.ifDigest, file ? (await this.#fileEntry(file)).digest : undefined)
-      if (file && !isReservedWorkspacePath(normalized)) {
+      const removedFile = Boolean(file && !isReservedWorkspacePath(normalized));
+      if (removedFile) {
         this.#files.delete(normalized);
         this.#dirty = true;
-        return;
+        if (!options.recursive) return;
       }
 
       const children = this.#publicDescendants(normalized);
       const hasDirectory = children.length > 0;
       if (!hasDirectory) {
-        if (options.force) return;
+        if (removedFile || options.force) return;
         throw workspaceError(`[vitehub] Workspace path does not exist: ${path}.`);
       }
       if (children.length && !options.recursive) {
@@ -585,7 +586,7 @@ class GitHubWorkspaceStore implements WorkspaceStore {
             ...(previous && previous.gitSha === entry.sha && gitHubFileMode(previous.metadata) === (entry.mode || "100644")
               ? { bytes: previous.bytes }
               : {}),
-            gitSha: entry.sha!,
+            gitSha: entry.sha,
             metadata: gitHubFileMetadata(entry),
             path,
             size: entry.size,

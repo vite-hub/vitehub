@@ -5,7 +5,7 @@ export default defineConfig({
     tsconfig: "tsconfig.build.json",
     deps: {
       alwaysBundle: [/^@vite-hub\/internal/],
-      neverBundle: ["#vitehub/connections/registry", "vite"],
+      neverBundle: ["#vitehub/connections/registry", "vite", "@vite-hub/env/internal/access", "@vite-hub/env/internal/connections"],
       onlyBundle: false,
     },
     entry: [

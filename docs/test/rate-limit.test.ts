@@ -8,6 +8,18 @@ function read(relativePath: string): string {
   return readFileSync(resolve(docsRoot, relativePath), "utf8")
 }
 
+const primitivePages = [
+  "rate-limit/index.md",
+  "rate-limit/get-started.md",
+  "rate-limit/server-api.md",
+  "rate-limit/hosts.md",
+  "rate-limit/limits-and-errors.md",
+]
+
+function readPrimitive(): string {
+  return primitivePages.map(read).join("\n")
+}
+
 function routeExists(route: string): boolean {
   const relativePath = route.replace(/^\/docs\/?/, "").replace(/\/$/, "")
   return existsSync(resolve(docsRoot, `${relativePath}.md`))
@@ -16,7 +28,7 @@ function routeExists(route: string): boolean {
 
 describe("Rate Limit documentation", () => {
   it("teaches the canonical first success and owner-package escape hatch", () => {
-    const primitive = read("server-primitives/rate-limit.md")
+    const primitive = readPrimitive()
 
     expect(primitive).toContain('vitehub({ preset: "node", rateLimit: true })')
     expect(primitive).toContain("import { requireRateLimit } from 'vite-hub/rate-limit'")
@@ -29,9 +41,12 @@ describe("Rate Limit documentation", () => {
   })
 
   it("keeps guarantees, identity, and backend limitations explicit", () => {
-    const primitive = read("server-primitives/rate-limit.md")
+    const primitive = readPrimitive()
 
-    expect(primitive).toMatch(/memory.*local Vite development/is)
+    const tutorial = read("rate-limit/get-started.md")
+    expect(tutorial).toContain("counts requests in this process's memory")
+    expect(tutorial).toContain("Counts reset on restart")
+    expect(tutorial).toContain("not shared with other app instances")
     expect(primitive).toContain("Cloudflare native enforcement is best-effort")
     expect(primitive).toContain("10-second and 60-second windows")
     expect(primitive).toContain("explicit user or tenant identities remain application policy")
@@ -49,7 +64,7 @@ describe("Rate Limit documentation", () => {
   })
 
   it("documents the Agent Capability as a consumer of the primitive", () => {
-    const capability = read("capabilities/rate-limit.md")
+    const capability = read("rate-limit/agent-capability.md")
 
     expect(capability).toContain("limiter: invocations")
     expect(capability).toContain("The Capability no longer owns `limit`, `window`, `action`, or `store`")
@@ -70,7 +85,7 @@ describe("Rate Limit documentation", () => {
   })
 
   it("keeps the new task routes resolvable", () => {
-    for (const relativePath of ["server-primitives/rate-limit.md", "capabilities/rate-limit.md"]) {
+    for (const relativePath of [...primitivePages, "rate-limit/agent-capability.md"]) {
       const routes = [...read(relativePath).matchAll(/\]\((\/docs(?:\/[^)#\s]*)?)(?:#[^)]+)?\)/g)]
         .map(match => match[1]!)
 

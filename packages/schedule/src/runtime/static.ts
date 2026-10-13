@@ -1,6 +1,8 @@
-import type { ScheduleDefinition, ScheduleDefinitionRegistry, ScheduleRegistryDefinition, ScheduleRunContext } from "../types.ts"
+import type { ScheduleDefinition, ScheduleDefinitionRegistry, ScheduleRunContext } from "../types.ts"
 import { runWithScheduleWaitUntil } from "./wait-until.ts"
+import { createScheduleError, invalidScheduleValueDetails } from "../errors.ts"
 import { scheduleErrorDiagnostics } from "../error-diagnostics.ts"
+import { isViteHubBearerSecretEqual } from "@vite-hub/internal/secret"
 
 export interface ExecuteStaticScheduleOptions {
   cron: string
@@ -32,8 +34,6 @@ interface CloudflareScheduledEventLike {
   scheduledTime?: number | string | Date
 }
 
-type LoadedScheduleModule = ScheduleRegistryDefinition | { default?: ScheduleRegistryDefinition }
-
 export interface StaticScheduleRun extends ScheduleRunContext {
   cron: string
   scheduleId: string
@@ -41,6 +41,13 @@ export interface StaticScheduleRun extends ScheduleRunContext {
 
 export function missingScheduleDefinitionError(name: string): Error {
   return scheduleErrorDiagnostics.SCHEDULE_R0034({ message: `Missing schedule definition: ${name}` })
+}
+
+/**
+ * Checks the `Authorization` header of a Vercel Cron request against `CRON_SECRET` in constant time.
+ */
+export function isScheduleCronAuthorized(authorization: string | null | undefined, cronSecret: string): boolean {
+  return isViteHubBearerSecretEqual(authorization, cronSecret)
 }
 
 export function normalizeScheduleRuntimeError(error: unknown): Error {
@@ -51,7 +58,7 @@ export function normalizeScheduleRuntimeError(error: unknown): Error {
 export function createStaticScheduleRun(
   options: Omit<ExecuteStaticScheduleOptions, "definition" | "waitUntil"> & { waitUntil: NonNullable<ExecuteStaticScheduleOptions["waitUntil"]> },
 ): StaticScheduleRun {
-  const scheduledAt = options.scheduledAt ?? new Date()
+  const scheduledAt = validateScheduledAt(options.scheduledAt)
   return {
     cron: options.cron,
     id: `run_${options.name}_${scheduledAt.toISOString()}`,
@@ -69,7 +76,7 @@ export async function executeStaticSchedule(options: ExecuteStaticScheduleOption
 }
 
 export async function executeMatchingStaticSchedules(options: ExecuteMatchingStaticSchedulesOptions): Promise<unknown[]> {
-  const scheduledAt = options.scheduledAt ?? new Date()
+  const scheduledAt = validateScheduledAt(options.scheduledAt)
   const runs: Array<Promise<unknown>> = []
   for (const [name, load] of Object.entries(options.registry)) {
     const definition = unwrapScheduleDefinition(await load())
@@ -77,6 +84,16 @@ export async function executeMatchingStaticSchedules(options: ExecuteMatchingSta
     runs.push(executeStaticSchedule({ cron: options.cron, definition, name, scheduledAt, waitUntil: options.waitUntil }))
   }
   return await Promise.all(runs)
+}
+
+function validateScheduledAt(scheduledAt: Date | undefined): Date {
+  const value = scheduledAt ?? new Date()
+  if (!(value instanceof Date) || Number.isNaN(value.getTime())) {
+    throw createScheduleError("SCHEDULE_INVALID_SCHEDULED_AT", {
+      details: invalidScheduleValueDetails("scheduledAt", value),
+    })
+  }
+  return value
 }
 
 export async function executeCloudflareStaticSchedules(
@@ -223,7 +240,19 @@ function readCloudflareEventEnv(event: CloudflareScheduledEventLike): Record<str
   return isRecord(runtimeCloudflare?.env) ? runtimeCloudflare.env : undefined
 }
 
-function unwrapScheduleDefinition(loaded: LoadedScheduleModule): ScheduleDefinition | undefined {
-  const definition = "default" in loaded ? loaded.default : loaded
-  return definition && "cron" in definition ? definition : undefined
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return Object(value) === value && !Array.isArray(value)
+}
+
+function isStaticScheduleDefinition(value: unknown): value is ScheduleDefinition {
+  return isObjectRecord(value)
+    && Object.hasOwn(value, "cron")
+    && Object.hasOwn(value, "handler")
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Registry handlers cross module and JavaScript realm boundaries; validate callability without realm-sensitive instanceof.
+    && typeof value.handler === "function"
+}
+
+export function unwrapScheduleDefinition(loaded: unknown): ScheduleDefinition | undefined {
+  const candidate = isObjectRecord(loaded) && Object.hasOwn(loaded, "default") ? loaded.default : loaded
+  return isStaticScheduleDefinition(candidate) ? candidate : undefined
 }

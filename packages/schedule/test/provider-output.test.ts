@@ -383,12 +383,14 @@ describe("schedule provider output", () => {
 
     expect(existsSync(cloudflareWorker)).toBe(true)
     await expect(readFile(cloudflareWorker, "utf8")).resolves.toContain("waitUntil: (promise) => ctx.waitUntil(promise)")
+    await expect(readFile(cloudflareWorker, "utf8")).resolves.toContain("unwrapScheduleDefinition")
     expect(JSON.parse(await readFile(cloudflareConfig, "utf8")).triggers.crons).toEqual(["0 0 * * *"])
     expect(JSON.parse(await readFile(vercelConfig, "utf8")).crons).toEqual([{
       path: "/api/vitehub/schedules/vercel/cleanup",
       schedule: "0 0 * * *",
     }])
     expect(await readFile(vercelFunction, "utf8")).toContain("executeStaticSchedule")
+    expect(await readFile(vercelFunction, "utf8")).toContain("unwrapScheduleDefinition")
     expect(await readFile(vercelFunction, "utf8")).not.toContain("setWorkflowRuntimeRegistry")
     expect(existsSync(join(rootDir, ".vercel", "output", "functions", "api", "vitehub", "schedules", "vercel", "agent-turn.func"))).toBe(false)
     const netlifyModule = await import(pathToFileURL(netlifyFunction).href)
@@ -397,6 +399,7 @@ describe("schedule provider output", () => {
     expect(existsSync(join(createDefaultNetlifyOutputRoot(rootDir), "functions", "vitehub-schedule-agent-turn.mjs"))).toBe(false)
     await expect(readFile(netlifyFunction, "utf8")).resolves.toContain("schedule: \"0 0 * * *\"")
     await expect(readFile(netlifyFunction, "utf8")).resolves.toContain("executeStaticSchedule")
+    await expect(readFile(netlifyFunction, "utf8")).resolves.toContain("unwrapScheduleDefinition")
     await expect(readFile(join(rootDir, ".vitehub", "schedule", "registry.mjs"), "utf8")).resolves.not.toContain("agent-turn")
   })
 
@@ -564,6 +567,7 @@ describe("schedule provider output", () => {
     expect(new Set(cronNames).size).toBe(cronNames.length)
     expect(cronNames.every(name => name.length <= 64 && /^[a-z0-9 _-]+$/i.test(name))).toBe(true)
     expect(source).toContain('from "@vite-hub/schedule/runtime/static"')
+    expect(source).toContain("unwrapScheduleDefinition")
     expect(source).not.toContain("./registry.mjs")
     expect(source).toContain("handler: () => \"ok\"")
   })
@@ -720,6 +724,43 @@ describe("schedule provider output", () => {
     await expect(readFile(join(netlifyRoot, "functions", "vitehub-schedule-stale.mjs"), "utf8")).rejects.toThrow()
     await expect(readFile(join(netlifyRoot, "functions", "vitehub-schedule-cleanup.mjs"), "utf8")).resolves.toContain("schedule: \"0 0 * * *\"")
     expect(JSON.parse(await readFile(join(cloudflareRoot, "wrangler.json"), "utf8")).triggers.crons).toEqual(["0 1 * * *", "0 0 * * *"])
+  })
+
+  it("filters malformed provider cron entries before publishing output", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-output-cron-shapes-")
+    const cloudflareRoot = createDefaultCloudflareOutputRoot(rootDir)
+    const vercelRoot = join(rootDir, ".vercel", "output")
+    await mkdir(cloudflareRoot, { recursive: true })
+    await mkdir(vercelRoot, { recursive: true })
+    await writeFile(join(cloudflareRoot, "wrangler.json"), JSON.stringify({
+      main: "index.js",
+      triggers: { crons: ["0 1 * * *", null, 42] },
+    }), "utf8")
+    await writeFile(join(vercelRoot, "config.json"), JSON.stringify({
+      crons: [
+        { path: "/api/user-cron", schedule: "0 1 * * *" },
+        { path: "/api/vitehub/schedules/vercel/stale", schedule: "0 2 * * *" },
+        { path: "/api/invalid" },
+        "invalid",
+        null,
+      ],
+      version: 3,
+    }), "utf8")
+
+    await generateProviderOutputs({ clientOutDir: "dist/client", rootDir })
+
+    expect(JSON.parse(await readFile(join(cloudflareRoot, "wrangler.json"), "utf8")).triggers.crons).toEqual(["0 1 * * *", "0 0 * * *"])
+    expect(JSON.parse(await readFile(join(vercelRoot, "config.json"), "utf8")).crons).toEqual([
+      { path: "/api/user-cron", schedule: "0 1 * * *" },
+      { path: "/api/vitehub/schedules/vercel/cleanup", schedule: "0 0 * * *" },
+    ])
+
+    await generateProviderOutputs({ clientOutDir: "dist/client", definitions: [], rootDir })
+
+    expect(JSON.parse(await readFile(join(cloudflareRoot, "wrangler.json"), "utf8")).triggers.crons).toEqual(["0 1 * * *"])
+    expect(JSON.parse(await readFile(join(vercelRoot, "config.json"), "utf8")).crons).toEqual([
+      { path: "/api/user-cron", schedule: "0 1 * * *" },
+    ])
   })
 
   it("avoids empty Netlify output and cleans stale files without static schedules", async () => {
@@ -1111,6 +1152,125 @@ describe("schedule provider output", () => {
     expect(JSON.parse(await readFile(cloudflareConfig, "utf8")).triggers.crons).toEqual(["0 2 * * *"])
   })
 
+  it.each([
+    "satisfies Record<string, unknown>",
+    "as Record<string, unknown>",
+    "satisfies { config: Record<string, unknown> }",
+    "satisfies (Record<string, unknown>)",
+    'satisfies import("types").Record<string, unknown>',
+    "satisfies First<string, unknown> & Second<string, unknown>",
+    "as First<string, unknown> | Second<string, unknown>",
+    "as true extends true ? Options<string, unknown> : never",
+    "as true extends true ? readonly Other<string, unknown>[] : never",
+    'as true extends true ? ScheduleDefinitionInput : `${Extract<"a" | "b", string>}`',
+    "as false extends true ? never : Options<string, unknown>",
+    "as false extends true ? never : Types.Options<string, unknown>",
+    "as true extends true ? keyof /* branch */ Types.Options<string, unknown> : never",
+    "as true extends true ? ScheduleDefinitionInput : { config: string, other: number }",
+    "as true extends true ? { config: string, other: number } : ScheduleDefinitionInput",
+    "as true extends true ? ScheduleDefinitionInput : [config: string, other: number]",
+    "as true extends true ? ScheduleDefinitionInput : ((config: string, other: number) => void)",
+    "as keyof Record<string, unknown> extends PropertyKey ? Definition : never",
+    "as unknown as typeof shape<string, unknown>",
+    "as unknown as typeof /* value */ shapes.schedule /* args */ <string, unknown>",
+    "as unknown as () => { config: Record<string, unknown> }",
+    "as unknown as new () => { config: Record<string, unknown> }",
+    "as unknown as () => [config: Record<string, unknown>, extra: string]",
+    "as unknown as new () => [config: Record<string, unknown>, extra: string]",
+    "as unknown as () => ({ config: Record<string, unknown> })",
+    "as unknown as () => (Result<string, unknown>)",
+    "as unknown as () => ((Result<string, unknown>))",
+    "as unknown as (<T, U>() => Result<T, U>)",
+    'as unknown as "manual" | Result<string, unknown>',
+    "as unknown as 'manual' | Result<string, unknown>",
+    "as unknown as 42 | Result<string, unknown>",
+    "as unknown as -42 | Result<string, unknown>",
+    'as unknown as T extends `${infer A}-${infer B}` ? Foo<A, B> : never',
+    'as unknown as T extends /* constraint */ `${infer A}-${infer B}` ? Foo<A, B> : never',
+    "as unknown as f\\u006Fo<string, unknown> | Other<string, unknown>",
+    "as unknown as f\\u{006F}o<string, unknown> & Other<string, unknown>",
+    "as unknown as 命名空间.f\\u006Fo<string, unknown> | Other<string, unknown>",
+    "as unknown as -.5 | Result<string, unknown>",
+    "as unknown as - .5 | Result<string, unknown>",
+    "as unknown as - /* comment */ .5 | Result<string, unknown>",
+    "as unknown as - /* comment */ 0xF | Result<string, unknown>",
+    "as unknown as - 42n | Result<string, unknown>",
+    "as unknown as -\n.5e-3 | Result<string, unknown>",
+    "as unknown as - // comment\n42n | Result<string, unknown>",
+    "as unknown as -.5e-3 | Result<string, unknown>",
+    "as unknown as -0xF | Result<string, unknown>",
+    "as unknown as -0b10 | Result<string, unknown>",
+    "as unknown as -0o10 | Result<string, unknown>",
+    "as unknown as -42n | Result<string, unknown>",
+    "as Foo < string, unknown > as ScheduleDefinitionInput",
+    "as Foo < string, unknown > satisfies ScheduleDefinitionInput",
+    'as unknown as keyof `${Extract<"a" | "b", string>}`',
+    "as unknown as -1 | Result<string, unknown>",
+    "as unknown as -1e-3 | Result<string, unknown>",
+    "as unknown as Result<string, unknown> | -42",
+    "as unknown as 42n | Result<string, unknown>",
+    'as unknown as () => `${Extract<"a" | "b", string>}`',
+    'as unknown as new () => `${Extract<"a" | "b", string>}`',
+    'as unknown as () => () => `${Extract<"a" | "b", string>}`',
+    "as unknown as ((<T, U>(value: T) => Result<T, U>))",
+    "as unknown as (new <T, U>() => Result<T, U>)",
+    "as unknown as () => ((value: string) => { config: Record<string, unknown> })",
+    "as unknown as () => /* return */ { config: Record<string, unknown> }",
+    "as unknown as () => () => { config: Record<string, unknown> }",
+    "as unknown as () => Result<string, unknown>",
+    "as unknown as new () => Result<string, unknown>",
+    "as unknown as (value: unknown) => asserts value is Result<string, unknown>",
+    "as unknown as (value: unknown) => value is Result<string, unknown>",
+    "as unknown as (value: unknown) => this is Result<string, unknown>",
+    "as unknown as (callback: (value: string) => void) => Result<string, unknown>",
+    "as unknown as () => readonly Result<string, unknown>[]",
+    "as unknown as () => keyof Result<string, unknown>",
+    "as unknown as () => typeof shape<string, unknown>",
+    "as unknown as () => Result<string, unknown> & Types.Other<number, boolean>",
+    "as unknown as () => Result<string, unknown> | Other<number, boolean>",
+    "as unknown as (value: unknown) => value is Result<string, unknown> | Other<number, boolean>",
+    "as unknown as (value: unknown) => asserts value is Result<string, unknown> & Types.Other<number, boolean>",
+    "as unknown as (value: unknown) => this is Result<string, unknown> | Other<number, boolean>",
+    "as unknown as (value: unknown) => value is Result<string, unknown> | /* member */ 类型<number, boolean>",
+    "as unknown as T extends infer 类型 extends Pair<string, unknown> ? Definition : never",
+    "as unknown as T extends infer 类型 extends 命名空间.类型<string, unknown> ? Definition : never",
+    "as unknown as T extends infer R extends Pair<string, unknown> ? Definition : never",
+    "as unknown as T extends 类型<string, unknown> ? Definition : never",
+    "as unknown as T extends 命名空间.类型<string, unknown> ? Definition : never",
+    "as unknown as T extends keyof /* constraint */ 命名空间.类型<string, unknown> ? Definition : never",
+    "as unknown as T extends infer R extends 类型<string, unknown> ? Definition : never",
+    'satisfies import("types", { with: { "resolution-mode": "import" } }).Record<string, unknown>',
+    "as 𐀀Type<string, unknown>",
+    "as Type𐀀<string, unknown> | Other<string, unknown>",
+    "as unknown as T extends 𐀀Type<string, unknown> ? Definition : never",
+    "as unknown as T extends (Pair<string, unknown>) ? Definition : never",
+    "as unknown as T extends [string, unknown] ? Result<string, unknown> : never",
+    "as unknown as T extends /* constraint */ [first: string, second: unknown] ? Result<string, unknown> : never",
+    "as unknown as T extends { first: string, second: unknown } ? Result<string, unknown> : never",
+    "as unknown as T extends ((Pair<string, unknown>)) ? Definition : never",
+    "as unknown as T extends /* constraint */ (Pair<string, unknown>) ? Definition : never",
+    "as unknown as T extends infer 𐀀Type extends Pair<string, unknown> ? Definition : never",
+    "as unknown as (value: unknown) => value is (Result<string, unknown>)",
+    "as \\u0066oo<string, unknown>",
+    "as f\\u006Fo<string, unknown>",
+    "as foo\\u{006f}<string, unknown>",
+    "as 类型<string, unknown>",
+    "as 类型<string, unknown> | Other<string, unknown>",
+    "satisfies 类型<string, unknown> & Other<string, unknown>",
+    "as 类型<string, unknown> | Другой<string, unknown>",
+    'as import /* type */ ("types" /* module */, /* attributes */ { with: { "resolution-mode": "require" } } /* end */).Record<string, unknown>',
+    'satisfies import /* type */ ("types" /* module */).Record<string, unknown>',
+  ])("reads static provider cron from a generic assertion: %s", async (assertion) => {
+    const rootDir = await createTempProject("vitehub-schedule-output-assertion-cron-")
+    await writeFile(join(rootDir, "src", "cleanup.schedule.ts"),
+      `export default defineSchedule({ cron: '0 2 * * *', handler: () => 'ok' } ${assertion})\n`, "utf8")
+
+    await generateProviderOutputs({ clientOutDir: "dist/client", rootDir })
+
+    const cloudflareConfig = join(createDefaultCloudflareOutputRoot(rootDir), "wrangler.json")
+    expect(JSON.parse(await readFile(cloudflareConfig, "utf8")).triggers.crons).toEqual(["0 2 * * *"])
+  })
+
   it("reads static provider cron from parenthesized defineSchedule exports", async () => {
     const rootDir = await createTempProject("vitehub-schedule-output-parenthesized-cron-")
     await writeFile(join(rootDir, "src", "cleanup.schedule.ts"), [
@@ -1125,6 +1285,86 @@ describe("schedule provider output", () => {
 
     const cloudflareConfig = join(createDefaultCloudflareOutputRoot(rootDir), "wrangler.json")
     expect(JSON.parse(await readFile(cloudflareConfig, "utf8")).triggers.crons).toEqual(["0 2 * * *"])
+  })
+
+  it.each([
+    "as Foo<string> ^ (bar())",
+    "as unknown as 类型-x",
+    'as unknown as "manual" `tag`',
+    "as unknown as 'manual' `tag`",
+    "as unknown as 类型 `tag`",
+    "as unknown as 𐀀类型 `tag`",
+    "as unknown as \\u{0066} `tag`",
+    "as unknown as { kind: string } `tag`",
+    "as unknown as 𐀀Type-x",
+    "as unknown as \\u0066oo-x",
+    "as unknown as as-foo",
+    "as unknown as as -42",
+    "as unknown as satisfies-foo",
+    "as unknown as is-foo",
+    'as unknown as () => `${string}`-foo',
+    'as unknown as keyof `${string}`-foo',
+    "as unknown as () => { config: Record<string, unknown> } + fallback",
+    "as unknown as new () => [config: Record<string, unknown>] (argument)",
+    "as unknown as () => { config: string } ? fallback : alternate",
+    "as unknown as () => (Result<string, unknown> + fallback)",
+    "as unknown as new () => ((Result<string, unknown> || fallback))",
+    "as unknown as () => (Result<string, unknown> (argument))",
+    "as unknown as () => (Result<string, unknown> ? fallback : alternate)",
+    "as (Result<string, unknown> + fallback)",
+    "as unknown as () => (Result<string, unknown> ^ (bar()))",
+    "as unknown as () => Result<string, unknown> + fallback",
+    "as unknown as () => Result<string, unknown> || fallback",
+    "as unknown as () => Result<string, unknown> ? fallback : alternate",
+    "as unknown as () => Result<string, unknown> (argument)",
+    "as unknown as new () => Result<string, unknown> + fallback",
+    "as unknown as new () => Result<string, unknown> || fallback",
+    "as unknown as new () => Result<string, unknown> ? fallback : alternate",
+    "as unknown as new () => Result<string, unknown> (argument)",
+    "as unknown as (value: unknown) => asserts value is Result<string, unknown> + fallback",
+    "as unknown as (value: unknown) => asserts value is Result<string, unknown> || fallback",
+    "as unknown as (value: unknown) => asserts value is Result<string, unknown> ? fallback : alternate",
+    "as unknown as (value: unknown) => asserts value is Result<string, unknown> (argument)",
+    "as T extends (Pair<string, unknown> + fallback) ? Definition : never",
+    "as T extends (Pair<string, unknown>(argument)) ? Definition : never",
+    "as Definition ? fallback : fallback",
+    "as true extends true ? Definition : never ? fallback : fallback",
+    "as Definition ? { config: string, other: number } : fallback",
+    "as true extends true ? Definition : never ? (bar()) : fallback",
+  ])("rejects runtime expressions after cron assertion types: %s", async (assertion) => {
+    const rootDir = await createTempProject("vitehub-schedule-output-runtime-assertion-")
+    await writeFile(join(rootDir, "src", "cleanup.schedule.ts"),
+      `export default defineSchedule({ cron: '0 2 * * *' } ${assertion})\n`, "utf8")
+
+    await expect(generateProviderOutputs({
+      clientOutDir: "dist/client",
+      rootDir,
+    })).rejects.toThrow(/Schedule discovery requires a direct default export/)
+  })
+
+  it.each([">fallback", ">>fallback", ">>>fallback", ">=fallback", "<fallback", "<<fallback", "<=fallback"])("rejects compact relational cron assertions: %s", async (operator) => {
+    const rootDir = await createTempProject("vitehub-schedule-output-relational-assertion-")
+    await writeFile(join(rootDir, "src", "cleanup.schedule.ts"),
+      `export default defineSchedule({ cron: '0 2 * * *' } as Foo${operator})\n`, "utf8")
+
+    await expect(generateProviderOutputs({
+      clientOutDir: "dist/client",
+      rootDir,
+    })).rejects.toThrow(/Schedule discovery requires a direct default export/)
+  })
+
+  it.each([
+    "({ cron: '0 2 * * *' } as Foo) `tag`",
+    "({ cron: '0 2 * * *' } as Foo<string>) `tag`",
+  ])("rejects tagged-template expressions after cron assertions: %s", async (expression) => {
+    const rootDir = await createTempProject("vitehub-schedule-output-tagged-assertion-")
+    await writeFile(join(rootDir, "src", "cleanup.schedule.ts"),
+      `export default defineSchedule(${expression})\n`, "utf8")
+
+    await expect(generateProviderOutputs({
+      clientOutDir: "dist/client",
+      rootDir,
+    })).rejects.toThrow(/must declare a static cron string/)
   })
 
   it("rejects raw default objects for provider cron extraction", async () => {
@@ -1344,8 +1584,28 @@ describe("schedule provider output", () => {
 
     const source = await readFile(join(rootDir, ".vercel", "output", "functions", "api", "vitehub", "schedules", "vercel", "cleanup.func", "index.mjs"), "utf8")
     expect(source).toContain("process.env.CRON_SECRET")
-    expect(source).toContain("authorization !== `Bearer ${cronSecret}`")
+    expect(source).toContain("if (cronSecret && !isScheduleCronAuthorized(authorization, cronSecret))")
+    expect(source).not.toContain("!== `Bearer ${cronSecret}`")
     expect(source).toContain("res.statusCode = 401")
+
+    const { default: handler }: { default: (req: { headers: Record<string, string>, url: string }, res: { end: (body?: string) => void, statusCode?: number }) => Promise<void> } = await import(pathToFileURL(join(rootDir, ".vercel", "output", "functions", "api", "vitehub", "schedules", "vercel", "cleanup.func", "index.mjs")).href)
+    const run = async (authorization?: string) => {
+      const res: { end: (body?: string) => void, statusCode?: number } = { end: () => {} }
+      await handler({ headers: authorization ? { authorization } : {}, url: "/api/vitehub/schedules/vercel/cleanup" }, res)
+      return res.statusCode
+    }
+    const previousSecret = process.env.CRON_SECRET
+    process.env.CRON_SECRET = "cron-secret"
+    try {
+      for (const authorization of [undefined, "Bearer cron", "Bearer cron-secret-", "Bearer cron-secreT", "Basic cron-secret"]) {
+        expect(await run(authorization)).toBe(401)
+      }
+      expect(await run("Bearer cron-secret")).toBe(404)
+    }
+    finally {
+      if (previousSecret === undefined) delete process.env.CRON_SECRET
+      else process.env.CRON_SECRET = previousSecret
+    }
   })
 
   it("emits Vercel handlers that load unsanitized schedule names", async () => {

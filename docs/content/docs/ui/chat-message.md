@@ -1,7 +1,7 @@
 ---
 title: Chat Message
 description: Render one AI SDK UI message with Nuxt UI chrome and customizable part slots.
-navigation.order: 11
+navigation.order: 21
 navigation.group: Chat
 icon: i-ph-chat-text-light
 ---

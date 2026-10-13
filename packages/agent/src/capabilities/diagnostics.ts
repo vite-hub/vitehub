@@ -1,4 +1,4 @@
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
+import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { normalizeRuntimeDiagnosticError } from "@vite-hub/runtime"
 import { defineCapability, eagerFinishExtensionSymbol } from "../capability-runtime.ts"
 

@@ -45,6 +45,7 @@ const blobMock = vi.hoisted(() => {
           uploadedAt: value.uploadedAt,
           url: `https://blob.example/${pathname}`,
         })),
+      cursor: undefined as string | undefined,
       hasMore: false,
     })),
     put: vi.fn(async (pathname: string, body: Blob | Uint8Array | string) => {
@@ -80,6 +81,39 @@ afterEach(() => {
 })
 
 describe("Vercel Blob workspace store", () => {
+  it("rejects repeated pagination cursors before looping", async () => {
+    process.env.BLOB_READ_WRITE_TOKEN = "token"
+    const { createVercelBlobWorkspaceStore } = await import("../src/providers/vercel/blob-store.ts")
+    blobMock.list
+      .mockImplementationOnce(async () => ({ blobs: [], cursor: "same", hasMore: true }))
+      .mockImplementationOnce(async () => ({ blobs: [], cursor: "same", hasMore: true }))
+    const store = createVercelBlobWorkspaceStore({ provider: "vercel-blob", token: "token" }, "docs")
+    await expect(store.list()).rejects.toThrow("pagination returned a repeated cursor")
+    expect(blobMock.list).toHaveBeenCalledTimes(2)
+  })
+  it.each([
+    { label: "missing items", response: { blobs: null } },
+    { label: "missing cursor", response: { blobs: [], hasMore: true } },
+    { label: "malformed item", response: { blobs: [{ pathname: 42 }] } },
+  ])("rejects Vercel Blob list responses with $label", async ({ response }) => {
+    process.env.BLOB_READ_WRITE_TOKEN = "token"
+    const { createVercelBlobWorkspaceStore } = await import("../src/providers/vercel/blob-store.ts")
+    blobMock.list.mockResolvedValueOnce(response as never)
+    const store = createVercelBlobWorkspaceStore({ provider: "vercel-blob", token: "token" }, "docs")
+
+    await expect(store.list()).rejects.toMatchObject({
+      code: "WORKSPACE_R0033",
+      message: "Unexpected Vercel Blob list response.",
+    })
+  })
+  it("stops when the provider marks a cursor as terminal", async () => {
+    process.env.BLOB_READ_WRITE_TOKEN = "token"
+    const { createVercelBlobWorkspaceStore } = await import("../src/providers/vercel/blob-store.ts")
+    blobMock.list.mockResolvedValueOnce({ blobs: [], cursor: "terminal", hasMore: false })
+    const store = createVercelBlobWorkspaceStore({ provider: "vercel-blob", token: "token" }, "docs")
+    await expect(store.list()).resolves.toEqual([])
+    expect(blobMock.list).toHaveBeenCalledTimes(1)
+  })
   it("detects equal-size content changes in snapshot diffs", async () => {
     process.env.BLOB_READ_WRITE_TOKEN = "token"
     const { createVercelBlobWorkspaceStore } = await import("../src/providers/vercel/blob-store.ts")
@@ -184,6 +218,19 @@ describe("Vercel Blob workspace store", () => {
     await expect(store.rm("missing.md", { force: true })).resolves.toBeUndefined()
     await store.writeFile("docs/readme.md", { path: "docs/readme.md", content: "hello" })
     await store.rm("docs", { recursive: true })
+    await expect(store.readFile("docs/readme.md")).resolves.toBeUndefined()
+  })
+
+  it("removes a file and its descendants when recursive removal targets both", async () => {
+    process.env.BLOB_READ_WRITE_TOKEN = "token"
+    const { createVercelBlobWorkspaceStore } = await import("../src/providers/vercel/blob-store.ts")
+    const store = createVercelBlobWorkspaceStore({ provider: "vercel-blob", token: "token" }, "docs")
+
+    await store.writeFile("docs", { path: "docs", content: "file" })
+    await store.writeFile("docs/readme.md", { path: "docs/readme.md", content: "child" })
+    await store.rm("docs", { recursive: true })
+
+    await expect(store.readFile("docs")).resolves.toBeUndefined()
     await expect(store.readFile("docs/readme.md")).resolves.toBeUndefined()
   })
 

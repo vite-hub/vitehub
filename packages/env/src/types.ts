@@ -7,7 +7,11 @@ export type EnvMode = "build" | "runtime"
 
 export interface EnvIntegrationOptions {
   diagnostics?: EnvDiagnostics
-  prefix?: string
+  /**
+   * Prefix of canonical variable names. Every env-backed declaration first reads the prefix plus its
+   * path in upper snake case, then its conventional names. Defaults to `"VITEHUB_"`. `false` disables it.
+   */
+  prefix?: string | false
   projectRoot?: string
   providers?: Record<string, string>
   runtimeImports?: EnvRuntimeImportSpecifiers
@@ -49,6 +53,8 @@ export type EnvSource =
     label: string
     name: string
     names?: string[]
+    /** The canonical name, `VITEHUB_<PATH>`, which the ordered names read first. */
+    canonical?: string | false
     /** Treat empty host values as missing when reading the ordered names. */
     skipEmpty?: boolean
     serializable: true
@@ -247,10 +253,16 @@ export interface ServerEnvInspectionEntry {
   required: boolean
   source: "env" | "literal" | "provider"
   status: ServerEnvInspectionStatus
+  /** Which kind of variable name supplied an env value: the canonical `VITEHUB_<PATH>` name, or a conventional name. */
+  via?: "canonical" | "conventional"
+  /** The canonical name and a conventional name are both set to different values. The canonical name wins. */
+  conflict?: true
 }
 
 export interface ServerEnvDescriptionEntry {
   path?: string
+  /** The canonical variable name of an env declaration, such as `VITEHUB_CLIPROXY_API_KEY`. It is read first. */
+  canonicalName?: string
   source: "env" | "literal" | "provider"
   provider?: string
   secret: boolean

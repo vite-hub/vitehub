@@ -256,6 +256,7 @@ function isRunError(value: unknown): boolean {
 }
 
 function isRunSummary(value: unknown): value is ScheduleRunSummary {
+  // SAFETY: Every nested field is validated below before the untrusted response is treated as a ScheduleRunSummary.
   return isRecord(value) && stringFields(value, ["id", "scheduleId", "scheduledAt", "target"])
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate primitive fields from the untrusted Schedule Dev response.
     && typeof value.attemptCount === "number" && Number.isInteger(value.attemptCount) && value.attemptCount >= 0

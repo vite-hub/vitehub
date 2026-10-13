@@ -1,1 +1,1 @@
-/// <reference path="./.vitehub/schedule.d.ts" />
+import "./.vitehub/schedule.d.ts"

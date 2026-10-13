@@ -1,20 +1,35 @@
-import { getViteHubErrorShape } from "@vite-hub/runtime"
+import { readBuiltInEnv } from "./internal/builtin-env.ts"
 
-import { isRuntimeRecord } from "./internal/runtime-type.ts"
-
+import type { BuiltInEnvField } from "./internal/builtin-env.ts"
+import type { CodeHostKind } from "./internal/code-host.ts"
 import type { AgentCallbackContext, AgentRuntimeConfig } from "./types.ts"
 
 /** One Server Env value that a built-in Channel reads when its options omit the value. */
-export interface ChannelEnvField {
-  /** Host variable names in lookup order. */
-  names: readonly [string, ...string[]]
-  secret?: true
-  /**
-   * The value is required when an Agent uses the Channel without one of these option keys.
-   * Omit it to keep the value optional.
-   */
-  requiredUnless?: readonly string[]
-}
+export type ChannelEnvField = BuiltInEnvField
+
+/** Server Env of each Code Host. Channels and codeHost() read the same names. */
+export const builtInCodeHostEnv = {
+  github: {
+    appId: { names: ["GITHUB_APP_ID"] },
+    appInstallationId: { names: ["GITHUB_APP_INSTALLATION_ID"] },
+    appOwner: { names: ["GITHUB_APP_OWNER"] },
+    appInstallations: { names: ["GITHUB_APP_INSTALLATIONS"] },
+    appPrivateKey: { names: ["GITHUB_APP_PRIVATE_KEY"], secret: true },
+    appPrivateKeyPath: { names: ["GITHUB_APP_PRIVATE_KEY_PATH"] },
+    token: { names: ["VITEHUB_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"], secret: true },
+    webhookSecret: { names: ["GITHUB_WEBHOOK_SECRET"], secret: true },
+  },
+  gitlab: {
+    baseUrl: { names: ["GITLAB_BASE_URL"] },
+    token: { names: ["GITLAB_TOKEN"], secret: true },
+    webhookSecret: { names: ["GITLAB_WEBHOOK_SECRET"], secret: true },
+  },
+  forgejo: {
+    baseUrl: { names: ["FORGEJO_BASE_URL"] },
+    token: { names: ["FORGEJO_TOKEN"], secret: true },
+    webhookSecret: { names: ["FORGEJO_WEBHOOK_SECRET"], secret: true },
+  },
+} as const satisfies Record<CodeHostKind, Record<string, ChannelEnvField>>
 
 /**
  * Server Env declared by built-in Channels, keyed by Channel factory name and then by
@@ -30,14 +45,9 @@ export const builtInChannelEnv = {
     botToken: { names: ["DISCORD_BOT_TOKEN"], secret: true },
     publicKey: { names: ["DISCORD_PUBLIC_KEY"], secret: true },
   },
-  github: {
-    appId: { names: ["GITHUB_APP_ID"] },
-    appInstallationId: { names: ["GITHUB_APP_INSTALLATION_ID"] },
-    appPrivateKey: { names: ["GITHUB_APP_PRIVATE_KEY"], secret: true },
-    appPrivateKeyPath: { names: ["GITHUB_APP_PRIVATE_KEY_PATH"] },
-    token: { names: ["VITEHUB_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"], secret: true },
-    webhookSecret: { names: ["GITHUB_WEBHOOK_SECRET"], secret: true },
-  },
+  github: builtInCodeHostEnv.github,
+  gitlab: builtInCodeHostEnv.gitlab,
+  forgejo: builtInCodeHostEnv.forgejo,
   telegram: {
     apiBaseUrl: { names: ["TELEGRAM_API_BASE_URL"] },
     botToken: { names: ["TELEGRAM_BOT_TOKEN"], requiredUnless: ["adapter", "botToken"], secret: true },
@@ -49,77 +59,12 @@ export type BuiltInChannelEnv = typeof builtInChannelEnv
 
 const channelEnvFields: Readonly<Record<string, Readonly<Record<string, ChannelEnvField>>>> = builtInChannelEnv
 
-const serverEnvModuleId = "#vitehub/env/server"
-
-function isRecord(value: unknown): value is Record<PropertyKey, unknown> {
-  return isRuntimeRecord(value) && !Array.isArray(value)
-}
-
-interface ServerEnvModule {
-  loadServerEnv?: (event?: unknown) => Promise<unknown>
-  useServerEnv?: (event?: unknown) => unknown
-}
-
-let serverEnvModule: Promise<ServerEnvModule | undefined> | undefined
-
-// Without hubEnv() the generated module does not resolve. Other import failures, such as a
-// provider module that throws while it loads, are configuration errors and stay visible.
-function isMissingModule(error: unknown): boolean {
-  const code = isRecord(error) ? error.code : undefined
-  const message = error instanceof Error ? error.message : ""
-  if (code === "ERR_MODULE_NOT_FOUND") return /^Cannot find (?:package|module) ['"]#vitehub\/env\/server['"]/.test(message)
-  if (code === "ERR_PACKAGE_IMPORT_NOT_DEFINED") return /^Package import specifier ["']#vitehub\/env\/server["'] is not defined/.test(message)
-  return /(?:cannot find (?:package|module)|failed to (?:resolve|load)(?: (?:module|url))?|no such module|missing (?:module|package))\s+(?:["']#vitehub\/env\/server["']|#vitehub\/env\/server(?=\s|\(|$))/i.test(message)
-}
-
-function importServerEnvModule(): Promise<ServerEnvModule | undefined> {
-  // hubEnv() rewrites the tagged import so Vite can resolve its generated module.
-  // SAFETY: The generated server env module exposes the optional useServerEnv and loadServerEnv entrypoints.
-  serverEnvModule ??= (import(/* @vite-ignore */ /* @vitehub-env */ serverEnvModuleId) as Promise<ServerEnvModule>)
-    .catch((error: unknown) => {
-      if (isMissingModule(error)) return undefined
-      throw error
-    })
-  return serverEnvModule
-}
-
-function channelGroup(env: unknown, channel: string): Record<PropertyKey, unknown> | undefined {
-  const group = isRecord(env) ? env[channel] : undefined
-  return isRecord(group) ? group : undefined
-}
-
 async function readChannelEnv<TRuntimeConfig extends AgentRuntimeConfig>(
   channel: string,
   fields: readonly string[],
   context: AgentCallbackContext<TRuntimeConfig>,
 ): Promise<Partial<Record<string, unknown>>> {
-  const cloudflareEnv = context.cloudflare?.env
-  const event = cloudflareEnv ? { env: cloudflareEnv } : undefined
-  const module = await importServerEnvModule()
-  // Resolution errors, such as a missing required value, are configuration errors and stay visible.
-  const group = module?.useServerEnv ? channelGroup(module.useServerEnv(event), channel) : undefined
-  let loaded: Promise<Record<PropertyKey, unknown> | undefined> | undefined
-  const values: Partial<Record<string, unknown>> = {}
-  for (const field of fields) {
-    if (group && Object.hasOwn(group, field)) {
-      try {
-        values[field] = group[field]
-      }
-      catch (error) {
-        // Provider-backed values need the asynchronous snapshot.
-        if (getViteHubErrorShape(error)?.code !== "ENV_ASYNC_REQUIRED" || !module?.loadServerEnv) throw error
-        const loadServerEnv = module.loadServerEnv
-        loaded ??= loadServerEnv(event).then(env => channelGroup(env, channel))
-        values[field] = (await loaded)?.[field]
-      }
-      continue
-    }
-    // An empty host variable counts as unset, so the next name can supply the value.
-    values[field] = (channelEnvFields[channel]?.[field]?.names ?? [])
-      .map(name => cloudflareEnv?.[name] ?? globalThis.process?.env?.[name])
-      .find(value => value !== undefined && value !== "")
-  }
-  return values
+  return await readBuiltInEnv(channel, channelEnvFields[channel] ?? {}, fields, context)
 }
 
 /**

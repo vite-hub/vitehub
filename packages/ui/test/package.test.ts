@@ -1,6 +1,7 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { verifyBuiltPackageExports } from "../../internal/test-utils/built-package-exports.js";
+import { componentEntryName, componentNames } from "../src/component-entries.ts";
 
 interface PackageManifest {
   dependencies: Record<string, string>;
@@ -65,16 +66,13 @@ const compactInvocationRules = `  .vh-invocation-thread__content {
     margin-inline-start: 1rem;
   }`;
 
+const componentEntries = componentNames.map((name) => `./${componentEntryName(name)}`);
+
 describe("@vite-hub/ui package contract", () => {
   it("exposes the documented entrypoints", () => {
-    expect(Object.keys(packageJson.exports).sort()).toEqual([
-      ".",
-      "./headless",
-      "./nuxt",
-      "./package.json",
-      "./styles.css",
-      "./vite",
-    ]);
+    expect(Object.keys(packageJson.exports).sort()).toEqual(
+      [".", ...componentEntries, "./headless", "./nuxt", "./package.json", "./primitive-rail", "./styles.css", "./vite"].sort(),
+    );
     expect(packageJson.peerDependencies).toMatchObject({
       "@nuxt/ui": expect.any(String),
       ai: expect.any(String),
@@ -87,8 +85,8 @@ describe("@vite-hub/ui package contract", () => {
     });
     expect(packageJson.dependencies).toEqual({
       "@comark/vue": "0.7.0",
-      "@json-render/core": "0.20.0",
-      "@json-render/vue": "0.20.0",
+      "@json-render/core": "0.21.0",
+      "@json-render/vue": "0.21.0",
       "@vueuse/core": "catalog:ui",
       katex: "^0.17.0",
       "@iconify-json/ph": "catalog:ui",
@@ -101,10 +99,20 @@ describe("@vite-hub/ui package contract", () => {
   it("loads every JavaScript entrypoint from the built package", async () => {
     await verifyBuiltPackageExports(new URL("../", import.meta.url), "@vite-hub/ui", [
       ".",
+      ...componentEntries,
       "./headless",
       "./nuxt",
+      "./primitive-rail",
       "./vite",
     ]);
+  });
+
+  it("keeps component entry exports identical to the root barrel", async () => {
+    const root = await import("../dist/index.js");
+    for (const [entry, component] of componentEntries.map((entry, index) => [entry, componentNames[index]!] as const)) {
+      const subpath = await import(`../dist/${entry.slice(2)}.js`);
+      expect(subpath[component], entry).toBe(root[component]);
+    }
   });
 
   it("ships compact invocation styles for narrow sessions and viewports", () => {
@@ -113,12 +121,23 @@ describe("@vite-hub/ui package contract", () => {
     expect(stylesheet).toContain(`@media (max-width: 600px) {\n${compactInvocationRules}\n}`);
   });
 
-  it("keeps the Pierre renderer behind an on-demand chunk", () => {
-    const indexUrl = new URL("../dist/index.js", import.meta.url);
-    const source = readFileSync(indexUrl, "utf8");
-    const rendererImport = source.match(/import\("\.\/(pierre-code-view-[^"]+\.js)"\)/);
+  it("ships flat console surfaces that fill their containers", () => {
+    for (const block of [".vh-chat", ".vh-session", ".vh-invocation-session", ".vh-invocation-inspector", ".vh-invocation-list", ".vh-capability-inspector"]) {
+      expect(stylesheet, block).toMatch(new RegExp(`\\n${block.replace(".", "\\.")}\\s*\\{[^}]*height: 100%;[^}]*min-height: 0;`));
+    }
+    expect(stylesheet).not.toMatch(/backdrop-filter|mask-image|linear-gradient/);
+    expect(stylesheet).not.toContain("--vh-ui-text-muted");
+  });
 
-    expect(rendererImport?.[1]).toBeDefined();
-    expect(existsSync(new URL(`../dist/${rendererImport![1]}`, import.meta.url))).toBe(true);
+  it("keeps the Pierre renderer behind an on-demand chunk", () => {
+    const dist = new URL("../dist/", import.meta.url);
+    const sources = ["index.js", ...readdirSync(dist).filter((name) => /^agent-code-view-[^/]+\.js$/.test(name))]
+      .map((name) => readFileSync(new URL(name, dist), "utf8"));
+    const rendererImport = sources
+      .map((source) => source.match(/import\("\.\/(pierre-code-view-[^"]+\.js)"\)/)?.[1])
+      .find((name): name is string => name !== undefined);
+
+    expect(rendererImport).toBeDefined();
+    expect(existsSync(new URL(rendererImport!, dist))).toBe(true);
   });
 });

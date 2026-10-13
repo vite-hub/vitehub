@@ -9,9 +9,14 @@ Markdown images and image attachments use compact thumbnails with an expanded pr
 | Import                  | Use it for                                                                                | Application responsibility                                                                     |
 | ----------------------- | ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
 | `@vite-hub/ui`          | Styled chat, prompt, Markdown, session, invocation, trace, diff, and file-tree components | State, transport, persistence, routes, and authorization                                       |
+| `@vite-hub/ui/agent-chat` (and other `agent-*` entries) | One component entry point, for example `AgentChat` or `AgentFileTree` | State, transport, persistence, routes, and authorization |
 | `@vite-hub/ui/headless` | Message viewport, live-edge following, prepend preservation, and message jumps            | Markup and styles; Nuxt UI is not required                                                     |
 | `@vite-hub/ui/nuxt`     | Nuxt module setup                                                                         | Installs the Nuxt UI module, registers ViteHub UI components, and loads the package stylesheet |
 | `@vite-hub/ui/vite`     | Vue with Vite setup                                                                       | Configures the Nuxt UI and Comark Vite plugins                                                 |
+
+`@vite-hub/ui/primitive-rail` holds the icon rail and the square primitive icons that ViteHub docs and the Console share. It is internal: it can change in any release and the Nuxt module does not auto-import it. Its styles are in `@vite-hub/ui/styles.css`. The rail always takes 3.5rem of the layout and expands over the next element on hover or keyboard focus to show labels. Its slots receive `expanded`, so a consumer can turn off its tooltips while the labels show.
+
+Component entries use kebab-case and export the same component object as the package root. Use them when a development import should stay out of the root barrel; the root remains the default for applications that use several components.
 
 The package currently declares `vue` and `ai` as required peers. Styled components also require `@nuxt/ui` and Tailwind CSS. The Vite integration requires `vite`; `@nuxt/ui` and `vite` are optional peers only so applications using another entry point do not have to install them.
 
@@ -120,6 +125,6 @@ The page displays **ViteHub UI is ready.** in bold. This confirms the public com
 
 `AgentCapabilityInspector` takes the same `invocation` prop as `AgentInvocationInspector`. It provides capability selection, recorded MCP server/tool contracts, Title generation state, and a generic tools/configuration fallback. It renders capability-contributed JSON Render specs through a bounded, read-only Vue catalog. Unsupported specs fall back to recorded data; the renderer has no tool execution or RPC handlers.
 
-`AgentInvocationInspector` keeps its embedded capability summary by default. Set `showCapabilities` to `false` when a separate Capabilities panel provides this information, as in the Console. Load the package stylesheet for both components.
+`AgentInvocationInspector` shows the run summary, timeline, Agent setup, and all recorded tool contracts by default. Capability detail stays in `AgentCapabilityInspector`, as in the Console. Set `showCapabilities` to `true` to embed a grouped Capability summary in a standalone inspector. Set `showSources` to `false` when the surrounding application already exposes Workspace Sources through a dedicated Workspace view. Load the package stylesheet for both components.
 
-Both inspectors emit `selectActivity` with a tool's first call when the viewer selects its call count. `AgentToolList` emits `select` with the tool name and renders the count as a button only when a `select` listener is present. The model maker and provider marks come from [Lobe Icons](https://github.com/lobehub/lobe-icons) (MIT). `src/internal/brand-icons.ts` keeps their license notice.
+`AgentInvocationTimeline` lists the timed steps of a run with their owner, offset, and duration; the Invocation inspector embeds it. Both inspectors emit `selectActivity` with a tool's first call when the viewer selects its call count. `AgentToolList` emits `select` with the tool name and renders the count as a button only when a `select` listener is present. The model maker and provider marks come from [Lobe Icons](https://github.com/lobehub/lobe-icons) (MIT). `src/internal/brand-icons.ts` keeps their license notice.

@@ -109,7 +109,7 @@ afterAll(async () => {
 
 beforeAll(async () => {
   for (const name of workspacePackages) {
-    await execFileAsync("vp", ["run", "--filter", `@vite-hub/${name}`, "build"], {
+    await execFileAsync("vp", ["run", "--filter", `@vite-hub/${name}...`, "build"], {
       cwd: repoRoot,
       env: process.env,
       maxBuffer: execMaxBuffer,
@@ -301,7 +301,7 @@ describe("unified vite e2e hosted outputs", () => {
     expect(vercelConsumerContents).toContain("waitUntil")
     expect(vercelConsumerContents).toContain("handleHostedVercelQueueCallback")
     expect(vercelScheduleContents).toContain("process.env.CRON_SECRET")
-    expect(vercelScheduleContents).toContain("authorization !== `Bearer ${cronSecret}`")
+    expect(vercelScheduleContents).toContain("isScheduleCronAuthorized(authorization, cronSecret)")
     expect(vercelConsumerConfig.experimentalTriggers?.[0]).toEqual({
       consumer: "api_Svitehub_Squeues_Svercel_Swelcome-email_Swelcome-email_Dfunc",
       topic: "topic--77656c636f6d652d656d61696c",

@@ -8,9 +8,9 @@ import { getDocsPageByPath } from "../modules/vitehub-docs/runtime/utils/docs";
 
 describe("docs rendering state", () => {
   it("resolves unified docs routes without framework prefixes", () => {
-    expect(resolveDocsRoute("/docs/server-primitives/kv")).toMatchObject({
-      sourcePath: "/docs/server-primitives/kv",
-      page: expect.objectContaining({ title: "KV" }),
+    expect(resolveDocsRoute("/docs/kv")).toMatchObject({
+      sourcePath: "/docs/kv",
+      page: expect.objectContaining({ sourceTitle: "KV", title: "Overview" }),
     });
   });
 
@@ -22,14 +22,14 @@ describe("docs rendering state", () => {
   });
 
   it("creates a content page state without mutating the source document", () => {
-    const page = getDocsPageByPath("/docs/server-primitives/kv");
+    const page = getDocsPageByPath("/docs/kv");
     expect(page).toBeTruthy();
 
     const doc = { title: "Source", description: "Desc", meta: { order: 1 } };
-    const state = createDocsPageState(doc, "/docs/server-primitives/kv", getDocsPageFallback(page!));
+    const state = createDocsPageState(doc, "/docs/kv", getDocsPageFallback(page!));
 
     expect(state).toMatchObject({
-      path: "/docs/server-primitives/kv",
+      path: "/docs/kv",
       title: "Source",
       description: "Desc",
       seo: { title: "Source", description: "Desc" },

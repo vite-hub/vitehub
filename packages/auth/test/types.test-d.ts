@@ -1,5 +1,5 @@
 import type { UserConfig } from "vite"
-import handleVirtualAuth, { requireAuth as requireVirtualAuth } from "#vitehub/auth/server"
+import handleVirtualAuth, { withAuth as withVirtualAuth } from "#vitehub/auth/server"
 
 import { describe, expectTypeOf, it } from "vitest"
 
@@ -11,6 +11,7 @@ import {
 } from "../src/agent.ts"
 import {
   defineAuth,
+  type AuthAuthorization,
   type AuthDefinition,
   type AuthDefinitionResolver,
   type AuthModuleOptions,
@@ -26,8 +27,10 @@ import {
   auth,
   createAuthForRequest,
   handleAuthRequest,
-  requireAuth,
+  withAuth,
+  withAuthorization,
 } from "../src/server.ts"
+import * as authServer from "../src/server.ts"
 import { hubAuth } from "../src/vite.ts"
 
 import type { AgentInvokerOptions, AgentRuntimeConfig } from "@vite-hub/agent"
@@ -117,9 +120,37 @@ describe("types", () => {
     } satisfies AuthRequest
 
     expectTypeOf(handleAuthRequest(defineAuth({ appName: "ViteHub" }), h3LikeRequest)).toEqualTypeOf<Promise<Response>>()
-    expectTypeOf(requireAuth(h3LikeRequest)).toEqualTypeOf<Promise<Response | undefined>>()
+    expectTypeOf(withAuth(() => "ok")(h3LikeRequest)).toEqualTypeOf<Promise<string | Response>>()
     expectTypeOf(handleVirtualAuth(h3LikeRequest)).toEqualTypeOf<Promise<Response>>()
-    expectTypeOf(requireVirtualAuth(h3LikeRequest)).toEqualTypeOf<Promise<Response | undefined>>()
+    expectTypeOf(withVirtualAuth(() => "ok")(h3LikeRequest)).toEqualTypeOf<Promise<string | Response>>()
+  })
+
+  it("runs protected handlers only with the result of an Auth guard", () => {
+    const event = { req: new Request("https://app.example.com/photos/user-1/meal.jpg") }
+    const guarded = withAuthorization(true, (input: typeof event, authorization) => {
+      expectTypeOf(input).toEqualTypeOf<typeof event>()
+      expectTypeOf(authorization).toEqualTypeOf<AuthAuthorization>()
+      expectTypeOf(authorization.user.id).toEqualTypeOf<string>()
+      return "photo"
+    })
+    expectTypeOf(guarded).toEqualTypeOf<(input: typeof event) => Promise<string | Response>>()
+    withAuth((_input: typeof event, { session }) => session)
+
+    // @ts-expect-error The old guards returned `Response | undefined` and let the protected action run after a missed check.
+    void authServer.requireAuth
+    // @ts-expect-error The old guards returned `Response | undefined` and let the protected action run after a missed check.
+    void authServer.authorizeRequest
+    // @ts-expect-error A guard needs the protected handler.
+    withAuthorization(true)
+    // @ts-expect-error `authorize` is `true` or a callback. `false` does not mean "public".
+    withAuthorization(false, () => "photo")
+    // @ts-expect-error Callers cannot pass their own authorization to a guarded handler.
+    void guarded(event, { request: event.req, session: {}, user: { id: "admin" } })
+    // @ts-expect-error The guard can return a rejection `Response`, so callers must handle it.
+    const body: Promise<string> = guarded(event)
+    void body
+    // @ts-expect-error The checked authorization is read-only.
+    withAuth((_input: typeof event, authorization) => { authorization.user = { id: "admin" } })
   })
 
   it("exposes the authenticated Agent Invoker helper", () => {

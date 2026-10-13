@@ -3,7 +3,7 @@ import { checkGlobCwd, globCwdPaths } from "./glob-cwd-checks.ts";
 import { runInNewContext } from "node:vm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { clearActiveCloudflareEnv, setActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env";
-import { resolveGitHubWorkspaceRoot } from "../src/providers/github/shared.ts";
+import { resolveGitHubWorkspaceRoot, splitGitHubRepository } from "../src/providers/github/shared.ts";
 import { workspaceRevisionMaterializer } from "../src/storage/materialization.ts";
 
 import type { WorkspaceRevisionMaterializerCarrier } from "../src/storage/materialization.ts";
@@ -24,6 +24,8 @@ let commitIndex = 0;
 let treeIndex = 0;
 let mirrorRefSha: string | undefined;
 let mirrorRefStatus = 404;
+let malformedResponsePath: string | undefined;
+let malformedResponse: unknown;
 let archiveFailures = 0;
 let archiveBytes = textBytes("archive");
 const blobs = new Map<string, Uint8Array>();
@@ -68,6 +70,8 @@ beforeEach(() => {
   treeIndex = 0;
   mirrorRefSha = undefined;
   mirrorRefStatus = 404;
+  malformedResponsePath = undefined;
+  malformedResponse = undefined;
   archiveFailures = 0;
   archiveBytes = textBytes("archive");
   blobs.clear();
@@ -85,6 +89,8 @@ beforeEach(() => {
       const parsedBody: unknown = typeof init.body === "string" ? JSON.parse(init.body) : undefined;
       const body = isGitHubRequestBody(parsedBody) ? parsedBody : undefined;
       requests.push({ body, headers: new Headers(init.headers), method, path: url.pathname });
+
+      if (url.pathname === malformedResponsePath) return jsonResponse(malformedResponse);
 
       if (url.hostname === "codeload.github.com") {
         if (archiveFailures-- > 0) {
@@ -174,6 +180,25 @@ it("rejects GitHub Workspace roots that escape the repository", () => {
   expect(() => resolveGitHubWorkspaceRoot("workspaces/<workspace>/../outside", "docs")).toThrow("escapes the workspace root");
 });
 
+it.each([
+  "owner", "owner/", "/repo", "owner/repo/extra", "owner//repo",
+  "owner/repo\\..\\other", "owner/.", "owner/..", "../repo",
+  "owner/%2e%2e", "owner/repo?ref=other", "owner/repo#other", "owner/repo\n", "owner/re po",
+]) (
+  "rejects malformed GitHub repository %j",
+  repository => {
+    expect(() => splitGitHubRepository(repository, "store")).toThrow("requires a repository in owner/repo format");
+  },
+);
+
+it.each(["owner/repo", "owner-name/.github", "Owner123/repo_name-1.2"]) (
+  "accepts valid GitHub repository %j",
+  repository => {
+    const [owner, repo] = repository.split("/");
+    expect(splitGitHubRepository(repository, "store")).toEqual({ owner, repo });
+  },
+);
+
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
@@ -181,6 +206,43 @@ afterEach(() => {
 });
 
 describe("GitHub workspace store", () => {
+  it.each([
+    {
+      message: "branch reference",
+      path: "/repos/onmax/repo/git/ref/heads/main",
+      response: null,
+    },
+    {
+      message: "commit",
+      path: "/repos/onmax/repo/git/commits/base-sha",
+      response: { tree: {} },
+    },
+    {
+      message: "tree",
+      path: "/repos/onmax/repo/git/trees/base-tree",
+      response: { tree: null },
+    },
+    ...[undefined, null, ""].map(sha => ({
+      message: "tree",
+      path: "/repos/onmax/repo/git/trees/base-tree",
+      response: { tree: [{ path: ".vitehub/workspaces/docs/file.md", sha, type: "blob" }] },
+    })),
+  ])("rejects malformed successful GitHub $message responses", async ({ message, path, response }) => {
+    malformedResponsePath = path;
+    malformedResponse = response;
+    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+    const store = createGitHubWorkspaceStore({
+      provider: "github",
+      repository: "onmax/repo",
+      token: "token",
+    }, "docs");
+
+    await expect(store.list()).rejects.toMatchObject({
+      code: "WORKSPACE_FAILED",
+      message: `[vitehub] GitHub workspace returned a malformed ${message} response.`,
+    });
+  });
+
   it("matches glob patterns relative to cwd", async () => {
     for (const path of globCwdPaths) seedRemote(`.vitehub/workspaces/docs/${path}`, path);
     const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
@@ -661,6 +723,24 @@ describe("GitHub workspace store", () => {
     expect(requests.some(request => request.path === "/repos/onmax/repo/git/refs" && request.method === "POST")).toBe(false);
   });
 
+  it("encodes branch ref segments before constructing GitHub API paths", async () => {
+    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+    const store = createGitHubWorkspaceStore(
+      {
+        branch: "feature?audio#draft",
+        provider: "github",
+        repository: "onmax/repo",
+        token: "token",
+      },
+      "docs",
+    );
+
+    await expect(store.list()).resolves.toEqual([]);
+    expect(requests[0]?.path).toBe(
+      "/repos/onmax/repo/git/ref/heads/feature%3Faudio%23draft",
+    );
+  });
+
   it("does not treat non-404 branch failures as missing", async () => {
     mirrorRefStatus = 403;
     const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
@@ -794,6 +874,21 @@ describe("GitHub workspace store", () => {
         { mode: "100644", path: ".vitehub/workspaces/docs/tasks/b.md", sha: null, type: "blob" },
       ]),
     });
+  });
+
+  it("removes a file and its descendants for recursive directory removal", async () => {
+    seedRemote(".vitehub/workspaces/docs/tasks", "file\n");
+    seedRemote(".vitehub/workspaces/docs/tasks/a.md", "a\n");
+    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+    const store = createGitHubWorkspaceStore({
+      provider: "github",
+      repository: "onmax/repo",
+      token: "token",
+    }, "docs");
+
+    await store.rm("tasks", { recursive: true });
+
+    await expect(store.list("", { recursive: true })).resolves.toEqual([]);
   });
 
   it("skips no-op snapshots after comparing the remote tree", async () => {

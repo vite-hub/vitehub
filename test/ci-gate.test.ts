@@ -130,8 +130,9 @@ describe("CI merge gate", () => {
     }
   })
 
-  it.each(["checks", "contracts-examples", "package-tests", "package-tests-success", "docs"])("rejects skipped required job %s", (name) => {
-    expect(runGate({ ...successfulJobs, [name]: { result: "skipped" } }).status).not.toBe(0)
+  it.each(["checks", "contracts-examples", "package-tests", "package-tests-success", "docs", "docs-deploy"])("rejects skipped required job %s", (name) => {
+    const event = name === "docs-deploy" ? "push" : "pull_request"
+    expect(runGate({ ...successfulJobs, [name]: { result: "skipped" } }, event).status).not.toBe(0)
   })
 
   it("requires new verification jobs to succeed unless explicitly allowed to skip", () => {

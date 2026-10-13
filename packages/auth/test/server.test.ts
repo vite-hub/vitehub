@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { defineAuth } from "../src/index.ts"
-import { createAuthRequestRuntimeOptions, createBetterAuthOptions, getAuth, getAuthForDefinition, requireAuth, requireAuthAccessRoutes, resetAuth, setAuthRuntimeEnvResolver } from "../src/server.ts"
+import { createAuthRequestRuntimeOptions, createBetterAuthOptions, getAuth, getAuthForDefinition, requireAuthAccessRoutes, resetAuth, setAuthRuntimeEnvResolver, withAuth } from "../src/server.ts"
 
 describe("server auth helpers", () => {
   afterEach(() => {
@@ -225,9 +225,9 @@ describe("server auth helpers", () => {
       runtime,
     })
 
-    const response = await requireAuth(new Request("https://app.example.com/app", {
+    const response = await withAuth(() => undefined, definition)(new Request("https://app.example.com/app", {
       headers: { accept: "text/html" },
-    }), definition)
+    }))
 
     expect(response?.status).toBe(302)
     expect(response?.headers.get("location")).toContain("https://github.com/login/oauth/authorize")
@@ -242,9 +242,9 @@ describe("server auth helpers", () => {
       runtime: () => ({ secret: "abcdefghijklmnopqrstuvwxyz0123456789" }),
     })
 
-    const response = await requireAuth(new Request("https://app.example.com/api/data", {
+    const response = await withAuth(() => undefined, definition)(new Request("https://app.example.com/api/data", {
       method: "POST",
-    }), definition)
+    }))
 
     expect(response?.status).toBe(401)
     expect(await response?.json()).toEqual({ error: "Unauthorized." })
@@ -256,9 +256,9 @@ describe("server auth helpers", () => {
       runtime: () => ({ secret: "abcdefghijklmnopqrstuvwxyz0123456789" }),
     })
 
-    const response = await requireAuth({
+    const response = await withAuth(() => undefined, definition)({
       req: new Request("https://app.example.com/api/data", { method: "POST" }),
-    }, definition)
+    })
 
     expect(response?.status).toBe(401)
     expect(await response?.json()).toEqual({ error: "Unauthorized." })

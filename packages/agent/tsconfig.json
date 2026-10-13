@@ -85,6 +85,12 @@
       ],
       "@vite-hub/workflow/runtime/state": [
         "packages/workflow/src/runtime/state.ts"
+      ],
+      "@vite-hub/env/*": [
+        "packages/env/src/*.ts"
+      ],
+      "@vite-hub/agent/env-identity": [
+        "packages/agent/src/env-identity.ts"
       ]
     },
     "rootDir": "..",

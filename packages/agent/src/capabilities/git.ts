@@ -20,6 +20,7 @@ import {
   preparePullRequestCheckout,
   pullRequestCheckoutEnvironment,
   pullRequestCheckoutPlan,
+  pullRequestRepositories,
   shellQuote,
 } from "../internal/pull-request-checkout.ts"
 
@@ -518,12 +519,15 @@ export function git(options: GitCapabilityOptions = {}): AgentCapabilityDefiniti
       maxOutputLength,
       policy: options.policy,
       timeout,
-    }, getSessionResolver(context), defaultGitCwd(context), async () => await pullRequestCheckoutEnvironment(
-      context.runtimeContext?.githubIdentity,
-      pullRequestCheckoutPlan(context.context)?.repository,
-      undefined,
-      pullRequestCheckoutPlan(context.context)?.headRepository,
-    )),
+    }, getSessionResolver(context), defaultGitCwd(context), async () => {
+      const scope = pullRequestCheckoutPlan(context.context) ?? pullRequestRepositories(context.context)
+      return await pullRequestCheckoutEnvironment(
+        context.runtimeContext?.githubIdentity,
+        scope?.repository,
+        undefined,
+        scope?.headRepository,
+      )
+    }),
     close: closeSession,
   })
 }

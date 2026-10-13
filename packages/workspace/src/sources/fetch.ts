@@ -3,6 +3,7 @@ import { posix } from "node:path"
 
 import { normalizeSafeWorkspacePath } from "../core/path.ts"
 import { markLiveWorkspaceSource } from "./live.ts"
+import { requestJsonEqual } from "./request-json.ts"
 import {
   markWorkspaceSourceRequestExecutor,
   markWorkspaceSourceRequestDescriptor,
@@ -299,12 +300,8 @@ function schemaProjection(schema: FetchSourceStandardJsonSchemaV1, option: strin
 
 function concreteQueryFromOptions(options: Pick<FetchSourceOptions<any, any>, "query" | "url">): Record<string, unknown> | undefined {
   const parsed = options.url instanceof URL ? options.url : new URL(options.url)
-  const query: Record<string, unknown> = {}
-  for (const key of new Set(parsed.searchParams.keys())) {
-    const values = parsed.searchParams.getAll(key)
-    query[key] = values.length > 1 ? values : values[0]
-  }
-  return Object.keys(query).length || options.query
+  const query = queryFromUrl(parsed)
+  return query || options.query
     ? { ...query, ...options.query }
     : undefined
 }
@@ -315,12 +312,16 @@ async function defaultFetchSourceRequest(
   ctx: SourceContext,
   overrides: { body?: unknown, query?: Record<string, unknown> } = {},
 ) {
-  const defaultQuery = options.query !== undefined || concreteQueryFromOptions(options)
-    ? concreteQueryFromOptions(options)
-    : options.querySchema ? await parseStandardSchema(options.querySchema, {}, "fetch() query default") : undefined
-  const defaultBody = options.body !== undefined
-    ? options.body
-    : options.bodySchema ? await parseStandardSchema(options.bodySchema, {}, "fetch() body default") : undefined
+  const defaultQuery = overrides.query !== undefined
+    ? undefined
+    : options.query !== undefined || concreteQueryFromOptions(options)
+      ? concreteQueryFromOptions(options)
+      : options.querySchema ? await parseStandardSchema(options.querySchema, {}, "fetch() query default") : undefined
+  const defaultBody = overrides.body !== undefined
+    ? undefined
+    : options.body !== undefined
+      ? options.body
+      : options.bodySchema ? await parseStandardSchema(options.bodySchema, {}, "fetch() body default") : undefined
   const query = overrides.query ?? defaultQuery
   const body = typeof overrides.body === "undefined" ? defaultBody : overrides.body
   const context = sourceRequestContext(options, method, { body, query }, ctx)
@@ -420,7 +421,7 @@ async function validateFetchRequestQuery(
   }
 
   const expectedQuery = concreteQueryFromOptions(options)
-  if (!jsonEqual(requestedQuery || {}, serializedQuery(expectedQuery) || {})) {
+  if (!requestJsonEqual(requestedQuery || {}, serializedQuery(expectedQuery) || {})) {
     throw workspaceErrorDiagnostics.WORKSPACE_R0057({ message: "[vitehub] Source request query does not match the declared Source request shape." })
   }
   return expectedQuery
@@ -431,10 +432,10 @@ async function validateFetchRequestBody(
   body: unknown,
 ): Promise<unknown> {
   if (options.bodySchema) {
-    return await parseStandardSchema(options.bodySchema, body ?? {}, "HTTP request body")
+    return await parseStandardSchema(options.bodySchema, typeof body === "undefined" ? {} : body, "HTTP request body")
   }
   if (typeof options.body !== "undefined") {
-    if (typeof body !== "undefined" && !jsonEqual(body, options.body)) {
+    if (typeof body !== "undefined" && !requestJsonEqual(body, options.body)) {
       throw workspaceErrorDiagnostics.WORKSPACE_R0058({ message: "[vitehub] Source request body does not match the declared Source request shape." })
     }
     return options.body
@@ -452,11 +453,10 @@ function requestBaseUrl(url: string | URL): URL {
 }
 
 function queryFromUrl(url: URL): Record<string, unknown> | undefined {
-  const query: Record<string, unknown> = {}
-  for (const key of new Set(url.searchParams.keys())) {
+  const query = Object.fromEntries([...new Set(url.searchParams.keys())].map(key => {
     const values = url.searchParams.getAll(key)
-    query[key] = values.length > 1 ? values : values[0]
-  }
+    return [key, values.length > 1 ? values : values[0]] as const
+  }))
   return Object.keys(query).length ? query : undefined
 }
 
@@ -468,18 +468,6 @@ function serializedQuery(query: Record<string, unknown> | undefined): Record<str
     for (const item of values) params.append(key, String(item))
   }
   return queryFromUrl(new URL(`https://vitehub.local/?${params}`))
-}
-
-function jsonEqual(left: unknown, right: unknown): boolean {
-  return JSON.stringify(sortJson(left)) === JSON.stringify(sortJson(right))
-}
-
-function sortJson(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(sortJson)
-  if (!value || typeof value !== "object") return value
-  return Object.fromEntries(Object.entries(value as Record<string, unknown>)
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([key, item]) => [key, sortJson(item)]))
 }
 
 function serializeFetchSourceContent(value: unknown, responseType: FetchSourceResponseType): WorkspaceContent {

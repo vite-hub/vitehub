@@ -1,4 +1,5 @@
 import { expect, it, vi } from "vitest"
+import { agentEnvAccess } from "../../env/test/agent-access.ts"
 
 import { isConnectionError } from "../src/errors.ts"
 import { createConnectionsRuntime } from "../src/runtime.ts"
@@ -10,9 +11,9 @@ it.each(["manual", "error"] as const)("preserves fetch redirect %s through appro
   const fetch = vi.fn(test.provider.fetch)
   const runtime = createConnectionsRuntime({ definitions: { mail: definition }, fetch, store: test.store, now: () => test.now.value })
   await connect({ ...test, runtime })
-  await runtime.client("mail", { actor: "agent:labeller" }).fetch("https://mail.example.com/mail/v1/users/me/labels", { redirect })
+  await runtime.client("mail", { access: agentEnvAccess({ name: "labeller" }) }).fetch("https://mail.example.com/mail/v1/users/me/labels", { redirect })
   expect(fetch.mock.calls.at(-1)?.[1]?.redirect).toBe(redirect)
-  const error: unknown = await runtime.client("mail", { actor: "agent:labeller" }).fetch("https://mail.example.com/mail/v1/users/me/messages/m1/modify", { body: "{}", method: "POST", redirect }).catch(error => error)
+  const error: unknown = await runtime.client("mail", { access: agentEnvAccess({ name: "labeller" }) }).fetch("https://mail.example.com/mail/v1/users/me/messages/m1/modify", { body: "{}", method: "POST", redirect }).catch(error => error)
   expect(isConnectionError(error)).toBe(true)
   if (!isConnectionError(error) || !error.requestId) throw new Error("Expected approval request")
   await runtime.approve({ id: error.requestId })
@@ -52,7 +53,7 @@ it("keeps OAuth state, PKCE, client, redirect, and scopes authoritative over pro
 it.each([undefined, true, false])("requires immediate fetch permission without durable approval: %s", async (approve) => {
   const test = createTestRuntime(mailConnection({ "agent:labeller": { read: true, write: ["fetch"], approve } }))
   await connect(test)
-  const client = test.runtime.client("mail", { actor: "agent:labeller", rejectApprovals: true })
+  const client = test.runtime.client("mail", { access: agentEnvAccess({ name: "labeller" }), rejectApprovals: true })
   const request = () => client.fetch("https://mail.example.com/mail/v1/users/me/messages/m1/modify", { body: "{}", method: "POST" })
   if (approve === false) {
     expect((await request()).status).toBe(200)

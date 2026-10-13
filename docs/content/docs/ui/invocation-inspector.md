@@ -25,7 +25,7 @@ icon: i-ph-sidebar-simple-light
 
 - **Outcome:** the status, the total time, the title, the context, and the Agent name and version. A terminal error appears here.
 - **Run summary:** messages, steps, tool calls, total time, file changes, tokens, and cost. Token partitions appear when `usage` has them.
-- **Timeline:** the timed activities of the run. Select one to emit `selectActivity`.
+- **Timeline:** the timed steps of the run, rendered by [`AgentInvocationTimeline`](/docs/ui/timeline). Select one to emit `selectActivity`.
 - **Agent setup:** the model, runtime, Workspace, Sources, Channels, Capabilities, tools, and instructions. Capability metadata and instructions expand in place.
 - **Identifiers:** copy buttons for the trace ID and the Invocation ID.
 
@@ -44,12 +44,12 @@ The error appears in the outcome section with the Invocation status.
 
 ### Compact panel
 
-Hide the timeline and Capabilities with `show-timeline` and `show-capabilities`. Use the `actions` slot for a close button and `metadata` for your own section.
+Set `:show-timeline="false"` to hide the timeline. Set `show-capabilities` to include the grouped Capability summary. Use the `actions` slot for a close button and `metadata` for your own section.
 
 ::component-preview{name="InvocationInspectorCompactExample" reset}
 ::
 
-Set `showCapabilities` to `false` when a separate [Capability inspector](/docs/ui/capability-inspector) shows them, as in the Console.
+The default keeps all recorded tool contracts in the inspector. Use the separate [Capability inspector](/docs/ui/capability-inspector) for Capability details, as in the Console. Set `showCapabilities` to `true` to embed them in a standalone inspector.
 
 ## Captured configuration
 
@@ -88,7 +88,8 @@ Include instruction content only when the current viewer may inspect it. The com
 | `showStatus`       | `boolean`             | `true`   | Shows the status row in the outcome section.          |
 | `showError`        | `boolean`             | `true`   | Shows the terminal error in the outcome section.      |
 | `showTimeline`     | `boolean`             | `true`   | Shows the run timeline.                               |
-| `showCapabilities` | `boolean`             | `true`   | Shows the embedded Capability summary.                |
+| `showCapabilities` | `boolean`             | `false`  | Shows the embedded Capability summary.                |
+| `showSources`      | `boolean`             | `true`   | Shows captured Workspace Sources in Agent setup.      |
 
 #### Events
 
@@ -113,5 +114,6 @@ Include instruction content only when the current viewer may inspect it. The com
 ## Related
 
 - [Invocation](/docs/ui/invocation) renders the thread that `selectActivity` points to.
+- [Timeline](/docs/ui/timeline) is the embedded step list.
 - [Capability inspector](/docs/ui/capability-inspector) shows Capability views in a separate panel.
 - [Tool list](/docs/ui/tool-list) renders the tool contracts.

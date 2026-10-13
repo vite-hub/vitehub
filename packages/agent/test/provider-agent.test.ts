@@ -9,6 +9,7 @@ import { join, resolve } from "node:path"
 
 import { describe, expect, it, vi } from "vitest"
 import { Diagnostic } from "nostics"
+import { z } from "zod"
 import type { StreamEvent } from "../src/messages.ts"
 import { Client as McpClient } from "@modelcontextprotocol/sdk/client/index.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
@@ -23,7 +24,7 @@ interface MockProviderSessionStore {
   get: (threadId: string) => Promise<unknown | undefined>
   set: (threadId: string, resumeCursor: unknown) => Promise<void>
 }
-const createProviderRuntime = vi.hoisted(() => vi.fn(async (_options: { environment?: Record<string, string>, sessionStore?: MockProviderSessionStore, settings?: Record<string, unknown> }) => providerRuntimes.shift()))
+const createProviderRuntime = vi.hoisted(() => vi.fn(async (_options: { cwd?: string, environment?: Record<string, string>, sessionStore?: MockProviderSessionStore, settings?: Record<string, unknown> }) => providerRuntimes.shift()))
 const createSqliteProviderRuntimeSessionStore = vi.hoisted(() => vi.fn(async (path: string) => {
   let cursors = durableProviderSessionCursors.get(path)
   if (!cursors) {
@@ -64,19 +65,22 @@ vi.mock("../src/internal/provider-runtime-packages.ts", () => ({ resolveInstalle
 
 import { appendLatestFinalText } from "../src/agent-output.ts"
 import { createProviderAgentAdapter, localWorkspaceHost } from "../src/provider-agent.ts"
-import { markTrustedWorkspaceAccessScope } from "../src/access-runtime.ts"
+import { cliproxy, defineGateway, vercel } from "../src/gateways.ts"
+import { grantWorkspaceAccessScope } from "../src/access-runtime.ts"
 import { codexDriver, defineAgent, runAgent } from "../src/index.ts"
 import { readAgentWorkspaceDiff } from "../src/agent-workspace-runtime.ts"
+import { executeWorkspaceCommand, workspaceCommandTools } from "../src/capabilities/workspace-command.ts"
 import { agentInvocationInputSupport, sendAgentInvocationInput } from "../src/internal/agent-invocation-control.ts"
 import { withAgentInvocationResponseOwner } from "../src/internal/agent-invocation-response-owner.ts"
 import { markAuxiliaryMessageChannelInstructionContext } from "../src/internal/channels.ts"
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
-import { isRuntimeRecord } from "../src/internal/runtime-type.ts"
+import { hasRuntimeType, isRuntimeRecord } from "../src/internal/runtime-type.ts"
 import { getAgentTelemetryConfiguration, setAgentTelemetryConfiguration } from "../src/internal/agent-telemetry.ts"
 import { provideBrowserRuntimeEnvironment } from "../src/internal/browser-runtime.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/server.ts"
 import { finalizeUiMessageStreamOutput } from "../src/stream-output.ts"
 import { applyAgentToolPolicies, withAgentToolStepReporting, withJsonCompatibleToolOutputs } from "../src/tool-runtime.ts"
+import { prepareGitHubPullRequestWorkspace } from "../src/server/github-checkout.ts"
+import { commitGitHubPullRequestWorkspace, prepareGitHubRepairBase } from "../src/server/github-repair.ts"
 
 function event(type: string, threadId: string, payload: Record<string, unknown>, extra: Record<string, unknown> = {}) {
   return { payload, threadId, type, ...extra }
@@ -220,13 +224,15 @@ describe("Provider Agent Driver", () => {
     await adapter.generate(context(threadId) as never)
 
     expect(createProviderRuntime).toHaveBeenLastCalledWith(expect.objectContaining({
-      environment: expect.objectContaining({ PROVIDER_SELECTED: "selected", CLIPROXY_BASE_URL: "http://127.0.0.1:8317/v1", CLIPROXY_API_KEY: "proxy-test-key" }),
+      environment: expect.objectContaining({ PROVIDER_SELECTED: "selected" }),
       settings: { binaryPath: "/app/node_modules/@openai/codex/bin/codex.js" },
     }))
     expect(createProviderRuntime).toHaveBeenCalled()
     const lastRuntimeCall = createProviderRuntime.mock.lastCall
     expect(lastRuntimeCall).toBeDefined()
     expect(lastRuntimeCall?.[0].environment).not.toHaveProperty("VITEHUB_UNRELATED_SECRET")
+    expect(lastRuntimeCall?.[0].environment).not.toHaveProperty("CLIPROXY_BASE_URL")
+    expect(lastRuntimeCall?.[0].environment).not.toHaveProperty("CLIPROXY_API_KEY")
     vi.unstubAllEnvs()
   })
 
@@ -252,6 +258,65 @@ describe("Provider Agent Driver", () => {
       GH_TOKEN: "installation-token",
       GIT_AUTHOR_NAME: "Override",
       GIT_CONFIG_COUNT: "1",
+    })
+  })
+
+  it("scopes the Agent GitHub environment to the pull request when the managed checkout is disabled", async () => {
+    const threadId = "thread-github-environment-no-checkout"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    // Multi-installation GitHub Apps can only resolve credentials for a repository.
+    const access = vi.fn(async (input?: { repository?: string }) => {
+      if (!input?.repository) throw new Error("credentials require a repository")
+      const token = input.repository === "contributor/portal" ? "fork-token" : "installation-token"
+      return { env: { GH_TOKEN: token }, token }
+    })
+    const base = context(threadId)
+    base.context.set("pullRequest", {
+      pullRequest: {
+        head: { ref: "feature", repo: "contributor/portal", sha: "a".repeat(40) },
+        number: 42,
+        source: { checkout: false, mount: "portal", ref: "feature", repo: "acme/portal" },
+      },
+      repository: { fullName: "acme/portal", name: "portal" },
+    })
+    await createProviderAgentAdapter({ provider: "codex" }).generate({ ...base, runtime: { ...base.runtime, githubIdentity: { access } } } as never)
+
+    expect(access).toHaveBeenCalledWith(expect.objectContaining({ repository: "acme/portal" }))
+    expect(access).toHaveBeenCalledWith(expect.objectContaining({ repository: "contributor/portal" }))
+    expect(access).not.toHaveBeenCalledWith(expect.not.objectContaining({ repository: expect.any(String) }))
+    expect(createProviderRuntime.mock.lastCall?.[0].environment).toMatchObject({
+      GH_TOKEN: "installation-token",
+      VITEHUB_GITHUB_HEAD_TOKEN: "fork-token",
+    })
+  })
+
+  it("scopes the Agent GitHub environment to the pull request from the Babysitter input context", async () => {
+    const threadId = "thread-babysitter-github-environment"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    // Multi-installation GitHub Apps can only resolve credentials for a repository.
+    const access = vi.fn(async (input?: { repository?: string }) => {
+      if (!input?.repository) throw new Error("credentials require a repository")
+      const token = input.repository === "contributor/portal" ? "fork-token" : "installation-token"
+      return { env: { GH_TOKEN: token }, token }
+    })
+    const base = context(threadId)
+    // Babysitter passes these flat fields directly as the Agent input context.
+    base.context.set("preparedCheckout", "/caller/prepared-checkout")
+    base.context.set("pullRequestHead", "a".repeat(40))
+    base.context.set("pullRequestNumber", 42)
+    base.context.set("pullRequestRepository", "acme/portal")
+    base.context.set("pullRequestSourceBranch", "feature")
+    base.context.set("pullRequestSourceRepository", "contributor/portal")
+    base.context.set("pullRequestTitle", "Fix portal")
+    base.context.set("pullRequestUrl", "https://github.com/acme/portal/pull/42")
+    await createProviderAgentAdapter({ provider: "codex" }).generate({ ...base, runtime: { ...base.runtime, githubIdentity: { access } } } as never)
+
+    expect(access).toHaveBeenCalledWith(expect.objectContaining({ repository: "acme/portal" }))
+    expect(access).toHaveBeenCalledWith(expect.objectContaining({ repository: "contributor/portal" }))
+    expect(access).not.toHaveBeenCalledWith(expect.not.objectContaining({ repository: expect.any(String) }))
+    expect(createProviderRuntime.mock.lastCall?.[0].environment).toMatchObject({
+      GH_TOKEN: "installation-token",
+      VITEHUB_GITHUB_HEAD_TOKEN: "fork-token",
     })
   })
 
@@ -366,29 +431,117 @@ describe("Provider Agent Driver", () => {
     }).generate(runContext as never)).rejects.toThrow('browser({ runtime: "external" })')
   })
 
-  it.each([
-    { provider: "codex", endpoint: undefined },
-    { provider: "codex", endpoint: "   " },
-    { provider: "claude-code", endpoint: "http://127.0.0.1:8317/v1" },
-  ] as const)("filters ambient CLIProxy credentials for $provider with endpoint $endpoint", async ({ provider, endpoint }) => {
+  it.each(["codex", "claude-code"] as const)("does not forward ambient proxy variables to %s", async (provider) => {
     const threadId = "thread-filter-proxy"
-    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
-    vi.stubEnv("CLIPROXY_BASE_URL", endpoint)
-    vi.stubEnv("CLIPROXY_API_KEY", "proxy-test-key")
-    await createProviderAgentAdapter({ provider }).generate(context(threadId) as never)
-    expect(createProviderRuntime.mock.lastCall?.[0].environment).not.toHaveProperty("CLIPROXY_API_KEY")
-    expect(createProviderRuntime.mock.lastCall?.[0].environment).not.toHaveProperty("CLIPROXY_BASE_URL")
-    vi.unstubAllEnvs()
-  })
-
-  it.each([undefined, ""])("allows driver.env to disable ambient CLIProxy forwarding with %s", async (endpoint) => {
-    const threadId = "thread-disable-proxy"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
     vi.stubEnv("CLIPROXY_BASE_URL", "http://127.0.0.1:8317/v1")
     vi.stubEnv("CLIPROXY_API_KEY", "proxy-test-key")
-    await createProviderAgentAdapter({ env: { CLIPROXY_BASE_URL: endpoint }, provider: "codex" }).generate(context(threadId) as never)
-    expect(createProviderRuntime.mock.lastCall?.[0].environment).not.toHaveProperty("CLIPROXY_API_KEY")
+    vi.stubEnv("OPENAI_API_KEY", "openai-test-key")
+    vi.stubEnv("ANTHROPIC_BASE_URL", "http://127.0.0.1:8317")
+    await createProviderAgentAdapter({ provider }).generate(context(threadId) as never)
+    const environment = createProviderRuntime.mock.lastCall?.[0].environment
+    for (const name of ["CLIPROXY_API_KEY", "CLIPROXY_BASE_URL", "OPENAI_API_KEY", "ANTHROPIC_BASE_URL"]) expect(environment).not.toHaveProperty(name)
     vi.unstubAllEnvs()
+  })
+
+  it("routes Codex through driver.gateway with secrets in the environment", async () => {
+    const threadId = "thread-codex-gateway"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    await createProviderAgentAdapter({
+      env: { PROVIDER_SELECTED: "selected" },
+      gateway: cliproxy({ url: "https://proxy.example", apiKey: "proxy-key", headers: { "CF-Access-Client-Id": "client-id" } }),
+      provider: "codex",
+      providerSettings: { launchArgs: '-c "model_provider=\\"other\\""' },
+    }).generate(context(threadId) as never)
+
+    const options = createProviderRuntime.mock.lastCall?.[0]
+    expect(options?.environment).toMatchObject({ PROVIDER_SELECTED: "selected", VITEHUB_GATEWAY_API_KEY: "proxy-key", VITEHUB_GATEWAY_HEADER_0: "client-id" })
+    const launchArgs = String(options?.settings?.launchArgs)
+    // Codex applies later overrides last, so the gateway follows providerSettings.launchArgs.
+    expect(launchArgs.indexOf('model_provider=\\"vitehub\\"')).toBeGreaterThan(launchArgs.indexOf('model_provider=\\"other\\"'))
+    expect(launchArgs).toContain('model_providers.vitehub.base_url=\\"https://proxy.example/v1\\"')
+    expect(launchArgs).not.toContain("proxy-key")
+  })
+
+  it.each(["codex", "claude-code"] as const)("resolves %s gateway secrets with invocation purpose", async (provider) => {
+    const threadId = "thread-gateway-purpose"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const apiKey = vi.fn(({ purpose }: AgentProviderCredentialContext) => purpose === "invocation" ? "proxy-key" : undefined)
+    const header = vi.fn(({ purpose }: AgentProviderCredentialContext) => purpose === "invocation" ? "client-id" : undefined)
+    await createProviderAgentAdapter({
+      gateway: cliproxy({ url: "https://proxy.example", apiKey, headers: { "X-Client": header } }),
+      provider,
+    }).generate(context(threadId) as never)
+
+    expect(apiKey).toHaveBeenCalledWith(expect.objectContaining({ purpose: "invocation" }))
+    expect(header).toHaveBeenCalledWith(expect.objectContaining({ purpose: "invocation" }))
+    expect(createProviderRuntime.mock.lastCall?.[0].environment).toMatchObject(provider === "codex"
+      ? { VITEHUB_GATEWAY_API_KEY: "proxy-key", VITEHUB_GATEWAY_HEADER_0: "client-id" }
+      : { ANTHROPIC_AUTH_TOKEN: "proxy-key", ANTHROPIC_CUSTOM_HEADERS: "X-Client: client-id" })
+  })
+
+  it.each(["codex", "claude-code"] as const)("preserves gateway transport in every %s usage record", async (provider) => {
+    const threadId = "thread-gateway-usage"
+    runtime(threadId, [
+      event("thread.token-usage.updated", threadId, { usage: { totalProcessedTokens: 10 } }),
+      event("thread.token-usage.updated", threadId, { usage: { totalProcessedTokens: 12 } }, { itemId: "response-1" }),
+      event("thread.token-usage.updated", threadId, { usage: { inputTokens: 2, outputTokens: 1, totalProcessedTokens: 15 } }, { itemId: "response-2" }),
+      event("thread.token-usage.updated", threadId, { usage: { inputTokens: 2, outputTokens: 1, cachedInputTokens: 1, totalProcessedTokens: 15 } }, { itemId: "response-2" }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ])
+    const events = await collect(await createProviderAgentAdapter({
+      gateway: cliproxy({ url: "https://proxy.example", apiKey: "proxy-key" }),
+      provider,
+    }).stream!(context(threadId) as never)) as StreamEvent[]
+    const records = events.filter(item => item.type === "usage")
+    expect(records).toHaveLength(1)
+    for (const item of records) {
+      expect(item.usageRecord).toMatchObject({ provider, transport: "gateway" })
+      if (provider === "codex") {
+        expect(item.usageRecord?.calls?.length).toBeGreaterThan(0)
+        for (const call of item.usageRecord?.calls || []) expect(call).toMatchObject({ provider, transport: "gateway" })
+      }
+    }
+  })
+
+  it("does not prepare Codex credentials that a gateway replaces", async () => {
+    const threadId = "thread-gateway-credentials"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const credentials = vi.fn(() => "{}")
+    await createProviderAgentAdapter({
+      credentialProfile: "replaced",
+      credentials,
+      gateway: cliproxy({ url: "https://proxy.example", apiKey: "proxy-key" }),
+      provider: "codex",
+    }).generate(context(threadId) as never)
+
+    expect(credentials).not.toHaveBeenCalled()
+    const options = createProviderRuntime.mock.lastCall?.[0]
+    expect(options?.settings).not.toHaveProperty("homePath")
+    expect(String(options?.settings?.launchArgs)).not.toContain("cli_auth_credentials_store")
+  })
+
+  it("routes Claude Code through driver.gateway", async () => {
+    const threadId = "thread-claude-gateway"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    await createProviderAgentAdapter({ gateway: vercel({ apiKey: "vercel-key" }), provider: "claude-code" }).generate(context(threadId) as never)
+
+    expect(createProviderRuntime.mock.lastCall?.[0].environment).toMatchObject({
+      ANTHROPIC_API_KEY: "",
+      ANTHROPIC_AUTH_TOKEN: "vercel-key",
+      ANTHROPIC_BASE_URL: "https://ai-gateway.vercel.sh/claude-code",
+    })
+    expect(String(createProviderRuntime.mock.lastCall?.[0].settings?.launchArgs || "")).not.toContain("model_provider")
+  })
+
+  it.each(["ANTHROPIC_BASE_URL", "ANTHROPIC_CUSTOM_HEADERS"])("rejects resolved driver.env.%s that the gateway owns", async (variable) => {
+    // The invocation fails before it starts a provider runtime, so queue none.
+    const threadId = "thread-gateway-conflict"
+    await expect(createProviderAgentAdapter({
+      env: async () => ({ [variable]: "https://other.example" }),
+      gateway: defineGateway({ name: "proxy", baseURL: { "claude-code": "https://proxy.example" }, apiKey: "k" }),
+      provider: "claude-code",
+    }).generate(context(threadId) as never)).rejects.toThrow(`driver.gateway sets ${variable}`)
   })
 
   it("resolves provider environment once and launches through an isolated executable", async () => {
@@ -455,8 +608,6 @@ describe("Provider Agent Driver", () => {
     const threadId = "thread-launch-diagnostic"
     const secret = "launch-secret-value"
     const shortSecret = "x7z"
-    vi.stubEnv("CLIPROXY_BASE_URL", "http://127.0.0.1:8317/v1")
-    vi.stubEnv("CLIPROXY_API_KEY", "ambient-proxy-secret")
     runtime(threadId, [], {
       async onStartSession() {
         const options = createProviderRuntime.mock.lastCall?.[0]
@@ -470,7 +621,7 @@ describe("Provider Agent Driver", () => {
         expect(persisted).not.toContain(secret)
         expect(persisted).toContain("token=[REDACTED] short=[REDACTED] label=ordinary-value")
         expect(persisted).not.toContain(shortSecret)
-        expect(persisted).not.toContain("ambient-proxy-secret")
+        expect(persisted).not.toContain("gateway-proxy-secret")
         throw new Error("Codex App Server process exited with code 5")
       },
     })
@@ -479,8 +630,9 @@ describe("Provider Agent Driver", () => {
     try {
       await createProviderAgentAdapter({
         env: { SHORT_TOKEN: shortSecret },
+        gateway: defineGateway({ name: "proxy", baseURL: { codex: "http://127.0.0.1:8317/v1" }, apiKey: "gateway-proxy-secret" }),
         launch: {
-          args: ["-e", 'process.stderr.write(`runner failed token=${process.env.T3_MCP_BEARER_TOKEN} short=${process.env.SHORT_TOKEN} label=ordinary-value proxy=${process.env.CLIPROXY_API_KEY}\\n`);process.exit(5)'],
+          args: ["-e", 'process.stderr.write(`runner failed token=${process.env.T3_MCP_BEARER_TOKEN} short=${process.env.SHORT_TOKEN} label=ordinary-value proxy=${process.env.VITEHUB_GATEWAY_API_KEY}\\n`);process.exit(5)'],
           command: process.execPath,
         },
         provider: "codex",
@@ -505,7 +657,7 @@ describe("Provider Agent Driver", () => {
     expect((failure as Error & { cause?: unknown }).cause).toMatchObject({ message: "Codex App Server process exited with code 5" })
     expect(JSON.stringify(shape)).not.toContain(secret)
     expect(JSON.stringify(shape)).not.toContain(shortSecret)
-    expect(JSON.stringify(shape)).not.toContain("ambient-proxy-secret")
+    expect(JSON.stringify(shape)).not.toContain("gateway-proxy-secret")
     vi.unstubAllEnvs()
   })
 
@@ -1109,16 +1261,60 @@ describe("Provider Agent Driver", () => {
   it("reuses one session store concurrently for equivalent paths", async () => {
     const path = `.vitehub/provider-session-${crypto.randomUUID()}.sqlite`
     const calls = createSqliteProviderRuntimeSessionStore.mock.calls.length
+    let started!: () => void
+    let overlap!: () => void
+    const firstStarted = new Promise<void>(resolve => { started = resolve })
+    const secondStarted = new Promise<void>(resolve => { overlap = resolve })
+    const runtimes = [
+      runtime("thread-session-first", [event("turn.completed", "thread-session-first", { state: "completed" }, { turnId: "turn-1" })], {
+        onStartSession: async () => { started() }, beforeEvent: () => secondStarted,
+      }),
+      runtime("thread-session-second", [event("turn.completed", "thread-session-second", { state: "completed" }, { turnId: "turn-1" })], {
+        onStartSession: async () => { overlap() },
+      }),
+    ]
+    // Start the second call after the first owns its mock runtime, while its turn is still active.
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    const first = createProviderAgentAdapter({ provider: "codex", sessionStorePath: path }).generate(context("thread-session-first") as never)
+    await firstStarted
+    await Promise.all([
+      first,
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      createProviderAgentAdapter({ provider: "codex", sessionStorePath: resolve(path) }).generate(context("thread-session-second") as never),
+    ])
+
+    expect(createSqliteProviderRuntimeSessionStore).toHaveBeenCalledTimes(calls + 1)
+    expect(runtimes.every(value => value.close.mock.calls.length === 1)).toBe(true)
+  })
+
+  it("shares pending session store creation for equivalent paths", async () => {
+    const path = `.vitehub/provider-session-${crypto.randomUUID()}.sqlite`
+    const calls = createSqliteProviderRuntimeSessionStore.mock.calls.length
+    const createStore = createSqliteProviderRuntimeSessionStore.getMockImplementation()!
+    let notifyOpening!: () => void
+    const opening = new Promise<void>(resolve => { notifyOpening = resolve })
+    let releaseStore!: () => void
+    const pendingStore = new Promise<void>(resolve => { releaseStore = resolve })
+    createSqliteProviderRuntimeSessionStore.mockImplementationOnce(async (path) => {
+      notifyOpening()
+      await pendingStore
+      return await createStore(path)
+    })
     const runtimes = ["first", "second"].map(suffix => runtime(`thread-session-${suffix}`, [
       event("turn.completed", `thread-session-${suffix}`, { state: "completed" }, { turnId: "turn-1" }),
     ]))
 
-    await Promise.all([
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    const first = createProviderAgentAdapter({ provider: "codex", sessionStorePath: path }).generate(context("thread-session-first") as never)
+    await opening
+    const second = createProviderAgentAdapter({
+      provider: "codex",
+      sessionStorePath: resolve(path),
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-      createProviderAgentAdapter({ provider: "codex", sessionStorePath: path }).generate(context("thread-session-first") as never),
-      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-      createProviderAgentAdapter({ provider: "codex", sessionStorePath: resolve(path) }).generate(context("thread-session-second") as never),
-    ])
+    }).generate(context("thread-session-second") as never)
+    await vi.waitFor(() => expect(createSqliteProviderRuntimeSessionStore).toHaveBeenCalledTimes(calls + 1))
+    releaseStore()
+    await Promise.all([first, second])
 
     expect(createSqliteProviderRuntimeSessionStore).toHaveBeenCalledTimes(calls + 1)
     expect(runtimes.every(value => value.close.mock.calls.length === 1)).toBe(true)
@@ -1617,9 +1813,9 @@ cli_auth_credentials_store = "keyring"
   ])("rejects a hard-linked named-profile %s without changing its target", async (kind, name, contents) => {
     const profile = `provider-${kind}-hard-link-${crypto.randomUUID()}`
     const homePath = `${process.cwd()}/.vitehub/data/codex/${profile}`
-    const externalRoot = await mkdtemp(join(tmpdir(), `vitehub-codex-${kind}-target-`))
-    const externalFile = join(externalRoot, name)
     await mkdir(homePath, { recursive: true })
+    const externalRoot = await mkdtemp(join(homePath, "..", `vitehub-codex-${kind}-target-`))
+    const externalFile = join(externalRoot, name)
     await writeFile(externalFile, contents, { mode: 0o644 })
     await link(externalFile, join(homePath, name))
 
@@ -2249,10 +2445,12 @@ cli_auth_credentials_store = "keyring"
     ["Codex omitted", "codex", undefined, "approval-required"],
     ["Codex ask", "codex", "ask", "approval-required"],
     ["Codex allow edits", "codex", "allow-edits", "auto-accept-edits"],
+    ["Codex unattended edits", "codex", "allow-edits-unattended", "auto-accept-edits"],
     ["Codex allow all", "codex", "allow-all", "full-access"],
     ["Claude Code omitted", "claude-code", undefined, "approval-required"],
     ["Claude Code ask", "claude-code", "ask", "approval-required"],
     ["Claude Code allow edits", "claude-code", "allow-edits", "auto-accept-edits"],
+    ["Claude Code unattended edits", "claude-code", "allow-edits-unattended", "auto-accept-edits"],
     ["Claude Code allow all", "claude-code", "allow-all", "full-access"],
   ] as const)("maps %s to its provider runtime mode", async (_label, providerName, permissions, runtimeMode) => {
     const threadId = `thread-permissions-${providerName}-${permissions ?? "omitted"}`
@@ -2265,7 +2463,27 @@ cli_auth_credentials_store = "keyring"
     await adapter.generate(context(threadId) as never)
 
     expect(provider.startSession).toHaveBeenCalledWith(expect.objectContaining({ runtimeMode, threadId }))
+    const session = provider.startSession.mock.calls[0]?.[0]
+    if (permissions === "allow-edits-unattended") expect(session).toHaveProperty("approvalPolicy", "never")
+    else expect(session).not.toHaveProperty("approvalPolicy")
   })
+
+  it("preauthorizes only assigned host tools for unattended Codex edits", async () => {
+    const threadId = "thread-unattended-host-tools";
+    const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })]);
+    // SAFETY: This fixture uses the same host tool contract as an Agent Capability.
+    await createProviderAgentAdapter({ provider: "codex", permissions: "allow-edits-unattended" }).generate(context(threadId, {
+      tools: { pushRepair: { inputSchema: { type: "object", properties: {} }, execute: async () => ({ pushed: true }) } },
+    }) as never);
+    const args = String(createProviderRuntime.mock.lastCall?.[0].settings?.launchArgs);
+    expect(args).toContain('mcp_servers.t3-code.tools={"pushRepair"={approval_mode="approve"}}');
+    expect(args).toContain('bearer_token_env_var="T3_MCP_BEARER_TOKEN"');
+    expect(args).toContain('shell_environment_policy.set.T3_MCP_BEARER_TOKEN=""');
+    expect(args).not.toContain("shell_environment_policy.exclude=");
+    expect(createProviderRuntime.mock.lastCall?.[0].environment?.T3_MCP_BEARER_TOKEN).toEqual(expect.any(String));
+    expect(args).not.toContain("default_tools_approval_mode");
+    expect(provider.startSession).toHaveBeenCalledWith(expect.objectContaining({ runtimeMode: "auto-accept-edits", approvalPolicy: "never", mcp: undefined }));
+  });
 
   it("keeps provider session state for the lifetime of an Agent Definition", async () => {
     const agent = defineAgent({ driver: "codex", runtime: false })
@@ -2508,6 +2726,79 @@ cli_auth_credentials_store = "keyring"
     if (!isRuntimeRecord(result.usageRecord) || !Array.isArray(result.usageRecord.calls) || !isRuntimeRecord(result.usageRecord.calls[0])) throw new Error("Expected provider usage calls")
     expect(result.usageRecord.calls).toHaveLength(1)
     expect(result.usageRecord.calls[0].usage).toBeUndefined()
+  })
+
+  it.each(["codex", "claude-code"] as const)("uses authoritative terminal turn usage from %s after itemless snapshots", async provider => {
+    const threadId = `thread-terminal-usage-${provider}`
+    const tokenUsage = { usageStatus: "complete", usageScope: "main_agent", hasSubagents: true, inputTokens: 9, cachedInputTokens: 3, cacheCreationTokens: 1, outputTokens: 3, reasoningTokens: 1 }
+    runtime(threadId, [
+      event("thread.token-usage.updated", threadId, { usage: { inputTokens: 4, outputTokens: 1 } }),
+      event("thread.token-usage.updated", threadId, { usage: { inputTokens: 5, outputTokens: 2 } }),
+      event("turn.completed", threadId, { state: "completed", tokenUsage }, { turnId: "turn-1" }),
+    ])
+    const result = await createProviderAgentAdapter({ model: "test-model", provider }).generate(context(threadId) as never)
+    if (!isRuntimeRecord(result)) throw new Error("Expected provider result")
+    expect(result.usageRecord).toMatchObject({
+      model: "test-model",
+      provider,
+      raw: tokenUsage,
+      usage: {
+        inputTokens: 9, outputTokens: 3, totalTokens: 12,
+        inputTokenDetails: { cacheReadTokens: 3, cacheWriteTokens: 1 },
+        outputTokenDetails: { reasoningTokens: 1 },
+        details: { usageStatus: "complete", usageScope: "main_agent", hasSubagents: true },
+      },
+    })
+  })
+
+  it.each(["failed", "aborted"] as const)("emits partial terminal usage before a %s turn error", async terminal => {
+    const threadId = `thread-terminal-partial-${terminal}`
+    const tokenUsage = { usageStatus: "partial", usageScope: "main_agent", hasSubagents: false, inputTokens: 7, cachedInputTokens: 2, outputTokens: 3, reasoningTokens: 1 }
+    runtime(threadId, [event(terminal === "failed" ? "turn.completed" : "turn.aborted", threadId,
+      terminal === "failed" ? { state: "failed", errorMessage: "terminal failure", tokenUsage } : { reason: "terminal interruption", tokenUsage }, { turnId: "turn-1" })])
+    const events: StreamEvent[] = []
+    const read = async () => {
+      // SAFETY: The provider adapter's stream returns normalized Agent stream events.
+      const output = await createProviderAgentAdapter({ provider: "codex" }).stream!(context(threadId) as never) as AsyncIterable<StreamEvent>
+      for await (const value of output) events.push(value)
+    }
+    await expect(read()).rejects.toThrow(/terminal failure|terminal interruption/)
+    expect(events.find(value => value.type === "usage")).toMatchObject({ usageRecord: { raw: tokenUsage,
+      usage: { inputTokens: 7, outputTokens: 3, totalTokens: 10, details: { usageStatus: "partial", usageScope: "main_agent" } } } })
+  })
+
+  it("emits terminal usage before propagating external cancellation", async () => {
+    const threadId = "thread-external-abort-usage"
+    const controller = new AbortController()
+    const failure = new Error("external cancellation")
+    const tokenUsage = { usageStatus: "partial", usageScope: "main_agent", hasSubagents: false, inputTokens: 7, outputTokens: 3 }
+    runtime(threadId, [event("turn.aborted", threadId, {
+      get reason() { controller.abort(failure); return "cancelled" },
+      tokenUsage,
+    }, { turnId: "turn-1" })])
+    const events: StreamEvent[] = []
+    const read = async () => {
+      // SAFETY: The provider adapter stream returns normalized Agent events.
+      const output = await createProviderAgentAdapter({ provider: "codex" }).stream!(context(threadId, {
+        input: { abortSignal: controller.signal, prompt: "hello" },
+      }) as never) as AsyncIterable<StreamEvent>
+      for await (const value of output) events.push(value)
+    }
+    await expect(read()).rejects.toBe(failure)
+    expect(events.filter(value => value.type === "usage")).toMatchObject([
+      { usageRecord: { usage: { inputTokens: 7, outputTokens: 3, totalTokens: 10 } } },
+    ])
+  })
+
+  it("retains measured snapshots when terminal usage is unavailable", async () => {
+    const threadId = "thread-terminal-unavailable"
+    runtime(threadId, [
+      event("thread.token-usage.updated", threadId, { usage: { inputTokens: 4, outputTokens: 1, totalProcessedTokens: 5 } }),
+      event("turn.completed", threadId, { state: "completed", tokenUsage: { usageStatus: "unavailable", usageScope: "main_agent", hasSubagents: false } }, { turnId: "turn-1" }),
+    ])
+    const result = await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId) as never)
+    if (!isRuntimeRecord(result)) throw new Error("Expected provider result")
+    expect(result.usageRecord).toMatchObject({ usage: { inputTokens: 4, outputTokens: 1, totalTokens: 5 } })
   })
 
   it("keeps accumulated usage unknown when a distinct response lacks its partition", async () => {
@@ -3747,6 +4038,12 @@ cli_auth_credentials_store = "keyring"
     runtime("thread-tools", [event("turn.completed", "thread-tools", { state: "completed" }, { turnId: "turn-1" })], {
       async onSendTurn(mcp) {
         expect(mcp).toBeDefined()
+        const token = mcp!.authorizationHeader.slice("Bearer ".length)
+        const sameLength = `${token.slice(0, -1)}${token.endsWith("A") ? "B" : "A"}`
+        for (const authorization of [undefined, `Bearer ${token.slice(0, -1)}`, `Bearer ${token}x`, `Bearer ${sameLength}`, `Basic ${token}`]) {
+          const response = await fetch(mcp!.endpoint, { body: "{}", headers: authorization ? { authorization } : {}, method: "POST" })
+          expect(response.status).toBe(401)
+        }
         const client = new McpClient({ name: "provider-test", version: "1" })
         const transport = new StreamableHTTPClientTransport(new URL(mcp!.endpoint), {
           requestInit: { headers: { Authorization: mcp!.authorizationHeader } },
@@ -3772,6 +4069,64 @@ cli_auth_credentials_store = "keyring"
       },
     }) as never)).resolves.toMatchObject({ text: "" })
     expect(execute).toHaveBeenCalledWith({ query: "vitehub" }, expect.objectContaining({ abortSignal: expect.any(AbortSignal) }))
+  })
+
+  it.each(["value", "getter", "proxy", "zod"])("handles schema %s markers through the provider MCP boundary", async (kind) => {
+    const validate = vi.fn(() => ({ value: { query: "inherited" } }))
+    const execute = vi.fn(async (input: unknown) => ({ echoed: input }))
+    const read = vi.fn(() => { throw new Error("Inherited marker must not be read") })
+    const prototype = kind === "getter"
+      ? Object.defineProperty({}, "~standard", { enumerable: true, get: read })
+      : { "~standard": { validate } }
+    const rawSchema = Object.assign(Object.create(prototype), {
+      additionalProperties: false,
+      properties: { query: { type: "string" } },
+      required: ["query"],
+      type: "object",
+    })
+    const inputSchema = kind === "proxy"
+      ? new Proxy(rawSchema, {
+          get(target, key, receiver) {
+            if (key === "~standard") return read()
+            return Reflect.get(target, key, receiver)
+          },
+        })
+      : kind === "zod" ? z.strictObject({ query: z.string() }) : rawSchema
+    const threadId = "thread-tools-inherited-schema"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      async onSendTurn(mcp) {
+        const client = new McpClient({ name: "provider-test", version: "1" })
+        const transport = new StreamableHTTPClientTransport(new URL(mcp!.endpoint), {
+          requestInit: { headers: { Authorization: mcp!.authorizationHeader } },
+        })
+        await client.connect(transport)
+        try {
+          expect((await client.listTools()).tools[0]?.inputSchema).toEqual({
+            ...(kind === "zod" ? { $schema: "http://json-schema.org/draft-07/schema#" } : {}),
+            additionalProperties: false,
+            properties: { query: { type: "string" } },
+            required: ["query"],
+            type: "object",
+          })
+          await expect(client.callTool({ arguments: { query: 42 }, name: "search" })).resolves.toMatchObject({ isError: true })
+          expect(execute).not.toHaveBeenCalled()
+          await expect(client.callTool({ arguments: { query: "vitehub" }, name: "search" })).resolves.toMatchObject({
+            content: [{ text: '{"echoed":{"query":"vitehub"}}', type: "text" }],
+          })
+        }
+        finally {
+          await client.close()
+        }
+      },
+    })
+
+    // SAFETY: This fixture supplies the runtime context exercised by the provider adapter.
+    await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId, {
+      tools: { search: { execute, inputSchema, name: "search" } },
+    }) as never)
+    expect(read).not.toHaveBeenCalled()
+    expect(validate).not.toHaveBeenCalled()
+    expect(execute).toHaveBeenCalledExactlyOnceWith({ query: "vitehub" }, expect.objectContaining({ abortSignal: expect.any(AbortSignal) }))
   })
 
   it.each(["codex", "claude-code"] as const)("returns diagnostic guidance through %s Capability tools", async (provider) => {
@@ -3865,6 +4220,39 @@ cli_auth_credentials_store = "keyring"
     await expect(toolCall).resolves.toMatchObject({ content: [{ text: "null", type: "text" }] })
     expect(reportToolStep).toHaveBeenCalledWith(expect.objectContaining({ toolResults: [expect.objectContaining({ output: null })] }))
     await expect(stream.next()).resolves.toMatchObject({ value: { type: "finish" } })
+  })
+
+  it("does not run inherited Standard Schema validators for provider tools", async () => {
+    let toolCall!: Promise<unknown>
+    const validate = vi.fn(() => ({ value: { query: "forged" } }))
+    const execute = vi.fn(async (input: unknown) => input)
+    const inheritedSchema = Object.assign(Object.create({ "~standard": { validate } }), {
+      properties: { query: { type: "string" } },
+      type: "object",
+    })
+    runtime("thread-tool-inherited-schema", [event("turn.completed", "thread-tool-inherited-schema", { state: "completed" }, { turnId: "turn-1" })], {
+      async onSendTurn(mcp) {
+        const client = new McpClient({ name: "provider-test", version: "1" })
+        const transport = new StreamableHTTPClientTransport(new URL(mcp!.endpoint), {
+          requestInit: { headers: { Authorization: mcp!.authorizationHeader } },
+        })
+        await client.connect(transport)
+        toolCall = client.callTool({ arguments: { query: "raw" }, name: "lookup" })
+        await toolCall.finally(() => client.close())
+      },
+    })
+
+    // SAFETY: This fixture models an untrusted schema-like object with an inherited marker.
+    await expect(createProviderAgentAdapter({ provider: "codex" }).generate(context("thread-tool-inherited-schema", {
+      tools: {
+        lookup: { execute, inputSchema: inheritedSchema as never, name: "lookup" },
+      },
+    }) as never)).resolves.toBeDefined()
+    await expect(toolCall).resolves.toMatchObject({
+      content: [{ text: '{"query":"raw"}', type: "text" }],
+    })
+    expect(execute).toHaveBeenCalledWith({ query: "raw" }, expect.objectContaining({ abortSignal: expect.any(AbortSignal) }))
+    expect(validate).not.toHaveBeenCalled()
   })
 
   it.each(["codex", "claude-code"] as const)("returns diagnostic guidance when an approved %s Capability tool fails", async (provider) => {
@@ -4053,6 +4441,336 @@ cli_auth_credentials_store = "keyring"
     expect(createProviderRuntime.mock.lastCall?.[0].environment).toMatchObject({ GH_TOKEN: "installation-token" })
   })
 
+  it.each(["", "docs"])("runs a nested pull request checkout as the provider root with source root %j", async (sourceRoot) => {
+    const threadId = "thread-nested-pull-request-provider-root"
+    let root = ""
+    let checkoutSha = ""
+    const onExit = vi.fn(async ({ cwd }: { cwd: string }) => {
+      expect(cwd).toBe(join(root, "portal"))
+      await access(cwd)
+    })
+    const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      async onStartSession() {
+        expect(createProviderRuntime.mock.lastCall?.[0].cwd).toBe(join(root, "portal"))
+        expect(provider.startSession).toHaveBeenCalledWith(expect.objectContaining({ cwd: join(root, "portal") }))
+        const instructions = await readFile(join(root, "portal", "AGENTS.md"), "utf8")
+        expect(instructions).toContain("provider instructions")
+        expect(instructions).toContain('"mount": ""')
+        expect(instructions).not.toContain('"mount": "portal"')
+        expect(instructions).toContain(`"id": "${checkoutSha}"`)
+        expect(instructions).toContain('"root": ""')
+        expect(instructions).not.toContain('"root": "docs"')
+        await expect(readFile(join(root, "portal", ".agents/skills/agent-browser/SKILL.md"), "utf8")).resolves.toBe("# Native Browser\n")
+        await expect(readFile(join(root, "portal", ".codex/skills/agent-browser/SKILL.md"), "utf8")).resolves.toBe("# Native Browser\n")
+        await expect(readFile(join(root, "portal", ".claude/skills/agent-browser/SKILL.md"), "utf8")).resolves.toBe("# Native Browser\n")
+        await expect(readFile(join(root, "portal", ".agents/skills/outer-only/SKILL.md"), "utf8")).resolves.toBe("# Outer Only\n")
+      },
+    })
+    const session = {
+      close: vi.fn(async () => undefined),
+      commit: vi.fn(async () => undefined),
+      diff: vi.fn(async () => ({ entries: [] })),
+      exec: vi.fn(async (command: string, args: string[] = [], options?: { cwd?: string }) => {
+        const cwd = options?.cwd?.replace(/^\/workspace/, root) || root
+        const result = spawnSync(command, args, { cwd, encoding: "utf8" })
+        return { args, command, exitCode: result.status ?? 1, stderr: result.stderr, stdout: result.stdout }
+      }),
+      readFile: vi.fn(async () => new Uint8Array()),
+    }
+    const workspace = {
+      fs: {},
+      materializeSources: vi.fn(async () => ({
+        bytes: 0,
+        directories: 0,
+        files: 1,
+        path: "",
+        sources: [{ mountPath: "portal", provider: "github", revision: { id: "b".repeat(40), immutable: true }, source: "portal", status: "ready" }],
+      })),
+      startSession: vi.fn(async (options: { target: string }) => {
+        root = options.target
+        await mkdir(join(root, ".agents/skills/agent-browser"), { recursive: true })
+        await writeFile(join(root, ".agents/skills/agent-browser/SKILL.md"), "# Browser\n")
+        await mkdir(join(root, ".agents/skills/outer-only"), { recursive: true })
+        await writeFile(join(root, ".agents/skills/outer-only/SKILL.md"), "# Outer Only\n")
+        const checkout = join(root, "portal")
+        await mkdir(checkout)
+        await mkdir(join(checkout, ".codex/skills/agent-browser"), { recursive: true })
+        await writeFile(join(checkout, ".codex/skills/agent-browser/SKILL.md"), "# Native Browser\n")
+        const git = (...args: string[]) => {
+          const result = spawnSync("git", ["-C", checkout, ...args], { encoding: "utf8" })
+          if (result.status !== 0) throw new Error(result.stderr)
+          return result.stdout
+        }
+        git("init", "-q", "-b", "feature")
+        git("remote", "add", "origin", "https://github.com/acme/portal.git")
+        git("config", "branch.feature.remote", "origin")
+        git("config", "branch.feature.merge", "refs/heads/feature")
+        git("-c", "user.name=Test", "-c", "user.email=test@localhost", "commit", "--allow-empty", "-qm", "initial repository")
+        checkoutSha = git("rev-parse", "HEAD").trim()
+        runContext.context.set("pullRequest", {
+          pullRequest: {
+            head: { ref: "feature", repo: "acme/portal", sha: checkoutSha },
+            source: { mount: "portal", ref: "refs/pull/42/head", repo: "acme/portal" },
+          },
+          repository: { fullName: "acme/portal", name: "portal" },
+        })
+        return session
+      }),
+      tools: {},
+    }
+    const runContext = context(threadId, {
+      tools: {},
+      workspace,
+      workspaceDefinition: { mode: "write", name: "docs", sources: { portal: github({ repo: "acme/portal", root: sourceRoot }) } },
+      workspaceMode: "write",
+    })
+    runContext.context.set("pullRequest", {
+      pullRequest: {
+        head: { ref: "feature", repo: "acme/portal", sha: "a".repeat(40) },
+        number: 42,
+        source: { mount: "portal", ref: "refs/pull/42/head", repo: "acme/portal" },
+      },
+      repository: { fullName: "acme/portal", name: "portal" },
+    })
+    const generatedTools = workspaceCommandTools("all", "write", undefined, workspace, { context: runContext.context as never })
+    const providerContext = Object.assign(runContext, { tools: generatedTools })
+    provider.sendTurn.mockImplementationOnce(async () => {
+      const result = await generatedTools.workspace_exec!.execute?.({ command: "pwd" })
+      expect(result).toMatchObject({ stdout: `${join(root, "portal")}\n` })
+      return { threadId, turnId: "turn-1", resumeCursor: undefined }
+    })
+
+    await expect(createProviderAgentAdapter({
+      instructions: "provider instructions",
+      launch: async ({ command }) => ({ command, onExit }),
+      provider: "codex",
+    }).generate(providerContext as never)).resolves.toMatchObject({ text: "" })
+    expect(session.exec.mock.calls.some(([command, args = []]) => command === "git" && args.join(" ") === "init -q")).toBe(true)
+    expect(onExit).toHaveBeenCalledOnce()
+  })
+
+  it("passes a managed browser PATH to provider Workspace commands", async () => {
+    const threadId = "thread-provider-workspace-browser-path"
+    const session = {
+      close: vi.fn(async () => undefined),
+      commit: vi.fn(async () => undefined),
+      diff: vi.fn(async () => ({ entries: [] })),
+      exec: vi.fn(async (command: string, args: string[] = [], options?: { env?: Record<string, string> }) => ({
+        args,
+        command,
+        exitCode: 0,
+        stderr: "",
+        stdout: options?.env?.PATH || "",
+      })),
+      readFile: vi.fn(async () => new Uint8Array()),
+    }
+    const workspace = { fs: {}, startSession: vi.fn(async () => session), tools: {} }
+    const runContext = context(threadId, {
+      tools: {
+        workspace_exec: {
+          description: "Run a workspace command",
+          execute: async (input: { args?: string[], command: string }) => await executeWorkspaceCommand(workspace, input.command, input.args, { env: { AGENT_BROWSER_SESSION: "caller", AGENT_BROWSER_SOCKET_DIR: "/caller", VITEHUB_BROWSER_ACTIVE: "0", PATH: "/caller/bin", LD_LIBRARY_PATH: "/caller/lib" } }, runContext.context as never),
+          inputSchema: { additionalProperties: false, properties: { args: { items: { type: "string" }, type: "array" }, command: { type: "string" } }, required: ["command"], type: "object" },
+          name: "workspace_exec",
+        },
+      },
+      workspace,
+      workspaceDefinition: { mode: "write", name: "docs" },
+      workspaceMode: "write",
+    })
+    provideBrowserRuntimeEnvironment(runContext.context as never, { AGENT_BROWSER_SESSION: "managed", AGENT_BROWSER_SOCKET_DIR: "/managed/socket", PATH: "/managed/bin", LD_LIBRARY_PATH: "/managed/lib", VITEHUB_BROWSER_ACTIVE: "1" })
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      async onSendTurn(mcp) {
+        const client = new McpClient({ name: "provider-browser-path-test", version: "1" })
+        const transport = new StreamableHTTPClientTransport(new URL(mcp!.endpoint), { requestInit: { headers: { Authorization: mcp!.authorizationHeader } } })
+        await client.connect(transport)
+        await expect(client.callTool({ arguments: { command: "agent-browser" }, name: "workspace_exec" })).resolves.toMatchObject({ content: [{ text: expect.stringContaining('"stdout":"/managed/bin:') }] })
+        await client.close()
+      },
+    })
+
+    await createProviderAgentAdapter({ provider: "codex" }).generate(runContext as never)
+    expect(session.exec).toHaveBeenCalledWith("agent-browser", [], expect.objectContaining({ env: expect.objectContaining({ AGENT_BROWSER_SESSION: "managed", AGENT_BROWSER_SOCKET_DIR: "/managed/socket", VITEHUB_BROWSER_ACTIVE: "1", PATH: "/managed/bin:/caller/bin", LD_LIBRARY_PATH: "/managed/lib:/caller/lib" }) }))
+  })
+
+  it.each([
+    { provider: "codex" as const, merge: false },
+    { provider: "codex" as const, merge: true },
+    { provider: "claude-code" as const, merge: false },
+    { provider: "claude-code" as const, merge: true },
+  ])("preserves a $provider checkout restored by launch in an owned Workspace, merge=$merge", async ({ provider, merge }) => {
+    const source = await mkdtemp(join(tmpdir(), "vitehub-launch-checkout-"))
+    let root = ""
+    const git = (cwd: string, ...args: string[]) => {
+      const result = spawnSync("git", ["-C", cwd, ...args], { encoding: "utf8" })
+      if (result.status !== 0) throw new Error(result.stderr)
+      return result.stdout.trim()
+    }
+    try {
+      git(source, "init", "-q", "-b", "main")
+      git(source, "config", "user.name", "Test")
+      git(source, "config", "user.email", "test@localhost")
+      git(source, "remote", "add", "origin", "https://github.com/acme/portal.git")
+      await writeFile(join(source, "AGENTS.md"), "native instructions")
+      await writeFile(join(source, "CLAUDE.md"), "native Claude instructions")
+      await writeFile(join(source, "file.txt"), "original\n")
+      git(source, "add", "-A")
+      git(source, "commit", "-qm", "initial")
+      git(source, "branch", "feature")
+      await writeFile(join(source, "file.txt"), "base edit\n")
+      git(source, "add", "-A")
+      git(source, "commit", "-qm", "base change")
+      const base = git(source, "rev-parse", "HEAD")
+      git(source, "checkout", "-q", "feature")
+      await writeFile(join(source, "file.txt"), "PR edit\n")
+      git(source, "add", "-A")
+      git(source, "commit", "-qm", "PR change")
+      const expectedHead = git(source, "rev-parse", "HEAD")
+      const session = {
+        close: vi.fn(async () => undefined),
+        commit: vi.fn(async () => undefined),
+        diff: vi.fn(async () => ({ entries: [] })),
+        exec: vi.fn(async (command: string, args: string[] = []) => {
+          const result = spawnSync(command, args, { cwd: root, encoding: "utf8" })
+          return { exitCode: result.status ?? 1, stderr: result.stderr, stdout: result.stdout }
+        }),
+        readFile: vi.fn(async () => new Uint8Array()),
+      }
+      const workspace = {
+        fs: {},
+        tools: {},
+        startSession: vi.fn(async ({ target }: { target: string }) => {
+          root = target
+          await writeFile(join(root, "file.txt"), "PR edit\n")
+          return session
+        }),
+      }
+      const threadId = `thread-launch-checkout-${provider}-${merge}`
+      runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+        async onSendTurn() {
+          await writeFile(join(root, "file.txt"), "repaired\n")
+          const repairedHead = await commitGitHubPullRequestWorkspace(root, { message: "repair", paths: ["file.txt"] }, { expectedHead })
+          expect(git(root, "rev-parse", `${repairedHead}^1`)).toBe(expectedHead)
+          if (merge) expect(git(root, "rev-parse", `${repairedHead}^2`)).toBe(base)
+          expect(git(root, "log", "--format=%s")).not.toContain("vitehub provider baseline")
+          expect(git(root, "show", "HEAD:AGENTS.md")).toBe("native instructions")
+          expect(git(root, "show", "HEAD:CLAUDE.md")).toBe("native Claude instructions")
+          expect(git(root, "ls-tree", "-r", "--name-only", "HEAD")).not.toContain("vitehub-system-prompt")
+          expect(git(root, "show", "HEAD:file.txt")).toBe("repaired")
+        },
+      })
+      await createProviderAgentAdapter({
+        instructions: "generated repair instructions",
+        launch: async ({ command, cwd }) => {
+          expect(cwd).toBe(root)
+          await prepareGitHubPullRequestWorkspace(source, root, { restoreInstructions: true })
+          if (merge) await prepareGitHubRepairBase(root, { expectedHead, base })
+          return { command }
+        },
+        provider,
+      }).generate(context(threadId, { workspace, workspaceDefinition: { mode: "write", name: "repair" }, workspaceMode: "write" }) as never)
+      expect(session.exec.mock.calls.some(([command, args = []]) => command === "git" && args.includes("vitehub provider baseline"))).toBe(false)
+    }
+    finally {
+      await rm(source, { recursive: true, force: true })
+    }
+  })
+
+  it.each(["codex", "claude-code"] as const)("baselines an ordinary committed root created by a custom $provider launch", async provider => {
+    let root = ""
+    const git = (...args: string[]) => {
+      const result = spawnSync("git", ["-C", root, ...args], { encoding: "utf8" })
+      if (result.status !== 0) throw new Error(result.stderr)
+      return result.stdout.trim()
+    }
+    const session = {
+      close: vi.fn(async () => undefined), commit: vi.fn(async () => undefined),
+      diff: vi.fn(async () => ({ entries: [] })), readFile: vi.fn(async () => new Uint8Array()),
+      exec: vi.fn(async (command: string, args: string[] = []) => {
+        const result = spawnSync(command, args, { cwd: root, encoding: "utf8" })
+        return { exitCode: result.status ?? 1, stderr: result.stderr, stdout: result.stdout }
+      }),
+    }
+    const workspace = { fs: {}, tools: {}, startSession: vi.fn(async ({ target }: { target: string }) => {
+      root = target
+      await writeFile(join(root, "source.txt"), "plain Workspace source")
+      return session
+    }) }
+    const threadId = `thread-custom-launch-baseline-${provider}`
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      async onSendTurn() {
+        expect(git("log", "-1", "--format=%s")).toBe("vitehub provider baseline")
+        expect(git("rev-list", "--count", "HEAD")).toBe("2")
+      },
+    })
+    await createProviderAgentAdapter({ provider, instructions: "generated instructions", launch: ({ command }) => {
+      git("config", "user.name", "Test")
+      git("config", "user.email", "test@localhost")
+      git("add", "-A")
+      git("commit", "-qm", "custom launcher history")
+      return { command }
+    } }).generate(context(threadId, { workspace, workspaceDefinition: { name: "ordinary", mode: "write" }, workspaceMode: "write" }) as never)
+  })
+
+  it.each(["codex", "claude-code"] as const)("prepares the %s checkout merge before injecting instructions", async provider => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-instruction-merge-"))
+    const threadId = `thread-instruction-merge-${provider}`
+    const git = (...args: string[]) => {
+      const result = spawnSync("git", ["-C", root, ...args], { encoding: "utf8" })
+      if (result.status !== 0) throw new Error(result.stderr)
+      return result.stdout
+    }
+    try {
+      git("init", "-q", "-b", "target")
+      git("config", "user.name", "Test")
+      git("config", "user.email", "test@localhost")
+      await writeFile(join(root, "AGENTS.md"), "original instructions")
+      await writeFile(join(root, "CLAUDE.md"), "original Claude instructions")
+      git("add", "-A")
+      git("commit", "-qm", "initial")
+      git("branch", "feature")
+      await writeFile(join(root, "AGENTS.md"), "updated source instructions")
+      await writeFile(join(root, "CLAUDE.md"), "updated source Claude instructions")
+      git("add", "-A")
+      git("commit", "-qm", "update target instructions")
+      git("checkout", "-q", "feature")
+      await writeFile(join(root, "feature.txt"), "feature")
+      git("add", "-A")
+      git("commit", "-qm", "feature")
+      const originalFlags = git("ls-files", "-v", "--", "AGENTS.md", "CLAUDE.md")
+      runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+        async onSendTurn() {
+          expect(git("rev-parse", "MERGE_HEAD").trim()).toBe(git("rev-parse", "target").trim())
+          expect(git("show", ":AGENTS.md")).toBe("updated source instructions")
+          expect(git("show", ":CLAUDE.md")).toBe("updated source Claude instructions")
+          const promptPath = provider === "codex" ? "AGENTS.md" : ".claude/vitehub-system-prompt.md"
+          expect(await readFile(join(root, promptPath), "utf8")).toBe("generated repair instructions")
+          await writeFile(join(root, "repair.txt"), "repair")
+          git("add", "-A")
+          git("commit", "-qm", "finish repair merge")
+          expect(git("show", "HEAD:AGENTS.md")).toBe("updated source instructions")
+          expect(git("show", "HEAD:CLAUDE.md")).toBe("updated source Claude instructions")
+        },
+      })
+      await createProviderAgentAdapter({
+        cwd: root,
+        instructions: "generated repair instructions",
+        launch: ({ command }) => {
+          git("merge", "--no-commit", "--no-ff", "target")
+          return { command }
+        },
+        provider,
+      }).generate(context(threadId) as never)
+      expect(await readFile(join(root, "AGENTS.md"), "utf8")).toBe("updated source instructions")
+      expect(await readFile(join(root, "CLAUDE.md"), "utf8")).toBe("updated source Claude instructions")
+      expect(git("ls-files", "-v", "--", "AGENTS.md", "CLAUDE.md")).toBe(originalFlags)
+      expect(git("status", "--porcelain")).toBe("")
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it.each(["codex", "claude-code"] as const)("keeps %s generated root checkout files out of Agent commits", async (provider) => {
     const threadId = `thread-root-generated-git-${provider}`
     let root = ""
@@ -4086,6 +4804,10 @@ cli_auth_credentials_store = "keyring"
       startSession: vi.fn(async ({ target }: { target: string }) => {
         root = target
         git("init", "-q")
+        git("remote", "add", "origin", "https://github.com/acme/portal.git")
+        git("checkout", "-q", "-b", "feature")
+        git("config", "branch.feature.remote", "origin")
+        git("config", "branch.feature.merge", "refs/heads/feature")
         git("config", "user.name", "Test")
         git("config", "user.email", "test@localhost")
         await writeFile(`${root}/AGENTS.md`, "native instructions")
@@ -4735,16 +5457,16 @@ cli_auth_credentials_store = "keyring"
       workspaceDefinition: {
         name: "docs",
         sources: {
-          docs: github({ repo: "vite-hub/vitehub", root: sourceRoot }),
+          // Raw inferred options exercise provenance normalization without constructing an unsafe GitHub Source.
+          docs: { repo: "vite-hub/vitehub", root: sourceRoot },
           ...(overlappingMount === undefined ? {} : {
             other: { mount: overlappingMount, source: github({ repo: "owner/other" }) },
           }),
         },
       },
     })
-    runContext.context.set("access", { workspaceScope: { all: false, paths: selectedPaths } })
-    // SAFETY: This fixture supplies the trusted access context expected by the helper.
-    markTrustedWorkspaceAccessScope(runContext.context as never)
+    // SAFETY: This fixture supplies the invocation context store expected by the helper.
+    grantWorkspaceAccessScope(runContext.context as never, { all: false, paths: selectedPaths, role: "viewer", scope: "docs", sources: [] })
     // SAFETY: This fixture supplies the complete provider generation context.
     await createProviderAgentAdapter({ provider: "codex" }).generate(runContext as never)
 
@@ -4780,9 +5502,8 @@ cli_auth_credentials_store = "keyring"
       workspaceDefinition: { name: "docs" },
       workspaceMaterializationPaths: ["docs/a.md", "docs/b.md"],
     })
-    runContext.context.set("access", { workspaceScope: { all: false, paths: ["docs/a.md", "docs/b.md"] } })
-    // SAFETY: This test fixture supplies the trusted access context expected by the helper.
-    markTrustedWorkspaceAccessScope(runContext.context as never)
+    // SAFETY: This test fixture supplies the invocation context store expected by the helper.
+    grantWorkspaceAccessScope(runContext.context as never, { all: false, paths: ["docs/a.md", "docs/b.md"], role: "viewer", scope: "docs", sources: [] })
 
     // SAFETY: This test fixture supplies the complete provider generation context.
     const generation = createProviderAgentAdapter({ provider: "codex" }).generate(runContext as never)
@@ -4793,6 +5514,30 @@ cli_auth_credentials_store = "keyring"
     releaseActive()
     await expect(generation).rejects.toThrow("Canceled")
     expect(activeSettled).toBe(true)
+  })
+
+  it("uses the granted access scope when the access context value is overwritten", async () => {
+    const threadId = "thread-workspace-forged-access-scope"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const session = {
+      close: vi.fn(async () => undefined),
+      commit: vi.fn(async () => undefined),
+      diff: vi.fn(async () => ({ entries: [] })),
+      exec: vi.fn(async () => ({ code: 0, stderr: "", stdout: "" })),
+      readFile: vi.fn(async () => new Uint8Array()),
+    }
+    const materializeSources = vi.fn(async (_options: { path: string }) => ({ bytes: 0, directories: 0, durationMs: 0, files: 0, path: "", sources: [] }))
+    const workspace = { fs: {}, materializeSources, startSession: vi.fn(async (_options: { paths?: readonly string[] }) => session), tools: {} }
+    const runContext = context(threadId, { workspace, workspaceDefinition: { name: "docs" } })
+    // SAFETY: This test fixture supplies the invocation context store expected by the helper.
+    grantWorkspaceAccessScope(runContext.context as never, { all: false, paths: ["docs/a.md"], role: "viewer", scope: "docs", sources: [] })
+    runContext.context.set("access", { workspaceScope: { all: true, paths: ["docs/a.md", "secrets/key.md"], role: "admin", scope: "all", sources: [] } })
+
+    // SAFETY: This test fixture supplies the complete provider generation context.
+    await createProviderAgentAdapter({ provider: "codex" }).generate(runContext as never)
+
+    expect(materializeSources.mock.calls.map(([options]) => options.path)).toEqual(["docs/a.md"])
+    expect(workspace.startSession).toHaveBeenCalledWith(expect.objectContaining({ paths: ["docs/a.md"] }))
   })
 
   it("keeps session materialization enabled after selected Source errors", async () => {
@@ -5324,6 +6069,11 @@ cli_auth_credentials_store = "keyring"
     expect(session.diff).not.toHaveBeenCalled()
     expect(session.commit).not.toHaveBeenCalled()
     expect(workspace.startSession).toHaveBeenCalledWith(expect.objectContaining({ writeBack: false }))
+    // The Driver owns and removes its temporary root, so the Session must not restore it on close.
+    expect(workspace.startSession).toHaveBeenCalledWith(expect.objectContaining({
+      disposableTarget: true,
+      target: expect.stringMatching(/\/vitehub-provider-[^/]+$/),
+    }))
     expect(workspace.startSession).toHaveBeenCalledWith(expect.not.objectContaining({ materializeSources: false }))
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     expect(readAgentWorkspaceDiff(runContext.context as never)).toBeUndefined()

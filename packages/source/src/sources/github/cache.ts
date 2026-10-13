@@ -20,23 +20,18 @@ export function createGitHubCacheKey(input: {
   repo: string
   root: string
 }) {
-  return [
+  return JSON.stringify([
     input.kind,
     input.repo,
     input.ref,
     input.root,
-    normalizePatternCacheKey(input.include),
-    normalizePatternCacheKey(input.ignore),
+    input.include ?? null,
+    input.ignore ?? null,
     input.authScope,
     input.key || "",
-  ].join(":")
+  ])
 }
 
 export function githubAuthenticationScope(token: string | undefined) {
   return token ? createHash("sha256").update(token).digest("hex") : "anonymous"
-}
-
-function normalizePatternCacheKey(value: string | readonly string[] | undefined) {
-  if (!value) return ""
-  return Array.isArray(value) ? value.join(",") : String(value)
 }

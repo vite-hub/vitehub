@@ -4,7 +4,7 @@ import { createTraceEventLog } from "@vite-hub/runtime"
 import { defineAgent, defineCapability, runAgent, streamAgent, type AgentTelemetry } from "../src/index.ts"
 import { otlp } from "../src/capabilities.ts"
 import { otlpHttpJson } from "../src/telemetry.ts"
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
+import { hasRuntimeType } from "../src/internal/runtime-type.ts"
 import { agentTelemetryConfigurationFingerprint, getAgentTelemetryConfiguration, setAgentTelemetryConfiguration, updateAgentTelemetryConfiguration } from "../src/internal/agent-telemetry.ts"
 
 import { createAgentInvocationContextStore } from "../src/invocation-context.ts"

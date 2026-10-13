@@ -199,6 +199,60 @@ describe("realtime server handler", () => {
     expect(peer.publish).not.toHaveBeenCalled()
   })
 
+  it("does not publish through an unregistered inherited peer marker", async () => {
+    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+      exists: vi.fn().mockResolvedValue(false),
+      readFile: vi.fn(),
+      stat: vi.fn(),
+    }))
+    const handler = createRealtimeHandler(realtimeRegistry())
+    const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
+      headers: { upgrade: "websocket" },
+    })) as Response & { crossws: { message(peer: object, message: object): void, open(peer: object): void } }
+    const inheritedPublish = vi.fn()
+    const peer = Object.assign(Object.create({ publish: inheritedPublish }), {
+      close: vi.fn(),
+      send: vi.fn(),
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn(),
+    })
+
+    const client = new Y.Doc()
+    client.getMap("default").set("value", "changed")
+    const update = encodeSyncUpdate(Y.encodeStateAsUpdate(client))
+    response.crossws.message(peer, { uint8Array: () => update })
+
+    expect(inheritedPublish).not.toHaveBeenCalled()
+    client.destroy()
+  })
+
+  it("publishes through an inherited publisher for a registered peer", async () => {
+    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+      exists: vi.fn().mockResolvedValue(false),
+      readFile: vi.fn(),
+      stat: vi.fn(),
+    }))
+    const handler = createRealtimeHandler(realtimeRegistry())
+    const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
+      headers: { upgrade: "websocket" },
+    })) as Response & { crossws: { message(peer: object, message: object): void, open(peer: object): void } }
+    const inheritedPublish = vi.fn()
+    const peer = Object.assign(Object.create({ publish: inheritedPublish }), {
+      close: vi.fn(),
+      send: vi.fn(),
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn(),
+    })
+
+    response.crossws.open(peer)
+    const client = new Y.Doc()
+    client.getMap("default").set("value", "changed")
+    response.crossws.message(peer, { uint8Array: () => encodeSyncUpdate(Y.encodeStateAsUpdate(client)) })
+
+    expect(inheritedPublish).toHaveBeenCalledOnce()
+    client.destroy()
+  })
+
   it("rate-limits workspace changes from each peer", async () => {
     vi.spyOn(Date, "now").mockReturnValue(100)
     serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
@@ -1319,6 +1373,10 @@ describe("workspace changes", () => {
       .toEqual({ operation: "move", from: "docs/old.md", to: "docs/new.md" })
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "../secret" }))).toBeUndefined()
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: ".vitehub/config" }))).toBeUndefined()
+    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/.. " }))).toBeUndefined()
+    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/.git " }))).toBeUndefined()
+    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/git~1" }))).toBeUndefined()
+    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "vitehu~1/config" }))).toBeUndefined()
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "move", from: "docs/old.md", to: "docs\\new.md" }))).toBeUndefined()
     expect(decodeWorkspaceChange(new Uint8Array([4, 1, 123]))).toBeUndefined()
   })

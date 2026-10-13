@@ -185,7 +185,7 @@ describe("built-in deployment preset integration", () => {
         env: {
           server: {
             nested: {
-              required: env({ secret: true, source: env.source("VITEHUB_TOKEN") }),
+              required: env({ secret: true, source: env.source("VITEHUB_NESTED_REQUIRED") }),
               optional: env({ optional: true, secret: true, source: env.source("OPTIONAL_TOKEN") }),
               alternatives: env({ secret: true, source: env.source(["PRIMARY_TOKEN", "FALLBACK_TOKEN"]) }),
               external: env({ secret: true, source: env.provider("credentials", "github/token") }),
@@ -206,7 +206,7 @@ describe("built-in deployment preset integration", () => {
 
       expect((config as typeof config & {
         nitro?: { cloudflare?: { wrangler?: { secrets?: { required?: string[] } } } }
-      }).nitro?.cloudflare?.wrangler?.secrets?.required).toEqual(["APP_SECRET", "VITEHUB_TOKEN"])
+      }).nitro?.cloudflare?.wrangler?.secrets?.required).toEqual(["APP_SECRET", "VITEHUB_NESTED_REQUIRED"])
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -235,10 +235,42 @@ describe("built-in deployment preset integration", () => {
       expect(config.root).toBe(agentRoot)
       expect((config as typeof config & {
         nitro?: { cloudflare?: { wrangler?: { secrets?: { required?: string[] } } } }
-      }).nitro?.cloudflare?.wrangler?.secrets?.required).toEqual(["TELEGRAM_BOT_TOKEN"])
+      }).nitro?.cloudflare?.wrangler?.secrets?.required ?? []).toEqual([])
       const types = await readFile(join(agentRoot, ".vitehub", "types", "env.d.ts"), "utf8")
       expect(types).toContain('"telegram": {')
       expect(types).toContain('"botToken": import("vite-hub/env/secret").SecretEnv<string>')
+      const description = await readFile(join(agentRoot, ".vitehub", "env", "description.mjs"), "utf8")
+      expect(description).toContain("VITEHUB_TELEGRAM_BOT_TOKEN")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("declares optional Server Env for gateway presets used by Agents", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-gateway-env-"))
+    try {
+      await mkdir(join(root, "server", "agents"), { recursive: true })
+      await writeFile(join(root, "server", "agents", "dev.ts"), [
+        `import { defineAgent } from "vite-hub/agent"`,
+        `import { cliproxy, cloudflareAccess } from "vite-hub/agent/gateways"`,
+        `export default defineAgent({ driver: { kind: "codex", gateway: cliproxy({ headers: cloudflareAccess() }) } })`,
+      ].join("\n"))
+      const config = await resolveConfig({
+        root,
+        plugins: [vitehub({ agent: true, preset: "cloudflare" })],
+      } as Parameters<typeof resolveConfig>[0] & EnvViteUserConfig, "build")
+      // A gateway key is optional, so a server that also hosts Agents without the gateway still starts.
+      expect((config as typeof config & {
+        nitro?: { cloudflare?: { wrangler?: { secrets?: { required?: string[] } } } }
+      }).nitro?.cloudflare?.wrangler?.secrets?.required ?? []).toEqual([])
+      const types = await readFile(join(root, ".vitehub", "types", "env.d.ts"), "utf8")
+      expect(types).toContain("\"cliproxy\": {")
+      expect(types).toContain("\"apiKey\"?: import(\"vite-hub/env/secret\").SecretEnv<string>")
+      expect(types).toContain("\"cloudflareAccess\": {")
+      const description = await readFile(join(root, ".vitehub", "env", "description.mjs"), "utf8")
+      expect(description).toContain("env.server.cliproxy.url")
+      expect(description).toContain("env.server.cloudflareAccess.clientSecret")
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -257,7 +289,8 @@ describe("built-in deployment preset integration", () => {
       const resolve = (server?: Record<string, unknown>) => resolveConfig({
         ...(server ? { env: { server } } : {}),
         root,
-        plugins: [vitehub({ agent: true, preset: "cloudflare" })],
+        // A single vendor name can be required by Wrangler only when canonical aliases are disabled.
+        plugins: [vitehub({ agent: true, env: { prefix: false }, preset: "cloudflare" })],
       } as Parameters<typeof resolveConfig>[0] & EnvViteUserConfig, "build")
       const requiredSecrets = (config: Awaited<ReturnType<typeof resolve>>) => (config as typeof config & {
         nitro?: { cloudflare?: { wrangler?: { secrets?: { required?: string[] } } } }
@@ -387,6 +420,53 @@ describe("built-in deployment preset integration", () => {
     }
   }, 30_000)
 
+  it("emits discovered D1 bindings through the Nitro Vite plugin", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-d1-bindings-build-"))
+    try {
+      await mkdir(join(root, "server", "databases", "migrations"), { recursive: true })
+      await mkdir(join(root, "server", "routes"), { recursive: true })
+      await symlink(resolve(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), "dir")
+      await writeFile(join(root, "index.html"), "<main>ok</main>\n")
+      await writeFile(join(root, "server", "routes", "index.ts"), "export default () => 'ok'\n")
+      await writeFile(join(root, "server", "databases", "migrations", "0001_init.sql"), "create table notes (title text);\n")
+      await writeFile(join(root, "server", "databases", "config.ts"), [
+        "import { defineDatabase } from \"vite-hub/database\"",
+        "import { sqliteTable, text } from \"drizzle-orm/sqlite-core\"",
+        "const notes = sqliteTable(\"notes\", { title: text(\"title\") })",
+        "export default defineDatabase({",
+        "  cloudflare: { binding: \"DB\", databaseId: \"database-id\", databaseName: \"app\" },",
+        "  schema: { notes },",
+        "})",
+        "",
+      ].join("\n"))
+      const { nitro } = await import("nitro/vite" as string) as { nitro: () => unknown }
+      const builder = await createBuilder({
+        logLevel: "silent",
+        nitro: {
+          cloudflare: {
+            wrangler: {
+              d1_databases: [{ binding: "LEGACY", database_id: "legacy-id", database_name: "legacy" }],
+            },
+          },
+        },
+        root,
+        plugins: [vitehub({ database: { driver: "d1" }, preset: "cloudflare" }), nitro() as never],
+      } as Parameters<typeof createBuilder>[0])
+      await builder.buildApp()
+
+      const wrangler: unknown = JSON.parse(await readFile(join(root, ".output", "server", "wrangler.json"), "utf8"))
+      expect(wrangler).toHaveProperty("d1_databases", [
+        { binding: "LEGACY", database_id: "legacy-id", database_name: "legacy" },
+        { binding: "DB", database_id: "database-id", database_name: "app", migrations_dir: ".vitehub/database/migrations/DB" },
+      ])
+      await expect(readFile(join(root, ".output", "server", ".vitehub", "database", "migrations", "DB", "0001_init.sql"), "utf8"))
+        .resolves.toBe("create table notes (title text);\n")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  }, 120_000)
+
   it("emits each required secret and user Wrangler entry once when Agents are enabled", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-required-secrets-build-"))
     try {
@@ -491,7 +571,7 @@ describe("built-in deployment preset integration", () => {
     }
   }, 300_000)
 
-  it("emits prefixed secrets from a standalone Env plugin through Nitro", async () => {
+  it("omits fallback secret names from a standalone Env plugin with a custom prefix through Nitro", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-prefixed-standalone-secrets-build-"))
     try {
       await mkdir(join(root, "server", "routes"), { recursive: true })
@@ -508,7 +588,8 @@ describe("built-in deployment preset integration", () => {
       await builder.buildApp()
 
       const wrangler: unknown = JSON.parse(await readFile(join(root, ".output", "server", "wrangler.json"), "utf8"))
-      expect(wrangler).toMatchObject({ secrets: { required: ["APP_TOKEN"] } })
+      // Either APP_TOKEN or TOKEN satisfies the declaration; Wrangler cannot require either one alone.
+      expect(wrangler).not.toHaveProperty("secrets.required")
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -531,7 +612,7 @@ describe("built-in deployment preset integration", () => {
           {
             name: "app/server-env",
             enforce: "pre",
-            config: () => ({ env: { server: { token: env({ secret: true, source: env.source("LATE_TOKEN") }) } } }),
+            config: () => ({ env: { server: { token: env({ secret: true, source: env.source("VITEHUB_TOKEN") }) } } }),
           },
           nitro() as never,
         ],
@@ -539,12 +620,30 @@ describe("built-in deployment preset integration", () => {
       await builder.buildApp()
 
       const wrangler: unknown = JSON.parse(await readFile(join(root, ".output", "server", "wrangler.json"), "utf8"))
-      expect(wrangler).toMatchObject({ secrets: { required: ["LATE_TOKEN"] } })
+      expect(wrangler).toMatchObject({ secrets: { required: ["VITEHUB_TOKEN"] } })
     }
     finally {
       await rm(root, { force: true, recursive: true })
     }
   }, 30_000)
+
+  it.each([undefined, "APP_", false] as const)("uses exact Wrangler requirements with prefix %s", async (prefix) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-secret-aliases-"))
+    try {
+      const config = await resolveConfig({
+        env: { server: { token: env({ secret: true }) } },
+        root,
+        plugins: [vitehub({ env: false, preset: "cloudflare" }), hubEnv({ prefix })],
+      } as Parameters<typeof resolveConfig>[0] & EnvViteUserConfig, "build")
+      const required = (config as typeof config & {
+        nitro?: { cloudflare?: { wrangler?: { secrets?: { required?: string[] } } } }
+      }).nitro?.cloudflare?.wrangler?.secrets?.required
+      expect(required).toEqual(prefix === false ? ["TOKEN"] : undefined)
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
 
   it("declares required secrets from a standalone Env plugin", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-standalone-required-secrets-"))
@@ -598,12 +697,12 @@ describe("built-in deployment preset integration", () => {
 
       const [first, second] = await Promise.all([
         resolveConfig({
-          env: { server: { first: env({ secret: true, source: env.source("FIRST_TOKEN") }) } },
+          env: { server: { first: env({ secret: true, source: env.source("VITEHUB_FIRST") }) } },
           root,
           plugins: [vitehub({ env: false, preset: "cloudflare" }), envPlugin],
         } as Parameters<typeof resolveConfig>[0] & EnvViteUserConfig, "build"),
         resolveConfig({
-          env: { server: { second: env({ secret: true, source: env.source("SECOND_TOKEN") }) } },
+          env: { server: { second: env({ secret: true, source: env.source("VITEHUB_SECOND") }) } },
           root,
           plugins: [vitehub({ env: false, preset: "cloudflare" }), envPlugin],
         } as Parameters<typeof resolveConfig>[0] & EnvViteUserConfig, "build"),
@@ -611,8 +710,8 @@ describe("built-in deployment preset integration", () => {
       const required = (config: typeof first) => (config as typeof config & {
         nitro?: { cloudflare?: { wrangler?: { secrets?: { required?: string[] } } } }
       }).nitro?.cloudflare?.wrangler?.secrets?.required
-      expect(required(first)).toEqual(["FIRST_TOKEN"])
-      expect(required(second)).toEqual(["SECOND_TOKEN"])
+      expect(required(first)).toEqual(["VITEHUB_FIRST"])
+      expect(required(second)).toEqual(["VITEHUB_SECOND"])
     }
     finally {
       await rm(root, { force: true, recursive: true })

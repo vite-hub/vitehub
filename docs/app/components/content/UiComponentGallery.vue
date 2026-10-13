@@ -30,29 +30,30 @@ const groups = computed(() => {
 </script>
 
 <template>
-  <div class="not-prose my-8 space-y-10">
+  <div class="not-prose my-8 space-y-8">
     <section v-for="group in groups" :key="group.label" :aria-labelledby="group.id">
-      <div class="mb-3 flex items-baseline justify-between gap-4 border-b border-default pb-2">
-        <h3 :id="group.id" class="text-sm font-semibold text-highlighted">
+      <div class="mb-2 flex items-baseline justify-between gap-4">
+        <h3 :id="group.id" class="text-xs font-semibold uppercase tracking-[0.08em] text-muted">
           {{ group.label }}
         </h3>
-        <span class="font-mono text-xs text-muted">{{ group.pages.length }}</span>
+        <span class="text-xs text-dimmed">{{ group.pages.length }} components</span>
       </div>
-      <ul class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <ul class="divide-y divide-default border-y border-default">
         <li v-for="page in group.pages" :key="page.path">
           <NuxtLink
             :to="page.path"
-            class="group flex h-full gap-3 rounded-lg border border-default bg-default p-4 transition-colors hover:border-accented hover:bg-elevated/50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-inverted"
+            class="group flex items-center gap-3 py-3 transition-colors hover:bg-elevated/45 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-inverted sm:gap-4"
           >
-            <span class="grid size-9 shrink-0 place-items-center rounded-md border border-default bg-elevated/60 text-muted transition-colors group-hover:text-highlighted">
-              <UIcon :name="page.icon || 'i-ph-squares-four-light'" class="size-5" aria-hidden="true" />
+            <span class="grid size-8 shrink-0 place-items-center border border-default bg-elevated/60 text-muted transition-colors group-hover:text-highlighted">
+              <UIcon :name="page.icon || 'i-ph-squares-four-light'" class="size-4" aria-hidden="true" />
             </span>
-            <span class="min-w-0">
+            <span class="min-w-0 flex-1">
               <span class="block text-sm font-medium text-highlighted">{{ page.title }}</span>
-              <span v-if="page.description" class="mt-1 line-clamp-2 block text-xs leading-5 text-muted">
+              <span v-if="page.description" class="mt-0.5 block truncate text-xs leading-5 text-muted">
                 {{ page.description }}
               </span>
             </span>
+            <UIcon name="i-ph-arrow-right-light" class="size-4 shrink-0 text-dimmed transition-transform group-hover:translate-x-0.5 group-hover:text-highlighted" aria-hidden="true" />
           </NuxtLink>
         </li>
       </ul>

@@ -103,7 +103,7 @@ Local files and memory belong to one process on one host. Two replicas with the
 same configuration do not share them. Use a persistent volume for `dataDir`, or
 select remote stores when you run more than one process.
 
-Keep runtime secrets in [Server Env](/docs/server-primitives/env). Verify the
+Keep runtime secrets in [Server Env](/docs/env). Verify the
 deployed application by starting the built server, not only by typechecking
 package code.
 

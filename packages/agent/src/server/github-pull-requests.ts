@@ -1,6 +1,5 @@
 import * as v from "valibot"
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
-import { isRuntimeRecord } from "../internal/runtime-type.ts"
+import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts"
 import { createHash } from "node:crypto";
 import { consoleInvocationUrl, resolvePublicUrl } from "@vite-hub/runtime";
 import type { GitHubHost } from "./github-host.ts";

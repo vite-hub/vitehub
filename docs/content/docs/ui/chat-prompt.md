@@ -1,7 +1,7 @@
 ---
 title: Chat Prompt
 description: Collect prompt text and file attachments with a submit control that follows the AI SDK chat status.
-navigation.order: 14
+navigation.order: 24
 navigation.group: Chat
 icon: i-ph-paper-plane-tilt-light
 ---

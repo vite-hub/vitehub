@@ -1,5 +1,6 @@
 import { consoleAgentInvokerProfiles, getConsoleAgentDefinition, getConsoleAgents } from "./agents.ts"
 import { getConsoleInvocations } from "./invocations.ts"
+import { withConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
 import { assertConsoleRequest } from "./request.ts"
 
 import type { ConsoleRequestEvent } from "./request.ts"
@@ -23,4 +24,5 @@ const agentsHandler: (event: ConsoleRequestEvent) => Promise<ConsoleAgentsResult
   return result
 }
 
-export default agentsHandler
+const guardedHandler: ConsoleAccessRoute<typeof agentsHandler> = withConsoleAccess(agentsHandler)
+export default guardedHandler

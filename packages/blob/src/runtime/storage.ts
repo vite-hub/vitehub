@@ -1,12 +1,13 @@
 import { createBlobStorage } from "../storage.ts"
 import { Diagnostic } from "nostics"
 import { blobResult } from "../errors.ts"
+import { handleBlobMultipartUpload, handleBlobUpload } from "../upload.ts"
 import { resolveRuntimeMinioBlobStore, resolveRuntimeVercelBlobStore } from "../config.ts"
 import { createDriver as createCloudflareR2NativeDriver, getOptionalBucket } from "../drivers/cloudflare-native.ts"
 
-import { getBlobRuntimeConfig, getNamedBlobRuntimeStorage, setNamedBlobRuntimeStorage } from "./state.ts"
+import { getBlobRuntimeConfig, resolveNamedBlobRuntimeStorage } from "./state.ts"
 
-import type { BlobDriverAdapter, BlobObject, BlobOperation, BlobResult, BlobStorage, BlobStoreName, ResolvedBlobModuleOptions, ResolvedBlobStoreConfig, ResolvedCloudflareR2BlobStoreConfig } from "../types.ts"
+import type { BlobDriverAdapter, BlobMultipartUpload, BlobObject, BlobOperation, BlobResult, BlobStorage, BlobStoreName, ResolvedBlobModuleOptions, ResolvedBlobStoreConfig, ResolvedCloudflareR2BlobStoreConfig } from "../types.ts"
 import { blobErrorDiagnostics } from "../error-diagnostics.ts"
 
 class UnknownBlobStoreError extends Diagnostic {
@@ -46,9 +47,18 @@ async function importRuntimeDriver(config: ResolvedBlobStoreConfig) {
       fallbackDriver ||= importRuntimeDriverModule(config)
       return fallbackDriver
     }
+    // Multipart uploads use the R2 binding API; the HTTP fallback has no multipart support.
+    const multipartBucket = () => {
+      if (!getOptionalBucket(config)) {
+        throw blobErrorDiagnostics.BLOB_R0030({ message: `Cloudflare R2 multipart uploads require the "${config.binding}" R2 binding.` })
+      }
+      return nativeDriver
+    }
     return {
       name: config.driver,
       options: config,
+      createMultipartUpload: async (pathname, options) => multipartBucket().createMultipartUpload!(pathname, options),
+      resumeMultipartUpload: async (pathname, uploadId) => multipartBucket().resumeMultipartUpload!(pathname, uploadId),
       delete: async pathnames => (await activeDriver()).delete(pathnames),
       get: async pathname => (await activeDriver()).get(pathname),
       getArrayBuffer: async pathname => (await activeDriver()).getArrayBuffer(pathname),
@@ -103,30 +113,25 @@ function joinServedBlobUrl(...parts: string[]): string {
   return path ? `${base}/${path}` : base
 }
 
+function encodeServedBlobPath(pathname: string): string {
+  return pathname.split("/").map(segment => encodeURIComponent(segment)).join("/")
+}
+
 async function withServedBlobUrl(name: string, object: BlobObject): Promise<BlobObject> {
   const config = await getBlobRuntimeConfig()
   const serve = config && typeof config === "object" ? config.serve : undefined
   if (!serve || serve.store !== name) return object
-  return { ...object, url: joinServedBlobUrl(serve.publicBaseUrl || "/", serve.route, object.pathname) }
+  return { ...object, url: joinServedBlobUrl(serve.publicBaseUrl || "/", serve.route, encodeServedBlobPath(object.pathname)) }
 }
 
-async function resolveStorage(name = "default") {
-  const existing = getNamedBlobRuntimeStorage(name)
-  if (existing) {
-    return existing
-  }
-
-  const config = await getBlobRuntimeConfig()
-  if (!config) {
-    throw blobErrorDiagnostics.BLOB_R0023({ message: "Blob runtime is disabled." })
-  }
-
-  const stores = config.stores || { default: config.store }
-  const store = stores[name]
-  if (!store) throw new UnknownBlobStoreError(`Unknown Blob store "${name}".`)
-  const storage = await createConfiguredBlobStorage({ store, stores: { default: store, [name]: store } }, name)
-  setNamedBlobRuntimeStorage(name, storage)
-  return storage
+function resolveStorage(name = "default"): Promise<BlobStorage> {
+  return resolveNamedBlobRuntimeStorage(name, async (config) => {
+    if (!config) throw blobErrorDiagnostics.BLOB_R0023({ message: "Blob runtime is disabled." })
+    const stores = config.stores || { default: config.store }
+    const store = Object.hasOwn(stores, name) ? stores[name] : undefined
+    if (!store) throw new UnknownBlobStoreError(`Unknown Blob store "${name}".`)
+    return await createConfiguredBlobStorage({ store, stores: { default: store, [name]: store } }, name)
+  })
 }
 
 async function resolveStorageResult(operation: BlobOperation, name: string): Promise<BlobResult<BlobStorage>> {
@@ -135,8 +140,33 @@ async function resolveStorageResult(operation: BlobOperation, name: string): Pro
   return result
 }
 
-function createRuntimeBlobStorage(name = "default"): BlobStorage {
+// Completed multipart objects get the served URL, like put().
+function withServedMultipartUrl(name: string, upload: BlobMultipartUpload): BlobMultipartUpload {
   return {
+    ...upload,
+    async complete(parts) {
+      const [error, object] = await upload.complete(parts)
+      return error ? [error, undefined] : [null, await withServedBlobUrl(name, object)]
+    },
+  }
+}
+
+function createRuntimeBlobStorage(name = "default"): BlobStorage {
+  const storage: BlobStorage = {
+    async createMultipartUpload(pathname, options) {
+      const [resolutionError, resolved] = await resolveStorageResult("multipart", name)
+      if (resolutionError) return [resolutionError, undefined]
+      const [error, upload] = await resolved.createMultipartUpload(pathname, options)
+      return error ? [error, undefined] : [null, withServedMultipartUrl(name, upload)]
+    },
+    handleMultipartUpload: (event, options) => handleBlobMultipartUpload(storage, event, options),
+    handleUpload: (event, options) => handleBlobUpload(storage, event, options),
+    async resumeMultipartUpload(pathname, uploadId) {
+      const [resolutionError, resolved] = await resolveStorageResult("multipart", name)
+      if (resolutionError) return [resolutionError, undefined]
+      const [error, upload] = await resolved.resumeMultipartUpload(pathname, uploadId)
+      return error ? [error, undefined] : [null, withServedMultipartUrl(name, upload)]
+    },
     async del(pathnames) {
       const [error, storage] = await resolveStorageResult("del", name)
       return error ? [error, undefined] : storage.del(pathnames)
@@ -149,7 +179,7 @@ function createRuntimeBlobStorage(name = "default"): BlobStorage {
       const [resolutionError, storage] = await resolveStorageResult("head", name)
       if (resolutionError) return [resolutionError, undefined]
       const [error, object] = await storage.head(pathname)
-      return error ? [error, undefined] : [null, await withServedBlobUrl(name, object)]
+      return error ? [error, undefined] : [null, object && await withServedBlobUrl(name, object)]
     },
     async list(options) {
       const [resolutionError, storage] = await resolveStorageResult("list", name)
@@ -169,12 +199,13 @@ function createRuntimeBlobStorage(name = "default"): BlobStorage {
       const [error, storage] = await resolveStorageResult("sign", name)
       return error ? [error, undefined] : storage.sign(pathname, options)
     },
-    async serve(event, pathname) {
+    async serve(event, pathname, options) {
       const [error, storage] = await resolveStorageResult("serve", name)
-      return error ? [error, undefined] : storage.serve(event, pathname)
+      return error ? [error, undefined] : storage.serve(event, pathname, options)
     },
     store(storeName: BlobStoreName) { return createRuntimeBlobStorage(storeName) },
   }
+  return storage
 }
 
 export const blob: BlobStorage = createRuntimeBlobStorage()

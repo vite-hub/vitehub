@@ -1,7 +1,7 @@
 ---
 title: Markdown
 description: "Render streaming assistant Markdown with chat typography, math, and image previews."
-navigation.order: 13
+navigation.order: 23
 navigation.group: Chat
 icon: i-ph-markdown-logo-light
 ---

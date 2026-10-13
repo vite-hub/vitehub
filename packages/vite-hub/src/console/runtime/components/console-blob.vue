@@ -3,9 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
 import { requestConsole } from "../client/request";
 import { rememberConsoleSection } from "../sections";
-import ConsoleBrand from "./console-brand.vue";
 import ConsoleFrame from "./console-frame.vue";
-import ConsolePrimitiveSwitcher from "./console-primitive-switcher.vue";
 import ConsoleSearch from "./console-search.vue";
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
 
@@ -221,26 +219,30 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <ConsoleFrame>
+  <ConsoleFrame active="blob" :sections-base="sectionsBase">
     <UDashboardSidebar
       id="console-navigation"
+      class="vitehub-console__nav"
       v-model:open="sidebarOpen"
       :default-size="16"
       :collapsed-size="4"
       :min-size="13"
       :max-size="26"
       :menu="{ title: 'Blob objects', description: 'Browse configured Blob stores.' }"
-      :ui="{ body: 'gap-0 overflow-hidden p-0', footer: 'shrink-0 border-t border-default px-2 py-1.5' }"
+      :ui="{ body: 'gap-0 overflow-hidden p-0' }"
       resizable
     >
       <template #header="{ collapsed }">
-        <ConsoleBrand :collapsed="collapsed" :sections-base="sectionsBase" />
+        <div v-if="!collapsed" class="vitehub-console__panel-title">
+          <span class="min-w-0 flex-1 truncate">Blob</span>
+          <UTooltip text="Refresh objects"><UButton aria-label="Refresh objects" color="neutral" icon="i-lucide-refresh-cw" size="xs" variant="ghost" :loading="loading || loadingMore" @click="refresh" /></UTooltip>
+        </div>
+        <div v-else class="flex justify-center">
+          <UTooltip text="Refresh objects"><UButton aria-label="Refresh objects" color="neutral" icon="i-lucide-refresh-cw" size="xs" variant="ghost" :loading="loading || loadingMore" @click="refresh" /></UTooltip>
+        </div>
       </template>
 
       <template #default="{ collapsed }">
-        <div class="flex shrink-0 items-center gap-1 px-[0.875rem] pb-2 pt-1">
-          <UDashboardSearchButton :collapsed="collapsed" block class="vitehub-console__search min-w-0 flex-1 rounded-md border border-default bg-transparent px-2 ring-0 hover:bg-elevated/60" label="Search console" />
-        </div>
         <div v-if="!collapsed" class="grid gap-2 px-3 pb-3">
           <USelect v-if="stores.length > 1" v-model="selectedStore" :items="storeItems" aria-label="Blob store" size="sm" />
           <UInput v-model="prefix" aria-label="Filter objects by prefix" icon="i-lucide-search" placeholder="Filter by prefix" size="sm" />
@@ -269,10 +271,6 @@ onBeforeUnmount(() => {
         <UEmpty v-else-if="!loading && !error && !collapsed" class="min-h-0 flex-1 px-4" icon="i-lucide-file-box" :title="prefix ? 'No matching objects' : 'This store is empty'" :description="prefix ? 'Try a shorter object prefix.' : 'Objects will appear here when the application stores them.'" />
       </template>
 
-      <template #footer="{ collapsed }">
-        <ConsolePrimitiveSwitcher active="blob" :collapsed="collapsed" :sections-base="sectionsBase" />
-        <UTooltip text="Refresh objects"><UButton aria-label="Refresh objects" color="neutral" icon="i-lucide-refresh-cw" size="xs" variant="ghost" :loading="loading || loadingMore" @click="refresh" /></UTooltip>
-      </template>
     </UDashboardSidebar>
 
     <ConsoleSearch :agents-base="agentsBase" :definitions-base="definitionsBase" :kv-base="kvBase" :search-base="searchBase" :sections-base="sectionsBase" />

@@ -57,7 +57,7 @@ A successful send returns `{ id, driver }`; the provider supplies `id`. ViteHub 
 
 ## Grant an Agent permission to send
 
-The official [`email()` Agent Capability](https://vitehub.dev/docs/capabilities/email) exposes one policy-controlled plain-text send tool through the configured Email provider. The application fixes the sender and keeps provider credentials below the Capability boundary; richer messages remain application-owned compositions.
+The official [`email()` Agent Capability](https://vitehub.dev/docs/email/agent-capability) exposes one policy-controlled plain-text send tool through the configured Email provider. The application fixes the sender and keeps provider credentials below the Capability boundary; richer messages remain application-owned compositions.
 
 ## Compose dynamic Markdown
 
@@ -178,4 +178,4 @@ Set `driver` to `resend` or `cloudflare-email` and declare its options in `hubEm
 
 `createEmail()` initializes a driver object once per client, shares pending initialization across concurrent sends, and retries after initialization fails. A driver factory resolves and initializes a driver for each send so request-scoped provider options stay current. The development outbox preserves these lifecycle rules.
 
-Read the complete [Email guide and API reference](https://vitehub.dev/docs/server-primitives/email).
+Read the complete [Email guide and API reference](https://vitehub.dev/docs/email).

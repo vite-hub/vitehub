@@ -1,4 +1,4 @@
-import { asUnknownBoundary } from "@vite-hub/runtime/internal/runtime-type"
+import { asUnknownBoundary } from "../src/internal/runtime-type.ts"
 import { describe, expectTypeOf, it } from "vitest"
 
 import {

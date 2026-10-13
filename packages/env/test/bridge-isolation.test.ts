@@ -2,19 +2,17 @@ import { createClient } from "@libsql/client";
 import { sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/libsql";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createEnvBridge, type EnvAccessContext } from "../src/bridge.ts";
+import { createEnvBridge } from "../src/bridge.ts";
 import { createDatabaseEnvStore } from "../src/database.ts";
 import { env } from "../src/core/declarations.ts";
 import { createRuntimeRegistry } from "../src/core/resolve.ts";
 import { loadServerEnv } from "../src/server.ts";
 import { SecretEnv } from "../src/secret.ts";
+import { agentEnvAccess } from "./agent-access.ts";
+import { adminContext, agentTokenContext } from "./helpers.ts";
 
-const admin: EnvAccessContext = { actor: { kind: "user", id: "owner" }, admin: true };
-const agent: EnvAccessContext = {
-  actor: { kind: "agent", id: "runner" },
-  traceId: "trace-request",
-  invocationId: "invocation-request",
-};
+const admin = await adminContext();
+const agent = agentEnvAccess({ name: "runner" }, { traceId: "trace-request", invocationId: "invocation-request" });
 const cleanup: Array<() => void> = [];
 afterEach(() => {
   for (const close of cleanup.splice(0)) close();
@@ -24,12 +22,12 @@ function setup() {
   const client = createClient({ url: ":memory:" });
   cleanup.push(() => client.close());
   const db = drizzle(client);
-  const runtimeContext = vi.fn(() => admin);
+  const runtimeAttribution = vi.fn(() => undefined);
   function namespace(name: string, encryptionKey = new Uint8Array(32).fill(8)) {
     const store = createDatabaseEnvStore({ db, namespace: name, encryptionKey });
-    return { store, bridge: createEnvBridge({ ...store, runtimeContext }) };
+    return { store, bridge: createEnvBridge({ ...store, runtimeActor: { kind: "service", id: "runtime" }, runtimeAttribution }) };
   }
-  return { db, namespace, runtimeContext };
+  return { db, namespace, runtimeAttribution };
 }
 
 describe("Env Bridge storage and request isolation", () => {
@@ -119,7 +117,7 @@ describe("Env Bridge storage and request isolation", () => {
   });
 
   it("attributes Server Env loads to explicit request access and does not fall back to runtime authority", async () => {
-    const { namespace, runtimeContext } = setup();
+    const { namespace, runtimeAttribution } = setup();
     const { bridge } = namespace("first");
     const replacement = await bridge.replace(admin, {
       key: "token",
@@ -133,7 +131,7 @@ describe("Env Bridge storage and request isolation", () => {
     const options = { providers: { vault: bridge }, access: agent };
     const loaded = await loadServerEnv<{ token: SecretEnv<string> }>(registry, undefined, options);
     expect(loaded.token.unseal()).toBe("request-secret");
-    expect(runtimeContext).not.toHaveBeenCalled();
+    expect(runtimeAttribution).not.toHaveBeenCalled();
     const events = await bridge.activity(admin, "token");
     expect(events[0]).toMatchObject({
       action: "resolve",
@@ -144,9 +142,9 @@ describe("Env Bridge storage and request isolation", () => {
       revision: replacement.revision,
     });
     await expect(
-      loadServerEnv(registry, undefined, { ...options, access: { ...agent, scope: [] } }),
+      loadServerEnv(registry, undefined, { ...options, access: await agentTokenContext("runner", []) }),
     ).rejects.toBeDefined();
-    expect(runtimeContext).not.toHaveBeenCalled();
+    expect(runtimeAttribution).not.toHaveBeenCalled();
     expect((await bridge.activity(admin, "token"))[0]).toMatchObject({
       action: "resolve",
       outcome: "denied",

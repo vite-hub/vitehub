@@ -124,6 +124,12 @@ interface ParsedProvisionRequestOptions<T> extends ProvisionRequestOptions {
   parse: (value: unknown) => T
 }
 
+function ownParser<T>(options: ProvisionRequestOptions | ParsedProvisionRequestOptions<T>): ((value: unknown) => T) | undefined {
+  if (!Object.hasOwn(options, "parse")) return
+  // SAFETY: The options contract permits parse only as a response parser, and the own-property check excludes inherited parsers.
+  return (options as ParsedProvisionRequestOptions<T>).parse
+}
+
 export interface ProvisionRequest {
   (path: string, options?: ProvisionRequestOptions): Promise<unknown>
   <T>(path: string, options: ParsedProvisionRequestOptions<T>): Promise<T>
@@ -166,7 +172,8 @@ function createJsonClient(baseURL: string, headers: Record<string, string>, fetc
       throw new ProvisionRequestError(options.method ?? "GET", path, response.status, codes)
     }
     const value: unknown = await response.json()
-    return "parse" in options ? options.parse(value) : value
+    const parse = ownParser(options)
+    return parse ? parse(value) : value
   }
 }
 
@@ -184,7 +191,7 @@ export function createCloudflareProvisionClient(config: CloudflareProvisionConfi
   )
   return async <T>(path: string, options: ProvisionRequestOptions | ParsedProvisionRequestOptions<T> = {}) => {
     // SAFETY: Without a parser, Cloudflare result data retains the request's unknown response contract.
-    const parse = "parse" in options ? options.parse : (value: unknown) => value as T
+    const parse = ownParser(options) ?? ((value: unknown) => value as T)
     return await client(path, {
       ...options,
       parse(value) {

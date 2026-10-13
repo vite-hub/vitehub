@@ -1,35 +1,39 @@
 <script setup lang="ts">
 import { createError } from "#app/composables/error";
 import { useRoute } from "#app/composables/router";
+import PrimitiveLanding from "~/components/PrimitiveLanding.vue";
+import { getPrimitiveLanding } from "~/data/primitive-landings";
 
 const route = useRoute();
-const pagePath = `/${String(route.params.slug)}`;
-
+const slug = String(route.params.slug);
+const landing = getPrimitiveLanding(slug);
+const pagePath = `/${slug}`;
 const { data: page } = await useAsyncData(
   `trust:${pagePath}`,
   () => queryCollection("trust").path(pagePath).first(),
 );
 
-if (!page.value) {
-  throw createError({ statusCode: 404, statusMessage: "Page not found", fatal: true });
+if (!landing && !page.value) {
+    throw createError({ statusCode: 404, statusMessage: "Page not found", fatal: true });
+  }
+
+if (!landing && page.value) {
+  useSeoMeta({
+    title: page.value.title,
+    ogTitle: `${page.value.title} · ViteHub`,
+    description: page.value.description,
+    ogDescription: page.value.description,
+  });
+
+  useHead({
+    link: [{ rel: "canonical", href: `https://vitehub.dev${pagePath}` }],
+  });
 }
-
-useSeoMeta({
-  title: page.value.title,
-  ogTitle: `${page.value.title} · ViteHub`,
-  description: page.value.description,
-  ogDescription: page.value.description,
-});
-
-useHead({
-  link: [
-    { rel: "canonical", href: `https://vitehub.dev${pagePath}` },
-  ],
-});
 </script>
 
 <template>
-  <main v-if="page" class="mx-auto w-full max-w-3xl px-4 pb-24 pt-14 sm:px-6 sm:pt-20 lg:px-8 lg:pt-24">
+  <PrimitiveLanding v-if="landing" :landing="landing" />
+  <main v-else-if="page" class="mx-auto w-full max-w-3xl px-4 pb-24 pt-14 sm:px-6 sm:pt-20 lg:px-8 lg:pt-24">
     <UPageHeader
       :title="page.title"
       :description="page.description"

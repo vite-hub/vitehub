@@ -2,6 +2,7 @@ import { StringDecoder } from "node:string_decoder"
 
 import { redactInspectionText } from "@vite-hub/internal/inspect"
 import { readViteHubDevToken, viteHubDevTokenHeader } from "@vite-hub/internal/dev-token"
+import { isViteHubSecretEqual } from "@vite-hub/internal/secret"
 
 import { scheduleDevRunHeader, scheduleDevRunRoute, scheduleDevTokenNamespace, scheduleDevTokenServerHeader } from "./dev.ts"
 import { runSchedule } from "./runtime/execute.ts"
@@ -70,7 +71,7 @@ async function handleScheduleDevRun(server: ViteDevServer, req: IncomingMessage,
   if (header(req, scheduleDevRunHeader) !== "1") return writeJSON(res, 403, { message: "Forbidden Schedule run request." })
   const requestedServerId = header(req, scheduleDevTokenServerHeader)
   const token = header(req, viteHubDevTokenHeader)
-  if (requestedServerId !== serverId || !token || token !== await readViteHubDevToken(server.config.root, { namespace: scheduleDevTokenNamespace, serverId })) return writeJSON(res, 403, { message: "Forbidden Schedule run token." })
+  if (requestedServerId !== serverId || !isViteHubSecretEqual(token, await readViteHubDevToken(server.config.root, { namespace: scheduleDevTokenNamespace, serverId }))) return writeJSON(res, 403, { message: "Forbidden Schedule run token." })
   const origin = header(req, "origin")
   if (origin && (!URL.canParse(origin) || new URL(origin).host !== header(req, "host"))) return writeJSON(res, 403, { message: "Forbidden Schedule run origin." })
   if (!header(req, "content-type")?.toLowerCase().startsWith("application/json")) return writeJSON(res, 415, { message: "Schedule run requires application/json." })

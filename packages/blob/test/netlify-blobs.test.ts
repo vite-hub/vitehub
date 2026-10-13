@@ -51,6 +51,32 @@ function mockListPages(pages: Record<string, {
 }
 
 describe("Netlify Blobs driver", () => {
+  const validNetlifyCursor = btoa(JSON.stringify({ directoriesConsumed: false, index: 10 })).replaceAll("=", "")
+  const longerNetlifyCursor = btoa(JSON.stringify({ directoriesConsumed: false, index: 100 })).replaceAll("=", "")
+
+  it("rejects a repeated provider cursor before requesting the page again", async () => {
+    let calls = 0
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      calls++
+      if (calls > 2) throw new Error("repeated-cursor sentinel")
+      return new Response(JSON.stringify({ blobs: [], directories: [], next_cursor: "same" }), { status: 200 })
+    }))
+
+    await expect(createDriver(options).list()).rejects.toThrow("Netlify Blobs listing returned a repeated pagination cursor.")
+    expect(calls).toBe(2)
+  })
+
+  it("rejects a provider cursor cycle before requesting the first page again", async () => {
+    const cursors = ["first", "second", "first"]
+    let calls = 0
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      const nextCursor = cursors[calls++]
+      return new Response(JSON.stringify({ blobs: [], directories: [], next_cursor: nextCursor }), { status: 200 })
+    }))
+
+    await expect(createDriver(options).list()).rejects.toThrow("Netlify Blobs listing returned a repeated pagination cursor.")
+    expect(calls).toBe(3)
+  })
   it("uses NETLIFY_BLOBS_CONTEXT for SDK and list requests", async () => {
     vi.stubEnv("NETLIFY_BLOBS_CONTEXT", Buffer.from(JSON.stringify({ siteID: "environment-site", token: "environment-token" })).toString("base64"))
     mockListPages({ first: { blobs: [], directories: [] } })
@@ -159,6 +185,9 @@ describe("Netlify Blobs driver", () => {
 
   it.each([
     ["invalid encoding", "!"],
+    ["padded valid cursor", `${validNetlifyCursor}=`],
+    ["nonzero pad bits with length remainder 2", `${validNetlifyCursor.slice(0, -1)}R`],
+    ["nonzero pad bits with length remainder 3", `${longerNetlifyCursor.slice(0, -1)}1`],
     ["invalid JSON", btoa("invalid JSON")],
     ["null", btoa(JSON.stringify(null))],
     ["array", btoa(JSON.stringify([]))],
@@ -197,6 +226,52 @@ describe("Netlify Blobs driver", () => {
     await expect(createDriver(options).list({ cursor })).rejects.toThrow("Invalid Blob cursor.")
 
     expect(fetch).toHaveBeenCalledOnce()
+    expect(store.getMetadata).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["non-array blobs", { blobs: {}, directories: [] }],
+    ["non-array directories", { blobs: [], directories: {} }],
+    ["non-string cursor", { blobs: [], directories: [], next_cursor: 1 }],
+  ])("rejects malformed successful list payloads with %s", async (_, payload) => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(payload), { status: 200 })))
+
+    await expect(createDriver(options).list()).rejects.toThrow("Netlify Blobs list returned an invalid response.")
+    expect(store.getMetadata).not.toHaveBeenCalled()
+  })
+
+  it("normalizes omitted blob and directory arrays", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 200 })))
+
+    await expect(createDriver(options).list()).resolves.toMatchObject({ blobs: [], hasMore: false })
+    expect(store.getMetadata).not.toHaveBeenCalled()
+  })
+
+  it("preserves blobs when directories are omitted", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      blobs: [{ etag: "one", key: "one.txt" }],
+    }), { status: 200 })))
+    store.getMetadata.mockResolvedValue({ metadata: {} })
+
+    await expect(createDriver(options).list({ folded: true })).resolves.toMatchObject({
+      blobs: [{ pathname: "one.txt", httpEtag: "one" }],
+      folders: [],
+      hasMore: false,
+    })
+    expect(store.getMetadata).toHaveBeenCalledTimes(1)
+    expect(store.getMetadata).toHaveBeenCalledWith("one.txt", { consistency: undefined })
+  })
+
+  it("preserves directories when blobs are omitted", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      directories: ["folder/"],
+    }), { status: 200 })))
+
+    await expect(createDriver(options).list({ folded: true })).resolves.toMatchObject({
+      blobs: [],
+      folders: ["folder/"],
+      hasMore: false,
+    })
     expect(store.getMetadata).not.toHaveBeenCalled()
   })
 

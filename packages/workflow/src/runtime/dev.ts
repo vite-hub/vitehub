@@ -271,7 +271,7 @@ export function createWorkflowDevRequestHandler(options: WorkflowDevRuntimeOptio
   }
 
   return async (request) => {
-    const rejection = validateViteHubNitroDevRequest(request, { header: workflowDevHeader, headerValue: workflowDevHeaderValue, label: workflowDevLabel })
+    const { rejection } = await validateViteHubNitroDevRequest(request, { header: workflowDevHeader, headerValue: workflowDevHeaderValue, label: workflowDevLabel })
     if (rejection) return rejection
     try {
       const { body, error } = await readRequestBody(request)

@@ -18,6 +18,8 @@ const childProcessTimeout = 20_000
 const packedPackages = [
   "agent",
   "box",
+  "connections",
+  "env",
   "markdown-template",
   "rate-limit",
   "runtime",
@@ -87,4 +89,45 @@ it("accepts the pinned Chat SDK adapter from the published package", { timeout: 
     const output = error as Error & { stderr?: string, stdout?: string }
     throw new Error([output.message, output.stdout, output.stderr].filter(Boolean).join("\n"), { cause: error })
   }
+})
+
+// This consumer uses only packed package exports, so duplicate registries cannot hide behind source aliases.
+it("shares private authority across packed Agent, Connections, and Env", { timeout: 25_000 }, async () => {
+  await execFileAsync(process.execPath, ["--input-type=module", "--eval", `
+    import assert from "node:assert/strict";
+    import { createClient } from "@libsql/client";
+    import { drizzle } from "drizzle-orm/libsql";
+    import { defineAgent, runAgent } from "@vite-hub/agent";
+    import * as identityAPI from "@vite-hub/agent/env-identity";
+    import { agentEnvAccess } from "@vite-hub/env/internal/agent";
+    import { apiKey, defineConnection } from "@vite-hub/connections";
+    import { createConnectionsRuntime, createDatabaseConnectionStore } from "@vite-hub/connections/server";
+    assert.deepEqual(Object.keys(identityAPI), ["readAgentEnvIdentity"]);
+    assert.throws(() => agentEnvAccess({ name: "owner" }), { code: "ENV_BRIDGE_UNTRUSTED" });
+    const db = createClient({ url: ":memory:" });
+    try {
+      const runtime = createConnectionsRuntime({
+        definitions: { service: defineConnection({
+          provider: apiKey({ origins: ["https://service.example"] }),
+          access: { "agent:owner": { read: true } },
+        }) },
+        store: createDatabaseConnectionStore({ db: drizzle(db), encryptionKey: new Uint8Array(32).fill(3) }),
+        fetch: async (_input, init) => {
+          assert.equal(new Headers(init.headers).get("authorization"), "Bearer packed-secret");
+          return new Response("ok");
+        },
+      });
+      await runtime.setKey({ name: "service", key: "packed-secret" });
+      for (const name of ["owner", "other"]) {
+        const agent = defineAgent({ name, runtime: false, driver: { async run(context) {
+          const access = agentEnvAccess(context.agentIdentity);
+          assert.throws(() => agentEnvAccess({ ...context.agentIdentity }), { code: "ENV_BRIDGE_UNTRUSTED" });
+          return await (await runtime.client("service", { access }).fetch("https://service.example/data")).text();
+        } } });
+        const [error, result] = await runAgent(agent, {});
+        if (name === "owner") { assert.equal(error, null); assert.equal(result, "ok"); }
+        else assert.equal(error.code, "CONNECTION_DENIED");
+      }
+    } finally { db.close(); }
+  `], { cwd: consumerRoot!, timeout: childProcessTimeout, killSignal: "SIGKILL" });
 })

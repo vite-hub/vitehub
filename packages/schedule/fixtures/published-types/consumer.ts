@@ -18,6 +18,9 @@ import { discoverScheduleDefinitions } from "@vite-hub/schedule"
 // @ts-expect-error Execution and store helpers belong to the runtime entry.
 import { executeRuntimeSchedule } from "@vite-hub/schedule"
 
+void discoverScheduleDefinitions
+void executeRuntimeSchedule
+
 await executeSchedule({
   definition: defineSchedule({ cron: "0 9 * * *", handler: () => "ok" }),
   runStore: createMemoryScheduleRunStore(),

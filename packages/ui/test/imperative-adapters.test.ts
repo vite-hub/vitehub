@@ -109,9 +109,10 @@ vi.mock("@pierre/diffs", () => ({
       diffState.unresolvedFiles.push(this);
     }
   },
-  getSingularPatch: (patch: string) => ({ name: patch }),
+  getSingularPatch: (patch: string) => ({ isPartial: true, name: patch }),
   parseDiffFromFile: vi.fn(
     (oldFile: { name?: string } | null, newFile: { name?: string } | null) => ({
+      isPartial: false,
       name: `${oldFile?.name ?? "missing"}->${newFile?.name ?? "missing"}`,
     }),
   ),
@@ -154,7 +155,11 @@ describe("Pierre lifecycle adapters", () => {
     await flushRender();
 
     expect(diffState.diffs[0]!.setOptions).toHaveBeenCalledWith(
-      expect.objectContaining({ enableLineSelection: false, expandUnchanged: true }),
+      expect.objectContaining({
+        enableLineSelection: false,
+        expandUnchanged: false,
+        hunkSeparators: "metadata",
+      }),
     );
   });
 
@@ -254,7 +259,7 @@ describe("Pierre lifecycle adapters", () => {
     const instance = diffState.diffs[0]!;
     expect(wrapper.text()).toBe("missing->new.ts");
     expect(instance.setOptions).toHaveBeenLastCalledWith(
-      expect.objectContaining({ controlledSelection: true }),
+      expect.objectContaining({ controlledSelection: true, expandUnchanged: true }),
     );
     expect(instance.setSelectedLines).toHaveBeenLastCalledWith(selectedLines);
 

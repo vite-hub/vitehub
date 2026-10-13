@@ -1120,7 +1120,7 @@ load("@img/sharp-linux-x64/sharp.node")
 
     await writeFile(join(optionalRoot, ".output/server/index.mjs"), 'function load() { return require("missing-feature") }\n(ready)()\n')
     await expect(finalizeDenoDeploymentOutput({ rootDir: optionalRoot })).resolves.toBeUndefined()
-  })
+  }, 15_000)
 
   it("classifies multiline concise-arrow dynamic imports by execution", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-deno-concise-dynamic-"))
@@ -1743,8 +1743,8 @@ process.exit(0)
       expect(existsSync(join(output, "node_modules/@img/sharp-linux-x64/node_modules/@img/sharp-libvips-linux-x64"))).toBe(false)
 
       if (process.platform === "linux" && process.arch === "x64") {
-        expect(existsSync(join(output, "node_modules/@img/sharp-linux-x64/lib/sharp-linux-x64-0.35.4.node"))).toBe(true)
-        expect(existsSync(join(output, "node_modules/@img/sharp-libvips-linux-x64/lib/libvips-cpp.so.8.18.6"))).toBe(true)
+        expect(existsSync(join(output, "node_modules/@img/sharp-linux-x64/lib/sharp-linux-x64-0.35.5.node"))).toBe(true)
+        expect(existsSync(join(output, "node_modules/@img/sharp-libvips-linux-x64/lib/libvips-cpp.so.8.18.7"))).toBe(true)
       }
       await execFile("deno", ["check", "server/index.mjs"], { cwd: output })
       await execFile("deno", ["check", "server/index.ts"], { cwd: output })

@@ -3,6 +3,7 @@ import { defineHandler } from "h3"
 import * as v from "valibot"
 
 import { consoleRpcHeader, consoleRpcMethods } from "../rpc.ts"
+import { bindConsoleAccess, withConsoleAccess, type ConsoleAccess } from "./access.ts"
 import consoleAgentsHandler from "./agents.get.ts"
 import consoleAgentInvocationsHandler from "./agent-invocations.post.ts"
 import { consoleAttachmentRequestBytes } from "./attachments.ts"
@@ -22,7 +23,7 @@ import consoleSectionsHandler from "./sections.get.ts"
 import consoleStatusHandler from "./status.get.ts"
 import consoleUsageHandler from "./usage.get.ts"
 
-import type { EventHandlerRequest, EventHandlerWithFetch } from "h3"
+import type { EventHandlerRequest, EventHandlerWithFetch, H3Event } from "h3"
 import type { ConsoleRpcInput, ConsoleRpcMethod, ConsoleRpcResult } from "../rpc.ts"
 import type { ConsoleRequestEvent } from "./request.ts"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
@@ -49,6 +50,8 @@ const inputSchema = v.object({
 })
 
 interface ConsoleRpcContext {
+  /** The checked access of the RPC request. Each operation runs with it. */
+  access: ConsoleAccess
   env?: Record<string, unknown>
   waitUntil?: (task: Promise<unknown>) => void
 }
@@ -80,7 +83,7 @@ function requestEvent(operation: string, input: ConsoleRpcInput, context: Consol
     res: context.response,
   }
   if (context.waitUntil) event.waitUntil = context.waitUntil
-  return event
+  return bindConsoleAccess(context.access, event)
 }
 
 function errorResult(error: unknown): ConsoleRpcResult {
@@ -91,6 +94,30 @@ function errorResult(error: unknown): ConsoleRpcResult {
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Handler failures cross the RPC boundary as unknown values.
   const message = typeof statusMessage === "string" ? statusMessage : error instanceof Error ? error.message : "Console request failed."
   return { message, ok: false, status }
+}
+
+async function consoleSearchError(response: Response): Promise<Error> {
+  const text = await response.text()
+  let message = text
+  try {
+    const parsed = v.safeParse(v.object({
+      statusMessage: v.optional(v.unknown()),
+      message: v.optional(v.unknown()),
+    }), JSON.parse(text))
+    if (parsed.success) {
+      const statusMessage = v.safeParse(v.string(), parsed.output.statusMessage)
+      const responseMessage = v.safeParse(v.string(), parsed.output.message)
+      if (statusMessage.success) message = statusMessage.output
+      else if (responseMessage.success) message = responseMessage.output
+    }
+  }
+  catch {
+    // Preserve non-JSON upstream responses as-is.
+  }
+  return Object.assign(viteHubErrorDiagnostics.VITE_HUB_R0052({ message }), {
+    statusCode: response.status,
+    statusMessage: message,
+  })
 }
 
 async function result(resolve: () => unknown | Promise<unknown>): Promise<ConsoleRpcResult> {
@@ -118,7 +145,7 @@ const operations = new Map<string, ConsoleOperation>(Object.entries({
   async [consoleRpcMethods.search](input, context) {
     const event = requestEvent("search", input, context)
     const response = await consoleSearchCollectionHandler.fetch(new Request(event.req!.url!, { method: event.method }))
-    if (!response.ok) throw Object.assign(viteHubErrorDiagnostics.VITE_HUB_R0052({ message: await response.text() }), { statusCode: response.status })
+    if (!response.ok) throw await consoleSearchError(response)
     return await response.json()
   },
   [consoleRpcMethods.scheduleRun]: (input, context) => consoleScheduleRunHandler(requestEvent("schedule-run", input, context)),
@@ -219,16 +246,16 @@ async function callConsoleOperation(request: Request, context: ConsoleOperationC
   return operation(input.output, context)
 }
 
-/** Run one Console operation from one request, so any host instance can serve any call. */
-export async function handleConsoleRpcRequest(request: Request, context: ConsoleRpcContext = {}): Promise<Response> {
+/** Run one Console operation from one checked request, so any host instance can serve any call. */
+export async function handleConsoleRpcRequest(request: Request, context: ConsoleRpcContext): Promise<Response> {
   const response: ConsoleOperationContext["response"] = {}
   const body = await result(() => callConsoleOperation(request, { ...context, response }))
   return Response.json(body, { headers: responseHeaders, status: body.ok ? response.status ?? 200 : body.status })
 }
 
-const consoleRpcHandler: EventHandlerWithFetch<EventHandlerRequest, Promise<Response>> = defineHandler((event) => {
+const consoleRpcHandler: EventHandlerWithFetch<EventHandlerRequest, Promise<Response>> = defineHandler(withConsoleAccess((event: H3Event, access) => {
   const waitUntil = resolveWaitUntil(event, { preferHost: true })
-  return handleConsoleRpcRequest(event.req, { env: getCloudflareEnv(event, { fallback: false }), waitUntil })
-})
+  return handleConsoleRpcRequest(event.req, { access, env: getCloudflareEnv(event, { fallback: false }), waitUntil })
+}))
 
 export default consoleRpcHandler

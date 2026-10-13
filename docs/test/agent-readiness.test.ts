@@ -2,34 +2,22 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { viteHubOpenApi } from "../server/utils/openapi";
-import {
-  acceptsAgentFriendlyError,
-  notFoundMarkdown,
-  withVary,
-} from "../server/utils/markdown-negotiation";
-import { addLaneLlmsLinks, laneLlmsSectionTitle, rawMarkdownUrl, rewriteLlmsRawLinks } from "../modules/vitehub-docs/runtime/utils/llms-links";
-import { createLaneLlmsText, laneFromLlmsSegment, laneLlmsRoutes } from "../modules/vitehub-docs/runtime/utils/lane-llms";
+import { rawMarkdownUrl, rewriteLlmsRawLinks } from "../modules/vitehub-docs/runtime/utils/llms-links";
 import { createCapabilityReferences } from "../modules/vitehub-docs/capability-references";
 
 const docsRoot = resolve(import.meta.dirname, "..");
 const trustPages = ["about", "contact", "privacy"];
 
 describe("agent-ready HTTP contracts", () => {
-  it("selects agent-friendly 404 responses from the Accept header", () => {
-    expect(acceptsAgentFriendlyError(undefined)).toBe(true);
-    expect(acceptsAgentFriendlyError("*/*")).toBe(true);
-    expect(acceptsAgentFriendlyError("text/markdown")).toBe(true);
-    expect(acceptsAgentFriendlyError("text/markdown;q=0, */*")).toBe(false);
-    expect(acceptsAgentFriendlyError("text/html, */*")).toBe(false);
-    expect(acceptsAgentFriendlyError("text/html;q=0, */*")).toBe(true);
-    expect(acceptsAgentFriendlyError("application/json, */*")).toBe(false);
-  });
-
-  it("uses the Docus preview package for Markdown negotiation", () => {
+  it("negotiates Markdown through nuxt-agent-discovery from Docus", () => {
     const config = readFileSync(resolve(docsRoot, "nuxt.config.ts"), "utf8");
     const workspace = readFileSync(resolve(docsRoot, "../pnpm-workspace.yaml"), "utf8");
 
-    expect(workspace).toContain("docus: https://pkg.pr.new/docus@986a334");
+    // Docus main includes nuxt-agent-discovery (nuxt-content/docus#1435), which is not released yet.
+    expect(workspace).toContain("docus: https://pkg.pr.new/docus@c229a86");
+    // Local patch until nuxt-agent-discovery routes negotiated pages through the Cloudflare Worker.
+    expect(workspace).toContain("nuxt-agent-discovery@0.7.0: patches/nuxt-agent-discovery@0.7.0.patch");
+    expect(config).toContain('routes: ["/", "/docs", "/docs/**", "/about", "/contact", "/privacy"]');
     expect(config).not.toContain("routeRules:");
     expect(config).not.toContain("run_worker_first");
     expect(config).toContain("contentRawMarkdown: false");
@@ -40,6 +28,7 @@ describe("agent-ready HTTP contracts", () => {
 
     expect(module).toContain('baseURL: "/raw"');
     expect(module).toContain('dir: resolve(outputDir, "raw")');
+    expect(module).toContain('config.serverAssets.push({ baseName: "vitehub-raw", dir: resolve(outputDir, "raw") })');
     expect(module).toContain("config.plugins.push(llmsRawLinksPlugin)");
     expect(module).toContain("const manifest = writeDocsArtifacts({ capabilityReferences, docsRoot, outputDir });");
     expect(module).toContain("const capabilityReferences = await createCapabilityReferences();");
@@ -67,10 +56,10 @@ describe("agent-ready HTTP contracts", () => {
   it("keeps the compact index routed to raw Markdown", () => {
     expect(rawMarkdownUrl("https://vitehub.dev/docs", "https://vitehub.dev")).toBe("https://vitehub.dev/raw/docs.md");
     expect(rawMarkdownUrl("https://vitehub.dev/docs/", "https://vitehub.dev")).toBe("https://vitehub.dev/raw/docs.md");
-    expect(rawMarkdownUrl("/docs/server-primitives/kv#runtime", "https://vitehub.dev")).toBe(
-      "https://vitehub.dev/raw/docs/server-primitives/kv.md#runtime",
+    expect(rawMarkdownUrl("/docs/kv#runtime", "https://vitehub.dev")).toBe(
+      "https://vitehub.dev/raw/docs/kv.md#runtime",
     );
-    expect(rawMarkdownUrl("/blog/agents", "https://vitehub.dev")).toBe("https://vitehub.dev/raw/blog/agents.md");
+    expect(rawMarkdownUrl("/guides", "https://vitehub.dev")).toBe("/guides");
     expect(rawMarkdownUrl("https://vitehub.dev/privacy?source=llms", "https://vitehub.dev")).toBe(
       "https://vitehub.dev/raw/privacy.md?source=llms",
     );
@@ -82,7 +71,7 @@ describe("agent-ready HTTP contracts", () => {
       domain: "https://vitehub.dev",
       sections: [{ links: [
         { href: "https://vitehub.dev/docs/agents" },
-        { href: "https://vitehub.dev/blog/server-primitives" },
+        { href: "https://vitehub.dev/guides" },
         { href: "https://vitehub.dev/about" },
         { href: "https://vitehub.dev/contact" },
         { href: "https://vitehub.dev/privacy" },
@@ -93,7 +82,7 @@ describe("agent-ready HTTP contracts", () => {
     rewriteLlmsRawLinks(options);
     expect(options.sections[0]?.links).toEqual([
       { href: "https://vitehub.dev/raw/docs/agents.md" },
-      { href: "https://vitehub.dev/raw/blog/server-primitives.md" },
+      { href: "https://vitehub.dev/guides" },
       { href: "https://vitehub.dev/raw/about.md" },
       { href: "https://vitehub.dev/raw/contact.md" },
       { href: "https://vitehub.dev/raw/privacy.md" },
@@ -102,80 +91,11 @@ describe("agent-ready HTTP contracts", () => {
     ]);
   });
 
-  it("publishes one llms.txt index per docs lane", () => {
-    const page = (path: string, lanes: Array<"agents" | "server-primitives">, extra: { description?: string, navigation?: boolean } = {}) => ({
-      description: extra.description ?? null,
-      lanes,
-      navigation: extra.navigation ?? true,
-      path,
-      sourceTitle: null,
-      title: path.split("/").at(-1)!,
-    });
-    const manifest = {
-      sections: [
-        {
-          title: "Start",
-          lanes: ["agents", "server-primitives"] as Array<"agents" | "server-primitives">,
-          pages: [
-            page("/docs/getting-started", ["agents", "server-primitives"], { description: "Choose a layer." }),
-            page("/docs/getting-started/first-agent", ["agents"]),
-            page("/docs/getting-started/hidden", ["agents", "server-primitives"], { navigation: false }),
-          ],
-        },
-        {
-          title: "Server primitives",
-          lanes: ["server-primitives"] as Array<"agents" | "server-primitives">,
-          pages: [page("/docs/server-primitives/kv", ["server-primitives"])],
-        },
-      ],
-    };
-
-    expect(createLaneLlmsText(manifest, "server-primitives")).toBe([
-      "# ViteHub Server Primitives",
-      "",
-      "> ViteHub documentation pages in the Server Primitives lane. Each link opens one raw Markdown page. The complete index is https://vitehub.dev/llms.txt.",
-      "",
-      "## Start",
-      "",
-      "- [getting-started](https://vitehub.dev/raw/docs/getting-started.md): Choose a layer.",
-      "",
-      "## Server primitives",
-      "",
-      "- [kv](https://vitehub.dev/raw/docs/server-primitives/kv.md)",
-      "",
-    ].join("\n"));
-    expect(createLaneLlmsText(manifest, "agents")).toContain("- [first-agent](https://vitehub.dev/raw/docs/getting-started/first-agent.md)\n");
-    expect(createLaneLlmsText(manifest, "agents")).not.toContain("## Server primitives");
-
-    expect(laneLlmsRoutes()).toEqual(["/llms/agents.txt", "/llms/server-primitives.txt"]);
-    expect(laneFromLlmsSegment("agents.txt")).toBe("agents");
-    expect(laneFromLlmsSegment("server-primitives.txt")).toBe("server-primitives");
-    expect(laneFromLlmsSegment("agents")).toBeNull();
-    expect(laneFromLlmsSegment("ui.txt")).toBeNull();
-    expect(laneFromLlmsSegment(undefined)).toBeNull();
-
-    const options: Parameters<typeof addLaneLlmsLinks>[0] = { domain: "https://vitehub.dev", sections: [] };
-    addLaneLlmsLinks(options);
-    addLaneLlmsLinks(options);
-    expect(options.sections).toHaveLength(1);
-    expect(options.sections?.[0]?.title).toBe(laneLlmsSectionTitle);
-    expect(options.sections?.[0]?.links?.map(link => link.href)).toEqual([
-      "https://vitehub.dev/llms/agents.txt",
-      "https://vitehub.dev/llms/server-primitives.txt",
-    ]);
-
-    const module = readFileSync(resolve(docsRoot, "modules/vitehub-docs/index.ts"), "utf8");
-    const plugin = readFileSync(resolve(docsRoot, "modules/vitehub-docs/runtime/server/llms-raw-links.ts"), "utf8");
-    expect(module).toContain('route: "/llms/:lane"');
-    expect(module).toContain("...laneLlmsRoutes()");
-    expect(plugin).toContain("addLaneLlmsLinks(options)");
-  });
-
   it("documents only the llms indexes that the docs host serves", () => {
-    const resources = readFileSync(resolve(docsRoot, "content/docs/ai-resources/index.md"), "utf8");
+    const resources = readFileSync(resolve(docsRoot, "content/docs/getting-started/ai-resources/index.md"), "utf8");
     const documented = [...new Set([...resources.matchAll(/https:\/\/vitehub\.dev(\/llms[^\s)`]*\.txt)/g)].map(match => match[1]))];
 
-    expect(documented.sort()).toEqual(["/llms-full.txt", "/llms.txt", ...laneLlmsRoutes()].sort());
+    expect(documented.sort()).toEqual(["/llms-full.txt", "/llms.txt"]);
   });
 
   it("pins the patched Nuxt toolchain and disables DevTools", () => {
@@ -192,18 +112,6 @@ describe("agent-ready HTTP contracts", () => {
     expect(config).toMatch(/devtools:\s*{\s*enabled:\s*false/);
     expect(cliPackage.peerDependencies.nuxt).toBe("catalog:nuxt-compat");
     expect(cliPackage.peerDependenciesMeta.nuxt).toEqual({ optional: true });
-  });
-
-  it("adds Accept to Vary once and gives missing routes recovery links", () => {
-    expect(withVary(undefined, "Accept")).toBe("Accept");
-    expect(withVary("Accept-Encoding", "Accept")).toBe("Accept-Encoding, Accept");
-    expect(withVary("accept, Accept-Encoding", "Accept")).toBe("accept, Accept-Encoding");
-
-    const markdown = notFoundMarkdown("/missing");
-    expect(markdown).toContain("# ViteHub page not found");
-    expect(markdown).toContain("https://vitehub.dev/docs");
-    expect(markdown).toContain("https://vitehub.dev/llms.txt");
-    expect(markdown).toContain("https://vitehub.dev/sitemap.xml");
   });
 });
 
@@ -255,22 +163,16 @@ describe("trust and developer discovery content", () => {
   it("links trust pages from the shared footer and the 404 page", () => {
     const footer = readFileSync(resolve(docsRoot, "app/components/AppFooter.vue"), "utf8");
     const error = readFileSync(resolve(docsRoot, "app/error.vue"), "utf8");
-    const errorHandler = readFileSync(resolve(docsRoot, "server/error-handler.ts"), "utf8");
-    const module = readFileSync(resolve(docsRoot, "modules/vitehub-docs/index.ts"), "utf8");
 
     for (const page of trustPages) expect(footer).toContain(`to: "/${page}"`);
     expect(error).toContain("Documentation index");
     expect(error).toContain("llms.txt");
     expect(error).toContain("Sitemap");
-    expect(errorHandler).toContain('"content-type": "text/markdown; charset=utf-8"');
-    expect(errorHandler).toContain('"vary": vary');
-    expect(errorHandler).toContain('withVary(getResponseHeader(event, "vary")?.toString(), "Accept")');
-    expect(module).toContain('config.errorHandler = [agentErrorHandler, ...configuredHandlers]');
   });
 
   it("names the OpenAPI, skill, MCP, and npm CLI entry points", () => {
     const config = readFileSync(resolve(docsRoot, "nuxt.config.ts"), "utf8");
-    const resources = readFileSync(resolve(docsRoot, "content/docs/ai-resources/index.md"), "utf8");
+    const resources = readFileSync(resolve(docsRoot, "content/docs/getting-started/ai-resources/index.md"), "utf8");
     const combined = `${config}\n${resources}`;
 
     expect(combined).toContain("When to use ViteHub");

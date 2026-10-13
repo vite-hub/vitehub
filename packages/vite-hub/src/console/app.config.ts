@@ -79,6 +79,12 @@ export const consoleAppConfig = {
       trailing: "text-[11px] opacity-75",
     },
   },
+  dropdownMenu: {
+    slots: {
+      content: "bg-(color:--vitehub-console-floating) shadow-md backdrop-blur-md",
+      label: "text-[11px] font-medium uppercase tracking-[.08em] text-muted",
+    },
+  },
   empty: {
     slots: {
       root: "gap-3 p-5",
@@ -105,6 +111,11 @@ export const consoleAppConfig = {
       description: "mt-1 text-xs/5 text-muted",
     },
   },
+  popover: {
+    slots: {
+      content: "bg-(color:--vitehub-console-floating) shadow-md backdrop-blur-md",
+    },
+  },
   select: {
     defaultVariants: {
       size: "sm",
@@ -116,10 +127,20 @@ export const consoleAppConfig = {
       itemTrailingIcon: "size-3.5 opacity-75",
     },
   },
+  selectMenu: {
+    slots: {
+      content: "bg-(color:--vitehub-console-floating) shadow-md backdrop-blur-md",
+    },
+  },
   table: {
     slots: {
       th: "h-8 px-2.5 py-1.5 text-[10px] font-medium uppercase tracking-[.08em] text-muted",
       td: "h-8 px-2.5 py-1.5 text-[11px] text-toned",
+    },
+  },
+  tooltip: {
+    slots: {
+      content: "bg-(color:--vitehub-console-floating) backdrop-blur-md",
     },
   },
 };

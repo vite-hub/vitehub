@@ -62,7 +62,7 @@ framework integration or a public `@vite-hub/*/nitro` authoring surface.
 
 Do not treat Nitro route files as the primary ViteHub API. Application code uses
 the package's Runtime Helpers or stable server handler. For example, the
-[Auth](/docs/server-primitives/auth) package generates its route from the Auth
+[Auth](/docs/auth) package generates its route from the Auth
 Definition, and also exposes `createAuthHandler()` for frameworks that mount the
 handler themselves. [Node and self-hosted](/docs/frameworks-hosts/node-self-hosted#mount-a-server-handler)
 shows that handler.

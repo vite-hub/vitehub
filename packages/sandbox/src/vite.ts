@@ -318,19 +318,16 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
     enforce: 'pre',
     nitro: { name: '@vite-hub/sandbox/provider-runtime', setup: sandboxNitroModule },
     vitehub: {
-      inspect: () => {
-        if (!sandboxEnabled) return
-        return {
-          definitions: [{
-            kind: 'sandbox',
-            label: 'Sandboxes',
-            list: () => {
-              const sandboxRoot = rootDir ?? resolvedConfig?.root ?? process.cwd()
-              return inspectSandboxDefinitions({ projectRoot: resolveViteHubProjectRoot(sandboxRoot), rootDir: sandboxRoot })
-            },
-          }],
-        }
-      },
+      inspect: () => sandboxEnabled ? ({
+        definitions: [{
+          kind: 'sandbox',
+          label: 'Sandboxes',
+          list: () => {
+            const sandboxRoot = rootDir ?? resolvedConfig?.root ?? process.cwd()
+            return inspectSandboxDefinitions({ projectRoot: resolveViteHubProjectRoot(sandboxRoot), rootDir: sandboxRoot })
+          },
+        }],
+      }) : undefined,
     },
     async config(config, env) {
       // SAFETY: Vite's config hook provides the mutable record stored for later Sandbox preparation.

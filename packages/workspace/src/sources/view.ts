@@ -1,4 +1,4 @@
-import { workspaceError } from "../core/errors.ts"
+import { workspaceConflict, workspaceError } from "../core/errors.ts"
 import { copyJsonFileMetadata } from "../core/file-metadata.ts"
 import { createWorkspaceGlobMatcher } from "../core/glob.ts"
 import { contentStreamToBytes, decodeFile, isExcludedWorkspacePath, normalizeWorkspacePath, sha256 } from "../core/path.ts"
@@ -13,12 +13,15 @@ import {
   materializesCompleteSource,
   materializeWorkspaceSources,
   readCurrentSourceSnapshot,
+  readSourceSnapshotPaths,
+  reconcileRemovedStartupSources,
   readResolvedSourceFile,
   searchMaterializedStore,
   statVirtualSourcePath,
 } from "./materialization.ts"
 import { resolveWorkspacePath } from "./resolver.ts"
 import { readWorkspaceSourceSyncState, sourceSyncMetaKey } from "./sync-state.ts"
+import { withWorkspaceStoreMutation } from "../storage/mutation.ts"
 
 import type {
   GlobOptions,
@@ -30,12 +33,15 @@ import type {
   WorkspaceContent,
   WorkspaceDefinition,
   WorkspaceEntry,
+  WorkspaceFile,
   WorkspaceSearchHit,
   WorkspaceSearchQuery,
   WorkspaceMaterializeSourcesResult,
+  WorkspaceRebaseOptions,
   WorkspaceSourceItem,
   WorkspaceStat,
   WorkspaceStore,
+  WorkspaceStoreHistory,
   WriteFileOptions,
 } from "../core/types.ts"
 
@@ -47,10 +53,43 @@ function assertPublicFileMetadata(path: string, metadata: Record<string, unknown
   return metadata
 }
 
+/**
+ * Proof that one Source view checked one normalized Workspace path for writes.
+ * Only `assertWritable` creates a grant. A grant is request-scoped. Do not persist it.
+ */
+class WorkspaceSourceWriteGrant {
+  readonly #path: string
+
+  constructor(path: string) {
+    this.#path = path
+    Object.freeze(this)
+  }
+
+  get path(): string {
+    return this.#path
+  }
+}
+
+export type { WorkspaceSourceWriteGrant }
+
 export interface WorkspaceSourceView {
+  requireHistoryGrants(history: WorkspaceStoreHistory): (grants: readonly WorkspaceSourceWriteGrant[], options: Parameters<WorkspaceStoreHistory["commit"]>[0]) => ReturnType<WorkspaceStoreHistory["commit"]>
   readFile<TOptions extends ReadFileOptions | undefined = undefined>(path: string, options?: TOptions): Promise<ReadFileResult<TOptions>>
   writeFile(path: string, content: WorkspaceContent, options?: WriteFileOptions): Promise<string>
-  assertWritable(path: string): Promise<void>
+  /** Rejects Source-backed paths. Returns a write grant bound to the normalized path. */
+  assertWritable(path: string): Promise<WorkspaceSourceWriteGrant>
+  /** Internal check for callers already holding the Store mutation queue. */
+  assertWritableCurrentPath(path: string): Promise<void>
+  /**
+   * Wraps a write so that it runs only with a grant from this view for its exact path.
+   * The wrapped write receives the normalized path from the grant.
+   */
+  requireWriteGrant<Args extends unknown[], Result>(write: (path: string, ...args: Args) => Promise<Result>): (grant: WorkspaceSourceWriteGrant, path: string, ...args: Args) => Promise<Result>
+  /**
+   * Wraps a history rebase. Each `takeRemote` path replaces local content, so it needs a grant from this view.
+   * Pass the grants in the order of `takeRemote`. The wrapped rebase receives the normalized paths from the grants.
+   */
+  requireRebaseGrants(rebase: (options?: WorkspaceRebaseOptions) => Promise<void>): (grants: readonly WorkspaceSourceWriteGrant[], options?: WorkspaceRebaseOptions) => Promise<void>
   list(path?: string, options?: ListOptions): Promise<WorkspaceEntry[]>
   glob(pattern: string | string[], options?: GlobOptions): Promise<WorkspaceEntry[]>
   search(query: WorkspaceSearchQuery): Promise<WorkspaceSearchHit[]>
@@ -116,6 +155,8 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   const descriptorSources = allSources.filter(source => source.requestDescriptor)
   const writePolicy = createWorkspaceWritePolicy(definition)
   const prepareBySource = new Map<string, Promise<void>>()
+  const priorPathsBySource = new Map<string, Promise<string[]>>()
+  let removedSourceReconciliation: Promise<void> | undefined
   const sourceContexts = new Map<string, ReturnType<typeof createSourceContext>>()
   let materializationByDefinition = materializationByStore.get(store)
   if (!materializationByDefinition) {
@@ -207,8 +248,37 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     return Boolean(source.livePaths && source.materialize !== "startup")
   }
 
-  function getLazySourcesForPath(path: string) {
-    return sources.filter(source => sourceMountIntersectsPath(source, path))
+  async function getLazySourcesForPath(path: string) {
+    if (!removedSourceReconciliation && sources.some(source => !source.mountPath && source.materialize === "startup" && source.source.name === "file" && source.probeKeys?.length)) {
+      removedSourceReconciliation = reconcileRemovedStartupSources(definition.name, store, allSources.filter(source => source.materialize === "startup")).catch(error => {
+        removedSourceReconciliation = undefined
+        throw error
+      })
+    }
+    await removedSourceReconciliation
+    const normalized = normalizeWorkspacePath(path)
+    const intersects = (filePath: string) => !normalized || normalized === filePath || filePath.startsWith(`${normalized}/`)
+    const matched = []
+    for (const source of sources) {
+      if (source.mountPath || source.materialize !== "startup" || source.source.name !== "file" || !source.probeKeys?.length) {
+        if (sourceMountIntersectsPath(source, normalized)) matched.push(source)
+        continue
+      }
+      if (source.probeKeys.some(key => intersects(normalizeWorkspacePath(key)))) {
+        matched.push(source)
+        continue
+      }
+      let priorPaths = priorPathsBySource.get(source.key)
+      if (!priorPaths) {
+        priorPaths = readSourceSnapshotPaths(store, definition.name, source.key).catch(error => {
+          priorPathsBySource.delete(source.key)
+          throw error
+        })
+        priorPathsBySource.set(source.key, priorPaths)
+      }
+      if ((await priorPaths).some(intersects)) matched.push(source)
+    }
+    return matched
   }
 
   async function ensurePrepared(sourceKey: string) {
@@ -371,7 +441,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   async function listSourceAware(path = "", options: ListOptions = {}) {
     const normalized = normalizeWorkspacePath(path)
     if (!isDescriptorPath(normalized)) {
-      for (const source of getLazySourcesForPath(normalized)) {
+      for (const source of await getLazySourcesForPath(normalized)) {
         if (source.materialize !== "startup" || isExcludedWorkspacePath(source.mountPath, options.exclude)) continue
         await ensurePrepared(source.key)
         if (!usesLiveProvider(source)) await ensureMaterialized(source.key)
@@ -386,7 +456,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       return [...result.values()].sort((left, right) => left.path.localeCompare(right.path))
     }
 
-    for (const source of getLazySourcesForPath(path)) {
+    for (const source of await getLazySourcesForPath(path)) {
       if (isExcludedWorkspacePath(source.mountPath, options.exclude)) continue
       await ensurePrepared(source.key)
       if (usesLiveProvider(source)) {
@@ -518,15 +588,17 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   }
 
   async function readOwnedRootStartupFile(path: string, sourceKey?: string) {
-    if ((await store.stat(path))?.type !== "file") return
-    const file = await store.readFile(path)
-    if (!file) return
+    // Only a root startup Source can own the file. Check the owner record before any content read.
+    if (!sources.some(source => !source.mountPath && source.materialize === "startup")) return
     const owner = await readWorkspaceFileOwner(store, path)
     if (owner?.workspace !== definition.name || !owner.digest) return
     if (sourceKey && owner.source !== sourceKey) return
-    if (file.metadata?.source && (file.metadata.workspaceSourceOwner !== definition.name || file.metadata.source !== owner.source)) return
     const source = sources.find(source => !source.mountPath && source.materialize === "startup" && source.key === owner.source)
     if (!source) return
+    if ((await store.stat(path))?.type !== "file") return
+    const file = await store.readFile(path)
+    if (!file) return
+    if (file.metadata?.source && (file.metadata.workspaceSourceOwner !== definition.name || file.metadata.source !== owner.source)) return
     const snapshot = await readCurrentSourceSnapshot(store, definition.name, source)
     if (snapshot?.status !== "ready" || !Object.hasOwn(snapshot.items || {}, path)) return
     if (await sha256(file.content) === owner.digest) return file
@@ -547,6 +619,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   }
 
   async function isSourceBackedStorePath(path: string) {
+    if (!allSources.length) return false
     // A missing sidecar must not release ownership recorded by the current Source.
     for (const source of allSources) {
       const snapshot = await readCurrentSourceSnapshot(store, definition.name, source)
@@ -568,12 +641,27 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   async function isSyncedStatePath(path: string) {
     if (!store.getMeta) return false
     for (const source of syncSources) {
-      const state = readWorkspaceSourceSyncState(await store.getMeta(sourceSyncMetaKey(source.key)))
+      const state = readWorkspaceSourceSyncState(await store.getMeta(sourceSyncMetaKey(source.key, definition.name)))
       if (!state) continue
       if (state.paths[path]) return true
       if (Object.keys(state.paths).some(item => item.startsWith(`${path}/`))) return true
     }
     return false
+  }
+
+  // This check runs inside the Store mutation queue. It must not materialize
+  // Sources because materialization uses the same queue.
+  async function assertWritableCurrentPath(path: string) {
+    if (isDescriptorPath(path)) {
+      throw workspaceError(`[vitehub] Source-backed workspace paths are read-only: ${path}.`)
+    }
+    const resolution = resolveWorkspacePath(definition, path)
+    if (resolution.type === "source" || isLazySourcePath(resolution.workspacePath)
+      || isSyncSourceMountPath(resolution.workspacePath)
+      || await isSyncedStatePath(resolution.workspacePath)
+      || await isSourceBackedStorePath(resolution.workspacePath)) {
+      throw workspaceError(`[vitehub] Source-backed workspace paths are read-only: ${path}.`)
+    }
   }
 
   async function assertWritableResolvedStorePath(path: string, workspacePath: string, type: "source" | "store") {
@@ -589,17 +677,121 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       throw workspaceError(`[vitehub] Source-backed workspace paths are read-only: ${path}.`)
     }
     const resolution = resolveWorkspacePath(definition, path)
-    if (isDescriptorPath(resolution.workspacePath)) {
+    if (isDescriptorPath(resolution.workspacePath)
+      || allSources.some(source => (source.materialize === "lazy" || source.materialize === "startup")
+        && sourceMountContainsPath(source, resolution.workspacePath))) {
       throw workspaceError(`[vitehub] Source-backed workspace paths are read-only: ${path}.`)
     }
     await assertWritableResolvedStorePath(path, resolution.workspacePath, resolution.type)
     return resolution
   }
 
+  // Only grants from this view unlock writes through this view.
+  const writeGrants = new WeakMap<WorkspaceSourceWriteGrant, string>()
+
+  async function grantWritablePath(path: string) {
+    const { workspacePath } = await assertWritablePath(path)
+    const grant = new WorkspaceSourceWriteGrant(workspacePath)
+    writeGrants.set(grant, workspacePath)
+    return grant
+  }
+
+  // Recheck after the async policy hook. Source ownership may change while it runs,
+  // even when the policy keeps the path unchanged.
+  async function grantPolicyPath(path: string) {
+    return await grantWritablePath(path)
+  }
+
+  function requireWriteGrant<Args extends unknown[], Result>(write: (path: string, ...args: Args) => Promise<Result>) {
+    return async (grant: WorkspaceSourceWriteGrant, path: string, ...args: Args): Promise<Result> => {
+      const workspacePath = normalizeWorkspacePath(path)
+      if (writeGrants.get(grant) !== workspacePath) {
+        throw workspaceError(`[vitehub] Workspace write to ${path} requires a Source write grant for that path.`)
+      }
+      return await withWorkspaceStoreMutation(store, async () => {
+        await assertWritableCurrentPath(workspacePath)
+        return await write(workspacePath, ...args)
+      })
+    }
+  }
+
+  function requireRebaseGrants(rebase: (options?: WorkspaceRebaseOptions) => Promise<void>) {
+    return async (grants: readonly WorkspaceSourceWriteGrant[], options?: WorkspaceRebaseOptions): Promise<void> => {
+      const takeRemote = options?.takeRemote ?? []
+      if (!Array.isArray(grants) || grants.length !== takeRemote.length) {
+        throw workspaceError("[vitehub] Workspace rebase requires one Source write grant for each takeRemote path.")
+      }
+      for (const [index, path] of takeRemote.entries()) {
+        const grant = grants[index]
+        const normalizedPath = normalizeWorkspacePath(path)
+        if (!grant || writeGrants.get(grant) !== normalizedPath) {
+          throw workspaceError(`[vitehub] Workspace rebase to take remote ${path} requires a Source write grant for that path.`)
+        }
+        if (allSources.some(source => (source.materialize === "lazy" || source.materialize === "startup")
+          && sourceMountIntersectsPath(source, normalizedPath))) {
+          throw workspaceError(`[vitehub] Source-backed workspace paths are read-only: ${path}.`)
+        }
+      }
+      await withWorkspaceStoreMutation(store, async () => {
+        for (const grant of grants) await assertWritableCurrentPath(grant.path)
+        await rebase(options?.takeRemote ? { ...options, takeRemote: grants.map(grant => grant.path) } : options)
+      })
+    }
+  }
+
+  const grantedStore = {
+    mkdir: requireWriteGrant(async (path, options?: MkdirOptions) => await store.mkdir(path, options)),
+    rm: requireWriteGrant(async (path, options?: RmOptions) => await store.rm(path, options)),
+    writeFile: requireWriteGrant(async (path, file: Omit<WorkspaceFile, "path">, ifDigest?: string | null) => {
+      if (ifDigest === undefined) return await store.writeFile(path, { ...file, path })
+      if (!store.writeFileConditional) throw workspaceError("[vitehub] This Workspace Store does not support conditional writes.")
+      await store.writeFileConditional(path, { ...file, path }, ifDigest)
+    }),
+  }
+
   return {
-    async assertWritable(path) {
-      await assertWritablePath(path)
+    requireHistoryGrants(history) {
+      return async (grants, options) => {
+        return await withWorkspaceStoreMutation(store, async () => {
+          const head = await history.head()
+          if ((head?.id ?? null) !== options.ifHead) throw workspaceConflict("[vitehub] Workspace head changed before the history commit.", { details: { expected: options.ifHead, actual: head?.id ?? null } })
+          const previous = head ? await history.open(head.id) : undefined
+          const entries = previous ? (await previous.list("", { recursive: true })).filter(entry => entry.type === "file") : []
+          const paths: string[] = []
+          for (const path of new Set([...Object.keys(options.files), ...entries.map(entry => entry.path)])) {
+            const file = options.files[path]
+            const before = entries.find(entry => entry.path === path)
+            const digest = before?.digest ?? (previous && before ? await sha256(await previous.readFile(path, { encoding: "binary" })) : undefined)
+            if (!file || !before || digest !== await sha256(file.content) || before.mediaType !== file.mediaType || JSON.stringify(before.metadata) !== JSON.stringify(file.metadata)) paths.push(path)
+          }
+          const authorized = new Set(grants.map(grant => writeGrants.get(grant)))
+          if (authorized.has(undefined) || paths.some(path => !authorized.has(path))) {
+            throw workspaceError("[vitehub] History publication requires a Source write grant for every affected path.")
+          }
+          for (const path of paths) await assertWritableCurrentPath(path)
+          // A Store's own history replaces its draft, including materialized Source files.
+          // Overlay Sources live outside the backing Store's retained file tree.
+          if (history === store.history && allSources.length) {
+            for (const entry of await store.list("", { recursive: true })) {
+              if (entry.type !== "file" || !allSources.some(source => source.key === entry.metadata?.source)) continue
+              const file = options.files[entry.path]
+              const digest = entry.digest ?? await sha256((await store.readFile(entry.path))!.content)
+              if (!file || digest !== await sha256(file.content) || entry.mediaType !== file.mediaType || JSON.stringify(entry.metadata) !== JSON.stringify(file.metadata)) {
+                await assertWritableCurrentPath(entry.path)
+              }
+            }
+          }
+          return await history.commit(options)
+        })
+      }
     },
+    async assertWritable(path) {
+      return await grantWritablePath(path)
+    },
+    // Internal callers already holding the mutation queue must not enter it again.
+    assertWritableCurrentPath,
+    requireWriteGrant,
+    requireRebaseGrants,
     async readFile(path, options) {
       const descriptorSource = descriptorSourceForPath(normalizeWorkspacePath(path))
       if (descriptorSource) return decodeFile(descriptorContent(descriptorSource), options)
@@ -642,29 +834,28 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     },
     async writeFile(path, content, options) {
       const metadata = assertPublicFileMetadata(path, options?.metadata)
-      const resolution = await assertWritablePath(path)
+      const requested = await grantWritablePath(path)
       const input = await writePolicy.before({
         content,
         mediaType: options?.mediaType,
         metadata,
         operation: "writeFile",
-        path: resolution.workspacePath,
-        previous: await previousStat(resolution.workspacePath),
+        path: requested.path,
+        previous: await previousStat(requested.path),
         workspace: definition.name,
       })
       try {
-        if (options?.preservePath && input.path !== resolution.workspacePath) {
-          throw workspaceError(`[vitehub] Workspace validator cannot rewrite preserved path: ${resolution.workspacePath} -> ${input.path}.`)
+        if (options?.preservePath && input.path !== requested.path) {
+          throw workspaceError(`[vitehub] Workspace validator cannot rewrite preserved path: ${requested.path} -> ${input.path}.`)
         }
-        const file = { path: input.path, content: input.content ?? content, mediaType: input.mediaType, metadata: input.metadata }
-        file.metadata = assertPublicFileMetadata(input.path, file.metadata)
-        if (options?.ifDigest !== undefined) {
-          if (!store.writeFileConditional) throw workspaceError("[vitehub] This Workspace Store does not support conditional writes.")
-          await store.writeFileConditional(input.path, file, options.ifDigest)
-        }
-        else await store.writeFile(input.path, file)
+        const grant = await grantPolicyPath(input.path)
+        await grantedStore.writeFile(grant, input.path, {
+          content: input.content ?? content,
+          mediaType: input.mediaType,
+          metadata: assertPublicFileMetadata(input.path, input.metadata),
+        }, options?.ifDigest)
         await writePolicy.after(input)
-        return input.path
+        return grant.path
       }
       catch (error) {
         await writePolicy.error(input, error)
@@ -762,15 +953,15 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       return Boolean(await store.stat(resolution.workspacePath))
     },
     async mkdir(path, options) {
-      const resolution = await assertWritablePath(path)
+      const requested = await grantWritablePath(path)
       const input = await writePolicy.before({
         operation: "mkdir",
-        path: resolution.workspacePath,
-        previous: await previousStat(resolution.workspacePath),
+        path: requested.path,
+        previous: await previousStat(requested.path),
         workspace: definition.name,
       })
       try {
-        await store.mkdir(input.path, options)
+        await grantedStore.mkdir(await grantPolicyPath(input.path), input.path, options)
         await writePolicy.after(input)
       }
       catch (error) {
@@ -779,15 +970,15 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       }
     },
     async rm(path, options) {
-      const resolution = await assertWritablePath(path)
+      const requested = await grantWritablePath(path)
       const input = await writePolicy.before({
         operation: "rm",
-        path: resolution.workspacePath,
-        previous: await previousStat(resolution.workspacePath),
+        path: requested.path,
+        previous: await previousStat(requested.path),
         workspace: definition.name,
       })
       try {
-        await store.rm(input.path, options)
+        await grantedStore.rm(await grantPolicyPath(input.path), input.path, options)
         await writePolicy.after(input)
       }
       catch (error) {

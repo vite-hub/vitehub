@@ -23,6 +23,7 @@ function normalizeSessionPath(path = "", options: { allowEmpty?: boolean } = {})
 }
 
 export async function createBasicWorkspaceSession(workspace: Workspace, options?: WorkspaceSessionOptions): Promise<WorkspaceSession> {
+  const writeBackDisabled = options?.writeBack === false
   const sessionPaths = normalizeSessionPaths(options)
   const overlay = createMemoryWorkspaceStore()
   const initialEntries = filterSessionEntries(await workspace.list("", { recursive: true }), sessionPaths)
@@ -75,19 +76,26 @@ export async function createBasicWorkspaceSession(workspace: Workspace, options?
       if (!scoped) return []
       const roots = (scoped.paths?.length ? scoped.paths : [scoped.cwd || ""]).map(path => normalizeSessionPath(path, { allowEmpty: true }))
       const hits: WorkspaceSearchHit[] = []
+      const limit = scoped.limit ?? 100
       for (const entry of filterSessionEntries(await overlay.list("", { recursive: true }), sessionPaths).filter(entry => entry.type === "file")) {
         if (!roots.some(root => !root || entry.path === root || entry.path.startsWith(`${root}/`))) continue
         const file = await overlay.readFile(entry.path)
         if (!file) continue
-        hits.push(...searchText(entry.path, decodeFile(file.content), { ...scoped, limit: (scoped.limit || 100) - hits.length }))
-        if (hits.length >= (scoped.limit || 100)) break
+        hits.push(...searchText(entry.path, decodeFile(file.content), { ...scoped, limit: limit - hits.length }))
+        if (hits.length >= limit) break
       }
       return hits
     },
     async diff() {
+      if (writeBackDisabled) {
+        throw workspaceError("[vitehub] Workspace Session diff is unavailable when writeBack is false.")
+      }
       return filterSessionDiff(await overlay.diff(), sessionPaths)
     },
     async commit(commitOptions) {
+      if (writeBackDisabled) {
+        throw workspaceError("[vitehub] Workspace Session commit is unavailable when writeBack is false.")
+      }
       const diff = await overlay.diff()
       assertDiffInsideSessionPaths(diff, sessionPaths)
       assertDiffInsideSessionPaths(await workspace.diff(), sessionPaths)

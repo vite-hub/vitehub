@@ -208,6 +208,17 @@ describe("vitehub agent invocations delete and prune", () => {
     expect((await read.list()).invocations.map(record => record.id).sort()).toEqual(["old-failed", "old-running", "recent-cancelled"])
   })
 
+  it.each(["list", "prune"])("rejects an invocation id for %s before reading or deleting records", async (action) => {
+    const { read, rootDir } = await consoleJournal()
+    const io = output()
+    const fetch = vi.fn<typeof globalThis.fetch>()
+
+    await expect(runAgentInvocationsCli([action, "old-completed"], { env: {}, rootDir, ...io }, { fetch })).resolves.toBe(1)
+    expect(io.chunks.stderr).toContain("Unexpected argument: old-completed.")
+    expect(fetch).not.toHaveBeenCalled()
+    expect((await read.list()).invocations).toHaveLength(4)
+  })
+
   it.each(["C:\\app\\.vitehub\\data\\console.sqlite", "C:/app/.vitehub/data/console.sqlite"])("treats Windows drive paths as local journals: %s", async (database) => {
     const io = output()
     vi.mocked(createClient).mockClear()

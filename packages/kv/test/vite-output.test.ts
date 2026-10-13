@@ -204,6 +204,42 @@ describe("KV Vite output", () => {
     expect(output).toContain("KV_CUSTOM")
   })
 
+  it("bundles generated config into the dev inspection runtime", async () => {
+    const rootDir = await createConsumerRoot()
+    const entry = join(rootDir, "src", "worker.ts")
+    const [{ build }, { hubKv }] = await Promise.all([
+      import("vite"),
+      import("../src/vite.ts"),
+    ])
+    await writeFile(entry, 'export { listKVDevStores } from "@vite-hub/kv/runtime/dev"')
+
+    await build({
+      appType: "custom",
+      build: {
+        outDir: "dist",
+        rolldownOptions: {
+          input: entry,
+          output: { entryFileNames: "worker.js" },
+        },
+        ssr: entry,
+      },
+      configFile: false,
+      kv: { binding: "KV_CUSTOM", driver: "cloudflare-kv-binding", namespaceId: "namespace-id" },
+      logLevel: "silent",
+      plugins: [hubKv()],
+      root: rootDir,
+    })
+
+    const output = await readOutput(join(rootDir, "dist"))
+    // SAFETY: The fixture entry exports the real dev runtime's listKVDevStores function.
+    const worker = await import(pathToFileURL(join(rootDir, "dist", "worker.js")).href) as {
+      listKVDevStores: () => Array<{ driver: string, name: string }>
+    }
+
+    expect(output).not.toMatch(/import\(["']#vitehub\/kv\/config["']\)/)
+    expect(worker.listKVDevStores()).toEqual([{ driver: "cloudflare-kv-binding", name: "default" }])
+  })
+
   it("merges configured Cloudflare KV namespaces into provider output", async () => {
     const rootDir = await createConsumerRoot()
     const entry = join(rootDir, "src", "worker.ts")

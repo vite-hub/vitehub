@@ -2,7 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { ViteHubError } from "@vite-hub/runtime"
 
 import { defineAuth } from "../src/index.ts"
-import { authorizeRequest, handleAuthRequest, requireAuth, requireAuthAccessRoutes } from "../src/server.ts"
+import { handleAuthRequest, requireAuthAccessRoutes, withAuth, withAuthorization } from "../src/server.ts"
+
+import type { AuthAuthorization } from "../src/index.ts"
 
 const providerMocks = vi.hoisted(() => ({
   betterAuth: vi.fn(),
@@ -16,12 +18,14 @@ vi.mock("better-auth", () => ({
 
 const definition = defineAuth({ appName: "ViteHub" })
 const request = new Request("https://example.com/api/private")
+const protectedAction = vi.fn((_input: unknown, _authorization: AuthAuthorization) => "protected")
 
 describe("server authentication provider boundaries", () => {
   beforeEach(() => {
     providerMocks.betterAuth.mockReset()
     providerMocks.getSession.mockReset()
     providerMocks.handler.mockReset()
+    protectedAction.mockClear()
     providerMocks.betterAuth.mockReturnValue({
       api: { getSession: providerMocks.getSession },
       handler: providerMocks.handler,
@@ -34,7 +38,7 @@ describe("server authentication provider boundaries", () => {
   ])("preserves ViteHub's %s validation", async (_case, auth, code, message) => {
     providerMocks.betterAuth.mockReturnValueOnce(auth)
 
-    await expect(requireAuth(request, definition)).rejects.toMatchObject({ code, message })
+    await expect(withAuth(protectedAction, definition)(request)).rejects.toMatchObject({ code, message })
   })
 
   it.each([
@@ -45,7 +49,7 @@ describe("server authentication provider boundaries", () => {
       throw cause
     })
 
-    const error = await requireAuth(request, definition).catch(error => error)
+    const error = await withAuth(protectedAction, definition)(request).catch(error => error)
 
     expect(error).toBeInstanceOf(ViteHubError)
     expect(error).toMatchObject({
@@ -60,14 +64,14 @@ describe("server authentication provider boundaries", () => {
       throw configurationError
     })
 
-    await expect(requireAuth(request, invalidDefinition)).rejects.toBe(configurationError)
+    await expect(withAuth(protectedAction, invalidDefinition)(request)).rejects.toBe(configurationError)
   })
 
   it("normalizes operational session TypeErrors with their exact cause", async () => {
     const cause = new TypeError("fetch failed")
     providerMocks.getSession.mockRejectedValueOnce(cause)
 
-    const error = await requireAuth(request, definition).catch(error => error)
+    const error = await withAuth(protectedAction, definition)(request).catch(error => error)
 
     expect(error).toBeInstanceOf(ViteHubError)
     expect(error).toMatchObject({
@@ -95,7 +99,7 @@ describe("server authentication provider boundaries", () => {
     const cause = new TypeError("provider getter failed")
     providerMocks.betterAuth.mockReturnValueOnce(createAuth(cause))
 
-    const error = await requireAuth(request, definition).catch(error => error)
+    const error = await withAuth(protectedAction, definition)(request).catch(error => error)
 
     expect(error).toBeInstanceOf(ViteHubError)
     expect(error).toMatchObject({
@@ -108,11 +112,11 @@ describe("server authentication provider boundaries", () => {
   it("preserves abort and existing provider errors exactly", async () => {
     const abort = new DOMException("cancelled", "AbortError")
     providerMocks.getSession.mockRejectedValueOnce(abort)
-    await expect(requireAuth(request, definition)).rejects.toBe(abort)
+    await expect(withAuth(protectedAction, definition)(request)).rejects.toBe(abort)
 
     const providerError = new ViteHubError("AUTH_PROVIDER_OPERATION_FAILED", "Custom provider failure.")
     providerMocks.getSession.mockRejectedValueOnce(providerError)
-    await expect(requireAuth(request, definition)).rejects.toBe(providerError)
+    await expect(withAuth(protectedAction, definition)(request)).rejects.toBe(providerError)
   })
 
   it("keeps handleAuthRequest as the exact Better Auth passthrough", async () => {
@@ -120,6 +124,31 @@ describe("server authentication provider boundaries", () => {
     providerMocks.handler.mockRejectedValueOnce(providerError)
 
     await expect(handleAuthRequest(definition, request)).rejects.toBe(providerError)
+  })
+
+  it("does not unwrap an inherited host request property", async () => {
+    let origin = ""
+    const requestDefinition = defineAuth(({ requestOrigin }) => {
+      origin = requestOrigin
+      return {
+        baseURL: requestOrigin,
+        secret: "abcdefghijklmnopqrstuvwxyz0123456789",
+      }
+    })
+    providerMocks.getSession.mockResolvedValue(null)
+
+    const input = Object.assign(Object.create({
+      req: new Request("https://attacker.example/api/private"),
+    }), {
+      body: null,
+      headers: new Headers(),
+      method: "GET",
+      signal: undefined,
+      url: "https://example.com/api/private",
+    })
+
+    await expect(withAuth(protectedAction, requestDefinition)(input as never)).resolves.toMatchObject({ status: 401 })
+    expect(origin).toBe("https://example.com")
   })
 
   it.each(["definition", "runtime"] as const)("resolves the %s callback once for an Auth request", async (kind) => {
@@ -225,7 +254,7 @@ describe("server authentication provider boundaries", () => {
     await expect(requireAuthAccessRoutes(request, [0], accessDefinition)).resolves.toBe(denied)
   })
 
-  describe("authorizeRequest", () => {
+  describe("withAuthorization", () => {
     const imageRequest = new Request("https://example.com/photos/user-1/meal.jpg", {
       headers: { accept: "text/html,image/avif,image/webp,*/*" },
     })
@@ -235,26 +264,33 @@ describe("server authentication provider boundaries", () => {
       const signInDefinition = defineAuth({ access: { signIn: { provider: "github" } }, appName: "ViteHub" })
       providerMocks.getSession.mockResolvedValue(null)
 
-      const response = await authorizeRequest({ req: imageRequest }, authorize, signInDefinition)
+      const response = await withAuthorization(authorize, protectedAction, signInDefinition)({ req: imageRequest })
 
-      expect(response?.status).toBe(401)
-      expect(response?.headers.get("location")).toBeNull()
-      expect(await response?.json()).toEqual({ error: "Unauthorized." })
+      expect(response).toBeInstanceOf(Response)
+      if (!(response instanceof Response)) return
+      expect(response.status).toBe(401)
+      expect(response.headers.get("location")).toBeNull()
+      expect(await response.json()).toEqual({ error: "Unauthorized." })
       expect(authorize).not.toHaveBeenCalled()
+      expect(protectedAction).not.toHaveBeenCalled()
     })
 
-    it("allows any session for true", async () => {
+    it("runs the handler with the checked authorization for true", async () => {
       providerMocks.getSession.mockResolvedValue({ session: { id: "session-1" }, user: { id: "user-1" } })
 
-      await expect(authorizeRequest(request, true, definition)).resolves.toBeUndefined()
+      await expect(withAuthorization(true, protectedAction, definition)(request)).resolves.toBe("protected")
+      const authorization = protectedAction.mock.calls[0]?.[1]
+      expect(authorization).toEqual({ request, session: { id: "session-1" }, user: { id: "user-1" } })
+      expect(Object.isFrozen(authorization)).toBe(true)
     })
 
-    it("runs the callback with the request, session, and user", async () => {
+    it("runs the callback with the request, session, and user before the handler", async () => {
       const authorize = vi.fn(({ request, user }: { request: Pick<Request, "url">, user: { id: string } }) =>
         new URL(request.url).pathname.startsWith(`/photos/${user.id}/`))
+      const guarded = withAuthorization(authorize, protectedAction, definition)
       providerMocks.getSession.mockResolvedValue({ session: { id: "session-1" }, user: { id: "user-1" } })
 
-      await expect(authorizeRequest(imageRequest, authorize, definition)).resolves.toBeUndefined()
+      await expect(guarded(imageRequest)).resolves.toBe("protected")
       expect(authorize).toHaveBeenCalledWith({
         request: imageRequest,
         session: { id: "session-1" },
@@ -262,22 +298,48 @@ describe("server authentication provider boundaries", () => {
       })
 
       providerMocks.getSession.mockResolvedValue({ session: { id: "session-2" }, user: { id: "user-2" } })
-      const forbidden = await authorizeRequest(request, authorize, definition)
-      expect(forbidden?.status).toBe(403)
-      expect(await forbidden?.json()).toEqual({ error: "Forbidden." })
+      const forbidden = await guarded(request)
+      expect(forbidden).toBeInstanceOf(Response)
+      if (!(forbidden instanceof Response)) return
+      expect(forbidden.status).toBe(403)
+      expect(await forbidden.json()).toEqual({ error: "Forbidden." })
+      expect(protectedAction).toHaveBeenCalledOnce()
     })
 
     it("returns a custom callback response as-is", async () => {
       const denied = new Response("Not your photo", { status: 404 })
       providerMocks.getSession.mockResolvedValue({ session: { id: "session-1" }, user: { id: "user-1" } })
 
-      await expect(authorizeRequest(request, () => denied, definition)).resolves.toBe(denied)
+      await expect(withAuthorization(() => denied, protectedAction, definition)(request)).resolves.toBe(denied)
+      expect(protectedAction).not.toHaveBeenCalled()
     })
 
-    it("rejects an authorize value that is not true or a function", async () => {
+    it("ignores a forged authorization from the caller", async () => {
+      const forged: AuthAuthorization = { request, session: { id: "forged" }, user: { id: "admin" } }
+      const guarded = withAuthorization(true, protectedAction, definition)
+      providerMocks.getSession.mockResolvedValue(null)
+
+      // SAFETY: The test deliberately passes an extra argument to prove the guard ignores it at runtime.
+      const response = await Reflect.apply(guarded, undefined, [request, forged])
+      expect(response).toMatchObject({ status: 401 })
+      expect(protectedAction).not.toHaveBeenCalled()
+
+      providerMocks.getSession.mockResolvedValue({ session: { id: "session-1" }, user: { id: "user-1" } })
+      await Reflect.apply(guarded, undefined, [request, forged])
+      expect(protectedAction.mock.calls[0]?.[1]).not.toBe(forged)
+      expect(protectedAction.mock.calls[0]?.[1]).toMatchObject({ user: { id: "user-1" } })
+    })
+
+    it("rejects an authorize value that is not true or a function when it wraps the handler", () => {
       // SAFETY: The test deliberately violates the input contract to prove the runtime guard.
-      await expect(authorizeRequest(request, false as never, definition)).rejects.toMatchObject({ code: "AUTH_R0014" })
+      expect(() => withAuthorization(false as never, protectedAction, definition)).toThrow(expect.objectContaining({ code: "AUTH_R0014" }))
       expect(providerMocks.getSession).not.toHaveBeenCalled()
+    })
+
+    it("rejects a missing handler", () => {
+      // SAFETY: The test deliberately violates the input contract to prove the runtime guard.
+      expect(() => withAuthorization(true, undefined as never, definition)).toThrow(expect.objectContaining({ code: "AUTH_R0015" }))
+      expect(() => withAuth(undefined as never, definition)).toThrow(expect.objectContaining({ code: "AUTH_R0015" }))
     })
   })
 

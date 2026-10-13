@@ -20,7 +20,7 @@ caching only. It does not select model input.
 | --- | --- |
 | Continue the visible thread | Thread-backed Chat History |
 | Continue a conversation when the transport thread changes | A Chat Session |
-| Keep knowledge or preferences across conversations | [Memory Capability](/docs/capabilities/memory) |
+| Keep knowledge or preferences across conversations | [Memory Capability](/docs/agents/capabilities/memory) |
 
 ## Enable thread history
 

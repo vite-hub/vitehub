@@ -1,5 +1,4 @@
 import { createHash } from 'node:crypto'
-import { createRequire } from 'node:module'
 import { dirname, join, normalize } from 'node:path/posix'
 import {
   findCommonJSImportEqualsSpecifiers,
@@ -12,9 +11,8 @@ import { isWorkspacePackage, parsePnpmWorkspacePackages } from '../project'
 import type { SandboxProject } from '../project'
 import type ts from 'typescript'
 import { sandboxErrorDiagnostics } from "../error-diagnostics.ts"
+import { loadTypeScript } from './typescript'
 
-const require = createRequire(import.meta.url)
-const typescript = require('typescript') as typeof import('typescript')
 const runtimeExportConditions = new Set(['default', 'import', 'module-sync', 'node', 'node-addons'])
 
 type PackageRuntimeManifest = {
@@ -303,6 +301,7 @@ function isInsideSelectedPackage(project: SandboxProject, path: string) {
 }
 
 function removeTypeOnlyModuleDeclarations(context: ts.TransformationContext) {
+  const typescript = loadTypeScript()
   return (sourceFile: ts.SourceFile) =>
     context.factory.updateSourceFile(
       sourceFile,
@@ -334,6 +333,7 @@ function removeTypeOnlyModuleDeclarations(context: ts.TransformationContext) {
 }
 
 function transpilePackageModule(source: string, path: string) {
+  const typescript = loadTypeScript()
   const result = typescript.transpileModule(source, {
     compilerOptions: {
       module: typescript.ModuleKind.ESNext,

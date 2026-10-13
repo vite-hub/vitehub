@@ -109,7 +109,7 @@ async function check(args: string[], context: ViteHubCliContext): Promise<number
   });
   if (!values) {
     context.stdout.write(
-      `Usage: ${checkUsage}\n\nStart the provider Driver through the SSH runner and report its readiness. Codex reads CODEX_AUTH_JSON when set.\n`,
+      `Usage: ${checkUsage}\n\nStart the provider Driver through the SSH runner and report its readiness. Codex reads CODEX_AUTH_JSON when set. Set CLIPROXY_URL and CLIPROXY_API_KEY to route either Driver through CLIProxyAPI.\n`,
     );
     return 0;
   }
@@ -120,16 +120,22 @@ async function check(args: string[], context: ViteHubCliContext): Promise<number
   const timeout = Number(option(values, "timeout", env) ?? 25_000);
   if (!Number.isInteger(timeout) || timeout < 1)
     throw new TypeError("[vitehub] --timeout must be a positive number of milliseconds.");
-  const [{ defineAgent }, { createAgentStatusReader }, { sshLaunch }] = await Promise.all([
+  const [{ defineAgent }, { cliproxy }, { createAgentStatusReader }, { sshLaunch }] = await Promise.all([
     import("@vite-hub/agent"),
+    import("@vite-hub/agent/gateways"),
     import("@vite-hub/agent/server"),
     import("@vite-hub/box/ssh"),
   ]);
+  // Read the key from the supplied environment only, so an ambient key cannot select an account.
+  const gateway = env.CLIPROXY_URL?.trim()
+    ? cliproxy({ url: env.CLIPROXY_URL, apiKey: env.CLIPROXY_API_KEY ?? "" })
+    : undefined;
   const hostKeyFile = option(values, "host-key-file", env, "SSH_HOST_PUBLIC_KEY");
   const knownHostsFile = option(values, "known-hosts-file", env);
   const ssh = sshLaunch({
     // Keep application filesystem paths and PATH out of the runner environment.
-    forwardEnvironment: ["CODEX_AUTH_JSON", "CLIPROXY_BASE_URL", "CLIPROXY_API_KEY"],
+    // Gateway variables are required provider environment, which the runner forwards.
+    forwardEnvironment: ["CODEX_AUTH_JSON"],
     host: option(values, "host", env, "CRABBOX_STATIC_HOST") ?? "127.0.0.1",
     identityFile: required(values, "identity-file", env, "CRABBOX_SSH_KEY"),
     port: port(values, env),
@@ -175,13 +181,10 @@ fi
         ? {
             kind: "codex",
             launch,
-            env: {
-              CODEX_AUTH_JSON: env.CODEX_AUTH_JSON,
-              CLIPROXY_BASE_URL: env.CLIPROXY_BASE_URL,
-              CLIPROXY_API_KEY: env.CLIPROXY_API_KEY,
-            },
+            env: { CODEX_AUTH_JSON: env.CODEX_AUTH_JSON },
+            ...(gateway ? { gateway } : {}),
           }
-        : { kind: "claude-code", launch },
+        : { kind: "claude-code", launch, ...(gateway ? { gateway } : {}) },
   });
   const { authenticated, installed, readiness, reason } = await createAgentStatusReader({
     timeoutMs: timeout,
@@ -190,7 +193,8 @@ fi
     `${JSON.stringify({ event: "box.check", driver, readiness, installed, authenticated, reason })}\n`,
   );
   // A completed account probe proves that the transport and provider protocol work. Quota and sign-in state are reported, not failed.
-  return installed === true && authenticated !== undefined ? 0 : 1;
+  // A gateway has no provider account, so authentication stays unknown. The probe must still finish without a provider error.
+  return installed === true && (authenticated !== undefined || (gateway !== undefined && readiness !== "unavailable")) ? 0 : 1;
 }
 
 /** Commands that run inside a Box runner container, without the project config. */

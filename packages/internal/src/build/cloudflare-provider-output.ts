@@ -69,7 +69,7 @@ function removeContribution(wrangler: Record<string, unknown>, contribution: Clo
     else delete secrets.required
   }
   for (const [name, requiredSecrets] of Object.entries(contribution.requiredSecretsByEnvironment ?? {})) {
-    if (!(name in environments)) continue
+    if (!Object.hasOwn(environments, name)) continue
     const environment = cloneProviderRecord(environments[name])
     const environmentSecrets = cloneProviderRecord(environment.secrets)
     const required = removeEntries(environmentSecrets.required, requiredSecrets)

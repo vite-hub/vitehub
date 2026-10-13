@@ -178,12 +178,18 @@ describe("Collections", () => {
 
   it("rejects malformed cursors and invalid definition limits", async () => {
     const { collection } = mealsCollection()
+    const query = await collection.parseQuery({})
     await expect(
       collection.page({
         cursor: "not-a-cursor",
-        query: await collection.parseQuery({}),
+        query,
       }),
     ).rejects.toBeInstanceOf(CollectionCursorError)
+    for (const cursor of ["A", "AA=", "Zm9v==", "AA\u002fAA", "MB"]) {
+      await expect(collection.page({ cursor, query })).rejects.toBeInstanceOf(CollectionCursorError)
+    }
+    const first = await collection.page({ query })
+    await expect(collection.page({ cursor: `${first.nextCursor}==`, query })).rejects.toBeInstanceOf(CollectionCursorError)
     const wrongShape = btoa(JSON.stringify(["wrong"])).replaceAll("=", "")
     await expect(
       collection.page({ cursor: wrongShape, query: await collection.parseQuery({}) }),

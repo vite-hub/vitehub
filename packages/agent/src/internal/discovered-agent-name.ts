@@ -1,5 +1,5 @@
 import { registerPublicUrlAgentName } from "@vite-hub/runtime"
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
+import { hasRuntimeType } from "./runtime-type.ts"
 import { agentDefinitionSourceSymbol } from "./agent-definition-source.ts"
 
 // Discovery names an Agent Definition from its file when the definition has no explicit name.

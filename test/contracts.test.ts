@@ -213,7 +213,8 @@ describe("package manifest contracts", () => {
       const dependencies = {
         ...manifest.dependencies,
         ...manifest.optionalDependencies,
-        ...manifest.peerDependencies,
+        ...Object.fromEntries(Object.entries(manifest.peerDependencies || {})
+          .filter(([name]) => manifest.peerDependenciesMeta?.[name]?.optional !== true)),
       }
       for (const dependency of Object.keys(dependencies)) {
         if (!positions.has(dependency)) continue

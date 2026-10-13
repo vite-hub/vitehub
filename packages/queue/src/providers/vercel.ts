@@ -11,6 +11,71 @@ function invalidVercelSendResponse(cause: unknown): never {
   })
 }
 
+function isRuntimeFunction(value: unknown): boolean {
+  if (value === null || value === undefined || Object(value) !== value) return false
+  try {
+    Function.prototype.toString.call(value)
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
+function isVercelQueueSDK(value: unknown): value is VercelQueueSDK {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Direct SDK clients cross the untyped provider boundary.
+  if (value === null || typeof value !== "object") return false
+  try {
+    if (Array.isArray(value)) return false
+  }
+  catch {
+    return false
+  }
+
+  const hasCallableMethod = (name: "send" | "handleCallback") => {
+    let owner: object | null = value
+    while (owner && owner !== Object.prototype) {
+      let descriptor: PropertyDescriptor | undefined
+      try {
+        descriptor = Object.getOwnPropertyDescriptor(owner, name)
+      }
+      catch {
+        return false
+      }
+      if (descriptor) {
+        if (owner !== value) {
+          let constructor: PropertyDescriptor | undefined
+          try {
+            constructor = Object.getOwnPropertyDescriptor(owner, "constructor")
+            if (!constructor || !("value" in constructor) || !isRuntimeFunction(constructor.value) || constructor.value.prototype !== owner) {
+              return false
+            }
+          }
+          catch {
+            return false
+          }
+        }
+        if ("value" in descriptor) return isRuntimeFunction(descriptor.value)
+        try {
+          return isRuntimeFunction(Reflect.get(value, name))
+        }
+        catch {
+          return false
+        }
+      }
+      try {
+        owner = Object.getPrototypeOf(owner)
+      }
+      catch {
+        return false
+      }
+    }
+    return false
+  }
+
+  return hasCallableMethod("send") && hasCallableMethod("handleCallback")
+}
+
 function parseVercelMessageId(value: unknown): string | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) invalidVercelSendResponse(value)
 
@@ -55,17 +120,18 @@ async function loadVercelQueueClient(region: string | undefined): Promise<Vercel
   }
 
   const { region: resolvedRegion } = resolveVercelQueueRegion(region)
-  if ("QueueClient" in module && typeof module.QueueClient === "function") {
+  if (Object.hasOwn(module, "QueueClient") && isRuntimeFunction(module.QueueClient)) {
     if (!resolvedRegion) {
       throw createQueueError("VERCEL_QUEUE_REGION_REQUIRED", {
         details: { provider: "vercel" },
       })
     }
 
+    // SAFETY: QueueClient is an own callable export; the Vercel SDK defines its region constructor contract.
     return new (module.QueueClient as new (options: { region: string }) => VercelQueueSDK)({ region: resolvedRegion })
   }
 
-  if (typeof module.send === "function" && typeof module.handleCallback === "function") {
+  if (Object.hasOwn(module, "send") && Object.hasOwn(module, "handleCallback") && isRuntimeFunction(module.send) && isRuntimeFunction(module.handleCallback)) {
     return {
       handleCallback: module.handleCallback as VercelQueueSDK["handleCallback"],
       send: module.send as VercelQueueSDK["send"],
@@ -85,7 +151,12 @@ export async function createVercelQueueClient(provider: VercelQueueProviderOptio
     })
   }
 
-  const client = provider.client || await loadVercelQueueClient(provider.region)
+  const client = provider.client === undefined ? await loadVercelQueueClient(provider.region) : provider.client
+  if (!isVercelQueueSDK(client)) {
+    throw createQueueError("VERCEL_QUEUE_SDK_INVALID", {
+      details: { provider: "vercel" },
+    })
+  }
   return {
     provider: "vercel",
     native: client,

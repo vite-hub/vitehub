@@ -28,6 +28,160 @@ async function discover(agent: string, files: Record<string, string> = {}) {
 const imports = 'import { defineAgent } from "vite-hub/agent"; import { github, telegram, webChat } from "vite-hub/agent/channels";'
 
 it.each([
+  "import.meta.url",
+  "function () { return format() }",
+  "class { #portal; get value() { return this.#portal } }",
+  "class { #portal; has(value) { return #portal in value } }",
+  "({ render() { const portal = { id: input.id }; return portal.id } })",
+  "({ render() { let portal = input; return portal.id } })",
+  "({ render() { var portal = input; return portal.id } })",
+  "({ render() { const { id: portal } = input; return portal } })",
+  "({ render() { const [portal] = input; return portal } })",
+  "({ render() { const first = input, portal = input; return portal } })",
+  "({ render() { { const portal = input; return portal.id } } })",
+  "({ render() { { var portal = input } return portal } })",
+  "class { static { const portal = input; portal.id } }",
+  "({ render() { for (const portal of []) return portal.id } })",
+  "({ render() { for (let portal in input) { portal.id } } })",
+  "({ render() { for (let portal = 0; portal < 1; portal++) { portal.id } } })",
+  "({ render() { for (const { id: portal } of []) return portal } })",
+  "({ render() { for (const [portal] of []) return portal } })",
+  "({ render() { for (let first = 0, portal = 0; portal < 1; portal++) return portal } })",
+  "({ render() { for (var portal of []) {} return portal } })",
+  "({ async render() { for await (const portal of []) return portal.id } })",
+  "({ render() { for (const portal of []) if (input.id) portal.id; else portal.id; } })",
+  "({ render() { for (const portal of []) for (const item of []) portal.id } })",
+])("ignores unrelated template metadata and method locals: %s", async expression => {
+  const definition = await discover(`${imports} import portal from "../../portal.ts"; const input = { id: "plain" }; export default defineAgent({ channels: { custom: portal }, driver: { instructions: () => \`${"${"}${expression}${"}"}\` } })`, {
+    "portal.ts": `${imports} export default webChat({ capabilities: [] })`,
+  })
+  expect(definition).toBeDefined()
+  expect(definition?.workspace).toBeUndefined()
+})
+
+it.each(["object", "Types.Global", "Types.Global<object>", "Types.Global[]", "{ String: (value: unknown) => string }"])("rejects global conversion writes through TypeScript assertions: %s", async type => {
+  await expect(discover(`${imports} import portal from "../../portal.ts";
+(globalThis as ${type}).String = () => getPortal().capabilities = [{ workspace: {} }];
+const ignored = \`\${String("id")}\`;
+export default defineAgent({ channels: { github: portal } })`, {
+    "portal.ts": `${imports} export default github({ pullRequest: false })`,
+})).rejects.toThrow("opaque Channel")
+})
+
+it("rejects global conversion writes through satisfies assertions", async () => {
+  await expect(discover(`${imports} import portal from "../../portal.ts";
+(globalThis satisfies object).String = () => getPortal().capabilities = [{ workspace: {} }];
+const ignored = \`\${String("id")}\`;
+export default defineAgent({ channels: { github: portal } })`, {
+    "portal.ts": `${imports} export default github({ pullRequest: false })`,
+  })).rejects.toThrow("opaque Channel")
+})
+
+it("rejects global conversion writes through non-null assertions", async () => {
+  await expect(discover(`${imports} import portal from "../../portal.ts";
+(globalThis!).String = () => getPortal().capabilities = [{ workspace: {} }];
+const ignored = \`\${String("id")}\`;
+export default defineAgent({ channels: { github: portal } })`, {
+    "portal.ts": `${imports} export default github({ pullRequest: false })`,
+  })).rejects.toThrow("opaque Channel")
+})
+
+it("keeps optional intrinsic conversions inspectable", async () => {
+  const definition = await discover(`${imports} import portal from "../../portal.ts";
+const ignored = \`\${String?.("id")}\`;
+export default defineAgent({ channels: { github: portal } })`, {
+    "portal.ts": `${imports} export default github({ pullRequest: false })`,
+  })
+  expect(definition?.workspace).toBeUndefined()
+})
+
+it.each([
+  "import('./other.ts')",
+  "({ render() { const portal = input; return portal } }), portal",
+  "({ render() { { const portal = input } return portal } })",
+  "({ render() { const { portal: local } = input; return portal } })",
+  "({ render() { const local = portal; return local } })",
+  "({ render() { const portal = input; return portal } })}${portal",
+  "({ render() { for (const portal of []) {} return portal } })",
+  "({ render() { for (let portal in input) portal.id; return portal } })",
+  "({ render() { for (let portal = 0; portal < 1; portal++) {} return portal } })",
+  "({ render() { for (const local of portal) return local } })",
+  "({ render() { for (const portal of []) if (input.id) portal.id; else portal.id; return portal } })",
+  "({ render() { for (const portal of []) {} } }), portal",
+  "input.for()",
+  "input.if()",
+  "({ render() { for (const portal of []) input.for() } })",
+])("keeps imported reads outside template local scopes opaque: %s", async expression => {
+  await expect(discover(`${imports} import portal from "../../portal.ts"; const input = { id: "plain" }; const template = \`${"${"}${expression}${"}"}\`; export default defineAgent({ channels: { custom: portal } })`, {
+    "portal.ts": `${imports} export default webChat({ capabilities: [] })`,
+  })).rejects.toThrow(/opaque Channel/)
+})
+
+it("ignores object method parameters that shadow imported bindings in templates", async () => {
+  const imported = await discover(`${imports} import portal from "../../portal.ts"; const template = \`${"${"}({ render(portal) { return portal.id } })${"}"}\`; export default defineAgent({ channels: { custom: portal } })`, {
+    "portal.ts": `${imports} export default webChat({ capabilities: [] })`,
+  })
+  expect(imported?.workspace).toBeUndefined()
+})
+
+it.each([
+  "({ portal() { return input.id } })",
+  "({ get portal() { return input.id } })",
+  "({ set portal(value) { input.id = value } })",
+  "({ *portal() { return input.id } })",
+  "({ async *portal() { return input.id } })",
+  "class { static portal() { return input.id } }",
+  "class { static get portal() { return input.id } }",
+])("ignores object method keys in template expressions: %s", async expression => {
+  const imported = await discover(`${imports} import portal from "../../portal.ts"; const input = { id: "plain" }; const template = \`${"${"}${expression}${"}"}\`; export default defineAgent({ channels: { custom: portal } })`, {
+    "portal.ts": `${imports} export default webChat({ capabilities: [] })`,
+  })
+  expect(imported?.workspace).toBeUndefined()
+})
+
+it.each([
+  "class portal {}",
+  "class portal extends Base {}",
+  "class { #portal = portal; get value() { return this.#portal } }",
+  "class { field = portal }",
+  "class { field = portal = input.id }",
+  "class { portal = portal }",
+  "class { field =\n portal = input.id }",
+  "class { field = input.id +\n portal }",
+  "class { portal = input.id }",
+  "class Named { portal = input.id }",
+  "class { static portal = input.id }",
+  "class { #portal = input.id }",
+  "class { portal; }",
+  "class { portal!: string }",
+  "class { portal?: string }",
+  "class { readonly portal: string }",
+  "class { public portal!: string }",
+  "class { other = input.id; portal = input.id }",
+  "class { other = input.id\n portal = input.id }",
+  "class { portal\n other = input.id }",
+  "class { portal = { portal: input.id } }",
+  "class extends Base { portal = input.id }",
+])("ignores inert instance initializers and class field keys in template expressions: %s", async expression => {
+  const imported = await discover(`${imports} import portal from "../../portal.ts"; const input = { id: "plain" }; const template = \`${"${"}${expression}${"}"}\`; export default defineAgent({ channels: { custom: portal } })`, {
+    "portal.ts": `${imports} export default webChat({ capabilities: [] })`,
+  })
+  expect(imported?.workspace).toBeUndefined()
+})
+
+it.each([
+  "class { [portal] = input.id }",
+  "class { static portal = portal }",
+  "class { field = `${portal}` }",
+  "class { field = `${portal = input.id}` }",
+  "class extends portal { field = input.id }",
+])("keeps class expression binding reads opaque: %s", async expression => {
+  await expect(discover(`${imports} import portal from "../../portal.ts"; const input = { id: "plain" }; const template = \`${"${"}${expression}${"}"}\`; export default defineAgent({ channels: { custom: portal } })`, {
+    "portal.ts": `${imports} export default webChat({ capabilities: [] })`,
+  })).rejects.toThrow(/opaque Channel/)
+})
+
+it.each([
   ['channels', 'export default { review: github({ pullRequest: true }) }'],
   ['{ channels }', 'export const channels = { review: github({ pullRequest: true }) }'],
 ])("rejects relative Channel-map imports: %s", async (binding, declaration) => {
@@ -712,6 +866,278 @@ it.each([
   await expect(discover(source)).rejects.toThrow("opaque Channel")
   const explicit = await discover(source.replace("defineAgent({ channels", "defineAgent({ workspace: {}, channels"))
   expect(explicit?.workspace).toBe("review")
+})
+
+it.each([
+  'driver: { instructions: ({ input }) => `Review ${input.id}` }',
+  'driver: { instructions: ({ input }) => { const portal = { id: input.id }; return `${portal.id}` } }',
+  'driver: { instructions: ({ input }) => `${input.portal}` }',
+  'driver: { instructions: ({ input }) => `${input?.portal}` }',
+  'driver: { instructions: ({ input }) => `${input["portal"]}` }',
+  'driver: { instructions: ({ input }) => `${`${input.portal}`}` }',
+  'driver: { instructions: ({ input }) => `${String(input.id)}` }',
+  'driver: { ignored: (String) => String, instructions: ({ input }) => `${String(input.id)}` }',
+  'driver: { instructions: ({ input }) => `${Number(input.id)} ${Boolean(input.id)}` }',
+  'driver: { instructions: ({ input }) => `${`${String(input.id)}`}` }',
+  'box: { env: { THREAD_ID: ({ input }) => `pr-${input.id}` } }',
+  'driver: { instructions: ({ input }) => `portal ${input.id}` }',
+  'driver: { instructions: ({ input }) => `${input.id} portal` }',
+  'driver: { instructions: ({ input }) => `portal ${input.id} portal ${input.name}` }',
+  'driver: { instructions: ({ input }) => `portal ${`portal ${input.id}`} portal` }',
+  'driver: { instructions: ({ input }) => `portal ${({ id: input.id }).id}` }',
+  'driver: { instructions: ({ input }) => `portal ${"portal"} ${input.id}` }',
+  'driver: { instructions: ({ input }) => `portal ${/portal/.source} ${input.id}` }',
+  'driver: { instructions: ({ input }) => `portal ${input.id / 2} portal ${input.id / 2}` }',
+])("keeps unrelated callback templates separate from imported Channels: %s", async settings => {
+  const definition = await discover(`import { defineAgent } from "vite-hub/agent"; import portal from "../../portal.ts"; export default defineAgent({ channels: { github: portal }, ${settings} })`, {
+    "portal.ts": `${imports} export default github({ pullRequest: false })`,
+  })
+  expect(definition).toBeDefined()
+  expect(definition?.workspace).toBeUndefined()
+})
+
+it.each([
+  'const ignored = `${portal.capabilities = []}`',
+  'const ignored = `${input[portal].capabilities = []}`',
+  'const ignored = `${String(portal.capabilities = [])}`',
+  'function mutate() { portal.capabilities = [] }; const ignored = `${String(mutate())}`',
+  'function String() { portal.capabilities = [] }; const ignored = `${String("id")}`',
+  'const String = () => { portal.capabilities = [] }; const ignored = `${String("id")}`',
+  'const ignored = (String) => `${String("id")}`',
+  'const ignored = (String) => { return `${String("id")}` }',
+  'const ignored = ({ String }) => `${String("id")}`',
+  'String = () => { portal.capabilities = [] }; const ignored = `${String("id")}`',
+  'const ignored = `${String`id`}`',
+  'Object.defineProperty(globalThis, "String", { value: () => getPortal().capabilities = [] }); const ignored = `${String("id")}`',
+  'Object.assign(globalThis, { String: () => getPortal().capabilities = [] }); const ignored = `${String("id")}`',
+  'Object.defineProperties(globalThis, { String: { value: () => getPortal().capabilities = [] } }); const ignored = `${String("id")}`',
+  'globalThis["String"] = () => getPortal().capabilities = []; const ignored = `${String("id")}`',
+  'globalThis["Number"] = () => getPortal().capabilities = []; const ignored = `${Number("id")}`',
+  'globalThis["Boolean"] = () => getPortal().capabilities = []; const ignored = `${Boolean("id")}`',
+  'globalThis["Str" + "ing"] = () => getPortal().capabilities = []; const ignored = `${String("id")}`',
+  'Reflect.set(globalThis, "String", () => getPortal().capabilities = []); const ignored = `${String("id")}`',
+  'const globals = globalThis; globals.String = () => getPortal().capabilities = []; const ignored = `${String("id")}`',
+  'const globals = globalThis; const alias = globals; alias["Number"] = () => getPortal().capabilities = []; const ignored = `${Number("id")}`',
+  'const globals = (globalThis); globals.Boolean = () => getPortal().capabilities = []; const ignored = `${Boolean("id")}`',
+  'const globals = globalThis; Reflect.set(globals, "String", () => getPortal().capabilities = []); const ignored = `${String("id")}`',
+  'const globals = globalThis; Object.defineProperty(globals, "String", { value: () => getPortal().capabilities = [] }); const ignored = `${String("id")}`',
+  'function globals() { return globalThis }; globals().String = () => getPortal().capabilities = []; const ignored = `${String("id")}`',
+  'function globals() { return globalThis }; globals.bind(null)().String = () => getPortal().capabilities = []; const ignored = `${String("id")}`',
+  'const globals = () => (globalThis); globals().String = () => getPortal().capabilities = []; const ignored = `${String("id")}`',
+  'const globals = () => ((globalThis)); globals().Number = () => getPortal().capabilities = []; const ignored = `${Number("id")}`',
+  'let define; define = Object.defineProperty; define(globalThis, "String", { value: () => getPortal().capabilities = [] }); const ignored = `${String("id")}`',
+  'function globals() { return (globalThis) }; globals().String = () => getPortal().capabilities = []; const ignored = `${String("id")}`',
+  'const ignored = `${`${portal.capabilities = []}`}`',
+  'const ignored = tag`${portal.capabilities = []}`',
+  'const ignored = `${eval("portal.capabilities = []")}`',
+  'function getPortal() { return portal }; const ignored = `${getPortal().capabilities = []}`',
+  'const getPortal = () => portal; const ignored = `${getPortal().capabilities = []}`',
+  'function mutate() { portal.capabilities = [] }; const ignored = `${mutate()}`',
+  'function mutate() { portal.capabilities = [] }; const ignored = `${mutate`text`}`',
+  'function getPortal() { return portal }; const ignored = `${`${getPortal().capabilities = []}`}`',
+  'const ignored = `${"}"}${portal.capabilities = []}`',
+])("rejects imported Channel mutations hidden in templates: %s", async expression => {
+  await expect(discover(`import { defineAgent } from "vite-hub/agent"; import portal from "../../portal.ts"; ${expression}; export default defineAgent({ channels: { github: portal } })`, {
+    "portal.ts": `${imports} export default github({ pullRequest: false })`,
+  })).rejects.toThrow("opaque Channel")
+})
+
+it("keeps shadowed intrinsic writer aliases separate", async () => {
+  const definition = await discover(`${imports} import portal from "../../portal.ts"; const define = Object.defineProperty; (() => { const define = () => {}; define(); })(); const ignored = \`${"${String(input.id)}"}\`; export default defineAgent({ channels: { github: portal } })`, {
+    "portal.ts": `${imports} export default github({ pullRequest: false })`,
+  })
+  expect(definition).toBeDefined()
+  expect(definition?.workspace).toBeUndefined()
+})
+
+it("keeps a shadowed global helper separate from its outer declaration", async () => {
+  const definition = await discover(`${imports} import portal from "../../portal.ts"; function globals() { return globalThis }; (() => { const globals = () => ({}); globals().String = replacement })(); const ignored = \`${"${String(input.id)}"}\`; export default defineAgent({ channels: { github: portal } })`, {
+    "portal.ts": `${imports} export default github({ pullRequest: false })`,
+  })
+  expect(definition).toBeDefined()
+  expect(definition?.workspace).toBeUndefined()
+})
+
+it("rejects parenthesized immediately invoked arrow mutations in templates", async () => {
+  await expect(discover(`${imports} import portal from "../../portal.ts"; const ignored = \`${"\${(() => portal.capabilities = [])()}"}\`; export default defineAgent({ channels: { github: portal } })`, {
+    "portal.ts": `${imports} export default github({ pullRequest: false })`,
+  })).rejects.toThrow("opaque Channel")
+})
+
+it("rejects conversion writes hidden in template references", async () => {
+  await expect(discover(`${imports} import portal from "../../portal.ts"; const ignored = \`${"\${globalThis.String = () => portal.capabilities = []}\${String(\"id\")}"}\`; export default defineAgent({ channels: { github: portal } })`, {
+    "portal.ts": `${imports} export default github({ pullRequest: false })`,
+  })).rejects.toThrow("opaque Channel")
+})
+
+it("tracks later-assigned global helper arrows", async () => {
+  await expect(discover(`${imports} import portal from "../../portal.ts"; let globals; globals = () => globalThis; globals().String = replacement; const ignored = \`${"\${String(\"id\")}"}\`; export default defineAgent({ channels: { github: portal } })`, {
+    "portal.ts": `${imports} export default github({ pullRequest: false })`,
+  })).rejects.toThrow("opaque Channel")
+})
+
+it("tracks later-assigned intrinsic writer aliases by binding", async () => {
+  await expect(discover(`${imports} import portal from "../../portal.ts"; let define; define = Object.defineProperty; define(globalThis, "String", { value: replacement }); const ignored = \`${"\${String(\"id\")}"}\`; export default defineAgent({ channels: { github: portal } })`, {
+    "portal.ts": `${imports} export default github({ pullRequest: false })`,
+  })).rejects.toThrow("opaque Channel")
+})
+
+it.each(["String", "Number", "Boolean"].flatMap(name =>
+  ["&&=", "||=", "??=", "*=", "/=", "%=", "**=", "&=", "|=", "^=", "<<=", ">>=", ">>>="].map(operator => ({ name, operator })),
+))("rejects global conversion assignments inside templates: $name $operator", async ({ name, operator }) => {
+  await expect(discover(`import { defineAgent } from "vite-hub/agent"; import portal from "../../portal.ts";
+const replacement = () => getPortal().capabilities = [{ workspace: {} }];
+const ignored = \`\${${name} ${operator} replacement}\${${name}("id")}\`;
+export default defineAgent({ channels: { github: portal } })`, {
+    "portal.ts": `${imports} export default github({ pullRequest: false })`,
+  })).rejects.toThrow("opaque Channel")
+})
+
+it.each(["&&=", "||=", "??="])("rejects reassigned global conversions before templates: %s", async operator => {
+  await expect(discover(`import { defineAgent } from "vite-hub/agent"; import portal from "../../portal.ts";
+String ${operator} () => getPortal().capabilities = [{ workspace: {} }];
+const ignored = \`\${String("id")}\`;
+export default defineAgent({ channels: { github: portal } })`, {
+    "portal.ts": `${imports} export default github({ pullRequest: false })`,
+  })).rejects.toThrow("opaque Channel")
+})
+
+it.each([
+  'const input = {}; input.String = value;',
+  'const globals = globalThis; globals.other = value;',
+  'function configure(globalThis) { const globals = globalThis; globals.String = value; }',
+  'const globals = globalThis.input; globals.String = value;',
+  'function globals(globalThis = {}) { return globalThis }; globals().String = value;',
+  'function globals(globalThis = {}) { return (globalThis) }; globals().String = value;',
+  'function configure(globalThis = {}) { const globals = () => (globalThis); globals().String = value; }',
+  'const globals = (globalThis = {}) => (globalThis); globals().String = value;',
+  'const configure = (globalThis = {}) => (() => globalThis)().String = value;',
+  'const globals = () => (globalThis).input; globals().String = value;',
+])("ignores unrelated member writes when recognizing global conversion calls: %s", async setup => {
+  const source = `${imports} import portal from "../../portal.ts"; ${setup} const ignored = \`\${String(input.id)}\`; export default defineAgent({ channels: { github: portal } })`
+  const definition = await discover(source, {
+    "portal.ts": `${imports} export default github({ pullRequest: false })`,
+  })
+  expect(definition).toBeDefined()
+  expect(definition?.workspace).toBeUndefined()
+})
+
+it("ignores reads through helper-returned global conversions", async () => {
+  const definition = await discover(`${imports} import portal from "../../portal.ts"; function globals() { return globalThis }; const value = globals().String; const ignored = \`\${String(input.id)}\`; export default defineAgent({ channels: { github: portal } })`, {
+    "portal.ts": `${imports} export default github({ pullRequest: false })`,
+  })
+  expect(definition?.workspace).toBeUndefined()
+})
+
+it("ignores shadowed conversion assignments in nested functions", async () => {
+  const definition = await discover(`${imports} import portal from "../../portal.ts"; function configure(String) { String = replacement }; configure(value); const ignored = \`\${String(input.id)}\`; export default defineAgent({ channels: { github: portal } })`, {
+    "portal.ts": `${imports} export default github({ pullRequest: false })`,
+  })
+  expect(definition?.workspace).toBeUndefined()
+})
+
+it("does not treat async global helpers as global object aliases", async () => {
+  const definition = await discover(`${imports} import portal from "../../portal.ts"; async function globals() { return globalThis }; globals().String = replacement; const ignored = \`\${String(input.id)}\`; export default defineAgent({ channels: { github: portal } })`, {
+    "portal.ts": `${imports} export default github({ pullRequest: false })`,
+  })
+  expect(definition?.workspace).toBeUndefined()
+})
+
+it.each([
+  '(_unused) => globalThis',
+  '_unused => globalThis',
+  '(_unused, other) => ((globalThis))',
+  '(_unused = {}) => globalThis',
+  '(_unused) => { return globalThis }',
+  '(_unused) => { return (globalThis) }',
+  '({ globalThis: ignored }) => globalThis',
+  '(...unused) => globalThis',
+])("rejects conversion replacements through parameterized global arrows: %s", async helper => {
+  await expect(discover(`${imports} import portal from "../../portal.ts"; const globals = ${helper}; globals().String = replacement; const ignored = \`\${String(input.id)}\`; export default defineAgent({ channels: { github: portal } })`, {
+    "portal.ts": `${imports} export default github({ pullRequest: false })`,
+  })).rejects.toThrow("opaque Channel")
+})
+
+it.each([
+  'function globals() { return globalThis }; globals.call(null).String = replacement',
+  'function globals() { return globalThis }; globals.apply(null, []).String = replacement',
+  'const globals = () => globalThis; globals.call(null).String = replacement',
+  'const globals = () => { return globalThis }; globals.apply(null, []).String = replacement',
+  'const globals = () => globalThis; globals.call(null)[key] = replacement',
+])("rejects conversion writes through indirect global helpers: %s", async setup => {
+  await expect(discover(`${imports} import portal from "../../portal.ts"; ${setup}; const ignored = \`\${String(input.id)}\`; export default defineAgent({ channels: { github: portal } })`, {
+    "portal.ts": `${imports} export default github({ pullRequest: false })`,
+  })).rejects.toThrow("opaque Channel")
+})
+
+it.each([
+  '(globalThis) => globalThis',
+  'globalThis => globalThis',
+  '(globalThis = {}) => globalThis',
+  '({ globalThis }) => globalThis',
+  '({ value: globalThis }) => globalThis',
+  'async (_unused) => globalThis',
+  '(_unused) => ({ value: globalThis })',
+  '(_unused) => globalThis.input',
+])("ignores conversion writes through parameterized local arrows: %s", async helper => {
+  const definition = await discover(`${imports} import portal from "../../portal.ts"; const globals = ${helper}; globals().String = replacement; const ignored = \`\${String(input.id)}\`; export default defineAgent({ channels: { github: portal } })`, {
+    "portal.ts": `${imports} export default github({ pullRequest: false })`,
+  })
+  expect(definition?.workspace).toBeUndefined()
+})
+
+it.each([
+  'globalThis.String = replacement',
+  '(globalThis).String = replacement',
+  '((globalThis) as object).String = replacement',
+])("rejects parenthesized global conversion receivers: %s", async setup => {
+  await expect(discover(`${imports} import portal from "../../portal.ts"; ${setup}; const ignored = \`\${String(input.id)}\`; export default defineAgent({ channels: { github: portal } })`, {
+    "portal.ts": `${imports} export default github({ pullRequest: false })`,
+  })).rejects.toThrow("opaque Channel")
+})
+
+it.each(["!", "as object", "satisfies object"])("follows asserted global aliases: %s", async assertion => {
+  await expect(discover(`${imports} import portal from "../../portal.ts"; const globals = globalThis ${assertion}; globals.String = replacement; const ignored = \`\${String(input.id)}\`; export default defineAgent({ channels: { github: portal } })`, {
+    "portal.ts": `${imports} export default github({ pullRequest: false })`,
+  })).rejects.toThrow("opaque Channel")
+})
+
+it("rejects conversion replacements through asserted defineProperty targets", async () => {
+  await expect(discover(`${imports} import portal from "../../portal.ts"; Object.defineProperty((globalThis as object), "String", { value: () => portal.capabilities = [] }); const ignored = \`${"${String(input.id)}"}\`; export default defineAgent({ channels: { github: portal } })`, {
+    "portal.ts": `${imports} export default github({ pullRequest: false })`,
+  })).rejects.toThrow("opaque Channel")
+})
+
+it("ignores named function expressions in template interpolations", async () => {
+  const definition = await discover(`${imports} import portal from "../../portal.ts"; const ignored = \`\${function portal() {}}\`; export default defineAgent({ channels: { github: portal } })`, {
+    "portal.ts": `${imports} export default github({ pullRequest: false })`,
+  })
+  expect(definition?.workspace).toBeUndefined()
+})
+
+it("ignores calls in uncalled arrow bodies in template interpolations", async () => {
+  const definition = await discover(`${imports} import portal from "../../portal.ts"; const ignored = \`${"${() => format()}"}\`; export default defineAgent({ channels: { github: portal } })`, {
+    "portal.ts": `${imports} export default github({ pullRequest: false })`,
+  })
+  expect(definition?.workspace).toBeUndefined()
+})
+
+it("stops conditional aliases at semicolon-free initializer boundaries", async () => {
+  const definition = await discover(`import { defineAgent } from "vite-hub/agent"
+import { join } from "node:path"
+import { readFile } from "node:fs/promises"
+import { existsSync } from "node:fs"
+import portal from "../../portal.ts"
+const authPath = join(process.env.HOME || "/tmp", "config")
+const setup = String.raw\`prepare\`
+export default defineAgent({
+  box: { home: { files: existsSync(authPath) ? { config: { contents: () => readFile(authPath) } } : {} }, env: { THREAD_ID: ({ input }) => \`pr-\${input.id}\` } },
+  channels: { github: portal },
+})`, {
+    "portal.ts": `${imports} export default github({ pullRequest: false })`,
+  })
+  expect(definition).toBeDefined()
+  expect(definition?.workspace).toBeUndefined()
 })
 
 it.each([
@@ -1406,9 +1832,39 @@ it("keeps read-only tagged-template results from invalidating Channel options", 
   expect((await discover(source))?.workspace).toBeUndefined()
 })
 
+it.each([
+  "({ portal: input.id }).portal",
+  "({ id: input.id, portal: input.id }).portal",
+  "({ nested: { portal: input.id } }).nested.portal",
+])("ignores non-computed object keys in template interpolations: %s", async expression => {
+  const source = `${imports} import portal from "../../portal.ts"; const input = { id: "value" }; const message = \`\${${expression}}\`; export default defineAgent({ channels: { custom: portal } })`
+  const definition = await discover(source, {
+    "portal.ts": `${imports} export default github({ pullRequest: false })`,
+  })
+  expect(definition?.workspace).toBeUndefined()
+})
+
+it.each([
+  "({ portal }).portal",
+  "({ [portal]: input.id })",
+  "input.id ? portal : input.id",
+])("preserves imported binding reads in template interpolations: %s", async expression => {
+  const source = `${imports} import portal from "../../portal.ts"; const input = { id: "value" }; const message = \`\${${expression}}\`; export default defineAgent({ channels: { custom: portal } })`
+  await expect(discover(source, {
+    "portal.ts": `${imports} export default github({ pullRequest: false })`,
+  })).rejects.toThrow("opaque Channel")
+})
+
 it("rejects writes through tagged-template results inside configure callbacks", async () => {
   const source = `${imports} export default defineAgent({ options: {}, configure: () => { const options = { pullRequest: false }; const tag = () => options; tag\`x\`.pullRequest = true; return defineAgent({ channels: { custom: github(options) } }) } })`
   await expect(discover(source)).rejects.toThrow(/opaque Channel/)
+})
+
+it.each(["tag`Review ${input.id}`", "(tag)`Review ${input.id}`", "wrapper.tag`Review ${input.id}`"])("rejects tagged-template tags that capture imported Channels: %s", async expression => {
+  const source = `${imports} import portal from "../../portal.ts"; const getPortal = () => portal; const storage = { id: "storage", workspace: true }; const tag = () => getPortal().capabilities = [storage]; const wrapper = { tag }; export default defineAgent({ channels: { custom: portal }, driver: { instructions: ({ input }) => ${expression} } })`
+  await expect(discover(source, {
+    "portal.ts": `${imports} export default github({ pullRequest: false })`,
+  })).rejects.toThrow(/opaque Channel/)
 })
 
 it("rejects writes through captured call results inside configure callbacks", async () => {
@@ -1496,4 +1952,56 @@ it("keeps read-only conditional option receivers stateless", async () => {
 it("preserves shadowed NaN Capability Workspace values", async () => {
   const source = `${imports} const NaN = {}; export default defineAgent({ capabilities: [{ id: "storage", workspace: NaN }] })`
   expect((await discover(source))?.workspace).toBe("review")
+})
+
+it.each([
+  'driver: { instructions: ({ input }) => `Review ${input.id}` }',
+  'driver: { instructions: ({ input }) => { const portal = { id: input.id }; return `${portal.id}` } }',
+  'driver: { instructions: ({ input }) => `${String(input.id)}` }',
+  'driver: { instructions: ({ input }) => `${`${input.id}`}` }',
+])("keeps local Channel options inspectable beside unrelated templates: %s", async settings => {
+  const definition = await discover(`${imports} const options = { pullRequest: false }; export default defineAgent({ channels: { custom: github(options) }, ${settings} })`)
+  expect(definition).toBeDefined()
+  expect(definition?.workspace).toBeUndefined()
+})
+
+it.each([
+  '`${portal.capabilities = []}${portal => portal}`',
+  '`${portal => portal}${portal.capabilities = []}`',
+  '`${[portal => portal, portal.capabilities = []]}`',
+  '`${((portal) => portal)}${portal.capabilities = []}`',
+  '`${input.enabled ? portal => input.id : portal.capabilities = [storage]}`',
+])("keeps imported template mutations outside arrow parameter scopes opaque: %s", async expression => {
+  await expect(discover(`${imports} import portal from "../../portal.ts"; const ignored = ${expression}; export default defineAgent({ channels: { custom: portal } })`, {
+    "portal.ts": `${imports} export default github({ pullRequest: false })`,
+  })).rejects.toThrow("opaque Channel")
+})
+
+it.each([
+  "consume(() => portal.capabilities = [])()",
+  "consume[handler](() => portal.capabilities = [])()",
+  "consume[handler](consume[other](() => portal.capabilities = []))()",
+])("rejects opaque enclosing calls that can invoke mutating callback arrows: %s", async expression => {
+  await expect(discover(`${imports} import portal from "../../portal.ts"; const ignored = \`${"${" + expression + "}"}\`; export default defineAgent({ channels: { custom: portal } })`, {
+    "portal.ts": `${imports} export default github({ pullRequest: false })`,
+  })).rejects.toThrow("opaque Channel")
+})
+
+it.each([
+  'function globals() { return { value: globalThis } }',
+  'function globals() { const value = globalThis; return {} }',
+])("ignores conversion writes through helpers that return local objects: %s", async helper => {
+  const definition = await discover(`${imports} import portal from "../../portal.ts"; ${helper}; globals().String = value; const ignored = \`\${String("id")}\`; export default defineAgent({ channels: { custom: portal } })`, {
+    "portal.ts": `${imports} export default github({ pullRequest: false })`,
+  })
+  expect(definition).toBeDefined()
+  expect(definition?.workspace).toBeUndefined()
+})
+
+it.each(["gitlab", "forgejo"])("inspects an imported %s Channel without adding a Workspace", async kind => {
+  const definition = await discover(`import { defineAgent } from "vite-hub/agent"; import channel from "../../channel.ts"; export default defineAgent({ channels: { review: channel } })`, {
+    "channel.ts": `import { ${kind} } from "vite-hub/agent/channels"; export default ${kind}({ pullRequest: true, activity: true })`,
+  })
+  expect(definition).toBeDefined()
+  expect(definition?.workspace).toBeUndefined()
 })

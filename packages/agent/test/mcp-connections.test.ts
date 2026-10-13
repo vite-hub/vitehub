@@ -1,3 +1,4 @@
+import { createAgentEnvIdentity } from "../src/internal/env-identity.ts"
 import { expect, it, vi } from "vitest"
 
 import { createConnectionsRuntime } from "../../connections/src/runtime.ts"
@@ -26,6 +27,7 @@ it.each([undefined, true, false])("discovers MCP tools only with immediate Conne
   const resolve = () => resolveAgentCapabilities({
     capabilities: [mcp({ servers: { mail: { connection: "mail", transport: { type: "http", url: "https://mail.example.com/mcp" } } } })],
   }, {
+    agentIdentity: createAgentEnvIdentity({ name: "agent" }),
     capabilities: { connections: { runtime: () => connections } },
     memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn(),
   }, {})

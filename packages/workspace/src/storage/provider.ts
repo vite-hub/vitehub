@@ -36,6 +36,18 @@ function workspaceRepoName(name: string | undefined) {
   return name ? name.replace(/[^a-zA-Z0-9_.-]/g, "-") : undefined
 }
 
+export function isWorkspaceStore(value: WorkspaceStoreOptions | undefined): value is WorkspaceStore {
+  if (!value || Object.hasOwn(value, "readFile")) return Boolean(value)
+  let prototype = Object.getPrototypeOf(value)
+  while (prototype && prototype !== Object.prototype) {
+    if (Object.hasOwn(prototype, "readFile")) {
+      return Object.hasOwn(prototype, "constructor") && prototype.constructor !== Object
+    }
+    prototype = Object.getPrototypeOf(prototype)
+  }
+  return false
+}
+
 function gitHubWorkspaceOption(value: GitHubWorkspaceOption | undefined): GitHubWorkspaceOption | undefined {
   return typeof value === "function" ? value : trimmed(value)
 }
@@ -110,7 +122,7 @@ export function normalizeWorkspaceStoreOptions(
   store: WorkspaceStoreOptions | undefined,
   input: WorkspaceResolutionInput = {},
 ): ResolvedWorkspaceStoreOptions | undefined {
-  if (store && "readFile" in store) return
+  if (isWorkspaceStore(store)) return
 
   if (input.dev && !store) return { provider: "local" as const }
 
@@ -132,7 +144,7 @@ export function normalizeWorkspaceStoreOptions(
 }
 
 export function createWorkspaceStoreFromProvider(definition: WorkspaceDefinition): WorkspaceStore {
-  if (definition.store && "readFile" in definition.store) return definition.store
+  if (isWorkspaceStore(definition.store)) return definition.store
 
   const rootDir = definition.rootDir || process.cwd()
   const runtimeConfig = getWorkspaceRuntimeConfig()

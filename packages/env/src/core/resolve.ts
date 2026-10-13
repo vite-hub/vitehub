@@ -6,7 +6,7 @@ import { promisify } from "node:util"
 import { parseSchema } from "../schema.ts"
 import { runtimeValueSchema } from "./declarations.ts"
 import { envValueTypeName, parseEnvValue } from "./values.ts"
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
+import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { isViteHubError } from "@vite-hub/runtime"
 import { envSourceFailed, invalidEnvDeclaration, isAbortError, missingRequiredEnv } from "./errors.ts"
 
@@ -101,17 +101,18 @@ export async function resolveBuildConfig(
   input: {
     context: EnvSourceContext
     exposure: "compile-time replacement"
-    prefix?: string
+    prefix?: string | false
     section: "env.define"
     timing: string
   },
 ): Promise<{ diagnostics: EnvDiagnosticEntry[], values: Record<string, unknown> }> {
+  assertUniqueBuildCanonicalNames(declarations, input.section, input.prefix)
   const diagnostics: EnvDiagnosticEntry[] = []
   const values: Record<string, unknown> = {}
 
   for (const [key, declaration] of Object.entries(declarations || {})) {
-    const result = await resolveBuildConfigValue(declaration, `${input.section}.${key}`, input)
-    values[key] = result.value
+    const result = await resolveBuildConfigValue(declaration, `${input.section}.${key}`, { ...input, prefix: canonicalKey.test(key) ? input.prefix : false })
+    setOwnValue(values, key, result.value)
     diagnostics.push(...result.diagnostics)
   }
 
@@ -123,17 +124,18 @@ export async function resolveEnvEntries(
   input: {
     context: EnvSourceContext
     exposure: "build public" | "compile-time replacement" | "public runtime transport" | "server only"
-    prefix?: string
+    prefix?: string | false
     section: "env.define" | "env.public" | "env.server"
     timing: string
   },
 ): Promise<{ diagnostics: EnvDiagnosticEntry[], entries: ResolvedEnvEntry[] }> {
+  assertUniqueBuildCanonicalNames(declarations, input.section, input.prefix)
   const entries: ResolvedEnvEntry[] = []
   const diagnostics: EnvDiagnosticEntry[] = []
 
   for (const [key, declaration] of Object.entries(declarations || {})) {
     const defaultValue = parseDeclarationDefault(declaration, `${input.section}.${key}`)
-    const source = resolveEnvSource(declaration, `${input.section}.${key}`, input.prefix)
+    const source = resolveEnvSource(declaration, `${input.section}.${key}`, canonicalKey.test(key) ? input.prefix : false)
     const resolvedSource = await resolveSourceValue(source, input.context)
     const defaulted = typeof resolvedSource.value === "undefined"
     const valueForSchema = defaulted ? defaultValue : resolvedSource.value
@@ -186,8 +188,54 @@ export async function resolveEnvEntries(
   return { diagnostics, entries }
 }
 
-export function createRuntimeRegistry(declarations: EnvRuntimeConfigOptions | undefined, options: { path?: string, prefix?: string } = {}): EnvRuntimeRegistry {
-  return buildRegistry(declarations, options.path ?? "env", options.prefix)
+export function createRuntimeRegistry(declarations: EnvRuntimeConfigOptions | undefined, options: { path?: string, prefix?: string | false } = {}): EnvRuntimeRegistry {
+  const registry = buildRegistry(declarations, options.path ?? "env", options.prefix)
+  assertUniqueCanonicalNames(registry, options.path ?? "env")
+  return registry
+}
+
+// A key such as "nested.token" or "api-key" has no unambiguous upper snake case name.
+const canonicalKey = /^[A-Za-z_$][A-Za-z0-9_$]*$/
+
+function claimCanonicalName(owners: Map<string, string>, canonical: string | undefined, path: string): void {
+  if (canonical === undefined) return
+  const owner = owners.get(canonical)
+  if (owner !== undefined) {
+    throw invalidEnvDeclaration(path, `${path} and ${owner} share the canonical variable name ${canonical}. Rename one, or set hubEnv({ prefix: false }).`)
+  }
+  owners.set(canonical, path)
+}
+
+function assertUniqueBuildCanonicalNames(declarations: unknown, path: string, prefix?: string | false): void {
+  const owners = new Map<string, string>()
+  const visit = (value: unknown, valuePath: string, valuePrefix?: string | false): void => {
+    if (isEnvVariableDeclaration(value)) {
+      const source = resolveEnvSource(value, valuePath, valuePrefix)
+      if (source.kind === "env" && source.canonical !== false) claimCanonicalName(owners, source.canonical, valuePath)
+      return
+    }
+    if (!isPlainRecord(value)) return
+    for (const [key, child] of Object.entries(value)) {
+      visit(child, `${valuePath}.${key}`, canonicalKey.test(key) ? valuePrefix : false)
+    }
+  }
+  visit(declarations, path, prefix)
+}
+
+function assertUniqueCanonicalNames(registry: EnvRuntimeRegistry, path: string): void {
+  const owners = new Map<string, string>()
+  const visit = (value: unknown, valuePath: string): void => {
+    if (!isPlainRecord(value)) return
+    const source = value.source
+    if (isPlainRecord(source) && source.kind === "env") {
+      if (typeof source.canonical !== "string") return
+      claimCanonicalName(owners, source.canonical, valuePath)
+      return
+    }
+    if (value.kind === "literal" || isPlainRecord(source)) return
+    for (const [key, child] of Object.entries(value)) visit(child, `${valuePath}.${key}`)
+  }
+  visit(registry, path)
 }
 
 async function resolveBuildConfigValue(
@@ -196,7 +244,7 @@ async function resolveBuildConfigValue(
   input: {
     context: EnvSourceContext
     exposure: "compile-time replacement"
-    prefix?: string
+    prefix?: string | false
     timing: string
   },
 ): Promise<{ diagnostics: EnvDiagnosticEntry[], value: unknown }> {
@@ -253,8 +301,8 @@ async function resolveBuildConfigValue(
   const value: Record<string, unknown> = {}
   const diagnostics: EnvDiagnosticEntry[] = []
   for (const [key, child] of Object.entries(declaration)) {
-    const result = await resolveBuildConfigValue(child, `${path}.${key}`, input)
-    value[key] = result.value
+    const result = await resolveBuildConfigValue(child, `${path}.${key}`, { ...input, prefix: canonicalKey.test(key) ? input.prefix : false })
+    setOwnValue(value, key, result.value)
     diagnostics.push(...result.diagnostics)
   }
 
@@ -268,7 +316,7 @@ function parseDeclarationDefault(declaration: EnvVariableDeclaration, path: stri
     : declaration.default
 }
 
-function buildRegistry(declarations: EnvRuntimeConfigOptions | undefined, path: string, prefix?: string): EnvRuntimeRegistry {
+function buildRegistry(declarations: EnvRuntimeConfigOptions | undefined, path: string, prefix?: string | false): EnvRuntimeRegistry {
   if (typeof declarations === "undefined") {
     return {}
   }
@@ -284,12 +332,12 @@ function buildRegistry(declarations: EnvRuntimeConfigOptions | undefined, path: 
       if (!isPlainRecord(value)) {
         throw invalidEnvDeclaration(valuePath, `Invalid runtime declaration at ${valuePath}. Use env(), a serializable static value, or a nested object.`)
       }
-      return [key, buildRegistry(value as EnvRuntimeConfigOptions, valuePath, prefix)]
+      return [key, buildRegistry(value as EnvRuntimeConfigOptions, valuePath, canonicalKey.test(key) ? prefix : false)]
     }
     if (value.mode !== "runtime") {
       throw invalidEnvDeclaration(valuePath, `Runtime declaration ${valuePath} must use mode: "runtime".`)
     }
-    const source = resolveEnvSource(value, valuePath, prefix)
+    const source = resolveEnvSource(value, valuePath, canonicalKey.test(key) ? prefix : false)
     if (source.kind !== "env" && source.kind !== "provider") {
       throw invalidEnvDeclaration(valuePath, `Runtime declaration ${valuePath} must use env.source() or env.provider().`)
     }
@@ -316,6 +364,10 @@ function buildRegistry(declarations: EnvRuntimeConfigOptions | undefined, path: 
   }))
 }
 
+function setOwnValue(record: Record<string, unknown>, key: string, value: unknown): void {
+  Object.defineProperty(record, key, { configurable: true, enumerable: true, value, writable: true })
+}
+
 // Defaults use the parsed type. Only host and provider values are parsed from strings.
 function parseRuntimeDefault(schema: EnvValueSchema, value: unknown, path: string): unknown {
   const typed = schema.kind === "boolean" || schema.kind === "number" ? hasRuntimeType(value, schema.kind) : true
@@ -326,8 +378,29 @@ function parseRuntimeDefault(schema: EnvValueSchema, value: unknown, path: strin
   return result.data
 }
 
-export function resolveEnvSource(declaration: EnvVariableDeclaration, path: string, prefix = ""): EnvSource {
-  return declaration.source ?? inferEnvSource(path, prefix)
+/** The default prefix of canonical variable names. */
+export const defaultEnvPrefix = "VITEHUB_"
+
+/**
+ * The canonical variable name of a declaration path: the prefix plus the path in upper snake case.
+ * `env.server.cliproxy.apiKey` becomes `VITEHUB_CLIPROXY_API_KEY`. `false` disables canonical names.
+ */
+export function canonicalEnvName(path: string, prefix: string | false = defaultEnvPrefix): string | undefined {
+  return prefix === false ? undefined : `${prefix}${pathToEnvName(path)}`
+}
+
+/**
+ * Resolve the source of a declaration. An env source reads the canonical name first, then its
+ * conventional names: the explicit `env.source()` names, or the unprefixed path name.
+ */
+export function resolveEnvSource(declaration: EnvVariableDeclaration, path: string, prefix: string | false = defaultEnvPrefix): EnvSource {
+  const source = declaration.source ?? inferEnvSource(path)
+  const canonical = canonicalEnvName(path, prefix)
+  if (source.kind !== "env" || canonical === undefined || source.canonical === false) return source
+  const names = [...new Set([canonical, ...(source.names ?? [source.name])])]
+  return names.length === 1
+    ? { ...source, canonical }
+    : { ...source, canonical, label: `env:${names.join("|")}`, names }
 }
 
 function inferTypeName(value: unknown): string {
@@ -389,24 +462,37 @@ async function resolveBuiltInSource<T>(source: string, resolveSource: () => T | 
   }
 }
 
-function validateBuildDeclarations(declarations: EnvBuildConfigOptions | undefined, path: string): void {
+function validateBuildDeclarations(
+  declarations: EnvBuildConfigOptions | undefined,
+  path: string,
+  ancestors: Set<object> = new Set(),
+): void {
   if (typeof declarations === "undefined") return
   if (!isPlainRecord(declarations)) {
     throw invalidEnvDeclaration(path, `Invalid declaration at ${path}. Use env(), a serializable static value, or a nested object.`)
   }
-  for (const [key, declaration] of Object.entries(declarations)) {
-    const valuePath = `${path}.${key}`
-    if (isEnvVariableDeclaration(declaration)) {
-      if (declaration.mode !== "build") {
-        throw invalidEnvDeclaration(valuePath, `${valuePath} must use mode: "build".`)
+  if (ancestors.has(declarations)) {
+    throw invalidEnvDeclaration(path, `Invalid declaration at ${path}. Nested environment declarations cannot contain cycles.`)
+  }
+  ancestors.add(declarations)
+  try {
+    for (const [key, declaration] of Object.entries(declarations)) {
+      const valuePath = `${path}.${key}`
+      if (isEnvVariableDeclaration(declaration)) {
+        if (declaration.mode !== "build") {
+          throw invalidEnvDeclaration(valuePath, `${valuePath} must use mode: "build".`)
+        }
+        if (declaration.secret) {
+          throw invalidEnvDeclaration(valuePath, `${valuePath} cannot be marked secret because Vite define values are bundled.`)
+        }
+        continue
       }
-      if (declaration.secret) {
-        throw invalidEnvDeclaration(valuePath, `${valuePath} cannot be marked secret because Vite define values are bundled.`)
-      }
-      continue
+      if (isBuildStaticValue(declaration)) continue
+      validateBuildDeclarations(declaration as EnvBuildConfigOptions, valuePath, ancestors)
     }
-    if (isBuildStaticValue(declaration)) continue
-    validateBuildDeclarations(declaration as EnvBuildConfigOptions, valuePath)
+  }
+  finally {
+    ancestors.delete(declarations)
   }
 }
 
@@ -416,8 +502,8 @@ function assertEnvVariableDeclaration(path: string, declaration: unknown): asser
   }
 }
 
-function inferEnvSource(path: string, prefix: string): EnvSource {
-  const name = `${prefix}${pathToEnvName(path)}`
+function inferEnvSource(path: string): EnvSource {
+  const name = pathToEnvName(path)
   return {
     kind: "env",
     label: `env:${name}`,
@@ -462,7 +548,7 @@ function isRuntimeStaticValue(value: unknown): value is EnvRuntimeStaticValue {
   return isBuildStaticValue(value)
 }
 
-function isBuildStaticValue(value: unknown): value is EnvBuildStaticValue {
+function isBuildStaticValue(value: unknown, ancestors: Set<object> = new Set()): value is EnvBuildStaticValue {
   if (value === null) {
     return true
   }
@@ -476,12 +562,21 @@ function isBuildStaticValue(value: unknown): value is EnvBuildStaticValue {
       if (!Array.isArray(value)) {
         return false
       }
-      for (let index = 0; index < value.length; index += 1) {
-        if (!(index in value) || !isBuildStaticValue(value[index])) {
-          return false
-        }
+      if (ancestors.has(value)) {
+        return false
       }
-      return true
+      ancestors.add(value)
+      try {
+        for (let index = 0; index < value.length; index += 1) {
+          if (!Object.hasOwn(value, index) || !isBuildStaticValue(value[index], ancestors)) {
+            return false
+          }
+        }
+        return true
+      }
+      finally {
+        ancestors.delete(value)
+      }
     default:
       return false
   }

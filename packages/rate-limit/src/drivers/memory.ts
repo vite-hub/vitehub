@@ -51,13 +51,19 @@ export function memoryRateLimitDriver(options: MemoryRateLimitDriverOptions = {}
     consume(input) {
       const timestamp = now()
       prune(timestamp)
-      const key = `${input.name ?? "default"}\0${input.key}`
-      const resetAt = Math.floor(timestamp / input.windowMs) * input.windowMs + input.windowMs
+      const key = JSON.stringify([input.name ?? "default", input.key])
       const current = entries.get(key)
       if (!current && entries.size >= maxEntries) {
         throw rateLimitErrorDiagnostics.RATE_LIMIT_R0008({ message: `[vitehub] Memory Rate Limit driver reached maxEntries (${maxEntries}) while active counters remain.` })
       }
-      const entry = current && current.resetAt > timestamp ? current : { count: 0, resetAt }
+      let entry = current
+      if (!entry || entry.resetAt <= timestamp) {
+        const resetAt = Math.floor(timestamp / input.windowMs) * input.windowMs + input.windowMs
+        if (!Number.isFinite(resetAt) || resetAt <= 0 || resetAt > 8.64e15) {
+          throw rateLimitErrorDiagnostics.RATE_LIMIT_R0045({ message: "[vitehub] Memory Rate Limit fixed-window end must be a positive timestamp at most 8640000000000000 milliseconds." })
+        }
+        entry = { count: 0, resetAt }
+      }
       if (entry.count >= input.limit) {
         return [null, {
           allowed: false,
@@ -80,13 +86,13 @@ export function memoryRateLimitDriver(options: MemoryRateLimitDriverOptions = {}
     peek(input) {
       const timestamp = now()
       prune(timestamp)
-      const key = `${input.name ?? "default"}\0${input.key}`
+      const key = JSON.stringify([input.name ?? "default", input.key])
       const entry = entries.get(key)
       return [null, { resetAt: entry && entry.resetAt > timestamp ? entry.resetAt : undefined, used: entry && entry.resetAt > timestamp ? entry.count : 0 }]
     },
     name: "memory",
     reset(input) {
-      const key = `${input.name ?? "default"}\0${input.key}`
+      const key = JSON.stringify([input.name ?? "default", input.key])
       entries.delete(key)
       return [null]
     },

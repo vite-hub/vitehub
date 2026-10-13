@@ -3,7 +3,7 @@ import { execFile as execFileCallback } from "node:child_process"
 import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
-import { delimiter, dirname, join, resolve } from "node:path"
+import { basename, delimiter, dirname, join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
@@ -352,6 +352,10 @@ it.skipIf(process.platform !== "linux" || process.arch !== "x64")("uploads and e
   const require = createRequire(join(workspaceRoot, "packages/internal/package.json"))
   const sharpEntry = await realpath(require.resolve("sharp"))
   const sharpRoot = dirname(dirname(sharpEntry))
+  // Sharp names its native files by release. Read the names from the installed packages so a dependency refresh keeps this test valid.
+  const sharpRequire = createRequire(sharpEntry)
+  const sharpAddon = `sharp-linux-x64-${(sharpRequire("@img/sharp-linux-x64/package") as { version: string }).version}.node`
+  const libvipsLibrary = basename(sharpRequire.resolve("@img/sharp-libvips-linux-x64/binary"))
   const output = join(root, ".output")
   const remote = await mkdtemp(join(tmpdir(), "vitehub-deno-native-remote-"))
   const bin = join(root, "bin")
@@ -404,8 +408,8 @@ export default defineEventHandler(async () => {
     await prerender(nitro)
     await build(nitro)
 
-    expect(existsSync(join(output, "node_modules/@img/sharp-linux-x64/lib/sharp-linux-x64-0.35.4.node"))).toBe(true)
-    expect(existsSync(join(output, "node_modules/@img/sharp-libvips-linux-x64/lib/libvips-cpp.so.8.18.6"))).toBe(true)
+    expect(existsSync(join(output, "node_modules/@img/sharp-linux-x64/lib", sharpAddon))).toBe(true)
+    expect(existsSync(join(output, "node_modules/@img/sharp-libvips-linux-x64/lib", libvipsLibrary))).toBe(true)
     const entry = "server/index.mjs"
     expect(existsSync(join(output, entry))).toBe(true)
     expect(existsSync(join(output, "server/index.ts"))).toBe(true)
@@ -473,8 +477,8 @@ process.exit(result.status ?? 1)
     expect(invocations[0]!.slice(0, 3)).toEqual(["deploy", "create", "."])
     expect(invocations[1]!.slice(0, 2)).toEqual(["deploy", "."])
     for (const invocation of invocations) expect(invocation).toContain("--allow-node-modules")
-    expect(existsSync(join(remote, "node_modules/@img/sharp-linux-x64/lib/sharp-linux-x64-0.35.4.node"))).toBe(true)
-    expect(existsSync(join(remote, "node_modules/@img/sharp-libvips-linux-x64/lib/libvips-cpp.so.8.18.6"))).toBe(true)
+    expect(existsSync(join(remote, "node_modules/@img/sharp-linux-x64/lib", sharpAddon))).toBe(true)
+    expect(existsSync(join(remote, "node_modules/@img/sharp-libvips-linux-x64/lib", libvipsLibrary))).toBe(true)
   } finally {
     try {
       await nitro?.close()

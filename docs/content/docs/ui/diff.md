@@ -1,7 +1,7 @@
 ---
 title: Diff
 description: "Render unified patches, file comparisons, parsed diffs, and merge conflicts with Pierre."
-navigation.order: 36
+navigation.order: 37
 navigation.group: Agent work
 icon: i-ph-file-code-light
 ---
@@ -26,7 +26,7 @@ Render a unified patch:
 | `AgentFileDiff`       | Parsed `FileDiffMetadata`               | You already parsed the patch, or hydrate partial diffs. |
 | `AgentUnresolvedFile` | A `FileContents` with conflict markers  | You show a merge conflict with resolution controls.  |
 
-Nuxt registers every component. In Vue with Vite, import them from `@vite-hub/ui`. Syntax highlighting loads only when a code view first renders.
+Nuxt registers every component. In Vue with Vite, import them from `@vite-hub/ui` or from a focused entry such as `@vite-hub/ui/agent-patch-diff`. Syntax highlighting loads only when a code view first renders.
 
 ## Examples
 

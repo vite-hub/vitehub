@@ -1,10 +1,9 @@
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
+import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { randomId } from "@vite-hub/internal/runtime/random"
 
 import { normalizeWorkflowOptions } from "../config.ts"
 import { createWorkflowError } from "../errors.ts"
 
-import { bindWorkflowDefinitionHandle } from "./definitions.ts"
 import { getWorkflowRuntimeAdapter } from "./adapters.ts"
 import { safeWorkflowName } from "./provider-operation.ts"
 import { getWorkflowRuntimeConfig, getWorkflowRuntimeEvent, loadWorkflowDefinition, registerInlineWorkflowDefinition, runWithWorkflowRuntimeEvent } from "./state.ts"
@@ -102,65 +101,49 @@ export function createWorkflow<TPayload = unknown, TResult = unknown>(
   handlerOrOptions?: WorkflowCreateOptions<TPayload, TResult> | WorkflowHandler<TPayload, TResult>,
   options?: WorkflowCreateOptions<TPayload, TResult>,
 ): WorkflowHandle<TPayload, TResult> {
+  let name: string
+  let handler: WorkflowHandler<TPayload, TResult> | undefined
+  let createOptions: WorkflowCreateOptions<TPayload, TResult> | undefined
+
   if (hasRuntimeType(nameOrOptions, "object") && nameOrOptions !== null) {
-    const createOptions = nameOrOptions
-    const { handler, name } = createOptions
-    if (!name || !hasRuntimeType(name, "string")) {
+    createOptions = nameOrOptions
+    if (!createOptions.name || !hasRuntimeType(createOptions.name, "string")) {
       throw workflowErrorDiagnostics.WORKFLOW_R0009({ message: "`createWorkflow()` requires a workflow name." })
     }
-    if (!hasRuntimeType(handler, "function")) {
+    if (!hasRuntimeType(createOptions.handler, "function")) {
       throw workflowErrorDiagnostics.WORKFLOW_R0010({ message: "`createWorkflow()` requires a workflow handler." })
     }
-    const definition = registerInlineWorkflowDefinition(name, {
-      // SAFETY: Workflow definition registration establishes the asserted typed handle contract.
-      handler: handler as WorkflowHandler,
-      ...(createOptions.rootStep === undefined ? {} : { options: { rootStep: createOptions.rootStep } }),
-    })
-    return bindWorkflowDefinitionHandle({
-      cancel: (id: string) => cancelWorkflow(name, id),
-      name,
-      defer: async (payload?: TPayload, options: WorkflowStartOptions = {}) => deferWorkflow<TPayload>(
-        name,
-        payload,
-        await resolveWorkflowStartOptions(name, payload, createOptions, options),
-      ),
-      getRun: (id: string) => getWorkflowRun(name, id),
-      async run(payload?: TPayload, options: WorkflowStartOptions = {}) {
-        const run = await runWorkflow<TPayload>(name, payload, await resolveWorkflowStartOptions(name, payload, createOptions, options))
-        // SAFETY: Typed createWorkflow options require the registered handler that produces TResult.
-        return run as WorkflowRun<TPayload, TResult>
-      },
-    }, definition)
+    name = createOptions.name
+    handler = createOptions.handler
   }
-
-  const name = nameOrOptions
-  if (!name || !hasRuntimeType(name, "string")) {
-    throw workflowErrorDiagnostics.WORKFLOW_R0011({ message: "`createWorkflow()` requires a workflow name." })
-  }
-
-  const handler = hasRuntimeType(handlerOrOptions, "function")
-    ? handlerOrOptions
-    : hasRuntimeType(handlerOrOptions, "object") && handlerOrOptions !== null
-      ? handlerOrOptions.handler
-      : undefined
-  const createOptions = hasRuntimeType(handlerOrOptions, "function") ? options : handlerOrOptions
-
-  let definition: WorkflowDefinition | undefined
-  if (handler !== undefined) {
-    if (!hasRuntimeType(handler, "function")) {
+  else {
+    name = nameOrOptions
+    if (!name || !hasRuntimeType(name, "string")) {
+      throw workflowErrorDiagnostics.WORKFLOW_R0011({ message: "`createWorkflow()` requires a workflow name." })
+    }
+    handler = hasRuntimeType(handlerOrOptions, "function")
+      ? handlerOrOptions
+      : hasRuntimeType(handlerOrOptions, "object") && handlerOrOptions !== null
+        ? handlerOrOptions.handler
+        : undefined
+    createOptions = hasRuntimeType(handlerOrOptions, "function") ? options : handlerOrOptions
+    if (handler !== undefined && !hasRuntimeType(handler, "function")) {
       throw workflowErrorDiagnostics.WORKFLOW_R0012({ message: "`createWorkflow()` requires a workflow handler." })
     }
-    definition = registerInlineWorkflowDefinition(name, {
-      // SAFETY: Workflow definition registration establishes the asserted typed handle contract.
+    if (handler === undefined && handlerOrOptions !== undefined && (!hasRuntimeType(handlerOrOptions, "object") || handlerOrOptions === null)) {
+      throw workflowErrorDiagnostics.WORKFLOW_R0013({ message: "`createWorkflow()` options must be an object." })
+    }
+  }
+
+  if (handler !== undefined) {
+    registerInlineWorkflowDefinition(name, {
+      // SAFETY: Workflow definition registration establishes the handler's erased registry payload contract.
       handler: handler as WorkflowHandler,
       ...(createOptions?.rootStep === undefined ? {} : { options: { rootStep: createOptions.rootStep } }),
     })
   }
-  else if (handlerOrOptions !== undefined && (!hasRuntimeType(handlerOrOptions, "object") || handlerOrOptions === null)) {
-    throw workflowErrorDiagnostics.WORKFLOW_R0013({ message: "`createWorkflow()` options must be an object." })
-  }
 
-  return bindWorkflowDefinitionHandle({
+  return {
     cancel: (id: string) => cancelWorkflow(name, id),
     name,
     defer: async (payload?: TPayload, options: WorkflowStartOptions = {}) => deferWorkflow<TPayload>(
@@ -174,7 +157,7 @@ export function createWorkflow<TPayload = unknown, TResult = unknown>(
       // SAFETY: Typed createWorkflow overloads require a handler; handler-free handles expose unknown results.
       return run as WorkflowRun<TPayload, TResult>
     },
-  }, definition)
+  }
 }
 
 export async function runWorkflow<TPayload = unknown>(

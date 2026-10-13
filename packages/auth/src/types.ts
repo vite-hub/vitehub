@@ -43,6 +43,12 @@ export type AuthAccessAuthorizationContext = AccessAuthorizationContext
 export type AuthAccessAuthorizeResult = AccessAuthorizeResult
 export type AuthAccessAuthorize = AccessAuthorize
 
+/** The checked request, Session, and user that a guarded handler receives. Only Auth guards create it. */
+export type AuthAuthorization = Readonly<AuthAccessAuthorizationContext>
+
+/** A server handler that runs only after an Auth guard accepts the request. */
+export type AuthGuardedHandler<TInput, TResult> = (input: TInput, authorization: AuthAuthorization) => TResult | Promise<TResult>
+
 export interface AuthAccessConfiguration {
   routes?: AuthAccessRoute[]
   signIn?: AuthSignInConfiguration

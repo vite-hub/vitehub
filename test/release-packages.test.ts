@@ -347,6 +347,38 @@ describe("release package artifacts", () => {
     await expect(listReleasePackages(root)).rejects.toThrow("Circular public package dependency")
   })
 
+  it("packs and verifies an optional peer back to its consumer", async () => {
+    const root = await temporaryDirectory("vitehub-release-optional-peer-")
+    await writeWorkspace(root, [
+      { dependencies: ["@vite-hub/env"], name: "@vite-hub/agent" },
+      { name: "@vite-hub/env" },
+    ])
+    const envPath = join(root, "packages/env/package.json")
+    const envManifest = JSON.parse(await readFile(envPath, "utf8"))
+    envManifest.peerDependencies = { "@vite-hub/agent": "^1.2.3" }
+    envManifest.peerDependenciesMeta = { "@vite-hub/agent": { optional: true } }
+    await writeFile(envPath, JSON.stringify(envManifest))
+
+    await expect(listReleasePackages(root)).resolves.toMatchObject([
+      { name: "@vite-hub/env", workspaceDependencies: [] },
+      { name: "@vite-hub/agent", workspaceDependencies: ["@vite-hub/env"] },
+    ])
+    const manifestPath = await createReleaseArtifacts({
+      output: join(root, ".release/npm"), sourceSha, workspace: root,
+    })
+    await expect(verifyReleaseArtifacts({ manifestPath, sourceSha, workspace: root }))
+      .resolves.toMatchObject({ releaseVersion: "1.2.3" })
+
+    // A required dependency still forms a cycle even if it is also an optional peer.
+    envManifest.dependencies = { "@vite-hub/agent": "1.2.3" }
+    await writeFile(envPath, JSON.stringify(envManifest))
+    await expect(listReleasePackages(root)).rejects.toThrow("Circular public package dependency")
+    delete envManifest.dependencies
+    envManifest.peerDependenciesMeta["@vite-hub/agent"].optional = false
+    await writeFile(envPath, JSON.stringify(envManifest))
+    await expect(listReleasePackages(root)).rejects.toThrow("Circular public package dependency")
+  }, 30_000)
+
   it.each([
     ["missing member", [{ content: packageJson({ name: "@vite-hub/runtime" }), path: "package/package.json" }]],
     ["extra member", [

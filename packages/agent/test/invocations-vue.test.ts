@@ -388,6 +388,25 @@ describe("Agent Invocation Vue composables", () => {
     scope.stop();
   });
 
+  it("reports a pagination cycle instead of silently keeping a repeated cursor", async () => {
+    const { calls, request } = controlledRequester();
+    const scope = effectScope();
+    const resource = scope.run(() => useAgentInvocations({ request }))!;
+
+    calls[0]!.resolve({ cursor: "page-2", invocations: [record("inv-1")] });
+    await settle();
+
+    const loadMore = resource.loadMore();
+    calls[1]!.resolve({ cursor: "page-2", invocations: [record("inv-1")] });
+    await loadMore;
+
+    expect(resource.loadMoreError.value).toMatchObject({
+      message: "[vitehub] Agent Invocation pagination returned a repeated cursor.",
+    });
+    expect(resource.cursor.value).toBe("page-2");
+    scope.stop();
+  });
+
   it("preserves the advanced pagination frontier across polls", async () => {
     const { calls, request } = controlledRequester();
     const scope = effectScope();

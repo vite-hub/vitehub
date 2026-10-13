@@ -1,18 +1,22 @@
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 
-import { builtInChannelEnv } from "./channel-env.ts"
+import { builtInChannelEnv, builtInCodeHostEnv } from "./channel-env.ts"
 import { discoverAgentDefinitions, tokenizeAgentSource } from "./discovery.ts"
+import { builtInGatewayEnv } from "./internal/gateway-env.ts"
 
 import type { ChannelEnvField } from "./channel-env.ts"
 
 const channelFactoryModules = new Set(["@vite-hub/agent/channels", "vite-hub/agent/channels"])
+const capabilityFactoryModules = new Set(["@vite-hub/agent/capabilities", "vite-hub/agent/capabilities"])
+const gatewayFactoryModules = new Set(["@vite-hub/agent/gateways", "vite-hub/agent/gateways"])
 const agentModules = new Set(["@vite-hub/agent", "vite-hub/agent"])
 
 /** One built-in Channel use in an Agent file. `optionKeys` is undefined when the options are not a static object literal. */
 export interface DiscoveredChannelUse {
   kind: string
   optionKeys?: ReadonlySet<string>
+  stringOptions?: ReadonlyMap<string, string>
 }
 
 /** Server Env that the Agents of an application need for their built-in Channels. */
@@ -141,7 +145,12 @@ function staticOptionKeys(tokens: string[], start: number, empty: string, typesc
  * `vite-hub/agent/channels`, and Channel shorthands such as `channels: { telegram: { ... } }`.
  * Source is TypeScript by default. JavaScript files must disable type argument handling.
  */
-export function discoverBuiltInChannelUses(source: string, kinds: Iterable<string>, options: { typescript?: boolean } = {}): DiscoveredChannelUse[] {
+export function discoverBuiltInChannelUses(
+  source: string,
+  kinds: Iterable<string>,
+  options: { typescript?: boolean, modules?: ReadonlySet<string>, shorthands?: boolean } = {},
+): DiscoveredChannelUse[] {
+  const factoryModules = options.modules ?? channelFactoryModules
   const typescript = options.typescript !== false
   const { tokens, lineBreaks } = tokenizeAgentSource(source)
   const known = new Set(kinds)
@@ -155,7 +164,7 @@ export function discoverBuiltInChannelUses(source: string, kinds: Iterable<strin
     while (from < tokens.length && tokens[from] !== "from" && !isStringToken(tokens[from])) from++
     const module = tokens[from] === "from" ? tokens[from + 1]?.slice(1, -1) ?? "" : ""
     const clause = tokens.slice(i + 1, from)
-    const channelModule = channelFactoryModules.has(module)
+    const channelModule = factoryModules.has(module)
     if (!channelModule && !agentModules.has(module)) continue
     for (let b = 0; b < clause.length; b++) {
       const local = clause[b + 1] === "as" ? clause[b + 2]! : clause[b]!
@@ -174,9 +183,24 @@ export function discoverBuiltInChannelUses(source: string, kinds: Iterable<strin
   for (let i = 0; i < tokens.length; i++) {
     if (tokens[i - 1] === "." || tokens[i - 1] === "as") continue
     const factory = !isShadowedAt(tokens, i, tokens[i]!, shadowBindings, lineBreaks) && factoryCall(tokens, i, bindings, namespaces, known, lineBreaks, typescript)
-    if (factory) uses.push({ index: i, kind: factory.name, optionKeys: staticOptionKeys(tokens, factory.open + 1, ")", typescript) })
+    if (factory) {
+      const start = skipOptionAssertions(tokens, factory.open + 1, typescript)
+      const optionKeys = staticOptionKeys(tokens, start, ")", typescript)
+      const stringOptions = new Map<string, string>()
+      let object = start
+      while (tokens[object] === "(") object = skipOptionAssertions(tokens, object + 1, typescript)
+      if (optionKeys && tokens[object] === "{") visitObjectProperties(tokens, object, (key, value) => {
+        stringOptions.delete(key)
+        if (value === undefined || !isValueEnd(tokens, value + 1, new Set([",", "}"]))) return
+        const token = tokens[value]!
+        if (token.startsWith("`") && /(?<!\\)(?:\\\\)*\$\{/.test(token)) return
+        const string = stringTokenValue(token)
+        if (string !== undefined) stringOptions.set(key, string)
+      })
+      uses.push({ index: i, kind: factory.name, optionKeys, stringOptions })
+    }
     // Shorthands count only in the top-level `channels` option of defineAgent(), not in types or other objects.
-    const agent = !isShadowedAt(tokens, i, tokens[i]!, agentShadowBindings, lineBreaks) && factoryCall(tokens, i, agentBindings, agentNamespaces, agentNames, lineBreaks, typescript)
+    const agent = options.shorthands !== false && !isShadowedAt(tokens, i, tokens[i]!, agentShadowBindings, lineBreaks) && factoryCall(tokens, i, agentBindings, agentNamespaces, agentNames, lineBreaks, typescript)
     if (!agent) continue
     const settings = localObject(tokens, agent.open + 1, declarations, typescript)
     if (settings === undefined) continue
@@ -207,7 +231,11 @@ export function discoverBuiltInChannelUses(source: string, kinds: Iterable<strin
       })
     })
   }
-  return uses.sort((left, right) => left.index - right.index).map(({ kind, optionKeys }) => ({ kind, optionKeys }))
+  return uses.sort((left, right) => left.index - right.index).map(({ kind, optionKeys, stringOptions }) => {
+    const use: DiscoveredChannelUse = { kind, optionKeys }
+    if (stringOptions) use.stringOptions = stringOptions
+    return use
+  })
 }
 
 function channelFactoryReference(
@@ -846,23 +874,66 @@ function skipTypeArguments(tokens: string[], start: number): number {
   return tokens.length
 }
 
+function agentHandlers(options: { rootDir: string, serverDirs?: string[] }): Set<string> {
+  return new Set([
+    ...discoverAgentDefinitions({ mode: "vite-suffix", rootDir: options.rootDir }),
+    ...discoverAgentDefinitions({ mode: "server-agents", scanDirs: options.serverDirs ?? [resolve(options.rootDir, "server")] }),
+  ].map(definition => definition.handler))
+}
+
 /**
  * Declare the Server Env of each built-in Channel used by a discovered Agent.
  * A value is required when an Agent uses the Channel with static options that omit it.
  */
 export function discoverAgentChannelEnv(options: { rootDir: string, serverDirs?: string[] }): AgentChannelEnv {
-  const handlers = new Set([
-    ...discoverAgentDefinitions({ mode: "vite-suffix", rootDir: options.rootDir }),
-    ...discoverAgentDefinitions({ mode: "server-agents", scanDirs: options.serverDirs ?? [resolve(options.rootDir, "server")] }),
-  ].map(definition => definition.handler))
   const fields: Readonly<Record<string, Readonly<Record<string, ChannelEnvField>>>> = builtInChannelEnv
   const declared: AgentChannelEnv = {}
-  for (const handler of handlers) {
-    for (const { kind, optionKeys } of discoverBuiltInChannelUses(readFileSync(handler, "utf8"), Object.keys(fields), { typescript: /\.(?:c|m)?ts$/i.test(handler) })) {
+  for (const handler of agentHandlers(options)) {
+    const source = readFileSync(handler, "utf8")
+    for (const { kind, optionKeys } of discoverBuiltInChannelUses(source, Object.keys(fields), { typescript: /\.(?:c|m)?ts$/i.test(handler) })) {
       const group = declared[kind] ??= {}
       for (const [field, spec] of Object.entries(fields[kind] ?? {})) {
         const entry = group[field] ??= { names: [...spec.names], required: false, secret: spec.secret === true }
         if (optionKeys && spec.requiredUnless && !spec.requiredUnless.some(key => optionKeys.has(key))) entry.required = true
+      }
+    }
+    const uses = discoverBuiltInChannelUses(source, ["codeHost"], {
+      modules: capabilityFactoryModules,
+      shorthands: false,
+      typescript: /\.(?:c|m)?ts$/i.test(handler),
+    })
+    for (const use of uses) {
+      const selected = use.stringOptions?.get("host") ?? (use.optionKeys && !use.optionKeys.has("host") ? "github" : undefined)
+      for (const [host, specs] of Object.entries(builtInCodeHostEnv)) {
+        if (selected !== undefined && selected !== host) continue
+        const group = declared[host] ??= {}
+        for (const [field, spec] of Object.entries(specs)) {
+          group[field] ??= { names: [...spec.names], required: false, secret: "secret" in spec && spec.secret === true }
+        }
+      }
+    }
+  }
+  return declared
+}
+
+/**
+ * Declare the Server Env of each gateway preset used by a discovered Agent, such as
+ * `cliproxy()` or `cloudflareAccess()` imported from `vite-hub/agent/gateways`.
+ * The values stay optional, so one server can host Agents that do not use the gateway.
+ */
+export function discoverAgentGatewayEnv(options: { rootDir: string, serverDirs?: string[] }): AgentChannelEnv {
+  const fields: Readonly<Record<string, Readonly<Record<string, ChannelEnvField>>>> = builtInGatewayEnv
+  const declared: AgentChannelEnv = {}
+  for (const handler of agentHandlers(options)) {
+    const uses = discoverBuiltInChannelUses(readFileSync(handler, "utf8"), Object.keys(fields), {
+      modules: gatewayFactoryModules,
+      shorthands: false,
+      typescript: /\.(?:c|m)?ts$/i.test(handler),
+    })
+    for (const { kind } of uses) {
+      const group = declared[kind] ??= {}
+      for (const [field, spec] of Object.entries(fields[kind] ?? {})) {
+        group[field] ??= { names: [...spec.names], required: false, secret: spec.secret === true }
       }
     }
   }

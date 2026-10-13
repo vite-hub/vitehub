@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, it, vi } from 'vitest'
 import { installProcessHostStop, processAgentHost, type ProcessHostStopRuntime } from '../src/process-host-vite.ts'
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
+import { hasRuntimeType } from '../src/internal/runtime-type.ts'
 
 it('generates the route used by the drain CLI by default', async () => {
   const root = await mkdtemp(join(tmpdir(), 'vitehub-host-plugin-'))

@@ -1,6 +1,6 @@
 import { inspectAgentCapacity } from "./internal/agent-capacity.ts"
 import { normalizeAgentDriver } from "./internal/agent-driver.ts"
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
+import { hasRuntimeType } from "./internal/runtime-type.ts"
 import type { AgentInput, AgentRuntimeContext, AgentSettings } from "./types.ts"
 
 export type AgentHealthStatus = "ready" | "degraded" | "unsupported" | "unavailable" | "stale" | "missing-credentials" | "missing-executable" | "quota-exhausted" | "timeout"

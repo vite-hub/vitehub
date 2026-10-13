@@ -376,8 +376,8 @@ export function createMemoryScheduleRunStore(): ScheduleRunStore {
 function selectRuns(runs: ScheduleRunRecord[], options: ScheduleRunListOptions = {}): ScheduleRunRecord[] {
   const selected = runs.filter(run => (options.scheduleId === undefined || run.scheduleId === options.scheduleId)
     && (!options.runtimeOnly || run.id.startsWith("srun_runtime_")))
-  if (options.limit === undefined) return selected
-  return selected.sort((left, right) => right.scheduledAt.getTime() - left.scheduledAt.getTime()).slice(0, options.limit)
+  selected.sort((left, right) => right.scheduledAt.getTime() - left.scheduledAt.getTime())
+  return options.limit === undefined ? selected : selected.slice(0, options.limit)
 }
 
 /** Index keys carry metadata from the stored record, independent of caller-selected run IDs. */
@@ -593,31 +593,35 @@ export function createKVScheduleRunStore(options: KVScheduleStoreOptions): Sched
     },
     async updateAttempt(id, patch) {
       const key = scheduleRunAttemptKey(prefix, id)
-      const existing = await store.get<StoredScheduleRunAttemptRecord>(key)
-      if (!existing) {
-        return undefined
-      }
-      const next = cloneScheduleRunAttempt({
-        ...deserializeScheduleRunAttempt(existing),
-        ...patch,
-        updatedAt: patch.updatedAt,
+      return await withKVKeyLock(key, async () => {
+        const existing = await store.get<StoredScheduleRunAttemptRecord>(key)
+        if (!existing) {
+          return undefined
+        }
+        const next = cloneScheduleRunAttempt({
+          ...deserializeScheduleRunAttempt(existing),
+          ...patch,
+          updatedAt: patch.updatedAt,
+        })
+        await store.set(key, serializeScheduleRunAttempt(next))
+        return cloneScheduleRunAttempt(next)
       })
-      await store.set(key, serializeScheduleRunAttempt(next))
-      return cloneScheduleRunAttempt(next)
     },
     async updateRun(id, patch) {
       const key = scheduleRunKey(prefix, id)
-      const existing = await store.get<StoredScheduleRunRecord>(key)
-      if (!existing) {
-        return undefined
-      }
-      const next = cloneScheduleRun({
-        ...deserializeScheduleRun(existing),
-        ...patch,
-        updatedAt: patch.updatedAt,
+      return await withKVKeyLock(key, async () => {
+        const existing = await store.get<StoredScheduleRunRecord>(key)
+        if (!existing) {
+          return undefined
+        }
+        const next = cloneScheduleRun({
+          ...deserializeScheduleRun(existing),
+          ...patch,
+          updatedAt: patch.updatedAt,
+        })
+        await store.set(key, serializeScheduleRun(next))
+        return cloneScheduleRun(next)
       })
-      await store.set(key, serializeScheduleRun(next))
-      return cloneScheduleRun(next)
     },
   }
 }

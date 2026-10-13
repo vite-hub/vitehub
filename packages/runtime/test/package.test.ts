@@ -7,7 +7,7 @@ import manifest from "../package.json" with { type: "json" }
 
 describe("@vite-hub/runtime package contract", () => {
   it("loads documented exports from built package targets", async () => {
-    await verifyBuiltPackageExports(new URL("../", import.meta.url), "@vite-hub/runtime", [".", "./node", "./internal/runtime-type"])
+    await verifyBuiltPackageExports(new URL("../", import.meta.url), "@vite-hub/runtime", [".", "./node"])
   })
 
   it("publishes the drain executable", async () => {

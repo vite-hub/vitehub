@@ -24,6 +24,8 @@ export interface AgentWebhookQueueDelivery {
   }
   scope: string
   webhookId: string
+  /** Persisted terminal failure and notification claim. Legacy failures omit invocationStarted. */
+  failure?: { error: string, attempts: number, invocationStarted?: false, notificationStarted?: true }
 }
 
 export interface AgentWebhookQueueLease extends AgentWebhookQueueDelivery {
@@ -36,6 +38,9 @@ export interface AgentWebhookQueueStateAdapter extends StateAdapter {
   claimWebhookDelivery(scope: string): Promise<AgentWebhookQueueLease | null>
   claimWebhookSteering(delivery: AgentWebhookQueueDelivery, leaseToken: string, leaseExpiresAt: number): Promise<boolean>
   completeWebhookDelivery(scope: string, deliveryId: string, leaseToken: string): Promise<boolean>
+  /** Claims notification permanently; uncertain callback effects must not be replayed. */
+  beginWebhookFailureNotification?: (scope: string, deliveryId: string, leaseToken: string) => Promise<boolean>
+  markWebhookDeliveryFailure?: (scope: string, deliveryId: string, leaseToken: string, failure: { error: string, attempts: number, invocationStarted?: false }) => Promise<boolean>
   enqueueWebhookDelivery(delivery: AgentWebhookQueueDelivery): Promise<boolean>
   extendWebhookDeliveryLease(scope: string, deliveryId: string, leaseToken: string, ttlMs: number): Promise<boolean>
   retryWebhookDelivery(scope: string, deliveryId: string, leaseToken: string, availableAt: number, options?: { incrementAttempts?: boolean }): Promise<boolean>
@@ -144,6 +149,19 @@ interface TrackedQueueState<Options> {
 }
 
 const webhookQueueStopMessage = "[vitehub] Webhook queue stopped during Agent execution."
+
+const stoppingWebhookQueues = new Set<Promise<void>>()
+
+/** Grace budget for active deliveries on stop, from VITEHUB_SHUTDOWN_DRAIN_MS. */
+function webhookQueueStopGraceMs(): number {
+  const value = Number(globalThis.process?.env?.VITEHUB_SHUTDOWN_DRAIN_MS)
+  return Number.isFinite(value) && value > 0 ? value : 0
+}
+
+/** Resolve once every webhook queue that is currently stopping has settled. */
+export async function webhookQueueShutdown(): Promise<void> {
+  while (stoppingWebhookQueues.size) await Promise.allSettled([...stoppingWebhookQueues])
+}
 
 export function createAgentWebhookQueue<Options>(
   ownerOptions: AgentWebhookQueueOwnerOptions<Options>,
@@ -294,9 +312,28 @@ export function createAgentWebhookQueue<Options>(
     }
     scheduled.clear()
     pending.clear()
-    for (const { controller } of active.values()) controller.abort(agentDiagnostics.AGENT_R0594({ message: webhookQueueStopMessage }))
-    await Promise.allSettled(discoveries)
-    await idle()
+    const stopping = (async () => {
+      // Let active deliveries finish within the shutdown budget before aborting them.
+      const graceMs = webhookQueueStopGraceMs()
+      if (graceMs > 0 && active.size) {
+        let timer: ReturnType<typeof setTimeout> | undefined
+        await Promise.race([
+          Promise.allSettled([...active.keys()]),
+          new Promise<void>((resolve) => { timer = setTimeout(resolve, graceMs) }),
+        ])
+        clearTimeout(timer)
+      }
+      for (const { controller } of active.values()) controller.abort(agentDiagnostics.AGENT_R0594({ message: webhookQueueStopMessage }))
+      await Promise.allSettled(discoveries)
+      await idle()
+    })()
+    stoppingWebhookQueues.add(stopping)
+    try {
+      await stopping
+    }
+    finally {
+      stoppingWebhookQueues.delete(stopping)
+    }
   }
 
   return {

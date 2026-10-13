@@ -1,0 +1,5 @@
+title: Blob
+icon: i-lucide-files
+order: 12
+category: Data
+related: [kv, workspace]

@@ -1,12 +1,12 @@
 ---
 title: Invocation Dashboard
 description: "A three-pane view with the session list, the selected Invocation thread, and its inspector."
-navigation.order: 51
-navigation.group: Blocks
+navigation.order: 11
+navigation.group: Console
 icon: i-ph-squares-four-light
 ---
 
-This block combines [`AgentInvocationList`](/docs/ui/invocation-list), [`AgentInvocation`](/docs/ui/invocation), and [`AgentInvocationInspector`](/docs/ui/invocation-inspector). Select a session in the list. In the inspector, select a tool's call count or a timeline entry to jump to that activity in the thread. The records are synthetic.
+This block combines [`AgentInvocationList`](/docs/ui/invocation-list), [`AgentInvocation`](/docs/ui/invocation), and [`AgentInvocationInspector`](/docs/ui/invocation-inspector). Select a session in the list. In the inspector, select a tool's call count or a timeline entry to jump to that activity in the thread. The completed run includes a command and its result. The working run shows progress, and the failed run shows its error. All records are synthetic.
 
 ::component-preview{name="InvocationDashboardBlock" flush reset}
 ::

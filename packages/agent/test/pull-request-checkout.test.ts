@@ -5,7 +5,7 @@ import { join } from "node:path"
 import { promisify } from "node:util"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { preparePullRequestCheckout, pullRequestCheckoutEnvironment, pullRequestCheckoutPlan } from "../src/internal/pull-request-checkout.ts"
+import { preparePullRequestCheckout, pullRequestCheckoutEnvironment, pullRequestCheckoutPlan, pullRequestRepositories } from "../src/internal/pull-request-checkout.ts"
 
 const execFileAsync = promisify(execFile)
 const fixtures: string[] = []
@@ -67,6 +67,35 @@ async function githubFixture() {
 }
 
 describe("pull request checkout", () => {
+  it("keeps the pull request repositories when the managed checkout is disabled", () => {
+    const store = (pullRequest: Record<string, unknown>) => ({ get: () => ({ pullRequest, repository: { fullName: "vite-hub/vitehub", name: "vitehub" } }) })
+    const disabled = store({
+      head: { ref: "feature", repo: "contributor/vitehub", sha: "a".repeat(40) },
+      source: { checkout: false, ref: "feature", repo: "vite-hub/vitehub" },
+    })
+    expect(pullRequestCheckoutPlan(disabled)).toBeUndefined()
+    expect(pullRequestRepositories(disabled)).toEqual({ headRepository: "contributor/vitehub", repository: "vite-hub/vitehub" })
+    expect(pullRequestRepositories(store({ source: { checkout: false } }))).toEqual({ repository: "vite-hub/vitehub" })
+    expect(pullRequestRepositories({ get: () => ({ provider: "gitlab", pullRequest: { source: { repo: "vite-hub/vitehub" } } }) })).toBeUndefined()
+    expect(pullRequestRepositories(undefined)).toBeUndefined()
+  })
+
+  it("reads repository scope from the Babysitter input context without planning a checkout", () => {
+    const values = new Map<string, unknown>([
+      ["pullRequestRepository", "vite-hub/vitehub"],
+      ["pullRequestSourceRepository", "contributor/vitehub"],
+    ])
+    const context = { get: (key: string) => values.get(key) }
+    expect(pullRequestCheckoutPlan(context)).toBeUndefined()
+    expect(pullRequestRepositories(context)).toEqual({ headRepository: "contributor/vitehub", repository: "vite-hub/vitehub" })
+    values.set("pullRequestSourceRepository", "VITE-HUB/VITEHUB")
+    expect(pullRequestRepositories(context)).toEqual({ repository: "vite-hub/vitehub" })
+    values.set("pullRequestSourceRepository", "(unavailable)")
+    expect(pullRequestRepositories(context)).toEqual({ repository: "vite-hub/vitehub" })
+    values.set("pullRequestRepository", "invalid repository")
+    expect(pullRequestRepositories(context)).toBeUndefined()
+  })
+
   it.each(["", "vitehub"])("rejects a deleted fork head before preparing the %j mount", async (mount) => {
     const fixture = await githubFixture()
     const exec = vi.spyOn(fixture.session, "exec")
@@ -149,6 +178,11 @@ describe("pull request checkout", () => {
     expect(await git(checkout, ["remote", "get-url", "origin"])).toBe("https://github.com/vite-hub/vitehub.git")
     expect(await git(checkout, ["config", "--local", "--get-regexp", "extraheader"]).catch(() => "")).toBe("")
 
+    await expect(preparePullRequestCheckout(fixture.session, plan!, { env: fixture.env })).resolves.toBe(false)
+    await git(checkout, ["remote", "set-url", "origin", "https://github.com/other/repository.git"])
+    await expect(preparePullRequestCheckout(fixture.session, plan!, { env: fixture.env })).rejects.toThrow("wrong origin remote")
+    await git(checkout, ["remote", "set-url", "origin", "https://github.com/vite-hub/vitehub.git"])
+
     await git(checkout, ["fetch", "-q", "origin", "main"], env)
     await writeFile(join(checkout, "CHANGE.md"), "agent\n")
     await git(checkout, ["add", "CHANGE.md"])
@@ -184,6 +218,102 @@ describe("pull request checkout", () => {
     await git(checkout, ["push", "-q"], env)
     expect(await git(fork, ["rev-parse", "refs/heads/feature"])).toBe(await git(checkout, ["rev-parse", "HEAD"]))
     expect(await git(fixture.bare, ["rev-parse", "refs/heads/feature"])).toBe(fixture.headSha)
+  })
+
+  it.each([false, true].flatMap(forked => [
+    "HEAD:refs/heads/feature",
+    "refs/heads/feature:refs/heads/feature",
+    "feature",
+    "refs/heads/feature",
+    "HEAD",
+    "feature:feature",
+    "feature:refs/heads/feature",
+    "refs/heads/feature:feature",
+    "HEAD:feature",
+  ].map(refspec => [forked, refspec] as const)))("reuses the GitHub host checkout with fork %s and refspec %s", async (forked, refspec) => {
+    const fixture = await githubFixture()
+    const headRepository = forked ? "contributor/vitehub" : "vite-hub/vitehub"
+    const headBare = forked ? join(fixture.workspace, "..", "remotes", "contributor", "vitehub.git") : fixture.bare
+    if (forked) {
+      await mkdir(join(headBare, ".."), { recursive: true })
+      await git(fixture.workspace, ["clone", "-q", "--bare", fixture.bare, headBare])
+    }
+    const env = cleanEnv(fixture.env)
+    const checkout = join(fixture.workspace, "vitehub")
+    // Match createGitHubHost(): origin fetches the base, origin pushes the head,
+    // and the local head branch has an explicit push refspec without an upstream.
+    await git(fixture.workspace, ["clone", "-q", "--no-checkout", "https://github.com/vite-hub/vitehub.git", "vitehub"], env)
+    await git(checkout, ["fetch", "-q", "--no-tags", `https://github.com/${headRepository}.git`, "refs/heads/feature"], env)
+    await git(checkout, ["checkout", "-q", "-B", "feature", "FETCH_HEAD"])
+    await git(checkout, ["remote", "set-url", "--push", "origin", `https://github.com/${headRepository}.git`])
+    // Source-only and explicit forms must push to the same verified head branch.
+    await git(checkout, ["config", "remote.origin.push", refspec])
+    expect(await git(checkout, ["config", "branch.feature.remote"]).catch(() => "")).toBe("")
+    expect(await git(checkout, ["remote"])).toBe("origin")
+
+    await expect(preparePullRequestCheckout(fixture.session, {
+      headBranch: "feature",
+      headRef: "refs/pull/42/head",
+      ...(forked ? { headRepository } : {}),
+      headSha: fixture.headSha,
+      mount: "vitehub",
+      repository: "vite-hub/vitehub",
+    }, { env: fixture.env })).resolves.toBe(false)
+
+    await writeFile(join(checkout, "CHANGE.md"), "host checkout change\n")
+    await git(checkout, ["add", "CHANGE.md"])
+    await git(checkout, ["-c", "user.name=Agent", "-c", "user.email=agent@example.com", "commit", "-qm", "host checkout change"])
+    await git(checkout, ["push", "-q"], env)
+    expect(await git(headBare, ["rev-parse", "refs/heads/feature"])).toBe(await git(checkout, ["rev-parse", "HEAD"]))
+    if (forked) expect(await git(fixture.bare, ["rev-parse", "refs/heads/feature"])).toBe(fixture.headSha)
+  })
+
+  it("reuses a GitHub host checkout with pushes disabled without enabling them", async () => {
+    const fixture = await githubFixture()
+    const env = cleanEnv(fixture.env)
+    const checkout = join(fixture.workspace, "vitehub")
+    await git(fixture.workspace, ["clone", "-q", "--no-checkout", "https://github.com/vite-hub/vitehub.git", "vitehub"], env)
+    await git(checkout, ["fetch", "-q", "origin", "refs/heads/feature"], env)
+    await git(checkout, ["checkout", "-q", "-B", "feature", "FETCH_HEAD"])
+    const disabled = "disabled://pull-request-head-repository-unavailable"
+    await git(checkout, ["remote", "set-url", "--push", "origin", disabled])
+
+    await expect(preparePullRequestCheckout(fixture.session, {
+      headBranch: "feature",
+      headRef: "refs/pull/42/head",
+      headSha: fixture.headSha,
+      mount: "vitehub",
+      repository: "vite-hub/vitehub",
+    }, { env: fixture.env })).resolves.toBe(false)
+    expect(await git(checkout, ["remote", "get-url", "--push", "origin"])).toBe(disabled)
+    await writeFile(join(checkout, "CHANGE.md"), "read-only host checkout\n")
+    await git(checkout, ["add", "CHANGE.md"])
+    await git(checkout, ["-c", "user.name=Agent", "-c", "user.email=agent@example.com", "commit", "-qm", "local change"])
+    await expect(git(checkout, ["push", "-q", "origin", "HEAD:refs/heads/feature"], env)).rejects.toThrow()
+    expect(await git(fixture.bare, ["rev-parse", "refs/heads/feature"])).toBe(fixture.headSha)
+  })
+
+  it.each([
+    ["remote.origin.pushurl", "https://github.com/other/repository.git", "wrong push destination"],
+    ["remote.origin.push", "HEAD:refs/heads/other", "wrong push refspec"],
+    ["remote.origin.push", "feature:other", "wrong push refspec"],
+    ["remote.origin.push", "+feature", "wrong push refspec"],
+    ["remote.origin.push", "+feature:other", "wrong push refspec"],
+    ["remote.origin.mirror", "true", "wrong push refspec"],
+    ["push.default", "matching", "wrong default push configuration"],
+    ["branch.feature.pushRemote", "other", "wrong push remote"],
+  ] as const)("rejects a reused checkout with %s=%s", async (key, value, message) => {
+    const fixture = await githubFixture()
+    const plan = {
+      headBranch: "feature",
+      headRef: "refs/pull/42/head",
+      headSha: fixture.headSha,
+      mount: "vitehub",
+      repository: "vite-hub/vitehub",
+    }
+    await preparePullRequestCheckout(fixture.session, plan, { env: fixture.env })
+    await git(join(fixture.workspace, "vitehub"), ["config", key, value])
+    await expect(preparePullRequestCheckout(fixture.session, plan, { env: fixture.env })).rejects.toThrow(message)
   })
 
   it("rejects a fetched head that differs from the webhook SHA", async () => {

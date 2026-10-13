@@ -338,6 +338,30 @@ describe("git capability", () => {
     expect(fetch?.[2]).toMatchObject({ cwd: "/workspace/vitehub", env: { GH_TOKEN: "installation-token" } })
   })
 
+  it.each([
+    { pullRequest: { source: { checkout: false, repo: "vite-hub/vitehub" }, head: { repo: "contributor/vitehub" } } },
+    { pullRequestRepository: "vite-hub/vitehub", pullRequestSourceRepository: "contributor/vitehub" },
+  ])("scopes fetch credentials without a managed checkout: %j", async (context) => {
+    const session = gitSession()
+    const access = vi.fn(async (input: { repository?: string }) => {
+      if (!input.repository) throw new Error("credentials require a repository")
+      const token = input.repository === "vite-hub/vitehub" ? "base-token" : "fork-token"
+      return { env: { GH_TOKEN: token }, token }
+    })
+    const { tools } = await capabilityTools(git({ mode: "write" }), session, context, { access })
+
+    await tools.shell!.execute?.({ command: "git fetch origin main" })
+
+    expect(access).toHaveBeenNthCalledWith(1, { repository: "vite-hub/vitehub" })
+    expect(access).toHaveBeenNthCalledWith(2, { repository: "contributor/vitehub" })
+    const fetch = session.exec.mock.calls.find(([command, args]) => command === "git" && args[0] === "fetch")
+    expect(fetch?.[2]).toMatchObject({
+      cwd: "/workspace",
+      env: { GH_TOKEN: "base-token", VITEHUB_GITHUB_HEAD_TOKEN: "fork-token" },
+    })
+    expect(session.exec.mock.calls.some(([command]) => command === "sh")).toBe(false)
+  })
+
   it("prepares explicit root pull request checkouts without deleting Workspace artifacts", async () => {
     const session = gitSession()
     session.exec.mockImplementation(async (command: string, args: string[] = []) => ({
@@ -466,7 +490,11 @@ describe("git capability", () => {
       command,
       exitCode: 0,
       stderr: "",
-      stdout: command === "git" && args.join(" ") === "rev-parse HEAD" ? `${pullRequestHeadSha}\n` : "",
+      stdout: command === "git" && args.join(" ") === "rev-parse HEAD"
+        ? `${pullRequestHeadSha}\n`
+        : command === "git" && args.join(" ") === "remote get-url origin"
+          ? "https://github.com/vite-hub/vitehub.git\n"
+          : "",
     }))
     const { tools } = await capabilityTools(git(), session, {
       pullRequest: {

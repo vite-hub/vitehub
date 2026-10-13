@@ -593,10 +593,10 @@ describe("framework generated types", () => {
     await expect(readFile(join(root, ".vitehub/source/routes/meals.mjs"), "utf8")).resolves.toBe(
       [
         `import { defineCollectionHandler } from "vite-hub/source/server"`,
-        `import { authorizeRequest } from "#vitehub/auth/server"`,
+        `import { withAuthorization } from "#vitehub/auth/server"`,
         `import { meals as collection } from ${JSON.stringify(pathToFileURL(join(root, "server/collections/meals.ts")).href)}`,
         ``,
-        `export default defineCollectionHandler(collection, { authorizeRequest })`,
+        `export default defineCollectionHandler(collection, { withAuthorization })`,
         ``,
       ].join("\n"),
     )
@@ -612,7 +612,7 @@ describe("framework generated types", () => {
     await config(source)({ root })
     await configResolved(source)({ plugins: [auth], root })
     const route = join(root, ".vitehub/source/routes/meals.mjs")
-    await expect(readFile(route, "utf8")).resolves.not.toContain("authorizeRequest")
+    await expect(readFile(route, "utf8")).resolves.not.toContain("withAuthorization")
 
     const listeners = new Map<string, (file: string) => Promise<void> | void>()
     configureServer(source)({
@@ -623,20 +623,20 @@ describe("framework generated types", () => {
     const definition = join(root, authPath)
     await writeFile(definition, "import { defineAuth } from '@vite-hub/auth'\nexport default defineAuth({ appName: 'ViteHub' })\n")
     await listeners.get("add")?.(definition)
-    await expect(readFile(route, "utf8")).resolves.toContain("authorizeRequest")
+    await expect(readFile(route, "utf8")).resolves.toContain("withAuthorization")
 
     await rm(definition)
     await listeners.get("unlink")?.(definition)
-    await expect(readFile(route, "utf8")).resolves.not.toContain("authorizeRequest")
+    await expect(readFile(route, "utf8")).resolves.not.toContain("withAuthorization")
     await source.api.prepareSources({ projectRoot: root })
-    await expect(readFile(route, "utf8")).resolves.not.toContain("authorizeRequest")
+    await expect(readFile(route, "utf8")).resolves.not.toContain("withAuthorization")
 
     await writeFile(definition, "import { defineAuth } from '@vite-hub/auth'\nexport default defineAuth({ appName: 'ViteHub' })\n")
     await configResolved(source)({ auth: false, plugins: [auth], root })
     await source.api.prepareSources({ projectRoot: root })
-    await expect(readFile(route, "utf8")).resolves.not.toContain("authorizeRequest")
+    await expect(readFile(route, "utf8")).resolves.not.toContain("withAuthorization")
     await configResolved(source)({ plugins: [], root })
-    await expect(readFile(route, "utf8")).resolves.not.toContain("authorizeRequest")
+    await expect(readFile(route, "utf8")).resolves.not.toContain("withAuthorization")
   })
 
   it("omits Auth's authorizer when the resolved Vite config disables Auth", async () => {
@@ -1027,14 +1027,14 @@ describe("framework generated types", () => {
     })
 
     await expect(readFile(join(root, ".vitehub/source/routes/meals.mjs"), "utf8")).resolves.toContain(
-      `import { authorizeRequest } from "#vitehub/auth/server"`,
+      `import { withAuthorization } from "#vitehub/auth/server"`,
     )
     authEnabled = false
     await rm(auth)
     await listeners.get("unlink")?.(auth)
 
     await expect(readFile(join(root, ".vitehub/source/routes/meals.mjs"), "utf8")).resolves.not.toContain(
-      `import { authorizeRequest } from "#vitehub/auth/server"`,
+      `import { withAuthorization } from "#vitehub/auth/server"`,
     )
   })
 
@@ -1061,14 +1061,14 @@ describe("framework generated types", () => {
     })
 
     await expect(readFile(join(root, ".vitehub/source/routes/meals.mjs"), "utf8")).resolves.toContain(
-      `import { authorizeRequest } from "#vitehub/auth/server"`,
+      `import { withAuthorization } from "#vitehub/auth/server"`,
     )
     authEnabled = false
     await rm(auth)
     await listeners.get("unlink")?.(auth)
 
     await expect(readFile(join(root, ".vitehub/source/routes/meals.mjs"), "utf8")).resolves.not.toContain(
-      `import { authorizeRequest } from "#vitehub/auth/server"`,
+      `import { withAuthorization } from "#vitehub/auth/server"`,
     )
   })
 

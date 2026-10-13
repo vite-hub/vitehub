@@ -1701,6 +1701,648 @@
           }
         }
       ]
+    },
+    {
+      "id": "ainv_usage_schema_review",
+      "traceId": "trace_usage_schema_review",
+      "agentName": "product-reviewer",
+      "title": "Review schema migration plan",
+      "status": "completed",
+      "origin": "console",
+      "annotations": {
+        "agent.model.id": "claude-sonnet-4-5"
+      },
+      "createdAt": "2026-08-04T09:00:00.000Z",
+      "startedAt": "2026-08-04T09:00:00.000Z",
+      "updatedAt": "2026-08-04T09:06:40.000Z",
+      "completedAt": "2026-08-04T09:06:40.000Z",
+      "observations": [
+        {
+          "name": "agent.invocation.finish",
+          "type": "lifecycle",
+          "sequence": 1,
+          "timestamp": "2026-08-04T09:06:40.000Z",
+          "trace": {
+            "id": "trace_usage_schema_review"
+          },
+          "attributes": {
+            "usage.record": {
+              "model": "claude-sonnet-4-5",
+              "usage": {
+                "inputTokens": 182400,
+                "outputTokens": 9600,
+                "totalTokens": 192000,
+                "inputTokenDetails": {
+                  "cacheReadTokens": 141000,
+                  "cacheWriteTokens": 22800
+                }
+              },
+              "cost": {
+                "display": "~$0.3276",
+                "estimated": true,
+                "source": "models.dev",
+                "usd": "0.3276"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "ainv_usage_docs_pass",
+      "traceId": "trace_usage_docs_pass",
+      "agentName": "release-engineer",
+      "title": "Draft release notes for 0.9",
+      "status": "completed",
+      "origin": "console",
+      "annotations": {
+        "agent.model.id": "gpt-5.6"
+      },
+      "createdAt": "2026-08-07T15:00:00.000Z",
+      "startedAt": "2026-08-07T15:00:00.000Z",
+      "updatedAt": "2026-08-07T15:06:40.000Z",
+      "completedAt": "2026-08-07T15:06:40.000Z",
+      "observations": [
+        {
+          "name": "agent.invocation.finish",
+          "type": "lifecycle",
+          "sequence": 1,
+          "timestamp": "2026-08-07T15:06:40.000Z",
+          "trace": {
+            "id": "trace_usage_docs_pass"
+          },
+          "attributes": {
+            "usage.record": {
+              "model": "gpt-5.6",
+              "usage": {
+                "inputTokens": 96300,
+                "outputTokens": 7400,
+                "totalTokens": 103700,
+                "inputTokenDetails": {
+                  "cacheReadTokens": 61200,
+                  "cacheWriteTokens": 0
+                },
+                "outputTokenDetails": {
+                  "reasoningTokens": 3100
+                }
+              },
+              "cost": {
+                "display": "$0.1255",
+                "estimated": false,
+                "source": "provider",
+                "usd": "0.1255"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "ainv_usage_cache_audit",
+      "traceId": "trace_usage_cache_audit",
+      "agentName": "runtime-maintainer",
+      "title": "Audit KV cache eviction",
+      "status": "completed",
+      "origin": "console",
+      "annotations": {
+        "agent.model.id": "claude-sonnet-4-5"
+      },
+      "createdAt": "2026-08-11T11:00:00.000Z",
+      "startedAt": "2026-08-11T11:00:00.000Z",
+      "updatedAt": "2026-08-11T11:06:40.000Z",
+      "completedAt": "2026-08-11T11:06:40.000Z",
+      "observations": [
+        {
+          "name": "agent.invocation.finish",
+          "type": "lifecycle",
+          "sequence": 1,
+          "timestamp": "2026-08-11T11:06:40.000Z",
+          "trace": {
+            "id": "trace_usage_cache_audit"
+          },
+          "attributes": {
+            "usage.record": {
+              "model": "claude-sonnet-4-5",
+              "usage": {
+                "inputTokens": 241800,
+                "outputTokens": 12200,
+                "totalTokens": 254000,
+                "inputTokenDetails": {
+                  "cacheReadTokens": 198300,
+                  "cacheWriteTokens": 18900
+                }
+              },
+              "cost": {
+                "display": "~$0.3872",
+                "estimated": true,
+                "source": "models.dev",
+                "usd": "0.3872"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "ainv_usage_triage",
+      "traceId": "trace_usage_triage",
+      "agentName": "product-reviewer",
+      "title": "Triage incoming issues",
+      "status": "completed",
+      "origin": "console",
+      "annotations": {
+        "agent.model.id": "claude-haiku-4-5"
+      },
+      "createdAt": "2026-08-12T08:00:00.000Z",
+      "startedAt": "2026-08-12T08:00:00.000Z",
+      "updatedAt": "2026-08-12T08:06:40.000Z",
+      "completedAt": "2026-08-12T08:06:40.000Z",
+      "observations": [
+        {
+          "name": "agent.invocation.finish",
+          "type": "lifecycle",
+          "sequence": 1,
+          "timestamp": "2026-08-12T08:06:40.000Z",
+          "trace": {
+            "id": "trace_usage_triage"
+          },
+          "attributes": {
+            "usage.record": {
+              "model": "claude-haiku-4-5",
+              "usage": {
+                "inputTokens": 58200,
+                "outputTokens": 3900,
+                "totalTokens": 62100,
+                "inputTokenDetails": {
+                  "cacheReadTokens": 41000,
+                  "cacheWriteTokens": 6400
+                }
+              },
+              "cost": {
+                "display": "~$0.0424",
+                "estimated": true,
+                "source": "models.dev",
+                "usd": "0.0424"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "ainv_usage_layout_fix",
+      "traceId": "trace_usage_layout_fix",
+      "agentName": "interface-engineer",
+      "title": "Fix Console table overflow",
+      "status": "completed",
+      "origin": "console",
+      "annotations": {
+        "agent.model.id": "gpt-5.6"
+      },
+      "createdAt": "2026-08-15T14:00:00.000Z",
+      "startedAt": "2026-08-15T14:00:00.000Z",
+      "updatedAt": "2026-08-15T14:06:40.000Z",
+      "completedAt": "2026-08-15T14:06:40.000Z",
+      "observations": [
+        {
+          "name": "agent.invocation.finish",
+          "type": "lifecycle",
+          "sequence": 1,
+          "timestamp": "2026-08-15T14:06:40.000Z",
+          "trace": {
+            "id": "trace_usage_layout_fix"
+          },
+          "attributes": {
+            "usage.record": {
+              "model": "gpt-5.6",
+              "usage": {
+                "inputTokens": 132900,
+                "outputTokens": 11800,
+                "totalTokens": 144700,
+                "inputTokenDetails": {
+                  "cacheReadTokens": 98400,
+                  "cacheWriteTokens": 0
+                },
+                "outputTokenDetails": {
+                  "reasoningTokens": 5600
+                }
+              },
+              "cost": {
+                "display": "$0.1734",
+                "estimated": false,
+                "source": "provider",
+                "usd": "0.1734"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "ainv_usage_local_lint",
+      "traceId": "trace_usage_local_lint",
+      "agentName": "runtime-maintainer",
+      "title": "Summarize lint failures locally",
+      "status": "completed",
+      "origin": "console",
+      "annotations": {
+        "agent.model.id": "qwen3-coder:30b"
+      },
+      "createdAt": "2026-08-18T10:00:00.000Z",
+      "startedAt": "2026-08-18T10:00:00.000Z",
+      "updatedAt": "2026-08-18T10:06:40.000Z",
+      "completedAt": "2026-08-18T10:06:40.000Z",
+      "observations": [
+        {
+          "name": "agent.invocation.finish",
+          "type": "lifecycle",
+          "sequence": 1,
+          "timestamp": "2026-08-18T10:06:40.000Z",
+          "trace": {
+            "id": "trace_usage_local_lint"
+          },
+          "attributes": {
+            "usage.record": {
+              "model": "qwen3-coder:30b",
+              "usage": {
+                "inputTokens": 44100,
+                "outputTokens": 2700,
+                "totalTokens": 46800
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "ainv_usage_queue_retry",
+      "traceId": "trace_usage_queue_retry",
+      "agentName": "runtime-maintainer",
+      "title": "Trace queue retry storm",
+      "status": "completed",
+      "origin": "console",
+      "annotations": {
+        "agent.model.id": "claude-sonnet-4-5"
+      },
+      "createdAt": "2026-08-19T16:00:00.000Z",
+      "startedAt": "2026-08-19T16:00:00.000Z",
+      "updatedAt": "2026-08-19T16:06:40.000Z",
+      "completedAt": "2026-08-19T16:06:40.000Z",
+      "observations": [
+        {
+          "name": "agent.invocation.finish",
+          "type": "lifecycle",
+          "sequence": 1,
+          "timestamp": "2026-08-19T16:06:40.000Z",
+          "trace": {
+            "id": "trace_usage_queue_retry"
+          },
+          "attributes": {
+            "usage.record": {
+              "model": "claude-sonnet-4-5",
+              "usage": {
+                "inputTokens": 305600,
+                "outputTokens": 15400,
+                "totalTokens": 321000,
+                "inputTokenDetails": {
+                  "cacheReadTokens": 262100,
+                  "cacheWriteTokens": 24700
+                }
+              },
+              "cost": {
+                "display": "~$0.4587",
+                "estimated": true,
+                "source": "models.dev",
+                "usd": "0.4587"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "ainv_usage_label_batch",
+      "traceId": "trace_usage_label_batch",
+      "agentName": "product-reviewer",
+      "title": "Label backlog in bulk",
+      "status": "completed",
+      "origin": "console",
+      "annotations": {
+        "agent.model.id": "gpt-5.6-mini"
+      },
+      "createdAt": "2026-08-21T09:00:00.000Z",
+      "startedAt": "2026-08-21T09:00:00.000Z",
+      "updatedAt": "2026-08-21T09:06:40.000Z",
+      "completedAt": "2026-08-21T09:06:40.000Z",
+      "observations": [
+        {
+          "name": "agent.invocation.finish",
+          "type": "lifecycle",
+          "sequence": 1,
+          "timestamp": "2026-08-21T09:06:40.000Z",
+          "trace": {
+            "id": "trace_usage_label_batch"
+          },
+          "attributes": {
+            "usage.record": {
+              "model": "gpt-5.6-mini",
+              "usage": {
+                "inputTokens": 210400,
+                "outputTokens": 14600,
+                "totalTokens": 225000,
+                "inputTokenDetails": {
+                  "cacheReadTokens": 170200,
+                  "cacheWriteTokens": 0
+                },
+                "outputTokenDetails": {
+                  "reasoningTokens": 6800
+                }
+              },
+              "cost": {
+                "display": "$0.0435",
+                "estimated": false,
+                "source": "provider",
+                "usd": "0.0435"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "ainv_usage_release_check",
+      "traceId": "trace_usage_release_check",
+      "agentName": "release-engineer",
+      "title": "Check release artifacts",
+      "status": "completed",
+      "origin": "console",
+      "annotations": {
+        "agent.model.id": "gpt-5.6"
+      },
+      "createdAt": "2026-08-22T13:00:00.000Z",
+      "startedAt": "2026-08-22T13:00:00.000Z",
+      "updatedAt": "2026-08-22T13:06:40.000Z",
+      "completedAt": "2026-08-22T13:06:40.000Z",
+      "observations": [
+        {
+          "name": "agent.invocation.finish",
+          "type": "lifecycle",
+          "sequence": 1,
+          "timestamp": "2026-08-22T13:06:40.000Z",
+          "trace": {
+            "id": "trace_usage_release_check"
+          },
+          "attributes": {
+            "usage.record": {
+              "model": "gpt-5.6",
+              "usage": {
+                "inputTokens": 88700,
+                "outputTokens": 6100,
+                "totalTokens": 94800,
+                "inputTokenDetails": {
+                  "cacheReadTokens": 52300,
+                  "cacheWriteTokens": 0
+                },
+                "outputTokenDetails": {
+                  "reasoningTokens": 2400
+                }
+              },
+              "cost": {
+                "display": "$0.113",
+                "estimated": false,
+                "source": "provider",
+                "usd": "0.113"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "ainv_usage_copy_edit",
+      "traceId": "trace_usage_copy_edit",
+      "agentName": "interface-engineer",
+      "title": "Tighten empty state copy",
+      "status": "completed",
+      "origin": "console",
+      "annotations": {
+        "agent.model.id": "claude-haiku-4-5"
+      },
+      "createdAt": "2026-08-25T11:00:00.000Z",
+      "startedAt": "2026-08-25T11:00:00.000Z",
+      "updatedAt": "2026-08-25T11:06:40.000Z",
+      "completedAt": "2026-08-25T11:06:40.000Z",
+      "observations": [
+        {
+          "name": "agent.invocation.finish",
+          "type": "lifecycle",
+          "sequence": 1,
+          "timestamp": "2026-08-25T11:06:40.000Z",
+          "trace": {
+            "id": "trace_usage_copy_edit"
+          },
+          "attributes": {
+            "usage.record": {
+              "model": "claude-haiku-4-5",
+              "usage": {
+                "inputTokens": 37900,
+                "outputTokens": 2600,
+                "totalTokens": 40500,
+                "inputTokenDetails": {
+                  "cacheReadTokens": 24600,
+                  "cacheWriteTokens": 4800
+                }
+              },
+              "cost": {
+                "display": "~$0.03",
+                "estimated": true,
+                "source": "models.dev",
+                "usd": "0.03"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "ainv_usage_perf_profile",
+      "traceId": "trace_usage_perf_profile",
+      "agentName": "runtime-maintainer",
+      "title": "Profile cold start",
+      "status": "completed",
+      "origin": "console",
+      "annotations": {
+        "agent.model.id": "claude-sonnet-4-5"
+      },
+      "createdAt": "2026-08-26T15:00:00.000Z",
+      "startedAt": "2026-08-26T15:00:00.000Z",
+      "updatedAt": "2026-08-26T15:06:40.000Z",
+      "completedAt": "2026-08-26T15:06:40.000Z",
+      "observations": [
+        {
+          "name": "agent.invocation.finish",
+          "type": "lifecycle",
+          "sequence": 1,
+          "timestamp": "2026-08-26T15:06:40.000Z",
+          "trace": {
+            "id": "trace_usage_perf_profile"
+          },
+          "attributes": {
+            "usage.record": {
+              "model": "claude-sonnet-4-5",
+              "usage": {
+                "inputTokens": 198200,
+                "outputTokens": 10900,
+                "totalTokens": 209100,
+                "inputTokenDetails": {
+                  "cacheReadTokens": 151900,
+                  "cacheWriteTokens": 21300
+                }
+              },
+              "cost": {
+                "display": "~$0.3639",
+                "estimated": true,
+                "source": "models.dev",
+                "usd": "0.3639"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "ainv_usage_local_notes",
+      "traceId": "trace_usage_local_notes",
+      "agentName": "release-engineer",
+      "title": "Summarize standup notes locally",
+      "status": "completed",
+      "origin": "console",
+      "annotations": {
+        "agent.model.id": "qwen3-coder:30b"
+      },
+      "createdAt": "2026-08-27T09:00:00.000Z",
+      "startedAt": "2026-08-27T09:00:00.000Z",
+      "updatedAt": "2026-08-27T09:06:40.000Z",
+      "completedAt": "2026-08-27T09:06:40.000Z",
+      "observations": [
+        {
+          "name": "agent.invocation.finish",
+          "type": "lifecycle",
+          "sequence": 1,
+          "timestamp": "2026-08-27T09:06:40.000Z",
+          "trace": {
+            "id": "trace_usage_local_notes"
+          },
+          "attributes": {
+            "usage.record": {
+              "model": "qwen3-coder:30b",
+              "usage": {
+                "inputTokens": 21600,
+                "outputTokens": 1800,
+                "totalTokens": 23400
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "ainv_usage_nav_review",
+      "traceId": "trace_usage_nav_review",
+      "agentName": "interface-engineer",
+      "title": "Review navigation rail",
+      "status": "completed",
+      "origin": "console",
+      "annotations": {
+        "agent.model.id": "gpt-5.6"
+      },
+      "createdAt": "2026-08-28T10:00:00.000Z",
+      "startedAt": "2026-08-28T10:00:00.000Z",
+      "updatedAt": "2026-08-28T10:06:40.000Z",
+      "completedAt": "2026-08-28T10:06:40.000Z",
+      "observations": [
+        {
+          "name": "agent.invocation.finish",
+          "type": "lifecycle",
+          "sequence": 1,
+          "timestamp": "2026-08-28T10:06:40.000Z",
+          "trace": {
+            "id": "trace_usage_nav_review"
+          },
+          "attributes": {
+            "usage.record": {
+              "model": "gpt-5.6",
+              "usage": {
+                "inputTokens": 154300,
+                "outputTokens": 9700,
+                "totalTokens": 164000,
+                "inputTokenDetails": {
+                  "cacheReadTokens": 119800,
+                  "cacheWriteTokens": 0
+                },
+                "outputTokenDetails": {
+                  "reasoningTokens": 4200
+                }
+              },
+              "cost": {
+                "display": "$0.1551",
+                "estimated": false,
+                "source": "provider",
+                "usd": "0.1551"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "ainv_usage_label_followup",
+      "traceId": "trace_usage_label_followup",
+      "agentName": "product-reviewer",
+      "title": "Label follow-up issues",
+      "status": "completed",
+      "origin": "console",
+      "annotations": {
+        "agent.model.id": "gpt-5.6-mini"
+      },
+      "createdAt": "2026-08-29T12:00:00.000Z",
+      "startedAt": "2026-08-29T12:00:00.000Z",
+      "updatedAt": "2026-08-29T12:06:40.000Z",
+      "completedAt": "2026-08-29T12:06:40.000Z",
+      "observations": [
+        {
+          "name": "agent.invocation.finish",
+          "type": "lifecycle",
+          "sequence": 1,
+          "timestamp": "2026-08-29T12:06:40.000Z",
+          "trace": {
+            "id": "trace_usage_label_followup"
+          },
+          "attributes": {
+            "usage.record": {
+              "model": "gpt-5.6-mini",
+              "usage": {
+                "inputTokens": 118900,
+                "outputTokens": 8300,
+                "totalTokens": 127200,
+                "inputTokenDetails": {
+                  "cacheReadTokens": 92500,
+                  "cacheWriteTokens": 0
+                },
+                "outputTokenDetails": {
+                  "reasoningTokens": 3700
+                }
+              },
+              "cost": {
+                "display": "$0.0255",
+                "estimated": false,
+                "source": "provider",
+                "usd": "0.0255"
+              }
+            }
+          }
+        }
+      ]
     }
   ]
 }

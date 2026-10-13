@@ -133,6 +133,25 @@ describe("workspace CLI", () => {
     }
   })
 
+  it.each([
+    { label: "an object", workspaces: {} },
+    { label: "a null entry", workspaces: [null] },
+  ])("rejects malformed Workspace Dev discovery with $label", async ({ workspaces }) => {
+    const stderr = stream()
+    const stdout = stream()
+    const fetchWorkspaceDev = vi.fn(async () => Response.json({ workspaces }))
+
+    await expect(runWorkspaceDevCli(["docs", "exec", "echo", "ok"], {
+      cwd: process.cwd(),
+      env: {},
+      rootDir: process.cwd(),
+      stderr,
+      stdout,
+    }, { fetch: fetchWorkspaceDev as never })).resolves.toBe(1)
+
+    expect(stderr.output()).toContain("Unknown Workspace Dev target: docs")
+  })
+
   it("runs Workspace Dev commands through the Workspace dev endpoint", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-workspace-cli-"))
     const stderr = stream()

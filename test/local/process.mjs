@@ -49,7 +49,8 @@ export async function hasLiveGroupMember(pid) {
       if (Number(fields[2]) === pid && fields[0] !== "Z") return true
     }
     catch (error) {
-      if (error.code !== "ENOENT") throw error
+      // A process can exit after /proc is enumerated but before its stat file is read.
+      if (error.code !== "ENOENT" && error.code !== "ESRCH") throw error
     }
   }
   return false

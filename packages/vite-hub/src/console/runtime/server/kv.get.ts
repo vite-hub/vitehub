@@ -1,3 +1,4 @@
+import { withConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
 import { assertConsoleRequest, consoleRequestJSON, consoleRequestURL } from "./request.ts"
 import { getConsoleKV } from "./kv.ts"
 
@@ -227,7 +228,7 @@ function selectStore(storage: KVStorage, stores: readonly string[], requested: s
   return { name, storage: name === "default" ? storage : storage.store(name) }
 }
 
-export default async function consoleKVHandler(event: ConsoleRequestEvent): Promise<
+async function consoleKVHandler(event: ConsoleRequestEvent): Promise<
   | ConsoleKVValue
   | { cursor?: string; error?: string; errorCode?: "cursor_expired"; keys: string[]; limit: number; prefix: string; store: string; stores: readonly string[] }
 > {
@@ -274,3 +275,6 @@ export default async function consoleKVHandler(event: ConsoleRequestEvent): Prom
   const listed = { ...response, keys: page.keys }
   return page.cursor ? { ...listed, cursor: page.cursor } : listed
 }
+
+const guardedHandler: ConsoleAccessRoute<typeof consoleKVHandler> = withConsoleAccess(consoleKVHandler)
+export default guardedHandler

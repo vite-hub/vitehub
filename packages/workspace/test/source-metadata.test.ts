@@ -311,6 +311,34 @@ describe("Workspace Source metadata", () => {
     expect(request).toHaveBeenCalledOnce()
   })
 
+  it("preserves prototype-named Sources through resolution", async () => {
+    const resolved = await resolveWorkspaceSources({
+      name: "prototype-source",
+      sources: {
+        ["__proto__"]: custom({
+          files: [{ content: "prototype", path: "value.txt" }],
+          mount: "docs",
+        }),
+      },
+      store: { provider: "memory" },
+    }, {
+      invocation,
+      selectedWorkspaceScope: {
+        all: true,
+        name: "acme",
+        paths: [],
+        role: "viewer",
+      },
+    })
+
+    expect(Object.prototype.hasOwnProperty.call(resolved.sources, "__proto__")).toBe(true)
+    registerWorkspace("prototype-source", {
+      sources: resolved.sources,
+      store: { provider: "memory" },
+    })
+    await expect(useWorkspace("prototype-source").fs.readFile("docs/value.txt")).resolves.toBe("prototype")
+  })
+
   it("reads File, MCP, and Custom Sources through the Workspace runtime", async () => {
     registerWorkspace("source-forms", {
       sources: {

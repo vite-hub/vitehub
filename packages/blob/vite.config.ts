@@ -36,7 +36,7 @@ export default defineConfig({
     tsconfig: "tsconfig.build.json",
     copy: [{ from: "src/virtual-module.d.ts", to: "dist" }],
     deps: {
-      neverBundle: ["vite", "esbuild", ...filesSdkProviderPeers],
+      neverBundle: ["vite", "vue", "esbuild", "@vite-hub/blob", "@vite-hub/blob/runtime/state", ...filesSdkProviderPeers],
       alwaysBundle: [
         /^@vite-hub\/internal/,
         /^@vite-hub\/netlify-blobs-runtime$/,
@@ -55,6 +55,8 @@ export default defineConfig({
       },
     }],
     entry: [
+      "src/cli.ts",
+      "src/client.ts",
       "src/config.ts",
       "src/content-type.ts",
       "src/errors.ts",
@@ -83,9 +85,11 @@ export default defineConfig({
       "src/index.ts",
       "src/vite.ts",
       "src/runtime/cloudflare-vite.ts",
+      "src/runtime/dev.ts",
       "src/runtime/state.ts",
       "src/runtime/vercel-vite.ts",
       "src/virtual.ts",
+      "src/vue.ts",
     ],
     exports: {
       customExports(exports) {

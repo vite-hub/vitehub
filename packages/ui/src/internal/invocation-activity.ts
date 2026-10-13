@@ -1,6 +1,6 @@
 import type { TraceEventLogEntry } from "@vite-hub/runtime";
 import type { AgentInvocationView, AgentToolInspection } from "../types.ts";
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
+import { hasRuntimeType } from "./runtime-type.ts";
 
 type InvocationActivityKind =
   | "action"
@@ -565,6 +565,11 @@ export function invocationToolUsage(invocation: AgentInvocationView): ReadonlyMa
 export function latestInvocationTokens(activities: readonly InvocationActivity[]): number | undefined {
   const snapshots = activities.flatMap(activity => activity.totalTokens === undefined ? [] : [activity.totalTokens]);
   return snapshots.length ? Math.max(...snapshots) : undefined;
+}
+
+/** The short detail of an activity: its command, path, or recorded detail. */
+export function invocationActivityDetail(activity: InvocationActivity): string | undefined {
+  return activity.preview ?? stringAttribute(activity.attributes, "vitehub.activity.detail");
 }
 
 export function invocationActivityTitle(activity: InvocationActivity): string {

@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { UIMessage } from "ai";
 import { AgentInvocationList } from "../src/components/agent-invocation-list.ts";
 import { AgentInvocation, AgentInvocationInspector, workspaceArtifactPath } from "../src/components/agent-invocation.ts";
+import { invocationTimeline } from "../src/components/agent-invocation-timeline.ts";
 import { AgentMessageParts } from "../src/components/agent-message-parts.ts";
 import { AgentCapabilityInspector } from "../src/components/agent-capability-inspector.ts";
 import { AgentToolList } from "../src/components/agent-tool-list.ts";
@@ -170,7 +171,7 @@ describe("Agent Invocation UI", () => {
   });
 
   it("groups recorded tools under their capability without inventing ownership", () => {
-    const wrapper = mount(AgentInvocationInspector, { props: { invocation: {
+    const wrapper = mount(AgentInvocationInspector, { props: { showCapabilities: true, invocation: {
       id: "tools", status: "completed", traceId: "trace", createdAt: "2026-09-05T10:00:00Z", updatedAt: "2026-09-05T10:00:00Z", observations: [],
       configuration: { capabilities: [{ id: "files" }], tools: [{ name: "read", capabilityId: "files", description: "Read exact bytes." }, { name: "native", description: "Provider tool." }] },
     } } });
@@ -390,6 +391,34 @@ describe("Agent Invocation UI", () => {
     const wrapper = mount(AgentInvocationList, { props: { items } });
     expect(wrapper.find(".vh-invocation-list__group").exists()).toBe(false);
     expect(wrapper.findAll(".vh-invocation-list__title").map(title => title.text())).toEqual(items.map(item => item.title));
+  });
+
+  it("groups sessions by recency in local calendar days when asked", async () => {
+    const now = new Date(2026, 9, 6, 10, 0).getTime();
+    const at = (day: number, hour = 12) => new Date(2026, 9, day, hour).toISOString();
+    const items = [
+      { id: "old", status: "completed" as const, title: "Old", updatedAt: new Date(2026, 8, 28, 23).toISOString() },
+      { id: "today-late", status: "running" as const, title: "Today late", startedAt: at(5), updatedAt: at(6, 9) },
+      { id: "yesterday", status: "failed" as const, title: "Yesterday", updatedAt: at(5, 0) },
+      { id: "week", status: "completed" as const, title: "Week", updatedAt: at(2) },
+      { id: "undated", status: "pending" as const, title: "Undated" },
+      { id: "today-early", status: "completed" as const, title: "Today early", updatedAt: at(6, 0) },
+    ];
+    const wrapper = mount(AgentInvocationList, { props: { groupBy: "recency", items, now, selectedId: "week" } });
+    await nextTick();
+    const groups = wrapper.findAll(".vh-invocation-list__group");
+    expect(groups.map(group => group.get("h3").text())).toEqual(["Today", "Yesterday", "Previous 7 days", "Older"]);
+    expect(groups.map(group => group.findAll(".vh-invocation-list__item").map(row => row.attributes("data-invocation-id"))))
+      .toEqual([["today-late", "today-early"], ["yesterday"], ["week"], ["old", "undated"]]);
+    expect(wrapper.get('[data-invocation-id="week"]').attributes("aria-current")).toBe("true");
+  });
+
+  it("stays flat when recency grouping has no clock", () => {
+    const wrapper = mount(AgentInvocationList, {
+      props: { groupBy: "recency", items: [{ id: "one", status: "completed", title: "One", updatedAt: "2026-10-06T00:00:00Z" }] },
+    });
+    expect(wrapper.find(".vh-invocation-list__group").exists()).toBe(false);
+    expect(wrapper.findAll(".vh-invocation-list__item")).toHaveLength(1);
   });
 
   it("keeps completed status accessible and shows only the project line above the title", () => {
@@ -1900,8 +1929,7 @@ describe("Agent Invocation UI", () => {
     const row = mount(AgentInvocationInspector, { props: { invocation } })
       .get(".vh-invocation-timeline__row");
     expect(row.text()).toContain("+1m 59s · 1s");
-    expect(row.get(".vh-invocation-timeline__track span").attributes("style"))
-      .toContain("left: 98.5%");
+    expect(invocationTimeline(invocation)).toMatchObject([{ durationMs: 1_000, offsetMs: 118_999 }]);
   });
 
   it.each([
@@ -4035,13 +4063,14 @@ describe("Agent Invocation UI", () => {
     const invocation: AgentInvocationView = {
       id: "summary", status: "completed", traceId: "trace", createdAt: "2026-09-05T00:00:00Z", updatedAt: "2026-09-05T00:00:00Z", observations: [],
       usage: { totalTokens: 1234, cost: { display: "$0.02", estimated: true } },
-      configuration: { capabilities: [{ id: "files" }] },
+      configuration: { capabilities: [{ id: "files" }], tools: [{ capabilityId: "files", name: "read_file" }] },
     };
-    const wrapper = mount(AgentInvocationInspector, { props: { invocation, showCapabilities: false } });
+    const wrapper = mount(AgentInvocationInspector, { props: { invocation } });
     expect(wrapper.get(".vh-invocation-inspector__metrics").text()).toContain("1,234");
     expect(wrapper.get(".vh-invocation-inspector__metrics").text()).toContain("$0.02 (estimated)");
     expect(wrapper.text()).not.toContain("Capabilities");
-    expect(mount(AgentInvocationInspector, { props: { invocation } }).text()).toContain("Capabilities");
+    expect(wrapper.get(".vh-agent-tool-list").text()).toContain("read_file");
+    expect(mount(AgentInvocationInspector, { props: { invocation, showCapabilities: true } }).text()).toContain("Capabilities");
   });
 
   it("forwards workspace artifact paths without navigating", async () => {
@@ -4158,7 +4187,30 @@ describe("Agent Invocation UI", () => {
     expect(messages.at(-1)!.attributes("data-role")).toBe("user");
   });
 
-  it("renders structured workspace sources alongside historical source strings", () => {
+  it("counts the rendered messages after the initial driver echo is removed", () => {
+    const timestamp = "2026-09-05T00:00:00Z";
+    const invocation: AgentInvocationView = {
+      id: "message-summary", traceId: "trace", createdAt: timestamp, updatedAt: timestamp,
+      status: "completed",
+      observations: [
+        { name: "agent.invocation.started", sequence: 1, timestamp, type: "run", attributes: {
+          "input.messages": [{ id: "prompt", role: "user", parts: [{ type: "text", text: "Run the tests." }] }],
+        } },
+        { name: "agent.input.message", sequence: 2, timestamp, type: "run", attributes: {
+          "message.role": "user", "message.content": "Run the tests.", "message.id": "driver-prompt",
+        } },
+        { name: "agent.message.recorded", sequence: 3, timestamp, type: "run", attributes: {
+          "message.role": "assistant", "message.content": "The tests pass.", "message.id": "answer",
+        } },
+      ],
+    };
+    const thread = mount(AgentInvocation, { props: { invocation } });
+    const inspector = mount(AgentInvocationInspector, { props: { invocation } });
+    expect(thread.findAll(".vh-invocation-message")).toHaveLength(2);
+    expect(inspector.get(".vh-invocation-inspector__metrics").text()).toContain("Messages2");
+  });
+
+  it("renders structured workspace sources alongside historical source strings", async () => {
     const invocation: AgentInvocationView = {
       id: "sources", traceId: "sources", createdAt: "2026-09-05T00:00:00Z", updatedAt: "2026-09-05T00:00:01Z",
       status: "completed", observations: [],
@@ -4173,6 +4225,16 @@ describe("Agent Invocation UI", () => {
     expect(sources?.findAll(".vh-invocation-inspector__badge").map(badge => badge.text())).toEqual([
       "docs", "local", "github:legacy/repo",
     ]);
+    expect(sources?.findAll("a").map(link => link.attributes("href"))).toEqual([
+      "https://github.com/vite-hub/vitehub", "https://github.com/legacy/repo",
+    ]);
+    expect(sources?.findAll("a")[0]?.attributes("title")).toBe("docs: vite-hub/vitehub");
+
+    await wrapper.setProps({ showSources: false });
+    expect(wrapper.findAll(".vh-invocation-inspector__group").some(group =>
+      group.find("strong").exists() && group.find("strong").text() === "Sources",
+    )).toBe(false);
+    expect(wrapper.text()).not.toContain("github:legacy/repo");
   });
 
   describe("conversation view", () => {

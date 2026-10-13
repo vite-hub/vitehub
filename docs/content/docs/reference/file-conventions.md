@@ -76,7 +76,7 @@ server/
             review.sh
 ```
 
-This convention needs no `skills()` Capability declaration. Use [`skills()`](/docs/capabilities/skills) when the Skill comes from a Workspace or external Source instead of the Agent folder.
+This convention needs no `skills()` Capability declaration. Use [`skills()`](/docs/agents/capabilities/skills) when the Skill comes from a Workspace or external Source instead of the Agent folder.
 
 ## Markdown templates
 
@@ -103,5 +103,5 @@ They prove discovery and Provider Output, but the source Definition files remain
 ## Related
 
 - [Generated files](/docs/development/generated-files)
-- [Definitions and discovery](/docs/concepts/definitions-and-discovery)
+- [Definitions and discovery](/docs/development/definition-discovery)
 - [Import paths](/docs/reference/import-paths)

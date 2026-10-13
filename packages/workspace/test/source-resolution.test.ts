@@ -15,10 +15,12 @@ import {
   type ReadonlyWorkspaceFacade,
   type WritableWorkspaceFacade,
   type WorkspaceDefinition,
+  type WorkspaceSource,
   type WorkspaceSourceResolutionContext,
 } from "../src/index.ts"
 import {
   createWorkspaceSourceResolutionFacade,
+  forwardWorkspaceFacade,
   getWorkspaceSourceRequestExecution,
   resolveWorkspaceSources,
   workspaceSourceRequestDescriptorPath,
@@ -28,7 +30,8 @@ import { createWorkspace } from "../src/core/workspace.ts"
 import { github as githubPublisher } from "../src/publish.ts"
 import { getWorkspaceSourceRequestDescriptor, isWorkspaceSourceRequestOnly, normalizeWorkspaceSources } from "../src/sources/config.ts"
 import { workspaceStoreTarget } from "../src/storage/target.ts"
-import { workspaceMetadataTarget, resolveWorkspaceMetadataTarget, type WorkspaceMetadataTargetCarrier } from "../src/storage/metadata-target.ts"
+import { forwardWorkspaceMetadataTarget, resolveWorkspaceMetadataTarget } from "../src/storage/metadata-target.ts"
+import { setWorkspaceRawWriteTarget } from "../src/storage/raw-write-target.ts"
 
 const invocation = {
   context: {
@@ -88,6 +91,7 @@ function facade(workspace: ReturnType<typeof createWorkspace>): ReadonlyWorkspac
     none: () => ({}),
   } as never
   return {
+    history: workspace.history!,
     fs: {
       // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
       readFile: async (path, options) => await workspace.readFile(path, options as never),
@@ -111,15 +115,14 @@ function facade(workspace: ReturnType<typeof createWorkspace>): ReadonlyWorkspac
   }
 }
 
-function writableFacade(workspace: ReturnType<typeof createWorkspace>): WritableWorkspaceFacade & WorkspaceMetadataTargetCarrier {
+function writableFacade(workspace: ReturnType<typeof createWorkspace>): WritableWorkspaceFacade {
   // SAFETY: This test fixture intentionally supplies only the Workspace tools exercised by these cases.
   const tools = {
     inspect: () => ({}),
     none: () => ({}),
     write: () => ({}),
   } as never
-  return {
-    [workspaceMetadataTarget]: () => resolveWorkspaceMetadataTarget(workspace),
+  const facade: WritableWorkspaceFacade = {
     capabilities: async () => await workspace.capabilities?.() ?? { conditionalWrites: false },
     diff: async options => await workspace.diff(options),
     fs: {
@@ -148,6 +151,7 @@ function writableFacade(workspace: ReturnType<typeof createWorkspace>): Writable
     },
     getMeta: async key => await workspace.getMeta?.(key),
     history: {
+      ...workspace.history!,
       checkpoint: async options => await workspace.snapshot({ name: options?.message }),
       rebase: async options => await workspace.rebase(options),
     },
@@ -166,6 +170,9 @@ function writableFacade(workspace: ReturnType<typeof createWorkspace>): Writable
     sync: async options => await workspace.sync(options),
     tools,
   }
+  forwardWorkspaceMetadataTarget(workspace, facade)
+  setWorkspaceRawWriteTarget(facade, facade.fs)
+  return facade
 }
 
 async function runShell(workspace: ReadonlyWorkspaceFacade, command: string, sourceRequests = false): Promise<WorkspaceShellResult> {
@@ -1286,6 +1293,399 @@ describe("Workspace Source Resolution", () => {
     await expect(base.readFile("artifacts/review.md")).resolves.toBe("ok")
     await expect(base.readFile("artifacts/body.md")).resolves.toBe("# Pull request\n")
     await expect(base.exists("artifacts/moved.md")).resolves.toBe(false)
+  })
+
+  it("requires a Source write grant for every writable overlay mutation", async () => {
+    const base = createWorkspace({ name: "support", store: { provider: "memory" } })
+    await base.writeFile("artifacts/draft.md", "draft")
+    const definition: WorkspaceDefinition = {
+      name: "support",
+      rules: {
+        "redirect/**": { validate: input => ({ ...input, path: input.path.replace(/^redirect\//, "pull-request/") }) },
+      },
+      sources: {
+        pullRequest: custom({
+          materialize: "lazy",
+          mount: "pull-request",
+          async getKeys() {
+            return ["body.md"]
+          },
+          async getItem(key) {
+            return { key, path: key, content: "# Pull request\n" }
+          },
+        }),
+      },
+    }
+
+    const { workspace } = await createWorkspaceSourceResolutionFacade(writableFacade(base), definition, {
+      invocation,
+      overlay: true,
+    })
+    // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
+    const writable = workspace as WritableWorkspaceFacade
+
+    await expect(writable.fs.appendFile("pull-request/body.md", "nope")).rejects.toThrow("read-only")
+    await expect(writable.fs.movePath("artifacts/draft.md", "pull-request/draft.md")).rejects.toThrow("read-only")
+    await expect(writable.fs.writeFile("redirect/body.md", "nope")).rejects.toThrow("read-only")
+    await expect(writable.fs.mkdir("redirect/new")).rejects.toThrow("read-only")
+    await expect(writable.fs.rm("redirect/body.md", { force: true })).rejects.toThrow("read-only")
+
+    const session = await writable.startSession()
+    try {
+      await expect(session.writeFile("pull-request/body.md", "nope")).rejects.toThrow("read-only")
+      await expect(session.mkdir("pull-request/new")).rejects.toThrow("read-only")
+      await expect(session.rm("pull-request/body.md")).rejects.toThrow("read-only")
+    }
+    finally {
+      await session.close()
+    }
+
+    await expect(writable.fs.readFile("pull-request/body.md")).resolves.toBe("# Pull request\n")
+    await expect(base.readFile("artifacts/draft.md")).resolves.toBe("draft")
+    await expect(base.exists("pull-request")).resolves.toBe(false)
+  })
+
+  it("accepts unregistered custom writable facades while guarding Source paths", async () => {
+    const base = createWorkspace({ name: "support", store: { provider: "memory" } })
+    const registered = writableFacade(base)
+    const facade: WritableWorkspaceFacade = { ...registered, fs: { ...registered.fs } }
+    expect(await resolveWorkspaceMetadataTarget(facade)).toBeUndefined()
+    const write = vi.spyOn(facade.fs, "writeFile")
+    const { workspace } = await createWorkspaceSourceResolutionFacade(facade, {
+      name: "support",
+      sources: { docs: custom({
+        mount: "docs", materialize: "lazy",
+        async getKeys() { return ["guide.md"] },
+        async getItem(key) { return { key, path: key, content: "guide" } },
+      }) },
+    }, { invocation, overlay: true })
+    // SAFETY: Source resolution preserves the writable facade supplied above.
+    const writable = workspace as WritableWorkspaceFacade
+    await writable.fs.writeFile("notes/draft.md", "draft")
+    expect(write.mock.calls[0]?.slice(0, 2)).toEqual(["notes/draft.md", "draft"])
+    await expect(base.readFile("notes/draft.md")).resolves.toBe("draft")
+    await expect(writable.fs.writeFile("docs/guide.md", "forged")).rejects.toThrow("read-only")
+    await expect(writable.fs.mkdir("docs/new")).rejects.toThrow("read-only")
+    await expect(writable.fs.rm("docs/guide.md")).rejects.toThrow("read-only")
+    expect(write).toHaveBeenCalledTimes(1)
+  })
+
+  it("preserves a custom history checkpoint receiver", async () => {
+    const base = createWorkspace({ name: "support", store: { provider: "memory" } })
+    class History {
+      #base = base
+      #history = writableFacade(base).history
+      async head() { return await this.#history.head() }
+      async list(options: Parameters<WritableWorkspaceFacade["history"]["list"]>[0]) { return await this.#history.list(options) }
+      async open(id: string) { return await this.#history.open(id) }
+      async usage() { return await this.#history.usage() }
+      async commit(options: Parameters<WritableWorkspaceFacade["history"]["commit"]>[0]) { return await this.#history.commit(options) }
+      async checkpoint() { return await this.#base.snapshot() }
+      async rebase() {}
+    }
+    const facade = writableFacade(base)
+    facade.history = new History()
+    const resolved = await createWorkspaceSourceResolutionFacade(facade, { name: "support" }, { invocation, overlay: true })
+    const history = (resolved.workspace as WritableWorkspaceFacade).history
+    await expect(history.checkpoint()).resolves.toMatchObject({})
+    await expect(history.head()).rejects.toMatchObject({ code: "WORKSPACE_R0069" })
+    await expect(history.commit({ ifHead: null, files: {} })).rejects.toMatchObject({ code: "WORKSPACE_R0069" })
+  })
+
+  it.each([false, true])("keeps parent Source guards during nested sync and ordinary writes (wrapped: %s)", async (wrapped) => {
+    const base = createWorkspace({ name: "support", store: { provider: "memory" } })
+    const parent = await createWorkspaceSourceResolutionFacade(writableFacade(base), {
+      name: "support",
+      sources: { protected: custom({
+        mount: "docs", materialize: "lazy",
+        async getKeys() { return ["guide.md"] },
+        async getItem(key) { return { key, path: key, content: "parent" } },
+      }) },
+    }, { invocation, overlay: true })
+    const enclosing = parent.workspace as WritableWorkspaceFacade
+    const wrapper = Object.fromEntries(Object.entries(enclosing)) as unknown as WritableWorkspaceFacade
+    wrapper.fs = { ...enclosing.fs }
+    wrapper.setMeta = (key, value) => enclosing.setMeta!(key, value)
+    forwardWorkspaceFacade(enclosing, wrapper)
+    const child = await createWorkspaceSourceResolutionFacade(wrapped ? wrapper : enclosing, {
+      name: "support",
+      sources: { child: custom({
+        mount: "docs", sync: { stale: "remove" },
+        async getKeys() { return ["guide.md"] },
+        async getItem(key) { return { key, path: key, content: "child" } },
+      }) },
+    }, { invocation, overlay: true })
+    const writable = child.workspace as WritableWorkspaceFacade
+    await writable.fs.writeFile("notes.md", "allowed")
+    await expect(base.readFile("notes.md")).resolves.toBe("allowed")
+    await expect(writable.sync({ sources: ["child"] })).resolves.toMatchObject({
+      status: "error", sources: [expect.objectContaining({ error: expect.stringContaining("read-only") })],
+    })
+    await expect(base.exists("docs/guide.md")).resolves.toBe(false)
+  })
+
+  it("retains same Source sync authority in scoped nested views", async () => {
+    const base = createWorkspace({ name: "support", store: { provider: "memory" } })
+    const source = custom({
+      mount: "docs",
+      sync: { stale: "remove" },
+      async getKeys() { return ["guide.md"] },
+      async getItem(key) { return { key, path: key, content: "scoped" } },
+    })
+    const definition = { name: "support", sources: { docs: source }}
+    const parent = await createWorkspaceSourceResolutionFacade(writableFacade(base), definition, {
+      ...scope("acme", ["docs"]),
+      overlay: true,
+    })
+    const child = await createWorkspaceSourceResolutionFacade(parent.workspace, definition, {
+      ...scope("acme", ["docs"]),
+      overlay: true,
+    })
+
+    await expect((child.workspace as WritableWorkspaceFacade).sync({ sources: ["docs"] })).resolves.toMatchObject({
+      status: "ready",
+    })
+    await expect(base.readFile("docs/guide.md")).resolves.toBe("scoped")
+  })
+
+  it("retains sync authority when scoped resolution recreates a Source binding", async () => {
+    const base = createWorkspace({ name: "support", store: { provider: "memory" } })
+    const definition = {
+      name: "support",
+      sources: {
+        docs: custom({
+          async resolve() {
+            return custom({
+              fingerprint: { provider: "stable-docs" },
+              mount: "docs",
+              sync: { stale: "remove" },
+              async getKeys() { return ["guide.md"] },
+              async getItem(key) { return { key, path: key, content: "resolved" } },
+            })
+          },
+          async getKeys() { return [] },
+          async getItem(key) { return { key, content: "" } },
+        }),
+      },
+    }
+    const parent = await createWorkspaceSourceResolutionFacade(writableFacade(base), definition, {
+      ...scope("acme", ["docs"]),
+      overlay: true,
+    })
+    const child = await createWorkspaceSourceResolutionFacade(parent.workspace, definition, {
+      ...scope("acme", ["docs"]),
+      overlay: true,
+    })
+
+    await expect((child.workspace as WritableWorkspaceFacade).sync({ sources: ["docs"] })).resolves.toMatchObject({ status: "ready" })
+    await expect(base.readFile("docs/guide.md")).resolves.toBe("resolved")
+  })
+
+  it.each([false, true])("retains the parent guard for a forged matching fingerprint (resolved: %s)", async (resolved) => {
+    const base = createWorkspace({ name: "support", store: { provider: "memory" } })
+    const original = custom({
+      fingerprint: { provider: "docs" },
+      mount: "docs",
+      sync: { stale: "remove" },
+      async getKeys() { return ["guide.md"] },
+      async getItem(key) { return { key, path: key, content: "original" } },
+    })
+    const declared = resolved ? custom({
+      async resolve() { return original },
+      async getKeys() { return [] },
+      async getItem(key) { return { key, content: "" } },
+    }) : original
+    const definition = { name: "support", sources: { docs: declared } }
+    const options = { ...scope("acme", ["docs"]), overlay: true }
+    const parent = await createWorkspaceSourceResolutionFacade(writableFacade(base), definition, options)
+    await (parent.workspace as WritableWorkspaceFacade).sync({ sources: ["docs"] })
+    const binding = parent.definition.sources!.docs as WorkspaceSource
+    const forged = { ...binding, async getItem(key: string) { return { key, path: key, content: "forged" } } }
+    const child = await createWorkspaceSourceResolutionFacade(parent.workspace, {
+      ...parent.definition,
+      sources: { docs: forged },
+    }, options)
+
+    await expect((child.workspace as WritableWorkspaceFacade).sync({ sources: ["docs"] })).resolves.toMatchObject({ status: "error" })
+    await expect(base.readFile("docs/guide.md")).resolves.toBe("original")
+  })
+
+  it.each([false, true])("keeps the guard when fingerprint property order changes (nested: %s)", async (nested) => {
+    const base = createWorkspace({ name: "support", store: { provider: "memory" } })
+    let resolution = 0
+    const definition = {
+      name: "support",
+      sources: {
+        docs: custom({
+          async resolve() {
+            const fingerprint = resolution++ === 0 ? { a: 1, b: 2 } : { b: 2, a: 1 }
+            return custom({
+              fingerprint: nested ? { config: fingerprint } : fingerprint,
+              mount: "docs",
+              sync: { stale: "remove" },
+              async getKeys() { return ["guide.md"] },
+              async getItem(key) { return { key, path: key, content: "child" } },
+            })
+          },
+          async getKeys() { return [] },
+          async getItem(key) { return { key, content: "" } },
+        }),
+      },
+    }
+    await base.writeFile("docs/guide.md", "parent")
+    const parent = await createWorkspaceSourceResolutionFacade(writableFacade(base), definition, { invocation, overlay: true })
+    const child = await createWorkspaceSourceResolutionFacade(parent.workspace, definition, { invocation, overlay: true })
+
+    await expect((child.workspace as WritableWorkspaceFacade).sync({ sources: ["docs"] })).resolves.toMatchObject({
+      status: "error",
+      sources: [expect.objectContaining({ error: expect.stringContaining("read-only") })],
+    })
+    await expect(base.readFile("docs/guide.md")).resolves.toBe("parent")
+  })
+
+  it.each([
+    {
+      name: "proxy get traps",
+      left: new Proxy({ value: "same" }, { get: (target, key) => key === "value" ? "parent" : Reflect.get(target, key) }),
+      right: new Proxy({ value: "same" }, { get: (target, key) => key === "value" ? "child" : Reflect.get(target, key) }),
+    },
+    { name: "empty and sparse arrays", left: [], right: Array(1) },
+    { name: "sparse array lengths", left: Array(1), right: Array(2) },
+    { name: "symbols", left: Symbol("same"), right: Symbol("same") },
+    { name: "functions", left: () => 1, right: () => 1 },
+    { name: "negative zero", left: 0, right: -0 },
+    { name: "non-finite numbers", left: NaN, right: Infinity },
+    { name: "infinities", left: Infinity, right: -Infinity },
+    { name: "bigints", left: 1n, right: 2n },
+    { name: "cycles", left: (() => { const value: unknown[] = []; value.push(value); return value })(), right: [] },
+    { name: "throwing serializers", left: { toJSON() { throw new Error("serializer") } }, right: {} },
+  ])("retains the parent guard for $name fingerprints", async ({ left, right }) => {
+    const base = createWorkspace({ name: "support", store: { provider: "memory" } })
+    let resolution = 0
+    const definition = {
+      name: "support",
+      sources: {
+        docs: custom({
+          async resolve() {
+            return custom({
+              fingerprint: { value: resolution++ === 0 ? left : right },
+              mount: "docs",
+              sync: { stale: "remove" },
+              async getKeys() { return ["guide.md"] },
+              async getItem(key) { return { key, path: key, content: "child" } },
+            })
+          },
+          async getKeys() { return [] },
+          async getItem(key) { return { key, content: "" } },
+        }),
+      },
+    }
+    await base.writeFile("docs/guide.md", "parent")
+    const parent = await createWorkspaceSourceResolutionFacade(writableFacade(base), definition, { invocation, overlay: true })
+    const child = await createWorkspaceSourceResolutionFacade(parent.workspace, definition, { invocation, overlay: true })
+
+    await expect((child.workspace as WritableWorkspaceFacade).sync({ sources: ["docs"] })).resolves.toMatchObject({ status: "error" })
+    await expect(base.readFile("docs/guide.md")).resolves.toBe("parent")
+  })
+
+  it("keeps the guard when resolved Source fingerprints contain distinct Dates", async () => {
+    const base = createWorkspace({ name: "support", store: { provider: "memory" } })
+    let resolution = 0
+    const definition = {
+      name: "support",
+      sources: {
+        docs: custom({
+          async resolve() {
+            return custom({
+              fingerprint: { generatedAt: new Date(resolution++) },
+              mount: "docs",
+              sync: { stale: "remove" },
+              async getKeys() { return ["guide.md"] },
+              async getItem(key) { return { key, path: key, content: "resolved" } },
+            })
+          },
+          async getKeys() { return [] },
+          async getItem(key) { return { key, content: "" } },
+        }),
+      },
+    }
+    const parent = await createWorkspaceSourceResolutionFacade(writableFacade(base), definition, { invocation, overlay: true })
+    const child = await createWorkspaceSourceResolutionFacade(parent.workspace, definition, { invocation, overlay: true })
+
+    await expect((child.workspace as WritableWorkspaceFacade).sync({ sources: ["docs"] })).resolves.toMatchObject({
+      status: "error",
+      sources: [expect.objectContaining({ error: expect.stringContaining("read-only") })],
+    })
+    await expect(base.exists("docs/guide.md")).resolves.toBe(false)
+  })
+
+  it("keeps the guard when resolved Source fingerprints use distinct toJSON values", async () => {
+    const base = createWorkspace({ name: "support", store: { provider: "memory" } })
+    let resolution = 0
+    const definition = {
+      name: "support",
+      sources: {
+        docs: custom({
+          async resolve() {
+            const id = resolution++
+            return custom({
+              fingerprint: {
+                sourceUrl: new URL(`https://example.com/source-${id}`),
+                custom: { toJSON: () => `custom-${id}` },
+              },
+              mount: "docs",
+              sync: { stale: "remove" },
+              async getKeys() { return ["guide.md"] },
+              async getItem(key) { return { key, path: key, content: "resolved" } },
+            })
+          },
+          async getKeys() { return [] },
+          async getItem(key) { return { key, content: "" } },
+        }),
+      },
+    }
+    const parent = await createWorkspaceSourceResolutionFacade(writableFacade(base), definition, { invocation, overlay: true })
+    const child = await createWorkspaceSourceResolutionFacade(parent.workspace, definition, { invocation, overlay: true })
+
+    await expect((child.workspace as WritableWorkspaceFacade).sync({ sources: ["docs"] })).resolves.toMatchObject({
+      status: "error",
+      sources: [expect.objectContaining({ error: expect.stringContaining("read-only") })],
+    })
+    await expect(base.exists("docs/guide.md")).resolves.toBe(false)
+  })
+
+  it("rejects overlay rebases that take remote content under a Source mount", async () => {
+    const base = createWorkspace({ name: "support", store: { provider: "memory" } })
+    const rebase = vi.fn(async (_options?: { takeRemote?: string[] }) => {})
+    const facade = writableFacade(base)
+    facade.history.rebase = rebase
+    const definition: WorkspaceDefinition = {
+      name: "support",
+      sources: {
+        pullRequest: custom({
+          materialize: "lazy",
+          mount: "pull-request",
+          async getKeys() {
+            return ["body.md"]
+          },
+          async getItem(key) {
+            return { key, path: key, content: "# Pull request\n" }
+          },
+        }),
+      },
+    }
+
+    const { workspace } = await createWorkspaceSourceResolutionFacade(facade, definition, {
+      invocation,
+      overlay: true,
+    })
+    // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
+    const writable = workspace as WritableWorkspaceFacade
+
+    await expect(writable.history.rebase({ takeRemote: ["pull-request/body.md"] })).rejects.toThrow("read-only")
+    expect(rebase).not.toHaveBeenCalled()
+    await writable.history.rebase({ takeRemote: ["artifacts/draft.md"] })
+    expect(rebase).toHaveBeenCalledWith({ takeRemote: ["artifacts/draft.md"] })
   })
 
   it("publishes the resolved writable overlay", async () => {

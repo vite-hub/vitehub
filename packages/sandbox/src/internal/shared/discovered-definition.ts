@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { isAbsolute, join, resolve as resolvePath } from 'pathe'
-import { createUnimport, type Import, type ScanDir } from 'unimport'
+import type { Import, ScanDir } from 'unimport'
 
 import { bundleDiscoveredDefinitionModule } from './discovered-definition/bundler'
 import { injectTypeImportsFromUnimport } from './discovered-definition/ast'
@@ -129,6 +129,7 @@ async function createInitializedUnimport(options: DiscoveredDefinitionCompilerOp
     ...((serverImports?.dirs || []).map(dir => normalizeDir(options.rootDir, dir))),
   ]
 
+  const { createUnimport } = await import('unimport')
   const unimport = createUnimport({
     imports,
     dirs,

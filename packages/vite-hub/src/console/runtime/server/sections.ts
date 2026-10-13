@@ -3,6 +3,9 @@ import { installConsoleProjectNameScope, installConsoleSectionScope, resolveCons
 import type { ConsoleAuthMode } from "../../internal.ts"
 import type { ConsoleSectionId } from "../sections.ts"
 
+// Generated Console output installs its access policy from this entry, next to its sections.
+export { consoleConnectionsActor, installConsoleAccess } from "./access.ts"
+
 export function installConsoleSections(projectRoot: string, sections: readonly ConsoleSectionId[], independentAuth: ConsoleAuthMode | false = false): readonly ConsoleSectionId[] {
   return installConsoleSectionScope(projectRoot, sections, undefined, independentAuth)
 }

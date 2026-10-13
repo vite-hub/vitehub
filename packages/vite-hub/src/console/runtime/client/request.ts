@@ -8,6 +8,15 @@ import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 const consoleApiMarker = "/api/_vitehub/console/"
 const consoleRpcCallPath = "/_vitehub/rpc/__call"
 
+function decodeConsoleId(value: string): string {
+  try {
+    return decodeURIComponent(value)
+  }
+  catch {
+    throw new ConsoleRequestError(400, "Malformed invocation id.")
+  }
+}
+
 export class ConsoleRequestError extends Diagnostic {
   readonly status: number
 
@@ -20,14 +29,16 @@ export class ConsoleRequestError extends Diagnostic {
 
 function consoleRpcCallURL(path: string): string {
   const url = new URL(path, "http://vitehub.local")
-  const marker = url.pathname.indexOf(consoleApiMarker)
+  // The application mount may itself contain the Console API marker. The
+  // final marker is the generated route that belongs to this request.
+  const marker = url.pathname.lastIndexOf(consoleApiMarker)
   const appBase = marker === -1 ? "" : url.pathname.slice(0, marker)
   return `${appBase}${consoleRpcCallPath}`
 }
 
 function consoleRpcCall(path: string): { agent?: string; id?: string; method: ConsoleRpcMethod } {
   const url = new URL(path, "http://vitehub.local")
-  const marker = url.pathname.indexOf(consoleApiMarker)
+  const marker = url.pathname.lastIndexOf(consoleApiMarker)
   const operation = marker === -1 ? "" : url.pathname.slice(marker + consoleApiMarker.length)
   const agentInvocationMatch = /^agents\/([^/]+)\/invocations$/.exec(operation)
   if (agentInvocationMatch) {
@@ -37,10 +48,10 @@ function consoleRpcCall(path: string): { agent?: string; id?: string; method: Co
     }
   }
   const workspaceMatch = /^invocations\/([^/]+)\/workspace$/.exec(operation)
-  if (workspaceMatch) return { id: decodeURIComponent(workspaceMatch[1]!), method: consoleRpcMethods.invocationWorkspace }
+  if (workspaceMatch) return { id: decodeConsoleId(workspaceMatch[1]!), method: consoleRpcMethods.invocationWorkspace }
   if (operation.startsWith("invocations/")) {
     return {
-      id: decodeURIComponent(operation.slice("invocations/".length)),
+      id: decodeConsoleId(operation.slice("invocations/".length)),
       method: consoleRpcMethods.invocation,
     }
   }

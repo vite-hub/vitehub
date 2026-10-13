@@ -2,11 +2,11 @@ import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-const toolVersions = readFileSync(resolve(import.meta.dirname, "../.tool-versions"), "utf8");
-export const requiredDenoVersion = /^deno\s+(\S+)$/m.exec(toolVersions)?.[1];
+const denoVersion = readFileSync(resolve(import.meta.dirname, "../.deno-version"), "utf8").trim();
+export const requiredDenoVersion = denoVersion || undefined;
 
 if (!requiredDenoVersion) {
-  throw new Error(".tool-versions must declare the required Deno version");
+  throw new Error(".deno-version must declare the required Deno version");
 }
 
 export function checkDeno({ env = process.env } = {}) {

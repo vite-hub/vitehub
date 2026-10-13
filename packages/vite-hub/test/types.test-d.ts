@@ -13,6 +13,9 @@ import { defineWorkspace } from "vite-hub/workspace"
 import type { History, HistoryCheckpoint, HistoryCheckpointOptions } from "vite-hub/workspace"
 
 import { defineCollection, table } from "vite-hub/source"
+import { defineCollectionHandler } from "vite-hub/source/server"
+import type { CollectionAuthorizationGuard } from "vite-hub/source/server"
+import { withAuthorization } from "vite-hub/auth/server"
 import type { CollectionItem, CollectionQuery, CollectionRequestQuery } from "vite-hub/source"
 import type { StandardSchemaV1 } from "@standard-schema/spec"
 
@@ -37,9 +40,15 @@ vitehub({ name: "my-app", preset: "cloudflare", blob: true, rateLimit: true })
 vitehub({ agent: true, database: true, preset: "node", workflow: true, workspace: true })
 vitehub({ console: true, preset: "node" })
 vitehub({ auth: true, console: { access: "auth" }, preset: "node" })
+vitehub({ console: { authorize: "server/console-authorize.ts", exposure: "host-managed" }, preset: "node" })
+vitehub({ console: { authorize: "server/console-authorize.ts", exposure: "host-managed", invoke: true }, preset: "node" })
+vitehub({ console: { authorize: "server/console-authorize.ts", exposure: "host-managed", invoke: false }, preset: "node" })
+// @ts-expect-error Host-managed Console routes need the host authorize function.
 vitehub({ console: { exposure: "host-managed" }, preset: "node" })
-vitehub({ console: { exposure: "host-managed", invoke: true }, preset: "node" })
-vitehub({ console: { exposure: "host-managed", invoke: false }, preset: "node" })
+// @ts-expect-error console.authorize is a server file path, not an inline function.
+vitehub({ console: { authorize: () => true, exposure: "host-managed" }, preset: "node" })
+// @ts-expect-error ViteHub Auth access uses Auth callbacks, not console.authorize.
+vitehub({ console: { access: "auth", authorize: "server/console-authorize.ts" }, preset: "node" })
 vitehub({ console: { access: "auth", auth: { provider: "cloudflare-access" } }, preset: "cloudflare" })
 vitehub({ console: { access: "auth", auth: { provider: "cloudflare-access", teamDomain: "acme.cloudflareaccess.com", audience: env({ source: env.source("CF_ACCESS_AUD") }) }, invoke: true }, preset: "vercel" })
 // @ts-expect-error Cloudflare Access Console Auth has no database or allowlist; the Access policy decides who signs in.
@@ -273,3 +282,9 @@ const fixedTupleFilteredMeals = defineCollection({
   }),
 })
 expectTypeOf<CollectionQuery<typeof fixedTupleFilteredMeals>>().toEqualTypeOf<never>()
+
+// Generated Collection routes pass Auth's guard. The page handler runs only inside it.
+expectTypeOf(withAuthorization).toMatchTypeOf<CollectionAuthorizationGuard>()
+defineCollectionHandler(privateMeals, { withAuthorization })
+// @ts-expect-error The old option returned `Response | undefined` and let the page load after a missed check.
+defineCollectionHandler(privateMeals, { authorizeRequest: async () => undefined })

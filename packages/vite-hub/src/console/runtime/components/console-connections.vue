@@ -10,10 +10,8 @@ import {
   requestConnectionsManagement,
 } from "../client/connections-management";
 import { rememberConsoleSection } from "../sections";
-import ConsoleBrand from "./console-brand.vue";
 import ConsoleConnectionsDetails from "./console-connections-details.vue";
 import ConsoleFrame from "./console-frame.vue";
-import ConsolePrimitiveSwitcher from "./console-primitive-switcher.vue";
 import ConsoleSearch from "./console-search.vue";
 
 const props = defineProps<{
@@ -24,7 +22,6 @@ const props = defineProps<{
   searchBase: string;
   sectionsBase: string;
 }>();
-const sidebarOpen = ref(false);
 const connections = ref<readonly ConnectionInspection[]>([]);
 const pending = ref<Record<string, number>>({});
 const search = ref("");
@@ -89,40 +86,7 @@ onBeforeUnmount(() => request?.abort());
 </script>
 
 <template>
-  <ConsoleFrame>
-    <UDashboardSidebar
-      id="console-navigation"
-      v-model:open="sidebarOpen"
-      :default-size="16"
-      :min-size="13"
-      :max-size="26"
-      :menu="{ title: 'Connections', description: 'OAuth accounts.' }"
-      :ui="{
-        body: 'gap-0 overflow-hidden p-0',
-        footer: 'shrink-0 border-t border-default px-2 py-1.5',
-      }"
-      resizable
-    >
-      <template #header="{ collapsed }"
-        ><ConsoleBrand :collapsed="collapsed" :sections-base="sectionsBase"
-      /></template>
-      <template #default="{ collapsed }">
-        <div class="flex shrink-0 items-center gap-1 px-[0.875rem] pb-2 pt-1">
-          <UDashboardSearchButton
-            :collapsed="collapsed"
-            block
-            class="vitehub-console__search min-w-0 flex-1 rounded-md border border-default bg-transparent px-2 ring-0 hover:bg-elevated/60"
-            label="Search console"
-          />
-        </div>
-      </template>
-      <template #footer="{ collapsed }"
-        ><ConsolePrimitiveSwitcher
-          active="connections"
-          :collapsed="collapsed"
-          :sections-base="sectionsBase"
-      /></template>
-    </UDashboardSidebar>
+  <ConsoleFrame active="connections" :sections-base="sectionsBase">
     <ConsoleSearch
       :agents-base="agentsBase"
       :definitions-base="definitionsBase"
@@ -132,7 +96,7 @@ onBeforeUnmount(() => request?.abort());
     />
     <UDashboardPanel id="connections" :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }">
       <template #header>
-        <UDashboardNavbar title="Connections" :toggle="{ 'aria-label': 'Open sidebar' }">
+        <UDashboardNavbar title="Connections" :toggle="false">
           <template #right>
             <UTooltip text="Refresh Connections"
               ><UButton

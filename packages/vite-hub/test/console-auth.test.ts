@@ -388,7 +388,7 @@ describe("independent Console Auth", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-auth-guard-"))
     try {
       const server = resolve(root, "server.ts")
-      await writeFile(server, 'export default { signIn: { provider: "github" } }')
+      await writeFile(server, 'export default { authorize: () => true, signIn: { provider: "github" } }')
       const handlers = await writeConsoleAuthHandlers(root, { server })
       const bundled = await build({
         bundle: true,
@@ -403,7 +403,7 @@ describe("independent Console Auth", () => {
             plugin.onResolve({ filter: /^(#vitehub\/auth\/server|vite-hub\/console\/auth)$/ }, args => ({ path: args.path, namespace: "test-console-auth" }))
             plugin.onLoad({ filter: /.*/, namespace: "test-console-auth" }, (args) => ({
               contents: args.path === "#vitehub/auth/server"
-                ? 'export function requireAuthAccessRoutes(event, indexes, definition, routes, options) { globalThis[Symbol.for("test.console.auth.calls")].push([event.url.pathname, indexes[0], options?.redirectToSignIn]); return new Response("guarded", {status: 401}) }'
+                ? 'export function requireAuthAccessRoutes(event, indexes, definition, routes, options) { globalThis[Symbol.for("test.console.auth.calls")].push([event.url.pathname, indexes[0], options?.redirectToSignIn]); return new Response("guarded", {status: 401}) }; export function withAuthorization(authorize, handler) { if (typeof authorize !== "function" || typeof handler !== "function") throw new TypeError("guard"); return async event => { globalThis[Symbol.for("test.console.auth.calls")].push([event.url.pathname, "withAuthorization", handler()]); return new Response("guarded", {status: 403}) } }'
                 : "export function createConsoleAuthDefinition() { return {} }; export function prepareConsoleAuth() {}; export function consoleAuthPageResponse(_request, response) { return response }",
               loader: "js",
             }))
@@ -412,7 +412,10 @@ describe("independent Console Auth", () => {
       })
       const modulePath = resolve(root, "guard.mjs")
       await writeFile(modulePath, bundled.outputFiles![0]!.text)
-      const guard = (await import(pathToFileURL(modulePath).href)) as { default: (event: { url: URL; req?: Request }) => Promise<Response | undefined> }
+      const guard = (await import(pathToFileURL(modulePath).href)) as {
+        checkConsoleAccess: (event: { url: URL; req?: Request }) => Promise<Response | undefined>
+        default: (event: { url: URL; req?: Request }) => Promise<Response | undefined>
+      }
       const calls: Array<[string, number, boolean | undefined]> = []
       Reflect.set(globalThis, Symbol.for("test.console.auth.calls"), calls)
       try {
@@ -425,10 +428,13 @@ describe("independent Console Auth", () => {
         const rpcURL = "https://example.com/_vitehub/rpc/__call"
         const rpcRequest = new Request(rpcURL, { body: "{}", headers: { "content-type": "application/json" }, method: "POST" })
         expect((await guard.default({ url: new URL(rpcURL), req: rpcRequest }))?.status).toBe(401)
+        // Console data routes check the Session and authorize callback whatever their path. They never redirect.
+        expect((await guard.checkConsoleAccess({ url: new URL("https://example.com/api/app"), req: rpcRequest }))?.status).toBe(403)
         expect(calls).toEqual([
           ["/_vitehub", 0, false],
           ["/api/_vitehub/console/status", 1, false],
           ["/_vitehub/rpc/__call", 0, false],
+          ["/api/app", "withAuthorization", undefined],
         ])
       }
       finally {

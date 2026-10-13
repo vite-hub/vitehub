@@ -66,6 +66,43 @@ it("reserves concurrent Workflow replays before activity and hands the journal t
   await expect(invocations.getByRunId(channelMessageRunId("mailbox", "m1"), "replay-workflow")).resolves.toMatchObject({ status: "completed" })
 })
 
+it("records durable replay cancellation observed before provider dispatch", async () => {
+  const backing = createMemoryAgentInvocationStore()
+  let cancellationRequested = false
+  const store = {
+    ...backing,
+    getSummary: async (id: string) => {
+      const record = await backing.getSummary(id)
+      return cancellationRequested && record ? { ...record, cancelRequestedAt: new Date().toISOString() } : record
+    },
+  }
+  const invocations = defineAgentInvocations({ store })
+  const runtime = { memo: vi.fn(), runtime: "unknown" as const, waitUntil: () => {} }
+  const update = vi.fn()
+  const channel = defineChannel("mailbox", {
+    activity: { update },
+    history: { collection: defineCollection(async () => [{ id: "m1" }], { cursor: item => item.id, cursorSchema: v.string() }), key: item => item.id },
+    triggers: { received: defineChannelTrigger({ input: v.object({ id: v.string() }), invoke: () => ({ input: { prompt: "hello" } }) }) },
+  })
+  const runId = channelMessageRunId("mailbox", "m1")
+  const providerRun = vi.fn(async () => ({ id: "workflow-should-not-start", provider: "openworkflow", status: "queued" }))
+  setAgentWorkflowRuntimeLoaders({
+    state: async () => ({ ...await import("@vite-hub/workflow/runtime/state"), getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" as const }) }),
+    workflow: async () => ({
+      ...await import("@vite-hub/workflow"),
+      createWorkflow: () => {
+        // Simulate another process persisting cancellation in the dispatch window.
+        cancellationRequested = true
+        return { getRun: async (id: string) => ({ id, provider: "openworkflow", status: "unknown" }), run: providerRun }
+      },
+    }) as never,
+  })
+  const agent = defineAgent({ channels: { mailbox: channel }, driver: { run: () => "unused" }, invocations, name: "cancelled-replay", runtime: workflow("cancelled-replay") })
+  expect(await replayChannel(agent, "mailbox", { runtime })).toMatchObject({ failed: 1, processed: 0 })
+  expect(providerRun).not.toHaveBeenCalled()
+  await expect(invocations.getByRunId(runId, "cancelled-replay")).resolves.toMatchObject({ status: "cancelled" })
+})
+
 it.each([true, false])("recovers an expired Workflow reservation only when no dispatch attempt is recorded: %s", async explicit => {
   const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
   const runtime = { memo: vi.fn(), runtime: "unknown" as const, waitUntil: () => {} }

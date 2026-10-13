@@ -20,8 +20,6 @@ Diagnostic codes use this format:
 
 The package prefix identifies the owner, for example `AGENT`, `AUTH`, `BLOB`, `DATABASE`, `ENV`, `KV`, `RATE_LIMIT`, `SANDBOX`, or `WORKSPACE`. The family letter groups the package catalog. It does not classify when the failure can occur because one validation site can run during configuration, build, or runtime work. The number identifies one failure site. Codes stay stable when a message gains context. Catch a diagnostic by its complete `code` when the application can repair or classify that exact defect.
 
-Runtime representation selectors are owned by `@vite-hub/runtime`. An unsupported selector now reports `RUNTIME_R0008` from the shared `@vite-hub/runtime/internal/runtime-type` guard. This replaces the former package-local selector codes (`AGENT_R0572`, `ENV_R0024`, `UI_R0003`, `WORKFLOW_R0002`, and `WORKSPACE_R0030`) because the validation site is shared; consumers should migrate checks for those codes to `RUNTIME_R0008`.
-
 ```ts
 import { getAgentFromRegistry } from '@vite-hub/agent'
 
@@ -49,6 +47,12 @@ Expected portable failures keep the `ViteHubError` contract from `@vite-hub/runt
 Use the operational code to choose application behavior. Use a Nostics code to locate and repair ViteHub configuration, build, or runtime code.
 
 ## Agent diagnostics
+
+<a id="runtime-preflight"></a>
+
+### Runtime preflight diagnostics
+
+Runtime preflight checks report missing or unverified capabilities with `RUNTIME_R0012` and `RUNTIME_R0013`. Inspect the check identifier, kind, state, and reason, then provide the capability or adjust the check when it is optional. Invalid preflight options use `RUNTIME_R0014` and must be corrected before checks start.
 
 Agent configuration, build, and runtime defects use the `AGENT_C####`, `AGENT_B####`, and `AGENT_R####` families. Application tools can use their own Nostics catalog:
 
@@ -96,6 +100,10 @@ Replace native `TypeError` and `RangeError` checks for ViteHub-owned defects wit
 | `AGENT_CAPABILITY_DYNAMIC_UNSUPPORTED` | `AGENT_C0010` |
 | `AGENT_TOOL_POLICY_RETRYABLE` | `AGENT_R0003` |
 
+Code Host uses `AGENT_C0011` for invalid options. Diagnostics `AGENT_R0941` through `AGENT_R0945` cover credentials, repository access, context, requests and tool input. See [Code Host diagnostics](/docs/agents/capabilities/code-host#diagnostics).
+
+The `gitlab()` and `forgejo()` Channels use `AGENT_R0946` for a missing webhook secret, failed host requests, and activity errors. See [Code Host Channels](/docs/agents/code-host-channels#limits).
+
 ## Agent public errors
 
 Agent routes and hooks expose a sanitized `AgentPublicError` beside the original
@@ -129,6 +137,7 @@ private response data.
 | `PROVIDER_RATE_LIMITED` | The provider returned a temporary rate limit. |
 | `PROVIDER_UNAVAILABLE` | The provider returned a server or availability failure. |
 | `APPROVAL_REQUIRED` | A Capability needs approval before it can continue. `requestId` identifies the approval request when available. |
+| `HOST_RESTARTED` | The host restarted while an inline Chat invocation ran. `details.retry` is `pending` when ViteHub retries the message after the restart, or `exhausted` after a second interruption. |
 | `AUTHENTICATION_REQUIRED`, `RATE_LIMIT_*`, `LLM_GATE_REJECTED`, `CAPABILITY_*`, `TRANSCRIPTION_*` | ViteHub recognized a public application or Capability failure. |
 | `INTERNAL` | The failure has no approved public mapping. The message stays generic. |
 

@@ -30,7 +30,6 @@ const invocation: AgentInvocationView = {
       v-if="open"
       :invocation="invocation"
       :show-timeline="false"
-      :show-capabilities="false"
       class="h-full border-x border-default"
     >
       <template #actions>

@@ -32,6 +32,7 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": "./dist/index.js",
+    "./internal/grant": "./dist/internal/grant.js",
     "./internal/runtime-type": "./dist/internal/runtime-type.js",
     "./node": "./dist/node.js",
     "./package.json": "./package.json"

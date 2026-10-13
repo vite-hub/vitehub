@@ -6,12 +6,16 @@ import { usage } from "@vite-hub/agent/capabilities"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server"
 import { consoleVitePlugin } from "../src/console/vite.ts"
 import { installConsoleAgentDefinitions } from "../src/console/runtime/server/agents.ts"
-import usageHandler from "../src/console/runtime/server/usage.get.ts"
+import usageHandlerRoute from "../src/console/runtime/server/usage.get.ts"
+import { allowed } from "./support/console-access.ts"
+import { hostManagedAuthorize } from "./support/console-authorize.ts"
+
+const usageHandler = allowed(usageHandlerRoute)
 
 it("registers one production Usage GET endpoint when configuration is reapplied", async () => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-usage-route-"))
   try {
-    const plugin = consoleVitePlugin({ console: { exposure: "host-managed" }, preset: "node", sections: ["agents", "usage"] })
+    const plugin = consoleVitePlugin({ console: { exposure: "host-managed", authorize: hostManagedAuthorize }, preset: "node", sections: ["agents", "usage"] })
     const hook = plugin.config
     if (!hook) throw new Error("Missing Console config hook")
     const handler = "handler" in hook ? hook.handler : hook
@@ -26,7 +30,7 @@ it("registers one production Usage GET endpoint when configuration is reapplied"
 it.each([["env", "kv"], ["usage"]] as const)("does not register the Usage endpoint without the Agents section (%j)", async (...sections) => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-usage-route-"))
   try {
-    const plugin = consoleVitePlugin({ console: { exposure: "host-managed" }, preset: "node", sections: [...sections] })
+    const plugin = consoleVitePlugin({ console: { exposure: "host-managed", authorize: hostManagedAuthorize }, preset: "node", sections: [...sections] })
     const hook = plugin.config
     if (!hook) throw new Error("Missing Console config hook")
     const handler = "handler" in hook ? hook.handler : hook

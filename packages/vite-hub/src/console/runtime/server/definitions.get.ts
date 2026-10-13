@@ -1,3 +1,4 @@
+import { withConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
 import { assertConsoleRequest, consoleRequestURL } from "./request.ts"
 import { copyConsoleRecords, getConsoleDefinitions, getConsoleSchedules } from "./definitions.ts"
 import { isConsoleSectionId } from "../sections.ts"
@@ -31,10 +32,10 @@ function markRunnableSchedules(records: readonly ConsoleRecord[]): ConsoleRecord
   const runnable = getConsoleSchedules()
   return records.map(record => record.cells.kind === "Definition" && record.cells.schedule && Object.hasOwn(runnable, record.cells.schedule)
     ? { ...record, runnable: true }
-    : { ...record, runnable: undefined })
+    : record)
 }
 
-export default async function consoleDefinitionsHandler(event: ConsoleRequestEvent): Promise<ConsoleSectionContent & {
+async function consoleDefinitionsHandler(event: ConsoleRequestEvent): Promise<ConsoleSectionContent & {
   section: ConsoleSectionId
 }> {
   assertConsoleRequest(event)
@@ -48,13 +49,16 @@ export default async function consoleDefinitionsHandler(event: ConsoleRequestEve
   if (section === "schedules" && content.kind === "definition-catalog") {
     const runnable = getConsoleSchedules()
     return {
+      ...content,
       definitions: content.definitions.map(definition => Object.hasOwn(runnable, definition.name) ? { ...definition, runnable: true } : definition),
-      kind: "definition-catalog",
       section,
     }
   }
   const reader = readers && Object.hasOwn(readers, section) ? readers[section] : undefined
-  if (!reader || content.kind !== "record-table") return { ...content, section }
-  const records = mergeRecords(content.records, await readRuntimeRecords(reader))
+  if (content.kind !== "record-table") return { ...content, section }
+  const records = reader ? mergeRecords(content.records, await readRuntimeRecords(reader)) : content.records
   return { kind: "record-table", records: section === "schedules" ? markRunnableSchedules(records) : records, section }
 }
+
+const guardedHandler: ConsoleAccessRoute<typeof consoleDefinitionsHandler> = withConsoleAccess(consoleDefinitionsHandler)
+export default guardedHandler

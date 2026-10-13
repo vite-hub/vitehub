@@ -48,6 +48,7 @@
   "dependencies": {
     "character-entities-legacy": "3.0.0",
     "comark": "catalog:markdown",
+    "entities": "8.1.0",
     "nostics": "catalog:runtime"
   },
   "peerDependencies": {

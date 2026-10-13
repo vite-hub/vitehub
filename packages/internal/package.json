@@ -24,6 +24,7 @@
     "./provision": "./dist/provision.js",
     "./provision-state": "./dist/provision-state.js",
     "./source-scanner": "./dist/source-scanner.js",
+    "./vite-stage": "./dist/vite-stage.js",
     "./runtime/app": "./dist/runtime/app.js",
     "./runtime/cloudflare-hosted": "./dist/runtime/cloudflare-hosted.js",
     "./runtime/vercel-hosted": "./dist/runtime/vercel-hosted.js",
@@ -31,6 +32,7 @@
     "./http-request": "./dist/http-request.js",
     "./inspect": "./dist/inspect.js",
     "./runtime/random": "./dist/runtime/random.js",
+    "./secret": "./dist/secret.js",
     "./runtime/time-zone": "./dist/runtime/time-zone.js",
     "./build/cloudflare": "./dist/build/cloudflare.js",
     "./build/deployment-output": "./dist/build/deployment-output.js",
@@ -48,14 +50,13 @@
     "./build/user-entry": "./dist/build/user-entry.js",
     "./build/vite": "./dist/build/vite.js",
     "./nitro-kit": "./dist/nitro-kit.js",
-    "./vite-stage": "./dist/vite-stage.js",
     "./workspace-inventory": "./dist/workspace-inventory.js",
     "./test/e2e-live": "./src/test/e2e-live.mjs",
     "./package.json": "./package.json"
   },
   "scripts": {
     "build": "vp pack",
-    "test": "vp run -t @vite-hub/internal#build && vp test && vp test test/http-request.workerd.ts --config vitest.workerd.config.ts",
+    "test": "vp run -t @vite-hub/internal#build && vp run -t @vite-hub/markdown-template#build && vp test --exclude test/vite-e2e-output.test.ts && vp test test/vite-e2e-output.test.ts && vp test --config vitest.workerd.config.ts",
     "typecheck": "tsc --noEmit -p ./tsconfig.json"
   },
   "dependencies": {
@@ -72,7 +73,7 @@
     "@cloudflare/vitest-plugin": "catalog:",
     "@types/semver": "^7.8.0",
     "exsolve": "catalog:unjs",
-    "sharp": "0.35.4",
+    "sharp": "0.35.5",
     "typescript": "catalog:tooling",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling"

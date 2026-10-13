@@ -2,7 +2,7 @@ import { Renderer, JSONUIProvider, type ComponentRegistry, type ComponentRenderP
 import type { Spec } from "@json-render/core";
 import { computed, defineComponent, h, ref, watch, type PropType, type VNodeChild } from "vue";
 import { invocationActivities, invocationToolUsage } from "../internal/invocation-activity.ts";
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
+import { hasRuntimeType } from "../internal/runtime-type.ts";
 import { AgentToolList } from "./agent-tool-list.ts";
 import type { AgentInvocationView } from "../types.ts";
 

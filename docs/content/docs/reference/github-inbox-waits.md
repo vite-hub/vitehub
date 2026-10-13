@@ -2,7 +2,6 @@
 title: Durable pull request waits
 description: Park a pull request until structured host evidence changes.
 navigation.group: Application APIs
-navigation.lanes: [agents]
 ---
 
 Use `PullRequestInbox` from `vite-hub/agent/server/github-inbox` on a Node host.

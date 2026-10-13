@@ -1,3 +1,4 @@
+import { runInNewContext } from "node:vm"
 import { describe, expect, it } from "vitest"
 
 import { applyStreamEvent } from "../src/messages.ts"
@@ -16,6 +17,51 @@ describe("agent output helpers", () => {
   it("normalizes primitive values into Agent run results", () => {
     expect(toAgentRunResult("ok")).toEqual({ raw: "ok", text: "ok" })
     expect(toAgentRunResult(42)).toEqual({ raw: 42, text: undefined })
+  })
+
+  it("does not classify a plain inherited usage marker as a usage record", () => {
+    const usageRecord = Object.create({ usage: { inputTokens: 99 } }) as object
+
+    expect(toAgentRunResult({ text: "ok", usageRecord })).toMatchObject({
+      text: "ok",
+      usage: undefined,
+      usageRecord: undefined,
+    })
+  })
+
+  it("does not loop on cyclic usage record prototypes", () => {
+    const target = {}
+    let usageRecord: object
+    usageRecord = new Proxy(target, { getPrototypeOf: (): object => usageRecord })
+
+    expect(toAgentRunResult({ usageRecord })).toMatchObject({
+      usage: undefined,
+      usageRecord: undefined,
+    })
+  })
+
+  it("bounds usage record prototype traversal", () => {
+    const handler: ProxyHandler<object> = {
+      getPrototypeOf: () => new Proxy({}, handler),
+    }
+    const usageRecord = new Proxy({}, handler)
+
+    expect(toAgentRunResult({ usageRecord })).toMatchObject({
+      usage: undefined,
+      usageRecord: undefined,
+    })
+  })
+
+  it("accepts usage metadata exposed through class getters", () => {
+    class UsageRecord {
+      get usage() {
+        return { inputTokens: 2 }
+      }
+    }
+
+    expect(toAgentRunResult({ usageRecord: new UsageRecord() }).usageRecord).toMatchObject({
+      usage: { inputTokens: 2 },
+    })
   })
 
   it("preserves raw metadata with text selected for a final-only Channel", () => {
@@ -566,6 +612,65 @@ describe("agent output helpers", () => {
     ])
   })
 
+  it.each(["iterable", "stream", "fullStream"] as const)("preserves measured usage when %s output throws", async shape => {
+    const failure = new Error("provider interrupted")
+    const usageRecord = { usage: { inputTokens: 7, outputTokens: 3, totalTokens: 10 } }
+    const chunks = (async function* () {
+      yield { type: "usage", usageRecord }
+      throw failure
+    })()
+    const output = shape === "iterable" ? chunks : { [shape]: chunks }
+    const events: unknown[] = []
+    const read = async () => {
+      for await (const event of streamAgentOutputToEvents(output)) events.push(event)
+    }
+
+    await expect(read()).rejects.toBe(failure)
+    expect(events).toEqual([{ type: "usage", usageRecord }])
+  })
+
+  it.each(["iterable", "stream", "fullStream"] as const)("delivers usage before a fatal %s consumer stops", async shape => {
+    const usageRecord = { usage: { inputTokens: 7, outputTokens: 3, totalTokens: 10 } }
+    const chunks = (async function* () {
+      yield { type: "usage", usageRecord }
+      yield { type: "error", error: "terminal failure" }
+      throw new Error("source stopped")
+    })()
+    const events: unknown[] = []
+    const read = async () => {
+      for await (const event of streamAgentOutputToEvents(shape === "iterable" ? chunks : { [shape]: chunks })) {
+        if (event.type === "error") throw new Error(event.error)
+        events.push(event)
+      }
+    }
+    await expect(read()).rejects.toThrow("terminal failure")
+    expect(events).toEqual([{ type: "usage", usageRecord }])
+  })
+
+  it("preserves measured usage when fallback text throws", async () => {
+    const failure = new Error("text interrupted")
+    const usageRecord = { usage: { inputTokens: 7 } }
+    const output = {
+      fullStream: (async function* () {
+        yield { type: "usage", usageRecord }
+      })(),
+      textStream: (async function* () {
+        yield "partial"
+        throw failure
+      })(),
+    }
+    const events: unknown[] = []
+    const read = async () => {
+      for await (const event of streamAgentOutputToEvents(output)) events.push(event)
+    }
+
+    await expect(read()).rejects.toBe(failure)
+    expect(events).toEqual([
+      { type: "text-delta", text: "partial" },
+      { type: "usage", usageRecord },
+    ])
+  })
+
   it("preserves data-prefixed stream events before text and finish", async () => {
     const output = (async function* () {
       yield { data: { title: "Title", type: "title" }, transient: true, type: "data-title" }
@@ -668,6 +773,16 @@ describe("agent output helpers", () => {
       },
       { type: "finish" },
     ])
+  })
+
+  it("preserves response timestamps from another realm", () => {
+    const timestamp = runInNewContext('new Date("2026-06-22T20:00:00.000Z")') as Date
+
+    expect(timestamp instanceof Date).toBe(false)
+    expect(toAgentRunResult({
+      response: { id: "resp_1", timestamp },
+      usage: { inputTokens: 1 },
+    }).usageRecord?.response).toEqual({ id: "resp_1", timestamp })
   })
 
   it("includes model metadata in derived raw-result usage records", async () => {

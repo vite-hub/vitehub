@@ -1,6 +1,5 @@
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
-import { isRuntimeRecord } from "./internal/runtime-type.ts"
-import { agentToolJsonSchema } from "./tool-schema.ts"
+import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
+import { agentToolJsonSchema, hasAgentToolStandardSchema } from "./tool-schema.ts"
 import type { AgentInspectionValue, AgentToolInspection } from "./types.ts"
 import type { AgentToolSchema } from "./types.ts"
 
@@ -44,8 +43,8 @@ function standardJsonSchema(value: Record<string, unknown>, direction: "input" |
 
 function toolJsonSchema(value: unknown, direction: "input" | "output"): AgentInspectionValue | undefined {
   if (!isRuntimeRecord(value)) return
-  if ("~standard" in value) return standardJsonSchema(value, direction)
-  if ("jsonSchema" in value) return inspectionValue(value.jsonSchema)
+  if (hasAgentToolStandardSchema(value)) return standardJsonSchema(value, direction)
+  if (Object.hasOwn(value, "jsonSchema")) return inspectionValue(value.jsonSchema)
   return inspectionValue(value)
 }
 

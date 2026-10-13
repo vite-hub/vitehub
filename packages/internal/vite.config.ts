@@ -19,6 +19,7 @@ export default defineConfig({
       "src/object.ts",
       "src/provision.ts",
       "src/provision-state.ts",
+      "src/secret.ts",
       "src/source-scanner.ts",
       "src/vite-stage.ts",
       "src/workspace-inventory.ts",

@@ -25,7 +25,7 @@ export interface ConsoleRequestEvent {
   }
   req?: {
     body?: ReadableStream<Uint8Array> | null
-    context?: { clientAddress?: string }
+    context?: { clientAddress?: string, [key: string]: unknown }
     ip?: string
     headers?: ConsoleHeaders
     json?: () => Promise<unknown>

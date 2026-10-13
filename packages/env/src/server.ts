@@ -43,20 +43,32 @@ function runtimeEnv(event?: unknown): RuntimeEnv {
   return { ...processEnv(), ...getCloudflareEnv(event) }
 }
 
-function readRuntimeSource(entry: RuntimeEnvEntry, env: RuntimeEnv): { found: boolean, value?: unknown } {
+function hasRuntimeName(entry: RuntimeEnvEntry, env: RuntimeEnv, name: string): boolean {
+  return Object.hasOwn(env, name) && env[name] !== undefined && !(entry.source.skipEmpty && env[name] === "")
+}
+
+function readRuntimeSource(entry: RuntimeEnvEntry, env: RuntimeEnv): { found: boolean, name?: string, value?: unknown } {
   for (const name of entry.source.names || [entry.source.name]) {
-    if (Object.hasOwn(env, name) && typeof env[name] !== "undefined" && !(entry.source.skipEmpty && env[name] === "")) {
-      return { found: true, value: env[name] }
-    }
+    if (hasRuntimeName(entry, env, name)) return { found: true, name, value: env[name] }
   }
   return { found: false }
+}
+
+/** Report which kind of name supplied the value, and whether a shadowed conventional name holds another value. */
+function runtimeSourceOrigin(entry: RuntimeEnvEntry, env: RuntimeEnv, source: { found: boolean, name?: string, value?: unknown }): Pick<ServerEnvInspectionEntry, "conflict" | "via"> {
+  const canonical = entry.source.canonical
+  if (!source.found || canonical === undefined || canonical === false) return {}
+  if (source.name !== canonical) return { via: "conventional" }
+  const conflict = (entry.source.names || [entry.source.name])
+    .some(name => name !== canonical && hasRuntimeName(entry, env, name) && env[name] !== source.value)
+  return conflict ? { conflict: true, via: "canonical" } : { via: "canonical" }
 }
 
 function resolvedRuntimeValue(entry: RuntimeEnvEntry | RuntimeProviderEntry, value: unknown, found: boolean, path: string): unknown {
   const resolved = found ? value : entry.default
   if (typeof resolved === "undefined") {
     if (entry.required) {
-      throw missingRequiredEnv(entry.source.kind, `Missing Runtime Env from ${entry.source.kind}.`)
+      throw missingRequiredEnv(entry.source.kind, `Missing Runtime Env from ${entry.source.kind}.`, path)
     }
     return undefined
   }
@@ -332,7 +344,7 @@ async function inspectRegistryEntry(
   }
   if (isRuntimeEnvEntry(value)) {
     const source = readRuntimeSource(value, env)
-    entries.push({ masked: value.secret, ...inspectionPath(path), required: value.required, source: "env", status: inspectionStatus(value, source.value, source.found) })
+    entries.push({ masked: value.secret, ...inspectionPath(path), required: value.required, source: "env", status: inspectionStatus(value, source.value, source.found), ...runtimeSourceOrigin(value, env, source) })
     return
   }
   if (isRuntimeProviderEntry(value)) {
@@ -389,6 +401,7 @@ export function describeServerEnv(registry: EnvRuntimeRegistry): ServerEnvDescri
     if (isRuntimeEnvEntry(value) || isRuntimeProviderEntry(value)) {
       entries.push({
         ...inspectionPath(path),
+        ...(isRuntimeEnvEntry(value) && value.source.canonical && /^[A-Z_][A-Z0-9_]{0,127}$/.test(value.source.canonical) ? { canonicalName: value.source.canonical } : {}),
         source: value.source.kind,
         ...(isRuntimeProviderEntry(value) ? inspectionProvider(value) : {}),
         secret: value.secret,

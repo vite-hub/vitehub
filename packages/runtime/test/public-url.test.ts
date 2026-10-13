@@ -35,6 +35,24 @@ describe("public URL", () => {
     expect(resolvePublicUrl({ agentName: "ambiguous" })).toBeUndefined()
   })
 
+  it.each(["constructor", "toString", "__proto__"])("ignores inherited URL entries for Agent %s", (agentName) => {
+    vi.stubGlobal("__VITEHUB_PUBLIC_URL__", { agents: { discovered: "https://discovered.example.com" } })
+    expect(resolvePublicUrl({ agentName })).toBeUndefined()
+    expect(resolvePublicUrl({ agentName, request: { url: "http://localhost:3000/api" } })).toBe("http://localhost:3000")
+
+    registerPublicUrlAgentName(agentName, "discovered")
+    expect(resolvePublicUrl({ agentName })).toBe("https://discovered.example.com")
+
+    vi.stubGlobal("__VITEHUB_PUBLIC_URL__", { agents: { [agentName]: "https://exact.example.com", discovered: "https://discovered.example.com" } })
+    expect(resolvePublicUrl({ agentName })).toBe("https://exact.example.com")
+  })
+
+  it.each(["constructor", "toString", "__proto__"])("ignores inherited discovered URL entries for %s", (discoveredName) => {
+    vi.stubGlobal("__VITEHUB_PUBLIC_URL__", { agents: {}, url: "https://agents.example.com" })
+    registerPublicUrlAgentName("declared", discoveredName)
+    expect(resolvePublicUrl({ agentName: "declared" })).toBe("https://agents.example.com")
+  })
+
   it("replaces aliases when another generated registry is installed", () => {
     vi.stubGlobal("__VITEHUB_PUBLIC_URL__", { agents: { first: "https://first.example.com", second: "https://second.example.com" } })
     registerPublicUrlAgentName("declared", "first")

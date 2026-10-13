@@ -5,11 +5,17 @@
     "rootDir": "..",
     "baseUrl": "../..",
     "paths": {
+      "@vite-hub/runtime/internal/grant": [
+        "packages/runtime/src/internal/grant.ts"
+      ],
       "@vite-hub/internal/*": [
         "packages/internal/src/*.ts"
       ],
       "@vite-hub/runtime": [
         "packages/runtime/src/index.ts"
+      ],
+      "@vite-hub/agent/env-identity": [
+        "packages/agent/src/env-identity.ts"
       ]
     }
   },

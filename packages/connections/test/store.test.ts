@@ -4,7 +4,7 @@ import { importSealKey, seal } from "@vite-hub/env/seal"
 import { drizzle } from "drizzle-orm/libsql"
 import { drizzle as drizzleD1 } from "drizzle-orm/d1"
 import { Miniflare } from "miniflare"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import { createDatabaseConnectionStore } from "../src/store.ts"
 
@@ -25,6 +25,23 @@ describe("stored Connection scopes", () => {
       client.close()
     }
   })
+})
+
+it("gives the Connections bridge no standing administrator access", async () => {
+  const client = createClient({ url: ":memory:" })
+  try {
+    const store = createDatabaseConnectionStore({ db: drizzle(client), encryptionKey: new Uint8Array(32).fill(9) })
+    await store.secrets.replace({ key: "connection/mail", value: "token", expectedRevision: null })
+    const actor = { id: "connections", kind: "service" } as const
+    await expect(store.bridge.read({ env: {}, keys: ["connection/mail"] })).rejects.toMatchObject({ code: "ENV_BRIDGE_DENIED" })
+    // @ts-expect-error Only Env creates administrator contexts.
+    await expect(store.bridge.activity({ actor, admin: true }, "connection/mail")).rejects.toMatchObject({ code: "ENV_BRIDGE_UNTRUSTED" })
+    // @ts-expect-error Only Env creates actor contexts.
+    await expect(store.bridge.activity({ actor }, "connection/mail")).rejects.toMatchObject({ code: "ENV_BRIDGE_UNTRUSTED" })
+  }
+  finally {
+    client.close()
+  }
 })
 
 it("migrates sealed grants and pending OAuth transactions from the legacy tables", async () => {
@@ -130,6 +147,22 @@ describe("approval execution leases", () => {
       client.close()
     }
   })
+})
+
+it("removes authorizations at their exact expiration timestamp", async () => {
+  const client = createClient({ url: ":memory:" })
+  const now = Date.now()
+  const clock = vi.spyOn(Date, "now").mockReturnValue(now)
+  try {
+    const store = createDatabaseConnectionStore({ db: drizzle(client), encryptionKey: new Uint8Array(32).fill(9) })
+    await store.authorizations.put({ actor: "user:local", expiresAt: now, name: "mail", redirectUri: "http://127.0.0.1/callback", state: "expired", verifier: "verifier" })
+    await store.authorizations.put({ actor: "user:local", expiresAt: now + 60_000, name: "mail", redirectUri: "http://127.0.0.1/callback", state: "current", verifier: "verifier" })
+    await expect(store.authorizations.take("expired")).resolves.toBeUndefined()
+    await expect(store.authorizations.take("current")).resolves.toMatchObject({ state: "current" })
+  } finally {
+    clock.mockRestore()
+    client.close()
+  }
 })
 
 it("updates Connection metadata atomically at the token revision", async () => {

@@ -3,11 +3,12 @@ import * as v from "valibot"
 
 import { consoleAgentInvokerProfiles, getConsoleAgentDefinition } from "./agents.ts"
 import { getConsoleInvocations } from "./invocations.ts"
-import { assertConsoleRequest, consoleRequestJSON, consoleRequestURL } from "./request.ts"
+import { withConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
+import { assertConsoleRequest, consoleRequestError, consoleRequestJSON, consoleRequestURL } from "./request.ts"
 import { invocationUsage } from "./usage.ts"
 
 import type { ConsoleRequestEvent } from "./request.ts"
-import type { AgentInvocationDeleteOutcome, AgentInvocationRecord, AgentInvocationRerunUnavailableReason, AgentInvocationSummary } from "@vite-hub/agent"
+import type { AgentInvocationCancelResult, AgentInvocationDeleteOutcome, AgentInvocationRecord, AgentInvocationRerunUnavailableReason, AgentInvocationSummary } from "@vite-hub/agent"
 import type { TraceEventLogEntry } from "@vite-hub/runtime"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
@@ -17,6 +18,7 @@ type ConsoleInvocationRerun =
 
 /** Record actions that Console invoke access allows. */
 interface ConsoleInvocationActions {
+  cancel: { available: boolean }
   delete: { available: boolean, reason?: "store-delete-unavailable" }
   rerun: ConsoleInvocationRerun
 }
@@ -41,6 +43,8 @@ function observationCursor(observations: readonly TraceEventLogEntry[], count = 
   }
   return `${count.toString(36)}-${(fnv >>> 0).toString(36)}-${(djb >>> 0).toString(36)}`
 }
+
+const cancelActionSchema = v.strictObject({ action: v.literal("cancel") })
 
 const deleteActionSchema = v.strictObject({ action: v.literal("delete") })
 const terminalStatuses: ReadonlySet<AgentInvocationSummary["status"]> = new Set(["cancelled", "completed", "failed"])
@@ -70,6 +74,7 @@ function invocationActions(invocation: AgentInvocationRecord): ConsoleInvocation
     ? { available: false, reason: "invoker-profile-unavailable" }
     : input
   return {
+    cancel: { available: true },
     delete: getConsoleInvocations().supportsDelete
       ? { available: terminalStatuses.has(invocation.status) }
       : { available: false, reason: "store-delete-unavailable" },
@@ -78,22 +83,21 @@ function invocationActions(invocation: AgentInvocationRecord): ConsoleInvocation
 }
 
 function requestedInvocationId(event: ConsoleRequestEvent): string {
+  // Both route and RPC adapters provide an encoded URL; context params can already be decoded.
   const pathId = consoleRequestURL(event).pathname.split("/").at(-1)
-  return event.context?.params?.id ?? (pathId ? decodeURIComponent(pathId) : "")
+  if (!pathId) return ""
+  try {
+    return decodeURIComponent(pathId)
+  }
+  catch {
+    throw consoleRequestError(400, "Malformed invocation id.")
+  }
 }
 
 /** Delete one terminal invocation after the Console checks invoke access for its Agent. */
-export async function deleteConsoleInvocation(event: ConsoleRequestEvent): Promise<{ id: string, outcome: AgentInvocationDeleteOutcome }> {
+async function deleteConsoleInvocationAction(event: ConsoleRequestEvent, body: unknown): Promise<{ id: string, outcome: AgentInvocationDeleteOutcome }> {
   assertConsoleRequest(event, ["POST"])
   const id = requestedInvocationId(event)
-  let body: unknown
-  try {
-    body = await consoleRequestJSON(event)
-  }
-  catch (error) {
-    if (error instanceof Error && "statusCode" in error) throw error
-    throw actionError(400, "Malformed invocation action.")
-  }
   if (!v.safeParse(deleteActionSchema, body).success) throw actionError(400, "Unsupported invocation action.")
   const invocations = getConsoleInvocations()
   const summary = await invocations.getSummary(id)
@@ -104,6 +108,42 @@ export async function deleteConsoleInvocation(event: ConsoleRequestEvent): Promi
   if (outcome === "not-found") throw notFound()
   if (outcome === "not-terminal") throw actionError(409, "Only completed, failed, or cancelled invocations can be deleted.")
   return { id, outcome }
+}
+
+/** Request an abort for an invocation, including a stale local execution, after the Console checks invoke access for its Agent. */
+async function cancelConsoleInvocationAction(event: ConsoleRequestEvent, body: unknown): Promise<AgentInvocationCancelResult> {
+  assertConsoleRequest(event, ["POST"])
+  const id = requestedInvocationId(event)
+  if (!v.safeParse(cancelActionSchema, body).success) throw actionError(400, "Unsupported invocation action.")
+  const invocations = getConsoleInvocations()
+  const summary = await invocations.getSummary(id)
+  if (!summary) throw notFound()
+  if (!summary.agentName || !getConsoleAgentDefinition(summary.agentName)) throw actionError(403, "Cancelling this invocation requires Console invoke access for its Agent.")
+  const result = await invocations.cancel(id)
+  if (result.outcome === "not-found") throw notFound()
+  if (result.outcome === "unavailable") throw actionError(503, "The invocation journal did not record the cancel request.")
+  return result
+}
+
+async function readInvocationAction(event: ConsoleRequestEvent): Promise<unknown> {
+  assertConsoleRequest(event, ["POST"])
+  try {
+    return await consoleRequestJSON(event)
+  }
+  catch (error) {
+    if (error instanceof Error && "statusCode" in error) throw error
+    throw actionError(400, "Malformed invocation action.")
+  }
+}
+
+/** Delete one terminal invocation after the Console checks invoke access for its Agent. */
+export async function deleteConsoleInvocation(event: ConsoleRequestEvent): Promise<{ id: string, outcome: AgentInvocationDeleteOutcome }> {
+  return deleteConsoleInvocationAction(event, await readInvocationAction(event))
+}
+
+/** Request an abort for an invocation, including a stale local execution, after the Console checks invoke access for its Agent. */
+export async function cancelConsoleInvocation(event: ConsoleRequestEvent): Promise<AgentInvocationCancelResult> {
+  return cancelConsoleInvocationAction(event, await readInvocationAction(event))
 }
 
 /** Read one invocation with its observations and the actions that Console access allows. */
@@ -137,11 +177,14 @@ export async function getConsoleInvocationDetail(event: ConsoleRequestEvent): Pr
 }
 
 // The devframe `invocation` operation reads one record with GET and changes it with POST.
-const invocationHandler = async (event: ConsoleRequestEvent): Promise<ConsoleInvocationDetail | Awaited<ReturnType<typeof deleteConsoleInvocation>>> => {
+const invocationHandler = async (event: ConsoleRequestEvent): Promise<ConsoleInvocationDetail | Awaited<ReturnType<typeof deleteConsoleInvocation>> | AgentInvocationCancelResult> => {
   assertConsoleRequest(event, ["GET", "POST"])
-  return (event.method ?? event.req?.method ?? event.node?.req?.method) === "POST"
-    ? await deleteConsoleInvocation(event)
-    : await getConsoleInvocationDetail(event)
+  if ((event.method ?? event.req?.method ?? event.node?.req?.method) !== "POST") return getConsoleInvocationDetail(event)
+  const body = await readInvocationAction(event)
+  return v.safeParse(cancelActionSchema, body).success
+    ? cancelConsoleInvocationAction(event, body)
+    : deleteConsoleInvocationAction(event, body)
 }
 
-export default invocationHandler
+const guardedHandler: ConsoleAccessRoute<typeof invocationHandler> = withConsoleAccess(invocationHandler)
+export default guardedHandler

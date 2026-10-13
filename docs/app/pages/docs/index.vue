@@ -26,56 +26,35 @@ const { page } = useDocsPage(
   getDocsPageFallback(docsPage),
 );
 
-const contentTocVariants = useUIConfig("contentToc");
-const tocLinks = computed(() => page.value?.body?.toc?.links || []);
-
+// The product catalog has no table of contents. Its rows are the navigation.
 const docsPageUi = {
-  root: "lg:!grid-cols-[minmax(0,1fr)_var(--vh-toc-width)] lg:!gap-12",
+  root: "lg:!grid-cols-1 lg:!gap-0",
   center: "lg:!col-span-1",
-  right: "hidden lg:block lg:!col-span-1 lg:w-[var(--vh-toc-width)]",
-};
-
-const mobileTocUi = {
-  root: "!top-[var(--ui-header-height)] !z-20 !mx-0 !max-h-[calc(100dvh-var(--ui-header-height))] !bg-default !px-4 sm:!px-8 lg:!hidden",
-  container: "!border-s-0 !border-b !border-default !ps-0 !pt-2 !pb-2",
-  trigger: "!py-2 text-sm font-medium text-muted hover:text-highlighted",
-  title: "text-sm font-medium",
-  content: "!pb-2",
+  right: "hidden",
 };
 </script>
 
 <template>
   <UPage v-if="page" :ui="docsPageUi">
-    <UContentToc
-      v-if="tocLinks.length"
-      class="lg:hidden"
-      :highlight="contentTocVariants.highlight ?? true"
-      :highlight-color="contentTocVariants.highlightColor"
-      :highlight-variant="contentTocVariants.highlightVariant"
-      :color="contentTocVariants.color"
-      title="On this page"
-      :links="tocLinks"
-      :ui="mobileTocUi"
-    />
-
     <UPageHeader :title="page.title" :description="page.description">
       <template #links>
         <DocsPageHeaderLinks />
       </template>
     </UPageHeader>
 
-    <UPageBody prose class="docs-content pb-0">
+    <UPageBody prose class="docs-content docs-catalog-content pb-0">
       <ContentRenderer :value="page" />
     </UPageBody>
-
-    <template #right>
-      <DocsAsideRight :page="page" />
-    </template>
   </UPage>
 </template>
 
 <style scoped>
 .docs-content :deep(h1:first-of-type) {
   display: none;
+}
+
+/* The catalog spans the full page width. ContentRenderer wraps the page in one div. Its intro children keep the measure. */
+.docs-catalog-content :deep(> div > :not(.vh-docs-catalog)) {
+  max-width: var(--vh-content-width);
 }
 </style>

@@ -1,7 +1,7 @@
 ---
 title: Trace
 description: Render a derived runtime trace run and its timed steps in a compact disclosure.
-navigation.order: 35
+navigation.order: 36
 navigation.group: Agent work
 icon: i-ph-path-light
 ---

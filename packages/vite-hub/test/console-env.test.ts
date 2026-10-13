@@ -9,7 +9,10 @@ import { writeConsoleNitroPlugin } from "../src/console/plugin.ts"
 import type { ConsoleInvocationScope } from "../src/console/internal.ts"
 import { installConsoleEnv, manageConsoleEnv } from "../src/console/runtime/server/env.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
-import envHandler from "../src/console/runtime/server/env.get.ts"
+import envHandlerRoute from "../src/console/runtime/server/env.get.ts"
+import { allowed } from "./support/console-access.ts"
+
+const envHandler = allowed(envHandlerRoute)
 
 // SAFETY: Console state uses the same optional symbol keys in runtime and tests.
 const scope = globalThis as ConsoleInvocationScope

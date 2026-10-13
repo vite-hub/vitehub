@@ -42,11 +42,26 @@ const projectRootDirectoryMarkers = [
 ]
 const projectRootFileMarkers = [
   ["package.json"],
+  ["nuxt.config.ts"],
+  ["nuxt.config.mts"],
+  ["nuxt.config.js"],
+  ["nuxt.config.mjs"],
 ]
 
 export const VITEHUB_ENV_PUBLIC_ID = "#vitehub/env/public" as const
 export const VITEHUB_ENV_SERVER_ID = "#vitehub/env/server" as const
 export const VITEHUB_ENV_DESCRIPTION_ID = "#vitehub/env/description" as const
+
+// Config hooks for existing ViteHub packages need the complete merged value,
+// while newer hooks can return only additions for Vite's array merge behavior.
+export function createNoExternalMerger(packageName: string) {
+  return (current: NoExternalValue): NoExternalValue => {
+    if (current === true) return true
+    if (!current) return [packageName]
+    const values = Array.isArray(current) ? current : [current]
+    return values.includes(packageName) ? values : [...values, packageName]
+  }
+}
 
 // Vite concatenates arrays when it merges a config hook result. Return only the missing entries.
 export function createNoExternalAddition(...packageNames: string[]) {
@@ -122,7 +137,7 @@ export function resolveViteHubProjectRoot(root: string, options: { projectRoot?:
 
   if (basename(resolvedRoot) === "app") {
     const parent = dirname(resolvedRoot)
-    if (parent !== sharedTemporaryRoot && hasProjectRootDirectoryMarker(parent)) return parent
+    if (parent !== sharedTemporaryRoot && (hasProjectRootDirectoryMarker(parent) || hasProjectRootFileMarker(parent, ["nuxt.config.ts", "nuxt.config.mts", "nuxt.config.js", "nuxt.config.mjs"]))) return parent
   }
 
   let current = resolvedRoot
@@ -142,7 +157,7 @@ export function resolveViteHubGeneratedRoot(config: {
 }): string {
   return config[VITEHUB_GENERATED_ROOT]
     ? resolve(config[VITEHUB_GENERATED_ROOT])
-    : resolve(config.root ?? process.cwd(), ".vitehub")
+    : resolve(resolveViteHubProjectRoot(config.root ?? process.cwd()), ".vitehub")
 }
 
 function hasProjectRootDirectoryMarker(root: string): boolean {
@@ -159,9 +174,14 @@ function hasProjectRootDirectoryMarker(root: string): boolean {
 
 function hasProjectRootMarker(root: string): boolean {
   if (hasProjectRootDirectoryMarker(root)) return true
-  for (const marker of projectRootFileMarkers) {
+  return hasProjectRootFileMarker(root, projectRootFileMarkers.flat())
+}
+
+function hasProjectRootFileMarker(root: string, markers: string[][] | string[]): boolean {
+  for (const marker of markers) {
+    const path = Array.isArray(marker) ? marker : [marker]
     try {
-      if (statSync(resolve(root, ...marker)).isFile()) return true
+      if (statSync(resolve(root, ...path)).isFile()) return true
     }
     catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error

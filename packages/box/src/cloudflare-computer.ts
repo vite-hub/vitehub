@@ -306,15 +306,27 @@ async function readStream(stream: ReadableStream<Uint8Array>, signal: AbortSigna
   const reader = stream.getReader();
   const chunks: Uint8Array[] = [];
   let size = 0;
+  let abort: (() => void) | undefined;
+  const aborted = signal
+    ? new Promise<never>((_resolve, reject) => {
+        abort = () => {
+          void reader.cancel(signal.reason).catch(() => {});
+          reject(signal.reason);
+        };
+        signal.addEventListener("abort", abort, { once: true });
+      })
+    : undefined;
   try {
     while (true) {
       signal?.throwIfAborted();
-      const { done, value } = await reader.read();
+      const { done, value } = await (aborted ? Promise.race([reader.read(), aborted]) : reader.read());
+      signal?.throwIfAborted();
       if (done) break;
       chunks.push(value);
       size += value.byteLength;
     }
   } finally {
+    if (abort) signal?.removeEventListener("abort", abort);
     reader.releaseLock();
   }
   const result = new Uint8Array(size);

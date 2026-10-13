@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import { agentResultKind } from "../src/agent-output.ts"
-import { hasRuntimeType, runtimeType } from "@vite-hub/runtime/internal/runtime-type"
+import { hasRuntimeType, runtimeType } from "../src/internal/runtime-type.ts"
 
 describe("Agent runtime representation guards", () => {
   it("preserves JavaScript representation categories", () => {

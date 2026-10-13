@@ -16,11 +16,11 @@ export interface StubGitHubSourceOptions {
   treeTruncated?: boolean
 }
 
-export function createTarGz(files: Record<string, string>) {
+export function createTarGz(files: Record<string, string>, prefix = "archive-main/") {
   const blocks: Buffer[] = []
   for (const [path, value] of Object.entries(files)) {
     const content = Buffer.from(value)
-    const archivePath = `archive-main/${path}`
+    const archivePath = `${prefix}${path}`
     const headerPath = needsPaxPath(archivePath) ? writePaxPath(blocks, archivePath) : archivePath
     writeTarEntry(blocks, headerPath, "0", content)
   }

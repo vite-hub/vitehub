@@ -1,14 +1,13 @@
-import { createRuntimeContext } from "@vite-hub/runtime"
+import { createExecutionContext, createRuntimeContext } from "@vite-hub/runtime"
 
 import { agentDiagnostics } from "./agent-diagnostics.ts"
 import { agentErrorMessage } from "./agent-error.ts"
-import { isResolvedAgentTriggerHandledInvocation, resolveAgentTriggerInvocation, reserveAgentChannelItem, runAgent } from "./index.ts"
+import { isResolvedAgentTriggerHandledInvocation, reserveAgentChannelItem, runAgent } from "./index.ts"
 import { AgentInvocationClaimConflict, exclusiveAgentInvocation, inheritedAgentInvocationClaim, type AgentInvocationJournal, pendingAgentInvocationAnnotation, pendingAgentInvocationAnnotations } from "./invocations.ts"
 import { channelMessageRunId } from "./internal/channel-run-id.ts"
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
-import { isRuntimeRecord } from "./internal/runtime-type.ts"
+import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { agentToolJsonSchema } from "./tool-schema.ts"
-import { agentChannelOptions } from "./trigger-runtime.ts"
+import { agentChannelOptions, resolveAgentTriggerInvocation } from "./trigger-runtime.ts"
 
 import type {
   AgentChannelDispatchItem,
@@ -18,6 +17,7 @@ import type {
   AgentInput,
   AgentRuntimeConfig,
   AgentRuntimeContext,
+  ResolvedAgentRuntimeContext,
 } from "./types.ts"
 
 export { channelMessageRunId }
@@ -34,6 +34,8 @@ export interface ReplayChannelOptions<TRuntimeConfig extends AgentRuntimeConfig 
   dryRun?: boolean
   /** Replay items that already have an Invocation. Each replayed item gets a new Invocation ID. */
   force?: boolean
+  /** Label recorded as triggeredBy on each replayed Invocation. Non-empty, at most 512 characters. */
+  label?: string
   /** Maximum number of history items to read. Omit it to read every page. */
   limit?: number
   /** Collection query, validated by the Collection's query schema. */
@@ -123,6 +125,9 @@ export function describeChannelHistory<TRuntimeConfig extends AgentRuntimeConfig
 }
 
 function assertReplayOptions<TRuntimeConfig extends AgentRuntimeConfig>(options: ReplayChannelOptions<TRuntimeConfig>): void {
+  if (options.label !== undefined && (!hasRuntimeType(options.label, "string") || !options.label.trim() || options.label.length > 512)) {
+    throw agentDiagnostics.AGENT_R0934({ message: "[vitehub] replayChannel() label must be a non-empty string of at most 512 characters." })
+  }
   if (options.limit !== undefined && (!Number.isSafeInteger(options.limit) || options.limit < 1)) {
     throw agentDiagnostics.AGENT_R0934({ message: "[vitehub] replayChannel() limit must be a positive integer." })
   }
@@ -161,6 +166,8 @@ interface ChannelItemRun<TRuntimeConfig extends AgentRuntimeConfig> {
   channel: string
   dryRun?: boolean
   force?: boolean
+  label?: string
+  verifyWebhook?: false
   invocations: AgentInput<AgentRuntimeContext<TRuntimeConfig>>["invocations"]
   runtime: AgentRuntimeContext<TRuntimeConfig>
   triggerId: string
@@ -203,11 +210,21 @@ async function runChannelItem<TRuntimeConfig extends AgentRuntimeConfig>(
   const id = run.force ? `${stableId}:${crypto.randomUUID()}` : stableId
   let reservation: AgentInvocationJournal<TRuntimeConfig> | undefined
   try {
-    const itemRuntime = { ...run.runtime, ...(run.invocations ? { [exclusiveAgentInvocation]: true } : {}), memo: createMemo(), run: { ...run.runtime.run, runId: id } }
+    const itemRuntime = { ...run.runtime, ...(run.invocations ? { [exclusiveAgentInvocation]: true } : {}), memo: createMemo(), run: { ...run.runtime.run, channelId: run.channel, runId: id, annotations: {
+      ...run.runtime.run?.annotations,
+      "vitehub.channel.key": key,
+      ...(run.label !== undefined ? { triggeredBy: run.label } : {}),
+    } } }
     if (!run.force && run.invocations) reservation = await reserveAgentChannelItem(run.agent, itemRuntime)
-    const invocation = await resolveAgentTriggerInvocation(run.agent, itemRuntime, run.triggerId, item)
+    // SAFETY: Execution context normalization supplies the resolved runtime configuration.
+    const triggerContext = createExecutionContext(itemRuntime) as ResolvedAgentRuntimeContext<TRuntimeConfig>
+    const invocation = await resolveAgentTriggerInvocation(run.agent, triggerContext, run.triggerId, item, { verifyWebhook: run.verifyWebhook })
     if (isResolvedAgentTriggerHandledInvocation(invocation)) { await reservation?.finish("completed"); return { id, key, reason: "handled", status: "skipped" } }
-    const runMetadata = { ...itemRuntime.run, ...invocation.run, runId: id }
+    const runMetadata = { ...itemRuntime.run, ...invocation.run, runId: id, annotations: {
+      ...(invocation.run ?? itemRuntime.run)?.annotations,
+      "vitehub.channel.key": key,
+      ...(run.label !== undefined ? { triggeredBy: run.label } : {}),
+    } }
     if (reservation && !await reservation.setRunMetadata({ ...runMetadata, annotations: pendingAgentInvocationAnnotations(runMetadata.annotations) })) {
       throw new Error("Could not persist the claimed Invocation run metadata.")
     }
@@ -266,8 +283,9 @@ export async function replayChannel<TRuntimeConfig extends AgentRuntimeConfig = 
   const result: ReplayChannelResult = { failed: 0, items: [], nextCursor: options.cursor ?? null, processed: 0, skipped: 0 }
   let cursor = options.cursor
   let remaining = options.limit ?? Number.POSITIVE_INFINITY
+  const seenCursors = new Set<string>(cursor ? [cursor] : [])
 
-  const replay = { agent, agentName, channel, dryRun: options.dryRun, force: options.force, invocations, runtime, triggerId }
+  const replay = { agent, agentName, channel, dryRun: options.dryRun, force: options.force, label: options.label, verifyWebhook: false as const, invocations, runtime, triggerId }
 
   try {
     while (remaining > 0 && !options.signal?.aborted) {
@@ -286,15 +304,21 @@ export async function replayChannel<TRuntimeConfig extends AgentRuntimeConfig = 
         }
         throw error
       }
-      for (const item of page.items.slice(0, Number.isFinite(remaining) ? remaining : undefined)) {
-        const replayed = await runChannelItem(replay, assertItemKey(history.key(item), channel, "history key()"), item)
+      result.nextCursor = page.nextCursor
+      const itemKeys = page.items.map(item => assertItemKey(history.key(item), channel, "history key()"))
+      if (page.nextCursor && page.items.length && seenCursors.has(page.nextCursor)) {
+        throw agentDiagnostics.AGENT_R0936({ message: `[vitehub] Channel "${channel}" history returned a repeated pagination cursor.` })
+      }
+      if (page.nextCursor) seenCursors.add(page.nextCursor)
+      const pageItems = page.items.slice(0, Number.isFinite(remaining) ? remaining : undefined)
+      for (const [index, item] of pageItems.entries()) {
+        const replayed = await runChannelItem(replay, itemKeys[index]!, item)
         result.items.push(replayed)
         if (replayed.status === "failed") result.failed += 1
         else if (replayed.status === "skipped") result.skipped += 1
         else result.processed += 1
         remaining -= 1
       }
-      result.nextCursor = page.nextCursor
       if (!page.nextCursor || !page.items.length) break
       cursor = page.nextCursor
     }
@@ -359,7 +383,7 @@ export interface ChannelReplayRequestOptions<TRuntimeConfig extends AgentRuntime
   signal?: AbortSignal
 }
 
-const replayRequestKeys = new Set(["channel", "cursor", "describe", "dryRun", "force", "limit", "query"])
+const replayRequestKeys = new Set(["channel", "cursor", "describe", "dryRun", "force", "label", "limit", "query"])
 const replayErrorStatus: Record<string, number> = {
   AGENT_R0931: 404,
   AGENT_R0932: 409,
@@ -390,12 +414,13 @@ export async function handleChannelReplayRequest<TRuntimeConfig extends AgentRun
   if (!isRuntimeRecord(body)) return replayJson({ message: "Channel replay request must be an object." }, 400)
   const unsupported = Object.keys(body).find(key => !replayRequestKeys.has(key))
   if (unsupported) return replayJson({ message: `Unsupported Channel replay field: ${unsupported}.` }, 400)
-  const { channel, cursor, describe, dryRun, force, limit, query } = body
+  const { channel, cursor, describe, dryRun, force, label, limit, query } = body
   if (!hasRuntimeType(channel, "string") || !channel) return replayJson({ message: "Channel replay requires a Channel name." }, 400)
   if ([describe, dryRun, force].some(value => value !== undefined && !hasRuntimeType(value, "boolean"))) {
     return replayJson({ message: "describe, dryRun, and force must be booleans." }, 400)
   }
   if (cursor !== undefined && !hasRuntimeType(cursor, "string")) return replayJson({ message: "cursor must be a string." }, 400)
+  if (label !== undefined && (!hasRuntimeType(label, "string") || !label.trim() || label.length > 512)) return replayJson({ message: "label must be a non-empty string of at most 512 characters." }, 400)
   if (limit !== undefined && !hasRuntimeType(limit, "number")) return replayJson({ message: "limit must be a number." }, 400)
   if (query !== undefined && !isHistoryQuery(query)) return replayJson({ message: "query values must be strings or string arrays." }, 400)
   const maxLimit = options.maxLimit ?? Number.POSITIVE_INFINITY
@@ -405,6 +430,7 @@ export async function handleChannelReplayRequest<TRuntimeConfig extends AgentRun
       ...(cursor ? { cursor } : {}),
       ...(dryRun === true ? { dryRun: true } : {}),
       ...(force === true ? { force: true } : {}),
+      ...(label !== undefined ? { label } : {}),
       ...(limit !== undefined || Number.isFinite(maxLimit) ? { limit: Math.min(limit ?? maxLimit, maxLimit) } : {}),
       ...(query ? { query } : {}),
       ...(options.runtime ? { runtime: options.runtime } : {}),

@@ -106,6 +106,7 @@ it.each(["index", "custom"] as const)(
       for (const invalid of ["50", "%", encodeURIComponent(JSON.stringify({ version: 1 }))]) {
         await expect(query({ ...options, cursor: invalid })).rejects.toMatchObject({
           statusCode: 400,
+          statusMessage: "Invalid usage cursor",
         });
       }
     } finally {

@@ -608,8 +608,21 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
         json(response, { error: "Malformed invocation action." }, 400)
         return true
       }
-      if (!(input instanceof Object) || Array.isArray(input) || Object.keys(input).length !== 1 || Reflect.get(input, "action") !== "delete") {
+      if (!(input instanceof Object) || Array.isArray(input) || Object.keys(input).length !== 1 || !["cancel", "delete"].includes(String(Reflect.get(input, "action")))) {
         json(response, { error: "Unsupported invocation action." }, 400)
+        return true
+      }
+      if (Reflect.get(input, "action") === "cancel") {
+        const cancelOutcome = await invocations.cancel(id)
+        if (cancelOutcome.outcome === "not-found") {
+          json(response, { error: "Invocation not found" }, 404)
+          return true
+        }
+        if (cancelOutcome.outcome === "terminal") {
+          json(response, { error: "Only pending or running invocations can be cancelled." }, 409)
+          return true
+        }
+        json(response, { id, outcome: cancelOutcome.outcome })
         return true
       }
       const outcome = await invocations.delete(id)
@@ -689,6 +702,23 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
       emailOutbox ??= captureEmailOutbox()
       await emailOutbox
       json(response, { kind: "record-table", records: readEmailOutboxConsoleRecords(), section })
+      return true
+    }
+    if (section === "databases") {
+      // Console search reads the Database catalog, like the real definitions route.
+      json(response, {
+        definitions: [{
+          fields: [
+            { label: "Mode", value: "Default" },
+            { label: "Tables", value: databaseFixture.tables.map(table => table.name).join(", ") },
+          ],
+          file: "server/database/schema.ts",
+          name: databaseFixture.schema,
+          source: "database",
+        }],
+        kind: "definition-catalog",
+        section,
+      })
       return true
     }
     if (section === "schedules") {

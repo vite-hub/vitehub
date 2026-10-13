@@ -1,4 +1,4 @@
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
+import { hasRuntimeType } from "../src/internal/runtime-type.ts"
 import { execFile, spawn } from "node:child_process"
 import { once } from "node:events"
 import { mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from "node:fs/promises"
@@ -19,6 +19,7 @@ const childProcessTimeout = 60_000
 const packedPackages = [
   "agent",
   "box",
+  "env",
   "markdown-template",
   "rate-limit",
   "runtime",

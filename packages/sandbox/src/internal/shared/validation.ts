@@ -5,12 +5,13 @@ export const VALIDATION_FAILED = 'Validation failed'
 export interface ValidationIssue {
   message: string
   path?: readonly unknown[]
-  [key: string]: unknown
 }
 
-export interface StandardSchemaValidationResult<TOutput = unknown> {
+export type StandardSchemaValidationResult<TOutput = unknown> = {
   value: TOutput
-  issues?: readonly ValidationIssue[]
+  issues?: undefined
+} | {
+  issues: readonly ValidationIssue[]
 }
 
 export interface StandardSchemaValidator<TInput = unknown, TOutput = TInput> {
@@ -57,7 +58,13 @@ function isObject(value: unknown): value is Record<string, unknown> {
 function hasStandardValidator<TInput, TOutput>(
   value: unknown,
 ): value is StandardSchemaValidator<TInput, TOutput> {
-  return isObject(value) && '~standard' in value && isObject(value['~standard']) && typeof value['~standard'].validate === 'function'
+  if (!isObject(value))
+    return false
+
+  // Lazy schema getters can create the own marker when first read.
+  const standard = value['~standard']
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Standard Schema validators cross the public boundary and must expose a callable validate method.
+  return Object.hasOwn(value, '~standard') && isObject(standard) && typeof standard.validate === 'function'
 }
 
 function isErrorWithHttpMetadata(error: unknown): error is Error & ValidationErrorLike {
@@ -160,7 +167,7 @@ export async function readValidatedPayload<TInput>(
 ): Promise<unknown> {
   if (hasStandardValidator<TInput, unknown>(validate)) {
     const result = await validate['~standard'].validate(payload)
-    if (result.issues?.length) {
+    if (result.issues !== undefined) {
       throw createValidationError(options?.onError?.({
         issues: result.issues,
         value: payload,

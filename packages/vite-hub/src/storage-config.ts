@@ -20,11 +20,15 @@ export function withDataDir(options: ViteHubOptions): ViteHubOptions {
     ? { ...store, base: store.base ?? join(root, "blob", ...(name ? [name] : [])) }
     : store
   const kv = options.kv === true ? { driver: "fs-lite" as const } : options.kv
+  const cache = options.cache === true || (options.cache && options.cache.driver === "fs-lite" && !options.cache.base)
+    ? { driver: "fs-lite" as const, base: join(root, "cache") }
+    : options.cache
   const blob = options.blob === true ? { driver: "fs" as const } : options.blob
   const agent = options.agent === true ? {} : options.agent
   const state = agent && agent.providers?.state
   return {
     ...options,
+    ...(cache ? { cache } : {}),
     dataDir: root,
     ...(kv ? { kv: "stores" in kv
       ? { ...kv, stores: Object.fromEntries(Object.entries(kv.stores).map(([name, store]) => [name, kvStore(store, name)])) }

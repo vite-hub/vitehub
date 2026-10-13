@@ -85,7 +85,7 @@ describe("built-in Agent Driver selection", () => {
     expect(driver).toMatchObject({ kind: "provider", permissions: "ask", provider });
   });
 
-  it.each(["ask", "allow-edits", "allow-all"] as const)("preserves explicit %s provider permissions", (permissions) => {
+  it.each(["ask", "allow-edits", "allow-edits-unattended", "allow-all"] as const)("preserves explicit %s provider permissions", (permissions) => {
     for (const provider of ["codex", "claude-code"] as const) {
       expect(normalizeAgentDriver({ driver: { kind: provider, permissions } })).toMatchObject({
         kind: "provider",

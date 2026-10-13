@@ -1,4 +1,4 @@
 title: Frameworks and hosts
 icon: i-lucide-network
-order: 50
-lanes: [agents, server-primitives]
+order: 71
+category: Platform

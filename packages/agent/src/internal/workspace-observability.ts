@@ -3,7 +3,7 @@ import type {
   WorkspaceMaterializeSourcesProgressEvent,
   WorkspacePrepareSessionProgressEvent,
 } from "@vite-hub/workspace"
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
+import { hasRuntimeType } from "./runtime-type.ts"
 
 interface WorkspaceSetupObserversOptions {
   invocationId?: string

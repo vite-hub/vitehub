@@ -1,12 +1,12 @@
 ---
 title: Chat
 description: Render an AI SDK message list that follows streaming output and keeps the reader's scroll position.
-navigation.order: 10
+navigation.order: 20
 navigation.group: Chat
 icon: i-ph-chat-circle-text-light
 ---
 
-`AgentChat` renders AI SDK `UIMessage[]` as a scrollable message log. It follows streaming output while the reader stays at the end, and it stops following when the reader scrolls up. Use it for any chat surface. Pair it with [`AgentChatPrompt`](/docs/ui/chat-prompt) for input.
+`AgentChat` is the default Console conversation surface. It renders AI SDK `UIMessage[]` as a scrollable message log, follows a live reply while the reader is at the end, and leaves the reader in place when they scroll back through the run. Pair it with [`AgentChatPrompt`](/docs/ui/chat-prompt) when the view accepts input.
 
 ::component-preview{name="ChatExample"}
 ::
@@ -40,20 +40,20 @@ function submit({ text, files }: AgentChatPromptSubmit) {
 
 ViteHub's `useChat()` wrapper from `vite-hub/agent/vue` returns the same values and adds the ViteHub route and typed Agent metadata.
 
-Give the chat a height, for example `h-dvh` or a grid row. The viewport scrolls inside that height.
+Give the chat a height, such as `h-dvh` or a grid row. The component fills that container and keeps the viewport scrollable inside it.
 
 ## Examples
 
 ### Streaming
 
-The last message gets the `streaming` state while `status` is `submitted` or `streaming`. The log has `aria-busy="true"` during that time. Select **Stream a reply** and scroll up while it runs: the chat stops following, and the scroll button returns to the end.
+The last message gets the `streaming` state while `status` is `submitted` or `streaming`. The log has `aria-busy="true"` during that time. Select **Stream a reply** and scroll up while it runs. The chat stops following, and the scroll control returns to the live edge when you use it.
 
 ::component-preview{name="ChatStreamingExample" reset}
 ::
 
 ### Composer and empty state
 
-Use the `composer` slot to place a prompt under the messages. The scroll button moves up to stay above the composer. Show an empty state from your own template when `messages` is empty.
+Use the `composer` slot to place a prompt under the messages. The scroll control stays above it. Show an empty state from your own template when `messages` is empty.
 
 ::component-preview{name="ChatComposerExample" reset}
 ::

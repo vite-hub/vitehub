@@ -86,15 +86,15 @@ This view does not read secret values, call external providers, or check credent
 
 ## Manage Connections
 
-Open Connections to see each [Connection](/docs/server-primitives/connections) from `server/connections/`, with its provider, account, status, and token expiry. Select a Connection to open its details:
+Open Connections to see each [Connection](/docs/connections) from `server/connections/`, with its provider, account, status, and token expiry. Select a Connection to open its details:
 
 - **Connection** shows the account, scopes, and last error. **Connect** or **Reconnect** starts the provider consent flow and returns to the Console. For an API key Connection, **Set key** or **Replace key** stores a new key. The Console sends it only over HTTPS or to a loopback host. **Refresh token** refreshes the access token. **Disconnect** deletes the grant. It also revokes the grant at the provider when the provider supports revocation.
 - **Access** shows the rules from the Connection Definition for server code, routes, and Agents.
 - **Activity** lists Agent calls, writes, denials, failures, and account changes, newest first. Agent calls link to their Invocation. Activity has no request or response bodies or headers.
 
-The Console registers `POST /_vitehub/connections/manage`, `GET /_vitehub/connections/:name/connect`, and `GET /_vitehub/connections/:name/callback` only when Connections is enabled. Console Auth protects these routes in production. The Console records its actions with the actor `console`. The Connections section is not available in Nuxt apps.
+The Console registers `POST /_vitehub/connections`, `GET /_vitehub/connections/connect/:name`, and `GET /_vitehub/connections/callback` only when Connections is enabled. Each route runs the Console access policy itself, in development and in production, the same as the Console data routes. With Console Auth or app Auth, actions record the signed-in user as `user:<id>`. With `exposure: "host-managed"`, the host `console.authorize` function decides, and actions record `user:host-managed`. With Cloudflare Access, they record `user:cloudflare-access`. With `console: true`, the routes work only on the development server, as `user:local`. The Connections section is not available in Nuxt apps.
 
-Starting Connect creates a single-use OAuth ticket in the Connections store. The browser opens the GET connect route with that ticket, receives a state cookie, and follows a redirect to the provider. The provider redirects back to the GET callback route, which validates the stored OAuth state and browser cookie before saving the grant and returning to the Console. Proxies must forward both GET routes, their query strings, and cookies, as well as the management POST route. When Vite `base` is set, these routes use that mount prefix.
+Starting Connect creates a single-use OAuth `state` in the Connections store. The browser opens the GET connect route, receives a `state` cookie, and follows a redirect to the provider. The provider redirects back to the GET callback route. The callback consumes the stored `state` and checks the browser cookie and the manager before it saves the grant. A `state` from another manager returns `403`. Proxies must forward both GET routes, their query strings, and cookies, as well as the management POST route. When Vite `base` is set, these routes use that mount prefix.
 
 ## Develop against a fixture
 
@@ -249,35 +249,64 @@ ViteHub checks for an Auth Session before it calls `authorizeConsole`. A missing
 
 The `role` field above is an application example, not a ViteHub field. Replace it with the role, permission, or allowlist already used by the host.
 
-Apps that use another authentication library must protect `/_vitehub/**` and `/api/_vitehub/console/**` in host middleware and acknowledge that boundary explicitly:
+Apps that use another authentication library set `exposure: 'host-managed'` and give the Console an `authorize` function. `authorize` is the path of a server file that default-exports `defineConsoleAuthorize()`:
 
 ```ts [vite.config.ts]
 export default defineConfig({
   plugins: [vitehub({
     agent: true,
-    console: { exposure: 'host-managed' },
+    console: { exposure: 'host-managed', authorize: './server/console-authorize.ts' },
     preset: 'node',
   })],
 })
 ```
 
-`host-managed` is an acknowledgement, not middleware. ViteHub does not inspect or enforce the host's access policy in this mode.
+```ts [server/console-authorize.ts]
+import { defineConsoleAuthorize } from 'vite-hub/console/auth'
+import { readHostSession } from './session'
+
+export default defineConsoleAuthorize(async ({ request }) => {
+  const session = await readHostSession(request)
+  if (!session) return new Response('Sign in first.', { status: 401 })
+  return session.user.role === 'admin'
+})
+```
+
+`readHostSession()` is an example of your own session code. Every Console data route calls `authorize` with the Web `Request` before it reads data. This includes the RPC transport, invocation actions, Env management, Channel replay, and Schedule runs. Return `true` to allow the request. Return `false` for `403`, or return a `Response` for another rejection. The page shell, the client script, and static assets do not call it, because they contain no project data.
+
+Without `authorize`, a production build fails with `VITE_HUB_B0014`. In development, the Console data routes return `500` until you set it. Keep your host middleware as a first layer if you already have one.
+
+### How each mode checks a request
+
+Each Console data route checks access itself. The Console Auth middleware stays as a first layer in front of the routes.
+
+| Configuration | Check in each Console data route |
+| --- | --- |
+| `console: true` | Allows the development server. A production build rejects this configuration, and a production runtime returns `403`. |
+| `access: 'auth', auth: { ... }` | Checks the Console Auth Session and the `authorize` callback with `withAuthorization()`. Returns `401` or `403`. It does not redirect to sign-in. |
+| `access: 'auth', auth: { provider: 'cloudflare-access' }` | Verifies the Cloudflare Access token. Development has no Access edge, so it allows the development server, as before. |
+| `access: 'auth'` | Checks the Primary Auth Session and every Auth access route that protects the Console. Without a discovered Auth Definition, it returns `500`. |
+| `exposure: 'host-managed'` | Calls `console.authorize`. Without it, it returns `500`. |
+
+Migration: `host-managed` was an acknowledgement and ViteHub did not check requests. Add `authorize` to keep the Console available. A function that returns `true` keeps the old behavior and trusts your host middleware only. Use it only when that middleware protects every Console route.
+
+All Console paths in this guide include the resolved Vite `base` pathname. With `base: '/portal/'`, host middleware that you keep as a first layer must authenticate and authorize `/portal/_vitehub/**` and `/portal/api/_vitehub/console/**` for every method, including assets, RPC, and invocation actions. Policies for only the root routes do not protect these mounted routes. Update host policies when changing the base or upgrading to base-aware Console routes. An absolute base such as `https://cdn.example/portal/` uses the same `/portal/` prefix. Relative bases (`''` or `'./'`) use root routes. Primary Auth access routes must also include the prefix; built-in Console Auth applies it automatically.
 
 ### Start Agent Invocations
 
 Explicit `access` and `exposure` configurations keep invocation disabled unless you set `invoke: true`. This applies to both Vite and Nuxt:
 
 ```ts
-console: { exposure: 'host-managed', invoke: true }
+console: { exposure: 'host-managed', authorize: './server/console-authorize.ts', invoke: true }
 // Or use ViteHub Auth:
 console: { access: 'auth', invoke: true }
 ```
 
-For `host-managed`, your middleware must authenticate and authorize all `/_vitehub/**` and `/api/_vitehub/console/**` routes, including the RPC transport, before it allows a request through. The build cannot verify this policy. Setting `invoke: false` keeps inspection available and disables Agent Invocation creation. The development shorthand `console: true` enables invocation; fixture mode always disables it.
+For `host-managed`, your `authorize` function decides who can start invocations, because the invocation routes call it. Setting `invoke: false` keeps inspection available and disables Agent Invocation creation. The development shorthand `console: true` enables invocation; fixture mode always disables it.
 
 ### Manage Connections
 
-Explicit `access` and `exposure` configurations also keep [Connections](/docs/server-primitives/connections) read-only. Console users can list Connections, access rules, and activity. Set `manageConnections: true` to let them connect, set API keys, refresh, and disconnect:
+Explicit `access` and `exposure` configurations also keep [Connections](/docs/connections) read-only. Console users can list Connections, access rules, and activity. Set `manageConnections: true` to let them connect, set API keys, refresh, and disconnect:
 
 ```ts
 console: { access: 'auth', manageConnections: true }
@@ -307,6 +336,14 @@ const body = {
 History must contain valid ViteHub Messages with `user` or `assistant` roles and unique IDs. Parts must be `text`, `file`, `image`, or `audio`. The Console preserves message metadata and appends the new prompt as a user Message. It rejects malformed Messages, `system` or `tool` roles, and other parts before starting the Agent. This includes tool calls, tool results, and approval parts nested in user or assistant Messages. Omit `messages` for a prompt-only invocation. Each request creates a new invocation; history does not resume a previous runtime session.
 
 
+### Cancel a running session
+
+A pending or running session shows **Cancel session** in its header when the Console has invoke access for the session's Agent. The action uses the same `invoke` permission as starting an Agent Invocation. Without it, the button is hidden and the `vitehub:console:invocation` operation rejects `POST { action: 'cancel' }` with status 403.
+
+The Console calls `invocations.cancel(id)` on the Agent's journal. A run in the same process stops at once. A run in another process reads the request at its next claim renewal, within 10 seconds. When the Driver cannot stop the run, the header shows `Cancel requested, not enforced by <driver>`. The session stays running until the Driver returns. See [Cancel an invocation](/docs/agents/invocations#cancel-an-invocation) for each Driver.
+
+A finished session shows **Abort stale execution**. This sends an abort signal to any execution still registered in the Console process without changing the terminal journal. The result reports local delivery and any Driver that cannot enforce abort. If no local execution receives the signal, the header says so. A journal that did not keep a pending or running request returns status 503.
+
 Nuxt does not need an SEO module for the `X-Robots-Tag` default. If the app already uses `@nuxtjs/robots` or `@nuxtjs/seo`, add route metadata so its robots and sitemap modules also know that Console pages are not indexable:
 
 ```ts [nuxt.config.ts]
@@ -320,7 +357,7 @@ export default defineNuxtConfig({
 
 Do not use `robots.txt` as access control. A crawler can ignore it, and a disallowed URL may still be listed without its contents.
 
-Read [Auth](/docs/server-primitives/auth#authorize-access-routes) for sign-in redirects and the complete callback contract.
+Read [Auth](/docs/auth/server-api#authorize-access-routes) for sign-in redirects and the complete callback contract.
 
 ## Know what the Console stores
 
@@ -335,6 +372,7 @@ Set `observations` on the Console configuration when the fallback journal needs 
 ```ts
 console: {
   exposure: 'host-managed',
+  authorize: './server/console-authorize.ts',
   observations: {
     maxCount: 1024,
     maxStringLength: 131072,
@@ -385,7 +423,7 @@ Invocation journals are metadata-only by default. In that mode, Captured setup i
 
 Open **Usage** in the Console sidebar to inspect provider-reported tokens and cost across the past 24 hours, 7 days, 30 days, or 90 days. The dashboard groups completed Agent Invocations by time and model. A warning appears when the bounded journal scan reaches 10,000 records or a recorded finish event is truncated, so partial totals are never presented as complete.
 
-Session details also show the normalized usage record for one invocation. Add the [Usage Capability](/docs/capabilities/usage) when the provider needs an explicit usage request, estimated cost, or a typed Agent Usage Record at finish. Providers that report usage without the Capability still appear because the recorded finish event is authoritative.
+Session details also show the normalized usage record for one invocation. Add the [Usage Capability](/docs/agents/capabilities/usage) when the provider needs an explicit usage request, estimated cost, or a typed Agent Usage Record at finish. Providers that report usage without the Capability still appear because the recorded finish event is authoritative.
 
 The Console does not calculate missing provider data. Token counts, model metadata, and provider-reported cost remain absent when the provider does not report them. Global and per-bucket model breakdowns sort by descending total tokens, then by model name.
 
@@ -405,7 +443,9 @@ The Console does not calculate missing provider data. Token counts, model metada
 | Sandboxes is absent from the Console home | Configure `sandbox: true` with a deployment preset that supports Sandbox. |
 | KV inspection returns a provider error | Check that the deployed Console runtime has permission and credentials to read the configured store. Read-only Console requests still perform provider reads. |
 | Agents opens but has no sessions | Invoke a discovered Agent. Confirm it uses the framework fallback instead of a separate `invocations` store. |
-| A production build rejects `console: true` | Configure an explicit production access contract: use `console: { access: 'auth' }` with a callback-backed policy for `/_vitehub/**`, or acknowledge host middleware with `console: { exposure: 'host-managed' }`. |
+| A production build rejects `console: true` | Configure an explicit production access contract: use `console: { access: 'auth' }` with a callback-backed policy for `/_vitehub/**`, or use `console: { exposure: 'host-managed', authorize: './server/console-authorize.ts' }`. |
+| A production build fails with `VITE_HUB_B0014` | Set `console.authorize` to a server file that default-exports `defineConsoleAuthorize()`. |
+| Console data routes return `500` with "requires console.authorize" | Set `console.authorize` for `exposure: 'host-managed'`. |
 | Agent Console startup fails on a hosted preset | Configure one durable Agent Invocations journal and attach it to every discovered Agent Definition. The local SQLite fallback requires a writable, persistent filesystem. |
 | The page returns `401` | Sign in through the Auth provider configured by the host. |
 | The page returns `403` | Check the host's `authorize` callback and the current user's role or permission. |
@@ -422,4 +462,4 @@ Images must be PNG, JPEG, WebP, or GIF, with at most ten images and 10 MiB combi
 
 Open the right panel's tab chooser and select **Capabilities**. Select a Capability to inspect its recorded data and tools. MCP groups tools by server and preserves original tool names and schemas. Title shows its generation settings, progress, and result. Other Capabilities have a default tools and configuration view.
 
-The panel reads the selected Invocation's snapshots. It does not run MCP discovery or title generation. Missing or truncated capture is marked. Developers can [contribute a read-only view](/docs/capabilities/custom-capabilities#contribute-an-inspection-view) with the shared JSON Render component catalog.
+The panel reads the selected Invocation's snapshots. It does not run MCP discovery or title generation. Missing or truncated capture is marked. Developers can [contribute a read-only view](/docs/agents/capabilities/custom#contribute-an-inspection-view) with the shared JSON Render component catalog.

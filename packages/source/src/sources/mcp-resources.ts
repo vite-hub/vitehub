@@ -1,4 +1,5 @@
 import { createEffectBoundary } from "@vite-hub/internal/effect"
+import { AnnotationsSchema, BlobResourceContentsSchema, ResourceContentsSchema } from "@modelcontextprotocol/sdk/types.js"
 import { Effect } from "effect"
 
 import { sourceError } from "../core/errors.ts"
@@ -135,22 +136,54 @@ const mcpEffectBoundary = createEffectBoundary({
 function isMcpResourcesClient(value: unknown): value is McpResourcesClient {
   return typeof value === "object"
     && value !== null
-    && typeof (value as { listResources?: unknown }).listResources === "function"
-    && typeof (value as { readResource?: unknown }).readResource === "function"
+    && hasDeclaredFunction(value, "listResources")
+    && hasDeclaredFunction(value, "readResource")
 }
 
 function isMcpResourcesClientConfig(value: unknown): value is McpResourcesClientConfig {
   return typeof value === "object"
     && value !== null
-    && "transport" in value
+    && hasDeclaredProperty(value, "transport")
+    && (isMcpTransport(Reflect.get(value, "transport")) || isMcpTransportConfig(Reflect.get(value, "transport")))
 }
 
 function isMcpTransport(value: unknown): value is McpResourcesTransport {
   return typeof value === "object"
     && value !== null
-    && typeof (value as { close?: unknown }).close === "function"
-    && typeof (value as { send?: unknown }).send === "function"
-    && typeof (value as { start?: unknown }).start === "function"
+    && hasDeclaredFunction(value, "close")
+    && hasDeclaredFunction(value, "send")
+    && hasDeclaredFunction(value, "start")
+}
+
+function isMcpTransportConfig(value: unknown): value is Exclude<McpResourcesTransportConfig, McpResourcesTransport> {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Transport configs cross the MCP configuration boundary and require object validation.
+  return typeof value === "object"
+    && value !== null
+    && Object.hasOwn(value, "url")
+    && (!Reflect.has(value, "type") || (Object.hasOwn(value, "type") && (Reflect.get(value, "type") === "http" || Reflect.get(value, "type") === "sse")))
+}
+
+function hasDeclaredProperty(value: unknown, key: PropertyKey): value is object {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Capability lookup requires an object before inspecting its own fields and prototypes.
+  if (typeof value !== "object" || value === null) return false
+  if (Object.hasOwn(value, key)) return true
+  let prototype = Object.getPrototypeOf(value)
+  while (prototype && prototype !== Object.prototype) {
+    if (Object.hasOwn(prototype, key)) {
+      const constructor = Object.hasOwn(prototype, "constructor") ? prototype.constructor : undefined
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Only class constructors can declare inherited MCP capabilities; plain functions can forge prototype links.
+      return typeof constructor === "function"
+        && constructor.prototype === prototype
+        && /^class\b/.test(Function.prototype.toString.call(constructor))
+    }
+    prototype = Object.getPrototypeOf(prototype)
+  }
+  return false
+}
+
+function hasDeclaredFunction(value: unknown, key: PropertyKey): boolean {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- MCP methods must be callable before they cross the client or transport boundary.
+  return hasDeclaredProperty(value, key) && typeof Reflect.get(value, key) === "function"
 }
 
 async function createMcpTransport(config: McpResourcesTransportConfig): Promise<Transport> {
@@ -287,14 +320,141 @@ function shouldInclude(path: string, options: Pick<McpResourcesSourceOptions, "i
   return true
 }
 
+type McpRecord = Record<PropertyKey, unknown>
+
+function isRecord(value: unknown): value is McpRecord {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- MCP responses cross a runtime protocol boundary.
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+function isMcpString(value: unknown): value is string {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- MCP responses cross a runtime protocol boundary.
+  return typeof value === "string"
+}
+
+function isDenseArray(value: unknown): value is unknown[] {
+  if (!Array.isArray(value)) return false
+  for (let index = 0; index < value.length; index++) {
+    if (!Object.hasOwn(value, index)) return false
+  }
+  return true
+}
+
+function isOwnMcpString(value: McpRecord, key: PropertyKey): boolean {
+  return Object.hasOwn(value, key) && isMcpString(Reflect.get(value, key))
+}
+
+function hasOptionalMcpString(value: McpRecord, key: PropertyKey): boolean {
+  return hasOptionalMcpField(value, key, isMcpString)
+}
+
+function hasOptionalMcpField(value: McpRecord, key: PropertyKey, validate: (field: unknown) => boolean): boolean {
+  if (!Reflect.has(value, key)) return true
+  if (!Object.hasOwn(value, key)) return false
+  const field = Reflect.get(value, key)
+  return field === undefined || validate(field)
+}
+
+function isMcpNumber(value: unknown): value is number {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- MCP numeric metadata crosses a runtime protocol boundary.
+  return typeof value === "number" && Number.isFinite(value)
+}
+
+function isMcpMetadata(value: unknown): boolean {
+  return ResourceContentsSchema.shape._meta.safeParse(value).success
+}
+
+function isMcpArrayOf(value: unknown, validate: (entry: unknown) => boolean): boolean {
+  return isDenseArray(value) && value.every(validate)
+}
+
+function isResourceAnnotations(value: unknown): boolean {
+  return isRecord(value)
+    && hasOptionalMcpField(value, "audience", audience => isMcpArrayOf(audience, role => role === "assistant" || role === "user"))
+    && hasOptionalMcpString(value, "lastModified")
+    && hasOptionalMcpField(value, "priority", isMcpNumber)
+    && AnnotationsSchema.safeParse(value).success
+}
+
+function isResourceIcon(value: unknown): boolean {
+  return isRecord(value)
+    && isOwnMcpString(value, "src")
+    && hasOptionalMcpString(value, "mimeType")
+    && hasOptionalMcpField(value, "sizes", sizes => isMcpArrayOf(sizes, isMcpString))
+    && hasOptionalMcpField(value, "theme", theme => theme === "dark" || theme === "light")
+}
+
+function isResourceDescriptor(value: unknown): value is McpResourceDescriptor {
+  return isRecord(value)
+    && isOwnMcpString(value, "name")
+    && isOwnMcpString(value, "uri")
+    && hasOptionalMcpString(value, "mimeType")
+    && hasOptionalMcpString(value, "title")
+    && hasOptionalMcpString(value, "description")
+    && hasOptionalMcpField(value, "size", isMcpNumber)
+    && hasOptionalMcpField(value, "_meta", isMcpMetadata)
+    && hasOptionalMcpField(value, "annotations", isResourceAnnotations)
+    && hasOptionalMcpField(value, "icons", icons => isMcpArrayOf(icons, isResourceIcon))
+}
+
+function isResourceContent(value: unknown): value is McpResourceContent {
+  if (!isRecord(value)
+    || !isOwnMcpString(value, "uri")
+    || !hasOptionalMcpString(value, "mimeType")
+    || !hasOptionalMcpField(value, "_meta", isMcpMetadata)) return false
+  const hasTextKey = Object.hasOwn(value, "text")
+  const hasBlobKey = Object.hasOwn(value, "blob")
+  const hasText = hasTextKey && isMcpString(Reflect.get(value, "text"))
+  const hasBlob = hasBlobKey && BlobResourceContentsSchema.safeParse(value).success
+  return hasText !== hasBlob && (!hasTextKey || hasText) && (!hasBlobKey || hasBlob)
+}
+
+function parseResourceListPage(value: unknown): { nextCursor?: string, resources: McpResourceDescriptor[] } {
+  if (!isRecord(value)) {
+    throw sourceError("[vitehub] mcpResources server returned an invalid listResources response.")
+  }
+  if (!Object.hasOwn(value, "resources") || (Reflect.has(value, "nextCursor") && !Object.hasOwn(value, "nextCursor"))) {
+    throw sourceError("[vitehub] mcpResources server returned an invalid listResources response.")
+  }
+  const resources = Reflect.get(value, "resources")
+  const nextCursor = Object.hasOwn(value, "nextCursor") ? Reflect.get(value, "nextCursor") : undefined
+  if (!isDenseArray(resources) || resources.some(resource => !isResourceDescriptor(resource)) || (nextCursor !== undefined && !isMcpString(nextCursor))) {
+    throw sourceError("[vitehub] mcpResources server returned an invalid listResources response.")
+  }
+  // SAFETY: Every resource field declared by McpResourceDescriptor has passed validation.
+  return { nextCursor, resources: resources as McpResourceDescriptor[] }
+}
+
+function parseResourceContents(value: unknown): McpResourceContent[] {
+  if (!isRecord(value)) {
+    throw sourceError("[vitehub] mcpResources server returned an invalid readResource response.")
+  }
+  if (!Object.hasOwn(value, "contents")) {
+    throw sourceError("[vitehub] mcpResources server returned an invalid readResource response.")
+  }
+  const contents = Reflect.get(value, "contents")
+  if (!isDenseArray(contents) || contents.some(content => !isResourceContent(content))) {
+    throw sourceError("[vitehub] mcpResources server returned an invalid readResource response.")
+  }
+  // SAFETY: Every content entry is an object with the string URI required by the MCP response contract.
+  return contents as McpResourceContent[]
+}
+
 async function listAllResources(client: McpResourcesClient, request: McpResourcesRequestOptions | undefined) {
   const resources: McpResourceDescriptor[] = []
+  const seenCursors = new Set<string>()
   let cursor: string | undefined
   do {
-    const page = await client.listResources(cursor ? { cursor } : undefined, request)
+    if (cursor !== undefined) {
+      if (seenCursors.has(cursor)) {
+        throw sourceError("[vitehub] mcpResources server returned the same pagination cursor twice.")
+      }
+      seenCursors.add(cursor)
+    }
+    const page = parseResourceListPage(await client.listResources(cursor === undefined ? undefined : { cursor }, request))
     resources.push(...page.resources)
     cursor = page.nextCursor
-  } while (cursor)
+  } while (cursor !== undefined)
   return resources
 }
 
@@ -303,7 +463,7 @@ async function readResourceContents(
   resource: McpResourceDescriptor,
   request: McpResourcesRequestOptions | undefined,
 ) {
-  return (await client.readResource({ uri: resource.uri }, request)).contents
+  return parseResourceContents(await client.readResource({ uri: resource.uri }, request))
 }
 
 async function createEntries<TKey extends string>(
@@ -333,8 +493,12 @@ async function createEntries<TKey extends string>(
 }
 
 function decodeBase64(value: string) {
-  if (typeof Buffer !== "undefined") return new Uint8Array(Buffer.from(value, "base64"))
-  const binary = atob(value)
+  const normalized = value.replace(/[\t\n\f\r ]/g, "")
+  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(normalized) || normalized.length % 4 === 1 || /=[A-Za-z0-9+/]/.test(normalized)) {
+    throw sourceError("[vitehub] MCP resource returned invalid base64 content.")
+  }
+  if (globalThis.Buffer) return new Uint8Array(globalThis.Buffer.from(normalized, "base64"))
+  const binary = atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "="))
   const bytes = new Uint8Array(binary.length)
   for (let index = 0; index < binary.length; index++) {
     bytes[index] = binary.charCodeAt(index)
@@ -343,8 +507,10 @@ function decodeBase64(value: string) {
 }
 
 function contentToSourceContent(content: McpResourceContent): SourceContent {
-  if ("text" in content && typeof content.text === "string") return content.text
-  if ("blob" in content && typeof content.blob === "string") return decodeBase64(content.blob)
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Remote MCP text content must be an own string field before decoding.
+  if (Object.hasOwn(content, "text") && "text" in content && typeof content.text === "string") return content.text
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Remote MCP binary content must be an own string field before base64 decoding.
+  if (Object.hasOwn(content, "blob") && "blob" in content && typeof content.blob === "string") return decodeBase64(content.blob)
   return ""
 }
 
@@ -376,7 +542,7 @@ function createResourceItem<TKey extends string>(
 }
 
 export function mcpResources<const TKey extends string = string>(options: McpResourcesSourceOptions<TKey>): FileSource<TKey> {
-  if (!options || typeof options !== "object" || !options.server) {
+  if (!options || typeof options !== "object" || !hasDeclaredProperty(options, "server") || !options.server) {
     throw sourceErrorDiagnostics.SOURCE_R0022({ message: "[vitehub] mcpResources({ server }) requires an MCP server." })
   }
 

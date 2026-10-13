@@ -1,4 +1,5 @@
 import { expect, it } from "vitest"
+import { agentEnvAccess } from "../../env/test/agent-access.ts"
 
 import { createConnectionsHandler } from "../src/http.ts"
 import { createConnectionsRuntime } from "../src/runtime.ts"
@@ -17,7 +18,7 @@ it.each([
   const definition = mailConnection({ "agent:writer": { read: true, write: ["mail.messages.modify", "fetch"] } })
   const test = createTestRuntime(definition)
   await connect(test)
-  const client = test.runtime.client("mail", { actor: "agent:writer" })
+  const client = test.runtime.client("mail", { access: agentEnvAccess({ name: "writer" }) })
   await expect(kind === "method"
     ? client.call("mail.messages.modify", { id: "m1", userId: "me" })
     : client.fetch("https://mail.example.com/mail/v1/users/me/messages/m1/modify", { method: "POST", body: "{}" })).rejects.toMatchObject({ code: "CONNECTION_APPROVAL_REQUIRED" })
@@ -63,7 +64,7 @@ it.each([
 it("preserves a confirmed provider rejection when an approved write returns HTTP 400", async () => {
   const test = createTestRuntime(mailConnection({ "agent:writer": { read: true, write: ["mail.messages.modify"] } }))
   await connect(test)
-  await expect(test.runtime.client("mail", { actor: "agent:writer" }).call("mail.messages.modify", { id: "m1", userId: "me" })).rejects.toMatchObject({ code: "CONNECTION_APPROVAL_REQUIRED" })
+  await expect(test.runtime.client("mail", { access: agentEnvAccess({ name: "writer" }) }).call("mail.messages.modify", { id: "m1", userId: "me" })).rejects.toMatchObject({ code: "CONNECTION_APPROVAL_REQUIRED" })
   const id = (await test.runtime.approvals({ status: "pending" })).approvals[0]!.id
   const runtime = createConnectionsRuntime({ definitions: { mail: mailConnection() }, store: test.store, now: () => test.now.value, fetch: async (input, init) =>
     String(input).endsWith("/modify") ? Response.json({ error: { message: "Invalid label" } }, { status: 400 }) : await test.provider.fetch(input, init) })

@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process"
 import { promisify } from "node:util"
 
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, assert, describe, expect, it, vi } from "vitest"
 
 import { createWorkflow } from "../src/runtime/client.ts"
 import { getWorkflowRunState, resetWorkflowRuntime, setWorkflowRun, setWorkflowRuntimeConfig } from "../src/runtime/state.ts"
@@ -18,6 +18,45 @@ afterEach(() => {
 })
 
 describe("inline Workflow run retention", () => {
+  it("keeps completed runs distinct when workflow names and IDs contain delimiters", async () => {
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+    const first = createWorkflow("tenant", () => "first result")
+    const second = createWorkflow("tenant\0admin", () => "second result")
+
+    await first.run(undefined, { id: "admin\0run" })
+    await getWorkflowRunState(first.name, "admin\0run")!.promise
+    await second.run(undefined, { id: "run" })
+    await getWorkflowRunState(second.name, "run")!.promise
+
+    const firstRun = await first.getRun("admin\0run")
+    const secondRun = await second.getRun("run")
+    expect(firstRun.status).toBe("completed")
+    expect(secondRun.status).toBe("completed")
+    assert(firstRun.result instanceof Response)
+    assert(secondRun.result instanceof Response)
+    await expect(firstRun.result.clone().text()).resolves.toBe("first result")
+    await expect(secondRun.result.clone().text()).resolves.toBe("second result")
+  })
+
+  it("keeps active runs distinct when workflow names and IDs contain delimiters", async () => {
+    const first = gate()
+    const firstState = setWorkflowRun("tenant", "admin\0run", first.promise.then(() => ({ result: "first", status: "completed" as const })))
+    const secondState = setWorkflowRun("tenant\0admin", "run", Promise.resolve({ result: "second", status: "completed" }))
+
+    try {
+      expect(getWorkflowRunState("tenant", "admin\0run")).toBe(firstState)
+      await secondState.promise
+      expect(getWorkflowRunState("tenant", "admin\0run")?.status).toBe("running")
+    }
+    finally {
+      first.resolve()
+      await firstState.promise
+    }
+
+    expect(getWorkflowRunState("tenant", "admin\0run")?.result).toBe("first")
+    expect(getWorkflowRunState("tenant\0admin", "run")?.result).toBe("second")
+  })
+
   it.each(["WeakRef", "FinalizationRegistry", "both"] as const)("bounds active inspection without %s", async (missing) => {
     const globals = globalThis as unknown as {
       WeakRef: WeakRefConstructor | undefined

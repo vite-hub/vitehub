@@ -1,28 +1,28 @@
 ---
 title: First Agent
+navigation.title: First Agent
 description: Define a server-side Agent, call it from H3, and see the response.
+layout: tutorial
 navigation.order: 4
-navigation.lanes: [agents]
 icon: i-lucide-bot
 ---
 
-Use this quickstart to run your first Agent Invocation. An Agent is a server
-file that tells ViteHub what to run. Every Agent needs a Driver: a function, a
-model, or a coding provider such as Codex or Claude Code. You can add
-Capabilities, Channels, Workspace access, and other options later.
+Build a small server that greets a name through an Agent. You will create an
+Agent Definition, call it from an HTTP route, and check the returned JSON.
 
-This quickstart uses a function Driver that returns a fixed greeting. It runs
-offline and needs no credentials.
+An Agent Definition declares the work to run. Its Driver performs that work.
+This tutorial uses a function Driver, so you can learn the invocation path
+without setting up a model or a provider account. You need Node.js 24.15 or
+newer and `pnpm`. After you install the dependencies, the server runs offline.
 
-::note
-You need Node.js 24.15 or newer and `pnpm`. This project runs completely offline.
-::
-
+::tutorial-step{title="Create the project"}
 ## Create the project
 
-Create an empty ESM project, then install ViteHub with Vite and H3.
+Create a folder for the app and install ViteHub, Vite, and H3. Vite builds the
+server. H3 handles the HTTP request. Setting `type=module` lets Node.js use
+the `import` syntax in the generated server.
 
-```bash [Terminal]
+```bash [commands/setup]
 mkdir vitehub-agent-start
 cd vitehub-agent-start
 pnpm init
@@ -30,6 +30,9 @@ pnpm pkg set type=module
 pnpm add vite-hub h3 vite
 ```
 
+::
+
+::tutorial-step{title="Configure the server build"}
 ## Configure the server build
 
 Add `vitehub()` with the `node` preset and `agent: true`. Vite builds
@@ -64,10 +67,14 @@ export default defineConfig({
 })
 ```
 
+::
+
+::tutorial-step{title="Define the greeting Agent"}
 ## Define the greeting Agent
 
-Create `server/agents/greeting.ts`. Its required `driver.run` function reads the
-prompt and returns the greeting without calling a provider.
+Create `server/agents/greeting.ts`. The file location gives this Agent the name
+`greeting`. Its `driver.run` function receives the input prompt and returns a
+JSON object. Here, the prompt contains the name to greet.
 
 ```ts [server/agents/greeting.ts]
 import { defineAgent } from "vite-hub/agent"
@@ -85,11 +92,19 @@ export default defineAgent({
 })
 ```
 
+::
+
+::tutorial-step{title="Call the Agent from H3"}
 ## Call the Agent from H3
 
-`runAgent()` takes the Definition, runtime values for the current request, and
-the invocation input. The route creates a new memo cache for each request,
-identifies Vite as the runtime, and reports errors from background tasks.
+Create `src/server.ts`. The `/greet` route reads a name from the request and
+passes it as the Agent's prompt. `runAgent()` returns the Driver's result,
+which H3 sends as JSON.
+
+The second argument supplies resources for this request. `memo` lets ViteHub
+reuse a value during one invocation. `waitUntil` handles background tasks.
+This small server creates them explicitly. A framework integration can provide
+these resources for you.
 
 ```ts [src/server.ts]
 import { createServer } from "node:http"
@@ -130,34 +145,40 @@ createServer(toNodeHandler(app)).listen(port, () => {
 The route imports the Definition directly, so the greeting returns in the same
 request.
 
+::
+
+::tutorial-step{title="Run the Agent and see the response"}
 ## Run the Agent and see the response
 
 Build the project and start the generated Node.js server. The server listens on
 port `5173` unless you set `PORT`.
 
-```bash [Terminal]
+```bash [commands/build]
 pnpm vite build
 node dist/server.js
 ```
 
 From another terminal, send a name to the H3 route.
 
-```bash [Terminal]
+```bash [commands/request]
 curl -X POST http://localhost:5173/greet \
   -H 'content-type: application/json' \
   -d '{"name":"Ada"}'
 ```
 
-The Agent returns the greeting:
+You should receive this JSON. The name in your request passed through the
+route and the Agent Driver:
 
-```json [Response]
+```json [output/response.json]
 {"text":"Hello, Ada. This result came from an Agent Invocation."}
 ```
+
+::
 
 ## Next steps
 
 Add only what your Agent needs:
 
 - Read [Agent Definitions](/docs/agents/agent-definitions) to choose another Driver or add Channels, Workspace context, trusted caller settings, or hooks.
-- Read [Capabilities](/docs/capabilities) before you give a model tools, triggers, policy, metadata, or context values.
+- Read [Capabilities](/docs/agents/capabilities) before you give a model tools, triggers, policy, metadata, or context values.
 - Read [Invocations](/docs/agents/invocations) when the route needs streaming or failure handling.

@@ -43,6 +43,8 @@ it("authenticates manual effects before SSR and runs the static command through 
     const publicHeaders = { "content-type": "application/json", [scheduleDevRunHeader]: "1" }
     for (const headers of [publicHeaders,
       { ...publicHeaders, [viteHubDevTokenHeader]: "wrong", [scheduleDevTokenServerHeader]: credential.serverId },
+      { ...publicHeaders, [viteHubDevTokenHeader]: credential.token.slice(0, -1), [scheduleDevTokenServerHeader]: credential.serverId },
+      { ...publicHeaders, [viteHubDevTokenHeader]: `${credential.token}0`, [scheduleDevTokenServerHeader]: credential.serverId },
       { ...publicHeaders, [viteHubDevTokenHeader]: another.token, [scheduleDevTokenServerHeader]: another.serverId },
       { ...publicHeaders, origin: "not-an-origin", [viteHubDevTokenHeader]: credential.token, [scheduleDevTokenServerHeader]: credential.serverId }]) {
       expect((await fetch(`${url}${scheduleDevRunRoute}`, { body: '{"name":"sync"}', headers, method: "POST" })).status).toBe(403)

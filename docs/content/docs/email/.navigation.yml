@@ -1,0 +1,5 @@
+title: Email
+icon: i-lucide-mail
+order: 40
+category: Delivery
+related: [channels, connections]

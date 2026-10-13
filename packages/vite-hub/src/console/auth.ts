@@ -226,7 +226,24 @@ export function createConsoleAuthDefinition(input: ConsoleAuthDefinition, mountB
   } as AuthDefinition<AuthDefinitionInput>
 }
 
-const consoleSessionSchema = v.object({ user: v.object({ id: v.pipe(v.string(), v.minLength(1)) }) })
+/** The request that a `host-managed` Console authorize function checks. */
+export interface ConsoleAuthorizeContext {
+  request: Request
+}
+
+/**
+ * Decides whether one Console request may continue with `exposure: "host-managed"`.
+ * Return `true` to allow it, `false` for `403`, or a custom `Response`.
+ */
+export type ConsoleAuthorize = (context: ConsoleAuthorizeContext) => boolean | Response | Promise<boolean | Response>
+
+/** Define the function that every Console data route calls with `exposure: "host-managed"`. */
+export function defineConsoleAuthorize(authorize: ConsoleAuthorize): ConsoleAuthorize {
+  if (!(authorize instanceof Function)) throw new TypeError("[vitehub] defineConsoleAuthorize() requires a function.")
+  return authorize
+}
+
+const consoleSessionSchema =v.object({ user: v.object({ id: v.pipe(v.string(), v.minLength(1)) }) })
 
 /** The part of a ViteHub Auth instance that reads the signed-in session. */
 export interface ConsoleSessionReader {

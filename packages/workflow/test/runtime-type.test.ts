@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
+import { hasRuntimeType } from "../src/internal/runtime-type.ts"
 
 describe("Workflow runtime representation guards", () => {
   it("distinguishes callable and object representations", () => {
