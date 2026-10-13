@@ -68,7 +68,7 @@ function messageText(value: unknown): string | undefined {
     const item = record(part);
     if (hasRuntimeType(item?.text, "string")) return [item.text];
     if (item?.type === "image" && hasRuntimeType(item.url, "string") && /^(https?:\/\/|\/(?!\/))/.test(item.url)) {
-      const name = hasRuntimeType(item.name, "string") ? item.name.replace(/[[\]\r\n]/g, "") : "Attachment";
+      const name = hasRuntimeType(item.name, "string") ? item.name.replace(/[\[\]\r\n]/g, "") : "Attachment";
       const url = item.url.replace(/[<>\r\n]/g, "");
       return [`\n\n![${name}](<${url}>)\n\n`];
     }
