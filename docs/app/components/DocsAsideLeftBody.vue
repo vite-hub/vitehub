@@ -23,6 +23,7 @@ const pageGroups = computed(() => {
     group.label === "Start" ? { ...group, pages: [...group.pages, perspective] } : group,
   );
 });
+const platformSections = docsManifest.sections.filter(candidate => candidate.category === "Platform");
 const related = computed(() =>
   section.value ? getDocsRelatedSections(docsManifest.sections, section.value) : [],
 );
@@ -75,6 +76,19 @@ function isActive(path: string) {
       >
         <UIcon :name="sidebarSectionIcon(relatedSection)" class="size-4 shrink-0" />
         <span class="min-w-0 truncate">{{ relatedSection.title }}</span>
+      </NuxtLink>
+    </section>
+
+    <section v-if="section.id === "getting-started" || section.category === "Platform"" class="vh-docs-sidebar-related" aria-label="Build and deploy">
+      <h2 class="vh-docs-sidebar-heading">Build and deploy</h2>
+      <NuxtLink
+        v-for="platformSection in platformSections"
+        :key="platformSection.id"
+        :to="platformSection.path"
+        class="vh-docs-sidebar-link"
+      >
+        <UIcon :name="sidebarSectionIcon(platformSection)" class="size-4 shrink-0" />
+        <span class="min-w-0 truncate">{{ platformSection.title }}</span>
       </NuxtLink>
     </section>
 
