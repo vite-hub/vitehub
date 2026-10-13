@@ -145,11 +145,15 @@ function assertKey(input: RateLimitConsumeInput, operation: "peek" | "reset"): v
 }
 
 function isRateLimiterOptions(value: unknown): value is CreateRateLimiterOptions {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Limiter options are opaque runtime inputs; reject primitives before guarded driver inspection.
   if (!value || typeof value !== "object") return false
   try {
     if (Array.isArray(value)) return false
-    const driver = (value as { driver?: unknown }).driver
-    return Boolean(driver) && typeof (driver as { consume?: unknown }).consume === "function"
+    const driver = Reflect.get(value, "driver")
+    if (!driver) return false
+    const consume = Reflect.get(Object(driver), "consume")
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Driver methods may cross realms or belong to callable objects; validate callability without invoking the method.
+    return typeof consume === "function"
   }
   catch {
     return false

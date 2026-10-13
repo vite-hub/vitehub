@@ -13,6 +13,27 @@ const strictCapabilities = {
 } satisfies RateLimitDriverCapabilities
 
 describe("Rate Limit core", () => {
+  it("accepts callable driver objects", async () => {
+    const memory = memoryRateLimitDriver()
+    const driver = Object.assign(() => undefined, { capabilities: memory.capabilities, consume: memory.consume })
+    const limiter = createRateLimiter({ driver, limit: 1, window: "1m" })
+
+    await expect(limiter.consume({ key: "user" })).resolves.toMatchObject({ allowed: true })
+  })
+
+  it("preserves the receiver of a driver consume getter", async () => {
+    const driver = memoryRateLimitDriver()
+    const consume = driver.consume
+    const getter = vi.fn(() => consume)
+    Object.defineProperty(driver, "consume", { get: getter })
+
+    const limiter = createRateLimiter({ driver, limit: 1, window: "1m" })
+
+    expect(getter.mock.contexts).toEqual([driver])
+    await expect(limiter.consume({ key: "user" })).resolves.toMatchObject({ allowed: true })
+    expect(getter.mock.contexts).toEqual([driver, driver])
+  })
+
   it.each(["allow", "deny"] as const)("rejects malformed consume tuples before applying failure %s", async (failure) => {
     const invalid = [
       ["malformed-error", undefined],
