@@ -317,7 +317,15 @@ function hasResponsePrototype(value: unknown): boolean {
       seen.add(prototype)
       const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
       const owner = prototype
-      if (constructor?.name === "Response"
+      // Platform Response constructors are native or class-based implementations. A
+      // plain function named Response is easy to forge and does not provide a runtime
+      // brand that the adapter can safely normalize.
+      const constructorSource = typeof constructor === "function"
+        ? Function.prototype.toString.call(constructor)
+        : ""
+      const platformConstructor = constructor?.name === "Response"
+        && (/^class\b/.test(constructorSource) || constructorSource.includes("[native code]"))
+      if (platformConstructor
         && authorizationResponseProperties.every(key => Object.getOwnPropertyDescriptor(owner, key)?.get)) return true
       prototype = Object.getPrototypeOf(prototype)
     }
