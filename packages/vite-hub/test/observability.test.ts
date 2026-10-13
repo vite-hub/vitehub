@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import type { Plugin } from "vite"
@@ -13,7 +13,7 @@ vi.mock("evlog/nitro/v3", async (importOriginal) => {
   return { ...module, default: vi.fn(module.default) }
 })
 
-type ObservabilityConfig = { root: string, env?: { server?: Record<string, unknown> }, nitro?: { modules?: unknown[], plugins?: string[] } }
+type ObservabilityConfig = { root: string, __vitehubProjectRoot?: string, env?: { server?: Record<string, unknown> }, nitro?: { modules?: unknown[], plugins?: string[] } }
 
 function observabilityPlugin(options: Parameters<typeof vitehub>[0]): Plugin {
   const plugin = vitehub(options)
@@ -68,6 +68,25 @@ describe("vitehub({ observability })", () => {
       expect(source).toContain('"service":"support","environment":"production"')
     }
     finally { vi.unstubAllEnvs(); await rm(root, { force: true, recursive: true }) }
+  })
+
+  it("writes the host plugin at the project root when Vite runs from app/", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-observability-project-root-"))
+    try {
+      const appRoot = join(root, "app")
+      await mkdir(appRoot)
+      await writeFile(join(root, "package.json"), "{}")
+      await writeFile(join(appRoot, "package.json"), "{}")
+      const plugin = observabilityPlugin({ preset: "node", observability: { service: "support" } })
+      const config: ObservabilityConfig = { root: appRoot, __vitehubProjectRoot: root }
+      const hook = plugin.config as (config: ObservabilityConfig) => Promise<void>
+      await hook(config)
+
+      const generated = join(root, ".vitehub/nitro/observability/plugin.mjs")
+      expect(config.nitro?.plugins).toEqual([generated])
+      await expect(readFile(generated, "utf8")).resolves.toContain("installObservability")
+    }
+    finally { await rm(root, { force: true, recursive: true }) }
   })
 
   it.each([

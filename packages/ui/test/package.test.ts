@@ -71,7 +71,7 @@ const componentEntries = componentNames.map((name) => `./${componentEntryName(na
 describe("@vite-hub/ui package contract", () => {
   it("exposes the documented entrypoints", () => {
     expect(Object.keys(packageJson.exports).sort()).toEqual(
-      [".", ...componentEntries, "./headless", "./nuxt", "./package.json", "./styles.css", "./vite"].sort(),
+      [".", ...componentEntries, "./headless", "./nuxt", "./package.json", "./primitive-rail", "./styles.css", "./vite"].sort(),
     );
     expect(packageJson.peerDependencies).toMatchObject({
       "@nuxt/ui": expect.any(String),
@@ -102,6 +102,7 @@ describe("@vite-hub/ui package contract", () => {
       ...componentEntries,
       "./headless",
       "./nuxt",
+      "./primitive-rail",
       "./vite",
     ]);
   });

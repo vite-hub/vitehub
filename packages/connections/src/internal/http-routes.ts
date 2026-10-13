@@ -2,7 +2,7 @@ import * as v from "valibot";
 
 import { isViteHubSecretEqual } from "@vite-hub/internal/secret";
 
-import { isConnectionError } from "../errors.ts";
+import { ConnectionError, isConnectionError } from "../errors.ts";
 import { CONNECTION_NAME_MAX_LENGTH } from "../types.ts";
 import { connectionsRuntimeFor } from "./http-access.ts";
 
@@ -11,6 +11,7 @@ import type { ConnectionsAccess } from "./http-access.ts";
 
 const MAX_BODY_BYTES = 64 * 1024;
 const STATE_COOKIE = "vitehub_connection_state";
+const MAX_APPROVAL_COUNT_PAGES = 10_000;
 
 // Discovery preserves filesystem-valid characters, including symbols such as `+`.
 // Keep management validation in step with the generated registry.
@@ -282,11 +283,29 @@ const action: ConnectionsRoute = {
         const counts: Record<string, number> = {};
         for (const connection of await connections.list()) {
           let before: string | undefined;
+          const seenCursors = new Set<string>();
+          const seenApprovalIds = new Set<string>();
           let count = 0;
+          let pageCount = 0;
           do {
             const result = await connections.approvals({ name: connection.name, status: "pending", before });
+            pageCount++;
             count += result.approvals.length;
+            if (result.nextCursor && seenCursors.has(result.nextCursor)) {
+              throw new ConnectionError("invalid", "Connections approval pagination did not advance.");
+            }
+            if (result.nextCursor && pageCount >= MAX_APPROVAL_COUNT_PAGES) {
+              throw new ConnectionError("invalid", "Connections approval pagination did not terminate.");
+            }
+            if (
+              result.nextCursor &&
+              (result.approvals.length === 0 || result.approvals.every((approval) => seenApprovalIds.has(approval.id)))
+            ) {
+              throw new ConnectionError("invalid", "Connections approval pagination did not advance.");
+            }
+            for (const approval of result.approvals) seenApprovalIds.add(approval.id);
             before = result.nextCursor;
+            if (before) seenCursors.add(before);
           } while (before);
           counts[connection.name] = count;
         }

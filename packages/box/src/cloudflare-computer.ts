@@ -304,6 +304,11 @@ async function abortExecution(execution: CloudflareComputerExecHandle, signal: A
 
 async function readStream(stream: ReadableStream<Uint8Array>, signal: AbortSignal | undefined) {
   const reader = stream.getReader();
+  if (signal?.aborted) {
+    await reader.cancel(signal.reason).catch(() => {});
+    reader.releaseLock();
+    throw signal.reason;
+  }
   const chunks: Uint8Array[] = [];
   let size = 0;
   let abort: (() => void) | undefined;

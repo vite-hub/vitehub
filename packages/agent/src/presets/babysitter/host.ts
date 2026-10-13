@@ -1,7 +1,8 @@
 import { execFile } from "node:child_process";
+import { lstat, mkdtemp, readdir, readFile, rename, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve, sep } from "node:path";
 import { promisify } from "node:util";
-import { lstat, mkdtemp, readFile, readdir, rename } from "node:fs/promises";
-import { join } from "node:path";
 import { channelEnv } from "../../channel-env.ts";
 import { defineAgent } from "../../index.ts";
 import type { AgentInput, AgentCallbackContext } from "../../index.ts";
@@ -10,12 +11,18 @@ import { registerAgentProcessHostIntake, type AgentProcessHostContext, type Agen
 import { createProcessAgentHost } from "../../runtime/process-host.ts";
 import { createGitHubAppCredentials, createGitHubHost, type GitHubAppEnvironment } from "../../server/github-host.ts";
 import { createBabysitterRuntime } from "./server.ts";
+import { createBabysitterAdmission, resolveBabysitterAdmissionLimits, type BabysitterAdmissionOptions } from "./admission.ts";
 
 /** Reads a plain or sealed Server Env value. */
 export function envString(value: unknown): string | undefined {
   const plain = isRuntimeRecord(value) && hasRuntimeType(value.unseal, "function") ? value.unseal() : value;
   if (hasRuntimeType(plain, "number")) return String(plain);
   return hasRuntimeType(plain, "string") && plain.trim() ? plain.trim() : undefined;
+}
+
+/** Accept PEM secrets from systemd and dotenv files that encode newlines as `\\n`. */
+function normalizePrivateKey(value: string | undefined): string | undefined {
+  return value?.replace(/\\n/g, "\n");
 }
 
 /**
@@ -35,21 +42,14 @@ export async function cleanupLegacyBabysitterCheckouts(dataDir: string): Promise
   if (!info.isDirectory() || info.isSymbolicLink()) {
     throw new Error(`[vitehub] Refusing to clean unsafe Babysitter checkout pool: ${root}`);
   }
-  // Claim the entry in a private directory before deleting anything. A new
-  // pool at the original path must never become a recursive cleanup target.
   const quarantine = await mkdtemp(join(dataDir, ".checkouts-cleanup-"));
   const claimed = join(quarantine, "checkouts");
   await rename(root, claimed);
   const claimedInfo = await lstat(claimed, { bigint: true });
   if (!claimedInfo.isDirectory() || claimedInfo.dev !== info.dev || claimedInfo.ino !== info.ino) {
-    // Preserve an unexpected entry for inspection; do not overwrite a new pool
-    // in an attempt to restore it.
     throw new Error(`[vitehub] Refusing to clean replaced Babysitter checkout pool: ${claimed}`);
   }
   const entries = await readdir(claimed, { withFileTypes: true });
-  // A child process pins its cwd before checking its identity. Relative paths
-  // stay bound to that directory even if another process renames it. Never
-  // recursively remove the claimed pathname, including during retries.
   await promisify(execFile)(process.execPath, ["--input-type=module", "--eval", `
     import { lstat, readdir, rm } from "node:fs/promises";
     const info = await lstat(".", { bigint: true });
@@ -60,10 +60,6 @@ export async function cleanupLegacyBabysitterCheckouts(dataDir: string): Promise
       await rm(entry, { force: true, recursive: true, maxRetries: 5, retryDelay: 100 });
     }
   `, String(info.dev), String(info.ino)], { cwd: claimed });
-  // Verify that the visible entry still names the claimed inode, but never
-  // remove it by pathname: a concurrent replacement after this check could
-  // otherwise be deleted by `rmdir()`. Retain the two empty directories after
-  // migration; later startups find no legacy pool and create no new quarantine.
   const remaining = await lstat(claimed, { bigint: true });
   if (remaining.dev !== info.dev || remaining.ino !== info.ino) {
     throw new Error(`[vitehub] Refusing to clean replaced Babysitter checkout pool: ${claimed}`);
@@ -77,13 +73,25 @@ export async function readGitHubAppEnvironment(context: Pick<AgentCallbackContex
   const env = await channelEnv("github", context as AgentCallbackContext);
   const appId = Number(envString(env.appId));
   const keyPath = envString(env.appPrivateKeyPath);
-  const privateKey = envString(env.appPrivateKey) ?? (keyPath ? (await readFile(keyPath, "utf8")).trim() : undefined);
+  const privateKey = normalizePrivateKey(envString(env.appPrivateKey) ?? (keyPath ? (await readFile(keyPath, "utf8")).trim() : undefined));
   const installation = envString(env.appInstallationId);
   if (!Number.isSafeInteger(appId) || appId <= 0 || !privateKey) {
     throw new Error("[vitehub] The Babysitter needs a GitHub App: set GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY (or GITHUB_APP_PRIVATE_KEY_PATH).");
   }
   const app: GitHubAppEnvironment = { appId, privateKey };
   if (installation) app.installationId = Number(installation);
+  app.owner = envString(env.appOwner)?.toLowerCase();
+  const configuredInstallations = envString(env.appInstallations);
+  if (configuredInstallations) {
+    const mappings: unknown = JSON.parse(configuredInstallations);
+    if (!isRuntimeRecord(mappings) || Array.isArray(mappings)) throw new Error("GITHUB_APP_INSTALLATIONS must be an owner-to-installation object.");
+    app.installations = Object.fromEntries(Object.entries(mappings).map(([owner, id]) => {
+      const installationId = Number(id);
+      if (!Number.isSafeInteger(installationId) || installationId <= 0) throw new Error(`Invalid GitHub installation for ${owner}.`);
+      return [owner.toLowerCase(), installationId];
+    }));
+  }
+  if (!app.owner) delete app.installationId;
   return app;
 }
 
@@ -95,10 +103,30 @@ export function babysitterRepositories(filter: unknown): string[] {
   return repositories.map(repository => repository.toLowerCase());
 }
 
+const passWorkspace = /^(?:vitehub-provider-(?:launch-)?[A-Za-z0-9]{6}|vitehub-baseline-[A-Za-z0-9]{6}|vitehub-[\w.-]+-pr-\d+-[A-Za-z0-9]{6}(?:\.meta\.json)?|t3-provider-runtime-[A-Za-z0-9]{6})$/;
+
+/**
+ * Removes pass workspaces that an interrupted process left in `root`. It sweeps only a temporary
+ * directory inside the service's working directory, which no other process shares, and keeps
+ * anything this process created.
+ */
+export async function sweepBabysitterWorkspaces(root = tmpdir(), startedAt = performance.timeOrigin, cwd = process.cwd()): Promise<number> {
+  if (!resolve(root).startsWith(`${resolve(cwd)}${sep}`)) return 0;
+  let removed = 0;
+  for (const entry of await readdir(root, { withFileTypes: true }).catch(() => [])) {
+    if (!passWorkspace.test(entry.name)) continue;
+    const path = join(root, entry.name);
+    const info = await lstat(path).catch(() => undefined);
+    if (!info || info.mtimeMs >= startedAt) continue;
+    await rm(path, { force: true, recursive: true, maxRetries: 3 }).then(() => removed++, () => {});
+  }
+  return removed;
+}
+
 /** Builds the GitHub host, process host, inbox, and reconciler for one discovered Babysitter Agent. */
 export async function createBabysitterProcessHost(context: AgentProcessHostContext): Promise<AgentProcessHostInstance> {
   // SAFETY: the Babysitter preset attaches this contribution only to its own configured definitions.
-  const agent = context.agent as AgentInput & { options: { filter: unknown; concurrency: number } };
+  const agent = context.agent as AgentInput & { options: { filter: unknown; concurrency: number; driver?: string; admission: BabysitterAdmissionOptions; capacity?: import("../babysitter.ts").BabysitterOptions["capacity"] } };
   const repositories = babysitterRepositories(agent.options.filter);
   await cleanupLegacyBabysitterCheckouts(context.dataDir);
   const app = await readGitHubAppEnvironment();
@@ -115,6 +143,7 @@ export async function createBabysitterProcessHost(context: AgentProcessHostConte
     // durable wait. Keep transient provider pressure in this host queue rather
     // than failing the claim, while bounding how long a checkout can be held.
     capacity: {
+      ...agent.options.capacity,
       concurrency: agent.options.concurrency,
       queue: {
         maxPending: agent.options.concurrency,
@@ -123,6 +152,11 @@ export async function createBabysitterProcessHost(context: AgentProcessHostConte
     },
     intervalMs: 10_000,
     run: async (reason, run, accepting) => await runtime?.reconcile(reason, run, accepting),
+  });
+  const admission = createBabysitterAdmission({
+    invocations: host.invocations,
+    limits: resolveBabysitterAdmissionLimits(agent.options.admission),
+    check: agent.options.admission?.check,
   });
   // Workers share the assigned journal and keep provider sessions in the host directory.
   const worker = defineAgent({
@@ -142,8 +176,11 @@ export async function createBabysitterProcessHost(context: AgentProcessHostConte
     event: host.event,
     error: host.error,
     wake: () => host.wake(),
+    admission,
   });
   const inbox = runtime.inbox;
+  // No pass runs yet, so workspaces from an earlier process are garbage.
+  const swept = await sweepBabysitterWorkspaces();
   return {
     start() {
       registerAgentProcessHostIntake(context.agentName, async ({ deliveryId, event, payload }) => {
@@ -152,9 +189,16 @@ export async function createBabysitterProcessHost(context: AgentProcessHostConte
         return Response.json(result, { status: 202 });
       });
       // Bring over an inbox file from a hand-wired Babysitter once, before the first claim.
+      // This process owns the inbox scope, so no lease from an earlier process belongs to a running pass.
       void inbox.importLegacyFile(".vitehub/pull-request-inbox.sqlite")
         .catch(error => host.error("babysitter.legacy-import.failed", error))
-        .finally(() => host.start());
+        .then(() => inbox.releaseLeases())
+        .then(released => { if (released) host.event("babysitter.leases.released", { released }) },
+          error => host.error("babysitter.leases.release-failed", error))
+        .finally(() => {
+          if (swept) host.event("babysitter.workspaces.swept", { removed: swept });
+          host.start();
+        });
     },
     async close() {
       registerAgentProcessHostIntake(context.agentName, undefined);
@@ -166,10 +210,28 @@ export async function createBabysitterProcessHost(context: AgentProcessHostConte
     async health() {
       const health = await host.health();
       const queue = await inbox.summary();
-      return { ...health, repositories, queue: {
+      const guard = await admission.health();
+      const lastSkip = await inbox.meta("admission-skipped");
+      return { ...health, release: agent.version, concurrency: agent.options.concurrency, repositories, queue: {
         working: queue.filter(item => item.status === "working").length,
-        ready: queue.filter(item => item.status === "ready" && item.dirty).length,
+        ready: queue.filter(item => item.status === "ready" && item.dirty && !item.stackBlocked).length,
+        stackBlocked: queue.filter(item => item.stackBlocked).length,
         waiting: queue.filter(item => item.status === "waiting").length,
+      }, admission: {
+        accepting: guard.accepting,
+        hostOnly: guard.hostOnly,
+        reason: guard.reason,
+        retryAt: guard.retryAt,
+        detail: guard.detail,
+        lastSkip,
+      }, budget: {
+        accounting: guard.accounting,
+        observedAt: new Date(guard.observedAt).toISOString(),
+        hourly: { inputTokens: guard.state.hourlyInputTokens, limit: guard.limits.hourlyInputTokens, resetsAt: guard.state.windows.hourEnd },
+        daily: { inputTokens: guard.state.dailyInputTokens, limit: guard.limits.dailyInputTokens, resetsAt: guard.state.windows.dayEnd },
+        tmp: { dir: guard.state.tmpDir, freeBytes: guard.state.freeTmpBytes, minFreeBytes: guard.limits.minFreeTmpBytes },
+        pause: guard.state.pause,
+        errors: guard.state.errors,
       } };
     },
   };

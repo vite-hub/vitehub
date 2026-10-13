@@ -68,6 +68,9 @@ describe("vitehub agent invocations against the Console RPC handler", () => {
     expect(list.exitCode).toBe(0)
     expect(JSON.parse(list.stdout).invocations).toEqual([expect.objectContaining({ id: value.id, status: "running" })])
 
+    // Running status is persisted before the asynchronous trace journal writes.
+    await vi.waitFor(async () => expect((await fixture.invocations.get(value.id))?.observations)
+      .toEqual(expect.arrayContaining([expect.objectContaining({ name: "agent.invocation.start" })])))
     const show = await cli(["show", value.id], fixture.host)
     expect(show.stdout).toContain(`${value.id} running`)
     expect(show.stdout).toContain("agent.invocation.start")
