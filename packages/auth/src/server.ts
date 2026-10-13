@@ -1,3 +1,4 @@
+import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 import discoveredDefinition from "#vitehub/auth/definition"
 import { betterAuth } from "better-auth"
 
@@ -285,18 +286,17 @@ async function runAccessAuthorize(
 }
 
 function isResponseLike(value: unknown): value is Response {
-  if (value === null || typeof value !== "object") return false
+  if (value === null || !hasRuntimeType(value, "object")) return false
   try {
     if (Object.prototype.toString.call(value) !== "[object Response]") return false
-    const response = value as { body?: unknown, headers?: unknown, status?: unknown, statusText?: unknown }
-    if (typeof response.status !== "number" || !Number.isInteger(response.status) || response.status < 0 || response.status > 599) return false
-    if (typeof response.statusText !== "string") return false
-    const headers = response.headers
-    if (headers === null || typeof headers !== "object") return false
-    const headerMethods = headers as { forEach?: unknown, get?: unknown, getSetCookie?: unknown }
-    if (typeof headerMethods.get !== "function" || typeof headerMethods.forEach !== "function" || typeof headerMethods.getSetCookie !== "function") return false
-    const body = response.body
-    return body === null || (body !== undefined && typeof body === "object" && typeof (body as { getReader?: unknown }).getReader === "function")
+    const status: unknown = Reflect.get(value, "status")
+    if (!hasRuntimeType(status, "number") || !Number.isInteger(status) || status < 0 || status > 599) return false
+    if (!hasRuntimeType(Reflect.get(value, "statusText"), "string")) return false
+    const headers: unknown = Reflect.get(value, "headers")
+    if (headers === null || !hasRuntimeType(headers, "object")) return false
+    if (!hasRuntimeType(Reflect.get(headers, "get"), "function") || !hasRuntimeType(Reflect.get(headers, "forEach"), "function") || !hasRuntimeType(Reflect.get(headers, "getSetCookie"), "function")) return false
+    const body: unknown = Reflect.get(value, "body")
+    return body === null || (hasRuntimeType(body, "object") && body !== null && hasRuntimeType(Reflect.get(body, "getReader"), "function"))
   }
   catch {
     return false

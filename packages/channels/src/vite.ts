@@ -141,6 +141,7 @@ export function hubChannels(options: ChannelsVitePluginOptions = {}): ChannelsVi
       }),
     },
     async config(config) {
+      // SAFETY: ViteHub writes this string-array metadata through its shared Vite config contract.
       const configuredServerDirs = Object.hasOwn(config, VITEHUB_SERVER_DIRS)
         ? (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS]
         : undefined
