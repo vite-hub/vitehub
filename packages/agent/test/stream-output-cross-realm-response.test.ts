@@ -50,13 +50,15 @@ describe("Agent UI stream response boundaries", () => {
 
   it("routes a foreign UI stream Response through Agent finalization", async () => {
     const agent = defineAgent({ driver: { run: () => foreignResponse() } })
-    const stream = await streamAgent(agent, {
+    const response = await streamAgent(agent, {
       memo: vi.fn(),
       runtime: "unknown",
       waitUntil: vi.fn(),
-    }, {}, { output: "ui-message-stream" }) as ReadableStream<unknown>
+    }, {}, { output: "ui-message-stream" })
+    expect(response).toBeInstanceOf(Response)
+    if (!(response instanceof Response)) throw new Error("Expected finalized response")
     const chunks: unknown[] = []
-    for await (const chunk of stream) chunks.push(chunk)
+    for await (const chunk of uiMessageStreamFromResponse(response as Response & { body: ReadableStream<Uint8Array> })) chunks.push(chunk)
     expect(chunks).toEqual([{ text: "foreign", type: "text" }])
   })
 
