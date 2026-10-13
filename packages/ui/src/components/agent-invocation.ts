@@ -1183,6 +1183,7 @@ function renderConfiguration(
   configuration: AgentInvocationConfiguration,
   invocation: AgentInvocationView,
   showCapabilities: boolean,
+  showSources: boolean,
   selectTool: (name: string) => void,
 ) {
   const recordedTools = Array.isArray(configuration.tools) ? configuration.tools : [];
@@ -1207,7 +1208,7 @@ function renderConfiguration(
           h("dl", { class: "vh-invocation-inspector__list" }, setup),
         ])
       : null,
-    props.showSources && configuration.workspace?.sources?.length
+    showSources && configuration.workspace?.sources?.length
       ? inspectorSources(configuration.workspace.sources)
       : null,
     configuration.channels?.length
@@ -1770,7 +1771,7 @@ export const AgentInvocationInspector = defineComponent({
             props.showTimeline
               ? traceTimeline(props.invocation, id => emit("selectActivity", id))
               : null,
-            ...(configuration ? renderConfiguration(configuration, props.invocation, props.showCapabilities, selectTool) : []),
+            ...(configuration ? renderConfiguration(configuration, props.invocation, props.showCapabilities, props.showSources, selectTool) : []),
             slots.metadata?.({ invocation: props.invocation }),
             inspectorSection(
               "Identifiers",
