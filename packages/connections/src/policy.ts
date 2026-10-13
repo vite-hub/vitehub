@@ -16,7 +16,7 @@ export function envActor(actor: string): EnvActor {
     : actor.startsWith("user:")
       ? { id: actor.slice(5), kind: "user" }
       : { id: actor, kind: "service" }
-  if (!mapped.id || mapped.id.length > 512 || /[\u0000-\u001f]/.test(mapped.id)) {
+  if (!mapped.id || mapped.id.length > 512 || Array.from(mapped.id).some(character => character.charCodeAt(0) < 32)) {
     throw new ConnectionError("invalid", "Connection actor IDs must contain 1 to 512 characters and no control characters.")
   }
   return mapped

@@ -285,17 +285,24 @@ async function runAccessAuthorize(
 }
 
 function isResponseLike(value: unknown): value is Response {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- A cross-realm Response needs structural checks before accessing its runtime getters.
   if (value === null || typeof value !== "object") return false
   try {
     if (Object.prototype.toString.call(value) !== "[object Response]") return false
-    const response = value as { headers?: unknown, status?: unknown, statusText?: unknown }
+    // SAFETY: Only named properties of the object are read; every property remains unknown until the checks below.
+    const response = value as { body?: unknown, headers?: unknown, status?: unknown, statusText?: unknown }
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The Response boundary requires an integer HTTP status before accepting the object.
     if (typeof response.status !== "number" || !Number.isInteger(response.status) || response.status < 0 || response.status > 599) return false
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The Response boundary requires the statusText string that response forwarding reads.
     if (typeof response.statusText !== "string") return false
     const headers = response.headers
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The Response boundary requires a non-null Headers object before checking its methods.
     if (headers === null || typeof headers !== "object") return false
+    // SAFETY: Headers is a non-null object and its methods remain unknown until the callable checks below.
     const headerMethods = headers as { get?: unknown, forEach?: unknown }
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The Response boundary requires both Headers methods used when forwarding a response.
     if (typeof headerMethods.get !== "function" || typeof headerMethods.forEach !== "function") return false
-    const body = (response as { body?: unknown }).body
+    const body = response.body
     return body === null || (typeof body === "object" && typeof (body as { getReader?: unknown }).getReader === "function")
   }
   catch {

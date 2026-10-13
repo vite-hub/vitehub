@@ -244,6 +244,7 @@ function createWebRequest(request: IncomingMessage): Request {
 async function sendWebResponse(response: Response, target: ServerResponse): Promise<void> {
   target.statusCode = response.status
   target.statusMessage = response.statusText
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Older Headers implementations can omit getSetCookie; preserve their header forwarding behavior.
   const setCookieHeaders = typeof response.headers.getSetCookie === "function" ? response.headers.getSetCookie() : []
   response.headers.forEach((value, key) => {
     if (key.toLowerCase() === "set-cookie" && setCookieHeaders.length > 0) return
