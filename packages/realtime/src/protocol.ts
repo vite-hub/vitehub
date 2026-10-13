@@ -1,5 +1,6 @@
 import * as decoding from "lib0/decoding"
 import * as encoding from "lib0/encoding"
+
 import { normalizeSafeWorkspacePath } from "@vite-hub/workspace"
 
 import type { RealtimeWorkspaceChange } from "./types.ts"
@@ -19,11 +20,17 @@ export function isRetryableRealtimeCheckpointCode(value: unknown): boolean {
 
 function validPath(value: unknown): value is string {
   if (typeof value !== "string" || value.length === 0 || value.length > 4096 || value.includes("\0")) return false
-  if (value.startsWith("/") || value.endsWith("/") || value.includes("\\")) return false
+  if (value.startsWith("/") || value.endsWith("/") || value.includes("\\") || /^[a-z]:/i.test(value)) return false
   const parts = value.split("/")
   if (parts.some(part => !part || part === "." || part === "..")) return false
+  if (parts.some((part, index) => {
+    const lower = part.toLowerCase()
+    const withoutStream = lower.split(":", 1)[0]!
+    const normalized = withoutStream.replace(/[ .]+$/, "")
+    return normalized === ".git" || /^git~\d+$/.test(normalized) || (index === 0 && (normalized === ".vitehub" || /^vitehu~\d+$/.test(normalized)))
+  })) return false
   try {
-    return parts[0] !== ".vitehub" && !parts.some(part => part.toLowerCase() === ".git") && normalizeSafeWorkspacePath(value) === value
+    return normalizeSafeWorkspacePath(value) === value
   }
   catch {
     return false
