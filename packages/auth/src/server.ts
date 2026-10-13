@@ -277,11 +277,26 @@ function reject(response: Response): AuthCheck {
 
 function isResponse(value: unknown): value is Response {
   if (value instanceof Response) return true
-  const bodyGetter = Object.getOwnPropertyDescriptor(Response.prototype, "body")?.get
-  if (!bodyGetter) return false
   try {
-    bodyGetter.call(value)
-    return true
+    const candidate = value as {
+      status: unknown
+      statusText: unknown
+      headers: unknown
+      bodyUsed: unknown
+      arrayBuffer: unknown
+      clone: unknown
+      json: unknown
+      text: unknown
+    }
+    return Number.isInteger(candidate.status)
+      && typeof candidate.statusText === "string"
+      && typeof (candidate.headers as { get?: unknown })?.get === "function"
+      && typeof (candidate.headers as { entries?: unknown })?.entries === "function"
+      && typeof candidate.bodyUsed === "boolean"
+      && typeof candidate.arrayBuffer === "function"
+      && typeof candidate.clone === "function"
+      && typeof candidate.json === "function"
+      && typeof candidate.text === "function"
   } catch {
     return false
   }
