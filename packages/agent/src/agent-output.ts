@@ -225,6 +225,7 @@ function readString(record: Record<string, unknown> | undefined, ...keys: string
 
 /** Read own data and accessor properties while ignoring ambient prototype data. */
 function readableRecordValue<T extends object, K extends keyof T>(record: T, key: K): T[K] | undefined
+// doctor-disable-next-line typescript/evidence/no-object-parameters -- Provider descriptors may belong to opaque class instances; read their properties with the original receiver.
 function readableRecordValue(record: object, key: string): unknown
 function readableRecordValue(record: object, key: string): unknown {
   const visited = new WeakSet<object>()
