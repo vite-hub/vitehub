@@ -49,22 +49,21 @@ const hasPanel = computed(
 @media (min-width: 64rem) {
   .vh-docs-shell {
     display: flex;
+    align-items: flex-start;
   }
 
+  /* The sidebars do not clip, so the expanded rail can cover the page. The z-index keeps it below the site header. */
   .vh-docs-shell > .vh-docs-desktop-nav {
-    display: flex;
-  }
-
-  .vh-docs-desktop-nav .vh-docs-aside {
     position: sticky;
+    z-index: 10;
     top: var(--ui-header-height);
     display: flex;
+    flex: none;
     height: calc(100dvh - var(--ui-header-height));
-    max-height: calc(100dvh - var(--ui-header-height));
-    min-height: calc(100dvh - var(--ui-header-height));
-    flex-direction: column;
-    overflow: hidden;
-    border-right: 1px solid var(--ui-border);
+  }
+
+  .vh-docs-content {
+    flex: 1;
   }
 }
 </style>
