@@ -15372,7 +15372,12 @@ describe("server helpers", () => {
     const workflowAccepted = new Promise<void>((resolve) => {
       acceptWorkflow = resolve
     })
+    let startWorkflow!: () => void
+    const workflowStarted = new Promise<void>((resolve) => {
+      startWorkflow = resolve
+    })
     const createBatch = vi.fn(async ([{ id }]: Array<{ id: string }>) => {
+      startWorkflow()
       await workflowAccepted
       return [{ id, status: async () => ({ status: "queued" }) }]
     })
@@ -15397,7 +15402,8 @@ describe("server helpers", () => {
         agentIdentity: { name: "calories" },
         cloudflare: { env: { [getCloudflareWorkflowBindingName("calories")]: { createBatch, get: vi.fn() } } },
       })
-      await vi.waitFor(() => expect(createBatch).toHaveBeenCalledOnce())
+      // Wait for actual startup without advancing the ownership heartbeat during SQLite I/O.
+      await workflowStarted
       await vi.advanceTimersByTimeAsync(150_000)
       acceptWorkflow()
       await expect(response).resolves.toMatchObject({ status: 200 })

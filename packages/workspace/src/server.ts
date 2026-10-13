@@ -188,12 +188,24 @@ function resolveContentType(path: string, mediaType: string | undefined, content
   return lookup(path) || "application/octet-stream"
 }
 
+function errorMessage(error: unknown): string | undefined {
+  if (Object(error) !== error) return
+  try {
+    const message = Object.getOwnPropertyDescriptor(error, "message")?.value
+    return message === String(message) ? String(message) : undefined
+  }
+  catch {
+    return
+  }
+}
+
 function isNotFoundError(error: unknown): boolean {
   const code = getViteHubErrorShape(error)?.code
+  const message = errorMessage(error)
   return code === "WORKSPACE_NOT_FOUND"
     || code === "WORKSPACE_PATH_INVALID"
-    || (error instanceof Error && error.message.includes("Workspace file does not exist:"))
-    || (error instanceof Error && error.message.includes("Workspace path does not exist:"))
+    || message?.includes("Workspace file does not exist:") === true
+    || message?.includes("Workspace path does not exist:") === true
 }
 
 class WorkspaceCollectionRequestError extends Diagnostic {
