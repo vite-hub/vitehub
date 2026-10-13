@@ -452,17 +452,27 @@ export function modelUsage(usage: ConsoleInvocationUsage): Map<string, ConsoleIn
   );
 }
 
+/**
+ * Projects the usage record of a finish observation. A long result text also marks the observation truncated, but
+ * the Agent keeps the scalar totals of `usage.record` when it bounds the observation. A truncated observation keeps
+ * those totals and drops per-call rows, because a bounded call list can be incomplete.
+ */
+export function finishUsage(
+  value: unknown,
+  truncated: boolean,
+  configuredModel?: string,
+): ConsoleInvocationUsage | undefined {
+  return usageNode(value, !truncated, configuredModel);
+}
+
 function invocationUsageProjection(record: AgentInvocationRecord): InvocationUsageProjection {
   const annotations = object(record.annotations);
   const configuredModel = stringValue(annotations?.["agent.model.id"])?.trim();
   for (let index = record.observations.length - 1; index >= 0; index--) {
     const observation = record.observations[index]!;
     if (observation.name !== "agent.invocation.finish") continue;
-    const usage = usageNode(observation.attributes?.["usage.record"], true, configuredModel);
-    if (observation.attributes?.["vitehub.observation.truncated"] === true) {
-      return { incomplete: true };
-    }
-    return { incomplete: false, usage };
+    const incomplete = observation.attributes?.["vitehub.observation.truncated"] === true;
+    return { incomplete, usage: finishUsage(observation.attributes?.["usage.record"], incomplete, configuredModel) };
   }
   return { incomplete: false };
 }
@@ -664,7 +674,7 @@ export async function createUsageSummary(
       const bucketTotal = buckets.get(bucket) ?? emptyTotals();
       const projection = invocationUsageProjection(record);
       const usage = projection.usage;
-      partial ||= usage?.totalTokens === undefined;
+      partial ||= projection.incomplete || usage?.totalTokens === undefined;
       sessions.push(usageSession(record, usage));
       runs.push({
         id: record.id,
