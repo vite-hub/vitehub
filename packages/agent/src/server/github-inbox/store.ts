@@ -1093,6 +1093,9 @@ export class PullRequestInbox {
         if (result.verifiedPushHeads && (result.progress?.kind !== 'verified' || result.progress.evidence !== `push:${pinnedHead}`)) throw new Error('Published ancestry requires a verified push receipt')
         const pushed = new Set([pinnedHead, ...result.verifiedPushHeads ?? []])
         const published = new Set([claim.snapshot.pr?.head?.sha, ...pushed])
+        // Generation changes must not discard a pinned wait: feedback and terminal
+        // CI stay dirty via handled below, and the host evaluates them against the
+        // pass's saved evidence. Only the publication/head fence rejects the wait.
         // Synchronize can lag several successful pushes. Accept only this pass's
         // verified publication chain, and fence a different source push even
         // while the PR snapshot still exposes its original head.
@@ -1237,10 +1240,11 @@ export class PullRequestInbox {
   async summary(): Promise<GitHubInboxSummary[]> {
     if (!this.repositories.length) return []
     const repositories = this.repositoryFilter()
+    // `+parent.number` keeps SQLite on the refs index; ordering by the primary key scanned every PR value.
     const rows = await this.read(`SELECT p.summary, (SELECT parent.number FROM ${this.tables.pullRequests} parent
       WHERE parent.scope=p.scope AND parent.repository=p.repository AND parent.number<>p.number
         AND parent.state='open' AND parent.head_ref=p.base_ref
-        AND json_extract(parent.value, '$.pr.head.repo.full_name') = COALESCE(json_extract(p.value, '$.pr.base.repo.full_name'), p.repository) COLLATE NOCASE ORDER BY parent.number LIMIT 1) AS stack_parent
+        AND json_extract(parent.value, '$.pr.head.repo.full_name') = COALESCE(json_extract(p.value, '$.pr.base.repo.full_name'), p.repository) COLLATE NOCASE ORDER BY +parent.number LIMIT 1) AS stack_parent
       FROM ${this.tables.pullRequests} p WHERE p.scope=? AND p.${repositories.sql} ORDER BY p.repository, p.number`, [this.scope, ...repositories.args])
     return rows.map(row => {
       const summary = parseSummary(JSON.parse(stringValue(row.summary)))
