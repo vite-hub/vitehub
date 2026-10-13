@@ -31,6 +31,27 @@ const cases = [
 ] as const;
 
 describe("AgentCapabilityInspector serialization", () => {
+  it.each([
+    ["string", "plain text"],
+    ["number", 42],
+    ["boolean", true],
+    ["array", [1, 2]],
+    ["null", null],
+    ["converted scalar", { toJSON: () => 42 }],
+  ])("rejects %s state for a valid inspection view", async (_name, state) => {
+    const props = invocation(state, undefined, {
+      root: "message",
+      elements: { message: { type: "Text", props: { text: "Record-only view" } } },
+    });
+    const wrapper = mount(AgentCapabilityInspector, { props: { invocation: props } });
+    expect(wrapper.text()).not.toContain("Record-only view");
+    expect(wrapper.find(".vh-capability-inspector__empty").exists()).toBe(true);
+    wrapper.unmount();
+    const html = await renderToString(createSSRApp({ render: () => h(AgentCapabilityInspector, { invocation: props }) }));
+    expect(html).not.toContain("Record-only view");
+    expect(html).toContain("vh-capability-inspector__empty");
+  });
+
   it.each(cases)("renders %s without crashing", async (_name, values, expected) => {
     const props = values.state === undefined ? invocation(undefined, values.metadata) : invocation(values.state);
     const wrapper = mount(AgentCapabilityInspector, { props: { invocation: props } });
