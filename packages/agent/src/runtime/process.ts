@@ -29,6 +29,8 @@ export interface ProcessAgentCapacityOptions {
   }
   queue?: AgentDriverCapacityQueueOptions
   rampUp?: number
+  /** Active invocations that run on other hosts. They count toward concurrency but reserve no local memory. */
+  remoteActive?: () => number
   sampleTimeoutMs?: number
   sample?: (context: AgentDriverCapacitySampleContext) => AgentDriverCapacitySample | Promise<AgentDriverCapacitySample>
 }
@@ -136,7 +138,8 @@ export function createProcessAgentCapacity(options: ProcessAgentCapacityOptions)
         resources.hostAvailableMemory - memory.reserveBytes,
         Math.min(resources.availableMemory, cgroupAvailableMemory) - memory.serviceReserveBytes,
       )
-      const additional = Math.max(0, Math.floor((admissionMemory - context.active * memory.perInvocationBytes) / memory.perInvocationBytes))
+      const localActive = Math.max(0, context.active - (options.remoteActive?.() ?? 0))
+      const additional = Math.max(0, Math.floor((admissionMemory - localActive * memory.perInvocationBytes) / memory.perInvocationBytes))
       const memoryConcurrency = context.active + additional
       const concurrency = Math.max(0, Math.min(context.concurrency, memoryConcurrency))
       return concurrency > context.active
