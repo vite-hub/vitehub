@@ -79,7 +79,7 @@ import { agentInvocationCallbackContextValues, agentInvocationConfigurationUpdat
 import { agentInvocationCallerAbortSignal, copyAgentInvocationCallerAbortSignal, markAgentInvocationCallerAbortSignal } from "./internal/invocation-input.ts"
 import { bindAgentRunEvents, type AgentRunEventPublisher } from "./run-events.ts"
 import { AgentInvocationClaimConflict, bindAgentInvocations, exclusiveAgentInvocation, inheritedAgentInvocationClaim, pendingAgentInvocationAnnotation, pendingAgentInvocationAnnotations, type AgentInvocationJournal, type AgentInvocationWorkflowBinding } from "./invocations.ts"
-import { isAttachmentPart, materializeMessageAttachmentData, type AgentMessagePhase, type Message } from "./messages.ts"
+import { isArrayBufferValue, isAttachmentPart, isBlobValue, isUint8ArrayValue, materializeMessageAttachmentData, type AgentMessagePhase, type Message } from "./messages.ts"
 import {
   createFallbackAgentInvoker,
   hasUnreplayableAgentInputContext,
@@ -1014,9 +1014,9 @@ async function portableWorkflowMessages(messages: Message[]): Promise<Message[]>
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       if (!isAttachmentPart(part)) return cloneWorkflowJsonValue(part) as typeof part
       let data = part.data
-      if (data instanceof Blob) data = await data.arrayBuffer()
-      if (data instanceof ArrayBuffer) data = new Uint8Array(data)
-      const portable = data instanceof Uint8Array
+      if (isBlobValue(data)) data = await data.arrayBuffer()
+      if (isArrayBufferValue(data)) data = new Uint8Array(data)
+      const portable = isUint8ArrayValue(data)
         ? { ...part, data: `data:${part.mediaType};base64,${workflowBytesToBase64(data)}` }
         : part
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.

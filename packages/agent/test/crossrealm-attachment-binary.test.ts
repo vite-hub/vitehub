@@ -1,6 +1,7 @@
 import { runInNewContext } from "node:vm"
 import { describe, expect, it } from "vitest"
 import { isArrayBufferValue, isBlobValue, isUint8ArrayValue } from "../src/provider-agent.ts"
+import { createMessage, portableAgentWorkflowInput } from "../src/index.ts"
 import { isAttachmentData, resolveAttachmentData } from "../src/messages.ts"
 
 describe("provider attachment binary values", () => {
@@ -30,6 +31,37 @@ describe("provider attachment binary values", () => {
       expect(isBlobValue(value)).toBe(false)
       expect(isUint8ArrayValue(value)).toBe(false)
       expect(isAttachmentData(value)).toBe(false)
+    }
+  })
+})
+
+describe("workflow attachment portability", () => {
+  it("serializes direct and fetched foreign binaries in every message input form", async () => {
+    const values: unknown[] = [
+      runInNewContext("new Uint8Array([1, 2]).buffer"),
+      runInNewContext("new Uint8Array([0, 1, 2, 0]).subarray(1, 3)"),
+    ]
+    const blob = new Blob([new Uint8Array([1, 2])])
+    // Preserve native Blob slots and methods with a separate realm's prototype.
+    Object.setPrototypeOf(blob, runInNewContext("Object.create(null, descriptors)", {
+      descriptors: Object.getOwnPropertyDescriptors(Blob.prototype),
+    }))
+    expect(blob instanceof Blob).toBe(false)
+    values.push(blob)
+    for (const data of values) {
+      if (!isAttachmentData(data)) throw new Error("Invalid binary fixture")
+      for (const attachment of [{ data }, { fetchData: () => data }]) {
+        const message = createMessage({
+          parts: [{ ...attachment, mediaType: "application/octet-stream", type: "file" }],
+          role: "user",
+        })
+        const portable = await portableAgentWorkflowInput({ message, messages: [message], prompt: [message] })
+        const expected = { parts: [{ data: "data:application/octet-stream;base64,AQI=", mediaType: "application/octet-stream", type: "file" }] }
+        expect(portable.message).toMatchObject(expected)
+        expect(portable.messages).toMatchObject([expected])
+        expect(portable.prompt).toMatchObject([expected])
+        expect(JSON.stringify(portable)).not.toContain("fetchData")
+      }
     }
   })
 })
