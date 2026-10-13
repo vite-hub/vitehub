@@ -812,9 +812,9 @@ export class PullRequestInbox {
       if (event === 'pull_request' && !['opened','synchronize','reopened','closed','edited','ready_for_review','converted_to_draft','labeled','unlabeled','enqueued','dequeued'].includes(payload.action ?? '')) return await finish('irrelevant PR action')
       if (event === 'pull_request_review_thread' && (!['resolved', 'unresolved'].includes(payload.action ?? '') || !payload.thread?.node_id)) return await finish('irrelevant review thread action')
       const check = payload.check_run ?? payload.check_suite ?? payload.workflow_run
-      // Push payloads expose the updated commit as `after`; use it for
-      // head matching when a provider does not include a check object.
-      const sha = check?.head_sha ?? payload.sha ?? payload.after
+      // Match commit-scoped evidence to the current head. Pull request
+      // synchronize payloads also have `after`, but must advance that head.
+      const sha = check?.head_sha ?? (event === 'status' ? payload.sha : event === 'push' ? payload.after : undefined)
       const numbers = new Set<number>()
       const direct = payload.pull_request?.number ?? (payload.issue?.pull_request ? payload.issue.number : undefined)
       if (direct) numbers.add(direct)
@@ -1093,6 +1093,9 @@ export class PullRequestInbox {
         if (result.verifiedPushHeads && (result.progress?.kind !== 'verified' || result.progress.evidence !== `push:${pinnedHead}`)) throw new Error('Published ancestry requires a verified push receipt')
         const pushed = new Set([pinnedHead, ...result.verifiedPushHeads ?? []])
         const published = new Set([claim.snapshot.pr?.head?.sha, ...pushed])
+        // Generation changes must not discard a pinned wait: feedback and terminal
+        // CI stay dirty via handled below, and the host evaluates them against the
+        // pass's saved evidence. Only the publication/head fence rejects the wait.
         // Synchronize can lag several successful pushes. Accept only this pass's
         // verified publication chain, and fence a different source push even
         // while the PR snapshot still exposes its original head.

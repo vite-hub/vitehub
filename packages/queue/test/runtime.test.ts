@@ -1110,6 +1110,12 @@ it("reads regions from a request created in another realm", () => {
   expect(runWithQueueRuntimeEvent({ request }, () => resolveVercelQueueRegion(undefined))).toMatchObject({ region: "ams1" })
 })
 
+it("ignores proxies around ordinary header methods", () => {
+  const get = new Proxy(() => "evil", {})
+  const request = { headers: { get } }
+  expect(runWithQueueRuntimeEvent({ request }, () => resolveVercelQueueRegion(undefined)).region).toBeUndefined()
+})
+
 it("ignores request objects that only spoof Web API brands", () => {
   const request = runInNewContext(`({
     headers: {

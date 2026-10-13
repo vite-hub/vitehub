@@ -8,7 +8,7 @@ function readHeader(headers: Headers | Record<string, unknown> | undefined, name
   if (isHeadersLike(headers)) {
     try {
       const descriptor = getPrototypeDescriptor(headers, "get")
-      if (!isNativeFunction(descriptor?.value)) return
+      if (!isBrandedMethod(descriptor?.value, headers, name)) return
       const value = descriptor.value.call(headers, name)
       return typeof value === "string" && value ? value : undefined
     }
@@ -38,7 +38,7 @@ function isHeadersLike(value: unknown): value is Headers {
   if (!value || (typeof value !== "object" && typeof value !== "function")) return false
   try {
     const descriptor = getPrototypeDescriptor(value, "get")
-    if (!isNativeFunction(descriptor?.value)) return false
+    if (!isBrandedMethod(descriptor?.value, value, "ce-vqsregion")) return false
     const result = descriptor.value.call(value, "ce-vqsregion")
     if (result !== undefined && typeof result !== "string") return false
     return true
@@ -48,14 +48,19 @@ function isHeadersLike(value: unknown): value is Headers {
   }
 }
 
-function isNativeFunction(value: unknown): value is (this: unknown, ...args: unknown[]) => unknown {
+function isBrandedMethod(value: unknown, receiver: object, ...args: unknown[]): value is (this: unknown, ...args: unknown[]) => unknown {
   if (typeof value !== "function") return false
-  // Fetch implementations in Node expose Web IDL methods as JavaScript
-  // wrappers containing an internal brand check instead of `[native code]`.
-  // Accept those wrappers as well as browser-native methods, while still
-  // rejecting ordinary user-defined lookalikes.
-  const source = Function.prototype.toString.call(value)
-  return /\[native code\]|(?:webidl\.)?brandCheck\s*\(/.test(source)
+  try {
+    const source = Function.prototype.toString.call(value)
+    if (!/\[native code\]|(?:webidl\.)?brandCheck\s*\(/.test(source)) return false
+    // Genuine Web IDL methods reject an unrelated receiver. This also rejects
+    // a Proxy around an ordinary function whose source is reported as native.
+    value.call(Object.create(null), ...args)
+    return false
+  }
+  catch {
+    return true
+  }
 }
 
 function getRequestHeaders(value: unknown) {
