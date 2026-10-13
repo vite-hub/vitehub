@@ -1,8 +1,18 @@
 <script setup lang="ts">
+import { onBeforeUnmount, onMounted } from "vue";
 import type { AgentInvocationView } from "@vite-hub/ui";
 
 const now = useState("ui-running-clock", () => Date.now());
 const time = (secondsAgo: number) => new Date(now.value - secondsAgo * 1_000).toISOString();
+
+let clock: ReturnType<typeof setInterval> | undefined;
+onMounted(() => {
+  now.value = Date.now()
+  clock = setInterval(() => { now.value = Date.now(); }, 1_000);
+});
+onBeforeUnmount(() => {
+  if (clock) clearInterval(clock);
+});
 
 const invocation: AgentInvocationView = {
   agentName: "interface-engineer",
