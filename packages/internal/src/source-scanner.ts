@@ -771,7 +771,10 @@ function isTypeMemberDeclaration(source: string, index: number) {
   if (openBrace < 0) return false
   const isTypeBrace = (brace: number, nested: boolean): boolean => {
     const head = masked.slice(0, brace)
-    if (/(?:^|[;{}])\s*(?:export\s+(?:default\s+)?)?(?:declare\s+)?(?:interface|class)\b[^{}]*$/s.test(head)) return true
+    if (/(?:^|[;{}])\s*(?:export\s+(?:default\s+)?)?(?:declare\s+)?interface\b[^{}]*$/s.test(head)) return true
+    if (/(?:^|[;{}])\s*(?:export\s+(?:default\s+)?)?(?:declare\s+)?(?:abstract\s+)?class\b[^{}]*$/s.test(head)) {
+      return /(?:^|[;{}])\s*(?:(?:public|private|protected|static|abstract|declare|override|readonly|async|get|set|accessor)\s+)*$/.test(masked.slice(brace + 1))
+    }
     if (/(?:^|[;{}])\s*(?:export\s+(?:default\s+)?)?type\b[^{}]*=\s*$/s.test(head)) return true
     if (/(?:^|[;{}])\s*(?:export\s+)?declare\s+(?:namespace|module)\b[^{}]*$/s.test(head)) return true
     if (!head.trimEnd().endsWith(":")) return false

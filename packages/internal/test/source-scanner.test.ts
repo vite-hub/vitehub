@@ -849,6 +849,26 @@ describe("source scanner", () => {
     ])
   })
 
+  it.each(["class", "abstract class"])("keeps runtime %s field calls while ignoring method signatures", (declaration) => {
+    const source = [
+      `${declaration} Agent {`,
+      `  defineThing(): void;`,
+      `  defineThing() {}`,
+      `  definition = defineThing("direct");`,
+      `  conditional = ready ? defineThing("conditional") : other;`,
+      `  constructed = new defineThing("new");`,
+      `  collection = [defineThing("array"), other];`,
+      `}`,
+    ].join("\n")
+
+    expect(findIdentifierCalls(source, "defineThing").map(call => call.arguments)).toEqual([
+      [`"direct"`],
+      [`"conditional"`],
+      [`"new"`],
+      [`"array"`],
+    ])
+  })
+
   it("ignores member calls with matching names", () => {
     const calls = findIdentifierCalls([
       `logger.defineThing("member")`,
