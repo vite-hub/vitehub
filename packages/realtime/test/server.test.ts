@@ -1134,6 +1134,16 @@ describe("realtime transport boundaries", () => {
     await expect(readRealtimeCheckpointState(request, 4)).resolves.toEqual(Uint8Array.of(1, 2, 3))
   })
 
+  it("accepts Uint8Array subclasses as checkpoint chunks", async () => {
+    const value = Buffer.from([1, 2, 3])
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) { controller.enqueue(value); controller.close() },
+    })
+    const request = new Request("https://example.com", { body, duplex: "half", method: "POST" } as RequestInit)
+
+    await expect(readRealtimeCheckpointState(request, 4)).resolves.toEqual(Uint8Array.of(1, 2, 3))
+  })
+
   it("rejects spoofed and non-byte checkpoint chunks", async () => {
     const chunks = [
       { [Symbol.toStringTag]: "ArrayBuffer" },

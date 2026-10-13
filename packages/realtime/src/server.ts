@@ -48,9 +48,19 @@ const typedArrayByteOffsetGetter = Object.getOwnPropertyDescriptor(Object.getPro
 function normalizeRealtimeCheckpointChunk(value: unknown): Uint8Array | undefined {
   if (ArrayBuffer.isView(value)) {
     try {
-      // BYTES_PER_ELEMENT is an immutable data property on each typed-array's
-      // intrinsic prototype, and distinguishes zero-length wider views too.
-      const bytesPerElement = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(value), "BYTES_PER_ELEMENT")?.value
+      // Walk past subclass prototypes to find the intrinsic typed-array width.
+      // This also handles Node Buffer values, whose immediate prototype is a
+      // subclass prototype rather than Uint8Array.prototype.
+      let prototype = Object.getPrototypeOf(value)
+      let bytesPerElement: unknown
+      while (prototype) {
+        const descriptor = Object.getOwnPropertyDescriptor(prototype, "BYTES_PER_ELEMENT")
+        if (descriptor && "value" in descriptor) {
+          bytesPerElement = descriptor.value
+          break
+        }
+        prototype = Object.getPrototypeOf(prototype)
+      }
       if (bytesPerElement !== 1) return undefined
       // SAFETY: The intrinsic TypedArray byteLength getter returns a number and throws for incompatible receivers.
       const byteLength = Reflect.apply(typedArrayByteLengthGetter, value, []) as number
