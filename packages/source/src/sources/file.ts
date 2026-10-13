@@ -32,9 +32,11 @@ function normalizeFileSourceOptions<TKey extends string>(input: FileSourceInput<
 
 function sourceKey<TKey extends string>(options: FileSourceOptions<TKey>): TKey {
   if (Object.hasOwn(options, "workspacePath") && options.workspacePath) {
+    // SAFETY: TKey is the caller's key type; safe path normalization preserves that string key contract.
     return normalizeSafeSourcePath(options.workspacePath) as TKey
   }
   if (Object.hasOwn(options, "path") && options.path) {
+    // SAFETY: TKey is the caller's key type; safe path normalization preserves that string key contract.
     return normalizeSourcePath(normalizeSafeSourcePath(options.path)) as TKey
   }
   throw sourceErrorDiagnostics.SOURCE_R0017({ message: "[vitehub] file requires a path or workspacePath." })
