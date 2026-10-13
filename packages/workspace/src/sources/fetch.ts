@@ -224,9 +224,16 @@ function normalizePublicResponseType(responseType: string): FetchSourceResponseT
 }
 
 function normalizeMethod(method: FetchSourceMethod | undefined): FetchSourceMethod {
-  const normalized = (method || "GET").toUpperCase()
+  const normalized = method === undefined
+    ? "GET"
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- fetch() accepts untrusted runtime options at its public boundary.
+    : typeof method === "string"
+      ? method.toUpperCase()
+      : ""
   if (normalized !== "GET" && normalized !== "HEAD" && normalized !== "POST") {
-    throw workspaceErrorDiagnostics.WORKSPACE_R0050({ message: `[vitehub] fetch() method "${normalized}" is not supported in v1. Use GET, HEAD, or POST.` })
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Preserve a safe diagnostic label for malformed runtime method values.
+    const label = typeof method === "string" ? method : typeof method
+    throw workspaceErrorDiagnostics.WORKSPACE_R0050({ message: `[vitehub] fetch() method "${label}" is not supported in v1. Use GET, HEAD, or POST.` })
   }
   return normalized
 }
@@ -312,12 +319,16 @@ async function defaultFetchSourceRequest(
   ctx: SourceContext,
   overrides: { body?: unknown, query?: Record<string, unknown> } = {},
 ) {
-  const defaultQuery = options.query !== undefined || concreteQueryFromOptions(options)
-    ? concreteQueryFromOptions(options)
-    : options.querySchema ? await parseStandardSchema(options.querySchema, {}, "fetch() query default") : undefined
-  const defaultBody = options.body !== undefined
-    ? options.body
-    : options.bodySchema ? await parseStandardSchema(options.bodySchema, {}, "fetch() body default") : undefined
+  const defaultQuery = overrides.query !== undefined
+    ? undefined
+    : options.query !== undefined || concreteQueryFromOptions(options)
+      ? concreteQueryFromOptions(options)
+      : options.querySchema ? await parseStandardSchema(options.querySchema, {}, "fetch() query default") : undefined
+  const defaultBody = overrides.body !== undefined
+    ? undefined
+    : options.body !== undefined
+      ? options.body
+      : options.bodySchema ? await parseStandardSchema(options.bodySchema, {}, "fetch() body default") : undefined
   const query = overrides.query ?? defaultQuery
   const body = typeof overrides.body === "undefined" ? defaultBody : overrides.body
   const context = sourceRequestContext(options, method, { body, query }, ctx)
@@ -428,7 +439,7 @@ async function validateFetchRequestBody(
   body: unknown,
 ): Promise<unknown> {
   if (options.bodySchema) {
-    return await parseStandardSchema(options.bodySchema, body ?? {}, "HTTP request body")
+    return await parseStandardSchema(options.bodySchema, typeof body === "undefined" ? {} : body, "HTTP request body")
   }
   if (typeof options.body !== "undefined") {
     if (typeof body !== "undefined" && !requestJsonEqual(body, options.body)) {

@@ -222,7 +222,7 @@ class RuntimeShellSession implements ShellSession {
 
 export function createShellRuntime(options: CreateShellRuntimeOptions): ShellRuntime {
   const { provider } = options
-  const policy = options.policy ?? {}
+  const policy = { ...(options.policy ?? {}) }
   return {
     boundary: provider.boundary,
     createSession(sessionOptions: CreateShellSessionOptions = {}) {
