@@ -14,6 +14,15 @@ import {
 const jsxScanner = createSourceScanner("source.tsx")
 
 describe("source scanner", () => {
+  it("scans a generated namespace with thousands of definitions without repeated prefix work", () => {
+    const source = "namespace Runtime {\n" + "defineThing({ value: 1 });\n".repeat(2000) + "}"
+    const started = performance.now()
+    const calls = findIdentifierCalls(source, "defineThing")
+    const elapsed = performance.now() - started
+    expect(calls).toHaveLength(2000)
+    expect(elapsed).toBeLessThan(1000)
+  })
+
   it.each(['const text = "</Email>";', "/* </Email> */", "/* </Email> */\nconst pattern = /Email/;"])("preserves a definition between a type assertion and later JSX text: %s", (after) => {
     const source = `const first = <Email>value;\nexport default defineThing({ value: "real" });\n${after}`
     expect(findDefaultExportCall(source, ["defineThing"])?.argument).toBe('{ value: "real" }')
