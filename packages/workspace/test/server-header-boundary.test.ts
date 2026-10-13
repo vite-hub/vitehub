@@ -27,6 +27,16 @@ describe("workspace dev token headers", () => {
     await expect(validateWorkspaceDevToken(root, headers, { serverId: "prototype-test" })).resolves.toBe(false)
   })
 
+  it("does not call an inherited get method on plain header records", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-header-"))
+    roots.push(root)
+    const options = { serverId: "prototype-get-test" }
+    const token = await refreshWorkspaceDevToken(root, options)
+    const headers = Object.create({ get: () => token }) as Record<string, string | string[] | undefined>
+
+    await expect(validateWorkspaceDevToken(root, headers, options)).resolves.toBe(false)
+  })
+
   it("accepts own record tokens and case-insensitive Headers tokens", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-header-"))
     roots.push(root)

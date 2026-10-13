@@ -114,7 +114,7 @@ async function workspaceDevTokenRoot(rootDir: string, options: WorkspaceDevToken
 }
 
 function headerValue(headers: Headers | Record<string, string | string[] | undefined>, name: string): string | undefined {
-  const get = hasRuntimeType(headers, "object") ? Reflect.get(headers, "get") : undefined
+  const get = typeof Headers === "function" ? Reflect.get(Headers.prototype, "get") : undefined
   if (hasRuntimeType(get, "function")) {
     try {
       const value = Reflect.apply(get, headers, [name])
