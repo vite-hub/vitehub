@@ -278,7 +278,10 @@ describe("server authentication provider boundaries", () => {
     })
 
     it("serializes a genuine foreign custom Response from a cross-realm authorizer through H3", async () => {
-      const denied = new ForeignResponse("Payment required", { status: 402, headers: { "x-policy": "custom" } })
+      const denied = runInNewContext(
+        "new Response('Payment required', { status: 402, headers: { 'x-policy': 'custom' } })",
+        { Response: ForeignResponse },
+      ) as Response
       expect(denied).not.toBeInstanceOf(Response)
       const authorize = runInNewContext("() => denied", { denied }) as () => Response
       providerMocks.getSession.mockResolvedValue({ session: { id: "session-1" }, user: { id: "user-1" } })

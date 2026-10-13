@@ -331,9 +331,22 @@ function hasResponsePrototype(value: unknown): boolean {
 function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<Uint8Array> | null {
   if (body === null) return true
   if (Object(body) !== body) return false
-  const locked = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
-  if (!locked || Reflect.apply(locked, body, [])) return false
-  return responsePropertyDescriptor(Object(body), "getReader")?.value === ReadableStream.prototype.getReader
+  try {
+    const stream = Object(body)
+    // ReadableStream accessors and methods are branded by their own realm. Resolve
+    // them from the stream prototype so independent Fetch implementations work too.
+    const prototype = Object.getPrototypeOf(stream)
+    const locked = responsePropertyDescriptor(stream, "locked")?.get
+    const getReader = responsePropertyDescriptor(stream, "getReader")?.value
+    const streamConstructor = prototype && Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+    const streamPrototype = streamConstructor && Object(streamConstructor).prototype
+    const nativeGetReader = streamPrototype && Object.getOwnPropertyDescriptor(streamPrototype, "getReader")?.value
+    if (typeof locked !== "function" || Reflect.apply(locked, stream, [])) return false
+    return typeof getReader === "function" && getReader === nativeGetReader
+  }
+  catch {
+    return false
+  }
 }
 
 function normalizeAuthorizationResponse(value: unknown): Response | undefined {
