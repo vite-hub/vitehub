@@ -135,7 +135,7 @@ export async function bundleSandboxDefinition(
               '    : cause && typeof cause === "object" && typeof cause.message === "string" && cause.message',
               '      ? cause.message',
               '      : "Validation failed"',
-              '  const error = cause instanceof Error ? cause : new Error(message)',
+              '  const error = new Error(message, { cause })',
               '  if (cause && typeof cause === "object")',
               '    Object.assign(error, cause)',
               '  error.code = "SANDBOX_VALIDATION_ERROR"',
