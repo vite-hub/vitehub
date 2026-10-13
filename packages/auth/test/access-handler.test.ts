@@ -105,7 +105,7 @@ describe("Auth access handlers", () => {
   })
 
   it("returns authorization responses from another realm unchanged", async () => {
-    const foreignResponse = runInNewContext(`new Response(null, { status: 409, statusText: "Conflict" })`, { Response })
+    const foreignResponse = runInNewContext(`new (class extends Response {})(null, { status: 409, statusText: "Conflict" })`, { Response })
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
       access: { routes: [{ route: "/**", authorize: () => foreignResponse as never }] },
     }))
