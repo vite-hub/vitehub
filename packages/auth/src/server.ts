@@ -333,7 +333,47 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
   if (Object(body) !== body) return false
   const locked = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
   if (!locked || Reflect.apply(locked, body, [])) return false
-  return responsePropertyDescriptor(Object(body), "getReader")?.value === ReadableStream.prototype.getReader
+  const ownReader = Object.getOwnPropertyDescriptor(body, "getReader")
+  return !ownReader || ownReader.value === ReadableStream.prototype.getReader
+}
+
+function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
+  // Use native operations on native stream state, never caller-supplied reader methods.
+  const getReader: () => ReadableStreamDefaultReader<Uint8Array> = ReadableStream.prototype.getReader
+  const reader = Reflect.apply(getReader, body, [])
+  const read: ReadableStreamDefaultReader<Uint8Array>["read"] = ReadableStreamDefaultReader.prototype.read
+  const { cancel, releaseLock } = ReadableStreamDefaultReader.prototype
+  let released = false
+  const release = () => {
+    if (released) return
+    released = true
+    Reflect.apply(releaseLock, reader, [])
+  }
+  const stream = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const result = await Reflect.apply(read, reader, [])
+        if (result.done) {
+          release()
+          controller.close()
+        }
+        else controller.enqueue(result.value)
+      }
+      catch (error) {
+        release()
+        controller.error(error)
+      }
+    },
+    async cancel(reason) {
+      try {
+        await Reflect.apply(cancel, reader, [reason])
+      }
+      finally {
+        release()
+      }
+    },
+  }, { highWaterMark: 0 })
+  return { stream, release }
 }
 
 function normalizeAuthorizationResponse(value: unknown): Response | undefined {
@@ -385,12 +425,19 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
     }])
     for (const cookie of cookies) normalizedHeaders.append("set-cookie", cookie)
 
-    // Foreign and shadowed values require a serializable local snapshot.
+    // Validate status and native body state before acquiring reader ownership.
     const normalizedResponse = status === 0 && statusText === "" && body === null && [...normalizedHeaders].length === 0
       ? Response.error()
       : new Response(body, { status, statusText, headers: normalizedHeaders })
-    // Foreign implementations and shadowed native values become stable local responses.
-    return normalizedResponse
+    if (body === null) return normalizedResponse
+    const bridgedBody = bridgeAuthorizationBody(body)
+    try {
+      return new Response(bridgedBody.stream, { status, statusText, headers: normalizedHeaders })
+    }
+    catch (error) {
+      bridgedBody.release()
+      throw error
+    }
   }
   catch {
     return
