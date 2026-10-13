@@ -288,10 +288,14 @@ function isResponseLike(value: unknown): value is Response {
   if (value === null || typeof value !== "object") return false
   try {
     const response = value as Response
-    // Use accessors and methods from this realm. Their Web IDL brand checks read
-    // the Response internal slots, so candidate-controlled properties/prototypes
-    // cannot spoof a response while genuine cross-realm Responses still work.
-    const responsePrototype = Response.prototype
+    // Use the candidate's own prototype so Web IDL brand checks work across
+    // realms and fetch implementations. Require a Response constructor before
+    // reading any candidate accessors; ordinary prototype-based spoofs inherit
+    // Object and are rejected at this boundary.
+    const responsePrototype = Object.getPrototypeOf(response)
+    const responseConstructor = responsePrototype?.constructor
+    if (typeof responseConstructor !== "function" || responseConstructor.name !== "Response") return false
+    if (!["error", "json", "redirect"].every(method => typeof responseConstructor[method] === "function")) return false
     const getStatus = Object.getOwnPropertyDescriptor(responsePrototype, "status")?.get
     const getStatusText = Object.getOwnPropertyDescriptor(responsePrototype, "statusText")?.get
     const getHeaders = Object.getOwnPropertyDescriptor(responsePrototype, "headers")?.get
