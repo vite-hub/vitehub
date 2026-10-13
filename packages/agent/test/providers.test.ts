@@ -22272,8 +22272,8 @@ describe("server helpers", () => {
     expect(runs).toEqual([["remember BROWSER-HISTORY"], ["what marker did I ask you to remember?"]])
   })
 
-  it.each(["local bytes", "local buffer", "foreign bytes", "foreign buffer", "foreign subarray", "foreign prototype blob", "spoofed blob"])("exports Channel history attachment %s", async (kind) => {
-    const data: unknown = kind === "local bytes"
+  it.each(["local bytes", "local buffer", "foreign bytes", "foreign buffer", "foreign subarray", "foreign prototype blob", "spoofed blob", "shadowed local bytes", "shadowed foreign bytes"])("exports Channel history attachment %s", async (kind) => {
+    let data: unknown = kind === "local bytes"
       ? new Uint8Array([1, 2, 3])
       : kind === "local buffer"
         ? new Uint8Array([1, 2, 3]).buffer
@@ -22294,6 +22294,16 @@ describe("server helpers", () => {
               : kind === "foreign subarray"
                 ? "new Uint8Array([9, 1, 2, 3, 9]).subarray(1, 4)"
                 : "new Uint8Array([1, 2, 3]).buffer")
+    if (kind.startsWith("shadowed")) {
+      data = kind === "shadowed local bytes"
+        ? new Uint8Array([9, 1, 2, 3, 9]).subarray(1, 4)
+        : runInNewContext("new Uint8Array([9, 1, 2, 3, 9]).subarray(1, 4)")
+      Object.defineProperties(data, {
+        buffer: { value: new Uint8Array([8]).buffer },
+        byteOffset: { value: 0 },
+        byteLength: { value: 1 },
+      })
+    }
     if (kind === "foreign prototype blob") {
       expect(data).not.toBeInstanceOf(Blob)
       expect(Object.getOwnPropertyDescriptor(Blob.prototype, "size")!.get!.call(data)).toBe(3)

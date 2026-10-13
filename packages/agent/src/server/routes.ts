@@ -7026,7 +7026,13 @@ function isChannelHistoryBlob(value: unknown): { size: number, arrayBuffer: () =
 function channelHistoryAttachmentBytes(value: unknown): Uint8Array | undefined {
   let bytes: Uint8Array
   if (ArrayBuffer.isView(value) && Object.prototype.toString.call(value) === "[object Uint8Array]") {
-    bytes = new Uint8Array(value.buffer, value.byteOffset, value.byteLength)
+    const prototype = Object.getPrototypeOf(Uint8Array.prototype)
+    // Native accessors read the typed-array slots, ignoring shadowing own properties.
+    bytes = new Uint8Array(
+      Object.getOwnPropertyDescriptor(prototype, "buffer")!.get!.call(value),
+      Object.getOwnPropertyDescriptor(prototype, "byteOffset")!.get!.call(value),
+      Object.getOwnPropertyDescriptor(prototype, "byteLength")!.get!.call(value),
+    )
   } else {
     try {
       // The native getter checks the ArrayBuffer brand across JavaScript realms.
