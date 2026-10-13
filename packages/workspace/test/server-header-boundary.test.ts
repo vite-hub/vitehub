@@ -26,4 +26,16 @@ describe("workspace dev token headers", () => {
 
     await expect(validateWorkspaceDevToken(root, headers, { serverId: "prototype-test" })).resolves.toBe(false)
   })
+
+  it("accepts own record tokens and case-insensitive Headers tokens", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-header-"))
+    roots.push(root)
+    const options = { serverId: "own-header-test" }
+    const token = await refreshWorkspaceDevToken(root, options)
+    const record = Object.assign(Object.create(null), { [workspaceDevTokenHeader]: token })
+    const headers = new Headers({ [workspaceDevTokenHeader.toUpperCase()]: token })
+
+    await expect(validateWorkspaceDevToken(root, record, options)).resolves.toBe(true)
+    await expect(validateWorkspaceDevToken(root, headers, options)).resolves.toBe(true)
+  })
 })

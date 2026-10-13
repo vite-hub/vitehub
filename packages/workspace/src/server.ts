@@ -120,7 +120,7 @@ function headerValue(headers: Headers | Record<string, string | string[] | undef
     catch {}
   }
   if (!Object.hasOwn(headers, name)) return undefined
-  const value = headers[name]
+  const value = (headers as Record<string, string | string[] | undefined>)[name]
   return Array.isArray(value) ? value[0] : value
 }
 

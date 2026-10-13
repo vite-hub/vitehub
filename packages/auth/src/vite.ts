@@ -8,11 +8,12 @@ import { summarizeDefinitions } from "@vite-hub/internal/inspect"
 
 import { resolveAuthViteConfig } from "./config.ts"
 import { discoverAuthDefinitions } from "./discovery.ts"
+import { sendWebResponse } from "./node-response.ts"
 import { resetAuth } from "./runtime-state.ts"
 import { isAuthRequestPath } from "./shared.ts"
 
 import type { ViteHubDefinitionSummary, ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
-import type { IncomingMessage, ServerResponse } from "node:http"
+import type { IncomingMessage } from "node:http"
 import type { Plugin, ResolvedConfig, UserConfig } from "vite"
 import type {
   AuthDefinition,
@@ -235,37 +236,6 @@ function createWebRequest(request: IncomingMessage): Request {
   }
 
   return new Request(url, init)
-}
-
-async function sendWebResponse(response: Response, target: ServerResponse): Promise<void> {
-  target.statusCode = response.status
-  target.statusMessage = response.statusText
-  const setCookieHeaders = response.headers.getSetCookie()
-  response.headers.forEach((value, key) => {
-    if (key.toLowerCase() === "set-cookie" && setCookieHeaders.length > 0) return
-    target.appendHeader(key, value)
-  })
-  for (const value of setCookieHeaders) {
-    target.appendHeader("set-cookie", value)
-  }
-
-  if (!response.body) {
-    target.end()
-    return
-  }
-
-  const reader = response.body.getReader()
-  try {
-    for (;;) {
-      const chunk = await reader.read()
-      if (chunk.done) break
-      target.write(Buffer.from(chunk.value))
-    }
-  }
-  finally {
-    target.end()
-    reader.releaseLock()
-  }
 }
 
 function loadAuthDefinitionModule(module: unknown): AuthDefinition | undefined {
