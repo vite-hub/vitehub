@@ -28,6 +28,43 @@ class FakeSocket extends EventTarget {
 }
 
 describe("cdp controller", () => {
+  it("rejects when a local CDP socket closes before opening", async () => {
+    class ClosingSocket extends EventTarget {
+      readyState = 0
+
+      constructor() {
+        super()
+        queueMicrotask(() => {
+          this.readyState = 3
+          this.dispatchEvent(new Event("close"))
+        })
+      }
+
+      close() {
+        this.readyState = 3
+      }
+
+      send() {}
+    }
+    vi.stubGlobal("WebSocket", ClosingSocket)
+
+    const connecting = cdp().attach({
+      endpoint: "ws://127.0.0.1:9222/devtools/browser/id",
+      kind: "cdp",
+    }, {
+      provider: { features: { liveHandoff: false }, isolation: "trusted-host", name: "local" },
+      sessionId: "public-id",
+    })
+    const timed = new Promise<never>((_resolve, reject) => {
+      setTimeout(() => reject(new Error("timed out waiting for the CDP socket")), 100)
+    })
+
+    await expect(Promise.race([connecting, timed])).rejects.toMatchObject({
+      code: "BROWSER_PROVIDER_ERROR",
+      details: { operation: "connect to the browser" },
+    })
+  })
+
   it("retains public session ownership until the socket closes after a failed release", async () => {
     const socket = new FakeSocket()
     const failure = new Error("WebSocket close failed")

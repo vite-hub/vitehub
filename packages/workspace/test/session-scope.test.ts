@@ -45,4 +45,15 @@ describe("workspace session scope", () => {
     await session.commit()
     await expect(workspace.readFile("reports/out.txt")).resolves.toBe("ok")
   })
+
+  it("honors a zero search limit in basic sessions", async () => {
+    const workspace = createWorkspace({
+      ...defineWorkspace({ store: { provider: "memory" } }),
+      name: "docs",
+    })
+    await workspace.writeFile("README.md", "needle\n")
+    const session = await workspace.startSession()
+
+    await expect(session.search({ pattern: "needle", limit: 0 })).resolves.toEqual([])
+  })
 })

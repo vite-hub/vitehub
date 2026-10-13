@@ -7,9 +7,12 @@ import { afterEach, describe, expect, it } from "vitest"
 
 import {
   createRuntimeRegistryContents,
+  createSuffixDefinitionSource,
+  discoverDefinitions,
   listSourceFiles,
   mergeDefinitions,
   normalizePathDefinitionName,
+  normalizeSuffixDefinitionName,
   registerDefinition,
   sanitizeDefinitionFilename,
   writeFileIfChanged,
@@ -58,6 +61,23 @@ describe("listSourceFiles", () => {
 
   it("returns empty when root does not exist", () => {
     expect(listSourceFiles(join(tmpdir(), "vitehub-internal-missing-dir"))).toEqual([])
+  })
+})
+
+describe("suffix definition discovery", () => {
+  it("resets global patterns between files", async () => {
+    const root = await createTempDir("vitehub-internal-suffix-")
+    await writeFile(join(root, "a.job.ts"), "", "utf8")
+    await writeFile(join(root, "b.job.ts"), "", "utf8")
+
+    const definitions = discoverDefinitions("job", [createSuffixDefinitionSource(
+      "test",
+      [root],
+      /\.job\.ts$/g,
+      (scanRoot, file) => normalizeSuffixDefinitionName(scanRoot, file, /\.job\.ts$/),
+    )])
+
+    expect(definitions.map(definition => definition.name)).toEqual(["a", "b"])
   })
 })
 

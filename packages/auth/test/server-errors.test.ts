@@ -1,6 +1,8 @@
 import { runInNewContext } from "node:vm"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { ViteHubError } from "@vite-hub/runtime"
+import { H3 } from "h3"
+import { Response as ForeignResponse } from "undici"
 
 import { defineAuth } from "../src/index.ts"
 import { handleAuthRequest, requireAuthAccessRoutes, withAuth, withAuthorization } from "../src/server.ts"
@@ -272,6 +274,21 @@ describe("server authentication provider boundaries", () => {
       providerMocks.getSession.mockResolvedValue({ session: { id: "session-1" }, user: { id: "user-1" } })
 
       await expect(withAuthorization(authorize, protectedAction, accessDefinition)(request)).resolves.toBe(denied)
+      expect(protectedAction).not.toHaveBeenCalled()
+    })
+
+    it("serializes a genuine foreign custom Response from a cross-realm authorizer through H3", async () => {
+      const denied = new ForeignResponse("Payment required", { status: 402, headers: { "x-policy": "custom" } })
+      expect(denied).not.toBeInstanceOf(Response)
+      const authorize = runInNewContext("() => denied", { denied }) as () => Response
+      providerMocks.getSession.mockResolvedValue({ session: { id: "session-1" }, user: { id: "user-1" } })
+      const guarded = withAuthorization(authorize, protectedAction, definition)
+      const app = new H3().get("/api/private", event => guarded(event.req))
+
+      const response = await app.request("/api/private")
+      expect(response.status).toBe(402)
+      expect(response.headers.get("x-policy")).toBe("custom")
+      await expect(response.text()).resolves.toBe("Payment required")
       expect(protectedAction).not.toHaveBeenCalled()
     })
 
