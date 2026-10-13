@@ -331,9 +331,16 @@ function hasResponsePrototype(value: unknown): boolean {
 function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<Uint8Array> | null {
   if (body === null) return true
   if (Object(body) !== body) return false
-  const locked = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
-  if (!locked || Reflect.apply(locked, body, [])) return false
-  return responsePropertyDescriptor(Object(body), "getReader")?.value === ReadableStream.prototype.getReader
+  try {
+    const locked = responsePropertyDescriptor(Object(body), "locked")?.get
+    const getReader = responsePropertyDescriptor(Object(body), "getReader")?.value
+    if (typeof locked !== "function" || typeof getReader !== "function") return false
+    if (Reflect.apply(locked, body, [])) return false
+    return true
+  }
+  catch {
+    return false
+  }
 }
 
 function normalizeAuthorizationResponse(value: unknown): Response | undefined {
@@ -371,8 +378,7 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
     const cookieDescriptor = responsePropertyDescriptor(headerCarrier, "getSetCookie")
     const nativeCookieMethod = !cookieDescriptor?.get && (cookieDescriptor?.value === undefined
       || cookieDescriptor.value === Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value)
-    const nativeBodyMethod = body === null || responsePropertyDescriptor(Object(body), "getReader")?.value === ReadableStream.prototype.getReader
-    if (value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod && nativeBodyMethod) return value
+    if (value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod) return value
     if (!isSerializableAuthorizationBody(body)) return
     const forEach = Reflect.get(headerCarrier, "forEach")
     const getSetCookie = Reflect.get(headerCarrier, "getSetCookie")
