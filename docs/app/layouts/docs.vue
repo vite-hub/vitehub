@@ -54,13 +54,22 @@ const docsShellUi = {
 }
 
 .vh-docs-landing {
-  max-width: var(--vh-landing-width);
+  max-width: var(--vh-content-width);
 }
 
 @media (min-width: 40rem) {
   .vh-docs-main,
   .vh-docs-landing {
     padding: 0 2rem;
+  }
+}
+
+/* On wide screens the rail and the page panel stay at the left edge. The page fills the remaining space. */
+@media (min-width: 64rem) {
+  .vh-docs-shell {
+    display: flex;
+    align-items: flex-start;
+    overflow-x: clip;
   }
 }
 
