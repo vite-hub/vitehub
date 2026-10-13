@@ -78,7 +78,7 @@ const hasPanel = computed(
   /* Keep the actual sidebar element's columns and border constrained to the viewport. */
   :deep(.vh-docs-sidebars) {
     flex-direction: row;
-    overflow: hidden;
+    overflow: visible;
     border-right: 1px solid var(--ui-border);
   }
 }
