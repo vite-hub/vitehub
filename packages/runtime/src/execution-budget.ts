@@ -75,7 +75,10 @@ export function createExecutionBudget(options: ExecutionBudgetOptions = {}): Exe
   const abortFromExternal = () => controller.abort(options.signal?.reason)
   if (options.signal) {
     if (options.signal.aborted) abortFromExternal()
-    else options.signal.addEventListener("abort", abortFromExternal, { once: true })
+    else {
+      options.signal.addEventListener("abort", abortFromExternal, { once: true })
+      controller.signal.addEventListener("abort", () => options.signal?.removeEventListener("abort", abortFromExternal), { once: true })
+    }
   }
   if (limits.deadlineAt !== undefined) scheduleDeadline(controller, limits.deadlineAt)
   return createBudget(state, limits, controller)
@@ -122,10 +125,18 @@ function createBudget(state: BudgetState, limits: ExecutionBudgetLimits, control
       const childController = new AbortController()
       const abortChild = (reason?: unknown) => childController.abort(reason)
       if (state.controller.signal.aborted) abortChild(state.controller.signal.reason)
-      else state.controller.signal.addEventListener("abort", () => abortChild(state.controller.signal.reason), { once: true })
+      else {
+        const abortFromParent = () => abortChild(state.controller.signal.reason)
+        state.controller.signal.addEventListener("abort", abortFromParent, { once: true })
+        childController.signal.addEventListener("abort", () => state.controller.signal.removeEventListener("abort", abortFromParent), { once: true })
+      }
       if (options.signal) {
         if (options.signal.aborted) abortChild(options.signal.reason)
-        else options.signal.addEventListener("abort", () => abortChild(options.signal?.reason), { once: true })
+        else {
+          const abortFromExternal = () => abortChild(options.signal?.reason)
+          options.signal.addEventListener("abort", abortFromExternal, { once: true })
+          childController.signal.addEventListener("abort", () => options.signal?.removeEventListener("abort", abortFromExternal), { once: true })
+        }
       }
       const deadlineAt = minDefined(limits.deadlineAt, childLimits.deadlineAt)
       if (deadlineAt !== undefined) scheduleDeadline(childController, deadlineAt)
@@ -141,16 +152,34 @@ function createBudget(state: BudgetState, limits: ExecutionBudgetLimits, control
       consume(counter, amount)
     },
     recordInputBytes(amount) {
-      assertAvailable("inputBytes", amount)
-      state.usage.inputBytes += amount
+      try {
+        assertAvailable("inputBytes", amount)
+        state.usage.inputBytes += amount
+      }
+      catch (error) {
+        if (error instanceof ExecutionBudgetExceededError) controller.abort(error)
+        throw error
+      }
     },
     recordOutputBytes(amount) {
-      assertAvailable("outputBytes", amount)
-      state.usage.outputBytes += amount
+      try {
+        assertAvailable("outputBytes", amount)
+        state.usage.outputBytes += amount
+      }
+      catch (error) {
+        if (error instanceof ExecutionBudgetExceededError) controller.abort(error)
+        throw error
+      }
     },
     recordRetry() {
-      assertAvailable("retries", 1)
-      state.usage.retries += 1
+      try {
+        assertAvailable("retries", 1)
+        state.usage.retries += 1
+      }
+      catch (error) {
+        if (error instanceof ExecutionBudgetExceededError) controller.abort(error)
+        throw error
+      }
     },
     recordToolCall(inputBytes = 0) {
       try {

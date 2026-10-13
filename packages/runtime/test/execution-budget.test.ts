@@ -32,7 +32,19 @@ describe("ExecutionBudget", () => {
       usage: { inputBytes: 4, outputBytes: 5, retries: 1, toolCalls: 1 },
     })
     expect(() => budget.recordRetry()).toThrow(ExecutionBudgetExceededError)
-    expect(() => budget.recordToolCall(7)).toThrow("inputBytes")
+    expect(budget.signal.aborted).toBe(true)
+    const inputBudget = createExecutionBudget({ maxInputBytes: 6 })
+    expect(() => inputBudget.recordToolCall(7)).toThrow("inputBytes")
+  })
+
+  it("aborts on byte exhaustion and detaches external cancellation listeners", () => {
+    const controller = new AbortController()
+    const removeListener = vi.spyOn(controller.signal, "removeEventListener")
+    const budget = createExecutionBudget({ maxOutputBytes: 1, signal: controller.signal })
+
+    expect(() => budget.recordOutputBytes(2)).toThrow(ExecutionBudgetExceededError)
+    expect(budget.signal.aborted).toBe(true)
+    expect(removeListener).toHaveBeenCalled()
   })
 
   it("derives a stricter child while sharing parent usage and cancellation", () => {
