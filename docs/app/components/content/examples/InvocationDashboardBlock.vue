@@ -5,14 +5,7 @@ import {
   type AgentInvocationListItem,
   type AgentInvocationView,
 } from "@vite-hub/ui";
-import { computed, onMounted, ref } from "vue";
-
-// Replace the server-rendered clock after hydration so static pages stay current.
-const now = useState("ui-dashboard-clock", () => Date.now());
-onMounted(() => {
-  now.value = Date.now();
-});
-const time = (secondsAgo: number) => new Date(now.value - secondsAgo * 1_000).toISOString();
+import { computed, ref } from "vue";
 
 // Keep running timestamps relative to the page load, including server rendering.
 const now = useState("ui-dashboard-clock", () => Date.now());
@@ -149,9 +142,9 @@ const items = computed<AgentInvocationListItem[]>(() =>
     updatedAt: invocation.updatedAt,
   })),
 );
-const selectedId = ref(invocations[0]!.id);
+const selectedId = ref(invocations.value[0]!.id);
 const selected = computed(() =>
-  invocations.find((invocation) => invocation.id === selectedId.value)!,
+  invocations.value.find((invocation) => invocation.id === selectedId.value)!,
 );
 const selectedActivityId = ref<string>();
 const detailsOpen = ref(true);

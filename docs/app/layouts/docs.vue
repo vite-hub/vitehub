@@ -47,14 +47,37 @@ const hasPanel = computed(
 
 /* On wide screens the rail and the page panel stay at the left edge. The page fills the remaining space. */
 @media (min-width: 64rem) {
-  .vh-docs-aside {
+  .vh-docs-shell {
+    display: flex;
+    align-items: flex-start;
+  }
+
+  /* The sidebars do not clip, so the expanded rail can cover the page. The z-index keeps it below the site header. */
+  .vh-docs-shell > .vh-docs-desktop-nav {
     position: sticky;
+    z-index: 10;
     top: var(--ui-header-height);
     display: flex;
+    flex: none;
     height: calc(100dvh - var(--ui-header-height));
+  }
+
+  .vh-docs-content {
+    flex: 1;
+  }
+
+  :deep(.vh-docs-sidebars) {
+    height: 100%;
+    min-height: 0;
+  }
+
+  :deep(.vh-docs-panel) {
     max-height: calc(100dvh - var(--ui-header-height));
-    min-height: calc(100dvh - var(--ui-header-height));
-    flex-direction: column;
+  }
+
+  /* Keep the actual sidebar element's columns and border constrained to the viewport. */
+  :deep(.vh-docs-sidebars) {
+    flex-direction: row;
     overflow: hidden;
     border-right: 1px solid var(--ui-border);
   }
