@@ -83,6 +83,7 @@ export async function createProcessAgentHost(
   if (options.invocations && invocationAgentName) {
     await recoverInterruptedAgentInvocations(invocations, {
       before: startedAt,
+      agentName: invocationAgentName,
       recover: invocation => invocation.agentName === invocationAgentName,
     });
   }

@@ -30,7 +30,15 @@ function toolValueText(value: unknown): string {
       return item;
     }, 2) ?? String(value);
   } catch (error) {
-    return error instanceof Error ? `[Unable to display payload: ${error.message}]` : "[Unable to display payload]";
+    let message: unknown;
+    if ((typeof error === "object" && error !== null) || typeof error === "function") {
+      try {
+        message = (error as { message?: unknown }).message;
+      } catch {
+        // Some error-like values expose a throwing message getter.
+      }
+    }
+    return typeof message === "string" ? `[Unable to display payload: ${message}]` : "[Unable to display payload]";
   }
 }
 

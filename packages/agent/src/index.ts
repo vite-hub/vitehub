@@ -1707,6 +1707,7 @@ async function applyChannelDeliveryEffectIntents<
   for (const intent of intents) {
     const handlers = active ? channelDeliveryEffectHandlers(active.channel, intent) : []
     const metadata = {
+      ...(active?.channelId ? { "channel.effect.channel": active.channelId } : {}),
       "channel.effect.intent": intent.intent,
       "channel.effect.kind": intent.kind,
       "channel.effect.supported": handlers.length > 0,
@@ -4397,7 +4398,8 @@ async function createAgentInvocationContext<
   // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   const internalDefinition = definition as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS> | undefined
   const capabilitiesResolver = internalDefinition?.[baseAgentCapabilitiesResolver]
-  const activeChannel = activeAgentChannel(definition?.channels, invocationContext, context.run)?.channel
+  const activeChannelContext = activeAgentChannel(definition?.channels, invocationContext, context.run)
+  const activeChannel = activeChannelContext?.channel
   const channelCapabilities = activeChannel?.capabilities || []
   const initialTelemetry = agentCapabilityTelemetry([
     ...(definition?.capabilities || []),
@@ -4703,11 +4705,24 @@ async function createAgentInvocationContext<
         }
         await validateCapabilityInput(false)
         if (intercept) {
+          const channelMessage = capabilities.input.data === undefined && !internalDefinition?.[baseAgentData] && activeChannelContext
+            ? await channelMessageData(
+              activeChannelContext.channel,
+              activeChannelContext.channelId,
+              invocationContext,
+              invocationContext.get("agent.trigger")?.source === "channel",
+            )
+            : undefined
           const value = await runObservedAgentHook(observedHooks, {
             name: "agent:intercept",
             owner: "agent",
             phase: "input",
-          }, () => intercept({ ...hookContext(), data: capabilities.input.data }))
+          }, () => intercept({
+            ...hookContext(),
+            data: capabilities.input.data === undefined && channelMessage !== undefined
+              ? channelMessage
+              : capabilities.input.data,
+          }))
           if (value !== undefined) intercepted = { value }
         }
       }
@@ -5076,9 +5091,44 @@ function withEagerStreamUsageExtensions<
   const providers = context.finishExtensionProviders.filter(provider => provider.eager)
   if (!providers.length) return stream
   return (async function* () {
+    let extensionApplied = false
+    async function* finalizeUsage(): AsyncIterable<unknown> {
+      if (extensionApplied) return
+      const usageRecord = await resolveAgentUsageRecord(result, context.run)
+      if (!usageRecord) return
+      const usage = { ...usageRecord }
+      const eventBase = {
+        actor: context.actor,
+        input: context.input,
+        invoker: context.invoker,
+        invocation: {
+          durationMs: Date.now() - context.startedAt,
+          ...(context.run ? { run: context.run } : {}),
+          usage,
+        },
+        result,
+        runtime: context.runtimeContext,
+        toolResults: [...context.toolResults],
+      } satisfies Omit<AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>, "extensions">
+      // SAFETY: The event and eager providers share this invocation's normalized Agent runtime and call-option contracts.
+      await createAgentInvocationExtensions(eventBase as never, providers)
+      extensionApplied = true
+      assignResolvedUsageRecord(result, usage)
+      // Keep deferred usage observable to stream consumers even when the provider
+      // never emitted a usage chunk during iteration.
+      yield { type: "usage", usageRecord: usage }
+    }
     for await (const chunk of stream) {
       const usageRecord = usageRecordFromStreamChunk(chunk, result)
       if (!usageRecord) {
+        if (isRuntimeRecord(chunk) && chunk.type === "finish") {
+          // A terminal event must not be held until an async source closes. If
+          // no usage chunk was emitted, resolve the fallback now so consumers
+          // still observe usage before finish.
+          yield* finalizeUsage()
+          yield chunk
+          continue
+        }
         yield chunk
         continue
       }
@@ -5098,6 +5148,7 @@ function withEagerStreamUsageExtensions<
       } satisfies Omit<AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>, "extensions">
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       await createAgentInvocationExtensions(eventBase as never, providers)
+      extensionApplied = true
       if (chunk && hasRuntimeType(chunk, "object")) {
         const prototype = Object.getPrototypeOf(chunk)
         if (prototype !== Object.prototype && prototype !== null) {
@@ -5125,7 +5176,8 @@ function withEagerStreamUsageExtensions<
       }
       yield { type: "usage", usageRecord: usage }
     }
-  })()
+    yield* finalizeUsage()
+    })()
 }
 
 function withEagerUiMessageStreamUsageExtensions<
@@ -8594,7 +8646,7 @@ export async function getAgent<TContext extends AgentRuntimeContext>(
 /** Publish a scheduler wait or progress update without creating an invocation. */
 export async function publishAgentActivity(
   agent: Pick<AgentDefinition, 'name' | 'channels'>,
-  options: { channelId: string, target: AgentActivityTarget, activity: AgentActivityUpdate },
+  options: { channelId: string, target: AgentActivityTarget, activity: AgentActivityUpdate, abortSignal?: AbortSignal },
 ): Promise<void> {
   const channel = agent.channels?.[options.channelId]
   if (!channel?.activity) throw new Error(`Agent channel ${options.channelId} does not support activity.`)
@@ -8612,6 +8664,7 @@ export async function publishAgentActivity(
     channel,
     target: options.target,
     activity: { agentName: agent.name, ...options.activity },
+    abortSignal: options.abortSignal,
   })
   await Promise.all(pending)
 }

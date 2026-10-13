@@ -68,6 +68,22 @@ describe("Cloudflare R2 multipart uploads", () => {
     ok(await resumed.abort())
     expect(upload.abort).toHaveBeenCalled()
   })
+
+  it.each([
+    { cursor: undefined },
+    { cursor: undefined, truncated: true },
+    { cursor: "next", truncated: false },
+  ])("rejects an invalid list pagination page %#", async (page) => {
+    const bucket = {
+      list: vi.fn(async () => ({ objects: [], ...page })),
+    }
+    Reflect.set(globalThis, "TEST_R2", bucket)
+    const driver = createR2Driver({ binding: "TEST_R2", driver: "cloudflare-r2" })
+
+    await expect(driver.list()).rejects.toMatchObject({
+      code: "BLOB_R0033",
+    })
+  })
 })
 
 describe("Vercel Blob multipart uploads", () => {

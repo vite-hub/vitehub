@@ -2,12 +2,12 @@
 title: Agents
 description: Define a server-side Agent, choose how it runs, and connect it to your application.
 navigation.title: Overview
-navigation.order: 20
-navigation.group: Core
+navigation.order: 1
+navigation.group: Start
 icon: i-lucide-bot
 ---
 
-::product-hero{tagline="One file under server/agents: a Driver, a Workspace, Capabilities, and Channels, run and recorded on your host." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
+::product-hero{tagline="One file under server/agents: a Driver, a Workspace, Capabilities, and Channels, run and recorded on your host." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno" channels="Web chat, HTTP, Slack, Discord, Telegram, Teams, GitHub, GitLab, Forgejo, Gmail" channel-mode="builtin"}
   :::agent-demo
   :::
 ::
@@ -34,8 +34,8 @@ icon: i-lucide-bot
   `runAgent()` returns a result; the Console shows every step.
   :::
 
-  :::product-feature-item{title="Start from a working harness" icon="i-lucide-git-pull-request" to="/docs/agents/babysitter"}
-  Babysitter repairs pull requests, waits for checks, merges, and can score repeatable Evals.
+  :::product-feature-item{title="Start from a reusable Agent preset" icon="i-lucide-copy" to="/docs/agents/presets"}
+  Babysitter maintains pull requests. Workspace reads Sources and supplies citation instructions. Configure the preset for your application.
   :::
 
 ::
