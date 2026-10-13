@@ -270,6 +270,18 @@ describe("HTTP request", () => {
     })
   })
 
+  it("ignores inherited request options", async () => {
+    const send = vi.fn(async () => new Response("ok"))
+    const definition = Object.assign(Object.create({ method: "POST", timeout: 1, maxResponseBytes: 1 }), {
+      url: "https://example.com",
+    }) as { url: string }
+
+    await expect(executeHttpRequest(definition, { fetch: send, responseType: "text" }))
+      .resolves.toMatchObject({ data: "ok" })
+    expect(send).toHaveBeenCalledOnce()
+    expect(send.mock.calls[0]?.[1]?.method).toBe("GET")
+  })
+
   it("interrupts an active request with the caller's exact abort reason", async () => {
     const reason = new Error("caller stopped")
     const controller = new AbortController()
