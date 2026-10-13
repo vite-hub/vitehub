@@ -72,7 +72,7 @@ export function createEntrySource(definitionPath: string, execution: 'definition
     `      }`,
     `    }`,
     `    if (typeof clone !== 'function') return false`,
-    `    if (typeof clone === 'function') { try { clone.call(value) } catch {} }`,
+    `    if (!cloneSucceeded) { try { clone.call(value) } catch {} }`,
     `    return Number.isInteger(value.status) && value.status >= 0 && value.status <= 599`,
     `      && typeof value.statusText === 'string'`,
     `      && typeof value.arrayBuffer === 'function'`,

@@ -19,6 +19,7 @@ async function executePackageEntry(definitionSource: string, options: {
   input?: unknown
   inputFiles?: Record<number, Uint8Array>
   inputJson?: string
+  prelude?: string
 } = {}) {
   const root = await mkdtemp(join(tmpdir(), "vitehub-sandbox-package-entry-"))
   tempDirs.push(root)
@@ -28,7 +29,7 @@ async function executePackageEntry(definitionSource: string, options: {
   const outputPath = join(root, "output.json")
   await Promise.all([
     writeFile(definitionPath, definitionSource, "utf8"),
-    writeFile(entryPath, createEntrySource(definitionPath, "module"), "utf8"),
+    writeFile(entryPath, (options.prelude ?? "") + createEntrySource(definitionPath, "module"), "utf8"),
     writeFile(inputPath, options.inputJson ?? JSON.stringify(options.input ?? { context: {}, payload: {} }), "utf8"),
   ])
   if (options.inputFiles) {
@@ -57,6 +58,32 @@ async function executePackageEntry(definitionSource: string, options: {
 }
 
 describe("package entry result transport", () => {
+  it.each([
+    ["binary", "new Response(new Uint8Array([0, 127, 255]), { status: 201 })", [0, 127, 255]],
+    ["streaming", "new Response(new ReadableStream({ start(controller) { controller.enqueue(new Uint8Array([0, 127])); controller.enqueue(new Uint8Array([255])); controller.close() } }), { status: 201 })", [0, 127, 255]],
+    ["null", "new Response(null, { status: 204 })", []],
+  ])("clones a native %s response only once during detection", async (_label, expression, bytes) => {
+    const execution = await executePackageEntry(`export default () => ${expression}`, {
+      prelude: [
+        "const proofNativeClone = Response.prototype.clone",
+        "let proofCloneCount = 0",
+        "Response.prototype.clone = function (...args) {",
+        "  this.headers.set('x-clone-count', String(++proofCloneCount))",
+        "  return Reflect.apply(proofNativeClone, this, args)",
+        "}",
+        "",
+      ].join("\n"),
+    })
+
+    expect(execution.code).toBe(0)
+    const sandbox = {} as Parameters<typeof decodeSandboxValue>[0]
+    const response = await decodeSandboxValue(sandbox, execution.output.result, "", "result")
+    if (!(response instanceof Response)) throw new TypeError("Expected Response")
+    expect(response.headers.get("x-clone-count")).toBe("1")
+    expect(response.status).toBe(bytes.length ? 201 : 204)
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(new Uint8Array(bytes))
+  })
+
   it("preserves a Response from another realm across the child process", async () => {
     const workspaceRoot = fileURLToPath(new URL("../../..", import.meta.url))
     const undiciDirectory = (await readdir(join(workspaceRoot, "node_modules/.pnpm"))).find(name => name.startsWith("undici@"))
