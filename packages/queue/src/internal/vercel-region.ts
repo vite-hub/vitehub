@@ -8,9 +8,9 @@ function readHeader(headers: Headers | Record<string, unknown> | undefined, name
   if (isHeadersLike(headers)) {
     try {
       const descriptor = getPrototypeDescriptor(headers, "get")
-      return typeof descriptor?.value === "function"
-        ? descriptor.value.call(headers, name) || undefined
-        : undefined
+      if (!isNativeFunction(descriptor?.value)) return
+      const value = descriptor.value.call(headers, name)
+      return typeof value === "string" && value ? value : undefined
     }
     catch {
       return
@@ -38,13 +38,18 @@ function isHeadersLike(value: unknown): value is Headers {
   if (!value || (typeof value !== "object" && typeof value !== "function")) return false
   try {
     const descriptor = getPrototypeDescriptor(value, "get")
-    if (typeof descriptor?.value !== "function") return false
-    descriptor.value.call(value, "ce-vqsregion")
+    if (!isNativeFunction(descriptor?.value)) return false
+    const result = descriptor.value.call(value, "ce-vqsregion")
+    if (result !== undefined && typeof result !== "string") return false
     return true
   }
   catch {
     return false
   }
+}
+
+function isNativeFunction(value: unknown): value is (this: unknown, ...args: unknown[]) => unknown {
+  return typeof value === "function" && /\[native code\]/.test(Function.prototype.toString.call(value))
 }
 
 function getRequestHeaders(value: unknown) {
