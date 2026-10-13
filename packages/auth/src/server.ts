@@ -294,7 +294,7 @@ function isResponseLike(value: unknown): value is Response {
     Object.getOwnPropertyDescriptor(responsePrototype, "body")?.get?.call(value)
     if (typeof status !== "number" || !Number.isInteger(status) || status < 0 || status > 599) return false
     if (typeof statusText !== "string" || headers === null || typeof headers !== "object") return false
-    Headers.prototype.get.call(headers as Headers, "")
+    Headers.prototype.get.call(headers as Headers, "x-vitehub-probe")
     return true
   }
   catch {
