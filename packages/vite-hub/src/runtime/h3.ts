@@ -41,17 +41,24 @@ function isRequest(value: unknown): value is Request {
   if (value === null || typeof value !== "object" || Object.prototype.toString.call(value) !== "[object Request]") {
     return false
   }
-  // The tag is spoofable. Require the clone operation on the Request prototype,
-  // rather than accepting an arbitrary method supplied by the candidate.
+  // The tag is spoofable. Check the Fetch prototype surface without invoking
+  // clone(), which would tee an unread body and retain the full payload.
   try {
-    const prototype = Object.getPrototypeOf(value)
-    const clone = Object.getOwnPropertyDescriptor(prototype, "clone")?.value
-    if (typeof clone !== "function") return false
-    // Cloning a consumed request throws, but the prototype method still proves
-    // that the object is a Fetch Request and its metadata remains usable.
-    if ((value as Request).bodyUsed) return true
-    const cloned = clone.call(value)
-    return cloned !== null && typeof cloned === "object"
+    let prototype = Object.getPrototypeOf(value)
+    let clone: unknown
+    let hasHeaders = false
+    let hasUrl = false
+    let hasMethod = false
+    let hasBodyUsed = false
+    while (prototype && prototype !== Object.prototype) {
+      clone ??= Object.getOwnPropertyDescriptor(prototype, "clone")?.value
+      hasHeaders ||= typeof Object.getOwnPropertyDescriptor(prototype, "headers")?.get === "function"
+      hasUrl ||= typeof Object.getOwnPropertyDescriptor(prototype, "url")?.get === "function"
+      hasMethod ||= typeof Object.getOwnPropertyDescriptor(prototype, "method")?.get === "function"
+      hasBodyUsed ||= typeof Object.getOwnPropertyDescriptor(prototype, "bodyUsed")?.get === "function"
+      prototype = Object.getPrototypeOf(prototype)
+    }
+    return typeof clone === "function" && hasHeaders && hasUrl && hasMethod && hasBodyUsed
   } catch {
     return false
   }
