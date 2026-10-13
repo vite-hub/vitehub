@@ -437,6 +437,17 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     return Reflect.get(value, key)
   }
 
+  function isCloudflareSqlStorage(value: unknown): value is RealtimeRoomSql {
+    if (value === null || typeof value !== "object") return false
+    const prototype = Object.getPrototypeOf(value)
+    if (prototype === null) return false
+    const exec = Object.getOwnPropertyDescriptor(prototype, "exec")
+    const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+    return typeof exec?.value === "function"
+      && typeof constructor === "function"
+      && constructor.name === "SqlStorage"
+  }
+
   async function forwardToCloudflareDurableObject(event: { context: Record<string, unknown>, req: Request }): Promise<Response | undefined> {
     const cloudflare = resolveCloudflare(event)
     const context = cloudflare?.context
@@ -456,7 +467,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     const context = resolveCloudflare(event)?.context
     const storage = ownValue(context, "storage")
     const sql = ownValue(storage, "sql")
-    return typeof (sql as { exec?: unknown } | undefined)?.exec === "function" ? sql as RealtimeRoomSql : undefined
+    return isCloudflareSqlStorage(sql) ? sql : undefined
   }
 
   async function getDefinition(definitionName: string): Promise<RealtimeDefinition> {
