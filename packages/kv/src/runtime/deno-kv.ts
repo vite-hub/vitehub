@@ -106,7 +106,11 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
         const key = fromDenoKey(entry.key)
         if (key?.startsWith(prefix)) keys.push(key)
       }
-      return iterator.cursor ? { keys, cursor: iterator.cursor } : { keys }
+      if (!iterator.cursor) return { keys }
+      if (cursor && iterator.cursor === cursor) {
+        throw kvErrorDiagnostics.KV_R0024({ message: "Deno KV list returned a repeated pagination cursor." })
+      }
+      return { keys, cursor: iterator.cursor }
     },
     async hasItem(key) {
       return (await (await open()).get(toDenoKey(key))).versionstamp !== null
