@@ -95,6 +95,19 @@ describe("Static Schedule runtime", () => {
     expect(calls).toEqual(["report"])
   })
 
+  it("skips malformed cron values without aborting other matching schedules", async () => {
+    const calls: string[] = []
+    await executeMatchingStaticSchedules({
+      cron: "0 4 * * *",
+      registry: {
+        malformed: async () => ({ cron: 42, handler: () => calls.push("invalid") }),
+        report: async () => ({ cron: "0  4 * * *", handler: () => calls.push("report") }),
+      },
+    })
+    expect(calls).toEqual(["report"])
+    expect(unwrapScheduleDefinition({ default: { cron: null, handler: () => {} } })).toBeUndefined()
+  })
+
   it("executes and unwraps static definitions with cross-realm handlers", async () => {
     const calls: string[] = []
     const handler = runInNewContext('() => calls.push("cross-realm")', { calls }) as () => void

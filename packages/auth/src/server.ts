@@ -1,5 +1,6 @@
 import discoveredDefinition from "#vitehub/auth/definition"
 import { betterAuth } from "better-auth"
+import { hasRuntimeType, isRuntimeObject } from "@vite-hub/runtime/internal/runtime-type"
 
 import { normalizeAuthBasePath } from "./shared.ts"
 import { resolveAuthOptions } from "./runtime-options.ts"
@@ -285,14 +286,14 @@ async function runAccessAuthorize(
 }
 
 function isResponseLike(value: unknown): value is Response {
-  if (value === null || typeof value !== "object") return false
+  if (!isRuntimeObject(value)) return false
   try {
     if (Object.prototype.toString.call(value) !== "[object Response]") return false
-    const response = value as { headers?: unknown, status?: unknown, statusText?: unknown }
-    if (typeof response.status !== "number" || !Number.isInteger(response.status) || response.status < 0 || response.status > 599) return false
-    if (typeof response.statusText !== "string") return false
+    const response = { headers: Reflect.get(value, "headers"), status: Reflect.get(value, "status"), statusText: Reflect.get(value, "statusText") }
+    if (!hasRuntimeType(response.status, "number") || !Number.isInteger(response.status) || response.status < 0 || response.status > 599) return false
+    if (!hasRuntimeType(response.statusText, "string")) return false
     const headers = response.headers
-    return headers !== null && typeof headers === "object" && typeof (headers as { get?: unknown }).get === "function"
+    return isRuntimeObject(headers) && hasRuntimeType(Reflect.get(headers, "get"), "function")
   }
   catch {
     return false

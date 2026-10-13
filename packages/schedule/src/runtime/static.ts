@@ -3,6 +3,7 @@ import { runWithScheduleWaitUntil } from "./wait-until.ts"
 import { createScheduleError, invalidScheduleValueDetails } from "../errors.ts"
 import { scheduleErrorDiagnostics } from "../error-diagnostics.ts"
 import { isViteHubBearerSecretEqual } from "@vite-hub/internal/secret"
+import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 
 export interface ExecuteStaticScheduleOptions {
   cron: string
@@ -251,6 +252,7 @@ function isObjectRecord(value: unknown): value is Record<string, unknown> {
 function isStaticScheduleDefinition(value: unknown): value is ScheduleDefinition {
   return isObjectRecord(value)
     && Object.hasOwn(value, "cron")
+    && hasRuntimeType(value.cron, "string")
     && Object.hasOwn(value, "handler")
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Registry handlers cross module and JavaScript realm boundaries; validate callability without realm-sensitive instanceof.
     && typeof value.handler === "function"
