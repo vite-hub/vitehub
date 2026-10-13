@@ -2,22 +2,16 @@ import { runInNewContext } from "node:vm"
 import { describe, expect, it, vi } from "vitest"
 
 import { createBlobStorage } from "../src/storage.ts"
+import ForeignBlob from "fetch-blob"
 
 describe("cross realm Blob bodies", () => {
   it("preserves a Blob type from another realm", async () => {
-    // Node VM contexts do not install web globals, so provide the Blob
-    // implementation and construct the value inside the independent context.
-    // Replacing its prototype makes the genuine Blob fail the host instanceof
-    // check while preserving its internal slots for the intrinsic accessors.
+    // Node VM contexts do not install web globals. Use an independent Blob
+    // implementation and construct the value inside the VM context.
     const body: Blob = runInNewContext(`(() => {
       const body = new Blob(["payload"], { type: "image/x-custom" })
-      const prototype = Object.create(null, {
-        type: Object.getOwnPropertyDescriptor(Blob.prototype, "type"),
-        size: Object.getOwnPropertyDescriptor(Blob.prototype, "size"),
-        text: Object.getOwnPropertyDescriptor(Blob.prototype, "text"),
-      })
-      return Object.setPrototypeOf(body, prototype)
-    })()`, { Blob })
+      return body
+    })()`, { Blob: ForeignBlob })
     expect(body instanceof Blob).toBe(false)
     await expect(body.text()).resolves.toBe("payload")
     const driver = {
