@@ -285,6 +285,7 @@ async function runAccessAuthorize(
 }
 
 function isResponseLike(value: unknown): value is Response {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Reject primitives before validating the native Response brand below.
   if (value === null || typeof value !== "object") return false
   try {
     // Use the native getter's brand check without consuming or cloning the body.
