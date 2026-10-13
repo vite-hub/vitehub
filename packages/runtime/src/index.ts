@@ -56,6 +56,16 @@ export {
 
 export type MaybePromise<T> = T | Promise<T>
 
+const webAssemblyModuleConstructor = (() => {
+  const namespace = Object.getOwnPropertyDescriptor(globalThis, "WebAssembly")?.value
+  return hasRuntimeType(namespace, "object")
+    ? Object.getOwnPropertyDescriptor(namespace, "Module")?.value
+    : undefined
+})()
+const webAssemblyModuleExports = hasRuntimeType(webAssemblyModuleConstructor, "function")
+  ? Object.getOwnPropertyDescriptor(webAssemblyModuleConstructor, "exports")?.value
+  : undefined
+
 export interface AccessAuthorizationContext {
   request: Pick<Request, "body" | "headers" | "method" | "signal" | "url">
   session: Record<string, unknown>
@@ -427,16 +437,11 @@ function isCryptoKey(value: unknown): boolean {
 
 function isWebAssemblyModule(value: unknown): boolean {
   if (!value || !hasRuntimeType(value, "object")) return false
-  const namespace = Object.getOwnPropertyDescriptor(globalThis, "WebAssembly")?.value
-  const constructor = hasRuntimeType(namespace, "object")
-    ? Object.getOwnPropertyDescriptor(namespace, "Module")?.value
-    : undefined
-  if (!hasRuntimeType(constructor, "function")) return false
-  if (value instanceof constructor) return true
+  if (!hasRuntimeType(webAssemblyModuleConstructor, "function")) return false
+  if (value instanceof webAssemblyModuleConstructor) return true
   try {
-    const exports = Object.getOwnPropertyDescriptor(constructor, "exports")?.value
-    if (!hasRuntimeType(exports, "function")) return false
-    Reflect.apply(exports, constructor, [value])
+    if (!hasRuntimeType(webAssemblyModuleExports, "function")) return false
+    Reflect.apply(webAssemblyModuleExports, webAssemblyModuleConstructor, [value])
     return true
   }
   catch {

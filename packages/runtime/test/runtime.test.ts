@@ -984,6 +984,34 @@ describe("@vite-hub/runtime", () => {
     })
   })
 
+  it("does not trust a replaced WebAssembly.Module.exports method", async () => {
+    const WebAssemblyModule = (globalThis as typeof globalThis & {
+      WebAssembly: {
+        Module: {
+          exports(module: object): readonly unknown[]
+        }
+      }
+    }).WebAssembly.Module
+    const originalExports = WebAssemblyModule.exports
+    WebAssemblyModule.exports = () => []
+    try {
+      const log = createTraceEventLog()
+      await log.append({
+        name: "spoofed.module",
+        payload: { value: { module: {} }, visibility: "public" },
+        type: "lifecycle",
+      })
+
+      expect(log.entries()[0]).toMatchObject({
+        attributes: { "vitehub.payload.visibility": "public" },
+        payload: { visibility: "public" },
+      })
+    }
+    finally {
+      WebAssemblyModule.exports = originalExports
+    }
+  })
+
   it("isolates stored entries from returned and observed payloads", async () => {
     let observed: TraceEventLogEntry | undefined
     const log = createTraceEventLog({
