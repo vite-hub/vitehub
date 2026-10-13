@@ -46,12 +46,13 @@ function rejection(status: number, message: string): Response {
 function isRequestLike(value: unknown): value is Request {
   if (value === null || typeof value !== "object") return false
   try {
-    let prototype = Object.getPrototypeOf(value)
-    while (prototype && !Object.getOwnPropertyDescriptor(prototype, "method")?.get) prototype = Object.getPrototypeOf(prototype)
-    const method = Object.getOwnPropertyDescriptor(prototype, "method")?.get?.call(value)
-    const url = Object.getOwnPropertyDescriptor(prototype, "url")?.get?.call(value)
-    Object.getOwnPropertyDescriptor(prototype, "headers")?.get?.call(value)
-    return typeof method === "string" && typeof url === "string"
+    const request = value as Record<string, unknown>
+    const headers = request.headers
+    return typeof request.method === "string"
+      && typeof request.url === "string"
+      && headers !== null
+      && typeof headers === "object"
+      && typeof (headers as { get?: unknown }).get === "function"
   }
   catch {
     return false
@@ -61,12 +62,14 @@ function isRequestLike(value: unknown): value is Request {
 function isResponseLike(value: unknown): value is Response {
   if (value === null || typeof value !== "object") return false
   try {
-    let prototype = Object.getPrototypeOf(value)
-    while (prototype && !Object.getOwnPropertyDescriptor(prototype, "status")?.get) prototype = Object.getPrototypeOf(prototype)
-    const status = Object.getOwnPropertyDescriptor(prototype, "status")?.get?.call(value)
-    const statusText = Object.getOwnPropertyDescriptor(prototype, "statusText")?.get?.call(value)
-    Object.getOwnPropertyDescriptor(prototype, "headers")?.get?.call(value)
-    return typeof status === "number" && typeof statusText === "string"
+    const response = value as Record<string, unknown>
+    const headers = response.headers
+    return typeof response.status === "number"
+      && typeof response.statusText === "string"
+      && "body" in response
+      && headers !== null
+      && typeof headers === "object"
+      && typeof (headers as { get?: unknown }).get === "function"
   }
   catch {
     return false

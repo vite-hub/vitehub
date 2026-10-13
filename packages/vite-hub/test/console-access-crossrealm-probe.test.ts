@@ -1,6 +1,7 @@
 import { Window } from "happy-dom"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { installConsoleAccess, withConsoleAccess } from "../src/console/runtime/server/access.ts"
+import type { ConsoleAuthorize } from "../src/auth.ts"
 
 const policyKey = Symbol.for("vitehub.console.access")
 
@@ -13,7 +14,7 @@ describe("cross-realm console access probe", () => {
     const response = new foreignRealm.Response(null, { status: 401, statusText: "Unauthorized" })
     expect(request).not.toBeInstanceOf(Request)
     expect(response).not.toBeInstanceOf(Response)
-    const authorize = vi.fn(() => response)
+    const authorize = vi.fn((() => response) as unknown as ConsoleAuthorize)
     installConsoleAccess({ mode: "host-managed", authorize })
     const result = await withConsoleAccess(() => "unreachable")({ req: request })
     expect(authorize).toHaveBeenCalledWith({ request })
