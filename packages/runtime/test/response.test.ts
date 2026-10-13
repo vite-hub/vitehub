@@ -59,11 +59,19 @@ describe("durable Response representation", () => {
     expect(isSerializedResponse({ ...serialized, status: 200 })).toBe(false)
     expect(isSerializedResponse({ ...serialized, headers: [["x-test", "value"]] })).toBe(false)
     expect(isSerializedResponse({ ...serialized, body: { ...serialized.body, data: "YQ==" } })).toBe(false)
+    if (type !== "opaqueredirect") {
+      expect(isSerializedResponse({ ...serialized, url: "https://unexpected.example" })).toBe(false)
+    }
   })
 
   it("rejects malformed records", () => {
     expect(isSerializedResponse({})).toBe(false)
     expect(() => deserializeResponse({} as never)).toThrow(TypeError)
+  })
+
+  it("rejects URLs on ordinary response records", async () => {
+    const serialized = await serializeResponse(new Response("ok"))
+    expect(isSerializedResponse({ ...serialized, url: "https://unexpected.example" })).toBe(false)
   })
 
   it("rejects sparse header arrays", () => {

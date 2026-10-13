@@ -1006,6 +1006,44 @@ async function portableAgentWorkflowRunId(runId: string): Promise<string> {
   return `${generatedPrefix}${Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("")}`
 }
 
+function isPortableWorkflowArrayBuffer(value: unknown): value is ArrayBuffer {
+  try {
+    const getter = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")?.get
+    if (!getter) return false
+    getter.call(value)
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
+function isPortableWorkflowUint8Array(value: unknown): value is Uint8Array {
+  if (!ArrayBuffer.isView(value)) return false
+  try {
+    const getter = Object.getOwnPropertyDescriptor(
+      Object.getPrototypeOf(Uint8Array.prototype),
+      Symbol.toStringTag,
+    )?.get
+    return getter?.call(value) === "Uint8Array"
+  }
+  catch {
+    return false
+  }
+}
+
+function isPortableWorkflowBlob(value: unknown): value is Blob {
+  try {
+    const getter = Object.getOwnPropertyDescriptor(Blob.prototype, "size")?.get
+    if (!getter) return false
+    getter.call(value)
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
 async function portableWorkflowMessages(messages: Message[]): Promise<Message[]> {
   const materialized = await materializeMessageAttachmentData(messages)
   return await Promise.all(materialized.map(async message => ({
@@ -1014,9 +1052,9 @@ async function portableWorkflowMessages(messages: Message[]): Promise<Message[]>
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       if (!isAttachmentPart(part)) return cloneWorkflowJsonValue(part) as typeof part
       let data = part.data
-      if (data instanceof Blob) data = await data.arrayBuffer()
-      if (data instanceof ArrayBuffer) data = new Uint8Array(data)
-      const portable = data instanceof Uint8Array
+      if (isPortableWorkflowBlob(data)) data = await data.arrayBuffer()
+      if (isPortableWorkflowArrayBuffer(data)) data = new Uint8Array(data)
+      const portable = isPortableWorkflowUint8Array(data)
         ? { ...part, data: `data:${part.mediaType};base64,${workflowBytesToBase64(data)}` }
         : part
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
