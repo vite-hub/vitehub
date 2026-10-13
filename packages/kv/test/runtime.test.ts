@@ -889,4 +889,57 @@ describe("kv runtime", () => {
     expect(list).toHaveBeenCalledTimes(2)
   })
 
+
+  it("rejects a Deno provider cursor echoed on a raw-cursor resume", async () => {
+    const list = vi.fn((_selector: { prefix: [] }, options: { cursor?: string; limit?: number } = {}) => {
+      const iterator = (async function* () { yield { key: ["match"], value: null } })()
+      return Object.assign(iterator, { cursor: options.cursor })
+    })
+    ;(globalThis as typeof globalThis & { Deno?: unknown }).Deno = {
+      openKv: async () => ({ delete: vi.fn(), get: vi.fn(), list, set: vi.fn() }),
+    }
+    const { default: createDenoKVDriver } = await import("../src/runtime/deno-kv.ts")
+
+    await expect(createDenoKVDriver().listKeys({ cursor: "legacy-next", limit: 1 })).rejects.toThrow("repeated pagination cursor")
+    expect(list).toHaveBeenCalledWith({ prefix: [] }, { cursor: "legacy-next", limit: 1 })
+  })
+
+  it("rejects a prior Deno provider cursor after resuming on another instance", async () => {
+    const list = vi.fn((_selector: { prefix: [] }, options: { cursor?: string; limit?: number } = {}) => {
+      const iterator = (async function* () { yield { key: ["match"], value: null } })()
+      return Object.assign(iterator, { cursor: options.cursor === "first" ? "second" : "first" })
+    })
+    ;(globalThis as typeof globalThis & { Deno?: unknown }).Deno = {
+      openKv: async () => ({ delete: vi.fn(), get: vi.fn(), list, set: vi.fn() }),
+    }
+    const { default: createDenoKVDriver } = await import("../src/runtime/deno-kv.ts")
+    const firstDriver = createDenoKVDriver()
+    const first = await firstDriver.listKeys({ limit: 1 })
+    const second = await firstDriver.listKeys({ cursor: first.cursor, limit: 1 })
+
+    await expect(createDenoKVDriver().listKeys({ cursor: second.cursor, limit: 1 })).rejects.toThrow("repeated pagination cursor")
+    expect(list).toHaveBeenNthCalledWith(3, { prefix: [] }, { cursor: "second", limit: 1 })
+  })
+
+  it("fails closed at the Deno cursor history limit without discarding earlier cursors", async () => {
+    let page = 0
+    let returnedCursor: string | undefined
+    const list = vi.fn(() => {
+      const iterator = (async function* () {})()
+      return Object.assign(iterator, { cursor: returnedCursor ?? String(++page) })
+    })
+    ;(globalThis as typeof globalThis & { Deno?: unknown }).Deno = {
+      openKv: async () => ({ delete: vi.fn(), get: vi.fn(), list, set: vi.fn() }),
+    }
+    const { default: createDenoKVDriver } = await import("../src/runtime/deno-kv.ts")
+    const driver = createDenoKVDriver()
+    let cursor: string | undefined
+    for (let index = 0; index < 1_024; index++) {
+      cursor = (await driver.listKeys({ cursor, limit: 1 })).cursor
+    }
+
+    await expect(driver.listKeys({ cursor, limit: 1 })).rejects.toThrow("cursor history limit")
+    returnedCursor = "1"
+    await expect(driver.listKeys({ cursor, limit: 1 })).rejects.toThrow("repeated pagination cursor")
+  })
 })

@@ -33,7 +33,7 @@ export function createCursorHistory() {
       // resumed by another driver instance.
       const portable = decodeContinuation(cursor)
       if (portable) return portable
-      return { providerCursor: cursor, history: new Set<string>() }
+      return { providerCursor: cursor, history: new Set([cursor]) }
     }
     continuations.delete(cursor)
     return continuation
