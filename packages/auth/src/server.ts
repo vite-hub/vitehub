@@ -275,6 +275,15 @@ function reject(response: Response): AuthCheck {
   return { response }
 }
 
+function responseGetter(value: object, property: string): (() => unknown) | undefined {
+  let prototype: object | null = value
+  while (prototype) {
+    const descriptor = Object.getOwnPropertyDescriptor(prototype, property)
+    if (descriptor?.get) return descriptor.get
+    prototype = Object.getPrototypeOf(prototype) as object | null
+  }
+}
+
 async function runAccessAuthorize(
   authorize: AuthAccessAuthorize,
   context: AuthAccessAuthorizationContext,
@@ -287,19 +296,25 @@ async function runAccessAuthorize(
       Object.getOwnPropertyDescriptor(Response.prototype, "status")!.get!.call(result)
       return result
     }
-    if (result && typeof result === "object" && Object.prototype.toString.call(result) === "[object Response]") {
+    if (result && typeof result === "object") {
       // Separate fetch implementations have incompatible native brands. Never
       // return these candidates directly: validate and copy their transport data.
-      const { body, headers, status, statusText } = result as Response
+      const candidate = result as object
+      const status = responseGetter(candidate, "status")?.call(candidate)
+      const statusText = responseGetter(candidate, "statusText")?.call(candidate)
+      const headers = responseGetter(candidate, "headers")?.call(candidate)
+      const body = responseGetter(candidate, "body")?.call(candidate) ?? null
       if (typeof status !== "number" || !Number.isInteger(status) || typeof statusText !== "string"
-        || typeof headers?.[Symbol.iterator] !== "function") {
+        || typeof (headers as { [Symbol.iterator]?: unknown } | null)?.[Symbol.iterator] !== "function") {
         return createForbiddenResponse(context.request)
       }
       if (body !== null) {
         // Calling the native stream accessor rejects forged body operations.
-        Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")!.get!.call(body)
+        const reader = (body as { getReader?: () => { releaseLock?: () => void } }).getReader?.()
+        if (!reader || typeof reader.releaseLock !== "function") return createForbiddenResponse(context.request)
+        reader.releaseLock()
       }
-      return new Response(body, { headers: new Headers(headers), status, statusText })
+      return new Response(body as BodyInit | null, { headers: new Headers(headers as HeadersInit), status, statusText })
     }
   }
   catch {
