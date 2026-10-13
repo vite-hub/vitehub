@@ -1071,7 +1071,7 @@ function startTunnel(state: CrabboxSessionState, remotePort: number) {
       child.kill()
       await waitForExit(child)
       const detail = stderr.trim()
-      throw boxErrorDiagnostics.BOX_R0110({ message: `[vitehub] Crabbox tunnel failed${detail ? `: ${detail}` : "."}`, ...{ cause } })
+      throw boxErrorDiagnostics.BOX_R0110({ message: `[vitehub] Crabbox tunnel failed${detail ? `: ${detail}` : "."}`, cause })
     }).finally(() => child.stderr.off("data", captureStderr)),
   }
   state.tunnels.set(remotePort, tunnel)

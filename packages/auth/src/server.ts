@@ -285,11 +285,13 @@ async function runAccessAuthorize(
 }
 
 function isResponseLike(value: unknown): value is Response {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- A cross-realm Response needs structural checks before accessing its runtime getters.
   if (value === null || typeof value !== "object") return false
   try {
     if (Object.prototype.toString.call(value) !== "[object Response]") return false
     const status = readResponseProperty(value, "status")
     const statusText = readResponseProperty(value, "statusText")
+    // SAFETY: The owning Response getter supplies this value; its optional methods remain unknown until the checks below.
     const headers = readResponseProperty(value, "headers") as {
       get?: unknown
       forEach?: unknown
@@ -308,13 +310,13 @@ function isResponseLike(value: unknown): value is Response {
   }
 }
 
-function readResponseProperty(value: object, key: string): unknown {
+function readResponseProperty(value: unknown, key: string): unknown {
   // Use the owning runtime's getters so its Response brand checks apply.
-  let prototype = Object.getPrototypeOf(value) as object | null
+  let prototype: unknown = Object.getPrototypeOf(value)
   while (prototype) {
     const descriptor = Object.getOwnPropertyDescriptor(prototype, key)
     if (descriptor) return descriptor.get?.call(value)
-    prototype = Object.getPrototypeOf(prototype) as object | null
+    prototype = Object.getPrototypeOf(prototype)
   }
 }
 

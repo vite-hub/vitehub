@@ -314,7 +314,7 @@ describe("Rate Limit core", () => {
     })).toThrow("valid enforcement")
   })
 
-  it.each([null, "60s", {}, [0], [1.5], [Number.NaN], new Array(1)])("rejects malformed supported windows: %j", windows => {
+  it.each([null, "60s", {}, [0], [1.5], [Number.NaN], Object.assign([], { length: 1 })])("rejects malformed supported windows: %j", windows => {
     expect(() => createRateLimiter({
       driver: {
         capabilities: { ...strictCapabilities, windows } as never,

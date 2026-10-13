@@ -77,6 +77,15 @@ async function installWorkspace(target: string, signal?: AbortSignal, run?: GitH
   let yarnConfig: string | undefined;
   let snapshot: Awaited<ReturnType<typeof createGitHubInstallSnapshot>> | undefined;
   let retryable = false;
+  const cleanup = async () => {
+    try {
+      try { if (yarnConfig) await rm(yarnConfig, { force: true }); }
+      finally { await snapshot?.close(); }
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      throw new GitHubWorkspaceInstallError(error);
+    }
+  };
   try {
     snapshot = await createGitHubInstallSnapshot(target);
     const source = snapshot.directory;
@@ -157,13 +166,7 @@ async function installWorkspace(target: string, signal?: AbortSignal, run?: GitH
     // Filesystem errors remain recoverable even when they occur during input validation.
     throw new GitHubWorkspaceInstallError(error, retryable || isSystemError(error));
   } finally {
-    try {
-      try { if (yarnConfig) await rm(yarnConfig, { force: true }); }
-      finally { await snapshot?.close(); }
-    } catch (error) {
-      if (signal?.aborted) throw error;
-      throw new GitHubWorkspaceInstallError(error);
-    }
+    await cleanup();
   }
 }
 

@@ -352,11 +352,7 @@ class FakeSshServer {
   readonly hostKey = new Uint8Array([1, 2, 3]);
   readonly killSignals: string[] = [];
   readonly module = {
-    Client: class {
-      constructor() {
-        return fakeServer!.client;
-      }
-    },
+    Client: fakeSshClientConstructor(this.client),
     utils: {
       generateKeyPairSync() {
         return { private: "private", public: "public" };
@@ -383,10 +379,6 @@ class FakeSshServer {
   verificationExitCode = 0;
   readonly writtenFiles: Array<{ contents: string; path: string }> = [];
   unitCollected = false;
-
-  constructor() {
-    fakeServer = this;
-  }
 
   execute(command: string) {
     this.commands.push(command);
@@ -444,7 +436,13 @@ class FakeSshServer {
   }
 }
 
-let fakeServer: FakeSshServer | undefined;
+function fakeSshClientConstructor(client: FakeSshClient) {
+  return class {
+    constructor() {
+      return client;
+    }
+  };
+}
 
 class FakeSshClient extends EventEmitter {
   destroyed = false;
