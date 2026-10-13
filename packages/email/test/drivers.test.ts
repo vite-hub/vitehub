@@ -66,6 +66,21 @@ describe("Resend Email driver", () => {
     });
   });
 
+  it("accepts fetch functions from another realm", async () => {
+    const request = runInNewContext(
+      "async () => new Response(JSON.stringify({ id: 'email-1' }), { status: 200 })",
+      { Response },
+    ) as typeof fetch;
+
+    expect(request).not.toBeInstanceOf(Function);
+    const driver = resend({ apiKey: "re_secret", fetch: request });
+
+    await expect(driver.send(message, context)).resolves.toMatchObject({
+      data: { driver: "resend", id: "email-1" },
+      error: null,
+    });
+  });
+
   it("rejects credentials that do not match Resend's API key shape", () => {
     expect(() => resend({ apiKey: "secret" })).toThrow("apiKey must start with 're_'");
   });
