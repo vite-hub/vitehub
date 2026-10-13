@@ -397,7 +397,9 @@ async function resolveModelAttachmentPart(part: AttachmentPart, maxBytes: number
   }
   if (!resolved) return { byteLength: 0 }
   assertAttachmentWithinLimit(part, attachmentDataByteLength(resolved), maxBytes)
-  const data = isAttachmentBlob(resolved) ? new Uint8Array(await resolved.arrayBuffer()) : resolved
+  const data = isAttachmentBlob(resolved)
+    ? new Uint8Array(await resolved.arrayBuffer()).buffer
+    : resolved
   const byteLength = attachmentDataByteLength(data) ?? 0
   assertAttachmentWithinLimit(part, byteLength, maxBytes)
   const { fetchData: _fetchData, fetchMetadata: _fetchMetadata, url: _url, ...rest } = part
