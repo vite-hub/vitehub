@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { runInNewContext } from "node:vm"
+import { createRequire } from "node:module"
 
 import { defineAuth } from "../src/index.ts"
 import { createAuthAccessHandler } from "../src/server.ts"
@@ -105,12 +106,27 @@ describe("Auth access handlers", () => {
   })
 
   it("returns authorization responses from another realm unchanged", async () => {
-    const foreignResponse = runInNewContext('new (class ForeignResponse extends Response {})("Conflict", { status: 409 })', { Response })
+    // Evaluate Node's bundled Web API implementation in a separate realm,
+    // without injecting the host Response or Headers constructors.
+    const exports = {} as { Response: typeof Response, Headers: typeof Headers }
+    const context: Record<string, unknown> = { exports, module: { exports }, require: createRequire(import.meta.url) }
+    const excluded = new Set(["Response", "Headers", "Request", "FormData", "global", "globalThis", "exports", "module", "require"])
+    for (const key of Object.getOwnPropertyNames(globalThis)) {
+      if (!excluded.has(key)) context[key] = Reflect.get(globalThis, key)
+    }
+    const natives = (process as unknown as { binding(name: string): Record<string, string> }).binding("natives")
+    runInNewContext(natives["internal/deps/undici/undici"]!, context)
+    const foreignResponse = new exports.Response("Conflict", { status: 409 })
+    expect(foreignResponse).not.toBeInstanceOf(Response)
+    expect(foreignResponse.headers).not.toBeInstanceOf(Headers)
+    expect(exports.Response.prototype === Response.prototype).toBe(false)
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
       access: { routes: [{ route: "/**", authorize: () => foreignResponse as never }] },
     }))
 
     await expect(handler(new Request("https://app.example/"))).resolves.toBe(foreignResponse)
+    expect(await foreignResponse.clone().text()).toBe("Conflict")
+    expect(await foreignResponse.text()).toBe("Conflict")
   })
 
   it("rejects objects that only spoof the Response shape", async () => {

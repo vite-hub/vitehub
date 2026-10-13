@@ -288,15 +288,20 @@ function isResponseLike(value: unknown): value is Response {
   if (value === null || typeof value !== "object") return false
   try {
     if (Object.prototype.toString.call(value) !== "[object Response]") return false
-    const response = value as { clone?: unknown, headers?: unknown, status?: unknown, statusText?: unknown, text?: unknown }
-    if (typeof response.status !== "number" || !Number.isInteger(response.status) || response.status < 0 || response.status > 599) return false
-    if (typeof response.statusText !== "string") return false
-    if (typeof response.text !== "function" || typeof response.clone !== "function") return false
+    const response = value as Response
+    if (!Number.isInteger(response.status) || response.status < 0 || response.status > 599) return false
+    if (typeof response.statusText !== "string" || typeof response.url !== "string" || typeof response.type !== "string") return false
+    if (typeof response.ok !== "boolean" || typeof response.redirected !== "boolean" || typeof response.bodyUsed !== "boolean") return false
+    if (!["arrayBuffer", "blob", "formData", "json", "text", "clone"].every(key => typeof Reflect.get(response, key) === "function")) return false
+    if (response.body !== null && (typeof response.body !== "object" || typeof response.body.getReader !== "function" || typeof response.body.cancel !== "function")) return false
     const headers = response.headers
-    if (headers === null || typeof headers !== "object" || typeof (headers as { get?: unknown }).get !== "function") return false
-    const headersGetter = Object.getOwnPropertyDescriptor(Response.prototype, "headers")?.get
-    const headersGet = Object.getOwnPropertyDescriptor(Headers.prototype, "get")?.value
-    return typeof headersGetter === "function" && typeof headersGet === "function" && headersGetter.call(value) === headers && headersGet.call(headers, "") === null
+    if (headers === null || typeof headers !== "object" || Object.prototype.toString.call(headers) !== "[object Headers]") return false
+    // Foreign implementations have their own internal slots, so host accessors
+    // cannot brand-check them. Validate the complete contract without consuming it.
+    if (!["append", "delete", "get", "has", "set", "entries", "keys", "values", "forEach"].every(key => typeof Reflect.get(headers, key) === "function")) return false
+    if (typeof headers[Symbol.iterator] !== "function") return false
+    const contentType = headers.get("content-type")
+    return contentType === null || typeof contentType === "string"
   }
   catch {
     return false
