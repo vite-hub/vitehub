@@ -1032,18 +1032,6 @@ function isPortableWorkflowUint8Array(value: unknown): value is Uint8Array {
   }
 }
 
-function isPortableWorkflowBlob(value: unknown): value is Blob {
-  try {
-    const getter = Object.getOwnPropertyDescriptor(Blob.prototype, "size")?.get
-    if (!getter) return false
-    getter.call(value)
-    return true
-  }
-  catch {
-    return false
-  }
-}
-
 async function portableWorkflowMessages(messages: Message[]): Promise<Message[]> {
   const materialized = await materializeMessageAttachmentData(messages)
   return await Promise.all(materialized.map(async message => ({
@@ -1053,8 +1041,8 @@ async function portableWorkflowMessages(messages: Message[]): Promise<Message[]>
       if (!isAttachmentPart(part)) return cloneWorkflowJsonValue(part) as typeof part
       let data = part.data
       if (isAttachmentBlob(data)) data = new Uint8Array(await data.arrayBuffer())
-      if (data instanceof ArrayBuffer) data = new Uint8Array(data)
-      const portable = data instanceof Uint8Array
+      if (isPortableWorkflowArrayBuffer(data)) data = new Uint8Array(data)
+      const portable = isPortableWorkflowUint8Array(data)
         ? { ...part, data: `data:${part.mediaType};base64,${workflowBytesToBase64(data)}` }
         : part
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.

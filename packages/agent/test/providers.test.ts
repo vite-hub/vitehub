@@ -7295,15 +7295,30 @@ describe("server helpers", () => {
     )
   })
 
-  it.each(["buffer", "blob"])("maps fetched text-like file attachments to text parts from %s", async (representation) => {
+  it.each(["buffer", "blob", "foreign blob"])("maps fetched text-like file attachments to text parts from %s", async (representation) => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     let fetchedBody = "# Notes\n- first\n"
-    const adapter = createTestChatAdapter(representation === "blob" ? {
-      // SAFETY: Exercise a Blob returned by an untyped adapter at the attachment boundary.
-      attachmentFetchData: async () => new Blob([fetchedBody], { type: "text/markdown" }) as unknown as Buffer,
-    } : {})
+    const fixtureId = representation === "buffer" ? 31010 : representation === "blob" ? 31020 : 31030
+    const attachmentFetchData = vi.fn(async () => {
+        const blob: Blob = representation === "foreign blob"
+          ? runInNewContext(`new (class ForeignBlob extends NativeBlob {
+              async arrayBuffer() {
+                const source = new Uint8Array(await super.arrayBuffer())
+                const foreign = new ArrayBuffer(source.byteLength)
+                new Uint8Array(foreign).set(source)
+                return foreign
+              }
+            })([body], { type: "text/markdown" })`, { NativeBlob: Blob, body: fetchedBody })
+          : new Blob([fetchedBody], { type: "text/markdown" })
+        if (representation === "foreign blob") {
+          expect(await blob.arrayBuffer()).not.toBeInstanceOf(ArrayBuffer)
+        }
+        // SAFETY: Exercise a Blob returned by an untyped adapter at the attachment boundary.
+        return blob as unknown as Buffer
+    })
+    const adapter = createTestChatAdapter(representation !== "buffer" ? { attachmentFetchData } : {})
     const run = vi.fn(({ messages }) =>
       messages
         .at(-1)
@@ -7324,7 +7339,7 @@ describe("server helpers", () => {
     const response = await handler(
       new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
         body: JSON.stringify({
-          update_id: representation === "blob" ? 44 : 42,
+          update_id: fixtureId,
           message: {
             chat: { id: 456, type: "private" },
             date: 1781092800,
@@ -7336,7 +7351,7 @@ describe("server helpers", () => {
               mime_type: "text/markdown; charset=utf-8",
             },
             from: { first_name: "Maxi", id: 123, username: "maxi" },
-            message_id: representation === "blob" ? 1011 : 1010,
+            message_id: fixtureId,
             text: "see attached",
           },
         }),
@@ -7347,6 +7362,7 @@ describe("server helpers", () => {
 
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({ ok: true })
+    if (representation !== "buffer") expect(attachmentFetchData).toHaveBeenCalledOnce()
     expect(run).toHaveBeenCalledWith(
       expect.objectContaining({
         messages: [
@@ -7370,7 +7386,7 @@ describe("server helpers", () => {
     const largeResponse = await handler(
       new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
         body: JSON.stringify({
-          update_id: representation === "blob" ? 45 : 42,
+          update_id: fixtureId + 1,
           message: {
             chat: { id: 456, type: "private" },
             date: 1781092800,
@@ -7382,7 +7398,7 @@ describe("server helpers", () => {
               mime_type: "text/plain",
             },
             from: { first_name: "Maxi", id: 123, username: "maxi" },
-            message_id: representation === "blob" ? 1013 : 1012,
+            message_id: fixtureId + 1,
           },
         }),
         method: "POST",

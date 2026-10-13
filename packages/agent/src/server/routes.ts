@@ -4243,7 +4243,7 @@ async function textAttachmentBytes(attachment: Attachment, options: ChatMessageP
           if (!options.rejectOversizedTextAttachments) return
           throw agentDiagnostics.AGENT_R0814({ message: chatTextAttachmentOversizeMessage })
         }
-        return checkedTextAttachmentBytes(await data.arrayBuffer(), options)
+        return checkedTextAttachmentBytes(new Uint8Array(await data.arrayBuffer()), options)
       }
       return checkedTextAttachmentBytes(data, options)
     } catch (error) {
