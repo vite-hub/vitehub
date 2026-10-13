@@ -300,6 +300,24 @@ function foldedList(entries: FsBlobEntry[], options: BlobListOptions, start: num
   const limit = options.limit ?? 1000
   const folders = new Set<string>()
   const blobs: BlobObject[] = []
+
+  // A zero limit is an empty page. Keep folder discovery consistent with the
+  // existing folded listing behavior, but never emit a blob when callers ask
+  // for no blobs.
+  if (limit <= 0) {
+    for (const entry of entries.slice(start)) {
+      const remainder = entry.path.slice(prefix.length)
+      const firstSlash = remainder.indexOf("/")
+      if (firstSlash !== -1) folders.add(entry.path.slice(0, prefix.length + firstSlash + 1))
+    }
+    return {
+      blobs,
+      cursor: start < entries.length ? encodeCursor(start) : undefined,
+      folders: [...folders].sort((left, right) => left.localeCompare(right)),
+      hasMore: start < entries.length,
+    }
+  }
+
   let consumed = start
 
   for (const entry of entries.slice(start)) {
