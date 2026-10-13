@@ -175,7 +175,7 @@ describe("UI documentation", () => {
     expect(rail).toContain("<template #default");
   });
 
-  it("keeps the docs sidebar visible without a duplicate picker or search", () => {
+  it("keeps the docs sidebar visible with one search control", () => {
     const sidebarTop = readFileSync(
       resolve(docsRoot, "app/components/DocsAsideLeftTop.vue"),
       "utf8",
@@ -186,7 +186,7 @@ describe("UI documentation", () => {
     expect(sidebar).toContain("flex: 1 1 0");
     expect(sidebar).toContain("min-height: 0");
     expect(sidebarTop).not.toContain("<details");
-    expect(sidebarTop).not.toContain("UContentSearchButton");
+    expect(sidebarTop).toContain("UContentSearchButton");
     expect(layout).toContain("height: calc(100dvh - var(--ui-header-height));");
   });
 
