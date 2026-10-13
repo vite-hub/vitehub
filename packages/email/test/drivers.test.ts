@@ -1312,6 +1312,24 @@ describe("Cloudflare Email driver", () => {
     expect(send).not.toHaveBeenCalled();
   });
 
+  it("classifies throwing mailbox fields as invalid options", async () => {
+    const send = vi.fn();
+    const Constructor = vi.fn();
+    const mailbox = {};
+    Object.defineProperty(mailbox, "email", {
+      get() {
+        throw new Error("malformed mailbox");
+      },
+    });
+    const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor });
+
+    await expect(driver.send({ ...message, from: mailbox as never }, context)).resolves.toMatchObject({
+      error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" },
+    });
+    expect(Constructor).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
+  });
+
   it("constructs raw MIME and sends it through the binding", async () => {
     const send = vi.fn();
     const Constructor = vi.fn(function (

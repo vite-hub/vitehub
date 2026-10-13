@@ -21,7 +21,12 @@ export function addresses(input: EmailAddressList): EmailAddress[] {
 
 export function addressValue(input: EmailAddress): { email: string; name?: string } {
   if (!isString(input)) {
-    const parsed = v.safeParse(mailboxSchema, input);
+    let parsed: v.SafeParseResult<typeof mailboxSchema>;
+    try {
+      parsed = v.safeParse(mailboxSchema, input);
+    } catch {
+      return { email: "" };
+    }
     if (!parsed.success) return { email: "" };
     const { email, name } = parsed.output;
     return name === undefined ? { email: email.trim() } : { email: email.trim(), name };
