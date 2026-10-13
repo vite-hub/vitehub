@@ -19,6 +19,9 @@ export function isRetryableRealtimeCheckpointCode(value: unknown): boolean {
 
 function validPath(value: unknown): value is string {
   if (typeof value !== "string" || value.length === 0 || value.length > 4096 || value.includes("\0")) return false
+  // The shared normalizer drops empty components, so reject duplicate
+  // separators before comparing against its canonical result.
+  if (value.includes("//")) return false
   try {
     return normalizeSafeWorkspacePath(value) === value
   }
