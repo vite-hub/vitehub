@@ -5,6 +5,24 @@ import { normalizeTraceAttributes } from "./internal/trace-attributes.ts"
 
 export { runtimeErrorDiagnostics }
 
+export {
+  runRuntimePreflight,
+  startRuntimePreflight,
+  type RuntimePreflightCheck,
+  type RuntimePreflightCheckContext,
+  type RuntimePreflightCheckResult,
+  type RuntimePreflightCheckSummary,
+  type RuntimePreflightDetails,
+  type RuntimePreflightDiagnosticData,
+  type RuntimePreflightHandle,
+  type RuntimePreflightIssue,
+  type RuntimePreflightKind,
+  type RuntimePreflightManifest,
+  type RuntimePreflightOptions,
+  type RuntimePreflightState,
+  type RuntimePreflightValue,
+} from "./preflight.ts"
+
 export { isTraceContentAttributeKey } from "./internal/trace-attributes.ts"
 
 export { decodeRouteSegment, encodeRouteSegment } from "./route-segment.ts"
@@ -353,6 +371,15 @@ export interface RunLifecycleHooks<TContext extends RuntimeHostContext<any> = Ru
 function timestamp(value: Date | string | undefined): string {
   if (value instanceof Date) return value.toISOString()
   if (hasRuntimeType(value, "string")) return value
+  if (isRuntimeObject(value)) {
+    try {
+      // Date.prototype's intrinsic methods recognize Date objects from other realms.
+      return Reflect.apply(Date.prototype.toISOString, value, [])
+    }
+    catch (error) {
+      if (!(error instanceof TypeError)) throw error
+    }
+  }
   return new Date().toISOString()
 }
 

@@ -287,12 +287,16 @@ async function runAccessAuthorize(
 function isResponseLike(value: unknown): value is Response {
   if (value === null || typeof value !== "object") return false
   try {
-    if (Object.prototype.toString.call(value) !== "[object Response]") return false
-    const response = value as { headers?: unknown, status?: unknown, statusText?: unknown }
-    if (typeof response.status !== "number" || !Number.isInteger(response.status) || response.status < 0 || response.status > 599) return false
-    if (typeof response.statusText !== "string") return false
-    const headers = response.headers
-    return headers !== null && typeof headers === "object" && typeof (headers as { get?: unknown }).get === "function"
+    // Accessors on Response.prototype perform the native Web IDL brand check,
+    // which works across realms and cannot be spoofed with Symbol.toStringTag.
+    const status = Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get
+    const statusText = Object.getOwnPropertyDescriptor(Response.prototype, "statusText")?.get
+    const headers = Object.getOwnPropertyDescriptor(Response.prototype, "headers")?.get
+    if (!status || !statusText || !headers) return false
+    status.call(value)
+    statusText.call(value)
+    headers.call(value)
+    return true
   }
   catch {
     return false

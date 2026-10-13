@@ -62,12 +62,13 @@ function resolveCloudflareStore(
 
 function resolveVercelStore(
   config: Partial<VercelBlobStoreConfig> = {},
+  env: Record<string, string | undefined> = process.env,
 ): ResolvedVercelBlobStoreConfig {
   return {
     ...config,
     access: config.access ?? "public",
     driver: "vercel-blob",
-    token: trimmed(config.token) ?? MASKED_BLOB_RUNTIME_VALUE,
+    token: resolveBuildRuntimeValue(config.token, env, "BLOB_READ_WRITE_TOKEN") ?? MASKED_BLOB_RUNTIME_VALUE,
   }
 }
 
@@ -121,7 +122,7 @@ function resolveExplicitStore(
     case "netlify-blobs":
       return resolveNetlifyStore(store)
     case "vercel-blob":
-      return resolveVercelStore(store)
+      return resolveVercelStore(store, env)
     case "akamai":
     case "azure":
     case "box":
@@ -222,6 +223,11 @@ export function normalizeBlobOptions(
   const hosting = normalizeHosting(input.hosting)
   const explicit = options as BlobStoreConfig | undefined
   const optionRecord = options as { serve?: BlobServeOptions } | undefined
+  // SAFETY: `options` was validated as a plain object above, so this assertion only narrows its optional `stores` property.
+  const storesOption = (options as { stores?: unknown } | undefined)?.stores
+  if (options !== undefined && Object.hasOwn(options, "stores") && storesOption !== undefined && !isPlainObject(storesOption)) {
+    throw blobErrorDiagnostics.BLOB_C0013({ message: "`blob.stores` must be a plain object." })
+  }
   const serve = normalizeServeOptions(optionRecord?.serve)
   const { serve: _serve, ...storeOptions } = options || {}
   const implicitCloudflare = storeOptions as Partial<CloudflareR2BlobStoreConfig> | undefined
@@ -248,11 +254,11 @@ export function normalizeBlobOptions(
   }
 
   if (hasVercelBlobEnv(env)) {
-    return createResolvedConfig(resolveVercelStore(), undefined, serve)
+    return createResolvedConfig(resolveVercelStore({}, env), undefined, serve)
   }
 
   if (hosting.includes("vercel")) {
-    return createResolvedConfig(resolveVercelStore(), undefined, serve)
+    return createResolvedConfig(resolveVercelStore({}, env), undefined, serve)
   }
 
   return createResolvedConfig(resolveFsStore({}, env), undefined, serve)

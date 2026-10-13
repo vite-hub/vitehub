@@ -103,6 +103,7 @@ const lowLevelOwnerExports = new Set([
   "@vite-hub/database/config",
   "@vite-hub/env/seal",
   "@vite-hub/kv/errors",
+  "@vite-hub/ui/primitive-rail",
   "@vite-hub/workspace/source-metadata",
 ]);
 
@@ -110,6 +111,7 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/agent/runtime/empty-registry",
   "@vite-hub/agent/runtime/invocations-dev",
   "@vite-hub/agent/runtime/workflow",
+  "@vite-hub/agent/server/registry",
   "@vite-hub/blob/runtime/cloudflare-vite",
   "@vite-hub/blob/runtime/dev",
   "@vite-hub/blob/runtime/state",
@@ -117,6 +119,7 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/database/runtime/agent",
   "@vite-hub/database/runtime/cloudflare-env",
   "@vite-hub/database/runtime/cloudflare-vite",
+  "@vite-hub/database/runtime/d1",
   "@vite-hub/database/runtime/hosted",
   "@vite-hub/database/runtime/state",
   "@vite-hub/database/runtime/vercel-vite",
@@ -259,6 +262,7 @@ describe("framework package contract", () => {
       "./_internal/kv/runtime/disabled-upstash",
       "./agent",
       "./agent/capabilities",
+      "./agent/invocations/database",
       "./console",
       "./console/auth",
       "./console/auth/client",
@@ -272,6 +276,7 @@ describe("framework package contract", () => {
       "./console/sections",
       "./console/server",
       "./database/drizzle",
+      "./doctor",
       "./nuxt",
       "./runtime/h3",
       "./source",
@@ -366,10 +371,13 @@ describe("framework package contract", () => {
     expect(existsSync(`${packageRoot}/dist/console/runtime/client/request.d.ts`)).toBe(true);
     expect(existsSync(`${packageRoot}/dist/console/runtime/client/time.js`)).toBe(true);
     expect(existsSync(`${packageRoot}/dist/console/runtime/client/time.d.ts`)).toBe(true);
+    expect(existsSync(`${packageRoot}/dist/console/runtime/client/appearance.js`)).toBe(true);
+    expect(existsSync(`${packageRoot}/dist/console/runtime/client/appearance.d.ts`)).toBe(true);
     expect(manifest.exports).not.toHaveProperty("./console/runtime/console-route");
     expect(manifest.exports).not.toHaveProperty("./console/runtime/sections");
     expect(manifest.exports).not.toHaveProperty("./console/runtime/client/request");
     expect(manifest.exports).not.toHaveProperty("./console/runtime/client/time");
+    expect(manifest.exports).not.toHaveProperty("./console/runtime/client/appearance");
     expect(consolePage).toContain("AgentInvocationList");
     expect(consolePage).toContain('aria-label="Filter sessions"');
     expect(consolePage).toContain("selectedCapabilityId");
@@ -458,8 +466,7 @@ describe("framework package contract", () => {
     expect(consolePage).toContain(':maximizable="Boolean(selectedInvocationId)"');
     expect(consoleSessionNavbar).toContain('data-slot="session-details-toggle"');
     expect(consoleSessionNavbar).toContain(':disabled="!hasSelection"');
-    expect(consoleSessionNavbar).toContain('v-if="externalTarget.github"');
-    expect(consoleSessionNavbar).toContain('fill="currentColor"');
+    expect(consoleSessionNavbar).toContain('icon: "i-lucide-github"');
     expect(consoleSessionNavbar).toContain('label: "Open on GitHub"');
     expect(consolePage).toMatch(/scrollbar-width: none;/);
     expect(consolePage).toMatch(/::-webkit-scrollbar[\s\S]*?display: none;/);
@@ -706,7 +713,7 @@ describe("framework package contract", () => {
       "utf8",
     );
     expect(consoleRail).toContain("navigationFailed.value = true");
-    expect(consoleRail).toContain('aria-label="Retry loading primitives"');
+    expect(consoleRail).toContain('<PrimitiveRailItem label="Retry loading primitives" @click="loadNavigation">');
     expect(consoleRail).toContain("open('vitehub-console')");
     expect(consoleRail).toContain("subscribeConsoleNavigation(props.sectionsBase");
     expect(consoleRail).toContain('import { defineShortcuts } from "@nuxt/ui/composables";');
@@ -724,6 +731,9 @@ describe("framework package contract", () => {
     expect(consoleClient).toContain('"folder-tree":{"width":24');
     expect(consoleClient).toContain("prefers-color-scheme: dark");
     expect(consoleClient).toMatch(/classList\.toggle\(["`]dark["`]/);
+    // The Console appearance module is the only color scheme writer. Nuxt UI color mode stays off.
+    expect(consoleClient).toContain("vitehub-console:appearance");
+    expect(consoleClient).not.toContain("vueuse-color-scheme");
     expect(consoleClient).toContain("ViteHub");
     expect(consoleClient).toContain("/agents/:agent/invocations/:invocation");
     expect(consoleClient).toContain("/blob");

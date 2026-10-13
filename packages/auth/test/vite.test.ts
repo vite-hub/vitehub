@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url"
 import { afterEach, describe, expect, it } from "vitest"
 import { createServer, mergeConfig, resolveConfig } from "vite"
 
-import { AUTH_DEFINITION_ID, AUTH_SERVER_ID, createAuthNitroConfig, hubAuth } from "../src/vite.ts"
+import { AUTH_DEFINITION_ID, AUTH_SERVER_ID, createAuthNitroConfig, hubAuth, shouldPassThroughAuthResponse } from "../src/vite.ts"
 
 const tempDirs: string[] = []
 const workspaceRoot = fileURLToPath(new URL("../../..", import.meta.url))
@@ -20,6 +20,7 @@ async function createTempProject(): Promise<string> {
 async function createWorkspaceTempProject(): Promise<string> {
   const rootDir = await mkdtemp(join(workspaceRoot, ".tmp-vitehub-auth-vite-"))
   tempDirs.push(rootDir)
+  await writeFile(join(rootDir, "package.json"), "{}")
   return rootDir
 }
 
@@ -91,6 +92,40 @@ describe("hubAuth", () => {
     expect(loadAuthServer(plugin)).toContain(`export * from "@vite-hub/auth/server"`)
     expect(loadAuthServer(plugin)).toContain(`export { handleAuth as default } from "@vite-hub/auth/server"`)
     await expect(readFile(join(root, ".vitehub", "types", "auth.d.ts"), "utf8")).resolves.toContain("declare module \"#vitehub/auth/server\"")
+  })
+
+  it("writes generated files at the project root when Vite runs from app/", async () => {
+    const root = await createTempProject()
+    await mkdir(join(root, "app"))
+    await writeFile(join(root, "package.json"), "{}")
+    await writeAuth(root)
+
+    const plugin = hubAuth()
+    await resolvePluginConfig(plugin, join(root, "app"))
+
+    await expect(readFile(join(root, ".vitehub", "types", "auth.d.ts"), "utf8")).resolves.toContain("declare module \"#vitehub/auth/server\"")
+    await expect(readFile(join(root, ".vitehub", "auth", "route.ts"), "utf8")).resolves.toContain("#vitehub/auth/server")
+    await expect(readFile(join(root, "app", ".vitehub", "auth", "route.ts"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it.each(["server/auth.ts", "server.auth.ts"])("discovers app/%s while generating project-root handlers", async (path) => {
+    const root = await createTempProject()
+    const appRoot = join(root, "app")
+    await writeFile(join(root, "package.json"), "{}")
+    const definition = await writeAuth(appRoot, path, ["  access: { routes: ['/private/**'] },"])
+    const plugin = hubAuth()
+    const config = await resolveConfig({ configFile: false, plugins: [plugin], root: appRoot }, "serve")
+
+    expect(loadAuthDefinition(plugin)).toContain(JSON.stringify(definition))
+    expect(plugin.api.refresh()?.definition.handler).toBe(definition)
+    expect(config).toMatchObject({
+      nitro: { handlers: expect.arrayContaining([
+        { handler: join(root, ".vitehub/auth/route.ts"), route: "/api/auth/**" },
+        { handler: join(root, ".vitehub/auth/access-middleware.ts"), middleware: true, route: "/**" },
+      ]) },
+    })
+    await expect(readFile(join(root, ".vitehub/auth/access-middleware.ts"), "utf8")).resolves.toContain("/private/**")
+    await expect(readFile(join(appRoot, ".vitehub/auth/route.ts"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
   })
 
   it("uses a configured package base in generated Auth runtime and type imports", async () => {
@@ -411,4 +446,16 @@ describe("hubAuth", () => {
 
     expect(invalidated).toEqual([`\0${AUTH_DEFINITION_ID}`])
   })
+})
+
+it("recognizes every path when Auth uses the root base path", async () => {
+  const { isAuthRequestPath } = await import("../src/shared.ts")
+  expect(isAuthRequestPath("/sign-in", "/")).toBe(true)
+  expect(isAuthRequestPath("/api/auth", "/")).toBe(true)
+})
+
+it("only passes Better Auth 404 responses through for the root base path", () => {
+  expect(shouldPassThroughAuthResponse("/", 404)).toBe(true)
+  expect(shouldPassThroughAuthResponse("/auth", 404)).toBe(false)
+  expect(shouldPassThroughAuthResponse("/", 200)).toBe(false)
 })

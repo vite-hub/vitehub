@@ -104,19 +104,28 @@ describe("Auth access handlers", () => {
     await expect(handler(new Request("https://app.example/"))).resolves.toBe(response)
   })
 
-  it("returns authorization responses from another realm unchanged", async () => {
-    const foreignResponse = runInNewContext(`new (class {
-      get status() { return 409 }
-      get statusText() { return "Conflict" }
-      get headers() { return { get() { return null } } }
-      get body() { return null }
-      get [Symbol.toStringTag]() { return "Response" }
-    })()`)
+  it("returns native authorization responses constructed by another realm unchanged", async () => {
+    const foreignResponse = runInNewContext(`
+      class Response extends HostResponse {}
+      new Response("Policy rejected", { status: 409 })
+    `, { HostResponse: Response })
+    expect(foreignResponse.constructor).not.toBe(Response)
+    expect(await foreignResponse.clone().text()).toBe("Policy rejected")
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
       access: { routes: [{ route: "/**", authorize: () => foreignResponse as never }] },
     }))
 
     await expect(handler(new Request("https://app.example/"))).resolves.toBe(foreignResponse)
+  })
+
+  it.each(["Object", "Response"])("rejects objects that spoof the Response shape with prototype %s", async (prototype) => {
+    const spoofedResponse = { status: 409, statusText: "Conflict", headers: { get: () => null }, [Symbol.toStringTag]: "Response" }
+    Object.setPrototypeOf(spoofedResponse, prototype === "Response" ? Response.prototype : Object.prototype)
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => spoofedResponse as never }] },
+    }))
+
+    await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
   })
 
   it("starts provider sign-in only for matched unauthenticated HTML requests", async () => {

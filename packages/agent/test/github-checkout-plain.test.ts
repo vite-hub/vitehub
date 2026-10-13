@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { afterEach, expect, it, vi } from 'vitest'
 import { prepareGitHubPullRequestWorkspace } from '../src/server/github-checkout.ts'
+import { prepareGitHubRepairBase } from '../src/server/github-repair.ts'
 
 const exec = promisify(execFile)
 const roots: string[] = []
@@ -77,4 +78,29 @@ it('keeps nested tracked instruction files out of repair staging', async () => {
   expect(await readFile(join(target, 'docs', 'AGENTS.md'), 'utf8')).toBe('generated override\n')
   await git(target, 'add', '-A')
   expect(await git(target, 'status', '--porcelain')).toBe('')
+})
+
+it.each(['AGENTS.md', 'CLAUDE.md', 'docs/AGENTS.md'])('restores source %s before preparing a copied-workspace base merge', async path => {
+  const { source, target } = await fixture()
+  await mkdir(join(source, 'docs'), { recursive: true })
+  await writeFile(join(source, path), 'source instructions\n')
+  await git(source, 'add', '.')
+  await git(source, 'commit', '-m', 'source instructions')
+  await git(source, 'checkout', '-b', 'main')
+  await writeFile(join(source, path), 'live base instructions\n')
+  await git(source, 'add', '.')
+  await git(source, 'commit', '-m', 'base instructions')
+  const base = await git(source, 'rev-parse', 'HEAD')
+  await git(source, 'checkout', 'feature')
+  await writeFile(join(source, 'feature.txt'), 'feature\n')
+  await git(source, 'add', '.')
+  await git(source, 'commit', '-m', 'feature')
+  const expectedHead = await git(source, 'rev-parse', 'HEAD')
+  await mkdir(join(target, 'docs'), { recursive: true })
+  await writeFile(join(target, path), 'materialized instructions\n')
+  await prepareGitHubPullRequestWorkspace(source, target, { restoreInstructions: true })
+  await expect(prepareGitHubRepairBase(target, { expectedHead, base })).resolves.toBeUndefined()
+  expect(await readFile(join(target, path), 'utf8')).toBe('live base instructions\n')
+  expect(await git(target, 'show', `:${path}`)).toBe('live base instructions')
+  expect(await git(target, 'ls-files', '-v', '--', path)).toBe(`H ${path}`)
 })

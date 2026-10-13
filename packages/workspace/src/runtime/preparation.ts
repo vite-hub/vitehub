@@ -1,7 +1,7 @@
 import { resolveRegisteredWorkspaceDefinition } from "../core/registry.ts"
 import { useWorkspace } from "../core/use.ts"
 import { normalizeWorkspaceSources } from "../sources/config.ts"
-import { hasRuntimeType } from "../internal/runtime-type.ts"
+import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 
 import type {
   WorkspaceMaterializeSourcesResult,

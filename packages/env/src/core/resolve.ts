@@ -112,7 +112,7 @@ export async function resolveBuildConfig(
 
   for (const [key, declaration] of Object.entries(declarations || {})) {
     const result = await resolveBuildConfigValue(declaration, `${input.section}.${key}`, { ...input, prefix: canonicalKey.test(key) ? input.prefix : false })
-    values[key] = result.value
+    setOwnValue(values, key, result.value)
     diagnostics.push(...result.diagnostics)
   }
 
@@ -302,7 +302,7 @@ async function resolveBuildConfigValue(
   const diagnostics: EnvDiagnosticEntry[] = []
   for (const [key, child] of Object.entries(declaration)) {
     const result = await resolveBuildConfigValue(child, `${path}.${key}`, { ...input, prefix: canonicalKey.test(key) ? input.prefix : false })
-    value[key] = result.value
+    setOwnValue(value, key, result.value)
     diagnostics.push(...result.diagnostics)
   }
 
@@ -362,6 +362,10 @@ function buildRegistry(declarations: EnvRuntimeConfigOptions | undefined, path: 
       source,
     }]
   }))
+}
+
+function setOwnValue(record: Record<string, unknown>, key: string, value: unknown): void {
+  Object.defineProperty(record, key, { configurable: true, enumerable: true, value, writable: true })
 }
 
 // Defaults use the parsed type. Only host and provider values are parsed from strings.
@@ -458,24 +462,37 @@ async function resolveBuiltInSource<T>(source: string, resolveSource: () => T | 
   }
 }
 
-function validateBuildDeclarations(declarations: EnvBuildConfigOptions | undefined, path: string): void {
+function validateBuildDeclarations(
+  declarations: EnvBuildConfigOptions | undefined,
+  path: string,
+  ancestors: Set<object> = new Set(),
+): void {
   if (typeof declarations === "undefined") return
   if (!isPlainRecord(declarations)) {
     throw invalidEnvDeclaration(path, `Invalid declaration at ${path}. Use env(), a serializable static value, or a nested object.`)
   }
-  for (const [key, declaration] of Object.entries(declarations)) {
-    const valuePath = `${path}.${key}`
-    if (isEnvVariableDeclaration(declaration)) {
-      if (declaration.mode !== "build") {
-        throw invalidEnvDeclaration(valuePath, `${valuePath} must use mode: "build".`)
+  if (ancestors.has(declarations)) {
+    throw invalidEnvDeclaration(path, `Invalid declaration at ${path}. Nested environment declarations cannot contain cycles.`)
+  }
+  ancestors.add(declarations)
+  try {
+    for (const [key, declaration] of Object.entries(declarations)) {
+      const valuePath = `${path}.${key}`
+      if (isEnvVariableDeclaration(declaration)) {
+        if (declaration.mode !== "build") {
+          throw invalidEnvDeclaration(valuePath, `${valuePath} must use mode: "build".`)
+        }
+        if (declaration.secret) {
+          throw invalidEnvDeclaration(valuePath, `${valuePath} cannot be marked secret because Vite define values are bundled.`)
+        }
+        continue
       }
-      if (declaration.secret) {
-        throw invalidEnvDeclaration(valuePath, `${valuePath} cannot be marked secret because Vite define values are bundled.`)
-      }
-      continue
+      if (isBuildStaticValue(declaration)) continue
+      validateBuildDeclarations(declaration as EnvBuildConfigOptions, valuePath, ancestors)
     }
-    if (isBuildStaticValue(declaration)) continue
-    validateBuildDeclarations(declaration as EnvBuildConfigOptions, valuePath)
+  }
+  finally {
+    ancestors.delete(declarations)
   }
 }
 
@@ -531,7 +548,7 @@ function isRuntimeStaticValue(value: unknown): value is EnvRuntimeStaticValue {
   return isBuildStaticValue(value)
 }
 
-function isBuildStaticValue(value: unknown): value is EnvBuildStaticValue {
+function isBuildStaticValue(value: unknown, ancestors: Set<object> = new Set()): value is EnvBuildStaticValue {
   if (value === null) {
     return true
   }
@@ -545,12 +562,21 @@ function isBuildStaticValue(value: unknown): value is EnvBuildStaticValue {
       if (!Array.isArray(value)) {
         return false
       }
-      for (let index = 0; index < value.length; index += 1) {
-        if (!Object.hasOwn(value, index) || !isBuildStaticValue(value[index])) {
-          return false
-        }
+      if (ancestors.has(value)) {
+        return false
       }
-      return true
+      ancestors.add(value)
+      try {
+        for (let index = 0; index < value.length; index += 1) {
+          if (!Object.hasOwn(value, index) || !isBuildStaticValue(value[index], ancestors)) {
+            return false
+          }
+        }
+        return true
+      }
+      finally {
+        ancestors.delete(value)
+      }
     default:
       return false
   }
