@@ -3420,7 +3420,7 @@ type AgentInvocationContext<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
 > = AgentRunContext<TRuntimeConfig, CALL_OPTIONS> & {
-  executionBudget: ReturnType<typeof createExecutionBudget>
+  executionBudget?: ReturnType<typeof createExecutionBudget>
   activity?: ActiveAgentActivity
   channels?: AgentChannels<TRuntimeConfig>
   close: () => Promise<void>
@@ -4371,11 +4371,7 @@ async function createAgentInvocationContext<
   invocationKind: "run" | "stream" = "run",
   invocationJournal?: AgentInvocationJournal<TRuntimeConfig>,
   invocationTools?: AgentToolSet,
-  executionBudget: ReturnType<typeof createExecutionBudget> = createExecutionBudget({
-    ...(input.executionBudget || {}),
-    ...(input.timeout !== undefined && input.executionBudget?.deadlineAt === undefined ? { deadlineAt: Date.now() + input.timeout } : {}),
-    signal: input.abortSignal,
-  }),
+  executionBudget?: ReturnType<typeof createExecutionBudget>,
 ): Promise<AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS>> {
   const startedAt = Date.now()
   const replayHasContext = hasUnreplayableAgentInputContext(input.context)
@@ -8067,13 +8063,15 @@ async function executeAgentInvocation<
     }
     markAgentInvocationCallerAbortSignal(input, callerAbortSignal)
   }
-  const executionBudget = createExecutionBudget({
-    ...(input.executionBudget || {}),
-    // doctor-disable-next-line typescript/style/no-conditional-empty-object-spread -- Timeout is an optional compatibility input that tightens the shared budget.
-    ...(input.timeout !== undefined && input.executionBudget?.deadlineAt === undefined ? { deadlineAt: Date.now() + input.timeout } : {}),
-    signal: input.abortSignal,
-  })
-  if (executionBudgetHasConstraints(input)) {
+  const executionBudget = executionBudgetHasConstraints(input)
+    ? createExecutionBudget({
+      ...(input.executionBudget || {}),
+      // doctor-disable-next-line typescript/style/no-conditional-empty-object-spread -- Timeout is an optional compatibility input that tightens the shared budget.
+      ...(input.timeout !== undefined && input.executionBudget?.deadlineAt === undefined ? { deadlineAt: Date.now() + input.timeout } : {}),
+      signal: input.abortSignal,
+    })
+    : undefined
+  if (executionBudget) {
     const callerAbortSignal = agentInvocationCallerAbortSignal(input)
     const budgetedInput = {
       ...input,
