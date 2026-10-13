@@ -1,24 +1,36 @@
 import { runInNewContext } from "node:vm"
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { toWorkflowDevRunView } from "../src/runtime/dev.ts"
+import type { WorkflowRun } from "../src/types.ts"
 
 describe("workflow dev cross realm response probe", () => {
+  afterEach(() => vi.unstubAllGlobals())
+
   it("reads a response created by another realm", async () => {
-    const foreignResponse = runInNewContext(`class ForeignResponse {
-      constructor(body) { this.body = body; this.status = 201; this.statusText = "Created" }
-      clone() { return { text: async () => this.body } }
-      get [Symbol.toStringTag]() { return "Response" }
-    }
-    new ForeignResponse('{"ok":true}')`)
+    const NativeResponse = Response
+    const foreignResponse: Response = runInNewContext(
+      `
+      class ForeignResponse extends NativeResponse {}
+      new ForeignResponse(JSON.stringify({ ok: true }), { status: 201, statusText: "Created" })
+    `,
+      { NativeResponse },
+    )
+    // Inject the platform implementation into the VM and use a distinct local constructor.
+    class LocalResponse extends NativeResponse {}
+    Object.defineProperties(LocalResponse.prototype, Object.getOwnPropertyDescriptors(NativeResponse.prototype))
+    vi.stubGlobal("Response", LocalResponse)
+    expect(foreignResponse).toBeInstanceOf(NativeResponse)
     expect(foreignResponse).not.toBeInstanceOf(Response)
     const run = {
       id: "cross-realm",
       provider: "vercel",
       status: "completed",
       result: foreignResponse,
-    } as any
+      metadata: { response: foreignResponse },
+    } satisfies WorkflowRun
     const view = await toWorkflowDevRunView(run, "probe")
     expect(view.result).toEqual({ ok: true })
+    expect(view.metadata).toEqual({ response: { response: { status: 201, statusText: "Created" } } })
   })
 
   it("does not treat a spoofed response tag as a response", async () => {
@@ -34,7 +46,7 @@ describe("workflow dev cross realm response probe", () => {
       provider: "vercel",
       status: "completed",
       result: spoofedResponse,
-    } as any
+    } satisfies WorkflowRun
     const view = await toWorkflowDevRunView(run, "probe")
     expect(view.result).toEqual({ body: '{"ok":true}', status: 201, statusText: "Created" })
   })

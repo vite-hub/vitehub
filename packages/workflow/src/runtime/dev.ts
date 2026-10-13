@@ -64,7 +64,6 @@ function parseRequest(body: unknown): WorkflowDevRequest | undefined {
 
 function isResponse(value: unknown): value is Response {
   if (value instanceof Response) return true
-  if (!value || (typeof value !== "object" && typeof value !== "function")) return false
   const statusGetter = Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get
   if (!statusGetter) return false
   try {
