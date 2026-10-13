@@ -4,6 +4,7 @@ import { createUnstorageDriver } from "mountx/drivers/unstorage"
 
 import type { WorkspaceEntry, WorkspaceSession, WorkspaceSessionWriteFileOptions } from "./core/types.ts"
 import type { FsDriver } from "mountx"
+import { isWorkspaceBytes } from "./core/path.ts"
 import { workspaceErrorDiagnostics } from "./error-diagnostics.ts"
 
 export interface WorkspaceMountXDriverOptions {
@@ -19,7 +20,7 @@ function pathToKey(path: string) {
 }
 
 function valueToBytes(value: unknown): Uint8Array {
-  if (value instanceof Uint8Array) return value
+  if (isWorkspaceBytes(value)) return value
   if (value instanceof ArrayBuffer) return new Uint8Array(value)
   if (ArrayBuffer.isView(value)) return new Uint8Array(value.buffer, value.byteOffset, value.byteLength)
   return new TextEncoder().encode(typeof value === "string" ? value : JSON.stringify(value))
@@ -85,24 +86,24 @@ function createWorkspaceStorage(session: WorkspaceSession, readOnly: boolean) {
     async hasItem(key: string) {
       return assertProjectableEntry(await findEntry(session, keyToPath(key)))?.type === "file"
     },
-    ...(readOnly
-      ? {}
-      : {
-          async removeItem(key: string) {
-            await session.rm(keyToPath(key), { force: true })
-          },
-          async setItemRaw(key: string, value: unknown) {
-            const path = keyToPath(key)
-            const entry = assertProjectableEntry(await findEntry(session, path))
-            const writeOptions = value instanceof Uint8Array
-              ? writeOptionsByValue.get(value)
-              : undefined
-            await session.writeFile(path, valueToBytes(value), writeOptions ?? {
-              mediaType: entry?.mediaType,
-              metadata: entry?.metadata,
-            })
-          },
-        }),
+  }
+  if (!readOnly) {
+    Object.assign(storage, {
+      async removeItem(key: string) {
+        await session.rm(keyToPath(key), { force: true })
+      },
+      async setItemRaw(key: string, value: unknown) {
+        const path = keyToPath(key)
+        const entry = assertProjectableEntry(await findEntry(session, path))
+        const writeOptions = isWorkspaceBytes(value)
+          ? writeOptionsByValue.get(value)
+          : undefined
+        await session.writeFile(path, valueToBytes(value), writeOptions ?? {
+          mediaType: entry?.mediaType,
+          metadata: entry?.metadata,
+        })
+      },
+    })
   }
 
   return storage as unknown as Parameters<typeof createUnstorageDriver>[0]
