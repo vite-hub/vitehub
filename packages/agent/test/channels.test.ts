@@ -147,6 +147,7 @@ describe("agent channels", () => {
       expect(stored?.body).toContain("2m 35s")
       expect(stored?.body).toContain("Review complete.")
       expect(stored?.body).toContain("| Started | Duration |")
+      expect(stored?.body).toContain("Latest result\n\nReview complete.")
       // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
       await update(context("run-2", "running") as never)
 
@@ -159,7 +160,9 @@ describe("agent channels", () => {
       expect(stored?.body).toContain("https://console.test/invocations/run-2")
       expect(stored?.body).toContain("<summary>Final answers</summary>")
       expect(stored?.body).toContain("Review complete.")
-      expect(stored?.body.match(/Latest answer/g)).toHaveLength(1)
+      // The previous run's answer moves to "Final answers" instead of reading as the current result.
+      expect(stored?.body).not.toContain("Latest result")
+      expect(stored?.body).toContain("In progress\n\nThe agent is working. Open the current session for live details.")
       expect(stored?.body).toContain("<relative-time datetime=")
       expect(stored?.body).toContain("https://console.test/invocations/run-1")
       expect(stored?.body).toContain("[View session](<https://console.test/invocations/run-1>)")
