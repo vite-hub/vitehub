@@ -204,6 +204,46 @@ describe("useRealtimeTiptap", () => {
     scope.stop()
   })
 
+  it("aborts an in-flight checkpoint when the composable is destroyed", async () => {
+    vi.stubGlobal("window", { location: { host: "example.com", protocol: "https:" } })
+    vi.stubGlobal("fetch", vi.fn((_input: RequestInfo | URL, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(new DOMException("The operation was aborted.", "AbortError")), { once: true })
+    })))
+    const scope = effectScope()
+    const realtime = scope.run(() => useRealtimeTiptap("docs", ref("page.md")))!
+    const checkpoint = realtime.history.checkpoint()
+    const timed = new Promise<never>((_resolve, reject) => {
+      setTimeout(() => reject(new Error("timed out waiting for checkpoint cancellation")), 100)
+    })
+
+    realtime.destroy()
+
+    await expect(Promise.race([checkpoint, timed])).rejects.toThrow("realtime document")
+    expect(realtime.history.pending.value).toBe(false)
+    scope.stop()
+  })
+
+  it("aborts a checkpoint while consuming the response body", async () => {
+    vi.stubGlobal("window", { location: { host: "example.com", protocol: "https:" } })
+    let rejectBody!: (error: unknown) => void
+    const body = new Promise<unknown>((_resolve, reject) => { rejectBody = reject })
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => body,
+    }))
+    const scope = effectScope()
+    const realtime = scope.run(() => useRealtimeTiptap("docs", ref("page.md")))!
+    const checkpoint = realtime.history.checkpoint()
+
+    await Promise.resolve()
+    realtime.destroy()
+    rejectBody(new DOMException("The operation was aborted.", "AbortError"))
+
+    await expect(checkpoint).rejects.toThrow("realtime document")
+    expect(realtime.history.pending.value).toBe(false)
+    scope.stop()
+  })
+
   it("rejects a checkpoint during a same-tick document switch", async () => {
     vi.stubGlobal("window", { location: { host: "example.com", protocol: "https:" } })
     const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ content: "# Saved", snapshot: { createdAt: "2026-01-01T00:00:00.000Z", entries: {}, id: "snapshot" } })))

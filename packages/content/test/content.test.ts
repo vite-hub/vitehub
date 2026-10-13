@@ -10,7 +10,7 @@ import { afterEach, describe, expect, expectTypeOf, it } from "vitest"
 import { clearSources, createSource, defineSource, registerSources, useSource } from "@vite-hub/source"
 import type { SourceName } from "@vite-hub/source"
 
-import { contentSource, defineContent } from "../src/index.ts"
+import { contentSource, defineContent, defineContentHandler } from "../src/index.ts"
 
 afterEach(clearSources)
 
@@ -496,6 +496,29 @@ describe("contentSource", () => {
     await expect(source.getItemRaw("settings.json")).resolves.toEqual({ theme: "dark" })
   })
 
+  it("decodes binary content from another realm", async () => {
+    const binary = runInNewContext("new Uint8Array([72, 105])")
+    const source = contentSource({
+      async items() {
+        return [{ content: binary, key: "hello.txt" }]
+      },
+    } as never)
+
+    await expect(source.getItem("hello.txt")).resolves.toBe("Hi")
+  })
+
+  it("does not decode a tagged non-Uint8Array view", async () => {
+    const view = new DataView(Uint8Array.of(72, 105).buffer)
+    Object.defineProperty(view, Symbol.toStringTag, { value: "Uint8Array" })
+    const source = contentSource({
+      async items() {
+        return [{ content: view, key: "hello.txt" }]
+      },
+    } as never)
+
+    await expect(source.getItem("hello.txt")).resolves.toBe(view)
+  })
+
   it("refreshes a direct adapter passed to raw Comark Content", async () => {
     let revision = 0
     const parsed: string[] = []
@@ -778,5 +801,55 @@ describe("contentSource", () => {
     })
 
     await expect(contentSource(useSource("unsafe" as any)).keys()).rejects.toThrow("Content Source path escapes the source root")
+  })
+})
+
+describe("defineContentHandler", () => {
+  it("copies ArrayBuffer Node body chunks from another realm", async () => {
+    let received: Uint8Array | undefined
+    const handler = defineContentHandler({
+      async handler(request) {
+        received = new Uint8Array(await (request as Request).arrayBuffer())
+        return new Response("ok")
+      },
+    })
+    const chunk = runInNewContext("new Uint8Array([1, 2, 3]).buffer") as ArrayBuffer
+    const nodeRequest = {
+      aborted: false,
+      headers: {},
+      method: "POST",
+      url: "/body",
+      [Symbol.asyncIterator]() {
+        return (async function* () {
+          yield chunk as unknown as Uint8Array
+        })()
+      },
+      once() {},
+    }
+
+    await handler({ method: "POST", node: { req: nodeRequest }, req: nodeRequest } as never)
+    expect(received).toEqual(Uint8Array.of(1, 2, 3))
+  })
+
+  it.each([
+    { name: "a forged ArrayBuffer", value: { [Symbol.toStringTag]: "ArrayBuffer" } },
+    { name: "an invalid chunk", value: { bytes: [1, 2, 3] } },
+  ])("rejects $name with CONTENT_R0005", async ({ value }) => {
+    const handler = defineContentHandler({ handler: async () => new Response("ok") })
+    const nodeRequest = {
+      aborted: false,
+      headers: {},
+      method: "POST",
+      url: "/body",
+      [Symbol.asyncIterator]() {
+        return (async function* () {
+          yield value as unknown as Uint8Array
+        })()
+      },
+      once() {},
+    }
+
+    await expect(handler({ method: "POST", node: { req: nodeRequest }, req: nodeRequest } as never))
+      .rejects.toThrow(expect.objectContaining({ code: "CONTENT_R0005" }))
   })
 })
