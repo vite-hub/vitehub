@@ -338,10 +338,18 @@ function getAuthorizationStreamOperations(body: unknown): AuthorizationStreamOpe
   if (Object(body) !== body) return
   const ownReader = Object.getOwnPropertyDescriptor(body, "getReader")
   if (ownReader) return
-  const locked = responsePropertyDescriptor(body, "locked")?.get
-  const getReader = responsePropertyDescriptor(body, "getReader")?.value
+  // Use the host's captured native operations. Their brand checks accept
+  // genuine streams from other realms while ignoring shadowed prototype
+  // methods supplied by the response's realm.
+  const locked = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
+  const getReader = ReadableStream.prototype.getReader
   if (typeof locked !== "function" || typeof getReader !== "function") return
-  if (Reflect.apply(locked, body, [])) return
+  try {
+    if (Reflect.apply(locked, body, [])) return
+  }
+  catch {
+    return
+  }
   return {
     getReader: getReader as AuthorizationStreamOperations["getReader"],
     isLocked: locked as AuthorizationStreamOperations["isLocked"],
@@ -356,8 +364,7 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
 }
 
 function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
-  const getReader = responsePropertyDescriptor(body, "getReader")?.value
-  if (typeof getReader !== "function") throw new TypeError("Invalid authorization response body")
+  const getReader = ReadableStream.prototype.getReader
   const reader = Reflect.apply(getReader, body, []) as ReadableStreamDefaultReader<Uint8Array>
   const read = responsePropertyDescriptor(reader, "read")?.value
   const cancel = responsePropertyDescriptor(reader, "cancel")?.value
@@ -379,6 +386,7 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
           release()
           controller.close()
         }
+        else if (result.value === undefined) throw new TypeError("Invalid authorization response chunk")
         else controller.enqueue(result.value)
       }
       catch (error) {
