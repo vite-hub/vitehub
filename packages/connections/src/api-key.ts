@@ -48,7 +48,9 @@ export function apiKeyOrigin(value: string): string | undefined {
 /** Whether the provider header and origins can carry a key safely. */
 export function isValidApiKeyProvider(provider: { header: string, origins: readonly string[], scheme?: string }): boolean {
   try {
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This public validator checks untrusted provider shapes at the boundary.
     if (!provider || typeof provider !== "object" || Array.isArray(provider)) return false
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This public validator checks untrusted provider fields at the boundary.
     if (typeof provider.header !== "string" || !Array.isArray(provider.origins)) return false
     const originIndexes = Object.getOwnPropertyNames(provider.origins).filter(key => {
       const index = Number(key)
@@ -56,6 +58,7 @@ export function isValidApiKeyProvider(provider: { header: string, origins: reado
     })
     if (originIndexes.length !== provider.origins.length) return false
     for (const key of originIndexes) {
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Each untrusted origin must be a string before URL policy validation.
       if (typeof provider.origins[Number(key)] !== "string") return false
     }
     for (const key of originIndexes) {
@@ -64,7 +67,11 @@ export function isValidApiKeyProvider(provider: { header: string, origins: reado
     }
     return tokenPattern.test(provider.header)
       && provider.header === provider.header.toLowerCase()
-      && (provider.scheme === undefined || typeof provider.scheme === "string" && tokenPattern.test(provider.scheme))
+      && (provider.scheme === undefined || (() => {
+        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Reject non-string authentication schemes at the validation boundary.
+        if (typeof provider.scheme !== "string") return false
+        return tokenPattern.test(provider.scheme)
+      })())
       && provider.origins.length > 0
   }
   catch {
