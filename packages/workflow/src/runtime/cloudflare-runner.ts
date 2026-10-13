@@ -31,10 +31,20 @@ function isNonRetryableError(error: unknown): error is Error & { isRetryable: fa
       ? nativeIsError(error) === true
       : error instanceof Error || (() => {
         const prototype = Object.getPrototypeOf(error)
-        return prototype !== null
-          && prototype !== Object.prototype
-          && Object.prototype.toString.call(error) === "[object Error]"
-          && ("message" in error || "stack" in error)
+        if (prototype === null || prototype === Object.prototype || Object.prototype.toString.call(error) !== "[object Error]") return false
+        let errorPrototype: object | null = prototype
+        let hasErrorPrototype = false
+        while (errorPrototype !== null) {
+          if (Object.prototype.hasOwnProperty.call(errorPrototype, "toString")
+            && Object.prototype.hasOwnProperty.call(errorPrototype, "constructor")
+            && hasRuntimeType(Reflect.get(errorPrototype, "constructor"), "function")
+            && Reflect.get(Reflect.get(errorPrototype, "constructor"), "name") === "Error") {
+            hasErrorPrototype = true
+            break
+          }
+          errorPrototype = Object.getPrototypeOf(errorPrototype)
+        }
+        return hasErrorPrototype && ("message" in error || "stack" in error)
       })()
     return branded && Reflect.get(error, "isRetryable") === false
   }
