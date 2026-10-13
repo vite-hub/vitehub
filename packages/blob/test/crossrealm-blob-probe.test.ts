@@ -5,15 +5,19 @@ import { createBlobStorage } from "../src/storage.ts"
 
 describe("cross realm Blob bodies", () => {
   it("preserves a Blob type from another realm", async () => {
-    // Node VM contexts do not provide Blob. Give a real Blob a VM-created
-    // prototype with the same accessors while retaining its intrinsic slots.
+    // Node VM contexts do not install web globals, so provide the Blob
+    // implementation and construct the value inside the independent context.
+    // Replacing its prototype makes the genuine Blob fail the host instanceof
+    // check while preserving its internal slots for the intrinsic accessors.
     const body: Blob = runInNewContext(`(() => {
-      const prototype = Object.create(null, descriptors)
+      const body = new Blob(["payload"], { type: "image/x-custom" })
+      const prototype = Object.create(null, {
+        type: Object.getOwnPropertyDescriptor(Blob.prototype, "type"),
+        size: Object.getOwnPropertyDescriptor(Blob.prototype, "size"),
+        text: Object.getOwnPropertyDescriptor(Blob.prototype, "text"),
+      })
       return Object.setPrototypeOf(body, prototype)
-    })()`, {
-      body: new Blob(["payload"], { type: "image/x-custom" }),
-      descriptors: Object.getOwnPropertyDescriptors(Blob.prototype),
-    })
+    })()`, { Blob })
     expect(body instanceof Blob).toBe(false)
     await expect(body.text()).resolves.toBe("payload")
     const driver = {
