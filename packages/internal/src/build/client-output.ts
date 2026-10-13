@@ -7,11 +7,18 @@ export function hasStaticIndex(clientDir: string): boolean {
   return existsSync(resolve(clientDir, "index.html"))
 }
 
-export async function copyClientOutput(clientDir: string, targetDir: string): Promise<void> {
+export async function copyClientOutput(clientDir: string, targetDir: string, excludedDirs: string[] = []): Promise<void> {
   const resolvedClientDir = resolve(clientDir)
   const resolvedTargetDir = resolve(targetDir)
   if (resolvedClientDir === resolvedTargetDir) {
     return
+  }
+  const excluded = new Set(excludedDirs.map(dir => resolve(dir)))
+  // A provider can share the client root; only omit nested provider directories.
+  excluded.delete(resolvedClientDir)
+  const filter = (source: string) => {
+    const resolved = resolve(source)
+    return ![...excluded].some(dir => resolved === dir || resolved.startsWith(`${dir}/`))
   }
 
   await rm(resolvedTargetDir, { force: true, recursive: true })
@@ -23,9 +30,9 @@ export async function copyClientOutput(clientDir: string, targetDir: string): Pr
     await mkdir(resolvedTargetDir, { recursive: true })
     await Promise.all((await readdir(resolvedClientDir))
       .filter(entry => entry !== targetRootEntry)
-      .map(entry => cp(resolve(resolvedClientDir, entry), resolve(resolvedTargetDir, entry), { recursive: true })))
+      .map(entry => cp(resolve(resolvedClientDir, entry), resolve(resolvedTargetDir, entry), { recursive: true, filter })))
     return
   }
 
-  await cp(resolvedClientDir, resolvedTargetDir, { recursive: true })
+  await cp(resolvedClientDir, resolvedTargetDir, { recursive: true, filter })
 }
