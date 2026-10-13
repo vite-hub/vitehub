@@ -4,6 +4,6 @@ Use Channels for outbound message delivery through named connectors such as HTTP
 
 Read the [Channels guide](https://vitehub.dev/docs/channels) and [Get started](https://vitehub.dev/docs/channels/get-started). Use [Server API](https://vitehub.dev/docs/channels/server-api) for delivery and [Agent Channels](https://vitehub.dev/docs/agents/channels) for Agent input.
 
-Keep channel credentials, webhook verification, and reply policy in the Channel Definition. A Channel does not grant an Agent every application capability. Grant tools separately.
+Keep connector credentials and delivery or reply policy in the Channel Definition. A Channel does not grant an Agent every application capability. Grant tools separately. For inbound webhook verification or chat admission, follow the Agent Channels and Triggers guidance instead.
 
-Prove webhook verification, one accepted message, one rejected message, and the delivery result on the target channel.
+Prove one outbound delivery and its result on the target channel.
