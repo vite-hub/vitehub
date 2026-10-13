@@ -407,38 +407,27 @@ function isDateValue(value: unknown): value is Date {
   }
 }
 
-function isDateProxy(value: unknown): boolean {
-  if (!value || !hasRuntimeType(value, "object") || isDateValue(value)) return false
-  if (value instanceof Date) return true
+function hasFailingJSONSerialization(value: unknown): boolean {
+  if (!value || !hasRuntimeType(value, "object")) return false
   try {
-    const nativeFunction = (candidate: unknown): candidate is (...args: never[]) => unknown => {
-      return hasRuntimeType(candidate, "function") && /\{\s*\[native code\]\s*\}$/.test(Function.prototype.toString.call(candidate))
-    }
-    let prototype = Object.getPrototypeOf(value)
-    while (prototype) {
-      const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
-      const getTime = Object.getOwnPropertyDescriptor(prototype, "getTime")?.value
-      const toISOString = Object.getOwnPropertyDescriptor(prototype, "toISOString")?.value
-      if (nativeFunction(constructor) && constructor.name === "Date"
-        && nativeFunction(getTime) && nativeFunction(toISOString)
-        && prototype !== Date.prototype) {
-        return true
-      }
-      prototype = Object.getPrototypeOf(prototype)
-    }
+    // Test the selected serialization behavior, without inferring object origin
+    // from constructor names or proxy-controlled prototype reflection.
+    if (!hasRuntimeType(Reflect.get(value, "toJSON"), "function")) return false
+    JSON.stringify(value)
     return false
   }
   catch {
-    return false
+    return true
   }
 }
 
 function normalizeCreatedAt(value: Date | string | undefined): string | undefined {
   if (!value) return undefined
-  if (isDateProxy(value)) {
+  if (isDateValue(value)) return Date.prototype.toISOString.call(value)
+  if (hasFailingJSONSerialization(value)) {
     throw agentDiagnostics.AGENT_R0651({ message: "[vitehub:messages] message.createdAt must be serialized before storing." })
   }
-  return isDateValue(value) ? Date.prototype.toISOString.call(value) : value
+  return value
 }
 
 function normalizePart(part: MessagePart | string, index: number): MessagePart {
@@ -554,7 +543,7 @@ function assertSerializable(value: unknown, field: string): void {
   if (!value || !hasRuntimeType(value, "object")) {
     return
   }
-  if (isDateValue(value) || isDateProxy(value)) {
+  if (isDateValue(value) || hasFailingJSONSerialization(value)) {
     throw agentDiagnostics.AGENT_R0651({ message: `[vitehub:messages] ${field} must be serialized before storing.` })
   }
   if (Array.isArray(value)) {

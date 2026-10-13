@@ -17,6 +17,18 @@ describe("Agent message date boundaries", () => {
   })
 
   it.each([
+    "new Proxy(new Date(), { getPrototypeOf() { return Object.prototype } })",
+    "new Proxy(new (class Timestamp extends Date {})(), { getPrototypeOf() { return Object.prototype } })",
+  ])("rejects unserializable Date proxies hiding their prototype: %s", (source) => {
+    const timestamp = runInNewContext(source) as Date
+    expect(() => JSON.stringify(timestamp)).toThrow()
+    expect(() => createMessage({ createdAt: timestamp, role: "user" })).toThrow("must be serialized before storing")
+    expect(() => validateMessage({ createdAt: timestamp as unknown as string, id: "message-1", parts: [], role: "user" })).toThrow("must be serialized before storing")
+    expect(() => createMessage({ metadata: { timestamp }, role: "user" })).toThrow("must be serialized before storing")
+    expect(() => validateMessage({ id: "message-1", parts: [{ data: { timestamp }, type: "data" }], role: "user" })).toThrow("must be serialized before storing")
+  })
+
+  it.each([
     "new (class Date { getTime() { return 0 }; toISOString() { return 'date-like' } })()",
     "Object.create({ constructor: Date, getTime: Date.prototype.getTime, toISOString: Date.prototype.toISOString })",
   ])("accepts ordinary Date-like data: %s", (source) => {
@@ -24,6 +36,21 @@ describe("Agent message date boundaries", () => {
     const message = createMessage({ metadata: { value }, parts: [{ data: value, type: "data" }], role: "user" })
     expect(() => validateMessage(message)).not.toThrow()
     expect(JSON.parse(JSON.stringify(message)).metadata).toEqual({ value: {} })
+  })
+
+  it("accepts a serializable custom Date-like JSON hook", () => {
+    const value: unknown = runInNewContext("new (class Date { getTime() { return 0 }; toISOString() { return 'date-like' }; toJSON() { return { timestamp: 'date-like' } } })()")
+    const message = createMessage({ metadata: { value }, parts: [{ data: value, type: "data" }], role: "user" })
+    expect(() => validateMessage(message)).not.toThrow()
+    expect(JSON.parse(JSON.stringify(message)).metadata).toEqual({ value: { timestamp: "date-like" } })
+  })
+
+  it("normalizes a genuine Date without invoking its custom serialization hook", () => {
+    const createdAt = new Date("2026-01-02T03:04:05.000Z")
+    let calls = 0
+    Object.defineProperty(createdAt, "toJSON", { get() { calls++; throw new Error("custom serializer") } })
+    expect(createMessage({ createdAt, role: "user" }).createdAt).toBe("2026-01-02T03:04:05.000Z")
+    expect(calls).toBe(0)
   })
 
   it("normalizes a foreign Date when creating a message", () => {
