@@ -6,12 +6,14 @@ function isError(value: unknown): value is Error {
   try {
     const nativeIsError = Reflect.get(Error, "isError")
     if (typeof nativeIsError === "function") return nativeIsError(value) === true
-    if (value instanceof Error) return true
+    const seen = new Set<object>()
     let prototype = Object.getPrototypeOf(value)
-    while (prototype !== null && prototype !== Object.prototype) {
+    for (let depth = 0; depth < 64 && prototype !== null && prototype !== Object.prototype; depth++) {
+      if (seen.has(prototype)) return false
+      seen.add(prototype)
       const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
       if (Object.prototype.toString.call(constructor) === "[object Function]" && constructor.prototype === prototype
-        && (constructor.name === "Error" || Object.getOwnPropertyDescriptor(prototype, "name")?.value === "Error")) {
+        && Function.prototype.toString.call(constructor) === Function.prototype.toString.call(Error)) {
         return true
       }
       prototype = Object.getPrototypeOf(prototype)
