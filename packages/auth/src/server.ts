@@ -280,8 +280,21 @@ async function runAccessAuthorize(
   context: AuthAccessAuthorizationContext,
 ): Promise<Response | undefined> {
   const result = await authorize(context)
-  if (result instanceof Response) return result
+  if (isResponseLike(result)) return result
   if (result !== true) return createForbiddenResponse(context.request)
+}
+
+function isResponseLike(value: unknown): value is Response {
+  if (value === null || typeof value !== "object") return false
+  try {
+    // Accessing a native Response getter performs the internal-slot brand check,
+    // which works across realms and cannot be forged with ordinary properties.
+    const status = Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get?.call(value)
+    return typeof status === "number" && Number.isInteger(status) && status >= 0 && status <= 599
+  }
+  catch {
+    return false
+  }
 }
 
 async function checkAuthRequest(
