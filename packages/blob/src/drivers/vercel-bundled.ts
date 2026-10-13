@@ -54,23 +54,33 @@ function toBlobObject(blob: {
 }
 
 function isMissingBlobError(error: unknown) {
-  if (typeof error !== "object" || error === null) return false
+  if (error === null || Object(error) !== error) return false
+  const candidate = Object(error)
   try {
     const nativeIsError: unknown = Reflect.get(Error, "isError")
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Error.isError is optional in supported runtimes; prefer its native state check when available.
     const isError = typeof nativeIsError === "function"
       ? nativeIsError(error) === true
       : (() => {
-          const prototype = Object.getPrototypeOf(error)
-          if (prototype === null || prototype === Object.prototype) return false
-          // Error instances have an own stack slot in the runtimes supported by
-          // the bundled driver. This excludes objects that only inherit from
-          // Error.prototype while allowing foreign realms and custom tags.
-          return Object.hasOwn(error, "stack")
+          if (!Object.hasOwn(candidate, "stack")) return false
+          const seen = new Set<object>()
+          let prototype = Object.getPrototypeOf(candidate)
+          for (let depth = 0; depth < 64 && prototype !== null && prototype !== Object.prototype; depth++) {
+            if (seen.has(prototype)) return false
+            seen.add(prototype)
+            const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+            if (Object.prototype.toString.call(constructor) === "[object Function]"
+              && Object.getOwnPropertyDescriptor(constructor, "prototype")?.value === prototype
+              && Function.prototype.toString.call(constructor) === Function.prototype.toString.call(Error)) return true
+            prototype = Object.getPrototypeOf(prototype)
+          }
+          return false
         })()
     if (!isError) return false
-    const value = error as { name?: unknown, message?: unknown }
-    return value.name === "BlobNotFoundError"
-      || (typeof value.message === "string" && /(?:requested )?blob (?:was )?not found|requested blob does not exist/i.test(value.message))
+    if (Reflect.get(candidate, "name") === "BlobNotFoundError") return true
+    const message: unknown = Reflect.get(candidate, "message")
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The SDK exposes the missing-object diagnostic in its opaque Error message.
+    return typeof message === "string" && /(?:requested )?blob (?:was )?not found|requested blob does not exist/i.test(message)
   }
   catch {
     return false
