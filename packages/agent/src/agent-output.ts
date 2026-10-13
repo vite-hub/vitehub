@@ -709,7 +709,8 @@ export function toAgentStreamEvent(
 export const agentStreamErrorSymbol: unique symbol = Symbol("vitehub.agent-stream-error")
 
 function isBudgetExhaustionEvent(event: StreamEvent): boolean {
-  return event.type === "error" && event[agentStreamErrorSymbol] instanceof ExecutionBudgetExceededError
+  return event.type === "error"
+    && (event as StreamEvent & { [agentStreamErrorSymbol]?: unknown })[agentStreamErrorSymbol] instanceof ExecutionBudgetExceededError
 }
 
 async function* streamChunksToEvents(
@@ -749,7 +750,7 @@ async function* streamChunksToEvents(
         usageRecord = undefined
       }
       yield event
-      if (isBudgetExhaustionEvent(event)) return
+      if (event.type === "error" && (!event.recoverable || isBudgetExhaustionEvent(event))) return
     }
   }
   catch (error) {
@@ -786,7 +787,7 @@ async function* streamChunksToEventsWithTextFallback(
         }
       }
       yield event
-      if (isBudgetExhaustionEvent(event)) return
+      if (event.type === "error" && (!event.recoverable || isBudgetExhaustionEvent(event))) return
     }
     if (!hasText && !observation.explicitTextPhaseSeen) {
       textIterator ??= getTextIterator()
