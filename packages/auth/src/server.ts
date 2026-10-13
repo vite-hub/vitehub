@@ -297,7 +297,9 @@ function isResponseLike(value: unknown): value is Response {
       get?: unknown
       forEach?: unknown
     } | undefined
-    const body = readResponseProperty(value, "body") as {
+    const bodyAccessor = findResponseAccessor(value, "body")
+    if (!bodyAccessor) return false
+    const body = bodyAccessor.call(value) as {
       getReader?: unknown
     } | null | undefined
     if (typeof status !== "number" || !Number.isInteger(status) || status < 0 || status > 599) return false
@@ -313,10 +315,14 @@ function isResponseLike(value: unknown): value is Response {
 
 function readResponseProperty(value: unknown, key: string): unknown {
   // Use the owning runtime's getters so its Response brand checks apply.
+  return findResponseAccessor(value, key)?.call(value)
+}
+
+function findResponseAccessor(value: unknown, key: string): (() => unknown) | undefined {
   let prototype: unknown = Object.getPrototypeOf(value)
   while (prototype) {
     const descriptor = Object.getOwnPropertyDescriptor(prototype, key)
-    if (descriptor) return descriptor.get?.call(value)
+    if (descriptor?.get) return descriptor.get
     prototype = Object.getPrototypeOf(prototype)
   }
 }

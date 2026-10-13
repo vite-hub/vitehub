@@ -133,7 +133,7 @@ describe("Auth access handlers", () => {
     const forgedResponse = runInNewContext(`new (class {
       get status() { return 409 }
       get statusText() { return "Conflict" }
-      get headers() { return { get() { return null } } }
+      get headers() { return { get() { return null }, forEach() {} } }
       get [Symbol.toStringTag]() { return "Response" }
     })()`)
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
