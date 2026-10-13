@@ -1,8 +1,9 @@
 import type { ScheduleDefinition, ScheduleDefinitionRegistry, ScheduleRunContext } from "../types.ts"
 import { runWithScheduleWaitUntil } from "./wait-until.ts"
-import { createScheduleError, invalidScheduleValueDetails } from "../errors.ts"
+import { createScheduleError } from "../errors.ts"
 import { scheduleErrorDiagnostics } from "../error-diagnostics.ts"
 import { isViteHubBearerSecretEqual } from "@vite-hub/internal/secret"
+import { validateScheduledAt } from "./date.ts"
 
 export interface ExecuteStaticScheduleOptions {
   cron: string
@@ -84,16 +85,6 @@ export async function executeMatchingStaticSchedules(options: ExecuteMatchingSta
     runs.push(executeStaticSchedule({ cron: options.cron, definition, name, scheduledAt, waitUntil: options.waitUntil }))
   }
   return await Promise.all(runs)
-}
-
-function validateScheduledAt(scheduledAt: Date | undefined): Date {
-  const value = scheduledAt ?? new Date()
-  if (!(value instanceof Date) || Number.isNaN(value.getTime())) {
-    throw createScheduleError("SCHEDULE_INVALID_SCHEDULED_AT", {
-      details: invalidScheduleValueDetails("scheduledAt", value),
-    })
-  }
-  return value
 }
 
 export async function executeCloudflareStaticSchedules(

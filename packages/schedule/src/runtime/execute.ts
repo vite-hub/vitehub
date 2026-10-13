@@ -5,6 +5,7 @@ import { assertRuntimeScheduleId, invalidScheduleValueDetails, createScheduleErr
 import { isRuntimeScheduleDue } from "./due.ts"
 import { getRuntimeScheduleStore, getScheduleRunStore, loadScheduleDefinition } from "./state.ts"
 import { runWithScheduleWaitUntil } from "./wait-until.ts"
+import { validateScheduledAt as validateScheduledAtValue } from "./date.ts"
 
 import type { RuntimeScheduleStore, RuntimeScheduleWake, ScheduleDefinition, ScheduleDefinitionRegistry, ScheduleRegistryDefinition, ScheduleRunAttemptRecord, ScheduleRunContext, ScheduleRunError, ScheduleRunRecord, ScheduleRunStore, ScheduleTargetName } from "../types.ts"
 
@@ -71,23 +72,8 @@ export function toRunId(source: ExecuteScheduleOptions["source"], scheduleId: st
   return `srun_${normalizeRunSource(source)}_${encodeURIComponent(scheduleId)}_${scheduledAt.toISOString()}${runIdSuffix ? `_${runIdSuffix}` : ""}`
 }
 
-function isDate(value: unknown): value is Date {
-  try {
-    if (Object.prototype.toString.call(value) !== "[object Date]") return false
-    return !Number.isNaN(Date.prototype.getTime.call(value as Date))
-  }
-  catch {
-    return false
-  }
-}
-
 function validateScheduledAt(scheduledAt: Date): Date {
-  if (!isDate(scheduledAt)) {
-    throw createScheduleError("SCHEDULE_INVALID_SCHEDULED_AT", {
-      details: invalidScheduleValueDetails("scheduledAt", scheduledAt),
-    })
-  }
-  return new Date(Date.prototype.getTime.call(scheduledAt))
+  return validateScheduledAtValue(scheduledAt)
 }
 
 function toRunError(error: unknown): ScheduleRunError {

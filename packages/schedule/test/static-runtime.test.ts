@@ -44,6 +44,18 @@ describe("Static Schedule runtime", () => {
     expect(loaded).toBe(false)
   })
 
+  it("accepts a scheduledAt Date from another JavaScript realm", async () => {
+    const scheduledAt = runInNewContext('new Date("2026-05-23T09:00:00.000Z")') as Date
+    const run = await executeStaticSchedule({
+      cron: "0 4 * * *",
+      definition: { cron: "0 4 * * *", handler: async context => context.scheduledAt },
+      name: "cross-realm-date",
+      scheduledAt,
+    })
+    expect(run).toBeInstanceOf(Date)
+    expect((run as Date).toISOString()).toBe("2026-05-23T09:00:00.000Z")
+  })
+
   it("executes all static schedules matching a cron", async () => {
     const calls: string[] = []
     const registry: ScheduleDefinitionRegistry = {
