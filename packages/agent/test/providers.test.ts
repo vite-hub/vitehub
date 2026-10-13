@@ -22415,10 +22415,17 @@ describe("server helpers", () => {
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-channel-history-"))
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
     const connect = vi.spyOn(state, "connect")
-    const invalidAttachmentData: unknown = "data:image/jpeg;base64,AQID"
+    const foreignAttachmentData = runInNewContext(`new (class ForeignBlob extends NativeBlob {
+      async arrayBuffer() {
+        const source = new Uint8Array(await super.arrayBuffer())
+        const foreign = new ArrayBuffer(source.byteLength)
+        new Uint8Array(foreign).set(source)
+        return foreign
+      }
+    })([bytes], { type: "image/jpeg" })`, { NativeBlob: Blob, bytes: new Uint8Array([1, 2, 3]) })
     const attachmentFetchData = vi.fn<() => Promise<Buffer>>(async () => {
-      // SAFETY: this regression deliberately returns a legacy data URL through the old Buffer contract.
-      return invalidAttachmentData as Buffer
+      // SAFETY: Exercise a foreign Blob returned through the legacy Buffer adapter contract.
+      return foreignAttachmentData as Buffer
     })
     const adapter = createTestChatAdapter({ attachmentFetchData, persistThreadHistory: true })
     const agent = defineAgent({

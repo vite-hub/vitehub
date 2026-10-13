@@ -7135,6 +7135,9 @@ async function channelHistoryAttachment(
       data = await boundedChannelHistoryOperation(() => resolved.fetchData!(), signal)
     } catch {}
   }
+  if (isAttachmentBlob(data)) {
+    data = data.size <= maxBytes ? new Uint8Array(await data.arrayBuffer()) : undefined
+  }
   let bytes: Uint8Array | undefined
   try {
     if (isRuntimeString(data)) {
