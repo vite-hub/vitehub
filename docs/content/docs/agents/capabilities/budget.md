@@ -53,7 +53,7 @@ export default defineAgent({
 })
 ```
 
-The top-level option is the usual choice. ViteHub turns it into the same `budget` Capability internally, so inspection and finish extensions have one contract.
+The top-level option is the usual choice. When it includes `tokens` or `usd`, ViteHub turns it into the same `budget` Capability internally, so inspection and finish extensions have one contract. A capacity-only top-level policy configures Driver capacity without installing the `budget` Capability or its finish extension, so `event.extensions.get('budget')` is unavailable in that case.
 
 ## Observe or enforce
 

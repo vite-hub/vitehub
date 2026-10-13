@@ -9,6 +9,22 @@ import {
 import { MemoryWorkspace } from "./workspace-test-utils.ts"
 
 describe("@vite-hub/shell workspace inspection", () => {
+  it("preserves an infinite output limit", async () => {
+    const workspace = new MemoryWorkspace({
+      "large.txt": "x".repeat(30_001),
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "cat large.txt", {
+      commands: ["cat"],
+      cwd: workspaceMountPoint,
+      fs: createReadonlyWorkspaceFs(workspace),
+      maxOutputLength: Number.POSITIVE_INFINITY,
+    })).resolves.toMatchObject({
+      outputTruncated: false,
+      stdout: "x".repeat(30_001),
+    })
+  })
+
   it("runs workspace inspection through the real shell runtime", async () => {
     const workspace = new MemoryWorkspace({
       ".secret": "hidden\n",
@@ -957,6 +973,23 @@ describe("@vite-hub/shell workspace inspection", () => {
       fs,
     })).resolves.toMatchObject({
       stdout: expect.stringContaining("Workspace path is not mounted: missing.md"),
+    })
+  })
+
+  it("honors an explicit zero timeout", async () => {
+    const workspace = new MemoryWorkspace({ "README.md": "# Docs\n", "models/orders.sql": "select 1\n" })
+    const slowFs = createReadonlyWorkspaceFs(workspace)
+    slowFs.readdirWithFileTypes = async () => await new Promise(() => {})
+
+    await expect(runWorkspaceInspectionCommand(workspace, "ls models", {
+      commands: ["ls"],
+      cwd: workspaceMountPoint,
+      fs: slowFs,
+      timeout: 0,
+    })).resolves.toMatchObject({
+      event: "command_timed_out",
+      timedOut: true,
+      stderr: expect.stringContaining("timed out after 0ms"),
     })
   })
 
