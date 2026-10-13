@@ -303,7 +303,9 @@ async function runAccessAuthorize(
       const status = responseGetter(candidate, "status")?.call(candidate)
       const statusText = responseGetter(candidate, "statusText")?.call(candidate)
       const headers = responseGetter(candidate, "headers")?.call(candidate)
-      const body = responseGetter(candidate, "body")?.call(candidate) ?? null
+      const bodyAccessor = responseGetter(candidate, "body")
+      if (!bodyAccessor) return createForbiddenResponse(context.request)
+      const body = bodyAccessor.call(candidate)
       if (typeof status !== "number" || !Number.isInteger(status) || typeof statusText !== "string"
         || typeof (headers as { [Symbol.iterator]?: unknown } | null)?.[Symbol.iterator] !== "function") {
         return createForbiddenResponse(context.request)
