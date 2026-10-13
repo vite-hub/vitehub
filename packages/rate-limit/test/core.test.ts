@@ -21,6 +21,21 @@ describe("Rate Limit core", () => {
     await expect(limiter.consume({ key: "user" })).resolves.toMatchObject({ allowed: true })
   })
 
+  it("preserves diagnostics from another JavaScript realm", () => {
+    const foreign: unknown = runInNewContext(`(() => {
+      class Diagnostic extends Error {
+        constructor() { super("foreign"); this.name = this.code = "RATE_LIMIT_R0031" }
+        get why() { return this.message }
+        toJSON() { return { name: this.name, why: this.why } }
+      }
+      return new Diagnostic()
+    })()`)
+    const driver = memoryRateLimitDriver()
+    Object.defineProperty(driver, "capabilities", { get: () => { throw foreign } })
+
+    expect(() => createRateLimiter({ driver, limit: 1, window: "1m" })).toThrow(foreign as Error)
+  })
+
   it("preserves the receiver of a driver consume getter", async () => {
     const driver = memoryRateLimitDriver()
     const consume = driver.consume

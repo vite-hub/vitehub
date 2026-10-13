@@ -162,7 +162,16 @@ function isRateLimiterOptions(value: unknown): value is CreateRateLimiterOptions
 
 function isRateLimitDiagnostic(value: unknown): boolean {
   try {
-    return value instanceof Diagnostic && rateLimitDiagnosticCodes.has(value.code)
+    if (!(value instanceof Diagnostic) || !rateLimitDiagnosticCodes.has(value.code)) {
+      if (!value || typeof value !== "object" || !rateLimitDiagnosticCodes.has(Reflect.get(value, "code"))) return false
+      const prototype = Object.getPrototypeOf(value)
+      if (!prototype || Object.getPrototypeOf(prototype) === null) return false
+      const constructor = Reflect.get(prototype, "constructor")
+      const toJSON = Object.getOwnPropertyDescriptor(prototype, "toJSON")?.value
+      const why = Object.getOwnPropertyDescriptor(prototype, "why")?.get
+      if (typeof constructor !== "function" || constructor.name !== "Diagnostic" || typeof toJSON !== "function" || typeof why !== "function") return false
+    }
+    return true
   }
   catch {
     return false
