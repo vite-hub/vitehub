@@ -15,7 +15,7 @@ const MAX_APPROVAL_COUNT_PAGES = 10_000;
 
 // Discovery preserves filesystem-valid characters, including symbols such as `+`.
 // Keep management validation in step with the generated registry.
-const name = v.pipe(v.string(), v.minLength(1), v.maxLength(CONNECTION_NAME_MAX_LENGTH));
+const name = v.pipe(v.string(), v.minLength(1), v.maxLength(CONNECTION_NAME_MAX_LENGTH), v.check(value => value === value.trim(), "Connection names cannot start or end with whitespace."));
 const id = v.pipe(v.string(), v.minLength(1), v.maxLength(256));
 const actionSchema = v.variant("action", [
   v.object({ action: v.literal("list") }),
@@ -280,7 +280,7 @@ const action: ConnectionsRoute = {
         return json({ ...result, approvals: result.approvals.map(approvalSummary) });
       }
       case "approval-counts": {
-        const counts: Record<string, number> = {};
+        const counts: Record<string, number> = Object.create(null);
         for (const connection of await connections.list()) {
           let before: string | undefined;
           const seenCursors = new Set<string>();

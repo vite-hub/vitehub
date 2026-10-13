@@ -353,6 +353,22 @@ describe("resolveDBViteConfig", () => {
     }
   })
 
+  it.each(["reference", "spread"] as const)("checks opaque %s definitions that inherit native D1 resources", async (form) => {
+    const rootDir = await createTempProject()
+    for (const name of ["foo-bar", "foo_bar"]) {
+      const file = join(rootDir, "server/databases", name, "config.ts")
+      await mkdir(dirname(file), { recursive: true })
+      await writeFile(file, [
+        "import { defineDatabase } from '@vite-hub/database'",
+        "const cloudflare = { binding: 'DB_SHARED' }",
+        `export default defineDatabase({ name: '${name}', cloudflare: ${form === "reference" ? "cloudflare" : "{ ...cloudflare }"}, schema: {} })`,
+      ].join("\n"))
+    }
+
+    expect(() => resolveDBViteConfig({ driver: "d1", binding: "DB_SHARED", databaseId: "id", databaseName: "name" }, rootDir))
+      .toThrow(/DATABASE_C0008|same Cloudflare D1 binding/)
+  })
+
   it("resolves default migrations from a forwarded server directory", async () => {
     const rootDir = await createTempProject()
     const serverDir = join(rootDir, "backend")

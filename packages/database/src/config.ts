@@ -199,7 +199,7 @@ function readDefinitionCloudflareResource(expression: string | undefined): Defin
   return resource
 }
 
-function readDefinitionCloudflareConfig(file: string): { resource: DefinitionCloudflareResource, configured: boolean, value?: CloudflareD1BindingConfig } {
+function readDefinitionCloudflareConfig(file: string): { resource: DefinitionCloudflareResource, configured: boolean, ownsOpaqueResource: boolean, value?: CloudflareD1BindingConfig } {
   const definitionBody = readDefinitionObjectBody(file)
   const definitionEntries = definitionBody === undefined
     ? []
@@ -219,10 +219,11 @@ function readDefinitionCloudflareConfig(file: string): { resource: DefinitionClo
   }
   const body = objectLiteralBody(expression)
   if (resource === "opaque") {
-    if (cloudflareEntries.length && expression?.trim() !== "undefined") return { resource, configured: true, value: {} }
-    return { resource, configured: false }
+    const ownsOpaqueResource = /\b(?:databaseId|databaseName)\s*:/.test(readFileSync(file, "utf8"))
+    if (cloudflareEntries.length && expression?.trim() !== "undefined") return { resource, configured: true, ownsOpaqueResource, value: {} }
+    return { resource, configured: false, ownsOpaqueResource }
   }
-  if (body === undefined) return { resource, configured: cloudflareEntries.length > 0 && expression?.trim() !== "undefined" }
+  if (body === undefined) return { resource, configured: cloudflareEntries.length > 0 && expression?.trim() !== "undefined", ownsOpaqueResource: false }
   const httpExpression = readObjectPropertyValue(body, "http")?.trim()
   const httpBody = objectLiteralBody(httpExpression)
   const http = httpExpression === "true"
@@ -244,6 +245,7 @@ function readDefinitionCloudflareConfig(file: string): { resource: DefinitionClo
   return {
     resource,
     configured: cloudflareEntries.length > 0 && expression?.trim() !== "undefined",
+    ownsOpaqueResource: false,
     ...(Object.values(value).some(item => typeof item !== "undefined") ? { value } : {}),
   }
 }
@@ -456,7 +458,7 @@ export function resolveDBViteConfig(
   const cloudflareBindings = new Map<string, string>()
   for (const definition of definitions) {
     const definitionCloudflare = readDefinitionCloudflareConfig(definition.handler)
-    if (definitionCloudflare.resource === "opaque") continue
+    if (definitionCloudflare.resource === "opaque" && definitionCloudflare.ownsOpaqueResource) continue
     const binding = databases[definition.name]?.cloudflare?.binding
       ?? (definitionCloudflare.configured ? resolveCloudflareD1BindingName(definition.name, undefined) : undefined)
     if (!binding) continue
