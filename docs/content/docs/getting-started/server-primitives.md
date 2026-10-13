@@ -52,6 +52,10 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
+This route uses Nuxt/Nitro's auto-imported `defineEventHandler` and `readBody`.
+In a plain Vite server, import those helpers from `h3` and connect the handler
+to your server entry. The ViteHub primitive import stays the same.
+
 The route doesn't need to know whether KV uses local files, Cloudflare, Vercel, or another driver.
 
 ## Add a Definition when the feature needs one

@@ -108,6 +108,7 @@ describe("Auth access handlers", () => {
     const foreignResponse = runInNewContext(`new (class extends Response {})("Policy rejected", { status: 409 })`, { Response })
     // Simulate a standard Headers implementation without the optional helper.
     Object.defineProperty(foreignResponse.headers, "getSetCookie", { value: undefined })
+
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
       access: { routes: [{ route: "/**", authorize: () => foreignResponse as never }] },
     }))
@@ -122,6 +123,7 @@ describe("Auth access handlers", () => {
     }
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
       access: { routes: [{ route: "/**", authorize: () => response as never }] },
+
     }))
     expect((await handler(new Request("https://app.example/")))?.status).toBe(403)
   })
