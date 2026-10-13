@@ -636,7 +636,18 @@ describe("executeSandboxDefinition", () => {
   })
 
   it("classifies a generated result toJSON getter failure as a serialization error", async () => {
-    const { sandbox } = createFakeSandbox()
+    const { sandbox } = createFakeSandbox({
+      onExecute({ args, write }) {
+        write(args.at(-1)!, new TextEncoder().encode(JSON.stringify({
+          ok: false,
+          error: {
+            code: "SANDBOX_SERIALIZATION_ERROR",
+            message: "Sandbox result must be JSON-serializable.",
+          },
+        })))
+        return Promise.resolve({ code: 1, ok: false, stderr: "", stdout: "" })
+      },
+    })
 
     await expect(executeSandboxDefinition(
       sandbox,
