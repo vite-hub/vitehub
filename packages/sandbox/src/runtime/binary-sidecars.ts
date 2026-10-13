@@ -26,8 +26,10 @@ function isObjectRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object'
 }
 
+const typedArrayTagGetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), Symbol.toStringTag)?.get
+
 function isUint8Array(value: unknown): value is Uint8Array {
-  return ArrayBuffer.isView(value) && Object.prototype.toString.call(value) === '[object Uint8Array]'
+  return ArrayBuffer.isView(value) && typedArrayTagGetter?.call(value) === 'Uint8Array'
 }
 
 function unboxJsonPrimitive(value: unknown): { value: unknown } | undefined {
