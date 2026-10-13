@@ -280,31 +280,24 @@ async function runAccessAuthorize(
   context: AuthAccessAuthorizationContext,
 ): Promise<Response | undefined> {
   const result = await authorize(context)
-  if (isResponseLike(result)) return result
+  const response = await normalizeAuthorizationResponse(result)
+  if (response) return response
   if (result !== true) return createForbiddenResponse(context.request)
 }
 
-function isResponseLike(value: unknown): value is Response {
-  if (value === null || typeof value !== "object") return false
+async function normalizeAuthorizationResponse(value: unknown): Promise<Response | undefined> {
+  if (value instanceof Response) return value
   try {
-    if (Object.prototype.toString.call(value) !== "[object Response]") return false
+    if (Object.prototype.toString.call(value) !== "[object Response]") return
+    // SAFETY: Foreign responses are untrusted. Copy their data into a local
+    // Response so adapters only receive native Headers and body operations.
     const response = value as Response
-    if (!Number.isInteger(response.status) || response.status < 0 || response.status > 599) return false
-    if (typeof response.statusText !== "string" || typeof response.url !== "string" || typeof response.type !== "string") return false
-    if (typeof response.ok !== "boolean" || typeof response.redirected !== "boolean" || typeof response.bodyUsed !== "boolean") return false
-    if (!["arrayBuffer", "blob", "formData", "json", "text", "clone"].every(key => typeof Reflect.get(response, key) === "function")) return false
-    if (response.body !== null && (typeof response.body !== "object" || typeof response.body.getReader !== "function" || typeof response.body.cancel !== "function")) return false
-    const headers = response.headers
-    if (headers === null || typeof headers !== "object" || Object.prototype.toString.call(headers) !== "[object Headers]") return false
-    // Foreign implementations have their own internal slots, so host accessors
-    // cannot brand-check them. Validate the complete contract without consuming it.
-    if (!["append", "delete", "get", "has", "set", "entries", "keys", "values", "forEach"].every(key => typeof Reflect.get(headers, key) === "function")) return false
-    if (typeof headers[Symbol.iterator] !== "function") return false
-    const contentType = headers.get("content-type")
-    return contentType === null || typeof contentType === "string"
+    const headers = new Headers(response.headers)
+    const body = response.body === null ? null : new Uint8Array(await response.arrayBuffer())
+    return new Response(body, { headers, status: response.status, statusText: response.statusText })
   }
   catch {
-    return false
+    return
   }
 }
 

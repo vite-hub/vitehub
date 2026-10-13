@@ -10,7 +10,7 @@ import { asUnknownBoundary, hasRuntimeType, isCallableMember, isRuntimeObject, i
 import { Diagnostic } from "nostics"
 import agentRegistry from "#vitehub/agent/registry"
 import { acquireAgentCapacity, configureAgentCapacity, inspectAgentCapacity } from "./internal/agent-capacity.ts"
-import { normalizeAgentDriver } from "./internal/agent-driver.ts"
+import { normalizeAgentDriver, normalizeAgentDriverCapacity } from "./internal/agent-driver.ts"
 import { createAgentHealthHandler } from "./health.ts"
 import { agentOutputEventObserverContextKey, progressSummaryOutputContextKey, type AgentOutputEventObserver } from "./internal/agent-output-events.ts"
 import { openAgentInvocationLifecycle, type AgentInvocationLifecycle } from "./internal/invocation-lifecycle.ts"
@@ -46,6 +46,7 @@ import { getAgentInvocationRecoveryWorkflowName } from "@vite-hub/internal/agent
 import { parseStandardSchema } from "@vite-hub/internal/http-request"
 import { agentResultKind, agentStreamErrorSymbol, agentToolStreamDefaults, appendLatestFinalText, finalTextFromAgentOutput, hasTraceableStreamResult, isAsyncIterable, resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent, usageRecordFromStreamChunk } from "./agent-output.ts"
 import { defineChatCapability, durableChatErrorFallbackTimeout, getAgentChatContext, getChatCapabilityOptions, isDurableChatErrorFallbackEffect, resolveChatMessageContextInstructions, resolveChatMessageRunMetadata, resolveDurableChatErrorFallbackIntents } from "./chat-trigger.ts"
+import { createAgentBudgetCapability } from "./capabilities/budget.ts"
 import { agentWorkflowExecutionContextKey } from "./internal/workflow-execution.ts"
 import { consumeParsedAgentWorkflowInput } from "./internal/workflow-parsed-input.ts"
 import { parsedAgentMessageMetaState, parseAgentMessageMeta, withParsedAgentMessageMeta } from "./internal/message-meta.ts"
@@ -1006,6 +1007,44 @@ async function portableAgentWorkflowRunId(runId: string): Promise<string> {
   return `${generatedPrefix}${Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("")}`
 }
 
+function isPortableWorkflowArrayBuffer(value: unknown): value is ArrayBuffer {
+  try {
+    const getter = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")?.get
+    if (!getter) return false
+    getter.call(value)
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
+function isPortableWorkflowUint8Array(value: unknown): value is Uint8Array {
+  if (!ArrayBuffer.isView(value)) return false
+  try {
+    const getter = Object.getOwnPropertyDescriptor(
+      Object.getPrototypeOf(Uint8Array.prototype),
+      Symbol.toStringTag,
+    )?.get
+    return getter?.call(value) === "Uint8Array"
+  }
+  catch {
+    return false
+  }
+}
+
+function isPortableWorkflowBlob(value: unknown): value is Blob {
+  try {
+    const getter = Object.getOwnPropertyDescriptor(Blob.prototype, "size")?.get
+    if (!getter) return false
+    getter.call(value)
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
 async function portableWorkflowMessages(messages: Message[]): Promise<Message[]> {
   const materialized = await materializeMessageAttachmentData(messages)
   return await Promise.all(materialized.map(async message => ({
@@ -1014,9 +1053,9 @@ async function portableWorkflowMessages(messages: Message[]): Promise<Message[]>
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       if (!isAttachmentPart(part)) return cloneWorkflowJsonValue(part) as typeof part
       let data = part.data
-      if (data instanceof Blob) data = await data.arrayBuffer()
-      if (data instanceof ArrayBuffer) data = new Uint8Array(data)
-      const portable = data instanceof Uint8Array
+      if (isPortableWorkflowBlob(data)) data = await data.arrayBuffer()
+      if (isPortableWorkflowArrayBuffer(data)) data = new Uint8Array(data)
+      const portable = isPortableWorkflowUint8Array(data)
         ? { ...part, data: `data:${part.mediaType};base64,${workflowBytesToBase64(data)}` }
         : part
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
@@ -2221,10 +2260,10 @@ function defineBaseAgent<
     throw agentDiagnostics.AGENT_R0426({ message: "[vitehub] defineAgent({ channels }) cannot be combined with the chat() capability. Move chat options to defineAgent({ messages, channels })." })
   }
   const chat = chatCapability || channelChat
+  const configuredBudget = options.budget ? createAgentBudgetCapability(options.budget) : undefined
   const normalizedCapabilities = channelChat
-    // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-    ? [...baseCapabilities, defineChatCapability(channelChat) as AgentCapabilityDefinition<TRuntimeConfig>]
-    : baseCapabilities
+    ? [...baseCapabilities, defineChatCapability(channelChat), ...(configuredBudget ? [configuredBudget] : [])]
+    : [...baseCapabilities, ...(configuredBudget ? [configuredBudget] : [])]
   if (!workspace) validateAgentCapabilityComposition(normalizedCapabilities, {
     driverKind: driver.kind,
     hasWorkspace: false,
@@ -2284,6 +2323,7 @@ function defineBaseAgent<
     [baseAgentResolve]: resolveBaseAgent,
     health: options.health || { handler: (request: Request, healthOptions?: Record<string, unknown>) => createAgentHealthHandler(definition)(request, healthOptions) },
     box,
+    ...(options.budget ? { budget: options.budget } : {}),
     ...(github ? { github } : {}),
     channels,
     chat,
@@ -2333,7 +2373,9 @@ function defineBaseAgent<
     [baseAgentDefinitionHealth]: { value: options.health ? undefined : definition.health },
     [baseAgentDefinitionStatus]: { value: definition.status },
   })
-  configureAgentCapacity(definition, driver.capacity)
+  configureAgentCapacity(definition, options.budget?.capacity !== undefined
+    ? normalizeAgentDriverCapacity(options.budget.capacity)
+    : driver.capacity)
   Object.defineProperty(definition, "__vitehubAgentSettings", {
     value: channels === options.channels ? options : { ...options, channels },
   })

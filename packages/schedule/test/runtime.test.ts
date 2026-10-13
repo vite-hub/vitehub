@@ -611,6 +611,20 @@ describe("Schedule Run bookkeeping", () => {
     expect(run.scheduledAt.toISOString()).toBe("2026-05-23T09:00:00.000Z")
   })
 
+  it("accepts genuine dates with custom or throwing toString tags", async () => {
+    for (const tag of [() => "CustomDate", () => { throw new Error("Do not inspect tags") }]) {
+      const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
+      Object.defineProperty(scheduledAt, Symbol.toStringTag, { get: tag })
+      const run = await executeStaticSchedule({
+        cron: "0 9 * * *",
+        definition: { cron: "0 9 * * *", handler: async () => {} },
+        name: "custom-tag-date",
+        scheduledAt,
+      })
+      expect(run.scheduledAt.toISOString()).toBe("2026-05-23T09:00:00.000Z")
+    }
+  })
+
   it("fails clearly for invalid scheduledAt dates", async () => {
     setScheduleRuntimeRegistry({
       report: async () => ({
@@ -633,7 +647,7 @@ describe("Schedule Run bookkeeping", () => {
       code: "SCHEDULE_INVALID_SCHEDULED_AT",
     })
 
-    const hostileDate = new Date()
+    const hostileDate = new Date("bad")
     Object.defineProperty(hostileDate, Symbol.toStringTag, { get: () => { throw new Error("hostile tag") } })
     await expect(schedules.run("schedule-1", { scheduledAt: hostileDate })).rejects.toMatchObject({
       code: "SCHEDULE_INVALID_SCHEDULED_AT",
