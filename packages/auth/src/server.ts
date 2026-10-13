@@ -345,7 +345,7 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
   if (Object(body) !== body) return false
   const stream = body as object
   const locked = streamIntrinsic(stream, "locked")
-  const getReader = streamIntrinsic(stream, "getReader")
+  const getReader = locked && streamIntrinsic(locked.owner, "getReader")
   if (!locked || !getReader || locked.owner !== getReader.owner
     || typeof locked.value !== "function" || typeof getReader.value !== "function") return false
   return !Reflect.apply(locked.value, stream, [])
@@ -353,7 +353,8 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
 
 function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
   // Use native operations from the stream's realm, never caller-supplied methods.
-  const getReader = streamIntrinsic(body, "getReader")!.value as (this: ReadableStream<Uint8Array>) => ReadableStreamDefaultReader<Uint8Array>
+  const streamPrototype = streamIntrinsic(body, "locked")!.owner
+  const getReader = streamIntrinsic(streamPrototype, "getReader")!.value as (this: ReadableStream<Uint8Array>) => ReadableStreamDefaultReader<Uint8Array>
   const reader = Reflect.apply(getReader, body, [])
   const read = streamIntrinsic(reader, "read")!.value as (this: ReadableStreamDefaultReader<Uint8Array>) => Promise<{ done: boolean, value?: Uint8Array }>
   const cancel = streamIntrinsic(reader, "cancel")!.value as (this: ReadableStreamDefaultReader<Uint8Array>, reason?: unknown) => Promise<void>
