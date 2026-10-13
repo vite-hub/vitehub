@@ -145,9 +145,9 @@ const items = computed<AgentInvocationListItem[]>(() =>
     updatedAt: invocation.updatedAt,
   })),
 );
-const selectedId = ref(invocations[0]!.id);
+const selectedId = ref(invocations.value[0]!.id);
 const selected = computed(() =>
-  invocations.find((invocation) => invocation.id === selectedId.value)!,
+  invocations.value.find((invocation) => invocation.id === selectedId.value)!,
 );
 const selectedActivityId = ref<string>();
 const detailsOpen = ref(true);

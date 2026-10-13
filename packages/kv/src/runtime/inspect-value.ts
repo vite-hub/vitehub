@@ -5,11 +5,8 @@ class UnsupportedValueError extends Error {}
 function isUint8Array(value: unknown): value is Uint8Array {
   try {
     if (!ArrayBuffer.isView(value)) return false
-    // The byte-length/element-length check rejects wider typed arrays and
-    // DataView before consulting the cross-realm tag. Keep the tag access
-    // guarded because Symbol.toStringTag may be hostile.
     const tagGetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), Symbol.toStringTag)?.get
-    return Boolean(tagGetter && "length" in value && value.byteLength === value.length && tagGetter.call(value) === "Uint8Array")
+    return Boolean(tagGetter && Reflect.apply(tagGetter, value, []) === "Uint8Array")
   }
   catch {
     return false
@@ -25,9 +22,22 @@ export function kvValueType(value: unknown): string {
 }
 
 function encodeBase64(bytes: Uint8Array): string {
-  let binary = ""
-  for (let index = 0; index < bytes.byteLength; index++) binary += String.fromCharCode(bytes[index]!)
-  return btoa(binary)
+  try {
+    const lengthGetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), "length")?.get
+    if (!lengthGetter) throw new UnsupportedValueError()
+    const length = Reflect.apply(lengthGetter, bytes, [])
+    for (const key of ["byteLength", "length"]) {
+      const descriptor = Object.getOwnPropertyDescriptor(bytes, key)
+      if (descriptor && (!("value" in descriptor) || descriptor.value !== length)) throw new UnsupportedValueError()
+    }
+    let binary = ""
+    // The intrinsic iterator reads native slots and validates detached buffers.
+    for (const byte of Reflect.apply(Uint8Array.prototype.values, bytes, [])) binary += String.fromCharCode(byte)
+    return btoa(binary)
+  }
+  catch {
+    throw new UnsupportedValueError()
+  }
 }
 
 /** JSON inspection accepts JSON values and represents bigint values as decimal strings. */
@@ -62,8 +72,8 @@ function inspectValue(value: unknown, seen = new WeakSet<object>()): unknown {
 
 /** Encodes one inspection result without running getters or exposing non-JSON object behavior. */
 export function inspectKVValue(value: unknown): { encoding?: "base64", type: string, value: unknown } | undefined {
-  if (isUint8Array(value)) return { encoding: "base64", type: "bytes", value: encodeBase64(value) }
   try {
+    if (isUint8Array(value)) return { encoding: "base64", type: "bytes", value: encodeBase64(value) }
     return { type: kvValueType(value), value: inspectValue(value) }
   }
   catch (error) {
