@@ -63,19 +63,26 @@ function isRequestLike(value: AuthRequest): value is Request {
     // Request implementations only when they provide Better Auth's body API.
     if (Object.prototype.toString.call(value) !== "[object Request]") return false
     const prototype = Reflect.getPrototypeOf(value)
-    const hasAccessor = (property: string): boolean => {
+    const accessorPrototype = ["body", "bodyUsed", "headers", "method", "signal", "url"].reduce< object | undefined>((found, property) => {
+      if (found) return found
       for (let current = prototype; current; current = Reflect.getPrototypeOf(current)) {
-        if (typeof Reflect.getOwnPropertyDescriptor(current, property)?.get === "function") return true
+        if (typeof Reflect.getOwnPropertyDescriptor(current, property)?.get === "function") return current
       }
-      return false
-    }
+      return undefined
+    }, undefined)
+    if (!accessorPrototype) return false
+    // Request implementations keep their accessors and body methods on the same
+    // Request prototype. Requiring its constructor identity avoids accepting a
+    // caller-controlled object prototype that merely copies the interface.
+    if (Reflect.getOwnPropertyDescriptor(accessorPrototype, "constructor")?.value?.name !== "Request") return false
+    const hasAccessor = (property: string): boolean => typeof Reflect.getOwnPropertyDescriptor(accessorPrototype, property)?.get === "function"
     // Request implementations expose their state through prototype accessors. This
     // rejects tagged host-shaped objects that merely copy the method names.
     if (!["body", "bodyUsed", "headers", "method", "signal", "url"].every(hasAccessor)) return false
     return ["clone", "arrayBuffer", "blob", "formData", "json", "text"].every((method) => {
       if (Object.hasOwn(value, method)) return false
       // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Check the foreign Request's capabilities before bypassing host-input normalization.
-      return typeof Reflect.get(value, method) === "function"
+      return typeof Reflect.getOwnPropertyDescriptor(accessorPrototype, method)?.value === "function"
     })
   }
   catch {
