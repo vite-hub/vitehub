@@ -149,13 +149,15 @@ export function createEnvBridge(options: EnvBridgeOptions): EnvBridge {
       !authority.scope.some((grant) => grant.key === key && grant.permissions.includes(permission))
     )
       return false;
-    const grants = await safe(() => options.access.grants(key));
-    return grants.some(
-      (grant) =>
-        grant.actor.id === context.actor.id &&
-        grant.actor.kind === context.actor.kind &&
-        grant.permissions.includes(permission),
-    );
+    return await safe(async () => {
+      const grants = await options.access.grants(key);
+      return grants.some(
+        (grant) =>
+          grant.actor.id === context.actor.id &&
+          grant.actor.kind === context.actor.kind &&
+          grant.permissions.includes(permission),
+      );
+    });
   }
   async function audited<T>(
     context: EnvAccessContext,

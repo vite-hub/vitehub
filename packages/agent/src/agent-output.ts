@@ -341,6 +341,17 @@ function modelVendorScope(provider: string): string {
   return provider.includes(".") ? provider.split(".", 1)[0]! : provider
 }
 
+function isDateValue(value: unknown): value is Date {
+  if (!isRecord(value)) return false
+  try {
+    Date.prototype.getTime.call(value)
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
 function responseFromResult(result: unknown): AgentUsageRecord["response"] | undefined {
   if (!isRecord(result)) return
   const response = isRecord(result.response) ? result.response : undefined
@@ -351,7 +362,7 @@ function responseFromResult(result: unknown): AgentUsageRecord["response"] | und
   return {
     ...(finishReason !== undefined ? { finishReason } : {}),
     ...(id !== undefined ? { id } : {}),
-    ...((timestamp instanceof Date || hasRuntimeType(timestamp, "string")) ? { timestamp } : {}),
+    ...((isDateValue(timestamp) || hasRuntimeType(timestamp, "string")) ? { timestamp } : {}),
   }
 }
 
