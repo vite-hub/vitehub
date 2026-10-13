@@ -50,6 +50,7 @@ const hasPanel = computed(
   .vh-docs-shell {
     display: flex;
     align-items: flex-start;
+    overflow: hidden;
   }
 
   /* The sidebars do not clip, so the expanded rail can cover the page. The z-index keeps it below the site header. */
