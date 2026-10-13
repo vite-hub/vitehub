@@ -1,6 +1,7 @@
 import { afterEach, expect, it, vi } from "vitest"
 
 import { defineQueue } from "../src/definition.ts"
+import { normalizeQueueEnqueueInput } from "../src/enqueue.ts"
 import { createCloudflareQueueClient } from "../src/providers/cloudflare.ts"
 import { createVercelQueueClient } from "../src/providers/vercel.ts"
 import { dynamicQueue } from "../src/runtime/client.ts"
@@ -88,4 +89,17 @@ it.each(["cloudflare", "vercel"] as const)("ignores inherited enqueue ids throug
     expect(sent[0]?.options).toMatchObject({ idempotencyKey: expect.any(String) })
     expect(sent[0]?.options).not.toMatchObject({ idempotencyKey: "inherited-id" })
   }
+})
+
+
+it.each([true, false])("reads an own enqueue id getter once when enumerable is %s", (enumerable) => {
+  const readId = vi.fn(() => "own-id")
+  const options = Object.defineProperty({ delaySeconds: 5 }, "id", { enumerable, get: readId })
+
+  expect(normalizeQueueEnqueueInput("event", options)).toEqual({
+    id: "own-id",
+    options: { delaySeconds: 5 },
+    payload: "event",
+  })
+  expect(readId).toHaveBeenCalledOnce()
 })
