@@ -149,7 +149,13 @@ function createBudget(state: BudgetState, limits: ExecutionBudgetLimits, control
       }, childController)
     },
     consume(counter, amount = 1) {
-      consume(counter, amount)
+      try {
+        consume(counter, amount)
+      }
+      catch (error) {
+        if (error instanceof ExecutionBudgetExceededError) controller.abort(error)
+        throw error
+      }
     },
     recordInputBytes(amount) {
       try {

@@ -47,6 +47,30 @@ describe("ExecutionBudget", () => {
     expect(removeListener).toHaveBeenCalled()
   })
 
+  it.each(["inputBytes", "outputBytes", "retries", "toolCalls"] as const)("aborts concurrent work when public consume exhausts %s without charging the failed attempt", counter => {
+    const controller = new AbortController()
+    const removeListener = vi.spyOn(controller.signal, "removeEventListener")
+    const budget = createExecutionBudget({ maxInputBytes: 1, maxOutputBytes: 1, maxRetries: 1, maxToolCalls: 1, signal: controller.signal })
+    const child = budget.child()
+    budget.consume(counter)
+    const usage = budget.snapshot().usage
+
+    expect(() => budget.consume(counter)).toThrow(ExecutionBudgetExceededError)
+    expect(budget.signal.aborted).toBe(true)
+    expect(budget.signal.reason).toBeInstanceOf(ExecutionBudgetExceededError)
+    expect(child.signal.aborted).toBe(true)
+    expect(child.signal.reason).toBe(budget.signal.reason)
+    expect(budget.snapshot().usage).toEqual(usage)
+    expect(removeListener).toHaveBeenCalled()
+  })
+
+  it("does not cancel public consume for an invalid amount", () => {
+    const budget = createExecutionBudget({ maxInputBytes: 1 })
+    expect(() => budget.consume("inputBytes", -1)).toThrow(RangeError)
+    expect(budget.signal.aborted).toBe(false)
+    expect(budget.snapshot().usage.inputBytes).toBe(0)
+  })
+
   it("derives a stricter child while sharing parent usage and cancellation", () => {
     const controller = new AbortController()
     const budget = createExecutionBudget({ maxToolCalls: 4, signal: controller.signal })

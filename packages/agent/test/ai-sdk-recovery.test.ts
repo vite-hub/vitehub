@@ -284,8 +284,17 @@ describe("AI SDK recovery", () => {
     })
     if (!isAsyncIterable(result)) throw new TypeError("Expected an Agent event stream")
     const events: unknown[] = []
-    for await (const event of result) events.push(event)
-    expect(events).toContainEqual(expect.objectContaining({ type: "error", error: expect.stringContaining("retries") }))
+    const consume = async () => {
+      for await (const event of result) events.push(event)
+    }
+    let terminalError: unknown
+    await expect(consume().catch((error: unknown) => {
+      terminalError = error
+      throw error
+    })).rejects.toMatchObject({ name: "ExecutionBudgetExceededError", counter: "retries", limit: 1 })
+    expect(fakeModel.calls.at(-1)?.abortSignal?.aborted).toBe(true)
+    expect(fakeModel.calls.at(-1)?.abortSignal?.reason).toBe(terminalError)
+    expect(events).not.toContainEqual(expect.objectContaining({ type: "finish" }))
     expect(fakeModel.calls).toHaveLength(3)
   })
 
@@ -301,16 +310,21 @@ describe("AI SDK recovery", () => {
   it("enforces output bytes while streaming a model-only response", async () => {
     const fakeModel = model(["Response exceeding the allowance"])
     const agent = defineAgent({ driver: { model: languageModel(fakeModel) }, runtime: false })
+    const events: unknown[] = []
     const consume = async () => {
       const result = await streamAgentInline(agent, runtime, { prompt: "Respond", executionBudget: { maxOutputBytes: 1 } })
       if (!isAsyncIterable(result)) throw new TypeError("Expected an Agent event stream")
-      const events: unknown[] = []
       for await (const event of result) events.push(event)
-      return events
     }
-    const events = await consume()
-    expect(events).toContainEqual(expect.objectContaining({ type: "error", error: expect.stringContaining("outputBytes") }))
+    let terminalError: unknown
+    await expect(consume().catch((error: unknown) => {
+      terminalError = error
+      throw error
+    })).rejects.toMatchObject({ name: "ExecutionBudgetExceededError", counter: "outputBytes", limit: 1 })
+    expect(fakeModel.calls.at(-1)?.abortSignal?.aborted).toBe(true)
+    expect(fakeModel.calls.at(-1)?.abortSignal?.reason).toBe(terminalError)
     expect(events).not.toContainEqual(expect.objectContaining({ type: "text-delta" }))
+    expect(fakeModel.calls).toHaveLength(1)
   })
 
   it("cancels a pending tool-call repair with its invocation", async () => {

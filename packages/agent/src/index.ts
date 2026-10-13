@@ -5232,7 +5232,7 @@ function resultWithStreamedText(result: unknown, text: string): unknown {
   return { raw: result, text }
 }
 
-function toAgentRunResultWithInheritedProperties(result: unknown): AgentRunResult {
+function toAgentRunResultWithInheritedProperties(result: unknown, readInherited = true): AgentRunResult {
   if (!result || !hasRuntimeType(result, "object")) return toAgentRunResult(result)
   let normalized: AgentRunResult
   try {
@@ -5241,6 +5241,7 @@ function toAgentRunResultWithInheritedProperties(result: unknown): AgentRunResul
   catch {
     normalized = { raw: result }
   }
+  if (!readInherited) return normalized
   for (const key of ["artifacts", "finishReason", "text", "usage", "usageRecord", "warnings"] as const) {
     if (normalized[key] !== undefined) continue
     try {
@@ -5637,7 +5638,7 @@ async function resultWithStreamedTextAndUsage(
   if (hasRuntimeType(result, "object") && result !== null && (isAsyncIterable(result)
     || hasTraceableStreamResult(result)
     || ((streamedUsageRecord !== undefined || hasDeferredUsage) && isUIMessageStreamResult(result)))) {
-    const normalized = toAgentRunResultWithInheritedProperties(result)
+    const normalized = toAgentRunResultWithInheritedProperties(result, resolveUsage)
     const sourceUsageRecord = definedObjectPropertiesWithInherited(result, ["usageRecord"]).usageRecord
     const sourceUsageRecordProperties = mergedUsageRecords(sourceUsageRecord)
     const fallbackUsageRecordProperties = mergedUsageRecords(fallbackUsageRecord)

@@ -2423,6 +2423,35 @@ describe("agent capability runtime", () => {
     expect(close).toHaveBeenCalledExactlyOnceWith({ error: reason, failed: true })
   })
 
+  it("closes a fatal error event as a failed stream without pulling later output", async () => {
+    const { withCapabilityCleanup } = await import("../src/capability-runtime.ts")
+    const close = vi.fn(async () => {})
+    let continued = false
+    const source = (async function* () {
+      yield { type: "error", error: "Budget exhausted" }
+      continued = true
+      yield { type: "text-delta", text: "Must not emit" }
+    })()
+    const events: unknown[] = []
+    for await (const event of withCapabilityCleanup(source, close)) events.push(event)
+
+    expect(events).toEqual([{ type: "error", error: "Budget exhausted" }])
+    expect(continued).toBe(false)
+    expect(close).toHaveBeenCalledExactlyOnceWith({ error: expect.objectContaining({ message: "Budget exhausted" }), failed: true })
+  })
+
+  it("continues recoverable error events and completes normal stream cleanup", async () => {
+    const { withCapabilityCleanup } = await import("../src/capability-runtime.ts")
+    const close = vi.fn(async () => {})
+    const events = [{ type: "error", error: "retrying", recoverable: true }, { type: "text-delta", text: "Recovered" }, { type: "finish" }]
+    const source = (async function* () { yield* events })()
+    const received: unknown[] = []
+    for await (const event of withCapabilityCleanup(source, close)) received.push(event)
+
+    expect(received).toEqual(events)
+    expect(close).toHaveBeenCalledExactlyOnceWith({ completed: true, failed: false })
+  })
+
   it("finishes stream cleanup when provider cancellation throws synchronously", async () => {
     const { withCapabilityCleanup } = await import("../src/capability-runtime.ts")
     const close = vi.fn(async () => {})

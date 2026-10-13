@@ -2,6 +2,7 @@ import { copyAgentInvocationCallerAbortSignal } from "./internal/invocation-inpu
 import { supportsSkillPersistence } from "./internal/skill-persistence.ts"
 import { markCapabilityInspection } from "./internal/capability-inspection.ts"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
+import { agentStreamErrorSymbol } from "./agent-output.ts"
 import { hostObservability, isHostObservabilityCapability } from "./internal/observability-host.ts"
 import { asUnknownBoundary, hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { resolveRuntimeValue, ViteHubError } from "@vite-hub/runtime"
@@ -1989,7 +1990,14 @@ export function withCapabilityCleanup<T extends AsyncIterable<unknown>>(
           completed = true
           break
         }
-        yield result.value
+        const value = result.value
+        if (isRuntimeRecord(value) && value.type === "error" && value.recoverable !== true) {
+          failed = true
+          error = value[agentStreamErrorSymbol] ?? (value.error instanceof Error ? value.error : new Error(String(value.error ?? "Unknown stream error")))
+          yield value
+          break
+        }
+        yield value
       }
     }
     catch (caught) {
