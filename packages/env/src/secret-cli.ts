@@ -2,7 +2,13 @@ import { randomBytes } from "node:crypto"
 
 import { deriveViteHubSecret, readViteHubSecret, viteHubSecretMinimumLength } from "@vite-hub/internal/secret"
 
-import type { ViteHubCliContext, ViteHubCliFeature } from "@vite-hub/internal/cli"
+import type { ViteHubCliFeature } from "@vite-hub/internal/cli"
+
+interface SecretCliContext {
+  env: Readonly<Record<string, string | undefined>>
+  stderr: { write: (chunk: string) => unknown }
+  stdout: { write: (chunk: string) => unknown }
+}
 
 const generateUsage = "vitehub secret generate"
 const deriveUsage = "vitehub secret derive <purpose>"
@@ -11,7 +17,7 @@ function help(args: string[]): boolean {
   return args.includes("-h") || args.includes("--help")
 }
 
-function generate(args: string[], context: Pick<ViteHubCliContext, "stderr" | "stdout">): number {
+function generate(args: string[], context: Pick<SecretCliContext, "stderr" | "stdout">): number {
   if (help(args)) {
     context.stdout.write(`Usage: ${generateUsage}\n\nPrint a new random root secret for VITEHUB_SECRET.\n`)
     return 0
@@ -24,7 +30,7 @@ function generate(args: string[], context: Pick<ViteHubCliContext, "stderr" | "s
   return 0
 }
 
-async function derive(args: string[], context: Pick<ViteHubCliContext, "env" | "stderr" | "stdout">): Promise<number> {
+async function derive(args: string[], context: SecretCliContext): Promise<number> {
   if (help(args)) {
     context.stdout.write([
       `Usage: ${deriveUsage}`,
@@ -54,17 +60,17 @@ async function derive(args: string[], context: Pick<ViteHubCliContext, "env" | "
 }
 
 /** `vitehub secret` features. They read only the process env and never load the project. */
-export const secretCliFeatures: ViteHubCliFeature[] = [
+export const secretCliFeatures = [
   {
     description: "Print a new random root secret for VITEHUB_SECRET.",
     name: "generate",
-    run: async (args, context) => generate(args, context),
+    run: async (args: string[], context: SecretCliContext) => generate(args, context),
     usage: generateUsage,
   },
   {
     description: "Print the secret derived from VITEHUB_SECRET for one purpose.",
     name: "derive",
-    run: async (args, context) => await derive(args, context),
+    run: async (args: string[], context: SecretCliContext) => await derive(args, context),
     usage: deriveUsage,
   },
-]
+] satisfies ViteHubCliFeature[]

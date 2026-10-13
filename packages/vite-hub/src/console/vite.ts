@@ -14,7 +14,7 @@ import type { Environment, Plugin } from "vite"
 import { isConsoleConnectionsEnabled, type ConsoleSectionId } from "./runtime/sections.ts"
 
 import { discoverConsoleBuildCatalog } from "./build.ts"
-import { consoleConnectionsActorId, writeConsoleConnectionsActor, registeredConsoleAuthMode, resolveConsoleAuthConfig, writeConsoleAuthHandlers, type ConsoleAuthConfig, type ConsoleAuthHandlers } from "./auth-build.ts"
+import { consoleConnectionsActorId, writeConsoleConnectionsActor, registeredConsoleAuthMode, resolveConsoleAuthConfig, writeConsoleAuthHandlers, type ConsoleAuthConfig, type ConsoleAuthHandlers, type ResolvedConsoleAuthConfig } from "./auth-build.ts"
 import { writeConsoleNitroPlugin, type ConsoleAccessBuild } from "./plugin.ts"
 import { serializeConsoleRefresh } from "./refresh.ts"
 import { createConsoleCliNamespace } from "./cli.ts"
@@ -357,7 +357,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
   let resolvedConsoleConfiguration: true | ConsoleOptions | undefined
   let resolvedAppAuth: ResolvedAuthViteConfig | undefined
   let refreshConsoleAuthClient: (() => Promise<void>) | undefined
-  let inlineConsoleAuthConfig: ConsoleAuthConfig | undefined
+  let inlineConsoleAuthConfig: ResolvedConsoleAuthConfig | undefined
   let hostManagedCloudflareBuild = false
   let baseURL = "/"
 
@@ -472,8 +472,9 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       const resolvedConsoleAuth = configuredConsoleAuth ? resolveConsoleAuthConfig(root, configuredConsoleAuth, options.preset) : undefined
       const consoleAuthConfig = registeredConsoleAuthMode(configuredConsoleAuth, environment.command !== "build") ? resolvedConsoleAuth : undefined
       consoleAuthMode = registeredConsoleAuthMode(configuredConsoleAuth, environment.command !== "build")
+      // SAFETY: The Env plugin adds this optional string to Vite configuration.
       const developmentSecret = (config as typeof config & { __vitehubEnvDevelopmentSecret?: string }).__vitehubEnvDevelopmentSecret
-      inlineConsoleAuthConfig = consoleAuthConfig && "provider" in consoleAuthConfig
+      inlineConsoleAuthConfig = consoleAuthConfig && "provider" in consoleAuthConfig && consoleAuthConfig.provider === "github"
         ? { ...consoleAuthConfig, developmentSecret }
         : consoleAuthConfig
       consoleAuthHandlers = inlineConsoleAuthConfig ? await writeConsoleAuthHandlers(root, inlineConsoleAuthConfig, baseURL) : undefined
@@ -558,9 +559,10 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       root = config.root
       const previousConsoleAuthHandlers = consoleAuthHandlers
       baseURL = config.base
-      if (inlineConsoleAuthConfig && "provider" in inlineConsoleAuthConfig) {
+      if (inlineConsoleAuthConfig && "provider" in inlineConsoleAuthConfig && inlineConsoleAuthConfig.provider === "github") {
         inlineConsoleAuthConfig = {
           ...inlineConsoleAuthConfig,
+          // SAFETY: Vite preserves the Env plugin’s optional selected root in resolved config.
           developmentSecret: (config as typeof config & { __vitehubEnvDevelopmentSecret?: string }).__vitehubEnvDevelopmentSecret,
         }
       }

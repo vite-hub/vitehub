@@ -211,6 +211,7 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
         developmentSecretGenerated = resolvedSecret.generated
       }
       const envConfig = (config as UserConfig & EnvViteUserConfig).env
+      // SAFETY: Env extends UserConfig with the optional env field validated by resolveState.
       const { defineValues, state } = await resolveState(config as UserConfig & EnvViteUserConfig, env.mode, developmentSecret, developmentSecretGenerated)
       buildPublicConfig = state.publicConfig
       serverRegistry = state.serverRegistry
@@ -382,17 +383,10 @@ const generatedSecretPattern = /^[0-9a-f]{64}$/
  * The secret is kept in `.vitehub/env/secret` with mode 0600 and survives restarts. Builds never generate one.
  */
 async function resolveDevelopmentSecret(projectRoot: string, loadedEnv: Record<string, string>): Promise<{ secret: string, generated: boolean }> {
-  // A generated value is only associated with the project that owns this
-  // plugin instance. Do not let that process-global marker shadow another
-  // project's loaded environment or persisted development secret.
-  const configured = process.env.VITEHUB_SECRET_GENERATED === "1"
-    ? readViteHubSecret(loadedEnv)
-    : readViteHubSecret({ ...loadedEnv, ...process.env })
-  if (configured) {
-    process.env.VITEHUB_SECRET = configured
-    delete process.env.VITEHUB_SECRET_GENERATED
-    return { generated: false, secret: configured }
-  }
+  // loadEnv includes external process values with Vite's normal precedence.
+  // Keep the selected root in this project's config and runtime module only.
+  const configured = readViteHubSecret(loadedEnv)
+  if (configured) return { generated: false, secret: configured }
   const secretPath = resolve(projectRoot, ".vitehub", "env", "secret")
   let secret = await readFile(secretPath, "utf8").then(value => value.trim(), () => "")
   if (!generatedSecretPattern.test(secret)) {
@@ -401,8 +395,6 @@ async function resolveDevelopmentSecret(projectRoot: string, loadedEnv: Record<s
     await writeFile(secretPath, secret, { mode: 0o600 })
     await chmod(secretPath, 0o600)
   }
-  process.env.VITEHUB_SECRET = secret
-  process.env.VITEHUB_SECRET_GENERATED = "1"
   return { generated: true, secret }
 }
 

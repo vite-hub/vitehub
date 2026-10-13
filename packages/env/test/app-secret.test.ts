@@ -1,9 +1,10 @@
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises"
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { deriveViteHubSecret } from "@vite-hub/internal/secret"
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { resolveConfig } from "vite"
 
 import { secretCliFeatures } from "../src/secret-cli.ts"
 import { deriveSecret } from "../src/server.ts"
@@ -40,12 +41,55 @@ describe("root app secret", () => {
 
     expect(secret).toMatch(/^[0-9a-f]{64}$/)
     expect((await stat(secretPath)).mode & 0o777).toBe(0o600)
-    expect(process.env.VITEHUB_SECRET).toBe(secret)
-    expect(process.env.VITEHUB_SECRET_GENERATED).toBe("1")
+    expect(process.env.VITEHUB_SECRET).toBe("")
+    expect(process.env.VITEHUB_SECRET_GENERATED).toBe("")
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
-    await expect(deriveSecret("app:session")).resolves.toBe(await deriveViteHubSecret(secret, "app:session"))
+    await expect(deriveSecret("app:session", undefined, secret, true)).resolves.toBe(await deriveViteHubSecret(secret, "app:session"))
+    const config = await resolveConfig({ configFile: false, root, plugins: [hubEnv()] }, "serve")
+    expect(config).toHaveProperty("__vitehubEnvDevelopmentSecret", secret)
+    expect(await readFile(secretPath, "utf8")).toBe(secret)
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("generated development VITEHUB_SECRET"))
     warn.mockRestore()
+  })
+
+  it("isolates generated, configured, and later generated projects", async () => {
+    vi.stubEnv("VITEHUB_SECRET", undefined)
+    vi.stubEnv("NUXT_APP_SECRET", undefined)
+    vi.stubEnv("VITEHUB_SECRET_GENERATED", "")
+    const projectRoots = await Promise.all(["first", "configured", "last"].map(name => mkdtemp(join(tmpdir(), `vitehub-${name}-`))))
+    roots.push(...projectRoots)
+    const [first, configured, last] = projectRoots
+    const configuredSecret = "configured-project-root-at-least-32-characters"
+    await writeFile(join(configured!, ".env.development"), `VITEHUB_SECRET=${configuredSecret}\n`)
+    const configs = []
+    for (const root of projectRoots) {
+      configs.push(await resolveConfig({ configFile: false, root, plugins: [hubEnv()] }, "serve"))
+    }
+    const firstSecret = await readFile(join(first!, ".vitehub/env/secret"), "utf8")
+    const lastSecret = await readFile(join(last!, ".vitehub/env/secret"), "utf8")
+    expect(firstSecret).not.toBe(lastSecret)
+    for (const [index, secret] of [firstSecret, configuredSecret, lastSecret].entries()) {
+      expect(configs[index]).toHaveProperty("__vitehubEnvDevelopmentSecret", secret)
+      expect(await readFile(join(projectRoots[index]!, ".vitehub/env/server.mjs"), "utf8")).toContain(JSON.stringify(secret))
+    }
+    await expect(stat(join(configured!, ".vitehub/env/secret"))).rejects.toThrow()
+  })
+
+  it.each(["VITEHUB_SECRET", "NUXT_APP_SECRET"])("honors a project %s and preserves shell precedence", async (name) => {
+    vi.stubEnv("VITEHUB_SECRET", undefined)
+    vi.stubEnv("NUXT_APP_SECRET", undefined)
+    const root = await mkdtemp(join(tmpdir(), "vitehub-configured-secret-"))
+    roots.push(root)
+    const projectSecret = "project-root-secret-at-least-32-characters"
+    await writeFile(join(root, ".env.development"), `${name}=${projectSecret}\n`)
+    const config = await resolveConfig({ configFile: false, root, plugins: [hubEnv()] }, "serve")
+    expect(config).toHaveProperty("__vitehubEnvDevelopmentSecret", projectSecret)
+    expect(process.env[name]).toBeUndefined()
+    const shellSecret = "shell-root-secret-at-least-32-characters"
+    vi.stubEnv(name, shellSecret)
+    const shellConfig = await resolveConfig({ configFile: false, root, plugins: [hubEnv()] }, "serve")
+    expect(shellConfig).toHaveProperty("__vitehubEnvDevelopmentSecret", shellSecret)
+    await expect(stat(join(root, ".vitehub/env/secret"))).rejects.toThrow()
   })
 
   it("keeps a configured secret and never generates one for a build", async () => {

@@ -47,7 +47,7 @@ VITEHUB_SECRET=... pnpm vitehub secret derive my-app:session
 
 ## Development
 
-When the Vite development server starts without `VITEHUB_SECRET` or `NUXT_APP_SECRET`, ViteHub generates one, saves it in `.vitehub/env/secret` with mode `0600`, and sets `VITEHUB_SECRET` for the server process. The saved secret survives restarts, so development sessions stay signed in. The first `deriveSecret()` call with a generated secret logs a warning.
+When the Vite development server starts without `VITEHUB_SECRET` or `NUXT_APP_SECRET`, ViteHub generates one, saves it in `.vitehub/env/secret` with mode `0600`, and supplies it to that project’s Server Env runtime and inline Console Auth. The saved secret survives restarts, so development sessions stay signed in. The first `deriveSecret()` call with a generated secret logs a warning.
 
 Builds never generate a secret. A deployment without `VITEHUB_SECRET` fails at the first derivation, not at build time.
 
