@@ -336,10 +336,12 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
   if (typeof locked !== "function" || typeof getReader !== "function") return false
   try {
     if (Reflect.apply(locked, body, [])) return false
-    const reader = Reflect.apply(getReader, body, [])
-    if (Object(reader) !== reader || typeof Reflect.get(reader, "read") !== "function") return false
-    const releaseLock = Reflect.get(reader, "releaseLock")
-    if (typeof releaseLock === "function") Reflect.apply(releaseLock, reader, [])
+    const reader: unknown = Reflect.apply(getReader, body, [])
+    if (Object(reader) !== reader) return false
+    const readerObject = reader as object
+    if (typeof Reflect.get(readerObject, "read") !== "function") return false
+    const releaseLock = Reflect.get(readerObject, "releaseLock")
+    if (typeof releaseLock === "function") Reflect.apply(releaseLock, readerObject, [])
     return true
   }
   catch {
