@@ -322,6 +322,7 @@ describe("server authentication provider boundaries", () => {
 
       const response = await withAuthorization(() => denied as never, protectedAction, definition)(request)
       expect(response).toBeInstanceOf(Response)
+      if (!(response instanceof Response)) throw new Error("Expected an authorization Response")
       expect(response.status).toBe(404)
       await expect(response.text()).resolves.toBe("Not your photo")
       expect(protectedAction).not.toHaveBeenCalled()

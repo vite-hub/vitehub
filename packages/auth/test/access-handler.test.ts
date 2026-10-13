@@ -104,6 +104,28 @@ describe("Auth access handlers", () => {
     await expect(handler(new Request("https://app.example/"))).resolves.toBe(response)
   })
 
+  it("normalizes a local Response proxy with unstable ordinary reads", async () => {
+    const source = new Response("Policy rejected", { status: 409 })
+    let headerReads = 0
+    const candidate = new Proxy(source, {
+      get(target, key) {
+        if (key === "headers" && ++headerReads > 1) throw new Error("unstable headers")
+        return Reflect.get(target, key, target)
+      },
+    })
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => candidate }] },
+    }))
+
+    const response = await handler(new Request("https://app.example/"))
+
+    expect(response).not.toBe(candidate)
+    expect(response?.status).toBe(409)
+    expect(() => response?.headers.forEach(() => {})).not.toThrow()
+    await expect(response?.text()).resolves.toBe("Policy rejected")
+    expect(headerReads).toBe(1)
+  })
+
   it("normalizes authorization responses from another runtime", async () => {
     const foreignResponse = new ForeignResponse("Policy rejected", { status: 409 })
     expect(foreignResponse).not.toBeInstanceOf(Response)

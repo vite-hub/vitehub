@@ -344,14 +344,24 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
     }])
     for (const cookie of cookies) normalizedHeaders.append("set-cookie", cookie)
 
-    const nativeProperties = value instanceof Response && authorizationResponseProperties.every(key =>
-      responsePropertyDescriptor(candidate, key)?.get === Object.getOwnPropertyDescriptor(Response.prototype, key)?.get)
+    const snapshot = { status, statusText, headers, body }
+    let nativeProperties = false
+    try {
+      nativeProperties = value instanceof Response && authorizationResponseProperties.every(key => {
+        const getter = Object.getOwnPropertyDescriptor(Response.prototype, key)?.get
+        return getter && responsePropertyDescriptor(candidate, key)?.get === getter
+          && Reflect.apply(getter, candidate, []) === snapshot[key]
+      })
+    }
+    catch {
+      // A proxy can expose native descriptors without owning native response state.
+    }
     const nativeHeaderMethods = ["get", "forEach"].every(key =>
       responsePropertyDescriptor(headerCarrier, key)?.value === Object.getOwnPropertyDescriptor(Headers.prototype, key)?.value)
     const cookieDescriptor = responsePropertyDescriptor(headerCarrier, "getSetCookie")
     const nativeCookieMethod = !cookieDescriptor?.get && (cookieDescriptor?.value === undefined
       || cookieDescriptor.value === Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value)
-    if (nativeProperties && nativeHeaderMethods && nativeCookieMethod) return value
+    if (value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod) return value
     if (status === 0 && statusText === "" && body === null && [...normalizedHeaders].length === 0) return Response.error()
     // Foreign implementations and shadowed native values become stable local responses.
     return new Response(body, { status, statusText, headers: normalizedHeaders })
