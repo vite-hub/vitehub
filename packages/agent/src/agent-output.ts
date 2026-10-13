@@ -701,8 +701,7 @@ function crossRealmStreamError(error: unknown): { message: string; value: object
     const nativeIsError: unknown = Reflect.get(Error, "isError")
     const branded = hasRuntimeType(nativeIsError, "function")
       ? nativeIsError(error) === true
-      : (error instanceof Error && (Object.prototype.hasOwnProperty.call(error, "stack") || Object.prototype.hasOwnProperty.call(error, "message")))
-        || (!(Symbol.toStringTag in error) && Object.prototype.toString.call(error) === "[object Error]")
+      : !(Symbol.toStringTag in error) && Object.prototype.toString.call(error) === "[object Error]"
     if (!branded) return
     return { message: String(Reflect.get(error, "message")), value: error }
   }
@@ -713,7 +712,13 @@ function crossRealmStreamError(error: unknown): { message: string; value: object
 
 function safeStreamErrorString(error: unknown): string {
   try {
-    return String(error || "Unknown error")
+    const value = error || "Unknown error"
+    const text = String(value)
+    if (text === "Error" && hasRuntimeType(value, "object") && value !== null
+      && Object.prototype.toString.call(value) === "[object Object]") {
+      return "[object Object]"
+    }
+    return text
   }
   catch {
     return "Unknown error"
