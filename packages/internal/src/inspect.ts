@@ -151,10 +151,31 @@ export function redactInspectionValue(value: unknown, key?: string): unknown {
     if (seen.has(entry)) return "[circular]"
     seen.add(entry)
     try {
-      if (entry instanceof Date) return Number.isNaN(entry.getTime()) ? "Invalid Date" : entry.toISOString()
+      let dateTime: number | undefined
+      try {
+        dateTime = Date.prototype.getTime.call(entry)
+      }
+      catch {
+        // The Date intrinsic rejects values that are not Dates, including cross-realm impostors.
+      }
+      if (dateTime !== undefined) return Number.isNaN(dateTime) ? "Invalid Date" : Date.prototype.toISOString.call(entry)
       if (Array.isArray(entry)) return entry.slice(0, 100).map(item => visit(item, undefined, depth + 1))
-      if (entry instanceof Set) return [...entry].slice(0, 100).map(item => visit(item, undefined, depth + 1))
-      const entries = entry instanceof Map ? [...entry].map(([name, item]) => [String(name), item] as const) : Object.entries(entry)
+      let setValues: unknown[] | undefined
+      try {
+        setValues = [...Set.prototype.values.call(entry)]
+      }
+      catch {
+        // The Set intrinsic rejects values that are not Sets, including cross-realm impostors.
+      }
+      if (setValues) return setValues.slice(0, 100).map(item => visit(item, undefined, depth + 1))
+      let mapEntries: [unknown, unknown][] | undefined
+      try {
+        mapEntries = [...Map.prototype.entries.call(entry)]
+      }
+      catch {
+        // The Map intrinsic rejects values that are not Maps, including cross-realm impostors.
+      }
+      const entries = mapEntries ? mapEntries.map(([name, item]) => [String(name), item] as const) : Object.entries(entry)
       return Object.fromEntries(entries.slice(0, 100).map(([name, item]) => [
         name,
         // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Worker vars are an opaque config boundary and all their values must be redacted.
