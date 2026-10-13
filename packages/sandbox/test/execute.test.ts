@@ -31,6 +31,14 @@ it("preserves messages from errors created in another realm", () => {
   })
 })
 
+it("falls back when a foreign error has a non-string message", () => {
+  const error = runInNewContext('(() => { const error = new Error("foreign provider failure"); error.message = 42; return error })()')
+  expect(toSandboxError(error)).toMatchObject({
+    code: "SANDBOX_RUNTIME_ERROR",
+    message: "Sandbox execution failed.",
+  })
+})
+
 it.each([
   {
     label: "string message",
