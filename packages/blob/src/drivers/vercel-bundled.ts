@@ -59,7 +59,14 @@ function isMissingBlobError(error: unknown) {
     const nativeIsError: unknown = Reflect.get(Error, "isError")
     const isError = typeof nativeIsError === "function"
       ? nativeIsError(error) === true
-      : !(Symbol.toStringTag in error) && Object.prototype.toString.call(error) === "[object Error]"
+      : (() => {
+          const prototype = Object.getPrototypeOf(error)
+          if (prototype === null || prototype === Object.prototype) return false
+          // Error instances have an own stack slot in the runtimes supported by
+          // the bundled driver. This excludes objects that only inherit from
+          // Error.prototype while allowing foreign realms and custom tags.
+          return Object.hasOwn(error, "stack")
+        })()
     if (!isError) return false
     const value = error as { name?: unknown, message?: unknown }
     return value.name === "BlobNotFoundError"
