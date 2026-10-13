@@ -90,6 +90,7 @@ export async function renderMarkdownTemplateInternal(template: string, options: 
         return await renderNodes(fragment.nodes, literalState(state), parent)
       },
       A: async (node, state, parent) => {
+        rejectBoundStyle(node[1])
         const props = resolveScalarTemplateAttributes(node[1], renderData(state))
         const authoredHtml = node[1].$?.html === 1
         const sanitized = authoredHtml ? await sanitizeUrlAttributes("a", props, node[1]) : props
@@ -136,6 +137,7 @@ async function sanitizeUrlAttributes(tag: string, props: Record<string, unknown>
       throw diagnostics.MARKDOWN_TEMPLATE_R0030({ message: `[vitehub] Markdown template binding "${String(source[key])}" cannot target the HTML srcdoc sink.` })
     }
   }
+  rejectBoundStyle(source)
   const sanitized = { ...props }
   for (const [key, value] of Object.entries(props)) {
     const attribute = key.toLowerCase()
@@ -148,6 +150,14 @@ async function sanitizeUrlAttributes(tag: string, props: Record<string, unknown>
     sanitized[key] = await safeLinkDestination(value, String(binding ?? key), { decodeHtmlEntities: binding === undefined })
   }
   return sanitized
+}
+
+function rejectBoundStyle(source: Record<string, unknown>): void {
+  for (const key of Object.keys(source)) {
+    if (key.startsWith(":") && key.slice(1).toLowerCase() === "style") {
+      throw diagnostics.MARKDOWN_TEMPLATE_R0032({ message: `[vitehub] Markdown template binding "${String(source[key])}" cannot target a style attribute.` })
+    }
+  }
 }
 
 function literalState(state: State): State {

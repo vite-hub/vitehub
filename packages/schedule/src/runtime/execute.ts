@@ -72,9 +72,10 @@ export function toRunId(source: ExecuteScheduleOptions["source"], scheduleId: st
 }
 
 function isDate(value: unknown): value is Date {
-  if (Object.prototype.toString.call(value) !== "[object Date]") return false
   try {
+    if (Object.prototype.toString.call(value) !== "[object Date]") return false
     return !Number.isNaN(Date.prototype.getTime.call(value as Date))
+  }
   }
   catch {
     return false

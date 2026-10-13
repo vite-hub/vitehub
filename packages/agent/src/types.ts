@@ -1842,6 +1842,8 @@ type AgentSharedSettings<
 > = {
   /** Run the built-in provider Driver inside this Box. Each invocation opens a new Box session. */
   box?: AgentBoxDefinition<TRuntimeConfig, CALL_OPTIONS, TContextValues>
+  /** Per-invocation token and cost limits. */
+  budget?: AgentBudgetOptions
   /**
    * GitHub identity for this Agent. Provider Drivers receive its `access().env`,
    * and the pull request checkout and `git()` use its token.
@@ -1920,6 +1922,8 @@ export interface AgentDefinition<
 > extends AgentDataCarrier<TDataInput>, AgentDataOutputCarrier<TData>, AgentDriverOutputCarrier<TDriverOutput>, AgentInterceptOutputCarrier<TInterceptOutput> {
   [agentOutputType]?: TOutput
   box?: AgentBoxDefinition<TRuntimeConfig, CALL_OPTIONS, TContextValues>
+  /** Per-invocation token and cost limits. */
+  budget?: AgentBudgetOptions
   github?: AgentGitHub
   health?: AgentHealthDescriptor
   capabilities?: AgentCapabilityDefinition<TRuntimeConfig>[]
@@ -2242,7 +2246,7 @@ export interface AgentMessageChannelSettings<TRuntimeConfig extends AgentRuntime
   }) => MaybePromise<string | null | undefined>)
   fallbackStreamingPlaceholderText?: string | readonly string[] | null | ((context: AgentChatAgentHookArgs<TRuntimeConfig>) => MaybePromise<string | null | undefined>)
   final?: {
-    delivery: "new-message"
+    delivery: "new-message" | "placeholder"
   }
   filter?: AgentMessageFilter<TRuntimeConfig>
   identity?: IdentityResolver
@@ -2777,6 +2781,8 @@ export interface AgentBudgetOptions {
   tokens?: number | AgentBudgetTokenLimits
   /** Maximum estimated or provider-reported cost in US dollars. */
   usd?: number | string
+  /** Driver admission for concurrent Invocations. This field applies to the top-level Agent option. */
+  capacity?: AgentDriverCapacityOptions
   /** Report exceedance or reject the completed Invocation. */
   mode?: "observe" | "enforce"
   /** Optional pricing resolver used when the provider does not report a cost. */

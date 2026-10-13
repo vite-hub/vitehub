@@ -16,7 +16,7 @@ import { renderDatabaseRuntimeModule } from "./internal/runtime-module.ts"
 import { writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
 import { usesD1HttpOnly, writeHostedDatabaseRuntimeModules } from "./internal/vite-build.ts"
 import { resolveConfigValue, withConfigValueFallback } from "./config-value.ts"
-import { resolveDBViteConfig } from "./config.ts"
+import { resolveDBViteConfig, serializeGeneratedRegistry } from "./config.ts"
 import { hubDb as hubDbVite } from "./vite.ts"
 
 import type { DatabaseNuxtIntegrationOptions, DBModulePublicOptions } from "./types.ts"
@@ -262,7 +262,7 @@ async function installNitroLocalDatabaseRuntime(
   const imports = runtime.definitions.map((definition, index) =>
     `import definition_${index} from ${JSON.stringify(pathToFileURL(definition.handler).href)}`)
   const entries = runtime.definitions.map((definition, index) => [
-    `  ${JSON.stringify(definition.name)}: {`,
+    `  [${JSON.stringify(definition.name)}]: {`,
     `    db: createDefinitionRuntime(definition_${index}, definitionDefaults),`,
     `    schema: definition_${index}.schema,`,
     "  },",
@@ -274,7 +274,7 @@ async function installNitroLocalDatabaseRuntime(
       `import { createDefinitionRuntime } from ${JSON.stringify(pathToFileURL(resolve(databaseRuntimeDir, "definition-local.js")).href)}`,
       ...imports,
       "",
-      `const definitionDefaults = ${JSON.stringify(runtime.definitionDefaults)}`,
+      `const definitionDefaults = ${serializeGeneratedRegistry(runtime.definitionDefaults)}`,
     ],
   }))
   if (alias) alias[databaseDrizzleImport] = file
