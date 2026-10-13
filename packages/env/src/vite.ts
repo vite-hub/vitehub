@@ -382,7 +382,12 @@ const generatedSecretPattern = /^[0-9a-f]{64}$/
  * The secret is kept in `.vitehub/env/secret` with mode 0600 and survives restarts. Builds never generate one.
  */
 async function resolveDevelopmentSecret(projectRoot: string, loadedEnv: Record<string, string>): Promise<{ secret: string, generated: boolean }> {
-  const configured = readViteHubSecret({ ...loadedEnv, ...process.env })
+  // A generated value is only associated with the project that owns this
+  // plugin instance. Do not let that process-global marker shadow another
+  // project's loaded environment or persisted development secret.
+  const configured = process.env.VITEHUB_SECRET_GENERATED === "1"
+    ? readViteHubSecret(loadedEnv)
+    : readViteHubSecret({ ...loadedEnv, ...process.env })
   if (configured) {
     process.env.VITEHUB_SECRET = configured
     delete process.env.VITEHUB_SECRET_GENERATED

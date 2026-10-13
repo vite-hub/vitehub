@@ -357,6 +357,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
   let resolvedConsoleConfiguration: true | ConsoleOptions | undefined
   let resolvedAppAuth: ResolvedAuthViteConfig | undefined
   let refreshConsoleAuthClient: (() => Promise<void>) | undefined
+  let inlineConsoleAuthConfig: ConsoleAuthConfig | undefined
   let hostManagedCloudflareBuild = false
   let baseURL = "/"
 
@@ -472,15 +473,13 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       const consoleAuthConfig = registeredConsoleAuthMode(configuredConsoleAuth, environment.command !== "build") ? resolvedConsoleAuth : undefined
       consoleAuthMode = registeredConsoleAuthMode(configuredConsoleAuth, environment.command !== "build")
       const developmentSecret = (config as typeof config & { __vitehubEnvDevelopmentSecret?: string }).__vitehubEnvDevelopmentSecret
-      const inlineConsoleAuthConfig = consoleAuthConfig && "provider" in consoleAuthConfig
+      inlineConsoleAuthConfig = consoleAuthConfig && "provider" in consoleAuthConfig
         ? { ...consoleAuthConfig, developmentSecret }
         : consoleAuthConfig
       consoleAuthHandlers = inlineConsoleAuthConfig ? await writeConsoleAuthHandlers(root, inlineConsoleAuthConfig, baseURL) : undefined
       refreshConsoleAuthClient = consoleAuthConfig
         ? serializeConsoleRefresh(async () => {
-            const refreshConfig = inlineConsoleAuthConfig && "provider" in inlineConsoleAuthConfig
-              ? { ...inlineConsoleAuthConfig, developmentSecret: (config as typeof config & { __vitehubEnvDevelopmentSecret?: string }).__vitehubEnvDevelopmentSecret }
-              : inlineConsoleAuthConfig
+            const refreshConfig = inlineConsoleAuthConfig
             consoleAuthHandlers = await writeConsoleAuthHandlers(root!, refreshConfig!, baseURL)
           })
         : undefined
@@ -559,6 +558,12 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       root = config.root
       const previousConsoleAuthHandlers = consoleAuthHandlers
       baseURL = config.base
+      if (inlineConsoleAuthConfig && "provider" in inlineConsoleAuthConfig) {
+        inlineConsoleAuthConfig = {
+          ...inlineConsoleAuthConfig,
+          developmentSecret: (config as typeof config & { __vitehubEnvDevelopmentSecret?: string }).__vitehubEnvDevelopmentSecret,
+        }
+      }
       if (resolvedConsoleConfiguration) {
         assertConsoleProductionAccess(resolvedConsoleConfiguration, {
           auth: resolvedAppAuth,
