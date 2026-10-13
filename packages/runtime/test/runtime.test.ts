@@ -341,6 +341,29 @@ describe("@vite-hub/runtime", () => {
     })
   })
 
+  it("does not treat proxy-fabricated capability fields as a handle", () => {
+    const target = Object.create({ kind: "spoofed", value: "unexpected" })
+    const raw = new Proxy(target, {
+      getOwnPropertyDescriptor(_target, property) {
+        if (property === "kind") return { configurable: true, enumerable: true, value: "spoofed", writable: true }
+        if (property === "value") return { configurable: true, enumerable: true, value: "unexpected", writable: true }
+        return undefined
+      },
+    })
+    const context = createExecutionContext({
+      capabilities: { raw },
+      memo: vi.fn(),
+      runtime: "vite",
+      waitUntil: vi.fn(),
+    })
+
+    expect(getCapability(context, "raw")).toEqual({
+      kind: "raw",
+      name: "raw",
+      value: raw,
+    })
+  })
+
   it("resolves only capabilities registered as own properties", () => {
     const inherited = { inherited: defineCapability("inherited", {}) }
     const context = createExecutionContext({

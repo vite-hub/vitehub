@@ -1347,11 +1347,13 @@ export function defineCapability<TKind extends string, TValue>(
   value: TValue,
   options: { name?: string } = {},
 ): CapabilityHandle<TKind, TValue> {
-  return {
+  const handle = {
     kind,
     name: options.name,
     value,
   }
+  capabilityHandles.add(handle)
+  return handle
 }
 
 export function createRuntimeWaitUntilController(options: {
@@ -1394,20 +1396,10 @@ export function createRuntimeWaitUntilController(options: {
   }
 }
 
+const capabilityHandles = new WeakSet<object>()
+
 function isCapabilityHandle(value: unknown): value is CapabilityHandle {
-  if (!hasRuntimeType(value, "object") || value === null) return false
-  try {
-    const kind = Object.getOwnPropertyDescriptor(value, "kind")
-    const implementation = Object.getOwnPropertyDescriptor(value, "value")
-    return kind !== undefined
-      && "value" in kind
-      && hasRuntimeType(kind.value, "string")
-      && implementation !== undefined
-      && "value" in implementation
-  }
-  catch {
-    return false
-  }
+  return hasRuntimeType(value, "object") && value !== null && capabilityHandles.has(value)
 }
 
 export function hasCapability(context: RuntimeHostContext, name: string): boolean {
