@@ -240,6 +240,18 @@ it("sanitizes malformed grants returned by a custom access store", async () => {
       code: "ENV_BRIDGE_OPERATION_FAILED",
     });
   }
+  const bridge = createEnvBridge({
+    ...store,
+    access: {
+      ...store.access,
+      grants: async () => [{ actor: null } as never],
+    },
+    runtimeActor: agent.actor,
+  });
+  await expect(bridge.permissions(agent, "key")).rejects.toMatchObject({
+    code: "ENV_BRIDGE_OPERATION_FAILED",
+  });
+
 });
 
 it("rejects malformed grant permissions through the public bridge error", async () => {

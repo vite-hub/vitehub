@@ -1,3 +1,4 @@
+import { runInNewContext } from "node:vm"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { defineWorkspace, fetch, resolveRegisteredWorkspaceDefinition, useWorkspace } from "../src/index.ts"
@@ -221,6 +222,24 @@ describe("fetch sources", () => {
     await expect(fs.readFile(".vitehub/sources/status.json")).resolves.toContain("https://status.example.com/health")
   })
 
+  it("preserves bytes returned by cross-realm transforms", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(textResponse("ok"))
+    const bytes = runInNewContext("new Uint8Array([1, 2, 3])") as Uint8Array
+    registerWorkspace("fetch-cross-realm-bytes", defineWorkspace({
+      store: { provider: "memory" },
+      sources: {
+        payload: fetch({
+          responseType: "text",
+          transform: () => bytes,
+          url: "https://status.example.com/bytes",
+          workspacePath: "payload.bin",
+        }),
+      },
+    }))
+
+    await expect(useWorkspace("fetch-cross-realm-bytes").fs.readFile("payload.bin", { encoding: "binary" })).resolves.toEqual(Uint8Array.from([1, 2, 3]))
+  })
+
   it("supports text, POST request factories, and explicit paths", async () => {
     const request = vi.spyOn(globalThis, "fetch").mockResolvedValue(textResponse("healthy"))
     const cookie = vi.fn(() => "session-token")
@@ -336,6 +355,13 @@ describe("fetch sources", () => {
       responseType: "arrayBuffer" as never,
       url: "https://status.example.com/image",
     })).toThrow("responseType")
+  })
+
+  it.each([42, null, {}, [], Object.create(null)])("rejects non-string methods with the fetch method diagnostic: %s", (method) => {
+    expect(() => fetch({
+      method: method as never,
+      url: "https://status.example.com/image",
+    })).toThrow("not supported")
   })
 
   it("supports query URLs and keeps source paths read-only", async () => {
