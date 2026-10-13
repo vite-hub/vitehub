@@ -436,10 +436,12 @@ function isWebAssemblyModule(value: unknown): boolean {
 
 // Exact native source signatures reject user functions, bound functions and proxies.
 // This boundary uses the host Function intrinsic rather than a payload-owned method.
+const intrinsicFunctionToString = Function.prototype.toString
+
 function isNativeBufferOperation(value: unknown, name: string): value is (...args: never[]) => unknown {
   if (!hasRuntimeType(value, "function")) return false
   try {
-    return Function.prototype.toString.call(value).replace(/\s+/g, " ") === `function ${name}() { [native code] }`
+    return intrinsicFunctionToString.call(value).replace(/\s+/g, " ") === `function ${name}() { [native code] }`
   }
   catch {
     return false
@@ -512,7 +514,9 @@ function isSharedArrayBuffer(value: unknown): boolean {
       return false
     }
   }
-  if (!ordinaryBufferOperations) return false
+  // If native operation validation was tampered with before module load, fail closed.
+  // Treating unknown objects as shared keeps trace payloads private in that case.
+  if (!ordinaryBufferOperations) return true
   try {
     // The validated native DataView operation first proves a buffer internal slot.
     // Only the validated native ArrayBuffer getter's rejection then proves shared memory.
