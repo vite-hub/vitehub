@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted } from "vue";
+import { computed, onBeforeUnmount, onMounted } from "vue";
 import type { AgentInvocationView } from "@vite-hub/ui";
 
 const now = useState("ui-running-clock", () => Date.now());
@@ -14,7 +14,7 @@ onBeforeUnmount(() => {
   if (clock) clearInterval(clock);
 });
 
-const invocation: AgentInvocationView = {
+const invocation = computed<AgentInvocationView>(() => ({
   agentName: "interface-engineer",
   createdAt: time(844),
   id: "ainv_console_navigation",
