@@ -155,6 +155,22 @@ function assertWithinMaxBytes(byteLength: number | undefined, maxBytes: number, 
   }
 }
 
+const arrayBufferByteLength = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")!.get!
+
+function isArrayBuffer(value: unknown): value is ArrayBuffer {
+  try {
+    arrayBufferByteLength.call(value)
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
+function arrayBufferLength(value: unknown): number | undefined {
+  return isArrayBuffer(value) ? arrayBufferByteLength.call(value) : undefined
+}
+
 async function resolveAudioData(audio: AudioPart, maxBytes: number): Promise<AudioData | undefined> {
   assertWithinMaxBytes(audio.size, maxBytes, "audio")
   if (isAttachmentBlob(audio.data)) assertWithinMaxBytes(audio.data.size, maxBytes, "audio data")

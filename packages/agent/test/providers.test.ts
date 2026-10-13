@@ -7399,6 +7399,55 @@ describe("server helpers", () => {
     expect(largePrompt).toHaveLength(attachmentPrefix.length + attachmentBody.length)
   })
 
+  it("rejects oversized fetched Blob attachments before materializing them", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const blob = new Blob([new Uint8Array(8 * 1024 * 1024 + 1)], { type: "text/plain" })
+    const arrayBuffer = vi.spyOn(blob, "arrayBuffer")
+    const adapter = createTestChatAdapter({
+      // SAFETY: Exercise a Blob returned by an untyped adapter at the attachment boundary.
+      attachmentFetchData: async () => blob as unknown as Buffer,
+    })
+    const run = vi.fn(() => "ok")
+    const agent = defineAgent({
+      channels: {
+        // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+        telegram: testTelegram(telegram, { adapter: () => adapter as never }),
+      },
+      driver: { run },
+    })
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    await expect(
+      handler(
+        new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+          body: JSON.stringify({
+            update_id: 46,
+            message: {
+              chat: { id: 456, type: "private" },
+              date: 1781092800,
+              document: {
+                content: "oversized",
+                file_id: "oversized-file",
+                file_name: "oversized.txt",
+                file_size: 1,
+                mime_type: "text/plain",
+              },
+              from: { first_name: "Maxi", id: 123, username: "maxi" },
+              message_id: 1014,
+            },
+          }),
+          method: "POST",
+        }),
+        "telegram",
+      ),
+    ).rejects.toThrow("[vitehub] Chat text attachment exceeds 8388608 bytes.")
+    expect(arrayBuffer).not.toHaveBeenCalled()
+    expect(run).not.toHaveBeenCalled()
+  })
+
   it("maps audio mime file attachments for custom audio capabilities", async () => {
     const { defineAgent, defineCapability } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
@@ -15377,7 +15426,12 @@ describe("server helpers", () => {
     const workflowAccepted = new Promise<void>((resolve) => {
       acceptWorkflow = resolve
     })
+    let startWorkflow!: () => void
+    const workflowStarted = new Promise<void>((resolve) => {
+      startWorkflow = resolve
+    })
     const createBatch = vi.fn(async ([{ id }]: Array<{ id: string }>) => {
+      startWorkflow()
       await workflowAccepted
       return [{ id, status: async () => ({ status: "queued" }) }]
     })
@@ -15402,7 +15456,8 @@ describe("server helpers", () => {
         agentIdentity: { name: "calories" },
         cloudflare: { env: { [getCloudflareWorkflowBindingName("calories")]: { createBatch, get: vi.fn() } } },
       })
-      await vi.waitFor(() => expect(createBatch).toHaveBeenCalledOnce())
+      // Wait for actual startup without advancing the ownership heartbeat during SQLite I/O.
+      await workflowStarted
       await vi.advanceTimersByTimeAsync(150_000)
       acceptWorkflow()
       await expect(response).resolves.toMatchObject({ status: 200 })
@@ -20517,6 +20572,65 @@ describe("server helpers", () => {
     expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", { markdown: "Final answer" })
     expect(adapter.postMessage).toHaveBeenNthCalledWith(3, "telegram:456", { markdown: "Dashboard link" })
     expect(adapter.deleteMessage.mock.invocationCallOrder[0]).toBeLessThan(adapter.postMessage.mock.invocationCallOrder[1]!)
+  })
+
+  it("edits the loading message when final delivery targets the placeholder", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+          adapter: () => adapter as never,
+          messages: {
+            final: { delivery: "placeholder" },
+            loading: { text: "Loading…" },
+          },
+        }),
+      },
+      driver: { run: () => "Final answer" },
+    })
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(chatWebhookRequest(91_990), "telegram")
+
+    expect(response.status).toBe(200)
+    expect(adapter.postMessage).toHaveBeenCalledOnce()
+    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "Final answer" })
+    expect(adapter.deleteMessage).not.toHaveBeenCalled()
+  })
+
+  it("deletes the loading message before posting when placeholder editing fails", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    adapter.editMessage.mockRejectedValueOnce(new Error("placeholder edit failed"))
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+          adapter: () => adapter as never,
+          messages: {
+            final: { delivery: "placeholder" },
+            loading: { text: "Loading…" },
+          },
+        }),
+      },
+      driver: { run: () => "Final answer" },
+    })
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(chatWebhookRequest(91_991), "telegram")
+
+    expect(response.status).toBe(200)
+    expect(adapter.postMessage).toHaveBeenCalledTimes(2)
+    expect(adapter.deleteMessage).toHaveBeenCalledWith("telegram:456", "sent-1")
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", { markdown: "Final answer" })
   })
 
   it("preserves artifacts on a finish hook reply with the final text", async () => {

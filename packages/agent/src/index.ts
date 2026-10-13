@@ -1006,6 +1006,44 @@ async function portableAgentWorkflowRunId(runId: string): Promise<string> {
   return `${generatedPrefix}${Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("")}`
 }
 
+function isPortableWorkflowArrayBuffer(value: unknown): value is ArrayBuffer {
+  try {
+    const getter = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")?.get
+    if (!getter) return false
+    getter.call(value)
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
+function isPortableWorkflowUint8Array(value: unknown): value is Uint8Array {
+  if (!ArrayBuffer.isView(value)) return false
+  try {
+    const getter = Object.getOwnPropertyDescriptor(
+      Object.getPrototypeOf(Uint8Array.prototype),
+      Symbol.toStringTag,
+    )?.get
+    return getter?.call(value) === "Uint8Array"
+  }
+  catch {
+    return false
+  }
+}
+
+function isPortableWorkflowBlob(value: unknown): value is Blob {
+  try {
+    const getter = Object.getOwnPropertyDescriptor(Blob.prototype, "size")?.get
+    if (!getter) return false
+    getter.call(value)
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
 async function portableWorkflowMessages(messages: Message[]): Promise<Message[]> {
   const materialized = await materializeMessageAttachmentData(messages)
   return await Promise.all(materialized.map(async message => ({
@@ -5091,9 +5129,44 @@ function withEagerStreamUsageExtensions<
   const providers = context.finishExtensionProviders.filter(provider => provider.eager)
   if (!providers.length) return stream
   return (async function* () {
+    let extensionApplied = false
+    async function* finalizeUsage(): AsyncIterable<unknown> {
+      if (extensionApplied) return
+      const usageRecord = await resolveAgentUsageRecord(result, context.run)
+      if (!usageRecord) return
+      const usage = { ...usageRecord }
+      const eventBase = {
+        actor: context.actor,
+        input: context.input,
+        invoker: context.invoker,
+        invocation: {
+          durationMs: Date.now() - context.startedAt,
+          ...(context.run ? { run: context.run } : {}),
+          usage,
+        },
+        result,
+        runtime: context.runtimeContext,
+        toolResults: [...context.toolResults],
+      } satisfies Omit<AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>, "extensions">
+      // SAFETY: The event and eager providers share this invocation's normalized Agent runtime and call-option contracts.
+      await createAgentInvocationExtensions(eventBase as never, providers)
+      extensionApplied = true
+      assignResolvedUsageRecord(result, usage)
+      // Keep deferred usage observable to stream consumers even when the provider
+      // never emitted a usage chunk during iteration.
+      yield { type: "usage", usageRecord: usage }
+    }
     for await (const chunk of stream) {
       const usageRecord = usageRecordFromStreamChunk(chunk, result)
       if (!usageRecord) {
+        if (isRuntimeRecord(chunk) && chunk.type === "finish") {
+          // A terminal event must not be held until an async source closes. If
+          // no usage chunk was emitted, resolve the fallback now so consumers
+          // still observe usage before finish.
+          yield* finalizeUsage()
+          yield chunk
+          continue
+        }
         yield chunk
         continue
       }
@@ -5113,6 +5186,7 @@ function withEagerStreamUsageExtensions<
       } satisfies Omit<AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>, "extensions">
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       await createAgentInvocationExtensions(eventBase as never, providers)
+      extensionApplied = true
       if (chunk && hasRuntimeType(chunk, "object")) {
         const prototype = Object.getPrototypeOf(chunk)
         if (prototype !== Object.prototype && prototype !== null) {
@@ -5140,7 +5214,8 @@ function withEagerStreamUsageExtensions<
       }
       yield { type: "usage", usageRecord: usage }
     }
-  })()
+    yield* finalizeUsage()
+    })()
 }
 
 function withEagerUiMessageStreamUsageExtensions<
