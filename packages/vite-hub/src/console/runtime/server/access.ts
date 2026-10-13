@@ -57,12 +57,10 @@ function authorizationResponse(value: unknown): Response | undefined {
     // SAFETY: Headers validates the foreign iterable and all its entries at this boundary.
     const headers = new Headers(value.headers as Headers)
     const init = { headers, status: value.status, statusText: value.statusText }
-    // Calling the response's own clone method verifies its Fetch internal slots
-    // in the response's realm; a toStringTag alone is user-definable.
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The callable clone method is the cross-realm Response brand probe.
-    if (!("clone" in value) || typeof value.clone !== "function") return undefined
-    const clone = value.clone()
-    if (!clone || clone === value || objectToString.call(clone) !== "[object Response]") return undefined
+    // Calling the native clone algorithm verifies Response internal slots;
+    // a candidate-owned clone method and toStringTag are both spoofable.
+    const clone = Response.prototype.clone.call(value)
+    if (!clone || clone === value) return undefined
     // Validate init before taking ownership of a foreign stream.
     const empty = new Response(null, init)
     if (value.body === null) return empty
