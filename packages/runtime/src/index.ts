@@ -1407,8 +1407,23 @@ function isCapabilityHandle(value: unknown): value is CapabilityHandle {
     const descriptors = Object.getOwnPropertyDescriptors(value)
     const kind = descriptors.kind
     const implementation = descriptors.value
-    return !!kind && Object.hasOwn(kind, "value") && hasRuntimeType(kind.value, "string")
-      && !!implementation && Object.hasOwn(implementation, "value")
+    if (!kind || !Object.hasOwn(kind, "value") || !hasRuntimeType(kind.value, "string")
+      || !implementation || !Object.hasOwn(implementation, "value")) {
+      return false
+    }
+
+    // A proxy can fabricate own descriptors for fields that are actually
+    // inherited by its target. Reject that shape while keeping structural
+    // handles supplied by other runtime copies compatible.
+    let prototype = Object.getPrototypeOf(value)
+    while (prototype !== null) {
+      if (Object.getOwnPropertyDescriptor(prototype, "kind")
+        || Object.getOwnPropertyDescriptor(prototype, "value")) {
+        return false
+      }
+      prototype = Object.getPrototypeOf(prototype)
+    }
+    return true
   }
   catch {
     return false
