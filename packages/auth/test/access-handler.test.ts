@@ -104,11 +104,11 @@ describe("Auth access handlers", () => {
     await expect(handler(new Request("https://app.example/"))).resolves.toBe(response)
   })
 
-  it("returns authorization responses from another realm unchanged", async () => {
+  it("returns authorization responses from another realm without getSetCookie unchanged", async () => {
     const foreignResponse = runInNewContext(`new (class {
       get status() { return 409 }
       get statusText() { return "Conflict" }
-      get headers() { return { get() { return null }, getSetCookie() { return [] }, forEach() {} } }
+      get headers() { return { get() { return null }, forEach() {} } }
       get body() { return null }
       get [Symbol.toStringTag]() { return "Response" }
     })()`)

@@ -195,7 +195,7 @@ export function normalizeWorkflowOptions(options: WorkflowModuleOptions | undefi
   if (typeof options !== "undefined" && !isPlainObject(options)) {
     throw workflowErrorDiagnostics.WORKFLOW_C0013({ message: "`workflow` must be a plain object." })
   }
-  if (options && "database" in options && options.database !== undefined) {
+  if (options && Object.hasOwn(options, "database") && options.database !== undefined) {
     throw workflowErrorDiagnostics.WORKFLOW_C0017({ message: "`workflow.database` is not supported. Set `workflow.sqlite.path` or `workflow.postgres.url` explicitly." })
   }
   return resolveProvider(options || {}, normalizeHosting(input.hosting))

@@ -293,8 +293,8 @@ function isResponseLike(value: unknown): value is Response {
     if (typeof response.statusText !== "string") return false
     const headers = response.headers
     if (headers === null || typeof headers !== "object") return false
-    const headerMethods = headers as { get?: unknown, getSetCookie?: unknown, forEach?: unknown }
-    if (typeof headerMethods.get !== "function" || typeof headerMethods.getSetCookie !== "function" || typeof headerMethods.forEach !== "function") return false
+    const headerMethods = headers as { get?: unknown, forEach?: unknown }
+    if (typeof headerMethods.get !== "function" || typeof headerMethods.forEach !== "function") return false
     const body = (response as { body?: unknown }).body
     return body === null || (typeof body === "object" && typeof (body as { getReader?: unknown }).getReader === "function")
   }
