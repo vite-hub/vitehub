@@ -331,25 +331,27 @@ function responseSizeError(maxResponseBytes: number): Error {
 }
 
 export function normalizeHttpRequest(definition: HttpRequestDefinition): NormalizedHttpRequest {
-  const method = (definition.method || "GET").toUpperCase()
+  const method = ((Object.hasOwn(definition, "method") ? definition.method : undefined) || "GET").toUpperCase()
   if (method !== "GET" && method !== "HEAD" && method !== "POST") {
     throw internalErrorDiagnostics.INTERNAL_R0005({ message: `[vitehub] HTTP request method "${method}" is not supported. Use GET, HEAD, or POST.` })
   }
-  if (definition.timeout !== undefined
-    && (!Number.isFinite(definition.timeout) || definition.timeout <= 0 || definition.timeout > 2_147_483_647)) {
+  const timeout = Object.hasOwn(definition, "timeout") ? definition.timeout : undefined
+  if (timeout !== undefined
+    && (!Number.isFinite(timeout) || timeout <= 0 || timeout > 2_147_483_647)) {
     throw internalErrorDiagnostics.INTERNAL_R0006({ message: "[vitehub] HTTP request timeout must be a positive finite number no greater than 2147483647." })
   }
-  if (definition.maxResponseBytes !== undefined
-    && (!Number.isSafeInteger(definition.maxResponseBytes)
-      || definition.maxResponseBytes <= 0
-      || definition.maxResponseBytes > maximumHttpMaxResponseBytes)) {
+  const maxResponseBytes = Object.hasOwn(definition, "maxResponseBytes") ? definition.maxResponseBytes : undefined
+  if (maxResponseBytes !== undefined
+    && (!Number.isSafeInteger(maxResponseBytes)
+      || maxResponseBytes <= 0
+      || maxResponseBytes > maximumHttpMaxResponseBytes)) {
     throw internalErrorDiagnostics.INTERNAL_R0007({ message: `[vitehub] HTTP request maxResponseBytes must be a positive safe integer no greater than ${maximumHttpMaxResponseBytes}.` })
   }
   return {
     ...definition,
-    maxResponseBytes: definition.maxResponseBytes ?? defaultHttpMaxResponseBytes,
+    maxResponseBytes: maxResponseBytes ?? defaultHttpMaxResponseBytes,
     method,
-    timeout: definition.timeout ?? defaultHttpRequestTimeout,
+    timeout: timeout ?? defaultHttpRequestTimeout,
     url: definition.url instanceof URL ? definition.url : new URL(definition.url),
   }
 }

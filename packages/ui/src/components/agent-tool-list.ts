@@ -5,7 +5,7 @@ import type { AgentToolInspection } from "../types.ts";
 
 function schemaBlock(label: string, schema: AgentToolInspection["inputSchema"]) {
   if (schema === undefined) return h("p", { class: "vh-agent-tool-list__unavailable" }, `${label} not recorded.`);
-  const text = typeof schema === "string" ? JSON.stringify(schema) : payloadText(schema);
+  const text = hasRuntimeType(schema, "string") ? JSON.stringify(schema) : payloadText(schema);
   // Inspect the serialized value so getters and custom conversions cannot escape the display guard.
   let normalized: unknown;
   try { normalized = JSON.parse(text); } catch { normalized = undefined; }
