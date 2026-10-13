@@ -328,21 +328,43 @@ function hasResponsePrototype(value: unknown): boolean {
   return false
 }
 
+type AuthorizationStreamOperations = {
+  getReader: (this: unknown) => ReadableStreamDefaultReader<Uint8Array>
+  isLocked: (this: unknown) => boolean
+}
+
+function getAuthorizationStreamOperations(body: unknown): AuthorizationStreamOperations | undefined {
+  if (body === null) return
+  if (Object(body) !== body) return
+  const ownReader = Object.getOwnPropertyDescriptor(body, "getReader")
+  if (ownReader) return
+  const locked = responsePropertyDescriptor(body, "locked")?.get
+  const getReader = responsePropertyDescriptor(body, "getReader")?.value
+  if (typeof locked !== "function" || typeof getReader !== "function") return
+  if (Reflect.apply(locked, body, [])) return
+  return {
+    getReader: getReader as AuthorizationStreamOperations["getReader"],
+    isLocked: locked as AuthorizationStreamOperations["isLocked"],
+  }
+}
+
 function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<Uint8Array> | null {
   if (body === null) return true
-  if (Object(body) !== body) return false
-  const locked = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
-  if (!locked || Reflect.apply(locked, body, [])) return false
-  const ownReader = Object.getOwnPropertyDescriptor(body, "getReader")
-  return !ownReader || ownReader.value === ReadableStream.prototype.getReader
+  const operations = getAuthorizationStreamOperations(body)
+  if (!operations) return false
+  return true
 }
 
 function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
-  // Use native operations on native stream state, never caller-supplied reader methods.
-  const getReader: () => ReadableStreamDefaultReader<Uint8Array> = ReadableStream.prototype.getReader
-  const reader = Reflect.apply(getReader, body, [])
-  const read: ReadableStreamDefaultReader<Uint8Array>["read"] = ReadableStreamDefaultReader.prototype.read
-  const { cancel, releaseLock } = ReadableStreamDefaultReader.prototype
+  const getReader = responsePropertyDescriptor(body, "getReader")?.value
+  if (typeof getReader !== "function") throw new TypeError("Invalid authorization response body")
+  const reader = Reflect.apply(getReader, body, []) as ReadableStreamDefaultReader<Uint8Array>
+  const read = responsePropertyDescriptor(reader, "read")?.value
+  const cancel = responsePropertyDescriptor(reader, "cancel")?.value
+  const releaseLock = responsePropertyDescriptor(reader, "releaseLock")?.value
+  if (typeof read !== "function" || typeof cancel !== "function" || typeof releaseLock !== "function") {
+    throw new TypeError("Invalid authorization response reader")
+  }
   let released = false
   const release = () => {
     if (released) return
@@ -352,7 +374,7 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
   const stream = new ReadableStream<Uint8Array>({
     async pull(controller) {
       try {
-        const result = await Reflect.apply(read, reader, [])
+        const result = await Reflect.apply(read, reader, []) as { done: boolean, value?: Uint8Array }
         if (result.done) {
           release()
           controller.close()
