@@ -1,3 +1,5 @@
+import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
+
 import { browserProviderError } from "../errors.ts"
 import { cloudflareBrowserTerminated } from "./connections.ts"
 
@@ -78,7 +80,7 @@ export function createCloudflareBrowser(
         acquired = openOptions.idleTimeoutMs
           ? await driver.acquire(binding, { keep_alive: openOptions.idleTimeoutMs })
           : await driver.acquire(binding)
-        if (!acquired || typeof acquired.sessionId !== "string" || !isCloudflareSessionId(acquired.sessionId)) {
+        if (!acquired || !isCloudflareSessionId(acquired.sessionId)) {
           throw new TypeError("Cloudflare Browser Run returned an invalid session id.")
         }
       }
@@ -116,12 +118,13 @@ export function createCloudflareBrowser(
   }
 }
 
-function isCloudflareSessionId(value: string): boolean {
-  return value.length > 0
+function isCloudflareSessionId(value: unknown): value is string {
+  return hasRuntimeType(value, "string")
+    && value.length > 0
     && isWellFormedUnicode(value)
     && value !== "."
     && value !== ".."
-    && !/[\\/?#%\s]/u.test(value)
+    && !/[\\/?#%\s\p{Cc}]/u.test(value)
 }
 
 function isWellFormedUnicode(value: string): boolean {
