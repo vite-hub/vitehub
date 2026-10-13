@@ -1138,6 +1138,8 @@ describe("realtime transport boundaries", () => {
     const chunks = [
       { [Symbol.toStringTag]: "ArrayBuffer" },
       new Uint16Array([1, 2]),
+      new Uint16Array(0),
+      new Float32Array(0),
     ]
     for (const value of chunks) {
       const body = new ReadableStream<unknown>({
