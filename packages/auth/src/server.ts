@@ -356,7 +356,7 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
   const streamPrototype = streamIntrinsic(body, "locked")!.owner
   const getReader = streamIntrinsic(streamPrototype, "getReader")!.value as (this: ReadableStream<Uint8Array>) => ReadableStreamDefaultReader<Uint8Array>
   const reader = Reflect.apply(getReader, body, [])
-  const read = streamIntrinsic(reader, "read")!.value as (this: ReadableStreamDefaultReader<Uint8Array>) => Promise<{ done: boolean, value?: Uint8Array }>
+  const read = streamIntrinsic(reader, "read")!.value as (this: ReadableStreamDefaultReader<Uint8Array>) => Promise<{ done: true, value?: undefined } | { done: false, value: Uint8Array }>
   const cancel = streamIntrinsic(reader, "cancel")!.value as (this: ReadableStreamDefaultReader<Uint8Array>, reason?: unknown) => Promise<void>
   const releaseLock = streamIntrinsic(reader, "releaseLock")!.value as (this: ReadableStreamDefaultReader<Uint8Array>) => void
   let released = false
