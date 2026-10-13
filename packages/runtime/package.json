@@ -48,6 +48,7 @@
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
+    "happy-dom": "20.14.5",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite-plus": "catalog:tooling",

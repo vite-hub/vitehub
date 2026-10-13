@@ -25,7 +25,18 @@ function isBlobLike(value: unknown): value is Blob {
     return true
   }
   catch {
-    return false
+    try {
+      const blob = value as Record<string | symbol, unknown>
+      return typeof blob.size === "number"
+        && typeof blob.type === "string"
+        && typeof blob.arrayBuffer === "function"
+        && typeof blob.stream === "function"
+        && typeof blob.slice === "function"
+        && typeof blob.text === "function"
+    }
+    catch {
+      return false
+    }
   }
 }
 
@@ -33,9 +44,12 @@ function isBlobLike(value: unknown): value is Blob {
 export function toResponse(value: unknown): Response {
   if (value instanceof Response) return value
   if (value === undefined) return new Response(null, { status: 204 })
-  if (hasRuntimeType(value, "string") || value instanceof Blob || isBlobLike(value) || value instanceof ArrayBuffer || ArrayBuffer.isView(value)) {
+  if (hasRuntimeType(value, "string") || value instanceof Blob || value instanceof ArrayBuffer || ArrayBuffer.isView(value)) {
     // SAFETY: The guards admit only strings, Blob, ArrayBuffer, and views accepted by Response.
     return new Response(value as ConstructorParameters<typeof Response>[0])
+  }
+  if (isBlobLike(value)) {
+    return new Response(value.stream() as ReadableStream, { headers: { "content-type": value.type } })
   }
   return new Response(JSON.stringify(value), {
     headers: { "content-type": "application/json; charset=utf-8" },
