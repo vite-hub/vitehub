@@ -145,7 +145,8 @@ describe("Auth access handlers", () => {
     const forgedResponse = runInNewContext(`new (class {
       get status() { return 409 }
       get statusText() { return "Conflict" }
-      get headers() { return { get() { return null }, forEach() {} } }
+      get headers() { return { get() { return null }, forEach() {}, getSetCookie() { return {} } } }
+      get body() { return { getReader() { return { read() { return Promise.resolve({ done: true }) }, releaseLock() {} } } } }
       get [Symbol.toStringTag]() { return "Response" }
     })()`)
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({

@@ -295,6 +295,7 @@ function isResponseLike(value: unknown): value is Response {
     const headers = readResponseProperty(value, "headers") as {
       get?: unknown
       forEach?: unknown
+      getSetCookie?: unknown
     } | undefined
     const bodyAccessor = findResponseAccessor(value, "body")
     if (!bodyAccessor) return false
@@ -304,8 +305,29 @@ function isResponseLike(value: unknown): value is Response {
     if (typeof status !== "number" || !Number.isInteger(status) || status < 0 || status > 599) return false
     if (typeof statusText !== "string") return false
     if (headers === null || typeof headers !== "object") return false
-    if (typeof headers.get !== "function" || typeof headers.forEach !== "function") return false
-    return body === null || (typeof body === "object" && typeof body.getReader === "function")
+    if (typeof headers.get !== "function" || typeof headers.forEach !== "function" || typeof headers.getSetCookie !== "function") return false
+    const headerValue = headers.get("x-vite-hub-response-check")
+    if (headerValue !== null && typeof headerValue !== "string") return false
+    headers.forEach((headerValue: unknown, headerName: unknown) => {
+      if (typeof headerValue !== "string" || typeof headerName !== "string") throw new TypeError("Invalid Response headers")
+    })
+    const setCookieHeaders = headers.getSetCookie()
+    if (!Array.isArray(setCookieHeaders) || setCookieHeaders.some((header: unknown) => typeof header !== "string")) return false
+    if (body === null) return true
+    if (typeof body !== "object" || typeof body.getReader !== "function") return false
+    const cloneMethod = (value as { clone?: unknown }).clone
+    if (typeof cloneMethod !== "function") return false
+    const clone = cloneMethod.call(value) as { body?: unknown } | null
+    if (clone === null || typeof clone !== "object") return false
+    const clonedBody = readResponseProperty(clone, "body") as { getReader?: unknown } | null | undefined
+    if (clonedBody === null) return true
+    if (typeof clonedBody !== "object" || typeof clonedBody.getReader !== "function") return false
+    const reader = clonedBody.getReader()
+    if (reader === null || typeof reader !== "object" || typeof (reader as { read?: unknown }).read !== "function" || typeof (reader as { releaseLock?: unknown }).releaseLock !== "function") return false
+    const readResult = (reader as { read: () => unknown }).read()
+    if (readResult === null || (typeof readResult !== "object" && typeof readResult !== "function") || typeof (readResult as { then?: unknown }).then !== "function") return false
+    ;(reader as { releaseLock: () => unknown }).releaseLock()
+    return true
   }
   catch {
     return false
