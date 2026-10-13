@@ -4159,7 +4159,8 @@ function createChatSdkConfig(adapterName: string, adapter: Adapter, state: State
   }) as ChatConfig
 }
 
-function chatFinalDelivery(options: AgentChatOptions | undefined): "new-message" | undefined {
+function chatFinalDelivery(options: AgentChatOptions | undefined): "new-message" | "placeholder" | undefined {
+  if (options?.final?.delivery === "placeholder" || options?.finalDelivery === "placeholder") return "placeholder"
   if (options?.final?.delivery === "new-message" || options?.finalDelivery === "new-message") return "new-message"
 }
 
@@ -5024,7 +5025,7 @@ async function flushChatFinishExtensionMessages(
   chat: AgentChatQueuedFinishExtension,
   manualDelivery: ManualChatDeliveryState,
   waitUntil: AgentWaitUntil,
-  finalDelivery?: "new-message",
+  finalDelivery?: "new-message" | "placeholder",
   abortSignal?: AbortSignal,
 ): Promise<void> {
   const messages = chat[chatFinishMessagesKey].splice(0)
@@ -5054,6 +5055,18 @@ async function flushChatFinishExtensionMessages(
           abortSignal?.throwIfAborted()
         }
         const placeholder = manualDelivery.placeholder
+        if (finalDelivery === "placeholder") {
+          const deliveredToPlaceholder = await deliverToManualDeliveryPlaceholder(placeholder, message)
+          if (deliveredToPlaceholder) {
+            if (manualDelivery.placeholder === placeholder) manualDelivery.placeholder = undefined
+            await settleChatFinishDeliveryCallbacks(callbacks, capture)
+            continue
+          }
+          if (manualDelivery.placeholder === placeholder) manualDelivery.placeholder = undefined
+          await postChatMessage(thread, message, abortSignal)
+          await settleChatFinishDeliveryCallbacks(callbacks, capture)
+          continue
+        }
         if (finalDelivery === "new-message") {
           let posted = false
           try {

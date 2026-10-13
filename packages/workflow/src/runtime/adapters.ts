@@ -78,7 +78,9 @@ function resolveCloudflareBinding(event: unknown, binding: string | undefined, n
     ? getCloudflareWorkflowBindingName(name)
     : binding || getCloudflareWorkflowBindingName(name)
   // SAFETY: Workflow provider normalization establishes the asserted run contract.
-  return env?.[bindingName] as CloudflareWorkflowBinding | undefined
+  return env && Object.hasOwn(env, bindingName)
+    ? env[bindingName] as CloudflareWorkflowBinding
+    : undefined
 }
 
 function resolveCloudflareInspectionBinding(event: unknown, binding: string | undefined, name: string) {
