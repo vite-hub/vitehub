@@ -142,24 +142,20 @@ function inspectExecutionAuthority(value: unknown): InspectedExecutionAuthority 
   }
 }
 
+const canonicalExecutionAuthorities = new WeakSet<object>([noExecutionAuthority, unknownExecutionAuthority])
+
 export function normalizeExecutionAuthority(value: unknown): ExecutionAuthority {
+  if (isRuntimeObject(value) && canonicalExecutionAuthorities.has(value)) {
+    // SAFETY: Only module-owned frozen authority snapshots enter this registry.
+    return value as ExecutionAuthority
+  }
   const inspected = inspectExecutionAuthority(value)
   if (!inspected) {
     throw runtimeErrorDiagnostics.RUNTIME_R0007({ message: "[vitehub] Invalid execution authority descriptor." })
   }
-  return Object.freeze({ ...inspected.authority, filesystem: Object.freeze({ ...inspected.authority.filesystem }) })
-}
-
-function hasCanonicalFrozenProperties(value: unknown, keys: readonly string[]): boolean {
-  if (!isRuntimeObject(value)) return false
-  const prototype = Object.getPrototypeOf(value)
-  if (!Object.isFrozen(value) || (prototype !== Object.prototype && prototype !== null)) return false
-  const ownKeys = Reflect.ownKeys(value)
-  if (ownKeys.length !== keys.length || ownKeys.some(key => !hasRuntimeType(key, "string") || !keys.includes(key))) return false
-  return keys.every((key) => {
-    const descriptor = Object.getOwnPropertyDescriptor(value, key)
-    return descriptor !== undefined && "value" in descriptor && descriptor.enumerable
-  })
+  const authority = Object.freeze({ ...inspected.authority, filesystem: Object.freeze({ ...inspected.authority.filesystem }) })
+  canonicalExecutionAuthorities.add(authority)
+  return authority
 }
 
 export type RuntimeWaitUntil = (task: Promise<unknown>) => void

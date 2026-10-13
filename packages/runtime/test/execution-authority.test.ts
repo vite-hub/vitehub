@@ -67,6 +67,42 @@ describe("execution authority", () => {
     expect(normalizeExecutionAuthority(authority)).toBe(authority)
   })
 
+  it("keeps module-owned canonical snapshots stable", () => {
+    expect(normalizeExecutionAuthority(noExecutionAuthority)).toBe(noExecutionAuthority)
+    expect(normalizeExecutionAuthority(unknownExecutionAuthority)).toBe(unknownExecutionAuthority)
+  })
+
+  it("snapshots frozen accessor descriptors only once", () => {
+    let reads = 0
+    const declaration = Object.freeze({
+      ...unknownExecutionAuthority,
+      get network() {
+        reads++
+        return reads === 1 ? "none" : "invalid"
+      },
+    })
+    const authority = normalizeExecutionAuthority(declaration)
+
+    expect(authority.network).toBe("none")
+    expect(reads).toBe(1)
+    expect(normalizeExecutionAuthority(authority)).toBe(authority)
+    expect(reads).toBe(1)
+    // Check identity after read counts because assertion formatting inspects accessors.
+    expect(authority).not.toBe(declaration)
+  })
+
+  it("copies frozen proxy descriptors before they can be revoked", () => {
+    const { proxy, revoke } = Proxy.revocable(unknownExecutionAuthority, {})
+    const authority = normalizeExecutionAuthority(proxy)
+
+    expect(authority).not.toBe(proxy)
+    revoke()
+    expect(authority).toEqual(unknownExecutionAuthority)
+    expect(normalizeExecutionAuthority(authority)).toBe(authority)
+    expect(isExecutionAuthority(proxy)).toBe(false)
+    expect(() => normalizeExecutionAuthority(proxy)).toThrow("Invalid execution authority descriptor")
+  })
+
   it("removes provider-specific fields from normalized snapshots", () => {
     const authority = normalizeExecutionAuthority({
       ...unknownExecutionAuthority,
