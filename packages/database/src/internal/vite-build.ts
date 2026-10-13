@@ -222,7 +222,6 @@ function getCloudflareDatabasesMissingNames(runtimeConfig: ResolvedDBViteConfig,
     const cloudflare = runtimeConfig.databases[name]?.cloudflare
     return hasConfigValue(resolveDatabaseId(runtimeConfig, name, provisionState))
       && !hasConfigValue(resolveConfigValue(cloudflare?.databaseName))
-      && !cloudflare?.http
       && !isRemoteLibsqlConnectionUrl(database?.connection?.url)
   })
 }
