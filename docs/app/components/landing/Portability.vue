@@ -11,6 +11,7 @@ const activeLines = computed(() => activeExample.value.code.map(tokenize));
 function select(index: number, event: MouseEvent) {
   activeIndex.value = index;
   // Seven tabs scroll sideways on small screens. Keep the chosen one in view.
+  // SAFETY: the click handler is attached directly to each tab button.
   (event.currentTarget as HTMLElement).scrollIntoView({ inline: "nearest", block: "nearest" });
 }
 </script>
