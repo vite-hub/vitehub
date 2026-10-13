@@ -1237,10 +1237,11 @@ export class PullRequestInbox {
   async summary(): Promise<GitHubInboxSummary[]> {
     if (!this.repositories.length) return []
     const repositories = this.repositoryFilter()
+    // `+parent.number` keeps SQLite on the refs index; ordering by the primary key scanned every PR value.
     const rows = await this.read(`SELECT p.summary, (SELECT parent.number FROM ${this.tables.pullRequests} parent
       WHERE parent.scope=p.scope AND parent.repository=p.repository AND parent.number<>p.number
         AND parent.state='open' AND parent.head_ref=p.base_ref
-        AND json_extract(parent.value, '$.pr.head.repo.full_name') = COALESCE(json_extract(p.value, '$.pr.base.repo.full_name'), p.repository) COLLATE NOCASE ORDER BY parent.number LIMIT 1) AS stack_parent
+        AND json_extract(parent.value, '$.pr.head.repo.full_name') = COALESCE(json_extract(p.value, '$.pr.base.repo.full_name'), p.repository) COLLATE NOCASE ORDER BY +parent.number LIMIT 1) AS stack_parent
       FROM ${this.tables.pullRequests} p WHERE p.scope=? AND p.${repositories.sql} ORDER BY p.repository, p.number`, [this.scope, ...repositories.args])
     return rows.map(row => {
       const summary = parseSummary(JSON.parse(stringValue(row.summary)))
