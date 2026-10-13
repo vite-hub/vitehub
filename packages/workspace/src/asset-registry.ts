@@ -22,7 +22,8 @@ export function resetWorkspaceAssetsRegistry(): void {
 }
 
 export function useWorkspaceAssets<Name extends WorkspaceName>(name: Name): WorkspaceAssets<WorkspaceAssetPath<Name>> {
-  const assets = workspaceAssetsRegistryGlobal()[workspaceAssetsRegistryKey]?.[name]
+  const registry = workspaceAssetsRegistryGlobal()[workspaceAssetsRegistryKey]
+  const assets = registry && Object.hasOwn(registry, name) ? registry[name] : undefined
   if (!assets) throw workspaceNotFoundError(name)
   return assets as WorkspaceAssets<WorkspaceAssetPath<Name>>
 }

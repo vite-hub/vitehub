@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
+import { runInNewContext } from "node:vm"
 
 import { runRuntimePreflight, startRuntimePreflight, type RuntimePreflightCheckResult } from "../src/index.ts"
 
@@ -200,6 +201,15 @@ describe("runtime preflight", () => {
       checks: [{ id: "command:throws", kind: "command", check: () => { throw error } }],
     })
     expect(manifest.checks[0]).toMatchObject({ state: "unknown", reason: "The preflight check failed." })
+  })
+
+  it("preserves messages from cross-realm errors", async () => {
+    const error = runInNewContext("new Error('provider unavailable')") as Error
+    const manifest = await runRuntimePreflight({
+      checks: [{ id: "command:cross-realm-error", kind: "command", check: () => { throw error } }],
+    })
+
+    expect(manifest.checks[0]).toMatchObject({ state: "unknown", reason: "provider unavailable" })
   })
 
   it("does not treat callable result records as available", async () => {

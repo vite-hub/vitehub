@@ -538,6 +538,15 @@ describe("@vite-hub/runtime", () => {
     expect(trace).toHaveBeenCalledWith({ name: "agent.run", type: "run" }, context)
   })
 
+  it("preserves timestamps from another JavaScript realm", async () => {
+    const log = createTraceEventLog()
+    const timestamp = runInNewContext('new Date("2020-01-02T03:04:05.000Z")')
+
+    await log.append({ name: "cross-realm-date", timestamp, type: "lifecycle" })
+
+    expect(log.entries()[0]?.timestamp).toBe("2020-01-02T03:04:05.000Z")
+  })
+
   it("records metadata-only trace events and derives run views", async () => {
     const log = createTraceEventLog()
     const context = createExecutionContext({

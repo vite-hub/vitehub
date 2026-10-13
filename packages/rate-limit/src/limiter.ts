@@ -63,7 +63,7 @@ function hasInvalidSupportedWindows(value: unknown): boolean {
   for (let index = 0; index < value.length; index++) {
     const window: unknown = value[index]
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Driver capabilities cross a provider boundary as unknown values.
-    if (typeof window !== "number" || !Number.isInteger(window) || window <= 0) return true
+    if (typeof window !== "number" || !Number.isInteger(window) || window <= 0 || window > 8.64e15) return true
   }
   return false
 }
