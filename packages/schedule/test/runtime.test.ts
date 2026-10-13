@@ -611,6 +611,16 @@ describe("Schedule Run bookkeeping", () => {
     expect(run.scheduledAt.toISOString()).toBe("2026-05-23T09:00:00.000Z")
   })
 
+  it("rejects invalid Date values from another JavaScript realm", async () => {
+    const scheduledAt = runInNewContext("new Date('invalid')") as Date
+    await expect(executeStaticSchedule({
+      cron: "0 9 * * *",
+      definition: { cron: "0 9 * * *", handler: async () => {} },
+      name: "cross-realm-invalid-date",
+      scheduledAt,
+    })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT" })
+  })
+
   it("accepts Date values with a custom toStringTag", async () => {
     const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
     Object.defineProperty(scheduledAt, Symbol.toStringTag, { value: "Object" })
