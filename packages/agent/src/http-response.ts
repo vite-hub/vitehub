@@ -37,6 +37,15 @@ function isResponseLike(value: unknown): value is Response {
   }
 }
 
+function isResponse(value: unknown): value is Response {
+  try {
+    return value instanceof Response || isResponseLike(value)
+  }
+  catch {
+    return false
+  }
+}
+
 const workflowProviders = new Set(["cloudflare", "openworkflow", "vercel"])
 const workflowRunStatuses = new Set(["completed", "failed", "queued", "running", "unknown"])
 
@@ -138,7 +147,7 @@ export function toJsonSafeAgentResult(value: unknown) {
 }
 
 export function toAgentHttpResult(value: unknown, stream: boolean): Response | unknown {
-  if (value instanceof Response || isResponseLike(value)) {
+  if (isResponse(value)) {
     return value
   }
   if (stream && isAgentStreamResult(value)) {
@@ -156,5 +165,5 @@ export function toAgentHttpResult(value: unknown, stream: boolean): Response | u
 
 export function toAgentFetchResponse(value: unknown, stream: boolean): Response {
   const result = toAgentHttpResult(value, stream)
-  return result instanceof Response || isResponseLike(result) ? result : Response.json(result)
+  return isResponse(result) ? result : Response.json(result)
 }

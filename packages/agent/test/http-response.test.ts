@@ -117,6 +117,23 @@ describe("agent HTTP response helpers", () => {
     })
   })
 
+  it("falls back when a result throws during Response brand inspection", () => {
+    const result = new Proxy({ text: "ok" }, {
+      getPrototypeOf() {
+        throw new Error("unreadable prototype")
+      },
+    })
+
+    expect(toAgentHttpResult(result, false)).toEqual({
+      finishReason: undefined,
+      raw: undefined,
+      text: "ok",
+      usage: undefined,
+      usageRecord: undefined,
+      warnings: undefined,
+    })
+  })
+
   it("does not treat a minimal Response-shaped result as a Response", () => {
     const result = {
       headers: { get: () => null },
