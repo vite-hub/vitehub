@@ -54,7 +54,12 @@ function readStaticValue(node: ts.Expression): unknown {
           : undefined
       if (!key)
         throw sandboxErrorDiagnostics.SANDBOX_C0003({ message: `[vitehub] ${sandboxDefinitionSyntax} options only support identifier or string-literal keys.` })
-      value[key] = readStaticValue(property.initializer)
+      Object.defineProperty(value, key, {
+        configurable: true,
+        enumerable: true,
+        value: readStaticValue(property.initializer),
+        writable: true,
+      })
     }
     return value
   }
@@ -191,7 +196,12 @@ export async function extractSandboxDefinitionMetadata(file: string): Promise<Ex
       project = value
     }
     else {
-      options[key] = value
+      Object.defineProperty(options, key, {
+        configurable: true,
+        enumerable: true,
+        value,
+        writable: true,
+      })
     }
   }
   if (!hasRun)

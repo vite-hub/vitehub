@@ -42,6 +42,21 @@ describe("env declarations", () => {
     expect(defined.values).toEqual({ "nested.token": "conventional", "api-key": { token: "conventional" } })
   })
 
+  it("ignores inherited values when resolving environment sources", async () => {
+    const inheritedEnv = Object.create({ INHERITED_TOKEN: "ambient-secret" }) as Record<string, string | undefined>
+    const result = await resolveEnvEntries({
+      token: env({ optional: true, source: env.source("INHERITED_TOKEN") }),
+    }, {
+      context: createSourceContext({ env: inheritedEnv, mode: "build", rootDir: process.cwd() }),
+      exposure: "build public",
+      section: "env.public",
+      timing: "test",
+    })
+
+    expect(result.entries).toEqual([{ key: "token", masked: false, source: "env:VITEHUB_PUBLIC_TOKEN|INHERITED_TOKEN", type: "undefined", value: undefined }])
+    expect(result.diagnostics).toMatchObject([{ key: "env.public.token", status: "missing" }])
+  })
+
   it("allows build collisions when canonical names are disabled", async () => {
     const input = {
       context: createSourceContext({ env: { PUBLIC_API_KEY: "public", DEFINE_API_KEY: "define" }, mode: "build", rootDir: process.cwd() }),
@@ -290,6 +305,15 @@ describe("env declarations", () => {
     expect(await github.git.sha()).toBe("github-sha")
     expect(await github.git.ref()).toBe("v1.2.3")
     expect(await github.git.tag()).toBe("v1.2.3")
+
+    const inheritedGithubRefType = Object.create({ GITHUB_REF_TYPE: "tag" }) as Record<string, string | undefined>
+    inheritedGithubRefType.GITHUB_REF_NAME = "inherited-tag"
+    const inheritedGithub = createSourceContext({
+      env: inheritedGithubRefType,
+      mode: "build",
+      rootDir: "/missing-git-root",
+    })
+    await expect(inheritedGithub.git.tag()).resolves.toBeUndefined()
   })
 
   it("rejects flat runtime declarations in Vite config", () => {
