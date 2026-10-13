@@ -1,3 +1,5 @@
+import { runInNewContext } from "node:vm";
+
 import { describe, expect, it, vi } from "vitest";
 
 import cloudflareEmail from "../src/drivers/cloudflare-email.ts";
@@ -89,6 +91,21 @@ describe("Resend Email driver", () => {
       "https://api.resend.com/emails",
       expect.objectContaining({ headers: expect.objectContaining({ authorization: "Bearer re_secret" }) }),
     );
+  });
+
+  it("accepts fetch functions from another realm", async () => {
+    const request = runInNewContext(
+      "async () => new Response(JSON.stringify({ id: 'email-1' }), { status: 200 })",
+      { Response },
+    ) as typeof fetch;
+
+    expect(request).not.toBeInstanceOf(Function);
+    const driver = resend({ apiKey: "re_secret", fetch: request });
+
+    await expect(driver.send(message, context)).resolves.toMatchObject({
+      data: { driver: "resend", id: "email-1" },
+      error: null,
+    });
   });
 
   it("rejects credentials that do not match Resend's API key shape", () => {
