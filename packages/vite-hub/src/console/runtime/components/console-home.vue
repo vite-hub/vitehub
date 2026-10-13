@@ -23,6 +23,7 @@ import { recentTimestamp } from "../client/time";
 import ConsoleFrame from "./console-frame.vue";
 import ConsoleMark from "./console-mark.vue";
 import ConsoleSearch from "./console-search.vue";
+import ConsoleSectionIcon from "./console-section-icon.vue";
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
 
 const props = defineProps<{
@@ -270,7 +271,7 @@ onBeforeUnmount(() => request++);
                   >
                     <span class="flex items-center justify-between gap-3">
                       <span class="vitehub-console__overview-icon size-9">
-                        <UIcon :name="lastSectionDetails.icon" class="size-[1.125rem]" />
+                        <ConsoleSectionIcon :section="lastSectionDetails.id" :icon="lastSectionDetails.icon" class="size-[1.125rem]" />
                       </span>
                       <span class="font-mono text-[11px] uppercase tracking-[0.08em] text-dimmed">Last visited</span>
                     </span>
@@ -285,7 +286,7 @@ onBeforeUnmount(() => request++);
                   <div v-if="agentsEnabled" class="flex flex-col overflow-hidden rounded-lg border border-default" :class="lastSectionDetails ? 'min-h-40' : ''">
                     <div class="flex items-center justify-between gap-3 border-b border-default px-4 py-2.5">
                       <span class="flex items-center gap-2 text-sm font-medium text-highlighted">
-                        <UIcon :name="consoleSectionDetails.agents.icon" class="size-4 text-muted" />
+                        <ConsoleSectionIcon section="agents" :icon="consoleSectionDetails.agents.icon" class="size-4 text-muted" />
                         Recent sessions
                       </span>
                       <UButton
@@ -358,7 +359,7 @@ onBeforeUnmount(() => request++);
                     />
                     <span class="pointer-events-none flex items-start justify-between gap-3">
                       <span class="vitehub-console__overview-icon size-8">
-                        <UIcon :name="section.icon" class="size-4" />
+                        <ConsoleSectionIcon :section="section.id" :icon="section.icon" class="size-4" />
                       </span>
                       <a
                         v-if="section.docs"
@@ -404,7 +405,7 @@ onBeforeUnmount(() => request++);
                   >
                     <span class="flex items-center gap-2.5">
                       <span class="vitehub-console__overview-icon size-7">
-                        <UIcon :name="entry.icon" class="size-3.5" />
+                        <ConsoleSectionIcon :section="entry.id" :icon="entry.icon" class="size-3.5" />
                       </span>
                       <span class="text-sm font-medium text-toned">{{ entry.label }}</span>
                       <span class="vitehub-console__overview-docs ms-auto inline-flex items-center gap-1">
