@@ -40,6 +40,11 @@ export function createWorkflowSteps(
   const names = new Map<string, string>()
   return Object.fromEntries(stepModules.map((module) => {
     const propertyName = toStepPropertyName(module.name)
+    if (!propertyName) {
+      throw workflowErrorDiagnostics.WORKFLOW_C0011({
+        message: `[vitehub] Workflow step file ${JSON.stringify(module.name)} normalizes to an empty step property. Rename the file so the step property is non-empty.`,
+      })
+    }
     const previousName = names.get(propertyName)
     if (previousName) {
       throw workflowErrorDiagnostics.WORKFLOW_C0010({
