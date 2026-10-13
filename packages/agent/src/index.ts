@@ -46,7 +46,7 @@ import { getAgentInvocationRecoveryWorkflowName } from "@vite-hub/internal/agent
 import { parseStandardSchema } from "@vite-hub/internal/http-request"
 import { agentResultKind, agentStreamErrorSymbol, agentToolStreamDefaults, appendLatestFinalText, finalTextFromAgentOutput, hasTraceableStreamResult, isAsyncIterable, resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent, usageRecordFromStreamChunk } from "./agent-output.ts"
 import { defineChatCapability, durableChatErrorFallbackTimeout, getAgentChatContext, getChatCapabilityOptions, isDurableChatErrorFallbackEffect, resolveChatMessageContextInstructions, resolveChatMessageRunMetadata, resolveDurableChatErrorFallbackIntents } from "./chat-trigger.ts"
-import { budget as budgetCapability } from "./capabilities/budget.ts"
+import { createAgentBudgetCapability } from "./capabilities/budget.ts"
 import { agentWorkflowExecutionContextKey } from "./internal/workflow-execution.ts"
 import { consumeParsedAgentWorkflowInput } from "./internal/workflow-parsed-input.ts"
 import { parsedAgentMessageMetaState, parseAgentMessageMeta, withParsedAgentMessageMeta } from "./internal/message-meta.ts"
@@ -2222,12 +2222,9 @@ function defineBaseAgent<
     throw agentDiagnostics.AGENT_R0426({ message: "[vitehub] defineAgent({ channels }) cannot be combined with the chat() capability. Move chat options to defineAgent({ messages, channels })." })
   }
   const chat = chatCapability || channelChat
-  const configuredBudget = options.budget && (options.budget.tokens !== undefined || options.budget.usd !== undefined || options.budget.capacity !== undefined)
-    ? budgetCapability(options.budget, { allowCapacity: true })
-    : undefined
+  const configuredBudget = options.budget ? createAgentBudgetCapability(options.budget) : undefined
   const normalizedCapabilities = channelChat
-    // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-    ? [...baseCapabilities, defineChatCapability(channelChat) as AgentCapabilityDefinition<TRuntimeConfig>, ...(configuredBudget ? [configuredBudget] : [])]
+    ? [...baseCapabilities, defineChatCapability(channelChat), ...(configuredBudget ? [configuredBudget] : [])]
     : [...baseCapabilities, ...(configuredBudget ? [configuredBudget] : [])]
   if (!workspace) validateAgentCapabilityComposition(normalizedCapabilities, {
     driverKind: driver.kind,

@@ -113,9 +113,18 @@ function outputTokenLimit(tokens: AgentBudgetTokenLimits): number | undefined {
   return tokens.output === undefined ? undefined : Math.max(0, Math.floor(tokens.output))
 }
 
-export function budget(options: AgentBudgetOptions, internal?: { allowCapacity?: boolean }): AgentCapabilityDefinition {
+export function budget(options: AgentBudgetOptions): AgentCapabilityDefinition {
+  return createBudgetCapability(options, false)
+}
+
+// Package-internal composition. Only defineAgent installs and normalizes capacity.
+export function createAgentBudgetCapability(options: AgentBudgetOptions): AgentCapabilityDefinition {
+  return createBudgetCapability(options, true)
+}
+
+function createBudgetCapability(options: AgentBudgetOptions, allowCapacity: boolean): AgentCapabilityDefinition {
   const id = options.id || "budget"
-  const limits = validateOptions(options, internal?.allowCapacity === true)
+  const limits = validateOptions(options, allowCapacity)
   const pricing = options.pricing === false || (limits.usd === undefined && options.pricing === undefined)
     ? undefined
     : options.pricing || modelsDevPricing()
