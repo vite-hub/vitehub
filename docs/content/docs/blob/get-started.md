@@ -1,7 +1,7 @@
 ---
 title: Store your first Blob object
 description: Write a local text file to Blob and inspect its stored metadata.
-navigation.title: Tutorial
+navigation.title: Get started
 layout: tutorial
 navigation.order: 2
 icon: i-lucide-rocket

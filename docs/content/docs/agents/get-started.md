@@ -2,7 +2,7 @@
 title: Define your first Agent
 description: Build an offline greeting Agent and call it from a server route.
 layout: tutorial
-navigation.title: Tutorial
+navigation.title: Get started
 navigation.order: 2
 navigation.group: Start
 icon: i-lucide-rocket

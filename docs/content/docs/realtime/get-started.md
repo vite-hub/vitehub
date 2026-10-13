@@ -3,7 +3,7 @@
 title: Create your first collaborative room
 description: Connect two TipTap editors to the same document and verify synchronization.
 layout: tutorial
-navigation.title: Tutorial
+navigation.title: Get started
 navigation.order: 2
 icon: i-lucide-rocket
 ---

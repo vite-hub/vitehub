@@ -3,7 +3,7 @@
 title: Send your first Email
 description: Send a welcome email with Resend and check the delivery result.
 layout: tutorial
-navigation.title: Tutorial
+navigation.title: Get started
 navigation.order: 2
 icon: i-lucide-rocket
 ---

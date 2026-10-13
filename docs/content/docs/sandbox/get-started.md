@@ -2,7 +2,7 @@
 title: Run a package in a Sandbox
 description: Run a package that counts image pixels in Vercel Sandbox and return its JSON result.
 layout: tutorial
-navigation.title: Tutorial
+navigation.title: Get started
 navigation.order: 2
 icon: i-lucide-rocket
 ---

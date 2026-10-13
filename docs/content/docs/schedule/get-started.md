@@ -2,7 +2,7 @@
 title: Run a daily report once with Schedule
 description: Declare a UTC schedule and execute one occurrence with the direct runtime API.
 layout: tutorial
-navigation.title: Tutorial
+navigation.title: Get started
 navigation.order: 2
 icon: i-lucide-rocket
 ---
