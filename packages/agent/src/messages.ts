@@ -58,10 +58,12 @@ export function isBlob(value: unknown): value is Blob {
 }
 
 export function blobSize(value: Blob): number {
+  // SAFETY: The intrinsic Blob size getter returns a number for a branded Blob.
   return Object.getOwnPropertyDescriptor(globalThis.Blob.prototype, "size")!.get!.call(value) as number
 }
 
 export function blobType(value: Blob): string {
+  // SAFETY: The intrinsic Blob type getter returns a string for a branded Blob.
   return Object.getOwnPropertyDescriptor(globalThis.Blob.prototype, "type")!.get!.call(value) as string
 }
 
