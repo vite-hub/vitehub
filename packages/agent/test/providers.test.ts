@@ -7295,11 +7295,15 @@ describe("server helpers", () => {
     )
   })
 
-  it("maps text-like file attachments to text parts", async () => {
+  it.each(["buffer", "blob"])("maps fetched text-like file attachments to text parts from %s", async (representation) => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
-    const adapter = createTestChatAdapter()
+    let fetchedBody = "# Notes\n- first\n"
+    const adapter = createTestChatAdapter(representation === "blob" ? {
+      // SAFETY: Exercise a Blob returned by an untyped adapter at the attachment boundary.
+      attachmentFetchData: async () => new Blob([fetchedBody], { type: "text/markdown" }) as unknown as Buffer,
+    } : {})
     const run = vi.fn(({ messages }) =>
       messages
         .at(-1)
@@ -7320,7 +7324,7 @@ describe("server helpers", () => {
     const response = await handler(
       new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
         body: JSON.stringify({
-          update_id: 42,
+          update_id: representation === "blob" ? 44 : 42,
           message: {
             chat: { id: 456, type: "private" },
             date: 1781092800,
@@ -7332,7 +7336,7 @@ describe("server helpers", () => {
               mime_type: "text/markdown; charset=utf-8",
             },
             from: { first_name: "Maxi", id: 123, username: "maxi" },
-            message_id: 1010,
+            message_id: representation === "blob" ? 1011 : 1010,
             text: "see attached",
           },
         }),
@@ -7360,12 +7364,13 @@ describe("server helpers", () => {
     )
 
     const attachmentBody = "x".repeat(1024 * 1024 + 1)
+    fetchedBody = attachmentBody
     const attachmentPrefix = "\n\nText attachment (large-prompt.txt):\n\n"
     run.mockClear()
     const largeResponse = await handler(
       new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
         body: JSON.stringify({
-          update_id: 42,
+          update_id: representation === "blob" ? 45 : 42,
           message: {
             chat: { id: 456, type: "private" },
             date: 1781092800,
@@ -7377,7 +7382,7 @@ describe("server helpers", () => {
               mime_type: "text/plain",
             },
             from: { first_name: "Maxi", id: 123, username: "maxi" },
-            message_id: 1012,
+            message_id: representation === "blob" ? 1013 : 1012,
           },
         }),
         method: "POST",

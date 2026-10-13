@@ -140,17 +140,11 @@ export type MessagePart =
   | ToolResultPart
 
 export function isAttachmentBlob(value: unknown): value is Blob {
-  if (value === null || !hasRuntimeType(value, "object")) return false
+  const sizeGetter = Object.getOwnPropertyDescriptor(Blob.prototype, "size")?.get
+  if (!sizeGetter) return false
   try {
-    if (value instanceof Blob) return true
-    if (Object.prototype.toString.call(value) !== "[object Blob]") return false
-    // SAFETY: The object guard permits reading optional properties, whose types are validated below.
-    const blob = value as { arrayBuffer?: unknown, size?: unknown, type?: unknown }
-    return hasRuntimeType(blob.arrayBuffer, "function")
-      && hasRuntimeType(blob.size, "number")
-      && Number.isSafeInteger(blob.size)
-      && blob.size >= 0
-      && hasRuntimeType(blob.type, "string")
+    sizeGetter.call(value)
+    return true
   }
   catch {
     return false

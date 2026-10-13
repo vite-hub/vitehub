@@ -396,10 +396,9 @@ async function resolveModelAttachmentPart(part: AttachmentPart, maxBytes: number
     throw agentDiagnostics.AGENT_R0008({ message: `[vitehub] ${part.type} attachment fetchData() did not return supported attachment data.` })
   }
   if (!resolved) return { byteLength: 0 }
-  const blob = isAttachmentBlob(resolved) ? resolved : undefined
-  const blobBytes = blob ? new Uint8Array(await blob.arrayBuffer()) : undefined
-  const data = blobBytes ?? resolved
-  const byteLength = blobBytes?.byteLength ?? attachmentDataByteLength(resolved) ?? 0
+  assertAttachmentWithinLimit(part, attachmentDataByteLength(resolved), maxBytes)
+  const data = isAttachmentBlob(resolved) ? await resolved.arrayBuffer() : resolved
+  const byteLength = attachmentDataByteLength(data) ?? 0
   assertAttachmentWithinLimit(part, byteLength, maxBytes)
   const { fetchData: _fetchData, fetchMetadata: _fetchMetadata, url: _url, ...rest } = part
   const mediaType = part.type === "image"
