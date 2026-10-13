@@ -61,9 +61,13 @@ function nativeBuffer(value: unknown): boolean {
   const prototype = Object.getPrototypeOf(value)
   if (!prototype || !hasRuntimeType(prototype, "object")) return false
   const descriptor = Object.getOwnPropertyDescriptor(prototype, "constructor")
-  // Buffer constructors from another realm do not always have the same native
-  // source representation, but their intrinsic prototype still identifies them.
-  return !!descriptor && "value" in descriptor && descriptor.value?.name === "Buffer"
+  if (!descriptor || !("value" in descriptor) || !hasRuntimeType(descriptor.value, "function")) return false
+  // A subclass inherits Buffer's static helpers, while each native Buffer
+  // constructor owns them. This also works when the constructor is foreign.
+  return Function.prototype.toString.call(descriptor.value) === Function.prototype.toString.call(Buffer)
+    && Object.getOwnPropertyDescriptor(descriptor.value, "from") !== undefined
+    && Object.getOwnPropertyDescriptor(descriptor.value, "alloc") !== undefined
+    && Object.getOwnPropertyDescriptor(descriptor.value, "isBuffer") !== undefined
     && Object.getOwnPropertyDescriptor(descriptor.value, "prototype")?.value === prototype
 }
 
@@ -332,6 +336,24 @@ function clonePresetBacking(value: ArrayBufferLike, shared: boolean): ArrayBuffe
   return clone
 }
 
+function presetBackingKind(value: unknown): "array" | "shared" | undefined {
+  if (value === null || !hasRuntimeType(value, "object")) return
+  try {
+    Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")!.get!.call(value)
+    return "array"
+  }
+  catch {
+    if (globalThis.SharedArrayBuffer === undefined) return
+    try {
+      Object.getOwnPropertyDescriptor(SharedArrayBuffer.prototype, "byteLength")!.get!.call(value)
+      return "shared"
+    }
+    catch {
+      return
+    }
+  }
+}
+
 function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>(), active = new WeakMap<object, unknown>()): unknown {
   if (value === null || !hasRuntimeType(value, "object")) return value
   if (active.has(value)) return active.get(value)
@@ -404,8 +426,9 @@ function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>()
     const buffer = Object.getOwnPropertyDescriptor(prototype, "buffer")!.get!.call(value) as ArrayBufferLike
     // The platform cannot report whether a view tracks buffer length. Preserve these
     // views atomically, including out-of-bounds views whose range accessors throw.
-    const sharedBuffer = globalThis.SharedArrayBuffer !== undefined
-      && (nativePrototype(buffer, SharedArrayBuffer) || Object.prototype.toString.call(buffer) === "[object SharedArrayBuffer]")
+    const backingKind = presetBackingKind(buffer)
+    if (!backingKind) return value
+    const sharedBuffer = backingKind === "shared"
     if (variablePresetBacking(buffer, sharedBuffer) || detachedPresetBacking(buffer, sharedBuffer)) return value
     // SAFETY: The intrinsic byteOffset accessor returns a number.
     const byteOffset = Object.getOwnPropertyDescriptor(prototype, "byteOffset")!.get!.call(value) as number

@@ -80,3 +80,35 @@ it("snapshots cross realm built-ins while preserving their data", () => {
     expect(clone.sharedBytes.buffer).toBe(clone.shared)
   }
 })
+
+it("keeps custom Buffer subclasses atomic and clones native foreign Buffers", () => {
+  class CustomBuffer extends globalThis.Buffer {
+    marker = true
+  }
+  const custom = new CustomBuffer([1, 2])
+  const foreign = vm.runInNewContext("Buffer.from([3, 4])", { Buffer }) as Buffer
+  const preset = defineAgent({
+    options: { custom, foreign },
+    configure: (options: { custom: Buffer; foreign: Buffer }) => defineAgent({ driver: "codex", data: options }),
+  })
+  const inherited = defineAgent({ extends: preset })
+  expect(inherited.options.custom).toBe(custom)
+  expect(inherited.options.foreign).not.toBe(foreign)
+  expect([...inherited.options.foreign]).toEqual([3, 4])
+  inherited.options.foreign[0] = 9
+  expect(foreign[0]).toBe(3)
+})
+
+it("does not trust a backing store's Symbol.toStringTag", () => {
+  const buffer = new ArrayBuffer(2)
+  new Uint8Array(buffer).set([1, 2])
+  Object.defineProperty(buffer, Symbol.toStringTag, { value: "SharedArrayBuffer" })
+  const preset = defineAgent({
+    options: { bytes: new Uint8Array(buffer) },
+    configure: (options: { bytes: Uint8Array }) => defineAgent({ driver: "codex", data: options }),
+  })
+  const inherited = defineAgent({ extends: preset })
+  expect([...inherited.options.bytes]).toEqual([1, 2])
+  inherited.options.bytes[0] = 9
+  expect(new Uint8Array(buffer)[0]).toBe(1)
+})
