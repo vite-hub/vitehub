@@ -23,6 +23,42 @@ afterEach(() => {
 })
 
 describe("@vite-hub/source GitHub source", () => {
+  it.each([
+    {
+      action: async (source: ReturnType<typeof github>) => await source.getKeys({ rootDir: process.cwd() }),
+      description: "repository",
+      response: { default_branch: null },
+      ref: undefined,
+      url: "https://api.github.com/repos/acme/app",
+    },
+    {
+      action: async (source: ReturnType<typeof github>) => await source.getKeys({ rootDir: process.cwd() }),
+      description: "commit",
+      response: { sha: null },
+      ref: undefined,
+      url: "https://api.github.com/repos/acme/app/commits/main",
+    },
+    {
+      action: async (source: ReturnType<typeof github>) => await source.getMeta?.("README.md", { rootDir: process.cwd() }),
+      description: "content",
+      response: { type: "file" },
+      ref: "main",
+      url: "https://api.github.com/repos/acme/app/contents/README.md?ref=main",
+    },
+  ])("rejects malformed successful GitHub $description responses", async ({ action, description, ref, response, url }) => {
+    vi.stubGlobal("fetch", vi.fn(async (request: string | URL | Request) => {
+      const requestUrl = String(request)
+      if (requestUrl === url) return jsonResponse(response)
+      if (requestUrl === "https://api.github.com/repos/acme/app") return jsonResponse({ default_branch: "main" })
+      if (requestUrl.endsWith("/commits/main")) return jsonResponse({ sha: "latest-commit-sha" })
+      throw new Error(`Unexpected GitHub request: ${requestUrl}`)
+    }))
+
+    const source = github({ ...(ref ? { ref } : {}), repo: "acme/app" })
+
+    await expect(action(source)).rejects.toThrow(`[vitehub] github(\"acme/app\") returned a malformed ${description} response.`)
+  })
+
   it.each(["docs/..", "../docs", "/docs", "C:/docs", "docs\0secret"])("rejects unsafe configured root %s before any request", (root) => {
     const fetch = vi.fn()
     vi.stubGlobal("fetch", fetch)

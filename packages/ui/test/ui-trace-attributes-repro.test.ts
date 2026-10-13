@@ -9,13 +9,17 @@ const UBadge = defineComponent({ setup: (_, { slots }) => () => h("span", slots.
 
 describe("ui trace attributes repro", () => {
   it.each([
+    ["throwing ownKeys", new Proxy({}, { ownKeys() { throw new Error("cannot inspect"); } }), "Unable to display payload: cannot inspect"],
     ["cyclic", (() => { const value: Record<string, unknown> = {}; value.self = value; return value; })(), '"self": "[Circular]"'],
     ["bigint", { count: 1n }, '"count": "1n"'],
     ["throwing toJSON", { toJSON() { throw new Error("cannot serialize"); } }, "Unable to display payload: cannot serialize"],
   ])("renders %s trace attributes without crashing", (_name, attributes, expected) => {
-    const wrapper = mount(AgentTrace, {
+    const wrapper = mount(defineComponent({
+      setup: () => () => h(AgentTrace, {
+        run: { events: [], id: "run", startTime: "2026-10-11T00:00:00Z", status: "completed", steps: [{ attributes, events: [], id: "step", name: "Step", startTime: "2026-10-11T00:00:00Z", status: "completed", type: "run" }] },
+      }),
+    }), {
       global: { components: { UBadge, UCollapsible } },
-      props: { run: { events: [], id: "run", startTime: "2026-10-11T00:00:00Z", status: "completed", steps: [{ attributes, events: [], id: "step", name: "Step", startTime: "2026-10-11T00:00:00Z", status: "completed", type: "run" }] } },
     });
     expect(wrapper.text()).toContain(expected);
   });
