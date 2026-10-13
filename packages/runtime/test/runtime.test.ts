@@ -382,7 +382,7 @@ describe("@vite-hub/runtime", () => {
   })
 
   it("does not treat proxy-fabricated capability fields as a handle", () => {
-    const target = Object.create({ kind: "spoofed", value: "unexpected" })
+    const target = Object.create(null)
     const raw = new Proxy(target, {
       ownKeys() {
         return ["kind", "value"]

@@ -1398,9 +1398,24 @@ export function createRuntimeWaitUntilController(options: {
 
 const capabilityHandles = new WeakSet<object>()
 
+function isProxy(value: object): boolean {
+  try {
+    const getBuiltinModule = (globalThis as {
+      process?: { getBuiltinModule?: (name: string) => { types?: { isProxy?: (value: object) => boolean } } | undefined }
+    }).process?.getBuiltinModule
+    return getBuiltinModule?.("node:util")?.types?.isProxy?.(value) === true
+  }
+  catch {
+    return false
+  }
+}
+
 function isCapabilityHandle(value: unknown): value is CapabilityHandle {
   if (!hasRuntimeType(value, "object") || value === null) return false
   if (capabilityHandles.has(value)) return true
+  // Node can identify proxies without invoking their traps. Structural checks
+  // cannot distinguish a proxy's fabricated descriptors from target-owned data.
+  if (isProxy(value)) return false
   try {
     // Enumerate own keys before inspecting fields so inherited fields and
     // descriptors fabricated for keys absent from the object are not handles.
