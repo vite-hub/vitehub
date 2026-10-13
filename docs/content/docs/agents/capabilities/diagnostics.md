@@ -106,5 +106,5 @@ With `resources` set, confirm that `agent.resource.snapshot` events appear at st
 
 - [OTLP](/docs/agents/capabilities/otlp)
 - [Invocations](/docs/agents/invocations)
-- [Runtime context](/docs/getting-started/concepts/runtime-context)
+- [Runtime context](/docs/reference/runtime-context)
 - [Official capabilities](/docs/agents/capabilities/official)

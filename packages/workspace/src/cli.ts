@@ -17,7 +17,7 @@ import {
 
 import type { WorkspaceDevTokenOptions } from "./server.ts"
 import { workspaceErrorDiagnostics } from "./error-diagnostics.ts"
-import { hasRuntimeType } from "./internal/runtime-type.ts"
+import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 
 interface WorkspaceCliContext {
   cwd: string

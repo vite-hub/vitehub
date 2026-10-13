@@ -2,7 +2,8 @@ import { createTraceEventLog } from "@vite-hub/runtime"
 import * as v from "valibot"
 import { describe, expect, it, vi } from "vitest"
 
-import { defineAgent, defineCapability, runAgent, runAgentInline } from "../src/index.ts"
+import { defineChannel, defineChannelTrigger } from "../src/channels.ts"
+import { defineAgent, defineCapability, runAgent, runAgentInline, runAgentTrigger } from "../src/index.ts"
 
 const emailSchema = v.object({
   from: v.string(),
@@ -28,6 +29,39 @@ function labeller(run = vi.fn((_context: { input: { data?: unknown } }) => ({ la
     hooks: { "agent:finish": finish },
     intercept: ({ data }) => data.from.endsWith("@github.com") ? { rule: "github", label: "GitHub" } : undefined,
     runtime: false,
+  })
+}
+
+function interceptChannel(options: { omitMessage?: boolean } = {}) {
+  const messageSchema = v.pipe(v.object({
+    from: v.string(),
+    subject: v.string(),
+  }), v.transform(message => ({ ...message, subject: message.subject.toUpperCase() })))
+  return defineChannel("mail", {
+    message: { data: messageSchema },
+    messages: false,
+    triggers: {
+      received: defineChannelTrigger({
+        input: v.object({
+          data: v.optional(v.object({ marker: v.string() })),
+          message: v.optional(v.looseObject({ subject: v.string() })),
+        }),
+        invoke(context, input) {
+          return {
+            input: {
+              prompt: input.message?.subject,
+              ...(input.data ? { data: input.data } : {}),
+            },
+            ...(options.omitMessage ? {} : { message: input.message }),
+            run: {
+              channelId: context.trigger.channelId,
+              origin: context.channel.kind,
+              runId: "mail-run",
+            },
+          }
+        },
+      }),
+    },
   })
 }
 
@@ -97,6 +131,136 @@ describe("Agent data and intercept", () => {
     await runAgentInline(agent, runtime(), { data: { count: "2" } })
 
     expect(seen).toEqual([{ count: 2 }, { count: 2 }, { count: 2 }])
+  })
+
+  it("validates and transforms a Channel message before intercept", async () => {
+    const message = { from: "friend@example.com", subject: "Dinner" }
+    const intercept = vi.fn(({ data }) => data.subject)
+    const agent = defineAgent({
+      channels: { mail: interceptChannel() },
+      driver: { run: () => "driver" },
+      intercept,
+      runtime: false,
+    })
+
+    await expect(runAgentTrigger(agent, runtime(), "mail.received", { message })).resolves.toBe("DINNER")
+    expect(intercept).toHaveBeenCalledWith(expect.objectContaining({ data: { from: message.from, subject: "DINNER" } }))
+  })
+
+  it("rejects an invalid Channel message before intercept", async () => {
+    const intercept = vi.fn(({ data }) => data)
+    const agent = defineAgent({
+      channels: { mail: interceptChannel() },
+      driver: { run: () => "driver" },
+      intercept,
+      runtime: false,
+    })
+
+    await expect(runAgentTrigger(agent, runtime(), "mail.received", { message: { subject: "Dinner" } })).rejects.toThrow(/Channel "mail" message data/)
+    expect(intercept).not.toHaveBeenCalled()
+  })
+
+  it("validates a missing Channel message before intercept", async () => {
+    const intercept = vi.fn(({ data }) => data)
+    const agent = defineAgent({
+      channels: { mail: interceptChannel({ omitMessage: true }) },
+      driver: { run: () => "driver" },
+      intercept,
+      runtime: false,
+    })
+
+    await expect(runAgentTrigger(agent, runtime(), "mail.received", { message: { subject: "Dinner" } })).rejects.toThrow(/Channel "mail" message data/)
+    expect(intercept).not.toHaveBeenCalled()
+  })
+
+  it("keeps explicit invocation data for intercept when a Channel message exists", async () => {
+    const message = { from: "friend@example.com", subject: "Dinner" }
+    const data = { marker: "explicit" }
+    const intercept = vi.fn(({ data: intercepted }) => intercepted)
+    const agent = defineAgent({
+      channels: { mail: interceptChannel() },
+      driver: { run: () => "driver" },
+      intercept,
+      runtime: false,
+    })
+
+    await expect(runAgentTrigger(agent, runtime(), "mail.received", { data, message })).resolves.toEqual(data)
+    expect(intercept).toHaveBeenCalledWith(expect.objectContaining({ data }))
+  })
+
+  it.each(["absent", "invalid"])("keeps explicit invocation data when the Channel message is %s", async (messageKind) => {
+    const data = { marker: "explicit" }
+    const intercept = vi.fn(({ data: intercepted }) => intercepted)
+    const agent = defineAgent({
+      channels: { mail: interceptChannel({ omitMessage: messageKind === "absent" }) },
+      driver: { run: () => "driver" },
+      intercept,
+      runtime: false,
+    })
+
+    await expect(runAgentTrigger(agent, runtime(), "mail.received", {
+      data,
+      ...(messageKind === "invalid" ? { message: { subject: "Dinner" } } : {}),
+    })).resolves.toEqual(data)
+    expect(intercept).toHaveBeenCalledWith(expect.objectContaining({ data }))
+  })
+
+  it("does not bypass an explicit input data schema for Channel message fallback", async () => {
+    const message = { from: "friend@example.com", subject: "Dinner" }
+    const intercept = vi.fn(({ data }) => data)
+    const agent = defineAgent({
+      channels: { mail: interceptChannel() },
+      data: v.optional(v.object({ marker: v.string() })),
+      driver: { run: () => "driver" },
+      intercept,
+      runtime: false,
+    })
+
+    await expect(runAgentTrigger(agent, runtime(), "mail.received", { message })).resolves.toBe("driver")
+    expect(intercept).toHaveBeenCalledWith(expect.objectContaining({ data: undefined }))
+  })
+
+  it("leaves Channel fallback data absent for direct invocations", async () => {
+    const intercept = vi.fn(({ data }) => data === undefined ? "handled" : data)
+    const agent = defineAgent({
+      channels: { mail: interceptChannel() },
+      driver: { run: () => "driver" },
+      intercept,
+      runtime: false,
+    })
+
+    await expect(runAgent(agent, runtime(), { prompt: "direct" })).resolves.toBe("handled")
+    expect(intercept).toHaveBeenCalledWith(expect.objectContaining({ data: undefined }))
+  })
+
+  it.each(["handled", "driver"])("leaves a missing Capability trigger message absent when intercept selects %s", async (result) => {
+    const intercept = vi.fn(({ data }) => {
+      expect(data).toBeUndefined()
+      return result === "handled" ? "handled" : undefined
+    })
+    const run = vi.fn(() => "driver")
+    const agent = defineAgent({
+      capabilities: [defineCapability({
+        id: "background",
+        triggers: {
+          requested: {
+            invoke: () => ({
+              input: { prompt: "background work" },
+              run: { channelId: "mail", origin: "background", runId: "background-run" },
+            }),
+          },
+        },
+      })],
+      channels: { mail: interceptChannel() },
+      driver: { run },
+      intercept,
+      runtime: false,
+    })
+
+    await expect(runAgentTrigger(agent, runtime(), "background.requested", {})).resolves.toBe(result)
+    expect(intercept).toHaveBeenCalledOnce()
+    if (result === "handled") expect(run).not.toHaveBeenCalled()
+    else expect(run).toHaveBeenCalledOnce()
   })
 
   it.each(["replace", "clear", "mutate"])("revalidates data changed by an input hook through %s", async (change) => {

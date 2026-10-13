@@ -1,16 +1,20 @@
 import { fileURLToPath } from "node:url"
 import { EventEmitter } from "node:events"
-import { mkdtemp, rm } from "node:fs/promises"
-import { join } from "node:path"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { dirname, join } from "node:path"
 import { tmpdir } from "node:os"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { parseAst } from "vite"
 import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { asSchema } from "ai"
+import { defineDurableSchema } from "eve/tools"
+import { z } from "zod"
 
 import { toAiSdkModelMessages } from "../src/ai-sdk.ts"
 import { eveExtensionCapability } from "../src/eve.ts"
 import { createAgentChatApprovalCustody, withAgentChatApprovalGrant } from "../src/internal/chat-approvals.ts"
+import { agentToolJsonSchema } from "../src/tool-schema.ts"
 import { hubAgent, transformEveExtensionCapabilities } from "../src/vite.ts"
 
 import type { AgentCapabilityContext, AgentToolDefinition } from "../src/types.ts"
@@ -20,6 +24,7 @@ import type { StateAdapter } from "chat"
 const temporaryDirectories: string[] = []
 
 afterEach(async () => {
+  vi.unstubAllGlobals()
   await Promise.all(temporaryDirectories.splice(0).map(path => rm(path, { force: true, recursive: true })))
 })
 
@@ -47,7 +52,106 @@ function capabilityContext(): AgentCapabilityContext {
   }
 }
 
+async function transformExtensionManifest(formatVersion: number, requires: Record<string, unknown>): Promise<string | undefined> {
+  const root = await mkdtemp(join(tmpdir(), "vitehub-eve-manifest-"))
+  temporaryDirectories.push(root)
+  const extensionRoot = join(root, "node_modules", "@test", "eve-extension")
+  const extensionDist = join(extensionRoot, "dist", "extension")
+  await mkdir(extensionDist, { recursive: true })
+  await Promise.all([
+    writeFile(join(extensionRoot, "package.json"), JSON.stringify({
+      eve: { extension: { dist: "./dist/extension" } },
+      name: "@test/eve-extension",
+    })),
+    writeFile(join(extensionDist, "_manifest.json"), JSON.stringify({ formatVersion, kind: "eve-extension", requires })),
+    writeFile(join(extensionRoot, "index.js"), "export default () => ({})"),
+  ])
+  const plugin = hubAgent()
+  await (plugin.configResolved as (config: unknown) => Promise<void>)({
+    command: "serve",
+    createResolver: () => async (specifier: string) => specifier === "@test/eve-extension" ? join(extensionRoot, "index.js") : undefined,
+    plugins: [],
+    root,
+  })
+  return (plugin.transform as (...args: unknown[]) => Promise<string | undefined>).call(
+    { parse: parseAst },
+    [
+      `import { defineAgent } from "@vite-hub/agent"`,
+      `import extension from "@test/eve-extension"`,
+      `export default defineAgent({ capabilities: [extension()] })`,
+    ].join("\n"),
+    join(root, "server", "agents", "reviewer.ts"),
+  )
+}
+
 describe("Eve extension capabilities", () => {
+  it.each([
+    [1, 5, 8],
+    [2, 20, 20],
+    [2, 54, 52],
+  ])("accepts format %i tool@%i and dynamicTool@%i manifests", async (formatVersion, tool, dynamicTool) => {
+    await expect(transformExtensionManifest(formatVersion, { config: 1, dynamicTool, extension: 1, tool }))
+      .resolves.toContain(`await __vitehubEveExtensionCapability("@test/eve-extension", "pkg-_atest_seve-extension"`)
+  })
+
+  it.each([
+    [1, "tool", 20],
+    [1, "dynamicTool", 20],
+    [2, "tool", 21],
+    [2, "dynamicTool", 21],
+    [2, "tool", 76],
+    [2, "dynamicTool", 72],
+    [2, "unknown", 1],
+    [2, "toString", 1],
+    [2, "__proto__", 1],
+  ] as const)("rejects format %i %s@%i manifests", async (formatVersion, contract, version) => {
+    const requires = formatVersion === 1
+      ? { config: 1, dynamicTool: 8, extension: 1, tool: 5 }
+      : { config: 1, dynamicTool: 20, extension: 1, tool: 20 }
+    await expect(transformExtensionManifest(formatVersion, { ...requires, [contract]: version }))
+      .rejects.toThrow(`requires unsupported ${contract}@${version}`)
+  })
+
+  it("accepts the current Eve compatibility manifest and publishes Eve as an optional peer", async () => {
+    const packageJson = JSON.parse(await readFile(join(dirname(fileURLToPath(import.meta.url)), "..", "package.json"), "utf8")) as {
+      devDependencies?: Record<string, string>
+      peerDependencies?: Record<string, string>
+      peerDependenciesMeta?: Record<string, { optional?: boolean }>
+    }
+    expect(packageJson.devDependencies?.eve).toBe("0.72.1")
+    expect(packageJson.peerDependencies?.eve).toBe("0.46.1 || 0.72.1")
+    expect(packageJson.peerDependenciesMeta?.eve).toEqual({ optional: true })
+
+    const extensionEntry = fileURLToPath(import.meta.resolve("@github-tools/eve-extension"))
+    const extensionRoot = dirname(dirname(extensionEntry))
+    const extensionPackage = JSON.parse(await readFile(join(extensionRoot, "package.json"), "utf8")) as {
+      eve?: { extension?: { dist?: string, source?: string } }
+    }
+    expect(extensionPackage.eve?.extension).toMatchObject({ dist: "./dist/extension", source: "./extension" })
+
+    const manifest = JSON.parse(await readFile(join(extensionRoot, "dist", "extension", "_manifest.json"), "utf8")) as {
+      formatVersion?: number
+      kind?: string
+      requires?: Record<string, number>
+    }
+    expect(manifest).toMatchObject({
+      formatVersion: 2,
+      kind: "eve-extension",
+      requires: { config: 1, dynamicTool: 52, extension: 1, tool: 54 },
+    })
+  })
+
+  it.each([
+    { requires: { dynamicTool: 21 }, error: "unsupported dynamicTool@21" },
+    { requires: { tool: 53 }, error: "unsupported tool@53" },
+    { requires: { tool: 55 }, error: "unsupported tool@55" },
+    { requires: { unknownContract: 1 }, error: "unsupported unknownContract@1" },
+    { requires: { tool: "20" }, error: "unsupported tool@20" },
+    { requires: { tool: 20.5 }, error: "unsupported tool@20.5" },
+  ])("rejects unsupported Eve contracts: $error", async ({ requires, error }) => {
+    await expect(transformExtensionManifest(2, requires)).rejects.toThrow(error)
+  })
+
   it("uses the injective generated namespace as the Eve configuration scope", async () => {
     const scopes: string[] = []
     const loadExtension = async () => ({
@@ -1118,14 +1222,116 @@ describe("Eve extension capabilities", () => {
     expect(await (await writeTool(withAgentChatApprovalGrant(capabilityContext(), grant))).needsApproval({}, { messages: [], toolCallId: "call-5" })).toBe(true)
   })
 
-  it("preserves Eve tool output conversion for the model", async () => {
+  it("preserves GitHub durable schema validation, output schemas, and execution", async () => {
+    const fetch = vi.fn(async () => Response.json({
+      content: Buffer.from(" ViteHub ").toString("base64"),
+      encoding: "base64",
+      path: "README.md",
+      sha: "file-sha",
+      size: 9,
+      type: "file",
+    }))
+    vi.stubGlobal("fetch", fetch)
+    const capability = await eveExtensionCapability(
+      "@github-tools/eve-extension",
+      "github",
+      async () => await import("@github-tools/eve-extension") as unknown as Record<string, unknown>,
+      async () => await import("@github-tools/eve-extension/tools") as unknown as Record<string, unknown>,
+      {
+        include: ["getFileContent"],
+        overrides: {
+          getFileContent: {
+            outputSchema: z.object({ content: z.string().trim(), type: z.literal("file") }),
+          },
+        },
+        token: "test-token",
+      },
+    )
+    const tools = await (capability.tools as (context: AgentCapabilityContext) => Promise<Record<string, AgentToolDefinition>>)(capabilityContext())
+    const read = tools.github__getFileContent as AgentToolDefinition & {
+      toModelOutput: (options: { output: unknown }) => Promise<unknown>
+    }
+    const liveInputSchema = read.inputSchema
+    const outputSchema = read.outputSchema?.["~standard"]
+    if (!liveInputSchema?.["~standard"] || !outputSchema) throw new Error("Expected live GitHub durable schemas")
+    const inputSchema = liveInputSchema["~standard"]
+    const modelInputSchema = asSchema(liveInputSchema)
+
+    expect(inputSchema.vendor).toBe("eve")
+    expect(outputSchema.vendor).toBe("eve")
+    expect(agentToolJsonSchema(read.inputSchema, "input")).toMatchObject({
+      properties: { owner: { type: "string" }, repo: { type: "string" }, path: { type: "string" } },
+      required: ["owner", "repo", "path"],
+      type: "object",
+    })
+    expect(agentToolJsonSchema(read.outputSchema, "output")).toMatchObject({
+      properties: { content: { type: "string" }, type: { const: "file" } },
+      required: ["content", "type"],
+      type: "object",
+    })
+    const input = { owner: "vite-hub", repo: "vitehub", path: "README.md" }
+    expect(await inputSchema.validate(input)).toEqual({ value: input })
+    expect((await inputSchema.validate({ ...input, path: 42 })).issues?.length).toBeGreaterThan(0)
+    expect(await modelInputSchema.jsonSchema).toMatchObject({
+      additionalProperties: false,
+      properties: { owner: { type: "string" }, repo: { type: "string" }, path: { type: "string" } },
+      required: ["owner", "repo", "path"],
+      type: "object",
+    })
+    expect(await modelInputSchema.validate?.(input)).toEqual({ success: true, value: input })
+    expect(await modelInputSchema.validate?.({ ...input, path: 42 })).toMatchObject({ success: false })
+
+    const output = await read.execute?.(input, { toolCallId: "github-read-1" })
+    expect(output).toMatchObject({ content: " ViteHub ", path: "README.md", totalLines: 1, type: "file" })
+    expect(fetch).toHaveBeenCalledOnce()
+    expect(fetch).toHaveBeenCalledWith(
+      "https://api.github.com/repos/vite-hub/vitehub/contents/README.md",
+      expect.objectContaining({ method: "GET" }),
+    )
+    expect(await outputSchema.validate(output)).toEqual({ value: { content: "ViteHub", type: "file" } })
+    expect(await read.toModelOutput({ output })).toEqual({ type: "json", value: output })
+  })
+
+  it("preserves durable schema conversion errors", async () => {
+    const failure = new Error("Cannot emit the tool schema")
+    const schema = defineDurableSchema({
+      closure: {},
+      schema: () => ({
+        "~standard": {
+          version: 1 as const,
+          vendor: "test",
+          validate: (value: unknown) => ({ value }),
+          jsonSchema: {
+            input: () => { throw failure },
+            output: () => { throw failure },
+          },
+        },
+      }),
+    })
+    const capability = await eveExtensionCapability(
+      "schema-extension",
+      "schema",
+      async () => ({ default: () => ({ [Symbol.for("eve.mounted-extension")]: true }) }),
+      async () => ({ inspect: { inputSchema: schema, outputSchema: schema, execute: () => "ok" } }),
+    )
+    const tools = await (capability.tools as (context: AgentCapabilityContext) => Promise<Record<string, AgentToolDefinition>>)(capabilityContext())
+    const inspect = tools.schema__inspect!
+
+    expect(inspect.inputSchema).toBe(schema)
+    expect(inspect.outputSchema).toBe(schema)
+    expect(() => agentToolJsonSchema(inspect.inputSchema, "input")).toThrow(failure)
+    expect(() => agentToolJsonSchema(inspect.outputSchema, "output")).toThrow(failure)
+  })
+
+  it("preserves the Eve execute receiver and output conversion for the model", async () => {
     const capability = await eveExtensionCapability(
       "example-extension",
       "example",
       async () => ({ default: () => ({ [Symbol.for("eve.mounted-extension")]: true }) }),
       async () => ({
         count: {
-          execute: () => 1n,
+          value: 1n,
+          execute(this: { value: bigint }) { return this.value },
           toModelOutput: (output: unknown) => ({ value: String(output) }),
         },
       }),
@@ -1138,6 +1344,91 @@ describe("Eve extension capabilities", () => {
 
     expect(await count.execute({})).toBe(1n)
     expect(await count.toModelOutput({ output: 1n })).toEqual({ value: "1" })
+  })
+
+  it("uses the request policy from Eve approval configurations", async () => {
+    const request = vi.fn(() => ({ type: "user-approval" as const }))
+    const capability = await eveExtensionCapability(
+      "approval-extension",
+      "approval",
+      async () => ({ default: () => ({ [Symbol.for("eve.mounted-extension")]: true }) }),
+      async () => ({
+        write: {
+          description: "Write a value",
+          approval: { request },
+          execute: async () => "ok",
+        },
+      }),
+    )
+    const tools = await (capability.tools as (context: AgentCapabilityContext) => Promise<Record<string, AgentToolDefinition>>)(capabilityContext())
+    const write = tools.approval__write as AgentToolDefinition & {
+      needsApproval: (input: unknown, options: { toolCallId: string }) => Promise<boolean>
+    }
+
+    await expect(write.needsApproval({}, { toolCallId: "call-approval" })).resolves.toBe(true)
+    expect(request).toHaveBeenCalledOnce()
+  })
+
+  it("accepts an Eve tool without an approval policy", async () => {
+    const capability = await eveExtensionCapability(
+      "approval-extension",
+      "approval",
+      async () => ({ default: () => ({ [Symbol.for("eve.mounted-extension")]: true }) }),
+      async () => ({ read: { approval: null, execute: () => "ok" } }),
+    )
+    const tools = await (capability.tools as (context: AgentCapabilityContext) => Promise<Record<string, AgentToolDefinition>>)(capabilityContext())
+
+    await expect(tools.approval__read!.execute?.({})).resolves.toBe("ok")
+    expect(tools.approval__read).not.toHaveProperty("needsApproval")
+  })
+
+  it("reports unsupported skill access in older Eve execution and approval contexts", async () => {
+    const capability = await eveExtensionCapability(
+      "skill-extension",
+      "skill",
+      async () => ({ default: () => ({ [Symbol.for("eve.mounted-extension")]: true }) }),
+      async () => ({
+        execute: {
+          execute: (_input: unknown, context: { getSkill: (id: string) => unknown }) => context.getSkill("test-skill"),
+        },
+        approve: {
+          approval: (context: { getSkill: (id: string) => unknown }) => context.getSkill("test-skill"),
+          execute: () => "ok",
+        },
+      }),
+    )
+    const tools = await (capability.tools as (context: AgentCapabilityContext) => Promise<Record<string, AgentToolDefinition>>)(capabilityContext())
+    const approve = tools.skill__approve as AgentToolDefinition & { needsApproval: (input: unknown) => Promise<boolean> }
+
+    await expect(tools.skill__execute!.execute?.({})).rejects.toMatchObject({
+      code: "AGENT_R0415",
+      message: expect.stringContaining("ctx.getSkill()"),
+    })
+    await expect(approve.needsApproval({})).rejects.toMatchObject({
+      code: "AGENT_R0415",
+      message: expect.stringContaining("approval ctx.getSkill()"),
+    })
+  })
+
+  it("rejects Eve approval response authorizers", async () => {
+    const capability = await eveExtensionCapability(
+      "approval-extension",
+      "approval",
+      async () => ({ default: () => ({ [Symbol.for("eve.mounted-extension")]: true }) }),
+      async () => ({
+        write: {
+          description: "Write a value",
+          approval: {
+            request: () => "user-approval",
+            response: () => ({ status: "allowed" }),
+          },
+          execute: async () => "ok",
+        },
+      }),
+    )
+
+    await expect((capability.tools as (context: AgentCapabilityContext) => Promise<Record<string, AgentToolDefinition>>)(capabilityContext()))
+      .rejects.toThrow("approval.response")
   })
 
   it("ignores dynamic event keys without handlers", async () => {
@@ -1160,10 +1451,32 @@ describe("Eve extension capabilities", () => {
       .resolves.toEqual({})
   })
 
+  it("supplies a non-aborted signal during static dynamic-tool inspection", async () => {
+    const started = vi.fn((_event: unknown, context: { abortSignal: AbortSignal }) => {
+      context.abortSignal.throwIfAborted()
+      return { run: { execute: async () => "ok" } }
+    })
+    const capability = await eveExtensionCapability(
+      "test-extension",
+      "test",
+      async () => ({ default: () => ({ [Symbol.for("eve.mounted-extension")]: true }) }),
+      async () => ({ dynamic: { events: { "session.started": started }, kind: "eve:dynamic" } }),
+    )
+    const context = capabilityContext()
+    delete context.invocation
+
+    const tools = await (capability.tools as (context: AgentCapabilityContext) => Promise<Record<string, AgentToolDefinition>>)(context)
+
+    expect(started).toHaveBeenCalledOnce()
+    expect(started.mock.calls[0]![1].abortSignal.aborted).toBe(false)
+    expect(tools.test__run).toBeDefined()
+  })
+
   it("maps Eve session.started tools to each Agent Invocation", async () => {
-    const started = vi.fn((_event: unknown, context: { session: { id: string } }) => ({
+    const started = vi.fn((event: { data: Record<string, unknown> }, context: { session: { id: string } }) => ({
       run: {
         description: context.session.id,
+        metadata: { eventData: event.data },
         execute: async (_input: unknown, toolContext: { session: { turn: { id: string } } }) => toolContext.session.turn.id,
       },
     }))
@@ -1187,16 +1500,74 @@ describe("Eve extension capabilities", () => {
     const secondTools = await (capability.tools as (context: AgentCapabilityContext) => Promise<Record<string, AgentToolDefinition>>)(second)
 
     expect(started).toHaveBeenCalledTimes(2)
-    expect(firstTools.test__run!.description).toBe("run-1")
-    expect(secondTools.test__run!.description).toBe("run-2")
+    expect(firstTools.test__run!.description).toBe("session-1")
+    expect(secondTools.test__run!.description).toBe("session-1")
+    expect(firstTools.test__run!.metadata).toEqual({ eventData: {} })
+    expect(secondTools.test__run!.metadata).toEqual({ eventData: {} })
     await expect(secondTools.test__run!.execute?.({}, { toolCallId: "call-1" } as never)).resolves.toBe("run-2")
   })
 
-  it("maps Eve step.started tools to each Agent Invocation", async () => {
-    const started = vi.fn((event: { type: string }, context: { session: { id: string } }) => ({
-      run: {
+  it("rejects unavailable authoritative step index when a step.started handler reads it", async () => {
+    const handler = vi.fn((input: { data: { stepIndex: number } }) => ({ run: { description: String(input.data.stepIndex), execute: () => "ok" } }));
+    const capability = await eveExtensionCapability(
+      "test-extension", "test",
+      async () => ({ default: () => ({ [Symbol.for("eve.mounted-extension")]: true }) }),
+      async () => ({ dynamic: { events: { "step.started": handler }, kind: "eve:dynamic" } }),
+    );
+    await expect((capability.tools as (context: AgentCapabilityContext) => Promise<Record<string, AgentToolDefinition>>)(capabilityContext()))
+      .rejects.toMatchObject({ code: "AGENT_R0415", message: expect.stringContaining("stepIndex") });
+    expect(handler).toHaveBeenCalledOnce();
+  });
+
+  it.each(["turn.started", "step.started"])("rejects unavailable authoritative data when %s handlers read it", async event => {
+    const handler = vi.fn((input: { data: { sequence: number, modelId: string } }) => ({ run: { description: String(event === "step.started" ? input.data.modelId : input.data.sequence), execute: () => "ok" } }))
+    const capability = await eveExtensionCapability(
+      "test-extension", "test",
+      async () => ({ default: () => ({ [Symbol.for("eve.mounted-extension")]: true }) }),
+      async () => ({ dynamic: { events: { [event]: handler }, kind: "eve:dynamic" } }),
+    )
+    await expect((capability.tools as (context: AgentCapabilityContext) => Promise<Record<string, AgentToolDefinition>>)(capabilityContext()))
+      .rejects.toMatchObject({ code: "AGENT_R0415", message: expect.stringContaining(event === "step.started" ? "modelId" : "sequence") })
+    expect(handler).toHaveBeenCalledOnce()
+  })
+
+  it.each(["execute", "approval"])("rejects unavailable authoritative turn sequence in Eve %s contexts", async mode => {
+    const readSequence = (context: { session: { turn: { sequence: number } } }) => context.session.turn.sequence
+    const capability = await eveExtensionCapability(
+      "test-extension", "test",
+      async () => ({ default: () => ({ [Symbol.for("eve.mounted-extension")]: true }) }),
+      async () => ({ run: {
+        execute: (_input: unknown, context: { session: { turn: { sequence: number } } }) => mode === "execute" ? readSequence(context) : "ok",
+        approval: (context: { session: { turn: { sequence: number } } }) => { readSequence(context); return "not-applicable" },
+      } }),
+    )
+    for (const runId of ["turn-1", "turn-2"]) {
+      const context = capabilityContext()
+      context.run = { runId, threadId: "session-1" }
+      const tools = await (capability.tools as (context: AgentCapabilityContext) => Promise<Record<string, AgentToolDefinition>>)(context)
+      const tool = tools.test__run as AgentToolDefinition & { needsApproval: (input: unknown) => Promise<boolean> }
+      await expect(mode === "execute" ? tool.execute!({}) : tool.needsApproval({}))
+        .rejects.toMatchObject({ code: "AGENT_R0415", message: expect.stringContaining("session.turn.sequence") })
+    }
+  })
+
+  it("preserves Eve execution context from preparation-time dynamic tools", async () => {
+    const abortSignal = new AbortController().signal
+    const started = vi.fn((event: { data: Record<string, unknown>, type: string }, context: { messages: readonly ModelMessage[], session: { id: string, turn: { id: string } } }) => ({
+      turn: {
         description: `${event.type}:${context.session.id}`,
-        execute: async () => context.session.id,
+        inputSchema: { type: "object" },
+        outputSchema: { type: "object" },
+        execute: async (_input: unknown, toolContext: { abortSignal: AbortSignal, messages: readonly ModelMessage[], session: { id: string, turn: { id: string } } }) => ({
+          hasAbortSignal: toolContext.abortSignal === abortSignal,
+          messageCount: toolContext.messages.length,
+          session: toolContext.session.id,
+          turn: toolContext.session.turn.id,
+        }),
+        toModelOutput: (output: unknown) => ({
+          type: "content",
+          value: [{ type: "text", text: JSON.stringify(output) }],
+        }),
       },
     }))
     const capability = await eveExtensionCapability(
@@ -1205,19 +1576,46 @@ describe("Eve extension capabilities", () => {
       async () => ({ default: () => ({ [Symbol.for("eve.mounted-extension")]: true }) }),
       async () => ({
         dynamic: {
-          events: { "step.started": started },
+          events: { "session.started": started },
           kind: "eve:dynamic",
         },
       }),
     )
     const context = capabilityContext()
-    context.run = { runId: "run-1", threadId: "session-1" }
+    context.run = { runId: "turn-2", threadId: "session-1" }
+    context.abortSignal = abortSignal
+    context.invocation!.input.messages = () => [
+      { id: "message-1", parts: [{ text: "Previous", type: "text" }], role: "user" },
+      { id: "message-2", parts: [{ text: "Current", type: "text" }], role: "user" },
+    ] as never
 
     const tools = await (capability.tools as (context: AgentCapabilityContext) => Promise<Record<string, AgentToolDefinition>>)(context)
+    const tool = tools.test__turn as AgentToolDefinition & {
+      execute: (input: unknown, options: { messages: ModelMessage[], toolCallId: string }) => Promise<unknown>
+      outputSchema?: unknown
+      toModelOutput: (options: { output: unknown }) => Promise<unknown>
+    }
 
-    expect(started).toHaveBeenCalledOnce()
-    expect(tools.test__run!.description).toBe("step.started:run-1")
-    await expect(tools.test__run!.execute?.({}, { toolCallId: "call-1" } as never)).resolves.toBe("run-1")
+    expect(started).toHaveBeenCalledWith({ data: {}, type: "session.started" }, expect.objectContaining({
+      abortSignal,
+      model: null,
+      session: expect.objectContaining({ id: "session-1" }),
+    }))
+    const [event, resolvedContext] = started.mock.calls[0]!
+    expect(event.data).toEqual({})
+    expect(resolvedContext.session.turn.id).toBe("turn-2")
+    expect(tool.description).toBe("session.started:session-1")
+    expect(tool.outputSchema).toEqual({ type: "object" })
+    await expect(tool.execute({}, { messages: [{ role: "user", content: "Hello" }], toolCallId: "call-1" })).resolves.toEqual({
+      hasAbortSignal: true,
+      messageCount: 1,
+      session: "session-1",
+      turn: "turn-2",
+    })
+    await expect(tool.toModelOutput({ output: { ok: true } })).resolves.toEqual({
+      type: "content",
+      value: [{ type: "text", text: JSON.stringify({ ok: true }) }],
+    })
   })
 
   it("rejects dynamic tools with several active lifecycle handlers", async () => {

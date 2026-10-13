@@ -53,12 +53,7 @@ const docsPageUi = {
   display: none;
 }
 
-/* The catalog spans the full page width. Only its intro keeps the prose measure. */
-.docs-catalog-content {
-  max-width: none;
-}
-
-/* ContentRenderer wraps the page in one div. Its intro children keep the measure. */
+/* The catalog spans the full page width. ContentRenderer wraps the page in one div. Its intro children keep the measure. */
 .docs-catalog-content :deep(> div > :not(.vh-docs-catalog)) {
   max-width: var(--vh-content-width);
 }

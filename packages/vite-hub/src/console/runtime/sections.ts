@@ -1,3 +1,5 @@
+import type { PrimitiveIconName } from "@vite-hub/ui/primitive-rail"
+
 /** Sections that the Console UI in `vite-hub` renders with its own components. Owner packages contribute the others. */
 export const consoleBuiltinSectionIds = ["env", "connections", "agents", "usage", "blob", "databases", "kv"] as const
 
@@ -153,6 +155,29 @@ export function resolveConsoleSectionDocs(section: ConsoleSectionId): string | u
   return consolePrimitives.find(entry => entry.id === section)?.docs
 }
 
+/** Rail icon of each known section. A contributed section with an unknown id uses the icon from its descriptor. */
+export const consoleSectionRailIcons: Readonly<Record<string, PrimitiveIconName>> = {
+  agents: "agent",
+  usage: "usage",
+  databases: "database",
+  kv: "kv",
+  blob: "blob",
+  workspaces: "workspace",
+  workflows: "workflow",
+  queues: "queue",
+  schedules: "schedule",
+  sandboxes: "sandbox",
+  env: "env",
+  connections: "connection",
+  email: "email",
+  "rate-limits": "rate-limit",
+}
+
+/** Returns the rail icon of a known section, or undefined for a contributed section that the Console does not know. */
+export function consoleSectionRailIcon(section: ConsoleSectionId): PrimitiveIconName | undefined {
+  return Object.hasOwn(consoleSectionRailIcons, section) ? consoleSectionRailIcons[section] : undefined
+}
+
 /** First key of every "Go to" chord, as in Linear and GitHub. */
 export const consoleGoToKey = "g"
 
@@ -209,7 +234,7 @@ export function isConsoleConnectionsEnabled(options: { connections?: unknown }, 
   if (development) return true
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Options cross the host boundary as unknown values.
   if (typeof connections !== "object" || connections === null) return false
-  return "management" in connections && Boolean(connections.management)
+  return Object.hasOwn(connections, "management") && Boolean(Reflect.get(connections, "management"))
 }
 
 /** Route name of a contributed section. The Console serves it at `/_vitehub/<id>`. */

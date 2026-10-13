@@ -2964,6 +2964,32 @@ describe("lazy sources", () => {
     expect(getItem).toHaveBeenCalledTimes(1)
   })
 
+  it("checks cached ownership from one mount listing", async () => {
+    const store = createMemoryWorkspaceStore()
+    const definition = {
+      name: "cached-ownership-list",
+      sources: {
+        docs: custom({
+          cache: { maxAge: 3600 },
+          materialize: "startup",
+          files: [
+            { path: "one.md", content: "one" },
+            { path: "two.md", content: "two" },
+          ],
+        }),
+      },
+    }
+    const view = createWorkspaceSourceView(definition, store)
+    await view.materializeSources()
+    const list = vi.spyOn(store, "list")
+    const stat = vi.spyOn(store, "stat")
+
+    await view.materializeSources()
+
+    expect(list).toHaveBeenCalledWith("docs", { recursive: true })
+    expect(stat.mock.calls.some(([path]) => path === "docs/one.md" || path === "docs/two.md")).toBe(false)
+  })
+
   it("refreshes expired cached materialization across Workspace facades", async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date("2026-05-05T12:00:00Z"))

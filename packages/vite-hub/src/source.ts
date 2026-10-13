@@ -14,22 +14,51 @@ import type { SQL } from "drizzle-orm"
 import type { AnySQLiteColumn, SQLiteTable } from "drizzle-orm/sqlite-core"
 import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
 
+type ProviderCollectionLoader<TSourceItem, TQuery extends object> = (
+  options: { cursor?: string; limit: number; query: TQuery; signal?: AbortSignal },
+) => Promise<{ items: readonly TSourceItem[]; nextCursor: string | null }>
+
 export * from "@vite-hub/source"
 
-export interface CollectionSource<
+interface CollectionSourceBase<TSourceItem, TQueryInput extends object, TQuery extends object> {
+  get?: (key: string, options: { signal?: AbortSignal }) => Promise<TSourceItem | null | undefined>
+  defaultLimit?: number
+  maxLimit?: number
+  querySchema?: StandardSchemaV1<TQueryInput, TQuery>
+}
+
+interface CursorCollectionSource<
   TSourceItem,
   TQuery extends object,
   TCursorInput extends CollectionCursorValue,
   TCursorOutput extends CollectionCursorValue = TCursorInput,
   TQueryInput extends object = TQuery,
-> {
+> extends CollectionSourceBase<TSourceItem, TQueryInput, TQuery> {
   cursor(item: NoInfer<TSourceItem>): Readonly<TCursorInput>
   cursorSchema: StandardSchemaV1<TCursorInput, TCursorOutput>
-  defaultLimit?: number
   load: CollectionLoader<TSourceItem, TQuery, TCursorOutput>
-  maxLimit?: number
-  querySchema?: StandardSchemaV1<TQueryInput, TQuery>
+  pagination?: undefined
 }
+
+interface ProviderCollectionSource<
+  TSourceItem,
+  TQuery extends object,
+  TQueryInput extends object = TQuery,
+> extends CollectionSourceBase<TSourceItem, TQueryInput, TQuery> {
+  load: ProviderCollectionLoader<TSourceItem, TQuery>
+  pagination: "provider"
+  cursor?: undefined
+  cursorSchema?: undefined
+}
+
+export type CollectionSource<
+  TSourceItem,
+  TQuery extends object,
+  TCursorInput extends CollectionCursorValue,
+  TCursorOutput extends CollectionCursorValue = TCursorInput,
+  TQueryInput extends object = TQuery,
+> = CursorCollectionSource<TSourceItem, TQuery, TCursorInput, TCursorOutput, TQueryInput>
+  | ProviderCollectionSource<TSourceItem, TQuery, TQueryInput>
 
 interface TableShape {
   readonly _: {
@@ -184,7 +213,7 @@ export function table<TTable extends TableShape>(
     querySchema?: undefined
   },
 ): CollectionSource<TTable["$inferSelect"], CollectionRequestQuery, KeysetCursor>
-export function table(input: unknown): CollectionSource<any, any, KeysetCursor> {
+export function table(input: unknown): CursorCollectionSource<TableShape["$inferSelect"], CollectionRequestQuery, KeysetCursor> {
   // SAFETY: Public overloads constrain input to TableSourceOptions before this implementation runs.
   const options = input as TableSourceOptions<TableShape, StandardSchemaV1<unknown, object> | undefined>
   const rawTable: unknown = options.table
@@ -215,7 +244,7 @@ export function table(input: unknown): CollectionSource<any, any, KeysetCursor> 
     cursor: row => columns.map((column, index) => driverValue(column, row[keys[index]!])),
     cursorSchema: keysetCursorSchema(columns),
     defaultLimit: options.defaultLimit,
-    async load({ cursor, limit, query, signal }) {
+    async load({ cursor, limit, query, signal }: { cursor?: KeysetCursor; limit: number; query: CollectionRequestQuery; signal?: AbortSignal }) {
       signal?.throwIfAborted()
       // SAFETY: The where hook contract returns a Drizzle SQL expression when it returns a value.
       const filter = options.where?.({ query, table: options.table }) as SQL | undefined
@@ -231,7 +260,8 @@ export function table(input: unknown): CollectionSource<any, any, KeysetCursor> 
       return rows
     },
     maxLimit: options.maxLimit,
-    querySchema,
+    // SAFETY: Public overloads preserve the concrete schema input/output types.
+    querySchema: querySchema as StandardSchemaV1<CollectionRequestQuery, CollectionRequestQuery>,
   }
 }
 
@@ -246,11 +276,13 @@ type SourceQueryInput<TSource extends AnyCollectionSource> =
 interface DefineSourceCollection {
   <TSource extends AnyCollectionSource, TTransform extends (item: NoInfer<SourceItem<TSource>>) => unknown>(options: {
     authorize?: AccessAuthorizeOption
+    route?: false
     source: TSource
     transform: TTransform
   }): Collection<Awaited<ReturnType<TTransform>>, SourceQuery<TSource>, SourceQueryInput<TSource>>
   <TSource extends AnyCollectionSource>(options: {
     authorize?: AccessAuthorizeOption
+    route?: false
     source: TSource
     transform?: undefined
   }): Collection<SourceItem<TSource>, SourceQuery<TSource>, SourceQueryInput<TSource>>
@@ -259,23 +291,28 @@ interface DefineSourceCollection {
 const defineCollectionImplementation = (
   input:
     | Parameters<typeof defineCoreCollection>[0]
-    | { authorize?: AccessAuthorizeOption; source: AnyCollectionSource; transform?: (item: any) => unknown },
+    | { authorize?: AccessAuthorizeOption; route?: false; source: AnyCollectionSource; transform?: (item: any) => unknown },
   options?: Parameters<typeof defineCoreCollection>[1],
 ) => {
   const core: unknown = defineCoreCollection
   // SAFETY: This adapter forwards one of the public defineCollection overload argument sets.
   const callCore = core as (...args: unknown[]) => unknown
   if (input instanceof Function) return callCore(input, options)
-  const { authorize, source, transform } = input
-  return callCore(source.load, {
+  const { authorize, route, source, transform } = input
+  const definition = {
     authorize,
-    cursor: source.cursor,
-    cursorSchema: source.cursorSchema,
+    route,
+    get: source.get,
+    pagination: source.pagination,
     defaultLimit: source.defaultLimit,
     maxLimit: source.maxLimit,
     querySchema: source.querySchema,
     transform,
-  })
+    ...(source.pagination === "provider"
+      ? {}
+      : { cursor: source.cursor, cursorSchema: source.cursorSchema }),
+  }
+  return callCore(source.load, definition)
 }
 
 // SAFETY: The implementation dispatches the core loader and Source object overloads above.

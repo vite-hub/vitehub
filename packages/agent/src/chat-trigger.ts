@@ -4,6 +4,7 @@ import { createChatMessageTriggerInput } from "./chat-message-input.ts"
 import { readAgentErrorProperty, toAgentPublicError } from "./agent-error.ts"
 import { createReplyDeliveryEffectIntent, defineFinishEffect } from "./delivery-effects.ts"
 import { chatFinalReplyIntent, chatFinalReplyMode, chatFinalReplyNotices, setChatFinalReplyText } from "./internal/chat-finish-delivery.ts"
+import { formatChannelCitationText } from "./internal/channel-citations.ts"
 import { agentWorkflowExecutionContextKey } from "./internal/workflow-execution.ts"
 import { agentInvokerLabel } from "./invoker.ts"
 
@@ -13,7 +14,6 @@ import type {
   AgentChatAgentHookArgs,
   AgentChatErrorHookArgs,
   AgentChatCapabilityOptions,
-  AgentChatFinishExtension,
   AgentChatOptions,
   AgentChatPlatformResolver,
   AgentChannelDeliveryEffectIntent,
@@ -132,7 +132,8 @@ export async function resolveChatErrorFallbackText<TRuntimeConfig extends AgentR
   callbackDelivered?: () => boolean,
   resolveFallback?: (fallback: Promise<unknown>) => Promise<unknown>,
 ): Promise<string | undefined> {
-  const text = await resolveChatErrorFallbackBody(options, args, callbackDelivered, resolveFallback)
+  const originalText = await resolveChatErrorFallbackBody(options, args, callbackDelivered, resolveFallback)
+  const text = originalText === undefined ? undefined : formatChannelCitationText(originalText)
   // `errorConsoleLink` applies to the default text and to custom `errorFallbackText` results.
   const consoleUrl = options?.errorConsoleLink ? args.invocation?.consoleUrl : undefined
   return text && consoleUrl && !text.includes(consoleUrl) ? `${text}\n\nDetails: ${consoleUrl}` : text
@@ -314,13 +315,14 @@ async function resolveChatThinkingFallback<TRuntimeConfig extends AgentRuntimeCo
   if (hasRuntimeType(fallback, "function")) {
     const resolved = await fallback(args)
     if (resolved === null) return null
-    return hasRuntimeType(resolved, "string") ? resolved : undefined
+    return hasRuntimeType(resolved, "string") ? formatChannelCitationText(resolved) : undefined
   }
   if (Array.isArray(fallback)) {
     if (fallback.length === 0) return null
-    return fallback[Math.floor(Math.random() * fallback.length)]
+    const selected = fallback[Math.floor(Math.random() * fallback.length)]
+    return selected === undefined ? undefined : formatChannelCitationText(selected)
   }
-  if (hasRuntimeType(fallback, "string")) return fallback
+  if (hasRuntimeType(fallback, "string")) return formatChannelCitationText(fallback)
   return undefined
 }
 
@@ -485,8 +487,8 @@ export function assertChatDeliveryOptions(options: AgentChatOptions): void {
   if (options.loading?.intervalMs !== undefined && (!Number.isFinite(options.loading.intervalMs) || options.loading.intervalMs <= 0)) {
     throw agentDiagnostics.AGENT_R0380({ message: "[vitehub] messages.loading.intervalMs must be a positive finite number." })
   }
-  if (options.final?.delivery !== undefined && options.final.delivery !== "new-message") {
-    throw agentDiagnostics.AGENT_R0381({ message: '[vitehub] messages.final.delivery must be "new-message".' })
+  if (options.final?.delivery !== undefined && options.final.delivery !== "new-message" && options.final.delivery !== "placeholder") {
+    throw agentDiagnostics.AGENT_R0381({ message: '[vitehub] messages.final.delivery must be "new-message" or "placeholder".' })
   }
   if (options.timeout !== undefined && (!Number.isFinite(options.timeout) || options.timeout <= 0)) {
     throw agentDiagnostics.AGENT_R0382({ message: "[vitehub] messages.timeout must be a positive finite number." })

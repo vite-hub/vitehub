@@ -26,7 +26,7 @@ function removeDocusCatchAllPage(pages: Array<{ path?: string, file?: string }>)
 
 export function isDocsArtifactSource(path: string) {
   const normalizedPath = path.replace(/\\/g, "/");
-  return /content\/(?:docs|blog|trust)\/.*\.md$/.test(normalizedPath)
+  return /content\/(?:docs|trust)\/.*\.md$/.test(normalizedPath)
     || /content\/docs\/(?:.*\/)?\.navigation\.yml$/.test(normalizedPath);
 }
 

@@ -1,36 +1,45 @@
 ---
-title: Database get started
-description: Install Database, define a schema, apply the first migration, and query it.
-navigation.title: Get started
+
+title: Query your first Database
+description: Create a SQLite notes table with Drizzle and query it from a server route.
+layout: tutorial
+navigation.title: Tutorial
 navigation.order: 2
 icon: i-lucide-rocket
 ---
 
-## Quick start
+Create a SQLite `notes` table and read it from an API route. You will declare the table with Drizzle, generate a migration, and apply it before starting the app. The first query returns `[]` because the table has no rows yet.
 
-::steps{level="3"}
+You need Node.js 24.15 or newer, pnpm, and a Vite application. Run the commands from its root. This uses local SQLite and needs no provider account. See [Hosts](/docs/database/hosts) when you need a database shared by several app instances.
 
-### Install
+::tutorial-step{title="Install and configure"}
+## Install and configure
 
-```bash [Terminal]
-pnpm add @vite-hub/database drizzle-orm
-pnpm add -D @vite-hub/cli drizzle-kit
+Install the Database runtime and Drizzle. The CLI and `drizzle-kit` generate and apply the SQL migration.
+
+```bash [commands/install]
+pnpm add @vite-hub/database drizzle-orm nitro h3
+pnpm add -D @vite-hub/cli drizzle-kit vite
 ```
 
-### Configure
+Add `hubDb()` to your existing Vite config. It discovers Database Definitions and generates the runtime lookup used by the route.
 
 ```ts [vite.config.ts]
 import { hubDb } from '@vite-hub/database/vite'
 import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
 
 export default defineConfig({
-  plugins: [hubDb()],
+  plugins: [hubDb(), nitro() as never],
 })
 ```
 
-### Start using it
+::
 
-Define the schema in `src/database.ts`:
+::tutorial-step{title="Create and migrate the table"}
+## Create and migrate the table
+
+The schema has an integer primary key and a required title. This file creates the Definition; a migration creates the actual table.
 
 ```ts [src/database.ts]
 import { defineDatabase } from '@vite-hub/database'
@@ -46,16 +55,17 @@ export default defineDatabase({
 })
 ```
 
-Generate and apply the first migration:
+Run both commands once after creating the schema. `generate` writes a migration beside the Definition; `migrate` applies pending migrations to the local database.
 
-```bash [Terminal]
+```bash [commands/generate]
 pnpm vitehub db generate
 pnpm vitehub db migrate
 ```
 
-Query it from server code:
+`useDatabase('default')` returns the Drizzle client and the declared schema. The query selects all columns from all rows in `notes`.
 
 ```ts [server/api/notes.get.ts]
+import { defineEventHandler } from 'h3'
 import { useDatabase } from '@vite-hub/database/drizzle'
 
 export default defineEventHandler(() => {
@@ -66,18 +76,23 @@ export default defineEventHandler(() => {
 
 ::
 
-## Generate and apply migrations
+::tutorial-step{title="Query the table"}
+## Query the table
 
-The Database integration adds the `db` commands to the ViteHub CLI. `vite-hub` includes the CLI. Direct package installations need `@vite-hub/cli`, as shown in the quick start. Run the commands from the project root:
+Start Vite and call the route:
 
-```bash [Terminal]
-pnpm vitehub db generate
-pnpm vitehub db migrate
+```bash [commands/start]
+pnpm vite dev
 ```
 
-| Command | Effect |
-| --- | --- |
-| `vitehub db generate` | Refreshes the generated Drizzle config and creates migrations from your Database Definitions. Pass `--name <name>` to name the migration or `--custom` to create an empty migration. |
-| `vitehub db migrate` | Refreshes the generated Drizzle config and applies pending migrations. |
+Keep the server running. In another terminal, run:
 
-Migrations go to a `migrations` directory next to each Database Definition file.
+```bash [commands/request]
+curl http://localhost:5173/api/notes
+```
+
+The response is `[]`. This confirms that the migration created the table and the route can query it. If you see a missing-table error, run `pnpm vitehub db migrate` from the app root and check its output.
+
+Add insert and update operations with the [Server API](/docs/database/server-api). After you change the schema, generate and apply a new migration before querying the new columns.
+
+::

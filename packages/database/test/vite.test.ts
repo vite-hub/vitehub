@@ -5,7 +5,7 @@ import { dirname, join, resolve } from "node:path"
 import { tmpdir } from "node:os"
 
 import { afterEach, describe, expect, it } from "vitest"
-import { createServer as createViteServer } from "vite"
+import { createServer as createViteServer, type ViteDevServer } from "vite"
 import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
 import {
@@ -55,7 +55,7 @@ function resolveConfigResolved(plugin: ReturnType<typeof hubDb>): (config: unkno
 
 interface TestHotUpdateContext {
   file: string
-  server: {
+  server: ViteDevServer | {
     moduleGraph: {
       getModuleById: (id: string) => { id: string } | undefined
       invalidateModule: (module: { id: string }) => void
@@ -269,6 +269,73 @@ describe("hubDb", () => {
     }
   }, 30_000)
 
+  it("refreshes direct Definition resource projections during Vite development hot updates", async () => {
+    const rootDir = await createTempProject()
+    await symlink(resolve(import.meta.dirname, "../../../node_modules"), join(rootDir, "node_modules"), "dir")
+    const requests: string[] = []
+    const proxy = createHttpServer((request, response) => {
+      requests.push(request.url!)
+      response.setHeader("Content-Type", "application/json")
+      response.end(JSON.stringify({ success: true, result: [{ success: true, results: { rows: [["application note"]] } }] }))
+    })
+    const proxyUrl = await listenHttpServer(proxy)
+    const definition = await writeDefinition(rootDir, "server/databases/config.ts")
+    const queryFile = join(rootDir, "server/query.ts")
+    await writeFile(queryFile, [
+      "import definition from './databases/config.ts'",
+      "import { useDatabase } from '@vite-hub/database/drizzle'",
+      "import { runWithActiveCloudflareEnv } from '@vite-hub/internal/runtime/cloudflare-env'",
+      "export const query = (binding: unknown) => runWithActiveCloudflareEnv({ HOST_DB: binding }, async () => {",
+      "  const { db, schema } = useDatabase('default')",
+      "  return { definition: await definition.select().from(definition.schema.notes), registry: await db.select().from(schema.notes) }",
+      "})",
+      "",
+    ].join("\n"))
+    const nativeQueries: string[] = []
+    const binding = {
+      prepare(query: string) {
+        nativeQueries.push(query)
+        return { bind: () => ({ raw: async () => [["host note"]] }) }
+      },
+    }
+    const plugin = hubDb({ binding: "HOST_DB", databaseId: "host-id", databaseName: "host-db", driver: "d1" })
+    const server = await createViteServer({ configFile: false, plugins: [plugin], root: rootDir, server: { host: "127.0.0.1", port: 0, watch: null } })
+    try {
+      await server.listen()
+      async function query() {
+        // SAFETY: This fixture writes the module before Vite evaluates its public Database imports.
+        const module = await server.ssrLoadModule(queryFile) as {
+          query: (nativeBinding: typeof binding) => Promise<{ definition: Array<{ title: string }>, registry: Array<{ title: string }> }>
+        }
+        return module.query(binding)
+      }
+      await expect(query()).resolves.toEqual({ definition: [{ title: "host note" }], registry: [{ title: "host note" }] })
+      expect(nativeQueries).toHaveLength(2)
+      nativeQueries.length = 0
+
+      await writeFile(definition, [
+        "import { defineDatabase } from '@vite-hub/database'",
+        "import { sqliteTable, text } from 'drizzle-orm/sqlite-core'",
+        "const notes = sqliteTable('notes', { title: text('title') })",
+        `const cloudflare = { binding: 'HOST_DB', databaseId: 'application-id', databaseName: 'application-db', http: { authToken: 'application-token', url: ${JSON.stringify(`${proxyUrl}/application/raw`)} } }`,
+        "export default defineDatabase({ cloudflare, schema: { notes } })",
+        "",
+      ].join("\n"))
+      const changedModule = server.moduleGraph.getModuleById(definition)
+      if (!changedModule) throw new Error("Expected Vite to track the Database Definition.")
+      // Vite invalidates the edited file before it invokes the plugin's hot-update hook.
+      server.moduleGraph.invalidateModule(changedModule)
+      await resolveHotUpdate(plugin)({ file: definition, server })
+
+      await expect(query()).resolves.toEqual({ definition: [{ title: "application note" }], registry: [{ title: "application note" }] })
+      expect(nativeQueries).toEqual([])
+      expect(requests).toEqual(["/application/raw", "/application/raw"])
+    }
+    finally {
+      await Promise.all([server.close(), closeHttpServer(proxy)])
+    }
+  }, 30_000)
+
   it("exposes integration connection defaults to direct definitions", async () => {
     const plugin = hubDb({
       connection: {
@@ -331,15 +398,34 @@ describe("hubDb", () => {
 
   it("reads provision state from the Vite root when projectRoot is nested", async () => {
     const rootDir = await createTempProject()
-    await writeDefinition(join(rootDir, "packages", "db"), "server/databases/config.ts", "notes", { cloudflare: "databaseName: 'database-name'," })
+    const databaseRoot = join(rootDir, "packages", "db")
+    await writeDefinition(databaseRoot, "server/databases/config.ts", "notes", { cloudflare: "databaseName: 'database-name'," })
     await mkdir(join(rootDir, ".vitehub"))
     await writeFile(join(rootDir, ".vitehub/provision.json"), JSON.stringify({ cloudflare: { d1: { default: "provisioned-database-id" } } }))
+    await mkdir(join(databaseRoot, ".vitehub"))
+    await writeFile(join(databaseRoot, ".vitehub/provision.json"), JSON.stringify({ cloudflare: { d1: { default: "unrelated-nested-id" } } }))
 
     const plugin = hubDb({ projectRoot: "packages/db" })
     const configResolved = resolveConfigResolved(plugin)
     await configResolved({ database: undefined, root: rootDir })
 
     expect(plugin.vitehub?.inspect?.()?.providerOutput?.map(output => output.description)).toEqual(["Generated Cloudflare Database worker"])
+    expect(plugin.api.getConfig()?.databases.default?.cloudflare?.databaseId).toBe("provisioned-database-id")
+    expect(plugin.api.getConfig()?.definitionDefaults.cloudflareProjections.default).toEqual({
+      binding: "DB",
+      provisionedId: "provisioned-database-id",
+      resource: "configured",
+    })
+
+    await writeFile(join(rootDir, ".vitehub/provision.json"), JSON.stringify({ cloudflare: { d1: { default: "refreshed-database-id" } } }))
+    expect((await plugin.api.refresh())?.databases.default?.cloudflare?.databaseId).toBe("refreshed-database-id")
+
+    await rm(join(rootDir, ".vitehub/provision.json"))
+    const unprovisioned = await plugin.api.refresh()
+    expect(unprovisioned?.databases.default?.cloudflare?.databaseId).toBeUndefined()
+    expect(unprovisioned?.definitionDefaults.cloudflareProjections.default?.provisionedId).toBeUndefined()
+    expect(unprovisioned?.definitionDefaults.cloudflareProjections.default?.binding).toBeUndefined()
+    expect(plugin.vitehub?.inspect?.()?.providerOutput).toEqual([])
   })
 
   it("writes one Drizzle config per named database migrations directory", async () => {
@@ -512,6 +598,54 @@ describe("hubDb", () => {
     await expect(readFile(generatedTypesFile, "utf8")).resolves.toBe("export {}\n")
   })
 
+  it("refreshes cached direct Definition defaults when HMR changes resource ownership", async () => {
+    const rootDir = await createTempProject()
+    const definition = await writeDefinition(rootDir, "server/databases/config.ts", "notes", {
+      cloudflare: "binding: 'HOST_DB', databaseId: 'application-id', databaseName: 'application',",
+    })
+    const plugin = hubDb({ driver: "d1", binding: "HOST_DB", databaseId: "host-id", databaseName: "host" })
+    const server = await createViteServer({
+      configFile: false,
+      plugins: [plugin],
+      root: rootDir,
+      server: { hmr: false, middlewareMode: true, watch: null },
+    })
+    const runtimeFile = resolve(import.meta.dirname, "../src/runtime/definition-config.ts")
+    const evaluatedDefinition = {
+      drizzle: {},
+      name: "default",
+      schema: {},
+      cloudflare: { binding: "HOST_DB", databaseId: "application-id", databaseName: "application" },
+    }
+    const loadRuntime = async () => {
+      // SAFETY: This source module exports the direct Definition runtime config resolver.
+      return await server.ssrLoadModule(runtimeFile) as typeof import("../src/runtime/definition-config.ts")
+    }
+
+    try {
+      expect((await loadRuntime()).runtimeConfig(evaluatedDefinition).cloudflare?.binding).toBe("HOST_DB")
+      await writeFile(definition, [
+        "import { defineDatabase } from '@vite-hub/database'",
+        "const cloudflare = { binding: 'HOST_DB', databaseId: 'application-id', databaseName: 'application' }",
+        "export default defineDatabase({ name: 'default', cloudflare, schema: {} })",
+      ].join("\n"))
+      await resolveHotUpdate(plugin)({ file: definition, server })
+
+      const updated = (await loadRuntime()).runtimeConfig(evaluatedDefinition)
+      expect(updated.cloudflare?.databaseId).toBe("application-id")
+      expect(updated.cloudflare?.binding).toBeUndefined()
+
+      await writeDefinition(rootDir, "server/databases/config.ts", "notes", {
+        cloudflare: "binding: 'HOST_DB', databaseId: 'application-id', databaseName: 'application',",
+      })
+      await resolveHotUpdate(plugin)({ file: definition, server })
+      expect((await loadRuntime()).runtimeConfig(evaluatedDefinition).cloudflare?.binding).toBe("HOST_DB")
+    }
+    finally {
+      await server.close()
+    }
+  })
+
   it("refreshes generated artifacts during definition hot updates", async () => {
     const rootDir = await createTempProject()
     const definition = await writeDefinition(rootDir, "server/databases/config.ts")
@@ -539,7 +673,7 @@ describe("hubDb", () => {
               return { id }
             }
           },
-          invalidateModule(module) {
+          invalidateModule(module: { id: string }) {
             invalidated.push(module.id)
           },
         },
@@ -573,7 +707,7 @@ describe("hubDb", () => {
               return { id }
             }
           },
-          invalidateModule(module) {
+          invalidateModule(module: { id: string }) {
             invalidated.push(module.id)
           },
         },

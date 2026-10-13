@@ -42,6 +42,10 @@ node rate-limit.mjs
 
 The first two calls consume the budget. The third call returns a limited decision.
 
+The window must resolve to finite milliseconds greater than zero, up to JavaScript's timestamp limit of `8.64e15` milliseconds. Invalid policies fail when you create the limiter.
+
+Reset timestamps must also be positive and at most `8.64e15`. The memory driver rejects a fixed window whose end exceeds that range before it stores a counter. It preserves the configured duration. Custom driver timestamps outside that range throw regardless of the failure policy.
+
 ```text
 1: allowed
 2: allowed

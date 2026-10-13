@@ -322,6 +322,8 @@ export interface BoxResolvedRequirement {
 }
 
 export interface BoxPlan {
+  /** Configured trusted-host command limits. Absent on runtimes without this contract. */
+  readonly resources?: TrustedHostOptions["resources"];
   readonly cache: {
     readonly state: "disposable";
   };

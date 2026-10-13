@@ -15,6 +15,8 @@ let commitIndex = 0
 let treeIndex = 0
 let mirrorRefSha: string | undefined
 let mirrorRefStatus = 404
+let malformedResponsePath: string | undefined
+let malformedResponse: unknown
 
 function gitBlobSha(bytes: Uint8Array): string {
   return createHash("sha1")
@@ -43,6 +45,8 @@ beforeEach(() => {
   treeIndex = 0
   mirrorRefSha = undefined
   mirrorRefStatus = 404
+  malformedResponsePath = undefined
+  malformedResponse = undefined
   vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request, init: RequestInit = {}) => {
     const url = new URL(input instanceof Request ? input.url : String(input))
     const method = init.method || "GET"
@@ -54,6 +58,8 @@ beforeEach(() => {
       tree?: Array<{ path: string, sha: string | null, type: "blob" }>
     } : undefined
     requests.push({ body, headers: new Headers(init.headers), method, path: url.pathname })
+
+    if (url.pathname === malformedResponsePath) return jsonResponse(malformedResponse)
 
     if (url.pathname === "/repos/onmax/repo/git/ref/heads/mirror") {
       if (mirrorRefSha) return jsonResponse({ object: { sha: mirrorRefSha } })
@@ -317,6 +323,29 @@ describe("GitHub workspace publisher", () => {
     const contentsRequest = requests.find(request => request.path === "/repos/onmax/repo/contents/workspace/root/inbox/audio.md")
     expect(contentsRequest?.headers.get("accept")).toBe("application/vnd.github.object+json")
     expect(requests.some(request => request.path.endsWith("/git/trees/base-tree"))).toBe(false)
+    expect(requests.filter(request => request.method !== "GET")).toEqual([])
+  })
+
+  it.each([undefined, null, ""])("rejects a content response with SHA %j before publishing", async (sha) => {
+    malformedResponsePath = "/repos/onmax/repo/contents/workspace/root/file.md"
+    malformedResponse = { path: "workspace/root/file.md", sha, type: "file" }
+    const workspace = createWorkspace({
+      name: "docs",
+      store: { provider: "memory" },
+      publish: [github({
+        branch: "feature/audio",
+        deleteUntracked: false,
+        repo: "onmax/repo",
+        root: "workspace/root",
+        token: "token",
+      })],
+    })
+    await workspace.writeFile("file.md", "content")
+
+    await expect(workspace.snapshot()).rejects.toMatchObject({
+      code: "WORKSPACE_FAILED",
+      message: "[vitehub] GitHub workspace returned a malformed content response.",
+    })
     expect(requests.filter(request => request.method !== "GET")).toEqual([])
   })
 

@@ -1,6 +1,7 @@
 import { describe, expectTypeOf, it } from "vitest"
 import * as v from "valibot"
 import type { AgentChannelMessageContext } from "@vite-hub/agent"
+import type { AgentInvocationRecord } from "@vite-hub/agent"
 import { defineCollection } from "@vite-hub/source"
 import { defineChannel, discord, github, http, slack, teams, telegram, webChat } from "@vite-hub/agent/channels"
 
@@ -15,6 +16,15 @@ const collection = defineCollection(async () => [{ id: "m1", subject: "Invoice" 
 })
 
 describe("built-in Channel replay public types", () => {
+  it("infers the legacy Invocation recovery hook item and record", () => {
+    defineChannel("mailbox", {
+      history: { collection, key: item => item.id, async invocationItem(invocation) {
+        expectTypeOf(invocation).toEqualTypeOf<AgentInvocationRecord>()
+        return invocation.annotations?.legacyId ? { id: String(invocation.annotations.legacyId), subject: "Synthetic" } : undefined
+      } },
+      triggers: { received: { invoke: () => ({ input: { prompt: "Replay" } }) } },
+    })
+  })
   it("preserves existing explicit defineChannel generic positions", () => {
     interface RuntimeConfig { mailbox: { token: string } }
     interface Data { id: string }

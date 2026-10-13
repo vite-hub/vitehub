@@ -52,6 +52,8 @@ export default defineDatabase({
 })
 ```
 
+Production Nuxt builds that use only D1 HTTP do not bundle libSQL or native SQLite libraries. Local SQLite development keeps its local driver.
+
 D1 HTTP also generates Drizzle Kit `d1-http` credentials. Migration and inspection commands call Cloudflare's API with `CLOUDFLARE_ACCOUNT_ID`, the database id, and `CLOUDFLARE_API_TOKEN`. ViteHub never embeds these credentials in generated output.
 
 ::warning

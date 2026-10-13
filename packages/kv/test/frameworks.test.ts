@@ -76,6 +76,7 @@ describe("hubKv", () => {
     const configResolved = testHook(plugin.configResolved, (_config: unknown): void | Promise<void> => undefined)
 
     await configResolved({
+      root: process.cwd(),
       kv: {
         base: ".top-level/kv",
         driver: "fs-lite",

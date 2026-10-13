@@ -22,6 +22,7 @@ import {
 } from "../console-route";
 import { consoleSectionRouteName, isConsoleSectionId } from "../sections";
 import App from "./app.vue";
+import { consoleAppearanceKey, consoleDarkSchemeQuery, startConsoleAppearance } from "./appearance";
 import { deferLucideIcons } from "./icons";
 import { createConsoleSectionLoader, loadConsoleNavigation, subscribeConsoleNavigation } from "./sections";
 
@@ -216,12 +217,12 @@ function addContributedRoutes(navigation) {
 }
 subscribeConsoleNavigation(sectionsBase, addContributedRoutes);
 
-const preferredColorScheme = window.matchMedia("(prefers-color-scheme: dark)");
-const applyPreferredColorScheme = ({ matches }) => {
-  document.documentElement.classList.toggle("dark", matches);
-};
-applyPreferredColorScheme(preferredColorScheme);
-preferredColorScheme.addEventListener("change", applyPreferredColorScheme);
+// Apply the stored appearance before the first render so the page does not flash the other scheme.
+const appearance = startConsoleAppearance({
+  query: window.matchMedia(consoleDarkSchemeQuery),
+  root: document.documentElement,
+  themeColorDocument: document,
+});
 
 router.beforeEach(async (to) => {
   if (to.matched.length === 0) {
@@ -248,6 +249,7 @@ router.afterEach((to) => {
 });
 deferLucideIcons();
 createApp(App)
+  .provide(consoleAppearanceKey, appearance)
   .use(router)
   .use(ui, { router: () => router.currentRoute.value })
   .use(createViteHubUI())

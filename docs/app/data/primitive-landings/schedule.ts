@@ -16,7 +16,7 @@ export default defineSchedule({
 export const ScheduleLanding = {
   slug: "schedule",
   name: "Schedule",
-  docsTo: "/docs/server-primitives/schedule",
+  docsTo: "/docs/schedule",
   eyebrow: "ViteHub Schedule",
   description: "Run recurring work with a typed schedule that belongs to your server code.",
   tagline: "Recurring work that follows the same contract everywhere.",

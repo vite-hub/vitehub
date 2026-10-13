@@ -493,7 +493,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       observations = configured === true ? undefined : configured.observations
       retention = configured === true ? undefined : configured.retention
       invoke = !fixture && (configured === true || configured.invoke === true)
-      generatedPlugin = resolveGeneratedConsolePlugin(root, fixture, options.invocationRootState)
+      generatedPlugin = resolveGeneratedConsolePlugin(projectRoot, fixture, options.invocationRootState)
       if (fixture && options.invocationRootState) {
         configureConsoleFixtureLifecycle(options.invocationRootState, generatedPlugin, refreshConsoleCatalog)
       }
@@ -560,7 +560,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       }
       await refreshConsoleAuthClient?.()
       projectRoot ||= resolveViteHubProjectRoot(config.root)
-      generatedPlugin ||= resolve(config.root, generatedConsolePlugin)
+      generatedPlugin ||= resolve(projectRoot, generatedConsolePlugin)
       // SAFETY: ViteHub KV and Nitro extend the resolved Vite config with these documented keys.
       const viteConfig = config as typeof config & { blob?: unknown, database?: unknown, kv?: unknown, nitro?: ConsoleNitroConfig, queue?: unknown, rateLimit?: unknown, sandbox?: unknown, schedule?: unknown, workflow?: unknown, workspace?: unknown }
       resolveBlobRegistration(viteConfig.blob)
@@ -605,7 +605,9 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       const nitro = viteConfig.nitro ??= {}
       const { kit, publicAssets } = configureConsoleNitroRoutes(nitro, baseURL, sections, consoleAuthHandlers, previousConsoleAuthHandlers)
       viteConfig.nitro = { ...kit.config, publicAssets }
-      generatedPlugin ||= resolveGeneratedConsolePlugin(config.root, fixture, options.invocationRootState)
+      generatedPlugin = fixture && generatedPlugin
+        ? generatedPlugin
+        : resolveGeneratedConsolePlugin(projectRoot, fixture, options.invocationRootState)
       // SAFETY: VITEHUB_SERVER_DIRS is ViteHub-owned config state populated with string paths.
       serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS]
       if (!cliDiscovery && !fixture) await refreshConsoleCatalog()

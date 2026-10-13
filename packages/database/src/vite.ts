@@ -8,9 +8,10 @@ import { contributeProviderDeploymentOutput, createDefaultCloudflareOutputRoot, 
 import { removeProviderOutputArtifactDir, retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
 import { createNoExternalAddition, isServerEnvironment, resolveNitroVercelFunctionName, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { normalize } from "pathe"
+import { computePackageDir, resolveRuntimeModule } from "@vite-hub/internal/build/paths"
 
 import { createDbCliContributor } from "./cli.ts"
-import { mergeCloudflareD1Bindings, resolveCloudflareD1Bindings } from "./internal/cloudflare.ts"
+import { cloudflareOptions, mergeCloudflareD1Bindings, resolveCloudflareD1Bindings } from "./internal/cloudflare.ts"
 import { resolveDBViteConfig } from "./config.ts"
 import { removeGeneratedDatabaseTypes, writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
 import { renderDatabaseConfigExpression } from "./internal/runtime-config-expression.ts"
@@ -110,6 +111,7 @@ function renderDatabasesModule(config: ResolvedDBViteConfig | undefined) {
   ].join("\n"))
 
   return [
+    `import { resolveRuntimeCloudflareConfig } from ${JSON.stringify(resolveRuntimeModule(computePackageDir(import.meta.url), "runtime/hosted"))}`,
     ...imports,
     "",
     "export const databases = {",
@@ -147,7 +149,10 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
 
   async function refreshRuntimeConfig() {
     if (!resolved) return
-    runtimeConfig = resolveDBViteConfig(resolvedOptions(), databaseRoot(), { serverDirs: databaseServerDirs() })
+    runtimeConfig = resolveDBViteConfig(resolvedOptions(), databaseRoot(), {
+      provisionRoot: resolved.root,
+      serverDirs: databaseServerDirs(),
+    })
     if (runtimeConfig) {
       await writeGeneratedDatabaseArtifacts(runtimeConfig)
     } else {
@@ -190,6 +195,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
 
   return {
     name: DB_VITE_PLUGIN_NAME,
+    enforce: "pre",
     api: {
       getConfig: () => runtimeConfig,
       isEnabled: () => resolvedOptions() !== false,
@@ -266,8 +272,10 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
 
       const schemaModule = context.server.moduleGraph.getModuleById(RESOLVED_DB_VIRTUAL_SCHEMA_ID)
       const databasesModule = context.server.moduleGraph.getModuleById(RESOLVED_DB_VIRTUAL_DATABASES_ID)
+      const definitionDefaultsModule = context.server.moduleGraph.getModuleById(RESOLVED_DB_VIRTUAL_DEFINITION_DEFAULTS_ID)
       if (schemaModule) context.server.moduleGraph.invalidateModule(schemaModule)
       if (databasesModule) context.server.moduleGraph.invalidateModule(databasesModule)
+      if (definitionDefaultsModule) context.server.moduleGraph.invalidateModule(definitionDefaultsModule)
     },
     async buildEnd(error) {
       if (error) {
@@ -347,8 +355,8 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
       if (id === RESOLVED_DB_VIRTUAL_DATABASES_ID) return renderDatabasesModule(runtimeConfig)
       if (id === RESOLVED_DB_VIRTUAL_DEFINITION_DEFAULTS_ID) {
         const options = resolvedOptions()
-        return `export default ${JSON.stringify({
-          ...(options && options.driver === "d1" ? { cloudflare: { binding: options.binding } } : {}),
+        return `export default ${JSON.stringify(runtimeConfig?.definitionDefaults ?? {
+          ...(options && options.driver === "d1" ? { cloudflare: cloudflareOptions(options) ?? {} } : {}),
           ...(options && options.connection ? { connection: options.connection } : {}),
         })}\n`
       }

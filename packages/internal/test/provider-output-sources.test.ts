@@ -1462,6 +1462,59 @@ it("retains nested repositories when a requested handler has a computed import",
   await expect(retainedHandler.load()).resolves.toMatchObject({ computed: { computed: true }, template: { templated: true } })
 })
 
+it.each([
+  ["Email", "{import(target)}", true],
+  ["Email", "import(target)", false],
+  ["Email", "<Email value={import(target)} />", true],
+  ["Email", "{<Email>{import(target)}</Email>}", true],
+  ["Email", "{(() => { if (ready) {} /pattern/.test(value); return import(target) })()} import(fake)", true],
+  ["Email<{ subject: string }>", "{import(target)}", true],
+  ["Email<string>", "import(fake)", false],
+  ['Email /* " */ value={import(target)}', "import(fake)", true],
+  ["Email", '<Email value={import(target)} / /* " */ > import(fake)', true],
+  ["Email child=<Button value={import(target)} />", "import(fake)", true],
+  ["Email child=<><Button value={import(target)} /></>", "import(fake)", true],
+  ["Email", "< /* comment */>raw import(fake) {import(target)}</>", true],
+])("traces computed imports in JSX expressions: %s %s", async (tag, body, executable) => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-jsx-computed-repository-"))
+  tempDirs.push(rootDir)
+  const handler = join(rootDir, "server", "view.tsx")
+  const imported = join(rootDir, "computed-worktree", "workflow.mjs")
+  const fake = join(rootDir, "fake-worktree", "workflow.mjs")
+  await Promise.all([
+    mkdir(dirname(handler), { recursive: true }),
+    mkdir(dirname(imported), { recursive: true }),
+    mkdir(dirname(fake), { recursive: true }),
+  ])
+  await Promise.all([
+    writeFile(join(rootDir, ".git"), "gitdir: /tmp/root.git\n"),
+    writeFile(join(dirname(imported), ".git"), "gitdir: /tmp/computed.git\n"),
+    writeFile(imported, "export const computed = true\n"),
+    writeFile(join(dirname(fake), ".git"), "gitdir: /tmp/fake.git\n"),
+    writeFile(fake, "export const fake = true\n"),
+    writeFile(handler, `const target = "../computed-worktree/workflow.mjs"; const fake = "../fake-worktree/workflow.mjs"; export const view = () => <${tag}>${body}</Email>;`),
+  ])
+  await bundleEsmEntry(handler, join(rootDir, "proof.mjs"), {
+    format: "esm",
+    platform: "node",
+    packages: "external",
+  })
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "workflow-generations", "one", "sources"),
+    paths: [handler],
+    roots: [rootDir],
+  })
+
+  if (executable) {
+    await expect(readFile(retained.resolve(imported), "utf8")).resolves.toContain("computed = true")
+  }
+  else {
+    await expect(readFile(retained.resolve(imported), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+  }
+  await expect(readFile(retained.resolve(fake), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+})
+
 it("retains transitive nested repositories for explicitly requested computed imports", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-unresolved-computed-repository-"))
   tempDirs.push(rootDir)

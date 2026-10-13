@@ -120,6 +120,10 @@
       "types": "./dist/nuxt.d.ts",
       "import": "./dist/nuxt.js"
     },
+    "./primitive-rail": {
+      "types": "./dist/primitive-rail.d.ts",
+      "import": "./dist/primitive-rail.js"
+    },
     "./vite": {
       "types": "./dist/vite.d.ts",
       "import": "./dist/vite.js"

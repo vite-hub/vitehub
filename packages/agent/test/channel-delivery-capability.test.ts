@@ -1,7 +1,12 @@
 import { describe, expect, it, vi } from "vitest"
+import * as v from "valibot"
 
+import { defineCollection } from "../../source/src/index.ts"
+import { defineChannel, defineChannelTrigger } from "../src/channels.ts"
+import { replayChannel } from "../src/channel-replay.ts"
 import { channelDelivery, inputCommands } from "../src/capabilities.ts"
 import { createAgentInspectionMetadata, defineAgent, defineCapability, resolveAgentInspectionMetadata, runAgent } from "../src/index.ts"
+import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/invocations.ts"
 
 import type { AgentToolSet } from "../src/index.ts"
 
@@ -130,6 +135,53 @@ describe("channelDelivery()", () => {
     await expect(runAgent(agent, { prompt: "Write" })).resolves.toEqual([null, "done"])
     expect(channel.send).toHaveBeenCalledTimes(1)
     expect(channel.send).toHaveBeenCalledWith("Roast", { recipient: "user:1" })
+  })
+
+  it.each(["run", "replay"])("records a dry-run write through %s without sending through the Channel", async (mode) => {
+    const channel = createChannel()
+    const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
+    const agent = defineAgent({
+      extends: agentCalling(async tools => {
+        await expect(tools.send_message!.execute!({ message: "Draft reply" })).resolves.toMatchObject({ sent: true })
+      }),
+      capabilities: [channelDelivery({ channel, options: { recipient: "user:1" } })],
+      channels: { mailbox: defineChannel("mailbox", {
+        history: { collection: defineCollection(async () => [{ id: "m1" }], { cursor: item => item.id, cursorSchema: v.string() }), key: item => item.id },
+        triggers: { received: defineChannelTrigger({ invoke: () => ({ input: { prompt: "Write" } }) }) },
+      }) },
+      invocations,
+    })
+
+    if (mode === "replay") await expect(replayChannel(agent, "mailbox", { dryRun: true })).resolves.toMatchObject({ processed: 1, failed: 0 })
+    else await expect(runAgent(agent, { dryRun: true, prompt: "Write" })).resolves.toEqual([null, "done"])
+    expect(channel.send).not.toHaveBeenCalled()
+    const page = await invocations.list()
+    const record = page.invocations[0] && await invocations.get(page.invocations[0].id)
+    expect(record?.observations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "agent.channel.delivery.effect", attributes: expect.objectContaining({
+        "channel.effect.channel": "teams",
+        "channel.effect.content": "Draft reply",
+        "channel.effect.skipped": "dry-run",
+      }) }),
+    ]))
+  })
+
+  it.each([false, true])("retains raw drafts separately from formatted deliveries, dryRun=%s", async dryRun => {
+    const channel = createChannel()
+    const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
+    const agent = defineAgent({
+      extends: agentCalling(async tools => { await tools.send_message!.execute!({ message: "Raw draft" }) }),
+      invocations,
+      capabilities: [channelDelivery({ channel, options: { recipient: "user:1" }, required: true, format: message => `Formatted: ${message}` })],
+    })
+    await expect(runAgent(agent, { dryRun, prompt: "Write" })).resolves.toEqual([null, "done"])
+    if (dryRun) expect(channel.send).not.toHaveBeenCalled()
+    else expect(channel.send).toHaveBeenCalledWith("Formatted: Raw draft", { recipient: "user:1" })
+    const page = await invocations.list()
+    const record = await invocations.get(page.invocations[0]!.id)
+    const effect = record?.observations?.find(observation => observation.name === "agent.channel.delivery.effect")
+    expect(effect?.attributes).toMatchObject({ "channel.effect.channel": "teams", "channel.effect.content": "Raw draft" })
+    expect(effect?.attributes?.["channel.effect.skipped"]).toBe(dryRun ? "dry-run" : undefined)
   })
 
   it("fails a required delivery that the Agent never sent", async () => {

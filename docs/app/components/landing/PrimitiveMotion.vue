@@ -22,6 +22,8 @@ const cycles: Record<string, number> = {
   workflow: 5600,
   content: 5600,
   agent: 6000,
+  ui: 5000,
+  channels: 4800,
 };
 const cycle = computed(() => cycles[props.name] ?? 5000);
 const id = useId();
@@ -59,6 +61,17 @@ const id = useId();
       <circle cx="34" cy="18" r="1.75" class="token a ag-call-1" />
       <circle cx="34" cy="20" r="1.75" class="token a ag-call-2" />
       <circle cx="34" cy="22" r="1.75" class="token a ag-call-3" />
+    </template>
+
+    <template v-else-if="name === 'ui'">
+      <rect x="6" y="7" width="42" height="26" rx="2" class="line" />
+      <path d="M6 13h42" class="line" />
+      <circle cx="10" cy="10" r="1" class="command" />
+      <circle cx="14" cy="10" r="1" class="command" />
+      <rect x="11" y="18" width="19" height="2.5" rx="1" class="soft" />
+      <rect x="11" y="23" width="13" height="2.5" rx="1" class="soft" />
+      <rect x="36" y="18" width="7" height="8" rx="1.5" class="soft a ui-panel" />
+      <circle cx="52" cy="20" r="2" class="token a ui-token" />
     </template>
 
     <template v-else-if="name === 'env'">
@@ -276,6 +289,15 @@ const id = useId();
       <rect x="38" y="12.5" width="2" height="5" class="ink a sh-cursor" />
       <rect x="11" y="22" width="32" height="2.5" rx="1" class="soft a sh-output-1" />
       <rect x="11" y="27" width="22" height="2.5" rx="1" class="soft a sh-output-2" />
+    </template>
+
+    <template v-else-if="name === 'channels'">
+      <circle cx="12" cy="20" r="5" class="line" />
+      <path d="M17 20h10M34 20h10" class="line dashed" />
+      <rect x="27" y="14" width="7" height="12" rx="1.5" class="soft a ch-message" />
+      <rect x="44" y="13" width="12" height="14" rx="2" class="line" />
+      <path d="M47 18h6M47 22h4" class="soft" />
+      <circle cx="12" cy="20" r="2" class="token a ch-token" />
     </template>
 
     <template v-else-if="name === 'email'">
@@ -953,6 +975,21 @@ const id = useId();
   0% { opacity: 0.35; transform: translateY(0); }
   4%, 46% { opacity: 0; transform: translateY(2px); animation-timing-function: var(--ease-out); }
   54%, 100% { opacity: 0.35; transform: translateY(0); }
+}
+
+/* Channels: one message travels from the app to a named connector. */
+.ch-token { animation-name: ch-token; }
+.ch-message { animation-name: ch-message; }
+@keyframes ch-token {
+  0%, 8% { opacity: 0; transform: translateX(0); }
+  14% { opacity: 0.85; transform: translateX(0); }
+  46% { opacity: 0.85; transform: translateX(30px); }
+  52%, 100% { opacity: 0; transform: translateX(32px); }
+}
+@keyframes ch-message {
+  0%, 12% { opacity: 0.35; transform: translateX(0); }
+  32%, 48% { opacity: 0.8; transform: translateX(4px); }
+  68%, 100% { opacity: 0.35; transform: translateX(0); }
 }
 
 /* Email: a message leaves the envelope and lands in the inbox as unread. */

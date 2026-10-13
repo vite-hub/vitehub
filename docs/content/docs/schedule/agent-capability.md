@@ -106,7 +106,7 @@ The `cronjob` tool accepts an optional IANA `timeZone` on create and edit. Sched
 - `policy` applies only to mutating operations: `create`, `edit`, `pause`, `resume`, `run`, and `delete`. Read operations always run.
 - `policy` accepts `'allow'`, `'require-approval'`, `'deny'`, `'retryable-failure'`, or a function that receives `{ name, input }` and returns one of these values.
 - Without `policy`, mutations run when the Agent calls them.
-- `'require-approval'` stops the call with `APPROVAL_REQUIRED` and an Approval Request. See [Runtime policy, approvals, and traces](/docs/getting-started/concepts/runtime-policy-approvals-and-traces).
+- `'require-approval'` stops the call with `APPROVAL_REQUIRED` and an Approval Request. See [Runtime policy, approvals, and traces](/docs/agents/runtime-policy).
 
 ## Driver support
 

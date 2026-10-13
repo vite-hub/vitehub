@@ -2,6 +2,8 @@ import { it, afterEach } from 'vitest'
 import assert from 'node:assert/strict'
 import { PullRequestInbox, type GitHubEvidence } from '../src/server/github-inbox.ts'
 import { diagnosticExcerpt, hydrateFailedCiEvidence } from '../src/server/github-inbox/ci-evidence.ts'
+import { rerunFailedActions } from '../src/presets/babysitter/ci-recovery.ts'
+import type { Claim } from '../src/server/github-inbox.ts'
 const repository = 'vite-hub/vitehub'
 const pr = { number: 7, state: 'open', user: { login: 'onmax' }, head: { sha: 'head', ref: 'fix' }, base: { ref: 'main' } }
 const check = (patch: GitHubEvidence = {}) => ({ id: 11, name: 'types', app: { slug: 'github-actions' }, head_sha: 'head', status: 'completed', conclusion: 'failure', completed_at: '2026-09-13T10:00:00Z', html_url: `https://github.com/${repository}/actions/runs/1/job/11`, ...patch })
@@ -124,4 +126,136 @@ it('keeps the diagnostic anchor before oversized trailing context', () => {
  assert.match(result.excerpt, /Error: actual failure/)
  assert.ok(result.excerpt.length <= 100)
  assert.deepEqual(result.partialLines, [2])
+})
+
+const workflowRun = (patch = {}) => ({ head_sha: 'head', run_attempt: 1, status: 'completed', conclusion: 'failure', run_started_at: '2026-09-13T09:00:00Z', ...patch })
+
+it('waits for a completed rerun and fresh failed evidence without check run_attempt', async () => {
+ const metadata = new Map<string, unknown>(); const commands: string[][] = []
+ const { claim } = await fixture()
+ const inbox = { meta: async (key: string) => metadata.get(key), setMeta: async (key: string, value: unknown) => { metadata.set(key, value) } }
+ let workflow = workflowRun()
+ const command = async (args: string[]) => { commands.push(args); return { stdout: args.includes('POST') ? '' : JSON.stringify(workflow), stderr: '' } }
+ assert.equal((await rerunFailedActions(inbox, claim, command))?.state, 'rerun')
+ assert.equal((await rerunFailedActions(inbox, claim, command))?.state, 'waiting')
+ workflow = workflowRun({ run_attempt: 2, status: 'in_progress', conclusion: null, run_started_at: '2026-09-13T11:00:00Z' })
+ assert.equal((await rerunFailedActions(inbox, claim, command))?.state, 'waiting')
+ workflow = { ...workflow, status: 'completed', conclusion: 'success' }
+ assert.equal((await rerunFailedActions(inbox, claim, command))?.state, 'waiting')
+ workflow = { ...workflow, conclusion: 'failure' }
+ assert.equal((await rerunFailedActions(inbox, claim, command))?.state, 'waiting')
+ claim.snapshot.checks = { fresh: check({ id: 12, completed_at: '2026-09-13T12:00:00Z' }) }
+ assert.equal(await rerunFailedActions(inbox, claim, command), undefined)
+ assert.equal(commands.filter(args => args.includes('POST')).length, 1)
+})
+
+it('keeps independent reruns waiting and visits later runs beyond the batch limit', async () => {
+ const metadata = new Map<string, unknown>(); const posts: string[] = []
+ const { claim } = await fixture([1, 2, 3, 4].map(id => check({ id, html_url: `https://github.com/${repository}/actions/runs/${id}/job/${id}` })))
+ const inbox = { meta: async (key: string) => metadata.get(key), setMeta: async (key: string, value: unknown) => { metadata.set(key, value) } }
+ let completed = false
+ const command = async (args: string[]) => {
+   if (args.includes('POST')) { posts.push(args[3]!); return { stdout: '', stderr: '' } }
+   const first = args[1]!.endsWith('/1')
+   return { stdout: JSON.stringify(workflowRun(completed && first ? { run_attempt: 2 } : {})), stderr: '' }
+ }
+ assert.equal((await rerunFailedActions(inbox, claim, command))?.state, 'rerun')
+ assert.equal(posts.length, 3)
+ completed = true
+ assert.equal((await rerunFailedActions(inbox, claim, command))?.state, 'rerun')
+ assert.equal(posts.length, 4)
+ assert.equal((await rerunFailedActions(inbox, claim, command))?.state, 'waiting')
+ assert.equal(posts.length, 4)
+})
+
+it('keeps successful rerun metadata when workflow reconciliation fails', async () => {
+ const { claim } = await fixture()
+ const metadata = new Map<string, unknown>(); const inbox = { meta: async (key: string) => metadata.get(key), setMeta: async (key: string, value: unknown) => { metadata.set(key, value) } }
+ await rerunFailedActions(inbox, claim, async () => ({ stdout: JSON.stringify(workflowRun()), stderr: '' }))
+ const saved = [...metadata.values()]
+ assert.equal((await rerunFailedActions(inbox, claim, async () => { throw new Error('HTTP 500') }))?.state, 'blocked')
+ assert.deepEqual([...metadata.values()], saved)
+})
+
+it('turns Actions rerun permission failures into a durable external blocker', async () => {
+ const metadata = new Map<string, unknown>()
+ const claim = { snapshot: { repository, pr: { head: { sha: 'head' } }, checks: {
+   first: check({ html_url: `https://github.com/${repository}/actions/runs/42/job/11` }),
+ } } } as unknown as Claim
+ const inbox = { meta: async (key: string) => metadata.get(key), setMeta: async (key: string, value: unknown) => { metadata.set(key, value) } }
+ const result = await rerunFailedActions(inbox, claim, async () => { throw new Error('HTTP 403: Resource not accessible by integration') }, 1_000)
+ assert.equal(result?.state, 'blocked'); assert.match((result as { reason: string }).reason, /Actions run 42/)
+ assert.equal((([...metadata.values()][0] as { status: string }).status), 'blocked')
+})
+
+it('uses a full rerun for canceled workflows', async () => {
+ const { inbox, claim } = await fixture([check({ conclusion: 'cancelled' })])
+ const posts: string[][] = []
+ await rerunFailedActions(inbox, claim, async args => {
+  if (args.includes('POST')) posts.push(args)
+  return { stdout: JSON.stringify(workflowRun({ conclusion: 'cancelled' })), stderr: '' }
+ })
+ assert.equal(posts[0]?.[3], `repos/${repository}/actions/runs/1/rerun`)
+})
+
+it('keeps the pre-request fence when the success write fails and reconciles after restart', async () => {
+ const { inbox, claim } = await fixture()
+ let posts = 0
+ let workflow = workflowRun()
+ const command = async (args: string[]) => {
+  if (args.includes('POST')) {
+   posts++
+   assert.equal((await inbox.meta(`ci-rerun:v1:${repository}:head:1`) as { status: string }).status, 'pending')
+  }
+  return { stdout: JSON.stringify(workflow), stderr: '' }
+ }
+ const failingStore = { meta: inbox.meta.bind(inbox), setMeta: async (key: string, value: unknown) => {
+  if ((value as { status: string }).status === 'succeeded') throw new Error('write interrupted')
+  await inbox.setMeta(key, value)
+ } }
+ assert.equal((await rerunFailedActions(failingStore, claim, command, 1000))?.state, 'blocked')
+ assert.equal((await rerunFailedActions(inbox, claim, command, 2000))?.state, 'waiting')
+ workflow = workflowRun({ run_attempt: 2 })
+ assert.equal(await rerunFailedActions(inbox, claim, command, 3000), undefined)
+ assert.equal(posts, 1)
+})
+
+it('releases an ambiguous interrupted request to repair without retrying the POST', async () => {
+ const { inbox, claim } = await fixture()
+ await inbox.setMeta(`ci-rerun:v1:${repository}:head:1`, { status: 'pending', runAttempt: 1, attemptedAt: 1000 })
+ assert.equal(await rerunFailedActions(inbox, claim, async args => {
+  assert.ok(!args.includes('POST'))
+  return { stdout: JSON.stringify(workflowRun()), stderr: '' }
+ }, 121000), undefined)
+})
+
+it('retries a definite rerun rejection after its provider retry window', async () => {
+ const { inbox, claim } = await fixture()
+ let posts = 0
+ const command = async (args: string[]) => {
+  if (args.includes('POST')) { posts++; throw new Error('gh: Unprocessable Entity (HTTP 422)') }
+  return { stdout: JSON.stringify(workflowRun()), stderr: '' }
+ }
+ assert.equal((await rerunFailedActions(inbox, claim, command, 1000))?.state, 'blocked')
+ assert.equal((await inbox.meta(`ci-rerun:v1:${repository}:head:1`) as { status: string }).status, 'failed')
+ assert.equal((await rerunFailedActions(inbox, claim, command, 2000))?.state, 'blocked')
+ assert.equal(posts, 1)
+ assert.equal((await rerunFailedActions(inbox, claim, command, 121001))?.state, 'blocked')
+ assert.equal(posts, 2)
+})
+
+it('retains the rerun fence after an ambiguous HTTP 500 response', async () => {
+ const { inbox, claim } = await fixture()
+ let posts = 0
+ let workflow = workflowRun()
+ const command = async (args: string[]) => {
+  if (args.includes('POST')) { posts++; throw new Error('gh: Service unavailable (HTTP 500)') }
+  return { stdout: JSON.stringify(workflow), stderr: '' }
+ }
+ assert.equal((await rerunFailedActions(inbox, claim, command, 1000))?.state, 'blocked')
+ assert.equal((await inbox.meta(`ci-rerun:v1:${repository}:head:1`) as { status: string }).status, 'pending')
+ workflow = workflowRun({ run_attempt: 2 })
+ assert.equal(await rerunFailedActions(inbox, claim, command, 121001), undefined)
+ assert.equal(await rerunFailedActions(inbox, claim, command, 241001), undefined)
+ assert.equal(posts, 1)
 })

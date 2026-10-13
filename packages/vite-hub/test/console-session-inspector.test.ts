@@ -1,4 +1,5 @@
-import { createRenderer, nextTick, ssrContextKey } from "vue"
+import { createRenderer, createSSRApp, h, nextTick, ssrContextKey } from "vue"
+import { renderToString } from "vue/server-renderer"
 import { describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({ request: vi.fn() }))
@@ -6,7 +7,10 @@ vi.mock("../src/console/runtime/client/request", () => ({ requestConsole: mocks.
 vi.mock("@vite-hub/ui", () => ({
   AgentCapabilityInspector: {},
   AgentFileTree: {},
-  AgentInvocationInspector: {},
+  AgentInvocationInspector: {
+    props: ["showSources"],
+    setup: (props: { showSources: boolean }) => () => props.showSources ? h("div", "Recorded Sources") : null,
+  },
   AgentPatchDiff: {},
   invocationActivities: () => [],
 }))
@@ -30,6 +34,20 @@ const renderer = createRenderer({
 })
 
 describe("Console inspector initialization", () => {
+  it("keeps recorded sources in Details before a Workspace descriptor is available", async () => {
+    const app = createSSRApp(Inspector, {
+      invocation: { id: "run" },
+      workspaceBase: "/api/invocations",
+      tab: "details",
+      activeSurface: "view:details",
+      openViews: ["details"],
+    })
+    for (const name of ["UIcon", "UDropdownMenu", "UButton", "UTooltip", "UKbd", "UEmpty"]) {
+      app.component(name, { render: () => null })
+    }
+    expect(await renderToString(app)).toContain("Recorded Sources")
+  })
+
   it("requests a preselected file without waiting for a Workspace scan", async () => {
     const path = ".agents/skills/runs/SKILL.md"
     let resolveResponse: (value: unknown) => void = () => {}

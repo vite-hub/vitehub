@@ -103,5 +103,5 @@ They prove discovery and Provider Output, but the source Definition files remain
 ## Related
 
 - [Generated files](/docs/development/generated-files)
-- [Definitions and discovery](/docs/getting-started/concepts/definitions-and-discovery)
+- [Definitions and discovery](/docs/development/definition-discovery)
 - [Import paths](/docs/reference/import-paths)

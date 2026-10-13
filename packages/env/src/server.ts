@@ -68,7 +68,7 @@ function resolvedRuntimeValue(entry: RuntimeEnvEntry | RuntimeProviderEntry, val
   const resolved = found ? value : entry.default
   if (typeof resolved === "undefined") {
     if (entry.required) {
-      throw missingRequiredEnv(entry.source.kind, `Missing Runtime Env from ${entry.source.kind}.`)
+      throw missingRequiredEnv(entry.source.kind, `Missing Runtime Env from ${entry.source.kind}.`, path)
     }
     return undefined
   }

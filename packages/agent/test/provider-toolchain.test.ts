@@ -15,6 +15,8 @@ vi.mock("@vite-hub/box/_internal/toolchain", () => ({ prepareHostToolchain }))
 
 import { defineAgent } from "../src/index.ts"
 import { createProviderAgentAdapter, inspectAgentProvider, localWorkspaceHost } from "../src/provider-agent.ts"
+import { executeWorkspaceCommand } from "../src/capabilities/workspace-command.ts"
+import { provideBrowserRuntimeEnvironment } from "../src/internal/browser-runtime.ts"
 import { createAgentInvocationContextStore } from "../src/invocation-context.ts"
 
 const roots: string[] = []
@@ -112,6 +114,42 @@ describe("driver.toolchain", () => {
     const after = await host.exec("node", ["-v"])
     expect(before.stdout.trim()).toBe(process.version)
     expect(after.stdout.trim()).toBe("v22.1.0-toolchain")
+  })
+
+  it.each([false, true])("keeps managed browser commands before toolchain binaries with in-place %s", async (inPlace) => {
+    const { bin, root } = await toolchainBin()
+    const managed = join(root, "managed")
+    await mkdir(managed)
+    for (const [directory, output] of [[managed, "managed"], [bin, "toolchain"]]) {
+      await writeFile(join(directory!, "agent-browser"), `#!/bin/sh\necho ${output}\n`, { mode: 0o755 })
+    }
+    prepareHostToolchain.mockResolvedValue({ bin: [bin] })
+    const workspace = {
+      fs: {},
+      tools: {},
+      startSession: async (options: import("@vite-hub/workspace").WorkspaceSessionOptions) => ({
+        close: async () => undefined,
+        commit: async () => undefined,
+        diff: async () => ({ entries: [] }),
+        readFile: async () => new Uint8Array(),
+        exec: async (command: string, args: string[] = [], execOptions?: { env?: Record<string, string> }) => {
+          const result = await options.host!.exec(command, args, { cwd: options.target, env: execOptions?.env })
+          return { args, command, exitCode: result.code, stderr: result.stderr, stdout: result.stdout }
+        },
+      }),
+    }
+    const runContext = { ...context(), workspace, workspaceDefinition: { mode: "write", name: "test" }, workspaceMode: "write" }
+    provideBrowserRuntimeEnvironment(runContext.context as never, { PATH: managed, VITEHUB_BROWSER_ACTIVE: "1" })
+    const provider = providerRuntime()
+    provider.sendTurn.mockImplementation(async () => {
+      const result = await executeWorkspaceCommand(workspace, "agent-browser", [], {}, runContext.context as never)
+      expect(result.stdout.trim()).toBe("managed")
+      const node = await executeWorkspaceCommand(workspace, "node", ["-v"], {}, runContext.context as never)
+      expect(node.stdout.trim()).toBe("v22.1.0-toolchain")
+      return { threadId: "thread-toolchain", turnId: "turn-1" }
+    })
+    createProviderRuntime.mockResolvedValueOnce(provider)
+    await createProviderAgentAdapter({ ...(inPlace ? { cwd: root } : {}), provider: "codex", toolchain: "project" }).generate(runContext as never)
   })
 
   it("does not report toolchain commands as missing before a checkout exists", async () => {

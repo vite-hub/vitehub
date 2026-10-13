@@ -86,7 +86,7 @@ export function trustGitHubPullRequestWorkspaceCapability<T extends object>(capa
   trustedGitHubPullRequestWorkspaceCapabilities.add(capability)
   return capability
 }
-export const capabilityFinishDeliveryEffectSymbol: unique symbol = Symbol("vitehub.agent.capabilityFinishDeliveryEffect")
+export const capabilityFinishDeliveryEffectSymbol: unique symbol = Symbol.for("vitehub.agent.capabilityFinishDeliveryEffect")
 export const eagerFinishExtensionSymbol: unique symbol = Symbol("vitehub.agent.eagerFinishExtension")
 type InternalAgentCapabilityDefinition<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,

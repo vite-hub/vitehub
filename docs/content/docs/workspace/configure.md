@@ -39,12 +39,49 @@ The Vite config key is `workspace`.
 | Vercel Blob | `{ provider: 'vercel-blob', token?, prefix?, access? }` | Blob-backed storage. Defaults: prefix `.vitehub/workspaces`, access `private`; the token can come from `BLOB_READ_WRITE_TOKEN`. |
 | GitHub | `{ provider: 'github', repo?, repository?, branch?, root?, token? }` | Repository-backed storage. Defaults: branch `main`, root `.vitehub/workspaces/<workspace>`. |
 | Custom | `WorkspaceStore` | Implement the Workspace Store contract directly. |
+| Blob + Database | `createBlobDatabaseWorkspaceStore({ blob, database, workspace, prefix? })` | Portable retained folder history. Pass the returned Store to a Workspace Definition. |
 
 Without a `store`, development uses Local. Production uses Memory on Cloudflare, Vercel Blob when `BLOB_READ_WRITE_TOKEN` exists, Memory on Vercel without that token, and Local on other hosts. You must select Cloudflare Artifacts or GitHub yourself.
 
 Custom Stores can implement `removeEmptyDirectory(path)` for build Source cleanup. It must remove only an empty directory, preserve files and missing paths, and reject nonempty directories within the Store mutation boundary. Without this optional method, cleanup retains generated directories. Local, Memory, and Cloudflare Artifacts implement it.
 
 Public Workspace paths reserve `.git` at any depth and `.vitehub` at the root, regardless of case. This includes NTFS stream suffixes such as `.vitehub::$INDEX_ALLOCATION`, spellings with trailing ASCII periods or spaces such as `.vitehub.`, and NTFS short-name aliases such as `git~1`. ViteHub rejects these spellings on every host.
+
+### Blob + Database Store
+
+Use this Store for immutable folder versions on hosts supported by [Blob](/docs/blob/hosts) and [Database](/docs/database/hosts). Include its schema in a Database Definition, then generate and apply migrations through the Database integration.
+
+```ts [server/databases/history/config.ts]
+import { defineDatabase } from '@vite-hub/database'
+import { workspaceHistorySchema } from '@vite-hub/workspace/blob-database'
+
+export default defineDatabase({ name: 'history', schema: workspaceHistorySchema })
+```
+
+```ts [server/workspaces/drop.ts]
+import { blob } from '@vite-hub/blob'
+import { defineWorkspace } from '@vite-hub/workspace'
+import { createBlobDatabaseWorkspaceStore } from '@vite-hub/workspace/blob-database'
+import historyDatabase from '../databases/history/config'
+
+export const dropStore = createBlobDatabaseWorkspaceStore({
+  blob: blob.store('workspace-history'),
+  database: historyDatabase,
+  workspace: 'drop-123',
+})
+
+export default defineWorkspace({ store: dropStore })
+```
+
+`vite-hub/workspace/blob-database` also exports the constructor and schema. Install `drizzle-orm` when using this subpath. Configure the selected Blob store and Database connection through their integrations. The Store does not create cloud resources or apply migrations at runtime.
+
+Choose one stable workspace identity per document or folder. Use the same identity and prefix after a restart. The default prefix is `vitehub/workspace-history`; custom prefixes accept letters, numbers, underscores, dashes, and single slashes. Each Store owns its Blob namespace. Do not write its objects through another API.
+
+Normal `fs` writes stage changes in the Store instance. Call `snapshot()` or `history.checkpoint()` to publish them. A successful `history.commit()` replaces the staged tree with its complete file set. Failed commits preserve staged changes. Staged changes are lost when the instance stops; published revisions are durable. Other instances observe published heads, and a staged checkpoint fails if its base head moved.
+
+Call `await dropStore.delete()` after application authorization to delete the workspace and all its history. Deletion first tombstones the identity, then removes objects and catalog rows. It is permanent. Use a new identity to create a replacement workspace. Retry `delete()` after a storage outage or after stopping an abandoned in-flight request. The tombstone prevents late commits from publishing. An interrupted upload can leave bytes that a later deletion sweep removes.
+
+The Store retains every published revision. It has no pruning API. Failed or conflicting uploads can leave reusable objects outside retained usage accounting until workspace deletion. See [host storage behavior](/docs/workspace/hosts#blob-database-history).
 
 ### Local path locks
 

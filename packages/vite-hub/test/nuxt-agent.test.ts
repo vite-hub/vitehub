@@ -62,6 +62,11 @@ it("registers generated Agent handlers from the Nuxt build directory", async () 
         handler: join(buildDir, "vitehub/agent/chat-webhook-route.ts"),
         route: "/api/_vitehub/agents/:agent/webhooks/:webhook",
       },
+      {
+        handler: join(buildDir, "vitehub/agent/declared-webhook-route.ts"),
+        middleware: true,
+        route: "/**",
+      },
     ],
   })
 })

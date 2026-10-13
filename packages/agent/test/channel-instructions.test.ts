@@ -476,7 +476,15 @@ describe("Channel instructions", () => {
   })
 })
 
- describe("Teams formula guidance", () => {
+describe("Teams formatting guidance", () => {
+  it("requests verified Markdown source links instead of native citation markers", async () => {
+    const { modelCall } = await modelCallFor("teams")
+    const system = modelCall.prompt.filter(message => message.role === "system").map(message => message.content).join("\n")
+    expect(system).toContain("Cite sources with descriptive Markdown links")
+    expect(system).toContain("Never emit native citation markers")
+    expect(system).toContain("If a source URL is unavailable")
+  })
+
   it("adds plain-text math guidance only to Teams messages", async () => {
     const { modelCall } = await modelCallFor("teams")
     const system = modelCall.prompt.filter(message => message.role === "system").map(message => message.content).join("\n")

@@ -14,7 +14,7 @@ export default defineAuth({
 export const AuthLanding = {
   slug: "auth",
   name: "Auth",
-  docsTo: "/docs/server-primitives/auth",
+  docsTo: "/docs/auth",
   eyebrow: "ViteHub Auth",
   description: "Build sessions and providers with Better Auth while keeping the server contract portable.",
   tagline: "Authentication that stays yours across hosts.",

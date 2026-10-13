@@ -170,12 +170,26 @@ describe("useRealtimeTiptap", () => {
     const second = realtime.history.checkpoint()
     expect(realtime.history.pending.value).toBe(true)
 
-    responses[0]!(new Response(JSON.stringify({ content: "# Saved", snapshot: { entries: {}, id: "snapshot" } })))
-    await expect(first).resolves.toEqual({ content: "# Saved", snapshot: { entries: {}, id: "snapshot" } })
+    responses[0]!(new Response(JSON.stringify({ content: "# Saved", snapshot: { createdAt: "2026-01-01T00:00:00.000Z", entries: {}, id: "snapshot" } })))
+    await expect(first).resolves.toEqual({ content: "# Saved", snapshot: { createdAt: "2026-01-01T00:00:00.000Z", entries: {}, id: "snapshot" } })
     expect(realtime.history.pending.value).toBe(true)
 
-    responses[1]!(new Response(JSON.stringify({ message: "publisher unavailable" }), { status: 500 }))
+    responses[1]!(new Response(JSON.stringify({ message: "publisher unavailable", statusMessage: "" }), { status: 500 }))
     await expect(second).rejects.toThrow("publisher unavailable")
+    expect(realtime.history.pending.value).toBe(false)
+    scope.stop()
+  })
+
+  it("rejects malformed successful checkpoint responses", async () => {
+    vi.stubGlobal("window", { location: { host: "example.com", protocol: "https:" } })
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ content: "# Saved" }))))
+    const scope = effectScope()
+    const realtime = scope.run(() => useRealtimeTiptap("docs", ref("page.md")))!
+
+    await expect(realtime.history.checkpoint()).rejects.toMatchObject({
+      code: "REALTIME_R0012",
+      message: "The realtime checkpoint response was invalid.",
+    })
     expect(realtime.history.pending.value).toBe(false)
     scope.stop()
   })
@@ -190,9 +204,49 @@ describe("useRealtimeTiptap", () => {
     scope.stop()
   })
 
+  it("aborts an in-flight checkpoint when the composable is destroyed", async () => {
+    vi.stubGlobal("window", { location: { host: "example.com", protocol: "https:" } })
+    vi.stubGlobal("fetch", vi.fn((_input: RequestInfo | URL, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(new DOMException("The operation was aborted.", "AbortError")), { once: true })
+    })))
+    const scope = effectScope()
+    const realtime = scope.run(() => useRealtimeTiptap("docs", ref("page.md")))!
+    const checkpoint = realtime.history.checkpoint()
+    const timed = new Promise<never>((_resolve, reject) => {
+      setTimeout(() => reject(new Error("timed out waiting for checkpoint cancellation")), 100)
+    })
+
+    realtime.destroy()
+
+    await expect(Promise.race([checkpoint, timed])).rejects.toThrow("realtime document")
+    expect(realtime.history.pending.value).toBe(false)
+    scope.stop()
+  })
+
+  it("aborts a checkpoint while consuming the response body", async () => {
+    vi.stubGlobal("window", { location: { host: "example.com", protocol: "https:" } })
+    let rejectBody!: (error: unknown) => void
+    const body = new Promise<unknown>((_resolve, reject) => { rejectBody = reject })
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => body,
+    }))
+    const scope = effectScope()
+    const realtime = scope.run(() => useRealtimeTiptap("docs", ref("page.md")))!
+    const checkpoint = realtime.history.checkpoint()
+
+    await Promise.resolve()
+    realtime.destroy()
+    rejectBody(new DOMException("The operation was aborted.", "AbortError"))
+
+    await expect(checkpoint).rejects.toThrow("realtime document")
+    expect(realtime.history.pending.value).toBe(false)
+    scope.stop()
+  })
+
   it("rejects a checkpoint during a same-tick document switch", async () => {
     vi.stubGlobal("window", { location: { host: "example.com", protocol: "https:" } })
-    const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ content: "# Saved", snapshot: { entries: {}, id: "snapshot" } })))
+    const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ content: "# Saved", snapshot: { createdAt: "2026-01-01T00:00:00.000Z", entries: {}, id: "snapshot" } })))
     vi.stubGlobal("fetch", fetch)
     const documentId = ref("first.md")
     const scope = effectScope()
@@ -217,7 +271,7 @@ describe("useRealtimeTiptap", () => {
     vi.stubGlobal("window", { location: { host: "example.com", protocol: "https:" } })
     const fetch = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({ data: { code: "REALTIME_CHECKPOINT_REJECTED" } }), { status: 409 }))
-      .mockResolvedValue(new Response(JSON.stringify({ content: "# Saved", snapshot: { entries: {}, id: "snapshot" } })))
+      .mockResolvedValue(new Response(JSON.stringify({ content: "# Saved", snapshot: { createdAt: "2026-01-01T00:00:00.000Z", entries: {}, id: "snapshot" } })))
     vi.stubGlobal("fetch", fetch)
     const documentId = ref("first.md")
     const enabled = ref(true)
@@ -247,12 +301,12 @@ describe("useRealtimeTiptap", () => {
     vi.stubGlobal("window", { location: { host: "example.com", protocol: "https:" } })
     const fetch = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({ data: { code: "REALTIME_CHECKPOINT_REJECTED" } }), { status: 409 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ content: "# Saved", snapshot: { entries: {}, id: "snapshot" } })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ content: "# Saved", snapshot: { createdAt: "2026-01-01T00:00:00.000Z", entries: {}, id: "snapshot" } })))
     vi.stubGlobal("fetch", fetch)
     const scope = effectScope()
     const realtime = scope.run(() => useRealtimeTiptap("docs", ref("page.md")))!
 
-    await expect(realtime.history.checkpoint()).resolves.toEqual({ content: "# Saved", snapshot: { entries: {}, id: "snapshot" } })
+    await expect(realtime.history.checkpoint()).resolves.toEqual({ content: "# Saved", snapshot: { createdAt: "2026-01-01T00:00:00.000Z", entries: {}, id: "snapshot" } })
     expect(fetch).toHaveBeenCalledTimes(2)
     scope.stop()
   })

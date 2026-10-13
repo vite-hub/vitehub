@@ -24,6 +24,9 @@ export default defineConfig({
     ...ui({
       comark: false,
       nuxtUI: {
+        // runtime/client/appearance.ts owns the color scheme. Nuxt UI color mode would also write
+        // the root class and read the origin-wide `vueuse-color-scheme` key of the host app.
+        colorMode: false,
         dts: false,
         icon: {
           clientBundle: {

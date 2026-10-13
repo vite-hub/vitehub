@@ -6,7 +6,7 @@ import type { VercelRun } from "../src/runtime/vercel.ts"
 const native = Object.assign(async () => "done", { workflowId: "workflow-pagination" })
 const definition = { handler: native, options: { native } }
 
-function installStepsList(list: (options: unknown) => Promise<{ cursor?: string, data: unknown[], hasMore: boolean }>) {
+function installStepsList(list: (options: unknown) => Promise<{ cursor?: string | null, data: unknown[], hasMore: boolean }>) {
   const run: VercelRun = {
     cancel: async () => {},
     completedAt: Promise.resolve(undefined),
@@ -71,7 +71,7 @@ it.each([
   expect(calls).toBe(cursors.length)
 })
 
-it.each([undefined, ""])("rejects an unfinished page with cursor %j", async (cursor) => {
+it.each([undefined, null, ""])("rejects an unfinished page with cursor %j", async (cursor) => {
   installStepsList(async () => ({ cursor, data: [], hasMore: true }))
 
   await expect(inspectVercelWorkflowRun("pagination", definition, "run-pagination")).rejects.toMatchObject({
@@ -79,4 +79,23 @@ it.each([undefined, ""])("rejects an unfinished page with cursor %j", async (cur
     code: "WORKFLOW_PROVIDER_OPERATION_FAILED",
     details: { operation: "list-steps", provider: "vercel" },
   })
+})
+
+it("rejects a step page with a non-boolean hasMore flag", async () => {
+  installStepsList(async () => ({ data: [], hasMore: 0 } as unknown as { data: unknown[], hasMore: boolean }))
+
+  await expect(inspectVercelWorkflowRun("pagination", definition, "run-pagination")).rejects.toMatchObject({
+    cause: { code: "WORKFLOW_R0026" },
+    code: "WORKFLOW_PROVIDER_OPERATION_FAILED",
+    details: { operation: "list-steps", provider: "vercel" },
+  })
+})
+
+it("reads a terminal Vercel step page with a null cursor", async () => {
+  const step = { attempt: 1, status: "completed", stepId: "step-one", stepName: "first" }
+  installStepsList(async () => ({ cursor: null, data: [step], hasMore: false }))
+
+  const result = await inspectVercelWorkflowRun("pagination", definition, "run-pagination")
+
+  expect(result.steps).toMatchObject([{ id: "step-one", name: "first", status: "completed" }])
 })

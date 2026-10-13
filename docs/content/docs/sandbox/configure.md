@@ -2,7 +2,7 @@
 title: Sandbox configuration
 description: Lay out Sandbox package projects, free-form Definitions, entrypoints, and Definition options.
 navigation.title: Configure
-navigation.order: 3
+navigation.order: 4
 icon: i-lucide-sliders-horizontal
 ---
 

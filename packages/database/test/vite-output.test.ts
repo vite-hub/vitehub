@@ -6,13 +6,16 @@ import { dirname, join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
-import { afterAll, describe, expect, it } from "vitest"
+import { afterAll, describe, expect, it, vi } from "vitest"
+import { build as buildWorker } from "esbuild"
 import { contributeProviderRuntime, createDefaultCloudflareOutputRoot, createProviderOutputCatalog, getProviderRuntimeModule } from "@vite-hub/internal/build/deployment-output"
 
 import { generateProviderOutputs as generateDatabaseProviderOutputs, prepareProviderOutputs as prepareDatabaseProviderOutputs } from "../src/internal/vite-build.ts"
 import { renderDatabaseConfigExpression } from "../src/internal/runtime-config-expression.ts"
+import { resolveDBViteConfig } from "../src/config.ts"
+import { writeGeneratedDatabaseArtifacts } from "../src/internal/generated.ts"
 
-import type { ResolvedDBViteConfig } from "../src/types.ts"
+import type { ResolvedDBViteConfig, RuntimeDrizzleDatabaseConfig } from "../src/types.ts"
 
 const execFileAsync = promisify(execFile)
 const playgroundDir = resolve(import.meta.dirname, "../../../playground/vite")
@@ -132,31 +135,40 @@ async function createDbBuildProject(prefix: string, options: { integrationConnec
   return rootDir
 }
 
-function createRuntimeConfig(rootDir: string, database: Record<string, unknown>): ResolvedDBViteConfig {
+function createRuntimeConfig(rootDir: string, database: Pick<RuntimeDrizzleDatabaseConfig, "cloudflare" | "connection">): ResolvedDBViteConfig {
+  const migrationsDir = "server/databases/primary/migrations"
+  const generatedSchemaFile = join(rootDir, ".vitehub", "database", "primary-schema.ts")
+  const handler = join(rootDir, "server", "databases", "primary", "config.ts")
+  const cloudflare = database.cloudflare ? { binding: "DB_PRIMARY", ...database.cloudflare, migrationsDir } : undefined
   return {
     databaseNames: ["primary"],
     databases: {
       primary: {
         connection: {},
+        dialect: "sqlite",
         drizzle: {},
-        migrationsDir: "server/databases/primary/migrations",
+        generatedSchemaFile,
+        migrationsDir,
+        mode: "named",
+        name: "primary",
+        orm: "drizzle",
         ...database,
+        cloudflare,
       },
     },
-    definitionCloudflareConfigured: { primary: Boolean(database.cloudflare) },
-    definitionDefaults: {},
+    definitionDefaults: { cloudflareProjections: { primary: { resource: database.cloudflare ? "configured" : "inherited" } } },
     definitions: [{
-      handler: join(rootDir, "server", "databases", "primary", "config.ts"),
+      handler,
+      mode: "named",
       name: "primary",
+      source: handler,
+      tableNames: [],
     }],
-    generatedConfigFile: join(rootDir, ".vitehub", "database", "drizzle.config.ts"),
-    generatedConfigFiles: [],
-    generatedConfigFilesByDatabase: {},
-    generatedSchemaFile: join(rootDir, ".vitehub", "database", "schema.ts"),
-    generatedSchemaFilesByDatabase: {
-      primary: join(rootDir, ".vitehub", "database", "primary-schema.ts"),
-    },
-  } as unknown as ResolvedDBViteConfig
+    generatedDrizzleConfigFile: join(rootDir, ".vitehub", "database", "drizzle.config.ts"),
+    generatedDrizzleConfigFilesByDatabase: {},
+    generatedSchemaFilesByDatabase: { primary: generatedSchemaFile },
+    rootDir,
+  }
 }
 
 async function createDbBlobBuildProject(prefix: string, plugins: string) {
@@ -296,6 +308,372 @@ afterAll(async () => {
 })
 
 describe("Vite db provider outputs", () => {
+  it.each([
+    { access: "http", binding: undefined, form: "identifier", resource: "application" },
+    { access: "http", binding: undefined, form: "spread", resource: "application" },
+    { access: "http", binding: undefined, form: "identifier", resource: "inherited" },
+    { access: "http", binding: undefined, form: "spread", resource: "inherited" },
+    { access: "http", binding: "HOST_DB", form: "identifier", resource: "application" },
+    { access: "http", binding: "HOST_DB", form: "spread", resource: "application" },
+    { access: "libsql", binding: "HOST_DB", form: "identifier", resource: "application" },
+    { access: "libsql", binding: "HOST_DB", form: "spread", resource: "application" },
+  ])("uses the evaluated $resource resource for an opaque $form D1 configuration through $access with binding $binding in prepared and Vite outputs", { timeout: 60_000 }, async ({ access, binding, form, resource }) => {
+    const rootDir = await createDbBuildProject("vitehub-db-vite-opaque-resource-")
+    await rm(join(rootDir, "server/databases"), { recursive: true })
+    await mkdir(join(rootDir, "server/databases"), { recursive: true })
+    await writeFile(join(rootDir, "server/databases/config.ts"), [
+      "import { defineDatabase } from '@vite-hub/database'",
+      "import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'",
+      "const notes = sqliteTable('notes', { id: integer('id'), title: text('title') })",
+      `const cloudflare = { ${resource === "application" ? "databaseId: 'application-id'," : ""} ${binding ? `binding: '${binding}',` : ""} ${access === "http" ? "http: true," : ""} }`,
+      "const settings = { cloudflare, schema: { notes } }",
+      `export default defineDatabase({ ${form === "identifier" ? "cloudflare, schema: { notes }," : "...settings,"} ${access === "libsql" ? "connection: { url: 'https://application.example' }," : ""} })`,
+      "",
+    ].join("\n"))
+    const runtimeConfig = resolveDBViteConfig({
+      binding: "HOST_DB",
+      cloudflare: access === "http" ? { http: true } : undefined,
+      databaseId: "host-id",
+      databaseName: "host-db",
+      driver: "d1",
+    }, rootDir)!
+    await writeGeneratedDatabaseArtifacts(runtimeConfig)
+    let projectedCloudflare = false
+    const artifacts = await generateDatabaseProviderOutputs({
+      clientOutDir: "dist/client",
+      rootDir,
+      runtimeConfig,
+    }, async (output) => { projectedCloudflare = Boolean(output.cloudflare) })
+    expect(projectedCloudflare).toBe(true)
+
+    await writeFile(join(rootDir, "src/server.ts"), [
+      "import definition from '../server/databases/config.ts'",
+      "import { useDatabase } from '@vite-hub/database/drizzle'",
+      "export default { fetch: async () => Response.json({",
+      "  definition: await definition.select().from(definition.schema.notes),",
+      "  registry: await useDatabase('default').db.select().from(useDatabase('default').schema.notes),",
+      "}) }",
+      "",
+    ].join("\n"))
+    const workerFile = join(rootDir, "opaque-worker.mjs")
+    await buildWorker({
+      alias: {
+        "#vitehub/database/definition-defaults": artifacts.definitionDefaultsFile,
+        "@vite-hub/database/drizzle": artifacts.runtimeModuleFiles.cloudflare,
+      },
+      bundle: true,
+      conditions: ["vitehub-hosted", "workerd", "worker", "browser", "default"],
+      entryPoints: [artifacts.cloudflareWorkerFile],
+      external: ["node:async_hooks"],
+      format: "esm",
+      outfile: workerFile,
+      platform: "neutral",
+    })
+    async function assertOutput(file: string, provider: "cloudflare" | "vercel") {
+      const runner = join(rootDir, "run-opaque-output.mjs")
+      await writeFile(runner, [
+        "import { createServer } from 'node:http'",
+        `import worker from ${JSON.stringify(pathToFileURL(file).href)}`,
+        "const requests = [], nativeQueries = []",
+        "const binding = { prepare(query) {",
+        "  nativeQueries.push(query)",
+        "  return { bind: () => ({ raw: async () => [[0, 'host']] }) }",
+        "} }",
+        "process.env.CLOUDFLARE_ACCOUNT_ID = 'test-account'",
+        "process.env.CLOUDFLARE_API_TOKEN = 'test-token'",
+        "const requestApp = globalThis.fetch",
+        "globalThis.fetch = async (input) => {",
+        "  const url = input.url ?? String(input)",
+        "  requests.push(String(url))",
+        ...(access === "libsql" ? [
+          "  const request = await input.json()",
+          "  const result = { cols: [{ name: 'id', decltype: 'INTEGER' }, { name: 'title', decltype: 'TEXT' }], rows: [[{ type: 'integer', value: '1' }, { type: 'text', value: 'application' }]], affected_row_count: 0, last_insert_rowid: null }",
+          "  return Response.json({ baton: null, base_url: null, results: request.requests.map(entry => ({ type: 'ok', response: entry.type === 'execute' ? { type: 'execute', result } : { type: entry.type } })) })",
+        ] : [
+          "  const rows = String(url).includes('/application-id/') ? [[1, 'application']] : [[0, 'host']]",
+          "  return Response.json({ success: true, result: [{ success: true, results: { rows } }] })",
+        ]),
+        "}",
+        ...(provider === "cloudflare" ? [
+          "const response = await worker.fetch(new Request('https://example.com'), { HOST_DB: binding }, {})",
+          "console.log(JSON.stringify({ rows: await response.json(), requests, nativeQueries }))",
+        ] : [
+          "const app = createServer((request, response) => void Promise.resolve(worker(request, response)).catch(error => { response.statusCode = 500; response.end(String(error)) }))",
+          "await new Promise(resolve => app.listen(0, '127.0.0.1', resolve))",
+          "try {",
+          "  const response = await requestApp('http://127.0.0.1:' + app.address().port)",
+          "  if (!response.ok) throw new Error(await response.text())",
+          "  console.log(JSON.stringify({ rows: await response.json(), requests, nativeQueries }))",
+          "} finally { await new Promise(resolve => app.close(resolve)) }",
+        ]),
+        "",
+      ].join("\n"))
+      const { stdout } = await execFileAsync(process.execPath, [runner], { cwd: rootDir })
+      const result = JSON.parse(stdout)
+      const expectedRows = resource === "application" ? [{ id: 1, title: "application" }] : [{ id: 0, title: "host" }]
+      expect(result.rows).toEqual({ definition: expectedRows, registry: expectedRows })
+      const usesRemote = resource === "application" || provider === "vercel"
+      const databaseId = resource === "application" ? "application-id" : "host-id"
+      const expectedRequest = access === "libsql" ? expect.stringMatching(/^https:\/\/application\.example\/v\d\/pipeline$/) : `https://api.cloudflare.com/client/v4/accounts/test-account/d1/database/${databaseId}/raw`
+      expect(result.requests).toEqual(usesRemote ? Array(2).fill(expectedRequest) : [])
+      expect(result.nativeQueries).toHaveLength(usesRemote ? 0 : 2)
+    }
+    await assertOutput(workerFile, "cloudflare")
+
+    await writeFile(join(rootDir, "vite.config.ts"), [
+      "import { resolve } from 'node:path'",
+      "import { defineConfig } from 'vite'",
+      "import { hubDb } from '@vite-hub/database/vite'",
+      "export default defineConfig({",
+      "  appType: 'custom',",
+      "  build: { outDir: 'dist/client', rolldownOptions: { input: resolve(import.meta.dirname, 'src/server.ts') }, ssr: true },",
+      `  plugins: [hubDb({ binding: 'HOST_DB', ${access === "http" ? "cloudflare: { http: true }," : ""} databaseId: 'host-id', databaseName: 'host-db', driver: 'd1' })],`,
+      "})",
+      "",
+    ].join("\n"))
+    await runDbBuild(rootDir)
+    const wrangler = await readCloudflareConfig(rootDir)
+    expect(wrangler.d1_databases).toMatchObject([{ binding: "HOST_DB", database_id: "host-id", database_name: "host-db" }])
+    const outputDir = (await readdir(join(rootDir, "dist"))).find(entry => entry !== "client")!
+    await assertOutput(join(rootDir, "dist", outputDir, "index.js"), "cloudflare")
+    await assertOutput(join(rootDir, ".vercel", "output", "functions", "__server.func", "index.mjs"), "vercel")
+  })
+
+  it.each([
+    { source: "integration", projectRoot: "." },
+    { source: "definition", projectRoot: "." },
+    { source: "integration", projectRoot: "packages/db" },
+    { source: "definition", projectRoot: "packages/db" },
+  ])("uses a provisioned D1 ID fallback in direct Vite output from $source configuration at $projectRoot", { timeout: 60_000 }, async ({ source, projectRoot }) => {
+    const rootDir = await createDbBuildProject("vitehub-db-vite-provisioned-http-")
+    const databaseRoot = join(rootDir, projectRoot)
+    await rm(join(rootDir, "server/databases"), { recursive: true })
+    await mkdir(join(databaseRoot, "server/databases"), { recursive: true })
+    await writeFile(join(databaseRoot, "server/databases/config.ts"), [
+      "import { defineDatabase } from '@vite-hub/database'",
+      "import { sqliteTable, integer, text } from 'drizzle-orm/sqlite-core'",
+      "const notes = sqliteTable('notes', { id: integer('id'), title: text('title') })",
+      `export default defineDatabase({ ${source === "definition" ? "cloudflare: { databaseId: process.env.VITEHUB_PROVISIONED_HTTP_ID, databaseName: 'application-db', http: true }," : ""} schema: { notes } })`,
+      "",
+    ].join("\n"))
+    await mkdir(join(rootDir, ".vitehub"), { recursive: true })
+    await writeFile(join(rootDir, ".vitehub/provision.json"), JSON.stringify({ cloudflare: { d1: { default: "provisioned-id" } } }))
+    if (projectRoot !== "." && source === "integration") {
+      await mkdir(join(databaseRoot, ".vitehub"))
+      await writeFile(join(databaseRoot, ".vitehub/provision.json"), JSON.stringify({ cloudflare: { d1: { default: "unrelated-nested-id" } } }))
+    }
+    await writeFile(join(rootDir, "src/server.ts"), [
+      `import definition from ${JSON.stringify(`../${projectRoot}/server/databases/config.ts`)}`,
+      "import { useDatabase } from '@vite-hub/database/drizzle'",
+      "export default { fetch: async () => Response.json({",
+      "  definition: await definition.select().from(definition.schema.notes),",
+      "  registry: await useDatabase('default').db.select().from(useDatabase('default').schema.notes),",
+      "}) }",
+      "",
+    ].join("\n"))
+    await writeFile(join(rootDir, "vite.config.ts"), [
+      "import { resolve } from 'node:path'",
+      "import { defineConfig } from 'vite'",
+      "import { hubDb } from '@vite-hub/database/vite'",
+      "export default defineConfig({",
+      "  appType: 'custom',",
+      "  build: { outDir: 'dist/client', rolldownOptions: { input: resolve(import.meta.dirname, 'src/server.ts') }, ssr: true },",
+      `  plugins: [hubDb({ driver: 'd1', projectRoot: ${JSON.stringify(projectRoot)}, ${source === "integration" ? "cloudflare: { http: true }, databaseId: { kind: 'env-variable', source: { kind: 'env', name: 'VITEHUB_PROVISIONED_HTTP_ID' } }, databaseName: 'application-db'," : ""} })],`,
+      "})",
+      "",
+    ].join("\n"))
+    await runDbBuild(rootDir)
+    const wrangler = await readCloudflareConfig(rootDir)
+    expect(wrangler.d1_databases).toMatchObject([{ binding: "DB", database_id: "provisioned-id", database_name: "application-db" }])
+    const outputDir = (await readdir(join(rootDir, "dist"))).find(entry => entry !== "client")!
+    const workerRunner = join(rootDir, "run-provisioned-cloudflare.mjs")
+    await writeFile(workerRunner, [
+      `import worker from ${JSON.stringify(pathToFileURL(join(rootDir, "dist", outputDir, "index.js")).href)}`,
+      "const queries = []",
+      "const binding = { prepare(query) { queries.push(query); return { bind: () => ({ raw: async () => [[1, 'application']] }) } } }",
+      "const response = await worker.fetch(new Request('https://example.com'), { DB: binding }, {})",
+      "console.log(JSON.stringify({ rows: await response.json(), queries }))",
+      "",
+    ].join("\n"))
+    const workerEnv = { ...process.env }
+    delete workerEnv.VITEHUB_PROVISIONED_HTTP_ID
+    delete workerEnv.CLOUDFLARE_ACCOUNT_ID
+    delete workerEnv.CLOUDFLARE_API_TOKEN
+    const { stdout: workerStdout } = await execFileAsync(process.execPath, [workerRunner], { cwd: rootDir, env: workerEnv })
+    expect(JSON.parse(workerStdout)).toEqual({
+      queries: Array(2).fill('select "id", "title" from "notes"'),
+      rows: { definition: [{ id: 1, title: "application" }], registry: [{ id: 1, title: "application" }] },
+    })
+    const runner = join(rootDir, "run-provisioned-vercel.mjs")
+    await writeFile(runner, [
+      "import { createServer } from 'node:http'",
+      `import app from ${JSON.stringify(pathToFileURL(join(rootDir, ".vercel/output/functions/__server.func/index.mjs")).href)}`,
+      "process.env.CLOUDFLARE_ACCOUNT_ID = 'test-account'",
+      "process.env.CLOUDFLARE_API_TOKEN = 'test-token'",
+      "const requests = [], requestApp = globalThis.fetch",
+      "globalThis.fetch = async url => { requests.push(String(url)); return Response.json({ success: true, result: [{ success: true, results: { rows: [[1, 'application']] } }] }) }",
+      "const server = createServer((request, response) => void Promise.resolve(app(request, response)).catch(error => { response.statusCode = 500; response.end(String(error)) }))",
+      "await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))",
+      "try {",
+      "  const response = await requestApp('http://127.0.0.1:' + server.address().port)",
+      "  if (!response.ok) throw new Error(await response.text())",
+      "  console.log(JSON.stringify({ rows: await response.json(), requests }))",
+      "} finally { await new Promise(resolve => server.close(resolve)) }",
+      "",
+    ].join("\n"))
+    for (const databaseId of [undefined, "runtime-id"]) {
+      const env = { ...process.env }
+      delete env.VITEHUB_PROVISIONED_HTTP_ID
+      if (databaseId) env.VITEHUB_PROVISIONED_HTTP_ID = databaseId
+      const { stdout } = await execFileAsync(process.execPath, [runner], { cwd: rootDir, env })
+      expect(JSON.parse(stdout)).toEqual({
+        requests: Array(2).fill(`https://api.cloudflare.com/client/v4/accounts/test-account/d1/database/${databaseId ?? "provisioned-id"}/raw`),
+        rows: { definition: [{ id: 1, title: "application" }], registry: [{ id: 1, title: "application" }] },
+      })
+    }
+  })
+
+  it.each([
+    { access: "native", defaults: true, form: "identifier", resource: "application" },
+    { access: "native", defaults: true, form: "spread", resource: "application" },
+    { access: "native", defaults: true, form: "identifier", resource: "inherited" },
+    { access: "native", defaults: true, form: "spread", resource: "inherited" },
+    { access: "libsql", defaults: true, form: "identifier", resource: "application" },
+    { access: "libsql", defaults: true, form: "spread", resource: "application" },
+    { access: "native", defaults: false, form: "identifier", resource: "application" },
+    { access: "native", defaults: false, form: "cloudflare-spread", resource: "application" },
+    { access: "native", defaults: false, form: "spread", resource: "application" },
+    { access: "native", defaults: false, form: "definition-identifier", resource: "application" },
+  ])("validates opaque $resource D1 output with $access access in $form configuration with defaults $defaults before deployment", { timeout: 60_000 }, async ({ access, defaults, form, resource }) => {
+    const rootDir = await createDbBuildProject("vitehub-db-vite-opaque-native-")
+    await rm(join(rootDir, "server/databases"), { recursive: true })
+    await mkdir(join(rootDir, "server/databases"), { recursive: true })
+    const connection = access === "libsql" ? "connection: { url: 'libsql://application.example' }," : ""
+    await writeFile(join(rootDir, "server/databases/config.ts"), [
+      "import { defineDatabase } from '@vite-hub/database'",
+      `const cloudflare = { ${resource === "application" ? "databaseId: 'application-id', databaseName: 'application-db'," : ""} migrationsTable: '__application' }`,
+      "const settings = { cloudflare, schema: {} }",
+      `export default defineDatabase(${form === "identifier" ? `{ cloudflare, ${connection} schema: {} }` : form === "definition-identifier" ? "settings" : form === "cloudflare-spread" ? "{ cloudflare, ...settings }" : `{ ...settings, ${connection} }`})`,
+      "",
+    ].join("\n"))
+    await writeFile(join(rootDir, "src/server.ts"), "export default { fetch: () => new Response('ok') }\n")
+    await writeFile(join(rootDir, "vite.config.ts"), [
+      "import { resolve } from 'node:path'",
+      "import { defineConfig } from 'vite'",
+      "import { hubDb } from '@vite-hub/database/vite'",
+      "export default defineConfig({",
+      "  appType: 'custom',",
+      "  build: { outDir: 'dist/client', rolldownOptions: { input: resolve(import.meta.dirname, 'src/server.ts') }, ssr: true },",
+      `  plugins: [hubDb(${defaults ? "{ driver: 'd1', databaseId: 'host-id', databaseName: 'host-db' }" : form === "identifier" || form === "cloudflare-spread" ? "" : "{ driver: 'd1' }"})],`,
+      "})",
+      "",
+    ].join("\n"))
+    if (access === "native") {
+      await expect(runDbBuild(rootDir)).rejects.toThrow("native D1 output requires a literal cloudflare block")
+      expect(existsSync(join(rootDir, ".vercel/output/functions/__server.func/index.mjs"))).toBe(false)
+    }
+    else {
+      await runDbBuild(rootDir)
+      expect(existsSync(join(rootDir, ".vercel/output/functions/__server.func/index.mjs"))).toBe(true)
+      expect((await readCloudflareConfig(rootDir)).d1_databases).toMatchObject([{ database_id: "host-id" }])
+    }
+  })
+
+  it.each([
+    { field: "databaseId", literal: "'   '" },
+    { field: "databaseName", literal: "'   '" },
+    { field: "databaseId", literal: String.raw`'\t'` },
+    { field: "databaseName", literal: String.raw`"\u0020"` },
+  ] as const)("rejects whitespace-only owned native $field $literal before hosted Vite output", { timeout: 60_000 }, async ({ field, literal }) => {
+    const rootDir = await createDbBuildProject("vitehub-db-vite-blank-native-")
+    await rm(join(rootDir, "server/databases"), { recursive: true })
+    await mkdir(join(rootDir, "server/databases"), { recursive: true })
+    const databaseId = field === "databaseId" ? literal : "'application-id'"
+    const databaseName = field === "databaseName" ? literal : "'application-db'"
+    await writeFile(join(rootDir, "server/databases/config.ts"), [
+      "import { defineDatabase } from '@vite-hub/database'",
+      `export default defineDatabase({ cloudflare: { databaseId: ${databaseId}, databaseName: ${databaseName} }, schema: {} })`,
+      "",
+    ].join("\n"))
+    await writeFile(join(rootDir, "src/server.ts"), "export default { fetch: () => new Response('ok') }\n")
+
+    await expect(runDbBuild(rootDir)).rejects.toThrow("DATABASE_B0005")
+    expect(existsSync(join(rootDir, ".vitehub/database/cloudflare-runtime.mjs"))).toBe(false)
+    expect(existsSync(join(rootDir, ".vercel/output/functions/__server.func/index.mjs"))).toBe(false)
+  })
+
+  it.each(["identifier", "spread"] as const)("supports opaque local SQLite %s Definitions without D1 defaults", { timeout: 60_000 }, async (form) => {
+    const rootDir = await createDbBuildProject("vitehub-db-vite-opaque-local-")
+    await rm(join(rootDir, "server/databases"), { recursive: true })
+    await mkdir(join(rootDir, "server/databases"), { recursive: true })
+    await writeFile(join(rootDir, "server/databases/config.ts"), [
+      "import { defineDatabase } from '@vite-hub/database'",
+      "const settings = { connection: { url: 'file:application.db' }, schema: {} }",
+      `export default defineDatabase(${form === "identifier" ? "settings" : "{ ...settings }"})`,
+      "",
+    ].join("\n"))
+    await writeFile(join(rootDir, "src/server.ts"), "export default { fetch: () => new Response('ok') }\n")
+    await runDbBuild(rootDir)
+    expect(await readdir(join(rootDir, "dist"))).toEqual(["client"])
+    expect(existsSync(join(rootDir, ".vercel/output/functions/__server.func/index.mjs"))).toBe(false)
+  })
+
+  it.each(["registry", "definition"])("queries a named D1 database through the binding emitted by Vite for %s access", { timeout: 60_000 }, async (access) => {
+    const rootDir = await createDbBuildProject("vitehub-db-vite-named-defaults-")
+    await rm(join(rootDir, "server/databases/primary"), { recursive: true })
+    await writeDatabaseDefinition(rootDir, "analytics")
+    await writeFile(join(rootDir, "src/server.ts"), [
+      "import { sql } from 'drizzle-orm'",
+      access === "registry"
+        ? "import { useDatabase } from '@vite-hub/database/drizzle'"
+        : "import analytics from '../server/databases/analytics/config.ts'",
+      "export default {",
+      `  fetch: async () => new Response(JSON.stringify(await ${access === "registry" ? "useDatabase('analytics').db" : "analytics"}.all(sql\`SELECT 7 AS value\`))),`,
+      "}",
+      "",
+    ].join("\n"))
+    await writeFile(join(rootDir, "vite.config.ts"), [
+      "import { resolve } from 'node:path'",
+      "import { defineConfig } from 'vite'",
+      "import { hubDb } from '@vite-hub/database/vite'",
+      "export default defineConfig({",
+      "  appType: 'custom',",
+      "  build: {",
+      "    outDir: 'dist/client',",
+      "    rolldownOptions: { input: resolve(import.meta.dirname, 'src/server.ts') },",
+      "    ssr: true,",
+      "  },",
+      "  plugins: [hubDb({ driver: 'd1', databaseId: 'analytics-id', databaseName: 'analytics-db' })],",
+      "})",
+      "",
+    ].join("\n"))
+    await runDbBuild(rootDir)
+    const wrangler = await readCloudflareConfig(rootDir)
+    expect(wrangler.d1_databases).toMatchObject([{
+      binding: "DB_ANALYTICS",
+      database_id: "analytics-id",
+      database_name: "analytics-db",
+    }])
+
+    const outputDir = (await readdir(join(rootDir, "dist"))).find(entry => entry !== "client")!
+    const runner = join(rootDir, "run-worker.mjs")
+    await writeFile(runner, [
+      `import worker from ${JSON.stringify(pathToFileURL(join(rootDir, "dist", outputDir, "index.js")).href)}`,
+      "const queries = []",
+      "const binding = {",
+      "  prepare(query) {",
+      "    queries.push(query)",
+      "    return { bind: () => ({ all: async () => ({ results: [{ value: 7 }] }) }) }",
+      "  },",
+      "}",
+      "const response = await worker.fetch(new Request('https://example.com'), { DB_ANALYTICS: binding }, {})",
+      "console.log(JSON.stringify({ body: await response.json(), queries }))",
+      "",
+    ].join("\n"))
+    const { stdout } = await execFileAsync(process.execPath, [runner], { cwd: rootDir })
+    expect(JSON.parse(stdout)).toEqual({ body: [{ value: 7 }], queries: ["SELECT 7 AS value"] })
+  })
+
   it("resolves the hosted application entry from the Vite root", async () => {
     const appRootDir = await createWorkspaceTempDir("vitehub-db-vite-app-root-")
     const rootDir = join(appRootDir, "packages", "db")
@@ -336,6 +714,49 @@ describe("Vite db provider outputs", () => {
     expect(getProviderRuntimeModule(providerOutput, "database", "vercel-definition-defaults")).toContain("definition-defaults.mjs")
   })
 
+  it.each([
+    { field: "databaseId", source: "literal" },
+    { field: "databaseName", source: "literal" },
+    { field: "databaseId", source: "env" },
+    { field: "databaseName", source: "env" },
+    { field: "databaseId", source: "provisioned" },
+  ])("excludes inherited D1 output and runtime aliases for a blank $source $field", async ({ field, source }) => {
+    const rootDir = await createWorkspaceTempDir("vitehub-db-vite-blank-inherited-")
+    await writeDatabaseDefinition(rootDir, "primary")
+    if (source === "provisioned") {
+      await mkdir(join(rootDir, ".vitehub"), { recursive: true })
+      await writeFile(join(rootDir, ".vitehub/provision.json"), JSON.stringify({ cloudflare: { d1: { primary: " \t\n" } } }))
+    }
+    const envName = "VITEHUB_TEST_BLANK_INHERITED_IDENTITY"
+    vi.stubEnv(envName, source === "env" ? " \t\n" : undefined)
+    try {
+      const runtimeConfig = resolveDBViteConfig({
+        binding: "HOST_DB",
+        databaseId: "native-id",
+        databaseName: "native-db",
+        driver: "d1",
+        [field]: source === "literal" ? " \t\n" : { kind: "env-variable", source: { kind: "env", name: envName } },
+      }, rootDir)!
+      expect(runtimeConfig.definitionDefaults.cloudflareProjections.primary?.resource).toBe("inherited")
+      const providerOutput = createProviderOutputCatalog()
+      const artifacts = await prepareDatabaseProviderOutputs({ providerOutput, rootDir, runtimeConfig })
+      expect(getProviderRuntimeModule(providerOutput, "database", "cloudflare")).toBeUndefined()
+      expect(getProviderRuntimeModule(providerOutput, "database", "cloudflare-definition-defaults")).toBeUndefined()
+
+      await generateDatabaseProviderOutputs({
+        artifacts,
+        clientOutDir: "dist/client",
+        providerOutput,
+        rootDir,
+        runtimeConfig,
+      }, async (output) => { expect(output.cloudflare).toBeUndefined() })
+      expect(getProviderRuntimeModule(providerOutput, "database", "cloudflare")).toBeUndefined()
+      expect(getProviderRuntimeModule(providerOutput, "database", "cloudflare-definition-defaults")).toBeUndefined()
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
   it("keeps Blob runtime aliases local to the prepared Database generation", async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-db-vite-blob-generation-")
     const providerOutput = createProviderOutputCatalog()
@@ -372,24 +793,50 @@ describe("Vite db provider outputs", () => {
     })
   })
 
-  it("applies the effective Nuxt D1 binding to named definition runtimes", async () => {
+  it("uses the Definition name when hosted defaults have an empty binding", async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-db-vite-definition-defaults-")
     const providerOutput = createProviderOutputCatalog()
     const runtimeConfig = createRuntimeConfig(rootDir, {})
     runtimeConfig.databaseNames = ["analytics"]
     runtimeConfig.databases.analytics = runtimeConfig.databases.primary!
     delete runtimeConfig.databases.primary
-    runtimeConfig.definitionDefaults = { cloudflare: { binding: "  " } }
+    runtimeConfig.definitionDefaults = { cloudflare: { binding: "  " }, cloudflareProjections: {} }
     runtimeConfig.definitions[0]!.name = "analytics"
     runtimeConfig.generatedSchemaFilesByDatabase.analytics = runtimeConfig.generatedSchemaFilesByDatabase.primary!
 
     await prepareDatabaseProviderOutputs({ providerOutput, rootDir, runtimeConfig })
 
     await expect(readFile(join(rootDir, ".vitehub/database/definition-defaults.mjs"), "utf8"))
-      .resolves.toBe('export default {"cloudflare":{"binding":"DB"}}\n')
+      .resolves.toBe('export default {"cloudflare":{},"cloudflareProjections":{}}\n')
     const expression = renderDatabaseConfigExpression("analytics", runtimeConfig, "definition")
-    const config = Function("definition", `return (${expression})`)({ connection: undefined, drizzle: {}, schema: {} })
-    expect(config.cloudflare).toEqual({ binding: "DB" })
+    const { resolveRuntimeCloudflareConfig } = await import("../src/internal/cloudflare.ts")
+    const config = Function("definition", "resolveRuntimeCloudflareConfig", `return (${expression})`)({ connection: undefined, drizzle: {}, schema: {} }, resolveRuntimeCloudflareConfig)
+    expect(config.cloudflare?.binding).toBe("DB_ANALYTICS")
+  })
+
+  it("preserves inherited Nuxt D1 identifiers with the named Definition binding", async () => {
+    const rootDir = "/tmp/vitehub-d1-runtime-expression"
+    const runtimeConfig = createRuntimeConfig(rootDir, {
+      cloudflare: {
+        binding: "NUXT_DB",
+        databaseId: "nuxt-d1-id",
+        databaseName: "nuxt-d1-name",
+        previewDatabaseId: "nuxt-preview-id",
+        migrationsTable: "__nuxt_migrations",
+      },
+    })
+    runtimeConfig.definitionDefaults.cloudflareProjections.primary = { resource: "inherited" }
+    const expression = renderDatabaseConfigExpression("primary", runtimeConfig, "definition")
+    const { resolveRuntimeCloudflareConfig } = await import("../src/internal/cloudflare.ts")
+    const config = Function("definition", "resolveRuntimeCloudflareConfig", `return (${expression})`)({ cloudflare: {}, connection: undefined, drizzle: {}, schema: {} }, resolveRuntimeCloudflareConfig)
+
+    expect(config.cloudflare).toMatchObject({
+      binding: "DB_PRIMARY",
+      databaseId: "nuxt-d1-id",
+      databaseName: "nuxt-d1-name",
+      migrationsTable: "__nuxt_migrations",
+      previewDatabaseId: "nuxt-preview-id",
+    })
   })
 
   it.each([

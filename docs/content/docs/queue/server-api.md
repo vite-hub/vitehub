@@ -2,7 +2,7 @@
 title: Queue server API
 description: Enqueue Queue Jobs, handle delivery failures, and use the Queue Runtime Helpers from server code.
 navigation.title: Server API
-navigation.order: 4
+navigation.order: 5
 icon: i-lucide-code-2
 ---
 

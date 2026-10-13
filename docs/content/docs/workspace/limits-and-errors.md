@@ -6,7 +6,15 @@ navigation.order: 7
 icon: i-lucide-circle-alert
 ---
 
-These limits and recovery steps apply to Local Workspace Stores.
+These limits and recovery steps apply to Workspace Stores.
+
+## Retained history
+
+Retained-history methods require a Store with `history`. Unsupported Stores and partial Workspace scopes throw `WORKSPACE_R0069`. Invalid list limits throw `WORKSPACE_R0070`; limits must be integers from `1` to `100`.
+
+A stale `ifHead` throws `WORKSPACE_CONFLICT` with expected and actual revision ids. Missing revisions and deleted workspace identities throw `WORKSPACE_NOT_FOUND`. Blob operations retain their `BLOB_*` error codes. Retry failed workspace deletion after the storage error is resolved.
+
+The Blob + Database Store retains all published revisions and has no pruning API. `usage()` counts unique retained file bytes. It excludes abandoned uploads and provider metadata, so it is not a measure of billed storage. Workspace `maxBytes` rules apply to changed files; applications own account quotas and retention policy.
 
 ## Local filesystem access
 

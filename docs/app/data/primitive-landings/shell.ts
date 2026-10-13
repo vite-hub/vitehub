@@ -56,7 +56,7 @@ and has no network access. It is not an operating-system isolation boundary.
 export const ShellLanding = {
   slug: "shell",
   name: "Shell",
-  docsTo: "/docs/server-primitives/shell",
+  docsTo: "/docs/shell",
   eyebrow: "ViteHub Shell",
   description: "Run commands with explicit ownership, environment, and output instead of hiding a process behind a helper.",
   tagline: "Command execution with a boundary you can reason about.",

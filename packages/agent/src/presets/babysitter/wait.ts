@@ -10,6 +10,8 @@ const failed = new Set(["failure", "error", "timed_out", "action_required", "sta
 export interface BabysitterWaitPolicy {
   /** Logins whose comments and reviews come from this host's repairs. They never wake a wait. */
   workerAuthors: ReadonlySet<string>;
+  /** Configured logins, such as deployment preview bots, whose items never wake a wait. */
+  ignoreFeedbackAuthors?: ReadonlySet<string>;
   /** Check names whose pending run means a review is in progress. */
   pendingReviewChecks: ReadonlySet<string>;
   /** Wake when required checks pass, so the host can merge a ready PR. */
@@ -37,7 +39,7 @@ function stableFeedback(value: unknown): unknown {
     .map(([key, item]) => [key, stableFeedback(item)]));
 }
 
-type ContextPolicy = Pick<BabysitterWaitPolicy, "workerAuthors" | "noFindingsReviews">;
+type ContextPolicy = Pick<BabysitterWaitPolicy, "workerAuthors" | "ignoreFeedbackAuthors" | "noFindingsReviews">;
 
 /**
  * A comment-only review that asks for nothing. An empty body only groups inline comments, which the
@@ -52,7 +54,7 @@ function withoutFindings(review: GitHubEvidence, policy: ContextPolicy): boolean
 /** Feedback, intent, and base that need a model pass when they change. CI results are excluded. */
 export function repairContextKey(s: Snapshot, policy: ContextPolicy): string {
   const pr = s.pr;
-  const fromWorker = (value: GitHubEvidence) => policy.workerAuthors.has(login(value));
+  const fromWorker = (value: GitHubEvidence) => String(value.state).toUpperCase() !== "CHANGES_REQUESTED" && (policy.workerAuthors.has(login(value)) || policy.ignoreFeedbackAuthors?.has(login(value)) === true);
   const external = (values: Record<string, GitHubEvidence>) => Object.fromEntries(Object.entries(values).filter(([, value]) => !fromWorker(value)));
   const reviews = Object.fromEntries(Object.entries(external(s.reviews)).filter(([, value]) => !withoutFindings(value, policy)));
   const ownCommentIds = new Set(Object.values(s.reviewComments).filter(fromWorker).flatMap(commentIds));
@@ -84,8 +86,28 @@ export function currentCheckSignals(s: Snapshot): GitHubEvidence[] {
   return [...signals.values()];
 }
 
+/**
+ * The newest run of each current-head check, by name and app. Some integrations leave an earlier
+ * run in progress forever and report the result in a later run; the earlier run is not a gate.
+ */
+export function latestCheckSignals(s: Snapshot): GitHubEvidence[] {
+  const latest = new Map<string, GitHubEvidence>();
+  for (const signal of currentCheckSignals(s)) {
+    const key = `${String(signal.name)}\0${String(signal.app?.id ?? "")}`;
+    const previous = latest.get(key);
+    if (!previous || Number(signal.id ?? 0) >= Number(previous.id ?? 0)) latest.set(key, signal);
+  }
+  return [...latest.values()];
+}
+
+/** A configured review check still runs on the current head. */
+export function reviewCheckRunning(s: Snapshot, policy: Pick<BabysitterWaitPolicy, "pendingReviewChecks">): boolean {
+  return latestCheckSignals(s).some(signal => policy.pendingReviewChecks.has(String(signal.name).toLowerCase())
+    && pending.has(String(signal.status ?? signal.state)));
+}
+
 export function failureKeys(s: Snapshot): string[] {
-  return currentCheckSignals(s).filter(signal => failed.has(String(signal.conclusion ?? signal.state)))
+  return latestCheckSignals(s).filter(signal => failed.has(String(signal.conclusion ?? signal.state)))
     .map(signal => `${String(signal.id ?? signal.context)}:${String(signal.conclusion ?? signal.state)}`).sort();
 }
 
@@ -109,6 +131,16 @@ export function wakeReasons(s: Snapshot, requiredChecks: GitHubRequiredCheckStat
   if (s.pr?.state !== "open") return ["not-open"];
   // The synchronize event for a pushed head has not arrived yet.
   if (wait.headSha !== s.pr.head?.sha) return [];
+  const known = new Set(wait.knownFailures ?? []);
+  if (wait.defer === "checks") {
+    // A deferred pass waits for running gates, so one pass handles CI and review results together.
+    // A conflict or a new failure needs repair now. The deferral recorded no assessment, so the PR
+    // wakes when its gates stop running.
+    const conflict = s.pr.mergeable === false || s.pr.mergeable_state === "dirty";
+    const failure = failureKeys(s).some(key => !known.has(key));
+    if (!conflict && !failure && (reviewCheckRunning(s, policy) || requiredChecks === "pending")) return [];
+    return [...conflict ? ["merge-conflict"] : [], ...failure ? ["new-failure"] : [], ...conflict || failure ? [] : ["gates-settled"]];
+  }
   const reasons: string[] = [];
   if (wait.evidenceKey !== repairContextKey(s, policy)) reasons.push("feedback-changed");
   // A reproduced external blocker keeps existing conflicts, threads and unrelated CI parked.
@@ -116,22 +148,19 @@ export function wakeReasons(s: Snapshot, requiredChecks: GitHubRequiredCheckStat
   if (wait.kind === "external" || wait.wake) return reasons;
   if (s.pr.mergeable === false || s.pr.mergeable_state === "dirty") reasons.push("merge-conflict");
   if (s.threads.some(thread => thread.isResolved !== true)) reasons.push("unresolved-thread");
-  const known = new Set(wait.knownFailures ?? []);
   if (failureKeys(s).some(key => !known.has(key))) reasons.push("new-failure");
   if (reasons.length) return reasons;
   // The same failures are not new repair work. A later green result wakes below.
   if (requiredChecks === "failed") return [];
-  const reviewing = currentCheckSignals(s).some(signal => policy.pendingReviewChecks.has(String(signal.name).toLowerCase())
-    && pending.has(String(signal.status ?? signal.state)));
-  if (reviewing || requiredChecks === "pending") return [];
+  if (reviewCheckRunning(s, policy) || requiredChecks === "pending") return [];
   if (requiredChecks === "passed") return policy.wakeWhenReady ? ["ready-to-merge"] : [];
   // Unknown policy cannot prove readiness. Feedback and new failures still wake the PR.
   return [];
 }
 
 /** Infer a check wait only from pending current-head provider evidence. */
-export function hasPendingChecks(snapshot: Snapshot, policy: BabysitterWaitPolicy): boolean {
-  return currentCheckSignals(snapshot).some(signal => pending.has(String(signal.status ?? signal.state)));
+export function hasPendingChecks(snapshot: Snapshot, _policy: BabysitterWaitPolicy): boolean {
+  return latestCheckSignals(snapshot).some(signal => pending.has(String(signal.status ?? signal.state)));
 }
 
 /** The reader paginates and projects individual records from every REST page. */

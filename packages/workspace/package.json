@@ -44,6 +44,10 @@
       "types": "./dist/ai.d.ts",
       "import": "./dist/ai.js"
     },
+    "./blob-database": {
+      "types": "./dist/blob-database.d.ts",
+      "import": "./dist/blob-database.js"
+    },
     "./cloudflare": {
       "types": "./dist/cloudflare.d.ts",
       "import": "./dist/cloudflare.js"
@@ -145,7 +149,9 @@
     "nostics": "catalog:runtime",
     "ofetch": "catalog:unjs",
     "valibot": "catalog:runtime",
-    "@vite-hub/markdown-template": "workspace:*"
+    "@vite-hub/markdown-template": "workspace:*",
+    "@vite-hub/blob": "workspace:*",
+    "@vite-hub/database": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
@@ -160,13 +166,17 @@
     "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling",
-    "vue": "catalog:ui"
+    "vue": "catalog:ui",
+    "drizzle-orm": "catalog:database",
+    "miniflare": "4.20260730.0",
+    "@libsql/client": "catalog:database"
   },
   "peerDependencies": {
     "@vite-hub/shell": "workspace:*",
     "ai": "catalog:ai-compat",
     "vite": "catalog:vite-compat",
-    "vue": "catalog:ui"
+    "vue": "catalog:ui",
+    "drizzle-orm": "catalog:database"
   },
   "peerDependenciesMeta": {
     "@vite-hub/shell": {
@@ -176,6 +186,9 @@
       "optional": true
     },
     "vue": {
+      "optional": true
+    },
+    "drizzle-orm": {
       "optional": true
     }
   },

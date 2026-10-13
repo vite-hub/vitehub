@@ -138,6 +138,24 @@ binding fails the Invocation. ViteHub does not render it as empty text.
 Templates cannot read request fields, environment variables, or JavaScript
 expressions.
 
+### Reserve a custom instruction slot
+
+To let a host add trusted, invocation-specific Markdown, author the exact
+`{{{ context.customInstructions }}}` slot in the instruction document:
+
+```md [server/agents/support/instructions.md]
+Answer from the support policy.
+
+{{{ context.customInstructions }}}
+```
+
+The slot is optional when no custom instructions are supplied. When a value is
+supplied, it must be a string and the document must contain at least one slot
+outside a fenced, inline, or HTML code example. The inserted Markdown is added
+after template rendering, so its bindings and directives remain literal text.
+Generic `data.context.customInstructions` scalar and `:insert` bindings are not
+available; use the authored slot to make the trust boundary explicit.
+
 Use conditions for small policy branches:
 
 ```md [server/agents/support/instructions.md]

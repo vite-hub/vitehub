@@ -43,7 +43,10 @@ describe("Rate Limit documentation", () => {
   it("keeps guarantees, identity, and backend limitations explicit", () => {
     const primitive = readPrimitive()
 
-    expect(primitive).toMatch(/memory.*local Vite development/is)
+    const tutorial = read("rate-limit/get-started.md")
+    expect(tutorial).toContain("counts requests in this process's memory")
+    expect(tutorial).toContain("Counts reset on restart")
+    expect(tutorial).toContain("not shared with other app instances")
     expect(primitive).toContain("Cloudflare native enforcement is best-effort")
     expect(primitive).toContain("10-second and 60-second windows")
     expect(primitive).toContain("explicit user or tenant identities remain application policy")

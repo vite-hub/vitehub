@@ -1445,6 +1445,7 @@ describe("Vite workflow provider outputs", () => {
 
     await execFileAsync("vp", ["build"], {
       cwd: rootDir,
+      timeout: buildOutputTestTimeout,
       env: { ...process.env, VITEHUB_VITE_MODE: "workflow" },
     })
 
@@ -1465,6 +1466,7 @@ describe("Vite workflow provider outputs", () => {
 
     await execFileAsync("vp", ["build"], {
       cwd: rootDir,
+      timeout: buildOutputTestTimeout,
       env: { ...process.env, VITEHUB_VITE_MODE: "workflow" },
     })
 
@@ -1475,7 +1477,7 @@ describe("Vite workflow provider outputs", () => {
     await expect(readFile(wranglerConfig, "utf8").then(JSON.parse)).resolves.toEqual({
       vars: { USER_OWNED: "true" },
     })
-  }, buildOutputTestTimeout)
+  }, buildOutputTestTimeout * 2)
 
   it("preserves sibling Cloudflare output when switching to OpenWorkflow", async () => {
     const rootDir = await createPlaygroundCopy("vitehub-workflow-cloudflare-sibling-")
@@ -1483,6 +1485,7 @@ describe("Vite workflow provider outputs", () => {
 
     await execFileAsync("vp", ["build"], {
       cwd: rootDir,
+      timeout: buildOutputTestTimeout,
       env: { ...process.env, VITEHUB_VITE_MODE: "workflow" },
     })
 
@@ -1501,6 +1504,7 @@ describe("Vite workflow provider outputs", () => {
 
     await execFileAsync("vp", ["build"], {
       cwd: rootDir,
+      timeout: buildOutputTestTimeout,
       env: { ...process.env, VITEHUB_VITE_MODE: "workflow" },
     })
 
@@ -1513,6 +1517,6 @@ describe("Vite workflow provider outputs", () => {
       observability: { enabled: true },
       r2_buckets: [{ binding: "ASSETS", bucket_name: "assets" }],
     })
-  }, buildOutputTestTimeout)
+  }, buildOutputTestTimeout * 2)
 
 })

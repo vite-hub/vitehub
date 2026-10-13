@@ -3,7 +3,7 @@ import { posix } from "node:path"
 import { unknownExecutionAuthority } from "@vite-hub/runtime"
 
 import { executeSandboxDefinition } from "../src/runtime/execute.ts"
-import { createHandlerError } from "../src/runtime/output-recovery.ts"
+import { createHandlerError, extractSandboxOutputFromExecution, readExecOutputWithRecovery, tryParseSandboxOutput } from "../src/runtime/output-recovery.ts"
 import { toSandboxError } from "../src/runtime/error-normalization.ts"
 import { SANDBOX_VALUE_MARKER } from "../src/runtime/binary-sidecars.ts"
 import type { ViteHubError } from "@vite-hub/runtime"
@@ -20,6 +20,34 @@ it("bounds provider error messages while preserving the sandbox error", () => {
   const error = toSandboxError(new Error("x".repeat(20_000)))
   expect(error).toMatchObject({ code: "SANDBOX_RUNTIME_ERROR" })
   expect(error.message).toHaveLength(16_384)
+})
+
+it("waits for complete Cloudflare output before rejecting a malformed envelope", async () => {
+  const outputs = ['{"ok":', '{"ok":1,"result":true}']
+  const readFile = vi.fn(async () => outputs.shift()!)
+  const sandbox = {
+    provider: "cloudflare",
+    readFile,
+  } as unknown as SandboxExecutionBox
+
+  const output = await readExecOutputWithRecovery(
+    sandbox,
+    "/output.json",
+    { code: 0 },
+    undefined,
+    { code: 0 },
+  )
+
+  expect(readFile).toHaveBeenCalledTimes(2)
+  expect(output).toBe('{"ok":1,"result":true}')
+  expect(tryParseSandboxOutput(output)).toBeNull()
+})
+
+it("extracts output from a large provider stream", () => {
+  const output = '{"ok":true,"result":"ready"}'
+  const stream = `${"x".repeat(1_000_000)}\n${"noise ".repeat(100)}${"__VITEHUB_OUTPUT__"}${output}`
+
+  expect(extractSandboxOutputFromExecution({ stdout: stream })).toBe(output)
 })
 
 function createFakeSandbox(options: { execError?: Error, execResult?: SandboxExecResult, holdExecution?: boolean, holdFileWrite?: boolean, holdInstall?: boolean, onExecute?: SandboxExecHook, provider?: "cloudflare" | "vercel" } = {}) {
@@ -178,6 +206,61 @@ function createFakeSandbox(options: { execError?: Error, execResult?: SandboxExe
 }
 
 describe("executeSandboxDefinition", () => {
+  it("tracks inner execution until cleanup finishes after cancellation returns", async () => {
+    const { sandbox, execCalls } = createFakeSandbox({ holdExecution: true, provider: "cloudflare" })
+    let finishCleanup!: () => void
+    const cleanup = new Promise<void>(resolve => { finishCleanup = resolve })
+    const exec = sandbox.exec.bind(sandbox)
+    sandbox.exec = vi.fn(async (command, args, options) => {
+      if (command === "rm") await cleanup
+      return await exec(command, args, options)
+    })
+    let trackedExecution: Promise<unknown> | undefined
+    const controller = new AbortController()
+    const run = executeSandboxDefinition(sandbox, "release-notes", undefined, {
+      entry: "definition.mjs",
+      modules: { "definition.mjs": "export default async () => true" },
+    }, undefined, undefined, {
+      onExecution(execution) { trackedExecution = execution },
+    }, controller.signal)
+    await vi.waitFor(() => expect(execCalls.some(call => call.cmd === "node")).toBe(true))
+    const reason = new DOMException("request disconnected", "AbortError")
+    controller.abort(reason)
+    await expect(run).rejects.toBe(reason)
+    let settled = false
+    const completion = trackedExecution!.catch(error => {
+      expect(error).toBe(reason)
+      settled = true
+    })
+    await Promise.resolve()
+    expect(settled).toBe(false)
+    finishCleanup()
+    await completion
+    expect(settled).toBe(true)
+  })
+
+  it("preserves an external abort reason while execution is running", async () => {
+    const { sandbox } = createFakeSandbox({ holdExecution: true })
+    const controller = new AbortController()
+    const reason = new DOMException("request disconnected", "AbortError")
+    const run = executeSandboxDefinition(
+      sandbox,
+      "release-notes",
+      undefined,
+      {
+        entry: "definition.mjs",
+        modules: { "definition.mjs": "export default async () => true" },
+      },
+      undefined,
+      undefined,
+      undefined,
+      controller.signal,
+    )
+
+    controller.abort(reason)
+    await expect(run).rejects.toBe(reason)
+  })
+
   it("does not cross the handler boundary when Definition staging fails", async () => {
     const { sandbox } = createFakeSandbox({ provider: "cloudflare" })
     const onHandlerStart = vi.fn()
@@ -952,6 +1035,52 @@ describe("executeSandboxDefinition", () => {
         stderrPreview: "runtime command failed",
         stdoutPreview: "booted",
       },
+    } satisfies Partial<ViteHubError>)
+  })
+
+  it("rejects output envelopes whose ok field is not boolean", async () => {
+    const { sandbox } = createFakeSandbox({
+      onExecute({ args, write }) {
+        write(args.at(-1)!, new TextEncoder().encode(JSON.stringify({ ok: 1, result: true })))
+        return Promise.resolve({ ok: true, stdout: "", stderr: "", code: 0 })
+      },
+    })
+
+    await expect(executeSandboxDefinition(
+      sandbox,
+      "malformed-output",
+      undefined,
+      {
+        entry: "definition.mjs",
+        execution: "module",
+        modules: { "definition.mjs": "export default async () => true" },
+      },
+    )).rejects.toMatchObject({
+      code: "SANDBOX_HANDLER_ERROR",
+      message: "Sandbox definition output is not valid JSON.",
+    } satisfies Partial<ViteHubError>)
+  })
+
+  it("preserves malformed output from a failed Vercel execution", async () => {
+    const { sandbox } = createFakeSandbox({
+      onExecute({ args, write }) {
+        write(args.at(-1)!, new TextEncoder().encode(JSON.stringify({ ok: 1, result: true })))
+        return Promise.resolve({ ok: false, stdout: "", stderr: "handler failed", code: 1 })
+      },
+    })
+
+    await expect(executeSandboxDefinition(
+      sandbox,
+      "malformed-output",
+      undefined,
+      {
+        entry: "definition.mjs",
+        execution: "module",
+        modules: { "definition.mjs": "export default async () => true" },
+      },
+    )).rejects.toMatchObject({
+      code: "SANDBOX_HANDLER_ERROR",
+      message: "Sandbox definition output is not valid JSON.",
     } satisfies Partial<ViteHubError>)
   })
 })

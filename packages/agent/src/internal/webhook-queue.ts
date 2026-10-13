@@ -24,8 +24,8 @@ export interface AgentWebhookQueueDelivery {
   }
   scope: string
   webhookId: string
-  /** Persisted terminal failure and whether notification has been durably claimed. */
-  failure?: { error: string, attempts: number, notificationStarted?: true }
+  /** Persisted terminal failure and notification claim. Legacy failures omit invocationStarted. */
+  failure?: { error: string, attempts: number, invocationStarted?: false, notificationStarted?: true }
 }
 
 export interface AgentWebhookQueueLease extends AgentWebhookQueueDelivery {
@@ -40,7 +40,7 @@ export interface AgentWebhookQueueStateAdapter extends StateAdapter {
   completeWebhookDelivery(scope: string, deliveryId: string, leaseToken: string): Promise<boolean>
   /** Claims notification permanently; uncertain callback effects must not be replayed. */
   beginWebhookFailureNotification?: (scope: string, deliveryId: string, leaseToken: string) => Promise<boolean>
-  markWebhookDeliveryFailure?: (scope: string, deliveryId: string, leaseToken: string, failure: { error: string, attempts: number }) => Promise<boolean>
+  markWebhookDeliveryFailure?: (scope: string, deliveryId: string, leaseToken: string, failure: { error: string, attempts: number, invocationStarted?: false }) => Promise<boolean>
   enqueueWebhookDelivery(delivery: AgentWebhookQueueDelivery): Promise<boolean>
   extendWebhookDeliveryLease(scope: string, deliveryId: string, leaseToken: string, ttlMs: number): Promise<boolean>
   retryWebhookDelivery(scope: string, deliveryId: string, leaseToken: string, availableAt: number, options?: { incrementAttempts?: boolean }): Promise<boolean>

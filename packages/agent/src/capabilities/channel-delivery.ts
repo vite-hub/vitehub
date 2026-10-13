@@ -3,6 +3,7 @@ import { ViteHubError } from "@vite-hub/runtime"
 import { capabilityFinishDeliveryEffectSymbol, defineCapability } from "../capability-runtime.ts"
 import { defineInternalTool } from "./internal.ts"
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts"
+import { traceAgentChannelDeliveryEffect } from "../trace.ts"
 
 import type {
   AgentCapabilityDefinition,
@@ -95,9 +96,38 @@ export function channelDelivery<TOptions>(options: ChannelDeliveryOptions<TOptio
             checkLimit()
             // Count the attempt before sending. A failed send can still have reached the recipient.
             state.calls++
+            if (context.input.get().dryRun === true) {
+              const runtimeContext = context.runtimeContext
+              if (runtimeContext) {
+                await traceAgentChannelDeliveryEffect({
+                  context: context.context,
+                  input: context.input.get(),
+                  invoker: context.invoker,
+                  run: runtimeContext.run,
+                  runtime: runtimeContext,
+                }, { kind: "reply", payload: message }, {
+                  "channel.effect.channel": options.channel.name,
+                  "channel.effect.skipped": "dry-run",
+                })
+              }
+              state.sent++
+              return { deliveryId: `dry-run:${crypto.randomUUID()}`, sent: true }
+            }
             const [error, receipt] = await options.channel.send(text, options.options)
             if (error) throw error
             state.sent++
+            const runtimeContext = context.runtimeContext
+            if (runtimeContext) {
+              await traceAgentChannelDeliveryEffect({
+                context: context.context,
+                input: context.input.get(),
+                invoker: context.invoker,
+                run: runtimeContext.run,
+                runtime: runtimeContext,
+              }, { kind: "reply", payload: message }, {
+                "channel.effect.channel": options.channel.name,
+              })
+            }
             return { deliveryId: receipt.deliveryId, sent: true }
           },
           inputSchema: channelDeliveryInputSchema,

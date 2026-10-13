@@ -55,9 +55,12 @@
 }
 
 .session-inspector__tabs [data-slot="trigger"] {
+  align-items: center;
   background-color: transparent !important;
   border-radius: 0.375rem !important;
   color: var(--ui-text-muted) !important;
+  display: flex;
+  flex-shrink: 0;
   flex-grow: 0 !important;
   font-weight: 450 !important;
   gap: 0.125rem !important;
@@ -66,6 +69,7 @@
   max-width: 9rem !important;
   padding: 0.125rem 0.5rem 0.125rem 0.375rem !important;
   transition: none !important;
+  white-space: nowrap;
 }
 
 .session-inspector__tabs [data-slot="trigger"]::before {
@@ -80,15 +84,23 @@
 }
 
 .session-inspector__tabs [data-slot="trigger"][data-state="active"] {
-  background-color: var(--ui-bg-accented, var(--ui-bg-elevated)) !important;
+  background-color: transparent !important;
   color: var(--ui-text-highlighted) !important;
   font-weight: 500 !important;
 }
 
 .session-inspector__tab {
   align-items: center;
+  border-radius: 0.375rem;
   display: flex;
+  flex: none;
   min-width: 0;
+  padding-inline-end: 0.125rem;
+}
+
+.session-inspector__tab[data-active="true"] {
+  background: var(--ui-bg-accented, var(--ui-bg-elevated));
+  color: var(--ui-text-highlighted);
 }
 
 .session-inspector__tab-close {
@@ -96,15 +108,15 @@
   background: transparent;
   border: 0;
   border-radius: 0.3rem;
-  color: inherit;
+  color: var(--ui-text-muted);
   cursor: pointer;
   display: inline-flex;
   flex: 0 0 auto;
-  height: 1rem;
+  height: 1.5rem;
   justify-content: center;
   padding: 0;
   position: relative;
-  width: 1rem;
+  width: 1.5rem;
 }
 .session-inspector__tab-close:hover {
   background: color-mix(in oklab, var(--ui-text) 10%, transparent);
@@ -276,6 +288,71 @@
   padding: 0.625rem 0.875rem !important;
 }
 
+.session-inspector__details .vh-invocation-inspector__content > section + section {
+  border-block-start: 0;
+  padding-top: 0.35rem !important;
+}
+
+.session-inspector__details .vh-invocation-inspector__metrics {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  gap: 0.75rem 1rem;
+  overflow: visible;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.session-inspector__details .vh-invocation-inspector__metrics > div {
+  align-content: start;
+  background: transparent;
+  padding: 0;
+}
+
+.session-inspector__details .vh-invocation-inspector__metrics dd {
+  overflow: visible;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.session-inspector__details .vh-invocation-inspector__metrics > div:last-child:nth-child(odd) {
+  grid-column: auto;
+}
+
+.session-inspector__details .vh-invocation-inspector__copy-list {
+  gap: 0.5rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.session-inspector__details .vh-invocation-inspector__copy {
+  gap: 0.35rem;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  margin: 0;
+  min-height: 2rem;
+  padding: 0.25rem 0;
+  width: auto;
+}
+
+.session-inspector__details .vh-invocation-inspector__copy-label {
+  grid-column: 1;
+  grid-row: 1;
+  font-size: 0.6875rem;
+}
+
+.session-inspector__details .vh-invocation-inspector__copy-value {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.session-inspector__details .vh-invocation-inspector__copy-icon {
+  grid-column: 3;
+  grid-row: 1;
+}
+
+.session-inspector__details .vh-invocation-inspector__copy:hover,
+.session-inspector__details .vh-invocation-inspector__copy:focus-visible {
+  background: var(--ui-bg-accented, var(--ui-bg-elevated));
+}
+
 .session-inspector__details .vh-invocation-inspector__title-row {
   align-items: center;
   display: flex;
@@ -299,11 +376,6 @@
 }
 .session-inspector__instructions-link:hover { background: var(--ui-bg-elevated); color: var(--ui-text); }
 .session-inspector__instructions-link svg { height: 0.75rem; width: 0.75rem; }
-
-.session-inspector__details .vh-invocation-inspector__content > section {
-  padding: 0.625rem 0.875rem !important;
-}
-
 
 .session-inspector__scroll,
 .session-inspector__workspace {
@@ -572,6 +644,10 @@
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.75rem;
 }
+.session-inspector__snapshot :is(strong, small) {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
 .session-inspector__snapshot small {
   color: var(--ui-text-dimmed);
   font-size: 0.6875rem;
@@ -706,18 +782,18 @@
 }
 
 .session-trace__table {
-  min-width: 34rem;
+  min-width: 100%;
 }
 
 .session-trace__table-head,
 .session-trace__row {
   display: grid;
-  grid-template-columns: minmax(11rem, 42%) minmax(20rem, 58%);
+  grid-template-columns: minmax(10rem, 42%) minmax(14rem, 58%);
 }
 
 .session-trace__table-head {
   background: var(--ui-bg);
-  border-bottom: 1px solid var(--ui-border);
+  border-bottom: 1px solid color-mix(in oklab, var(--ui-border) 55%, transparent);
   min-height: 2.35rem;
   position: sticky;
   top: 0;
@@ -755,23 +831,21 @@
 
 .session-trace__rows {
   display: grid;
+  gap: 0.15rem;
+  padding-block: 0.25rem 0.5rem;
 }
 
 .session-trace__row {
   appearance: none;
   background: transparent;
   border: 0;
-  border-bottom: 1px solid var(--ui-border);
+  border-radius: 0.45rem;
   color: inherit;
   cursor: pointer;
   font: inherit;
   min-height: 2.6rem;
   padding: 0;
   text-align: start;
-}
-
-.session-trace__row:last-child {
-  border-bottom: 0;
 }
 
 .session-trace__row:hover {
@@ -962,8 +1036,8 @@
 }
 
 .session-trace__summary {
-  border-bottom: 1px solid var(--ui-border);
-  padding: 0.7rem;
+  border-bottom: 0;
+  padding: 0.6rem 0.7rem;
 }
 
 .session-trace__summary > span {
@@ -989,19 +1063,22 @@
 }
 .session-trace__summary dl {
   display: grid;
-  gap: 0.25rem;
+  gap: 0.35rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   margin: 0;
 }
 .session-trace__summary dl > div {
-  align-items: baseline;
   display: grid;
   font-size: 0.6875rem;
-  gap: 0.5rem;
-  grid-template-columns: 4.5rem minmax(0, 1fr);
-  padding-block: 0.2rem;
+  gap: 0.15rem;
+  min-width: 0;
+  padding: 0.35rem 0.45rem;
 }
 .session-trace__summary dt {
   color: var(--ui-text-muted);
+  font-size: 0.625rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 .session-trace__summary dd {
   margin: 0;
@@ -1012,6 +1089,12 @@
 }
 .session-trace__summary code {
   font-size: 0.625rem;
+}
+
+@container (max-width: 30rem) {
+  .session-trace__summary dl {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .session-trace__field-search {
@@ -1495,6 +1578,9 @@
 @container (max-width: 34rem) {
   .session-inspector__workspace-body {
     grid-template-columns: minmax(0, 1fr) 12rem;
+  }
+  .session-inspector__snapshot {
+    padding-inline: 1rem;
   }
   .session-inspector__breadcrumbs {
     padding-inline: 0.65rem;

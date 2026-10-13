@@ -5,7 +5,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import type { AgentToolSet, ResolvedAgentRuntimeContext } from "../src/types.ts"
-import { custom, file, github, type ReadonlyWorkspaceFacade, type WorkspaceDefinition, type WorkspaceEntry, type WorkspaceSearchHit, type WorkspaceSourceRequestDescriptor, type WorkspaceSession, type WorkspaceStat } from "@vite-hub/workspace"
+import { createWorkspace as createRuntimeWorkspace, custom, file, github, type ReadonlyWorkspaceFacade, type WorkspaceDefinition, type WorkspaceEntry, type WorkspaceSearchHit, type WorkspaceSourceRequestDescriptor, type WorkspaceSession, type WorkspaceStat } from "@vite-hub/workspace"
 import { attachWorkspaceSourceRequestExecution, registerWorkspace, useWorkspace } from "@vite-hub/workspace/runtime"
 import { listMaterializedWorkspaceSourceEntries, normalizeWorkspaceSourceMetadata, readWorkspaceSourceMaterializationStatus } from "@vite-hub/workspace/source-metadata"
 
@@ -102,6 +102,7 @@ function createWorkspace(
   }
 
   return {
+    history: createRuntimeWorkspace({ name: "access-fixture", store: { provider: "memory" } }).history,
     fs: executor ? attachWorkspaceSourceRequestExecution(fs, executor) : fs,
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     tools: asUnknownBoundary({
@@ -190,6 +191,7 @@ function createWorkspaceWithStaleIngestion(): ReadonlyWorkspaceFacade {
       },
     },
     tools: base.tools,
+    history: base.history,
   }
 }
 
@@ -244,10 +246,29 @@ function createWorkspaceWithCustomerIngestion(): ReadonlyWorkspaceFacade {
       },
     },
     tools: base.tools,
+    history: base.history,
   }
 }
 
 describe("access capability", () => {
+  it("denies complete folder history through a selected path scope", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { access } = await import("../src/capabilities.ts")
+    const workspace = createWorkspace()
+    const head = vi.spyOn(workspace.history, "head")
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [access({ workspace: {
+        defaultScope: "public",
+        scopes: { public: { paths: ["public"] } },
+      } })],
+    }, runtime(), { prompt: "check" }, workspace)
+    const history = resolved.workspace!.history
+    for (const inspect of [() => history.head(), () => history.list(), () => history.open("revision"), () => history.usage()]) {
+      await expect(inspect()).rejects.toMatchObject({ code: "WORKSPACE_R0069" })
+    }
+    expect(head).not.toHaveBeenCalled()
+  })
+
   it("accepts chat admission without requiring a workspace", async () => {
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { access } = await import("../src/capabilities.ts")
@@ -634,6 +655,7 @@ describe("access capability", () => {
     class Workspace {
       readonly fs = new Files()
       readonly tools = base.tools
+      readonly history = base.history
       readonly #value = "workspace"
 
       async startSession() {
@@ -682,6 +704,7 @@ describe("access capability", () => {
     const workspace = Object.freeze({
       fs,
       tools: base.tools,
+      history: base.history,
       async startSession() {
         return session
       },

@@ -30,7 +30,8 @@ export function snapshotPullRequest(snapshot: Snapshot): PullRequest {
 export function claimStopReason(claim: Claim, current: Snapshot | undefined, acceptedSelfHead?: string): string | undefined {
   if (!current || current.lease !== claim.token || current.leaseUntil <= Date.now()) return 'Pull request lease lost.'
   if (current.status === 'terminal' || current.pr?.state === 'closed') return 'Pull request is no longer open.'
-  if (current.pr?.head?.sha !== (acceptedSelfHead ?? claim.snapshot.pr?.head?.sha)) return 'Pull request head changed.'
+  const expectedHead = claim.snapshot.pr?.head?.sha
+  if (current.pr?.head?.sha !== (acceptedSelfHead ?? expectedHead)) return 'Pull request head changed.'
 }
 
 
@@ -42,8 +43,11 @@ export function createClaimStopCheck(
 ): () => Promise<string | undefined> {
   let acceptedSelfHead: string | undefined
   return async (): Promise<string | undefined> => {
-    const reason = claimStopReason(claim, await readCurrent(), acceptedSelfHead)
+    const observed = await readCurrent()
+    const reason = claimStopReason(claim, observed, acceptedSelfHead)
     if (reason !== 'Pull request head changed.') return reason
+    // A previous proof must not authorize rollback to the original claim head.
+    if (acceptedSelfHead && observed?.pr?.head?.sha === claim.snapshot.pr?.head?.sha) return reason
     let providerHead: string | undefined
     try { providerHead = await readProviderHead() }
     catch { return claimStopReason(claim, await readCurrent(), acceptedSelfHead) }

@@ -100,7 +100,7 @@ The delivery options below match the Agent-level `messages` settings that [Chann
 | `timeout` | `number` | none | Positive time limit in milliseconds for inline execution and the durable handoff's typing indicator. |
 | `durable` | `boolean` | inherited | Carry the reply across a durable Workflow boundary. Requires `loading` or `delivery: "manual"`. Allows only `concurrency: "parallel"` or `"steer"`. |
 | `errorFallbackText` | `string \| null \| function` | inherited | Message sent when chat handling fails. A function receives `error`, `publicError`, `invocation`, and `defaultText`, the text ViteHub sends when this option is not set. `invocation` is `{ id, consoleUrl? }` when the error belongs to a run. |
-| `errorConsoleLink` | `boolean` | `false` | Add `Details: <Console URL>` of the failed Invocation to the end of each error reply, also after custom `errorFallbackText`. ViteHub adds no link when the reply already contains the URL, when the run is unknown, or when no [public URL](/docs/getting-started/concepts/vite-integrations-and-provider-output#public-url) is set. Keep it off for external users, because the link shows internal details. Durable Workflow error replies do not have the link yet. |
+| `errorConsoleLink` | `boolean` | `false` | Add `Details: <Console URL>` of the failed Invocation to the end of each error reply, also after custom `errorFallbackText`. ViteHub adds no link when the reply already contains the URL, when the run is unknown, or when no [public URL](/docs/development/integrations-and-output#public-url) is set. Keep it off for external users, because the link shows internal details. Durable Workflow error replies do not have the link yet. |
 
 ## Related pages
 

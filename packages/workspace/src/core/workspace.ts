@@ -5,9 +5,11 @@ import { createWorkspaceSourceView } from "../sources/view.ts"
 import { createWorkspaceStoreFromProvider } from "../storage/provider.ts"
 import { forwardWorkspaceRevisionMaterializer } from "../storage/materialization.ts"
 import { forwardWorkspaceStoreTarget } from "../storage/target.ts"
-import { createWorkspaceMetadataTarget, workspaceMetadataTarget, type WorkspaceMetadataTarget } from "../storage/metadata-target.ts"
-import { hasRuntimeType } from "../internal/runtime-type.ts"
+import { createWorkspaceMetadataTarget, workspaceInternalMetadataCapability, attachWorkspaceMetadataTarget } from "../storage/metadata-target.ts"
+import { assertPublicWorkspaceMetaKey } from "../storage/metadata-keys.ts"
+import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 import { getCachedWorkspaceStore } from "./workspace-cache.ts"
+import { createWorkspaceHistory } from "./history.ts"
 import type {
   Workspace,
   WorkspaceDefinition,
@@ -30,11 +32,11 @@ export function createWorkspace(definition: WorkspaceDefinition, options: { reus
 
   const metadata = createWorkspaceMetadataTarget(store, definition.name)
   const rebaseStore = files.requireRebaseGrants(async options => await store.rebase?.(options))
-  const workspace: Workspace & { [workspaceMetadataTarget]: () => WorkspaceMetadataTarget } = {
-    [workspaceMetadataTarget]: () => metadata,
+  const workspace: Workspace = {
     name: definition.name,
+    history: createWorkspaceHistory(definition, store, files),
     async capabilities() {
-      return { conditionalWrites: hasRuntimeType(store.writeFileConditional, "function") }
+      return { conditionalWrites: hasRuntimeType(store.writeFileConditional, "function"), retainedHistory: Boolean(store.history) }
     },
     async sync(options) {
       const { syncWorkspaceSources } = await import("../sources/sync.ts")
@@ -46,8 +48,10 @@ export function createWorkspace(definition: WorkspaceDefinition, options: { reus
     async getMeta(key) {
       return await store.getMeta?.(key)
     },
-    async setMeta(key, value) {
-      await store.setMeta?.(key, value)
+    async setMeta(key, value, capability?: typeof workspaceInternalMetadataCapability) {
+      // Internal writers use the Store. Public callers cannot forge their records.
+      const metadataKey = capability === workspaceInternalMetadataCapability ? key : assertPublicWorkspaceMetaKey(key)
+      await store.setMeta?.(metadataKey, value)
     },
     async readFile(path, options) {
       return await files.readFile(path, options)
@@ -107,6 +111,7 @@ export function createWorkspace(definition: WorkspaceDefinition, options: { reus
     },
   }
 
+  attachWorkspaceMetadataTarget(workspace, () => metadata)
   forwardWorkspaceStoreTarget(store, workspace)
   if (!normalizeWorkspaceSources(definition.sources).some(source => source.requestDescriptor || source.livePaths)) {
     forwardWorkspaceRevisionMaterializer(store, workspace)

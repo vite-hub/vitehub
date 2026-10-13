@@ -451,7 +451,7 @@ describe("hubEmail", () => {
     const plugin = hubEmail({ driver: "resend", hosting: "vercel" } as Parameters<typeof hubEmail>[0])
     const config = functionHook(plugin.config, "config")
     await expect(config({ root: appRoot })).resolves.toMatchObject({ resolve: { alias: [
-      { find: EMAIL_DEFINITION_ID, replacement: join(appRoot, ".vitehub", "email", "definition.mjs") },
+      { find: EMAIL_DEFINITION_ID, replacement: join(root, ".vitehub", "email", "definition.mjs") },
       {
         find: /^#vitehub\/emails\/welcome$/,
         replacement: join(root, ".vitehub", "email", "templates", "welcome.mjs"),

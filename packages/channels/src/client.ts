@@ -39,7 +39,8 @@ function logDelivery(event: string, deliveryId: string, channel: string, connect
   }
 }
 
-function normalizeConnectorResult(result: ChannelConnectorResult): ChannelConnectorResult {
+// doctor-disable-next-line typescript/evidence/no-object-parameters -- Connector results are arbitrary provider objects; this helper reads only own enumerable metadata and id.
+function normalizeConnectorResult(result: object): ChannelConnectorResult {
   const entries: Array<[PropertyKey, unknown]> = []
   try {
     for (const key of Reflect.ownKeys(result)) {
@@ -57,8 +58,9 @@ function normalizeConnectorResult(result: ChannelConnectorResult): ChannelConnec
   }
   const normalized: ChannelConnectorResult = Object.fromEntries(entries)
   try {
-    const id = result.id
-    if (id !== undefined) normalized.id = id
+    const id: unknown = Reflect.get(result, "id")
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JavaScript connectors can return invalid optional IDs after delivery succeeds.
+    if (typeof id === "string") normalized.id = id
   }
   catch {
     // Delivery already succeeded. An inaccessible optional ID must not encourage a resend.
@@ -107,12 +109,10 @@ export function createChannel<
           throw channelError(`Channel "${name}" does not define connector "${connectorName}".`)
         }
 
-        // SAFETY: The object check above establishes that options can be copied into connector options.
-        const connectorOptions = { ...(options as Record<string, unknown>) }
-        delete connectorOptions.connector
         deliveryId = globalThis.crypto.randomUUID()
         logDelivery("outbound.started", deliveryId, name, connectorName)
-        const result = await connector.send(text, connectorOptions as never)
+        // SAFETY: ChannelSendOptions carries the selected connector's options; selector validation above resolves that connector.
+        const result = await connector.send(text, options as never)
         if (!result || typeof result !== "object") {
           throw channelError(`Channel connector "${connectorName}" returned an invalid result.`)
         }

@@ -17,12 +17,17 @@ function parseRateLimitWindow(value: RateLimitWindow): number {
     throw rateLimitErrorDiagnostics.RATE_LIMIT_R0031({ message: "[vitehub] Rate Limit window must use a duration such as \"10s\", \"1m\", \"1h\", or \"1d\"." })
   }
 
-  const amount = Number(match[1])
-  if (!Number.isFinite(amount) || amount <= 0) {
-    throw rateLimitErrorDiagnostics.RATE_LIMIT_R0032({ message: "[vitehub] Rate Limit window must be greater than zero." })
+  // SAFETY: The duration regex limits the unit capture to keys in unitMilliseconds.
+  const unitMs = unitMilliseconds[match[2] as keyof typeof unitMilliseconds]
+  const [integer, fraction = ""] = match[1]!.split(".")
+  // Number can round a fraction above the timestamp limit back down to the limit.
+  const fractionalOverflow = Number(integer) === 8.64e15 / unitMs && /[1-9]/.test(fraction)
+  const windowMs = Math.ceil(Number(match[1]) * unitMs)
+  if (!Number.isFinite(windowMs) || windowMs <= 0 || windowMs > 8.64e15 || fractionalOverflow) {
+    throw rateLimitErrorDiagnostics.RATE_LIMIT_R0032({ message: "[vitehub] Rate Limit window must resolve to finite milliseconds greater than zero and at most 8640000000000000." })
   }
 
-  return Math.ceil(amount * unitMilliseconds[match[2] as keyof typeof unitMilliseconds])
+  return windowMs
 }
 
 export function normalizeRateLimitPolicy(policy: RateLimitPolicy): ResolvedRateLimitPolicy {

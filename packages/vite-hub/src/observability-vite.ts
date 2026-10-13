@@ -3,6 +3,7 @@ import { dirname, resolve } from "node:path"
 
 import { getHostingProvider } from "@vite-hub/internal/hosting"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
+import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT } from "@vite-hub/internal/build/vite"
 
 import type { EnvVariableDeclaration } from "@vite-hub/env"
 import type { Plugin } from "vite"
@@ -143,7 +144,11 @@ export function observabilityVitePlugin(options: ObservabilityOptions, target: {
         throw viteHubErrorDiagnostics.VITE_HUB_B0012({ message: "[vitehub] vitehub({ observability }) requires the evlog package. Install evlog." })
       })
       // SAFETY: ViteHub Env and Nitro extend Vite's user config with these documented top-level keys.
-      const viteConfig = config as typeof config & { env?: { server?: Record<string, unknown> }, nitro?: Record<string, unknown> }
+      const viteConfig = config as typeof config & {
+        [VITEHUB_PROJECT_ROOT]?: string
+        env?: { server?: Record<string, unknown> }
+        nitro?: Record<string, unknown>
+      }
       if (options.posthog) {
         const env = viteConfig.env ??= {}
         const server = env.server ??= {}
@@ -153,7 +158,12 @@ export function observabilityVitePlugin(options: ObservabilityOptions, target: {
         }
         server.observability = { posthog: { apiKey: options.posthog.apiKey } }
       }
-      const plugin = resolve(config.root || process.cwd(), generatedObservabilityPlugin)
+      // SAFETY: ViteHub's project-root config value is an externally supplied Vite extension key.
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Narrow the optional extension value before resolving its path.
+      const projectRoot = typeof viteConfig[VITEHUB_PROJECT_ROOT] === "string"
+        ? resolve(viteConfig[VITEHUB_PROJECT_ROOT])
+        : resolveViteHubProjectRoot(config.root || process.cwd())
+      const plugin = resolve(projectRoot, generatedObservabilityPlugin)
       await writeIfChanged(plugin, renderObservabilityNitroPlugin(normalizedOptions))
       const kit = createNitroServerKit(viteConfig.nitro)
       kit.addPlugin(plugin)

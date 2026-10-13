@@ -131,6 +131,22 @@ describe("discoverScheduleDefinitions", () => {
     ])
   })
 
+  it("reads literal metadata beside a URL in the handler", async () => {
+    const rootDir = await createTempDir("vitehub-schedule-handler-url-")
+    await writeFile(
+      join(rootDir, "daily.schedule.ts"),
+      "export default defineSchedule({ cron: '0 9 * * *', handler: () => fetch('https://example.com'), manual: true, allowRuntimeSchedules: true })\n",
+      "utf8",
+    )
+
+    expect(discoverScheduleDefinitions({ rootDir })).toMatchObject([{
+      allowRuntimeSchedules: true,
+      manual: true,
+      name: "daily",
+      source: "vite-suffix",
+    }])
+  })
+
   it("discovers defineScheduleTarget calls as runtime-only targets", async () => {
     const rootDir = await createTempDir("vitehub-schedule-runtime-target-")
     await writeFile(

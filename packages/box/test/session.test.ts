@@ -146,8 +146,9 @@ describe("BoxSession", () => {
         "-e",
         "let text = ''; process.stdin.on('data', chunk => text += chunk); process.stdin.on('end', () => process.stdout.write(text.toUpperCase()))",
       ]);
-      expect(child.stdin).toBe(child.stdin);
-      const writer = child.stdin!.getWriter();
+      const stdin = child.stdin;
+      expect(stdin).toBeDefined();
+      const writer = stdin!.getWriter();
       await writer.write(new TextEncoder().encode("first\n"));
       await writer.write(new TextEncoder().encode("second\n"));
       await writer.close();

@@ -282,7 +282,7 @@ describe("UI server rendering", () => {
           };
         return h("div", [
           h(AgentInvocation, { invocation }),
-          h(AgentInvocationInspector, { invocation }),
+          h(AgentInvocationInspector, { invocation, showCapabilities: true }),
         ]);
       },
     });

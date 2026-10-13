@@ -9,6 +9,7 @@ import { withWorkspaceStoreMutation } from "../storage/mutation.ts"
 import {
   readWorkspaceSourceSyncState,
   sourceSyncMetaKey,
+  sourceSyncPathClaims,
   workspaceSourceSyncStateEquals,
   type WorkspaceSourceSyncState,
 } from "./sync-state.ts"
@@ -35,7 +36,6 @@ interface SourceSyncPlan {
   removals: WorkspaceSourceSyncPathResult[]
   source: ResolvedWorkspaceSource
   definitionName: string
-  stateChanged: boolean
 }
 
 const sourceSyncLocks = new Map<string, Promise<WorkspaceSourceSyncResult>>()
@@ -163,6 +163,7 @@ async function planSourceSync(
     nextPaths[path] = {
       digest,
       mediaType: item.mediaType,
+      mountPath: source.mountPath,
       sourcePath,
     }
     files.push({
@@ -175,9 +176,12 @@ async function planSourceSync(
 
   const removals: WorkspaceSourceSyncPathResult[] = []
   if (source.sync && source.sync.stale === "remove" && previousState) {
-    for (const [path, metadata] of Object.entries(previousState.paths)) {
+    for (const path of Object.keys(previousState.paths)) {
       if (nextPaths[path]) continue
-      // The sync state key is shared by Workspaces on one Store. Remove only paths in this Source mount.
+      const claims = sourceSyncPathClaims(previousState, path)
+      const metadata = claims.find(claim => claim.mountPath === source.mountPath)
+      // Release this mount's claim without removing a file another mount still owns.
+      if (!metadata || claims.length > 1) continue
       if (!sourceMountOwnsPath(source, path)) continue
       if (!await shouldRemoveStalePath(store, path, metadata)) continue
       const removal = { path, sourcePath: metadata.sourcePath, status: "removed" as const }
@@ -202,12 +206,12 @@ async function planSourceSync(
     removals,
     source,
     definitionName: definition.name,
-    stateChanged: !workspaceSourceSyncStateEquals(previousState, nextState),
   }
 }
 
 async function applySourceSyncPlan(store: WorkspaceStore, plan: SourceSyncPlan) {
   const sourceStore = sourceSyncGrants.store(sourceSyncGrants.grant(plan.source), store)
+  const current = await store.getMeta?.(sourceSyncMetaKey(plan.source.key, plan.definitionName)).then(readWorkspaceSourceSyncState)
   if (plan.source.mountPath) await sourceStore.mkdir(plan.source.mountPath, { recursive: true })
   for (const file of plan.files) {
     await sourceStore.writeFile(file.path, file)
@@ -216,7 +220,27 @@ async function applySourceSyncPlan(store: WorkspaceStore, plan: SourceSyncPlan) 
     await sourceStore.rm(removal.path, { force: true })
   }
   await pruneEmptySourceDirectories(sourceStore, plan.source, plan.removals)
-  if (plan.stateChanged) await store.setMeta?.(sourceSyncMetaKey(plan.source.key, plan.definitionName), plan.nextState)
+  const paths: WorkspaceSourceSyncState["paths"] = {}
+  const claims: NonNullable<WorkspaceSourceSyncState["claims"]> = {}
+  for (const path of new Set([...Object.keys(current?.paths ?? {}), ...Object.keys(plan.nextState.paths)])) {
+    const retained = current?.paths[path] ? sourceSyncPathClaims(current, path).filter(claim => claim.mountPath !== plan.source.mountPath).map(claim => ({ ...claim })) : []
+    const next = plan.nextState.paths[path]
+    if (next) retained.push(next)
+    if (retained.length === 0) continue
+    // Claims share cleanup authority for the latest Source-written bytes, not
+    // their historical content. Releasing a claim must never adopt user edits,
+    // even when those edits happen to match an older claim's digest.
+    const digest = next?.digest ?? current!.paths[path]!.digest
+    for (const claim of retained) claim.digest = digest
+    // Keep the path index for readers that only need to know whether a path is owned.
+    paths[path] = retained[retained.length - 1]!
+    if (retained.length > 1) claims[path] = retained.sort((left, right) => left.mountPath!.localeCompare(right.mountPath!))
+  }
+  const nextState: WorkspaceSourceSyncState = { ...plan.nextState, paths }
+  if (Object.keys(claims).length) nextState.claims = claims
+  if (!workspaceSourceSyncStateEquals(current, nextState)) {
+    await store.setMeta?.(sourceSyncMetaKey(plan.source.key, plan.definitionName), nextState)
+  }
 }
 
 async function pruneEmptySourceDirectories(store: WorkspaceStore, source: ResolvedWorkspaceSource, removals: WorkspaceSourceSyncPathResult[]) {

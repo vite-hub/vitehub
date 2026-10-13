@@ -6,7 +6,7 @@ navigation.order: 1
 icon: i-lucide-send
 ---
 
-::product-hero{tagline="Send outbound messages to a named destination from server code, through connectors you write and select per call." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
+::product-hero{tagline="Send outbound messages to a named destination from server code, through connectors you write and select per call." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno" channels="Telegram, Slack, Your API" channel-mode="custom"}
   :::code-group
   ```ts [Definition]
   import { defineOutboundChannel } from 'vite-hub/channels'
@@ -73,11 +73,11 @@ icon: i-lucide-send
 
 
 ::product-features
-  :::product-feature-item{title="You write the connector, Channels selects it" icon="i-lucide-plug" to="/docs/channels/get-started"}
+  :::product-feature-item{title="Send through your own connector" icon="i-lucide-plug" to="/docs/channels/get-started"}
   Discovers `server/channels` and `.channel.ts`; each connector owns its `send()`.
   :::
 
-  :::product-feature-item{title="send() returns a result tuple, not a throw" icon="i-lucide-code-2" to="/docs/channels/server-api"}
+  :::product-feature-item{title="Handle delivery results" icon="i-lucide-code-2" to="/docs/channels/server-api"}
   Returns `[null, receipt]` or `[error, null]` with the delivery id.
   :::
 
@@ -85,7 +85,7 @@ icon: i-lucide-send
   Name `connector` at each call site, such as `telegram` or `slack`.
   :::
 
-  :::product-feature-item{title="Each delivery logs events without the message text" icon="i-lucide-activity" to="/docs/channels/server-api#send-from-an-h3-or-nitro-handler"}
+  :::product-feature-item{title="Inspect delivery events" icon="i-lucide-activity" to="/docs/channels/server-api#send-from-an-h3-or-nitro-handler"}
   `outbound.*` events omit message text and connector options.
   :::
 
@@ -93,7 +93,7 @@ icon: i-lucide-send
   `channelDelivery()` fixes Channel and options; the model writes the message.
   :::
 
-  :::product-feature-item{title="Outbound only: inbound needs Agent Channels" icon="i-lucide-radio" to="/docs/agents/channels"}
+  :::product-feature-item{title="Receive messages with Agent Channels" icon="i-lucide-radio" to="/docs/agents/channels"}
   Use Agent Channels when the destination starts an Invocation.
   :::
 ::

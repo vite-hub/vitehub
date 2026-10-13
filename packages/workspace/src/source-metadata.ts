@@ -1,4 +1,4 @@
-import { hasRuntimeType } from "./internal/runtime-type.ts"
+import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 import { readCurrentSourceSnapshot } from "./sources/materialization.ts"
 import { resolveWorkspaceMetadataTarget } from "./storage/metadata-target.ts"
 import type { WorkspaceEntry, WorkspaceSourceMaterializationStatus } from "./core/types.ts"

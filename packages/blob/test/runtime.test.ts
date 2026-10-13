@@ -1,3 +1,4 @@
+import { H3Event } from "h3"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { ensureBlob } from "../src/ensure.ts"
@@ -10,6 +11,15 @@ import {
   setBlobRuntimeStorage,
 } from "../src/runtime/state.ts"
 import type { BlobEnsureOptions, BlobResult } from "../src/types.ts"
+
+it("forwards response options through the runtime Blob helper", async () => {
+  const storage = { serve: vi.fn(async () => [null, null] as const) }
+  setBlobRuntimeStorage(storage as unknown as ReturnType<typeof createBlobStorage>)
+  const event = new H3Event(new Request("https://example.test/photo"))
+  const options = { cacheControl: "public, max-age=300", transform: { key: "v1", run: (original: Blob) => original } }
+  expect(await blob.serve(event, "original", options)).toEqual([null, null])
+  expect(storage.serve).toHaveBeenCalledWith(event, "original", options)
+})
 
 function expectBlobSuccess<TResult>(result: BlobResult<TResult>): TResult {
   const [error, value] = result
@@ -299,6 +309,26 @@ function createMemoryBucket() {
 }
 
 describe("blob runtime", () => {
+  it.each([false, true])("returns null for missing R2 metadata with serving %s", async (serve) => {
+    setBlobRuntimeConfig({
+      store: { binding: "BLOB", bucketName: "assets", driver: "cloudflare-r2" },
+      ...(serve ? { serve: { route: "/f", store: "default" } } : {}),
+    })
+    const bucket = createMemoryBucket()
+    setActiveCloudflareEnv({ BLOB: bucket })
+
+    expect(await blob.head("missing.txt")).toEqual([null, null])
+    expect(await blob.get("missing.txt")).toEqual([null, null])
+    expectBlobSuccess(await blob.put("exists.txt", "hello"))
+    expect(expectBlobSuccess(await blob.head("exists.txt"))?.pathname).toBe("exists.txt")
+
+    const cause = new Error("R2 unavailable")
+    vi.spyOn(bucket, "head").mockRejectedValue(cause)
+    const [error, value] = await blob.head("exists.txt")
+    expect(error).toMatchObject({ code: "BLOB_OPERATION_FAILED", cause, details: { operation: "head", store: "default" } })
+    expect(value).toBeUndefined()
+  })
+
   it("returns provider failures as Blob results", async () => {
     const cause = new Error("provider unavailable")
     const storage = createBlobStorage({
@@ -504,7 +534,7 @@ describe("blob runtime", () => {
     const otherStore = expectBlobSuccess(await blob.put("notes/private.txt", "value"))
 
     expect(put.url).toBe("https://assets.example/api/_vitehub/blob/notes/served.txt")
-    expect(head.url).toBe("https://assets.example/api/_vitehub/blob/notes/served.txt")
+    expect(head?.url).toBe("https://assets.example/api/_vitehub/blob/notes/served.txt")
     expect(list.blobs[0]?.url).toBe("https://assets.example/api/_vitehub/blob/notes/served.txt")
     expect(otherStore.url).toBe("https://blob.example/notes/private.txt")
 
@@ -639,14 +669,13 @@ describe("blob runtime", () => {
     const body = expectBlobSuccess(await blob.get("notes/hello.txt"))
 
     expect(list.blobs).toHaveLength(1)
-    expect(head.customMetadata).toEqual({ test: "true" })
+    expect(head?.customMetadata).toEqual({ test: "true" })
     expect(body?.type).toBe("text/plain")
     expect(await body?.text()).toBe("hello")
     expect(filesSdkMock.r2).not.toHaveBeenCalled()
 
     expectBlobSuccess(await blob.del("notes/hello.txt"))
-    const [missingError] = await blob.head("notes/hello.txt")
-    expect(missingError).toMatchObject({ code: "BLOB_NOT_FOUND", details: { operation: "head", store: "default" } })
+    expect(await blob.head("notes/hello.txt")).toEqual([null, null])
   })
 
   it("falls back to Files SDK R2 when no Cloudflare binding exists", async () => {
@@ -986,8 +1015,7 @@ describe("blob runtime", () => {
 
     expect(await expectBlobSuccess(await blob.get("notes/100%25.txt"))?.text()).toBe("value")
     expectBlobSuccess(await blob.del("notes/h%C3%A9llo.txt"))
-    const [missingError] = await blob.head("notes/h%C3%A9llo.txt")
-    expect(missingError?.code).toBe("BLOB_NOT_FOUND")
+    expect(await blob.head("notes/h%C3%A9llo.txt")).toEqual([null, null])
   })
 
   it("passes decoded pathnames to the Vercel driver", async () => {

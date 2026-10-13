@@ -12,5 +12,9 @@ export default defineConfig({
   test: {
     environment: "node",
     globals: false,
+    typecheck: {
+      enabled: true,
+      include: ["test/**/*.test-d.ts"],
+    },
   },
 })

@@ -14,9 +14,9 @@ import type { AgentRunMetadata, AgentRuntimeConfig, AgentRuntimeContext, MaybePr
 import type { RuntimeDiagnosticError, TraceEvent, TraceEventContentPolicy, TraceEventLog, TraceEventLogEntry, TraceEventPayload } from "@vite-hub/runtime"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
 
-const bindAgentInvocationsSymbol = Symbol("vitehub.bindAgentInvocations")
-const recoverInterruptedAgentInvocationsSymbol = Symbol("vitehub.recoverInterruptedAgentInvocations")
-const agentInvocationsBrand: unique symbol = Symbol("vitehub.agentInvocations")
+const bindAgentInvocationsSymbol = Symbol.for("vitehub.bindAgentInvocations")
+const recoverInterruptedAgentInvocationsSymbol = Symbol.for("vitehub.recoverInterruptedAgentInvocations")
+const agentInvocationsBrand: unique symbol = Symbol.for("vitehub.agentInvocations")
 
 const MAX_ANNOTATIONS = 32
 const MAX_ANNOTATION_KEY_LENGTH = 64
@@ -480,7 +480,10 @@ function isStringRecord(value: unknown): value is Record<string, unknown> {
 function normalizeAnnotations(input: AgentRunMetadata["annotations"]): Record<string, AgentInvocationAnnotationValue> | undefined {
   if (!input || !hasRuntimeType(input, "object")) return
   const annotations: Record<string, AgentInvocationAnnotationValue> = {}
-  for (const [key, value] of Object.entries(input)) {
+  // Reserve capacity for framework identity and execution metadata before user annotations.
+  const reserved = new Set([pendingAgentInvocationAnnotation, workflowDispatchAttemptedAnnotation, "vitehub.channel.key", "vitehub.channel.thread", "triggeredBy"])
+  const entries = Object.entries(input)
+  for (const [key, value] of [...entries.filter(([key]) => reserved.has(key)), ...entries.filter(([key]) => !reserved.has(key))]) {
     if (Object.keys(annotations).length >= MAX_ANNOTATIONS) break
     if (!annotationKey(key)) continue
     if (hasRuntimeType(value, "string")) annotations[key] = value.slice(0, MAX_ANNOTATION_STRING_LENGTH)
@@ -569,6 +572,16 @@ function boxedObservationPrimitive(value: unknown): { type: string, value: bigin
   }
 }
 
+function reflectedMapEntries(value: unknown): IterableIterator<[unknown, unknown]> | undefined {
+  if (!value || !hasRuntimeType(value, "object")) return
+  try {
+    return Map.prototype.entries.call(value)
+  }
+  catch {
+    return
+  }
+}
+
 async function collectBoundedObservationBuiltIns(
   value: unknown,
   builtIns: Map<object, BoundedObservationBuiltIn>,
@@ -612,9 +625,10 @@ async function collectBoundedObservationBuiltIns(
     }
     return
   }
-  if (value instanceof Map) {
+  const mapEntries = reflectedMapEntries(value)
+  if (mapEntries) {
     let count = 0
-    for (const [key, child] of value) {
+    for (const [key, child] of mapEntries) {
       if (count++ >= MAX_OBSERVATION_COLLECTION_ITEMS) break
       await collectBoundedObservationBuiltIns(key, builtIns, budget, seen, depth + 1)
       await collectBoundedObservationBuiltIns(child, builtIns, budget, seen, depth + 1)
@@ -723,19 +737,19 @@ function boundedObservationValue(
       ),
     }
   }
-  if (value instanceof Map) {
+  const mapEntries = reflectedMapEntries(value)
+  if (mapEntries) {
     budget.truncated = true
-    const entries: [unknown, unknown][] = []
     const limit = Math.min(collectionItems, budget.items)
-    for (const entry of value) {
+    const entries: unknown[] = []
+    for (const entry of mapEntries) {
       if (entries.length >= limit) break
-      entries.push(entry)
+      entries.push([
+        boundedObservationValue(entry[0], budget, depth + 1, maxStringLength, builtIns),
+        boundedObservationValue(entry[1], budget, depth + 1, maxStringLength, builtIns),
+      ])
     }
-    if (entries.length < value.size) budget.truncated = true
-    return entries.map(([key, child]) => [
-      boundedObservationValue(key, budget, depth + 1, maxStringLength, builtIns),
-      boundedObservationValue(child, budget, depth + 1, maxStringLength, builtIns),
-    ])
+    return entries
   }
   if (value instanceof Set) {
     budget.truncated = true
@@ -2584,8 +2598,11 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       }
       const names = new Set<string>()
       let cursor: string | undefined
+      const seenCursors = new Set<string>()
       do {
         const page = await store.list({ cursor, limit: MAX_LIST_LIMIT })
+        if (page.cursor && seenCursors.has(page.cursor)) throw new Error("[vitehub] Agent Invocation listing returned a repeated pagination cursor.")
+        if (page.cursor) seenCursors.add(page.cursor)
         for (const invocation of page.invocations) {
           if (invocation.agentName?.trim()) names.add(invocation.agentName.trim())
         }
@@ -2603,8 +2620,11 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       }
       const triggeredBy = new Set<string>()
       let cursor: string | undefined
+      const seenCursors = new Set<string>()
       do {
         const page = await store.list({ ...(selectedAgent ? { agentName: selectedAgent } : {}), cursor, limit: MAX_LIST_LIMIT })
+        if (page.cursor && seenCursors.has(page.cursor)) throw new Error("[vitehub] Agent Invocation listing returned a repeated pagination cursor.")
+        if (page.cursor) seenCursors.add(page.cursor)
         for (const invocation of page.invocations) {
           const label = invocation.annotations?.triggeredBy
           if (hasRuntimeType(label, "string") && label.trim()) triggeredBy.add(label.trim())
@@ -2623,8 +2643,11 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       }
       const capabilityIds = new Set<string>()
       let cursor: string | undefined
+      const seenCursors = new Set<string>()
       do {
         const page = await store.list({ ...(selectedAgent ? { agentName: selectedAgent } : {}), cursor, limit: MAX_LIST_LIMIT })
+        if (page.cursor && seenCursors.has(page.cursor)) throw new Error("[vitehub] Agent Invocation listing returned a repeated pagination cursor.")
+        if (page.cursor) seenCursors.add(page.cursor)
         const records = await Promise.all(page.invocations.map(invocation => store.get(invocation.id)))
         for (const record of records) {
           if (record) invocationCapabilityIds(record).forEach(capabilityId => capabilityIds.add(capabilityId))

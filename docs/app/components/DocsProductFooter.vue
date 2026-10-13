@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// The footer of a product landing page: every package by category, with the current one marked.
+// The footer of a product landing page: every documented area by category, with the current one marked.
 import { docsManifest, type DocsSection } from "~~/modules/vitehub-docs/runtime/utils/docs";
 import { getDocsCatalog } from "~~/modules/vitehub-docs/runtime/utils/docs-navigation";
 
@@ -7,8 +7,7 @@ const props = defineProps<{
   current: DocsSection;
 }>();
 
-// The Start row lists guides, not packages. Platform sections stay reachable from the header and the catalog.
-const groups = getDocsCatalog(docsManifest.sections).filter(group => group.category !== "Start" && group.category !== "Platform");
+const groups = getDocsCatalog(docsManifest.sections);
 
 function isCurrent(section: DocsSection) {
   return section.id === props.current.id;
@@ -16,8 +15,8 @@ function isCurrent(section: DocsSection) {
 </script>
 
 <template>
-  <footer class="vh-product-footer" aria-label="All packages">
-    <h2 class="vh-product-footer-title">All packages</h2>
+  <footer class="vh-product-footer" aria-label="Explore ViteHub documentation">
+    <h2 class="vh-product-footer-title">Explore ViteHub</h2>
 
     <div class="vh-product-footer-grid">
       <section v-for="group in groups" :key="group.category" class="vh-product-footer-group">

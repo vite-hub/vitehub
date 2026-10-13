@@ -165,7 +165,9 @@ describe("workspaceShell capability", () => {
 
     await expect(tools.workspace_exec!.execute?.({ command: "agent-browser" }, { abortSignal: controller.signal })).resolves.toMatchObject({ stdout: "hosted\n" })
 
-    expect(exec).toHaveBeenCalledWith("agent-browser", [], { abortSignal: controller.signal, cwd: "/workspace", env: undefined, timeout: 60_000 })
+    expect(exec).toHaveBeenLastCalledWith("agent-browser", [], { abortSignal: controller.signal, cwd: undefined, env: undefined, timeout: 60_000 })
+    await expect(tools.workspace_exec!.execute?.({ command: "agent-browser", cwd: "/workspace" }, { abortSignal: controller.signal })).resolves.toMatchObject({ stdout: "hosted\n" })
+    expect(exec).toHaveBeenLastCalledWith("agent-browser", [], { abortSignal: controller.signal, cwd: "/workspace", env: undefined, timeout: 60_000 })
     expect(startSession).not.toHaveBeenCalled()
     clear()
   })

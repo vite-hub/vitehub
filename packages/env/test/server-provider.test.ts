@@ -27,7 +27,10 @@ describe("Server Env providers", () => {
     const event = { env: { PRIMARY_TOKEN: "", FALLBACK_TOKEN: "fallback" } }
     expect(resolveServerEnv(registry, event)).toEqual({ token: "fallback", unchanged: "" })
     await expect(loadServerEnv(registry, event)).resolves.toEqual({ token: "fallback", unchanged: "" })
-    expect(() => resolveServerEnv(registry, { env: { PRIMARY_TOKEN: "", FALLBACK_TOKEN: "" } }).token).toThrow(expect.objectContaining({ code: "ENV_REQUIRED_MISSING" }))
+    expect(() => resolveServerEnv(registry, { env: { PRIMARY_TOKEN: "", FALLBACK_TOKEN: "" } }).token).toThrow(expect.objectContaining({
+      code: "ENV_REQUIRED_MISSING",
+      details: { path: "env.server.token", source: "env" },
+    }))
   })
 
   it("preserves __proto__ as an own key in every snapshot", async () => {
@@ -313,7 +316,7 @@ describe("Server Env providers", () => {
     }).then(() => undefined, value => value)
     expect(missingRequired).toMatchObject({
       code: "ENV_REQUIRED_MISSING",
-      details: { source: "provider" },
+      details: { path: "env.server.token", source: "provider" },
       message: "[vitehub] Required Env value is missing.",
     })
 

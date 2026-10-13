@@ -38,7 +38,7 @@ function copyJsonValue(value: unknown, ancestors: Set<object>, normalizeOptional
   }
 }
 
-export function copyJsonFileMetadata(path: string, metadata: Record<string, unknown> | undefined, normalizeOptional = false): Record<string, unknown> | undefined {
+export function copyJsonWorkspaceMetadata(path: string, metadata: Record<string, unknown> | undefined, normalizeOptional = false): Record<string, unknown> | undefined {
   if (metadata === undefined) return
   let copy: Record<string, unknown> | undefined
   try {
@@ -49,7 +49,13 @@ export function copyJsonFileMetadata(path: string, metadata: Record<string, unkn
     }
   }
   catch { /* Deep or exotic objects are not a portable metadata representation. */ }
-  if (!copy) throw workspaceError(`[vitehub] Invalid Workspace metadata for ${path}. File metadata must contain only JSON-safe plain objects, dense arrays, strings, booleans, null, and finite numbers other than negative zero.`)
+  if (!copy) throw workspaceError(`[vitehub] Invalid Workspace metadata for ${path}. Metadata must contain only JSON-safe plain objects, dense arrays, strings, booleans, null, and finite numbers other than negative zero.`)
+  return copy
+}
+
+export function copyJsonFileMetadata(path: string, metadata: Record<string, unknown> | undefined, normalizeOptional = false): Record<string, unknown> | undefined {
+  const copy = copyJsonWorkspaceMetadata(path, metadata, normalizeOptional)
+  if (!copy) return
   const source = Object.getOwnPropertyDescriptor(copy, "source")
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Source ownership is a reserved string field at the shared metadata boundary.
   if (source && typeof source.value !== "string") {

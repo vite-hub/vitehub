@@ -18,7 +18,10 @@ function read(path: string) {
 
 describe("docs page actions", () => {
   it("maps trailing-slash and bare docs routes to one raw Markdown page", () => {
-    for (const route of ["/docs/getting-started/ai-resources/mcp-server", "/docs/getting-started/ai-resources/mcp-server/"]) {
+    for (const route of [
+      "/docs/getting-started/ai-resources/mcp-server",
+      "/docs/getting-started/ai-resources/mcp-server/",
+    ]) {
       expect(pageActionLinks(route)).toMatchObject({
         markdownPath: "/raw/docs/getting-started/ai-resources/mcp-server.md",
         markdownUrl: "https://vitehub.dev/raw/docs/getting-started/ai-resources/mcp-server.md",
@@ -53,9 +56,14 @@ describe("docs page actions", () => {
     expect(docsMcpUrl).toBe("https://vitehub.dev/mcp");
 
     const cursor = new URL(cursorMcpInstallUrl());
-    expect(`${cursor.protocol}//${cursor.host}${cursor.pathname}`).toBe("cursor://anysphere.cursor-deeplink/mcp/install");
+    expect(`${cursor.protocol}//${cursor.host}${cursor.pathname}`).toBe(
+      "cursor://anysphere.cursor-deeplink/mcp/install",
+    );
     expect(cursor.searchParams.get("name")).toBe(docsMcpServerName);
-    expect(JSON.parse(atob(cursor.searchParams.get("config")!))).toEqual({ type: "http", url: docsMcpUrl });
+    expect(JSON.parse(atob(cursor.searchParams.get("config")!))).toEqual({
+      type: "http",
+      url: docsMcpUrl,
+    });
 
     const vscode = vscodeMcpInstallUrl();
     expect(vscode.startsWith("vscode:mcp/install?")).toBe(true);
@@ -72,7 +80,8 @@ describe("docs page actions", () => {
     expect(component).toContain("pageActionLinks(route.path)");
     for (const page of [
       "app/pages/docs/index.vue",
-      "app/pages/docs/[...slug].vue",
+      "app/components/DocsArticle.vue",
+      "app/components/DocsProductLanding.vue",
       "app/components/SupportMatrix.vue",
     ]) {
       expect(read(page)).toContain("<DocsPageHeaderLinks />");
@@ -82,7 +91,7 @@ describe("docs page actions", () => {
   it("documents every page action that the header renders", () => {
     const component = read("app/components/DocsPageHeaderLinks.vue");
     const guide = read("content/docs/getting-started/ai-resources/markdown-pages.md");
-    const labels = [...component.matchAll(/label: "([^"]+)"/g)].map(match => match[1]!);
+    const labels = [...component.matchAll(/label: "([^"]+)"/g)].map((match) => match[1]!);
 
     expect(labels).toEqual([
       "View as Markdown",
@@ -103,7 +112,9 @@ describe("docs page actions", () => {
 
   it("uses the generated MCP endpoint and server name in every setup snippet", () => {
     const guide = read("content/docs/getting-started/ai-resources/mcp-server.md");
-    const endpoints = [...guide.matchAll(/https:\/\/vitehub\.dev\/mcp\b[^\s"'`)]*/g)].map(match => match[0]);
+    const endpoints = [...guide.matchAll(/https:\/\/vitehub\.dev\/mcp\b[^\s"'`)]*/g)].map(
+      (match) => match[0],
+    );
 
     expect(endpoints.length).toBeGreaterThanOrEqual(6);
     expect(new Set(endpoints)).toEqual(new Set([docsMcpUrl]));
@@ -119,7 +130,13 @@ describe("docs page actions", () => {
     const guide = read("content/docs/getting-started/ai-resources/agent-instructions-skills.md");
     const commands = [...guide.matchAll(/npx skills add (\S+) --skill (\S+) --agent (\S+)/g)];
 
-    expect(commands.map(match => match[3])).toEqual(["claude-code", "cursor", "github-copilot", "windsurf", "codex"]);
+    expect(commands.map((match) => match[3])).toEqual([
+      "claude-code",
+      "cursor",
+      "github-copilot",
+      "windsurf",
+      "codex",
+    ]);
     for (const [, source, skill] of commands) {
       expect(source).toBe("https://vitehub.dev");
       expect(skill).toBe("vitehub");

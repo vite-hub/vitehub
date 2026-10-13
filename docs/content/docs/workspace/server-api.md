@@ -50,6 +50,8 @@ Stores can return `revision` from `stat()` to identify a stored file version. Th
 
 Workspace shell tools do not permit controlled `curl` by default. Pass `sourceRequests: true` to `createWorkspaceTools(workspace, { sourceRequests: true })` or `workspace.tools.inspect({ sourceRequests: true })` to allow requests to visible Source targets. The Agent `workspaceShell()` Capability explicitly enables these scoped requests.
 
+AI SDK tool cancellation is forwarded to the Shell provider and Workspace Session. This stops provider work and controlled Source requests when the model turn is cancelled.
+
 ### Runtime method options
 
 | Method | Options | Behavior |
@@ -67,7 +69,9 @@ Workspace shell tools do not permit controlled `curl` by default. Pass `sourceRe
 | `history.rebase(options?)` | `takeRemote?: string[]` | Reloads a remote Store while preserving staged paths. A listed path takes its remote version only when both sides changed; any other overlapping change remains a conflict. Each listed path must be writable, so a Source-backed path fails. |
 | `diff(options?)` | `from?: WorkspaceSnapshot` | Compares the current tree with the supplied snapshot or the Store baseline. |
 | `materializeSources(options?)` | `abortSignal?`, `details?: 'paths'`, `onProgress?`, `sources?`, `path?` | Materializes every Source or a selected Source/path subset, with cancellation and progress reporting. |
-| `getMeta(key)` / `setMeta(key, value)` | Store-defined | Reads or writes optional Workspace Store metadata when the configured Store implements it. |
+| `getMeta(key)` / `setMeta(key, value)` | Store-defined | Reads or writes optional Workspace Store metadata when the configured Store implements it. Keys that start with `source:`, `workspace:`, `workspace-file-`, or `loader:` are reserved for Workspace internals, and `setMeta` rejects them. |
+
+When wrapping a writable facade with a replacement `fs`, call `forwardWorkspaceFacade(base, wrapped)` from `@vite-hub/workspace/runtime` to preserve internal Source Sync routing. This forwards enclosing Source guards and durable sync metadata without exposing privileged setters. Keep public writes delegated to the original facade.
 
 Startup and build Source cleanup track ownership by Workspace name. When definitions share a Store, removing or refreshing one definition preserves files last materialized by another definition. Shared paths still contain the most recent write.
 
@@ -76,6 +80,53 @@ File `metadata.source` is reserved for the string name of the Source that owns t
 Explicit loaders that write through `ctx.store` must preserve the input item's `metadata.source` when multiple build Sources share a mount. For derived output within a Source's mount, set it to that Source's key. An ambiguous write fails before storing the file. This lets later synchronization remove only that Source's output.
 
 Each materialized Source reports its provider, cache disposition, revision, duration, and added, updated, unchanged, and removed file counts. Set `details: 'paths'` when the caller is allowed to inspect file names; path details stay out of the result by default.
+
+## Retained folder history
+
+Use retained history to publish a complete folder and read earlier versions. It is available when the Store implements `history`, including the [Blob + Database Store](/docs/workspace/configure#blob-database-store).
+
+```ts
+const workspace = useWorkspace('drop', { mode: 'write' })
+const base = await workspace.history.head()
+const revision = await workspace.history.commit({
+  ifHead: base?.id ?? null,
+  files: {
+    'index.html': '<h1>Hello</h1>',
+    'assets/data.bin': new Uint8Array([0, 255]),
+  },
+  message: 'Publish the site',
+  metadata: { author: 'maxi' },
+})
+
+const version = await workspace.history.open(revision.id)
+const html = await version.readFile('index.html')
+const bytes = await version.readFile('assets/data.bin', { encoding: 'binary' })
+const page = await workspace.history.list({ limit: 20 })
+const next = page.cursor
+  ? await workspace.history.list({ cursor: page.cursor, limit: 20 })
+  : undefined
+const usage = await workspace.history.usage()
+```
+
+`files` is the whole desired file set. Omitted paths are deleted from the next version. Earlier versions keep their bytes. Paths, write rules, `maxBytes`, validators, hooks, and Source write grants apply to additions, changes, and deletions. Unchanged files keep their MIME type and metadata. Validators can change content and file attributes but cannot rename paths or change operations during a history commit. Revision metadata must contain JSON-safe values. The Source ownership restriction on file `metadata.source` does not apply to revision metadata.
+
+`ifHead` is required. Use `null` for the first publication and a revision id for later publications. If the head changes, the commit fails with `WORKSPACE_CONFLICT` and `details.expected` and `details.actual`. Catch `isWorkspaceConflict(error)` and load the new head before resolving the edits. A head conflict never changes the published folder. On an operational error, read the head before retrying; Database responses and post-write hooks can fail after publication.
+
+| Method | Result |
+| --- | --- |
+| `history.commit({ ifHead, files, message?, metadata? })` | A revision with `id`, `parentId`, `createdAt`, optional message and metadata, file count `files`, and total file `bytes`. |
+| `history.head()` | Current revision or `null`. |
+| `history.list({ cursor?, limit? })` | `{ revisions, cursor? }`, newest first. Default limit `20`, maximum `100`. Pass the returned cursor unchanged to read older revisions. |
+| `history.open(id)` | Read-only view with `revision`, `list(path?, options?)`, `stat(path)`, and `readFile(path, { encoding? })`. Encoding defaults to UTF-8; `'binary'` returns `Uint8Array`. |
+| `history.usage()` | `{ bytes, objects }` for unique retained file content across all published revisions. This excludes manifests, Database storage, Blob metadata, and failed uploads. |
+
+Read mode exposes `head`, `list`, `open`, and `usage`. Commit requires write mode. `capabilities().retainedHistory` reports Store support on the writable facade. Stores without retained history throw `WORKSPACE_R0069` for these methods. `history.checkpoint()` and `history.rebase()` keep their existing contracts; a checkpoint is not proof of retained file bytes on every Store.
+
+History covers the Store file tree. It does not capture live Source responses, resumable drafts, or a running Session. Published revisions are immutable until the workspace is deleted. Empty directories are not part of the file-set history contract.
+
+A commit waits for Definition synchronization before checking Source ownership. Synchronization can publish a Source revision and advance the head. If that happens, the commit reports `WORKSPACE_CONFLICT`. Read the new head and retry with the complete file set. Source-owned files cannot be changed or deleted, including materialized files not yet retained in a revision.
+
+Retained history requires access to the complete Workspace. A facade restricted to selected paths or Sources throws `WORKSPACE_R0069` instead of exposing or replacing a complete folder outside that scope.
 
 ## Sync Sources
 

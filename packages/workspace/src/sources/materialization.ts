@@ -3,13 +3,13 @@ import { createHash } from "node:crypto"
 import { isDeepStrictEqual } from "node:util"
 
 import { workspaceError } from "../core/errors.ts"
-import { contentStreamChunks, contentStreamToBytes, decodeFile, normalizeWorkspacePath, sha256 } from "../core/path.ts"
+import { contentStreamChunks, contentStreamToBytes, decodeFile, isWorkspaceBytes, normalizeWorkspacePath, sha256 } from "../core/path.ts"
 import { createSourceContext, normalizeWorkspaceSources, sourceMountContainsPath, sourceMountIntersectsPath } from "./config.ts"
 import { prepareWorkspaceSource } from "./preparation.ts"
 import { normalizeMetadataValue, normalizeSourceFileMetadata } from "./file-metadata.ts"
 import { normalizeSourceItemPath, normalizeWorkspaceSourceItemPath } from "./source-items.ts"
 import { searchText } from "../core/search.ts"
-import { hasRuntimeType } from "../internal/runtime-type.ts"
+import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 import { withWorkspaceStoreMutation } from "../storage/mutation.ts"
 import { workspaceStoreIdentity } from "../storage/identity.ts"
 import { resolveWorkspaceStoreTarget } from "../storage/target.ts"
@@ -169,8 +169,14 @@ export async function hasCurrentSourceSnapshot(store: WorkspaceStore, workspace:
 
 async function snapshotHasCurrentOwners(store: WorkspaceStore, workspace: string, source: ResolvedWorkspaceSource, meta: SourceSnapshotMetadata, activeSources: ResolvedWorkspaceSource[] = []) {
   if (Object.keys(meta.items || {}).length === 0 && meta.mountPath && (await store.stat(meta.mountPath))?.type !== "directory") return false
+  // A local Store's stat() computes a content digest for every file. A cache
+  // hit only needs the stored metadata in the common case, so list the mount
+  // once and keep the digest fallback for providers that omit metadata.
+  const listed = source.mountPath
+    ? new Map((await store.list(source.mountPath, { recursive: true })).map(entry => [entry.path, entry]))
+    : undefined
   for (const path of Object.keys(meta.items || {})) {
-    const stat = await store.stat(path)
+    const stat = listed?.get(path) ?? await store.stat(path)
     if (await materializedFileHasCurrentOwner(store, workspace, source.key, path, stat)) continue
     // Startup snapshots share the most recent write at overlapping paths.
     const owner = await readWorkspaceFileOwner(store, path)
@@ -251,7 +257,7 @@ function checkpointItems(items: Record<string, LazyMaterializedMetadata>) {
 }
 
 function contentSize(content: string | Uint8Array) {
-  return content instanceof Uint8Array ? content.byteLength : new TextEncoder().encode(content).byteLength
+  return isWorkspaceBytes(content) ? content.byteLength : new TextEncoder().encode(content).byteLength
 }
 
 function observableFileMetadata(metadata: Record<string, unknown> | undefined): Record<string, unknown> {
@@ -340,8 +346,8 @@ function materializationPaths(options: WorkspaceMaterializeSourcesOptions | unde
 }
 
 function contentEquals(left: string | Uint8Array, right: string | Uint8Array) {
-  const leftBytes = left instanceof Uint8Array ? left : new TextEncoder().encode(left)
-  const rightBytes = right instanceof Uint8Array ? right : new TextEncoder().encode(right)
+  const leftBytes = isWorkspaceBytes(left) ? left : new TextEncoder().encode(left)
+  const rightBytes = isWorkspaceBytes(right) ? right : new TextEncoder().encode(right)
   return leftBytes.byteLength === rightBytes.byteLength && leftBytes.every((byte, index) => byte === rightBytes[index])
 }
 
@@ -390,6 +396,7 @@ async function removeStaleMaterializedSourceFiles(
 ) {
   const sourceStore = sourceMaterializationGrants.store(grant, store)
   const previousPaths = new Set(Object.keys(previousSnapshot?.items || {}))
+  const scopedPreviousPaths = [...previousPaths].filter(path => materializationPathMatches(path, scope))
   const nextDirectories = new Set([...nextPaths].flatMap(path => parentDirectoryPaths(path)))
   // Owned directories survive failed cleanup after their last file was removed.
   const staleDirectories = new Set((previousSnapshot?.ownedDirectories || []).filter(path =>
@@ -413,11 +420,11 @@ async function removeStaleMaterializedSourceFiles(
   const hasStartupIndex = source.materialize === "startup" && store.getMeta && store.setMeta
     && previousSnapshot?.mountPath !== undefined
   const entries = hasStartupIndex
-    ? await Promise.all([...previousPaths].map(async path => await store.stat(path)))
+    ? await Promise.all(scopedPreviousPaths.map(async path => await store.stat(path)))
     : source.mountPath
       ? await store.list(source.mountPath, { recursive: true })
       : previousPaths.size || (store.getMeta && store.setMeta && (!previousSnapshot || previousSnapshot.items))
-        ? await Promise.all([...previousPaths].map(async path => await store.stat(path)))
+        ? await Promise.all(scopedPreviousPaths.map(async path => await store.stat(path)))
         : await store.list("", { recursive: true })
   for (const path of previousPaths) {
     if (source.mountPath && !sourceMountContainsPath(source, path)) {
@@ -1394,7 +1401,7 @@ export async function searchMaterializedStore(store: WorkspaceStore, query: Work
     if (entry.type !== "file") continue
     const file = await store.readFile(entry.path)
     if (!file) continue
-    const text = file.content instanceof Uint8Array ? new TextDecoder().decode(file.content) : file.content
+    const text = isWorkspaceBytes(file.content) ? new TextDecoder().decode(file.content) : file.content
     result.push(...searchText(entry.path, text, { ...query, limit: limit - result.length }))
     if (result.length >= limit) break
   }

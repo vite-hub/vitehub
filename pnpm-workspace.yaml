@@ -6,14 +6,15 @@ packages:
   - "playground/console"
 catalog:
   "@cloudflare/vitest-plugin": ^1.3.6
-  "@t3tools/provider-runtime": https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@cb8ae81c8433fb25acbcb82884ecd9a2e365de25
+  "@t3tools/provider-runtime": https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@ee5848bfdff74af1d14ad9464403d275e47f8822
   "@types/proper-lockfile": 4.1.4
+  forges: https://pkg.pr.new/danielroe/forges@43be2a6
   proper-lockfile: 4.1.2
   remark-gfm: ^4.0.1
   remark-mdc: ^3.11.1
   remark-parse: ^11.0.0
   unified: ^11.0.5
-  vite-doctor: 0.0.12
+  vite-doctor: https://pkg.pr.new/vite-doctor@9f33eb1748fb93f7399579b60d3bff6af3895eb1
 
 catalogMode: prefer
 
@@ -21,13 +22,13 @@ catalogs:
   ai:
     "@agntn/web": ^0.5.5
     "@ai-sdk/gateway": 4.0.103
-    "@ai-sdk/mcp": 2.0.66
+    "@ai-sdk/mcp": 2.0.69
     "@ai-sdk/vue": 4.0.127
-    "@modelcontextprotocol/sdk": ^1.32.0
+    "@modelcontextprotocol/sdk": ^1.32.1
     "@types/json-schema": ^7.0.15
     advocaat: ^0.0.6
     agents: ^0.22.0
-    ai: 7.0.127
+    ai: 7.0.130
     evalite: 1.0.0-beta.16
   ai-compat:
     ai: ^6.0.0 || ^7.0.0-0
@@ -80,6 +81,10 @@ catalogs:
     "@tiptap/y-tiptap": ^3.0.9
     lib0: ^0.2.119
     marked: 17.0.6
+    prosemirror-model: ^1.25.12
+    prosemirror-state: ^1.4.4
+    prosemirror-transform: ^1.12.2
+    prosemirror-view: ^1.42.3
     y-protocols: ^1.0.7
     y-websocket: ^3.1.0
     yjs: ^13.6.33
@@ -119,6 +124,7 @@ catalogs:
     unstorage: 2.0.0-alpha.10
     uploadthing: ^7.7.4
   tooling:
+    "@yarnpkg/parsers": 3.1.0
     "@types/node": ^24.19.1
     "@types/picomatch": ^4.0.3
     esbuild: ^0.28.2
@@ -179,7 +185,7 @@ overrides:
   mdast-util-to-markdown: 2.1.2
   "@vercel/blob>undici": ^6.28.0
   "@voidzero-dev/vite-plus-core": 0.3.3
-  "ai@>=7.0.0 <8.0.0": 7.0.127
+  "ai@>=7.0.0 <8.0.0": 7.0.130
   "glob": ^13.0.6
   "parse-url>@types/parse-path": "-"
   "uuid": ^11.1.0
@@ -197,5 +203,6 @@ patchedDependencies:
   "@netlify/blobs@11.1.3": patches/@netlify__blobs@11.1.3.patch
   "@pierre/trees@1.0.0-beta.6": patches/@pierre__trees@1.0.0-beta.6.patch
   "@vercel/blob@2.8.0": patches/@vercel__blob@2.8.0.patch
+  docus@5.13.0: patches/docus@5.13.0.patch
   nitro@3.0.260903-beta: patches/nitro@3.0.260903-beta.patch
   nuxt-agent-discovery@0.7.0: patches/nuxt-agent-discovery@0.7.0.patch

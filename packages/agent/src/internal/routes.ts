@@ -34,13 +34,13 @@ export function validateAgentStaticRoute(route: string, handlers: readonly { rou
     throw agentDiagnostics.AGENT_B0006({ message: `[vitehub] Agent ${label} requires a static route path.` })
   }
   const target = normalized.split("/")
-  const namespaceDepth = namespace ? normalizeAgentRoute(namespace).replace(/\/$/, "").split("/").length : 0
+  const namespaceDepth = namespace && normalized.startsWith(`${normalizeAgentRoute(namespace).replace(/\/$/, "")}/`) ? normalizeAgentRoute(namespace).replace(/\/$/, "").split("/").length : 0
   const conflict = handlers.find(({ route: handler, middleware }) => {
     if (middleware) return false
     const parts = (normalizeAgentRoute(handler).replace(/\/$/, "") || "/").split("/")
     for (let index = 0; index < parts.length; index++) {
       const part = parts[index]!
-      if (part.startsWith("**") || part.startsWith(":...")) return index >= namespaceDepth
+      if (part.startsWith("**") || part.startsWith(":...")) return part !== "**" || index >= namespaceDepth || parts.slice(0, index).some(prefix => prefix.startsWith(":") || prefix.includes("*"))
       if (target[index] === undefined) return false
       if (part !== target[index] && !part.startsWith(":") && part !== "*") return false
     }

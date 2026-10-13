@@ -1,0 +1,26 @@
+diff --git a/app/components/OgImage/Docs.takumi.vue b/app/components/OgImage/Docs.takumi.vue
+index c39fc127a6e5f86e554e000a9fba6ba8ba27c78e..f7e399a7c7a44cf711fafa8e843449bdb1c09178 100644
+--- a/app/components/OgImage/Docs.takumi.vue
++++ b/app/components/OgImage/Docs.takumi.vue
+@@ -16,7 +16,7 @@ const primaryColor = appConfig.ui?.colors?.primary ?? 'emerald'
+     <div class="flex-1 flex flex-col justify-center">
+       <p
+         v-if="headline"
+-        :class="`uppercase text-[22px] font-bold m-0 mb-5 tracking-[0.05em] text-${primaryColor}-500`"
++        :class="`uppercase text-[22px] font-bold m-0 mb-5 tracking-[0.05em] text-${String(primaryColor)}-500`"
+       >
+         {{ headline }}
+       </p>
+diff --git a/app/components/OgImage/Landing.takumi.vue b/app/components/OgImage/Landing.takumi.vue
+index d57353bc741b0d8b4a8231e117cef21586f835b8..645b5305c3dfc4b2f36d13f6be5a75f8bdba3f58 100644
+--- a/app/components/OgImage/Landing.takumi.vue
++++ b/app/components/OgImage/Landing.takumi.vue
+@@ -59,7 +59,7 @@ async function fetchLogoSvg(path?: string): Promise<string> {
+     </div>
+ 
+     <div class="flex">
+-      <div :class="`text-[18px] font-normal rounded-lg px-5 py-2 text-${primaryColor}-500`">
++      <div :class="`text-[18px] font-normal rounded-lg px-5 py-2 text-${String(primaryColor)}-500`">
+         {{ siteName }}
+       </div>
+     </div>

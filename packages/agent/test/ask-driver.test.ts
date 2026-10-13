@@ -82,6 +82,17 @@ describe("ask Driver", () => {
     expect(ask.score("Rate it", ["Low", "High"])).toEqual({ criteria: ["Low", "High"], instructions: "Rate it", type: "score" })
     expect(ask.chance("Is it urgent?")).toEqual({ instructions: "Is it urgent?", type: "chance" })
     expect(ask.if("Is it spam?", { threshold: 0.8 })).toEqual({ instructions: "Is it spam?", threshold: 0.8, type: "if" })
+    expect(ask.each([{ id: "a" }, { id: "b" }], {
+      key: item => item.id,
+      question: item => ask.if(`Is ${item.id} spam?`),
+    })).toEqual({
+      a: { instructions: "Is a spam?", threshold: 0.5, type: "if" },
+      b: { instructions: "Is b spam?", threshold: 0.5, type: "if" },
+    })
+    expect(() => ask.each(["a", "a"], { key: item => item, question: () => ask.if("Spam?") })).toThrow("duplicate key")
+    expect(() => ask.each(["a"], { key: () => " ", question: () => ask.if("Spam?") })).toThrow("non-empty")
+    // SAFETY: Simulate a JavaScript callback returning a non-string key.
+    expect(() => ask.each(["a"], { key: () => 42 as never, question: () => ask.if("Spam?") })).toThrow("non-empty strings")
     expect(() => ask.if("Is it spam?", { threshold: Number.NaN })).toThrow("ask.if threshold must be a finite number")
     expect(() => ask.if("Is it spam?", { threshold: Number.POSITIVE_INFINITY })).toThrow("ask.if threshold must be a finite number")
   })
@@ -333,6 +344,40 @@ describe("Jev decisions for ask Driver Agents", () => {
         type: "choice",
       },
     }, expect.objectContaining({ apiKey: "ts-key" }))
+  })
+
+  it("splits large question sets into bounded requests and preserves key order", async () => {
+    const questions = Object.fromEntries(Array.from({ length: 4 }, (_, index) => [
+      `question-${index}`,
+      ask.if("x".repeat(16_000)),
+    ]))
+
+    await expect(askRuntime.askJev({}, "state", questions)).resolves.toEqual(
+      Object.fromEntries(Object.keys(questions).map(name => [name, true])),
+    )
+    expect(askJev.mock.calls.length).toBeGreaterThan(1)
+    expect(askJev.mock.calls.flatMap(([, batch]) => Object.keys(batch))).toEqual(Object.keys(questions))
+  })
+
+  it("skips Jev and credentials for an empty question map", async () => {
+    await expect(askRuntime.askJev({}, "state", {})).resolves.toEqual({})
+    expect(askJev).not.toHaveBeenCalled()
+  })
+
+  it("rejects missing answers and malformed choice probabilities", async () => {
+    askJev.mockResolvedValueOnce({})
+    await expect(askRuntime.askJev({}, "state", { answer: ask.if("Answer?") })).rejects.toThrow('missing answer "answer"')
+
+    askJev.mockResolvedValueOnce({ answer: { choice: "yes", probabilities: { yes: 2 }, type: "choice" } })
+    await expect(askRuntime.askJev({}, "state", { answer: ask.choice("Answer?", ["yes", "no"]) })).rejects.toThrow("valid probability distribution")
+
+    for (const probabilities of [{ yes: 0.2, no: 0.2 }, { yes: 0.5, no: 0.5, other: 0 }]) {
+      askJev.mockResolvedValueOnce({ answer: { choice: "yes", confidence: 0.5, probabilities, type: "choice" } })
+      await expect(askRuntime.askJev({}, "state", { answer: ask.choice("Answer?", ["yes", "no"]) })).rejects.toThrow("valid probability distribution")
+    }
+
+    askJev.mockResolvedValueOnce({ answer: { choice: "yes", probabilities: { yes: 1, no: 0 } } })
+    await expect(askRuntime.askJev({}, "state", { answer: ask.choice("Answer?", ["yes", "no"]) })).rejects.toThrow("valid probability distribution")
   })
 
   it("rejects with a Jev gate decision", async () => {

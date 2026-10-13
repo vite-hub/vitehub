@@ -104,6 +104,21 @@ function validateQuestionCriteria(name: string, question: AskQuestion): void {
   }
 }
 
+function hasValidChoiceAnswer(question: Extract<AskQuestion, { type: "choice" }>, answer: unknown): answer is Record<string, unknown> {
+  if (!isRuntimeRecord(answer) || answer.type !== "choice" || !hasRuntimeType(answer.choice, "string") || !isRuntimeRecord(answer.probabilities)) return false
+  if (!hasRuntimeType(answer.confidence, "number") || !Number.isFinite(answer.confidence) || answer.confidence < 0 || answer.confidence > 1) return false
+  if (!isRuntimeRecord(question.criteria) || !Object.hasOwn(question.criteria, answer.choice)) return false
+  const probabilities = answer.probabilities
+  const labels = Object.keys(question.criteria)
+  const probabilityLabels = Object.keys(probabilities)
+  if (labels.length !== probabilityLabels.length || probabilityLabels.some(label => !Object.hasOwn(question.criteria, label))) return false
+  const total = labels.reduce((sum, label) => {
+    const probability = probabilities[label]
+    return sum + (hasRuntimeType(probability, "number") && Number.isFinite(probability) && probability >= 0 && probability <= 1 ? probability : Number.NaN)
+  }, 0)
+  return Number.isFinite(total) && Math.abs(total - 1) <= 1e-6
+}
+
 function toAdvocaatQuestion(name: string, question: AskQuestion): AdvocaatQuestion {
   validateQuestionCriteria(name, question)
   const instructions = toEntry(question.instructions)
@@ -132,7 +147,35 @@ export function askState(input: AskStateInput, prompt: unknown, messages: readon
   return latest ? getMessageText(latest).trim() : null
 }
 
-/** Sends every question to TypeSafe Jev in one request and returns the answers under the same keys. */
+/** UTF-8 serialized bytes provide a conservative token bound, with room for request framing. */
+function jevInputSize(value: unknown): number {
+  return new TextEncoder().encode(JSON.stringify(value)).byteLength
+}
+
+function jevQuestionBatches(state: AdvocaatEntry, wire: Record<string, AdvocaatQuestion>): Record<string, AdvocaatQuestion>[] {
+  const sharedSize = jevInputSize(state) + 2048
+  const maxRequestSize = 60_000
+  const maxQuestionSize = 30_000
+  if (sharedSize >= maxQuestionSize) throw new RangeError("[vitehub] Jev shared state exceeds the safe per-question input budget.")
+  const batches: Record<string, AdvocaatQuestion>[] = []
+  let batch: Record<string, AdvocaatQuestion> = Object.create(null)
+  let size = sharedSize
+  for (const [name, question] of Object.entries(wire)) {
+    const questionSize = jevInputSize({ [name]: question }) + 128
+    if (sharedSize + questionSize > maxQuestionSize) throw new RangeError(`[vitehub] Jev question "${name}" exceeds the safe per-question input budget.`)
+    if (size + questionSize > maxRequestSize && Object.keys(batch).length) {
+      batches.push(batch)
+      batch = Object.create(null)
+      size = sharedSize
+    }
+    batch[name] = question
+    size += questionSize
+  }
+  if (Object.keys(batch).length) batches.push(batch)
+  return batches
+}
+
+/** Runs independent keyed questions in bounded Jev requests; empty questions require no credentials or API call. */
 export async function askJev<const Q extends AskQuestions>(context: AskRequestContext, state: unknown, questions: Q): Promise<AskAnswers<Q>> {
   if (!isRuntimeRecord(questions) || Array.isArray(questions)) {
     throw agentDiagnostics.AGENT_R0937({ message: "[vitehub] defineAgent({ driver.ask }) must resolve to an object of Jev questions." })
@@ -141,17 +184,32 @@ export async function askJev<const Q extends AskQuestions>(context: AskRequestCo
     if (!isRuntimeRecord(question)) throw invalidQuestion(name)
     return [name, toAdvocaatQuestion(name, question)]
   }))
+  if (!Object.keys(wire).length) {
+    // SAFETY: An empty validated question map has no answers and matches AskAnswers<Q>.
+    return {} as AskAnswers<Q>
+  }
+  const entry = toEntry(state)
+  const batches = jevQuestionBatches(entry, wire)
   const advocaat = await loadAdvocaat()
   const options = await typesafeOptions(context)
-  const answers = await advocaat.ask(toEntry(state), wire, { ...options, signal: context.abortSignal })
-  const result = Object.fromEntries(Object.entries(answers).map(([name, answer]) => {
-    if (hasRuntimeType(answer, "string") || hasRuntimeType(answer, "boolean")) return [name, answer]
-    const question = questions[name]
-    // Score legends describe the public criteria, before SDK entry normalization.
-    return [name, question?.type === "score" && answer.type === "score"
-      ? { ...answer, legend: Object.fromEntries(question.criteria.map((level, index) => [String(index), level])) }
-      : answer]
-  }))
-  // SAFETY: SDK answers preserve question keys and answer shapes; score legends restore the original public criteria.
-  return result as AskAnswers<Q>
+  const output: Record<string, unknown> = Object.create(null)
+  for (const batch of batches) {
+    context.abortSignal?.throwIfAborted()
+    const answers = await advocaat.ask(entry, batch, { ...options, signal: context.abortSignal })
+    context.abortSignal?.throwIfAborted()
+    for (const name of Object.keys(batch)) {
+      if (!Object.hasOwn(answers, name)) throw new Error(`[vitehub] Jev response is missing answer "${name}".`)
+      const answer = answers[name]
+      const question = questions[name]
+      if (question.type === "choice" && !hasValidChoiceAnswer(question, answer)) {
+        throw new Error(`[vitehub] Jev choice answer "${name}" is missing a valid probability distribution.`)
+      }
+      const scoreAnswer: Record<string, unknown> | undefined = isRuntimeRecord(answer) && answer.type === "score" ? answer : undefined
+      output[name] = question?.type === "score" && scoreAnswer
+        ? { ...scoreAnswer, legend: Object.fromEntries(question.criteria.map((level, index) => [String(index), level])) }
+        : answer
+    }
+  }
+  // SAFETY: Each requested key has an SDK answer; choice distributions are validated and score legends restore public criteria.
+  return Object.fromEntries(Object.entries(output)) as AskAnswers<Q>
 }

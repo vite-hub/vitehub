@@ -149,9 +149,7 @@ function unwrap<TResult>(result: BlobResult<TResult>): TResult {
 
 /** Reads the metadata of one blob. Returns `undefined` when the blob does not exist. */
 async function headOrUndefined(storage: BlobStorage, pathname: string): Promise<BlobObject | undefined> {
-  const result = await storage.head(pathname)
-  if (result[0]?.code === "BLOB_NOT_FOUND") return
-  return unwrap(result)
+  return unwrap(await storage.head(pathname)) ?? undefined
 }
 
 function readString(body: Record<string, unknown>, name: string): string | undefined {

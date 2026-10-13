@@ -42,6 +42,35 @@ afterEach(() => {
 })
 
 describe("Runtime Schedule Wake Driver", () => {
+  it("acknowledges a duplicate provider wake after disabling its schedule", async () => {
+    const runtimeScheduleStore = createMemoryRuntimeScheduleStore()
+    const scheduleRunStore = createMemoryScheduleRunStore()
+    const scheduledAt = new Date("2026-07-11T09:00:00.000Z")
+    const handler = vi.fn()
+    let context: RuntimeScheduleWakeDriverContext | undefined
+    await runtimeScheduleStore.create({ createdAt: scheduledAt, cron: "0 9 * * *", enabled: true, id: "report", target: "report", updatedAt: scheduledAt })
+    const controller = await installScheduleRuntime({
+      createDriver(driverContext) {
+        context = driverContext
+        return { async reconcile() {} }
+      },
+      registry: { report: async () => ({ handler, options: { allowRuntimeSchedules: true } }) },
+      runtimeScheduleStore,
+      scheduleRunStore,
+    })
+    try {
+      await context!.wake({ scheduleId: "report", scheduledAt })
+      await schedules.disable("report")
+      await expect(context!.wake({ scheduleId: "report", scheduledAt })).resolves.toBeUndefined()
+      expect(handler).toHaveBeenCalledOnce()
+      const runs = await scheduleRunStore.listRuns()
+      expect(runs).toHaveLength(1)
+      expect(await scheduleRunStore.listAttempts(runs[0]!.id)).toHaveLength(1)
+      await expect(schedules.run("report", { scheduledAt })).rejects.toMatchObject({ code: "SCHEDULE_DISABLED" })
+      await expect(context!.wake({ scheduleId: "report", scheduledAt: new Date("2026-07-12T09:00:00.000Z") })).rejects.toMatchObject({ code: "SCHEDULE_DISABLED" })
+    } finally { await controller.close() }
+  })
+
   it("runs a due Static Schedule during the Process Driver startup reconciliation", async () => {
     const scheduledAt = new Date("2026-07-11T09:00:00.000Z")
     const handler = vi.fn()

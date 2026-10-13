@@ -301,9 +301,9 @@ export function resolveAgentChannelChatOptions<TRuntimeConfig extends AgentRunti
   }
   if (channelMessageOverrides.length) {
     if (messageChannelCount > 1) {
-      const unsupportedOverrides = channelMessageOverrides.some(({ commentary: _commentary, filter: _filter, meta: _meta, metaRevision: _metaRevision, stream: _stream, ...channelMessages }) => Object.keys(channelMessages).length > 0)
+      const unsupportedOverrides = channelMessageOverrides.some(({ commentary: _commentary, filter: _filter, meta: _meta, metaRevision: _metaRevision, replyToSubscribedThreads: _replyToSubscribedThreads, stream: _stream, ...channelMessages }) => Object.keys(channelMessages).length > 0)
       if (unsupportedOverrides) {
-        throw agentDiagnostics.AGENT_R0560({ message: "[vitehub] Channel-local messages options other than commentary, filter, meta, metaRevision, or stream are only supported when an Agent defines one message-shaped Channel. Move shared settings to defineAgent({ messages }) until Channel-scoped chat triggers land." })
+        throw agentDiagnostics.AGENT_R0560({ message: "[vitehub] Channel-local messages options other than commentary, filter, meta, metaRevision, replyToSubscribedThreads, or stream are only supported when an Agent defines one message-shaped Channel. Move shared settings to defineAgent({ messages }) until Channel-scoped chat triggers land." })
       }
     }
     else {

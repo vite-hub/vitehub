@@ -89,19 +89,36 @@ it('claims from columns without parsing terminal snapshots and matches pushes by
   await inbox.close()
 })
 
+it('compacts terminal snapshots so historical evidence cannot grow the scheduler state', async () => {
+  const path = join(await directory(), 'inbox.sqlite')
+  const inbox = new PullRequestInbox({ path, repositories: [repository] })
+  await inbox.seed(repository, pr(7))
+  await inbox.ingest('comment', 'issue_comment', { repository: { full_name: repository }, action: 'created', issue: { number: 7, pull_request: {} }, comment: { id: 1, body: 'Fix', user: { login: 'human' } } })
+  const [claim] = await inbox.claim(1)
+  expect((await inbox.get(repository, 7))?.comments).toHaveProperty('1')
+  await inbox.finish(claim!, { text: 'closed', terminal: true })
+  const snapshot = await inbox.get(repository, 7)
+  expect(snapshot?.status).toBe('terminal')
+  expect(snapshot?.comments).toEqual({})
+  expect(snapshot?.reviews).toEqual({})
+  expect(snapshot?.checks).toEqual({})
+  expect(snapshot?.threads).toEqual([])
+  await inbox.close()
+})
+
 it('prunes delivery payloads and old delivery IDs', async () => {
   let now = 0
   const path = join(await directory(), 'inbox.sqlite')
   const inbox = new PullRequestInbox({ path, repositories: [repository], clock: () => now })
   await inbox.seed(repository, pr(7))
   await inbox.ingest('old', 'issue_comment', { repository: { full_name: repository }, action: 'created', issue: { number: 7, pull_request: {} }, comment: { id: 1, body: 'Old', user: { login: 'human' } } })
-  now = 10 * 24 * 60 * 60_000
+  now = 6 * 24 * 60 * 60_000
   await inbox.ingest('recent', 'issue_comment', { repository: { full_name: repository }, action: 'created', issue: { number: 7, pull_request: {} }, comment: { id: 2, body: 'New', user: { login: 'human' } } })
   await inbox.pruneDeliveries()
   const db = new DatabaseSync(path)
   const rows = db.prepare('SELECT id, payload IS NULL AS pruned FROM vitehub_babysitter_deliveries ORDER BY id').all()
   expect(rows.map(row => ({ ...row }))).toEqual([{ id: 'old', pruned: 1 }, { id: 'recent', pruned: 0 }])
-  now = 41 * 24 * 60 * 60_000
+  now = 14 * 24 * 60 * 60_000
   await inbox.pruneDeliveries()
   expect(db.prepare('SELECT id FROM vitehub_babysitter_deliveries').all().map(row => row.id)).toEqual([])
   db.close()

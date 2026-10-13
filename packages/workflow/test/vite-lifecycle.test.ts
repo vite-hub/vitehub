@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-import type { ResolvedConfig } from "vite"
 
 const lifecycle = vi.hoisted(() => ({
   capture: vi.fn((_context: unknown, _catalog: unknown) => undefined),

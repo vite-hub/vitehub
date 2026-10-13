@@ -4,10 +4,25 @@ import { chmod, writeFile } from "node:fs/promises"
 import { createServer } from "node:net"
 import { join } from "node:path"
 import type { Server, Socket } from "node:net"
-import type { BoxDefinition, BoxFile, BoxProcess, BoxRuntimeDefinition, BoxSession } from "@vite-hub/box"
+import type { BoxDefinition, BoxFile, BoxPlan, BoxProcess, BoxRuntimeDefinition, BoxSession } from "@vite-hub/box"
+
+import type { AgentInvocationContextStore } from "../types.ts"
 
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
+
+const activeBoxes = new WeakMap<AgentInvocationContextStore, ProviderBoxSession>()
+
+export function activeProviderBox(context: AgentInvocationContextStore) {
+  return activeBoxes.get(context)
+}
+
+export function setActiveProviderBox(context: AgentInvocationContextStore, session: ProviderBoxSession) {
+  activeBoxes.set(context, session)
+  return () => {
+    if (activeBoxes.get(context) === session) activeBoxes.delete(context)
+  }
+}
 
 /** Environment names that a Box runtime owns. The relay never forwards them. */
 const boxRuntimeEnvironmentKeys = new Set([
@@ -28,12 +43,16 @@ const frameExit = 3
 const relayCleanupTimeoutMs = 1000
 
 export interface ProviderBoxSession {
+  /** The session writes directly to the host checkout without a remote copy. */
+  readonly localWorkspace?: boolean
   /** Home files and persisted state can contain credentials unknown to the relay. */
   readonly omitDiagnosticOutput?: boolean
   /** Actual Box environment values, retained only for diagnostic redaction. */
   readonly environment?: Readonly<Record<string, string | undefined>>
   /** Absolute Home path inside the Box. */
   readonly home: string
+  /** Resolved Box workspace; a missing path means the Box owns its checkout. */
+  readonly workspace?: BoxPlan["workspace"]
   readonly session: BoxSession
   readonly spawn: NonNullable<BoxSession["spawn"]>
 }
@@ -89,7 +108,7 @@ export async function openProviderBox<Context>(options: {
       throw agentDiagnostics.AGENT_R0952({ message: "[vitehub] Agent Box did not report an absolute HOME path." })
     }
     const omitDiagnosticOutput = Object.keys(declared).length > 0 || Object.keys(options.definition.home?.state ?? {}).length > 0
-    return { environment, omitDiagnosticOutput, home: home.stdout, session, spawn: spawn.bind(session) }
+    return { localWorkspace: box.plan.runtime === "trusted-host", environment, omitDiagnosticOutput, home: home.stdout, session, spawn: spawn.bind(session), workspace: box.plan.workspace }
   }
   catch (error) {
     await session.close().catch(() => undefined)
@@ -109,6 +128,8 @@ export interface ProviderBoxRelayOptions {
   launchRoot: string
   /** Local provider working directory. Paths below it are mapped to the Box working directory. */
   localRoot: string
+  /** Local provider cwd, mapped into the Box before the provider is spawned. */
+  localCwd?: string
   /** Remove provider arguments that name local paths the Box cannot read. */
   filterArgs?: (args: readonly string[], mapPath: (value: string) => string | undefined) => string[]
 }
@@ -187,12 +208,32 @@ async function handleRelayConnection(
   const redact = (text: string) => options.box.omitDiagnosticOutput ? "[Box Home diagnostic output omitted]" : Object.values(options.box.environment ?? {}).filter((value): value is string => Boolean(value)).toSorted((left, right) => right.length - left.length)
     .reduce((safe, value) => safe.replaceAll(value, "[REDACTED]"), text)
   const boxCwd = options.box.session.cwd
-  const mapPath = (value: string) => value === options.localRoot
+  const workspacePath = options.box.workspace?.path
+  const mirrorsLocalRoot = workspacePath === options.localRoot
+  const mirrorsLocalCwd = workspacePath === options.localCwd
+  // An authoritative Box cwd can point at a separate host checkout. In that
+  // case provider paths are anchored at the local provider cwd, while the
+  // process itself starts in the Box session cwd. Only a Box workspace that
+  // mirrors localRoot can preserve a nested provider suffix.
+  const mappingRoot = workspacePath === undefined || (!mirrorsLocalRoot && !mirrorsLocalCwd)
+    ? options.localCwd || options.localRoot
+    : workspacePath
+  const mapPath = (value: string) => mappingRoot && (value === mappingRoot
     ? boxCwd
-    : value.startsWith(`${options.localRoot}/`)
-      ? `${boxCwd}${value.slice(options.localRoot.length)}`
-      : undefined
-  const mapText = (value: string) => value.replaceAll(options.localRoot, boxCwd)
+    : value.startsWith(`${mappingRoot}/`)
+      ? `${boxCwd}${value.slice(mappingRoot.length)}`
+      : undefined)
+  const boxWorkingDirectory = mirrorsLocalRoot && options.localCwd !== undefined
+    ? mapPath(options.localCwd)
+    : boxCwd
+  const textPathDelimiter = "[/\\\\\"'\\s,:;\\[\\]{}()?=#&|<>`]"
+  const textPathLeftDelimiter = "[/\\\\\"'\\s,:;\\[\\]{}()?=#&|<>@`]"
+  const mapTextPattern = mappingRoot
+    ? new RegExp(`(^|${textPathLeftDelimiter})${escapeRegExp(mappingRoot)}(?=$|${textPathDelimiter})`, "g")
+    : undefined
+  const mapText = (value: string) => mapTextPattern
+    ? value.replace(mapTextPattern, (_match, prefix: string) => `${prefix}${boxCwd}`)
+    : value
   const selectedArgs = options.filterArgs ? options.filterArgs(args, mapPath) : [...args]
   let disconnected = socket.destroyed
   socket.once("close", () => {
@@ -200,8 +241,12 @@ async function handleRelayConnection(
   })
   let child: BoxProcess
   try {
+    if (!boxWorkingDirectory) throw new Error("[vitehub] Agent Box provider cwd is outside the mapped provider checkout.")
     const environment = Object.fromEntries(Object.entries(options.environment(env)).map(([name, value]) => [name, mapText(value)]))
-    child = await options.box.spawn(options.command, selectedArgs.map(mapText), { env: environment })
+    child = await options.box.spawn(options.command, selectedArgs.map(mapText), {
+      cwd: boxWorkingDirectory,
+      env: environment,
+    })
   }
   catch (error) {
     const message = redact(error instanceof Error ? error.message : String(error))
@@ -499,6 +544,10 @@ socket.on("close", () => {
   void forwarding.then(() => { process.exitCode = exitCode })
 })
 `
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 }
 
 function shellQuote(value: string) {

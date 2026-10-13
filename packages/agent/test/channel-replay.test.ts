@@ -151,7 +151,10 @@ describe("replayChannel()", () => {
     expect(first.items[0]?.id).toBe(channelMessageRunId("mailbox", "m1"))
     expect(label.mock.calls).toEqual([["m1", "label:Invoice"], ["m2", "label:Receipt"], ["m4", "label:Ticket"], ["m5", "label:Offer"]])
     expect(load).toHaveBeenCalledTimes(2)
-    await expect(invocations.getByRunId(channelMessageRunId("mailbox", "m1"))).resolves.toMatchObject({ status: "completed" })
+    await expect(invocations.getByRunId(channelMessageRunId("mailbox", "m1"))).resolves.toMatchObject({
+      status: "completed",
+      annotations: { "vitehub.channel.key": "m1" },
+    })
 
     label.mockClear()
     const second = await replayChannel(agent, "mailbox", { query: { folder: "inbox" } })

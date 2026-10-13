@@ -21,6 +21,7 @@ import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
 export interface WorkspaceWritePolicy {
   after(input: WorkspaceWriteInput): Promise<void>
   before(input: Omit<WorkspaceWriteInput, "rule">): Promise<WorkspaceWriteInput>
+  check(input: Omit<WorkspaceWriteInput, "rule">): WorkspaceWriteInput
   error(input: WorkspaceWriteInput, error: unknown): Promise<void>
 }
 
@@ -150,15 +151,21 @@ export function createWorkspaceWritePolicy(definition: WorkspaceDefinition): Wor
   const policy = normalizePolicy(definition)
 
   return {
+    check(input) {
+      const current = { ...input, rule: matchRule(policy, input.path) }
+      assertRuleAllows(current)
+      return current
+    },
     async before(input) {
-      let current: WorkspaceWriteInput = {
-        ...input,
-        rule: matchRule(policy, input.path),
-      }
+      const rule = matchRule(policy, input.path)
+      let current: WorkspaceWriteInput = { ...input, rule }
       await runHooks(policy.hooks, "write:before", current)
+      current = { ...current, rule }
       assertRuleAllows(current)
       if (current.rule?.validate.length) current = await runValidators(current.rule.validate, current)
       await runHooks(policy.hooks, "write:validate", current)
+      current = { ...current, rule }
+      assertRuleAllows(current)
       return current
     },
     async after(input) {

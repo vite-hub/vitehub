@@ -64,8 +64,8 @@ server-only and must not be run with plain Node or imported by client code.
 }
 
 export const DatabasesLanding = {
-  slug: "databases",
-  name: "Databases",
+  slug: "database",
+  name: "Database",
   docsTo: "/docs/database",
   eyebrow: "ViteHub Databases",
   description: "Use one database API with Drizzle schemas that can move from Vite to Nitro and Nuxt.",

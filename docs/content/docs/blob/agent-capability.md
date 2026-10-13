@@ -116,7 +116,7 @@ await blob_edit({
 - `policy` applies only to `blob_edit`. `blob_read` has no policy gate.
 - `policy` accepts `'allow'`, `'require-approval'`, `'deny'`, `'retryable-failure'`, or a function that receives `{ name, input }` and returns one of these values.
 - Without `policy`, `blob_edit` runs when the Agent calls it.
-- `'require-approval'` stops the call with `APPROVAL_REQUIRED` and an Approval Request. The write runs only after approval. See [Runtime policy, approvals, and traces](/docs/getting-started/concepts/runtime-policy-approvals-and-traces).
+- `'require-approval'` stops the call with `APPROVAL_REQUIRED` and an Approval Request. The write runs only after approval. See [Runtime policy, approvals, and traces](/docs/agents/runtime-policy).
 - Published artifacts get public URLs. Declare only `assetPaths` whose files may be public.
 
 ## Driver support
@@ -147,4 +147,4 @@ await blob_edit({
 
 - [Blob primitive](/docs/blob)
 - [Official capabilities](/docs/agents/capabilities/official)
-- [Runtime policy, approvals, and traces](/docs/getting-started/concepts/runtime-policy-approvals-and-traces)
+- [Runtime policy, approvals, and traces](/docs/agents/runtime-policy)

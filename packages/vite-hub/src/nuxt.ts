@@ -29,7 +29,7 @@ import { resolveConsoleProjectNameFromRoot } from "./console/project.ts"
 import { consoleSectionRouteName, isConsoleConnectionsEnabled, resolveConsoleSectionIds, type ConsoleSectionId } from "./console/runtime/sections.ts"
 import { describeConsoleContributedSections, isConsoleContributedSectionId } from "./console/contributions.ts"
 import { consoleIcons } from "./console/icons.ts"
-import { addConsoleDevframeHandler, addConsoleRpcHandler } from "./console/nitro.ts"
+import { addConsoleRpcHandler } from "./console/nitro.ts"
 import { consoleAuthMiddlewareFile, consoleConnectionsActorId, registeredConsoleAuthMode, resolveConsoleAuthConfig, writeConsoleAuthHandlers, writeConsoleConnectionsActor } from "./console/auth-build.ts"
 import { serializeConsoleRefresh } from "./console/refresh.ts"
 import { assertConsoleProductionAccess, closeConsoleInvocationRootState, consoleHostManagedCloudflareWarning, configureConsoleFixtureLifecycle, consoleInvocationRootPlugin, createConsoleInvocationRootState, generatedConsolePluginRegistration, resolveConsoleAccessBuild, resolveGeneratedConsolePlugin, type ConsoleInvocationRootState, updateConsoleInvocationRootState } from "./console/vite.ts"
@@ -44,6 +44,7 @@ import type { HookHandler, Plugin, PluginOption, ResolvedConfig, UserConfig, Vit
 import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
 
 const databaseRuntimeState = fileURLToPath(new URL("./_internal/database/runtime/state", import.meta.url))
+const doctorExtensionEntry = fileURLToPath(new URL("./doctor", import.meta.url))
 const consoleRuntimeRoot = fileURLToPath(new URL("./console/runtime", import.meta.url))
 type NuxtPage = { file: string, meta?: Record<string, unknown>, name: string, path: string }
 type ViteHubNuxtOptions = Omit<Parameters<typeof vitehub>[0], "database" | "env"> & {
@@ -747,6 +748,12 @@ type ViteHubNuxtModule = {
 
 const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(inlineOptions, nuxt): Promise<void> {
   if (!nuxt) return
+  // Nuxt does not run the Vite Doctor plugin, so `vite-doctor/nuxt` receives the extension through its hook.
+  if (nuxt.hook) {
+    Reflect.apply(nuxt.hook, nuxt, ["doctor:extendExtensions", (entries: string[]) => {
+      entries.push(doctorExtensionEntry)
+    }])
+  }
 
   const moduleOptions = {
     ...nuxt.options.vitehub,
@@ -1301,7 +1308,13 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     if (options.blob) addNitroImports(config, "vite-hub/blob", ["blob"])
     if (options.database) addNitroImports(config, "vite-hub/database/drizzle", ["db", "schema"])
   })
-  if (options.agent) addVueImports(nuxt, "vite-hub/agent/vue", agentVueComposables)
+  if (options.agent) {
+    addVueImports(nuxt, "vite-hub/agent/vue", agentVueComposables)
+    // Nuxt disables dependency discovery; prebundle the AI SDK's CommonJS browser dependencies.
+    const optimizeDeps = (nuxt.options.vite.optimizeDeps ??= {})
+    const include = (optimizeDeps.include ??= [])
+    if (!include.includes("vite-hub/agent/vue")) include.push("vite-hub/agent/vue")
+  }
   addVueImports(nuxt, "vite-hub/source/client", ["useCollection"])
   if (options.auth) {
     const envOptions = options.env || {}

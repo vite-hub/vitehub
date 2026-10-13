@@ -17,7 +17,7 @@ describe("agent-ready HTTP contracts", () => {
     expect(workspace).toContain("docus: https://pkg.pr.new/docus@c229a86");
     // Local patch until nuxt-agent-discovery routes negotiated pages through the Cloudflare Worker.
     expect(workspace).toContain("nuxt-agent-discovery@0.7.0: patches/nuxt-agent-discovery@0.7.0.patch");
-    expect(config).toContain('routes: ["/", "/docs", "/docs/**", "/blog/**", "/about", "/contact", "/privacy"]');
+    expect(config).toContain('routes: ["/", "/docs", "/docs/**", "/about", "/contact", "/privacy"]');
     expect(config).not.toContain("routeRules:");
     expect(config).not.toContain("run_worker_first");
     expect(config).toContain("contentRawMarkdown: false");
@@ -59,7 +59,7 @@ describe("agent-ready HTTP contracts", () => {
     expect(rawMarkdownUrl("/docs/kv#runtime", "https://vitehub.dev")).toBe(
       "https://vitehub.dev/raw/docs/kv.md#runtime",
     );
-    expect(rawMarkdownUrl("/blog/agents", "https://vitehub.dev")).toBe("https://vitehub.dev/raw/blog/agents.md");
+    expect(rawMarkdownUrl("/guides", "https://vitehub.dev")).toBe("/guides");
     expect(rawMarkdownUrl("https://vitehub.dev/privacy?source=llms", "https://vitehub.dev")).toBe(
       "https://vitehub.dev/raw/privacy.md?source=llms",
     );
@@ -71,7 +71,7 @@ describe("agent-ready HTTP contracts", () => {
       domain: "https://vitehub.dev",
       sections: [{ links: [
         { href: "https://vitehub.dev/docs/agents" },
-        { href: "https://vitehub.dev/blog/server-primitives" },
+        { href: "https://vitehub.dev/guides" },
         { href: "https://vitehub.dev/about" },
         { href: "https://vitehub.dev/contact" },
         { href: "https://vitehub.dev/privacy" },
@@ -82,7 +82,7 @@ describe("agent-ready HTTP contracts", () => {
     rewriteLlmsRawLinks(options);
     expect(options.sections[0]?.links).toEqual([
       { href: "https://vitehub.dev/raw/docs/agents.md" },
-      { href: "https://vitehub.dev/raw/blog/server-primitives.md" },
+      { href: "https://vitehub.dev/guides" },
       { href: "https://vitehub.dev/raw/about.md" },
       { href: "https://vitehub.dev/raw/contact.md" },
       { href: "https://vitehub.dev/raw/privacy.md" },

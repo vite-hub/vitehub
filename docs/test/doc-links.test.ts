@@ -489,13 +489,13 @@ export const unused = [{ destination: "/missing-unused" }]
   it("associates dynamic application pages with every rendered content collection route", () => {
     const repoRoot = fixture({
       "docs/app/pages/[slug].vue": '<template><section id="trust" /><NuxtLink to="#missing-trust" /></template>',
-      "docs/app/pages/blog/[...slug].vue": '<template><section id="post" /><NuxtLink to="#missing-blog" /></template>',
-      "docs/content/blog/post.md": "# Post",
+      "docs/app/pages/docs/[...slug].vue": '<template><section id="post" /><NuxtLink to="#missing-post" /></template>',
+      "docs/content/docs/post.md": "# Post",
       "docs/content/trust/privacy.md": "# Privacy",
     });
 
     expect(validateDocumentationLinks({ repoRoot }).errors).toEqual(expect.arrayContaining([
-      expect.stringContaining('anchor #missing-blog does not exist for route "/blog/post"'),
+      expect.stringContaining('anchor #missing-post does not exist for route "/docs/post"'),
       expect.stringContaining('anchor #missing-trust does not exist for route "/privacy"'),
     ]));
   });
@@ -663,7 +663,7 @@ export const unused = [{ destination: "/missing-unused" }]
   it("reports missing frontmatter images", () => {
     const repoRoot = fixture({
       "docs/app/pages/index.vue": "<template />",
-      "docs/content/blog/post.md": "---\ntitle: Post\nimage: /images/missing-cover.png\n---\n\n# Post",
+      "docs/content/docs/post.md": "---\ntitle: Post\nimage: /images/missing-cover.png\n---\n\n# Post",
     });
 
     expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
@@ -724,13 +724,13 @@ description: |
   it("does not treat YAML files in Markdown-only collections as routes", () => {
     const repoRoot = fixture({
       "docs/app/pages/index.vue": "<template />",
-      "docs/content/docs/index.md": "# Docs\n\n[Blog](/blog/draft)\n[Trust](/policy)",
-      "docs/content/blog/draft.yaml": "title: Draft\n",
+      "docs/content/docs/index.md": "# Docs\n\n[Draft](/draft)\n[Trust](/policy)",
+      "docs/content/trust/draft.yaml": "title: Draft\n",
       "docs/content/trust/policy.yml": "title: Policy\n",
     });
 
     expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
-      expect.stringContaining('route "/blog/draft" does not exist'),
+      expect.stringContaining('route "/draft" does not exist'),
       expect.stringContaining('route "/policy" does not exist'),
     ]);
   });

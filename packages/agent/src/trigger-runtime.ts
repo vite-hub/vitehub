@@ -29,7 +29,6 @@ import type {
   AgentWebhookInvocationOwnership,
   AgentWebhookRegistrationDefinition,
   MaybePromise,
-  MaybeResolvable,
   ResolvedAgentRuntimeContext,
   ResolvedAgentTriggerDefinition,
 } from "./types.ts"
@@ -112,6 +111,30 @@ export function agentChannelOptions<TRuntimeConfig extends AgentRuntimeConfig>(
   const workspaceDefinition = agent as Partial<WorkspaceAgentDefinition<TRuntimeConfig>>
   const workspaceOptions = workspaceDefinition.__vitehubWorkspaceAgentOptions as WorkspaceAgentOptions<TRuntimeConfig> | undefined
   return (agent.channels || workspaceOptions?.channels || {}) as AgentChannels<TRuntimeConfig>
+}
+
+function channelHistoryAnnotations<TRuntimeConfig extends AgentRuntimeConfig>(
+  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
+  trigger: Pick<ResolvedAgentTriggerDefinition, "channelId" | "name">,
+  input: unknown,
+): AgentRunMetadata["annotations"] | undefined {
+  if (!trigger.channelId) return
+  const history = agentChannelOptions(agent)[trigger.channelId]?.history
+  if (!history || (history.trigger !== undefined && history.trigger !== trigger.name)) return
+  const annotations: NonNullable<AgentRunMetadata["annotations"]> = {}
+  try {
+    const key = history.key(input)
+    if (hasRuntimeType(key, "string") && key.trim()) annotations["vitehub.channel.key"] = key
+  }
+  catch {}
+  if (history.thread) {
+    try {
+      const thread = history.thread(input)
+      if (hasRuntimeType(thread, "string") && thread.trim()) annotations["vitehub.channel.thread"] = thread
+    }
+    catch {}
+  }
+  return Object.keys(annotations).length ? annotations : undefined
 }
 
 const channelTriggerStates = new WeakMap<Request, { binding: AgentChannelStateBinding, channelId: string }>()
@@ -300,26 +323,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null
 }
 
-function isResolvableObject<T, TContext extends AgentCallbackContext>(
-  value: unknown,
-): value is { resolve: (context: TContext) => T | Promise<T> } {
-  return isRecord(value) && typeof value.resolve === "function"
-}
-
-async function resolveMaybe<T, TContext extends AgentCallbackContext>(
-  value: MaybeResolvable<T, TContext> | undefined,
-  context: TContext,
-): Promise<T | undefined> {
-  if (value === undefined) return undefined
-  if (typeof value === "function") {
-    return await (value as (context: TContext) => T | Promise<T>)(context)
-  }
-  if (isResolvableObject<T, TContext>(value)) {
-    return await value.resolve(context)
-  }
-  return value as T
-}
-
 async function resolveWebhookSecret(
   value: unknown,
   context: AgentCallbackContext,
@@ -464,6 +467,16 @@ export async function verifyAgentWebhookRequest<TRuntimeConfig extends AgentRunt
       : { verified: true }
   }
 
+  // A request body can be needed by several targeted signature verifiers. Read it
+  // once, then give each verifier its own copy so one verifier cannot affect the
+  // bytes seen by the next verifier.
+  let requestBody: Promise<Uint8Array> | undefined
+  const readRawBody = async (): Promise<Uint8Array<ArrayBuffer>> => {
+    if (options.rawBody) return Uint8Array.from(options.rawBody)
+    requestBody ??= request.clone().arrayBuffer().then(value => new Uint8Array(value))
+    return Uint8Array.from(await requestBody)
+  }
+
   for (const { headerValue, registration } of targeted) {
     const secretToken = await resolveWebhookSecret(registration.secretToken, verificationContext)
     if (secretToken !== undefined && secretToken !== false && !isRuntimeString(secretToken)) {
@@ -474,7 +487,7 @@ export async function verifyAgentWebhookRequest<TRuntimeConfig extends AgentRunt
     }
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Webhook signature verifiers cross the user configuration boundary and require runtime validation.
     if (typeof registration.signature === "object" && registration.signature !== null && "verify" in registration.signature && typeof registration.signature.verify === "function") {
-      const rawBody = options.rawBody ? Uint8Array.from(options.rawBody) : new Uint8Array(await request.clone().arrayBuffer())
+      const rawBody = await readRawBody()
       if (await registration.signature.verify({ context: verificationContext, header: headerValue ?? "", rawBody, request, secret: secretToken || "" })) {
         return { registration, verified: true }
       }
@@ -486,14 +499,14 @@ export async function verifyAgentWebhookRequest<TRuntimeConfig extends AgentRunt
     if (headerValue === null) continue
     const stripeTolerance = stripeSignatureTolerance(registration.signature)
     if (stripeTolerance !== undefined) {
-      const rawBody = options.rawBody ? Uint8Array.from(options.rawBody) : new Uint8Array(await request.clone().arrayBuffer())
+      const rawBody = await readRawBody()
       if (await verifyStripeSignature(secretToken, headerValue, rawBody, stripeTolerance)) {
         return { registration, verified: true }
       }
       continue
     }
     if (registration.signature === "github-sha256") {
-      const body = options.rawBody ? Uint8Array.from(options.rawBody).buffer : await request.clone().arrayBuffer()
+      const body = (await readRawBody()).buffer
       const expected = `sha256=${await hmacSha256(secretToken, body)}`
       if (await constantTimeEqual(expected, headerValue)) {
         return { registration, verified: true }
@@ -595,7 +608,16 @@ export async function resolveAgentTriggerInvocation<
       validatedInput = await parseStandardSchema(trigger.input, input, `Agent trigger "${trigger.id}" input`)
     }
   }
-  return resolveAgentTriggerInvocationResult(await trigger.invoke(validatedInput), trigger)
+  const invoked = await trigger.invoke(validatedInput)
+  if (invoked instanceof Response) return resolveAgentTriggerInvocationResult(invoked, trigger)
+  const annotations = channelHistoryAnnotations(agent, trigger, validatedInput)
+  const run = annotations
+    ? { ...(invoked.run || context.run || { runId: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}` }), annotations: { ...(invoked.run || context.run)?.annotations, ...annotations } }
+    : invoked.run
+  return resolveAgentTriggerInvocationResult({
+    ...invoked,
+    ...(run ? { run } : {}),
+  }, trigger)
 }
 
 export function resolveAgentTriggerInvocationResult<

@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { defineShortcuts } from "@nuxt/ui/composables";
 import { useCollection } from "vite-hub/source/client";
-import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
+import { computed, inject, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import type { CommandPaletteGroup, CommandPaletteItem } from "@nuxt/ui"
 import type { Collection } from "@vite-hub/source"
 import type { AgentInvocationListItem } from "@vite-hub/ui"
 import type { ConsoleSectionDetails, ConsoleSectionId } from "../sections"
+import { consoleAppearanceKey, consoleAppearanceOptions, consoleAppearances } from "../client/appearance"
 import { loadConsoleKVPages, requestConsole } from "../client/request"
 import { loadConsoleNavigation, resolveConsoleSectionDetails } from "../client/sections"
 import type { ConsoleNavigation } from "../client/sections"
@@ -63,6 +64,8 @@ const props = defineProps<{
 }>()
 const route = useRoute()
 const router = useRouter()
+// The standalone Console provides its appearance. In a Nuxt host, UDashboardSearch shows the host color mode instead.
+const appearance = inject(consoleAppearanceKey, undefined)
 const open = ref(false)
 const searchTerm = ref("")
 const debouncedSearchTerm = ref("")
@@ -213,6 +216,18 @@ const groups = computed<CommandPaletteGroup[]>(() => [
           label: debouncedSearchTerm.value ? "Sessions" : "Recent sessions",
         },
       ]
+    : []),
+  ...(appearance
+    ? [{
+        id: "appearance",
+        items: consoleAppearances.map(option => ({
+          active: appearance.preference.value === option,
+          icon: consoleAppearanceOptions[option].icon,
+          label: consoleAppearanceOptions[option].label,
+          onSelect: () => appearance.select(option),
+        })),
+        label: "Appearance",
+      }]
     : []),
 ])
 const loading = computed(() =>

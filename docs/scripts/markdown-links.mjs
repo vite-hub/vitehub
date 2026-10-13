@@ -11,12 +11,10 @@ import { parse as parseYaml } from "yaml";
 
 const siteOrigin = "https://vitehub.dev";
 const contentCollectionPrefixes = new Map([
-  ["blog", "blog"],
   ["docs", "docs"],
   ["trust", ""],
 ]);
 const contentCollectionExtensions = new Map([
-  ["blog", new Set([".md"])],
   ["docs", new Set([".md", ".yml", ".yaml"])],
   ["trust", new Set([".md"])],
 ]);

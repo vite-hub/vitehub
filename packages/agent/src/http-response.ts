@@ -1,3 +1,5 @@
+import { hasRuntimeType } from "./internal/runtime-type.ts"
+
 interface AgentStreamResult {
   toTextStreamResponse?: () => Response
   toUIMessageStreamResponse?: () => Response
@@ -119,7 +121,7 @@ export function toAgentHttpResult(value: unknown, stream: boolean): Response | u
     return value
   }
   if (stream && isAgentStreamResult(value)) {
-    if (value.toUIMessageStreamResponse) {
+    if (hasRuntimeType(value.toUIMessageStreamResponse, "function")) {
       return value.toUIMessageStreamResponse()
     }
     const response = value.toTextStreamResponse?.()

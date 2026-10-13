@@ -32,7 +32,7 @@ useSeoMeta({
               <NuxtLink
                 v-for="primitive in primitiveOptions"
                 :key="primitive.slug"
-                :to="`/${primitive.slug}`"
+                :to="primitive.docsTo"
                 class="bg-elevated p-3 transition-colors duration-200 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-accented focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-primary"
                 @click="selectorOpen = false"
               >

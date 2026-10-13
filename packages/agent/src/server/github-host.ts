@@ -3,7 +3,7 @@ import type { AgentChannelDefinition } from '../types.ts'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { execFile } from "node:child_process"
 import type { ExecFileOptionsWithStringEncoding } from "node:child_process"
-import { createHash, createSign } from "node:crypto"
+import { createHash } from "node:crypto"
 import { lstat, mkdtemp, readdir, realpath } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
@@ -11,8 +11,10 @@ import { promisify } from "node:util"
 import { Diagnostic } from "nostics"
 
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts"
+import { CodeHostResponseError, codeHostErrorStatus, codeHostProvider, githubAppCredentials } from "../internal/code-host.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { prepareGitHubPullRequestWorkspace } from "./github-checkout.ts"
+import { commitGitHubPullRequestWorkspace, type GitHubRepairCommit } from "./github-repair.ts"
 
 const exec = promisify(execFile)
 const GITHUB_RATE_LIMIT_FALLBACK_MS = 5 * 60_000
@@ -60,8 +62,10 @@ export interface GitHubHostPullRequest {
 
 export interface GitHubHostCheckout extends GitHubHostAccess {
   path: string
-  prepareWorkspace(target: string): Promise<void>
-  push(target?: string, options?: { signal?: AbortSignal, beforePush?: () => void | Promise<void> }): Promise<string>
+  /** Restore source instruction files only before the provider injects its instructions. */
+  prepareWorkspace(target: string, options?: { restoreInstructions?: boolean }): Promise<void>
+  commitRepair(target: string, input: GitHubRepairCommit, options?: { verifyDependencies?: boolean }): Promise<string>
+  push(target?: string, options?: { signal?: AbortSignal, beforePush?: (head?: string) => void | Promise<void>, afterPush?: (head: string) => void | Promise<void> }): Promise<string>
   signal: AbortSignal
 }
 
@@ -137,21 +141,15 @@ function positiveInteger(value: string, name: string): number {
   return number
 }
 
-function base64url(value: string): string {
-  return Buffer.from(value).toString("base64url")
-}
-
-function appJwt(appId: number, privateKey: string): string {
-  const now = Math.floor(Date.now() / 1_000)
-  const data = `${base64url(JSON.stringify({ alg: "RS256", typ: "JWT" }))}.${base64url(JSON.stringify({ exp: now + 540, iat: now - 60, iss: appId }))}`
-  return `${data}.${createSign("RSA-SHA256").update(data).sign(privateKey).toString("base64url")}`
-}
-
 export interface GitHubAppEnvironment {
   appId: number
   privateKey: string
   /** Fixed installation. Without it, each repository resolves its own installation. */
   installationId?: number
+  /** Owner authorized by the fixed installation; other owners are discovered. */
+  owner?: string
+  /** Explicit installation IDs by repository owner. */
+  installations?: Record<string, number>
   /** Fallback token for repositories without an App installation. */
   token?: string
   userAgent?: string
@@ -162,48 +160,41 @@ export interface GitHubAppEnvironment {
  * repository from the App, and the App's bot identity for commits. Results are cached.
  */
 export function createGitHubAppCredentials(app: GitHubAppEnvironment) {
-  const installations = new Map<string, Promise<number>>()
+  const configuredInstallations = new Map(Object.entries(app.installations ?? {}).map(([name, id]) => [name.toLowerCase(), id]));
+  const installations = new Map<string, number>()
   let identity: Promise<{ login: string, email: string }> | undefined
-  const request = async (path: string, signal?: AbortSignal): Promise<unknown> => {
-    const response = await fetch(`https://api.github.com${path}`, {
-      headers: { accept: "application/vnd.github+json", authorization: `Bearer ${appJwt(app.appId, app.privateKey)}`, "user-agent": app.userAgent || "vitehub" },
-      signal,
-    })
-    if (!response.ok) throw agentDiagnostics.AGENT_R0757({ message: `GitHub App request ${path} failed with ${response.status}.` })
-    return await response.json()
-  }
-  const installation = (repository: string, signal?: AbortSignal) => {
+  const client = githubAppCredentials(app)
+  const installation = async (repository: string, signal?: AbortSignal) => {
+    signal?.throwIfAborted()
     const key = owner(repository)
-    let pending = installations.get(key)
-    if (!pending) {
-      pending = request(`/repos/${repository}/installation`, signal).then((body) => {
-        const id = isRuntimeRecord(body) ? body.id : undefined
-        if (!hasRuntimeType(id, "number") || !Number.isSafeInteger(id) || id <= 0) throw agentDiagnostics.AGENT_R0757({ message: `GitHub App is not installed for ${repository}.` })
-        return id
-      })
-      // A failed lookup, for example before the App is installed, is retried on the next request.
-      pending.catch(() => installations.delete(key))
-      installations.set(key, pending)
-    }
-    return pending
+    const cached = installations.get(key)
+    if (cached !== undefined) return cached
+    // Unresolved lookups belong to each caller's signal. Cache only completed discovery.
+    const resolved = await client.installation(repository, signal)
+    signal?.throwIfAborted()
+    installations.set(key, resolved)
+    return resolved
   }
   return {
     async credentials(context: GitHubHostCredentialContext): Promise<GitHubHostCredentials> {
       if (!context.repository) return { token: app.token }
-      const installationId = app.installationId ?? await installation(context.repository, context.signal)
+      const repositoryOwner = owner(context.repository)
+      const configured = configuredInstallations.get(repositoryOwner) ?? (!app.owner || app.owner.toLowerCase() === repositoryOwner ? app.installationId : undefined)
+      const installationId = configured ?? await installation(context.repository, context.signal)
       return { appId: app.appId, installationId, owner: owner(context.repository), privateKey: app.privateKey, token: app.token }
     },
     /** The App bot's login and noreply email, used as the commit author. */
     async identity(): Promise<{ login: string, email: string }> {
       identity ??= (async () => {
-        const body = await request("/app")
-        const slug = isRuntimeRecord(body) ? body.slug : undefined
-        if (!hasRuntimeType(slug, "string") || !slug) throw agentDiagnostics.AGENT_R0757({ message: "GitHub App response did not include a slug." })
-        const login = `${slug}[bot]`
-        const user = await fetch(`https://api.github.com/users/${encodeURIComponent(login)}`, { headers: { accept: "application/vnd.github+json", "user-agent": app.userAgent || "vitehub" } })
-        const userBody: unknown = user.ok ? await user.json() : undefined
-        const id = isRuntimeRecord(userBody) ? userBody.id : undefined
-        return { login, email: hasRuntimeType(id, "number") ? `${id}+${login}@users.noreply.github.com` : `${login}@users.noreply.github.com` }
+        const { login } = await client.app().catch((error: unknown) => {
+          const status = codeHostErrorStatus(error)
+          if (status !== undefined) throw agentDiagnostics.AGENT_R0757({ message: `GitHub App request /app failed with ${status}.`, cause: error })
+          if (error instanceof CodeHostResponseError) throw agentDiagnostics.AGENT_R0757({ message: error.message, cause: error })
+          throw error
+        })
+        const provider = await codeHostProvider({ host: "github", userAgent: app.userAgent })
+        const user = await provider.users.get(login).catch(() => undefined)
+        return { login, email: user?.id ? `${user.id}+${login}@users.noreply.github.com` : `${login}@users.noreply.github.com` }
       })()
       identity.catch(() => { identity = undefined })
       return await identity
@@ -321,7 +312,6 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
   const fallbackIdentityLimit = 1_000
   const budgetStateLimit = 1_000
   const budgetStateAccess = new Map<string, number>()
-  const appTokens = new Map<string, { expiresAt: number, token: string }>()
 
   function touchBudgetState(key: string, now: number): void {
     if (budgetStateAccess.has(key)) {
@@ -429,31 +419,17 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
         const numericAppId = positiveInteger(appId, "GitHub App appId")
         const numericInstallationId = positiveInteger(installationId, "GitHub App installationId")
         rateLimitKey = `app:${numericAppId}:${numericInstallationId}`
-        const key = `${numericAppId}:${numericInstallationId}:${privateKey}`
-        let appToken = appTokens.get(key)
-        if (input.refresh || !appToken || appToken.expiresAt <= Date.now() + 60_000) {
-          const response = await fetch(`https://api.github.com/app/installations/${numericInstallationId}/access_tokens`, {
-            headers: {
-              accept: "application/vnd.github+json",
-              authorization: `Bearer ${appJwt(numericAppId, privateKey)}`,
-              "user-agent": options.userAgent || "vitehub",
-            },
-            method: "POST",
-            signal: input.signal,
-          })
-          if (!response.ok) throw agentDiagnostics.AGENT_R0757({ message: `GitHub App token request failed with ${response.status}.` })
-          const body: unknown = await response.json()
-          const responseToken = isRuntimeRecord(body) ? body.token : undefined
-          const expiresAt = isRuntimeRecord(body) ? body.expires_at : undefined
-          if (!hasRuntimeType(responseToken, "string")) throw agentDiagnostics.AGENT_R0758({ message: "GitHub App token response did not include a token." })
-          appToken = {
-            expiresAt: hasRuntimeType(expiresAt, "string") ? Date.parse(expiresAt) || Date.now() + 50 * 60_000 : Date.now() + 50 * 60_000,
-            token: responseToken,
-          }
-          if (appTokens.size >= 128) appTokens.delete(appTokens.keys().next().value!)
-          appTokens.set(key, appToken)
+        try {
+          token = (await githubAppCredentials({ appId: numericAppId, privateKey, userAgent: options.userAgent })
+            .installationToken(numericInstallationId, { refresh: input.refresh, signal: input.signal })).token
         }
-        token = appToken.token
+        catch (error) {
+          if (input.signal?.aborted) throw abortError(input.signal.reason)
+          const status = codeHostErrorStatus(error)
+          if (status !== undefined) throw agentDiagnostics.AGENT_R0757({ message: `GitHub App token request failed with ${status}.`, cause: error })
+          if (error instanceof CodeHostResponseError) throw agentDiagnostics.AGENT_R0758({ message: "GitHub App token response did not include a token.", cause: error })
+          throw error
+        }
       }
     }
     else {
@@ -747,9 +723,10 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
                 process.stdout.write("cleaned")
               }
             `, String(checkoutIdentity.dev), String(checkoutIdentity.ino)], { cwd: candidate, maxBuffer })
-            // Retain the empty inode. Node has no inode-conditional rmdir;
-            // removing its pathname could delete an empty replacement.
-            if (result.stdout === "cleaned") return
+            if (result.stdout === "cleaned") {
+              // Keep the empty inode: pathname removal could delete a replacement.
+              return
+            }
           }
           catch (error) {
             // A move before cwd resolution needs another discovery pass.
@@ -801,9 +778,10 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
       const fetched = (await exec("git", ["-C", checkout, "rev-parse", "HEAD"], commandOptions)).stdout.trim()
       if (fetched !== pullRequest.headSha) throw agentDiagnostics.AGENT_R0767({ message: `Pull request head changed from ${pullRequest.headSha} to ${fetched}.` })
       operation.signal.throwIfAborted()
-      const prepareWorkspace = async (target: string) => await prepareGitHubPullRequestWorkspace(checkout, target, { signal: operation.signal })
+      const prepareWorkspace = async (target: string, options: { restoreInstructions?: boolean } = {}) => await prepareGitHubPullRequestWorkspace(checkout, target, { ...options, signal: operation.signal })
       let pushHead = pullRequest.headSha
-      const push = async (target: string = checkout, options: { signal?: AbortSignal, beforePush?: () => void | Promise<void> } = {}) => {
+      const commitRepair = async (target: string, input: GitHubRepairCommit, commitOptions?: { verifyDependencies?: boolean }) => await commitGitHubPullRequestWorkspace(target, input, { expectedHead: pushHead, signal: operation.signal, identity: env, verifyDependencies: commitOptions?.verifyDependencies })
+      const push = async (target: string = checkout, options: { signal?: AbortSignal, beforePush?: (head?: string) => void | Promise<void>, afterPush?: (head: string) => void | Promise<void> } = {}) => {
         const signal = options.signal ? AbortSignal.any([operation.signal, options.signal]) : operation.signal
         signal.throwIfAborted()
         const expectedHead = pushHead
@@ -834,21 +812,20 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
           signal,
         })
         signal.throwIfAborted()
-        await options.beforePush?.()
+        await options.beforePush?.(head)
         await exec("git", ["-C", checkout, "-c", "core.hooksPath=/dev/null", "push", "--no-verify", `--force-with-lease=refs/heads/${pullRequest.headRef}:${expectedHead}`, "--", pushUrl, `${head}:refs/heads/${pullRequest.headRef}`], {
           env: { ...process.env, ...refreshed.env },
           maxBuffer,
           signal,
         })
-        // Re-check custody immediately after the remote mutation. A lease can
-        // be reclaimed while Git is in flight; surface that loss so callers do
-        // not report the stale operation as successful or continue with merge.
-        signal.throwIfAborted()
-        await options.beforePush?.()
+        // Record the remote receipt before post-push cancellation checks. The
+        // pre-push base fence must not reject an already published repair.
         pushHead = head
+        await options.afterPush?.(head)
+        signal.throwIfAborted()
         return head
       }
-      return await checkoutScope.run({ ...baseAuth, path: checkout }, () => run({ ...baseAuth, path: checkout, prepareWorkspace, push, signal: operation.signal }))
+      return await checkoutScope.run({ ...baseAuth, path: checkout }, () => run({ ...baseAuth, path: checkout, prepareWorkspace, commitRepair, push, signal: operation.signal }))
     }
     finally {
       operation.close()

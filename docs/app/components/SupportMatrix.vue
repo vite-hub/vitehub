@@ -933,9 +933,10 @@ onBeforeUnmount(() => clearTimeout(proofRefreshTimer));
 
 .support-matrix-navigation {
   position: fixed;
-  z-index: 40;
+  /* Keep the section menu beside the compact rail and below its expanded labels. */
+  z-index: 9;
   top: calc(var(--ui-header-height) + 42px + 0.5rem);
-  left: 0.5rem;
+  left: calc(var(--vh-rail-width) + 0.5rem);
 }
 
 .support-matrix-navigation-button,

@@ -78,11 +78,33 @@ function resolveCloudflareBinding(event: unknown, binding: string | undefined, n
     ? getCloudflareWorkflowBindingName(name)
     : binding || getCloudflareWorkflowBindingName(name)
   // SAFETY: Workflow provider normalization establishes the asserted run contract.
-  return env?.[bindingName] as CloudflareWorkflowBinding | undefined
+  return env && Object.hasOwn(env, bindingName)
+    ? env[bindingName] as CloudflareWorkflowBinding
+    : undefined
 }
 
 function resolveCloudflareInspectionBinding(event: unknown, binding: string | undefined, name: string) {
   return resolveCloudflareBinding(event, binding, name, getWorkflowRuntimeRegistry()?.[name])
+}
+
+function normalizeCloudflareWorkflowStart(value: unknown, expectedId: string): { id: string } {
+  if (!hasRuntimeType(value, "object") || value === null) {
+    throw new Error("Cloudflare Workflow provider returned an invalid workflow instance.")
+  }
+
+  let id: unknown
+  try {
+    id = Reflect.get(value, "id")
+  }
+  catch (cause) {
+    throw new Error("Cloudflare Workflow provider returned an invalid workflow instance.", { cause })
+  }
+
+  if (!hasRuntimeType(id, "string") || !id || id !== expectedId) {
+    throw new Error("Cloudflare Workflow provider returned an invalid workflow instance.")
+  }
+
+  return { id }
 }
 
 const cloudflareStatusMap: Record<string, WorkflowRunStatus> = {
@@ -149,7 +171,7 @@ function createCloudflareAdapter(config: ResolvedWorkflowOptions): WorkflowRunti
         const start = () => runWorkflowProviderOperation(
           "cloudflare",
           "create",
-          async () => (await binding.createBatch([{ id, params: payload }]))[0] || await binding.get(id),
+          async () => normalizeCloudflareWorkflowStart((await binding.createBatch([{ id, params: payload }]))[0] || await binding.get(id), id),
           { acknowledgementUnknown: (_error, status) => status === undefined },
         )
         const creation = start().catch(async (firstError) => {

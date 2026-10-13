@@ -113,6 +113,50 @@ export default defineWorkspaceFileHandler({
 })
 ```
 
+## Retained folder history
+
+Use `@vite-hub/workspace/blob-database` for immutable folder versions backed by
+ViteHub Blob and Database. Include `workspaceHistorySchema` in a Database
+Definition, apply its migrations, and pass
+`createBlobDatabaseWorkspaceStore({ blob, database, workspace })` as the
+Workspace Definition's `store`. The framework also exports
+`vite-hub/workspace/blob-database`.
+
+```ts
+const workspace = useWorkspace("drop", { mode: "write" })
+const revision = await workspace.history.commit({
+  ifHead: (await workspace.history.head())?.id ?? null,
+  files: { "index.html": "<h1>Hello</h1>" },
+  message: "Publish",
+  metadata: { author: "maxi" },
+})
+const version = await workspace.history.open(revision.id)
+await version.readFile("index.html")
+await workspace.history.list({ limit: 20 })
+await workspace.history.usage()
+```
+
+Commits publish the complete desired file set with an atomic head comparison.
+Catch `isWorkspaceConflict(error)` for a stale `ifHead`. Omitted paths disappear
+from the new revision; earlier versions retain their bytes. Read mode exposes
+`head`, `list`, `open`, and `usage`. Stores without retained history throw
+`WORKSPACE_R0069`. Existing checkpoint and rebase behavior is unchanged.
+
+File objects use `<prefix>/<sha256(workspace)>/sha256/<digest>` Blob keys.
+Identical bytes share one object within a workspace. Database stores immutable
+manifests, refs, an upload catalog, and Workspace metadata. Usage counts unique
+uncompressed file bytes across published revisions. Workspaces have separate
+namespaces, so deletion needs no cross-workspace reference counts.
+
+Normal file writes stage changes in instance memory until checkpoint or snapshot.
+Only published history is durable. `store.delete()` permanently tombstones the
+identity and removes its history and objects. Retry deletion after storage errors
+or after stopping abandoned uploads. Failed publications can leave reusable
+objects outside retained usage accounting until deletion. Pruning is not supported.
+Use a strongly consistent Blob backend and small folders. See
+[configuration](https://vitehub.dev/docs/workspace/configure#blob-database-store)
+and [server API](https://vitehub.dev/docs/workspace/server-api#retained-folder-history).
+
 ## JSON collections
 
 Query a generated JSON-object array without sending the complete index to the browser. The handler keeps filter, search, projection, sort, facet, and item lookup fields under server control, and every list response is capped by `maxLimit`.
@@ -328,7 +372,7 @@ export default defineConfig({
 })
 ```
 
-The Vite Integration writes matching module-level and discovered definition-level Artifacts bindings into generated Cloudflare Provider Output. Each named Workspace uses its own repository by default, and a successful `workspace.snapshot()` pushes a Git commit whose SHA is the snapshot id. The Worker adapter keeps its checkout in isolate memory, so use it for deliberately small Workspaces. Cloudflare Artifacts is currently a closed beta and is not available on Workers Free; Cloudflare hosting therefore continues to default to the `memory` Store.
+The Vite Integration writes matching module-level and discovered definition-level Artifacts bindings into generated Cloudflare Provider Output. Each named Workspace uses its own repository by default, and a successful `workspace.snapshot()` pushes a Git commit whose SHA is the snapshot id. The Worker adapter keeps its checkout in isolate memory, so use it for deliberately small Workspaces. Cloudflare Artifacts is in open beta and is not available on Workers Free; Cloudflare hosting therefore continues to default to the `memory` Store.
 
 Artifacts repositories are private Git storage, not public attachment hosting. Use `@vite-hub/blob` with R2 or another Blob provider when an Agent needs a stable public delivery URL.
 
@@ -372,12 +416,16 @@ Learn more at [vitehub.dev](https://vitehub.dev).
 
 Startup and build Source cleanup track ownership by Workspace name. When definitions share a Store, removing or refreshing one definition does not remove files last materialized by another definition. Cleanup also preserves files without a recorded Workspace owner, including files from legacy snapshots. Shared paths still contain the most recent write.
 
-Source Sync and runtime Source materialization change files only inside the mount of the Source that they process. A Source with an empty mount owns the Workspace root. Source Sync with `stale: "remove"` removes only stale paths inside the current mount. If you move a Source mount, the files in the old mount stay. Remove them yourself if you do not need them.
+Source Sync and runtime Source materialization change files only inside the mount of the Source that they process. A Source with an empty mount owns the Workspace root. Source Sync with `stale: "remove"` removes only stale paths inside the current mount. If you move a Source mount, the files in the old mount stay. Remove them yourself if you do not need them. When mounts for the same Source key share an output path, sync retains their claims separately. Each mount can update the file, and every claim tracks the digest of the latest Source write to that shared path. Stale cleanup removes the file only after the other mounts release their claims and its content still matches that digest. Releasing a claim preserves this digest without adopting current file content, including user edits that restore an older Source version.
 
 `history.rebase({ takeRemote })` replaces local content at each listed path, so each path must be writable. A Source-backed path fails with a read-only error before the Store rebases.
+
+Workspace internals keep Source Sync state, Source snapshots, startup and build indexes, and file owner records in Store metadata. Cleanup uses these records to decide which files to remove. Metadata keys that start with `source:`, `workspace:`, `workspace-file-`, or `loader:` are reserved for this, and public `setMeta` rejects them. Use your own prefix for application metadata.
 
 `metadata.source` is reserved for internal Source materialization. Public Workspace writes and write validators cannot assign this ownership marker. Write validators and `write:before` hooks can change the write path. ViteHub checks the final path again, so a changed path cannot write into a Source mount or a Source-backed file. Explicit loaders write through `ctx.store`; when multiple build Sources share a mount, these writes must preserve the input item's `metadata.source` or set it to the owning Source key for derived output within that Source's mount. Ambiguous writes fail before storing the file.
 
 File metadata must be a JSON-safe plain object containing only plain objects, dense arrays, strings, booleans, null, and finite numbers except negative zero. Omit optional properties instead of assigning `undefined`. Bigints, cycles, class instances, accessors, symbols, and functions are rejected. Workspace writes validate this contract before provider dispatch; direct local and memory Store writes also validate before changing file content. This keeps accepted metadata values consistent after a local Store restart.
 
 Custom Stores can implement `removeEmptyDirectory(path)` to support build directory cleanup. The operation must check the path inside the Store mutation boundary, preserve files and missing paths, and reject nonempty directories. Stores without this method retain generated directories. The local, memory, and Cloudflare Artifacts Stores implement it.
+
+Writable facade wrappers that replace `fs` and omit symbol properties must forward internal Source Sync routing explicitly. After creating a wrapper, call `forwardWorkspaceFacade(base, wrapped)` from `@vite-hub/workspace/runtime`. This preserves durable sync metadata and enclosing Source guards without exposing internal setters or passing capabilities to the wrapper's public `setMeta` method. Public metadata writes still reject reserved keys.

@@ -174,15 +174,16 @@ function withToolPolicy(tool: AgentToolDefinition): AgentToolDefinition {
             operation: "tool.execute",
           })
 
-      const approvalRequest = createApprovalRequest(tool.name, input)
-
       if (decision === "deny") {
         throw new ViteHubError("CAPABILITY_DENIED", `[vitehub:runtime] Capability "${tool.name}" was denied.`, {
           details: { capability: tool.name },
         })
       }
       if (decision === "require-approval") {
-        pendingToolApproval.attach(approvalRequest, pendingToolApproval.issue({ input, policy: policyOwner, requestId: approvalRequest.id, toolName: tool.name }))
+        // Keep the execution snapshot private: callers and approval UIs can mutate their copies.
+        const approvedInput = structuredClone(input)
+        const approvalRequest = createApprovalRequest(tool.name, structuredClone(approvedInput))
+        pendingToolApproval.attach(approvalRequest, pendingToolApproval.issue({ input: approvedInput, policy: policyOwner, requestId: approvalRequest.id, toolName: tool.name }))
         throw new ViteHubError("APPROVAL_REQUIRED", `[vitehub:runtime] Approval is required for "${tool.name}".`, {
           cause: approvalRequest,
           details: { capability: tool.name, requestId: approvalRequest.id },

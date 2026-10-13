@@ -1328,7 +1328,7 @@ export function createAgentCliContributor(options?: false | AgentCliContributorO
             description: "Send past Channel messages from a Channel history through its trigger.",
             name: "replay",
             run: async (args, context) => await runAgentChannelReplayCli(args, context),
-            usage: "vitehub channels replay --agent <name> --channel <name> [--url <console-url>] [--dry-run] [--force] [--limit <n>]",
+            usage: "vitehub channels replay --agent <name> --channel <name> [--url <console-url>] [--dry-run] [--force] [--label <label>] [--query <key=value>]... [--limit <n>]",
           },
           {
             description: "Inspect and synchronize provider-owned Channel webhooks and account resources for a deployed stage.",

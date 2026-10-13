@@ -59,6 +59,17 @@ describe("agent HTTP response helpers", () => {
     expect(await toAgentFetchResponse(result, true).text()).toBe("hello")
   })
 
+  it("falls back when an optional UI stream helper is not callable", async () => {
+    const response = new Response("hello")
+    const result = {
+      toUIMessageStreamResponse: true,
+      toTextStreamResponse: () => response,
+    }
+
+    expect(toAgentHttpResult(result, true)).toBe(response)
+    expect(await toAgentFetchResponse(result, true).text()).toBe("hello")
+  })
+
   it("renders async iterable events as newline-delimited JSON", async () => {
     async function* events() {
       yield { type: "start" }

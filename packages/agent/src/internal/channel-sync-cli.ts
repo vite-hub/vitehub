@@ -11,6 +11,7 @@ import { createViteAgentDiscoveryContext, loadViteAgent } from "../vite/runtime-
 import type { AgentChannelDefinition, DiscoveredAgentDefinition } from "../types.ts"
 import type { AgentChannelSyncPlan, AgentChannelSyncProvider } from "./channel-sync.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
+import { hasRuntimeType } from "./runtime-type.ts"
 
 interface ChannelSyncCliContext {
   cwd: string
@@ -41,6 +42,7 @@ export interface LoadedChannelTarget {
   channel: string
   defaultThreadId?: string
   mode: "account" | "disabled" | "webhook"
+  history?: boolean
   provider: string
   registration?: {
     id: string
@@ -328,13 +330,14 @@ async function loadQueuedChannelTargets(
         const syncDefinition = getAgentChannelSyncDefinition(channel)
         const sync = syncOnly && syncDefinition ? await syncDefinition.resolve(context, channel) : undefined
         if (syncOnly && !sync) continue
-        if (!sync && (channel.messages === false || channel.adapter === undefined || channel.webhooks === undefined || channel.webhooks === false || (Array.isArray(channel.webhooks) && channel.webhooks.length === 0))) continue
+        if (!sync && !channel.history && (channel.messages === false || channel.adapter === undefined || channel.webhooks === undefined || channel.webhooks === false || (Array.isArray(channel.webhooks) && channel.webhooks.length === 0))) continue
         const provider = syncDefinition?.provider || channel.kind
         const registration = await channelRegistration(channelId, channel, context, input.registration, true)
         if (input.registration && !registration) continue
         targets.push({
           agent: loaded.identity.name,
           channel: channelId,
+          history: channel.history !== undefined,
           defaultThreadId: !syncOnly && input.resolveDefaultThread !== false
             ? await getAgentChannelHistoryDefinition(channel)?.resolveDefaultThreadId?.(context, channel)
             : undefined,
@@ -463,12 +466,15 @@ export async function runAgentChannelSyncCli(
 
     const providerResources = new Map<unknown, LoadedChannelSyncTarget>()
     for (const target of targets) {
-      if (target.sync.resourceKey === undefined) continue
-      const existing = providerResources.get(target.sync.resourceKey)
-      if (existing) {
-        throw agentDiagnostics.AGENT_R0553({ message: `Channels ${existing.agent}/${existing.channel} and ${target.agent}/${target.channel} target the same ${target.provider} resource.` })
+      const desiredUrl = origin ? desiredWebhookUrl(target, origin, defaultWebhookRoute) : undefined
+      const keys = target.sync.resourceKeys?.(desiredUrl) ?? (target.sync.resourceKey === undefined ? [] : [target.sync.resourceKey])
+      for (const key of keys) {
+        const existing = providerResources.get(key)
+        if (existing) {
+          throw agentDiagnostics.AGENT_R0553({ message: `Channels ${existing.agent}/${existing.channel} and ${target.agent}/${target.channel} target the same ${target.provider} resource.` })
+        }
+        providerResources.set(key, target)
       }
-      providerResources.set(target.sync.resourceKey, target)
     }
 
     const fetchImpl = options.fetch || globalThis.fetch
@@ -483,7 +489,7 @@ export async function runAgentChannelSyncCli(
     if (parsed.apply && origin) for (const item of planned) {
       if (item.plan.action !== "delete" && item.plan.action !== "update") continue
       const currentUrl =
-        typeof item.plan.current.url === "string" ? item.plan.current.url : ""
+        item.target.sync.currentWebhookUrl?.(item.plan) ?? (hasRuntimeType(item.plan.current.url, "string") ? item.plan.current.url : "")
       if (currentUrl) {
         const currentOrigin = httpsUrlOrigin(currentUrl, "current provider webhook URL").origin
         if (currentOrigin !== origin) {

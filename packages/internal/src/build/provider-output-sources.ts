@@ -8,7 +8,7 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 import { build } from "esbuild"
 
 import { createImportPath } from "./paths.ts"
-import { findMatching, maskSourceLiterals, splitTopLevel } from "../source-scanner.ts"
+import { createSourceScanner } from "../source-scanner.ts"
 
 interface RetainProviderOutputSourcesOptions {
   artifactDir: string
@@ -302,6 +302,7 @@ function traceComputedModuleSources(
   source: string,
   onRuntimePackageRequest?: (request: RuntimeModuleRequest) => void,
 ): string[] {
+  const { findMatching, maskSourceLiterals, splitTopLevel } = createSourceScanner(file)
   const masked = maskSourceLiterals(source)
   const bindings = new Map<string, string>()
   const declarations = /\b(?:const|let|var)\s+([A-Z_$][\w$]*)\s*=\s*([`"'])(.*?)\2/gis

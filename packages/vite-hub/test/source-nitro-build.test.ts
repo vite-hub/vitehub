@@ -96,6 +96,7 @@ describe("Source Collections through the Nitro Vite plugin", () => {
           [
             `import * as v from "valibot"`,
             `import { defineCollection } from "vite-hub/source"`,
+            `// route: false belongs to an unrelated comment`,
             ``,
             `export const articles = defineCollection(async () => [{ id: "a", title: "A" }], {`,
             `  cursor: article => article.id,`,

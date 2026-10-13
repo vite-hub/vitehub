@@ -27,8 +27,12 @@ describe("docs header", () => {
     );
 
     expect(header).not.toContain("toggle: isSupportMatrix");
-    expect(header).toContain('<div v-if="isDocsRoute" class="-mx-4 -my-2">');
+    expect(header).toContain('<div v-if="isDocsRoute" class="vh-docs-menu -mx-4 -my-2">');
     expect(header).toContain('v-for="link in docsMobileLinks"');
     expect(header).toContain('mobileLinks.filter((link) => !link.to.startsWith("/docs"))');
+    expect(header).toContain('v-if="!isDocsRoute"');
+    expect(header).toContain('{ label: "Tutorials", to: "/tutorials" }');
+    expect(header).toContain('{ label: "Projects", to: "/projects" }');
+    expect(header).toContain('{ label: "Templates", to: "/templates" }');
   });
 });

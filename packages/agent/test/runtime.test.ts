@@ -2538,8 +2538,7 @@ describe("agent message protocol", () => {
         target: "agent/digest",
       },
     }])
-    expect(channelIdFromThreadId).toHaveBeenCalledWith("discord:channel:thread-7")
-    expect(postMessage).toHaveBeenCalledWith("discord:channel", { markdown: "Scheduled reply" })
+    expect(postMessage).toHaveBeenCalledWith("discord:channel:thread-7", { markdown: "Scheduled reply" })
 
     await expect(target.handler({
       id: "srun-invalid",
@@ -5295,13 +5294,9 @@ describe("agent message protocol", () => {
       text: "Review completed.",
     })
 
-    expect(fetcher).toHaveBeenCalledWith(
-      "https://api.github.test/app/installations/123/access_tokens",
-      expect.objectContaining({
-        headers: expect.objectContaining({ authorization: expect.stringMatching(/^Bearer [^.]+\.[^.]+\.[^.]+$/) }),
-        method: "POST",
-      }),
-    )
+    const tokenCall = fetcher.mock.calls.find(([url]) => String(url) === "https://api.github.test/app/installations/123/access_tokens")
+    expect(tokenCall?.[1]?.method).toBe("POST")
+    expect(new Headers(tokenCall?.[1]?.headers).get("authorization")).toMatch(/^Bearer [^.]+\.[^.]+\.[^.]+$/)
     expect(fetcher).toHaveBeenCalledWith(
       "https://api.github.test/repos/vite-hub/vitehub/issues/comments/99/reactions",
       expect.objectContaining({
@@ -5336,9 +5331,9 @@ describe("agent message protocol", () => {
       "https://api.github.test/repos/vite-hub/vitehub/statuses/abc123",
       expect.objectContaining({
         body: JSON.stringify({
+          state: "success",
           context: "ViteHub Review",
           description: "Review completed.",
-          state: "success",
         }),
         method: "POST",
       }),
@@ -6357,7 +6352,7 @@ describe("agent message protocol", () => {
         web: webChat({ messages: { triggerHistory: "none" } }),
       },
       driver: { run: () => "ok" },
-    })).toThrow("Channel-local messages options other than commentary, filter, meta, metaRevision, or stream are only supported when an Agent defines one message-shaped Channel")
+    })).toThrow("Channel-local messages options other than commentary, filter, meta, metaRevision, replyToSubscribedThreads, or stream are only supported when an Agent defines one message-shaped Channel")
   })
 
   it("rejects channel-local identity across multiple message-shaped channels", async () => {

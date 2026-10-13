@@ -7,6 +7,57 @@ import {
 import { babysitterInstructions } from "../src/presets/babysitter/instructions.ts"
 
 describe("instruction composition", () => {
+  it("injects trusted custom instructions only through an authored slot", async () => {
+    await expect(composeInstructionDocument("Base", { context: { customInstructions: "Injected" } }))
+      .rejects.toThrow("requires a {{{ context.customInstructions }}} slot")
+    await expect(composeInstructionDocument("Base {{{ context.customInstructions }}}", {
+      context: { customInstructions: "Injected\n\n- Rule" },
+    })).resolves.toBe("Base Injected\n\n- Rule")
+  })
+
+  it("keeps custom instruction slots inside code literal and validates the value", async () => {
+    const document = "```\n{{{ context.customInstructions }}}\n```"
+    await expect(composeInstructionDocument(document, { context: { customInstructions: "Injected" } }))
+      .rejects.toThrow("requires a {{{ context.customInstructions }}} slot")
+    await expect(composeInstructionDocument(document)).resolves.toContain("{{{ context.customInstructions }}}")
+    await expect(composeInstructionDocument("{{{ context.customInstructions }}}", { context: { customInstructions: 42 } }))
+      .rejects.toThrow("context.customInstructions must be a string")
+    const indented = "    {{{ context.customInstructions }}}"
+    await expect(composeInstructionDocument(indented, { context: { customInstructions: "Injected" } }))
+      .rejects.toThrow("requires a {{{ context.customInstructions }}} slot")
+    await expect(composeInstructionDocument(indented)).resolves.toBe("```\n{{{ context.customInstructions }}}\n```")
+  })
+
+  it("does not allow generic bindings to bypass the custom instruction slot", async () => {
+    await expect(composeInstructionDocument("{{ data.context.customInstructions }}", {
+      context: { customInstructions: "Injected" },
+    })).rejects.toThrow("available only through the authored")
+    await expect(composeInstructionDocument(':insert{:markdown="data.context.customInstructions"}', {
+      context: { customInstructions: "Injected" },
+    })).rejects.toThrow("available only through the authored")
+  })
+
+  it("keeps generic custom instruction examples inside code literal", async () => {
+    const document = [
+      "```md",
+      "{{ data.context.customInstructions }}",
+      ':insert{:markdown="data.context.customInstructions"}',
+      "```",
+      "Use `data.context.customInstructions` as a literal example.",
+      "<code>data.context.customInstructions</code>",
+      "    {{ data.context.customInstructions }}",
+      "    :insert{:markdown=\"data.context.customInstructions\"}",
+    ].join("\n")
+    await expect(composeInstructionDocument(document)).resolves.toContain("data.context.customInstructions")
+  })
+
+  it("keeps raw HTML code slot examples literal and preserves their spelling", async () => {
+    const document = "<code>{{{  context.customInstructions  }}}</code>"
+    await expect(composeInstructionDocument(document, { context: { customInstructions: "Injected" } }))
+      .rejects.toThrow("requires a {{{ context.customInstructions }}} slot")
+    await expect(composeInstructionDocument(document)).resolves.toBe(document)
+  })
+
   it("renders the Babysitter wait contract without unsupported tool or JSON examples", async () => {
     const rendered = await composeInstructionDocument(babysitterInstructions.replace("{{{ instructions }}}", "Agent instructions."))
     expect(rendered).toContain('set wait.kind to "checks" and wait.headSha to the current HEAD SHA')

@@ -81,7 +81,7 @@ it('supplies Git credentials without running the GitHub CLI', async () => {
   expect(result).toContain('password=test-token')
 })
 
-it('fetches the fork branch instead of stale PR refs and pushes provider repairs with a head lease', async () => {
+it('records repair publication before post-push validation while retaining source head leases', async () => {
   const { root, source, target, head: staleHead } = await fixture()
   const fork = join(root, 'fork.git')
   await git(root, 'clone', '--bare', source, fork)
@@ -144,6 +144,21 @@ process.exit(result.status ?? 1);
     })
     await expect(checkout.push(target, { signal: pushController.signal })).rejects.toThrow('Lease expired')
     expect(await git(fork, 'rev-parse', 'feature')).toBe(headSha)
+    let receipt: string | undefined
+    const receiptController = new AbortController()
+    await expect(checkout.push(target, {
+      signal: receiptController.signal,
+      beforePush: async () => {
+        // The base fence belongs before publication; the remote still has the old head.
+        expect(await git(fork, 'rev-parse', 'feature')).toBe(headSha)
+      },
+      afterPush: async head => {
+        receipt = head
+        expect(await git(fork, 'rev-parse', 'feature')).toBe(head)
+        receiptController.abort(new DOMException('Lease expired after publication', 'AbortError'))
+      },
+    })).rejects.toThrow('Lease expired after publication')
+    expect(receipt).toBe(repair)
     expect(await checkout.push(target)).toBe(repair)
     await expect(readFile(hookMarker)).rejects.toMatchObject({ code: 'ENOENT' })
     expect(await git(fork, 'rev-parse', 'feature')).toBe(repair)

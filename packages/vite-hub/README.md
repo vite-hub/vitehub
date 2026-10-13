@@ -47,7 +47,7 @@ Custom H3 and Nuxt routes can import `getRuntimeContext` from
 `vite-hub/runtime/h3`. Call it once per invocation to normalize event bindings,
 host `waitUntil`, and memo storage. Without a real host lifetime API, await the
 returned `flushWaitUntil()` before responding. See the
-[Runtime Context guide](https://vitehub.dev/docs/getting-started/concepts/runtime-context).
+[Runtime Context guide](https://vitehub.dev/docs/reference/runtime-context).
 
 The public presets are `cloudflare`, `netlify`, `vercel`, `deno`, and `node`. Each resolves once to a host, runtime, Nitro output, packaging policy, and service adapters; do not also set `nitro.preset`, `NITRO_PRESET`, `SERVER_PRESET`, or `VITEHUB_HOSTING`.
 
@@ -92,6 +92,8 @@ The preset tells ViteHub which integrations and Provider Output to generate. Dep
 A successful build proves that ViteHub discovered the configured definitions and wrote the selected output. It does not prove that remote resources exist, credentials are valid, deployment succeeded, or a hosted provider completed a live operation. Follow the selected [host guide](https://vitehub.dev/docs/frameworks-hosts) for provisioning, environment variables, deployment commands, and current proof.
 
 Generated files are for inspection and deployment. Application code must not import `.vitehub/**`, provider output directories, Vite virtual module IDs, or `vite-hub/_internal/*`. Use the public paths in the [import reference](https://vitehub.dev/docs/reference/import-paths).
+
+`vitehub()` and `vite-hub/nuxt` register ViteHub rules with [Vite Doctor](https://github.com/onmax/vite-doctor) when the app runs it. The rules report internal imports, server-only imports in client code, and unchecked KV and Blob results. Read [Doctor rules](https://vitehub.dev/docs/reference/doctor-rules).
 
 ## Configure TypeScript
 
@@ -142,6 +144,26 @@ Built-in Agent Drivers and Box runtimes are selected by literal or tagged values
 - [Runtime and host support](https://vitehub.dev/docs/frameworks-hosts/support-matrix)
 - [Generated files](https://vitehub.dev/docs/development/generated-files)
 - [Public import paths](https://vitehub.dev/docs/reference/import-paths)
+
+## Record Agent invocations in a Database
+
+Pass an explicit journal to an Agent Definition to record invocations when the Console is disabled:
+
+```ts
+import { defineAgent } from "vite-hub/agent"
+import { createDatabaseAgentInvocationStore } from "vite-hub/agent/invocations/database"
+import { defineAgentInvocations } from "vite-hub/agent/server"
+
+export default defineAgent({
+  invocations: defineAgentInvocations({
+    store: createDatabaseAgentInvocationStore({ database: "default" }),
+  }),
+})
+```
+
+The store uses a discovered ViteHub Database and creates its journal tables on first use. It supports local SQLite and hosted libSQL through Drizzle, plus native Cloudflare D1. D1 over HTTP is rejected by a read-only probe before schema creation or writes because its raw query results do not contain column names. The `database` option defaults to `default`.
+
+Retention defaults to 30 days and 10,000 terminal records. Set `maxAgeMs` or `maxRecords` on the store options to change each limit, or set either to `false` to disable it. The Console can inspect an Agent's explicit journal but does not own its retention settings.
 
 ## Invoke Agents from the Console
 

@@ -42,6 +42,7 @@
     "./_internal/agent/runtime/process": "./dist/_internal/agent/runtime/process.js",
     "./_internal/agent/runtime/workflow": "./dist/_internal/agent/runtime/workflow.js",
     "./_internal/agent/server": "./dist/_internal/agent/server.js",
+    "./_internal/agent/server/registry": "./dist/_internal/agent/server/registry.js",
     "./_internal/agent/server/internal": "./dist/_internal/agent/server/internal.js",
     "./_internal/agent/server/workspace": "./dist/_internal/agent/server/workspace.js",
     "./_internal/agent/state/sqlite": "./dist/_internal/agent/state/sqlite.js",
@@ -86,6 +87,7 @@
     "./agent/evlog/posthog": "./dist/agent/evlog/posthog.js",
     "./agent/gateways": "./dist/agent/gateways.js",
     "./agent/invocations/d1": "./dist/agent/invocations/d1.js",
+    "./agent/invocations/database": "./dist/agent/invocations/database.js",
     "./agent/invocations/sqlite": "./dist/agent/invocations/sqlite.js",
     "./agent/mcp": "./dist/agent/mcp.js",
     "./agent/observability": "./dist/agent/observability.js",
@@ -129,6 +131,7 @@
     "./content/client": "./dist/content/client.js",
     "./database": "./dist/database.js",
     "./database/drizzle": "./dist/database/drizzle.js",
+    "./doctor": "./dist/doctor.js",
     "./email": "./dist/email.js",
     "./email/markdown": "./dist/email/markdown.js",
     "./email/server": "./dist/email/server.js",
@@ -199,6 +202,7 @@
     "./ui/vite": "./dist/ui/vite.js",
     "./workflow": "./dist/workflow.js",
     "./workspace": "./dist/workspace.js",
+    "./workspace/blob-database": "./dist/workspace/blob-database.js",
     "./workspace/cloudflare": "./dist/workspace/cloudflare.js",
     "./workspace/collections": "./dist/workspace/collections.js",
     "./workspace/collections/client": "./dist/workspace/collections/client.js",
@@ -297,12 +301,14 @@
     "@vite-hub/internal": "workspace:*",
     "@vitejs/plugin-vue": "^6.0.9",
     "h3-v1": "npm:h3@^1.15.11",
+    "happy-dom": "20.14.5",
     "miniflare": "4.20260730.0",
     "publint": "catalog:tooling",
     "reka-ui": "^2.10.5",
     "tailwindcss": "^4.3.3",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",
+    "vite-doctor": "catalog:",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling",
     "vue": "catalog:ui",
@@ -317,6 +323,7 @@
     "posthog-node": "^5.51.6",
     "reka-ui": "^2.10.5",
     "vite": "catalog:vite-compat",
+    "vite-doctor": "*",
     "vitest": "catalog:tooling",
     "vue": "catalog:ui"
   },
@@ -343,6 +350,9 @@
       "optional": true
     },
     "vite": {
+      "optional": true
+    },
+    "vite-doctor": {
       "optional": true
     },
     "vitest": {

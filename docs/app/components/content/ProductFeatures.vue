@@ -10,7 +10,7 @@ defineProps<{
 <template>
   <section class="not-prose vh-features">
     <h2 v-if="title" class="vh-features-title">{{ title }}</h2>
-    <div class="vh-features-grid">
+    <div class="vh-features-list">
       <slot />
     </div>
   </section>
@@ -18,35 +18,25 @@ defineProps<{
 
 <style scoped>
 .vh-features {
-  padding: 2.5rem 0 0;
+  padding-block: 2.5rem;
 }
 
 .vh-features-title {
-  margin: 0 0 1.25rem;
+  margin: 0 0 1.5rem;
   color: var(--ui-text-highlighted);
   font-size: 1.25rem;
   font-weight: 600;
-  letter-spacing: -0.02em;
 }
 
-.vh-features-grid {
+.vh-features-list {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 1px;
-  border: 1px solid var(--ui-border);
-  background: var(--ui-border);
+  gap: 2rem 3rem;
 }
 
-@media (min-width: 40rem) {
-  .vh-features-grid {
+@media (min-width: 48rem) {
+  .vh-features-list {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (min-width: 64rem) {
-  .vh-features-grid {
-    grid-template-columns: repeat(6, minmax(0, 1fr));
-    grid-auto-rows: minmax(9rem, auto);
   }
 }
 </style>

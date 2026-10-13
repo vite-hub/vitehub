@@ -38,6 +38,7 @@
     "test": "vp run -t @vite-hub/shell#build && vp test"
   },
   "dependencies": {
+    "@vite-hub/runtime": "workspace:*",
     "just-bash": "catalog:shell",
     "nostics": "catalog:runtime",
     "sh-syntax": "catalog:shell"

@@ -152,6 +152,64 @@ describe("resolveAuthViteConfig", () => {
     })
   })
 
+  it.each(["// Explain the next option", "/* Explain the next option */"])("resolves Auth metadata with %s comments", async (comment) => {
+    const rootDir = await createTempProject()
+    await writeAuth(rootDir, "server/auth.ts", [
+      `  ${comment}`,
+      "  basePath: '/auth',",
+      `  ${comment}`,
+      "  database: {",
+      `    ${comment}`,
+      "    name: 'accounts', dedicated: true,",
+      "  },",
+      "  secondaryStorage: {",
+      `    ${comment}`,
+      "    store: 'sessions',",
+      "  },",
+      "  access: {",
+      `    ${comment}`,
+      "    routes: [",
+      `      ${comment}`,
+      "      '/public',",
+      "      {",
+      `        ${comment}`,
+      "        route: '/private',",
+      `        ${comment}`,
+      "        authorize({ user }) { return user.isAdmin },",
+      "      },",
+      "    ],",
+      "  },",
+    ])
+
+    expect(resolveAuthViteConfig(undefined, rootDir)).toMatchObject({
+      access: { routes: [{ route: "/public" }, { authorize: true, route: "/private" }] },
+      basePath: "/auth",
+      database: { dedicated: true, mode: "named", name: "accounts" },
+      route: "/auth",
+      secondaryStorage: { mode: "named", store: "sessions" },
+    })
+  })
+
+  it.each(["", "/* removed route */", "// removed route\n"])("rejects sparse route slots containing %s", async (comment) => {
+    const rootDir = await createTempProject()
+    for (const index of [0, 1, 2]) {
+      const routes = ["'/first'", "'/second'"]
+      routes.splice(index, 0, comment)
+      await writeAuth(rootDir, "server/auth.ts", [`  access: { routes: [${routes.join(",")},] },`])
+
+      expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(`access.routes[${index}]`)
+    }
+  })
+
+  it.each(["/* trailing comment */", "// trailing comment\n"])("accepts %s after the final route", async (comment) => {
+    const rootDir = await createTempProject()
+    await writeAuth(rootDir, "server/auth.ts", [`  access: { routes: ['/first', ${comment}] },`])
+    expect(resolveAuthViteConfig(undefined, rootDir)?.access).toEqual({ routes: [{ route: "/first" }] })
+
+    await writeAuth(rootDir, "server/auth.ts", [`  access: { routes: [${comment}] },`])
+    expect(resolveAuthViteConfig(undefined, rootDir)?.access).toEqual({ routes: [] })
+  })
+
   it("resolves shorthand authorize callbacks", async () => {
     const rootDir = await createTempProject()
     await writeAuth(rootDir, "server/auth.ts", [
@@ -277,6 +335,18 @@ describe("resolveAuthViteConfig", () => {
     ])
 
     expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(/options must use static object keys/)
+  })
+
+  it("accepts comments before static Auth Definition options", async () => {
+    const rootDir = await createTempProject()
+    await writeAuth(rootDir, "server/auth.ts", [
+      "  // Keep the public route stable.",
+      "  basePath: '/auth',",
+      "  /* Better Auth reads this at runtime. */",
+      "  route: false,",
+    ])
+
+    expect(resolveAuthViteConfig(undefined, rootDir)).toMatchObject({ basePath: "/auth", route: false })
   })
 
   it("rejects non-inline Auth Definition options", async () => {

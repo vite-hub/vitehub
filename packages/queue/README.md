@@ -129,7 +129,7 @@ Queue operations use the shared `ViteHubError` contract. Public `code` and JSON-
 
 - [Queue guide](https://vitehub.dev/docs/queue)
 - [Runtime and host support](https://vitehub.dev/docs/frameworks-hosts/support-matrix)
-- [Definitions and discovery](https://vitehub.dev/docs/getting-started/concepts/definitions-and-discovery)
+- [Definitions and discovery](https://vitehub.dev/docs/development/definition-discovery)
 - [Public import paths](https://vitehub.dev/docs/reference/import-paths)
 
 
