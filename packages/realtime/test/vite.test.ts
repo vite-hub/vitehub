@@ -18,8 +18,8 @@ describe("hubRealtime", () => {
     tempDirs.push(root)
     const entry = fileURLToPath(new URL("../dist/vue.js", import.meta.url))
     await writeFile(join(root, "index.html"), `<script type="module" src="/entry.js"></script>`)
-    await writeFile(join(root, "entry.js"), `import * as realtime from ${JSON.stringify(entry)}; globalThis.realtimeProbe = realtime`)
-    await build({
+    await writeFile(join(root, "entry.js"), `export { useRealtimeTiptap } from ${JSON.stringify(entry)}`)
+    const result = await build({
       root,
       configFile: false,
       logLevel: "silent",
@@ -32,6 +32,12 @@ describe("hubRealtime", () => {
       }],
       build: { write: false },
     })
+    const outputs = Array.isArray(result)
+      ? result.flatMap(bundle => bundle.output)
+      : "output" in result ? result.output : []
+    const entryChunk = outputs.find(output => output.type === "chunk")
+    if (entryChunk?.type !== "chunk") throw new Error("Vite did not emit a JavaScript entry chunk")
+    expect(entryChunk.exports).toContain("useRealtimeTiptap")
   })
 
   it("uses Nitro's Durable Object transport for standalone Cloudflare realtime", async () => {
