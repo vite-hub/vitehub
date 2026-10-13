@@ -270,6 +270,33 @@ Names match exactly, and matching observations keep their journal order. Other r
 
 The SQLite adapter keeps at most 10,000 terminal records from the last 30 days by default. Pending and running invocations remain available until they reach a terminal state. Set `maxAgeMs` or `maxRecords` to `false` to disable that limit. Retention runs on creates and terminal transitions, so a journal without either event may retain an expired record. The age limit reads only the records it deletes. The count limit reads about `maxRecords` rows, so the SQLite and D1 adapters apply it on about 1 in `ceil(maxRecords / 100)` of these writes. Between runs, the terminal record count can exceed `maxRecords` by about 1%. `invocations.prune()` applies both limits immediately.
 
+### Store invocations in a ViteHub Database
+
+Use the Database adapter when the application already enables a ViteHub Database and the Agent should own its journal instead of using the Console fallback:
+
+```ts [server/agents/support.ts]
+import { defineAgent } from 'vite-hub/agent'
+import { createDatabaseAgentInvocationStore } from 'vite-hub/agent/invocations/database'
+import { defineAgentInvocations } from 'vite-hub/agent/server'
+
+const invocations = defineAgentInvocations({
+  store: createDatabaseAgentInvocationStore({
+    database: 'default',
+    maxAgeMs: 30 * 24 * 60 * 60 * 1000,
+    maxRecords: 10_000,
+  }),
+})
+
+export default defineAgent({
+  driver: { model: 'openai/gpt-5.1-mini' },
+  invocations,
+})
+```
+
+The adapter resolves the named Database for each operation and creates the ViteHub journal tables on first use. It supports a local SQLite Database, hosted libSQL through Drizzle, and a native Cloudflare D1 binding. Set `database` to another discovered Database name when the default is not the one the Agent should use. The adapter does not open or close the Database, and it does not migrate an existing custom journal.
+
+Use the direct SQLite adapter described above when the journal has its own SQLite or libSQL URL. Use the [`d1` adapter](#store-invocations-in-cloudflare-d1) when the Agent receives a D1 binding directly. The Database adapter is the portable choice when the host configuration already owns Database selection.
+
 Delete or prune terminal records on demand:
 
 ```ts
