@@ -22,6 +22,12 @@ function validPath(value: unknown): value is string {
   if (value.startsWith("/") || value.endsWith("/") || value.includes("\\")) return false
   const parts = value.split("/")
   if (parts.some(part => !part || part === "." || part === "..")) return false
+  if (parts.some((part, index) => {
+    const normalized = part.toLowerCase().split(":", 1)[0]!.replace(/[ .]+$/, "")
+    return normalized === ".git"
+      || /^git~\d+$/.test(normalized)
+      || (index === 0 && (normalized === ".vitehub" || /^vitehu~\d+$/.test(normalized)))
+  })) return false
   try {
     return normalizeSafeWorkspacePath(value) === value
   }
