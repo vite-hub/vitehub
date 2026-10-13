@@ -239,6 +239,7 @@ export type ConsoleAuthorize = (context: ConsoleAuthorizeContext) => boolean | R
 
 /** Define the function that every Console data route calls with `exposure: "host-managed"`. */
 export function defineConsoleAuthorize(authorize: ConsoleAuthorize): ConsoleAuthorize {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- User-owned authorize callbacks may cross JavaScript realms; typeof validates the required function contract without realm-sensitive instanceof.
   if (typeof authorize !== "function") throw new TypeError("[vitehub] defineConsoleAuthorize() requires a function.")
   return authorize
 }
