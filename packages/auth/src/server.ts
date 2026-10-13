@@ -62,7 +62,18 @@ function isRequestLike(value: AuthRequest): value is Request {
     // Native accessor brands are implementation-specific. Preserve independent
     // Request implementations only when they provide Better Auth's body API.
     if (Object.prototype.toString.call(value) !== "[object Request]") return false
+    const prototype = Reflect.getPrototypeOf(value)
+    const hasAccessor = (property: string): boolean => {
+      for (let current = prototype; current; current = Reflect.getPrototypeOf(current)) {
+        if (typeof Reflect.getOwnPropertyDescriptor(current, property)?.get === "function") return true
+      }
+      return false
+    }
+    // Request implementations expose their state through prototype accessors. This
+    // rejects tagged host-shaped objects that merely copy the method names.
+    if (!["body", "bodyUsed", "headers", "method", "signal", "url"].every(hasAccessor)) return false
     return ["clone", "arrayBuffer", "blob", "formData", "json", "text"].every((method) => {
+      if (Object.hasOwn(value, method)) return false
       // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Check the foreign Request's capabilities before bypassing host-input normalization.
       return typeof Reflect.get(value, method) === "function"
     })

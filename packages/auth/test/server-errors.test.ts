@@ -158,10 +158,17 @@ describe("server authentication provider boundaries", () => {
   it("normalizes a request-shaped object that spoofs the Request tag", async () => {
     const spoofedRequest = runInNewContext(`new (class {
       get body() { return null }
+      get bodyUsed() { return false }
       get headers() { return { get() { return null } } }
       get method() { return "GET" }
       get signal() { return undefined }
       get url() { return "https://example.com/api/private" }
+      clone = () => this
+      arrayBuffer = () => Promise.resolve(new ArrayBuffer(0))
+      blob = () => Promise.resolve(new Blob())
+      formData = () => Promise.resolve(new FormData())
+      json = () => Promise.resolve({})
+      text = () => Promise.resolve("")
       get [Symbol.toStringTag]() { return "Request" }
     })()`)
     const response = new Response("ok")
