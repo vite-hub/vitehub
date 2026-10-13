@@ -611,6 +611,63 @@ describe("Schedule Run bookkeeping", () => {
     expect(run.scheduledAt.toISOString()).toBe("2026-05-23T09:00:00.000Z")
   })
 
+  it.each(["local", "foreign"])("accepts %s scheduledAt Dates with custom display tags", async (realm) => {
+    const scheduledAt = realm === "foreign"
+      ? runInNewContext('new Date("2026-05-23T09:00:00.000Z")') as Date
+      : new Date("2026-05-23T09:00:00.000Z")
+    Object.defineProperty(scheduledAt, Symbol.toStringTag, { value: "Custom" })
+    const run = await executeStaticSchedule({
+      cron: "0 9 * * *",
+      definition: { cron: "0 9 * * *", handler: async () => {} },
+      name: "custom-date-tag",
+      scheduledAt,
+    })
+    expect(run.scheduledAt).toBeInstanceOf(Date)
+    expect(run.scheduledAt).not.toBe(scheduledAt)
+    expect(run.scheduledAt.toISOString()).toBe("2026-05-23T09:00:00.000Z")
+  })
+
+  it.each(["local", "foreign"])("does not inspect %s scheduledAt Date tags or overridden methods", async (realm) => {
+    const scheduledAt = realm === "foreign"
+      ? runInNewContext('new Date("2026-05-23T09:00:00.000Z")') as Date
+      : new Date("2026-05-23T09:00:00.000Z")
+    const hostile = vi.fn(() => { throw new Error("must not be called") })
+    Object.defineProperty(scheduledAt, Symbol.toStringTag, { get: hostile })
+    scheduledAt.getTime = hostile
+    scheduledAt.toISOString = hostile
+    const run = await executeStaticSchedule({
+      cron: "0 9 * * *",
+      definition: { cron: "0 9 * * *", handler: async () => {} },
+      name: "hostile-date-members",
+      scheduledAt,
+    })
+    expect(run.scheduledAt.toISOString()).toBe("2026-05-23T09:00:00.000Z")
+    expect(hostile).not.toHaveBeenCalled()
+  })
+
+  it("rejects tagged, prototype-only, proxied, and invalid Dates before executing handlers", async () => {
+    const handler = vi.fn(async () => {})
+    const hostile = vi.fn(() => { throw new Error("must not be called") })
+    const fake = { [Symbol.toStringTag]: "Date", getTime: hostile }
+    const prototypeOnly = Object.create(Date.prototype) as Date
+    const proxy = new Proxy(new Date("2026-05-23T09:00:00.000Z"), {})
+    const revoked = Proxy.revocable(new Date("2026-05-23T09:00:00.000Z"), {})
+    revoked.revoke()
+    const invalid = new Date("bad")
+    Object.defineProperty(invalid, Symbol.toStringTag, { value: "Custom" })
+
+    for (const scheduledAt of [fake, prototypeOnly, proxy, revoked.proxy, invalid]) {
+      await expect(executeStaticSchedule({
+        cron: "0 9 * * *",
+        definition: { cron: "0 9 * * *", handler },
+        name: "invalid-date-slot",
+        scheduledAt: scheduledAt as Date,
+      })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT" })
+    }
+    expect(handler).not.toHaveBeenCalled()
+    expect(hostile).not.toHaveBeenCalled()
+  })
+
   it("fails clearly for invalid scheduledAt dates", async () => {
     setScheduleRuntimeRegistry({
       report: async () => ({
