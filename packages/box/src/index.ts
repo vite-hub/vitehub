@@ -701,8 +701,13 @@ function normalizeFiles<Context>(
 
 function isUint8ArrayValue(value: unknown): value is Uint8Array {
   if (!ArrayBuffer.isView(value)) return false;
-  const prototype = Object.getPrototypeOf(value);
-  return Object.getOwnPropertyDescriptor(prototype, "BYTES_PER_ELEMENT")?.value === 1;
+  try {
+    const byteLength = Object.getOwnPropertyDescriptor(Uint8Array.prototype, "byteLength")?.get;
+    const length = Object.getOwnPropertyDescriptor(Uint8Array.prototype, "length")?.get;
+    return byteLength?.call(value) === length?.call(value);
+  } catch {
+    return false;
+  }
 }
 
 function validateFileTargets(files: readonly string[], label: string) {

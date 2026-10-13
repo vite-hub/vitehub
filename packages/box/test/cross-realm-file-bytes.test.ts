@@ -4,7 +4,7 @@ import { resolveBox, type BoxRuntime, type BoxRuntimeInput } from "../src/index.
 
 describe("Box file byte boundaries", () => {
   it("accepts a Uint8Array created in another realm", async () => {
-    const foreignBytes = runInNewContext("new Uint8Array([0, 255, 7])") as Uint8Array
+    const foreignBytes = runInNewContext("class Bytes extends Uint8Array {}; new Bytes([0, 255, 7])") as Uint8Array
     let preparedInput: BoxRuntimeInput | undefined
     const runtime: BoxRuntime = {
       name: "test",
@@ -40,6 +40,7 @@ describe("Box file byte boundaries", () => {
     [new Uint16Array([0xff]), "non-byte typed array"],
   ])("rejects a spoofed %s", async (view, _label) => {
     Object.defineProperty(view, Symbol.toStringTag, { value: "Uint8Array" })
+    Object.setPrototypeOf(view, { BYTES_PER_ELEMENT: 1 })
     const runtime: BoxRuntime = {
       name: "test",
       open: async () => { throw new Error("not used") },
