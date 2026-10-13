@@ -15,7 +15,7 @@ checks use the same Agent Definition. They answer different questions.
 | Check | What it proves | What it does not prove |
 | --- | --- | --- |
 | `runAgent()` test | Input validation, interception, custom `run` logic, and result handling. | Model quality, provider credentials, or host routes. |
-| Agent Eval | A repeatable model response, tool choice, refusal, or usage limit. | Workflow recovery, provider process startup, or deployment wiring. |
+| Agent Eval | A repeatable model response, tool choice, refusal, or usage limit. | Workflow recovery, provider startup on the deployed host, or deployment wiring. |
 | `agent dev` smoke test | Discovery, the route, host runtime, and one real Invocation. | Behavior across many prompts. |
 | Provider status | The configured provider executable and authentication path (local credentials or a gateway) are ready. | A successful Agent turn or tool result. |
 
@@ -110,9 +110,11 @@ scorer focused on one observation. A scenario can inspect the normalized
 `observation`, response text, tool calls, Capability extensions, trace, and
 usage. Add `staysUnderTokenBudget()` when a regression is about token use.
 
-Evals run the Agent inline. They do not prove Workflow scheduling, durable
-recovery, provider process startup, Channel delivery, or a deployed host.
-Exercise those boundaries separately.
+Evals run the Agent inline. For a provider-backed Agent, this starts the
+configured provider executable in the Eval environment and can expose local
+launch failures. It does not prove provider startup on the deployed host,
+Workflow scheduling, durable recovery, or Channel delivery. Exercise those
+boundaries separately.
 
 Use `variants` to compare a model or instruction change against the same
 scenarios. Use a separate Agent Definition when the change affects
