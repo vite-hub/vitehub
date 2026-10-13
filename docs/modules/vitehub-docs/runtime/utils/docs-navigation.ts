@@ -101,9 +101,13 @@ export function getDocsSectionSubpages(section: DocsSection) {
   return section.pages.filter(page => page.navigation !== false && page.id !== "index");
 }
 
-/** Backward-compatible catalog helpers used by the docs app rail and catalog. */
-export const getDocsRailCatalog = getDocsCatalog
+/** Platform topics stay reachable from Get started and the catalog, without product rail entries. */
+export function getDocsRailCatalog(sections: DocsSection[]): DocsCatalogGroup[] {
+  return getDocsCatalog(sections).filter(group => group.category !== "Platform");
+}
 
 export function getDocsSectionKind(section: DocsSection): string {
-  return section.id === docsRootSectionId ? "Get started" : section.category || "Platform"
+  if (section.id === docsRootSectionId) return "Get started";
+  if (section.id === "ui") return "UI components";
+  return section.category || "Platform";
 }
