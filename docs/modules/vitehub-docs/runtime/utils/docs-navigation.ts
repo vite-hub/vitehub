@@ -126,6 +126,12 @@ export function getDocsSidebarGroups(section: DocsSection): DocsSidebarGroup[] {
     return entries.map(({ label, pages }) => ({ label: pages.length > 1 ? label : null, pages }));
   }
 
+  return primitiveSidebarGroupOrder.flatMap(label => {
+    const group = entries.find(entry => entry.label === label);
+    return group ? [{ label, pages: group.pages }] : [];
+  });
+}
+
 /** Sections listed under Related in a section's sidebar, in the order `.navigation.yml` declares them. */
 export function getDocsRelatedSections(sections: DocsSection[], section: DocsSection) {
   return section.related

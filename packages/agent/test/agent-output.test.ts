@@ -1,3 +1,4 @@
+import { runInNewContext } from "node:vm"
 import { describe, expect, it } from "vitest"
 
 import { applyStreamEvent } from "../src/messages.ts"
@@ -772,6 +773,16 @@ describe("agent output helpers", () => {
       },
       { type: "finish" },
     ])
+  })
+
+  it("preserves response timestamps from another realm", () => {
+    const timestamp = runInNewContext('new Date("2026-06-22T20:00:00.000Z")') as Date
+
+    expect(timestamp instanceof Date).toBe(false)
+    expect(toAgentRunResult({
+      response: { id: "resp_1", timestamp },
+      usage: { inputTokens: 1 },
+    }).usageRecord?.response).toEqual({ id: "resp_1", timestamp })
   })
 
   it("includes model metadata in derived raw-result usage records", async () => {
