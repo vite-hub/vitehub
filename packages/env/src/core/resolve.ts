@@ -549,7 +549,7 @@ function isRuntimeStaticValue(value: unknown): value is EnvRuntimeStaticValue {
   return isBuildStaticValue(value)
 }
 
-function isBuildStaticValue(value: unknown): value is EnvBuildStaticValue {
+function isBuildStaticValue(value: unknown, ancestors: Set<object> = new Set()): value is EnvBuildStaticValue {
   try {
     if (value === null) {
       return true
@@ -564,12 +564,19 @@ function isBuildStaticValue(value: unknown): value is EnvBuildStaticValue {
         if (!Array.isArray(value)) {
           return false
         }
-        for (let index = 0; index < value.length; index += 1) {
-          if (!Object.hasOwn(value, index) || !isBuildStaticValue(value[index])) {
-            return false
+        if (ancestors.has(value)) return false
+        ancestors.add(value)
+        try {
+          for (let index = 0; index < value.length; index += 1) {
+            if (!Object.hasOwn(value, index) || !isBuildStaticValue(value[index], ancestors)) {
+              return false
+            }
           }
+          return true
         }
-        return true
+        finally {
+          ancestors.delete(value)
+        }
       default:
         return false
     }
