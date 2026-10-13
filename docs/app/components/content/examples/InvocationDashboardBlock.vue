@@ -14,10 +14,6 @@ onMounted(() => {
 });
 const time = (secondsAgo: number) => new Date(now.value - secondsAgo * 1_000).toISOString();
 
-// Keep running timestamps relative to the page load, including server rendering.
-const now = useState("ui-dashboard-clock", () => Date.now());
-const time = (secondsAgo: number) => new Date(now.value - secondsAgo * 1_000).toISOString();
-
 // Synthetic, already-authorized records. In an application, load them from your Invocation store.
 const invocations = computed<AgentInvocationView[]>(() => [
   {
@@ -149,9 +145,9 @@ const items = computed<AgentInvocationListItem[]>(() =>
     updatedAt: invocation.updatedAt,
   })),
 );
-const selectedId = ref(invocations[0]!.id);
+const selectedId = ref(invocations.value[0]!.id);
 const selected = computed(() =>
-  invocations.find((invocation) => invocation.id === selectedId.value)!,
+  invocations.value.find((invocation) => invocation.id === selectedId.value)!,
 );
 const selectedActivityId = ref<string>();
 const detailsOpen = ref(true);
