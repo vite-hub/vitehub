@@ -10,6 +10,7 @@ import {
   getDocsSectionForPath,
   getDocsSidebarGroups,
 } from "~~/modules/vitehub-docs/runtime/utils/docs-navigation";
+import { sidebarSectionIcon } from "~~/utils/docs-sidebar-icons";
 
 const route = useRoute();
 const currentPath = computed(() => normalizeDocsPath(route.path));
@@ -28,6 +29,7 @@ const related = computed(() =>
 );
 // Outside every section, for example on the catalog, the sidebar lists every product by category.
 const catalog = getDocsCatalog(docsManifest.sections);
+const platformSections = computed(() => catalog.find(group => group.category === "Platform")?.sections || []);
 
 function isActive(path: string) {
   return currentPath.value === normalizeDocsPath(path);
@@ -73,7 +75,7 @@ function isActive(path: string) {
         :to="relatedSection.path"
         class="vh-docs-sidebar-link"
       >
-        <PrimitiveIcon :name="railSectionIcon(relatedSection)" class="vh-docs-sidebar-icon" />
+        <UIcon :name="sidebarSectionIcon(relatedSection)" class="size-4 shrink-0" />
         <span class="min-w-0 truncate">{{ relatedSection.title }}</span>
       </NuxtLink>
     </section>
@@ -111,7 +113,7 @@ function isActive(path: string) {
         :to="catalogSection.path"
         class="vh-docs-sidebar-link"
       >
-        <PrimitiveIcon :name="railSectionIcon(catalogSection)" class="vh-docs-sidebar-icon" />
+        <UIcon :name="sidebarSectionIcon(catalogSection)" class="size-4 shrink-0" />
         <span class="min-w-0 truncate">{{ catalogSection.title }}</span>
       </NuxtLink>
     </section>
