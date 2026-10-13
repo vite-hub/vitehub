@@ -572,6 +572,25 @@ function boxedObservationPrimitive(value: unknown): { type: string, value: bigin
   }
 }
 
+function reflectedSetValues(value: unknown): Iterator<unknown> | undefined {
+  try {
+    return Set.prototype.values.call(value)
+  }
+  catch {
+    return
+  }
+}
+
+function reflectedMapEntries(value: unknown): IterableIterator<[unknown, unknown]> | undefined {
+  if (!value || !hasRuntimeType(value, "object")) return
+  try {
+    return Map.prototype.entries.call(value)
+  }
+  catch {
+    return
+  }
+}
+
 async function collectBoundedObservationBuiltIns(
   value: unknown,
   builtIns: Map<object, BoundedObservationBuiltIn>,
@@ -615,20 +634,23 @@ async function collectBoundedObservationBuiltIns(
     }
     return
   }
-  if (value instanceof Map) {
+  const mapEntries = reflectedMapEntries(value)
+  if (mapEntries) {
     let count = 0
-    for (const [key, child] of value) {
+    for (const [key, child] of mapEntries) {
       if (count++ >= MAX_OBSERVATION_COLLECTION_ITEMS) break
       await collectBoundedObservationBuiltIns(key, builtIns, budget, seen, depth + 1)
       await collectBoundedObservationBuiltIns(child, builtIns, budget, seen, depth + 1)
     }
     return
   }
-  if (value instanceof Set) {
+  const setValues = reflectedSetValues(value)
+  if (setValues) {
     let count = 0
-    for (const child of value) {
-      if (count++ >= MAX_OBSERVATION_COLLECTION_ITEMS) break
-      await collectBoundedObservationBuiltIns(child, builtIns, budget, seen, depth + 1)
+    while (count++ < MAX_OBSERVATION_COLLECTION_ITEMS) {
+      const next = setValues.next()
+      if (next.done) break
+      await collectBoundedObservationBuiltIns(next.value, builtIns, budget, seen, depth + 1)
     }
     return
   }
@@ -726,29 +748,30 @@ function boundedObservationValue(
       ),
     }
   }
-  if (value instanceof Map) {
+  const mapEntries = reflectedMapEntries(value)
+  if (mapEntries) {
     budget.truncated = true
-    const entries: [unknown, unknown][] = []
     const limit = Math.min(collectionItems, budget.items)
-    for (const entry of value) {
+    const entries: unknown[] = []
+    for (const entry of mapEntries) {
       if (entries.length >= limit) break
-      entries.push(entry)
+      entries.push([
+        boundedObservationValue(entry[0], budget, depth + 1, maxStringLength, builtIns),
+        boundedObservationValue(entry[1], budget, depth + 1, maxStringLength, builtIns),
+      ])
     }
-    if (entries.length < value.size) budget.truncated = true
-    return entries.map(([key, child]) => [
-      boundedObservationValue(key, budget, depth + 1, maxStringLength, builtIns),
-      boundedObservationValue(child, budget, depth + 1, maxStringLength, builtIns),
-    ])
+    return entries
   }
-  if (value instanceof Set) {
+  const setValues = reflectedSetValues(value)
+  if (setValues) {
     budget.truncated = true
     const entries: unknown[] = []
     const limit = Math.min(collectionItems, budget.items)
-    for (const entry of value) {
-      if (entries.length >= limit) break
-      entries.push(entry)
+    while (entries.length < limit) {
+      const next = setValues.next()
+      if (next.done) break
+      entries.push(next.value)
     }
-    if (entries.length < value.size) budget.truncated = true
     return entries.map(child => boundedObservationValue(child, budget, depth + 1, maxStringLength, builtIns))
   }
   if (value instanceof ArrayBuffer) {
