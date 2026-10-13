@@ -5,6 +5,10 @@ const MAX_CONTINUATION_LENGTH = 128 * 1_024
 type CursorHistory = Set<string>
 interface Continuation { providerCursor: string, history: CursorHistory }
 
+function isString(value: unknown): value is string {
+  return Object.prototype.toString.call(value) === "[object String]"
+}
+
 function encodeContinuation(id: number, providerCursor: string, history: CursorHistory): string {
   const token = `vhc:${id}:${encodeURIComponent(JSON.stringify({ providerCursor, history: [...history] }))}`
   if (token.length > MAX_CONTINUATION_LENGTH) throw new Error("ViteHub continuation cursor exceeds the maximum size.")
@@ -20,9 +24,9 @@ function decodeContinuation(cursor: string): Continuation | undefined {
     const value: unknown = JSON.parse(decodeURIComponent(cursor.slice(separator + 1)))
     if (!value || typeof value !== "object") return undefined
     const data = value as { providerCursor?: unknown, history?: unknown }
-    if (typeof data.providerCursor !== "string" || data.providerCursor.length > MAX_CURSOR_LENGTH) return undefined
+    if (!isString(data.providerCursor) || data.providerCursor.length > MAX_CURSOR_LENGTH) return undefined
     if (!Array.isArray(data.history) || data.history.length > MAX_CURSORS_PER_HISTORY) return undefined
-    if (!data.history.every(item => typeof item === "string" && item.length <= MAX_CURSOR_LENGTH)) return undefined
+    if (!data.history.every(item => isString(item) && item.length <= MAX_CURSOR_LENGTH)) return undefined
     return { providerCursor: data.providerCursor, history: new Set(data.history) }
   } catch {
     return undefined
