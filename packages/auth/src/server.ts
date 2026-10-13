@@ -295,10 +295,9 @@ function isResponseLike(value: unknown): value is Response {
     if (typeof statusText !== "string") return false
     const headers = Object.getOwnPropertyDescriptor(Response.prototype, "headers")?.get?.call(value)
     if (headers === null || typeof headers !== "object") return false
-    const responseHeaders = headers as { forEach?: unknown, get?: unknown, getSetCookie?: unknown }
+    const responseHeaders = headers as { forEach?: unknown, get?: unknown }
     if (typeof responseHeaders.get !== "function"
-      || typeof responseHeaders.forEach !== "function"
-      || typeof responseHeaders.getSetCookie !== "function") return false
+      || typeof responseHeaders.forEach !== "function") return false
     const body = (response as { body?: unknown }).body
     return body === null || (body !== undefined && typeof body === "object" && typeof (body as { getReader?: unknown }).getReader === "function")
   }
