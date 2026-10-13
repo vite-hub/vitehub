@@ -344,6 +344,10 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
     }])
     for (const cookie of cookies) normalizedHeaders.append("set-cookie", cookie)
 
+    // Construct before preserving native identity so disturbed bodies are rejected too.
+    const normalizedResponse = status === 0 && statusText === "" && body === null && [...normalizedHeaders].length === 0
+      ? Response.error()
+      : new Response(body, { status, statusText, headers: normalizedHeaders })
     const snapshot = { status, statusText, headers, body }
     let nativeProperties = false
     try {
@@ -362,9 +366,8 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
     const nativeCookieMethod = !cookieDescriptor?.get && (cookieDescriptor?.value === undefined
       || cookieDescriptor.value === Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value)
     if (value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod) return value
-    if (status === 0 && statusText === "" && body === null && [...normalizedHeaders].length === 0) return Response.error()
     // Foreign implementations and shadowed native values become stable local responses.
-    return new Response(body, { status, statusText, headers: normalizedHeaders })
+    return normalizedResponse
   }
   catch {
     return

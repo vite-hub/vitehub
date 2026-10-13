@@ -199,6 +199,19 @@ describe("Auth access handlers", () => {
     expect(() => response?.headers.forEach(() => {})).not.toThrow()
   })
 
+  it.each([["local", Response], ["foreign", ForeignResponse]] as const)("rejects an already-consumed body from the %s runtime", async (_runtime, ResponseConstructor) => {
+    const source = new ResponseConstructor("Policy rejected", { status: 409 })
+    const reader = source.body!.getReader()
+    await reader.read()
+    await reader.read()
+    reader.releaseLock()
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => source as never }] },
+    }))
+
+    await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
+  })
+
   it("rejects a foreign response whose body is locked", async () => {
     const response = new ForeignResponse("Policy rejected", { status: 409 })
     const reader = response.body!.getReader()
