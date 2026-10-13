@@ -7,10 +7,16 @@ function isError(value: unknown): value is Error {
     const nativeIsError = Reflect.get(Error, "isError")
     if (typeof nativeIsError === "function") return nativeIsError(value) === true
     if (value instanceof Error) return true
-    const prototype = Object.getPrototypeOf(value)
-    return prototype !== null
-      && prototype !== Object.prototype
-      && Object.prototype.toString.call(value) === "[object Error]"
+    let prototype = Object.getPrototypeOf(value)
+    while (prototype !== null && prototype !== Object.prototype) {
+      const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+      if (Object.prototype.toString.call(constructor) === "[object Function]" && constructor.prototype === prototype
+        && (constructor.name === "Error" || Object.getOwnPropertyDescriptor(prototype, "name")?.value === "Error")) {
+        return true
+      }
+      prototype = Object.getPrototypeOf(prototype)
+    }
+    return false
   }
   catch {
     return false
