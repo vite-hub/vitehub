@@ -2,6 +2,7 @@ import { ask, defineAgent, type AgentDefinition, type AgentInvokerProfile, type 
 import { gmail } from "../channels.ts"
 import type { GmailClient, GmailLabelSettings, GmailMessage } from "../channels.ts"
 import { channelMessageContextKey } from "../internal/channel-delivery-handlers.ts"
+import { hasRuntimeType, isRuntimeObject } from "@vite-hub/runtime/internal/runtime-type"
 
 export interface LabellerLabel extends GmailLabelSettings {}
 
@@ -57,34 +58,44 @@ const maxHeaderValueLength = 1_000
 const reservedLabels = new Set(["NONE", "INBOX", "TRASH", "SPAM", "UNREAD", "STARRED", "IMPORTANT", "SENT", "DRAFT", "ALL", "CATEGORY_PERSONAL", "CATEGORY_SOCIAL", "CATEGORY_PROMOTIONS", "CATEGORY_UPDATES", "CATEGORY_FORUMS"])
 
 function validateLabels(labels: Readonly<Record<string, LabellerLabel>>): void {
-  if (!labels || typeof labels !== "object" || Array.isArray(labels)) throw new TypeError("[vitehub] Labeller labels must be an object.")
+  if (!isRuntimeObject(labels) || Array.isArray(labels)) throw new TypeError("[vitehub] Labeller labels must be an object.")
   for (const [name, value] of Object.entries(labels)) {
-    if (!name.trim() || name.length > 225 || /[\u0000-\u001f\u007f]/.test(name) || reservedLabels.has(name.toUpperCase())) {
+    if (!name.trim() || name.length > 225 || /\p{Cc}/u.test(name) || reservedLabels.has(name.toUpperCase())) {
       throw new TypeError(`[vitehub] Labeller label "${name}" is reserved or invalid.`)
     }
-    if (!value || typeof value !== "object" || Array.isArray(value)) throw new TypeError(`[vitehub] Labeller label "${name}" must be an object.`)
+    if (!isRuntimeObject(value) || Array.isArray(value)) throw new TypeError(`[vitehub] Labeller label "${name}" must be an object.`)
   }
 }
 
 function patternList(value: LabellerPattern | undefined): readonly string[] | undefined {
   if (value === undefined) return
   const values = Array.isArray(value) ? value : [value]
-  if (!values.length || values.some(item => typeof item !== "string" || item.length === 0 || item.length > maxPatternLength)) {
+  if (!values.length || values.some(item => !hasRuntimeType(item, "string") || item.length === 0 || item.length > maxPatternLength)) {
     throw new TypeError(`[vitehub] Labeller patterns must be non-empty strings of at most ${maxPatternLength} characters.`)
   }
   return values
 }
 
-function validatePattern(value: string): void {
+function compilePattern(value: string): RegExp | undefined {
   const regex = /^\/(.*)\/([a-z]*)$/.exec(value)
   if (!regex) return
   if (regex[1]!.length > maxPatternLength || /[^imsu]/.test(regex[2]!)) {
     throw new TypeError("[vitehub] Labeller regex patterns use only bounded syntax and the i, m, s, and u flags.")
   }
-  if (/[\\()[\]{}*+?]/.test(regex[1]!)) {
-    throw new TypeError("[vitehub] Labeller regex patterns may not use repetition or grouping.")
+  const source = regex[1]!
+  for (let index = 0; index < source.length; index++) {
+    const character = source[index]!
+    if (character === "\\") {
+      const escaped = source[++index]
+      if (!escaped || !"\\^$.*+?()[]{}|/".includes(escaped)) {
+        throw new TypeError("[vitehub] Labeller regex patterns may only escape literal regex characters.")
+      }
+    }
+    else if ("()[]{}*+?".includes(character)) {
+      throw new TypeError("[vitehub] Labeller regex patterns may not use repetition or grouping.")
+    }
   }
-  try { new RegExp(regex[1]!, regex[2]!) }
+  try { return new RegExp(source, regex[2]!) }
   catch { throw new TypeError("[vitehub] Labeller regex pattern is invalid.") }
 }
 
@@ -93,11 +104,9 @@ function matchesText(value: string | readonly string[], pattern: LabellerPattern
   if (!patterns) return true
   const values = Array.isArray(value) ? value : [value]
   return values.some(item => patterns.some(candidate => {
-    const regex = /^\/(.*)\/([a-z]*)$/.exec(candidate)
-    if (!regex) return item.toLowerCase().includes(candidate.toLowerCase())
-    if (regex[1]!.length > maxPatternLength || /[^imsu]/.test(regex[2]!) || /[\\()[\]{}*+?]/.test(regex[1]!)) return false
     try {
-      return new RegExp(regex[1]!, regex[2]!).test(item)
+      const regex = compilePattern(candidate)
+      return regex ? regex.test(item) : item.toLowerCase().includes(candidate.toLowerCase())
     }
     catch {
       return false
@@ -126,25 +135,27 @@ function explicitAction(rule: LabellerRule | undefined): LabellerAction {
 }
 
 function selectedLabel(result: LabellerResult | undefined): string | undefined {
-  if (typeof result?.label === "string") return result.label
-  return typeof result?.label?.choice === "string" ? result.label.choice : undefined
+  const label = result?.label
+  if (hasRuntimeType(label, "string")) return label
+  const choice = label?.choice
+  return hasRuntimeType(choice, "string") ? choice : undefined
 }
 
 function selectedConfidence(result: LabellerResult): number | undefined {
-  if (typeof result.label === "string") return 1
+  if (hasRuntimeType(result.label, "string")) return 1
   const confidence = result.label.confidence
-  return typeof confidence === "number" && Number.isFinite(confidence) && confidence >= 0 && confidence <= 1 ? confidence : undefined
+  return hasRuntimeType(confidence, "number") && Number.isFinite(confidence) && confidence >= 0 && confidence <= 1 ? confidence : undefined
 }
 
 function validateRule(name: string, rule: LabellerRule, labels: Readonly<Record<string, LabellerLabel>>, depth = 0): void {
   if (depth > 8) throw new TypeError("[vitehub] Labeller rules may nest at most eight not clauses.")
-  if (!rule || typeof rule !== "object") throw new TypeError(`[vitehub] Labeller rule "${name}" must be an object.`)
+  if (!isRuntimeObject(rule)) throw new TypeError(`[vitehub] Labeller rule "${name}" must be an object.`)
   for (const field of [rule.from, rule.to, rule.subject, rule.body, rule.listId, rule.hasLabel]) {
-    for (const pattern of patternList(field) || []) validatePattern(pattern)
+    for (const pattern of patternList(field) || []) compilePattern(pattern)
   }
   for (const [header, value] of Object.entries(rule.header || {})) {
     if (!header.trim() || header.length > maxHeaderValueLength) throw new TypeError(`[vitehub] Labeller rule "${name}" has an invalid header name.`)
-    for (const pattern of patternList(value) || []) validatePattern(pattern)
+    for (const pattern of patternList(value) || []) compilePattern(pattern)
   }
   if (rule.label !== undefined && (!Object.hasOwn(labels, rule.label) || !rule.label.trim())) {
     throw new TypeError(`[vitehub] Labeller rule "${name}" refers to an undeclared label.`)
@@ -165,12 +176,12 @@ function validateOptions(options: LabellerOptions): void {
   if (!Number.isFinite(options.minConfidence) || options.minConfidence < 0 || options.minConfidence > 1) {
     throw new TypeError("[vitehub] Labeller minConfidence must be between 0 and 1.")
   }
-  if (!options.rules || typeof options.rules !== "object" || Array.isArray(options.rules)) throw new TypeError("[vitehub] Labeller rules must be an object.")
+  if (!isRuntimeObject(options.rules) || Array.isArray(options.rules)) throw new TypeError("[vitehub] Labeller rules must be an object.")
   for (const [name, rule] of Object.entries(options.rules || {})) validateRule(name, rule, options.labels)
-  if (!options.actions || typeof options.actions !== "object" || Array.isArray(options.actions)) throw new TypeError("[vitehub] Labeller actions must be an object.")
+  if (!isRuntimeObject(options.actions) || Array.isArray(options.actions)) throw new TypeError("[vitehub] Labeller actions must be an object.")
   for (const [label, action] of Object.entries(options.actions || {})) {
     if (!Object.hasOwn(options.labels, label)) throw new TypeError(`[vitehub] Labeller action "${label}" refers to an undeclared label.`)
-    if (!action || typeof action !== "object" || Array.isArray(action)) throw new TypeError(`[vitehub] Labeller action "${label}" must be an object.`)
+    if (!isRuntimeObject(action) || Array.isArray(action)) throw new TypeError(`[vitehub] Labeller action "${label}" must be an object.`)
   }
 }
 
@@ -183,11 +194,17 @@ function decision(message: GmailMessage, rules: Readonly<Record<string, Labeller
 type LabellerDefinition = AgentDefinition<AgentRuntimeConfig, unknown, AgentInvokerProfile, AgentInvocationContextValues, LabellerResult | LabellerDecision>
 export type LabellerAgent = ConfiguredAgentDefinition<LabellerOptions, LabellerDefinition>
 
+// defineAgent materializes the template once before consumers supply their options.
+let materializingTemplate = true
+
 /** Gmail labelling preset: ordered rules first, then a constrained Jev choice. */
 export const labeller: LabellerAgent = defineAgent({
   options: {
+    // SAFETY: The preset stores empty label and rule registries until consumer configuration validates them.
     labels: {} as Readonly<Record<string, LabellerLabel>>,
+    // SAFETY: Rule entries receive their domain shape during consumer validation.
     rules: {} as Readonly<Record<string, LabellerRule>>,
+    // SAFETY: Consumer validation checks each label action before it is used.
     actions: {} as Readonly<Record<string, LabellerAction>>,
     bodyLimit: 10_000,
     // Safe for notifications and first replays. Set false only when writes are intended.
@@ -196,7 +213,14 @@ export const labeller: LabellerAgent = defineAgent({
     trashEnabled: false,
     client: undefined,
   },
-  configure: options => {
+  configure: (options): LabellerDefinition => {
+    if (materializingTemplate) {
+      materializingTemplate = false
+      return defineAgent({
+        driver: { run: (): LabellerResult => { throw new TypeError("[vitehub] Labeller labels must contain between 1 and 254 labels.") } },
+        intercept: (): LabellerDecision | undefined => undefined,
+      })
+    }
     validateOptions(options)
     const { labels, rules, actions, bodyLimit, minConfidence, trashEnabled, client } = options
     // Push deliveries inherit the safe default; replay callers still choose dry-run per invocation.
@@ -205,6 +229,7 @@ export const labeller: LabellerAgent = defineAgent({
       description: "Label Gmail messages with ordered rules, then a constrained Jev choice.",
       channels: { gmail: channel },
       intercept: ({ context }) => {
+        // SAFETY: The Gmail Channel places its validated GmailMessage at this owned context key.
         const message = context.get(channelMessageContextKey) as GmailMessage | undefined
         const selected = message ? decision(message, rules) : undefined
         return selected ? selected : undefined
@@ -220,6 +245,7 @@ export const labeller: LabellerAgent = defineAgent({
       hooks: {
         async "agent:finish"({ message, result }) {
           if (message?.channel !== "gmail" || !result) return
+          // SAFETY: The owned Jev choice or ordered-rule intercept produces the Labeller result contract.
           const output = result as LabellerResult
           const label = selectedLabel(output)
           if (!label || label === "none" || !Object.hasOwn(labels, label)) return

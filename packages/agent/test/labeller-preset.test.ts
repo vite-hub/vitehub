@@ -26,6 +26,38 @@ function configured(options: Record<string, unknown> = {}) {
 }
 
 describe("labeller preset", () => {
+  it("imports the template and validates consumer label counts", () => {
+    expect(labeller).toBeDefined()
+    expect(() => configured({ labels: {} })).toThrow(/between 1 and 254 labels/)
+    const labels = Object.fromEntries(Array.from({ length: 254 }, (_, index) => [`Label${index}`, {}]))
+    expect(() => configured({ labels })).not.toThrow()
+    expect(() => configured({ labels: { ...labels, Extra: {} } })).toThrow(/between 1 and 254 labels/)
+  })
+
+  it("matches documented escaped literals without treating them as wildcards", async () => {
+    const agent = configured({ rules: { receipts: { from: ["/billing\\./i"], label: "Receipts" } } })
+    const intercept = (agent as unknown as { intercept: (context: { context: { get: (key: string) => unknown } }) => unknown }).intercept
+    expect(await intercept({ context: { get: () => ({ ...message, from: "BILLING.example.test" }) } })).toEqual({ label: "Receipts", rule: "receipts" })
+    expect(await intercept({ context: { get: () => message } })).toBeUndefined()
+  })
+
+  it("configures the documented extends form", async () => {
+    const agent = defineAgent({ extends: labeller, options: {
+      labels: { Receipts: {} },
+      rules: { receipt: { subject: "invoice", label: "Receipts" } },
+    } })
+    const intercept = (agent as unknown as { intercept: (context: { context: { get: (key: string) => unknown } }) => unknown }).intercept
+    expect(await intercept({ context: { get: () => message } })).toEqual({ label: "Receipts", rule: "receipt" })
+  })
+
+  it.each(["/^(a+)+$/", "/a*/", "/a{2}/", "/[a-z]/", "/\\1/", "/\\d/", "/a/ii"])("rejects unsafe or invalid regex pattern %s", (pattern) => {
+    expect(() => configured({ rules: { bad: { body: pattern, label: "Receipts" } } })).toThrow(/regex patterns|regex pattern/)
+  })
+
+  it.each(["/invoice\\+/", "/invoice\\(/", "/invoice\\\\/"])("accepts escaped regex punctuation %s", (pattern) => {
+    expect(() => configured({ rules: { receipt: { subject: pattern, label: "Receipts" } } })).not.toThrow()
+  })
+
   it("uses the first matching rule before Jev", async () => {
     const agent = configured({ rules: {
       receipts: { subject: "invoice", label: "Receipts", archive: true },
