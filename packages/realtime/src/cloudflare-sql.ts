@@ -18,9 +18,13 @@ export function hasCloudflareSqlExec(sql: unknown): sql is RealtimeRoomSql {
     const exec = Object.getOwnPropertyDescriptor(prototype, "exec")?.value
     const databaseSize = Object.getOwnPropertyDescriptor(prototype, "databaseSize")?.get
     if (!databaseSize) return false
-    if (Function.prototype.toString.call(constructor) !== "function SqlStorage() { [native code] }") return false
-    if (Function.prototype.toString.call(exec) !== "function exec() { [native code] }") return false
-    if (!/\{\s*\[native code\]\s*\}$/.test(Function.prototype.toString.call(databaseSize))) return false
+    // Native function source formatting is runtime-defined, so only require
+    // the stable native marker and the platform's prototype shape.
+    const isNativeFunction = (value: unknown): value is Function => {
+      if (typeof value !== "function") return false
+      return /\[native code\]/.test(Function.prototype.toString.call(value))
+    }
+    if (!isNativeFunction(constructor) || !isNativeFunction(exec) || !isNativeFunction(databaseSize)) return false
 
     // This read-only native getter checks workerd's internal SqlStorage receiver.
     // Copying its prototype onto an ordinary object does not pass the check.
