@@ -77,6 +77,20 @@ describe("Resend Email driver", () => {
     }
   });
 
+  it("uses the validated API key even if options mutate before delivery", async () => {
+    const request = vi.fn(async () => new Response(JSON.stringify({ id: "email-1" }), { status: 200 }));
+    const options = { apiKey: "re_secret", fetch: request } as ResendEmailDriverOptions;
+    const driver = resend(options);
+    delete (options as Partial<ResendEmailDriverOptions>).apiKey;
+    Object.setPrototypeOf(options, { apiKey: "re_inherited" });
+
+    await expect(driver.send(message, context)).resolves.toMatchObject({ error: null });
+    expect(request).toHaveBeenCalledWith(
+      "https://api.resend.com/emails",
+      expect.objectContaining({ headers: expect.objectContaining({ authorization: "Bearer re_secret" }) }),
+    );
+  });
+
   it("rejects credentials that do not match Resend's API key shape", () => {
     expect(() => resend({ apiKey: "secret" })).toThrow("apiKey must start with 're_'");
   });

@@ -374,7 +374,7 @@ export default function resendEmailDriver(options: ResendEmailDriverOptions): Em
         response = await request(`${endpoint}/emails`, {
           body,
           headers: {
-            authorization: `Bearer ${options.apiKey}`,
+            authorization: `Bearer ${apiKey}`,
             "content-type": "application/json",
             ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
           },
