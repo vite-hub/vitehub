@@ -154,7 +154,11 @@ function assertPressurePolicy(value: PressurePolicy, name: "cpu" | "memory"): vo
 
 async function readProcessResources(signal: AbortSignal): Promise<ProcessResourceSample> {
   const [cgroup, meminfo, cpu, memory] = await Promise.all([
-    readCgroupResources(signal),
+    readCgroupResources(signal).catch((error) => {
+      if (signal.aborted) throw error
+      if (error instanceof Error && error.message.startsWith("Invalid cgroup ")) return undefined
+      throw error
+    }),
     readOptionalCgroupFile("/proc/meminfo", signal),
     readOptionalCgroupFile("/proc/pressure/cpu", signal),
     readOptionalCgroupFile("/proc/pressure/memory", signal),
