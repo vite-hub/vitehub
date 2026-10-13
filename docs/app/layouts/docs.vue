@@ -47,16 +47,26 @@ const hasPanel = computed(
 
 /* On wide screens the rail and the page panel stay at the left edge. The page fills the remaining space. */
 @media (min-width: 64rem) {
-  .vh-docs-aside {
+  .vh-docs-shell {
+    display: flex;
+    align-items: stretch;
+  }
+
+  .vh-docs-shell > .vh-docs-desktop-nav {
     position: sticky;
     top: var(--ui-header-height);
     display: flex;
     height: calc(100dvh - var(--ui-header-height));
     max-height: calc(100dvh - var(--ui-header-height));
     min-height: calc(100dvh - var(--ui-header-height));
+    flex: 0 0 auto;
     flex-direction: column;
     overflow: hidden;
     border-right: 1px solid var(--ui-border);
+  }
+
+  .vh-docs-content {
+    flex: 1 1 auto;
   }
 }
 </style>
