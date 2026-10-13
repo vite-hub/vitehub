@@ -10,7 +10,11 @@ import {
 import { useAgentInvocation, useAgentInvocations } from "vite-hub/agent/vue";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { resolveConsoleNewChatAgent } from "./console-new-chat";
+import {
+  resolveConsoleAgentInvocation,
+  resolveConsoleAgentInvocationOptions,
+  resolveConsoleNewChatAgent,
+} from "./console-new-chat";
 import {
   readConsoleAgentListOpen,
   rememberConsoleAgentListOpen,
@@ -225,7 +229,7 @@ const invocationItems = computed<AgentInvocationListItem[]>(() =>
 );
 const hasMultipleAgents = computed(() => agentNames.value.length > 1);
 const selectedAgentInvocation = computed(() =>
-  selectedAgentName.value ? agentInvocationOptions.value[selectedAgentName.value] : undefined,
+  resolveConsoleAgentInvocation(selectedAgentName.value, agentInvocationOptions.value),
 );
 const newChatTargetName = computed(() =>
   resolveConsoleNewChatAgent(selectedAgentName.value, agentInvocationOptions.value),
@@ -644,7 +648,7 @@ async function loadAgents(): Promise<void> {
       const invocation = record(value?.invocation);
       agentInvocationOptions.value = Object.fromEntries(
         agentNames.value.flatMap((name) => {
-          const options = record(invocation?.[name]);
+          const options = record(resolveConsoleAgentInvocationOptions(invocation, name));
           if (!options) return [];
           const profiles = Array.isArray(options.profiles)
             ? options.profiles.flatMap((value) => {
