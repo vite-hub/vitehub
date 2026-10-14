@@ -108,6 +108,21 @@ describe("hubQueue", () => {
     }])
   })
 
+  it("keeps inherited providers from disabling runtime for explicit hosting", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-queue-inherited-provider-preset-"))
+    roots.push(root)
+    const options = Object.create({ provider: "cloudflare" }) as { provider: "cloudflare" }
+    const config = { root, command: "build", nitro: { preset: "vercel" } }
+    const plugin = hubQueue(options)
+
+    await (plugin.configResolved as (config: unknown) => Promise<void>)(config)
+
+    expect(config.nitro.plugins).toHaveLength(1)
+    expect(await collectViteHubProviderOutputEntries([plugin])).toMatchObject([{
+      path: resolve(root, ".vercel/output/config.json"),
+    }])
+  })
+
   it("omits explicitly disabled Queue Definitions and provider output", async () => {
     const options = false
     const nitro = {}
