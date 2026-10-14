@@ -28,6 +28,12 @@ describe("durable Response representation", () => {
     const blob = new (new Window()).Blob(["test"], { type: "text/plain" })
     Object.defineProperty(blob, "stream", { value: () => { throw new Error("override") } })
     expect(await toResponse(blob).text()).toBe("test")
+
+    const prototype = Object.create(Object.getPrototypeOf(blob), {
+      stream: { value: () => { throw new Error("prototype override") } },
+    })
+    Object.setPrototypeOf(blob, prototype)
+    expect(await toResponse(blob).text()).toBe("test")
   })
 
   it("does not add a content type for an untyped Blob", async () => {

@@ -32,14 +32,26 @@ function getBlobMethods(value: unknown): BlobMethods | undefined {
       const sliceDescriptor = Object.getOwnPropertyDescriptor(prototype, "slice")
       const streamDescriptor = Object.getOwnPropertyDescriptor(prototype, "stream")
       const typeDescriptor = Object.getOwnPropertyDescriptor(prototype, "type")
-      if (slice === undefined && sliceDescriptor) slice = sliceDescriptor.value
-      if (stream === undefined && streamDescriptor) stream = streamDescriptor.value
+      // Blob.prototype owns both operations. Pair them from the same prototype
+      // so a subclass cannot replace stream() while retaining the native slice().
+      if (slice === undefined && stream === undefined && sliceDescriptor && streamDescriptor) {
+        const candidateSlice = sliceDescriptor.value
+        const candidateStream = streamDescriptor.value
+        if (hasRuntimeType(candidateSlice, "function") && hasRuntimeType(candidateStream, "function")) {
+          try {
+            Reflect.apply(candidateSlice, value, [0, 0])
+            slice = candidateSlice
+            stream = candidateStream
+          }
+          catch {
+            // Continue to the next prototype in the chain.
+          }
+        }
+      }
       if (type === undefined && typeDescriptor) type = typeDescriptor.get ? () => Reflect.apply(typeDescriptor.get!, value, []) : () => typeDescriptor.value as string
       prototype = Object.getPrototypeOf(prototype)
     }
     if (!hasRuntimeType(slice, "function") || !hasRuntimeType(stream, "function")) return undefined
-    // Native Blob methods perform an internal-slot check and accept foreign realms.
-    Reflect.apply(slice, value, [0, 0])
     return {
       stream: () => Reflect.apply(stream, value, []) as ReadableStream,
       type: hasRuntimeType(type, "function") ? type() : String(Reflect.get(value, "type") ?? ""),
