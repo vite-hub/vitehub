@@ -23,7 +23,7 @@ const props = defineProps<{
   sectionsBase: string;
 }>();
 const connections = ref<readonly ConnectionInspection[]>([]);
-const pending = ref<Record<string, number>>({});
+const pending = ref(new Map<string, number>());
 const search = ref("");
 const selectedName = ref<string>();
 const loading = ref(true);
@@ -69,7 +69,7 @@ async function refresh() {
     ]);
     if (current.signal.aborted) return;
     connections.value = list.connections;
-    pending.value = counts.counts;
+    pending.value = new Map(Object.entries(counts.counts));
   } catch (cause) {
     if (!current.signal.aborted) {
       error.value = cause instanceof Error ? cause.message : "Could not load Connections.";
@@ -173,7 +173,7 @@ onBeforeUnmount(() => request?.abort());
             >
             <template #approvals-cell="{ row }"
               ><span class="text-xs text-muted tabular-nums">{{
-                pending[row.original.name] ?? 0
+                pending.get(row.original.name) ?? 0
               }}</span></template
             >
           </UTable>
