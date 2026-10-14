@@ -11,6 +11,7 @@ import { normalize } from "pathe"
 import { computePackageDir, resolveRuntimeModule } from "@vite-hub/internal/build/paths"
 
 import { createDbCliContributor } from "./cli.ts"
+import { collectDatabaseContributions } from "./contributions.ts"
 import { cloudflareOptions, mergeCloudflareD1Bindings, resolveCloudflareD1Bindings } from "./internal/cloudflare.ts"
 import { resolveDBViteConfig, serializeGeneratedRegistry } from "./config.ts"
 import { removeGeneratedDatabaseTypes, writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
@@ -24,6 +25,7 @@ import type { ViteHubCliContributor } from "@vite-hub/internal/cli"
 import type { ViteHubInspectionContributor } from "@vite-hub/internal/inspect"
 import type { ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import type { Plugin, ResolvedConfig } from "vite"
+import type { CollectedDatabaseContribution, DatabaseContributionPluginMetadata } from "./contributions.ts"
 import type { DatabaseTableNameOptions } from "./internal/schema-tables.ts"
 import type { DBModulePublicOptions, ResolvedDBViteConfig } from "./types.ts"
 
@@ -32,6 +34,17 @@ export const DB_VIRTUAL_DATABASES_ID = "#vitehub/database/databases"
 const DB_VIRTUAL_DEFINITION_DEFAULTS_ID = "#vitehub/database/definition-defaults"
 export const DB_VITE_PLUGIN_NAME = "@vite-hub/database/vite"
 export { inspectDatabaseDefinitions, type DatabaseInspectionOptions } from "./inspect.ts"
+export { collectDatabaseContributions, describeDatabaseContribution, resolveDatabaseContributionTargets, resolveDefaultDatabase } from "./contributions.ts"
+export type {
+  CollectedDatabaseContribution,
+  DatabaseContributingPlugin,
+  DatabaseContribution,
+  DatabaseContributionContext,
+  DatabaseContributionFactory,
+  DatabaseContributionPluginMetadata,
+  DefaultDatabaseResolution,
+  ResolvedDatabaseContribution,
+} from "./contributions.ts"
 
 const DB_INTERNAL_VIRTUAL_SCHEMA_ID = "virtual:vitehub/database/schema"
 const DB_INTERNAL_VIRTUAL_DATABASES_ID = "virtual:vitehub/database/databases"
@@ -48,7 +61,7 @@ export interface DBVitePluginAPI {
 }
 
 interface DBCliContributingPlugin {
-  vitehub?: {
+  vitehub?: DatabaseContributionPluginMetadata & {
     cli?: () => Promise<ViteHubCliContributor | undefined>
     inspect?: () => ViteHubInspectionContributor | undefined
   }
@@ -135,6 +148,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
   let resolved: ResolvedConfig | undefined
   let runtimeConfig: ResolvedDBViteConfig | undefined
   let serverDirs: string[] | undefined
+  let contributions: CollectedDatabaseContribution[] = []
 
   function resolvedOptions() {
     return resolved?.database ?? options
@@ -164,6 +178,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
   async function refreshRuntimeConfig(options: { strict?: boolean } = {}) {
     if (!resolved) return
     runtimeConfig = resolveDBViteConfig(resolvedOptions(), databaseRoot(), {
+      contributions,
       provisionRoot: resolved.root,
       serverDirs: databaseServerDirs(),
     })
@@ -241,6 +256,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
             kind: "database",
             label: "Databases",
             list: () => inspectDatabaseDefinitions({
+              plugins: resolved?.plugins,
               projectRoot: resolveViteHubProjectRoot(resolved?.root ?? process.cwd()),
               rootDir: databaseRoot(),
               serverDirs: databaseServerDirs(),
@@ -259,6 +275,9 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
     async configResolved(config) {
       resolved = config
       providerOutput = useProviderOutputCatalog(config)
+      contributions = resolvedOptions() === false
+        ? []
+        : await collectDatabaseContributions(config.plugins, { rootDir: databaseRoot(), serverDirs: databaseServerDirs() })
       await refreshRuntimeConfig()
       mergeNitroCloudflareD1Bindings()
     },
