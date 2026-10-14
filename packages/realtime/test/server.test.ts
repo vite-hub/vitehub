@@ -1144,6 +1144,27 @@ describe("realtime transport boundaries", () => {
     await expect(readRealtimeCheckpointState(request, 4)).resolves.toEqual(Uint8Array.of(1, 2, 3))
   })
 
+  it("uses the intrinsic width when subclasses shadow BYTES_PER_ELEMENT", async () => {
+    class ShadowedBytes extends Uint8Array {}
+    Object.defineProperty(ShadowedBytes.prototype, "BYTES_PER_ELEMENT", { value: 2 })
+    class ShadowedWide extends Uint16Array {}
+    Object.defineProperty(ShadowedWide.prototype, "BYTES_PER_ELEMENT", { value: 1 })
+    const validValue = new ShadowedBytes([1, 2, 3])
+    const invalidValue = new ShadowedWide(0)
+
+    const validBody = new ReadableStream<Uint8Array>({
+      start(controller) { controller.enqueue(validValue); controller.close() },
+    })
+    const validRequest = new Request("https://example.com", { body: validBody, duplex: "half", method: "POST" } as RequestInit)
+    await expect(readRealtimeCheckpointState(validRequest, 4)).resolves.toEqual(Uint8Array.of(1, 2, 3))
+
+    const invalidBody = new ReadableStream<unknown>({
+      start(controller) { controller.enqueue(invalidValue); controller.close() },
+    })
+    const invalidRequest = new Request("https://example.com", { body: invalidBody, duplex: "half", method: "POST" } as RequestInit)
+    await expect(readRealtimeCheckpointState(invalidRequest)).rejects.toMatchObject({ statusCode: 400 })
+  })
+
   it("rejects spoofed and non-byte checkpoint chunks", async () => {
     const chunks = [
       { [Symbol.toStringTag]: "ArrayBuffer" },

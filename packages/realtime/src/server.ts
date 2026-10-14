@@ -48,16 +48,15 @@ const typedArrayByteOffsetGetter = Object.getOwnPropertyDescriptor(Object.getPro
 function normalizeRealtimeCheckpointChunk(value: unknown): Uint8Array | undefined {
   if (ArrayBuffer.isView(value)) {
     try {
-      // Walk past subclass prototypes to find the intrinsic typed-array width.
-      // This also handles Node Buffer values, whose immediate prototype is a
-      // subclass prototype rather than Uint8Array.prototype.
+      // Walk the full prototype chain and keep the intrinsic width. Subclass
+      // prototypes may shadow BYTES_PER_ELEMENT, while the concrete typed-array
+      // prototype later in the chain carries the actual element width.
       let prototype = Object.getPrototypeOf(value)
       let bytesPerElement: unknown
       while (prototype) {
         const descriptor = Object.getOwnPropertyDescriptor(prototype, "BYTES_PER_ELEMENT")
         if (descriptor && "value" in descriptor) {
           bytesPerElement = descriptor.value
-          break
         }
         prototype = Object.getPrototypeOf(prototype)
       }
