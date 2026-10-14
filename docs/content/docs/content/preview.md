@@ -54,16 +54,11 @@ Each request gets its own grant through `AsyncLocalStorage`, so concurrent previ
 
 ## Where the request is scoped
 
-The `vitehub()` Vite plugin generates a global middleware next to the Content route. It runs the whole request, including your pages and server routes, inside the preview scope. Requests without the cookie pass straight through.
+ViteHub generates a Nitro plugin next to the Content route. It wraps Nitro's request entry, so the whole request runs inside the preview scope: route rules, middleware, cached routes, pages, and server routes. Requests without the cookie pass straight through. Your server code needs no changes.
 
-The generated middleware needs Nitro 3, which passes `next` to middleware. On Nitro 2, as in Nuxt 4, it does nothing. There, `/api/content/**` still honors the cookie, and a server route that calls `content` directly wraps its reads:
+This works the same with the `vitehub()` Vite plugin on Nitro 3 and with the `vite-hub/nuxt` module on Nuxt 4 (Nitro 2). It needs no Nitro experimental flag. Nuxt pages that load data with `useFetch()` during SSR forward the cookie to the server route, so the rendered page shows the draft too.
 
-```ts [server/api/posts/[id].get.ts]
-import { content } from '../../content'
-
-export default defineEventHandler(event =>
-  content.preview.run(event, () => content.collection('posts').get(getRouterParam(event, 'id')!)))
-```
+Call `content.preview.run(event, callback)` yourself only for requests that do not go through Nitro, such as a test or a custom server.
 
 ## Signing key
 
@@ -94,11 +89,10 @@ The token is not bound to a user or a session. Anyone who holds the cookie reads
 
 ## Caching
 
-Preview responses carry `Cache-Control: private, no-store` and `X-Robots-Tag: noindex, nofollow`, set after your handler runs so route headers cannot make a draft public. Responses without the cookie keep their own headers.
+Preview responses carry `Cache-Control: private, no-store` and `X-Robots-Tag: noindex, nofollow`. Content sets them after your handler runs, so route headers cannot make a draft public. Responses without the cookie keep their own headers.
 
-Shared caches do not see the cookie, so configure them:
+Nitro's cache skips preview requests. Cached handlers, route rules with `cache` or `swr`, and cached functions run directly during a preview request: they never read a cached entry, never write one, and never share an in-flight render with a public request. Pages that read Content can use `swr` safely. ViteHub inserts a small module in front of Nitro's cache module to do this, because Nitro has no global bypass hook.
 
-- A CDN that caches HTML must bypass its cache when the request has the `vitehub-content-preview` cookie. Otherwise the previewer sees the cached published page.
-- Nitro cached handlers and route rules with `cache` or `swr` store responses by URL. Do not cache pages that read Content, or bypass the cache for preview requests, for example with `shouldBypassCache: event => Boolean(getCookie(event, 'vitehub-content-preview'))`. A cache miss during preview would otherwise store a draft for public visitors.
+A CDN or reverse proxy in front of the app cannot see this. It caches by URL and does not know what the cookie means. If it caches HTML, configure it to bypass its cache when the request has the `vitehub-content-preview` cookie. Otherwise the previewer gets the cached published page. The `private, no-store` header keeps a correct CDN from storing the draft response itself.
 
 See [Limits and errors](/docs/content/limits-and-errors) for every Content error code.

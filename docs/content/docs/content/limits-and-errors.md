@@ -37,8 +37,8 @@ icon: i-lucide-circle-alert
 
 - Preview tokens are signed with `VITEHUB_CONTENT_KEY`. Without it, preview works only when `NODE_ENV` is `development` or `test`, with a key that changes on restart.
 - A token lives from 60 seconds to 24 hours (default one hour) and previews every collection. It is not bound to a user, and the server cannot revoke one token before it expires. Rotating the key ends all of them.
-- The generated preview middleware needs Nitro 3. On Nitro 2, wrap direct `content` reads in `content.preview.run(event, callback)`.
-- CDNs and Nitro route caches do not see the cookie. Bypass them for preview requests; see [Caching](/docs/content/preview#caching).
+- Preview scopes requests that go through Nitro, on Nitro 3 and on Nuxt 4 (Nitro 2). Elsewhere, wrap reads in `content.preview.run(event, callback)`.
+- Nitro's response and function cache skips preview requests. A CDN cannot see the cookie, so configure it to bypass its cache for preview requests; see [Caching](/docs/content/preview#caching).
 
 ## Errors
 
