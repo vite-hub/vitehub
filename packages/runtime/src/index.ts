@@ -505,6 +505,16 @@ function captureSharedBufferByteLength(): (() => unknown) | undefined {
     const getter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(sample), "byteLength")?.get
     if (!isNativeBufferOperation(getter, "get byteLength")) return
     if (getter.call(sample) !== 0) return
+    // A genuine buffer getter requires the receiver's internal slot. A forged
+    // getter that returns a number for arbitrary objects must not become the
+    // shared-memory brand used for trace privacy.
+    try {
+      getter.call({})
+      return
+    }
+    catch {
+      // Expected for a non-buffer receiver.
+    }
     return getter
   }
   catch {
