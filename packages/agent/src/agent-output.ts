@@ -851,7 +851,7 @@ function isResponseLike(value: unknown): value is Response {
     if (!hasRuntimeType(statusText, "string")) return false
     if (!isRuntimeObject(headers) || !("get" in headers) || !("forEach" in headers)) return false
     if (!hasRuntimeType(headers.get, "function") || !hasRuntimeType(headers.forEach, "function")) return false
-    if (body === null) return value.body === null
+    if (body === null) return (value as { body?: unknown }).body === null
     if (!isRuntimeObject(body)) return false
     // A stream may already be locked by its caller. In that state acquiring a
     // reader throws even though the value is a genuine Web Stream. Use the
