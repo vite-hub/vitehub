@@ -23,7 +23,7 @@ import { createDatabaseProvisionStep } from "./provision.ts"
 import type { ViteHubCliContributor } from "@vite-hub/internal/cli"
 import type { ViteHubInspectionContributor } from "@vite-hub/internal/inspect"
 import type { ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
-import type { Plugin, ResolvedConfig } from "vite"
+import type { ModuleNode, Plugin, ResolvedConfig, ViteDevServer } from "vite"
 import type { DatabaseTableNameOptions } from "./internal/schema-tables.ts"
 import type { DBModulePublicOptions, ResolvedDBViteConfig } from "./types.ts"
 
@@ -125,6 +125,27 @@ function renderDatabasesModule(config: ResolvedDBViteConfig | undefined) {
     "export default databases",
     "",
   ].join("\n")
+}
+
+
+function normalizeModulePath(id: string) {
+  return normalize(id.split("?", 1)[0]!)
+}
+
+function moduleGraphContainsFile(server: Pick<ViteDevServer, "moduleGraph">, entry: string, changedFile: string) {
+  const root = server.moduleGraph.getModuleById(entry)
+  if (!root) return false
+
+  const pending: ModuleNode[] = [root]
+  const visited = new Set<ModuleNode>()
+  while (pending.length) {
+    const module = pending.pop()!
+    if (visited.has(module)) continue
+    visited.add(module)
+    if (normalizeModulePath(module.id) === changedFile) return true
+    pending.push(...module.importedModules)
+  }
+  return false
 }
 
 export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
@@ -278,8 +299,11 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
     async handleHotUpdate(context) {
       if (!runtimeConfig) return
 
-      const changedFile = normalize(context.file)
-      const isDatabaseUpdate = runtimeConfig.definitions.some(definition => normalize(definition.handler) === changedFile)
+      const changedFile = normalizeModulePath(context.file)
+      const isDatabaseUpdate = runtimeConfig.definitions.some(definition =>
+        normalizeModulePath(definition.handler) === changedFile
+        || moduleGraphContainsFile(context.server, definition.handler, changedFile),
+      )
       if (!isDatabaseUpdate) return
 
       await refreshRuntimeConfig()
