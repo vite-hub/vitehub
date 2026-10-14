@@ -387,12 +387,14 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
 }
 
 function authorizationHeaderMethods(headers: object): { forEach: (...args: never[]) => unknown, getSetCookie?: (...args: never[]) => unknown } | undefined {
-  if (Object.prototype.hasOwnProperty.call(headers, "forEach")) return
-  const forEach = responsePropertyDescriptor(headers, "forEach")
-  const getSetCookie = responsePropertyDescriptor(headers, "getSetCookie")
-  if (!forEach || typeof forEach.value !== "function") return
-  if (getSetCookie && getSetCookie.value !== undefined && typeof getSetCookie.value !== "function") return
-  return { forEach: forEach.value as (...args: never[]) => unknown, getSetCookie: getSetCookie?.value as (...args: never[]) => unknown | undefined }
+  if (Object.prototype.hasOwnProperty.call(headers, "forEach") || (Object.prototype.hasOwnProperty.call(headers, "getSetCookie") && Reflect.getOwnPropertyDescriptor(headers, "getSetCookie")?.value !== undefined)) return
+  const prototype = Object.getPrototypeOf(headers)
+  if (!prototype || Object.getOwnPropertyDescriptor(prototype, "constructor")?.value?.name !== "Headers") return
+  const forEach = Object.getOwnPropertyDescriptor(prototype, "forEach")?.value
+  const getSetCookie = Object.getOwnPropertyDescriptor(prototype, "getSetCookie")?.value
+  if (typeof forEach !== "function") return
+  if (getSetCookie !== undefined && typeof getSetCookie !== "function") return
+  return { forEach: forEach as (...args: never[]) => unknown, getSetCookie: getSetCookie as (...args: never[]) => unknown | undefined }
 }
 
 function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
