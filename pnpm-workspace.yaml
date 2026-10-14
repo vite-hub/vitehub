@@ -147,6 +147,7 @@ catalogs:
     "@iconify/vue": ^5.0.3
     "@vueuse/core": ^14.4.0
     motion-v: ^2.5.2
+    reka-ui: ^2.10.5
     vue: 3.5.43
   unjs:
     defu: ^6.1.7
