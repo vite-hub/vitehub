@@ -42,17 +42,37 @@ export interface AgentChatData {
 export type AttachmentData = ArrayBuffer | Blob | string | Uint8Array
 export type AudioData = AttachmentData
 
-/** Recognizes Blob values even when they originate from another JavaScript realm. */
-export function isBlob(value: unknown): value is Blob {
-  const BlobConstructor = globalThis.Blob
-  if (!hasRuntimeType(BlobConstructor, "function") || !value || !hasRuntimeType(value, "object")) return false
+const blobSizeGetter = hasRuntimeType(globalThis.Blob, "function") ? Object.getOwnPropertyDescriptor(globalThis.Blob.prototype, "size")?.get : undefined
+const arrayBufferByteLengthGetter = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")?.get
+const typedArrayTagGetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), Symbol.toStringTag)?.get
+
+/** Brand checks that work for values created in another JavaScript realm. */
+export function isBlobValue(value: unknown): value is Blob {
+  if (!blobSizeGetter) return false
   try {
-    const prototype = BlobConstructor.prototype
-    const size = Object.getOwnPropertyDescriptor(prototype, "size")?.get?.call(value)
-    const type = Object.getOwnPropertyDescriptor(prototype, "type")?.get?.call(value)
-    return hasRuntimeType(size, "number") && hasRuntimeType(type, "string")
+    Reflect.apply(blobSizeGetter, value, [])
+    return true
+  } catch {
+    return false
   }
-  catch {
+}
+
+export function isArrayBufferValue(value: unknown): value is ArrayBuffer {
+  if (!arrayBufferByteLengthGetter) return false
+  try {
+    Reflect.apply(arrayBufferByteLengthGetter, value, [])
+    return true
+  } catch {
+    return false
+  }
+}
+
+export function isUint8ArrayValue(value: unknown): value is Uint8Array {
+  if (!ArrayBuffer.isView(value)) return false
+  if (!typedArrayTagGetter) return false
+  try {
+    return Reflect.apply(typedArrayTagGetter, value, []) === "Uint8Array"
+  } catch {
     return false
   }
 }
@@ -169,29 +189,13 @@ export type MessagePart =
   | ToolCallPart
   | ToolResultPart
 
-export function isArrayBufferValue(value: unknown): value is ArrayBuffer {
-  if (value instanceof ArrayBuffer) return true
-  try {
-    Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")!.get!.call(value)
-    return true
-  } catch {
-    return false
-  }
-}
-
-const typedArrayTag = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), Symbol.toStringTag)?.get
-
-export function isUint8ArrayValue(value: unknown): value is Uint8Array {
-  return ArrayBuffer.isView(value) && typedArrayTag?.call(value) === "Uint8Array"
-}
-
 export function isAttachmentData(value: unknown): value is AttachmentData {
   return hasRuntimeType(value, "string")
     ? value.length > 0
     : isArrayBufferValue(value)
       ? value.byteLength > 0
-      : isBlob(value)
-        ? blobSize(value) > 0
+      : isBlobValue(value)
+        ? true
         : isUint8ArrayValue(value) && value.byteLength > 0
 }
 
