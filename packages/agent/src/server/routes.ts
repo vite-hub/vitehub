@@ -4227,7 +4227,10 @@ function checkedTextAttachmentBytes(value: unknown, options: ChatMessagePartOpti
 }
 
 function isTextAttachmentOversizeError(error: unknown): boolean {
-  return error instanceof Error && error.message === chatTextAttachmentOversizeMessage
+  if (error instanceof Error) return error.message === chatTextAttachmentOversizeMessage
+  if (!isRuntimeObject(error)) return false
+  const message = (error as { message?: unknown }).message
+  return isRuntimeString(message) && message === chatTextAttachmentOversizeMessage
 }
 
 async function textAttachmentBytes(attachment: Attachment, options: ChatMessagePartOptions = {}): Promise<Uint8Array | undefined> {
@@ -7140,7 +7143,13 @@ async function channelHistoryAttachment(
     } catch {}
   }
   if (isAttachmentBlob(data)) {
-    data = data.size <= maxBytes ? new Uint8Array(await data.arrayBuffer()) : undefined
+    if (data.size <= maxBytes) {
+      try {
+        data = new Uint8Array(await boundedChannelHistoryOperation(() => data.arrayBuffer(), signal) as ArrayBuffer)
+      } catch {
+        data = undefined
+      }
+    } else data = undefined
   }
   let bytes: Uint8Array | undefined
   try {
