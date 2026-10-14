@@ -4,6 +4,7 @@ import { isPlainObject } from "@vite-hub/internal/object"
 
 import type { BlobDriverAdapter, BlobDriverMultipartUpload, BlobObject, BlobPutBody, BlobPutOptions, ResolvedVercelBlobStoreConfig } from "../types.ts"
 import { blobErrorDiagnostics } from "../error-diagnostics.ts"
+import isBlob from "../internal/is-blob.ts"
 
 // Vercel needs the object key and upload ID on every multipart call, so the public upload ID carries both.
 // The client returns this ID, so it holds no authority: access always comes from the store config.
@@ -188,7 +189,7 @@ export function createBundledVercelBlobDriver(options: ResolvedVercelBlobStoreCo
       })
       let size = typeof body === "string"
         ? new TextEncoder().encode(body).byteLength
-        : body instanceof Blob
+        : isBlob(body)
           ? body.size
           : body instanceof ArrayBuffer || ArrayBuffer.isView(body)
             ? body.byteLength

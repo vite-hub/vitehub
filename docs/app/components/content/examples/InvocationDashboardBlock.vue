@@ -11,6 +11,7 @@ import { computed, onMounted, ref, shallowRef } from "vue";
 const now = useState("ui-dashboard-clock", () => Date.now());
 const time = (secondsAgo: number) => new Date(now.value - secondsAgo * 1_000).toISOString();
 
+
 // Synthetic, already-authorized records. In an application, load them from your Invocation store.
 const invocations = shallowRef<AgentInvocationView[]>([
   {
