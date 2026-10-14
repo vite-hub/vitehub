@@ -23,6 +23,9 @@ afterEach(async () => {
 })
 
 describe("@vite-hub/source local file sources", () => {
+  it.each(["../outside.md", "/outside.md", "./README.md"])('rejects unsafe workspace paths %j', (workspacePath) => {
+    expect(() => file({ content: "# Docs\n", workspacePath })).toThrow("Source path escapes the source root")
+  })
   it.each(["C:/outside/file", "C:\\outside\\file", "C:outside", "a\0b"])("rejects non-portable file path %j", (path) => {
     expect(() => file(path)).toThrow("Source path escapes the source root")
   })

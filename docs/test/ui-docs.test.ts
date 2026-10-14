@@ -159,7 +159,8 @@ describe("UI documentation", () => {
     const sidebars = readFileSync(resolve(docsRoot, "app/components/DocsSidebars.vue"), "utf8");
 
     expect(sidebars).toContain("<DocsRail />");
-    expect(sidebarTop).toContain('<h2 class="vh-docs-panel-title">');
+    expect(sidebarTop).toContain("vh-docs-context");
+    expect(sidebarTop).toContain("UContentSearchButton");
     expect(sidebarTop).not.toContain("USelectMenu");
     expect(sidebarTop).not.toContain("getDocsSectionSelectItems");
   });
