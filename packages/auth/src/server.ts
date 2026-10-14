@@ -327,7 +327,7 @@ function hasResponsePrototype(value: unknown): boolean {
         if (typeof getter !== "function") return false
         const source = Function.prototype.toString.call(getter)
         if (source === Function.prototype.toString.call(Object.getOwnPropertyDescriptor(Response.prototype, key)?.get)) return true
-        if (!source.includes("brandCheck")) return false
+        if (!source.includes("webidl.brandCheck")) return false
         try {
           Reflect.apply(getter, {}, [])
           return false
@@ -343,7 +343,7 @@ function hasResponsePrototype(value: unknown): boolean {
           || /^function Response\(\) \{ \[native code\] \}$/.test(constructorSource)
           || (/^class Response\b/.test(constructorSource)
             && constructorSource.includes("#state")
-            && constructorSource.includes("brandCheck")))
+            && constructorSource.includes("webidl.brandCheck")))
       if (isNativeConstructor && accessorsAreBranded) return true
       prototype = Object.getPrototypeOf(prototype)
     }
