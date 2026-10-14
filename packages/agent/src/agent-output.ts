@@ -341,6 +341,17 @@ function modelVendorScope(provider: string): string {
   return provider.includes(".") ? provider.split(".", 1)[0]! : provider
 }
 
+function isDateValue(value: unknown): value is Date {
+  if (!isRecord(value)) return false
+  try {
+    Date.prototype.getTime.call(value)
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
 function responseFromResult(result: unknown): AgentUsageRecord["response"] | undefined {
   if (!isRecord(result)) return
   const response = isRecord(result.response) ? result.response : undefined
@@ -351,7 +362,7 @@ function responseFromResult(result: unknown): AgentUsageRecord["response"] | und
   return {
     ...(finishReason !== undefined ? { finishReason } : {}),
     ...(id !== undefined ? { id } : {}),
-    ...((timestamp instanceof Date || hasRuntimeType(timestamp, "string")) ? { timestamp } : {}),
+    ...((isDateValue(timestamp) || hasRuntimeType(timestamp, "string")) ? { timestamp } : {}),
   }
 }
 
@@ -452,7 +463,8 @@ function withFallbackUsageMetadata(
   const credentialSource = record.credentialSource
   const runMetadata = mergedRunMetadata(run, readableProperty(record, "run"))
   const provider = record.provider ?? (compound ? undefined : modelMetadata?.provider)
-  return model || provider || transport || cost || response || latency || credentialSource || runMetadata
+  const usage = readableProperty(record, "usage")
+  return model || provider || transport || cost || response || latency || credentialSource || runMetadata || usage
     ? {
         ...record,
         ...(cost ? { cost } : {}),
@@ -463,6 +475,7 @@ function withFallbackUsageMetadata(
         ...(response ? { response } : {}),
         ...(runMetadata ? { run: runMetadata } : {}),
         ...(transport ? { transport } : {}),
+        ...(usage ? { usage } : {}),
       }
     : record
 }
@@ -844,13 +857,11 @@ function isResponseLike(value: unknown): value is Response {
     if (!isRuntimeObject(body)) return false
     // Keep the structural contract local so TypeScript does not widen the
     // foreign stream back to `object` after the runtime checks above.
-    // Structured cloning is a host brand operation. It accepts genuine streams
-    // from another realm, rejects spoofed objects, and gives us a local stream
-    // whose methods are no longer controlled by the output object.
-    if (!hasRuntimeType(globalThis.structuredClone, "function")) return false
-    const transferableBody = body as ReadableStream
-    const stream = globalThis.structuredClone(transferableBody, { transfer: [transferableBody] })
-    if (!(stream instanceof ReadableStream)) return false
+    // The Response constructor performs a trusted Web Streams brand check,
+    // including for streams created by another realm. It does not transfer or
+    // detach the caller's stream while classifying the result.
+    const stream = new Response(body as ReadableStream).body
+    if (!stream) return false
     responseStreams.set(value, stream)
     return value.body === body
   }

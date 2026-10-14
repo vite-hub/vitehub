@@ -52,6 +52,17 @@ function boxedPrimitive(value: unknown): { type: string, value: bigint | boolean
   }
 }
 
+function isDate(value: unknown): value is Date {
+  if (!value || !hasRuntimeType(value, "object")) return false
+  try {
+    Date.prototype.getTime.call(value)
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
 async function otlpAnyValue(value: unknown, budget: OtlpEncodingBudget, ancestors = new Set<object>()): Promise<OtlpAnyValue> {
   if (hasRuntimeType(value, "boolean")) return { boolValue: value }
   if (hasRuntimeType(value, "number")) {
@@ -81,16 +92,20 @@ async function otlpAnyValue(value: unknown, budget: OtlpEncodingBudget, ancestor
       },
     }
   }
-  if (value instanceof Date) {
+  if (isDate(value)) {
+    const timestamp = Date.prototype.getTime.call(value)
     return {
       kvlistValue: {
         values: [
           { key: "type", value: { stringValue: "Date" } },
-          { key: "value", value: { stringValue: Number.isFinite(value.getTime()) ? value.toISOString() : String(value) } },
+          { key: "value", value: { stringValue: Number.isFinite(timestamp) ? Date.prototype.toISOString.call(value) : String(value) } },
         ],
       },
     }
   }
+  // Preserve the previous failure semantics for Date-shaped values whose
+  // internal slot is invalid (for example, a Proxy around a Date).
+  if (value instanceof Date) Date.prototype.getTime.call(value)
   if (value instanceof RegExp) {
     return {
       kvlistValue: {
