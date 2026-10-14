@@ -24,6 +24,7 @@ import type { ViteHubCliContributor } from "@vite-hub/internal/cli"
 import type { ViteHubInspectionContributor } from "@vite-hub/internal/inspect"
 import type { ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import type { Plugin, ResolvedConfig } from "vite"
+import type { DatabaseTableNameOptions } from "./internal/schema-tables.ts"
 import type { DBModulePublicOptions, ResolvedDBViteConfig } from "./types.ts"
 
 export const DB_VIRTUAL_SCHEMA_ID = "#vitehub/database/schema"
@@ -69,6 +70,10 @@ export type DBVitePlugin = Plugin & DBCliContributingPlugin & {
 }
 
 const mergeNoExternal = createNoExternalAddition(dbPackageName)
+
+function viteStringAliases(alias: ResolvedConfig["resolve"]["alias"] | undefined): Record<string, string> {
+  return Object.fromEntries((alias ?? []).flatMap(entry => typeof entry.find === "string" ? [[entry.find, entry.replacement]] : []))
+}
 
 function resolveDatabaseVirtualId(id: string) {
   if (id === DB_VIRTUAL_SCHEMA_ID || id === DB_INTERNAL_VIRTUAL_SCHEMA_ID) return RESOLVED_DB_VIRTUAL_SCHEMA_ID
@@ -147,14 +152,23 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
       : serverDirs
   }
 
-  async function refreshRuntimeConfig() {
+  function tableNameOptions(strict = false): DatabaseTableNameOptions {
+    const logger = resolved?.logger
+    return {
+      alias: viteStringAliases(resolved?.resolve?.alias),
+      onFallback: strict ? undefined : message => logger ? logger.warn(message) : console.warn(message),
+    }
+  }
+
+  // `vitehub db generate` passes `strict` so a Definition that cannot load fails instead of dropping tables.
+  async function refreshRuntimeConfig(options: { strict?: boolean } = {}) {
     if (!resolved) return
     runtimeConfig = resolveDBViteConfig(resolvedOptions(), databaseRoot(), {
       provisionRoot: resolved.root,
       serverDirs: databaseServerDirs(),
     })
     if (runtimeConfig) {
-      await writeGeneratedDatabaseArtifacts(runtimeConfig)
+      await writeGeneratedDatabaseArtifacts(runtimeConfig, tableNameOptions(options.strict))
     } else {
       await removeGeneratedDatabaseTypes(databaseRoot())
     }
@@ -199,7 +213,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
     api: {
       getConfig: () => runtimeConfig,
       isEnabled: () => resolvedOptions() !== false,
-      refresh: refreshRuntimeConfig,
+      refresh: () => refreshRuntimeConfig(),
     },
     nitro: {
       name: "@vite-hub/database/cloudflare-bindings",
@@ -292,7 +306,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
         const contributionRuntimeConfig = runtimeConfig
         const contributionProviderOutput = providerOutput
         const generation = providerOutputGenerations.get(this)
-        await writeGeneratedDatabaseArtifacts(contributionRuntimeConfig)
+        await writeGeneratedDatabaseArtifacts(contributionRuntimeConfig, tableNameOptions())
         artifactDir = resolve(contributionResolved.root, ".vitehub/database-generations", randomUUID())
         const contributionArtifactDir = artifactDir
         const retainedSources = await retainProviderOutputSources({

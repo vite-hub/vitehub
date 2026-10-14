@@ -6,7 +6,8 @@ import type { ViteHubCliContributor as SharedViteHubCliContributor } from "@vite
 
 import { isAbsolute, relative } from "pathe"
 
-type ResolvedDBViteConfigProvider = () => MaybePromise<ResolvedDBViteConfig | undefined>
+/** Refreshes generated artifacts. `strict` fails when a Database Definition cannot load to list its tables. */
+type ResolvedDBViteConfigProvider = (options: { strict: boolean }) => MaybePromise<ResolvedDBViteConfig | undefined>
 type MaybePromise<T> = Promise<T> | T
 
 interface ViteHubCliContext {
@@ -76,7 +77,7 @@ async function runDrizzleKit(
   context: ViteHubCliContext,
   getConfig?: ResolvedDBViteConfigProvider,
 ): Promise<number> {
-  const config = await getConfig?.()
+  const config = await getConfig?.({ strict: feature === "generate" })
   const configFiles = config && config.databaseNames.length > 1
     ? config.databaseNames.map(name => config.generatedDrizzleConfigFilesByDatabase[name]!)
     : [config?.generatedDrizzleConfigFile ?? ".vitehub/database/drizzle.config.ts"]

@@ -56,6 +56,7 @@ type NuxtLike = {
     (name: "builder:watch", callback: (event: string, path: string) => Promise<void> | void): void
   }
   options: Record<string, unknown> & {
+    alias?: Record<string, string>
     buildDir?: string
     dev?: boolean
     modules?: unknown[]
@@ -187,7 +188,10 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
           }
           if (runtimeProvider === "cloudflare" || runtimeProvider === "vercel") {
             if (runtime) {
-              await writeGeneratedDatabaseArtifacts(runtime)
+              await writeGeneratedDatabaseArtifacts(runtime, {
+                alias: nuxtOptions.alias,
+                onFallback: message => console.warn(message),
+              })
               await writeHostedDatabaseRuntimeModules(resolve(root, ".vitehub/database"), runtime, [runtimeProvider])
             }
           }

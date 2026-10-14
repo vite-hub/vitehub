@@ -93,7 +93,6 @@ export interface DiscoveredDatabaseDefinition {
   mode: "default" | "named"
   name: string
   source: string
-  tableNames: string[]
 }
 
 export interface ResolvedCloudflareD1BindingConfig {

@@ -86,8 +86,21 @@ function readObjectKeys(body: string | undefined) {
   return [...new Set(splitTopLevel(body).map(readEntryKey).filter((key): key is string => Boolean(key)))]
 }
 
-function readDatabaseTableNames(file: string) {
-  return readObjectKeys(objectLiteralBody(readObjectPropertyValue(readDefinitionObjectBody(file), "schema")))
+export interface StaticDatabaseSchema {
+  /** False when the schema has entries the source cannot show, such as an imported schema or a spread. */
+  complete: boolean
+  tableNames: string[]
+}
+
+/** Reads the keys of a literal `schema: { ... }` without loading the Definition. */
+export function readStaticDatabaseSchema(file: string): StaticDatabaseSchema {
+  const body = objectLiteralBody(readObjectPropertyValue(readDefinitionObjectBody(file), "schema"))
+  if (body === undefined) return { complete: false, tableNames: [] }
+  const entries = splitTopLevel(body).map(stripLeadingEntryComments).filter(entry => entry.trim())
+  return {
+    complete: entries.every(entry => !entry.trimStart().startsWith("...") && readEntryKey(entry)),
+    tableNames: readObjectKeys(body),
+  }
 }
 
 function readConfigValue(body: string | undefined, property: string): DatabaseConfigValue | undefined {
@@ -294,7 +307,6 @@ function createDatabaseDefinition(source: string, file: string, name: string, mo
     mode,
     name,
     source,
-    tableNames: readDatabaseTableNames(file),
   }
 }
 

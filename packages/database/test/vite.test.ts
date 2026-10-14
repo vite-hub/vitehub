@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promis
 import { dirname, join, resolve } from "node:path"
 import { tmpdir } from "node:os"
 
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { createServer as createViteServer, type ViteDevServer } from "vite"
 import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
@@ -373,10 +373,32 @@ describe("hubDb", () => {
         },
       },
     })
-    await expect(readFile(join(rootDir, ".vitehub/database/schema/default.ts"), "utf8")).resolves.toContain("export const notes")
+    await expect(readFile(join(rootDir, ".vitehub/database/schema/default.ts"), "utf8")).resolves.toContain("export { table_0 as notes }")
     await expect(readFile(join(rootDir, ".vitehub/database/drizzle.config.ts"), "utf8")).resolves.toContain("server/databases/migrations")
     await expect(readFile(join(rootDir, ".vitehub/database/drizzle.config.ts"), "utf8")).resolves.toContain("dbCredentials")
     await expect(readFile(join(rootDir, ".vitehub/database/drizzle/default.config.ts"), "utf8")).resolves.toContain("file:.vitehub/data/database/sqlite.db")
+  })
+
+  it("warns during config resolution but fails db generate when a Definition cannot load", async () => {
+    const rootDir = await createTempProject()
+    const definition = await writeDefinition(rootDir, "server/databases/config.ts")
+    await writeFile(definition, `import "./missing.ts"\n${await readFile(definition, "utf8")}`)
+    const warn = vi.fn()
+    const spawn = vi.fn(async () => ({ exitCode: 0 }))
+
+    const plugin = hubDb()
+    await resolveConfigResolved(plugin)({ logger: { warn }, resolve: { alias: [] }, root: rootDir })
+
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("could not load to list its tables"))
+    await expect(readFile(join(rootDir, ".vitehub/database/schema/default.ts"), "utf8")).resolves.toContain("export { table_0 as notes }")
+    const generate = (await resolveCliContributor(plugin))!.namespaces[0]!.features.find(feature => feature.name === "generate")!
+    await expect(generate.run([], {
+      rootDir,
+      spawn,
+      stderr: { write: vi.fn() },
+      stdout: { write: vi.fn() },
+    } as never)).rejects.toMatchObject({ code: "DATABASE_B0007" })
+    expect(spawn).not.toHaveBeenCalled()
   })
 
   it("emits prototype-named databases as own virtual registry entries", async () => {
@@ -411,7 +433,7 @@ describe("hubDb", () => {
 
     expect(plugin.api.getConfig()?.rootDir).toBe(projectRoot)
     await expect(readFile(join(projectRoot, ".vitehub/database/schema/default.ts"), "utf8"))
-      .resolves.toContain("export const notes")
+      .resolves.toContain("export { table_0 as notes }")
   })
 
   it("reads provision state from the Vite root when projectRoot is nested", async () => {
@@ -699,7 +721,7 @@ describe("hubDb", () => {
     })
 
     expect(invalidated).toEqual([`\0${DB_VIRTUAL_SCHEMA_ID}`, `\0${DB_VIRTUAL_DATABASES_ID}`])
-    await expect(readFile(join(rootDir, ".vitehub/database/schema/default.ts"), "utf8")).resolves.toContain("export const tasks")
+    await expect(readFile(join(rootDir, ".vitehub/database/schema/default.ts"), "utf8")).resolves.toContain("export { table_0 as tasks }")
   })
 
   it("normalizes definition paths before matching hot updates", async () => {
