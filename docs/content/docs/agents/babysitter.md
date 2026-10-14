@@ -69,6 +69,7 @@ Add `instructions.md` next to `agent.ts` for project-specific guidance. It fills
 | `admission` | `{}` | Token budgets, a free-space guard and custom checks that stop model passes. See [Limit model passes](#limit-model-passes). |
 | `capacity` | Process defaults | Host admission `memory`, `cpu`, and `fallbackConcurrency` settings. |
 
+Use the Agent's top-level [`budget`](/docs/agents/capabilities/budget) option for a per-pass token or USD policy. Babysitter `admission` remains a host and time-window gate over retained journal usage. The two policies compose: admission can delay a new pass, while an invocation budget reports or enforces the usage of the pass that runs.
 ## Control work with labels
 
 Create the configured labels in your repositories. With the example above, add `agent:repair` when opening a pull request, or add it later to start work. Add `agent:paused` to pause it, and remove that label to resume while `agent:repair` remains present.

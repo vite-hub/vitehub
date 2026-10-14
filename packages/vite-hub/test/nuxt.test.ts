@@ -2176,7 +2176,7 @@ describe("ViteHub Nuxt integration", () => {
           if (id === "#vitehub/auth/server") return "\0vitehub-test-auth-server"
         },
         load(id: string) {
-          if (id === "\0vitehub-test-auth-server") return "export function handleAuthRequest() { return new Response('auth resolver reached') }"
+          if (id === "\0vitehub-test-auth-server") return "export function handleAuthRequest() { return new Response('auth resolver reached') }\nexport function toAuthRequest(event) { return event.req }"
         },
       },
     ])

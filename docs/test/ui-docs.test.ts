@@ -183,6 +183,7 @@ describe("UI documentation", () => {
     expect(desktopStyles).toMatch(/\.vh-docs-shell\s*\{[^}]*display: flex;/);
     expect(desktopStyles).toMatch(/\.vh-docs-shell > \.vh-docs-desktop-nav\s*\{[^}]*display: flex;/);
     expect(desktopStyles).toMatch(/\.vh-docs-content\s*\{[^}]*flex: 1;/);
+    expect(layout).toContain("flex: 1;");
   });
 
   it("lists the Vue ecosystem perspective in the getting started sidebar", () => {
