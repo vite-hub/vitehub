@@ -473,9 +473,9 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       const consoleAuthConfig = registeredConsoleAuthMode(configuredConsoleAuth, environment.command !== "build") ? resolvedConsoleAuth : undefined
       consoleAuthMode = registeredConsoleAuthMode(configuredConsoleAuth, environment.command !== "build")
       // SAFETY: The Env plugin adds this optional string to Vite configuration.
-      const developmentSecret = (config as typeof config & { __vitehubEnvDevelopmentSecret?: string }).__vitehubEnvDevelopmentSecret
+      const developmentSecretEnvKey = (config as typeof config & { __vitehubEnvDevelopmentSecretEnvKey?: string }).__vitehubEnvDevelopmentSecretEnvKey
       inlineConsoleAuthConfig = consoleAuthConfig && "provider" in consoleAuthConfig && consoleAuthConfig.provider === "github"
-        ? { ...consoleAuthConfig, developmentSecret }
+        ? { ...consoleAuthConfig, developmentSecretEnvKey }
         : consoleAuthConfig
       consoleAuthHandlers = inlineConsoleAuthConfig ? await writeConsoleAuthHandlers(root, inlineConsoleAuthConfig, baseURL) : undefined
       refreshConsoleAuthClient = consoleAuthConfig
@@ -563,7 +563,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
         inlineConsoleAuthConfig = {
           ...inlineConsoleAuthConfig,
           // SAFETY: Vite preserves the Env plugin’s optional selected root in resolved config.
-          developmentSecret: (config as typeof config & { __vitehubEnvDevelopmentSecret?: string }).__vitehubEnvDevelopmentSecret,
+          developmentSecretEnvKey: (config as typeof config & { __vitehubEnvDevelopmentSecretEnvKey?: string }).__vitehubEnvDevelopmentSecretEnvKey,
         }
       }
       if (resolvedConsoleConfiguration) {

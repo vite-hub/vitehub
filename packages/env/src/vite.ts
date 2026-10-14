@@ -60,6 +60,7 @@ const defaultRuntimeImports = {
   server: "@vite-hub/env/server",
 }
 let envVitePluginSequence = 0
+const developmentSecretLocks = new Map<string, Promise<{ secret: string, generated: boolean, envKey: string }>>()
 
 export { env }
 
@@ -224,11 +225,12 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
       const configStateId = String(++configStateSequence)
       pendingConfigStates.set(configStateId, state)
       for (const handler of serverRegistryHandlers) handler(serverRegistry, config)
-      if (!envConfig) return { [configStateKey]: configStateId, __vitehubEnvDevelopmentSecret: developmentSecret }
+      if (!envConfig) return { [configStateKey]: configStateId, __vitehubEnvDevelopmentSecret: developmentSecret, __vitehubEnvDevelopmentSecretEnvKey: developmentSecretEnvKey }
 
       return {
         [configStateKey]: configStateId,
         __vitehubEnvDevelopmentSecret: developmentSecret,
+        __vitehubEnvDevelopmentSecretEnvKey: developmentSecretEnvKey,
         define: {
           ...Object.fromEntries(Object.entries(defineValues).map(([key, value]) => [key, JSON.stringify(value)])),
           ...config.define,
@@ -244,6 +246,10 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
       resolvedConfigStates.set(config, state)
       // Keep the selected root associated with this Vite configuration. Consumers
       // such as inline Console Auth must not recover it from process.env.
+      Reflect.defineProperty(config, "__vitehubEnvDevelopmentSecretEnvKey", {
+        configurable: true,
+        value: state.developmentSecretEnvKey,
+      })
       Reflect.defineProperty(config, "__vitehubEnvDevelopmentSecret", {
         configurable: true,
         value: state.developmentSecret,
@@ -389,6 +395,19 @@ const generatedSecretPattern = /^[0-9a-f]{64}$/
  * The secret is kept in `.vitehub/env/secret` with mode 0600 and survives restarts. Builds never generate one.
  */
 async function resolveDevelopmentSecret(projectRoot: string, loadedEnv: Record<string, string>): Promise<{ secret: string, generated: boolean, envKey: string }> {
+  const existing = developmentSecretLocks.get(projectRoot)
+  if (existing) return existing
+  const pending = resolveDevelopmentSecretUnlocked(projectRoot, loadedEnv)
+  developmentSecretLocks.set(projectRoot, pending)
+  try {
+    return await pending
+  }
+  finally {
+    if (developmentSecretLocks.get(projectRoot) === pending) developmentSecretLocks.delete(projectRoot)
+  }
+}
+
+async function resolveDevelopmentSecretUnlocked(projectRoot: string, loadedEnv: Record<string, string>): Promise<{ secret: string, generated: boolean, envKey: string }> {
   // loadEnv includes external process values with Vite's normal precedence.
   // Keep the selected root in this project's config and runtime module only.
   const configured = readViteHubSecret(loadedEnv)
