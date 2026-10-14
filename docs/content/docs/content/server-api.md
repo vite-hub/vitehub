@@ -85,6 +85,7 @@ export default defineEventHandler(async (event) => {
 | `posts.schema` | The frontmatter [JSON Schema](/docs/content/configure#json-schema). |
 | `content.publish(options?)` | Copies draft documents to `published` in one revision. Pass `expect` to publish exactly what was reviewed. |
 | `content.revisions(collection, id, options?)` | Revisions that saved, removed, restored, or published one document, newest first. |
+| `content.revisions(options?)` | Revisions that changed documents of any collection on one ref, newest first. |
 | `content.can({ user?, actor?, collection, action, id? })` | Evaluates `authorize`. Returns `false` when no policy is defined. |
 
 A document is `{ collection, id, path, data, body, digest, revision, updatedAt }`. `path` is the Workspace file, `data` holds each field's validated output, and `digest` is the SHA-256 of the file bytes. `revision` is the history revision the document was read from.
@@ -204,6 +205,12 @@ await content.collection('posts').restore('hello', revisions[1].id)
 ```
 
 `revisions()` reads the `draft` ref by default. Pass `ref: 'published'` for publishes. Each item is a Workspace revision with `id`, `createdAt`, `message`, and `metadata`. Content records `metadata.content.action` and `metadata.content.documents` on its own commits, and lists only those. Commits made outside Content are not attributed to a document. One call scans at most 1,000 revisions and returns a `cursor` to continue.
+
+Leave out the document to list recent changes across every collection, for an activity feed. Read `metadata.content.documents` for the documents of each revision:
+
+```ts
+const { revisions } = await content.revisions({ ref: 'published', limit: 20 })
+```
 
 ### Access
 

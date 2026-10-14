@@ -6,23 +6,29 @@ import type {
   ViteHubConsoleDocumentActionContext,
   ViteHubConsoleDocumentActions,
   ViteHubConsoleDocumentActionsFactory,
+  ViteHubConsoleDocumentActivity,
   ViteHubConsoleDocumentChange,
   ViteHubConsoleDocumentCollection,
   ViteHubConsoleDocumentComponent,
   ViteHubConsoleDocumentListInput,
+  ViteHubConsoleDocumentOverviewCollection,
   ViteHubConsoleDocumentPage,
+  ViteHubConsoleDocumentPendingChange,
   ViteHubConsoleDocumentPublishExpectation,
   ViteHubConsoleDocumentRevision,
+  ViteHubConsoleDocumentSearchResult,
   ViteHubConsoleDocumentState,
 } from "@vite-hub/internal/console"
 import type { ContentAction, ContentDocumentsRuntime } from "../index.ts"
-import type { ContentCollection, ContentDocument, ContentListOptions } from "../collections.ts"
+import type { ContentCollection, ContentDocument, ContentDocumentStatus, ContentDocumentSummary, ContentListOptions } from "../collections.ts"
 
 type ContentRuntime = Pick<ContentDocumentsRuntime, "can" | "collection" | "collections" | "publish" | "revisions">
 
 const documentStates: readonly ViteHubConsoleDocumentState[] = ["draft", "published", "changed", "deleted"]
 const titleFields = ["title", "name", "label", "heading"]
 const maximumListLimit = 200
+const maximumActivity = 50
+const maximumSearchLimit = 50
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && Object(value) === value && !Array.isArray(value)
@@ -206,6 +212,29 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
     const current = state ?? await stateOf(collection, document.id)
     if (current) result.state = current
     return result
+  }
+
+  async function readable(context: ViteHubConsoleDocumentActionContext): Promise<ContentCollection[]> {
+    const collections = content.collections()
+    const allowed = await Promise.all(collections.map(collection => content.can({ user: context.user, collection: collection.name, action: "read" })))
+    return collections.filter((_collection, index) => allowed[index])
+  }
+
+  function titleOf(collection: ContentCollection, summary: Pick<ContentDocumentSummary, "data" | "id"> | undefined, id: string): string {
+    const field = titleFieldOf(collection.schema)
+    const title = field && summary ? summary.data[field] : undefined
+    return String(title) === title && title.trim() ? title : id
+  }
+
+  /** Summaries of some documents in one read per ref: drafts from `draft`, documents deleted on the draft from `published`. */
+  async function summaries(collection: ContentCollection, ids: ReadonlySet<string>, statuses: ReadonlyMap<string, ContentDocumentStatus>): Promise<Map<string, ContentDocumentSummary>> {
+    const onDraft = [...ids].filter(id => statuses.get(id)?.draft != null)
+    const onPublished = [...ids].filter(id => statuses.get(id)?.draft == null && statuses.get(id)?.published != null)
+    const read = (ref: "draft" | "published", list: string[]) => list.length
+      ? collection.list({ ref, filter: { id: list }, limit: Math.min(list.length, 1_000) })
+      : Promise.resolve({ items: [] as ContentDocumentSummary[] })
+    const pages = await Promise.all([read("draft", onDraft), read("published", onPublished)])
+    return new Map(pages.flatMap(page => page.items.map(item => [item.id, item] as const)))
   }
 
   const actions: ViteHubConsoleDocumentActions = {
@@ -399,6 +428,98 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
       const revision = text(input.revision, "revision")
       const ifDigest = digest(input.ifDigest)
       return await attempt(async () => await view(collection, await collection.restore(id, revision, { ifDigest, metadata: writeMetadata(context) })))
+    },
+
+    async overview(input, context) {
+      const limit = isRecord(input) && input.activity !== undefined ? input.activity : 20
+      if (!Number.isSafeInteger(limit) || limit < 0 || limit > maximumActivity) throw invalidInput(`activity must be an integer from 0 to ${maximumActivity}.`)
+      const collections = await readable(context)
+      const names = new Set(collections.map(collection => collection.name))
+      return await attempt(async () => {
+        // Saves, removes, and restores live on `draft`; publishes on `published`. Each ref is read once.
+        const [draft, published] = limit
+          ? await Promise.all((["draft", "published"] as const).map(ref => content.revisions({ ref, limit })))
+          : [{ revisions: [] }, { revisions: [] }]
+        const revisions = [...draft!.revisions, ...published!.revisions]
+          .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+          .slice(0, limit)
+        const mentioned = new Map<string, Set<string>>()
+        const activity: ViteHubConsoleDocumentActivity[] = revisions.flatMap((revision) => {
+          const content = revision.metadata?.content
+          const listed: unknown = isRecord(content) ? content.documents : undefined
+          const documents = (Array.isArray(listed) ? listed : []).flatMap((document: unknown) => {
+            if (!isRecord(document) || String(document.collection) !== document.collection || String(document.id) !== document.id || !names.has(document.collection)) return []
+            ;(mentioned.get(document.collection) ?? mentioned.set(document.collection, new Set()).get(document.collection)!).add(document.id)
+            return [{ collection: document.collection, id: document.id, title: document.id }]
+          })
+          if (!documents.length) return []
+          const entry: ViteHubConsoleDocumentActivity = { id: revision.id, ref: revision.ref, createdAt: revision.createdAt, action: revisionAction(revision.metadata), documents }
+          const by = revisionAuthor(revision.metadata)
+          if (by) entry.author = by
+          return [entry]
+        })
+        const titles = new Map<string, string>()
+        const overviews = await Promise.all(collections.map(async (collection): Promise<ViteHubConsoleDocumentOverviewCollection> => {
+          const statuses = await collection.status()
+          const states: Record<ViteHubConsoleDocumentState, number> = { draft: 0, published: 0, changed: 0, deleted: 0 }
+          for (const status of statuses) states[status.state]++
+          const pending = statuses.filter(status => status.state !== "published")
+          const byId = new Map(statuses.map(status => [status.id, status]))
+          const found = await summaries(collection, new Set([...pending.map(status => status.id), ...mentioned.get(collection.name) ?? []]), byId)
+          for (const [id, summary] of found) titles.set(`${collection.name}\u0000${id}`, titleOf(collection, summary, id))
+          const changes: ViteHubConsoleDocumentPendingChange[] = pending.map((status) => {
+            const summary = found.get(status.id)
+            return {
+              id: status.id,
+              // SAFETY: `pending` leaves out published documents.
+              state: status.state as ViteHubConsoleDocumentPendingChange["state"],
+              digest: status.draft,
+              title: titleOf(collection, summary, status.id),
+              updatedAt: status.state === "deleted" ? null : summary?.updatedAt ?? null,
+            }
+          })
+          changes.sort((left, right) => (right.updatedAt ?? "").localeCompare(left.updatedAt ?? "") || left.id.localeCompare(right.id))
+          return { name: collection.name, states, changes }
+        }))
+        for (const entry of activity) {
+          for (const document of entry.documents) document.title = titles.get(`${document.collection}\u0000${document.id}`) ?? document.id
+        }
+        return { collections: overviews, activity }
+      })
+    },
+
+    async search(input, context) {
+      if (!isRecord(input)) throw invalidInput("search() requires { query }.")
+      const query = String(input.query) === input.query ? input.query.trim() : ""
+      if (!query) throw invalidInput("query must be a non-empty string.")
+      const limit = input.limit ?? 20
+      if (!Number.isSafeInteger(limit) || limit < 1 || limit > maximumSearchLimit) throw invalidInput(`limit must be an integer from 1 to ${maximumSearchLimit}.`)
+      const collections = await readable(context)
+      const needle = query.toLowerCase()
+      return await attempt(async () => {
+        const found = await Promise.all(collections.map(async (collection) => {
+          // The draft search covers the collection's search fields and the body; ids match as text too.
+          const [statuses, page] = await Promise.all([collection.status(), collection.list({ ref: "draft", search: query, limit })])
+          const byId = new Map(statuses.map(status => [status.id, status]))
+          const items = new Map(page.items.map(item => [item.id, item]))
+          const idMatches = statuses.filter(status => status.draft !== null && !items.has(status.id) && status.id.toLowerCase().includes(needle)).slice(0, limit)
+          if (idMatches.length) {
+            for (const [id, item] of await summaries(collection, new Set(idMatches.map(status => status.id)), byId)) items.set(id, item)
+          }
+          return [...items.values()].map((item) => {
+            const title = titleOf(collection, item, item.id)
+            const lower = title.toLowerCase()
+            const rank = lower.startsWith(needle) ? 0 : lower.includes(needle) ? 1 : item.id.toLowerCase().includes(needle) ? 2 : 3
+            const result: ViteHubConsoleDocumentSearchResult = { collection: collection.name, id: item.id, title, state: byId.get(item.id)?.state ?? "draft", updatedAt: item.updatedAt }
+            return { rank, result }
+          })
+        }))
+        const items = found.flat()
+          .sort((left, right) => left.rank - right.rank || (right.result.updatedAt ?? "").localeCompare(left.result.updatedAt ?? ""))
+          .slice(0, limit)
+          .map(({ result }) => result)
+        return { items }
+      })
     },
   }
   return actions
