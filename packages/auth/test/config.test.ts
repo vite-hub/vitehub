@@ -62,6 +62,18 @@ describe("discoverAuthDefinition", () => {
     })
   })
 
+  it("keeps an explicitly empty server directory list", async () => {
+    const rootDir = await createTempProject()
+    await writeAuth(rootDir, "server/auth.ts", [])
+    const file = await writeAuth(rootDir, "server.auth.ts", [])
+
+    expect(discoverAuthDefinitions(rootDir, { serverDirs: [] })).toEqual([{
+      handler: file,
+      name: "default",
+      source: "server-auth-suffix",
+    }])
+  })
+
   it("discovers Auth from an explicit framework server directory", async () => {
     const rootDir = await createTempProject()
     const serverDir = join(rootDir, "backend")

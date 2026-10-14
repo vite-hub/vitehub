@@ -31,8 +31,9 @@ function existingDefinitions(candidates: DiscoveredAuthDefinition[]): Discovered
  * An application Definition replaces layer Definitions. Two Definitions at the same level fail discovery.
  */
 export function discoverAuthDefinitions(rootDir: string, options: { serverDirs?: string[] } = {}): DiscoveredAuthDefinition[] {
-  const [appServerDir = resolve(rootDir, "server"), ...layerServerDirs] = options.serverDirs ?? []
-  const appDefinitions = existingDefinitions([...serverAuthCandidates(appServerDir), ...rootAuthCandidates(rootDir)])
+  // An explicitly empty list disables server directory discovery. Only an omitted list uses `<rootDir>/server`.
+  const [appServerDir, ...layerServerDirs] = options.serverDirs ?? [resolve(rootDir, "server")]
+  const appDefinitions = existingDefinitions([...appServerDir ? serverAuthCandidates(appServerDir) : [], ...rootAuthCandidates(rootDir)])
   if (appDefinitions.length > 1) {
     throw authErrorDiagnostics.AUTH_R0003({ message: [
       "[vitehub] Only one Auth Definition is allowed. Found:",
