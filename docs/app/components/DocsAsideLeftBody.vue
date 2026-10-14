@@ -78,6 +78,15 @@ function isActive(path: string) {
       </NuxtLink>
     </section>
 
+    <NuxtLink
+      v-if="section.id !== 'getting-started'"
+      to="/docs/getting-started"
+      class="vh-docs-sidebar-link"
+    >
+      <UIcon name="i-ph-rocket-launch-light" class="size-4 shrink-0" />
+      <span class="min-w-0 truncate">Get started</span>
+    </NuxtLink>
+
     <NuxtLink to="/docs" class="vh-docs-sidebar-link vh-docs-sidebar-catalog-link">
       <UIcon name="i-ph-squares-four-light" class="size-4 shrink-0" />
       <span class="min-w-0 truncate">Browse all docs</span>
