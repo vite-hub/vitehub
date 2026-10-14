@@ -126,11 +126,12 @@ With `vite-hub` and the Console, the policy is the Console access policy of the 
 
 | Console access | Check | Manager |
 | --- | --- | --- |
-| Console Auth (`console: { access: "auth", auth: { ... } }`) | The Console Auth session and its `authorize` callback. | The signed-in user, `user:<id>`. |
-| Primary Auth (`console: { access: "auth" }` with an Auth Definition) | The app Auth access routes that protect the Console. | The signed-in user, `user:<id>`. |
-| Cloudflare Access (`auth: { provider: "cloudflare-access" }`) | The Cloudflare Access token. | `user:cloudflare-access`. |
-| `exposure: "host-managed"` | The host `console.authorize` function. | `user:host-managed`. |
-| `console: true` | Development server only. Production returns `403`. | `user:local`. |
+| Console Auth (`console: { auth: { ... } }`) | The Console Auth session and its `authorize` callback. | The signed-in user, `user:<id>`. |
+| App Auth (`console: { auth: "app" }`) | The app Auth session and the access routes that protect the Console. | The signed-in user, `user:<id>`. |
+| Cloudflare Access (`console: { auth: { provider: "cloudflare-access" } }`) | The Cloudflare Access token. | `user:cloudflare-access`. |
+| No sign-in (`console: { auth: false }`) | None. | `user:open`. |
+
+`console.authorize` runs after each of these checks. When it returns `{ sections }`, the routes also need the `connections` section.
 
 ```ts
 import { hubConnections } from "@vite-hub/connections/vite";
