@@ -19,7 +19,7 @@ function useNow() {
 </script>
 
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, watch } from "vue";
 
 import { exactTimestamps, recentTimestamp } from "../client/time";
 
@@ -30,16 +30,35 @@ import { exactTimestamps, recentTimestamp } from "../client/time";
 const props = defineProps<{
   /** Text before the time, such as `Saved`. */
   prefix?: string;
+  /** Count the first minute in seconds, such as `Saved 3s ago`. The label then ticks every second for that minute. */
+  seconds?: boolean;
   value: string;
 }>();
 
 const clock = useNow();
 const label = computed(() => {
-  const relative = recentTimestamp(props.value, clock.value);
+  const relative = recentTimestamp(props.value, clock.value, { seconds: props.seconds });
   if (!relative) return props.value;
   return relative === "now" ? "just now" : relative;
 });
 const exact = computed(() => exactTimestamps(props.value));
+
+// A second-precision label ticks on its own until it reaches minutes, then follows the shared clock.
+let fast: ReturnType<typeof setInterval> | undefined;
+function stopFast(): void {
+  if (fast) clearInterval(fast);
+  fast = undefined;
+}
+watch(() => [props.value, props.seconds] as const, ([value, seconds]) => {
+  stopFast();
+  if (!seconds) return;
+  clock.value = Date.now();
+  fast = setInterval(() => {
+    clock.value = Date.now();
+    if (Date.now() - Date.parse(value) >= 60_000) stopFast();
+  }, 1_000);
+}, { immediate: true });
+onBeforeUnmount(stopFast);
 </script>
 
 <template>
