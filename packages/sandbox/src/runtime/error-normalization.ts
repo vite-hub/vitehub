@@ -64,7 +64,7 @@ function isErrorValue(value: unknown): value is Error {
 function readErrorMessage(error: Error): string | undefined {
   try {
     const message = error.message
-    return String.prototype.valueOf.call(message) === message && message.length > 0
+    return typeof message === 'string' && message.length > 0
       ? message
       : undefined
   }

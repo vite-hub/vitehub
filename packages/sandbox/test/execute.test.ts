@@ -39,6 +39,15 @@ it("falls back when a foreign error has a non-string message", () => {
   })
 })
 
+it("falls back when a foreign error has a function message", () => {
+  const error = runInNewContext('(() => { const error = new Error("foreign provider failure"); error.message = function message() {}; return error })()')
+  expect(() => toSandboxError(error)).not.toThrow()
+  expect(toSandboxError(error)).toMatchObject({
+    code: "SANDBOX_RUNTIME_ERROR",
+    message: "Sandbox execution failed.",
+  })
+})
+
 it.each([
   {
     label: "string message",
