@@ -89,6 +89,7 @@ export default defineEventHandler(async (event) => {
 | `posts.routable`, `posts.seo` | Whether documents have a [`url`](/docs/content/seo#document-urls), and the name of the `seo()` field, if any. |
 | `posts.schema` | The fields' [JSON Schema](/docs/content/configure#json-schema). |
 | `content.publish(options?)` | Copies draft documents to `published` in one revision. Pass `expect` to publish exactly what was reviewed. |
+| `content.schedule({ at, expect })`, `content.schedules()`, `content.unschedule(id)`, `content.publishDue()` | Publish reviewed drafts at a later time, list and cancel schedules, and run due ones. See [Scheduling](/docs/content/scheduling). |
 | `content.revisions(collection, id?, options?)` | Revisions that saved, removed, restored, or published one document, newest first. Omit `id` for a singleton. |
 | `content.revisions(options?)` | Revisions that changed documents of any collection on one ref, newest first. |
 | `content.can({ user?, actor?, collection, action, id? })` | Evaluates `authorize`. Returns `false` when no policy is defined. |
@@ -191,7 +192,7 @@ Saves of different documents never conflict. When another save moved the draft h
 | `changed` | Published, with unpublished draft changes. |
 | `deleted` | Removed from the draft, still published until the next `publish()`. |
 
-`status(id)` returns `{ collection, id, state, draft, published }`, where `draft` and `published` are the document digests on each ref or `null`. It returns `null` when the document exists on neither ref. An empty draft mirrors `published`, so before the first save `draft` equals `published`.
+`status(id)` returns `{ collection, id, state, draft, published, schedule? }`, where `draft` and `published` are the document digests on each ref or `null`, and `schedule` is the document's [scheduled publish](/docs/content/scheduling#statuses), if any. It returns `null` when the document exists on neither ref. An empty draft mirrors `published`, so before the first save `draft` equals `published`.
 
 ### Publish
 

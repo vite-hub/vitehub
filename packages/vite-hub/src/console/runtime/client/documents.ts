@@ -9,12 +9,29 @@ export type ConsoleDocumentState = "draft" | "published" | "changed" | "deleted"
 
 export const consoleDocumentStates: readonly ConsoleDocumentState[] = ["draft", "changed", "published", "deleted"]
 
+/** `overdue`: past its time without a run. `failed`: a draft changed after scheduling, so nothing was published. */
+export type ConsoleDocumentScheduleStatus = "pending" | "overdue" | "failed"
+
+/** The scheduled publish of a document. */
+export interface ConsoleDocumentSchedule {
+  /** When it publishes, as an ISO timestamp. */
+  at: string
+  failure?: string
+  id: string
+  status: ConsoleDocumentScheduleStatus
+}
+
+export interface ConsoleDocumentScheduled extends ConsoleDocumentSchedule {
+  documents: ConsoleDocumentPublishExpectation[]
+}
+
 export interface ConsoleDocumentSummary {
   data: Record<string, unknown>
   /** Draft digest, or null for a document deleted on the draft. */
   digest: string | null
   id: string
   path: string
+  schedule?: ConsoleDocumentSchedule
   state: ConsoleDocumentState
   title: string
   updatedAt: string | null
@@ -36,6 +53,8 @@ export interface ConsoleDocumentPage {
   facets?: Record<string, Array<{ count: number, value: string }>>
   items: ConsoleDocumentSummary[]
   nextCursor: string | null
+  /** Documents with a schedule, before search, state, and filters. */
+  scheduled: number
   states: Record<ConsoleDocumentState, number>
   total: number
 }
@@ -48,6 +67,7 @@ export interface ConsoleDocument {
   id: string
   path: string
   revision: string
+  schedule?: ConsoleDocumentSchedule
   state?: ConsoleDocumentState
   updatedAt: string | null
   /** Public URL path, such as `/blog/hello`, when the collection maps documents to pages. */
@@ -79,6 +99,8 @@ export interface ConsoleDocumentListQuery {
   filter?: Record<string, string | readonly string[]>
   limit?: number
   search?: string
+  /** Only documents with a schedule. */
+  scheduled?: boolean
   sort?: { direction?: "asc" | "desc", field: string }
   state?: ConsoleDocumentState
 }
@@ -144,6 +166,8 @@ interface ConsoleDocumentActionResults {
   restore: ConsoleDocument
   revisions: { cursor?: string, revisions: ConsoleDocumentRevision[] }
   save: ConsoleDocument
+  schedule: ConsoleDocumentScheduled
+  unschedule: null
 }
 
 /** The owner document actions of one document editor section, called through the Console RPC transport. */
@@ -162,6 +186,10 @@ export interface ConsoleDocumentsClient {
   restore(collection: string, id: string, revision: string, ifDigest: string | null): Promise<ConsoleDocument>
   revisions(collection: string, id: string, cursor?: string): Promise<{ cursor?: string, revisions: ConsoleDocumentRevision[] }>
   save(collection: string, id: string, input: { body: string, data: Record<string, unknown>, ifDigest: string | null }): Promise<ConsoleDocument>
+  /** Publishes exactly these drafts at `at`, an ISO timestamp. A draft saved after scheduling makes the schedule fail. */
+  schedule(collection: string, at: string, expect: readonly ConsoleDocumentPublishExpectation[]): Promise<ConsoleDocumentScheduled>
+  /** Cancels a pending schedule, or dismisses a failed one. */
+  unschedule(collection: string, schedule: string): Promise<null>
 }
 
 /** Calls the owner document actions of one document editor section. */
@@ -188,6 +216,9 @@ export function createConsoleDocumentsClient(base: string, section: string): Con
     revisions: (collection: string, id: string, cursor?: string) =>
       call("revisions", cursor ? { collection, cursor, id } : { collection, id }),
     restore: (collection: string, id: string, revision: string, ifDigest: string | null) => call("restore", { collection, id, ifDigest, revision }),
+    schedule: (collection: string, at: string, expect: readonly ConsoleDocumentPublishExpectation[]) =>
+      call("schedule", { at, collection, expect: expect.map(({ digest, id }) => ({ digest, id })) }),
+    unschedule: (collection: string, schedule: string) => call("unschedule", { collection, schedule }),
   }
 }
 
@@ -430,6 +461,33 @@ export function consoleDocumentStateLabel(state: ConsoleDocumentState): string {
   return { changed: "Changed", deleted: "Deleted", draft: "Draft", published: "Published" }[state]
 }
 
+/** "Scheduled · Oct 20, 09:00" in the browser time zone, "Overdue · …", or "Schedule failed". */
+export function consoleDocumentScheduleLabel(schedule: ConsoleDocumentSchedule, locale?: string): string {
+  if (schedule.status === "failed") return "Schedule failed"
+  const date = new Date(schedule.at)
+  const when = Number.isNaN(date.getTime())
+    ? schedule.at
+    : `${date.toLocaleDateString(locale, { day: "numeric", month: "short" })}, ${date.toLocaleTimeString(locale, { hour: "2-digit", hour12: false, minute: "2-digit" })}`
+  return `${schedule.status === "overdue" ? "Overdue" : "Scheduled"} · ${when}`
+}
+
+/** The status dot of a schedule: a pending one is neutral, an overdue one a warning, and a failed one an error. */
+export function consoleDocumentScheduleTone(schedule: ConsoleDocumentSchedule): "error" | "neutral" | "warning" {
+  return ({ failed: "error", overdue: "warning", pending: "neutral" } as const)[schedule.status]
+}
+
+/**
+ * The ISO timestamp of a local date (`2026-10-20`) and time (`09:00`, or `09:00:00` as `Time.toString()` writes it) in the
+ * browser time zone, or undefined when the inputs do not name a valid time.
+ */
+export function consoleLocalScheduleTime(date: string, time: string): string | undefined {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date)
+  const clock = /^(\d{2}):(\d{2})(?::\d{2})?$/.exec(time)
+  if (!match || !clock) return
+  const value = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), Number(clock[1]), Number(clock[2]))
+  return Number.isNaN(value.getTime()) ? undefined : value.toISOString()
+}
+
 export function consoleDocumentStateColor(state: ConsoleDocumentState): "error" | "neutral" | "success" | "warning" {
   return ({ changed: "warning", deleted: "error", draft: "neutral", published: "success" } as const)[state]
 }
@@ -526,7 +584,8 @@ export function consoleFieldValueIssue(field: ConsoleSchemaField, value: unknown
 
 // List view state in the URL: `?q=launch&state=draft&sort=date:desc&filter.category=story`.
 
-export type ConsoleListState = ConsoleDocumentState | "all"
+/** A state tab, `all`, or `scheduled` for documents with a scheduled publish. */
+export type ConsoleListState = ConsoleDocumentState | "all" | "scheduled"
 
 export interface ConsoleListView {
   filters: Record<string, string>
@@ -559,7 +618,7 @@ export function parseConsoleListQuery(
     filters,
     search: queryText(query.q) ?? "",
     sort: sort && options.sorts.includes(sort) ? sort : options.sorts[0] ?? "id:asc",
-    state: consoleDocumentStates.find(entry => entry === state) ?? "all",
+    state: state === "scheduled" ? state : consoleDocumentStates.find(entry => entry === state) ?? "all",
   }
 }
 

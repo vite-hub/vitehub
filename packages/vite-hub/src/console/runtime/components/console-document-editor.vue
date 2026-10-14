@@ -1,11 +1,14 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { Time, today } from "@internationalized/date";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
 import { onBeforeRouteLeave, useRoute, useRouter } from "vue-router";
 
 import {
   compactConsoleFieldValues,
   consoleDocumentSlug,
   consoleDocumentHasBody,
+  consoleDocumentScheduleLabel,
+  consoleDocumentScheduleTone,
   consoleDocumentStateColor,
   consoleDocumentStateLabel,
   consoleErrorMessage,
@@ -22,6 +25,7 @@ import {
   humanizeConsoleFieldIssues,
   isConsoleConflict,
   isConsoleDocumentId,
+  consoleLocalScheduleTime,
   stableConsoleJSON,
 } from "../client/documents";
 import { splitConsoleFrontmatter } from "../client/editor";
@@ -35,9 +39,10 @@ import ConsoleRelativeTime from "./console-relative-time.vue";
 import ConsoleSeoPanel from "./console-seo-panel.vue";
 import ConsoleStatus from "./console-status.vue";
 
+import type { CalendarDate } from "@internationalized/date";
 import type { RouteLocationRaw } from "vue-router";
 
-import type { ConsoleDocument, ConsoleDocumentCollection, ConsoleDocumentRevision, ConsoleDocumentsClient, ConsoleDocumentState, ConsoleRawDocument } from "../client/documents";
+import type { ConsoleDocument, ConsoleDocumentCollection, ConsoleDocumentRevision, ConsoleDocumentSchedule, ConsoleDocumentsClient, ConsoleDocumentState, ConsoleRawDocument } from "../client/documents";
 
 /**
  * Edits one document as a page: a large title, the fields as property rows, then the body. Drafts save on their own
@@ -84,6 +89,13 @@ const loadError = ref<unknown>();
 /** The version the editor read: the last loaded or saved document. Null for a new or deleted document. */
 const base = ref<ConsoleDocument | null>(null);
 const state = ref<ConsoleDocumentState | undefined>();
+/** The scheduled publish of this document, as the owner reported it on load. */
+const schedule = ref<ConsoleDocumentSchedule | undefined>();
+const scheduleOpen = ref(false);
+const scheduleDate = shallowRef<CalendarDate>();
+const scheduleTime = shallowRef(new Time(9, 0));
+const scheduling = ref(false);
+const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 const draft = ref<Version>({ body: "", data: creating.value || single.value ? consoleSchemaDefaults(props.collection.schema) : {} });
 const newId = ref("");
 const idEdited = ref(false);
@@ -224,6 +236,7 @@ function documentRoute(documentId: string) {
 function accept(document: ConsoleDocument): void {
   base.value = document;
   state.value = document.state;
+  schedule.value = document.schedule;
   draft.value = { body: document.body, data: clone(document.data) };
 }
 
@@ -241,6 +254,7 @@ async function load(): Promise<void> {
       // A document removed from the draft is still listed as deleted while it stays published.
       const listed = await props.client.list(props.collection.name, { filter: { id: props.documentId! }, limit: 1, state: "deleted" });
       state.value = listed.items[0]?.state;
+      schedule.value = listed.items[0]?.schedule;
     }
     loadError.value = undefined;
   }
@@ -311,6 +325,11 @@ async function save(options: { auto?: boolean, ifDigest?: string | null } = {}):
     if (!editedDuringSave) draft.value = { body: saved.body === sent.body ? draft.value.body : saved.body, data: clone(saved.data) };
     savedAt.value = new Date().toISOString();
     notifyChanged();
+    // A pending schedule publishes the draft it reviewed. This save moved the draft, so that run will publish nothing.
+    if (schedule.value?.status === "pending" && scheduleWarned !== schedule.value.id) {
+      scheduleWarned = schedule.value.id;
+      toast.show({ title: "Draft changed after scheduling. Cancel the schedule and schedule again to publish this version." });
+    }
     // The saved document opens at its own route. The history state tells the new editor when it saved.
     if (creating.value) await router.replace({ ...documentRoute(saved.id), state: { vitehubDocumentSavedAt: savedAt.value } });
     if (revisions.value.length || historyOpen.value || panel.value === "history") void loadRevisions();
@@ -444,6 +463,73 @@ async function publish(): Promise<void> {
     publishing.value = false;
   }
   if (dirty.value) scheduleAutosave();
+}
+
+const scheduleAt = computed(() => (scheduleDate.value ? consoleLocalScheduleTime(scheduleDate.value.toString(), scheduleTime.value.toString()) : undefined));
+const scheduleInPast = computed(() => scheduleAt.value !== undefined && Date.parse(scheduleAt.value) <= Date.now());
+const scheduleMinDate = computed(() => today(timeZone));
+const scheduleHint = computed(() => {
+  if (!schedule.value) return "";
+  if (schedule.value.failure) return `${schedule.value.failure} Dismiss it from the menu, then schedule again.`;
+  const when = new Date(schedule.value.at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+  return schedule.value.status === "overdue"
+    ? `Was due ${when}. No run has published it yet.`
+    : `Publishes this draft ${when}. Saving it again before then makes the schedule fail.`;
+});
+// Warn once per schedule when an edit makes the scheduled publish fail.
+let scheduleWarned: string | undefined;
+
+/** Saves pending edits first, like Publish, so the schedule covers exactly the draft on screen. */
+async function openSchedule(): Promise<void> {
+  clearTimeout(autosaveTimer);
+  await bodyEditor.value?.commit();
+  await settled();
+  if (dirty.value) {
+    await save();
+    if (dirty.value || conflict.value || errorCount.value || saveError.value) return;
+  }
+  // Default to tomorrow at the last chosen time, in the browser time zone.
+  scheduleDate.value = today(timeZone).add({ days: 1 });
+  scheduleOpen.value = true;
+}
+
+/** Schedules exactly the draft on screen, like `publish`, for a later time. */
+async function scheduleDraft(): Promise<void> {
+  if (!canPublish.value || dirty.value || scheduling.value || !scheduleAt.value || scheduleInPast.value) return;
+  scheduling.value = true;
+  try {
+    const scheduled = await props.client.schedule(props.collection.name, scheduleAt.value, [{ digest: base.value?.digest ?? null, id: id.value }]);
+    schedule.value = { at: scheduled.at, id: scheduled.id, status: scheduled.status };
+    scheduleOpen.value = false;
+    toast.show({ title: consoleDocumentScheduleLabel(scheduled) });
+    notifyChanged();
+  }
+  catch (error) {
+    scheduleOpen.value = false;
+    if (consolePublishMismatches(error)) {
+      await load();
+      toast.error("Someone saved a newer draft. Review it, then schedule again.");
+    }
+    else toast.error(`Couldn't schedule. ${consoleErrorMessage(error, "Try again.")}`);
+  }
+  finally {
+    scheduling.value = false;
+  }
+}
+
+async function unscheduleDraft(): Promise<void> {
+  if (!schedule.value) return;
+  const failed = schedule.value.status === "failed";
+  try {
+    await props.client.unschedule(props.collection.name, schedule.value.id);
+    schedule.value = undefined;
+    toast.show({ title: failed ? "Failed schedule dismissed" : "Schedule cancelled" });
+    notifyChanged();
+  }
+  catch (error) {
+    toast.error(`Couldn't cancel the schedule. ${consoleErrorMessage(error, "Try again.")}`);
+    void load();
+  }
 }
 
 async function remove(): Promise<void> {
@@ -718,6 +804,9 @@ onBeforeUnmount(() => {
 const menuItems = computed(() => [[
   ...(!creating.value ? [{ label: "History", icon: "i-lucide-history", onSelect: openHistory }] : []),
   ...(!creating.value && hasBody.value ? [{ label: mode.value === "rich" ? "View source" : "Edit rich text", icon: "i-lucide-file-code", kbds: ["meta", "/"], onSelect: toggleMode }] : []),
+  ...(canPublish.value && schedule.value
+    ? [{ label: schedule.value.status === "failed" ? "Dismiss failed schedule" : "Cancel schedule", icon: "i-lucide-calendar-x", onSelect: () => void unscheduleDraft() }]
+    : []),
   { label: "Copy id", icon: "i-lucide-copy", onSelect: () => void navigator.clipboard?.writeText(id.value) },
   ...(base.value ? [{ label: "Copy path", icon: "i-lucide-folder", onSelect: () => void navigator.clipboard?.writeText(base.value!.path) }] : []),
 ], ...(canWrite.value && base.value && !single.value ? [[{ label: "Delete", icon: "i-lucide-trash-2", color: "error" as const, onSelect: () => (deleteOpen.value = true) }]] : [])]);
@@ -735,6 +824,9 @@ const menuItems = computed(() => [[
           <span class="hidden text-dimmed sm:inline" aria-hidden="true">/</span>
         </template>
         <span class="truncate text-sm font-medium text-highlighted">{{ title }}</span>
+        <UTooltip v-if="schedule" :text="scheduleHint" :content="{ side: 'bottom' }">
+          <ConsoleStatus class="shrink-0" :tone="consoleDocumentScheduleTone(schedule)" :label="consoleDocumentScheduleLabel(schedule)" />
+        </UTooltip>
       </span>
     </template>
     <template #right>
@@ -775,14 +867,22 @@ const menuItems = computed(() => [[
         </UTooltip>
       </div>
       <UButton v-if="creating && canWrite" size="sm" label="Create" :loading="saving" @click="save()" />
-      <UButton
-        v-else-if="publishable"
-        size="sm"
-        :label="state === 'deleted' ? 'Publish deletion' : 'Publish'"
-        :loading="publishing"
-        :disabled="Boolean(conflict)"
-        @click="publish"
-      />
+      <!-- A split button: Publish now, or Schedule… from the arrow. A deleted document publishes its deletion now only. -->
+      <UFieldGroup v-else-if="publishable" size="sm">
+        <UButton
+          :label="state === 'deleted' ? 'Publish deletion' : 'Publish'"
+          :loading="publishing"
+          :disabled="Boolean(conflict) || scheduling"
+          @click="publish"
+        />
+        <UDropdownMenu
+          v-if="state !== 'deleted'"
+          :items="[{ label: 'Schedule…', icon: 'i-lucide-calendar-clock', disabled: Boolean(schedule && schedule.status !== 'failed'), onSelect: openSchedule }]"
+          :content="{ align: 'end' }"
+        >
+          <UButton icon="i-lucide-chevron-down" aria-label="More publish options" :disabled="Boolean(conflict) || publishing" :loading="scheduling" class="border-s border-(--ui-bg)/25" />
+        </UDropdownMenu>
+      </UFieldGroup>
       <UTooltip v-if="!creating && !missing" text="Outline and history" :content="{ side: 'bottom' }">
         <UButton
           class="hidden lg:inline-flex"
@@ -1014,6 +1114,31 @@ const menuItems = computed(() => [[
         <UButton variant="ghost" label="Keep editing" @click="conflictOpen = false" />
         <UButton variant="outline" label="Load theirs" @click="useTheirs" />
         <UButton color="error" label="Overwrite with mine" :loading="saving" @click="keepMine" />
+      </div>
+    </template>
+  </UModal>
+
+  <UModal
+    v-model:open="scheduleOpen"
+    title="Schedule publishing"
+    :description="`Publish this draft of ${title} later. Saving it again before then makes the schedule fail instead of publishing changes nobody reviewed.`"
+  >
+    <template #body>
+      <div class="flex flex-wrap items-end gap-3">
+        <UFormField label="Date" :ui="{ label: 'text-xs' }">
+          <UInputDate v-model="scheduleDate" :min-value="scheduleMinDate" class="w-40" aria-label="Publish date" />
+        </UFormField>
+        <UFormField label="Time" :ui="{ label: 'text-xs' }">
+          <UInputTime v-model="scheduleTime" :hour-cycle="24" class="w-24" aria-label="Publish time" />
+        </UFormField>
+        <span class="pb-2 text-xs text-dimmed">{{ timeZone }}</span>
+      </div>
+      <p v-if="scheduleInPast" class="mt-2 text-xs text-error">Choose a time in the future.</p>
+    </template>
+    <template #footer>
+      <div class="flex w-full justify-end gap-2">
+        <UButton variant="ghost" label="Cancel" @click="scheduleOpen = false" />
+        <UButton label="Schedule" :disabled="!scheduleAt || scheduleInPast" :loading="scheduling" @click="scheduleDraft" />
       </div>
     </template>
   </UModal>

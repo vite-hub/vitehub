@@ -17,12 +17,16 @@ import type {
   ViteHubConsoleDocumentPublishExpectation,
   ViteHubConsoleDocumentRevision,
   ViteHubConsoleDocumentSearchResult,
+  ViteHubConsoleDocumentSchedule,
+  ViteHubConsoleDocumentScheduled,
   ViteHubConsoleDocumentState,
+  ViteHubConsoleDocumentSummary,
 } from "@vite-hub/internal/console"
 import type { ContentAction, ContentDocumentsRuntime } from "../index.ts"
 import type { AnyContentCollection, ContentDocument, ContentDocumentStatus, ContentDocumentSummary, ContentListOptions } from "../collections.ts"
+import type { ContentDocumentSchedule, ContentSchedule } from "../schedules.ts"
 
-type ContentRuntime = Pick<ContentDocumentsRuntime, "can" | "collection" | "collections" | "publish" | "revisions">
+type ContentRuntime = Pick<ContentDocumentsRuntime, "can" | "collection" | "collections" | "publish" | "revisions" | "schedule" | "schedules" | "unschedule">
 
 const documentStates: readonly ViteHubConsoleDocumentState[] = ["draft", "published", "changed", "deleted"]
 const titleFields = ["title", "name", "label", "heading"]
@@ -41,6 +45,9 @@ function isContentRuntime(value: unknown): value is ContentRuntime {
     && value.can instanceof Function
     && value.publish instanceof Function
     && value.revisions instanceof Function
+    && value.schedule instanceof Function
+    && value.schedules instanceof Function
+    && value.unschedule instanceof Function
 }
 
 function contentRuntime(value: unknown): ContentRuntime {
@@ -139,6 +146,14 @@ function titleFieldOf(schema: Record<string, unknown>): string | undefined {
   return titleFields.find(isString) ?? required.find(isString)
 }
 
+/** The `{ id, digest }` entries of a publish or schedule request. */
+function expectations(value: readonly unknown[]): ViteHubConsoleDocumentPublishExpectation[] {
+  return value.map((entry: unknown) => {
+    if (!isRecord(entry)) throw invalidInput("Each expect entry must be { id, digest }.")
+    return { id: text(entry.id, "expect.id"), digest: digest(entry.digest, "expect.digest") }
+  })
+}
+
 /** Signed-in user fields worth recording as the author of a revision. */
 function author(context: ViteHubConsoleDocumentActionContext): Record<string, string> | undefined {
   const user = context.user
@@ -153,6 +168,12 @@ function author(context: ViteHubConsoleDocumentActionContext): Record<string, st
 function writeMetadata(context: ViteHubConsoleDocumentActionContext): Record<string, unknown> {
   const by = author(context)
   return by ? { author: by, source: "console" } : { source: "console" }
+}
+
+function scheduleView(schedule: ContentDocumentSchedule | ContentSchedule): ViteHubConsoleDocumentSchedule {
+  const result: ViteHubConsoleDocumentSchedule = { id: schedule.id, at: schedule.at, status: schedule.status }
+  if (schedule.failure) result.failure = schedule.failure.message
+  return result
 }
 
 function revisionAuthor(metadata: Record<string, unknown> | undefined): string | undefined {
@@ -201,11 +222,7 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
     return status ? [status] : []
   }
 
-  async function stateOf(collection: AnyContentCollection, id: string): Promise<ViteHubConsoleDocumentState | undefined> {
-    return (await collection.status(id))?.state
-  }
-
-  async function view(collection: AnyContentCollection, document: ContentDocument, state?: ViteHubConsoleDocumentState): Promise<ViteHubConsoleDocument> {
+  async function view(collection: AnyContentCollection, document: ContentDocument): Promise<ViteHubConsoleDocument> {
     const result: ViteHubConsoleDocument = {
       collection: document.collection,
       id: document.id,
@@ -217,8 +234,9 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
       updatedAt: document.updatedAt,
     }
     if (document.url !== undefined) result.url = document.url
-    const current = state ?? await stateOf(collection, document.id)
-    if (current) result.state = current
+    const status = await collection.status(document.id)
+    if (status) result.state = status.state
+    if (status?.schedule) result.schedule = scheduleView(status.schedule)
     return result
   }
 
@@ -288,8 +306,10 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
         const states: Record<ViteHubConsoleDocumentState, number> = { draft: 0, published: 0, changed: 0, deleted: 0 }
         const statusById = new Map(statuses.map(status => [status.id, status]))
         const changes: ViteHubConsoleDocumentChange[] = []
+        let scheduled = 0
         for (const status of statuses) {
           states[status.state]++
+          if (status.schedule) scheduled++
           if (status.state !== "published") changes.push({ id: status.id, state: status.state, digest: status.draft })
         }
         const filter: NonNullable<ContentListOptions["filter"]> = {}
@@ -300,9 +320,9 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
         }
         // Deleted documents exist only on `published`, so that state lists them from there.
         let ref: "draft" | "published" = "draft"
-        if (input.state) {
-          const ids = statuses.filter(status => status.state === input.state).map(status => status.id)
-          if (!ids.length) return { items: [], nextCursor: null, total: 0, states, changes }
+        if (input.state || input.scheduled) {
+          const ids = statuses.filter(status => (!input.state || status.state === input.state) && (!input.scheduled || status.schedule)).map(status => status.id)
+          if (!ids.length) return { items: [], nextCursor: null, total: 0, states, changes, scheduled }
           Object.assign(filter, { id: ids })
           if (input.state === "deleted") ref = "published"
         }
@@ -318,7 +338,7 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
           items: page.items.map((item) => {
             const title = titleField ? item.data[titleField] : undefined
             const status = statusById.get(item.id)
-            return {
+            const summary: ViteHubConsoleDocumentSummary = {
               id: item.id,
               path: item.path,
               title: String(title) === title && title.trim() ? title : item.id,
@@ -328,11 +348,14 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
               digest: status ? status.draft : ref === "draft" ? item.digest : null,
               updatedAt: item.updatedAt,
             }
+            if (status?.schedule) summary.schedule = scheduleView(status.schedule)
+            return summary
           }),
           nextCursor: page.nextCursor,
           total: page.total,
           states,
           changes,
+          scheduled,
         }
         if (page.facets) result.facets = json(page.facets)
         return result
@@ -387,10 +410,7 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
         throw invalidInput("publish() requires { collection, expect: [{ id, digest }] } with the draft digests that were reviewed.")
       }
       const collection = open(input.collection)
-      const expected: ViteHubConsoleDocumentPublishExpectation[] = input.expect.map((entry: unknown) => {
-        if (!isRecord(entry)) throw invalidInput("Each expect entry must be { id, digest }.")
-        return { id: text(entry.id, "expect.id"), digest: digest(entry.digest, "expect.digest") }
-      })
+      const expected = expectations(input.expect)
       for (const { id } of expected) await allow(context, collection, "publish", id)
       return await attempt(async () => {
         // Publish exactly the reviewed drafts: a draft saved after review fails instead of being published.
@@ -399,6 +419,44 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
           metadata: writeMetadata(context),
         })
         return { revision: result.revision?.id ?? null, documents: result.documents.map(document => ({ ...document })) }
+      })
+    },
+
+    async schedule(input, context): Promise<ViteHubConsoleDocumentScheduled> {
+      if (!isRecord(input) || !Array.isArray(input.expect) || !input.expect.length) {
+        throw invalidInput("schedule() requires { collection, at, expect: [{ id, digest }] } with the draft digests that were reviewed.")
+      }
+      const collection = open(input.collection)
+      const at = text(input.at, "at")
+      const expected = expectations(input.expect)
+      for (const { id } of expected) await allow(context, collection, "publish", id)
+      return await attempt(async () => {
+        const schedule = await content.schedule({
+          at,
+          expect: expected.map(({ id, digest }) => ({ collection: collection.name, id, digest })),
+          metadata: writeMetadata(context),
+        })
+        return { ...scheduleView(schedule), documents: schedule.expect.map(({ id, digest }) => ({ id, digest })) }
+      })
+    },
+
+    async unschedule(input, context) {
+      if (!isRecord(input)) throw invalidInput("unschedule() requires { collection, schedule }.")
+      const collection = open(input.collection)
+      const id = text(input.schedule, "schedule")
+      await allow(context, collection, "read")
+      const schedule = (await attempt(() => content.schedules({ collection: collection.name }))).find(entry => entry.id === id)
+      if (!schedule) throw failure(404, "CONTENT_SCHEDULE_NOT_FOUND", "This schedule already ran or was cancelled.")
+      // Cancelling decides what gets published, so it needs publish access to every document of the schedule.
+      for (const document of schedule.expect) await allow(context, open(document.collection), "publish", document.id)
+      await attempt(async () => {
+        try {
+          await content.unschedule(id, { metadata: writeMetadata(context) })
+        }
+        catch (error) {
+          if (Reflect.get(Object(error), "code") === "CONTENT_NOT_FOUND") throw failure(404, "CONTENT_SCHEDULE_NOT_FOUND", "This schedule already ran or was cancelled.")
+          throw error
+        }
       })
     },
 

@@ -242,6 +242,28 @@ export interface ViteHubConsoleDocumentComponent {
  */
 export type ViteHubConsoleDocumentState = "draft" | "published" | "changed" | "deleted"
 
+/**
+ * - `pending`: publishes at `at`.
+ * - `overdue`: past its time without a run. The owner's runner did not fire.
+ * - `failed`: a run found a draft that changed after scheduling and published nothing.
+ */
+export type ViteHubConsoleDocumentScheduleStatus = "pending" | "overdue" | "failed"
+
+/** The scheduled publish of a document. */
+export interface ViteHubConsoleDocumentSchedule {
+  id: string
+  /** When it publishes, as an ISO timestamp. */
+  at: string
+  status: ViteHubConsoleDocumentScheduleStatus
+  /** Why the run published nothing, when `status` is `failed`. */
+  failure?: string
+}
+
+/** A schedule that `schedule` created, with the documents of the collection it publishes. */
+export interface ViteHubConsoleDocumentScheduled extends ViteHubConsoleDocumentSchedule {
+  documents: ViteHubConsoleDocumentPublishExpectation[]
+}
+
 export interface ViteHubConsoleDocumentSummary {
   id: string
   path: string
@@ -254,6 +276,8 @@ export interface ViteHubConsoleDocumentSummary {
   digest: string | null
   /** When the document last changed, as an ISO timestamp, or null when the owner cannot tell. */
   updatedAt: string | null
+  /** The scheduled publish of the document, when it has one. */
+  schedule?: ViteHubConsoleDocumentSchedule
 }
 
 /** One unpublished change of a collection, with the draft digest the editor showed. */
@@ -269,6 +293,8 @@ export interface ViteHubConsoleDocumentListInput {
   /** Case-insensitive text that the owner matches against its search fields. */
   search?: string
   state?: ViteHubConsoleDocumentState
+  /** Only documents with a schedule. */
+  scheduled?: boolean
   /** Field values to match. An array matches any of its values. */
   filter?: Record<string, string | readonly string[]>
   sort?: { field: string, direction?: "asc" | "desc" }
@@ -287,6 +313,8 @@ export interface ViteHubConsoleDocumentPage {
   states: Record<ViteHubConsoleDocumentState, number>
   /** Every unpublished change of the collection, before `search`, `state`, and `filter`. "Publish all" sends them back. */
   changes: ViteHubConsoleDocumentChange[]
+  /** Documents of the collection with a schedule, before `search`, `state`, and `filter`. */
+  scheduled: number
   facets?: Record<string, Array<{ value: string, count: number }>>
 }
 
@@ -306,6 +334,8 @@ export interface ViteHubConsoleDocument {
   state?: ViteHubConsoleDocumentState
   /** Public URL path of the document, such as `/blog/hello`, when the owner maps documents to pages. */
   url?: string | null
+  /** The scheduled publish of the document, when it has one. */
+  schedule?: ViteHubConsoleDocumentSchedule
 }
 
 /** One stored file as written, without parsing or validation, so any version can be shown and compared. */
@@ -420,6 +450,13 @@ export interface ViteHubConsoleDocumentActions {
    * `WORKSPACE_CONFLICT` and `details.documents`: `{ id, expected, actual }` for each document that changed.
    */
   publish(input: { collection: string, expect: readonly ViteHubConsoleDocumentPublishExpectation[] }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocumentPublished>
+  /**
+   * Publishes exactly the reviewed drafts at `at`, an ISO timestamp in the future. It fails like `publish` when a draft
+   * already moved. When a draft changes after scheduling, the run publishes nothing and the schedule becomes `failed`.
+   */
+  schedule(input: { collection: string, at: string, expect: readonly ViteHubConsoleDocumentPublishExpectation[] }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocumentScheduled>
+  /** Cancels a pending schedule, or dismisses a failed one. */
+  unschedule(input: { collection: string, schedule: string }, context: ViteHubConsoleDocumentActionContext): MaybePromise<void>
   revisions(input: { collection: string, id: string, cursor?: string }, context: ViteHubConsoleDocumentActionContext): MaybePromise<{ revisions: ViteHubConsoleDocumentRevision[], cursor?: string }>
   restore(input: { collection: string, id: string, revision: string, ifDigest: string | null }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocument>
   /**
@@ -433,7 +470,7 @@ export interface ViteHubConsoleDocumentActions {
 
 export type ViteHubConsoleDocumentActionName = Exclude<keyof ViteHubConsoleDocumentActions, "collections">
 
-export const viteHubConsoleDocumentActionNames: readonly ViteHubConsoleDocumentActionName[] = ["get", "list", "overview", "publish", "raw", "remove", "restore", "revisions", "save", "search"]
+export const viteHubConsoleDocumentActionNames: readonly ViteHubConsoleDocumentActionName[] = ["get", "list", "overview", "publish", "raw", "remove", "restore", "revisions", "save", "schedule", "search", "unschedule"]
 
 /** Creates the document actions from the namespace of the application module that `entry` found. */
 export type ViteHubConsoleDocumentActionsFactory = (module: Record<string, unknown>) => ViteHubConsoleDocumentActions
