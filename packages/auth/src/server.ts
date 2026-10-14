@@ -309,8 +309,7 @@ function isResponseLike(value: unknown): value is Response {
     }
     const get = getMethod("get")
     const forEach = getMethod("forEach")
-    const getSetCookie = getMethod("getSetCookie")
-    if (typeof get !== "function" || typeof forEach !== "function" || typeof getSetCookie !== "function") return false
+    if (typeof get !== "function" || typeof forEach !== "function") return false
     get.call(headers, "x-vitehub-probe")
     if (body !== null && (typeof body !== "object" || typeof Object.getOwnPropertyDescriptor(Object.getPrototypeOf(body), "getReader")?.value !== "function")) return false
     return true

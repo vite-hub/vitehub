@@ -245,7 +245,8 @@ function createWebRequest(request: IncomingMessage): Request {
 async function sendWebResponse(response: Response, target: ServerResponse): Promise<void> {
   target.statusCode = response.status
   target.statusMessage = response.statusText
-  const setCookieHeaders = response.headers.getSetCookie()
+  const getSetCookie = response.headers.getSetCookie
+  const setCookieHeaders = typeof getSetCookie === "function" ? getSetCookie.call(response.headers) : []
   response.headers.forEach((value, key) => {
     if (key.toLowerCase() === "set-cookie" && setCookieHeaders.length > 0) return
     target.appendHeader(key, value)
