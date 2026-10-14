@@ -577,6 +577,27 @@ describe("document collections", { timeout: 30_000 }, () => {
     expect(() => documents({ path: "posts/**", fields })).toThrow("must end with one extension")
     expect(() => documents({ path: "posts/{a,b}/*.md", fields })).toThrow("only *, **, and ?")
     expect(() => documents({ path: "posts/*.md", fields: { title: "string" as never } })).toThrow("Standard Schema")
+    expect(() => documents({ path: "posts/*.md", fields, components: { Alert: {} } })).toThrow("lowercase Comark tag")
+    expect(() => documents({ path: "posts/*.md", fields, components: { alert: { kind: "section" as never } } })).toThrow("'block' or 'inline'")
+    expect(() => documents({ path: "posts/*.md", fields, components: { alert: { props: { type: { type: "enum" as never } } } } })).toThrow("string, number, boolean, or json")
+  })
+
+  it("declares the Comark components that bodies may use", async () => {
+    const workspace = await historyWorkspace()
+    const content = defineContent({
+      workspace,
+      collections: {
+        posts: documents({ path: "posts/*.md", fields, components: { alert: { props: { type: { type: "string", default: "info" } } }, badge: { kind: "inline", label: "Badge" } } }),
+        notes: documents({ path: "notes/*.md", fields }),
+      },
+      logger: false,
+    })
+    cleanup.push(() => content.dispose())
+    expect(content.collection("posts").components).toEqual({
+      alert: { kind: "block", props: { type: { type: "string", default: "info" } } },
+      badge: { kind: "inline", label: "Badge" },
+    })
+    expect(content.collection("notes").components).toEqual({})
   })
 
   it("types data from field outputs and save input from field inputs", async () => {

@@ -20,7 +20,7 @@ import type { ViteHubErrorDetails } from "@vite-hub/runtime"
 import type { ArrayCollectionQuery, Collection, CollectionFacets } from "@vite-hub/source"
 import type { WorkspaceRetainedHistory, WorkspaceRevision, WorkspaceRevisionView, WorkspaceWriteInput } from "@vite-hub/workspace"
 import type { JsonSchema, Source as ComarkContentSource } from "comark-content"
-import type { CompiledDocumentsPath, ContentFieldIssue, ContentFields, ContentFieldsInput, ContentFieldsOutput, DocumentsDefinition } from "./documents.ts"
+import type { CompiledDocumentsPath, ContentFieldIssue, ContentFields, ContentFieldsInput, ContentFieldsOutput, DocumentComponent, DocumentsDefinition } from "./documents.ts"
 
 /** The history refs Content owns: every save commits to `draft`; `publish()` copies documents to `published`. */
 export type ContentRef = "draft" | "published"
@@ -220,6 +220,8 @@ export interface ContentCollection<TFields extends ContentFields = ContentFields
   readonly fields: readonly string[]
   /** JSON Schema of the frontmatter, built from each field's Standard JSON Schema. Forms and tools read it. */
   readonly schema: Record<string, unknown>
+  /** Comark components that bodies may use, keyed by tag. Editors offer them in their insert menu. */
+  readonly components: Readonly<Record<string, DocumentComponent>>
   /** List documents with filters, search, sort, facets, and a total. Reads `published` unless `ref` says otherwise. */
   list(options?: ContentListOptions<ContentFieldsOutput<TFields>>): Promise<ContentPage<ContentFieldsOutput<TFields>>>
   /** Read one document, or null when it does not exist. Throws `CONTENT_INVALID` when its frontmatter no longer validates. */
@@ -844,6 +846,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       path: definition.path,
       fields: Object.freeze([...fieldNames]),
       schema,
+      components: definition.components ?? {},
       page: published.page,
       parseQuery: published.parseQuery,
       querySchema: published.querySchema,
