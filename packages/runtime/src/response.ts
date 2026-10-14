@@ -27,34 +27,37 @@ function getBlobMethods(value: unknown): BlobMethods | undefined {
     let prototype = Object.getPrototypeOf(value)
     let slice: unknown
     let stream: unknown
-    let type: unknown
+    let type: (() => unknown) | undefined
     while (prototype) {
       const sliceDescriptor = Object.getOwnPropertyDescriptor(prototype, "slice")
-      const streamDescriptor = Object.getOwnPropertyDescriptor(prototype, "stream")
       const typeDescriptor = Object.getOwnPropertyDescriptor(prototype, "type")
-      // Blob.prototype owns both operations. Pair them from the same prototype
-      // so a subclass cannot replace stream() while retaining the native slice().
-      if (slice === undefined && stream === undefined && sliceDescriptor && streamDescriptor) {
+      // Blob.prototype owns slice. Derive stream from the Blob produced by it so
+      // subclass prototype overrides cannot replace the operation we execute.
+      if (sliceDescriptor) {
         const candidateSlice = sliceDescriptor.value
-        const candidateStream = streamDescriptor.value
-        if (hasRuntimeType(candidateSlice, "function") && hasRuntimeType(candidateStream, "function")) {
+        if (hasRuntimeType(candidateSlice, "function")) {
           try {
-            Reflect.apply(candidateSlice, value, [0, 0])
+            const sliced = Reflect.apply(candidateSlice, value, [0, 0])
+            const slicedPrototype = Object.getPrototypeOf(sliced)
+            const nativeStream = slicedPrototype && Object.getOwnPropertyDescriptor(slicedPrototype, "stream")?.value
+            if (!hasRuntimeType(nativeStream, "function")) continue
             slice = candidateSlice
-            stream = candidateStream
+            // Resolve stream from a Blob produced by the brand-checked operation,
+            // which bypasses subclass prototype overrides.
+            stream = nativeStream
           }
           catch {
             // Continue to the next prototype in the chain.
           }
         }
       }
-      if (type === undefined && typeDescriptor) type = typeDescriptor.get ? () => Reflect.apply(typeDescriptor.get!, value, []) : () => typeDescriptor.value as string
+      if (typeDescriptor) type = typeDescriptor.get ? () => Reflect.apply(typeDescriptor.get!, value, []) : () => typeDescriptor.value
       prototype = Object.getPrototypeOf(prototype)
     }
     if (!hasRuntimeType(slice, "function") || !hasRuntimeType(stream, "function")) return undefined
     return {
       stream: () => Reflect.apply(stream, value, []) as ReadableStream,
-      type: hasRuntimeType(type, "function") ? type() : String(Reflect.get(value, "type") ?? ""),
+      type: type ? String(type()) : "",
     }
   }
   catch {
