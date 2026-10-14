@@ -11,28 +11,57 @@ icon: i-ph-code-light
 ::component-preview{name="CodeViewExample"}
 ::
 
+## Installation
+
+Install `@vite-hub/ui` as described in [Installation](/docs/ui/installation). The Nuxt module auto-imports the components. In Vue with Vite, import them from `@vite-hub/ui` or from the focused entries `@vite-hub/ui/code-view` and `@vite-hub/ui/file-view`:
+
+```ts
+import { CodeView, FileView } from "@vite-hub/ui";
+```
+
+The helpers and types, such as `getSingularPatch` and `FileContents`, come from `@vite-hub/ui`.
+
 ## Usage
+
+```ts
+import { CodeView, getSingularPatch, type CodeViewItem } from "@vite-hub/ui";
+```
+
+```vue
+<template>
+  <CodeView class="h-[32rem]" :items="items" />
+</template>
+```
 
 Give `CodeView` a height. It owns the scrolling inside that height.
 
-```vue
-<CodeView class="h-[32rem]" :items="items" />
-```
-
 Each item has an `id` and a `type`. A `file` item has a `file: FileContents`. A `diff` item has a `fileDiff: FileDiffMetadata`, for example from `getSingularPatch(patch)`.
 
-## Examples
+## Features
 
-### One file
+- `CodeView` renders files and diffs in order in one virtualized scroll container.
+- `FileView` renders one file without a diff.
+- Pierre's `@pierre/diffs` owns parsing, syntax highlighting, and rendering. ViteHub applies the Nuxt UI theme.
+- Syntax highlighting loads only when a code view first renders.
+- `selectedLines` highlights lines from application state.
+
+## One File
 
 `FileView` renders one file. Set `selectedLines` to highlight a range from application state.
 
 ::component-preview{name="FileExample"}
 ::
 
-## API reference
+## Accessibility
+
+- ViteHub turns off pointer line selection. Set `selectedLines` to highlight lines from application state.
+- Keep the file header visible, or add a heading, so readers know which file they read.
+
+## API Reference
 
 ### CodeView
+
+Renders a virtualized list of files and diffs.
 
 #### Props
 
@@ -43,6 +72,8 @@ Each item has an `id` and a `type`. A `file` item has a `file: FileContents`. A 
 | `selectedLines` | `CodeViewLineSelection \| null`       |          | The selected lines. Controlled when set.       |
 
 ### FileView
+
+Renders one syntax-highlighted file.
 
 #### Props
 
@@ -70,11 +101,6 @@ interface FileContents {
   cacheKey?: string;
 }
 ```
-
-## Accessibility
-
-- ViteHub turns off pointer line selection. Set `selectedLines` to highlight lines from application state.
-- Keep the file header visible, or add a heading, so readers know which file they read.
 
 ## Related
 

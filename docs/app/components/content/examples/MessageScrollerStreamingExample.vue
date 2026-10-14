@@ -1,43 +1,88 @@
 <script setup lang="ts">
 import {
+  MessageScroller,
   MessageScrollerButton,
   MessageScrollerContent,
   MessageScrollerItem,
-  MessageScroller,
   MessageScrollerViewport,
 } from "@vite-hub/ui/headless";
-import { onBeforeUnmount, onMounted, ref } from "vue";
 
-const messages = ref(
-  Array.from({ length: 6 }, (_, index) => ({ id: `message-${index}`, text: `Log line ${index + 1}` })),
-);
+const output = [
+  "$ pnpm build",
+  "> vite build",
+  "vite v8.1.0 building for production...",
+  "transforming (1) index.html",
+  "transforming (48) src/components/Chat.vue",
+  "transforming (112) src/composables/useSession.ts",
+  "transforming (231) node_modules/@vite-hub/ui/dist/index.js",
+  "✓ 412 modules transformed.",
+  "rendering chunks (1)...",
+  "rendering chunks (6)...",
+  "computing gzip size (0)...",
+  "computing gzip size (4)...",
+  "dist/index.html                   0.46 kB │ gzip:  0.30 kB",
+  "dist/assets/index-BlU3fRgV.css   18.92 kB │ gzip:  4.11 kB",
+  "dist/assets/vendor-C1w9yzaN.js  142.37 kB │ gzip: 46.02 kB",
+  "dist/assets/index-DkS8fA2q.js    61.08 kB │ gzip: 19.75 kB",
+  "✓ built in 2.84s",
+  "$ pnpm test",
+  "✓ test/session.test.ts (12 tests) 41ms",
+  "✓ test/chat.test.ts (34 tests) 118ms",
+  "✓ test/tools.test.ts (82 tests) 302ms",
+  "Test Files  3 passed (3)",
+  "Tests  128 passed (128)",
+  "Duration  1.92s",
+];
+
+const lines = ref<{ id: string; text: string }[]>([]);
+const running = ref(false);
 let interval: ReturnType<typeof setInterval> | undefined;
 
-// Append a line every second. Scroll up to stop following; the button returns to the live edge.
-onMounted(() => {
+// Add one line every 400 ms. Scroll up to stop following. The button returns to the live edge.
+function run() {
+  lines.value = [];
+  running.value = true;
   interval = setInterval(() => {
-    const index = messages.value.length;
-    messages.value = [...messages.value, { id: `message-${index}`, text: `Log line ${index + 1}` }];
-    if (index >= 40) clearInterval(interval);
-  }, 1000);
-});
+    const index = lines.value.length;
+    const text = output[index];
+    if (text === undefined) {
+      clearInterval(interval);
+      running.value = false;
+      return;
+    }
+    lines.value = [...lines.value, { id: `line-${index}`, text }];
+  }, 400);
+}
 
 onBeforeUnmount(() => clearInterval(interval));
 </script>
 
 <template>
-  <MessageScroller class="relative h-72 overflow-hidden rounded-md border border-default bg-default">
-    <MessageScrollerViewport class="h-full overflow-y-auto" aria-label="Build log">
-      <MessageScrollerContent :items="messages.map((message) => message.id)" class="space-y-1 p-3 font-mono text-xs">
-        <MessageScrollerItem v-for="message in messages" :key="message.id" :message-id="message.id">
-          {{ message.text }}
-        </MessageScrollerItem>
-      </MessageScrollerContent>
-    </MessageScrollerViewport>
-    <MessageScrollerButton
-      class="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full border border-default bg-default px-3 py-1 text-xs"
-    >
-      Follow output
-    </MessageScrollerButton>
-  </MessageScroller>
+  <div class="flex w-full max-w-lg flex-col gap-4">
+    <MessageScroller class="h-64 rounded-md border border-default">
+      <MessageScrollerViewport aria-label="Build output">
+        <MessageScrollerContent
+          :items="lines.map((line) => line.id)"
+          :aria-busy="running ? 'true' : undefined"
+          class="gap-1 p-3 font-mono text-xs"
+        >
+          <MessageScrollerItem v-for="line in lines" :key="line.id" :message-id="line.id" class="whitespace-pre">
+            {{ line.text }}
+          </MessageScrollerItem>
+        </MessageScrollerContent>
+      </MessageScrollerViewport>
+      <MessageScrollerButton aria-label="Follow output">
+        <UIcon name="i-ph-arrow-down-light" />
+      </MessageScrollerButton>
+    </MessageScroller>
+    <UButton
+      :label="running ? 'Running' : 'Run pnpm build'"
+      :disabled="running"
+      icon="i-ph-play-light"
+      color="neutral"
+      variant="outline"
+      class="self-start"
+      @click="run"
+    />
+  </div>
 </template>

@@ -11,7 +11,19 @@ icon: i-ph-files-light
 ::component-preview{name="AttachmentsExample" reset}
 ::
 
+## Installation
+
+Install `@vite-hub/ui` as described in [Installation](/docs/ui/installation). The Nuxt module auto-imports the composable. In Vue with Vite, import it from `@vite-hub/ui`:
+
+```ts
+import { useAgentAttachments } from "@vite-hub/ui";
+```
+
 ## Usage
+
+```ts
+import { useAgentAttachments } from "@vite-hub/ui";
+```
 
 ```ts
 const attachments = useAgentAttachments({
@@ -29,6 +41,17 @@ async function submit(text: string) {
 }
 ```
 
+## Features
+
+- Checks the type, the size, and the count of each file before it adds the file.
+- Calls `onReject` with the reason for each rejected file.
+- Keeps the raw `File` values until you send.
+- Creates a preview URL for images and revokes it when the file leaves the list.
+- Converts the files to AI SDK `FileUIPart` values with `toFileParts()`.
+- Gives the attributes for a file input in `inputProps`.
+
+## File Input
+
 Bind `attachments.inputProps` to a file input and pass its files to `add()`:
 
 ```vue
@@ -45,6 +68,8 @@ function onChange(event: Event) {
 </template>
 ```
 
+To show the files, use the [Attachment](/docs/ui/attachment) parts. Use `previewUrl` in an `img` for images.
+
 ## Behavior
 
 - `add()` checks each file in order: type, then size, then count. A rejected file calls `onReject` with `"type"`, `"size"`, or `"count"`.
@@ -52,43 +77,6 @@ function onChange(event: Event) {
 - `toFileParts()` reads each file as a data URL. Files without a type get `application/octet-stream`.
 
 Data URLs work for model inputs, but they are not a storage format. For hosted uploads, upload the raw files first and build `FileUIPart` values with permanent URLs.
-
-## API reference
-
-### useAgentAttachments
-
-```ts
-function useAgentAttachments(options?: UseAgentAttachmentsOptions): AgentAttachments;
-```
-
-#### Options
-
-| Option     | Type                                                      | Default | Description                                         |
-| ---------- | --------------------------------------------------------- | ------- | --------------------------------------------------- |
-| `accept`   | `string`                                                  |         | Accepted types: MIME types, `type/*`, or extensions such as `.pdf`. |
-| `maxFiles` | `number`                                                  |         | Maximum number of files in the list.                |
-| `maxSize`  | `number`                                                  |         | Maximum size of one file, in bytes.                 |
-| `multiple` | `boolean`                                                 | `true`  | When `false`, the list holds one file.              |
-| `onReject` | `(file: File, reason: "count" \| "size" \| "type") => void` |         | Called for each rejected file.                      |
-
-#### Return value
-
-| Property      | Type                                                          | Description                                    |
-| ------------- | ------------------------------------------------------------- | ---------------------------------------------- |
-| `files`       | `Ref<PendingAttachment[]>`                                    | Accepted files with `id`, `file`, and `previewUrl`. |
-| `add`         | `(files: FileList \| Iterable<File>) => void`                 | Validates and adds files.                      |
-| `remove`      | `(id: string) => void`                                        | Removes one file and revokes its preview URL.  |
-| `clear`       | `() => void`                                                  | Removes every file.                            |
-| `accept`      | `ComputedRef<string \| undefined>`                            | The `accept` option.                           |
-| `inputProps`  | `ComputedRef<{ accept?: string; multiple: boolean; type: "file" }>` | Attributes for a file input.             |
-| `toFileParts` | `() => Promise<FileUIPart[]>`                                 | Converts every file to an AI SDK file part.    |
-
-### Helpers
-
-| Function        | Signature                                 | Description                                  |
-| --------------- | ----------------------------------------- | -------------------------------------------- |
-| `fileToUIPart`  | `(file: File) => Promise<FileUIPart>`     | Converts one file to an AI SDK file part.    |
-| `fileToDataUrl` | `(file: File) => Promise<string>`         | Reads one file as a data URL.                |
 
 ## Accessibility
 
@@ -98,7 +86,49 @@ The composable renders nothing, so the application owns the markup:
 - Give each remove button a name that includes the file name.
 - Announce rejected files in a live region, as the example does.
 
+## API Reference
+
+### useAgentAttachments
+
+Keeps the selected files and their rules. Returns the files and the functions that change them.
+
+```ts
+function useAgentAttachments(options?: UseAgentAttachmentsOptions): AgentAttachments;
+```
+
+#### Options
+
+| Option     | Type                                                        | Default | Description                                                         |
+| ---------- | ----------------------------------------------------------- | ------- | ------------------------------------------------------------------- |
+| `accept`   | `string`                                                    |         | Accepted types: MIME types, `type/*`, or extensions such as `.pdf`. |
+| `maxFiles` | `number`                                                    |         | Maximum number of files in the list.                                |
+| `maxSize`  | `number`                                                    |         | Maximum size of one file, in bytes.                                 |
+| `multiple` | `boolean`                                                   | `true`  | When `false`, the list holds one file.                              |
+| `onReject` | `(file: File, reason: "count" \| "size" \| "type") => void` |         | Called for each rejected file.                                      |
+
+#### Return value
+
+| Property      | Type                                                                | Description                                         |
+| ------------- | ------------------------------------------------------------------- | --------------------------------------------------- |
+| `files`       | `Ref<PendingAttachment[]>`                                          | Accepted files with `id`, `file`, and `previewUrl`. |
+| `add`         | `(files: FileList \| Iterable<File>) => void`                       | Validates and adds files.                           |
+| `remove`      | `(id: string) => void`                                              | Removes one file and revokes its preview URL.       |
+| `clear`       | `() => void`                                                        | Removes every file.                                 |
+| `accept`      | `ComputedRef<string \| undefined>`                                  | The `accept` option.                                |
+| `inputProps`  | `ComputedRef<{ accept?: string; multiple: boolean; type: "file" }>` | Attributes for a file input.                        |
+| `toFileParts` | `() => Promise<FileUIPart[]>`                                       | Converts every file to an AI SDK file part.         |
+
+### Helpers
+
+`@vite-hub/ui` also exports the two functions that `toFileParts()` uses.
+
+| Function        | Signature                             | Description                               |
+| --------------- | ------------------------------------- | ----------------------------------------- |
+| `fileToUIPart`  | `(file: File) => Promise<FileUIPart>` | Converts one file to an AI SDK file part. |
+| `fileToDataUrl` | `(file: File) => Promise<string>`     | Reads one file as a data URL.             |
+
 ## Related
 
 - [Prompt input](/docs/ui/prompt-input) has a built-in attachment row and paste support.
 - [Message parts](/docs/ui/message-parts) renders file parts in messages.
+- [Attachment](/docs/ui/attachment) shows one file with its upload state and actions.

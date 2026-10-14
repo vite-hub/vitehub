@@ -55,8 +55,8 @@ describe("UI documentation", () => {
     }
   });
 
-  it("gives every component page the same section order", () => {
-    const sections = ["## Usage", "## API reference", "## Accessibility", "## Related"];
+  it("gives every component page the shadcn/ui section order", () => {
+    const sections = ["## Installation", "## Usage", "## Accessibility", "## API Reference"];
     for (const page of componentPages) {
       const firstPreview = page.source.indexOf("::component-preview{");
       expect(firstPreview, `${page.name} should open with a live preview`).toBeGreaterThan(0);
@@ -69,6 +69,8 @@ describe("UI documentation", () => {
         ).toBeGreaterThan(previous);
         previous = index;
       }
+      const related = page.source.indexOf("\n## Related\n");
+      if (related !== -1) expect(related, `${page.name} should end with ## Related`).toBeGreaterThan(previous);
     }
   });
 
