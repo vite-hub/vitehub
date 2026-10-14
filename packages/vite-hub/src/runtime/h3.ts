@@ -47,10 +47,17 @@ function isRequest(value: unknown): value is Request {
     let prototype: object | null = value
     while (prototype) {
       const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
-      if (typeof constructor === "function" && constructor.name === "Request") {
+      if (
+        typeof constructor === "function"
+        && constructor.name === "Request"
+        && constructor.prototype === prototype
+      ) {
         for (const key of ["headers", "url", "method", "bodyUsed"] as const) {
           const getter = Object.getOwnPropertyDescriptor(prototype, key)?.get
-          if (typeof getter !== "function") return false
+          if (
+            typeof getter !== "function"
+            || !isRequestAccessor(getter)
+          ) return false
           getter.call(value)
         }
         return true
@@ -61,6 +68,11 @@ function isRequest(value: unknown): value is Request {
   } catch {
     return false
   }
+}
+
+function isRequestAccessor(accessor: Function): boolean {
+  const source = Function.prototype.toString.call(accessor)
+  return source.includes("[native code]") || source.includes("brandCheck(this, Request)")
 }
 
 /** Adapt one H3 operation. Await flushWaitUntil when the host has no lifetime API. */
