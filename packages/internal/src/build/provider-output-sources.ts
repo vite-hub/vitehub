@@ -1021,7 +1021,12 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
         await cp(stagedContainer, retainedContainer, { recursive: true })
       }
       const resolveRetainedDependencyTarget = (source: string): string => {
-        if (!pathContains(root, source) || relative(root, source).split(sep).includes("node_modules")) return source
+        if (!pathContains(root, source)) {
+          const packageRoot = pnpmStorePackageRoot(captureRoot, source)
+          const capturedSource = packageRoot && resolve(retainedContainer, relative(captureRoot, source))
+          return capturedSource && existsSync(capturedSource) ? capturedSource : source
+        }
+        if (relative(root, source).split(sep).includes("node_modules")) return source
         const retainedSource = resolve(retainedRoot, relative(root, source))
         return existsSync(retainedSource) ? retainedSource : source
       }
