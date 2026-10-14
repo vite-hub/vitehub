@@ -39,6 +39,8 @@ const docsShellUi = {
         <slot />
       </div>
     </UPage>
+
+    <AppFooter class="vh-docs-footer" />
   </UMain>
 </template>
 
@@ -55,6 +57,10 @@ const docsShellUi = {
 
 .vh-docs-landing {
   max-width: var(--vh-landing-width);
+}
+
+.vh-docs-footer {
+  margin-top: 3rem;
 }
 
 @media (min-width: 40rem) {
