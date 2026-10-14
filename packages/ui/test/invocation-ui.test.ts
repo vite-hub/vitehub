@@ -4235,7 +4235,7 @@ describe("Agent Invocation UI", () => {
     expect(inspector.get(".vh-invocation-inspector__metrics").text()).toContain("Messages2");
   });
 
-  it("renders structured workspace sources alongside historical source strings", () => {
+  it("renders structured workspace sources alongside historical source strings", async () => {
     const invocation: AgentInvocationView = {
       id: "sources", traceId: "sources", createdAt: "2026-09-05T00:00:00Z", updatedAt: "2026-09-05T00:00:01Z",
       status: "completed", observations: [],

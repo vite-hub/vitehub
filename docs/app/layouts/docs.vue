@@ -30,6 +30,7 @@ const docsShellUi = {
 
     <UPage v-else :ui="docsShellUi">
       <template #left>
+        <DocsRail class="vh-docs-rail" />
         <UPageAside class="vh-docs-aside">
           <DocsAsideLeftTop />
           <DocsAsideLeftBody />
@@ -41,6 +42,8 @@ const docsShellUi = {
         <slot />
       </div>
     </UPage>
+
+    <AppFooter />
   </UMain>
 </template>
 
@@ -68,9 +71,17 @@ const docsShellUi = {
   }
 }
 
- .vh-docs-aside { display: none; }
+.vh-docs-aside { display: none; }
+.vh-docs-rail { display: none; }
 
 @media (min-width: 64rem) {
+  .vh-docs-rail {
+    display: flex;
+    position: sticky;
+    top: var(--ui-header-height);
+    height: calc(100dvh - var(--ui-header-height));
+  }
+
   .vh-docs-aside {
     position: sticky;
     top: var(--ui-header-height);
