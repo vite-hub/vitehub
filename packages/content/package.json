@@ -33,6 +33,10 @@
       "types": "./dist/client.d.ts",
       "import": "./dist/client.js"
     },
+    "./database": {
+      "types": "./dist/database.d.ts",
+      "import": "./dist/database.js"
+    },
     "./runtime/console": {
       "types": "./dist/runtime/console.d.ts",
       "import": "./dist/runtime/console.js"
@@ -75,9 +79,13 @@
   },
   "peerDependencies": {
     "comark-content": "catalog:markdown",
+    "drizzle-orm": "catalog:database",
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {
+    "drizzle-orm": {
+      "optional": true
+    },
     "vite": {
       "optional": true
     }

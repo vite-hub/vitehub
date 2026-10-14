@@ -60,6 +60,8 @@ function fakeActions(overrides: Partial<ConsoleDocumentActions> = {}): ConsoleDo
     save: unused,
     schedule: unused,
     search: unused,
+    session: unused,
+    sessions: unused,
     unschedule: unused,
     ...overrides,
   }

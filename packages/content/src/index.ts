@@ -42,6 +42,7 @@ import type {
   ContentUnscheduleOptions,
 } from "./schedules.ts"
 import type { ContentSitemapEntry, ContentSitemapOptions, DefineContentSeoOptions } from "./sitemap.ts"
+import type { ContentSessions } from "./sessions.ts"
 export { contentSource } from "./content-source.ts"
 export { contentScheduleOverdueMs, contentSchedulesRef } from "./schedules.ts"
 export type {
@@ -57,6 +58,17 @@ export type {
   ContentUnscheduleOptions,
 } from "./schedules.ts"
 export type { ContentSourceInput, ContentSourceOptions, ContentSourceReader } from "./content-source.ts"
+export { contentSessionTimeouts } from "./sessions.ts"
+export type {
+  ContentDocumentSessions,
+  ContentSession,
+  ContentSessionAcquireOptions,
+  ContentSessionOptions,
+  ContentSessionReleaseOptions,
+  ContentSessionReportOptions,
+  ContentSessions,
+  ContentSessionUser,
+} from "./sessions.ts"
 export { documents, optional, singleton } from "./documents.ts"
 export { contentSeoLengths, seo } from "./seo.ts"
 export type { ContentSeo, ContentSeoField, ContentSeoHint, ContentSeoOptions } from "./seo.ts"
@@ -76,6 +88,7 @@ export type { ContentSitemapEntry, ContentSitemapOptions, DefineContentSeoOption
 export type {
   ContentCollectionDefinition,
   ContentDocumentUrl,
+  ContentEditingOptions,
   ContentField,
   ContentFieldIssue,
   ContentFields,
@@ -261,6 +274,11 @@ export interface ContentDocumentsRuntime<TCollections extends ContentCollections
    * `draft` (default), publishes on `published`. `metadata.content.documents` names the documents of each.
    */
   revisions(options?: ContentRevisionsOptions): Promise<ContentRevisionsResult>
+  /**
+   * Presence and edit leases: who has a document open, and which session may edit it. Kept in the Database of the
+   * Workspace history, which needs `contentSessionsSchema` from `vite-hub/content/database`.
+   */
+  readonly sessions: ContentSessions<CollectionName<TCollections>>
   /** Evaluate `defineContent({ authorize })`. Returns false when no policy is defined. */
   can(context: ContentCanContext<CollectionName<TCollections>>): Promise<boolean>
   /** `defineContent({ seo })`, or undefined. */
@@ -397,6 +415,13 @@ export function defineContent<
       })
     },
     collections: () => documentsRuntime ? [...documentsRuntime.collections.values()] : [],
+    // SAFETY: Each method forwards its arguments unchanged, so the overloads of ContentSessions hold.
+    sessions: {
+      report: (...args: unknown[]) => Reflect.apply(requireDocuments().sessions.report, undefined, args),
+      acquire: (...args: unknown[]) => Reflect.apply(requireDocuments().sessions.acquire, undefined, args),
+      release: (...args: unknown[]) => Reflect.apply(requireDocuments().sessions.release, undefined, args),
+      list: (collection?: string) => requireDocuments().sessions.list(collection),
+    } as ContentSessions,
     collection: (name: string): unknown => requireDocuments().collection(name),
     publish: (publishOptions?: ContentPublishOptions) => requireDocuments().publish(publishOptions),
     schedule: (scheduleOptions: ContentScheduleOptions) => requireDocuments().schedule(scheduleOptions),

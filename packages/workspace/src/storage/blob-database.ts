@@ -28,6 +28,16 @@ export interface BlobDatabaseWorkspaceStoreOptions {
   prefix?: string
 }
 
+/**
+ * Where a Blob + Database Store keeps history. `database` lets owners that keep their own tables next to the history,
+ * such as Content edit sessions, use the same Database without a second setting.
+ */
+export interface BlobDatabaseWorkspaceStoreTarget {
+  provider: "blob-database"
+  workspace: string
+  database: RuntimeDrizzleDatabase<Record<string, unknown>>
+}
+
 export interface BlobDatabaseWorkspaceStore extends WorkspaceStore {
   history: WorkspaceStoreHistory
   /** Tombstone the identity and remove all file objects, including failed uploads. Safe to retry. */
@@ -64,8 +74,8 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
     this.#namespace = sha256(options.workspace).then(digest => `${prefix}/${digest}`)
   }
 
-  [workspaceStoreTarget]() {
-    return { provider: "blob-database", workspace: this.options.workspace }
+  [workspaceStoreTarget](): BlobDatabaseWorkspaceStoreTarget {
+    return { provider: "blob-database", workspace: this.options.workspace, database: this.options.database }
   }
 
   history: WorkspaceStoreHistory = {

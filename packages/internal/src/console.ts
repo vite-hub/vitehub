@@ -473,6 +473,79 @@ export interface ViteHubConsoleDocumentReferences {
   references: Record<string, ViteHubConsoleDocumentReference[]>
 }
 
+/** The person behind a session, as the editor shows them in avatars and banners. */
+export interface ViteHubConsoleDocumentSessionUser {
+  id: string
+  /** Display name: the user name, else the email, else the id. */
+  name: string
+  image?: string
+}
+
+/** One editor tab that has a document open. Tokens of other tabs stay on the server. */
+export interface ViteHubConsoleDocumentSession {
+  collection: string
+  id: string
+  user: ViteHubConsoleDocumentSessionUser
+  /** `edit` while it holds the edit lease, or edits a collection without leases. Otherwise `view`. */
+  kind: "view" | "edit"
+  /** When it started editing, as an ISO timestamp. Null while it views. */
+  since: string | null
+  /** True for the tab that sent the request. */
+  self: boolean
+}
+
+/**
+ * - `report`: keep the tab present as `kind`, about every 15 seconds while visible and 60 seconds while hidden. `edit`
+ *   renews the lease the tab holds and never takes a free one.
+ * - `acquire`: take the edit lease when it is free, on the first edit. Needs write access.
+ * - `takeover`: take the edit lease from its holder. Needs write access.
+ * - `release`: close the tab on the document, when the editor closes.
+ */
+export type ViteHubConsoleDocumentSessionAction = "report" | "acquire" | "takeover" | "release"
+
+export interface ViteHubConsoleDocumentSessionInput {
+  collection: string
+  id: string
+  /** A token for this tab, such as `crypto.randomUUID()`, kept for the life of the tab. */
+  session: string
+  action: ViteHubConsoleDocumentSessionAction
+  /** For `report`. */
+  kind?: "view" | "edit"
+  /** For `report`: true when the user typed or changed something since the last report. */
+  input?: boolean
+}
+
+/** Who has one document open, after a session action. */
+export interface ViteHubConsoleDocumentPresence {
+  /** The signed-in Console user, so the editor can tell "you" from others. Null when the access mode has no user. */
+  user: ViteHubConsoleDocumentSessionUser | null
+  /**
+   * False when the owner cannot track sessions, such as a Database without the sessions table. The editor stays
+   * editable; `ifDigest` still guards saves.
+   */
+  available: boolean
+  /** Why sessions are unavailable. */
+  reason?: string
+  /** Whether this tab may edit: it holds the lease, or the collection has no leases. */
+  editing: boolean
+  /** Whether the collection gives one tab at a time the edit lease. */
+  lease: boolean
+  /** The tab that holds the edit lease, or null. */
+  holder: ViteHubConsoleDocumentSession | null
+  /** Every tab with the document open, this one included: editors first. */
+  sessions: ViteHubConsoleDocumentSession[]
+  /** The owner clock, as an ISO timestamp. */
+  now: string
+}
+
+/** Every open tab in collections the user may read, for list rows and the dashboard. */
+export interface ViteHubConsoleDocumentSessions {
+  user: ViteHubConsoleDocumentSessionUser | null
+  available: boolean
+  reason?: string
+  sessions: ViteHubConsoleDocumentSession[]
+}
+
 /** The signed-in Console user, or `null` when the Console access mode has no user. */
 export interface ViteHubConsoleDocumentActionContext {
   user: Record<string, unknown> | null
@@ -490,9 +563,12 @@ export interface ViteHubConsoleDocumentActions {
   get(input: { collection: string, id: string }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocument | null>
   /** Reads the stored file on the draft, or at one earlier `revision`, without validating it. Null when it does not exist there. */
   raw(input: { collection: string, id: string, revision?: string }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleRawDocument | null>
-  /** `ifDigest: null` creates a document that must not exist yet. */
-  save(input: { collection: string, id: string, data: Record<string, unknown>, body: string, ifDigest: string | null }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocument>
-  remove(input: { collection: string, id: string, ifDigest: string }, context: ViteHubConsoleDocumentActionContext): MaybePromise<void>
+  /**
+   * `ifDigest: null` creates a document that must not exist yet. `session` is the tab token: while another tab holds
+   * the edit lease, the save fails with `409 CONTENT_LEASE_HELD` and `details.holder`.
+   */
+  save(input: { collection: string, id: string, data: Record<string, unknown>, body: string, ifDigest: string | null, session?: string }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocument>
+  remove(input: { collection: string, id: string, ifDigest: string, session?: string }, context: ViteHubConsoleDocumentActionContext): MaybePromise<void>
   /**
    * Publishes exactly the reviewed drafts. When a draft digest no longer matches, it publishes nothing and fails with
    * `WORKSPACE_CONFLICT` and `details.documents`: `{ id, expected, actual }` for each document that changed.
@@ -506,7 +582,11 @@ export interface ViteHubConsoleDocumentActions {
   /** Cancels a pending schedule, or dismisses a failed one. */
   unschedule(input: { collection: string, schedule: string }, context: ViteHubConsoleDocumentActionContext): MaybePromise<void>
   revisions(input: { collection: string, id: string, cursor?: string }, context: ViteHubConsoleDocumentActionContext): MaybePromise<{ revisions: ViteHubConsoleDocumentRevision[], cursor?: string }>
-  restore(input: { collection: string, id: string, revision: string, ifDigest: string | null }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocument>
+  restore(input: { collection: string, id: string, revision: string, ifDigest: string | null, session?: string }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocument>
+  /** Report, take, or release this tab's session on one document, and read who else has it open. */
+  session(input: ViteHubConsoleDocumentSessionInput, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocumentPresence>
+  /** Every open tab in collections the user may read, or in one `collection`. `session` marks this tab as `self`. */
+  sessions(input: { collection?: string, session?: string }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocumentSessions>
   /**
    * Counts, unpublished changes, and recent activity of every collection the user may read, for the dashboard. Read
    * each collection's state once: the dashboard makes one request, so the overview must not read per document.
@@ -525,7 +605,7 @@ export interface ViteHubConsoleDocumentActions {
 
 export type ViteHubConsoleDocumentActionName = Exclude<keyof ViteHubConsoleDocumentActions, "collections" | "mediaAccess">
 
-export const viteHubConsoleDocumentActionNames: readonly ViteHubConsoleDocumentActionName[] = ["get", "list", "overview", "publish", "raw", "references", "remove", "restore", "revisions", "save", "schedule", "search", "unschedule"]
+export const viteHubConsoleDocumentActionNames: readonly ViteHubConsoleDocumentActionName[] = ["get", "list", "overview", "publish", "raw", "references", "remove", "restore", "revisions", "save", "schedule", "search", "session", "sessions", "unschedule"]
 
 /** Creates the document actions from the namespace of the application module that `entry` found. */
 export type ViteHubConsoleDocumentActionsFactory = (module: Record<string, unknown>) => ViteHubConsoleDocumentActions

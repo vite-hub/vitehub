@@ -56,6 +56,8 @@ function actions(): ConsoleDocumentActions {
     save: unused,
     schedule: unused,
     search: unused,
+    session: unused,
+    sessions: unused,
     unschedule: unused,
   }
 }
