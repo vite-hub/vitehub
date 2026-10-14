@@ -2246,7 +2246,7 @@ export interface AgentMessageChannelSettings<TRuntimeConfig extends AgentRuntime
   }) => MaybePromise<string | null | undefined>)
   fallbackStreamingPlaceholderText?: string | readonly string[] | null | ((context: AgentChatAgentHookArgs<TRuntimeConfig>) => MaybePromise<string | null | undefined>)
   final?: {
-    delivery: "new-message"
+    delivery: "new-message" | "placeholder"
   }
   filter?: AgentMessageFilter<TRuntimeConfig>
   identity?: IdentityResolver

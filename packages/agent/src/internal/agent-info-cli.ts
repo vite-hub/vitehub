@@ -108,7 +108,9 @@ function parseInfoArgs(args: string[], env: NodeJS.ProcessEnv): ParsedInfoArgs {
       continue
     }
     if (arg.startsWith("--url=")) {
-      parsed.url = arg.slice("--url=".length)
+      const value = arg.slice("--url=".length)
+      if (!value) throw agentDiagnostics.AGENT_R0498({ message: `Missing value for ${arg}.` })
+      parsed.url = value
       continue
     }
     if (arg.startsWith("-")) throw agentDiagnostics.AGENT_R0499({ message: `Unknown option: ${arg}.` })

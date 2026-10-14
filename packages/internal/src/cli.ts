@@ -71,7 +71,8 @@ export async function collectViteHubCliContribution(plugins: readonly unknown[])
   const steps = new Map<string, ProvisionStep>()
 
   for (const plugin of plugins) {
-    if (!plugin || typeof plugin !== "object") continue
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vite plugin discovery accepts unknown runtime values and only object plugins can own CLI metadata.
+    if (!plugin || typeof plugin !== "object" || !Object.hasOwn(plugin, "vitehub")) continue
     const metadata = (plugin as ViteHubCliContributingPlugin).vitehub
     const contributor = await resolveContributor(metadata?.cli)
     if (!contributor) continue
@@ -198,7 +199,9 @@ export function readViteHubDevTargetOption(
     return 1
   }
   if (arg.startsWith("--url=")) {
-    target.url = arg.slice("--url=".length)
+    const value = arg.slice("--url=".length)
+    if (!value) throw errors.missingValue(`Missing value for ${arg}.`)
+    target.url = value
     return 0
   }
   if (arg === "--timeout") {

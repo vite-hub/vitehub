@@ -1,5 +1,6 @@
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
+import { runInNewContext } from "node:vm"
 import { join } from "node:path"
 import { createClient } from "@libsql/client"
 import { expect, it } from "vitest"
@@ -66,6 +67,21 @@ it.each(["metadata", "content"] as const)("applies %s policy to external observa
   expect(saved?.observations[0]?.attributes?.["report.uuid"]).toBe("report-id")
   await expect(invocations.appendObservation("fixture", { name: "bad", type: "run" }, { id: "" })).rejects.toThrow("non-empty")
   await expect(invocations.appendObservation("fixture", { name: "bad", type: "run" }, { id: "x".repeat(513) })).rejects.toMatchObject({ code: "AGENT_R0901", message: expect.stringContaining("512") })
+})
+
+it("preserves cross-realm map values in content observations", async () => {
+  const store = createMemoryAgentInvocationStore()
+  const timestamp = "2026-01-01T00:00:00.000Z"
+  await store.create({ id: "fixture", observations: [], status: "completed", createdAt: timestamp, updatedAt: timestamp, traceId: "fixture-trace" })
+  const invocations = defineAgentInvocations({ content: "content", store })
+  const foreignMap = runInNewContext("new Map([['answer', 42]])") as Map<string, number>
+
+  const saved = await invocations.appendObservation("fixture", {
+    name: "report", type: "run", timestamp,
+    attributes: { result: foreignMap },
+  }, { id: "report-id" })
+
+  expect(saved?.observations[0]?.attributes?.result).toEqual([["answer", 42]])
 })
 
 it("captures only safe selected metadata content", async () => {

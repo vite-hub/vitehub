@@ -63,7 +63,7 @@ Run the Agent inspection command while the Vite development server is running:
 vitehub agent info --agent support --json
 ```
 
-For a token or USD policy, the JSON `capabilities` list contains an entry with `id: "budget"` and its configured `metadata`, including the policy kind and mode. Inspection sanitizes secret-shaped keys, so a `tokens` metadata value can appear as `[redacted]`; treat the Agent source as the authority for its numeric token limits. The `budget` Capability metadata describes configuration only. It does not contain usage from a previous Invocation. Read the per-invocation `usage` and `exceeded` values from the finish extension or the persisted Invocation record.
+For a token or USD policy, the JSON `capabilities` list contains an entry with `id: "budget"` and its configured `metadata`, including the policy kind and mode. Inspection sanitizes secret-shaped keys, so a `tokens` metadata value can appear as `[redacted]`; treat the Agent source as the authority for its numeric token limits. The `budget` Capability metadata describes configuration only. It does not contain usage from a previous Invocation. Read per-invocation `usage` from the finish extension or persisted Invocation record; the persisted record does not store the computed `exceeded` list, so capture that list in the finish hook or derive it from the limits and recorded usage.
 
 For a capacity-only policy, inspect `config.driver.capacity` instead. The human-readable command reports the active count, admitted limit, hard concurrency maximum, and queue state. That policy can be shared only by Agent Definitions that use the same process-local capacity object; it does not create usage accounting.
 
@@ -134,7 +134,7 @@ If a Driver reports no usage, ViteHub cannot compare token or cost limits. The i
 | --- | --- | --- | --- |
 | `tokens` | `number \| { input?, output?, total? }` | No token limit | Limits normalized input, output, or total tokens. A number sets `total`. |
 | `usd` | `number \| string` | No cost limit | Compares provider-reported or estimated cost in US dollars. Decimal strings preserve exact limits. |
-| `capacity` | `AgentDriverCapacityOptions` | Driver setting | Configures process-local admission for the top-level Agent option. It is not a usage limit. |
+| `capacity` | `AgentDriverCapacityOptions` | Driver setting | Configures process-local admission for the top-level Agent option. It is not a usage limit, and `budget({ capacity })` on the reusable Capability does not configure Driver admission. |
 | `mode` | `'observe' \| 'enforce'` | `'observe'` | Reports exceedance or rejects the terminal Invocation after usage is available. |
 | `pricing` | `AgentUsagePricing \| false` | Models.dev pricing | Resolves missing cost, or disables estimation. Provider-reported cost remains available when set to `false`. |
 | `id` | `string` | `'budget'` | Changes the Capability id when using the reusable Capability form. |

@@ -26,11 +26,20 @@ function isObjectRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object'
 }
 
-function isBoxedJsonPrimitive(value: object) {
-  return value instanceof Boolean
-    || value instanceof Number
-    || value instanceof String
-    || Object.getPrototypeOf(value) === BigInt.prototype
+const typedArrayTagGetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), Symbol.toStringTag)?.get
+
+function isUint8Array(value: unknown): value is Uint8Array {
+  return ArrayBuffer.isView(value) && typedArrayTagGetter?.call(value) === 'Uint8Array'
+}
+
+function unboxJsonPrimitive(value: unknown): { value: unknown } | undefined {
+  for (const unbox of [Boolean.prototype.valueOf, Number.prototype.valueOf, String.prototype.valueOf, BigInt.prototype.valueOf]) {
+    try {
+      return { value: Reflect.apply(unbox, value, []) }
+    }
+    catch {}
+  }
+  return undefined
 }
 
 function hasMarker(value: Record<string, unknown>) {
@@ -71,7 +80,7 @@ export async function encodeSandboxValue(
   async function encode(entry: unknown, ancestors: ReadonlySet<object>, key = '', applyToJSON = true): Promise<unknown> {
     const blob = typeof Blob !== 'undefined' && entry instanceof Blob
     const buffer = typeof Buffer !== 'undefined' && Buffer.isBuffer(entry)
-    if (blob || entry instanceof Uint8Array) {
+    if (blob || isUint8Array(entry)) {
       throwIfAborted()
       const id = state.nextId++
       state.directory ||= abortable(sandbox.files.mkdir(assetsDir, { recursive: true, signal }))
@@ -107,7 +116,8 @@ export async function encodeSandboxValue(
     }
 
     if (!isObjectRecord(entry)) return entry
-    if (isBoxedJsonPrimitive(entry)) return await encode(entry.valueOf(), ancestors, key, false)
+    const boxed = unboxJsonPrimitive(entry)
+    if (boxed) return await encode(boxed.value, ancestors, key, false)
     if (ancestors.has(entry))
       throw serializationError(`Sandbox ${label} must be JSON-serializable.`, { label })
 
@@ -131,15 +141,16 @@ export async function decodeSandboxValue(
   value: unknown,
   assetsDir: string,
   label: string,
+  signal?: AbortSignal,
 ): Promise<unknown> {
   if (Array.isArray(value))
-    return await Promise.all(value.map(entry => decodeSandboxValue(sandbox, entry, assetsDir, label)))
+    return await Promise.all(value.map(entry => decodeSandboxValue(sandbox, entry, assetsDir, label, signal)))
   if (!isPlainObject(value)) return value
 
   if (!hasMarker(value)) {
     return Object.fromEntries(await Promise.all(Object.entries(value).map(async ([key, entry]) => [
       key,
-      await decodeSandboxValue(sandbox, entry, assetsDir, label),
+      await decodeSandboxValue(sandbox, entry, assetsDir, label, signal),
     ])))
   }
 
@@ -158,7 +169,7 @@ export async function decodeSandboxValue(
       throw serializationError(`Sandbox ${label} contains an invalid binary sidecar descriptor.`, { label })
     return Object.fromEntries(await Promise.all(descriptor.entries.map(async ([key, entry]) => [
       key,
-      await decodeSandboxValue(sandbox, entry, assetsDir, label),
+      await decodeSandboxValue(sandbox, entry, assetsDir, label, signal),
     ])))
   }
 
@@ -171,7 +182,7 @@ export async function decodeSandboxValue(
     throw serializationError(`Sandbox ${label} contains an invalid binary sidecar descriptor.`, { label })
   }
 
-  const bytes = await sandbox.files.read(`${assetsDir}/${descriptor.id}`)
+  const bytes = await sandbox.files.read(`${assetsDir}/${descriptor.id}`, { signal })
   if (!bytes) {
     throw serializationError(`Sandbox ${label} binary sidecar ${descriptor.id} does not exist.`, {
       id: descriptor.id,

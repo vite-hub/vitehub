@@ -71,7 +71,9 @@ function methodProxy(client: ConnectionRuntimeClient, path: string): unknown {
 export function useConnection<const TName extends ConnectionDefinitionName, const TDryRun extends boolean = false>(name: TName, options?: Omit<UseConnectionOptions, "dryRun"> & { dryRun?: TDryRun }): ConnectionRegistryClient<TName, TDryRun>
 export function useConnection<TName extends string>(name: string extends TName ? TName : never, options?: UseConnectionOptions): ConnectionClient
 export function useConnection(name: string, options: UseConnectionOptions = {}): ConnectionClient {
-  if (!v.safeParse(v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(CONNECTION_NAME_MAX_LENGTH)), name).success) throw new ConnectionError("invalid", "`useConnection()` requires a Connection name of at most 501 characters.")
+  const parsedName = v.safeParse(v.pipe(v.string(), v.minLength(1), v.maxLength(CONNECTION_NAME_MAX_LENGTH), v.check(value => value === value.trim(), "Connection names cannot start or end with whitespace.")), name)
+  if (!parsedName.success) throw new ConnectionError("invalid", "`useConnection()` requires a Connection name of at most 501 characters.")
+  name = parsedName.output
   let client: ConnectionRuntimeClient | undefined
   const resolveClient = () => (client ??= getConnectionsRuntime().client(name, options))
   // SAFETY: The get trap supplies fetch and every dynamic API method required by ConnectionClient.
