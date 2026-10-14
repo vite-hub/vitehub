@@ -106,11 +106,15 @@ function readableStreamDescriptor(value: unknown, key: PropertyKey): PropertyDes
 
 function bridgeUIMessageBody(body: ReadableStream<Uint8Array>) {
   // Use the source realm's native operations, never caller-supplied methods.
+  // SAFETY: readableStreamDescriptor only returns the branded ReadableStream prototype's getReader method.
   const getReader = readableStreamDescriptor(body, "getReader")?.value as () => ReadableStreamDefaultReader<Uint8Array>
   const reader = Reflect.apply(getReader, body, [])
   const readerPrototype = Object.getPrototypeOf(reader)
+  // SAFETY: readerPrototype is the native prototype of the reader returned by the branded stream.
   const read = Object.getOwnPropertyDescriptor(readerPrototype, "read")?.value as ReadableStreamDefaultReader<Uint8Array>["read"]
+  // SAFETY: readerPrototype is the native prototype of the reader returned by the branded stream.
   const cancel = Object.getOwnPropertyDescriptor(readerPrototype, "cancel")?.value as ReadableStreamDefaultReader<Uint8Array>["cancel"]
+  // SAFETY: readerPrototype is the native prototype of the reader returned by the branded stream.
   const releaseLock = Object.getOwnPropertyDescriptor(readerPrototype, "releaseLock")?.value as ReadableStreamDefaultReader<Uint8Array>["releaseLock"]
   let released = false
   const release = () => {
