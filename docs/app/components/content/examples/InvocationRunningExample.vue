@@ -56,7 +56,6 @@ const invocation = computed<AgentInvocationView>(() => ({
   title: "Polish Console navigation",
   traceId: "trace_console_navigation",
   updatedAt: time(20),
-
 }));
 </script>
 

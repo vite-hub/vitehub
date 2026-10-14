@@ -162,8 +162,8 @@ function isActive(path: string) {
   color: var(--ui-text-muted);
   font-size: 0.875rem;
   transition:
-
-    border-color 150ms ease,    background-color 150ms ease,
+    border-color 150ms ease,
+    background-color 150ms ease,
     color 150ms ease;
 }
 
