@@ -27,6 +27,16 @@ describe("workspace dev token headers", () => {
     await expect(validateWorkspaceDevToken(root, headers, { serverId: "prototype-test" })).resolves.toBe(false)
   })
 
+  it("accepts an own structural get method on header records", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-header-"))
+    roots.push(root)
+    const options = { serverId: "own-get-test" }
+    const token = await refreshWorkspaceDevToken(root, options)
+    const headers = { get: (name: string) => name === workspaceDevTokenHeader ? token : null }
+
+    await expect(validateWorkspaceDevToken(root, headers, options)).resolves.toBe(true)
+  })
+
   it("does not call an inherited get method on plain header records", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-header-"))
     roots.push(root)

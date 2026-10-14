@@ -132,6 +132,14 @@ function headerValue(headers: Headers | Record<string, string | string[] | undef
       catch {}
     }
   }
+  const ownGet = Object.hasOwn(headers, "get") ? Reflect.get(headers, "get") : undefined
+  if (hasRuntimeType(ownGet, "function")) {
+    try {
+      const value = Reflect.apply(ownGet, headers, [name])
+      return hasRuntimeType(value, "string") && value ? value : undefined
+    }
+    catch {}
+  }
   if (!Object.hasOwn(headers, name)) return undefined
   const value: unknown = Reflect.get(headers, name)
   if (Array.isArray(value)) return hasRuntimeType(value[0], "string") ? value[0] : undefined
