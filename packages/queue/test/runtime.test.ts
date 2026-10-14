@@ -1110,6 +1110,13 @@ it("reads regions from a request created in another realm", () => {
   expect(runWithQueueRuntimeEvent({ request }, () => resolveVercelQueueRegion(undefined))).toMatchObject({ region: "ams1" })
 })
 
+it("falls back to Vercel ID when a request has no queue-region header", () => {
+  const request = new Request("https://example.com", {
+    headers: { "x-vercel-id": "iad1::request" },
+  })
+  expect(runWithQueueRuntimeEvent({ request }, () => resolveVercelQueueRegion(undefined))).toMatchObject({ region: "iad1" })
+})
+
 it("ignores proxies around ordinary header methods", () => {
   const get = new Proxy(() => "evil", {})
   const request = { headers: { get } }

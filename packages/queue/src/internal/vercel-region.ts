@@ -40,7 +40,7 @@ function isHeadersLike(value: unknown): value is Headers {
     const descriptor = getPrototypeDescriptor(value, "get")
     if (!isBrandedMethod(descriptor?.value, value, "ce-vqsregion")) return false
     const result = descriptor.value.call(value, "ce-vqsregion")
-    if (result !== undefined && typeof result !== "string") return false
+    if (result !== undefined && result !== null && typeof result !== "string") return false
     return true
   }
   catch {
