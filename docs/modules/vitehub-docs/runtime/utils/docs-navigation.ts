@@ -100,3 +100,11 @@ export function isDocsLandingPath(sections: DocsSection[], path: string) {
 export function getDocsSectionSubpages(section: DocsSection) {
   return section.pages.filter(page => page.navigation !== false && page.id !== "index");
 }
+
+/** Backward-compatible catalog used by the docs rail. */
+export const getDocsRailCatalog = getDocsCatalog
+
+/** Display kind for catalog tiles. */
+export function getDocsSectionKind(section: DocsSection): string {
+  return section.category || "Platform"
+}

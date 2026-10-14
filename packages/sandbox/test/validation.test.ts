@@ -28,6 +28,93 @@ describe.each([
     await expect(read("payload", value => value.toUpperCase())).resolves.toBe("PAYLOAD")
   })
 
+  it("normalizes errors thrown by a Standard Schema validator", async () => {
+    const read = await load()
+    const validate = {
+      "~standard": {
+        validate: () => {
+          throw new Error("validator exploded")
+        },
+      },
+    }
+
+    await expect(read("payload", validate)).rejects.toMatchObject({
+      code: "SANDBOX_VALIDATION_ERROR",
+      message: "validator exploded",
+    })
+  })
+
+  describe.each([
+    { validator: "Standard Schema", standard: true },
+    { validator: "function", standard: false },
+  ])("immutable errors thrown by a $validator validator", ({ standard }) => {
+    it.each([
+      { kind: "frozen Error", create: () => Object.freeze(new Error("validator exploded")) },
+      { kind: "read-only code", create: () => Object.defineProperty(new Error("validator exploded"), "code", { value: "UPSTREAM_ERROR", enumerable: true }) },
+      { kind: "DOMException", create: () => new DOMException("validator exploded", "InvalidStateError") },
+    ])("wraps a $kind without mutating the original", async ({ create }) => {
+      const read = await load()
+      const original = create()
+      const originalCode = Object.getOwnPropertyDescriptor(original, "code")
+      const validate = () => { throw original }
+      const result = standard
+        ? read("payload", { "~standard": { validate } })
+        : read("payload", validate)
+
+      await expect(result).rejects.toMatchObject({
+        code: "SANDBOX_VALIDATION_ERROR",
+        message: "validator exploded",
+        cause: original,
+      })
+      await expect(result).rejects.not.toBe(original)
+      expect(Object.getOwnPropertyDescriptor(original, "code")).toEqual(originalCode)
+      expect(original.message).toBe("validator exploded")
+    })
+  })
+
+  it("normalizes thrown error-like values to the sandbox validation code", async () => {
+    const read = await load()
+    const validate = {
+      "~standard": {
+        validate: () => {
+          throw { code: "UPSTREAM_ERROR", message: "validator exploded" }
+        },
+      },
+    }
+
+    await expect(read("payload", validate)).rejects.toMatchObject({
+      code: "SANDBOX_VALIDATION_ERROR",
+      message: "validator exploded",
+    })
+  })
+
+  it("falls back when a thrown validation error has an empty message", async () => {
+    const read = await load()
+    const validate = { "~standard": { validate: () => { throw new Error("") } } }
+
+    await expect(read("payload", validate)).rejects.toMatchObject({
+      code: "SANDBOX_VALIDATION_ERROR",
+      message: "Validation failed",
+    })
+  })
+
+  it("preserves thrown Errors with HTTP metadata", async () => {
+    const read = await load()
+    const error = Object.assign(new Error("upstream failed"), {
+      statusCode: 502,
+      statusMessage: "Bad gateway",
+      code: "UPSTREAM_ERROR",
+    })
+    const validate = { "~standard": { validate: () => { throw error } } }
+
+    await expect(read("payload", validate)).rejects.toBe(error)
+    expect(error).toMatchObject({
+      statusCode: 502,
+      statusMessage: "Bad gateway",
+      code: "UPSTREAM_ERROR",
+    })
+  })
+
   it.each([
     { failure: { issues: [] } },
     { failure: { issues: [], value: "must not be returned" } },
