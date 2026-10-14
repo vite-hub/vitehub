@@ -728,6 +728,14 @@ describe("source scanner", () => {
     expect(calls.map(call => call.arguments)).toEqual([[argument]])
   }, 1_000)
 
+  it("does not rescan repeated assertion suffixes", () => {
+    const assertion = `${"as A ".repeat(1_000)}!`
+    const started = performance.now()
+    expect(findDefaultExportCall(`export default defineSchedule({ cron: '0 8 * * *' } ${assertion})`, ["defineSchedule"]))
+      .toBeDefined()
+    expect(performance.now() - started).toBeLessThan(1_000)
+  }, 2_000)
+
   it.each(["|| fallback", "+ extra", " > limit", "(argument)", " ^ bar()", " ^ (bar())", " - (bar())"])("rejects runtime suffixes after generic assertions: %s", (suffix) => {
     expect(findDefaultExportCall(`export default defineSchedule({ cron: '0 8 * * *' } satisfies Record<string, unknown>${suffix})`, ["defineSchedule"]))
       .toBeUndefined()

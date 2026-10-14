@@ -988,15 +988,37 @@ function hasAssertionTypePrefix(source: string) {
   const prefix = decodeIdentifier(maskAssertionTypeArguments(source))
   // The prefix continues an assertion when the text after an `as` or
   // `satisfies` keyword is only type tokens up to the end.
+  // Cache each token boundary so candidates that overlap do not rescan their
+  // shared suffix. A failed token is cached as `undefined`.
+  const tokenEnds = new Map<number, number | undefined>()
+  const reachesEnd = new Map<number, boolean>()
+  const tokenEndAt = (index: number) => {
+    if (tokenEnds.has(index)) return tokenEnds.get(index)
+    assertionTypeToken.lastIndex = index
+    const end = assertionTypeToken.test(prefix) ? assertionTypeToken.lastIndex : undefined
+    tokenEnds.set(index, end)
+    return end
+  }
+  const tokenizableToEnd = (start: number) => {
+    const pending: number[] = []
+    let index = start
+    while (index < prefix.length && !reachesEnd.has(index)) {
+      pending.push(index)
+      const end = tokenEndAt(index)
+      if (end === undefined) {
+        for (const position of pending) reachesEnd.set(position, false)
+        return false
+      }
+      index = end
+    }
+    const result = index === prefix.length || reachesEnd.get(index) === true
+    for (const position of pending) reachesEnd.set(position, result)
+    return result
+  }
   for (const keyword of prefix.matchAll(/(?<![\p{ID_Continue}$.])(?:as|satisfies)\s/gu)) {
     let index = keyword.index + keyword[0].length
     if (index === prefix.length) continue
-    while (index < prefix.length) {
-      assertionTypeToken.lastIndex = index
-      if (!assertionTypeToken.test(prefix)) break
-      index = assertionTypeToken.lastIndex
-    }
-    if (index === prefix.length) return true
+    if (tokenizableToEnd(index)) return true
   }
   return false
 }
