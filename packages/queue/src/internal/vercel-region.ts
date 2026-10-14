@@ -57,11 +57,8 @@ function isBrandedMethod(value: unknown, receiver: object, owner: object | undef
     if (!owner || Object.getPrototypeOf(owner) === null) return false
     const constructor = Object.getOwnPropertyDescriptor(owner, "constructor")?.value
     if (typeof constructor !== "function" || constructor.prototype !== owner) return false
-    // Web IDL methods are callable objects without an own prototype. Reject
-    // ordinary functions (and proxies around them) before probing the receiver.
-    if (Object.prototype.hasOwnProperty.call(value, "prototype")) return false
-    const source = Function.prototype.toString.call(value)
-    if (!/\[native code\]|(?:webidl\.)?brandCheck\s*\(/.test(source)) return false
+    // Probe the callable on genuine instances and an unrelated receiver below.
+    // This works across realms without relying on source-text heuristics.
     // Exercise the method with a fresh instance from the same realm. Genuine
     // Web IDL methods return the missing-header value for an unknown name;
     // this rejects proxies that only throw for an unrelated probe receiver
@@ -71,14 +68,14 @@ function isBrandedMethod(value: unknown, receiver: object, owner: object | undef
     if (typeof realmConstructor === "function") {
       try {
         const sibling = new realmConstructor()
-        const siblingResult = value.call(sibling, "__vitehub_brand_probe__")
+        const siblingResult = value.call(sibling, "x-vitehub-brand-probe")
         if (siblingResult !== undefined && siblingResult !== null) return false
         const siblingArgumentResult = value.call(sibling, ...args)
         if (siblingArgumentResult !== undefined && siblingArgumentResult !== null) return false
         // Probe a second genuine instance as well. A receiver-sensitive proxy
         // must behave like the real Web IDL method for every branded receiver.
         const secondSibling = new realmConstructor()
-        const secondResult = value.call(secondSibling, "__vitehub_brand_probe__")
+        const secondResult = value.call(secondSibling, "x-vitehub-brand-probe")
         if (secondResult !== undefined && secondResult !== null) return false
         const secondArgumentResult = value.call(secondSibling, ...args)
         if (secondArgumentResult !== undefined && secondArgumentResult !== null) return false
@@ -87,7 +84,7 @@ function isBrandedMethod(value: unknown, receiver: object, owner: object | undef
         return false
       }
     }
-    const receiverResult = value.call(receiver, "__vitehub_brand_probe__")
+    const receiverResult = value.call(receiver, "x-vitehub-brand-probe")
     if (receiverResult !== undefined && receiverResult !== null) return false
     const receiverArgumentResult = value.call(receiver, ...args)
     if (receiverArgumentResult !== undefined && receiverArgumentResult !== null) return false
