@@ -3,7 +3,7 @@ import { queryWorkspaceCollection, type WorkspaceCollectionPage } from "@vite-hu
 import { useWorkspaceCollection, type WorkspaceCollectionRequester } from "@vite-hub/workspace/collections/client"
 
 import type { WorkspaceErrorCode } from "@vite-hub/workspace"
-import { useWorkspace } from "@vite-hub/workspace"
+import { registerWorkspacePlugin, useWorkspace } from "@vite-hub/workspace"
 import { createBlobDatabaseWorkspaceStore, workspaceHistorySchema } from "@vite-hub/workspace/blob-database"
 import type { BlobStorage } from "@vite-hub/blob"
 import type { Database } from "@vite-hub/database"
@@ -23,6 +23,14 @@ useWorkspace("published-types").history.commit({ ifHead: null, files: {} })
 version.writeFile("a.txt", "changed")
 // @ts-expect-error Publication requires an expected head.
 workspace.history.commit({ files: {} })
+const draft = await workspace.history.commit({ ref: "draft", ifHead: null, changes: { put: { "posts/a.md": { content: "---\n---\n", metadata: { title: "A" } } }, delete: ["old.md"] } })
+draft.ref satisfies string
+await workspace.history.head({ ref: "draft" }) satisfies import("@vite-hub/workspace").WorkspaceRevision | null
+await workspace.history.refs() satisfies import("@vite-hub/workspace").WorkspaceHistoryRef[]
+// @ts-expect-error A commit takes either a complete file set or changes.
+workspace.history.commit({ ifHead: null, files: {}, changes: {} })
+
+registerWorkspacePlugin("published-types", { id: "content", hooks: { "write:validate": () => {} } }) satisfies () => void
 
 const missing = new ViteHubError<"WORKSPACE_NOT_FOUND", { name: string }>(
   "WORKSPACE_NOT_FOUND",
