@@ -66,6 +66,17 @@ export function uiMessageStreamFromResponse(response: Response & { body: Readabl
   }))
 }
 
+/** Normalize a UI message stream response so lifecycle handling can observe its events. */
+export function normalizeUIMessageStreamResponse(value: unknown): Response | undefined {
+  if (!isUIMessageStreamResponse(value)) return undefined
+  return createAgentUIMessageStreamResponse({
+    headers: value.headers,
+    status: value.status,
+    statusText: value.statusText,
+    stream: normalizeUiMessageStream(uiMessageStreamFromResponse(value)),
+  })
+}
+
 export function createAgentUIMessageStream(options: {
   execute: (context: { writer: AgentUIMessageStreamWriter }) => MaybePromise<void>
 }): ReadableStream<unknown> {
