@@ -197,6 +197,48 @@ describe("channelDelivery()", () => {
     expect(channel.send).not.toHaveBeenCalled()
   })
 
+  it("repairs a missing required delivery in the same invocation", async () => {
+    const channel = createChannel()
+    let runs = 0
+    const agent = defineAgent({
+      name: "repair-bot",
+      runtime: false,
+      driver: { async run({ tools }) {
+        runs++
+        if (runs === 2) await tools?.send_message?.execute?.({ message: "Retried" })
+        return "done"
+      } },
+      capabilities: [channelDelivery({
+        channel,
+        options: { recipient: "user:1" },
+        required: true,
+        repair: { instruction: "Call send_message with the completed message.", maxAttempts: 1 },
+      })],
+    })
+
+    await expect(runAgent(agent, { prompt: "Write" })).resolves.toEqual([null, "done"])
+    expect(runs).toBe(2)
+    expect(channel.send).toHaveBeenCalledExactlyOnceWith("Retried", { recipient: "user:1" })
+  })
+
+  it("does not repair after a failed send attempt", async () => {
+    const channel = createChannel(new Error("Teams is down"))
+    let runs = 0
+    const agent = defineAgent({
+      runtime: false,
+      driver: { async run({ tools }) {
+        runs++
+        await expect(tools?.send_message?.execute?.({ message: "Attempt" })).rejects.toThrow("Teams is down")
+        return "done"
+      } },
+      capabilities: [channelDelivery({ channel, options: { recipient: "user:1" }, required: true, repair: { maxAttempts: 1 } })],
+    })
+
+    await expect(runAgent(agent, { prompt: "Write" })).resolves.toEqual([expect.objectContaining({ code: "CHANNEL_DELIVERY_REQUIRED" }), null])
+    expect(runs).toBe(1)
+    expect(channel.send).toHaveBeenCalledOnce()
+  })
+
   it("keeps rejected messages retryable and fails a required delivery after a send error", async () => {
     const channel = createChannel(new Error("Teams is down"))
     const validate = vi.fn((message: string) => {
@@ -444,6 +486,8 @@ describe("channelDelivery()", () => {
   it("rejects invalid options", () => {
     const channel = createChannel()
     expect(() => channelDelivery({ channel, options: { recipient: "user:1" }, maxCalls: 0 })).toThrow(/maxCalls/)
+    expect(() => channelDelivery({ channel, options: { recipient: "user:1" }, repair: {} })).toThrow(/repair/)
+    expect(() => channelDelivery({ channel, options: { recipient: "user:1" }, required: true, repair: { maxAttempts: 0 } })).toThrow(/repair/)
     expect(() => channelDelivery({ channel: {} as never, options: {} })).toThrow(/Channel client/)
   })
 })

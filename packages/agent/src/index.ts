@@ -80,7 +80,7 @@ import { agentInvocationCallbackContextValues, agentInvocationConfigurationUpdat
 import { agentInvocationCallerAbortSignal, copyAgentInvocationCallerAbortSignal, markAgentInvocationCallerAbortSignal } from "./internal/invocation-input.ts"
 import { bindAgentRunEvents, type AgentRunEventPublisher } from "./run-events.ts"
 import { AgentInvocationClaimConflict, bindAgentInvocations, exclusiveAgentInvocation, inheritedAgentInvocationClaim, pendingAgentInvocationAnnotation, pendingAgentInvocationAnnotations, type AgentInvocationJournal, type AgentInvocationWorkflowBinding } from "./invocations.ts"
-import { isAttachmentPart, materializeMessageAttachmentData, type AgentMessagePhase, type Message } from "./messages.ts"
+import { createMessage, isAttachmentPart, materializeMessageAttachmentData, type AgentMessagePhase, type Message } from "./messages.ts"
 import {
   createFallbackAgentInvoker,
   hasUnreplayableAgentInputContext,
@@ -115,7 +115,7 @@ import {
   withCapabilityCleanup,
   withResponseCleanup,
 } from "./capability-runtime.ts"
-import type { AgentCapabilityRegistries, CapabilityCleanupOutcome, ResolvedAgentFinishExtensionProvider, ResolvedAgentOutputExtensionProvider } from "./capability-runtime.ts"
+import type { AgentCapabilityRegistries, AgentFinishDeliveryRepair, CapabilityCleanupOutcome, ResolvedAgentFinishExtensionProvider, ResolvedAgentOutputExtensionProvider } from "./capability-runtime.ts"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
 import { cancellableAsyncIterableSource, createAgentUIMessageStreamResponse, finalizeUiMessageStreamOutput, isUIMessageStreamResponse, isUIMessageStreamResult, normalizeUiMessageStream, uiMessageStreamFromResponse, uiMessageTextDelta, withReadableStreamCleanup } from "./stream-output.ts"
 import {
@@ -3472,6 +3472,7 @@ type AgentInvocationContext<
   driverContributions: AgentDriverContribution[]
   finalOutputRenderers: AgentCapabilityRegistries["finalOutputRenderers"]
   finishDeliveryEffectProviders: AgentChannelDeliveryFinishEffect[]
+  finishDeliveryRepairProviders: AgentFinishDeliveryRepair[]
   finishExtensionProviders: ResolvedAgentFinishExtensionProvider[]
   errorHook?: (event: AgentErrorHookEvent<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<void | AgentChannelDeliveryFinishEffectResult>
   finishHook?: (event: AgentFinishHookEvent<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<void | AgentChannelDeliveryFinishEffectResult>
@@ -3518,6 +3519,22 @@ function toAgentAdapterRunContext<
     runtime: context.runtimeContext,
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     workspace: context.workspace as ReadonlyWorkspaceFacade<WorkspaceName> | undefined,
+  }
+}
+
+function repairAgentInvocationInput<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
+  context: AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS>,
+  instruction: string,
+): { input: AgentRunInput<CALL_OPTIONS>, messages: Message[] } {
+  const originalMessages = context.messages.length
+    ? context.messages
+    : context.prompt
+      ? [createMessage({ role: "user", text: context.prompt })]
+      : []
+  const messages = [...originalMessages, createMessage({ role: "user", text: instruction })]
+  return {
+    input: { ...context.input, messages, prompt: messages },
+    messages,
   }
 }
 
@@ -4926,6 +4943,7 @@ async function createAgentInvocationContext<
       driverContributions: capabilities.driverContributions,
       finalOutputRenderers: capabilities.registries.finalOutputRenderers,
       finishDeliveryEffectProviders: capabilities.registries.finishDeliveryEffectProviders,
+      finishDeliveryRepairProviders: capabilities.registries.finishDeliveryRepairProviders,
       finishExtensionProviders: capabilities.registries.finishExtensionProviders,
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       errorHook: definition?.hooks?.["agent:error"] as never,
@@ -5052,6 +5070,7 @@ type InvocationRunContext<
   driverContributions?: AgentDriverContribution[]
   durableErrorFallbackTimeout?: number
   finishDeliveryEffectProviders: AgentChannelDeliveryFinishEffect[]
+  finishDeliveryRepairProviders: AgentFinishDeliveryRepair[]
   finishExtensionProviders: ResolvedAgentFinishExtensionProvider[]
   finalOutputRenderers: AgentCapabilityRegistries["finalOutputRenderers"]
   errorHook?: (event: AgentErrorHookEvent<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<void | AgentChannelDeliveryFinishEffectResult>
@@ -7086,6 +7105,47 @@ async function executeAgentInvocationWithCapacityLease<
   }
   catch (error) {
     return await lifecycle.fail({ error, status: "error" }, error, executionFailureMessage)
+  }
+
+  // Required Capabilities can request a bounded follow-up turn before the
+  // invocation enters its finish lifecycle. The Capability owns the
+  // postcondition check; this loop owns the driver continuation.
+  if (options.kind === "run" && invocation.finishDeliveryRepairProviders.length && !isAsyncIterable(result)) {
+    try {
+      for (const repair of invocation.finishDeliveryRepairProviders) {
+        for (let attempt = 0; attempt < repair.maxAttempts && repair.shouldRepair(invocation.context); attempt += 1) {
+          invocation.input.abortSignal?.throwIfAborted()
+          const repaired = repairAgentInvocationInput(invocation, repair.instruction)
+          if (customRun) {
+            const originalInput = invocation.input
+            const originalMessages = invocation.messages
+            const originalPrompt = invocation.prompt
+            invocation.input = repaired.input
+            invocation.messages = repaired.messages
+            invocation.prompt = undefined
+            try {
+              result = await agent.run(invocation)
+            }
+            finally {
+              invocation.input = originalInput
+              invocation.messages = originalMessages
+              invocation.prompt = originalPrompt
+            }
+          }
+          else {
+            const repairContext = toAgentAdapterRunContext(invocation)
+            repairContext.input = repaired.input
+            repairContext.messages = repaired.messages
+            repairContext.prompt = undefined
+            if (!options.renderOutput) repairContext.nativeStructuredOutput = false
+            result = await adapter!.generate(repairContext as never)
+          }
+        }
+      }
+    }
+    catch (error) {
+      return await lifecycle.fail({ error, status: "error" }, error, executionFailureMessage)
+    }
   }
 
   if (options.kind === "run"

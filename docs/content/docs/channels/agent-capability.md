@@ -30,6 +30,10 @@ const reportAgent = defineAgent({
       options: { recipient: 'user:7b0bff9d' },
       description: 'Send the finished weekly report. Call once.',
       required: true,
+      repair: {
+        maxAttempts: 1,
+        instruction: 'The required send_message tool was not called. Call it now with the completed report.',
+      },
       validate: (message) => {
         if (message.split(/\s+/u).length > 300) throw new Error('The report must be at most 300 words.')
       },
@@ -61,6 +65,7 @@ Without `description`, the tool description names the Channel and states how man
 - The tool calls `channel.send(text, options)`. A send error is thrown to the model.
 - The tool counts each send attempt before it sends. After `maxCalls` attempts, the tool returns `CHANNEL_DELIVERY_LIMIT` before validation or formatting. A failed send also counts, because it can still reach the recipient.
 - With `required: true`, the Agent Invocation fails with `CHANNEL_DELIVERY_REQUIRED` when the Agent finishes without a successful send. The requirement also applies when an input Capability handles the Agent Invocation before the Driver runs, regardless of Capability order. Streams and `Response` bodies are checked when they finish normally. When the Agent Invocation fails with another error or is cancelled, delivery is not required.
+- With `repair`, a missing delivery gets a bounded follow-up turn before the finish lifecycle runs. The follow-up uses the same invocation and tool counters. Repair only runs when the Agent made no delivery attempt, so a Channel error is not retried as a model repair. Drivers that cannot continue an invocation keep the required-delivery failure.
 - Counters are per Agent Invocation. One definition can serve many Agent Invocations.
 - The delivery tool name must be unique among Capability tools. A collision fails setup with `CHANNEL_DELIVERY_TOOL_CONFLICT` before the Driver runs.
 
@@ -101,6 +106,7 @@ Without `description`, the tool description names the Channel and states how man
 | `name` | `string` | `"send_message"` | Tool name. The Capability ID is `channel-delivery.<name>`. |
 | `description` | `string` | generated | Tool description for the model. |
 | `required` | `boolean` | `false` | Fail the Agent Invocation without a successful send. |
+| `repair` | `{ maxAttempts?: number, instruction?: string }` | none | When `required` is true, ask the Agent for a bounded follow-up turn if it never called the delivery tool. |
 | `maxCalls` | `number` | `1` | Maximum send attempts per Agent Invocation. |
 | `format` | `(message, context) => string \| Promise<string>` | none | Build the Channel text from the message. |
 | `validate` | `(message) => void \| Promise<void>` | none | Throw to reject a message. |

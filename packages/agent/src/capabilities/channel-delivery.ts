@@ -1,6 +1,6 @@
 import { ViteHubError } from "@vite-hub/runtime"
 
-import { capabilityFinishDeliveryEffectSymbol, defineCapability } from "../capability-runtime.ts"
+import { capabilityFinishDeliveryEffectSymbol, capabilityFinishDeliveryRepairSymbol, defineCapability } from "../capability-runtime.ts"
 import { defineInternalTool } from "./internal.ts"
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts"
 import { traceAgentChannelDeliveryEffect } from "../trace.ts"
@@ -30,6 +30,13 @@ export interface ChannelDeliveryOptions<TOptions> {
   description?: string
   /** Fail the invocation when the Agent finishes without a successful send. Defaults to `false`. */
   required?: boolean
+  /** Ask the Agent again when it finishes without attempting delivery. Requires `required: true`. */
+  repair?: {
+    /** Maximum additional turns. Defaults to `1`. */
+    maxAttempts?: number
+    /** Follow-up instruction. Defaults to an instruction that names the delivery tool. */
+    instruction?: string
+  }
   /** Maximum send attempts per invocation. Defaults to `1`. */
   maxCalls?: number
   /** Build the Channel text from the model's message. */
@@ -54,6 +61,14 @@ const channelDeliveryInputSchema: AgentToolSchema = {
 export function channelDelivery<TOptions>(options: ChannelDeliveryOptions<TOptions>): AgentCapabilityDefinition {
   const name = options.name ?? "send_message"
   const maxCalls = options.maxCalls ?? 1
+  const maxRepairAttempts = options.repair?.maxAttempts ?? 1
+  if (options.repair && (options.required !== true || !Number.isInteger(maxRepairAttempts) || maxRepairAttempts < 1)) {
+    throw new TypeError("[vitehub] channelDelivery({ repair }) requires required: true and a positive integer maxAttempts.")
+  }
+  if (options.repair?.instruction !== undefined && (!hasRuntimeType(options.repair.instruction, "string") || !options.repair.instruction.trim())) {
+    throw new TypeError("[vitehub] channelDelivery({ repair }) requires a non-empty instruction.")
+  }
+  const repairInstruction = options.repair?.instruction ?? `The required ${name} tool was not called. Call ${name} now with the completed message. Do not repeat completed work.`
   if (!Number.isInteger(maxCalls) || maxCalls < 1) {
     throw new TypeError("[vitehub] channelDelivery({ maxCalls }) must be a positive integer.")
   }
@@ -72,7 +87,7 @@ export function channelDelivery<TOptions>(options: ChannelDeliveryOptions<TOptio
   }
   return Object.assign(defineCapability({
     id: `channel-delivery.${name}`,
-    metadata: { channel: options.channel.name, maxCalls, required: options.required === true, tool: name },
+    metadata: { channel: options.channel.name, maxCalls, required: options.required === true, tool: name, ...(options.repair ? { repair: { instruction: repairInstruction, maxAttempts: maxRepairAttempts } } : {}) },
     resolve(context) {
       // Each invocation resolves its own counters.
       const state = { calls: 0, sent: 0 }
@@ -135,5 +150,15 @@ export function channelDelivery<TOptions>(options: ChannelDeliveryOptions<TOptio
         }),
       })
     },
-  }), options.required ? { [capabilityFinishDeliveryEffectSymbol]: finishEffect } : {})
+  }), options.required ? { [capabilityFinishDeliveryEffectSymbol]: finishEffect } : {}, options.repair ? {
+    [capabilityFinishDeliveryRepairSymbol]: {
+      instruction: repairInstruction,
+      maxAttempts: maxRepairAttempts,
+      shouldRepair(context: AgentInvocationContextStore) {
+        const state = states.get(context)
+        // A failed send may have reached its recipient. Repair only omissions.
+        return state !== undefined && state.calls === 0 && state.sent === 0
+      },
+    },
+  } : {})
 }

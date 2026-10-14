@@ -87,6 +87,12 @@ export function trustGitHubPullRequestWorkspaceCapability<T extends object>(capa
   return capability
 }
 export const capabilityFinishDeliveryEffectSymbol: unique symbol = Symbol.for("vitehub.agent.capabilityFinishDeliveryEffect")
+export const capabilityFinishDeliveryRepairSymbol: unique symbol = Symbol.for("vitehub.agent.capabilityFinishDeliveryRepair")
+export interface AgentFinishDeliveryRepair {
+  instruction: string
+  maxAttempts: number
+  shouldRepair: (context: AgentInvocationContextStore) => boolean
+}
 export const eagerFinishExtensionSymbol: unique symbol = Symbol("vitehub.agent.eagerFinishExtension")
 type InternalAgentCapabilityDefinition<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -94,6 +100,7 @@ type InternalAgentCapabilityDefinition<
 > = AgentCapabilityDefinition<TRuntimeConfig, Name> & {
   [capabilityInvocationStartSymbol]?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
   [capabilityFinishDeliveryEffectSymbol]?: AgentChannelDeliveryFinishEffect
+  [capabilityFinishDeliveryRepairSymbol]?: AgentFinishDeliveryRepair
   [eagerFinishExtensionSymbol]?: boolean
   [workspaceMaterializationPathsSymbol]?: readonly string[]
   [workspacePersistencePathsSymbol]?: readonly string[]
@@ -144,6 +151,7 @@ export interface ResolvedAgentOutputExtensionProvider {
 export interface AgentCapabilityRegistries {
   deliveryEffectIntents: AgentChannelDeliveryEffectIntent[]
   finishDeliveryEffectProviders: AgentChannelDeliveryFinishEffect[]
+  finishDeliveryRepairProviders: AgentFinishDeliveryRepair[]
   finishExtensionProviders: ResolvedAgentFinishExtensionProvider[]
   finalOutputRenderers: ResolvedAgentOutputRenderer[]
   modelExecutionInstrumentation: AgentModelExecutionInstrumentation[]
@@ -1268,6 +1276,11 @@ export async function resolveAgentCapabilities<
       }),
     ],
     finishExtensionProviders: [],
+    finishDeliveryRepairProviders: capabilities.flatMap(capability => {
+      // Internal Capabilities can request bounded follow-up turns before teardown.
+      const repair = (capability as InternalAgentCapabilityDefinition<TRuntimeConfig, Name>)[capabilityFinishDeliveryRepairSymbol]
+      return repair ? [repair] : []
+    }),
     finalOutputRenderers: [],
     modelExecutionInstrumentation: [],
     outputExtensionProviders: [],
