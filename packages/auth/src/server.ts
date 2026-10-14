@@ -320,10 +320,15 @@ function hasResponsePrototype(value: unknown): boolean {
       // A response-shaped object can forge a constructor name and accessor set.
       // Native Response constructors retain an intrinsic native implementation and
       // point back to the prototype that owns the response accessors.
+      const constructorSource = typeof constructor === "function" ? Function.prototype.toString.call(constructor) : ""
       const isNativeConstructor = typeof constructor === "function"
         && constructor.name === "Response"
         && constructor.prototype === owner
-        && Function.prototype.toString.call(constructor).includes("[native code]")
+        && (constructorSource === Function.prototype.toString.call(Response)
+          || /^function Response\(\) \{ \[native code\] \}$/.test(constructorSource)
+          || (/^class _?Response\b/.test(constructorSource)
+            && constructorSource.includes("#state")
+            && constructorSource.includes("brandCheck")))
       if (isNativeConstructor && authorizationResponseProperties.every(key => Object.getOwnPropertyDescriptor(owner, key)?.get)) return true
       prototype = Object.getPrototypeOf(prototype)
     }
