@@ -95,20 +95,24 @@ export const user = sqliteTable('user', {
 A Vite plugin uses the same context through `vitehub.database.extend`:
 
 ```ts [vite.config.ts]
+import type { DatabaseExtendingPlugin } from '@vite-hub/database'
 import { hubDb } from '@vite-hub/database/vite'
 import { defineConfig } from 'vite'
+import type { Plugin } from 'vite'
 
-export default defineConfig({
-  plugins: [hubDb(), {
-    name: 'auth-tables',
-    vitehub: {
-      database: {
-        extend: ({ name, schemaFiles }) => {
-          if (name === 'default') schemaFiles.push('/absolute/path/to/auth/schema.sqlite.ts')
-        },
+const authTables = {
+  name: 'auth-tables',
+  vitehub: {
+    database: {
+      extend: ({ name, dialect, schemaFiles }) => {
+        if (name === 'default') schemaFiles.push(`/absolute/path/to/auth/schema.${dialect}.ts`)
       },
     },
-  }],
+  },
+} satisfies Plugin & DatabaseExtendingPlugin
+
+export default defineConfig({
+  plugins: [hubDb(), authTables],
 })
 ```
 
