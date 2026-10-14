@@ -45,11 +45,30 @@ function isRequestLike(value: unknown): value is Request {
     const tag = Object.getOwnPropertyDescriptor(prototype, Symbol.toStringTag)
     if (tag?.value !== "Request" && typeof tag?.get !== "function") return false
 
-    const getters = ["url", "method", "headers", "body", "bodyUsed"] as const
+    const getters = [
+      "url",
+      "method",
+      "headers",
+      "body",
+      "bodyUsed",
+      "signal",
+      "destination",
+      "referrer",
+      "referrerPolicy",
+      "mode",
+      "credentials",
+      "cache",
+      "redirect",
+      "integrity",
+      "keepalive",
+    ] as const
     for (const key of getters) {
       const getter = Object.getOwnPropertyDescriptor(prototype, key)?.get
       if (!getter) return false
       getter.call(value)
+    }
+    for (const key of ["clone", "text", "json", "arrayBuffer"] as const) {
+      if (typeof Object.getOwnPropertyDescriptor(prototype, key)?.value !== "function") return false
     }
     return true
   } catch {
