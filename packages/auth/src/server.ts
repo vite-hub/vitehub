@@ -280,7 +280,28 @@ async function runAccessAuthorize(
   context: AuthAccessAuthorizationContext,
 ): Promise<Response | undefined> {
   const result = await authorize(context)
-  if (isResponseLike(result)) return result
+  if (result instanceof Response) return result
+  if (isResponseLike(result)) {
+    try {
+      const response = result as Response & { body?: BodyInit | null, arrayBuffer?: () => Promise<ArrayBuffer> }
+      const headers = new Headers()
+      const sourceHeaders = response.headers as Headers & { forEach?: (callback: (value: string, key: string) => void) => void }
+      if (typeof sourceHeaders.forEach === "function") {
+        sourceHeaders.forEach((value, key) => headers.set(key, value))
+      }
+      const body = typeof response.arrayBuffer === "function"
+        ? await response.arrayBuffer()
+        : response.body ?? null
+      return new Response(body, {
+        headers,
+        status: response.status,
+        statusText: response.statusText,
+      })
+    }
+    catch {
+      return undefined
+    }
+  }
   if (result !== true) return createForbiddenResponse(context.request)
 }
 

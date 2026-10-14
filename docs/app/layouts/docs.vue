@@ -24,6 +24,20 @@ const docsShellUi = {
 
     <div v-else-if="isLanding" class="vh-docs-landing">
       <slot />
+    <div class="vh-docs-content">
+      <UContainer v-if="isSupportMatrix">
+        <AnnouncementBanner />
+        <slot />
+      </UContainer>
+
+      <slot v-else-if="isLanding" />
+
+      <template v-else>
+        <AnnouncementBanner />
+        <slot />
+      </template>
+
+      <AppFooter class="vh-docs-footer" />
     </div>
 
     <UPage v-else :ui="docsShellUi">
@@ -51,6 +65,18 @@ const docsShellUi = {
 
 .vh-docs-main {
   max-width: calc(var(--vh-content-width) + var(--vh-toc-width) + 4rem);
+/* The content fills the space next to the sidebars. The page header, the page body, and the table of contents set their own insets.
+   The site footer sits in this column, so the sidebars run the full height beside it. On short pages it rests at the bottom of the viewport. */
+.vh-docs-content {
+  display: flex;
+  min-width: 0;
+  max-width: none;
+  min-height: calc(100dvh - var(--ui-header-height));
+  flex-direction: column;
+}
+
+.vh-docs-footer {
+  margin-top: auto;
 }
 
 .vh-docs-landing {

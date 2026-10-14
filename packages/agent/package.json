@@ -135,6 +135,10 @@
       "types": "./dist/presets/babysitter/server.d.ts",
       "import": "./dist/presets/babysitter/server.js"
     },
+    "./presets/labeller": {
+      "types": "./dist/presets/labeller.d.ts",
+      "import": "./dist/presets/labeller.js"
+    },
     "./presets/workspace": {
       "types": "./dist/presets/workspace.d.ts",
       "import": "./dist/presets/workspace.js"
