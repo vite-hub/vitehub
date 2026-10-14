@@ -16,6 +16,7 @@ The section appears when `server/content.ts` passes `collections` to `defineCont
 
 - Counts of drafts, changed, published, and deleted documents across the collections you may read.
 - **Needs publishing** lists every unpublished change, newest first. **Publish** in the header publishes all of them, exactly as the dashboard shows them. Writers see the list without the button.
+- **Scheduled** lists every [scheduled publish](/docs/content/scheduling), soonest first, when there is one.
 - **Recent activity** names who saved, deleted, restored, or published which document, and when.
 - **Collections** lists each collection with a **New** button when you may edit it.
 

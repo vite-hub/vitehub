@@ -127,7 +127,16 @@ export interface ConsoleDocumentOverviewCollection {
   /** Every unpublished change, most recently changed first. */
   changes: ConsoleDocumentPendingChange[]
   name: string
+  /** Every document with a scheduled publish, soonest first. Owners that predate scheduling leave it out. */
+  scheduled?: ConsoleDocumentScheduledChange[]
   states: Record<ConsoleDocumentState, number>
+}
+
+/** One document with a scheduled publish, for the dashboard. */
+export interface ConsoleDocumentScheduledChange {
+  id: string
+  schedule: ConsoleDocumentSchedule
+  title: string
 }
 
 /** One recent revision that changed documents. */

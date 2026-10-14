@@ -103,7 +103,9 @@ The runtime methods are trusted server API and do not call `authorize`. The [Con
 
 ## Console
 
-The editor's Publish button has a menu with **Schedule…**. Pick a date and time in your browser's time zone, shown next to the inputs. A scheduled document shows **Scheduled · Oct 20, 09:00** next to its state, **Overdue** when no run published it on time, or **Schedule failed** with the reason. The **…** menu cancels a schedule or dismisses a failed one. The document list has a **Scheduled** tab while any document of the collection has a schedule.
+The arrow next to the editor's **Publish** button opens **Schedule…**. It saves pending edits first, then asks for a date and time in your browser's time zone, shown next to the inputs. A scheduled document shows **Scheduled · Oct 20, 09:00** in the header, **Overdue** when no run published it on time, or **Schedule failed** with the reason in its tooltip. Saving the document again after scheduling shows a reminder: that run will publish nothing. The **…** menu cancels a schedule or dismisses a failed one.
+
+The document list has a **Scheduled** tab while any document of the collection has a schedule, and the Content dashboard lists every scheduled publish, soonest first, under **Scheduled**. The Console owner action `overview` returns them as `collections[].scheduled`.
 
 ## Limits
 

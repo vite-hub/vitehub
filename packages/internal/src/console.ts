@@ -385,6 +385,15 @@ export interface ViteHubConsoleDocumentOverviewCollection {
   states: Record<ViteHubConsoleDocumentState, number>
   /** Every unpublished change, most recently changed first. "Publish" sends them back as `expect`. */
   changes: ViteHubConsoleDocumentPendingChange[]
+  /** Every document with a scheduled publish, soonest first. Its length is the collection's scheduled count. */
+  scheduled: ViteHubConsoleDocumentScheduledChange[]
+}
+
+/** One document with a scheduled publish, for the dashboard. */
+export interface ViteHubConsoleDocumentScheduledChange {
+  id: string
+  title: string
+  schedule: ViteHubConsoleDocumentSchedule
 }
 
 /** One recent revision that changed documents. */

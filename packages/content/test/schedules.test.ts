@@ -294,12 +294,16 @@ describe("scheduled publishing in the Console", { timeout: 30_000 }, () => {
     expect(page.items.find(item => item.id === "other")).not.toHaveProperty("schedule")
     await expect(actions.list({ collection: "posts", scheduled: true }, editor)).resolves.toMatchObject({ total: 1, items: [{ id: "hello" }] })
     await expect(actions.get({ collection: "posts", id: "hello" }, editor)).resolves.toMatchObject({ schedule: { id: schedule.id, at } })
+    // The dashboard lists scheduled publishes with their titles, soonest first.
+    const overview = await actions.overview({ activity: 0 }, editor)
+    expect(overview.collections.find(collection => collection.name === "posts")?.scheduled).toEqual([{ id: "hello", title: "Hello", schedule: { id: schedule.id, at, status: "pending" } }])
 
     // A changed draft fails with the conflict the editor already shows for publish.
     await expect(failure(actions.schedule({ ...input, expect: [{ id: "other", digest: saved.digest }] }, editor))).resolves.toMatchObject({ status: 409, code: "WORKSPACE_CONFLICT", details: { documents: [{ id: "other" }] } })
     await expect(failure(actions.unschedule({ collection: "posts", schedule: schedule.id }, writer))).resolves.toMatchObject({ status: 403, code: "CONTENT_FORBIDDEN" })
     await actions.unschedule({ collection: "posts", schedule: schedule.id }, editor)
     await expect(actions.list({ collection: "posts", scheduled: true }, editor)).resolves.toMatchObject({ total: 0, scheduled: 0 })
+    expect((await actions.overview({ activity: 0 }, editor)).collections.find(collection => collection.name === "posts")?.scheduled).toEqual([])
     await expect(failure(actions.unschedule({ collection: "posts", schedule: schedule.id }, editor))).resolves.toMatchObject({ status: 404, code: "CONTENT_SCHEDULE_NOT_FOUND" })
   })
 })

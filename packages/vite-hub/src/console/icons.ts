@@ -18,6 +18,7 @@ export const consoleIcons: readonly string[] = [
   "lucide:braces",
   "lucide:calendar",
   "lucide:calendar-clock",
+  "lucide:calendar-x",
   "lucide:chart-column",
   "lucide:check",
   "lucide:chevron-down",

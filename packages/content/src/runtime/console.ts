@@ -19,6 +19,7 @@ import type {
   ViteHubConsoleDocumentSearchResult,
   ViteHubConsoleDocumentSchedule,
   ViteHubConsoleDocumentScheduled,
+  ViteHubConsoleDocumentScheduledChange,
   ViteHubConsoleDocumentState,
   ViteHubConsoleDocumentSummary,
 } from "@vite-hub/internal/console"
@@ -530,7 +531,8 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
           for (const status of statuses) states[status.state]++
           const pending = statuses.filter(status => status.state !== "published")
           const byId = new Map(statuses.map(status => [status.id, status]))
-          const found = await summaries(collection, new Set([...pending.map(status => status.id), ...mentioned.get(collection.name) ?? []]), byId)
+          const withSchedule = statuses.filter(status => status.schedule)
+          const found = await summaries(collection, new Set([...pending.map(status => status.id), ...withSchedule.map(status => status.id), ...mentioned.get(collection.name) ?? []]), byId)
           for (const [id, summary] of found) titles.set(`${collection.name}\u0000${id}`, titleOf(collection, summary, id))
           const changes: ViteHubConsoleDocumentPendingChange[] = pending.map((status) => {
             const summary = found.get(status.id)
@@ -544,7 +546,10 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
             }
           })
           changes.sort((left, right) => (right.updatedAt ?? "").localeCompare(left.updatedAt ?? "") || left.id.localeCompare(right.id))
-          return { name: collection.name, states, changes }
+          const scheduled: ViteHubConsoleDocumentScheduledChange[] = withSchedule
+            .flatMap(status => status.schedule ? [{ id: status.id, title: titleOf(collection, found.get(status.id), status.id), schedule: scheduleView(status.schedule) }] : [])
+            .sort((left, right) => left.schedule.at.localeCompare(right.schedule.at) || left.id.localeCompare(right.id))
+          return { name: collection.name, states, changes, scheduled }
         }))
         for (const entry of activity) {
           for (const document of entry.documents) document.title = titles.get(`${document.collection}\u0000${document.id}`) ?? document.id
