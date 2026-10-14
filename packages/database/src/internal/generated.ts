@@ -48,34 +48,26 @@ function renderDbCredentials(database: ResolvedDrizzleDatabaseConfig) {
 }
 
 function renderGeneratedDrizzleConfig(file: string, config: ResolvedDBViteConfig, databaseNames = config.databaseNames) {
-  const schemaFiles = databaseNames.map(name => config.generatedSchemaFilesByDatabase[name]!)
+  if (databaseNames.length > 1) {
+    // One Drizzle config has one set of credentials, one casing, and one migrations folder, so each Database needs its own.
+    const configs = databaseNames.map(name => relative(config.rootDir, config.generatedDrizzleConfigFilesByDatabase[name]!)).join(", ")
+    return [
+      `throw new Error(${JSON.stringify(`[vitehub] This project has more than one Database. Run drizzle-kit once per Database with ${configs}, or run \`vitehub db generate\` and \`vitehub db migrate\`.`)})`,
+      "",
+    ].join("\n")
+  }
   const database = config.databases[databaseNames[0]!]!
-  const out = databaseNames.length === 1 ? database.migrationsDir : ".vitehub/database/migrations"
-  // Read Drizzle options from the Definitions so migrations and queries use the same casing.
-  const definitionImports = databaseNames.map((name, index) => {
-    const definition = config.definitions.find(item => item.name === name)!
-    return `import databaseDefinition_${index} from ${JSON.stringify(createImportPath(file, definition.handler))}`
-  })
-  const casingCheck = databaseNames.length === 1
-    ? []
-    : [
-        // One Drizzle config has one casing, so the aggregate config refuses Databases that disagree.
-        `const casings = new Set([${databaseNames.map((_, index) => `databaseDefinition_${index}.drizzle?.casing`).join(", ")}])`,
-        "if (casings.size > 1) {",
-        `  throw new Error(${JSON.stringify(`[vitehub] These Databases use different Drizzle casing. Run drizzle-kit once per Database with ${databaseNames.map(name => relative(config.rootDir, config.generatedDrizzleConfigFilesByDatabase[name]!)).join(", ")}, or run \`vitehub db generate\`.`)})`,
-        "}",
-        "",
-      ]
+  const definition = config.definitions.find(item => item.name === database.name)!
+  // Read Drizzle options from the Definition so migrations and queries use the same casing.
   return [
-    ...definitionImports,
+    `import databaseDefinition from ${JSON.stringify(createImportPath(file, definition.handler))}`,
     "",
-    ...casingCheck,
     "export default {",
     "  dialect: \"sqlite\",",
-    "  casing: databaseDefinition_0.drizzle?.casing,",
+    "  casing: databaseDefinition.drizzle?.casing,",
     ...renderDbCredentials(database),
-    `  schema: ${JSON.stringify(schemaFiles)},`,
-    `  out: ${JSON.stringify(out)},`,
+    `  schema: ${JSON.stringify([config.generatedSchemaFilesByDatabase[database.name]!])},`,
+    `  out: ${JSON.stringify(database.migrationsDir)},`,
     "}",
     "",
   ].join("\n")
