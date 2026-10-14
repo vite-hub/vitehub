@@ -66,29 +66,22 @@ function isResponseLike(value: unknown): value is Response {
     const headers = response.headers
     const headerMethods = ["get", "set", "has", "append", "delete", "forEach"]
     const responseMethods = ["clone", "arrayBuffer", "blob", "formData", "json", "text"]
-    let prototype = Object.getPrototypeOf(value)
-    let bodyGetter: (() => unknown) | undefined
-    while (prototype) {
-      const getter = Object.getOwnPropertyDescriptor(prototype, "body")?.get
-      if (typeof getter === "function") {
-        bodyGetter = getter as () => unknown
-        break
-      }
-      prototype = Object.getPrototypeOf(prototype)
+    let nativeBrand = false
+    try {
+      // SAFETY: Response.prototype.body is the platform getter and performs the internal-slot brand check.
+      Object.getOwnPropertyDescriptor(Response.prototype, "body")?.get?.call(value)
+      nativeBrand = true
     }
-    if (!bodyGetter) return false
-
-    // Native Response accessors perform an internal-slot brand check. Calling
-    // the foreign realm accessor also validates implementations (such as
-    // happy-dom) that expose their state as own properties. A prototype-only
-    // object with a user-defined getter has no such slots and is rejected by
-    // the own-property shape check below.
-    bodyGetter.call(value)
-    const hasResponseSlots = ["bodyUsed", "redirected", "type", "url", "status", "statusText", "ok", "headers"]
+    catch {
+      // Foreign implementations (for example happy-dom) do not share the platform slots.
+    }
+    const ownSlots = ["bodyUsed", "redirected", "type", "url", "status", "statusText", "ok", "headers"]
       .every((key) => Object.prototype.hasOwnProperty.call(value, key))
+    const constructor = Object.getPrototypeOf(value)?.constructor
+    const foreignImplementation = ownSlots && constructor?.name === "Response"
     return typeof response.status === "number"
       && typeof response.statusText === "string"
-      && (hasResponseSlots || bodyGetter.toString().includes("[native code]"))
+      && (nativeBrand || foreignImplementation)
       && headers !== null
       && typeof headers === "object"
       && headerMethods.every((method) => typeof (headers as Record<string, unknown>)[method] === "function")
