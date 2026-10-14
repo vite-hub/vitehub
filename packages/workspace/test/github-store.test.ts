@@ -25,6 +25,7 @@ let treeIndex = 0;
 let mirrorRefSha: string | undefined;
 let mirrorRefStatus = 404;
 let mainRefUpdateStatus: number | undefined;
+let mainRefUpdateMessage: string | undefined;
 let malformedResponsePath: string | undefined;
 let malformedResponse: unknown;
 let archiveFailures = 0;
@@ -72,6 +73,7 @@ beforeEach(() => {
   mirrorRefSha = undefined;
   mirrorRefStatus = 404;
   mainRefUpdateStatus = undefined;
+  mainRefUpdateMessage = undefined;
   malformedResponsePath = undefined;
   malformedResponse = undefined;
   archiveFailures = 0;
@@ -169,7 +171,7 @@ beforeEach(() => {
       }
       if (url.pathname === "/repos/onmax/repo/git/refs/heads/main" && method === "PATCH") {
         if (mainRefUpdateStatus) {
-          return new Response("branch moved", {
+          return new Response(mainRefUpdateMessage || "branch moved", {
             status: mainRefUpdateStatus,
             statusText: mainRefUpdateStatus === 422 ? "Unprocessable Entity" : "Conflict",
           });
@@ -1331,6 +1333,7 @@ describe("GitHub workspace store", () => {
 
     await store.writeFile("README.md", { path: "README.md", content: "# Docs\n" });
     mainRefUpdateStatus = status;
+    mainRefUpdateMessage = status === 422 ? "Update is not a fast forward" : undefined;
 
     await expect(store.snapshot({ name: "raced conflict" })).rejects.toMatchObject({
       code: "WORKSPACE_CONFLICT",
@@ -1339,6 +1342,27 @@ describe("GitHub workspace store", () => {
         expectedHead: "base-sha",
         repository: "onmax/repo",
       },
+    });
+  });
+
+  it("preserves a generic GitHub 422 ref-update failure", async () => {
+    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+    const store = createGitHubWorkspaceStore(
+      {
+        provider: "github",
+        repository: "onmax/repo",
+        root: ".vitehub/workspaces/<workspace>",
+        token: "token",
+      },
+      "docs",
+    );
+
+    await store.writeFile("README.md", { path: "README.md", content: "# Docs\n" });
+    mainRefUpdateStatus = 422;
+    mainRefUpdateMessage = "Validation Failed";
+
+    await expect(store.snapshot({ name: "validation failure" })).rejects.toMatchObject({
+      code: "WORKSPACE_FAILED",
     });
   });
 
