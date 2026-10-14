@@ -30,39 +30,26 @@ function isNonRetryableError(error: unknown): error is Error & { isRetryable: fa
     const branded = hasRuntimeType(nativeIsError, "function")
       ? (nativeIsError as (value: unknown) => unknown)(error) === true
       : (() => {
-        const prototype = Object.getPrototypeOf(error)
-        if (prototype === null || prototype === Object.prototype || Object.prototype.toString.call(error) !== "[object Error]") return false
-        let errorPrototype: object | null = prototype
-        let hasErrorPrototype = false
-        let intrinsicPrototype: object | null = null
-        while (errorPrototype !== null) {
-          if (Object.prototype.hasOwnProperty.call(errorPrototype, "toString")
-            && Object.prototype.hasOwnProperty.call(errorPrototype, "constructor")
-            && hasRuntimeType(Reflect.get(errorPrototype, "constructor"), "function")
-            && Reflect.get(Reflect.get(errorPrototype, "constructor"), "name") === "Error") {
-            hasErrorPrototype = true
-            intrinsicPrototype = errorPrototype
-            break
-          }
-          errorPrototype = Object.getPrototypeOf(errorPrototype)
+        const tag = typeof Symbol === "function" ? Symbol.toStringTag : undefined
+        if (tag === undefined) return false
+        const ownTag = Object.getOwnPropertyDescriptor(error as object, tag)
+        if (ownTag && !ownTag.configurable) return false
+        if (!ownTag && !Object.isExtensible(error)) return false
+        try {
+          Object.defineProperty(error, tag, {
+            configurable: true,
+            enumerable: false,
+            value: undefined,
+            writable: true,
+          })
+          // With Symbol.toStringTag masked, this operation uses the internal
+          // Error brand and cannot be spoofed by prototype metadata.
+          return Object.prototype.toString.call(error) === "[object Error]"
         }
-        const hasIntrinsicErrorFields = intrinsicPrototype !== null
-          && Object.prototype.hasOwnProperty.call(intrinsicPrototype, "name")
-          && Object.prototype.hasOwnProperty.call(intrinsicPrototype, "message")
-          && Reflect.get(intrinsicPrototype, "name") === "Error"
-        const errorRecord = error as Record<PropertyKey, unknown>
-        const hasOwnMessage = Object.prototype.hasOwnProperty.call(errorRecord, "message")
-        const hasOwnStack = Object.prototype.hasOwnProperty.call(errorRecord, "stack")
-        // A local Error.prototype-derived record has the same prototype as a
-        // spoof. Genuine cross-realm errors use their realm's intrinsic
-        // prototype. Require both own error slots so prototype metadata alone
-        // cannot classify an arbitrary object; stack formatting remains free
-        // to be customized by the host.
-        return hasErrorPrototype
-          && hasIntrinsicErrorFields
-          && prototype !== Error.prototype
-          && hasOwnMessage
-          && hasOwnStack
+        finally {
+          if (ownTag) Object.defineProperty(error, tag, ownTag)
+          else Reflect.deleteProperty(error, tag)
+        }
       })()
     return branded && Reflect.get(error as object, "isRetryable") === false
   }
