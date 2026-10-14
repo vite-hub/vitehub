@@ -29,8 +29,12 @@ import type {
 } from "./types.ts"
 
 import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
+import { resolveDatabaseContributionTargets } from "./contributions.ts"
+
+import type { CollectedDatabaseContribution } from "./contributions.ts"
 
 export { resolveConfigValue } from "./config-value.ts"
+export { resolveDefaultDatabase, type DefaultDatabaseResolution } from "./contributions.ts"
 
 /** Serialize generated registries without invoking the legacy __proto__ setter. */
 export function serializeGeneratedRegistry(value: unknown): string {
@@ -557,11 +561,17 @@ function createGeneratedDrizzleConfigFile(rootDir: string, name: string) {
 export function resolveDBViteConfig(
   options?: DBModulePublicOptions,
   rootDir = process.cwd(),
-  context: { provisionRoot?: string, serverDirs?: string[] } = {},
+  context: {
+    /** Tables that Vite plugins contribute. See `collectDatabaseContributions()`. */
+    contributions?: readonly CollectedDatabaseContribution[]
+    provisionRoot?: string
+    serverDirs?: string[]
+  } = {},
 ): ResolvedDBViteConfig | undefined {
   if (options === false) return
 
   const definitions = discoverDatabaseDefinitions(rootDir, context)
+  const tableContributionsByDatabase = resolveDatabaseContributionTargets(definitions.map(definition => definition.name), context.contributions ?? [])
   if (!definitions.length) return
 
   const databases: Record<string, ResolvedDrizzleDatabaseConfig> = Object.create(null)
@@ -617,5 +627,6 @@ export function resolveDBViteConfig(
     generatedDrizzleConfigFilesByDatabase,
     generatedSchemaFilesByDatabase,
     rootDir,
+    tableContributionsByDatabase,
   }
 }

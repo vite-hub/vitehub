@@ -98,6 +98,62 @@ These rules apply:
 
 ViteHub finds duplicate table keys when `schema` is an object literal. Query the merged database with `useDatabase()` or the `db` server auto-import. A layer that queries its own `defineDatabase()` object directly sees only its own tables.
 
+## Contribute tables from a package
+
+A package can add Drizzle tables to an application's Database from its own Vite plugin, so the application does not edit its Definition. Add `vitehub.databases` to the plugin object. Each entry names a module and an export that hold an object of tables:
+
+```ts [my-package/vite.ts]
+import type { Plugin } from 'vite'
+import type { DatabaseContributingPlugin } from '@vite-hub/database/vite'
+
+export function myPackage(): Plugin & DatabaseContributingPlugin {
+  return {
+    name: 'my-package/vite',
+    vitehub: {
+      databases: () => [{ module: 'my-package/schema', export: 'historySchema' }],
+    },
+  }
+}
+```
+
+```ts [my-package/schema.ts]
+import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+
+export const historySchema = {
+  historyRefs: sqliteTable('history_refs', { workspace: text('workspace').primaryKey(), head: text('head') }),
+  historyRevisions: sqliteTable('history_revisions', { id: integer('id').primaryKey() }),
+}
+```
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `database` | `string` | Database that receives the tables. Omit it to target the default or only Database. |
+| `module` | `string` | Absolute file path, or a package specifier that the application can import. Relative paths are rejected. |
+| `export` | `string` | Export that holds the object of tables. Defaults to `default`. |
+
+`vitehub.databases` accepts an array or a factory. The factory receives `{ rootDir, serverDirs }`, the roots that Database Definitions are discovered from, and can be async. It runs once per discovery pass and must return the same result each time.
+
+Contributed tables join the target Database everywhere the Definition schema goes:
+
+- The generated Drizzle schema exports each contributed table, so `vitehub db generate` writes their migrations.
+- `useDatabase(name).schema`, `db.query`, and the generated `DatabaseRegistry` types include them, in Vite, Nuxt, Nitro, and provider output.
+- `vitehub inspect definitions` and the Console Database section list them in a `Contributed tables` field with the contributing plugin.
+
+The Definition object that you import from its file keeps only its own `schema`. Read contributed tables from `useDatabase(name).schema` or import them from their package.
+
+A contribution without `database` targets the Database named `default`, or the only Database when there is one. `resolveDefaultDatabase(names)` from `@vite-hub/database/config` applies the same rule, so a package can pick the same Database for its own runtime code. The Console uses it to choose its D1 journal.
+
+### Contribution errors
+
+| Code | Cause |
+| --- | --- |
+| `DATABASE_B0010` | A contributed table uses the key or SQL table name of an application table or another contribution. If the Definition already lists the contributed tables, remove them from its schema. |
+| `DATABASE_B0011` | The target Database does not exist, the app has no Database, or `database` is omitted while several Named Databases exist and none is named `default`. The message lists the Database names to choose from. |
+| `DATABASE_B0012` | The contribution is not `{ database?, module, export? }`, its `module` is relative, or its export is missing or is not an object of tables. |
+| `DATABASE_B0007` | The contributed module cannot load. `vitehub db generate` fails. `vite dev` and builds print a warning and keep the tables in the runtime schema, without drizzle-kit exports. |
+
+`collectDatabaseContributions(plugins, context)` and `resolveDatabaseContributionTargets(names, contributions)` from `@vite-hub/database/vite` return the validated contributions and their targets for other build steps.
+
 ## Database Definition options
 
 `defineDatabase()` accepts one object.
@@ -105,7 +161,7 @@ ViteHub finds duplicate table keys when `schema` is an object literal. Query the
 | Option | Type | Required | Description |
 | --- | --- | --- | --- |
 | `name` | `string` | Named Databases only | Runtime identity. Must match the discovered file or directory name. |
-| `schema` | `Record<string, Drizzle table>` | Yes | Database Table Schema source of truth. |
+| `schema` | `Record<string, Drizzle table>` | Yes | Database Table Schema source of truth. Packages can [contribute more tables](#contribute-tables-from-a-package). |
 | `connection.url` | `DatabaseConfigValue` | No | SQLite or libSQL connection URL. Defaults to `file:.vitehub/data/database/sqlite.db` for a Default Database and `file:.vitehub/data/database/<name>.sqlite.db` for a Named Database. |
 | `connection.authToken` | `DatabaseConfigValue` | No | Hosted database auth token. |
 | `cloudflare.binding` | `string` | No | D1 binding. Defaults to `DB` for a Default Database and `DB_<NAME>` for a Named Database. |
