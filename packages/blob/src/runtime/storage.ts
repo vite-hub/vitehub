@@ -2,6 +2,7 @@ import { createBlobStorage } from "../storage.ts"
 import { Diagnostic } from "nostics"
 import { blobResult } from "../errors.ts"
 import { handleBlobMultipartUpload, handleBlobUpload } from "../upload.ts"
+import { createLazyBlobMedia } from "../media/lazy.ts"
 import { resolveRuntimeMinioBlobStore, resolveRuntimeVercelBlobStore } from "../config.ts"
 import { createDriver as createCloudflareR2NativeDriver, getOptionalBucket } from "../drivers/cloudflare-native.ts"
 
@@ -101,7 +102,10 @@ async function createConfiguredBlobStorage(config: ResolvedBlobModuleOptions, na
     store: resolveRuntimeBlobStore(config.store),
   }
   const driver = await importRuntimeDriver(resolvedConfig.store)
-  return createBlobStorage(driver, name)
+  return createBlobStorage(driver, name, {
+    ...(config.images === undefined ? {} : { images: config.images }),
+    url: pathname => servedBlobUrl(name, pathname),
+  })
 }
 
 function joinServedBlobUrl(...parts: string[]): string {
@@ -117,11 +121,16 @@ function encodeServedBlobPath(pathname: string): string {
   return pathname.split("/").map(segment => encodeURIComponent(segment)).join("/")
 }
 
-async function withServedBlobUrl(name: string, object: BlobObject): Promise<BlobObject> {
+async function servedBlobUrl(name: string, pathname: string): Promise<string | undefined> {
   const config = await getBlobRuntimeConfig()
   const serve = config && typeof config === "object" ? config.serve : undefined
-  if (!serve || serve.store !== name) return object
-  return { ...object, url: joinServedBlobUrl(serve.publicBaseUrl || "/", serve.route, encodeServedBlobPath(object.pathname)) }
+  if (!serve || serve.store !== name) return undefined
+  return joinServedBlobUrl(serve.publicBaseUrl || "/", serve.route, encodeServedBlobPath(pathname))
+}
+
+async function withServedBlobUrl(name: string, object: BlobObject): Promise<BlobObject> {
+  const url = await servedBlobUrl(name, object.pathname)
+  return url ? { ...object, url } : object
 }
 
 function resolveStorage(name = "default"): Promise<BlobStorage> {
@@ -130,7 +139,7 @@ function resolveStorage(name = "default"): Promise<BlobStorage> {
     const stores = config.stores || { default: config.store }
     const store = Object.hasOwn(stores, name) ? stores[name] : undefined
     if (!store) throw new UnknownBlobStoreError(`Unknown Blob store "${name}".`)
-    return await createConfiguredBlobStorage({ store, stores: { default: store, [name]: store } }, name)
+    return await createConfiguredBlobStorage({ ...(config.images === undefined ? {} : { images: config.images }), store, stores: { default: store, [name]: store } }, name)
   })
 }
 
@@ -153,6 +162,7 @@ function withServedMultipartUrl(name: string, upload: BlobMultipartUpload): Blob
 
 function createRuntimeBlobStorage(name = "default"): BlobStorage {
   const storage: BlobStorage = {
+    media: createLazyBlobMedia(() => resolveStorageResult("media", name)),
     async createMultipartUpload(pathname, options) {
       const [resolutionError, resolved] = await resolveStorageResult("multipart", name)
       if (resolutionError) return [resolutionError, undefined]

@@ -9,6 +9,8 @@ import {
 
 import { normalizeBlobOptions } from "../config.ts"
 
+export { setBlobSharpModule } from "../media/sharp-module.ts"
+
 import type { BlobStorage, ResolvedBlobModuleOptions } from "../types.ts"
 
 let runtimeConfig: false | ResolvedBlobModuleOptions | undefined

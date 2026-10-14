@@ -231,11 +231,11 @@ describe("Blob response transforms", () => {
     const [, cache] = await storage.list({ prefix: "_vitehub/derived/" })
     const path = cache!.blobs[0]!.pathname
     for (const pathname of ["_vitehub", "_VITEHUB/", "elsewhere/../_vitehub", "%5Fvitehub", path, `elsewhere/../${path}`, path.replace("_", "%5F"), path.replaceAll("/", "\\")]) {
-      await expect(storage.put(pathname, "forged")).rejects.toThrow("reserved derived cache")
-      await expect(storage.createMultipartUpload(pathname)).rejects.toThrow("reserved derived cache")
-      await expect(storage.resumeMultipartUpload(pathname, "forged-upload")).rejects.toThrow("reserved derived cache")
+      await expect(storage.put(pathname, "forged")).rejects.toThrow("reserved ViteHub namespace")
+      await expect(storage.createMultipartUpload(pathname)).rejects.toThrow("reserved ViteHub namespace")
+      await expect(storage.resumeMultipartUpload(pathname, "forged-upload")).rejects.toThrow("reserved ViteHub namespace")
     }
-    await expect(storage.put("forged", "body", { prefix: "_vitehub/derived" })).rejects.toThrow("reserved derived cache")
+    await expect(storage.put("forged", "body", { prefix: "_vitehub/derived" })).rejects.toThrow("reserved ViteHub namespace")
     const [, body] = await storage.serve(event(), "private/original", options)
     expect(await new Response(body).text()).toBe("public")
     expect(run).toHaveBeenCalledTimes(1)

@@ -8,9 +8,13 @@ import { handleBlobMultipartUpload, handleBlobUpload } from "./upload.ts"
 
 // Generated provider runtime modules import the handlers from this entry.
 export { handleBlobMultipartUpload, handleBlobUpload }
+export { createLazyBlobMedia } from "./media/lazy.ts"
 
-import type { BlobDriverAdapter, BlobDriverMultipartUpload, BlobListOptions, BlobMultipartUpload, BlobPutBody, BlobPutOptions, BlobStorage } from "./types.ts"
+import type { BlobDriverAdapter, BlobDriverMultipartUpload, BlobListOptions, BlobMultipartUpload, BlobPutBody, BlobPutOptions, BlobResult, BlobServeEvent, BlobServeResponseOptions, BlobStorage } from "./types.ts"
+import type { BlobImagesOptions, BlobImageTransformer } from "./media/types.ts"
 import { blobErrorDiagnostics } from "./error-diagnostics.ts"
+import { createBlobMedia } from "./media/records.ts"
+import { resolveBlobImages } from "./media/transformers.ts"
 
 // S3, R2, and Vercel Blob all accept part numbers 1 through 10000.
 const maxPartNumber = 10_000
@@ -44,14 +48,26 @@ function normalizePathname(pathname: string): string {
   }
 }
 
-function assertWritablePath(pathname: string) {
+// `_vitehub/derived/` holds cached variants and `_vitehub/media/` holds media records and crop replacements.
+const reservedNamespaces = ["derived", "media"]
+
+function resolvedParts(pathname: string): string[] {
   const parts: string[] = []
   for (const part of pathname.replaceAll("\\", "/").split("/")) {
     if (part === "..") parts.pop()
     else if (part && part !== ".") parts.push(part)
   }
-  if (parts[0]?.toLowerCase() === "_vitehub" && (parts.length === 1 || parts[1]?.toLowerCase() === "derived")) {
-    throw blobErrorDiagnostics.BLOB_R0033({ message: "Blob pathname uses the reserved derived cache namespace." })
+  return parts
+}
+
+function isReservedPath(pathname: string): boolean {
+  const parts = resolvedParts(pathname)
+  return parts[0]?.toLowerCase() === "_vitehub" && (parts.length === 1 || reservedNamespaces.includes(parts[1]!.toLowerCase()))
+}
+
+function assertWritablePath(pathname: string) {
+  if (isReservedPath(pathname)) {
+    throw blobErrorDiagnostics.BLOB_R0033({ message: "Blob pathname uses a reserved ViteHub namespace: _vitehub/derived or _vitehub/media." })
   }
 }
 
@@ -137,7 +153,15 @@ function normalizeBlobPath(pathname: string, options: BlobPutOptions) {
     : normalized
 }
 
-export function createBlobStorage(driver: BlobDriverAdapter<any>, store: string = driver.name): BlobStorage {
+/** Options of `createBlobStorage()`. The runtime fills them from the `blob` configuration. */
+export interface BlobStorageOptions {
+  /** Image variants. A transformer object plugs in another image service. `false` always serves originals. */
+  images?: BlobImagesOptions | BlobImageTransformer | false
+  /** Served URL of a pathname, added to media records. */
+  url?: (pathname: string) => string | undefined | Promise<string | undefined>
+}
+
+export function createBlobStorage(driver: BlobDriverAdapter<any>, store: string = driver.name, options: BlobStorageOptions = {}): BlobStorage {
   const pendingTransforms = new Map<string, Promise<Blob | undefined | false>>()
   async function clearDerived(pathname: string) {
     try {
@@ -155,7 +179,23 @@ export function createBlobStorage(driver: BlobDriverAdapter<any>, store: string 
       console.error("[vitehub/blob] Derived cache cleanup failed", error)
     }
   }
+  const media = createBlobMedia({
+    clearDerived,
+    derivedPrefix: derivedCachePrefix,
+    driver,
+    images: resolveBlobImages(options.images),
+    normalizePathname,
+    // Media writes go through the public operations, so they share path checks and derived-cache cleanup.
+    storage: {
+      del: pathnames => storage.del(pathnames),
+      list: listOptions => storage.list(listOptions),
+      put: (pathname, body, putOptions) => storage.put(pathname, body, putOptions),
+    },
+    store,
+    ...(options.url ? { url: options.url } : {}),
+  })
   const storage: BlobStorage = {
+    media,
     async createMultipartUpload(pathname, options = {}) {
       if (!driver.createMultipartUpload) throw unsupportedMultipart(driver)
       const normalizedPath = normalizeBlobPath(normalizePathname(pathname), options)
@@ -221,128 +261,137 @@ export function createBlobStorage(driver: BlobDriverAdapter<any>, store: string 
     },
     async serve(event, pathname: string, options = {}) {
       const normalizedPath = normalizePathname(pathname)
-      for (let attempt = 0; attempt < 3; attempt++) {
-        const [error, payload] = await blobResult("serve", store, async () => {
-          const meta = await driver.head(normalizedPath)
-          if (!meta) {
-            await clearDerived(normalizedPath)
-            return
-          }
-
-          let etag = meta.httpEtag ? `"${await hashCacheKey([meta.httpEtag, meta.contentType])}"` : undefined
-          let sourceVersion = meta.httpEtag
-          let cachePath: string | undefined
-          let originalBody: Blob | null | undefined
-          if (options.transform) {
-            const sourcePath = driver.canonicalPathname?.(normalizedPath) ?? normalizedPath
-            if (!sourceVersion) {
-              originalBody = await driver.get(normalizedPath)
-              if (!originalBody) return
-              sourceVersion = await hashBlob(originalBody)
-            }
-            const fingerprint = await hashCacheKey([
-              sourcePath, sourceVersion, meta.contentType, options.transform.key,
-            ])
-            etag = `"${fingerprint}"`
-            cachePath = `${await derivedCachePrefix(sourcePath)}${await hashCacheKey(options.transform.key)}`
-          }
-
-          const cacheControl = options.cacheControl ?? event.res.headers.get("Cache-Control") ?? "private, no-cache"
-          const headers = new Headers({ "Cache-Control": cacheControl })
-          if (etag) headers.set("ETag", etag)
-          if (["GET", "HEAD"].includes(event.req.method)) {
-            const previous = ["etag", "cache-control"].map(name => [name, event.res.headers.get(name)] as const)
-            // SAFETY: h3 reads only the native request headers and mutable response headers/status declared by BlobServeEvent.
-            if (handleCacheHeaders(event as H3Event, { etag, cacheControls: [cacheControl] })) {
-              event.res.headers.set("X-Content-Type-Options", "nosniff")
-              return null
-            }
-            // h3 writes success headers while checking validators. Restore them before fallible work.
-            for (const [name, value] of previous) {
-              if (value === null) event.res.headers.delete(name)
-              else event.res.headers.set(name, value)
-            }
-          }
-
-          const cached = cachePath
-            ? await driver.get(cachePath).catch((error) => {
-              console.error("[vitehub/blob] Transform cache read failed", error)
-              return null
-            })
-            : null
-          let body = cachePath
-            ? await readDerived(cached, etag!)
-            : await driver.get(normalizedPath)
-          const transform = options.transform
-          if (body && !transform) {
-            const snapshot = await driver.head(normalizedPath)
-            if (!snapshot) return
-            if (snapshot.httpEtag !== meta.httpEtag || snapshot.contentType !== meta.contentType) return false
-          }
-          if (!body && cachePath && transform) {
-            const key = cachePath
-            const pendingKey = `${key}:${etag}`
-            let pending = pendingTransforms.get(pendingKey)
-            if (!pending) {
-              pending = (async () => {
-                const original = originalBody ?? await driver.get(normalizedPath)
-                if (!original) return
-                const snapshot = await driver.head(normalizedPath)
-                if (!snapshot) return
-                if (snapshot.httpEtag !== meta.httpEtag || snapshot.contentType !== meta.contentType) return false as const
-                const derived = await transform.run(original)
-                const current = await driver.head(normalizedPath)
-                const currentBody = current && !meta.httpEtag ? await driver.get(normalizedPath) : null
-                const sameVersion = meta.httpEtag
-                  ? current?.httpEtag === meta.httpEtag
-                  : currentBody && await hashBlob(currentBody) === sourceVersion
-                if (current && current.contentType === meta.contentType && sameVersion) {
-                  try {
-                    // Replace stale entries even when a provider forbids overwriting objects.
-                    if (cached) await driver.delete([key])
-                    // Keep the version and body in one object. Some drivers reject custom metadata.
-                    await driver.put(key, new Blob([
-                      JSON.stringify({ fingerprint: etag, type: derived.type }), "\n", derived,
-                    ]), {
-                      contentType: "application/octet-stream",
-                    })
-                    if (!await driver.head(normalizedPath)) await driver.delete([key])
-                  }
-                  catch (error) {
-                    console.error("[vitehub/blob] Transform cache write failed", error)
-                  }
-                }
-                return derived
-              })().finally(() => pendingTransforms.delete(pendingKey))
-              pendingTransforms.set(pendingKey, pending)
-            }
-            const transformed = await pending
-            if (transformed === false) return false
-            body = transformed ?? null
-          }
-          if (!body) return
-          const stream = body.stream()
-          headers.set("X-Content-Type-Options", "nosniff")
-          headers.set("Content-Length", String(body.size))
-          headers.set("Content-Type", transform
-            ? body.type || "application/octet-stream"
-            : meta.contentType || body.type || guessContentType(normalizedPath))
-          for (const [name, value] of headers) event.res.headers.set(name, value)
-          return stream
-        })
+      if (isReservedPath(normalizedPath)) return [blobError("BLOB_NOT_FOUND", "serve", store), undefined]
+      if (options.variant && !options.transform) {
+        const [error, plan] = await blobResult("serve", store, () => media.planVariant(normalizedPath, options.variant!))
         if (error) return [error, undefined]
-        if (payload === false) continue
-        return payload === undefined
-          ? [blobError("BLOB_NOT_FOUND", "serve", store), undefined]
-          : [null, payload]
+        if (plan) return serveObject(event, plan.source, { ...options, transform: plan.transform })
       }
-      return blobResult("serve", store, async () => {
-        throw new Error("Blob changed repeatedly while preparing its response.")
-      })
+      return serveObject(event, normalizedPath, options)
     },
     store() {
       throw blobErrorDiagnostics.BLOB_R0026({ message: "Named Blob stores are only available from the @vite-hub/blob runtime export." })
     },
+  }
+  async function serveObject(event: BlobServeEvent, normalizedPath: string, options: BlobServeResponseOptions): Promise<BlobResult<ReadableStream | null>> {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const [error, payload] = await blobResult("serve", store, async () => {
+        const meta = await driver.head(normalizedPath)
+        if (!meta) {
+          await clearDerived(normalizedPath)
+          return
+        }
+
+        let etag = meta.httpEtag ? `"${await hashCacheKey([meta.httpEtag, meta.contentType])}"` : undefined
+        let sourceVersion = meta.httpEtag
+        let cachePath: string | undefined
+        let originalBody: Blob | null | undefined
+        if (options.transform) {
+          const sourcePath = driver.canonicalPathname?.(normalizedPath) ?? normalizedPath
+          if (!sourceVersion) {
+            originalBody = await driver.get(normalizedPath)
+            if (!originalBody) return
+            sourceVersion = await hashBlob(originalBody)
+          }
+          const fingerprint = await hashCacheKey([
+            sourcePath, sourceVersion, meta.contentType, options.transform.key,
+          ])
+          etag = `"${fingerprint}"`
+          cachePath = `${await derivedCachePrefix(sourcePath)}${await hashCacheKey(options.transform.key)}`
+        }
+
+        const cacheControl = options.cacheControl ?? event.res.headers.get("Cache-Control") ?? "private, no-cache"
+        const headers = new Headers({ "Cache-Control": cacheControl })
+        if (etag) headers.set("ETag", etag)
+        if (["GET", "HEAD"].includes(event.req.method)) {
+          const previous = ["etag", "cache-control"].map(name => [name, event.res.headers.get(name)] as const)
+          // SAFETY: h3 reads only the native request headers and mutable response headers/status declared by BlobServeEvent.
+          if (handleCacheHeaders(event as H3Event, { etag, cacheControls: [cacheControl] })) {
+            event.res.headers.set("X-Content-Type-Options", "nosniff")
+            return null
+          }
+          // h3 writes success headers while checking validators. Restore them before fallible work.
+          for (const [name, value] of previous) {
+            if (value === null) event.res.headers.delete(name)
+            else event.res.headers.set(name, value)
+          }
+        }
+
+        const cached = cachePath
+          ? await driver.get(cachePath).catch((error) => {
+            console.error("[vitehub/blob] Transform cache read failed", error)
+            return null
+          })
+          : null
+        let body = cachePath
+          ? await readDerived(cached, etag!)
+          : await driver.get(normalizedPath)
+        const transform = options.transform
+        if (body && !transform) {
+          const snapshot = await driver.head(normalizedPath)
+          if (!snapshot) return
+          if (snapshot.httpEtag !== meta.httpEtag || snapshot.contentType !== meta.contentType) return false
+        }
+        if (!body && cachePath && transform) {
+          const key = cachePath
+          const pendingKey = `${key}:${etag}`
+          let pending = pendingTransforms.get(pendingKey)
+          if (!pending) {
+            pending = (async () => {
+              const original = originalBody ?? await driver.get(normalizedPath)
+              if (!original) return
+              const snapshot = await driver.head(normalizedPath)
+              if (!snapshot) return
+              if (snapshot.httpEtag !== meta.httpEtag || snapshot.contentType !== meta.contentType) return false as const
+              const derived = await transform.run(original)
+              const current = await driver.head(normalizedPath)
+              const currentBody = current && !meta.httpEtag ? await driver.get(normalizedPath) : null
+              const sameVersion = meta.httpEtag
+                ? current?.httpEtag === meta.httpEtag
+                : currentBody && await hashBlob(currentBody) === sourceVersion
+              if (current && current.contentType === meta.contentType && sameVersion) {
+                try {
+                  // Replace stale entries even when a provider forbids overwriting objects.
+                  if (cached) await driver.delete([key])
+                  // Keep the version and body in one object. Some drivers reject custom metadata.
+                  await driver.put(key, new Blob([
+                    JSON.stringify({ fingerprint: etag, key: transform.key, type: derived.type }), "\n", derived,
+                  ]), {
+                    contentType: "application/octet-stream",
+                  })
+                  if (!await driver.head(normalizedPath)) await driver.delete([key])
+                }
+                catch (error) {
+                  console.error("[vitehub/blob] Transform cache write failed", error)
+                }
+              }
+              return derived
+            })().finally(() => pendingTransforms.delete(pendingKey))
+            pendingTransforms.set(pendingKey, pending)
+          }
+          const transformed = await pending
+          if (transformed === false) return false
+          body = transformed ?? null
+        }
+        if (!body) return
+        const stream = body.stream()
+        headers.set("X-Content-Type-Options", "nosniff")
+        headers.set("Content-Length", String(body.size))
+        headers.set("Content-Type", transform
+          ? body.type || "application/octet-stream"
+          : meta.contentType || body.type || guessContentType(normalizedPath))
+        for (const [name, value] of headers) event.res.headers.set(name, value)
+        return stream
+      })
+      if (error) return [error, undefined]
+      if (payload === false) continue
+      return payload === undefined
+        ? [blobError("BLOB_NOT_FOUND", "serve", store), undefined]
+        : [null, payload]
+    }
+    return blobResult("serve", store, async () => {
+      throw new Error("Blob changed repeatedly while preparing its response.")
+    })
   }
   return storage
 }
