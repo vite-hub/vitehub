@@ -21,7 +21,7 @@ describe("Rate Limit core", () => {
     await expect(limiter.consume({ key: "user" })).resolves.toMatchObject({ allowed: true })
   })
 
-  it("preserves diagnostics from another JavaScript realm", () => {
+  it("classifies diagnostics from another JavaScript realm as uninspectable", () => {
     const foreign: unknown = runInNewContext(`(() => {
       class Diagnostic extends Error {
         constructor() {
@@ -37,7 +37,7 @@ describe("Rate Limit core", () => {
     const driver = memoryRateLimitDriver()
     Object.defineProperty(driver, "capabilities", { get: () => { throw foreign } })
 
-    expect(() => createRateLimiter({ driver, limit: 1, window: "1m" })).toThrow(foreign as Error)
+    expect(() => createRateLimiter({ driver, limit: 1, window: "1m" })).toThrow(expect.objectContaining({ code: "RATE_LIMIT_R0029" }))
   })
 
   it("preserves the receiver of a driver consume getter", async () => {
