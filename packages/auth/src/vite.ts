@@ -211,7 +211,8 @@ function mergeNitroAuthHandler(value: unknown, config: ResolvedAuthViteConfig | 
 
 function readForwardedProtocol(request: IncomingMessage): string {
   const value = request.headers["x-forwarded-proto"]
-  return Array.isArray(value) ? value[0] ?? "http" : value ?? "http"
+  const first = Array.isArray(value) ? value[0] : value
+  return first?.split(",", 1)[0]?.trim() || "http"
 }
 
 function createWebRequest(request: IncomingMessage): Request {
@@ -244,7 +245,7 @@ function createWebRequest(request: IncomingMessage): Request {
 async function sendWebResponse(response: Response, target: ServerResponse): Promise<void> {
   target.statusCode = response.status
   target.statusMessage = response.statusText
-  const setCookieHeaders = response.headers.getSetCookie()
+  const setCookieHeaders = typeof response.headers.getSetCookie === "function" ? response.headers.getSetCookie() : []
   response.headers.forEach((value, key) => {
     if (key.toLowerCase() === "set-cookie" && setCookieHeaders.length > 0) return
     target.appendHeader(key, value)

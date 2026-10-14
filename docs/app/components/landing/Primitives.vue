@@ -56,7 +56,7 @@ function blur() {
             </div>
             <div>
               <h2 class="text-sm font-medium text-highlighted">{{ primitive.name }}</h2>
-              <p class="mt-0.5 text-xs/5 text-muted">{{ primitive.description }}</p>
+              <p class="primitive-description mt-0.5 text-xs/5 text-muted">{{ primitive.description }}</p>
             </div>
             <UIcon name="i-lucide-arrow-up-right" class="primitive-arrow size-3.5" aria-hidden="true" />
           </NuxtLink>
@@ -76,7 +76,7 @@ function blur() {
   position: relative;
   display: flex;
   height: 100%;
-  min-height: 9rem;
+  min-height: 4.5rem;
   flex-direction: column;
   justify-content: space-between;
   gap: 0.75rem;
@@ -138,9 +138,22 @@ function blur() {
   }
 }
 
+/* On phones 21 tiles with illustrations fill almost two screens. Show names only. */
+@media (max-width: 639px) {
+  .primitive-illustration {
+    display: none;
+  }
+}
+
 @media (min-width: 640px) {
   .primitive-tile {
+    min-height: 9rem;
     padding: 1.25rem;
+  }
+
+  /* Reserve two lines so names stay on one baseline when a description wraps. */
+  .primitive-description {
+    min-height: 2.5rem;
   }
 }
 

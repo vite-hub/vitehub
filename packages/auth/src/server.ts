@@ -297,7 +297,7 @@ function isResponseLike(value: unknown): value is Response {
     // The host consumes ordinary properties on the original Response, so shadows must match native state.
     if (Reflect.get(value, "status") !== status || Reflect.get(value, "statusText") !== statusText
       || Reflect.get(value, "headers") !== headers || Reflect.get(value, "body") !== body) return false
-    if (!["get", "forEach", "getSetCookie"].every(method => hasRuntimeType(Reflect.get(headers, method), "function"))) return false
+    if (!["get", "forEach"].every(method => hasRuntimeType(Reflect.get(headers, method), "function"))) return false
     return body === null || (isRuntimeObject(body) && hasRuntimeType(Reflect.get(body, "getReader"), "function"))
   }
   catch {
