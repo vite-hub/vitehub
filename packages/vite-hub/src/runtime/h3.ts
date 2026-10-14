@@ -39,12 +39,25 @@ function isRequest(value: unknown): value is Request {
   try {
     if (value instanceof Request) return true
     if (value === null || typeof value !== "object") return false
-    // Request accessors perform the host's internal-slot brand check without
-    // reading candidate properties or cloning and consuming the body.
-    const getUrl = Object.getOwnPropertyDescriptor(Request.prototype, "url")?.get
-    if (!getUrl) return false
-    getUrl.call(value)
-    return true
+
+    // Use accessors from the candidate's own Request realm. Their receiver
+    // checks validate the Fetch internal slots without reading user properties
+    // or cloning and consuming the body. A custom prototype is ignored unless
+    // it is linked to a Request constructor, which also preserves subclasses.
+    let prototype = Object.getPrototypeOf(value)
+    while (prototype && prototype !== Object.prototype) {
+      const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+      if (typeof constructor === "function" && constructor.prototype === prototype && constructor.name === "Request") {
+        for (const key of ["headers", "url", "method", "bodyUsed"] as const) {
+          const getter = Object.getOwnPropertyDescriptor(prototype, key)?.get
+          if (typeof getter !== "function") return false
+          getter.call(value)
+        }
+        return true
+      }
+      prototype = Object.getPrototypeOf(prototype)
+    }
+    return false
   } catch {
     return false
   }
