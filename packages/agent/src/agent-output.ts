@@ -807,7 +807,6 @@ const responseStreams = new WeakMap<object, ReadableStream<Uint8Array>>()
 function isResponseLike(value: unknown): value is Response {
   if (!isRuntimeObject(value)) return false
   try {
-    if (!("body" in value)) return false
     if (Object.prototype.toString.call(value) !== "[object Response]") return false
     // The foreign implementation owns its getters. Require the full Response
     // accessor contract before accepting an output as a byte stream.
@@ -819,6 +818,20 @@ function isResponseLike(value: unknown): value is Response {
         prototype = Object.getPrototypeOf(prototype) as object | null
       }
     }
+    // A genuine Response exposes body through its prototype accessor. Requiring
+    // that surface keeps objects with caller-controlled own body fields out of
+    // the Response branch even when the field happens to contain a real stream.
+    let bodyAccessor = false
+    let bodyPrototype: object | null = Object.getPrototypeOf(value) as object | null
+    while (bodyPrototype) {
+      const descriptor = Object.getOwnPropertyDescriptor(bodyPrototype, "body")
+      if (descriptor) {
+        bodyAccessor = hasRuntimeType(descriptor.get, "function")
+        break
+      }
+      bodyPrototype = Object.getPrototypeOf(bodyPrototype) as object | null
+    }
+    if (!bodyAccessor) return false
     const status = read("status")
     const statusText = read("statusText")
     const headers = read("headers")
