@@ -51,6 +51,9 @@ function isHeadersLike(value: unknown): value is Headers {
 function isBrandedMethod(value: unknown, receiver: object, ...args: unknown[]): value is (this: unknown, ...args: unknown[]) => unknown {
   if (typeof value !== "function") return false
   try {
+    // Web IDL methods are callable objects without an own prototype. Reject
+    // ordinary functions (and proxies around them) before probing the receiver.
+    if (Object.prototype.hasOwnProperty.call(value, "prototype")) return false
     const source = Function.prototype.toString.call(value)
     if (!/\[native code\]|(?:webidl\.)?brandCheck\s*\(/.test(source)) return false
     // Genuine Web IDL methods reject an unrelated receiver. This also rejects
