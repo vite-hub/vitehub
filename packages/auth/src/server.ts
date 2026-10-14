@@ -306,6 +306,10 @@ function isResponseLike(value: unknown): value is Response {
       responsePrototype = Object.getPrototypeOf(responsePrototype)
     }
     if (!responseConstructor || !statusGetter || !statusTextGetter || !headersGetter || !bodyUsedGetter || !bodyGetter) return false
+    // A candidate can provide a constructor named `Response` and all of the
+    // expected accessors on a plain object. Native Response constructors are
+    // the authenticity boundary that survives across realms.
+    if (!Function.prototype.toString.call(responseConstructor).includes("[native code]")) return false
     if (!(response instanceof responseConstructor)) return false
     if (!["error", "json", "redirect"].every(method => typeof Object.getOwnPropertyDescriptor(responseConstructor, method)?.value === "function")) return false
     const status = statusGetter.call(response) as unknown
