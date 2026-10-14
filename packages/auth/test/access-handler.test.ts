@@ -104,11 +104,13 @@ describe("Auth access handlers", () => {
     await expect(handler(new Request("https://app.example/"))).resolves.toBe(response)
   })
 
+
   it("returns authorization responses from another realm unchanged", async () => {
     const foreignResponse = runInNewContext("new Response('Policy rejected', { status: 409 })", { Response })
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
       access: { routes: [{ route: "/**", authorize: () => foreignResponse as never }] },
     }))
+
 
     await expect(handler(new Request("https://app.example/"))).resolves.toBe(foreignResponse)
   })

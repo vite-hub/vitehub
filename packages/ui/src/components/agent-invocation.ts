@@ -1130,6 +1130,16 @@ function inspectorChannels(channels: NonNullable<AgentInvocationConfiguration["c
   ]);
 }
 
+function isRecordedChannel(value: unknown): value is NonNullable<AgentInvocationConfiguration["channels"]>[number] {
+  if (value === null || !hasRuntimeType(value, "object") || Array.isArray(value)) return false;
+  // SAFETY: The guard above establishes a non-null, non-array object; its field values remain unknown until checked below.
+  const channel = value as Record<string, unknown>;
+  return Object.hasOwn(channel, "id")
+    && hasRuntimeType(channel.id, "string")
+    && Object.hasOwn(channel, "kind")
+    && hasRuntimeType(channel.kind, "string");
+}
+
 function inspectorExecution(configuration: AgentInvocationConfiguration) {
   const model = configuration.driver?.model;
   const modelId = model?.id;
@@ -1198,12 +1208,22 @@ function renderConfiguration(
   configuration: AgentInvocationConfiguration,
   invocation: AgentInvocationView,
   showCapabilities: boolean,
+
   selectTool: (name: string) => void,
 ) {
   const recordedTools = Array.isArray(configuration.tools) ? configuration.tools : [];
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Persisted catalogs can contain truncation markers; validate tool names at the inspector boundary.
   const tools = recordedTools.filter(tool => tool && typeof tool.name === "string");
-  configuration = { ...configuration, tools, truncated: configuration.truncated || tools.length !== recordedTools.length };
+  const channelsCatalogMalformed = configuration.channels !== undefined && !Array.isArray(configuration.channels);
+  const recordedChannels = Array.isArray(configuration.channels) ? configuration.channels : [];
+  const channels = recordedChannels.filter(isRecordedChannel);
+  configuration = {
+    ...configuration,
+    channels,
+    tools,
+    truncated: configuration.truncated || tools.length !== recordedTools.length || channelsCatalogMalformed
+      || channels.length !== recordedChannels.length,
+  };
   const driver = driverLabel(configuration);
   const workspace = workspaceLabel(configuration);
   const setup = [
@@ -1248,7 +1268,7 @@ function renderConfiguration(
                 tools.length ? h(AgentToolList, { tools, calls: Object.fromEntries(invocationToolUsage(invocation)), onSelect: selectTool }) : null,
                 capability.metadata ? h("details", { class: "vh-invocation-inspector__settings" }, [
                   h("summary", "Configuration"),
-                  h("pre", JSON.stringify(capability.metadata, null, 2)),
+                  h("pre", payloadText(capability.metadata)),
                 ]) : null,
                 !tools.length && !capability.metadata ? h("p", "No tools or configuration recorded.") : null,
               ]);
@@ -1784,6 +1804,7 @@ export const AgentInvocationInspector = defineComponent({
             props.showTimeline
               ? traceTimeline(props.invocation, id => emit("selectActivity", id))
               : null,
+
             ...(configuration ? renderConfiguration(configuration, props.invocation, props.showCapabilities, selectTool) : []),
             slots.metadata?.({ invocation: props.invocation }),
             inspectorSection(

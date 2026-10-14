@@ -23,6 +23,7 @@ const pageGroups = computed(() => {
     group.label === "Start" ? { ...group, pages: [...group.pages, perspective] } : group,
   );
 });
+
 const related = computed(() =>
   section.value ? getDocsRelatedSections(docsManifest.sections, section.value) : [],
 );

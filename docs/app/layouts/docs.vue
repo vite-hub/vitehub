@@ -22,6 +22,7 @@ const docsShellUi = {
       <slot />
     </UContainer>
 
+
     <div v-else-if="isLanding" class="vh-docs-landing">
       <slot />
     </div>
@@ -48,6 +49,7 @@ const docsShellUi = {
   margin: 0 auto;
   padding: 0 1rem;
 }
+
 
 .vh-docs-main {
   max-width: calc(var(--vh-content-width) + var(--vh-toc-width) + 4rem);
