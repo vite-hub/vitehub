@@ -7,8 +7,11 @@ navigation.order: 201
 icon: i-lucide-file-text
 ---
 
-ViteHub publishes its documentation for coding agents as well as for people.
-Choose the resource that matches the task. A coding agent can use more than one: the skill gives it a process, and the MCP server gives it live lookups.
+ViteHub publishes documentation for people and for coding agents. You can use
+these resources when an agent writes or changes your application; they are
+optional when you are reading and coding by hand. Choose the resource that
+matches the task. A coding agent can use more than one: the skill gives it a
+process, and the MCP server gives it live lookups.
 
 ## Choose by task
 

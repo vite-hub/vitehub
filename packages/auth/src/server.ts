@@ -300,9 +300,17 @@ function isResponseLike(value: unknown): value is Response {
     const body = getAccessor("body")?.call(value)
     if (typeof status !== "number" || !Number.isInteger(status) || status < 0 || status > 599) return false
     if (typeof statusText !== "string" || headers === null || typeof headers !== "object") return false
-    const get = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(headers), "get")?.value
-    const forEach = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(headers), "forEach")?.value
-    if (typeof get !== "function" || typeof forEach !== "function") return false
+    const getMethod = (name: string) => {
+      for (let prototype = Object.getPrototypeOf(headers); prototype; prototype = Object.getPrototypeOf(prototype)) {
+        const method = Object.getOwnPropertyDescriptor(prototype, name)?.value
+        if (method !== undefined) return method
+      }
+      return undefined
+    }
+    const get = getMethod("get")
+    const forEach = getMethod("forEach")
+    const getSetCookie = getMethod("getSetCookie")
+    if (typeof get !== "function" || typeof forEach !== "function" || typeof getSetCookie !== "function") return false
     get.call(headers, "x-vitehub-probe")
     if (body !== null && (typeof body !== "object" || typeof Object.getOwnPropertyDescriptor(Object.getPrototypeOf(body), "getReader")?.value !== "function")) return false
     return true
