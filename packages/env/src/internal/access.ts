@@ -24,7 +24,9 @@ const envAccess = defineGrant("vitehub.env.access", (authority: EnvAuthority): E
     ? Object.freeze({ ...authority, permissions: Object.freeze([...authority.permissions]) })
     : Object.freeze({ ...authority }));
 
-export function envIdentifier(value: string): void {
+export function envIdentifier(value: unknown): void {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Bridge identifiers must be primitive strings before length and control-character validation.
+  if (typeof value !== "string") throw envBridgeError("invalid");
   // eslint-disable-next-line no-control-regex
   if (!value || value.length > 512 || /[\u0000-\u001f]/.test(value))
     throw envBridgeError("invalid");

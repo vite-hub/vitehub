@@ -104,34 +104,46 @@ describe("Auth access handlers", () => {
     await expect(handler(new Request("https://app.example/"))).resolves.toBe(response)
   })
 
-  it("returns authorization responses from another realm unchanged", async () => {
+  it("normalizes compatible authorization responses from another realm", async () => {
     const foreignResponse = runInNewContext(`new (class {
       get status() { return 409 }
       get statusText() { return "Conflict" }
-      get headers() { return { get() { return null }, getSetCookie() { return [] }, forEach() {} } }
-      get body() { return null }
+      get headers() { return [["set-cookie", "policy=denied"], ["x-policy", "rejected"]] }
+      get body() { return { getReader() { return {} } } }
+      async arrayBuffer() { return new Uint8Array([110, 111]).buffer }
       get [Symbol.toStringTag]() { return "Response" }
     })()`)
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
       access: { routes: [{ route: "/**", authorize: () => foreignResponse as never }] },
     }))
 
-    await expect(handler(new Request("https://app.example/"))).resolves.toBe(foreignResponse)
+    const response = await handler(new Request("https://app.example/"))
+    expect(response).toBeInstanceOf(Response)
+    expect(response).not.toBe(foreignResponse)
+    expect(response?.status).toBe(409)
+    expect(response?.headers.getSetCookie()).toEqual(["policy=denied"])
+    const headers: string[] = []
+    response?.headers.forEach((_value, key) => headers.push(key))
+    expect(headers).toContain("x-policy")
+    const reader = response!.body!.getReader()
+    expect(await reader.read()).toMatchObject({ value: new Uint8Array([110, 111]), done: false })
+    reader.releaseLock()
   })
 
-  it("rejects incomplete response-shaped authorization results", async () => {
-    const malformedResponse = runInNewContext(`new (class {
-      get status() { return 409 }
-      get statusText() { return "Conflict" }
-      get headers() { return { get() { return null } } }
-      get body() { return null }
-      get [Symbol.toStringTag]() { return "Response" }
-    })()`)
+  it("does not expose a tag-only response shape to adapters", async () => {
+    const spoof = runInNewContext(`({
+      [Symbol.toStringTag]: "Response",
+      status: 409,
+      statusText: "Conflict",
+      headers: { get() { return null } },
+      body: null,
+    })`)
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
-      access: { routes: [{ route: "/**", authorize: () => malformedResponse as never }] },
+      access: { routes: [{ route: "/**", authorize: () => spoof as never }] },
     }))
-
-    await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
+    const response = await handler(new Request("https://app.example/"))
+    expect(response).toBeInstanceOf(Response)
+    expect(response).not.toBe(spoof)
   })
 
   it("runs authorize from a route object created in another realm", async () => {
