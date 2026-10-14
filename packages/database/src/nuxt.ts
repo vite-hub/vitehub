@@ -1,4 +1,5 @@
 import { copyFile, mkdir, readdir, rm } from "node:fs/promises"
+import { createRequire } from "node:module"
 import { dirname, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
@@ -144,6 +145,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
       let contributions: CollectedDatabaseContribution[] = []
       const definitionFiles = new Set<string>()
       const contributionFiles = new Set<string>()
+      const require = createRequire(pathToFileURL(resolve(root, "package.json")))
       const definitionDirectories = new Set([
         ...(serverDirs ?? [resolve(root, "server")]).map(directory => resolve(directory, "databases")),
         resolve(root, "src"),
@@ -157,7 +159,14 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
             definitionDirectories.add(dirname(source.handler))
           }
           for (const contribution of contributions) {
-            if (isAbsolute(contribution.module)) contributionFiles.add(contribution.module)
+            try {
+              contributionFiles.add(isAbsolute(contribution.module)
+                ? resolve(contribution.module)
+                : require.resolve(contribution.module))
+            }
+            catch {
+              // The runtime loader reports unresolved contributions; there is no file to watch yet.
+            }
           }
           nuxtOptions.watch = [...new Set([...(nuxtOptions.watch ?? []), ...definitionDirectories, ...definitionFiles, ...contributionFiles])]
         }
