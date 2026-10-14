@@ -1,112 +1,71 @@
 // @vitest-environment happy-dom
 
+import type { TraceRunView, TraceStepView } from "@vite-hub/runtime";
 import { mount } from "@vue/test-utils";
 import { defineComponent, h } from "vue";
 import { describe, expect, it } from "vitest";
-import { AgentTrace } from "../src/components/agent-trace.ts";
+import { TraceRun } from "../src/components/trace-run.ts";
 
-const CollapsibleStub = defineComponent({
-  setup(_props, { slots }) {
-    return () => h("div", [slots.default?.(), slots.content?.()]);
-  },
-});
+const UIcon = defineComponent({ props: { name: String }, setup: (props) => () => h("span", { "data-icon": props.name }) });
+const global = { components: { UIcon } };
 
-const BadgeStub = defineComponent({
-  setup(_props, { slots }) {
-    return () => h("span", slots.default?.());
-  },
-});
+function step(id: string, status: TraceStepView["status"], attributes?: Record<string, unknown>): TraceStepView {
+  return { attributes, events: [], id, name: id, startTime: "2026-08-23T09:04:10.000Z", status, type: "run" } as TraceStepView;
+}
 
-describe("AgentTrace", () => {
+function run(status: TraceRunView["status"], steps: TraceStepView[] = [], durationMs?: number): TraceRunView {
+  return { durationMs, events: [], id: "run", startTime: "2026-08-23T09:04:10Z", status, steps };
+}
+
+describe("TraceRun", () => {
   it.each([
-    ["cancelled", "neutral", "Cancelled"],
-    ["completed", "success", "Completed"],
-    ["failed", "error", "Failed"],
-    ["running", "info", "Working"],
-  ] as const)("uses the shared status treatment for %s runs", (status, color, label) => {
-    const wrapper = mount(AgentTrace, {
-      global: { components: { UBadge: BadgeStub, UCollapsible: CollapsibleStub } },
-      props: {
-        run: { events: [], id: "run", startTime: "2026-08-23T09:04:10Z", status, steps: [] },
-      },
-    });
-    const badge = wrapper.get("span[color]");
-    expect(badge.attributes("color")).toBe(color);
-    expect(badge.text()).toBe(label);
-    expect(wrapper.get(".vh-trace__chevron").attributes("aria-hidden")).toBe("true");
+    ["cancelled", undefined, "Cancelled · 320 ms"],
+    ["completed", undefined, "Completed · 320 ms"],
+    ["failed", "error", "Failed · 320 ms"],
+    ["running", "running", "Working · 320 ms"],
+  ] as const)("shows a %s run as a trace line with its status in text", (status, lineStatus, text) => {
+    const wrapper = mount(TraceRun, { global, props: { run: run(status, [], 320) } });
+    const line = wrapper.get("[data-slot=trace-collapsible-trigger] [data-slot=trace-line]");
+
+    expect(line.attributes("data-status")).toBe(lineStatus);
+    expect(line.get("[data-slot=trace-title]").text()).toBe("Trace run");
+    expect(line.get("[data-slot=trace-description]").text()).toBe(text);
+    expect(wrapper.get("[data-slot=trace-collapsible-trigger]").element.tagName).toBe("BUTTON");
   });
 
-  it("names each trace step and keeps the disclosure trigger native", () => {
-    const wrapper = mount(AgentTrace, {
-      global: { components: { UBadge: BadgeStub, UCollapsible: CollapsibleStub } },
-      props: {
-        run: {
-          events: [],
-          id: "run",
-          startTime: "2026-08-23T09:04:10.000Z",
-          status: "completed",
-          steps: [
-            {
-              events: [],
-              id: "prepare",
-              name: "Prepare Agent invocation",
-              startTime: "2026-08-23T09:04:10.000Z",
-              status: "completed",
-              type: "run",
-            },
-          ],
-        },
-      },
-    });
-
-    expect(wrapper.get("button").attributes("type")).toBe("button");
-    expect(wrapper.get("article").attributes("aria-label")).toBe("Prepare Agent invocation");
+  it("shows an unknown status from a newer runtime as text", () => {
+    const wrapper = mount(TraceRun, { global, props: { run: run("paused" as TraceRunView["status"]) } });
+    expect(wrapper.get("[data-slot=trace-description]").text()).toBe("paused");
   });
 
-  it("labels unfinished steps and explains an empty trace", () => {
-    const global = { components: { UBadge: BadgeStub, UCollapsible: CollapsibleStub } };
-    const step = (id: string, status: "completed" | "failed" | "running") => ({
-      events: [],
-      id,
-      name: id,
-      startTime: "2026-08-23T09:04:10.000Z",
-      status,
-      type: "run" as const,
-    });
-    const wrapper = mount(AgentTrace, {
+  it("names each step and expands steps with attributes", async () => {
+    const wrapper = mount(TraceRun, {
+      attachTo: document.body,
       global,
-      props: {
-        run: {
-          events: [],
-          id: "run",
-          startTime: "2026-08-23T09:04:10Z",
-          status: "failed",
-          steps: [step("prepare", "completed"), step("test", "failed"), step("deploy", "running")],
-        },
-      },
+      props: { defaultOpen: true, run: run("failed", [step("prepare", "completed"), step("test", "failed", { command: "pnpm test" })]) },
+      slots: { title: () => "Verification run" },
     });
-    expect(
-      wrapper
-        .findAll("article")
-        .map((article) =>
-          article.find(".vh-trace__step-status").exists()
-            ? article.get(".vh-trace__step-status").text()
-            : null,
-        ),
-    ).toEqual([null, "Failed", "Working"]);
 
-    const empty = mount(AgentTrace, {
-      global,
-      props: {
-        run: {
-          events: [],
-          id: "run",
-          startTime: "2026-08-23T09:04:10Z",
-          status: "running",
-          steps: [],
-        },
-      },
-    });
-    expect(empty.get(".vh-trace__empty").text()).toBe("No steps recorded.");
+    expect(wrapper.get("[data-slot=trace-title]").text()).toBe("Verification run");
+    const steps = wrapper.findAll("[data-trace-step]");
+    expect(steps.map((item) => [item.attributes("aria-label"), item.attributes("role")])).toEqual([["prepare", "group"], ["test", "group"]]);
+    expect(steps[1]!.get("[data-slot=trace-line]").attributes("data-status")).toBe("error");
+
+    await steps[1]!.get("[data-slot=trace-collapsible-trigger]").trigger("click");
+    expect(steps[1]!.get("[data-slot=code-block-content]").text()).toContain('"command": "pnpm test"');
+    wrapper.unmount();
+  });
+
+  it("explains an empty run and shows attributes that cannot be serialized", async () => {
+    const empty = mount(TraceRun, { global, props: { defaultOpen: true, run: run("running") } });
+    expect(empty.get("[data-slot=trace-collapsible-content] [data-slot=trace-line]").attributes("data-status")).toBe("pending");
+    expect(empty.text()).toContain("No steps recorded.");
+
+    const cyclic: Record<string, unknown> = {};
+    cyclic.self = cyclic;
+    const wrapper = mount(TraceRun, { attachTo: document.body, global, props: { defaultOpen: true, run: run("completed", [step("loop", "completed", cyclic)]) } });
+    await wrapper.get("[data-trace-step] [data-slot=trace-collapsible-trigger]").trigger("click");
+    expect(wrapper.get("[data-slot=code-block-content]").text()).toBe("[Attributes cannot be shown]");
+    wrapper.unmount();
   });
 });

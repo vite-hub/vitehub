@@ -4,7 +4,7 @@ import { computed, defineComponent, h, ref, watch, type PropType, type VNodeChil
 import { invocationActivities, invocationToolUsage } from "./internal/invocation-activity.ts";
 import { hasRuntimeType } from "./internal/runtime-type.ts";
 import { payloadText } from "./internal/payload-text.ts";
-import { AgentToolList } from "@vite-hub/ui";
+import { ToolList } from "@vite-hub/ui";
 import type { AgentInvocationView } from "./types.ts";
 
 function record(value: unknown): Record<string, unknown> | undefined {
@@ -123,7 +123,7 @@ export const AgentCapabilityInspector = defineComponent({
         const selectedTools = tools.value.filter(tool =>
           (!Object.hasOwn(props, "names") || names?.includes(tool.name))
           && (!Object.hasOwn(props, "mcpServer") || hasRuntimeType(props.mcpServer, "string") && tool.mcp?.server === props.mcpServer));
-        return selectedTools.length ? h(AgentToolList, { calls: calls.value, onSelect: selectTool, tools: selectedTools }) : h("p", { class: "vh-capability-inspector__empty" }, "No tool contracts recorded.");
+        return selectedTools.length ? h(ToolList, { calls: calls.value, onSelect: selectTool, tools: selectedTools }) : h("p", { class: "vh-capability-inspector__empty" }, "No tool contracts recorded.");
       }),
     };
     return () => h("div", { class: "vh-capability-inspector" }, [
@@ -143,7 +143,7 @@ export const AgentCapabilityInspector = defineComponent({
               selected.value.inspection && (!selected.value.inspection.state || selected.value.inspection.view) ? h("p", { class: "vh-capability-inspector__empty" }, selected.value.inspection.view && !spec.value
                 ? "This view is unavailable. Recorded tools and data are shown below."
                 : "Inspection data was not recorded. Configuration capture may be disabled for this run.") : null,
-              tools.value.length ? h(AgentToolList, { calls: calls.value, onSelect: selectTool, tools: tools.value }) : null,
+              tools.value.length ? h(ToolList, { calls: calls.value, onSelect: selectTool, tools: tools.value }) : null,
               selected.value.inspection?.state ? h("pre", payloadText(selected.value.inspection.state)) : null,
               selected.value.metadata ? h("details", [h("summary", "Configuration"), h("pre", payloadText(selected.value.metadata))]) : null,
               !tools.value.length && !selected.value.metadata && !selected.value.inspection ? h("p", "No tools or configuration recorded.") : null,

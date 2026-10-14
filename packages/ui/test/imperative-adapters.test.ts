@@ -125,8 +125,8 @@ import {
   type LineAnnotation,
   parseDiffFromFile,
 } from "@pierre/diffs";
-import { FileTree } from "@pierre/trees";
-import { AgentFileTree } from "../src/components/agent-file-tree.ts";
+import { FileTree as PierreFileTree } from "@pierre/trees";
+import { FileTree } from "../src/components/file-tree.ts";
 import {
   PierreCodeView,
   PierreDiff,
@@ -187,11 +187,11 @@ describe("Pierre lifecycle adapters", () => {
   });
 
   it("unmounts external FileTree models and cleans up component-owned replacements", async () => {
-    new FileTree({ paths: ["first.ts"] });
+    new PierreFileTree({ paths: ["first.ts"] });
     const first = treeState.instances[0]!;
-    new FileTree({ paths: ["second.ts"] });
+    new PierreFileTree({ paths: ["second.ts"] });
     const second = treeState.instances[1]!;
-    const wrapper = mount(AgentFileTree, { props: { model: first as never } });
+    const wrapper = mount(FileTree, { props: { model: first as never } });
 
     expect(first.render).toHaveBeenCalledOnce();
     await wrapper.setProps({ model: second as never });
@@ -214,7 +214,7 @@ describe("Pierre lifecycle adapters", () => {
   });
 
   it("cleans up the active component-owned FileTree model on teardown", () => {
-    const wrapper = mount(AgentFileTree, { props: { paths: ["owned.ts"] } });
+    const wrapper = mount(FileTree, { props: { paths: ["owned.ts"] } });
     const owned = treeState.instances[0]!;
 
     wrapper.unmount();

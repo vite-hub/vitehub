@@ -60,7 +60,7 @@ shadcn/ui animates a running title with a shimmer. ViteHub does not use continuo
 
 ### Trace runs
 
-`AgentTrace` renders one runtime trace run from `deriveTraceRuns()` in `@vite-hub/runtime`: the run title, a status badge, and the duration, with the timed steps inside. Open failed runs by default. Use the `step` slot when a known trace schema needs more than the default name, duration, and attributes.
+`TraceRun` renders one runtime trace run from `deriveTraceRuns()` in `@vite-hub/runtime` with these parts: a Trace line with the run title, its status, and its duration, which expands into one line per timed step. A step with attributes expands into a small Code Block. Open failed runs by default. Use the `step` slot when a known trace schema needs more than the default name, duration, and attributes.
 
 ```vue
 <script setup lang="ts">
@@ -70,7 +70,7 @@ const runs = computed(() => deriveTraceRuns(events.value));
 </script>
 
 <template>
-  <AgentTrace v-for="run in runs" :key="run.id" :run="run" :default-open="run.status === 'failed'" />
+  <TraceRun v-for="run in runs" :key="run.id" :run="run" :default-open="run.status === 'failed'" />
 </template>
 ```
 
@@ -107,7 +107,7 @@ const runs = computed(() => deriveTraceRuns(events.value));
 
 `Trace`, `TraceIcon`, `TraceTitle`, `TraceDescription`, `TraceCollapsibleTrigger`, and `TraceCollapsibleContent` have no props. `TraceIcon` sets `aria-hidden="true"`. A `class` on `TraceCollapsibleContent` goes to its inner element, so padding does not break the height animation.
 
-### AgentTrace
+### TraceRun
 
 #### Props
 
@@ -121,15 +121,15 @@ const runs = computed(() => deriveTraceRuns(events.value));
 | Slot    | Scope      | Description                                                      |
 | ------- | ---------- | ---------------------------------------------------------------- |
 | `title` | `{ run }`  | Replaces the default `Trace <id>` title.                         |
-| `step`  | `{ step }` | Replaces the default step content: name, duration, and attributes. |
+| `step`  | `{ step }` | Replaces the default step line: name, status, duration, and attributes. |
 
-The badge uses the error color for `failed`, the warning color for `running`, and the success color for other statuses. Durations under one second show in milliseconds. ViteHub Runtime derives `TraceRunView` records. Loading, filtering, authorization, and retention stay in your application.
+The status shows as text beside the title, for example `Failed · 2.8 s`. A failed line uses the error color. Durations under one second show in milliseconds. An unknown status from a newer runtime shows as its own text. ViteHub Runtime derives `TraceRunView` records. Loading, filtering, authorization, and retention stay in your application.
 
 ## Accessibility
 
 - `TraceCollapsibleTrigger` is a native button with `aria-expanded` and `aria-controls`.
 - Put the meaning in `TraceTitle`. Icons are hidden from screen readers, and the status color is not the only signal.
-- In `AgentTrace`, each step is an `<article>` named with the step name, and the status badge shows the status as text.
+- In `TraceRun`, each step is a group named with the step name, and the status shows as text.
 
 ## Related
 

@@ -16,17 +16,17 @@ The diff components are Vue adapters for Pierre's `@pierre/diffs` views. They us
 Render a unified patch:
 
 ```vue
-<AgentPatchDiff :patch="patch" />
+<PatchDiff :patch="patch" />
 ```
 
 | Component             | Input                                   | Use it when                                          |
 | --------------------- | --------------------------------------- | ---------------------------------------------------- |
-| `AgentPatchDiff`      | A unified patch string                  | You have `git diff` output for one file.             |
-| `AgentMultiFileDiff`  | Two `FileContents` values               | You have the old and new file contents.              |
-| `AgentFileDiff`       | Parsed `FileDiffMetadata`               | You already parsed the patch, or hydrate partial diffs. |
-| `AgentUnresolvedFile` | A `FileContents` with conflict markers  | You show a merge conflict with resolution controls.  |
+| `PatchDiff`      | A unified patch string                  | You have `git diff` output for one file.             |
+| `MultiFileDiff`  | Two `FileContents` values               | You have the old and new file contents.              |
+| `FileDiff`       | Parsed `FileDiffMetadata`               | You already parsed the patch, or hydrate partial diffs. |
+| `UnresolvedFile` | A `FileContents` with conflict markers  | You show a merge conflict with resolution controls.  |
 
-Nuxt registers every component. In Vue with Vite, import them from `@vite-hub/ui` or from a focused entry such as `@vite-hub/ui/agent-patch-diff`. Syntax highlighting loads only when a code view first renders.
+Nuxt registers every component. In Vue with Vite, import them from `@vite-hub/ui` or from a focused entry such as `@vite-hub/ui/patch-diff`. Syntax highlighting loads only when a code view first renders.
 
 ## Examples
 
@@ -46,7 +46,7 @@ Parse a multi-file patch once with `parsePatchFiles()`, then render each file fr
 
 ### Merge conflict
 
-`AgentUnresolvedFile` renders conflict markers with controls to resolve each conflict.
+`UnresolvedFile` renders conflict markers with controls to resolve each conflict.
 
 ::component-preview{name="UnresolvedFileExample"}
 ::
@@ -72,7 +72,7 @@ Pass Pierre's `theme` option for different syntax token colors. Backgrounds and 
 
 The diff components accept Pierre's options and annotations. See the Pierre types for the option fields.
 
-### AgentPatchDiff
+### PatchDiff
 
 #### Props
 
@@ -83,7 +83,7 @@ The diff components accept Pierre's options and annotations. See the Pierre type
 | `lineAnnotations` | `DiffLineAnnotation[]`               |          | Application content on diff lines.             |
 | `selectedLines`   | `SelectedLineRange \| null`          |          | The selected line range. Controlled when set.  |
 
-### AgentMultiFileDiff
+### MultiFileDiff
 
 #### Props
 
@@ -95,7 +95,7 @@ The diff components accept Pierre's options and annotations. See the Pierre type
 | `lineAnnotations` | `DiffLineAnnotation[]`               |          | Application content on diff lines.             |
 | `selectedLines`   | `SelectedLineRange \| null`          |          | The selected line range. Controlled when set.  |
 
-### AgentFileDiff
+### FileDiff
 
 #### Props
 
@@ -106,7 +106,7 @@ The diff components accept Pierre's options and annotations. See the Pierre type
 | `lineAnnotations` | `DiffLineAnnotation[]`               |          | Application content on diff lines.             |
 | `selectedLines`   | `SelectedLineRange \| null`          |          | The selected line range. Controlled when set.  |
 
-### AgentUnresolvedFile
+### UnresolvedFile
 
 #### Props
 

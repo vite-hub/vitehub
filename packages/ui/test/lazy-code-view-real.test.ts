@@ -3,10 +3,10 @@
 import { mount } from "@vue/test-utils";
 import { describe, expect, it, vi } from "vitest";
 import {
-  AgentFileDiff,
-  AgentMultiFileDiff,
-  AgentPatchDiff,
-} from "../src/components/agent-code-view.ts";
+  FileDiff,
+  MultiFileDiff,
+  PatchDiff,
+} from "../src/components/code-view.ts";
 
 const patch = "--- a/ready.ts\n+++ b/ready.ts\n@@ -5 +5 @@\n-false\n+true\n";
 const oldFile = { contents: "first\nsecond\nthird\nfourth\nfalse\nsixth\nlast\n", name: "ready.ts" };
@@ -14,7 +14,7 @@ const newFile = { ...oldFile, contents: oldFile.contents.replace("false", "true"
 
 describe("lazy Pierre renderer", () => {
   it("loads the real patch renderer through the public component", async () => {
-    const wrapper = mount(AgentPatchDiff, {
+    const wrapper = mount(PatchDiff, {
       props: {
         patch: "--- a/ready.ts\n+++ b/ready.ts\n@@ -1 +1 @@\n-false\n+true\n",
       },
@@ -28,7 +28,7 @@ describe("lazy Pierre renderer", () => {
 
   it("renders partial patch metadata without pointer-only expansion controls", async () => {
     const { getSingularPatch } = await import("@pierre/diffs");
-    const wrapper = mount(AgentFileDiff, {
+    const wrapper = mount(FileDiff, {
       props: {
         fileDiff: getSingularPatch(patch),
         options: { enableLineSelection: true, expandUnchanged: true },
@@ -49,7 +49,7 @@ describe("lazy Pierre renderer", () => {
   });
 
   it("expands unchanged lines in complete file comparisons", async () => {
-    const wrapper = mount(AgentMultiFileDiff, {
+    const wrapper = mount(MultiFileDiff, {
       props: { oldFile, newFile, options: { expandUnchanged: false, parseDiffOptions: { context: 0 } } },
     });
 
@@ -65,7 +65,7 @@ describe("lazy Pierre renderer", () => {
 
   it("loads full files when a partial patch consumer provides a loader", async () => {
     const loadDiffFiles = vi.fn(async () => ({ oldFile, newFile }));
-    const wrapper = mount(AgentPatchDiff, { props: { patch, options: { loadDiffFiles } } });
+    const wrapper = mount(PatchDiff, { props: { patch, options: { loadDiffFiles } } });
 
     await vi.waitFor(() => {
       const shadowRoot = wrapper.get("diffs-container").element.shadowRoot;

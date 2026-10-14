@@ -21,5 +21,5 @@ const tools: AgentToolInspection[] = [
 </script>
 
 <template>
-  <AgentToolList :tools="tools" class="mx-auto max-w-xl rounded-md border border-default bg-default" />
+  <ToolList :tools="tools" class="mx-auto max-w-xl rounded-md border border-default bg-default" />
 </template>

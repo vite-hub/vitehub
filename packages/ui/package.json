@@ -32,42 +32,6 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./agent-code-view": {
-      "types": "./dist/agent-code-view.d.ts",
-      "import": "./dist/agent-code-view.js"
-    },
-    "./agent-file": {
-      "types": "./dist/agent-file.d.ts",
-      "import": "./dist/agent-file.js"
-    },
-    "./agent-file-diff": {
-      "types": "./dist/agent-file-diff.d.ts",
-      "import": "./dist/agent-file-diff.js"
-    },
-    "./agent-file-tree": {
-      "types": "./dist/agent-file-tree.d.ts",
-      "import": "./dist/agent-file-tree.js"
-    },
-    "./agent-multi-file-diff": {
-      "types": "./dist/agent-multi-file-diff.d.ts",
-      "import": "./dist/agent-multi-file-diff.js"
-    },
-    "./agent-patch-diff": {
-      "types": "./dist/agent-patch-diff.d.ts",
-      "import": "./dist/agent-patch-diff.js"
-    },
-    "./agent-tool-list": {
-      "types": "./dist/agent-tool-list.d.ts",
-      "import": "./dist/agent-tool-list.js"
-    },
-    "./agent-trace": {
-      "types": "./dist/agent-trace.d.ts",
-      "import": "./dist/agent-trace.js"
-    },
-    "./agent-unresolved-file": {
-      "types": "./dist/agent-unresolved-file.d.ts",
-      "import": "./dist/agent-unresolved-file.js"
-    },
     "./attachment": {
       "types": "./dist/attachment.d.ts",
       "import": "./dist/attachment.js"
@@ -92,6 +56,22 @@
       "types": "./dist/code-block.d.ts",
       "import": "./dist/code-block.js"
     },
+    "./code-view": {
+      "types": "./dist/code-view.d.ts",
+      "import": "./dist/code-view.js"
+    },
+    "./file-diff": {
+      "types": "./dist/file-diff.d.ts",
+      "import": "./dist/file-diff.js"
+    },
+    "./file-tree": {
+      "types": "./dist/file-tree.d.ts",
+      "import": "./dist/file-tree.js"
+    },
+    "./file-view": {
+      "types": "./dist/file-view.d.ts",
+      "import": "./dist/file-view.js"
+    },
     "./headless": {
       "types": "./dist/headless.d.ts",
       "import": "./dist/headless.js"
@@ -112,9 +92,17 @@
       "types": "./dist/message-parts.d.ts",
       "import": "./dist/message-parts.js"
     },
+    "./multi-file-diff": {
+      "types": "./dist/multi-file-diff.d.ts",
+      "import": "./dist/multi-file-diff.js"
+    },
     "./nuxt": {
       "types": "./dist/nuxt.d.ts",
       "import": "./dist/nuxt.js"
+    },
+    "./patch-diff": {
+      "types": "./dist/patch-diff.d.ts",
+      "import": "./dist/patch-diff.js"
     },
     "./primitive-rail": {
       "types": "./dist/primitive-rail.d.ts",
@@ -124,9 +112,21 @@
       "types": "./dist/prompt-input.d.ts",
       "import": "./dist/prompt-input.js"
     },
+    "./tool-list": {
+      "types": "./dist/tool-list.d.ts",
+      "import": "./dist/tool-list.js"
+    },
     "./trace": {
       "types": "./dist/trace.d.ts",
       "import": "./dist/trace.js"
+    },
+    "./trace-run": {
+      "types": "./dist/trace-run.d.ts",
+      "import": "./dist/trace-run.js"
+    },
+    "./unresolved-file": {
+      "types": "./dist/unresolved-file.d.ts",
+      "import": "./dist/unresolved-file.js"
     },
     "./vite": {
       "types": "./dist/vite.d.ts",

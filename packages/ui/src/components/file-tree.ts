@@ -1,4 +1,4 @@
-import { FILE_TREE_TAG_NAME, FileTree, type FileTreeOptions } from "@pierre/trees";
+import { FILE_TREE_TAG_NAME, FileTree as PierreFileTree, type FileTreeOptions as PierreFileTreeOptions } from "@pierre/trees";
 import {
   defineComponent,
   getCurrentScope,
@@ -13,17 +13,20 @@ import {
   type VNodeRef,
 } from "vue";
 
-export interface AgentFileTreeOptions extends Omit<FileTreeOptions, "paths"> {
+/** The Pierre tree model that `useFileTree()` returns and `FileTree` renders. */
+export type FileTreeModel = PierreFileTree;
+
+export interface FileTreeOptions extends Omit<PierreFileTreeOptions, "paths"> {
   paths: readonly string[];
 }
 
-export function useAgentFileTree(options: AgentFileTreeOptions): FileTree {
-  const model = markRaw(new FileTree(options));
+export function useFileTree(options: FileTreeOptions): FileTreeModel {
+  const model = markRaw(new PierreFileTree(options));
   if (getCurrentScope()) onScopeDispose(() => model.cleanUp());
   return model;
 }
 
-export function useAgentFileTreeSelection(model: FileTree) {
+export function useFileTreeSelection(model: FileTreeModel) {
   const selectedPaths = shallowRef<readonly string[]>(model.getSelectedPaths());
   const unsubscribe = model.subscribe(() => {
     const next = model.getSelectedPaths();
@@ -38,24 +41,24 @@ export function useAgentFileTreeSelection(model: FileTree) {
   return selectedPaths;
 }
 
-export const AgentFileTree = defineComponent({
-  name: "AgentFileTree",
+export const FileTree = defineComponent({
+  name: "FileTree",
   inheritAttrs: false,
   props: {
-    model: { type: Object as PropType<FileTree> },
-    options: { type: Object as PropType<Omit<FileTreeOptions, "paths">> },
+    model: { type: Object as PropType<FileTreeModel> },
+    options: { type: Object as PropType<Omit<PierreFileTreeOptions, "paths">> },
     paths: { default: () => [], type: Array as PropType<readonly string[]> },
   },
   setup(props, { attrs, expose }) {
     let host: HTMLElement | null = null;
-    let ownedModel: FileTree | undefined;
-    let mountedModel: FileTree | undefined;
+    let ownedModel: FileTreeModel | undefined;
+    let mountedModel: FileTreeModel | undefined;
     let previousPaths = props.paths;
     let previousOptions = props.options;
     const current = () =>
       props.model
         ? toRaw(props.model)
-        : (ownedModel ??= markRaw(new FileTree({ ...toRaw(props.options), paths: props.paths })));
+        : (ownedModel ??= markRaw(new PierreFileTree({ ...toRaw(props.options), paths: props.paths })));
     const releaseMountedModel = () => {
       if (!mountedModel) return;
       if (mountedModel === ownedModel) {
@@ -64,7 +67,7 @@ export const AgentFileTree = defineComponent({
       } else mountedModel.unmount();
       mountedModel = undefined;
     };
-    const renderModel = (model: FileTree) => {
+    const renderModel = (model: FileTreeModel) => {
       if (!host) return;
       if (mountedModel !== model) releaseMountedModel();
       model.render({ fileTreeContainer: host });
@@ -80,7 +83,7 @@ export const AgentFileTree = defineComponent({
       if (!props.model && previousOptions !== props.options) {
         if (mountedModel === ownedModel) releaseMountedModel();
         else ownedModel?.cleanUp();
-        ownedModel = markRaw(new FileTree({ ...toRaw(props.options), paths: props.paths }));
+        ownedModel = markRaw(new PierreFileTree({ ...toRaw(props.options), paths: props.paths }));
         previousOptions = props.options;
         previousPaths = props.paths;
       }

@@ -37,7 +37,7 @@ const calls = { search_meals: 3, log_meal: 1 };
 
 <template>
   <div class="mx-auto max-w-xl space-y-3">
-    <AgentToolList
+    <ToolList
       :tools="tools"
       :calls="calls"
       class="rounded-md border border-default bg-default"

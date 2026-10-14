@@ -10,7 +10,7 @@ import { AgentInvocation, AgentInvocationInspector, workspaceArtifactPath } from
 import { invocationTimeline } from "../../src/console/runtime/components/invocation/agent-invocation-timeline.ts";
 import { MessageParts } from "@vite-hub/ui";
 import { AgentCapabilityInspector } from "../../src/console/runtime/components/invocation/agent-capability-inspector.ts";
-import { AgentToolList } from "@vite-hub/ui";
+import { ToolList } from "@vite-hub/ui";
 import { channelIcon } from "../../src/console/runtime/components/invocation/internal/channel-icon.ts";
 import { invocationBrand, invocationModelMaker } from "../../src/console/runtime/components/invocation/internal/invocation-brand.ts";
 import { invocationActivities, invocationActivityTitle } from "../../src/console/runtime/components/invocation/internal/invocation-activity.ts";
@@ -4333,7 +4333,7 @@ describe("Agent Invocation UI", () => {
       await capabilities.get("button.vh-agent-tool-list__count").trigger("click");
       expect(capabilities.emitted("selectActivity")).toEqual([["lookup"]]);
 
-      const readOnly = mount(AgentToolList, { props: { calls: { db_query: 2 }, tools: [{ name: "db_query" }] } });
+      const readOnly = mount(ToolList, { props: { calls: { db_query: 2 }, tools: [{ name: "db_query" }] } });
       expect(readOnly.find("button").exists()).toBe(false);
       expect(readOnly.get(".vh-agent-tool-list__count").text()).toBe("2 calls");
     });
