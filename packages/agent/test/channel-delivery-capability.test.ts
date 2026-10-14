@@ -6,7 +6,7 @@ import { defineCollection } from "../../source/src/index.ts"
 import { defineChannel, defineChannelTrigger } from "../src/channels.ts"
 import { replayChannel } from "../src/channel-replay.ts"
 import { channelDelivery, inputCommands } from "../src/capabilities.ts"
-import { createAgentInspectionMetadata, defineAgent, defineCapability, resolveAgentInspectionMetadata, runAgent } from "../src/index.ts"
+import { createAgentInspectionMetadata, defineAgent, defineCapability, resolveAgentInspectionMetadata, runAgent, streamAgent } from "../src/index.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/invocations.ts"
 import { createMessage, getMessageText } from "../src/messages.ts"
 
@@ -327,6 +327,25 @@ describe("channelDelivery()", () => {
 
     await runAgent(agent, { prompt: "Write" })
     expect(run).toHaveBeenCalledOnce()
+  })
+
+  it("reminds a streamed invocation when the Driver returns a settled result", async () => {
+    const channel = createChannel()
+    const run = vi.fn(async ({ tools }: { tools?: AgentToolSet }) => {
+      if (run.mock.calls.length === 1) return "Morning brief"
+      await tools?.send_message?.execute?.({ message: "Morning brief" })
+      return "sent"
+    })
+    const agent = defineAgent({
+      runtime: false,
+      driver: { run },
+      capabilities: [channelDelivery({ channel, options: { recipient: "user:1" }, required: true, reminder: true })],
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() } as never, { prompt: "Write" })
+    for await (const _event of stream as AsyncIterable<unknown>) { /* drain */ }
+    expect(run).toHaveBeenCalledTimes(2)
+    expect(channel.send).toHaveBeenCalledExactlyOnceWith("Morning brief", { recipient: "user:1" })
   })
 
   it("does not run a reminder after the caller aborts", async () => {

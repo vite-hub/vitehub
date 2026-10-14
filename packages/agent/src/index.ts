@@ -2536,7 +2536,7 @@ async function executeAgentInvocationWithCapacityLease<
   // A required delivery Capability can ask for bounded reminder turns before
   // the finish lifecycle checks delivery. The Capability owns the check and
   // the turn budget; this loop runs the same Driver again.
-  if (options.kind === "run" && invocation.finishDeliveryReminderProviders.length) {
+  if (invocation.finishDeliveryReminderProviders.length) {
     try {
       let transcript: Message[] | undefined
       for (const provider of invocation.finishDeliveryReminderProviders) {
@@ -2574,7 +2574,7 @@ async function executeAgentInvocationWithCapacityLease<
             reminderContext.input = input
             reminderContext.messages = transcript
             reminderContext.prompt = undefined
-            if (!options.renderOutput) reminderContext.nativeStructuredOutput = false
+            if (options.kind === "run" && !options.renderOutput) reminderContext.nativeStructuredOutput = false
             // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
             result = await adapter!.generate(reminderContext as never)
           }
