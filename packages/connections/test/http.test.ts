@@ -232,6 +232,8 @@ describe("createConnectionsHandler", () => {
     expect(await response.json()).toEqual({
       error: {
         code: "CONNECTION_INVALID",
+        docs: "https://vitehub.dev/docs/connections/limits-and-errors#errors",
+        fix: expect.any(String),
         message: "Connections approval pagination did not advance.",
       },
     })
@@ -252,6 +254,8 @@ describe("createConnectionsHandler", () => {
     expect(await response.json()).toEqual({
       error: {
         code: "CONNECTION_INVALID",
+        docs: "https://vitehub.dev/docs/connections/limits-and-errors#errors",
+        fix: expect.any(String),
         message: "Connections approval pagination did not advance.",
       },
     })
@@ -283,6 +287,8 @@ describe("createConnectionsHandler", () => {
     expect(await response.json()).toEqual({
       error: {
         code: "CONNECTION_INVALID",
+        docs: "https://vitehub.dev/docs/connections/limits-and-errors#errors",
+        fix: expect.any(String),
         message: "Connections approval pagination did not terminate.",
       },
     })

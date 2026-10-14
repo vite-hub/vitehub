@@ -104,26 +104,43 @@ describe("Connections management client", () => {
     expect(result.approvals[0]).toMatchObject({ actor: "agent:mail", id: "a1", status: "pending" })
   })
 
-  it.each([
-    [401, "Sign in to manage Connections."],
-    [403, "You do not have access to this operation."],
-    [404, "Connections management is not available. Production builds need connections: { management: true }."],
-  ])("maps status %i to a fixed message", async (status, message) => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ error: { code: "X", message: "server text" } }, { status })))
+  it("keeps the code, why, fix, and docs of a management error", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({
+      error: {
+        code: "CONNECTION_FORBIDDEN",
+        docs: "https://vitehub.dev/docs/connections/server-api#management-routes",
+        fix: "Sign in again.",
+        message: "The management route found no signed-in manager for this request.",
+      },
+    }, { status: 403 })))
 
     const error = await requestConnectionsManagement("/_vitehub/connections", "list", connectionListSchema).catch((cause: unknown) => cause)
     expect(error).toBeInstanceOf(ConsoleRequestError)
-    expect(error).toMatchObject({ status, message })
+    expect(error).toMatchObject({
+      code: "CONNECTION_FORBIDDEN",
+      docs: "https://vitehub.dev/docs/connections/server-api#management-routes",
+      fix: "Sign in again.",
+      message: "The management route found no signed-in manager for this request.",
+      status: 403,
+    })
   })
 
-  it("shows the server message for other failures and a generic message without one", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ error: { code: "CONNECTION_PROVIDER", message: "Provider \"google\" rejected the call." } }, { status: 502 })))
-    await expect(requestConnectionsManagement("/_vitehub/connections", "approve", connectionListSchema, { id: "a1" }))
-      .rejects.toMatchObject({ status: 502, message: "Provider \"google\" rejected the call." })
+  it.each([
+    [401, "text/plain", "Sign in first.", "CONSOLE_SIGN_IN_REQUIRED", "Sign in first."],
+    [403, "text/html", "<html>denied</html>", "CONSOLE_ACCESS_DENIED", "The Console access policy rejected this account."],
+    [404, "text/html", "<html>Not found</html>", "CONSOLE_CONNECTIONS_MANAGEMENT_UNAVAILABLE", "The Connections management route is not mounted."],
+    [500, "text/plain", "upstream", "CONSOLE_REQUEST_FAILED", "upstream"],
+  ])("uses the Console code for a %i response without a JSON error", async (status, type, body, code, message) => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(body, { headers: { "content-type": type }, status })))
 
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("upstream", { status: 500 })))
-    await expect(requestConnectionsManagement("/_vitehub/connections", "list", connectionListSchema))
-      .rejects.toMatchObject({ status: 500, message: "Could not complete the request. Try again." })
+    const error = await requestConnectionsManagement("/_vitehub/connections", "list", connectionListSchema).catch((cause: unknown) => cause)
+    expect(error).toMatchObject({ code, message, status, fix: expect.any(String), docs: expect.stringMatching(/^https:\/\/vitehub\.dev\/docs\//) })
+  })
+
+  it("ignores a docs link that is not HTTPS", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ error: { code: "CONNECTION_PROVIDER", docs: "javascript:alert(1)", message: "Provider \"google\" rejected the call." } }, { status: 502 })))
+    const error = await requestConnectionsManagement("/_vitehub/connections", "approve", connectionListSchema, { id: "a1" }).catch((cause: unknown) => cause)
+    expect(error).toMatchObject({ code: "CONNECTION_PROVIDER", docs: undefined, message: "Provider \"google\" rejected the call.", status: 502 })
   })
 
   it("rejects responses that do not match the schema", async () => {

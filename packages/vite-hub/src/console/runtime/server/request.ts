@@ -1,4 +1,5 @@
-import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
+import { consoleDiagnostic, consoleStatusDiagnosticCode, type ConsoleDiagnosticCode } from "../diagnostics.ts"
+
 interface ConsoleHeaders {
   get(name: string): string | null
 }
@@ -110,8 +111,9 @@ export async function consoleRequestJSON(event: ConsoleRequestEvent, maximumByte
   return JSON.parse(body)
 }
 
-export function consoleRequestError(statusCode: number, statusMessage: string): Error {
-  return Object.assign(viteHubErrorDiagnostics.VITE_HUB_R0069({ message: statusMessage }), { statusCode, statusMessage })
+/** A Console failure with an HTTP status. The code defaults to the Console code of the status. */
+export function consoleRequestError(statusCode: number, statusMessage: string, code: ConsoleDiagnosticCode = consoleStatusDiagnosticCode(statusCode)): Error {
+  return Object.assign(consoleDiagnostic(code, statusMessage), { statusCode, statusMessage })
 }
 
 export function assertConsoleRequest(event: ConsoleRequestEvent, allowedMethods: readonly string[] = ["GET"]): void {

@@ -32,4 +32,6 @@ icon: i-lucide-circle-alert
 | `CONNECTION_FORBIDDEN` | The management request has no authorized manager, or it is cross-origin. |
 | `CONNECTION_AUTH_REQUIRED` | The management routes use the `'development'` policy and the server is not a development server. |
 
+Management routes return `{ error: { code, message, fix, docs } }`. `message` says why the request failed, `fix` says how to repair it, and `docs` links the page that explains the code.
+
 When you change the provider of a Connection, the stored grant belongs to the old provider. The status becomes `needs-reconnect` with `lastError: 'CONNECTIONS_PROVIDER_CHANGED'`, and ViteHub never sends that grant to the new provider. Reconnect the Connection.

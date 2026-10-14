@@ -30,7 +30,7 @@ Each route checks access itself before it reads or changes a Connection. With th
 | `exposure: 'host-managed'` | The host `console.authorize` function. | `user:host-managed` |
 | `console: true` | Development server only. | `user:local` |
 
-A rejected request returns `403` with `CONNECTION_FORBIDDEN`. With `createConnectionsHandler()`, pass `actor`: a function that returns `user:<id>` for an authorized manager, or `'development'`. `'development'` allows `user:local` only when `NODE_ENV` is `development`, and returns `500` with `CONNECTION_AUTH_REQUIRED` elsewhere.
+A rejected request returns `403` with `CONNECTION_FORBIDDEN`. With the Console, the route returns the Console access rejection instead. For example, a Console Auth session without a user id returns `403` with `CONSOLE_MANAGER_REQUIRED`. See [Console error codes](/docs/development/console#console-error-codes). With `createConnectionsHandler()`, pass `actor`: a function that returns `user:<id>` for an authorized manager, `undefined` to reject the request with `CONNECTION_FORBIDDEN`, or a `Response` to reject it with that response. You can also pass `'development'`. `'development'` allows `user:local` only when `NODE_ENV` is `development`, and returns `500` with `CONNECTION_AUTH_REQUIRED` elsewhere.
 
 The OAuth callback is reached by a redirect from the provider. It completes the flow only for the browser that started it (the `state` cookie) and for the same manager. The `state` works one time only and expires after 10 minutes. A `state` from another manager returns `403`.
 
