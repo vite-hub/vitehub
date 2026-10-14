@@ -82,6 +82,7 @@ const registeredSections: readonly ConsoleRegisteredSection[] = [
     rootDir: context.sandboxDiscoveryRoot ?? context.projectRoot,
   })),
   registerConsoleSection(workspaceConsoleSection, context => ({
+    plugins: context.plugins,
     projectRoot: context.projectRoot,
     rootDir: context.discoveryRoot,
     serverDirs: context.serverDirs,
