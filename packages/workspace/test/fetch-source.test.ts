@@ -1,3 +1,4 @@
+import { runInNewContext } from "node:vm"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { defineWorkspace, fetch, resolveRegisteredWorkspaceDefinition, useWorkspace } from "../src/index.ts"
@@ -221,6 +222,24 @@ describe("fetch sources", () => {
     await expect(fs.readFile(".vitehub/sources/status.json")).resolves.toContain("https://status.example.com/health")
   })
 
+  it("preserves bytes returned by cross-realm transforms", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(textResponse("ok"))
+    const bytes = runInNewContext("new Uint8Array([1, 2, 3])") as Uint8Array
+    registerWorkspace("fetch-cross-realm-bytes", defineWorkspace({
+      store: { provider: "memory" },
+      sources: {
+        payload: fetch({
+          responseType: "text",
+          transform: () => bytes,
+          url: "https://status.example.com/bytes",
+          workspacePath: "payload.bin",
+        }),
+      },
+    }))
+
+    await expect(useWorkspace("fetch-cross-realm-bytes").fs.readFile("payload.bin", { encoding: "binary" })).resolves.toEqual(Uint8Array.from([1, 2, 3]))
+  })
+
   it("supports text, POST request factories, and explicit paths", async () => {
     const request = vi.spyOn(globalThis, "fetch").mockResolvedValue(textResponse("healthy"))
     const cookie = vi.fn(() => "session-token")
@@ -336,6 +355,13 @@ describe("fetch sources", () => {
       responseType: "arrayBuffer" as never,
       url: "https://status.example.com/image",
     })).toThrow("responseType")
+  })
+
+  it.each([42, null, {}, [], Object.create(null)])("rejects non-string methods with the fetch method diagnostic: %s", (method) => {
+    expect(() => fetch({
+      method: method as never,
+      url: "https://status.example.com/image",
+    })).toThrow("not supported")
   })
 
   it("supports query URLs and keeps source paths read-only", async () => {
@@ -609,5 +635,51 @@ describe("fetch sources", () => {
       method: "GET",
       url: "https://status.example.com/query",
     })).toThrow("GET requests cannot declare body")
+  })
+
+  it("passes an explicit null body to bodySchema", async () => {
+    const request = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({ status: "ok" }))
+    const bodySchema = {
+      "~standard": {
+        jsonSchema: { input: () => ({ type: ["null", "object"] }) },
+        validate(input: unknown) {
+          return input === null ? { value: null } : { issues: [{ message: "expected null" }] }
+        },
+      },
+    } as const
+    const execution = createWorkspaceSourceRequestExecution({
+      name: "fetch-null-body-schema",
+      sources: { status: fetch({ bodySchema, method: "POST", url: "https://status.example.com/query" }) },
+    })!
+
+    await expect(execution.executeSourceRequest({
+      body: null,
+      method: "POST",
+      url: "https://status.example.com/query",
+    })).resolves.toMatchObject({ status: 200 })
+    expect(request).toHaveBeenCalledOnce()
+  })
+
+  it("validates supplied query values before applying schema defaults", async () => {
+    const request = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({ status: "ok" }))
+    const querySchema = {
+      "~standard": {
+        jsonSchema: { input: () => ({ properties: { region: { type: "string" } }, required: ["region"], type: "object" }) },
+        validate(input: unknown) {
+          const region = (input as Record<string, unknown>).region
+          return typeof region === "string" ? { value: { region } } : { issues: [{ message: "region is required" }] }
+        },
+      },
+    } as const
+    const execution = createWorkspaceSourceRequestExecution({
+      name: "fetch-required-query-schema",
+      sources: { status: fetch({ querySchema, url: "https://status.example.com/query" }) },
+    })!
+
+    await expect(execution.executeSourceRequest({
+      method: "GET",
+      url: "https://status.example.com/query?region=eu",
+    })).resolves.toMatchObject({ status: 200 })
+    expect(request).toHaveBeenCalledOnce()
   })
 })
