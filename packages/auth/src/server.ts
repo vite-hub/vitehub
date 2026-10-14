@@ -329,6 +329,11 @@ function hasResponsePrototype(value: unknown): boolean {
       const platformGetters = authorizationResponseProperties.every((key) => {
         const getter = Object.getOwnPropertyDescriptor(owner, key)?.get
         if (typeof getter !== "function") return false
+        // User-defined classes can reproduce the throw-on-probe behavior. For
+        // source-visible implementations, require the runtime brand check
+        // itself instead of accepting an arbitrary throwing accessor.
+        const getterSource = Function.prototype.toString.call(getter)
+        if (!getterSource.includes("webidl.brandCheck(") && !getterSource.includes("[native code]")) return false
         // Platform accessors perform an intrinsic brand check. Calling one
         // with an object that only inherits the prototype must therefore
         // throw; a user supplied getter that merely mentions a marker does
