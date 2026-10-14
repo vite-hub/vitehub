@@ -1531,7 +1531,13 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
           } catch (error) {
             // Placement is user supplied; a failed release must not strand the
             // durable inbox claim or the in-memory owner slot.
-            schedulerError("babysitter.placement.release.failed", error, owner);
+            // Error reporting is user supplied too, so it must not interrupt
+            // the cleanup below when the reporter itself throws.
+            try {
+              schedulerError("babysitter.placement.release.failed", error, owner);
+            } catch {
+              // Cleanup remains authoritative even when reporting fails.
+            }
           }
           // A rejected or ambiguous host merge retains its durable attempt
           // fence, but a finished owner must never retain a queue lease.
