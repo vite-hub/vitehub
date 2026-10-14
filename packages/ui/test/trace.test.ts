@@ -36,7 +36,7 @@ describe("AgentTrace", () => {
     expect(wrapper.get(".vh-trace__chevron").attributes("aria-hidden")).toBe("true");
   });
 
-  it("renders unknown persisted statuses with a neutral label", () => {
+  it.each(["future-status", "constructor", "toString", "__proto__"])("renders persisted status %s with a neutral label", (status) => {
     const wrapper = mount(AgentTrace, {
       global: { components: { UBadge: BadgeStub, UCollapsible: CollapsibleStub } },
       props: {
@@ -44,7 +44,7 @@ describe("AgentTrace", () => {
           events: [],
           id: "run",
           startTime: "2026-08-23T09:04:10Z",
-          status: "future-status" as never,
+          status: status as never,
           steps: [],
         },
       },

@@ -18,8 +18,8 @@ import { invocationActivities, invocationActivityTitle } from "../src/internal/i
 import type { AgentInvocationView } from "../src/types.ts";
 
 describe("Agent Invocation UI", () => {
-  it("renders unknown persisted statuses without throwing", () => {
-    const status = "unknown" as AgentInvocationView["status"];
+  it.each(["unknown", "constructor", "toString", "__proto__"])("renders persisted status %s without throwing", (value) => {
+    const status = value as AgentInvocationView["status"];
     const invocation = {
       createdAt: "2026-09-08T00:00:00.000Z",
       id: "unknown-status",
@@ -32,7 +32,7 @@ describe("Agent Invocation UI", () => {
     expect(inspector.get('.vh-invocation-inspector__status').text()).toContain("Unknown");
 
     const list = mount(AgentInvocationList, { props: { items: [{ id: "unknown-status", status, title: "Unknown status" }] } });
-    expect(list.get('[data-status="unknown"] .vh-invocation-list__state').text()).toContain("Unknown");
+    expect(list.get(".vh-invocation-list__state").text()).toContain("Unknown");
   });
 
   it("recognizes safe absolute provider Workspace artifact links", () => {

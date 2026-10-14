@@ -45,13 +45,15 @@ export const AgentTrace = defineComponent({
                     variant: "outline",
                   },
                   {
-                    default: () =>
-                      ({
+                    default: () => {
+                      const labels = {
                         cancelled: "Cancelled",
                         completed: "Completed",
                         failed: "Failed",
                         running: "Working",
-                      })[props.run.status] ?? "Unknown",
+                      };
+                      return Object.hasOwn(labels, props.run.status) ? labels[props.run.status] : "Unknown";
+                    },
                   },
                 ),
                 h("span", { class: "vh-trace__duration" }, formatDuration(props.run.durationMs)),
