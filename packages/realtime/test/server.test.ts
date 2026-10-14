@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { yDocToProsemirrorJSON } from "@tiptap/y-tiptap"
 import type { JSONContent } from "@tiptap/core"
 import { marked } from "marked"
+import { runInNewContext } from "node:vm"
 import * as decoding from "lib0/decoding"
 import * as awarenessProtocol from "y-protocols/awareness"
 import * as Y from "yjs"
@@ -1072,6 +1073,118 @@ describe("realtime server handler", () => {
 })
 
 describe("realtime transport boundaries", () => {
+  it("copies ArrayBuffer checkpoint chunks from another realm", async () => {
+    const body = new ReadableStream<ArrayBuffer>({
+      start(controller) {
+        controller.enqueue(runInNewContext("new Uint8Array([1, 2, 3]).buffer") as ArrayBuffer)
+        controller.close()
+      },
+    })
+    const request = new Request("https://example.com", { body, duplex: "half", method: "POST" } as RequestInit)
+
+    await expect(readRealtimeCheckpointState(request, 4)).resolves.toEqual(Uint8Array.of(1, 2, 3))
+  })
+
+  it.each(["buffer", "byteOffset", "byteLength"])("ignores a byte chunk's shadowed %s", async (key) => {
+    const value = Uint8Array.of(99, 1, 2, 3, 88).subarray(1, 4)
+    const shadows = { buffer: Uint8Array.of(9, 9, 9, 9, 9).buffer, byteOffset: 0, byteLength: 1 }
+    Object.defineProperty(value, key, { value: shadows[key as keyof typeof shadows] })
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) { controller.enqueue(value); controller.close() },
+    })
+    const request = new Request("https://example.com", { body, duplex: "half", method: "POST" } as RequestInit)
+
+    await expect(readRealtimeCheckpointState(request, 4)).resolves.toEqual(Uint8Array.of(1, 2, 3))
+  })
+
+  it.each(["buffer", "byteOffset", "byteLength"])("does not read a byte chunk's own %s getter", async (key) => {
+    const getter = vi.fn(() => { throw new Error("shadow getter") })
+    const value = Uint8Array.of(99, 1, 2, 3, 88).subarray(1, 4)
+    Object.defineProperty(value, key, { get: getter })
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) { controller.enqueue(value); controller.close() },
+    })
+    const request = new Request("https://example.com", { body, duplex: "half", method: "POST" } as RequestInit)
+
+    await expect(readRealtimeCheckpointState(request, 4)).resolves.toEqual(Uint8Array.of(1, 2, 3))
+    expect(getter).not.toHaveBeenCalled()
+  })
+
+  it("uses the real byte chunk length for quotas and cancellation", async () => {
+    const value = Uint8Array.of(1, 2, 3)
+    Object.defineProperty(value, "byteLength", { value: 0 })
+    const cancel = vi.fn()
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) { controller.enqueue(value) },
+      cancel,
+    })
+    const request = new Request("https://example.com", { body, duplex: "half", method: "POST" } as RequestInit)
+
+    await expect(readRealtimeCheckpointState(request, 2)).rejects.toMatchObject({ statusCode: 413 })
+    expect(cancel).toHaveBeenCalledOnce()
+  })
+
+  it("copies byte views with nonzero offsets from another realm", async () => {
+    const value = runInNewContext("new Uint8Array([99, 1, 2, 3, 88]).subarray(1, 4)")
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) { controller.enqueue(value); controller.close() },
+    })
+    const request = new Request("https://example.com", { body, duplex: "half", method: "POST" } as RequestInit)
+
+    await expect(readRealtimeCheckpointState(request, 4)).resolves.toEqual(Uint8Array.of(1, 2, 3))
+  })
+
+  it("accepts Uint8Array subclasses as checkpoint chunks", async () => {
+    const value = Buffer.from([1, 2, 3])
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) { controller.enqueue(value); controller.close() },
+    })
+    const request = new Request("https://example.com", { body, duplex: "half", method: "POST" } as RequestInit)
+
+    await expect(readRealtimeCheckpointState(request, 4)).resolves.toEqual(Uint8Array.of(1, 2, 3))
+  })
+
+  it("uses the intrinsic width when subclasses shadow BYTES_PER_ELEMENT", async () => {
+    class ShadowedBytes extends Uint8Array {}
+    Object.defineProperty(ShadowedBytes.prototype, "BYTES_PER_ELEMENT", { value: 2 })
+    class ShadowedWide extends Uint16Array {}
+    Object.defineProperty(ShadowedWide.prototype, "BYTES_PER_ELEMENT", { value: 1 })
+    const validValue = new ShadowedBytes([1, 2, 3])
+    const invalidValue = new ShadowedWide(0)
+
+    const validBody = new ReadableStream<Uint8Array>({
+      start(controller) { controller.enqueue(validValue); controller.close() },
+    })
+    const validRequest = new Request("https://example.com", { body: validBody, duplex: "half", method: "POST" } as RequestInit)
+    await expect(readRealtimeCheckpointState(validRequest, 4)).resolves.toEqual(Uint8Array.of(1, 2, 3))
+
+    const invalidBody = new ReadableStream<unknown>({
+      start(controller) { controller.enqueue(invalidValue); controller.close() },
+    })
+    const invalidRequest = new Request("https://example.com", { body: invalidBody, duplex: "half", method: "POST" } as RequestInit)
+    await expect(readRealtimeCheckpointState(invalidRequest)).rejects.toMatchObject({ statusCode: 400 })
+  })
+
+  it("rejects spoofed and non-byte checkpoint chunks", async () => {
+    const chunks = [
+      { [Symbol.toStringTag]: "ArrayBuffer" },
+      new Uint16Array([1, 2]),
+      new Uint16Array(0),
+      new Float32Array(0),
+    ]
+    for (const value of chunks) {
+      const body = new ReadableStream<unknown>({
+        start(controller) {
+          controller.enqueue(value)
+          controller.close()
+        },
+      })
+      const request = new Request("https://example.com", { body, duplex: "half", method: "POST" } as RequestInit)
+
+      await expect(readRealtimeCheckpointState(request)).rejects.toMatchObject({ statusCode: 400 })
+    }
+  })
+
   it("stops reading a streamed checkpoint body at the room quota", async () => {
     let pulls = 0
     const body = new ReadableStream<Uint8Array>({
