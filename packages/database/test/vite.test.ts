@@ -379,6 +379,24 @@ describe("hubDb", () => {
     await expect(readFile(join(rootDir, ".vitehub/database/drizzle/default.config.ts"), "utf8")).resolves.toContain("file:.vitehub/data/database/sqlite.db")
   })
 
+  it("emits prototype-named databases as own virtual registry entries", async () => {
+    const rootDir = await createTempProject()
+    await writeDefinition(rootDir, "src/__proto__.database.ts")
+    const plugin = hubDb()
+    await resolveConfigResolved(plugin)({ database: undefined, root: rootDir })
+
+    // SAFETY: These are Vite hook handlers returned by hubDb.
+    const resolveId = plugin.resolveId as (id: string) => string | undefined | Promise<string | undefined>
+    // SAFETY: These are Vite hook handlers returned by hubDb.
+    const load = plugin.load as (id: string) => string | undefined | Promise<string | undefined>
+    const code = await load((await resolveId(DB_VIRTUAL_DATABASES_ID))!)
+    const evaluable = code!.replace(/^import .+$/gm, "").replace("export const databases", "const databases").replace("export default databases", "return databases")
+    const registry = new Function("definition_0", "schema_0", "resolveRuntimeCloudflareConfig", evaluable)({ name: "__proto__", drizzle: {}, schema: {} }, { notes: "schema-marker" }, (value: unknown) => value) as Record<string, { schema: unknown }>
+
+    expect(Object.hasOwn(registry, "__proto__")).toBe(true)
+    expect(registry["__proto__"]?.schema).toEqual({ notes: "schema-marker" })
+  })
+
   it("resolves discovery and generated artifacts from projectRoot", async () => {
     const rootDir = await createTempProject()
     const projectRoot = join(rootDir, "packages", "db")

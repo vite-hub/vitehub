@@ -1333,6 +1333,84 @@ describe("Cloudflare Email driver", () => {
     expect(send).not.toHaveBeenCalled();
   });
 
+  it.each([123, null, undefined, false, {}, []])("classifies malformed mailbox email %j as invalid options", async (email) => {
+    const send = vi.fn();
+    const Constructor = vi.fn();
+    const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor });
+
+    await expect(driver.send({ ...message, from: { email } as never }, context)).resolves.toMatchObject({
+      error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" },
+    });
+    expect(Constructor).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it.each([123, null, false, {}, []])("rejects malformed mailbox display name %j", async (name) => {
+    const send = vi.fn();
+    const Constructor = vi.fn();
+    const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor });
+
+    await expect(
+      driver.send({ ...message, from: { email: "hello@example.com", name } as never }, context),
+    ).resolves.toMatchObject({ error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" } });
+    expect(Constructor).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("classifies throwing mailbox fields as invalid options", async () => {
+    const send = vi.fn();
+    const Constructor = vi.fn();
+    const mailbox = {};
+    Object.defineProperty(mailbox, "email", {
+      get() {
+        throw new Error("malformed mailbox");
+      },
+    });
+    const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor });
+
+    await expect(driver.send({ ...message, from: mailbox as never }, context)).resolves.toMatchObject({
+      error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" },
+    });
+    expect(Constructor).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("classifies a mailbox with a throwing tag as invalid options", async () => {
+    const send = vi.fn();
+    const Constructor = vi.fn();
+    const mailbox = {};
+    Object.defineProperty(mailbox, Symbol.toStringTag, {
+      get() {
+        throw new Error("malformed mailbox");
+      },
+    });
+    const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor });
+
+    await expect(driver.send({ ...message, from: mailbox as never }, context)).resolves.toMatchObject({
+      error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" },
+    });
+    expect(Constructor).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("classifies a mailbox array with a throwing iterator as invalid options", async () => {
+    const send = vi.fn();
+    const Constructor = vi.fn();
+    const mailbox = new Proxy(["hello@example.com"], {
+      get(target, property, receiver) {
+        if (property === Symbol.iterator) throw new Error("malformed mailbox");
+        return Reflect.get(target, property, receiver);
+      },
+    });
+    const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor });
+
+    await expect(driver.send({ ...message, from: mailbox as never }, context)).resolves.toMatchObject({
+      error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" },
+    });
+    expect(Constructor).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
+  });
+
   it("constructs raw MIME and sends it through the binding", async () => {
     const send = vi.fn();
     const Constructor = vi.fn(function (
