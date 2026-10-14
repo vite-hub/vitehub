@@ -86,11 +86,26 @@ describe("useHighlightedCode", () => {
     },
   });
 
-  it("highlights with both theme colors on the server", async () => {
-    const html = await renderToString(createSSRApp(() => h(Highlighted, { code: 'const a = "b"\nexport { a }', language: "ts" })));
+  async function hydrate(code: string, language: string) {
+    const app = () => h(Highlighted, { code, language });
+    const html = await renderToString(createSSRApp(app));
+    const container = document.createElement("div");
+    container.innerHTML = html;
+    document.body.append(container);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    createSSRApp(app).mount(container);
+    return { container, html, warn };
+  }
+
+  it("renders plain lines on the server, hydrates without a mismatch, and colors after mount", async () => {
+    const { container, html, warn } = await hydrate('const a = "b"\nexport { a }', "ts");
     expect(html.match(/data-slot="code-block-line"/g)).toHaveLength(2);
-    expect(html).toContain("--shiki-light:");
-    expect(html).toContain("--shiki-dark:");
+    expect(html).not.toContain("--shiki-light");
+    await vi.waitFor(() => expect(container.innerHTML).toContain("--shiki-light:"), { timeout: 5_000 });
+    expect(container.innerHTML).toContain("--shiki-dark:");
+    expect(warn.mock.calls.flat().join(" ")).not.toMatch(/hydration/i);
+    warn.mockRestore();
+    container.remove();
   });
 
   it("starts with plain lines in the browser and renders unknown languages as text", async () => {
@@ -100,10 +115,14 @@ describe("useHighlightedCode", () => {
     expect(wrapper.html()).not.toContain("--shiki-light");
   });
 
-  it("renders ANSI colors from terminal output", async () => {
-    const html = await renderToString(createSSRApp(() => h(Highlighted, { code: "\u001b[31mfailed\u001b[0m", language: "ansi" })));
+  it("drops ANSI escape codes from plain text and renders their colors after mount", async () => {
+    const { container, html, warn } = await hydrate("\u001b[31mfailed\u001b[0m", "ansi");
     expect(html).toContain("failed");
     expect(html).not.toContain("\u001b[");
-    expect(html).toContain("--shiki-light:");
+    await vi.waitFor(() => expect(container.innerHTML).toContain("--shiki-light:"), { timeout: 5_000 });
+    expect(container.textContent).toBe("failed");
+    expect(warn.mock.calls.flat().join(" ")).not.toMatch(/hydration/i);
+    warn.mockRestore();
+    container.remove();
   });
 });
