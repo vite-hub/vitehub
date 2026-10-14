@@ -167,10 +167,14 @@ function toUserModelMessageContent(parts: MessagePart[]): UserContent | undefine
   return content.length ? content : undefined
 }
 
-/** Channel data parts may carry the exact text for the model in `data.modelText`. */
+function isChatModelTextPart(part: Extract<MessagePart, { type: "data" | `data-${string}` }>): boolean {
+  return part.type === "data-chat-message-header" || part.type.startsWith("data-chat-reply-") || part.type === "data-chat-user-message-context"
+}
+
+/** Chat context parts may carry the exact text for the model in `data.modelText`. */
 function dataPartModelText(part: Extract<MessagePart, { type: "data" | `data-${string}` }>): string {
   const data = part.data
-  return hasRuntimeType(data, "object") && data !== null && "modelText" in data && hasRuntimeType(data.modelText, "string")
+  return isChatModelTextPart(part) && hasRuntimeType(data, "object") && data !== null && "modelText" in data && hasRuntimeType(data.modelText, "string")
     ? data.modelText
     : JSON.stringify(data)
 }

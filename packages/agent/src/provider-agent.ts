@@ -2177,9 +2177,10 @@ function providerMessageContent(message: Message, includeAttachments: boolean): 
     if (part.type === "approval-decision") return JSON.stringify({ approved: part.approved, reason: part.reason, toolCallId: part.id, type: part.type })
     if (part.type === "data" || part.type.startsWith("data-")) {
       if (message.role === "assistant" && !part.type.startsWith("data-chat-reply-") && part.type !== "data-chat-user-message-context") return []
-      // Channel data parts may carry the exact text for the model in `data.modelText`.
+      // Chat context parts may carry the exact text for the model in `data.modelText`.
       const data = part.data
-      return hasRuntimeType(data, "object") && data !== null && "modelText" in data && hasRuntimeType(data.modelText, "string")
+      const isChatContext = part.type === "data-chat-message-header" || part.type.startsWith("data-chat-reply-") || part.type === "data-chat-user-message-context"
+      return isChatContext && hasRuntimeType(data, "object") && data !== null && "modelText" in data && hasRuntimeType(data.modelText, "string")
         ? data.modelText
         : JSON.stringify(data)
     }
