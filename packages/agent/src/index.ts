@@ -5048,6 +5048,7 @@ type InvocationRunContext<
   durableErrorFallbackTimeout?: number
   finishDeliveryEffectProviders: AgentChannelDeliveryFinishEffect[]
   finishDeliveryReminderProviders: AgentFinishDeliveryReminder[]
+  deliveryReminderRunner?: (result: unknown) => Promise<unknown>
   finishExtensionProviders: ResolvedAgentFinishExtensionProvider[]
   finalOutputRenderers: AgentCapabilityRegistries["finalOutputRenderers"]
   errorHook?: (event: AgentErrorHookEvent<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<void | AgentChannelDeliveryFinishEffectResult>
