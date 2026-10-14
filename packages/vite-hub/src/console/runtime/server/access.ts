@@ -62,6 +62,7 @@ function authorizationResponse(value: unknown): Response | undefined {
     // An own clone property is untrusted and cannot establish the Response brand.
     if (Object.prototype.hasOwnProperty.call(value, "clone")) return undefined
     const cloneMethod = Reflect.get(value, "clone")
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Verify the foreign Response clone method before invoking it.
     if (typeof cloneMethod !== "function") return undefined
     const clone = Reflect.apply(cloneMethod, value, [])
     if (!clone || clone === value) return undefined
