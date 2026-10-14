@@ -211,7 +211,8 @@ function mergeNitroAuthHandler(value: unknown, config: ResolvedAuthViteConfig | 
 
 function readForwardedProtocol(request: IncomingMessage): string {
   const value = request.headers["x-forwarded-proto"]
-  return Array.isArray(value) ? value[0] ?? "http" : value ?? "http"
+  const first = Array.isArray(value) ? value[0] : value
+  return first?.split(",", 1)[0]?.trim() || "http"
 }
 
 function createWebRequest(request: IncomingMessage): Request {
@@ -242,7 +243,31 @@ function createWebRequest(request: IncomingMessage): Request {
 }
 
 function splitSetCookieHeader(value: string): string[] {
-  return value ? value.split(/,\s*(?=[^;,=\s]+=)/) : []
+  if (!value) return []
+  const values: string[] = []
+  let start = 0
+  let inAttributes = false
+  let attributeName = ""
+  let unknownAttribute = false
+  for (let index = 0; index < value.length; index++) {
+    const character = value[index]
+    if (character === ";") {
+      inAttributes = true
+      const match = value.slice(index + 1).match(/^\s*([^=;,\s]+)\s*(?:=|;|$)/)
+      attributeName = match?.[1]?.toLowerCase() ?? ""
+      unknownAttribute = !!attributeName && !["expires", "max-age", "domain", "path", "secure", "httponly", "samesite", "partitioned", "priority"].includes(attributeName)
+      continue
+    }
+    if (character !== "," || !/^\s*[^;,=\s]+=/.test(value.slice(index + 1))) continue
+    if (inAttributes && unknownAttribute) continue
+    values.push(value.slice(start, index).trim())
+    start = index + 1
+    inAttributes = false
+    attributeName = ""
+    unknownAttribute = false
+  }
+  values.push(value.slice(start).trim())
+  return values.filter(Boolean)
 }
 
 async function sendWebResponse(response: Response, target: ServerResponse): Promise<void> {
