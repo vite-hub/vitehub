@@ -1,4 +1,4 @@
-import { runInNewContext } from "node:vm"
+import * as vm from "node:vm"
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { yDocToProsemirrorJSON } from "@tiptap/y-tiptap"
@@ -1352,7 +1352,7 @@ describe("tiptap-markdown documents", () => {
   it("restores durable state from a cross-realm ArrayBuffer", () => {
     const original = markdownToYDoc("# Shared draft")
     const bytes = Y.encodeStateAsUpdate(original)
-    const update: unknown = runInNewContext("Uint8Array.from(bytes).buffer", { bytes: [...bytes] })
+    const update: unknown = vm.runInNewContext("Uint8Array.from(bytes).buffer", { bytes: [...bytes] })
     const restored = restoreRealtimeDocument("# Fallback", "baseline", {
       baseline_digest: "baseline",
       update_blob: update,
