@@ -49,7 +49,7 @@ export function normalizeSeoOptions(options: unknown): DefineContentSeoOptions |
 export function siteOrigin(site: unknown, invalid: (message: string) => Error = message => contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] ${message}` })): string {
   if (String(site) !== site || !/^https?:\/\//i.test(site)) throw invalid(`site must be an absolute http(s) URL such as https://example.com, received ${JSON.stringify(site)}.`)
   try {
-    return new URL(site).href.replace(/\/+$/, "")
+    return new URL(site).origin
   }
   catch {
     throw invalid(`site must be an absolute http(s) URL such as https://example.com, received ${JSON.stringify(site)}.`)
