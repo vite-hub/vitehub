@@ -35,7 +35,7 @@ describe("cross-realm console access probe", () => {
       },
       status: 401,
       statusText: "Unauthorized",
-      body: null,
+      get body() { return null },
       clone() { return this },
       arrayBuffer() { return Promise.resolve(new ArrayBuffer(0)) },
       blob() { return Promise.resolve(new Blob([])) },

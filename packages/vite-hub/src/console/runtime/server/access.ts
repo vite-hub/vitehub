@@ -67,18 +67,28 @@ function isResponseLike(value: unknown): value is Response {
     const headerMethods = ["get", "set", "has", "append", "delete", "forEach"]
     const responseMethods = ["clone", "arrayBuffer", "blob", "formData", "json", "text"]
     let prototype = Object.getPrototypeOf(value)
-    let hasBodyGetter = false
+    let bodyGetter: (() => unknown) | undefined
     while (prototype) {
-      if (typeof Object.getOwnPropertyDescriptor(prototype, "body")?.get === "function") {
-        hasBodyGetter = true
+      const getter = Object.getOwnPropertyDescriptor(prototype, "body")?.get
+      if (typeof getter === "function") {
+        bodyGetter = getter as () => unknown
         break
       }
       prototype = Object.getPrototypeOf(prototype)
     }
+    if (!bodyGetter) return false
+
+    // Native Response accessors perform an internal-slot brand check. Calling
+    // the foreign realm accessor also validates implementations (such as
+    // happy-dom) that expose their state as own properties. A prototype-only
+    // object with a user-defined getter has no such slots and is rejected by
+    // the own-property shape check below.
+    bodyGetter.call(value)
+    const hasResponseSlots = ["bodyUsed", "redirected", "type", "url", "status", "statusText", "ok", "headers"]
+      .every((key) => Object.prototype.hasOwnProperty.call(value, key))
     return typeof response.status === "number"
       && typeof response.statusText === "string"
-      && "body" in response
-      && hasBodyGetter
+      && (hasResponseSlots || bodyGetter.toString().includes("[native code]"))
       && headers !== null
       && typeof headers === "object"
       && headerMethods.every((method) => typeof (headers as Record<string, unknown>)[method] === "function")
