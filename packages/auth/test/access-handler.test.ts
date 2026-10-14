@@ -105,8 +105,15 @@ describe("Auth access handlers", () => {
   })
 
 
-  it("normalizes compatible authorization responses from another realm", async () => {
-    const foreignResponse = runInNewContext('new Response("no")', { Response })
+  it("rejects a response-shaped object without the native Response brand", async () => {
+    const foreignResponse = runInNewContext(`({
+      [Symbol.toStringTag]: "Response",
+      status: 200,
+      statusText: "OK",
+      headers: {},
+      body: null,
+      arrayBuffer() { return Promise.resolve(new ArrayBuffer(0)) },
+    })`)
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
       access: { routes: [{ route: "/**", authorize: () => foreignResponse as never }] },
     }))
@@ -114,11 +121,7 @@ describe("Auth access handlers", () => {
 
     const response = await handler(new Request("https://app.example/"))
     expect(response).toBeInstanceOf(Response)
-    expect(response).not.toBe(foreignResponse)
-    expect(response?.status).toBe(200)
-    expect(response?.headers.get("content-type")).toBe("text/plain;charset=UTF-8")
-    const body = await response!.text()
-    expect(body).toBe("no")
+    expect(response?.status).toBe(403)
   })
 
   it("does not expose a tag-only response shape to adapters", async () => {
