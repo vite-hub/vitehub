@@ -40,20 +40,20 @@ function isRequest(value: unknown): value is Request {
     if (value instanceof Request) return true
     if (value === null || typeof value !== "object") return false
 
-    // Use accessors from the candidate's Fetch realm. Their Web IDL brand
-    // checks validate the receiver without cloning or consuming its body.
-    // Walking the chain preserves genuine Request subclasses while requiring
-    // a coherent Request prototype instead of trusting candidate-owned fields.
+    // Fetch accessors perform the host's Web IDL brand check. Use the
+    // candidate realm's accessors so foreign Requests remain supported.
     let prototype: object | null = value
     while (prototype) {
       const accessors = ["headers", "url", "method", "bodyUsed"].map((key) =>
-        [key, Object.getOwnPropertyDescriptor(prototype, key)?.get] as const)
-      if (
-        accessors.every(([key, accessor]): accessor is Function =>
-          typeof accessor === "function" && isRequestAccessor(key, accessor))
-      ) {
-        for (const [, accessor] of accessors) accessor.call(value)
-        return true
+        Object.getOwnPropertyDescriptor(prototype, key)?.get,
+      )
+      if (accessors.every((accessor): accessor is () => unknown => typeof accessor === "function")) {
+        const [headers, url, method, bodyUsed] = accessors.map((accessor) => accessor.call(value))
+        if (
+          headers !== null && typeof headers === "object" &&
+          typeof (headers as { get?: unknown }).get === "function" &&
+          typeof url === "string" && typeof method === "string" && typeof bodyUsed === "boolean"
+        ) return true
       }
       prototype = Object.getPrototypeOf(prototype)
     }
@@ -61,11 +61,6 @@ function isRequest(value: unknown): value is Request {
   } catch {
     return false
   }
-}
-
-function isRequestAccessor(key: string, accessor: Function): boolean {
-  const source = Function.prototype.toString.call(accessor)
-  return new RegExp(String.raw`get\s+${key}\s*\(\s*\)[^{]*\{[\s\S]*\bbrandCheck\s*\(\s*this\s*,\s*_?Request\s*\)`).test(source)
 }
 
 /** Adapt one H3 operation. Await flushWaitUntil when the host has no lifetime API. */
