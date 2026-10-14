@@ -178,6 +178,9 @@ catalogs:
     '@tiptap/extension-table':
       specifier: ^3.31.4
       version: 3.31.4
+    '@tiptap/extensions':
+      specifier: ^3.31.4
+      version: 3.31.4
     '@tiptap/markdown':
       specifier: ^3.31.4
       version: 3.31.4
@@ -2534,6 +2537,9 @@ importers:
       '@iconify/vue':
         specifier: catalog:ui
         version: 5.0.3(vue@3.5.43(typescript@6.0.3))
+      '@internationalized/date':
+        specifier: ^3.12.4
+        version: 3.12.4
       '@nuxt/ui':
         specifier: catalog:nuxt
         version: 4.11.3(4e94ea8202a09155ee8a62023fc7ca3a)
@@ -2547,6 +2553,9 @@ importers:
         specifier: catalog:realtime
         version: 3.31.4(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))
       '@tiptap/extension-table':
+        specifier: catalog:realtime
+        version: 3.31.4(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))(@tiptap/pm@3.31.4)
+      '@tiptap/extensions':
         specifier: catalog:realtime
         version: 3.31.4(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))(@tiptap/pm@3.31.4)
       '@tiptap/pm':
