@@ -13,7 +13,7 @@ function distributionTargets(value: unknown): string[] {
 describe("internal package exports", () => {
   it("points every distribution export at a generated file", () => {
     const missing = [...new Set(distributionTargets(manifest.exports))]
-      .filter(target => !existsSync(new URL(`..${target.slice(1)}`, import.meta.url)))
+      .filter(target => !existsSync(new URL(target, new URL("../", import.meta.url))))
 
     expect(missing).toEqual([])
   })
