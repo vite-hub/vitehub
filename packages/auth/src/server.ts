@@ -280,19 +280,31 @@ async function runAccessAuthorize(
   context: AuthAccessAuthorizationContext,
 ): Promise<Response | undefined> {
   const result = await authorize(context)
-  if (isResponseLike(result)) return result
+  const response = await normalizeAuthorizationResponse(result)
+  if (response) return response
   if (result !== true) return createForbiddenResponse(context.request)
+}
+
+async function normalizeAuthorizationResponse(value: unknown): Promise<Response | undefined> {
+  if (!isResponseLike(value)) return
+  if (value instanceof Response) return value
+
+  const headers = new Headers(value.headers)
+  const body = value.body === null ? null : new Uint8Array(await value.arrayBuffer())
+  return new Response(body, {
+    headers,
+    status: value.status,
+    statusText: value.statusText,
+  })
 }
 
 function isResponseLike(value: unknown): value is Response {
   if (value === null || typeof value !== "object") return false
   try {
-    if (Object.prototype.toString.call(value) !== "[object Response]") return false
-    const response = value as { headers?: unknown, status?: unknown, statusText?: unknown }
-    if (typeof response.status !== "number" || !Number.isInteger(response.status) || response.status < 0 || response.status > 599) return false
-    if (typeof response.statusText !== "string") return false
-    const headers = response.headers
-    return headers !== null && typeof headers === "object" && typeof (headers as { get?: unknown }).get === "function"
+    const status = Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get
+    if (!status) return false
+    status.call(value)
+    return true
   }
   catch {
     return false
