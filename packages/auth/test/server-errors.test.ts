@@ -163,7 +163,10 @@ describe("server authentication provider boundaries", () => {
       get method() { return "GET" }
       get signal() { return undefined }
       get url() { return "https://example.com/api/private" }
-      clone() { return {} }
+      // Return a tagged clone so the authenticity check must reject the
+      // caller-controlled Request constructor itself, rather than relying on
+      // the clone shape to reject this spoof.
+      clone() { return new this.constructor() }
       arrayBuffer() { return Promise.resolve(new ArrayBuffer(0)) }
       blob() { return Promise.resolve(new Blob()) }
       formData() { return Promise.resolve(new FormData()) }

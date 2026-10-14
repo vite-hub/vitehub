@@ -71,6 +71,11 @@ function isRequestLike(value: AuthRequest): value is Request {
       return undefined
     }, undefined)
     if (!accessorPrototype) return false
+    // A caller-controlled class can copy the complete Request surface onto
+    // its own prototype (including a spoofed `Request` constructor name).
+    // Independently implemented Requests, such as Happy DOM's, keep their
+    // accessors on a separate body prototype.
+    if (accessorPrototype === prototype) return false
     const hasAccessor = (property: string): boolean => typeof Reflect.getOwnPropertyDescriptor(accessorPrototype, property)?.get === "function"
     // Request implementations expose their state through prototype accessors. This
     // rejects tagged host-shaped objects that merely copy the method names.
