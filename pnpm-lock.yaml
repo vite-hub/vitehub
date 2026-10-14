@@ -1058,6 +1058,9 @@ importers:
       files-sdk:
         specifier: catalog:storage
         version: 2.6.2(0e0126661dfb3a9c78ea630da2c57da4)
+      fetch-blob:
+        specifier: 3.2.0
+        version: 3.2.0
       ofetch:
         specifier: catalog:unjs
         version: 1.5.1
