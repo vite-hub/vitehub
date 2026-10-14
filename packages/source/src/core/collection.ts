@@ -44,6 +44,14 @@ export interface CollectionFacetValue {
 /** Facet counts keyed by field path, computed over every item that matches the query. */
 export type CollectionFacets = Record<string, CollectionFacetValue[]>
 
+function isCollectionFacets(value: unknown): value is CollectionFacets {
+  return Object(value) === value && !Array.isArray(value) && Object.values(Object(value)).every(entries =>
+    Array.isArray(entries) && entries.every(entry => Object(entry) === entry
+      && String(Reflect.get(entry, "value")) === Reflect.get(entry, "value")
+      && Number.isSafeInteger(Reflect.get(entry, "count"))
+      && Number(Reflect.get(entry, "count")) >= 0))
+}
+
 export interface CollectionPage<TItem> {
   items: TItem[]
   nextCursor: string | null
@@ -445,7 +453,12 @@ export function defineCollection<
           }
           page.total = result.total
         }
-        if (result.facets !== undefined) page.facets = result.facets
+        if (result.facets !== undefined) {
+          if (!isCollectionFacets(result.facets)) {
+            throw sourceErrorDiagnostics.SOURCE_R0009({ message: "[vitehub] Provider Collection facets must map fields to { value, count } lists with non-negative integer counts." })
+          }
+          page.facets = result.facets
+        }
         return page
       }
       // SAFETY: A cursor definition is paired with a cursor loader by the public overloads.
