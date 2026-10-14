@@ -129,6 +129,16 @@ describe("Auth access handlers", () => {
     await expect(handler(new Request("https://app.example/"))).resolves.toBe(foreignResponse)
   })
 
+  it("accepts foreign Responses without the optional getSetCookie extension", async () => {
+    const foreignResponse = new ForeignResponse("Policy rejected", { status: 409 })
+    Object.defineProperty(foreignResponse.headers, "getSetCookie", { configurable: true, value: undefined })
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => foreignResponse as never }] },
+    }))
+
+    await expect(handler(new Request("https://app.example/"))).resolves.toBe(foreignResponse)
+  })
+
   it("returns cross-realm Response subclasses with custom tags unchanged", async () => {
     class TaggedForeignResponse extends ForeignResponse {
       get [Symbol.toStringTag]() { return "CustomResponse" }

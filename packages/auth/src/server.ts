@@ -305,14 +305,16 @@ function isResponseLike(value: unknown): value is Response {
     if (typeof status !== "number" || !Number.isInteger(status) || status < 0 || status > 599) return false
     if (typeof statusText !== "string") return false
     if (headers === null || typeof headers !== "object") return false
-    if (typeof headers.get !== "function" || typeof headers.forEach !== "function" || typeof headers.getSetCookie !== "function") return false
+    if (typeof headers.get !== "function" || typeof headers.forEach !== "function") return false
     const headerValue = headers.get("x-vite-hub-response-check")
     if (headerValue !== null && typeof headerValue !== "string") return false
     headers.forEach((headerValue: unknown, headerName: unknown) => {
       if (typeof headerValue !== "string" || typeof headerName !== "string") throw new TypeError("Invalid Response headers")
     })
-    const setCookieHeaders = headers.getSetCookie()
-    if (!Array.isArray(setCookieHeaders) || setCookieHeaders.some((header: unknown) => typeof header !== "string")) return false
+    if (typeof headers.getSetCookie === "function") {
+      const setCookieHeaders = headers.getSetCookie()
+      if (!Array.isArray(setCookieHeaders) || setCookieHeaders.some((header: unknown) => typeof header !== "string")) return false
+    }
     if (body === null) return true
     if (typeof body !== "object" || typeof body.getReader !== "function") return false
     const reader = body.getReader() as { read?: unknown; releaseLock?: unknown }
