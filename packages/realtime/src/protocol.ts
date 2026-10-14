@@ -18,7 +18,7 @@ export function isRetryableRealtimeCheckpointCode(value: unknown): boolean {
 }
 
 function validPath(value: unknown): value is string {
-  if (typeof value !== "string" || value.length === 0 || value.length > 4096 || value.includes("\0")) return false
+  if (typeof value !== "string" || value.length === 0 || value.length > 4096 || value.includes("\0") || value.replaceAll("\\", "/").includes("//")) return false
   try {
     return normalizeSafeWorkspacePath(value) === value
   }
