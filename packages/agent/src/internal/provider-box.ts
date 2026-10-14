@@ -60,6 +60,7 @@ export interface ProviderBoxSession {
 /** True when the Box runtime can reach loopback services of the ViteHub process. */
 export function boxSharesHostNetwork(runtime: BoxRuntimeDefinition): boolean {
   if (runtime === "trusted-host") return true
+  if (isRuntimeRecord(runtime) && !("kind" in runtime) && runtime.network === "direct") return true
   if (!isRuntimeRecord(runtime) || !("kind" in runtime)) return false
   if (runtime.kind === "trusted-host") return true
   return runtime.kind === "crabbox" && runtime.network === "direct"
