@@ -309,7 +309,14 @@ function isResponseLike(value: unknown): value is Response {
     // A candidate can provide a constructor named `Response` and all of the
     // expected accessors on a plain object. Native Response constructors are
     // the authenticity boundary that survives across realms.
-    if (!Function.prototype.toString.call(responseConstructor).includes("[native code]")) return false
+    // Node's Response implementation is JavaScript-defined, so a native-code
+    // source check rejects valid same-realm and foreign responses. Genuine
+    // platform implementations expose a class-shaped Response constructor;
+    // the function-shaped constructor used by plain-object spoofs does not.
+    const constructorSource = Function.prototype.toString.call(responseConstructor)
+    if (responseConstructor !== globalThis.Response
+      && !constructorSource.includes("[native code]")
+      && !/^class\s+Response\b/.test(constructorSource)) return false
     if (!(response instanceof responseConstructor)) return false
     if (!["error", "json", "redirect"].every(method => typeof Object.getOwnPropertyDescriptor(responseConstructor, method)?.value === "function")) return false
     const status = statusGetter.call(response) as unknown
