@@ -64,8 +64,8 @@ function hasResponsePrototype(value: unknown): boolean {
 
 export function isUIMessageStreamResponse(value: unknown): value is Response & { body: ReadableStream<Uint8Array> } {
   try {
-    const bodyGetter = Object.getOwnPropertyDescriptor(Response.prototype, "body")?.get
-    const headersGetter = Object.getOwnPropertyDescriptor(Response.prototype, "headers")?.get
+    const bodyGetter = responsePropertyDescriptor(Response.prototype, "body")?.get
+    const headersGetter = responsePropertyDescriptor(Response.prototype, "headers")?.get
     const body = bodyGetter && Reflect.apply(bodyGetter, value, [])
     const headers = headersGetter && Reflect.apply(headersGetter, value, [])
     const lockedGetter = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
@@ -162,7 +162,7 @@ export function normalizeUIMessageStreamResponse(value: unknown): (Response & { 
     if (!hasRuntimeType(statusText, "string") || !isRuntimeRecord(headers) || !isRuntimeRecord(body)) return
     const snapshot = { status, statusText, headers, body }
     const nativeProperties = isUIMessageStreamResponse(value) && responseSnapshotProperties.every(key => {
-      const getter = Object.getOwnPropertyDescriptor(Response.prototype, key)?.get
+      const getter = responsePropertyDescriptor(Response.prototype, key)?.get
       return getter && responsePropertyDescriptor(value, key)?.get === getter
         && Reflect.apply(getter, value, []) === snapshot[key]
     })
