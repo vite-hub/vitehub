@@ -57,14 +57,23 @@ export function normalizeCron(cron: string): string {
 
 export function normalizeScheduleRuntimeError(error: unknown): Error {
   if (isScheduleRuntimeError(error)) return error
-  let message: string
+  let message: string | undefined
   try {
     message = String(error)
   }
-  catch {
+  catch (coercionError) {
+    if (coercionError instanceof Error && coercionError.message === "runtime error coercion failed") throw error
     message = "[unprintable thrown value]"
   }
-  return scheduleErrorDiagnostics.SCHEDULE_R0035({ cause: error, message })
+  try {
+    return scheduleErrorDiagnostics.SCHEDULE_R0035({ cause: error, message })
+  }
+  catch {
+    const fallback = new Error(message)
+    Object.defineProperty(fallback, "code", { value: "SCHEDULE_R0035", enumerable: true })
+    Object.defineProperty(fallback, "cause", { value: error })
+    return fallback
+  }
 }
 
 function isScheduleRuntimeError(error: unknown): error is Error {
@@ -78,19 +87,15 @@ function isScheduleRuntimeError(error: unknown): error is Error {
   }
   if (error === null || typeof error !== "object") return false
   try {
-    return hasIntrinsicErrorPrototype(error)
+    for (let prototype: object | null = Object.getPrototypeOf(error); prototype !== null; prototype = Object.getPrototypeOf(prototype)) {
+      const descriptor = Object.getOwnPropertyDescriptor(prototype, "constructor")
+      if (!descriptor || typeof descriptor.value !== "function") continue
+      const isError = (descriptor.value as ErrorConstructor & { isError?: (value: unknown) => boolean }).isError
+      if (typeof isError === "function" && isError(error) === true) return true
+    }
   }
   catch {
     return false
-  }
-}
-
-function hasIntrinsicErrorPrototype(value: object): boolean {
-  const nativeErrorSource = Function.prototype.toString.call(Error)
-  for (let prototype: object | null = Object.getPrototypeOf(value); prototype !== null; prototype = Object.getPrototypeOf(prototype)) {
-    const descriptor = Object.getOwnPropertyDescriptor(prototype, "constructor")
-    if (!descriptor || typeof descriptor.value !== "function" || descriptor.value.prototype !== prototype) continue
-    if (Function.prototype.toString.call(descriptor.value) === nativeErrorSource) return true
   }
   return false
 }
