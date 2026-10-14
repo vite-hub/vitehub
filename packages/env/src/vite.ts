@@ -254,6 +254,11 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
         configurable: true,
         value: state.developmentSecret,
       })
+      const onResolved = (config as typeof config & { __vitehubEnvOnResolved?: Array<(envKey: string | undefined) => Promise<void> | void> }).__vitehubEnvOnResolved
+      if (onResolved?.length) {
+        await Promise.all(onResolved.map(callback => callback(state.developmentSecretEnvKey)))
+        onResolved.length = 0
+      }
       for (const environmentConfig of Object.values(config.environments || {})) {
         resolvedConfigStates.set(environmentConfig, state)
         Reflect.defineProperty(environmentConfig, environmentStateKey, {

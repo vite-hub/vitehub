@@ -477,7 +477,10 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       inlineConsoleAuthConfig = consoleAuthConfig && "provider" in consoleAuthConfig && consoleAuthConfig.provider === "github"
         ? { ...consoleAuthConfig, developmentSecretEnvKey }
         : consoleAuthConfig
-      consoleAuthHandlers = inlineConsoleAuthConfig ? await writeConsoleAuthHandlers(root, inlineConsoleAuthConfig, baseURL) : undefined
+      // Env may be ordered after this plugin. In that case wait for its
+      // resolved project secret before writing the generated auth definition.
+      const canWriteInlineAuth = !inlineConsoleAuthConfig || inlineConsoleAuthConfig.provider !== "github" || Boolean(developmentSecretEnvKey)
+      consoleAuthHandlers = inlineConsoleAuthConfig && canWriteInlineAuth ? await writeConsoleAuthHandlers(root, inlineConsoleAuthConfig, baseURL) : undefined
       refreshConsoleAuthClient = consoleAuthConfig
         ? serializeConsoleRefresh(async () => {
             const refreshConfig = inlineConsoleAuthConfig
@@ -564,6 +567,14 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
           ...inlineConsoleAuthConfig,
           // SAFETY: Vite preserves the Env plugin’s optional selected root in resolved config.
           developmentSecretEnvKey: (config as typeof config & { __vitehubEnvDevelopmentSecretEnvKey?: string }).__vitehubEnvDevelopmentSecretEnvKey,
+        }
+        const envConfig = config as typeof config & { __vitehubEnvOnResolved?: Array<(envKey: string | undefined) => Promise<void> | void> }
+        if (!inlineConsoleAuthConfig.developmentSecretEnvKey) {
+          ;(envConfig.__vitehubEnvOnResolved ??= []).push(async envKey => {
+            if (!envKey || !inlineConsoleAuthConfig || !root) return
+            inlineConsoleAuthConfig = { ...inlineConsoleAuthConfig, developmentSecretEnvKey: envKey }
+            consoleAuthHandlers = await writeConsoleAuthHandlers(root, inlineConsoleAuthConfig, baseURL)
+          })
         }
       }
       if (resolvedConsoleConfiguration) {
