@@ -110,7 +110,10 @@ describe("Auth access handlers", () => {
       access: { routes: [{ route: "/**", authorize: () => foreignResponse as never }] },
     }))
 
-    await expect(handler(new Request("https://app.example/"))).resolves.toBe(foreignResponse)
+    const response = await handler(new Request("https://app.example/"))
+    expect(response).toBeInstanceOf(Response)
+    expect(response?.status).toBe(409)
+    await expect(response?.text()).resolves.toBe("Policy rejected")
   })
 
   it("rejects spoofed authorization responses", async () => {

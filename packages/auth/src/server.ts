@@ -281,23 +281,27 @@ async function runAccessAuthorize(
   context: AuthAccessAuthorizationContext,
 ): Promise<Response | undefined> {
   const result = await authorize(context)
-  if (isResponseLike(result)) return result
+  const response = await normalizeAuthorizationResponse(result)
+  if (response) return response
   if (result !== true) return createForbiddenResponse(context.request)
 }
 
-function isResponseLike(value: unknown): value is Response {
-  if (value === null || typeof value !== "object") return false
+async function normalizeAuthorizationResponse(value: unknown): Promise<Response | undefined> {
+  if (value === null || typeof value !== "object") return
   try {
     const response = value as Response
     const status = Object.getOwnPropertyDescriptor(Response.prototype, "status")!.get!.call(response)
     const statusText = Object.getOwnPropertyDescriptor(Response.prototype, "statusText")!.get!.call(response)
     const headers = Object.getOwnPropertyDescriptor(Response.prototype, "headers")!.get!.call(response)
+    const bodyStream = Object.getOwnPropertyDescriptor(Response.prototype, "body")!.get!.call(response)
     Headers.prototype.get.call(headers, "x-vitehub-brand-check")
-    return typeof status === "number" && Number.isInteger(status) && status >= 0 && status <= 599
-      && typeof statusText === "string"
+    if (typeof status !== "number" || !Number.isInteger(status) || status < 0 || status > 599 || typeof statusText !== "string") return
+    if (response instanceof Response) return response
+    const body = bodyStream === null ? null : await Response.prototype.arrayBuffer.call(response)
+    return new Response(body, { headers: new Headers(headers), status, statusText })
   }
   catch {
-    return false
+    return
   }
 }
 
