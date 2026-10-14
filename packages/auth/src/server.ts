@@ -280,21 +280,41 @@ async function runAccessAuthorize(
   context: AuthAccessAuthorizationContext,
 ): Promise<Response | undefined> {
   const result = await authorize(context)
-  if (isResponseLike(result)) return result
+  if (result instanceof Response) return result
+  const response = await normalizeResponseLike(result)
+  if (response) return response
   if (result !== true) return createForbiddenResponse(context.request)
 }
 
-function isResponseLike(value: unknown): value is Response {
-  if (value === null || typeof value !== "object") return false
+async function normalizeResponseLike(value: unknown): Promise<Response | undefined> {
+  if (value === null || typeof value !== "object") return undefined
   try {
-    const prototype = Response.prototype
-    const status = Object.getOwnPropertyDescriptor(prototype, "status")?.get?.call(value)
-    const statusText = Object.getOwnPropertyDescriptor(prototype, "statusText")?.get?.call(value)
-    const headers = Object.getOwnPropertyDescriptor(prototype, "headers")?.get?.call(value)
-    return typeof status === "number" && Number.isInteger(status) && status >= 0 && status <= 599
-      && typeof statusText === "string" && headers !== null && typeof headers === "object"
+    const basePrototype = Object.getPrototypeOf(value)
+    const get = (name: string): unknown => {
+      let prototype: object | null = basePrototype
+      while (prototype) {
+        const getter = Object.getOwnPropertyDescriptor(prototype, name)?.get
+        if (getter) return getter.call(value)
+        prototype = Object.getPrototypeOf(prototype)
+      }
+      return undefined
+    }
+    const status = get("status")
+    const statusText = get("statusText")
+    const headers = get("headers")
+    if (typeof status !== "number" || !Number.isInteger(status) || status < 0 || status > 599
+      || typeof statusText !== "string" || headers === null || typeof headers !== "object") return undefined
+    const body = get("body")
+    const bodyData = body && typeof (body as { arrayBuffer?: unknown }).arrayBuffer === "function"
+      ? await (body as { arrayBuffer(): Promise<ArrayBuffer> }).arrayBuffer()
+      : null
+    return new Response(bodyData, {
+      status,
+      statusText,
+      headers: new Headers(headers as ConstructorParameters<typeof Headers>[0]),
+    })
   } catch {
-    return false
+    return undefined
   }
 }
 
