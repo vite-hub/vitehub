@@ -878,6 +878,46 @@ describe("@vite-hub/runtime", () => {
     }
   })
 
+  it("fails closed when a formatter forges buffer operation signatures", async () => {
+    const formatterDescriptor = Object.getOwnPropertyDescriptor(Function.prototype, "toString")
+    const byteLengthDescriptor = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")
+    if (!formatterDescriptor || !byteLengthDescriptor) throw new Error("Expected native descriptors")
+    const originalFormatter = formatterDescriptor.value as (this: Function) => string
+    const shared = runInNewContext("new SharedArrayBuffer(0)")
+    const forgedDataView = class DataView { constructor() {} }
+    const forgedByteLength = function () { throw new Error("forged") }
+    Object.defineProperty(forgedByteLength, "name", { value: "get byteLength" })
+    vi.stubGlobal("DataView", forgedDataView)
+    Object.defineProperty(ArrayBuffer.prototype, "byteLength", { configurable: true, get: forgedByteLength })
+    Object.defineProperty(Function.prototype, "toString", {
+      configurable: true,
+      value: function () {
+        const name = (this as Function).name
+        if (["ArrayBuffer", "SharedArrayBuffer", "DataView", "Memory", "get byteLength", "get buffer"].includes(name)) {
+          return `function ${name}() { [native code] }`
+        }
+        return originalFormatter.call(this)
+      },
+      writable: true,
+    })
+    try {
+      vi.resetModules()
+      const runtime = await import("../src/index.ts")
+      const log = runtime.createTraceEventLog()
+      await log.append({ name: "object", payload: { value: { files: 1 }, visibility: "public" }, type: "lifecycle" })
+      await log.append({ name: "array-buffer", payload: { value: new ArrayBuffer(4), visibility: "public" }, type: "lifecycle" })
+      await log.append({ name: "shared", payload: { value: shared, visibility: "public" }, type: "lifecycle" })
+      expect(log.entries()[0]?.payload).toEqual({ value: { files: 1 }, visibility: "public" })
+      expect(log.entries()[1]?.payload?.visibility).toBe("public")
+      expect(log.entries()[2]?.payload).toEqual({ visibility: "private" })
+    }
+    finally {
+      Object.defineProperty(Function.prototype, "toString", formatterDescriptor)
+      Object.defineProperty(ArrayBuffer.prototype, "byteLength", byteLengthDescriptor)
+      vi.unstubAllGlobals()
+    }
+  })
+
   it("does not trust forged buffer operations authenticated by a replaced formatter", async () => {
     const toStringDescriptor = Object.getOwnPropertyDescriptor(Function.prototype, "toString")
     const arrayBufferDescriptor = Object.getOwnPropertyDescriptor(globalThis, "ArrayBuffer")

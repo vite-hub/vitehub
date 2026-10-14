@@ -444,6 +444,23 @@ const nativeFunctionToString = (() => {
     // the ordinary source and required TypeError behavior before trusting it.
     function probe() { return 1 }
     if (intrinsicFunctionToString.call(probe) !== "function probe() { return 1 }") return false
+    // Probe every operation name used below with user-defined functions. A
+    // formatter that only forges native signatures for buffer operations must
+    // still expose their ordinary source when presented with these lookalikes.
+    const namedProbes = [
+      function ArrayBuffer() {},
+      function SharedArrayBuffer() {},
+      function DataView() {},
+      function Memory() {},
+    ]
+    for (const namedProbe of namedProbes) {
+      if (intrinsicFunctionToString.call(namedProbe).includes("[native code]")) return false
+    }
+    const getterProbe = Object.getOwnPropertyDescriptor(
+      { get byteLength() { return 0 } },
+      "byteLength",
+    )?.get
+    if (!getterProbe || intrinsicFunctionToString.call(getterProbe).includes("[native code]")) return false
     try {
       intrinsicFunctionToString.call(null)
       return false
