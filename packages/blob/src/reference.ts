@@ -110,6 +110,32 @@ function accepts(patterns: string[], contentType: string): boolean {
   return patterns.some(pattern => pattern === type || (pattern.endsWith("/*") && pattern.slice(0, -2) === major))
 }
 
+function caseInsensitivePattern(value: string): string {
+  const special = "\\^$.*+?()[]{}|"
+  return [...value].map(character => {
+    if (/[a-z]/i.test(character)) return "[" + character.toLowerCase() + character.toUpperCase() + "]"
+    return special.includes(character) ? "\\" + character : character
+  }).join("")
+}
+
+const pathnamePattern = String.raw`^(?!/)(?!.*\\)(?!.*[\u0000-\u001F\u007F])(?!.*(?:^|/)\.{1,2}(?:/|$))(?!.*//)(?!.*\/$)(?!_[Vv][Ii][Tt][Ee][Hh][Uu][Bb](?:$|/[Dd][Ee][Rr][Ii][Vv][Ee][Dd](?:/|$))).+`
+
+function contentTypeSchema(accept: string[] | undefined): Record<string, unknown> {
+  const schema: Record<string, unknown> = {
+    type: "string",
+    minLength: 1,
+    description: "MIME type recorded at upload.",
+  }
+  if (!accept) return schema
+  const patterns = accept.map(pattern => {
+    if (pattern.endsWith("/*")) return `^${caseInsensitivePattern(pattern.slice(0, -2))}/[^;\\s]*(?:\\s*;.*)?\\s*$`
+    return `^${caseInsensitivePattern(pattern)}(?:\\s*;.*)?\\s*$`
+  })
+  if (patterns.length === 1) schema.pattern = patterns[0]
+  else schema.anyOf = patterns.map(pattern => ({ pattern }))
+  return schema
+}
+
 function pathnameIssue(pathname: string): string | undefined {
   if (!pathname) return "Blob pathname must not be empty."
   if (pathname.startsWith("/")) return "Blob pathname must be relative to its Blob Store, without a leading slash."
@@ -135,8 +161,8 @@ function referenceJsonSchema(hint: BlobReferenceHint, maxBytes: number | undefin
     ? { type: "integer", minimum: 0, description }
     : { type: "integer", minimum: 0, maximum: maxBytes, description }
   const properties = {
-    pathname: { type: "string", minLength: 1, description: "Pathname in the Blob Store." },
-    contentType: { type: "string", minLength: 1, description: "MIME type recorded at upload." },
+    pathname: { type: "string", minLength: 1, pattern: pathnamePattern, description: "Pathname in the Blob Store." },
+    contentType: contentTypeSchema(hint.accept),
     size,
   }
   const required = hint.accept ? ["pathname", "contentType"] : ["pathname"]
