@@ -76,6 +76,10 @@ function isRequestLike(value: AuthRequest): value is Request {
     // Independently implemented Requests, such as Happy DOM's, keep their
     // accessors on a separate body prototype.
     if (accessorPrototype === prototype) return false
+    // Do not accept a caller-controlled intermediate prototype between the
+    // value and its accessor surface. Genuine implementations place the
+    // request prototype directly above the instance prototype.
+    if (Reflect.getPrototypeOf(prototype) !== accessorPrototype) return false
     const hasAccessor = (property: string): boolean => typeof Reflect.getOwnPropertyDescriptor(accessorPrototype, property)?.get === "function"
     // Request implementations expose their state through prototype accessors. This
     // rejects tagged host-shaped objects that merely copy the method names.

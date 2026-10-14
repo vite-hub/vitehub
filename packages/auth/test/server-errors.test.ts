@@ -184,6 +184,35 @@ describe("server authentication provider boundaries", () => {
     await expect(Promise.resolve(handleAuthRequest(definition, spoofedRequest as never))).resolves.toBe(response)
   })
 
+  it("normalizes a Request spoof with an intermediate prototype", async () => {
+    const spoofedRequest = runInNewContext(`(() => {
+      class Request {
+        get body() { return null }
+        get bodyUsed() { return false }
+        get headers() { return { get() { return null } } }
+        get method() { return "GET" }
+        get signal() { return undefined }
+        get url() { return "https://example.com/api/private" }
+        clone() { return Object.create(Object.getPrototypeOf(this)) }
+        arrayBuffer() { return Promise.resolve(new ArrayBuffer(0)) }
+        blob() { return Promise.resolve(new Blob()) }
+        formData() { return Promise.resolve(new FormData()) }
+        json() { return Promise.resolve({}) }
+        text() { return Promise.resolve("") }
+        get [Symbol.toStringTag]() { return "Request" }
+      }
+      return Object.create(Object.create(new Request()))
+    })()`)
+    const response = new Response("ok")
+    providerMocks.handler.mockImplementationOnce((input: unknown) => {
+      expect(input).toBeInstanceOf(Request)
+      expect(input).not.toBe(spoofedRequest)
+      return response
+    })
+
+    await expect(Promise.resolve(handleAuthRequest(definition, spoofedRequest as never))).resolves.toBe(response)
+  })
+
   it("does not unwrap an inherited host request property", async () => {
     let origin = ""
     const requestDefinition = defineAuth(({ requestOrigin }) => {
