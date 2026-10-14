@@ -21,6 +21,15 @@ describe("durable Response representation", () => {
     expect(await toResponse([1, 2]).json()).toEqual([1, 2])
   })
 
+  it("does not execute spoofed or overridden stream methods", async () => {
+    const spoof = { slice: () => undefined, stream: () => { throw new Error("spoof") }, type: "text/plain" }
+    expect(await toResponse(spoof).json()).toEqual({ type: "text/plain" })
+
+    const blob = new (new Window()).Blob(["test"], { type: "text/plain" })
+    Object.defineProperty(blob, "stream", { value: () => { throw new Error("override") } })
+    expect(await toResponse(blob).text()).toBe("test")
+  })
+
   it("does not add a content type for an untyped Blob", async () => {
     const blob = new (new Window()).Blob(["test"])
     const response = toResponse(blob)

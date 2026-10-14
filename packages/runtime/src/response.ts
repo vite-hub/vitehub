@@ -16,19 +16,37 @@ export interface SerializedResponse {
 
 import { hasRuntimeType, isRuntimeObject } from "./internal/runtime-type.ts"
 
-function isBlobLike(value: unknown): value is Blob {
-  if (value === null || (typeof value !== "object" && typeof value !== "function")) return false
+interface BlobMethods {
+  readonly stream: () => ReadableStream
+  readonly type: string
+}
+
+function getBlobMethods(value: unknown): BlobMethods | undefined {
+  if (value === null || (typeof value !== "object" && typeof value !== "function")) return undefined
   try {
-    // A native Blob's own method performs an unforgeable internal-slot check,
-    // which accepts native Blobs from other realms.
-    const slice = Reflect.get(value, "slice")
-    const stream = Reflect.get(value, "stream")
-    if (!hasRuntimeType(slice, "function") || !hasRuntimeType(stream, "function")) return false
+    let prototype = Object.getPrototypeOf(value)
+    let slice: unknown
+    let stream: unknown
+    let type: unknown
+    while (prototype) {
+      const sliceDescriptor = Object.getOwnPropertyDescriptor(prototype, "slice")
+      const streamDescriptor = Object.getOwnPropertyDescriptor(prototype, "stream")
+      const typeDescriptor = Object.getOwnPropertyDescriptor(prototype, "type")
+      if (slice === undefined && sliceDescriptor) slice = sliceDescriptor.value
+      if (stream === undefined && streamDescriptor) stream = streamDescriptor.value
+      if (type === undefined && typeDescriptor) type = typeDescriptor.get ? () => Reflect.apply(typeDescriptor.get!, value, []) : () => typeDescriptor.value as string
+      prototype = Object.getPrototypeOf(prototype)
+    }
+    if (!hasRuntimeType(slice, "function") || !hasRuntimeType(stream, "function")) return undefined
+    // Native Blob methods perform an internal-slot check and accept foreign realms.
     Reflect.apply(slice, value, [0, 0])
-    return true
+    return {
+      stream: () => Reflect.apply(stream, value, []) as ReadableStream,
+      type: hasRuntimeType(type, "function") ? type() : String(Reflect.get(value, "type") ?? ""),
+    }
   }
   catch {
-    return false
+    return undefined
   }
 }
 
@@ -40,8 +58,10 @@ export function toResponse(value: unknown): Response {
     // SAFETY: The guards admit only strings, Blob, ArrayBuffer, and views accepted by Response.
     return new Response(value as ConstructorParameters<typeof Response>[0])
   }
-  if (isBlobLike(value)) {
-    return new Response(value.stream(), value.type ? { headers: { "content-type": value.type } } : undefined)
+  const blobMethods = getBlobMethods(value)
+  if (blobMethods) {
+    const type = blobMethods.type
+    return new Response(blobMethods.stream(), type ? { headers: { "content-type": type } } : undefined)
   }
   return new Response(JSON.stringify(value), {
     headers: { "content-type": "application/json; charset=utf-8" },
