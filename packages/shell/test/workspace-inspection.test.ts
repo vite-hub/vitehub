@@ -25,19 +25,43 @@ describe("@vite-hub/shell workspace inspection", () => {
     })
   })
 
-  it("bounds inspection feedback by the output limit", async () => {
+  it.each([0, 8])("bounds both streams of inspection feedback to %s characters", async (maxOutputLength) => {
     const workspace = new MemoryWorkspace({ "models/orders.sql": "select * from orders\n" })
 
+    const options = {
+      broadSearchPaths: ["models"],
+      commands: ["rg"],
+      cwd: workspaceMountPoint,
+      fs: createReadonlyWorkspaceFs(workspace),
+    }
+    const unlimited = await runWorkspaceInspectionCommand(workspace, "rg missing models", {
+      ...options,
+      maxOutputLength: Number.POSITIVE_INFINITY,
+    })
     await expect(runWorkspaceInspectionCommand(workspace, "rg missing models", {
+      ...options,
+      maxOutputLength,
+    })).resolves.toMatchObject({
+      outputTruncated: true,
+      stderr: `${unlimited.stderr.slice(0, maxOutputLength)}\n[output truncated to ${maxOutputLength} characters]\n`,
+      stdout: `${unlimited.stdout.slice(0, maxOutputLength)}\n[output truncated to ${maxOutputLength} characters]\n`,
+      workspaceGuardrail: { kind: "broad_search" },
+    })
+  })
+
+  it("bounds no-match feedback after runtime execution", async () => {
+    const workspace = new MemoryWorkspace({ "models/orders.sql": "select * from orders\n" })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "rg missing models/orders.sql", {
       broadSearchPaths: ["/workspace/models"],
-      commands: ["grep", "true"],
+      commands: ["rg"],
       cwd: workspaceMountPoint,
       fs: createReadonlyWorkspaceFs(workspace),
       maxOutputLength: 0,
     })).resolves.toMatchObject({
       outputTruncated: true,
       stdout: "\n[output truncated to 0 characters]\n",
-      workspaceGuardrail: { kind: "broad_search" },
+      workspaceGuardrail: { kind: "no_match" },
     })
   })
 

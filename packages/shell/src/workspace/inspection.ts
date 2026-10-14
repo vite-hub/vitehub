@@ -85,10 +85,12 @@ function limitInspectionFeedback(feedback: string, maxLength: number | undefined
 
 function limitInspectionObservation(observation: ShellObservation, maxLength: number | undefined): ShellObservation {
   const bounded = limitInspectionFeedback(observation.stdout, maxLength)
-  if (!bounded.outputTruncated) return observation
+  const boundedError = limitInspectionFeedback(observation.stderr, maxLength)
+  if (!bounded.outputTruncated && !boundedError.outputTruncated) return observation
   return {
     ...observation,
     stdout: bounded.stdout,
+    stderr: boundedError.stdout,
     outputTruncated: true,
   }
 }
