@@ -28,23 +28,30 @@ function isNonRetryableError(error: unknown): error is Error & { isRetryable: fa
   try {
     const nativeIsError: unknown = Reflect.get(Error, "isError")
     const branded = hasRuntimeType(nativeIsError, "function")
-      ? nativeIsError(error) === true
+      ? (nativeIsError as (value: unknown) => unknown)(error) === true
       : error instanceof Error || (() => {
         const prototype = Object.getPrototypeOf(error)
         if (prototype === null || prototype === Object.prototype || Object.prototype.toString.call(error) !== "[object Error]") return false
         let errorPrototype: object | null = prototype
         let hasErrorPrototype = false
+        let intrinsicPrototype: object | null = null
         while (errorPrototype !== null) {
           if (Object.prototype.hasOwnProperty.call(errorPrototype, "toString")
             && Object.prototype.hasOwnProperty.call(errorPrototype, "constructor")
             && hasRuntimeType(Reflect.get(errorPrototype, "constructor"), "function")
             && Reflect.get(Reflect.get(errorPrototype, "constructor"), "name") === "Error") {
             hasErrorPrototype = true
+            intrinsicPrototype = errorPrototype
             break
           }
           errorPrototype = Object.getPrototypeOf(errorPrototype)
         }
-        return hasErrorPrototype && ("message" in error || "stack" in error)
+        const hasIntrinsicErrorFields = intrinsicPrototype !== null
+          && Object.prototype.hasOwnProperty.call(intrinsicPrototype, "name")
+          && Object.prototype.hasOwnProperty.call(intrinsicPrototype, "message")
+          && Reflect.get(intrinsicPrototype, "name") === "Error"
+        const errorRecord = error as Record<PropertyKey, unknown>
+        return hasErrorPrototype && hasIntrinsicErrorFields && ("message" in errorRecord || "stack" in errorRecord)
       })()
     return branded && Reflect.get(error, "isRetryable") === false
   }
