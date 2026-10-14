@@ -67,11 +67,9 @@ function isMissingBlobError(error: unknown) {
           // accessor. Match that accessor's native source and verify it can read the
           // candidate's branded stack; forged accessors and Error.prototype descendants
           // therefore fail even when they mimic the descriptor shape.
+          // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The descriptor is validated before reading its getter.
           if (!stack || typeof stack.get !== "function") return false
-          const nativeStackGetter = Object.getOwnPropertyDescriptor(new Error(), "stack")?.get
-          if (typeof nativeStackGetter !== "function"
-            || Function.prototype.toString.call(stack.get) !== Function.prototype.toString.call(nativeStackGetter)) return false
-          if (typeof stack.get.call(candidate) !== "string") return false
+          let nativeErrorConstructor: unknown
           const seen = new Set<object>()
           let prototype = Object.getPrototypeOf(candidate)
           for (let depth = 0; depth < 64 && prototype !== null && prototype !== Object.prototype; depth++) {
@@ -80,10 +78,20 @@ function isMissingBlobError(error: unknown) {
             const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
             if (Object.prototype.toString.call(constructor) === "[object Function]"
               && Object.getOwnPropertyDescriptor(constructor, "prototype")?.value === prototype
-              && Function.prototype.toString.call(constructor) === Function.prototype.toString.call(Error)) return true
+              && Function.prototype.toString.call(constructor) === Function.prototype.toString.call(Error)) {
+              nativeErrorConstructor = constructor
+              break
+            }
             prototype = Object.getPrototypeOf(prototype)
           }
-          return false
+          // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The legacy path validates the constructor before invoking it.
+          if (typeof nativeErrorConstructor !== "function") return false
+          const nativeStackGetter = Object.getOwnPropertyDescriptor(Reflect.construct(nativeErrorConstructor, []), "stack")?.get
+          // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The descriptor is validated before reading its getter.
+          if (typeof nativeStackGetter !== "function" || stack.get !== nativeStackGetter) return false
+          // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The native getter result is the legacy brand check.
+          if (typeof stack.get.call(candidate) !== "string") return false
+          return true
         })()
     if (!isError) return false
     if (Reflect.get(candidate, "name") === "BlobNotFoundError") return true
