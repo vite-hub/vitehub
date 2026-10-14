@@ -361,7 +361,9 @@ function getNativeAuthorizationBodyReader(body: unknown): ((this: object) => Rea
       const descriptor = Object.getOwnPropertyDescriptor(prototype, "getReader")
       if (descriptor) {
         const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
-        if (typeof descriptor.value === "function" && constructor?.name === "ReadableStream") return descriptor.value
+        if (typeof descriptor.value === "function"
+          && constructor?.name === "ReadableStream"
+          && /\[native code\]/.test(Function.prototype.toString.call(descriptor.value))) return descriptor.value
         return
       }
       prototype = Object.getPrototypeOf(prototype)

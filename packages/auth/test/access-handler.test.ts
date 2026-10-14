@@ -389,9 +389,11 @@ describe("Auth access handlers", () => {
       },
     })
     const overriddenReader = vi.fn(() => { throw new Error("must not call supplied reader") })
-    Object.setPrototypeOf(source, Object.create(ReadableStream.prototype, {
+    const overriddenPrototype = Object.create(ReadableStream.prototype, {
+      constructor: { value: { name: "ReadableStream" } },
       getReader: { value: overriddenReader },
-    }))
+    })
+    Object.setPrototypeOf(source, overriddenPrototype)
     const foreign = new ForeignResponse(source, { status: 409 })
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
       access: { routes: [{ route: "/**", authorize: () => foreign as never }] },
