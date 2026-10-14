@@ -8,7 +8,7 @@ import type { UIMessage } from "ai";
 import { AgentInvocationList } from "../../src/console/runtime/components/invocation/agent-invocation-list.ts";
 import { AgentInvocation, AgentInvocationInspector, workspaceArtifactPath } from "../../src/console/runtime/components/invocation/agent-invocation.ts";
 import { invocationTimeline } from "../../src/console/runtime/components/invocation/agent-invocation-timeline.ts";
-import { AgentMessageParts } from "@vite-hub/ui";
+import { MessageParts } from "@vite-hub/ui";
 import { AgentCapabilityInspector } from "../../src/console/runtime/components/invocation/agent-capability-inspector.ts";
 import { AgentToolList } from "@vite-hub/ui";
 import { channelIcon } from "../../src/console/runtime/components/invocation/internal/channel-icon.ts";
@@ -335,7 +335,7 @@ describe("Agent Invocation UI", () => {
       { sourceId: "unsafe", title: "Unsafe source", type: "source-url", url: "javascript:alert(1)" },
       { sourceId: "unsupported", type: "source-url", url: "data:text/plain,source" },
     ];
-    const wrapper = mount(AgentMessageParts, { props: { parts } });
+    const wrapper = mount(MessageParts, { props: { parts } });
 
     expect(wrapper.findAll("a").map(link => link.attributes("href"))).toEqual(["https://example.com/reference"]);
     expect(wrapper.text()).toContain("Unsafe source");
@@ -351,7 +351,7 @@ describe("Agent Invocation UI", () => {
       { filename: "unsafe.png", mediaType: "image/png", type: "file", url: "javascript:alert(1)" },
       { mediaType: "text/html", type: "file", url: "data:text/html,<script>alert(1)</script>" },
     ];
-    const wrapper = mount(AgentMessageParts, {
+    const wrapper = mount(MessageParts, {
       global: { components: { UModal: defineComponent({ setup: (_, { slots }) => () => slots.default?.() }) } },
       props: { parts },
     });
@@ -747,9 +747,9 @@ describe("Agent Invocation UI", () => {
       traceId: "trace",
       updatedAt: timestamp,
     } satisfies AgentInvocationView;
-    const wrapper = mount(AgentInvocation, { props: { invocation }, global: { stubs: { AgentMarkdown: true } } });
+    const wrapper = mount(AgentInvocation, { props: { invocation }, global: { stubs: { Markdown: true } } });
 
-    expect(wrapper.getComponent({ name: "AgentMarkdown" }).props("value"))
+    expect(wrapper.getComponent({ name: "Markdown" }).props("value"))
       .toBe("    delivered as code\n");
   });
 

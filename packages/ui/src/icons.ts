@@ -3,9 +3,16 @@
 export const viteHubUIIcons: readonly string[] = [
   "lucide:chevron-down",
   "lucide:database",
+  "ph:arrow-clockwise",
   "ph:arrow-square-out-light",
+  "ph:arrow-up",
+  "ph:brain-light",
   "ph:check-light",
   "ph:copy-light",
-  "ph:paperclip-light",
+  "ph:file-light",
+  "ph:link-simple-light",
+  "ph:plus",
+  "ph:stop-fill",
+  "ph:wrench-light",
   "ph:x-light",
 ];

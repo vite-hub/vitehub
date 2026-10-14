@@ -1,6 +1,6 @@
 ---
 title: Build your first UI view
-description: Render a local question and reply with AgentChat in a Nuxt application.
+description: Render a local question and reply with Chat in a Nuxt application.
 layout: tutorial
 navigation.title: Tutorial
 navigation.order: 2
@@ -8,7 +8,7 @@ navigation.group: Start
 icon: i-lucide-rocket
 ---
 
-Render a short chat with one question and one reply. You will install the Nuxt module and pass an AI SDK message array to `AgentChat`. This first page uses local messages so you can check the UI before connecting an Agent.
+Render a short chat with one question and one reply. You will install the Nuxt module and pass an AI SDK message array to `Chat`. This first page uses local messages so you can check the UI before connecting an Agent.
 
 You need Node.js 24.15 or newer, pnpm, and a Nuxt application. Run the commands from its root. For Vue with Vite, follow [Installation](/docs/ui/installation) first. The UI package renders your app's state; your app still owns fetching, routes, and message storage.
 
@@ -38,7 +38,7 @@ components. You do not need a Vue plugin registration in Nuxt.
 
 Create `app.vue` with one user message and one assistant reply:
 
-Each message has an id, a role, and text parts. The roles tell `AgentChat` which message is the user's question and which is the reply. No request is sent by this example.
+Each message has an id, a role, and text parts. The roles tell `Chat` which message is the user's question and which is the reply. No request is sent by this example.
 
 ```vue [app.vue]
 <script setup lang="ts">
@@ -64,11 +64,11 @@ const messages: UIMessage[] = [
 </script>
 
 <template>
-  <AgentChat :messages class="h-[32rem]" />
+  <Chat :messages class="h-[32rem]" />
 </template>
 ```
 
-`AgentChat` renders the AI SDK `UIMessage[]` and keeps scrolling inside its
+`Chat` renders the AI SDK `UIMessage[]` and keeps scrolling inside its
 container. The component does not fetch data or choose an Agent route.
 ::
 
@@ -97,7 +97,7 @@ export function useAppChat() {
 }
 ```
 
-Configure `useChat()` for your endpoint, call `useAppChat()` in the component's `<script setup>`, and pass its returned values to [`AgentChat`](/docs/ui/chat). Place
-[`AgentChatPrompt`](/docs/ui/chat-prompt) in its `composer` slot. The [Chat
+Configure `useChat()` for your endpoint, call `useAppChat()` in the component's `<script setup>`, and pass its returned values to [`Chat`](/docs/ui/chat). Place
+[`PromptInput`](/docs/ui/prompt-input) in its `composer` slot. The [Chat
 App block](/docs/ui/blocks/chat-app) shows session switching and attachments.
 ::

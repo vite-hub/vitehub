@@ -3,7 +3,7 @@
 import { mount } from "@vue/test-utils";
 import { defineComponent, h, ref } from "vue";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { AgentChat } from "../src/components/agent-chat.ts";
+import { Chat } from "../src/components/chat.ts";
 import { createViteHubUI } from "../src/config.ts";
 import {
   calculatePrependScrollTop,
@@ -90,7 +90,7 @@ describe("message scroller behavior", () => {
   });
 
   it("marks the transcript busy until a streamed response settles", async () => {
-    const wrapper = mount(AgentChat, { props: { status: "streaming" } });
+    const wrapper = mount(Chat, { props: { status: "streaming" } });
 
     expect(wrapper.get("[data-slot='message-scroller-content']").attributes("aria-busy")).toBe("true");
     await wrapper.setProps({ status: "ready" });
@@ -98,7 +98,7 @@ describe("message scroller behavior", () => {
   });
 
   it("applies package-wide defaults to the styled chat", () => {
-    const wrapper = mount(AgentChat, {
+    const wrapper = mount(Chat, {
       global: {
         plugins: [
           createViteHubUI({
@@ -116,7 +116,7 @@ describe("message scroller behavior", () => {
 
   it("renders the styled jump control through Nuxt UI without component-slot warnings", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const wrapper = mount(AgentChat, {
+    const wrapper = mount(Chat, {
       global: { components: { UButton: ChatButtonStub } },
     });
 
@@ -139,7 +139,7 @@ describe("message scroller behavior", () => {
   });
 
   it("preserves custom jump-control content", () => {
-    const wrapper = mount(AgentChat, {
+    const wrapper = mount(Chat, {
       global: { components: { UButton: ChatButtonStub } },
       props: { scrollButtonLabel: "Jump to newest" },
       slots: { "scroll-button": () => "Newest message" },
@@ -151,7 +151,7 @@ describe("message scroller behavior", () => {
   });
 
   it("renders root default content once without replacing message bodies", () => {
-    const wrapper = mount(AgentChat, {
+    const wrapper = mount(Chat, {
       global: {
         components: {
           UChatMessage: defineComponent({
@@ -175,7 +175,7 @@ describe("message scroller behavior", () => {
   });
 
   it("renders a composer overlay once without forwarding it to message bodies", () => {
-    const wrapper = mount(AgentChat, {
+    const wrapper = mount(Chat, {
       global: {
         components: {
           UChatMessage: defineComponent({

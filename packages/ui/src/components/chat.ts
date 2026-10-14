@@ -8,10 +8,10 @@ import {
   MessageScrollerViewport,
 } from "../headless/message-scroller.ts";
 import { useViteHubUI } from "../config.ts";
-import { AgentChatMessage } from "./agent-chat-message.ts";
+import { ChatMessage } from "./chat-message.ts";
 
-export const AgentChat = defineComponent({
-  name: "AgentChat",
+export const Chat = defineComponent({
+  name: "Chat",
   inheritAttrs: false,
   props: {
     edgeThreshold: { type: Number },
@@ -68,7 +68,7 @@ export const AgentChat = defineComponent({
                               default: () =>
                                 slots.message?.({ index, message }) ??
                                 h(
-                                  AgentChatMessage,
+                                  ChatMessage,
                                   {
                                     message,
                                     streaming:

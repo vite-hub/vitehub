@@ -2,11 +2,9 @@
 
 import type { ChatStatus, FileUIPart } from "ai";
 import UButton from "@nuxt/ui/components/Button.vue";
-import UChatPrompt from "@nuxt/ui/components/ChatPrompt.vue";
-import UChatPromptSubmit from "@nuxt/ui/components/ChatPromptSubmit.vue";
 import { flushPromises, mount } from "@vue/test-utils";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { AgentChatPrompt } from "../src/components/agent-chat-prompt.ts";
+import { PromptInput } from "../src/components/prompt-input.ts";
 import * as attachments from "../src/composables/attachments.ts";
 
 const filePart: FileUIPart = {
@@ -17,8 +15,8 @@ const filePart: FileUIPart = {
 };
 
 async function renderPrompt(status: ChatStatus = "ready") {
-  const wrapper = mount(AgentChatPrompt, {
-    global: { components: { UButton, UChatPrompt, UChatPromptSubmit }, stubs: { UIcon: true } },
+  const wrapper = mount(PromptInput, {
+    global: { components: { UButton }, stubs: { UIcon: true } },
     props: { modelValue: "Read these notes", status },
   });
   await flushPromises();
@@ -36,7 +34,7 @@ async function pickFile(wrapper: Awaited<ReturnType<typeof renderPrompt>>) {
 
 afterEach(() => vi.restoreAllMocks());
 
-describe("AgentChatPrompt submission with Nuxt UI", () => {
+describe("PromptInput submission with Nuxt UI", () => {
   it.each(["submitted", "streaming", "error"] satisfies ChatStatus[])(
     "keeps Enter and form submission inert in the %s state without losing the draft",
     async (status) => {

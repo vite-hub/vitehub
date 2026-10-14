@@ -32,18 +32,6 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./agent-chat": {
-      "types": "./dist/agent-chat.d.ts",
-      "import": "./dist/agent-chat.js"
-    },
-    "./agent-chat-message": {
-      "types": "./dist/agent-chat-message.d.ts",
-      "import": "./dist/agent-chat-message.js"
-    },
-    "./agent-chat-prompt": {
-      "types": "./dist/agent-chat-prompt.d.ts",
-      "import": "./dist/agent-chat-prompt.js"
-    },
     "./agent-code-view": {
       "types": "./dist/agent-code-view.d.ts",
       "import": "./dist/agent-code-view.js"
@@ -60,14 +48,6 @@
       "types": "./dist/agent-file-tree.d.ts",
       "import": "./dist/agent-file-tree.js"
     },
-    "./agent-markdown": {
-      "types": "./dist/agent-markdown.d.ts",
-      "import": "./dist/agent-markdown.js"
-    },
-    "./agent-message-parts": {
-      "types": "./dist/agent-message-parts.d.ts",
-      "import": "./dist/agent-message-parts.js"
-    },
     "./agent-multi-file-diff": {
       "types": "./dist/agent-multi-file-diff.d.ts",
       "import": "./dist/agent-multi-file-diff.js"
@@ -75,10 +55,6 @@
     "./agent-patch-diff": {
       "types": "./dist/agent-patch-diff.d.ts",
       "import": "./dist/agent-patch-diff.js"
-    },
-    "./agent-session": {
-      "types": "./dist/agent-session.d.ts",
-      "import": "./dist/agent-session.js"
     },
     "./agent-tool-list": {
       "types": "./dist/agent-tool-list.d.ts",
@@ -100,6 +76,18 @@
       "types": "./dist/bubble.d.ts",
       "import": "./dist/bubble.js"
     },
+    "./chat": {
+      "types": "./dist/chat.d.ts",
+      "import": "./dist/chat.js"
+    },
+    "./chat-message": {
+      "types": "./dist/chat-message.d.ts",
+      "import": "./dist/chat-message.js"
+    },
+    "./chat-session": {
+      "types": "./dist/chat-session.d.ts",
+      "import": "./dist/chat-session.js"
+    },
     "./code-block": {
       "types": "./dist/code-block.d.ts",
       "import": "./dist/code-block.js"
@@ -107,6 +95,10 @@
     "./headless": {
       "types": "./dist/headless.d.ts",
       "import": "./dist/headless.js"
+    },
+    "./markdown": {
+      "types": "./dist/markdown.d.ts",
+      "import": "./dist/markdown.js"
     },
     "./marker": {
       "types": "./dist/marker.d.ts",
@@ -116,6 +108,10 @@
       "types": "./dist/message.d.ts",
       "import": "./dist/message.js"
     },
+    "./message-parts": {
+      "types": "./dist/message-parts.d.ts",
+      "import": "./dist/message-parts.js"
+    },
     "./nuxt": {
       "types": "./dist/nuxt.d.ts",
       "import": "./dist/nuxt.js"
@@ -123,6 +119,10 @@
     "./primitive-rail": {
       "types": "./dist/primitive-rail.d.ts",
       "import": "./dist/primitive-rail.js"
+    },
+    "./prompt-input": {
+      "types": "./dist/prompt-input.d.ts",
+      "import": "./dist/prompt-input.js"
     },
     "./trace": {
       "types": "./dist/trace.d.ts",
