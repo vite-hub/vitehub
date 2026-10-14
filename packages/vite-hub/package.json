@@ -200,6 +200,7 @@
     "./ui/agent-unresolved-file": "./dist/ui/agent-unresolved-file.js",
     "./ui/attachment": "./dist/ui/attachment.js",
     "./ui/bubble": "./dist/ui/bubble.js",
+    "./ui/code-block": "./dist/ui/code-block.js",
     "./ui/headless": "./dist/ui/headless.js",
     "./ui/marker": "./dist/ui/marker.js",
     "./ui/message": "./dist/ui/message.js",

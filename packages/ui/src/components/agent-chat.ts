@@ -4,7 +4,7 @@ import {
   MessageScrollerButton,
   MessageScrollerContent,
   MessageScrollerItem,
-  MessageScrollerRoot,
+  MessageScroller,
   MessageScrollerViewport,
 } from "../headless/message-scroller.ts";
 import { useViteHubUI } from "../config.ts";
@@ -32,7 +32,7 @@ export const AgentChat = defineComponent({
         ),
       );
       return h(
-        MessageScrollerRoot,
+        MessageScroller,
         {
           ...attrs,
           class: ["vh-chat", attrs.class],
