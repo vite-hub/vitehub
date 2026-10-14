@@ -1,7 +1,5 @@
 import * as decoding from "lib0/decoding"
 import * as encoding from "lib0/encoding"
-import { normalizeSafeWorkspacePath } from "@vite-hub/workspace"
-
 import type { RealtimeWorkspaceChange } from "./types.ts"
 import { realtimeErrorDiagnostics } from "./error-diagnostics.ts"
 
@@ -24,12 +22,17 @@ function validPath(value: unknown): value is string {
   if (parts.some(part => {
     return !part || part === "." || part === ".."
   })) return false
-  try {
-    return normalizeSafeWorkspacePath(value) === value
-  }
-  catch {
-    return false
-  }
+  return !parts.some((part, index) => {
+    const lower = part.toLowerCase()
+    const withoutStream = lower.split(":", 1)[0]!
+    const normalized = withoutStream.replace(/[ .]+$/, "")
+    const traversal = /^(?:\.(?: +[. ]*)?|\.\.(?: +[. ]*)?)$/.test(withoutStream)
+    const reserved = normalized === ".git"
+      || /^git~\d+$/.test(normalized)
+      || (index === 0 && normalized === ".vitehub")
+      || (index === 0 && /^vitehu~\d+$/.test(normalized))
+    return traversal || reserved
+  })
 }
 
 export function decodeWorkspaceChangePayload(decoder: decoding.Decoder): RealtimeWorkspaceChange | undefined {
