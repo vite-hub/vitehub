@@ -345,7 +345,12 @@ function hasResponsePrototype(value: unknown): boolean {
             && constructorSource.includes("#state")
             && constructorSource.includes("webidl.brandCheck")
             && constructorSource.includes("static error")
-            && constructorSource.includes("static json"))
+            && constructorSource.includes("static json")
+            // Undici's cross-realm implementation exposes these private-brand
+            // helpers as part of its constructor source. Requiring both keeps
+            // a user-defined class with copied accessors from being accepted.
+            && constructorSource.includes("static getResponseHeaders")
+            && constructorSource.includes("static setResponseHeaders"))
           )
       if (isNativeConstructor && accessorsAreBranded) return true
       prototype = Object.getPrototypeOf(prototype)
