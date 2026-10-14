@@ -741,7 +741,9 @@ function withWorkspaceFallbackFullStream(
         // SAFETY: The object check permits reading the optional error payload of a stream event.
         const errorRecord = hasRuntimeType(event, "object") && event !== null ? event as { error?: unknown } : undefined
         const streamError = errorRecord?.error
-        if (streamError instanceof ExecutionBudgetExceededError || context.executionBudget?.signal.aborted && context.executionBudget.signal.reason instanceof ExecutionBudgetExceededError) return
+        const budgetReason = context.executionBudget?.signal.reason
+        const budgetTimedOut = budgetReason instanceof DOMException && budgetReason.name === "TimeoutError"
+        if (streamError instanceof ExecutionBudgetExceededError || budgetReason instanceof ExecutionBudgetExceededError || budgetTimedOut) return
       }
     }
 
