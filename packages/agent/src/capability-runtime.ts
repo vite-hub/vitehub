@@ -505,16 +505,21 @@ function isPlainRecord(input: unknown): input is Record<string, unknown> {
   return !!input && hasRuntimeType(input, "object") && !Array.isArray(input)
 }
 
-const objectToString = Object.prototype.toString
-
-function objectTag(value: unknown): string {
-  try {
-    return objectToString.call(value)
-  }
-  catch {
-    return ""
-  }
-}
+const builtinTags = [
+  "[object Date]",
+  "[object RegExp]",
+  "[object URL]",
+  "[object URLSearchParams]",
+  "[object ArrayBuffer]",
+  "[object SharedArrayBuffer]",
+  "[object Map]",
+  "[object Set]",
+  "[object Number]",
+  "[object String]",
+  "[object Boolean]",
+  "[object BigInt]",
+  "[object Symbol]",
+] as const
 
 function isBuiltinObject(value: unknown, tag: string): boolean {
   try {
@@ -542,6 +547,13 @@ function isBuiltinObject(value: unknown, tag: string): boolean {
   catch {
     return false
   }
+}
+
+function builtinObjectTag(value: object): string {
+  for (const tag of builtinTags) {
+    if (isBuiltinObject(value, tag)) return tag
+  }
+  return ""
 }
 
 function isPlainObjectPrototype(prototype: unknown): boolean {
@@ -593,8 +605,7 @@ export function snapshotCapabilityData(value: unknown, seen: WeakMap<object, unk
   if (!value || !hasRuntimeType(value, "object")) return value
   const existing = seen.get(value)
   if (existing) return existing
-  const rawTag = objectTag(value)
-  const tag = isBuiltinObject(value, rawTag) ? rawTag : ""
+  const tag = builtinObjectTag(value)
   if (tag === "[object Date]") {
     try { return new Date(Date.prototype.getTime.call(value)) }
     catch { /* spoofed tag; continue with ordinary object handling */ }
@@ -707,10 +718,8 @@ function capabilityDataEqual(left: unknown, right: unknown, seen = new WeakMap<o
   const matched = seen.get(left)
   if (matched === right) return true
   seen.set(left, right)
-  const leftRawTag = objectTag(left)
-  const rightRawTag = objectTag(right)
-  const leftTag = isBuiltinObject(left, leftRawTag) ? leftRawTag : ""
-  const rightTag = isBuiltinObject(right, rightRawTag) ? rightRawTag : ""
+  const leftTag = builtinObjectTag(left)
+  const rightTag = builtinObjectTag(right)
   if (leftTag !== rightTag) return false
   if (leftTag === "[object Date]") {
     try {

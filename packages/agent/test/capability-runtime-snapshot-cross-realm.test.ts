@@ -91,4 +91,16 @@ describe("capability input snapshots", () => {
     expect(() => snapshotCapabilityData(value)).not.toThrow()
     expect(snapshotCapabilityData(value)).toBe(value)
   })
+
+  it.each(["Map", "Set"] as const)("snapshots branded %s values with overridden tags", async (name) => {
+    const value = name === "Map" ? new Map([["key", 1]]) : new Set([1])
+    Object.defineProperty(value, Symbol.toStringTag, { configurable: true, value: "Custom" })
+    const resolved = await resolveAgentCapabilities(undefined, runtime(), { data: { value } })
+    const snapshot = snapshotCapabilityData(value)
+    expect(snapshot).not.toBe(value)
+    expect(resolved.inputDataChanged()).toBe(false)
+    if (name === "Map") (value as Map<string, number>).set("changed", 2)
+    else (value as Set<number>).add(2)
+    expect(resolved.inputDataChanged()).toBe(true)
+  })
 })
