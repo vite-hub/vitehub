@@ -44,6 +44,10 @@ export function hasCloudflareSqlExec(sql: unknown): sql is RealtimeRoomSql {
     // workerd's native getter does not. Reject these before the brand probe so
     // discovery never invokes a fabricated getter.
     if (Object.hasOwn(databaseSize, "prototype")) return false
+    // Workerd exposes the platform accessor with its stable getter name.
+    // A proxy-wrapped arrow or bound callback cannot reproduce that accessor
+    // identity and must not be used as a receiver brand check.
+    if (databaseSize.name !== "get databaseSize") return false
 
     // The native getter must enforce workerd's internal SqlStorage brand.
     // A fabricated getter (including a Proxy-wrapped arrow or bound function)
