@@ -74,7 +74,7 @@ CodeBlock
 - **It copies cleanly.** Line numbers and diff markers are not selectable, and blank lines stay in a copied selection.
 - **It reads left to right.** The content always has `dir="ltr"`.
 - **It highlights without WASM.** `useHighlightedCode` uses the Shiki JavaScript regex engine, loads each language the first time it is used, and shows the colors of terminal output.
-- **It renders on the server.** Server rendering waits for the colored lines. The first render in the browser shows plain text.
+- **It renders on the server.** The server and the first browser render show plain lines, so hydration matches. The colors follow after mount.
 - **It follows the color mode.** Tokens use the GitHub light and dark themes and follow the `dark` class of Nuxt UI.
 - **It scrolls by keyboard.** The content is focusable, and floating actions show on focus as well as on hover.
 
@@ -266,7 +266,7 @@ const lines = useHighlightedCode(code, "json");
 </template>
 ```
 
-Both arguments can be refs or getters, so the lines update when the code changes. Shiki uses its JavaScript regex engine, so there is no WASM to load. Server rendering waits for the colored lines. The first render in the browser shows plain text. Tokens use the GitHub light and dark themes and follow the `dark` class of Nuxt UI.
+Both arguments can be refs or getters, so the lines update when the code changes. Shiki uses its JavaScript regex engine, so there is no WASM to load. The server and the first browser render show plain lines, so hydration matches, and the colors follow after mount. Plain ANSI text drops its escape codes. Tokens use the GitHub light and dark themes and follow the `dark` class of Nuxt UI.
 
 ### Languages
 
@@ -365,7 +365,7 @@ function useHighlightedCode(
 ): ShallowRef<VNode[]>;
 ```
 
-Returns a shallow ref with one VNode per line. It holds plain lines until the first highlight pass finishes, and for a language that is not in the list. Server rendering waits for the highlighted lines.
+Returns a shallow ref with one VNode per line. It holds plain lines on the server, until the first highlight pass after mount finishes, and for a language that is not in the list.
 
 #### Parameters
 
