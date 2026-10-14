@@ -805,6 +805,29 @@ describe("contentSource", () => {
 })
 
 describe("defineContentHandler", () => {
+  it("preserves repeated Node header values from another realm", async () => {
+    let received: string | null = null
+    const handler = defineContentHandler({
+      async handler(request) {
+        received = (request as Request).headers.get("x-test")
+        return new Response("ok")
+      },
+    })
+    const nodeHeaders = runInNewContext("['first', 'second']") as string[]
+    const nodeRequest = {
+      aborted: false,
+      headers: { "x-test": nodeHeaders },
+      method: "GET",
+      url: "/headers",
+      [Symbol.asyncIterator]() {
+        return { next: async () => ({ done: true as const, value: undefined }) }
+      },
+      once() {},
+    }
+
+    await handler({ method: "GET", node: { req: nodeRequest }, req: nodeRequest } as never)
+    expect(received).toBe("first, second")
+  })
   it("copies ArrayBuffer Node body chunks from another realm", async () => {
     let received: Uint8Array | undefined
     const handler = defineContentHandler({

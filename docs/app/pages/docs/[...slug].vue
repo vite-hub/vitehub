@@ -16,6 +16,8 @@ import {
 
 definePageMeta({
   layout: "docs",
+  // The docs layout renders the site footer inside its content column.
+  footer: false,
 });
 
 const route = useRoute();
