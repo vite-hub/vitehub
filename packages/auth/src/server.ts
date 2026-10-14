@@ -286,23 +286,13 @@ async function runAccessAuthorize(
 
 async function isResponseLike(value: unknown): Promise<boolean> {
   if (value === null || typeof value !== "object") return false
-  // Use accessors from trusted implementations, never from the candidate's
-  // prototype. Undici responses have a separate brand from Node's Response.
-  if (hasResponseBrand(value, Response.prototype)) return true
+  // `instanceof` checks the constructor's native prototype chain and cannot be
+  // satisfied by a plain object that merely imitates the Response surface.
+  // Keep both implementations because Auth can receive either runtime's
+  // Response (including subclasses and responses created in another VM).
+  if (value instanceof Response) return true
   const { Response: UndiciResponse } = await import("undici")
-  return hasResponseBrand(value, UndiciResponse.prototype)
-}
-
-function hasResponseBrand(value: object, prototype: object): boolean {
-  try {
-    const status = Object.getOwnPropertyDescriptor(prototype, "status")?.get
-    if (!status) return false
-    status.call(value)
-    return true
-  }
-  catch {
-    return false
-  }
+  return value instanceof UndiciResponse
 }
 
 async function checkAuthRequest(
