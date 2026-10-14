@@ -116,6 +116,9 @@ export function fetch<TResponse = unknown, TOutput = TResponse>(input: FetchSour
 }
 
 function createFetchSource<TResponse = unknown, TOutput = TResponse>(options: FetchSourceOptions<TResponse, TOutput>): WorkspaceSource {
+  // Runtime options are part of the public Source configuration contract and
+  // must not be inherited from an options object's prototype.
+  options = { ...options }
   const responseType = normalizePublicResponseType(options.responseType || "json")
   const method = normalizeMethod(options.method)
   assertRequestShape(options, method)

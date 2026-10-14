@@ -287,18 +287,32 @@ async function runAccessAuthorize(
 }
 
 async function normalizeAuthorizationResponse(value: unknown): Promise<Response | undefined> {
+  if (!isResponseLike(value)) return
   if (value instanceof Response) return value
+
+  const headers = new Headers(value.headers)
+  const body = value.body === null ? null : new Uint8Array(await value.arrayBuffer())
+  return new Response(body, {
+    headers,
+    status: value.status,
+    statusText: value.statusText,
+  })
+}
+
+function isResponseLike(value: unknown): value is Response {
+  if (value === null || typeof value !== "object") return false
+  if (value instanceof Response) return true
   try {
-    if (Object.prototype.toString.call(value) !== "[object Response]") return
-    // SAFETY: Foreign responses are untrusted. Copy their data into a local
-    // Response so adapters only receive native Headers and body operations.
-    const response = value as Response
-    const headers = new Headers(response.headers)
-    const body = response.body === null ? null : new Uint8Array(await response.arrayBuffer())
-    return new Response(body, { headers, status: response.status, statusText: response.statusText })
+    if (Object.prototype.toString.call(value) !== "[object Response]") return false
+    const response = value as { headers?: unknown, status?: unknown, statusText?: unknown, body?: unknown, arrayBuffer?: unknown }
+    if (typeof response.status !== "number" || !Number.isInteger(response.status) || response.status < 0 || response.status > 599) return false
+    if (typeof response.statusText !== "string") return false
+    const headers = response.headers
+    if (headers === null || typeof headers !== "object" || typeof (headers as { get?: unknown }).get !== "function") return false
+    return response.body === null || typeof response.arrayBuffer === "function"
   }
   catch {
-    return
+    return false
   }
 }
 

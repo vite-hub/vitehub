@@ -1,7 +1,7 @@
 import { file as createFileSource, type FileSourceOptions as SourcePackageFileSourceOptions } from "@vite-hub/source/file"
 
 import { normalizeSafeWorkspacePath } from "../core/path.ts"
-import { withWorkspaceRuntimeOptions } from "./runtime-options.ts"
+import { ownSourceOption, withWorkspaceRuntimeOptions } from "./runtime-options.ts"
 
 import type { ExactOptions, WorkspaceSourceRuntimeOptions } from "./runtime-options.ts"
 import type { WorkspaceSource } from "../core/types.ts"
@@ -16,12 +16,13 @@ export function file<const TKey extends string = string, const TOptions extends 
 export function file<const TKey extends string = string>(input: FileSourceInput<TKey>): WorkspaceSource {
   const options = (typeof input === "string" ? { path: input } : input) as FileSourceOptions<TKey>
   const key = normalizeSafeWorkspacePath(options.workspacePath || options.path || "")
-  const mount = typeof options.mount === "object" && options.mount && !("path" in options.mount)
-    ? { ...options.mount, path: "" }
-    : options.mount ?? ""
+  const declaredMount = ownSourceOption(options, "mount")
+  const mount = typeof declaredMount === "object" && declaredMount && !Object.hasOwn(declaredMount, "path")
+    ? { ...declaredMount, path: "" }
+    : declaredMount ?? ""
   const source = createFileSource(options)
   return {
     ...withWorkspaceRuntimeOptions(source, { ...options, mount }),
-    probeKeys: options.probeKeys || [key],
+    probeKeys: ownSourceOption(options, "probeKeys") || [key],
   }
 }

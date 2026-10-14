@@ -897,7 +897,7 @@ function copyDefinedWorkspaceBindingOption<TKey extends "cache" | "materialize" 
   input: Record<string, unknown>,
   key: TKey,
 ) {
-  if (input[key] !== undefined) {
+  if (Object.hasOwn(input, key) && input[key] !== undefined) {
     target[key] = input[key] as never
   }
 }
