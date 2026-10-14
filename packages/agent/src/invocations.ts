@@ -640,11 +640,18 @@ async function collectBoundedObservationBuiltIns(
     seen.add(value)
     const BlobConstructor = globalThis.Blob
     if (hasRuntimeType(BlobConstructor, "function") && isInstance(value, BlobConstructor)) {
-      const blob = value
+      const blob = value as Blob
       const FileConstructor = globalThis.File
-      const file = hasRuntimeType(FileConstructor, "function") && isInstance(value, FileConstructor) ? value : undefined
+      const file = hasRuntimeType(FileConstructor, "function") && isInstance(value, FileConstructor) ? value as File : undefined
       const bytes = Array.from(new Uint8Array(await blob.slice(0, MAX_OBSERVATION_COLLECTION_ITEMS).arrayBuffer()))
-      const representation = {
+      const representation: {
+        bytes: number[]
+        mediaType: string
+        size: number
+        type: string
+        lastModified?: number
+        name?: string
+      } = {
         bytes,
         mediaType: blob.type,
         size: blob.size,
