@@ -415,13 +415,16 @@ describe("Auth access handlers", () => {
 
   it("forwards cancellation to the foreign response body", async () => {
     const cancel = vi.fn()
-    const foreign = new ForeignResponse(new ReadableStream({ cancel }), { status: 409 })
+    const source = new ReadableStream({ cancel }, { highWaterMark: 0 })
+    const foreign = new ForeignResponse(source, { status: 409 })
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
       access: { routes: [{ route: "/**", authorize: () => foreign as never }] },
     }))
 
     const response = await handler(new Request("https://app.example/"))
+    expect(source.locked).toBe(false)
     await response?.body?.cancel("client disconnected")
+    expect(source.locked).toBe(false)
 
     expect(cancel).toHaveBeenCalledWith("client disconnected")
   })
@@ -464,6 +467,7 @@ describe("Auth access handlers", () => {
     const response = await handler(new Request("https://app.example/"))
 
     expect(pull).not.toHaveBeenCalled()
+    expect(source.locked).toBe(false)
     await expect(response?.text()).resolves.toBe("A")
     expect(pull).toHaveBeenCalledOnce()
     expect(source.locked).toBe(false)
