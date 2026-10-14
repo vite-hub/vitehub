@@ -189,7 +189,7 @@ describe("UI documentation", () => {
     expect(sidebarTop).not.toContain("<details");
     expect(sidebarTop).toContain("UContentSearchButton");
     expect(layout).toContain("height: calc(100dvh - var(--ui-header-height));");
-    expect(layout).toContain(".vh-docs-aside");
+    expect(layout).toContain('<UPageAside class="vh-docs-aside">');
     expect(layout).toContain("lg:!flex-1");
   });
 
