@@ -284,27 +284,37 @@ async function runAccessAuthorize(
   if (result !== true) return createForbiddenResponse(context.request)
 }
 
-let responseConstructors: readonly (typeof Response)[] | undefined
+let responsePrototypes: readonly object[] | undefined
 
 async function isResponseLike(value: unknown): Promise<boolean> {
   if (value === null || typeof value !== "object") return false
-  // `instanceof` checks a platform constructor's prototype chain and cannot be
-  // satisfied by a plain object that merely imitates the Response surface.
-  // Keep the host and Undici constructors because Auth can receive either
-  // runtime's Response, including subclasses and values from another VM that
-  // uses one of these supported implementations.
-  if (!responseConstructors) {
-    const constructors: (typeof Response)[] = [Response]
+  // Accessors from a trusted implementation perform the Web IDL brand check,
+  // which works for subclasses and foreign realms without accepting objects
+  // that only imitate the Response surface.
+  if (!responsePrototypes) {
+    const prototypes: object[] = [Response.prototype]
     try {
       const { Response: UndiciResponse } = await import("undici")
-      if (UndiciResponse !== Response) constructors.push(UndiciResponse)
+      if (UndiciResponse.prototype !== Response.prototype) prototypes.push(UndiciResponse.prototype)
     }
     catch {
       // Undici is optional in runtimes that provide a host Response.
     }
-    responseConstructors = constructors
+    responsePrototypes = prototypes
   }
-  return responseConstructors.some((ResponseConstructor) => value instanceof ResponseConstructor)
+  return responsePrototypes.some((prototype) => {
+    const statusGetter = Object.getOwnPropertyDescriptor(prototype, "status")?.get
+    const headersGetter = Object.getOwnPropertyDescriptor(prototype, "headers")?.get
+    if (!statusGetter || !headersGetter) return false
+    try {
+      const status = statusGetter.call(value)
+      const headers = headersGetter.call(value)
+      return typeof status === "number" && headers !== null && typeof headers === "object"
+    }
+    catch {
+      return false
+    }
+  })
 }
 
 async function checkAuthRequest(
