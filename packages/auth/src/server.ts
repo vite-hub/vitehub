@@ -2,6 +2,7 @@ import discoveredDefinition from "#vitehub/auth/definition"
 import { betterAuth } from "better-auth"
 
 import { normalizeAuthBasePath } from "./shared.ts"
+import { unwrapAuthRequest } from "./request.ts"
 import { resolveAuthOptions } from "./runtime-options.ts"
 import { throwAuthenticationProviderError } from "./errors.ts"
 import { getAuthenticationSession } from "./session.ts"
@@ -71,11 +72,6 @@ function toRequest(request: AuthRequest): Request {
   return new Request(request.url, init)
 }
 
-function unwrapAuthRequest(input: AuthRequestInput): AuthRequest {
-  // SAFETY: AuthRequestInput is a request or an own-property host wrapper; inherited req values must not replace the request.
-  return Object.hasOwn(input, "req") ? (input as { req: AuthRequest }).req : input as AuthRequest
-}
-
 export function createAuthRequestRuntimeOptions(
   definition: AuthDefinition,
   request: Pick<Request, "headers" | "url">,
@@ -126,11 +122,17 @@ export function createAuthForRequest(
 
 export function handleAuthRequest(
   definition: AuthDefinition,
-  request: AuthRequest,
+  input: AuthRequestInput,
   runtimeOptions?: AuthRuntimeOptions,
-  event?: unknown,
+  event: unknown = input,
 ): Promise<Response> {
+  const request = unwrapAuthRequest(input)
   return createAuthForRequest(definition, request, runtimeOptions, event).handler(toRequest(request))
+}
+
+/** Return the request of a Web Request or a host server event, including an H3 1 event in Nuxt 4. */
+export function toAuthRequest(input: AuthRequestInput): AuthRequest {
+  return unwrapAuthRequest(input)
 }
 
 export function createAuthHandler(
@@ -189,8 +191,7 @@ export function handleAuth(
   input: AuthRequestInput,
   runtimeOptions?: AuthRuntimeOptions,
 ): Promise<Response> {
-  const request = unwrapAuthRequest(input)
-  return handleAuthRequest(resolveDefaultDefinition(), request, runtimeOptions, input)
+  return handleAuthRequest(resolveDefaultDefinition(), input, runtimeOptions, input)
 }
 
 function wantsHtml(request: Pick<Request, "headers" | "method">): boolean {
@@ -352,18 +353,34 @@ async function runAccessAuthorize(
         const secondReaderMethod = responseMethod(second, "getReader")
         const secondReader = secondReaderMethod?.call(second) as { read?: () => unknown, releaseLock?: () => void } | undefined
         if (!secondReader || typeof secondReader.read !== "function" || typeof secondReader.releaseLock !== "function") return createForbiddenResponse(context.request)
+        const chunks: Uint8Array[] = []
+        let totalLength = 0
         try {
-          const secondRead = secondReader.read()
-          if (!secondRead || typeof (secondRead as PromiseLike<unknown>).then !== "function") return createForbiddenResponse(context.request)
-          await secondRead
+          while (true) {
+            const secondRead = secondReader.read()
+            if (!secondRead || typeof (secondRead as PromiseLike<unknown>).then !== "function") return createForbiddenResponse(context.request)
+            const chunk = await secondRead as { done?: unknown, value?: unknown }
+            if (typeof chunk !== "object" || chunk === null || typeof chunk.done !== "boolean") return createForbiddenResponse(context.request)
+            if (chunk.done) break
+            if (!ArrayBuffer.isView(chunk.value) || typeof (chunk.value as { byteLength?: unknown }).byteLength !== "number") return createForbiddenResponse(context.request)
+            const bytes = new Uint8Array(chunk.value)
+            chunks.push(bytes)
+            totalLength += bytes.byteLength
+          }
         }
         catch {
           return createForbiddenResponse(context.request)
         }
         finally {
-          secondReader.releaseLock()
+          try { secondReader.releaseLock() } catch { /* ignore */ }
         }
-        normalizedBody = new Response(second as ConstructorParameters<typeof Response>[0]).body
+        const bodyBytes = new Uint8Array(totalLength)
+        let offset = 0
+        for (const chunk of chunks) {
+          bodyBytes.set(chunk, offset)
+          offset += chunk.byteLength
+        }
+        normalizedBody = new Response(bodyBytes).body
       }
       return new Response(normalizedBody, {
         headers: new Headers(headers as ConstructorParameters<typeof Headers>[0]),
