@@ -21,8 +21,8 @@ function isBlobLike(value: unknown): value is Blob {
   try {
     // A native Blob's own method performs an unforgeable internal-slot check,
     // which accepts native Blobs from other realms.
-    const slice = (value as { slice?: unknown }).slice
-    if (typeof slice !== "function") return false
+    const slice = Reflect.get(value, "slice")
+    if (!hasRuntimeType(slice, "function")) return false
     Reflect.apply(slice, value, [0, 0])
     return true
   }
@@ -40,7 +40,7 @@ export function toResponse(value: unknown): Response {
     return new Response(value as ConstructorParameters<typeof Response>[0])
   }
   if (isBlobLike(value)) {
-    return new Response(value.stream() as ReadableStream, value.type ? { headers: { "content-type": value.type } } : undefined)
+    return new Response(value.stream(), value.type ? { headers: { "content-type": value.type } } : undefined)
   }
   return new Response(JSON.stringify(value), {
     headers: { "content-type": "application/json; charset=utf-8" },
