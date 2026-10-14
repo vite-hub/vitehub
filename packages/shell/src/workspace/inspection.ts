@@ -301,7 +301,11 @@ function searchNoMatchFeedback(command: string, result: ShellObservation, broadS
         continue
       }
       const paths = segment.paths
-      const hasBroadPath = paths.some(path => isBroadWorkspacePath(path, broadSearchPaths, currentCwd))
+      const hasBroadPath = paths.some(path => {
+        const resolved = cleanWorkspaceShellPath(resolvedWorkspaceCwd(currentCwd, path))
+        return isBroadWorkspacePath(path, broadSearchPaths, currentCwd)
+          || broadSearchPaths.some(root => resolved.startsWith(`${cleanWorkspaceShellPath(root)}/`))
+      })
       if (!hasBroadPath) {
         if (segment.separatorAfter === "&&") return ""
         continue
