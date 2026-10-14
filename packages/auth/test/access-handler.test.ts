@@ -119,6 +119,7 @@ describe("Auth access handlers", () => {
     vi.stubGlobal("Response", LocalResponse)
     expect(foreignResponse).toBeInstanceOf(NativeResponse)
     expect(foreignResponse).not.toBeInstanceOf(Response)
+    expect(Object.getPrototypeOf(foreignResponse).constructor).not.toBe(Response)
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
       access: { routes: [{ route: "/**", authorize: () => foreignResponse as never }] },
     }))
