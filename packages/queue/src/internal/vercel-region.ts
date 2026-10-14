@@ -8,7 +8,7 @@ function readHeader(headers: Headers | Record<string, unknown> | undefined, name
   if (isHeadersLike(headers)) {
     try {
       const descriptor = getPrototypeDescriptor(headers, "get")
-      if (!isBrandedMethod(descriptor?.value, headers, name)) return
+      if (!isBrandedMethod(descriptor?.value, headers, descriptor?.owner, name)) return
       const value = descriptor.value.call(headers, name)
       return typeof value === "string" && value ? value : undefined
     }
@@ -43,7 +43,7 @@ function isHeadersLike(value: unknown): value is Headers {
     // region for the actual object.
     if (Object.prototype.hasOwnProperty.call(value, "get")) return false
     const descriptor = getPrototypeDescriptor(value, "get")
-    if (!isBrandedMethod(descriptor?.value, value, "ce-vqsregion")) return false
+    if (!isBrandedMethod(descriptor?.value, value, descriptor?.owner, "ce-vqsregion")) return false
     const result = descriptor.value.call(value, "ce-vqsregion")
     if (result !== undefined && result !== null && typeof result !== "string") return false
     return true
@@ -53,9 +53,12 @@ function isHeadersLike(value: unknown): value is Headers {
   }
 }
 
-function isBrandedMethod(value: unknown, receiver: object, ...args: unknown[]): value is (this: unknown, ...args: unknown[]) => unknown {
+function isBrandedMethod(value: unknown, receiver: object, owner: object | undefined, ...args: unknown[]): value is (this: unknown, ...args: unknown[]) => unknown {
   if (typeof value !== "function") return false
   try {
+    if (!owner || Object.getPrototypeOf(owner) === null) return false
+    const constructor = Object.getOwnPropertyDescriptor(owner, "constructor")?.value
+    if (typeof constructor !== "function" || constructor.prototype !== owner) return false
     // Web IDL methods are callable objects without an own prototype. Reject
     // ordinary functions (and proxies around them) before probing the receiver.
     if (Object.prototype.hasOwnProperty.call(value, "prototype")) return false
@@ -66,17 +69,17 @@ function isBrandedMethod(value: unknown, receiver: object, ...args: unknown[]): 
     // this rejects proxies that only throw for an unrelated probe receiver
     // and return an attacker-controlled value for the real object.
     const prototype = Object.getPrototypeOf(receiver)
-    const constructor = prototype && (Object.getOwnPropertyDescriptor(prototype, "constructor")?.value as unknown)
-    if (typeof constructor === "function") {
+    const realmConstructor = prototype && (Object.getOwnPropertyDescriptor(prototype, "constructor")?.value as unknown)
+    if (typeof realmConstructor === "function") {
       try {
-        const sibling = new constructor()
+        const sibling = new realmConstructor()
         const siblingResult = value.call(sibling, "__vitehub_brand_probe__")
         if (siblingResult !== undefined && siblingResult !== null) return false
         const siblingArgumentResult = value.call(sibling, ...args)
         if (siblingArgumentResult !== undefined && siblingArgumentResult !== null) return false
         // Probe a second genuine instance as well. A receiver-sensitive proxy
         // must behave like the real Web IDL method for every branded receiver.
-        const secondSibling = new constructor()
+        const secondSibling = new realmConstructor()
         const secondResult = value.call(secondSibling, "__vitehub_brand_probe__")
         if (secondResult !== undefined && secondResult !== null) return false
         const secondArgumentResult = value.call(secondSibling, ...args)
@@ -110,11 +113,11 @@ function getRequestHeaders(value: unknown) {
   }
 }
 
-function getPrototypeDescriptor(value: object, property: PropertyKey) {
+function getPrototypeDescriptor(value: object, property: PropertyKey): (PropertyDescriptor & { owner: object }) | undefined {
   let prototype: object | null = value
   while (prototype) {
     const descriptor = Object.getOwnPropertyDescriptor(prototype, property)
-    if (descriptor) return descriptor
+    if (descriptor) return { ...descriptor, owner: prototype }
     prototype = Object.getPrototypeOf(prototype)
   }
 }
