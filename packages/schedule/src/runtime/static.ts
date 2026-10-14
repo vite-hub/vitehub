@@ -87,17 +87,19 @@ function isScheduleRuntimeError(error: unknown): error is Error {
   }
   if (error === null || typeof error !== "object") return false
   try {
-    for (let prototype: object | null = Object.getPrototypeOf(error); prototype !== null; prototype = Object.getPrototypeOf(prototype)) {
-      const descriptor = Object.getOwnPropertyDescriptor(prototype, "constructor")
-      if (!descriptor || typeof descriptor.value !== "function") continue
-      const isError = (descriptor.value as ErrorConstructor & { isError?: (value: unknown) => boolean }).isError
-      if (typeof isError === "function" && isError(error) === true) return true
-    }
+    const process = (globalThis as typeof globalThis & {
+      process?: { getBuiltinModule?: (name: string) => unknown }
+    }).process
+    const getBuiltinModule = process?.getBuiltinModule
+    if (typeof getBuiltinModule !== "function") return false
+    const util = getBuiltinModule.call(process, "util") as {
+      types?: { isNativeError?: (value: unknown) => boolean }
+    } | undefined
+    return util?.types?.isNativeError?.(error) === true
   }
   catch {
     return false
   }
-  return false
 }
 
 export function createStaticScheduleRun(

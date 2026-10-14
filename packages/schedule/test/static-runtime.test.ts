@@ -282,8 +282,13 @@ it("uses the intrinsic Error prototype when Error.isError is unavailable", () =>
       return error
     })()`) as Error
     const fake = Object.create({ [Symbol.toStringTag]: "Error" })
+    const foreignPrototypeSpoof = runInNewContext("Object.create(Error.prototype)")
     expect(normalizeScheduleRuntimeError(taggedForeign)).toBe(taggedForeign)
     expect(normalizeScheduleRuntimeError(fake)).toMatchObject({ code: "SCHEDULE_R0035", cause: fake })
+    expect(normalizeScheduleRuntimeError(foreignPrototypeSpoof)).toMatchObject({
+      code: "SCHEDULE_R0035",
+      cause: foreignPrototypeSpoof,
+    })
   }
   finally {
     errorConstructor.isError = nativeIsError
