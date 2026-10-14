@@ -341,6 +341,7 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
     const streamConstructor = prototype && Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
     const streamPrototype = streamConstructor && Object(streamConstructor).prototype
     const nativeGetReader = streamPrototype && Object.getOwnPropertyDescriptor(streamPrototype, "getReader")?.value
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Invoke the foreign stream's own locked getter to validate its brand and readable state.
     if (typeof locked !== "function" || Reflect.apply(locked, stream, [])) return false
     return typeof getReader === "function" && getReader === nativeGetReader
   }
