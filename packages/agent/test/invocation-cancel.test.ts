@@ -826,7 +826,7 @@ describe("Agent Invocation cancel", () => {
       }
       return snapshot
     } }
-    const invocations = defineAgentInvocations({ store })
+    const invocations = defineAgentInvocations({ enforcement: "strict", store })
     const remote = defineAgentInvocations({ store: { ...backing } })
     const driver = vi.fn(() => "Must not start")
     const prepare = vi.fn()
@@ -861,7 +861,7 @@ describe("Agent Invocation cancel", () => {
       }
       return await backing.update(...args)
     } }
-    const invocations = defineAgentInvocations({ store })
+    const invocations = defineAgentInvocations({ enforcement: "strict", store })
     const remote = defineAgentInvocations({ store: { ...backing } })
     const runId = `remote-pending-warning-${failure}`
     const driver = vi.fn(() => "Must not start")
@@ -935,7 +935,7 @@ describe("Agent Invocation cancel", () => {
     await backing.create({ ...(previousOwner ? { cancelWarningPending: true, cancelWarningOwnerId: "previous-owner" } : {}), createdAt: timestamp, id, observations: [], status: "pending", traceId: runId, updatedAt: timestamp })
     const store = { ...backing, update: (...args: Parameters<typeof backing.update>) => args[1].status === "running" ? undefined : backing.update(...args) }
     const driver = vi.fn(() => "Must not start")
-    const invocations = defineAgentInvocations({ store })
+    const invocations = defineAgentInvocations({ enforcement: "strict", store })
     await expect(runAgent(defineAgent({ invocations, driver: { run: driver } }), runtime(runId), {})).rejects.toMatchObject({ code: "AGENT_R0973" })
     expect(driver).not.toHaveBeenCalled()
     expect(await backing.getSummary(id)).toMatchObject({ status: "failed" })
@@ -966,7 +966,7 @@ describe("Agent Invocation cancel", () => {
         return await backing.update(...args)
       },
     }
-    const invocations = defineAgentInvocations({ store })
+    const invocations = defineAgentInvocations({ enforcement: "strict", store })
     const remote = defineAgentInvocations({ store: { ...backing } })
     const driver = vi.fn(() => "Must not start")
     const prepare = vi.fn()
