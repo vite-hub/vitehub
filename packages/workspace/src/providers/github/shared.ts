@@ -1,7 +1,7 @@
 import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env";
 import { Diagnostic } from "nostics";
 
-import { workspaceError } from "../../core/errors.ts";
+import { workspaceConflict, workspaceError } from "../../core/errors.ts";
 import { contentToBytes, normalizeSafeWorkspacePath, normalizeWorkspacePath } from "../../core/path.ts";
 
 import type { GitHubWorkspaceOption, WorkspaceEntry } from "../../core/types.ts";
@@ -172,6 +172,25 @@ function githubRequestStatus(error: unknown): number | undefined {
     ? error
     : error instanceof Error && error.cause instanceof GitHubRequestError ? error.cause : undefined;
   return cause?.status;
+}
+
+export function githubBranchMovedConflict(input: {
+  actualHead?: string;
+  branch: string;
+  expectedHead: string;
+  repository: string;
+}): ReturnType<typeof workspaceConflict> {
+  return workspaceConflict(
+    `[vitehub] GitHub Workspace Store conflict for ${input.repository}@${input.branch}: the branch moved after this Workspace Store loaded. Rebase from the current branch head and retry.`,
+    {
+      details: {
+        actualHead: input.actualHead,
+        branch: input.branch,
+        expectedHead: input.expectedHead,
+        repository: input.repository,
+      },
+    },
+  );
 }
 
 export interface GitHubWorkspaceStoreTarget {
@@ -598,26 +617,52 @@ export async function commitGitHubChanges(input: {
     },
   );
   if (input.branchExists) {
-    await requestGitHubJson(
-      input.repository,
-      input.token,
-      `/repos/${owner}/${repo}/git/refs/heads/${encodeGitHubRef(input.branch)}`,
-      {
-        body: JSON.stringify({ force: false, sha: commit.sha }),
-        method: "PATCH",
-      },
-    );
+    try {
+      await requestGitHubJson(
+        input.repository,
+        input.token,
+        `/repos/${owner}/${repo}/git/refs/heads/${encodeGitHubRef(input.branch)}`,
+        {
+          body: JSON.stringify({ force: false, sha: commit.sha }),
+          method: "PATCH",
+        },
+      );
+    }
+    catch (error) {
+      const status = githubRequestStatus(error);
+      if (status === 409 || status === 422) {
+        throw githubBranchMovedConflict({
+          branch: input.branch,
+          expectedHead: input.parentSha,
+          repository: input.repository,
+        });
+      }
+      throw error;
+    }
   }
   else {
-    await requestGitHubJson(
-      input.repository,
-      input.token,
-      `/repos/${owner}/${repo}/git/refs`,
-      {
-        body: JSON.stringify({ ref: `refs/heads/${input.branch}`, sha: commit.sha }),
-        method: "POST",
-      },
-    );
+    try {
+      await requestGitHubJson(
+        input.repository,
+        input.token,
+        `/repos/${owner}/${repo}/git/refs`,
+        {
+          body: JSON.stringify({ ref: `refs/heads/${input.branch}`, sha: commit.sha }),
+          method: "POST",
+        },
+      );
+    }
+    catch (error) {
+      const status = githubRequestStatus(error);
+      if (status === 409 || status === 422) {
+        throw githubBranchMovedConflict({
+          branch: input.branch,
+          expectedHead: input.parentSha,
+          repository: input.repository,
+        });
+      }
+      throw error;
+    }
   }
   return { commitSha: commit.sha, treeSha: tree.sha };
 }

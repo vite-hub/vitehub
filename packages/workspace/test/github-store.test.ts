@@ -24,6 +24,7 @@ let commitIndex = 0;
 let treeIndex = 0;
 let mirrorRefSha: string | undefined;
 let mirrorRefStatus = 404;
+let mainRefUpdateStatus: number | undefined;
 let malformedResponsePath: string | undefined;
 let malformedResponse: unknown;
 let archiveFailures = 0;
@@ -70,6 +71,7 @@ beforeEach(() => {
   treeIndex = 0;
   mirrorRefSha = undefined;
   mirrorRefStatus = 404;
+  mainRefUpdateStatus = undefined;
   malformedResponsePath = undefined;
   malformedResponse = undefined;
   archiveFailures = 0;
@@ -166,6 +168,12 @@ beforeEach(() => {
         return jsonResponse({});
       }
       if (url.pathname === "/repos/onmax/repo/git/refs/heads/main" && method === "PATCH") {
+        if (mainRefUpdateStatus) {
+          return new Response("branch moved", {
+            status: mainRefUpdateStatus,
+            statusText: mainRefUpdateStatus === 422 ? "Unprocessable Entity" : "Conflict",
+          });
+        }
         if (body?.sha) refSha = body.sha;
         return jsonResponse({});
       }
@@ -1307,6 +1315,31 @@ describe("GitHub workspace store", () => {
         || request.method === "PATCH"
       ),
     ).toEqual([]);
+  });
+
+  it.each([409, 422])("maps a GitHub non-fast-forward update (%s) to a structured conflict", async (status) => {
+    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+    const store = createGitHubWorkspaceStore(
+      {
+        provider: "github",
+        repository: "onmax/repo",
+        root: ".vitehub/workspaces/<workspace>",
+        token: "token",
+      },
+      "docs",
+    );
+
+    await store.writeFile("README.md", { path: "README.md", content: "# Docs\n" });
+    mainRefUpdateStatus = status;
+
+    await expect(store.snapshot({ name: "raced conflict" })).rejects.toMatchObject({
+      code: "WORKSPACE_CONFLICT",
+      details: {
+        branch: "main",
+        expectedHead: "base-sha",
+        repository: "onmax/repo",
+      },
+    });
   });
 
   it("rebases a conflicted snapshot without dropping unrelated staged writes", async () => {
