@@ -259,8 +259,13 @@ function splitSetCookieHeader(value: string): string[] {
       unknownAttributeHasValue = unknownAttribute && match?.[2] === "="
       continue
     }
-    if (character !== "," || !/^\s*[^;,=\s]+=/.test(value.slice(index + 1))) continue
-    if (inAttributes && unknownAttribute && unknownAttributeHasValue) continue
+    const remainder = value.slice(index + 1)
+    const cookieBoundary = remainder.match(/^(\s*)[^;,=\s]+=/)
+    if (character !== "," || !cookieBoundary) continue
+    // Combined Set-Cookie values cannot distinguish a comma in an extension
+    // value from a new cookie. Treat an immediately following name as part of
+    // the extension value, while the conventional space marks a new cookie.
+    if (inAttributes && unknownAttribute && unknownAttributeHasValue && cookieBoundary[1] === "") continue
     values.push(value.slice(start, index).trim())
     start = index + 1
     inAttributes = false
