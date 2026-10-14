@@ -977,11 +977,28 @@ function isNamedAssertionComparison(source: string, index: number, genericEnd: n
   return !/^(?:as|satisfies)\s+\S/u.test(suffix) && /^[\p{ID_Start}_$\d"'`]/u.test(suffix)
 }
 
+// One token of an assertion type. A sticky match takes each token once and
+// never splits it again, so a long prefix that is not an assertion type is
+// rejected in linear time.
+const assertionTypeToken = /[\p{ID_Start}_$][\p{ID_Continue}$]*|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|(?:-\s*)?(?:0[xX][\da-fA-F_]+n?|0[bB][01_]+n?|0[oO][0-7_]+n?|\d[\d_]*n|(?:\d[\d_]*(?:\.[\d_]*)?|\.\d[\d_]*)(?:[eE][+-]?\d[\d_]*)?)|[.\s()[\]{}&|?:]/uy
+
 function hasAssertionTypePrefix(source: string) {
   // Mask completed type regions, including import arguments and comments,
   // before recognizing the continuation of a union or intersection.
   const prefix = decodeIdentifier(maskAssertionTypeArguments(source))
-  return /(?:^|[^\p{ID_Continue}$.])(?:as|satisfies)\s+(?:[\p{ID_Start}_$][\p{ID_Continue}$]*|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|(?:-\s*)?(?:0[xX][\da-fA-F_]+n?|0[bB][01_]+n?|0[oO][0-7_]+n?|\d[\d_]*n|(?:\d[\d_]*(?:\.[\d_]*)?|\.\d[\d_]*)(?:[eE][+-]?\d[\d_]*)?)|[.\s()[\]{}&|?:])+$/u.test(prefix)
+  // The prefix continues an assertion when the text after an `as` or
+  // `satisfies` keyword is only type tokens up to the end.
+  for (const keyword of prefix.matchAll(/(?<![\p{ID_Continue}$.])(?:as|satisfies)\s/gu)) {
+    let index = keyword.index + keyword[0].length
+    if (index === prefix.length) continue
+    while (index < prefix.length) {
+      assertionTypeToken.lastIndex = index
+      if (!assertionTypeToken.test(prefix)) break
+      index = assertionTypeToken.lastIndex
+    }
+    if (index === prefix.length) return true
+  }
+  return false
 }
 
 function maskAssertionTypeArguments(source: string) {
