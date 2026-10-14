@@ -105,7 +105,8 @@ describe("Console persisted usage index", () => {
       buckets: expect.arrayContaining([expect.objectContaining({
         start: window === "24h" ? "2026-09-05T11:00:00.000Z" : "2026-09-05T00:00:00.000Z",
         models: expect.arrayContaining([
-          expect.objectContaining({ model: firstModel, invocations: 3, costUsd: "0.300000000000002", costEstimated: true, totalTokens: 20 }),
+          // The truncated finish observation keeps its scalar usage totals, so its cost still counts.
+          expect.objectContaining({ model: firstModel, invocations: 4, costUsd: "100.300000000000002", costEstimated: true, totalTokens: 25 }),
           expect.objectContaining({ model: secondModel, invocations: 2, costUsd: "0", costAvailable: false, totalTokensAvailable: false }),
         ]),
       })]),
@@ -210,6 +211,33 @@ describe("Console persisted usage index", () => {
       await updates;
       await index.rebuild();
     }
+  });
+  it("projects truncated finish usage again when an earlier projection dropped it", async () => {
+    const { client, insert, index } = await fixture();
+    await insert("truncated", priced("0.01"));
+    await client.execute(
+      `UPDATE vitehub_agent_invocations SET record = json_set(record, '$.observations[0].attributes."vitehub.observation.truncated"', json('true')) WHERE id = 'truncated'`,
+    );
+    await index.rebuild();
+    expect(await index.query({ now })).toMatchObject({
+      partial: true,
+      totals: { costUsd: "0.01", invocations: 1, totalTokens: 5, totalTokensAvailable: true },
+    });
+    // Earlier releases stored a truncated finish observation as incomplete without usage.
+    await client.batch(
+      [
+        `DELETE FROM vitehub_console_usage_v2 WHERE id = 'truncated' AND model_key != ''`,
+        `UPDATE vitehub_console_usage_v2 SET usage = NULL, cost_usd = NULL, cost_whole = NULL, cost_fraction = NULL,
+          inputTokens = NULL, outputTokens = NULL, totalTokens = NULL WHERE id = 'truncated'`,
+      ],
+      "write",
+    );
+    const replacement = createConsoleUsageIndex(client);
+    await replacement.rebuild();
+    expect(await replacement.query({ now })).toMatchObject({
+      models: [{ model: "model", totalTokens: 5 }],
+      totals: { costUsd: "0.01", invocations: 1, totalTokens: 5, totalTokensAvailable: true },
+    });
   });
   it("rebuilds idempotently, updates evidence, and removes deleted records", async () => {
     const { client, insert, index } = await fixture();

@@ -3819,7 +3819,7 @@ describe("Agent invocation console", () => {
     })
   })
 
-  it("marks truncated finish usage incomplete", async () => {
+  it("keeps scalar totals of truncated finish usage and marks the summary partial", async () => {
     const store = createMemoryAgentInvocationStore()
     for (const [id, truncated] of [["complete", false], ["truncated", true]] as const) {
       const attributes: Record<string, unknown> = {
@@ -3849,22 +3849,31 @@ describe("Agent invocation console", () => {
     }
     const invocations = defineAgentInvocations({ store })
 
-    expect(invocationUsage((await invocations.get("truncated"))!)).toBeUndefined()
+    // A long result text truncates the observation, but the Agent keeps the scalar usage totals.
+    expect(invocationUsage((await invocations.get("truncated"))!)).toEqual({
+      inputTokens: 4,
+      model: "truncated",
+      outputTokens: 6,
+      totalTokens: 10,
+    })
     await expect(createUsageSummary(invocations, {
       now: "2026-08-27T12:00:00.000Z",
       window: "24h",
     })).resolves.toMatchObject({
       available: true,
-      models: [expect.objectContaining({ model: "complete", totalTokens: 10 })],
+      models: [
+        expect.objectContaining({ model: "complete", totalTokens: 10 }),
+        expect.objectContaining({ model: "truncated", totalTokens: 10 }),
+      ],
       partial: true,
       totals: {
-        inputTokens: 4,
-        inputTokensAvailable: false,
+        inputTokens: 8,
+        inputTokensAvailable: true,
         invocations: 2,
-        outputTokens: 6,
-        outputTokensAvailable: false,
-        totalTokens: 10,
-        totalTokensAvailable: false,
+        outputTokens: 12,
+        outputTokensAvailable: true,
+        totalTokens: 20,
+        totalTokensAvailable: true,
       },
     })
   })
