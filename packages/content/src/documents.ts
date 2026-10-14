@@ -1,4 +1,4 @@
-import { isStandardSchema, standardIssuePath, standardJsonSchema } from "@vite-hub/internal/standard-schema"
+import { isStandardSchema, standardIssuePath, standardJsonSchema, standardJsonSchemaDateOptions } from "@vite-hub/internal/standard-schema"
 import { ViteHubError } from "@vite-hub/runtime"
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml"
 
@@ -220,7 +220,8 @@ export function fieldsJsonSchema(fields: ContentFields): Record<string, unknown>
   const properties: Record<string, unknown> = {}
   const required: string[] = []
   for (const [name, field] of Object.entries(fields)) {
-    const schema = standardJsonSchema(field, "input") ?? {}
+    // Dates are stored as ISO strings, so a date field projects to a date-time string that forms can edit.
+    const schema = standardJsonSchema(field, "input", "draft-2020-12", standardJsonSchemaDateOptions) ?? {}
     delete schema.$schema
     properties[name] = schema
     if (!acceptsUndefined(field)) required.push(name)

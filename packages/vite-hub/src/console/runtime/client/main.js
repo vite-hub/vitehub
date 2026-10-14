@@ -4,7 +4,7 @@ import "@vite-hub/ui/styles.css";
 
 import ui from "@nuxt/ui/vue-plugin";
 import { createViteHubUI } from "@vite-hub/ui";
-import { createApp } from "vue";
+import { createApp, defineAsyncComponent } from "vue";
 import { createRouter, createWebHistory } from "vue-router";
 
 import ConsoleApp from "../components/console-app.vue";
@@ -192,12 +192,33 @@ const router = createRouter({
 
 const loadSections = createConsoleSectionLoader(sectionsBase);
 
+// The document editor loads Tiptap and the Comark kit, so it is a separate chunk.
+const ConsoleDocuments = defineAsyncComponent(() => import("../components/console-documents.vue"));
+
 /** Adds one route for each installed section that an owner package contributes. */
 function addContributedRoutes(navigation) {
   for (const section of navigation.sections) {
     const details = navigation.contributions[section];
     const name = consoleSectionRouteName(section);
     if (!details || router.hasRoute(name)) continue;
+    if (details.view.kind === "document-editor") {
+      router.addRoute({
+        component: ConsoleDocuments,
+        name,
+        path: `/${section}/:collection?/:document(.*)*`,
+        meta: { consoleSection: section, title: `${details.label} · ViteHub Console` },
+        props: {
+          agentsBase: consolePath("/api/_vitehub/console/agents"),
+          definitionsBase: consolePath("/api/_vitehub/console/definitions"),
+          details,
+          documentsBase: consolePath("/api/_vitehub/console/documents"),
+          kvBase: consolePath("/api/_vitehub/console/kv"),
+          searchBase: consolePath("/api/_vitehub/console/search"),
+          sectionsBase,
+        },
+      });
+      continue;
+    }
     router.addRoute({
       component: ConsoleDefinitions,
       name,

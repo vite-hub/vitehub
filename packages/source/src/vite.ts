@@ -422,7 +422,11 @@ async function writeCollectionArtifacts(
   }))
 }
 
-async function discoverContent(options: SourceGenerationOptions): Promise<string | undefined> {
+/**
+ * Find the `server/content.{ts,js}` file that exports the application Content runtime as `content`. Returns undefined when
+ * the project has none. The generated `/api/content/**` route and the Console content editor import the same file.
+ */
+export async function findContentEntry(options: Pick<SourceGenerationOptions, "projectRoot" | "serverDirs">): Promise<string | undefined> {
   const serverDirs = options.serverDirs === undefined
     ? [resolve(options.projectRoot, "server")]
     : options.serverDirs.map(directory => resolve(options.projectRoot, directory))
@@ -472,7 +476,7 @@ async function writeContentArtifact(
 export async function prepareSourceGeneration(options: SourceGenerationOptions): Promise<GeneratedSourceHandler[]> {
   const [collections, content] = await Promise.all([
     discoverCollections(options),
-    discoverContent(options),
+    findContentEntry(options),
   ])
   return [
     ...await writeCollectionArtifacts(options, collections),

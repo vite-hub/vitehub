@@ -2,7 +2,7 @@
 title: Content limits and errors
 description: Definition, path, collection, history, and access limits for Content, and the errors they raise.
 navigation.title: Limits and errors
-navigation.order: 5
+navigation.order: 6
 icon: i-lucide-circle-alert
 ---
 

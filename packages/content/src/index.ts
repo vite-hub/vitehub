@@ -147,6 +147,8 @@ export type DefineContentOptions<
 
 /** Document operations added by `collections`. */
 export interface ContentDocumentsRuntime<TCollections extends ContentCollections = ContentCollections> {
+  /** Every document collection, in definition order. Empty when the runtime has only read-only Sources. */
+  collections(): ContentCollection[]
   /** Open one collection to list, read, save, remove, restore, and compare documents. */
   collection<TName extends CollectionName<TCollections>>(name: TName): ContentCollection<FieldsOf<TCollections[TName]>>
   /** Copy draft documents to the `published` ref in one revision. */
@@ -262,6 +264,7 @@ export function defineContent<
   }
   // SAFETY: collection() returns the runtime built from TCollections[TName], whose fields type its documents.
   const documentsApi = {
+    collections: () => documentsRuntime ? [...documentsRuntime.collections.values()] : [],
     collection: (name: string) => requireDocuments().collection(name),
     publish: (publishOptions?: ContentPublishOptions) => requireDocuments().publish(publishOptions),
     revisions: (collection: string, id: string, revisionOptions?: ContentRevisionsOptions) => requireDocuments().revisions(collection, id, revisionOptions),

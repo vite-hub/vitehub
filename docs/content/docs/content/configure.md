@@ -107,7 +107,7 @@ A document id is the file path below the collection folder, without the extensio
 - **Optional fields.** A field is optional when its validator accepts a missing value, as with `.optional()` or `.default()`. Wrap a validator that has no `.optional()` in `optional()` from `vite-hub/content`.
 - **Stored values.** Saved frontmatter is YAML. Values go through a JSON round trip before validation, so a `Date` is stored as an ISO string. Use validators that accept the stored form, such as `z.coerce.date()` instead of `z.date()`.
 - **Other keys.** Frontmatter keys without a field stay in the file and are left out of `data`.
-- **JSON Schema.** `content.collection('posts').schema` is the frontmatter JSON Schema, built from each field's Standard JSON Schema. Forms and tools read it. A field without one, such as `z.coerce.date()`, becomes `{}`. Comark gets the same schema narrowed to its subset.
+- **JSON Schema.** `content.collection('posts').schema` is the frontmatter JSON Schema, built from each field's Standard JSON Schema. Forms and tools read it. A Zod date field, such as `z.coerce.date()`, becomes `{ type: 'string', format: 'date-time' }` because dates are stored as ISO strings. A field without a Standard JSON Schema, such as a Valibot validator, becomes `{}`. Comark gets the same schema narrowed to its subset.
 
 ### Drafts and publishing
 
@@ -134,7 +134,7 @@ A runtime can combine read-only `sources` with `collections`. Names share one na
 
 ## Access
 
-`authorize` decides what a user may do with a collection. Surfaces call it through `content.can()`. The Console content editor and the Content Agent Capability use it.
+`authorize` decides what a user may do with a collection. Surfaces call it through `content.can()`. The [Console content editor](/docs/content/console) and the Content Agent Capability use it.
 
 ```ts [server/content.ts]
 export const content = defineContent({

@@ -27,7 +27,7 @@ import { writeConsoleNitroPlugin, type ConsoleAccessBuild } from "./console/plug
 import { installConsoleProjectName, installConsoleSections } from "./console/runtime/server/sections.ts"
 import { resolveConsoleProjectNameFromRoot } from "./console/project.ts"
 import { consoleSectionRouteName, isConsoleConnectionsEnabled, resolveConsoleSectionIds, type ConsoleSectionId } from "./console/runtime/sections.ts"
-import { describeConsoleContributedSections, isConsoleContributedSectionId } from "./console/contributions.ts"
+import { consoleContributedSections, consoleDocumentEditorSectionIds, describeConsoleContributedSections, isConsoleContributedSectionId } from "./console/contributions.ts"
 import { consoleIcons } from "./console/icons.ts"
 import { addConsoleRpcHandler } from "./console/nitro.ts"
 import { consoleAuthMiddlewareFile, consoleConnectionsActorId, registeredConsoleAuthMode, resolveConsoleAuthConfig, writeConsoleAuthHandlers, writeConsoleConnectionsActor } from "./console/auth-build.ts"
@@ -322,13 +322,17 @@ async function installConsole(
     const rule = (routeRules[route] ??= {})
     rule.headers = { ...rule.headers, "x-robots-tag": "noindex, nofollow" }
   }
+  const documentEditorSections = (await Promise.all(consoleDocumentEditorSectionIds.map(async (section) => {
+    const entry = await consoleContributedSections.get(section)?.documents?.entry({ discoveryRoot, projectRoot, serverDirs })
+    return entry ? [section] : []
+  }))).flat()
   // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- @nuxt/icon declares this hook, while this structural seam keeps narrow nitro-only test hosts assignable.
   // SAFETY: @nuxt/icon calls this hook with the mutable Set of client bundle icon names.
   const hookIcons = nuxt.hook as unknown as ((name: "icon:clientBundleIcons", callback: (icons: Set<string>) => void) => void) | undefined
   // @nuxt/icon does not scan dependencies, so add the Console icons to its client bundle.
   hookIcons?.("icon:clientBundleIcons", (icons) => {
     for (const icon of consoleIcons) icons.add(icon)
-    for (const section of describeConsoleContributedSections(sections)) {
+    for (const section of describeConsoleContributedSections([...sections, ...documentEditorSections])) {
       icons.add(section.icon.replace(/^i-(lucide|ph)-/, "$1:"))
     }
   })
@@ -393,12 +397,19 @@ async function installConsole(
             },
           ]
         : []),
-      ...describeConsoleContributedSections(sections).map(details => ({
+      ...describeConsoleContributedSections(sections).filter(details => details.view.kind !== "document-editor").map(details => ({
         file: join(consoleRuntimeRoot, "pages/section.vue"),
         meta: { consoleSection: details.id, consoleSectionDetails: details },
         name: consoleSectionRouteName(details.id),
         path: `/_vitehub/${details.id}`,
       })),
+      // A document editor has a page only when discovery found its application module, such as server/content.ts.
+      ...documentEditorSections.flatMap((section) => {
+        const details = consoleContributedSections.get(section)?.descriptor
+        return details
+          ? [{ file: join(consoleRuntimeRoot, "pages/documents.vue"), meta: { consoleSection: section, consoleSectionDetails: details }, name: consoleSectionRouteName(section), path: `/_vitehub/${section}/:collection?/:document(.*)*` }]
+          : []
+      }),
     ]
     for (const page of additions) {
       if (!pages.some((candidate) => candidate.path === page.path)) pages.push(page)

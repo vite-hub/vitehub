@@ -67,6 +67,7 @@ const consoleSectionGroupBySection: Readonly<Record<string, ConsoleSectionGroupI
   databases: "data",
   kv: "data",
   blob: "data",
+  content: "data",
   workspaces: "data",
   workflows: "runtime",
   queues: "runtime",
@@ -90,6 +91,17 @@ export const consoleSectionGroupLabels: Readonly<Record<ConsoleSectionGroupId, s
 /** Returns the navigation group of a section. A contributed section with an unknown id goes to `more`. */
 export function resolveConsoleSectionGroup(section: ConsoleSectionId): ConsoleSectionGroupId {
   return Object.hasOwn(consoleSectionGroupBySection, section) ? consoleSectionGroupBySection[section] : "more"
+}
+
+/**
+ * Inserts a section before the first section of the same or a later navigation group, so it leads its group. Returns a
+ * copy of the sections when they already include it.
+ */
+export function insertConsoleSection(sections: readonly ConsoleSectionId[], section: ConsoleSectionId): ConsoleSectionId[] {
+  if (sections.includes(section)) return [...sections]
+  const group = consoleSectionGroupIds.indexOf(resolveConsoleSectionGroup(section))
+  const index = sections.findIndex(candidate => consoleSectionGroupIds.indexOf(resolveConsoleSectionGroup(candidate)) >= group)
+  return index === -1 ? [...sections, section] : [...sections.slice(0, index), section, ...sections.slice(index)]
 }
 
 /** Splits enabled sections into navigation groups. Keeps the given order inside each group and drops empty groups. */
@@ -130,6 +142,7 @@ export const consolePrimitives: readonly ConsolePrimitive[] = [
   primitive("connections", "Connections", consoleSectionDetails.connections.icon, "connections", "Connect provider accounts with OAuth 2 or an API key and call their APIs with access rules."),
   primitive("agents", "Agents", consoleSectionDetails.agents.icon, "agents", "Define a server-side Agent, choose how it runs, and connect it to your application.", "getting-started/first-agent"),
   primitive("usage", "Usage", consoleSectionDetails.usage.icon, "development/console", "Review the token use and cost that Agent Invocations record.", "agents"),
+  primitive("content", "Content", "i-lucide-file-pen-line", "content", "Edit Markdown documents with validated fields, drafts, publishing, and revision history."),
   primitive("blob", "Blob", consoleSectionDetails.blob.icon, "blob", "Store uploads, generated files, binary objects, and metadata with one object-storage API."),
   primitive("databases", "Databases", consoleSectionDetails.databases.icon, "database", "Define relational data with Drizzle and query it through generated imports."),
   primitive("email", "Email", "i-lucide-mail", "email", "Send transactional email through a provider-neutral driver, with safe test capture."),
@@ -187,6 +200,7 @@ export const consoleOverviewShortcut: readonly [typeof consoleGoToKey, "o"] = [c
 /** Second key of the "Go to" chord of each known section. Each key is unique and is not `o`. */
 export const consoleSectionShortcutKeys: Readonly<Record<string, string>> = {
   agents: "a",
+  content: "t",
   usage: "u",
   databases: "d",
   kv: "k",

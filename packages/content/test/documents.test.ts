@@ -330,7 +330,7 @@ describe("document collections", { timeout: 30_000 }, () => {
       type: "object",
       properties: {
         title: { type: "string", minLength: 1 },
-        date: {},
+        date: { type: "string", format: "date-time" },
         tags: { type: "array", items: { type: "string" }, default: [] },
         summary: {},
       },
@@ -338,7 +338,7 @@ describe("document collections", { timeout: 30_000 }, () => {
     })
     expect(content.getSource("posts")?.schema).toEqual({
       type: "object",
-      properties: { title: { type: "string" }, date: {}, tags: { type: "array", items: { type: "string" } }, summary: {} },
+      properties: { title: { type: "string" }, date: { type: "string" }, tags: { type: "array", items: { type: "string" } }, summary: {} },
       required: ["title", "date"],
     })
   })

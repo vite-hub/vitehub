@@ -55,6 +55,8 @@ const openWarningKey: unique symbol = Symbol.for("vitehub.console.access.open-wa
 const scope = globalThis as typeof globalThis & { [policyKey]?: ConsoleAccessPolicy, [openWarningKey]?: true }
 const consoleAccessGrant = defineGrant("vitehub.console.access", (mode: ConsoleAccessMode) => mode)
 const checkedEvents = new WeakMap<object, ConsoleAccess>()
+// Reads the signed-in user of an access that did not need it during the check. Keyed by the checked access.
+const deferredUsers = new WeakMap<ConsoleAccess, () => Promise<ConsoleUser | undefined>>()
 const routeScopes = new WeakMap<object, ConsoleRouteScope>()
 const modes = new Set<ConsoleAccessMode>(["auth", "cloudflare-access", "open"])
 
@@ -137,7 +139,23 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
   }
   const fields: { mode: ConsoleAccessMode, sections: ConsoleAccess["sections"], user?: ConsoleUser } = { mode: policy.mode, sections }
   if (user) fields.user = user
-  return consoleAccessGrant.issue(policy.mode, fields)
+  const access: ConsoleAccess = consoleAccessGrant.issue(policy.mode, fields)
+  const readUser = policy.mode !== "open" && !user ? policy.user : undefined
+  if (readUser) {
+    let pending: Promise<ConsoleUser | undefined> | undefined
+    deferredUsers.set(access, () => pending ??= readUser(event))
+  }
+  return access
+}
+
+/**
+ * Return the signed-in user of a checked access. The check reads the user only when `console.authorize` needs it,
+ * so an action that acts for the user, such as a Content save, reads it here from the original request once.
+ * Returns `undefined` for `auth: false`, Cloudflare Access, and a request without a session.
+ */
+export async function readConsoleAccessUser(access: ConsoleAccess): Promise<ConsoleUser | undefined> {
+  if (!consoleAccessGrant.isValid(access)) return undefined
+  return access.user ?? await deferredUsers.get(access)?.()
 }
 
 /**
