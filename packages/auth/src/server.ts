@@ -279,12 +279,21 @@ function isResponse(value: unknown): value is Response {
   if (value instanceof Response) return true
   if (value === null || typeof value !== "object") return false
   try {
-    // The Web IDL getter performs the native Response brand check. It works
-    // across realms that share the platform implementation and cannot be
-    // satisfied by a plain object with Response-shaped properties.
-    const bodyGetter = Object.getOwnPropertyDescriptor(Response.prototype, "body")?.get
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The getter must be callable before applying the cross-realm Web IDL brand check.
-    return typeof bodyGetter === "function" && bodyGetter.call(value) !== undefined
+    // Use the candidate realm's native Web IDL getter. A host-realm getter
+    // rejects otherwise valid Responses from another realm, while a getter
+    // supplied by an ordinary object is not a Web IDL brand check.
+    let prototype = Object.getPrototypeOf(value)
+    while (prototype) {
+      const bodyGetter = Object.getOwnPropertyDescriptor(prototype, "body")?.get
+      if (typeof bodyGetter === "function") {
+        const source = Function.prototype.toString.call(bodyGetter)
+        if (!source.includes("[native code]") && !source.includes("brandCheck")) return false
+        bodyGetter.call(value)
+        return true
+      }
+      prototype = Object.getPrototypeOf(prototype)
+    }
+    return false
   } catch {
     return false
   }
