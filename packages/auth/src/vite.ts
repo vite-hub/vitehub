@@ -192,6 +192,14 @@ function nitroApplicationBaseURL(value: unknown): string | undefined {
   return baseURL.split("/").some(Boolean) ? baseURL : undefined
 }
 
+function authRequestBasePath(basePath: string, applicationBaseURL: string | undefined): string {
+  if (!applicationBaseURL || applicationBaseURL === "/" || basePath === "/") return basePath
+  const appBasePath = applicationBaseURL.replace(/\/+$/g, "") || "/"
+  return basePath === appBasePath || basePath.startsWith(`${appBasePath}/`)
+    ? basePath
+    : `${appBasePath}${basePath}`
+}
+
 function mergeNitroAuthHandler(value: unknown, config: ResolvedAuthViteConfig | undefined): NitroConfig {
   const nitro = cloneNitroConfig(value)
   if (!config) return nitro
@@ -298,6 +306,7 @@ export function hubAuth(options?: AuthModuleOptions, internalOptions: InternalAu
   const importBase = internalOptions.importBase ?? authPackageName
   let resolved: ResolvedConfig | undefined
   let runtimeConfig: ResolvedAuthViteConfig | undefined
+  let applicationBaseURL: string | undefined
   let serverDirs: string[] | undefined
   let serverEnv = false
 
@@ -344,7 +353,7 @@ export function hubAuth(options?: AuthModuleOptions, internalOptions: InternalAu
         ?? resolveAuthViteConfig(authOptions, resolveViteHubProjectRoot(configRoot), { serverDirs })
       const nitro = mergeNitroAuthHandler((config as { nitro?: unknown }).nitro, authConfig)
       const hasNitroHandlers = Boolean(authConfig && (authConfig.route !== false || authConfig.access.routes.length > 0))
-      const applicationBaseURL = authConfig ? nitroApplicationBaseURL(nitro) : undefined
+      applicationBaseURL = authConfig ? nitroApplicationBaseURL(nitro) : undefined
       if (hasNitroHandlers || applicationBaseURL) {
         // Replace Nitro in place because Vite concatenates arrays from returned config hooks.
         Object.assign(config, { nitro })
@@ -387,7 +396,8 @@ export function hubAuth(options?: AuthModuleOptions, internalOptions: InternalAu
           }
 
           const url = new URL(request.url, "http://vitehub.local")
-          if (!isAuthRequestPath(url.pathname, config.basePath)) {
+          const requestBasePath = authRequestBasePath(config.basePath, applicationBaseURL)
+          if (!isAuthRequestPath(url.pathname, requestBasePath)) {
             next()
             return
           }
@@ -409,7 +419,7 @@ export function hubAuth(options?: AuthModuleOptions, internalOptions: InternalAu
             : await getAuthForDefinition(definition).handler(webRequest)
           // Better Auth returns 404 for paths that are not Auth endpoints. Let Vite
           // handle those requests so a root Auth base path does not swallow the app.
-          if (shouldPassThroughAuthResponse(config.basePath, authResponse.status)) {
+          if (shouldPassThroughAuthResponse(requestBasePath, authResponse.status)) {
             next()
             return
           }

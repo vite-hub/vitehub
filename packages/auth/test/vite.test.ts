@@ -486,6 +486,43 @@ describe("hubAuth", () => {
     expect(response.statusCode).toBeGreaterThanOrEqual(200)
     expect(ended).toBe(true)
   })
+
+  it("matches Auth requests below the Nitro application base URL", async () => {
+    const root = await createTempProject()
+    await writeAuth(root)
+    const plugin = hubAuth()
+    const configHook = plugin.config as (config: Record<string, unknown>) => unknown
+    configHook({ root, nitro: { baseURL: "/app/" } })
+    await resolvePluginConfig(plugin, root)
+
+    let middleware: ((request: unknown, response: unknown, next: (error?: unknown) => void) => Promise<void>) | undefined
+    const configureServer = plugin.configureServer as unknown as (server: unknown) => void
+    configureServer({
+      middlewares: {
+        use(handler: typeof middleware) {
+          middleware = handler
+        },
+      },
+      ssrLoadModule: async () => ({ default: defineAuth({ appName: "ViteHub" }) }),
+    })
+    if (!middleware) throw new Error("Auth middleware was not registered.")
+
+    const next = vi.fn()
+    let ended = false
+    const response = {
+      appendHeader: vi.fn(),
+      end: vi.fn(() => { ended = true }),
+      statusCode: 0,
+      statusMessage: "",
+      write() {},
+    }
+
+    await middleware({ headers: { host: "app.example" }, method: "GET", url: "/app/api/auth/session" }, response, next)
+
+    expect(next).not.toHaveBeenCalled()
+    expect(response.statusCode).toBeGreaterThanOrEqual(200)
+    expect(ended).toBe(true)
+  })
 })
 
 it("recognizes every path when Auth uses the root base path", async () => {
