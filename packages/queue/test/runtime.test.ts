@@ -770,9 +770,10 @@ describe("vercel provider", () => {
     setQueueRuntimeRegistry({ welcome: async () => ({ default: definition }) })
 
     const h3Request = Object.assign(Readable.from(["payload"]), {
-      headers: {},
+      headers: new Headers(),
       method: "POST",
       url: "/callback",
+      text: async () => "payload",
     })
     await expect(handleHostedVercelQueueCallback({
       method: "POST",

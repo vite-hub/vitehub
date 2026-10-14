@@ -18,23 +18,13 @@ function isRequestLike(value: unknown): value is Request {
   // another realm. Unlike Symbol.toStringTag and public fields, this cannot be
   // spoofed by an ordinary object.
   try {
-    const getters = [
-      Object.getOwnPropertyDescriptor(Request.prototype, "url")?.get,
-      Object.getOwnPropertyDescriptor(Object.getPrototypeOf(value), "url")?.get,
-    ]
-    return getters.some((getter) => {
-      if (!getter) return false
-      // Native accessors are stable across realms; an accessor supplied by the
-      // candidate object is ordinary user code and must not be trusted as a
-      // brand check.
-      if (!Function.prototype.toString.call(getter).includes("[native code]")) return false
-      try {
-        getter.call(value)
-        return true
-      } catch {
-        return false
-      }
-    })
+    const getter = Object.getOwnPropertyDescriptor(Request.prototype, "url")?.get
+    if (!getter) return false
+    // The accessor is obtained from the trusted host Request prototype. Calling
+    // it validates the Fetch internal slots without reading candidate-controlled
+    // getters or cloning/consuming the body.
+    getter.call(value)
+    return true
   } catch {
     return false
   }
