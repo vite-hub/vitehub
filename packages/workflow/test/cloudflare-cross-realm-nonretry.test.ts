@@ -153,4 +153,34 @@ describe("Cloudflare workflow errors", () => {
     }
   })
 
+  it("does not translate an Error.prototype spoof with a fabricated stack", async () => {
+    const original = Object.create(Error.prototype) as Error & { isRetryable: false }
+    Object.defineProperties(original, {
+      [Symbol.toStringTag]: { value: "Error" },
+      stack: { value: "spoofed stack" },
+      isRetryable: { value: false },
+    })
+    const createNonRetryableError = vi.fn((_error: Error & { isRetryable: false }) => new Error("converted"))
+    const descriptor = Object.getOwnPropertyDescriptor(Error, "isError")
+    try {
+      Reflect.deleteProperty(Error, "isError")
+      await expect(runCloudflareWorkflow({
+        config: { provider: "cloudflare" },
+        createNonRetryableError,
+        env: {},
+        event: { id: "stack-spoofed-error" },
+        name: "stack-spoofed-error",
+        registry: {
+          "stack-spoofed-error": async () => ({
+            default: { handler: async () => { throw original } },
+          }),
+        },
+      })).rejects.toBe(original)
+      expect(createNonRetryableError).not.toHaveBeenCalled()
+    }
+    finally {
+      if (descriptor) Object.defineProperty(Error, "isError", descriptor)
+    }
+  })
+
 })
