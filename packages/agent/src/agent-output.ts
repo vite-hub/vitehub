@@ -701,12 +701,8 @@ function crossRealmStreamError(error: unknown): { message: string; value: object
     const nativeIsError: unknown = Reflect.get(Error, "isError")
     const branded = hasRuntimeType(nativeIsError, "function")
       ? nativeIsError(error) === true
-      : error instanceof Error
-        ? Object.getPrototypeOf(error) === Error.prototype
-          && Object.prototype.hasOwnProperty.call(error, "stack")
-        : Object.getPrototypeOf(error) !== Error.prototype
-          && !(Symbol.toStringTag in error)
-          && Object.prototype.toString.call(error) === "[object Error]"
+      : !(Symbol.toStringTag in error)
+        && Object.prototype.toString.call(error) === "[object Error]"
     if (!branded) return
     return { message: String(Reflect.get(error, "message")), value: error }
   }

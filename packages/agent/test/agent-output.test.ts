@@ -587,6 +587,10 @@ describe("agent output helpers", () => {
     expect(Object.getOwnPropertySymbols(spoofedEvent!)).not.toContain(agentStreamErrorSymbol)
 
     const forged = Object.create(Error.prototype)
+    Object.defineProperties(forged, {
+      message: { value: "forged" },
+      stack: { value: "forged stack" },
+    })
     const forgedEvent = toAgentStreamEvent({ error: forged, type: "error" })
     expect(forgedEvent).toMatchObject({ error: "[object Object]", type: "error" })
     expect(Object.getOwnPropertySymbols(forgedEvent!)).not.toContain(agentStreamErrorSymbol)
