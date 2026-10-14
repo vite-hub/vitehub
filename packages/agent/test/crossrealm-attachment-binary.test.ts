@@ -20,6 +20,20 @@ describe("provider attachment binary values", () => {
     }
   })
 
+  it("preserves empty direct and fetched Blob attachments across realms", async () => {
+    const foreign = new Blob([])
+    Object.setPrototypeOf(foreign, runInNewContext("Object.create(null, descriptors)", {
+      descriptors: Object.getOwnPropertyDescriptors(Blob.prototype),
+    }))
+    expect(foreign instanceof Blob).toBe(false)
+    for (const data of [new Blob([]), foreign]) {
+      expect(isAttachmentData(data)).toBe(true)
+      for (const source of [{ data }, { fetchData: () => data }]) {
+        await expect(resolveAttachmentData({ ...source, mediaType: "application/octet-stream", type: "file" })).resolves.toBe(data)
+      }
+    }
+  })
+
   it("rejects spoofed binary shapes", () => {
     const spoofed = [
       { get byteLength() { throw new Error("accessed") }, [Symbol.toStringTag]: "ArrayBuffer" },

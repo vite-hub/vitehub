@@ -180,7 +180,7 @@ export function isAttachmentData(value: unknown): value is AttachmentData {
     : isArrayBufferValue(value)
       ? value.byteLength > 0
       : isBlobValue(value)
-        ? value.size > 0
+        ? true
         : isUint8ArrayValue(value) && value.byteLength > 0
 }
 
