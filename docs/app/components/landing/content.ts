@@ -35,10 +35,12 @@ export const installOptions = {
 
 export const agentStory = {
   path: "server/agents/review.ts",
+  // Flue and Eve are open and self-hostable too. The real difference is that the Agent lives inside the app.
+  positioning: "Your Agents live in your app, not beside it. They share its server, storage, and deploy.",
   tutorialPath: "/docs/getting-started/first-agent",
   code: [
     'import { defineAgent } from "vite-hub/agent"',
-    'import { browser } from "vite-hub/agent/capabilities"',
+    'import { browser, kv } from "vite-hub/agent/capabilities"',
     'import { github } from "vite-hub/agent/channels"',
     "",
     "export default defineAgent({",
@@ -48,7 +50,7 @@ export const agentStory = {
     "  },",
     '  driver: "codex",',
     '  workspace: { mode: "write" },',
-    "  capabilities: [browser()],",
+    '  capabilities: [browser(), kv({ mode: "write" })],',
     "})",
   ],
   steps: [
@@ -64,7 +66,7 @@ export const agentStory = {
       id: "driver",
       label: "Driver",
       title: "Codex takes the run",
-      description: "Use Codex, Claude Code, an AI SDK model, or your own function.",
+      description: "Bring Codex, Claude Code, an AI SDK model, or your own function.",
       lines: [9],
       to: "/docs/agents/agent-drivers",
     },
@@ -79,61 +81,44 @@ export const agentStory = {
     {
       id: "capabilities",
       label: "Capabilities",
-      title: "You add the tools it needs",
-      description: "Capabilities add tools such as the browser. Codex keeps its own tools.",
+      title: "It uses your app's primitives",
+      description: "Capabilities wrap KV, Blob, Database, and more. Codex keeps its own tools.",
       lines: [1, 11],
       to: "/docs/agents/capabilities",
     },
   ],
+  // The route reads the store the Agent writes through its kv Capability.
+  route: {
+    path: "server/api/reviews.get.ts",
+    to: "/docs/kv/agent-capability",
+    code: [
+      'import { defineEventHandler } from "h3"',
+      'import { kv } from "vite-hub/kv"',
+      "",
+      "export default defineEventHandler(async () => {",
+      '  const [error, keys] = await kv.keys()',
+      "  if (error) throw error",
+      "  return keys",
+      "})",
+    ],
+  },
 } as const;
 
-// One KV store, read from a route and from an Agent. Both panes must use the same primitive.
-export const sharedApi = {
-  primitiveTo: "/docs/kv",
-  capabilityTo: "/docs/kv/agent-capability",
-  panes: [
-    {
-      id: "route",
-      label: "Route",
-      path: "server/api/notes.get.ts",
-      caption: "Your route calls kv.get().",
-      code: [
-        'import { kv } from "vite-hub/kv"',
-        "",
-        "export default defineEventHandler(async () => {",
-        '  const [error, notes] = await kv.get("notes")',
-        "  if (error) throw error",
-        "  return notes",
-        "})",
-      ],
-    },
-    {
-      id: "agent",
-      label: "Agent",
-      path: "server/agents/support.ts",
-      caption: "The Agent gets a kv_read tool for the same store.",
-      code: [
-        'import { defineAgent } from "vite-hub/agent"',
-        'import { kv } from "vite-hub/agent/capabilities"',
-        "",
-        "export default defineAgent({",
-        '  description: "Answers support questions.",',
-        '  driver: "codex",',
-        '  capabilities: [kv({ mode: "read" })],',
-        "})",
-      ],
-    },
-  ],
-} as const;
+// Short facts that answer "what does trying this cost me". Each one is checked by test/landing.test.ts.
+export const closingFacts = [
+  { id: "local", label: "No account to start" },
+  { id: "license", label: "Apache-2.0", to: "https://github.com/vite-hub/vitehub/blob/main/LICENSE" },
+  { id: "nuxthub", label: "Migrate from NuxtHub", to: "/docs/getting-started/migrate-from-nuxthub" },
+  { id: "hosts", label: "Runs on", to: "/docs/frameworks-hosts" },
+] as const;
 
-export const nuxtHubMigration = {
-  to: "/docs/getting-started/migrate-from-nuxthub",
-  imports: [
-    { from: "@nuxthub/kv", to: "vite-hub/kv" },
-    { from: "@nuxthub/blob", to: "vite-hub/blob" },
-    { from: "@nuxthub/db", to: "vite-hub/database/drizzle" },
-  ],
-} as const;
+export const closingHosts = [
+  { name: "Cloudflare", icon: "i-simple-icons-cloudflare" },
+  { name: "Vercel", icon: "i-simple-icons-vercel" },
+  { name: "Netlify", icon: "i-simple-icons-netlify" },
+  { name: "Deno", icon: "i-simple-icons-deno" },
+  { name: "Node", icon: "i-simple-icons-nodedotjs" },
+] as const;
 
 // Start with the primitives most Vite apps reach for. Agent stays in the catalog without taking over the page.
 export const landingPrimitives = [
@@ -265,35 +250,79 @@ export const landingPrimitives = [
   },
 ] as const;
 
+// Providers follow docs/content/docs/frameworks-hosts/support-matrix.md.
 export const portabilityExamples = [
   {
     id: "storage",
     label: "Store data",
-    path: "server/api/notes.get.ts",
-    description: "Read a value with the same KV helper on every supported host.",
+    path: "server/api/settings.get.ts",
     code: [
       'import { defineEventHandler } from "h3"',
       'import { kv } from "vite-hub/kv"',
       "",
       "export default defineEventHandler(async () => {",
-      '  const [error, notes] = await kv.get("notes")',
+      '  const [error, settings] = await kv.get("settings")',
       "  if (error) throw error",
-      "  return notes",
+      "  return settings",
       "})",
     ],
     hosts: [
       { name: "Cloudflare", icon: "i-simple-icons-cloudflare", provider: "Workers KV" },
       { name: "Vercel", icon: "i-simple-icons-vercel", provider: "Upstash Redis" },
       { name: "Deno", icon: "i-simple-icons-deno", provider: "Deno KV" },
-      { name: "Node", icon: "i-simple-icons-nodedotjs", provider: "Local filesystem or Upstash" },
+      { name: "Node", icon: "i-simple-icons-nodedotjs", provider: "fs-lite or Upstash" },
     ],
     to: "/docs/kv",
+  },
+  {
+    id: "blob",
+    label: "Upload files",
+    path: "server/api/avatars.post.ts",
+    code: [
+      'import { defineEventHandler } from "h3"',
+      'import { blob } from "vite-hub/blob"',
+      "",
+      "export default defineEventHandler(async (event) => {",
+      "  const [error, files] = await blob.handleUpload(event, {",
+      '    ensure: { maxSize: "8MB", types: ["image"] },',
+      "  })",
+      "  if (error) throw error",
+      "  return files",
+      "})",
+    ],
+    hosts: [
+      { name: "Cloudflare", icon: "i-simple-icons-cloudflare", provider: "R2" },
+      { name: "Vercel", icon: "i-simple-icons-vercel", provider: "Vercel Blob" },
+      { name: "Netlify", icon: "i-simple-icons-netlify", provider: "Netlify Blobs" },
+      { name: "Node", icon: "i-simple-icons-nodedotjs", provider: "fs or S3-compatible" },
+    ],
+    to: "/docs/blob",
+  },
+  {
+    id: "database",
+    label: "Query data",
+    path: "server/api/notes.get.ts",
+    code: [
+      'import { defineEventHandler } from "h3"',
+      'import { useDatabase } from "vite-hub/database/drizzle"',
+      "",
+      "export default defineEventHandler(() => {",
+      '  const { db, schema } = useDatabase("default")',
+      "  return db.select().from(schema.notes)",
+      "})",
+    ],
+    hosts: [
+      { name: "Cloudflare", icon: "i-simple-icons-cloudflare", provider: "D1" },
+      { name: "Vercel", icon: "i-simple-icons-vercel", provider: "libSQL or D1 HTTP" },
+      { name: "Netlify", icon: "i-simple-icons-netlify", provider: "libSQL" },
+      { name: "Node", icon: "i-simple-icons-nodedotjs", provider: "SQLite or libSQL" },
+    ],
+    to: "/docs/database",
   },
   {
     id: "queue",
     label: "Queue work",
     path: "server/api/welcome.post.ts",
-    description: "Send a job to Cloudflare or Vercel without importing their SDKs.",
     code: [
       'import { defineEventHandler, readBody } from "h3"',
       'import { runQueue } from "vite-hub/queue"',
@@ -306,14 +335,35 @@ export const portabilityExamples = [
     hosts: [
       { name: "Cloudflare", icon: "i-simple-icons-cloudflare", provider: "Cloudflare Queues" },
       { name: "Vercel", icon: "i-simple-icons-vercel", provider: "Vercel Queues" },
+      { name: "Netlify", icon: "i-simple-icons-netlify", provider: "Cloudflare or Vercel" },
     ],
     to: "/docs/queue",
+  },
+  {
+    id: "workflow",
+    label: "Run a workflow",
+    path: "server/api/onboard.post.ts",
+    code: [
+      'import { defineEventHandler, readBody } from "h3"',
+      'import { runWorkflow } from "vite-hub/workflow"',
+      "",
+      "export default defineEventHandler(async (event) => {",
+      "  const { email } = await readBody<{ email: string }>(event)",
+      '  return runWorkflow("onboard-user", { email })',
+      "})",
+    ],
+    hosts: [
+      { name: "Cloudflare", icon: "i-simple-icons-cloudflare", provider: "Cloudflare Workflows" },
+      { name: "Vercel", icon: "i-simple-icons-vercel", provider: "Vercel Workflow" },
+      { name: "Netlify", icon: "i-simple-icons-netlify", provider: "OpenWorkflow" },
+      { name: "Node", icon: "i-simple-icons-nodedotjs", provider: "OpenWorkflow" },
+    ],
+    to: "/docs/workflows",
   },
   {
     id: "schedule",
     label: "Run on a schedule",
     path: "server/schedules/daily-report.ts",
-    description: "One definition becomes a native cron trigger where supported, or runs on a process runtime.",
     code: [
       'import { defineSchedule } from "vite-hub/schedule"',
       'import { sendDailyReport } from "../reports"',
@@ -327,10 +377,31 @@ export const portabilityExamples = [
     ],
     hosts: [
       { name: "Cloudflare", icon: "i-simple-icons-cloudflare", provider: "Cron triggers" },
-      { name: "Vercel", icon: "i-simple-icons-vercel", provider: "Cron Jobs" },
+      { name: "Vercel", icon: "i-simple-icons-vercel", provider: "Vercel Cron Jobs" },
       { name: "Netlify", icon: "i-simple-icons-netlify", provider: "Scheduled functions" },
       { name: "Node", icon: "i-simple-icons-nodedotjs", provider: "Process runtime" },
     ],
     to: "/docs/schedule",
+  },
+  {
+    id: "sandbox",
+    label: "Run untrusted code",
+    path: "server/api/release-notes.post.ts",
+    code: [
+      'import { defineEventHandler } from "h3"',
+      'import { runSandbox } from "vite-hub/sandbox"',
+      "",
+      "export default defineEventHandler(async () => {",
+      '  const response = await runSandbox("release-notes", { notes: "ship it" })',
+      "  if (!response.ok) throw new Error(await response.text())",
+      "  return response.json()",
+      "})",
+    ],
+    hosts: [
+      { name: "Cloudflare", icon: "i-simple-icons-cloudflare", provider: "Cloudflare Sandbox" },
+      { name: "Vercel", icon: "i-simple-icons-vercel", provider: "Vercel Sandbox" },
+      { name: "Netlify", icon: "i-simple-icons-netlify", provider: "Vercel Sandbox" },
+    ],
+    to: "/docs/sandbox",
   },
 ] as const;

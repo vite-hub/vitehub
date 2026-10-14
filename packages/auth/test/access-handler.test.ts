@@ -104,33 +104,62 @@ describe("Auth access handlers", () => {
     await expect(handler(new Request("https://app.example/"))).resolves.toBe(response)
   })
 
-  it("rejects forged response-shaped authorization values", async () => {
+  it("normalizes compatible authorization responses from another realm", async () => {
     const foreignResponse = runInNewContext(`new (class {
       get status() { return 409 }
       get statusText() { return "Conflict" }
-      get headers() { return { get() { return null } } }
-      get body() { return null }
+      get headers() { return [["set-cookie", "policy=denied"], ["x-policy", "rejected"]] }
+      get body() { return {} }
+      async arrayBuffer() { return new Uint8Array([110, 111]).buffer }
+
       get [Symbol.toStringTag]() { return "Response" }
     })()`)
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
       access: { routes: [{ route: "/**", authorize: () => foreignResponse as never }] },
     }))
 
-    await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
+    const response = await handler(new Request("https://app.example/"))
+    expect(response).toBeInstanceOf(Response)
+    expect(response).not.toBe(foreignResponse)
+    expect(response?.status).toBe(409)
+    expect(response?.headers.getSetCookie()).toEqual(["policy=denied"])
+    const headers: string[] = []
+    response?.headers.forEach((_value, key) => headers.push(key))
+    expect(headers).toContain("x-policy")
+    const reader = response!.body!.getReader()
+    expect(await reader.read()).toMatchObject({ value: new Uint8Array([110, 111]), done: false })
+    reader.releaseLock()
   })
 
-  it("returns genuine authorization responses created in another realm unchanged", async () => {
-    const response = runInNewContext(`new (class extends Response {})("Policy rejected", {
+  it("does not expose a tag-only response shape to adapters", async () => {
+    const spoof = runInNewContext(`({
+      [Symbol.toStringTag]: "Response",
       status: 409,
-      headers: { "x-policy": "restricted" },
-    })`, { Response }) as Response
+      statusText: "Conflict",
+      headers: { get() { return null } },
+      body: null,
+    })`)
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
-      access: { routes: [{ route: "/**", authorize: () => response }] },
+      access: { routes: [{ route: "/**", authorize: () => spoof as never }] },
     }))
+    const response = await handler(new Request("https://app.example/"))
+    expect(response).toBeInstanceOf(Response)
+    expect(response).not.toBe(spoof)
+    expect(() => response!.headers.getSetCookie()).not.toThrow()
+    expect(() => response!.headers.forEach(() => {})).not.toThrow()
+  })
 
-    await expect(handler(new Request("https://app.example/"))).resolves.toBe(response)
-    expect(response.headers.get("x-policy")).toBe("restricted")
-    await expect(response.text()).resolves.toBe("Policy rejected")
+  it("fails closed for a response spoof with an unusable body", async () => {
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => ({
+        [Symbol.toStringTag]: "Response",
+        status: 409,
+        statusText: "Conflict",
+        headers: {},
+        body: {},
+      }) as never }] },
+    }))
+    expect((await handler(new Request("https://app.example/")))?.status).toBe(403)
   })
 
   it("starts provider sign-in only for matched unauthenticated HTML requests", async () => {
