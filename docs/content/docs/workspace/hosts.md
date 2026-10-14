@@ -34,14 +34,15 @@ The [Blob + Database Store](/docs/workspace/configure#blob-database-store) uses 
 
 | Table | Stores |
 | --- | --- |
-| `workspace_history_refs` | Workspace namespace, head id, sequence, and deletion tombstone. |
-| `workspace_history_revisions` | Immutable file manifests, parent ids, timestamps, messages, metadata, counts, and publication status. |
+| `workspace_history_workspaces` | Workspace namespace and deletion tombstone. |
+| `workspace_history_refs` | One row per Workspace and ref name, with head id and sequence. |
+| `workspace_history_revisions` | Immutable file manifests, their ref, parent ids, timestamps, messages, metadata, counts, and commit status. |
 | `workspace_history_objects` | Digests and sizes registered before upload, including interrupted publications. |
 | `workspace_history_metadata` | Workspace metadata used by Sources and lifecycle operations. |
 
 Blob keys are `<prefix>/<sha256(workspace identity)>/sha256/<file digest>`. A digest is SHA-256 of the complete file bytes. Identical files at any path share one object within a workspace. Workspaces have separate namespaces. There are no cross-workspace reference counts, and deleting one workspace cannot remove another's bytes. MIME types and file metadata belong to each manifest entry.
 
-Commits check object existence and upload only missing digests. Simultaneous writers can both observe a missing object and write identical bytes to its key. The Database batch inserts the candidate manifest, compares and updates the head, and marks only the winning revision as published. A failed batch rolls back the head. Losing candidates do not appear in `list()` or `open()` and do not count toward `usage()`.
+Commits check object existence and upload only missing digests. Simultaneous writers can both observe a missing object and write identical bytes to its key. The Database batch creates the ref row on first use, inserts the candidate manifest, compares and updates the ref head, and marks only the winning revision as committed. A failed batch rolls back the head. Losing candidates do not appear in `list()` or `open()` and do not count toward `usage()`.
 
 Historical `open()` reads the manifest without downloading the tree. `readFile()` downloads one object and checks its size and hash. Normal staged file operations load the current folder into instance memory. Use deliberately small folders, such as a document or a bounded app file set. Retained usage counts unique uncompressed file bytes, not provider billing. `maxBytes` limits one changed file, not retained history or account usage.
 

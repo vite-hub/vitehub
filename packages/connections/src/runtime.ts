@@ -248,6 +248,9 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
   }
 
   async function definition(name: string): Promise<ConnectionDefinition> {
+    if (name !== name.trim()) {
+      throw new ConnectionError("invalid", "Connection names cannot start or end with whitespace.", { details: { connection: name } })
+    }
     if (name.length > CONNECTION_NAME_MAX_LENGTH) {
       throw new ConnectionError("invalid", `Connection names must not exceed ${CONNECTION_NAME_MAX_LENGTH} characters so their Env keys fit the 512-character limit.`, { details: { connection: name } })
     }
@@ -689,8 +692,9 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     })
     const url = new URL(provider.authorizationEndpoint)
     const scopes = [...new Set([...(provider.identityScopes ?? []), ...(loaded.scopes ?? [])])]
+    const authorizationParams = Object.hasOwn(provider, "authorizationParams") ? provider.authorizationParams : undefined
     for (const [parameter, value] of Object.entries({
-      ...provider.authorizationParams,
+      ...authorizationParams,
       client_id: clientId,
       code_challenge: await codeChallenge(verifier),
       code_challenge_method: "S256",
@@ -706,7 +710,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     const connections = await getStore()
     // Taking the state consumes it, so a rejected callback cannot be replayed.
     const authorization = await connections.authorizations.take(input.state)
-    if (!authorization || authorization.expiresAt < now()) throw new ConnectionError("invalid", "The authorization request is unknown or expired. Start the connection again.")
+    if (!authorization || authorization.expiresAt <= now()) throw new ConnectionError("invalid", "The authorization request is unknown or expired. Start the connection again.")
     if (authorization.actor !== (input.actor ?? "user:local")) throw new ConnectionError("denied", "Another user started this authorization request. Start the connection again.")
     const name = authorization.name
     const loaded = await definition(name)

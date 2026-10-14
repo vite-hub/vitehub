@@ -3,6 +3,8 @@ import { Window } from "happy-dom"
 
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { ViteHubError } from "@vite-hub/runtime"
+import { H3 } from "h3"
+import { Request as ForeignRequest, Response as ForeignResponse } from "undici"
 
 import { defineAuth } from "../src/index.ts"
 import { handleAuthRequest, requireAuthAccessRoutes, withAuth, withAuthorization } from "../src/server.ts"
@@ -215,6 +217,53 @@ describe("server authentication provider boundaries", () => {
     await expect(Promise.resolve(handleAuthRequest(definition, spoofedRequest as never))).resolves.toBe(response)
   })
 
+  it("normalizes a Request spoof with the previously accepted prototype topology", async () => {
+    const spoofedRequest = runInNewContext(`(() => {
+      class Body {
+        get body() { return null }
+        get bodyUsed() { return false }
+        get headers() { return { get() { return null } } }
+        get method() { return "GET" }
+        get signal() { return undefined }
+        get url() { return "https://example.com/api/private" }
+        clone() { return new this.constructor() }
+        arrayBuffer() { return Promise.resolve(new ArrayBuffer(0)) }
+        blob() { return Promise.resolve(new Blob()) }
+        formData() { return Promise.resolve(new FormData()) }
+        json() { return Promise.resolve({}) }
+        text() { return Promise.resolve("") }
+        get [Symbol.toStringTag]() { return "Request" }
+      }
+      class Request extends Body {}
+      return new Request()
+    })()`)
+    providerMocks.handler.mockImplementationOnce((input: Request) => {
+      expect(input).toBeInstanceOf(Request)
+      expect(input).not.toBe(spoofedRequest)
+      return new Response("ok")
+    })
+
+    await handleAuthRequest(definition, spoofedRequest as never)
+  })
+
+  it("preserves an independent Request with accessors on its immediate prototype without cloning it", async () => {
+    const foreignRequest = new ForeignRequest("https://example.com/api/private", {
+      method: "POST",
+      body: "foreign body",
+    })
+    expect(foreignRequest instanceof Request).toBe(false)
+    const clone = vi.spyOn(foreignRequest, "clone")
+    providerMocks.handler.mockImplementationOnce(async (input: Request) => {
+      expect(input).toBe(foreignRequest)
+      expect(clone).not.toHaveBeenCalled()
+      expect(input.bodyUsed).toBe(false)
+      await expect(input.text()).resolves.toBe("foreign body")
+      return new Response("ok")
+    })
+
+    await handleAuthRequest(definition, foreignRequest as unknown as Request)
+  })
+
   it("does not unwrap an inherited host request property", async () => {
     let origin = ""
     const requestDefinition = defineAuth(({ requestOrigin }) => {
@@ -344,6 +393,56 @@ describe("server authentication provider boundaries", () => {
   })
 
   describe("withAuthorization", () => {
+    it("accepts a cross-realm authorizer on the authenticated route", async () => {
+      const authorize = runInNewContext("({ user }) => user.id === 'user-1'") as (input: unknown) => boolean
+      const accessDefinition = defineAuth({ appName: "ViteHub" })
+      providerMocks.getSession.mockResolvedValue({ session: { id: "session-1" }, user: { id: "user-1" } })
+      const handler = withAuthorization(authorize, () => "protected", accessDefinition)
+
+      await expect(handler(request)).resolves.toBe("protected")
+    })
+
+    it("preserves a cross-realm custom response", async () => {
+      const denied = runInNewContext("new Response('Payment required', { status: 402 })", { Response }) as Response
+      const authorize = runInNewContext("() => denied", { denied }) as () => Response
+      const accessDefinition = defineAuth({ appName: "ViteHub" })
+      providerMocks.getSession.mockResolvedValue({ session: { id: "session-1" }, user: { id: "user-1" } })
+
+      await expect(withAuthorization(authorize, protectedAction, accessDefinition)(request)).resolves.toBe(denied)
+      expect(protectedAction).not.toHaveBeenCalled()
+    })
+
+    it("serializes a genuine foreign custom Response from a cross-realm authorizer through H3", async () => {
+      const denied = runInNewContext(
+        "new Response('Payment required', { status: 402, headers: { 'x-policy': 'custom' } })",
+        { Response: ForeignResponse },
+      ) as Response
+      expect(denied).not.toBeInstanceOf(Response)
+      const authorize = runInNewContext("() => denied", { denied }) as () => Response
+      providerMocks.getSession.mockResolvedValue({ session: { id: "session-1" }, user: { id: "user-1" } })
+      const guarded = withAuthorization(authorize, protectedAction, definition)
+      const app = new H3().get("/api/private", event => guarded(event.req))
+
+      const response = await app.request("/api/private")
+      expect(response.status).toBe(402)
+      expect(response.headers.get("x-policy")).toBe("custom")
+      await expect(response.text()).resolves.toBe("Payment required")
+      expect(protectedAction).not.toHaveBeenCalled()
+    })
+
+    it("rejects objects that spoof the Response tag", async () => {
+      const denied = { [Symbol.toStringTag]: "Response" } as unknown as Response
+      const authorize = () => denied
+      const accessDefinition = defineAuth({ appName: "ViteHub" })
+      providerMocks.getSession.mockResolvedValue({ session: { id: "session-1" }, user: { id: "user-1" } })
+
+      const response = await withAuthorization(authorize, protectedAction, accessDefinition)(request)
+      expect(response).toBeInstanceOf(Response)
+      if (!(response instanceof Response)) return
+      expect(response.status).toBe(403)
+      expect(protectedAction).not.toHaveBeenCalled()
+    })
+
     const imageRequest = new Request("https://example.com/photos/user-1/meal.jpg", {
       headers: { accept: "text/html,image/avif,image/webp,*/*" },
     })
