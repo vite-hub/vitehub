@@ -10,7 +10,12 @@ it("preserves portable history across instances", () => {
   expect(createCursorHistory().take(cursor)).toEqual({ providerCursor: "vhc:next", history: new Set(["first", "vhc:next"]) })
 })
 
+it("preserves a provider cursor that resembles the legacy continuation format", () => {
+  const cursor = "vhc:1:%7B%22providerCursor%22%3A%22provider%22%2C%22history%22%3A%5B%5D%7D"
+  expect(createCursorHistory().take(cursor)).toEqual({ providerCursor: cursor, history: new Set([cursor]) })
+})
+
 it("rejects oversized raw and portable cursors before decoding", () => {
   expect(() => createCursorHistory().take(`vhc:${"x".repeat(8 * 1_024)}`)).toThrow("maximum size")
-  expect(() => createCursorHistory().take(`vhc:1:${"x".repeat(128 * 1_024)}`)).toThrow("maximum size")
+  expect(() => createCursorHistory().take(`vhc1:1:${"x".repeat(128 * 1_024)}`)).toThrow("maximum size")
 })

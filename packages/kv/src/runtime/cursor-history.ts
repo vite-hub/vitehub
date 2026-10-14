@@ -10,15 +10,15 @@ function isString(value: unknown): value is string {
 }
 
 function encodeContinuation(id: number, providerCursor: string, history: CursorHistory): string {
-  const token = `vhc:${id}:${encodeURIComponent(JSON.stringify({ providerCursor, history: [...history] }))}`
+  const token = `vhc1:${id}:${encodeURIComponent(JSON.stringify({ providerCursor, history: [...history] }))}`
   if (token.length > MAX_CONTINUATION_LENGTH) throw new Error("ViteHub continuation cursor exceeds the maximum size.")
   return token
 }
 
 function decodeContinuation(cursor: string): Continuation | undefined {
-  if (!cursor.startsWith("vhc:")) return undefined
+  if (!cursor.startsWith("vhc1:")) return undefined
   if (cursor.length > MAX_CONTINUATION_LENGTH) return undefined
-  const separator = cursor.indexOf(":", 4)
+  const separator = cursor.indexOf(":", 5)
   if (separator === -1) return undefined
   try {
     const value: unknown = JSON.parse(decodeURIComponent(cursor.slice(separator + 1)))
