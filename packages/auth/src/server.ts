@@ -355,7 +355,6 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Response status text is an opaque boundary string validated by the local Response constructor below.
     if (typeof statusText !== "string") return
     if (headers === null || Object(headers) !== headers) return
-    if (bodyUsed !== false) return
 
     const headerCarrier = Object(headers)
     const snapshot = { status, statusText, headers, body, bodyUsed }
@@ -378,6 +377,7 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
       || cookieDescriptor.value === Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value)
     const nativeBodyMethod = body === null || responsePropertyDescriptor(Object(body), "getReader")?.value === ReadableStream.prototype.getReader
     if (value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod && nativeBodyMethod) return value
+    if (bodyUsed !== false) return
     if (!isSerializableAuthorizationBody(body)) return
     const forEach = Reflect.get(headerCarrier, "forEach")
     const getSetCookie = Reflect.get(headerCarrier, "getSetCookie")
