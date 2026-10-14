@@ -157,7 +157,7 @@ export function defineContentHandler(
     const headers = new Headers()
     for (const [name, value] of Object.entries(nodeRequest.headers)) {
       if (value === undefined) continue
-      if (value instanceof Array) {
+      if (Array.isArray(value)) {
         for (const entry of value) headers.append(name, entry)
       }
       else headers.set(name, value)

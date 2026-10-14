@@ -287,22 +287,13 @@ async function runAccessAuthorize(
 function isResponseLike(value: unknown): value is Response {
   if (value === null || typeof value !== "object") return false
   try {
-    // Accessors on the native prototype perform the Response WebIDL brand check.
-    // Unlike `toStringTag` or shallow property checks, they reject forged objects
-    // while accepting Response instances created in another realm.
     const prototype = Response.prototype
     const status = Object.getOwnPropertyDescriptor(prototype, "status")?.get?.call(value)
     const statusText = Object.getOwnPropertyDescriptor(prototype, "statusText")?.get?.call(value)
     const headers = Object.getOwnPropertyDescriptor(prototype, "headers")?.get?.call(value)
-    return typeof status === "number"
-      && Number.isInteger(status)
-      && status >= 0
-      && status <= 599
-      && typeof statusText === "string"
-      && headers !== null
-      && typeof headers === "object"
-  }
-  catch {
+    return typeof status === "number" && Number.isInteger(status) && status >= 0 && status <= 599
+      && typeof statusText === "string" && headers !== null && typeof headers === "object"
+  } catch {
     return false
   }
 }
