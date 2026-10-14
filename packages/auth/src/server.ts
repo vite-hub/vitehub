@@ -312,6 +312,9 @@ function isResponseLike(value: unknown): value is Response {
     const forEach = getMethod("forEach")
     if (typeof get !== "function" || typeof forEach !== "function") return false
     get.call(headers, "x-vitehub-probe")
+    // Probe iteration before accepting the response; the adapter invokes this
+    // method when copying headers and must fail closed for malformed objects.
+    forEach.call(headers, () => {})
     if (body !== null) {
       // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate a foreign response body before probing its reader contract.
       if (typeof body !== "object") return false
