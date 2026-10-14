@@ -549,7 +549,7 @@ function isBuiltinObject(value: unknown, tag: string): boolean {
   }
 }
 
-function builtinObjectTag(value: object): string {
+function builtinObjectTag(value: unknown): string {
   for (const tag of builtinTags) {
     if (isBuiltinObject(value, tag)) return tag
   }
