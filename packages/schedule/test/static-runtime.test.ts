@@ -350,3 +350,14 @@ it("does not trust a replaced util.types.isNativeError predicate", () => {
   }
   expect(normalized).toMatchObject({ code: "SCHEDULE_R0035", cause: spoof })
 })
+
+it("wraps values whose coercion throws the runtime failure message", () => {
+  const thrownValue = {
+    toString() {
+      throw new Error("runtime error coercion failed")
+    },
+  }
+  const normalized = normalizeScheduleRuntimeError(thrownValue)
+  expect(normalized).toMatchObject({ code: "SCHEDULE_R0035" })
+  expect(normalized.cause).toBe(thrownValue)
+})

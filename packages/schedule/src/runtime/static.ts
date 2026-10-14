@@ -83,8 +83,7 @@ export function normalizeScheduleRuntimeError(error: unknown): Error {
   try {
     message = String(error)
   }
-  catch (coercionError) {
-    if (coercionError instanceof Error && coercionError.message === "runtime error coercion failed") throw error
+  catch {
     message = "[unprintable thrown value]"
   }
   try {
