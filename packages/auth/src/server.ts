@@ -277,9 +277,18 @@ function reject(response: Response): AuthCheck {
 
 function isResponse(value: unknown): value is Response {
   if (value instanceof Response) return true
+  if (value === null || typeof value !== "object") return false
   try {
-    Object.getOwnPropertyDescriptor(Response.prototype, "body")?.get?.call(value)
-    return true
+    const response = value as Partial<Response> & { body?: unknown }
+    const body = response.body
+    const status = response.status
+    return typeof status === "number"
+      && Number.isInteger(status)
+      && status >= 200
+      && status <= 599
+      && typeof response.statusText === "string"
+      && typeof response.arrayBuffer === "function"
+      && (body === null || (typeof body === "object" && typeof (body as { getReader?: unknown }).getReader === "function"))
   } catch {
     return false
   }
@@ -303,7 +312,9 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     // Response so adapters only receive native Headers and body operations.
     const response = value as Response
     const headers = new Headers(response.headers)
-    const body = response.body === null ? null : new Uint8Array(await response.arrayBuffer())
+    const payload = await response.arrayBuffer()
+    if (payload === null || (typeof payload !== "object" && typeof payload !== "function")) return
+    const body = response.body === null ? null : new Uint8Array(payload as ArrayBuffer)
     return new Response(body, { headers, status: response.status, statusText: response.statusText })
   }
   catch {

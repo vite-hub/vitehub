@@ -109,7 +109,7 @@ describe("Auth access handlers", () => {
       get status() { return 409 }
       get statusText() { return "Conflict" }
       get headers() { return [["set-cookie", "policy=denied"], ["x-policy", "rejected"]] }
-      get body() { return {} }
+      get body() { return { getReader() { return {} } } }
       async arrayBuffer() { return new Uint8Array([110, 111]).buffer }
       get [Symbol.toStringTag]() { return "Response" }
     })()`)
