@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { ConsoleSectionId } from "../sections";
 import ConsoleRail from "./console-rail.vue";
+import ConsoleToaster from "./console-toaster.vue";
 
 defineProps<{
   /** Section that the current page shows. Leave it unset on the Overview. */
@@ -13,6 +14,8 @@ defineProps<{
   <UDashboardGroup class="vitehub-console" unit="rem" storage-key="vitehub-console-v2">
     <ConsoleRail :active="active" :sections-base="sectionsBase" />
     <slot />
+    <!-- Console toasts render here, apart from the toaster of a host app. -->
+    <ConsoleToaster />
   </UDashboardGroup>
 </template>
 

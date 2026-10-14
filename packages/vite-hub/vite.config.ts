@@ -237,6 +237,9 @@ export default defineConfig({
       { from: "src/console/runtime/components/console-markdown-editor.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-schema-form.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-schema-field.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-relative-time.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-status.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-toaster.vue", to: "dist/console/runtime/components" },
       { from: "../ui/styles.css", to: "dist/ui" },
       { from: "templates/cloudflare-types.d.ts", to: "dist" },
     ],
@@ -284,6 +287,7 @@ export default defineConfig({
       "src/console/runtime/client/env-status.ts",
       "src/console/runtime/client/schedule-run.ts",
       "src/console/runtime/client/time.ts",
+      "src/console/runtime/client/toast.ts",
       "src/console/runtime/definitions.ts",
       "src/console/runtime/rpc.ts",
       "src/console/runtime/sections.ts",
@@ -324,6 +328,7 @@ export default defineConfig({
         delete exports["./console/runtime/client/env-status"];
         delete exports["./console/runtime/client/schedule-run"];
         delete exports["./console/runtime/client/time"];
+        delete exports["./console/runtime/client/toast"];
         delete exports["./console/runtime/definitions"];
         delete exports["./console/runtime/rpc"];
         delete exports["./console/runtime/sections"];
