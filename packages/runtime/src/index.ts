@@ -1417,7 +1417,7 @@ function isCapabilityHandle(value: unknown): value is CapabilityHandle {
   // Node can identify proxies without invoking their traps. Structural checks
   // cannot distinguish a proxy's fabricated descriptors from target-owned data.
   const proxy = isProxy(value)
-  if (proxy !== false) return false
+  if (proxy === true) return false
   try {
     // Enumerate own keys before inspecting fields so inherited fields and
     // descriptors fabricated for keys absent from the object are not handles.

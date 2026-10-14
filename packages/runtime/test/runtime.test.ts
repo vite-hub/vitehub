@@ -436,6 +436,27 @@ describe("@vite-hub/runtime", () => {
     }
   })
 
+  it("preserves external structural handles without a proxy detector", () => {
+    const implementation = { query: vi.fn() }
+    const handle = { kind: "db", value: implementation }
+    const context = createExecutionContext({
+      capabilities: { db: handle },
+      memo: vi.fn(),
+      runtime: "vite",
+      waitUntil: vi.fn(),
+    })
+    const processObject = globalThis.process
+    const detector = Object.getOwnPropertyDescriptor(processObject, "getBuiltinModule")
+    Object.defineProperty(processObject, "getBuiltinModule", { configurable: true, value: undefined })
+    try {
+      expect(getCapability(context, "db")).toBe(handle)
+    }
+    finally {
+      if (detector) Object.defineProperty(processObject, "getBuiltinModule", detector)
+      else delete (processObject as { getBuiltinModule?: unknown }).getBuiltinModule
+    }
+  })
+
   it("resolves only capabilities registered as own properties", () => {
     const inherited = { inherited: defineCapability("inherited", {}) }
     const context = createExecutionContext({
