@@ -1671,14 +1671,15 @@ describe("ViteHub Nuxt integration", () => {
       const file = expect.stringMatching(/console\/runtime\/pages\/documents\.vue$/)
       expect(content).toEqual([
         { name: "vitehub-console-content--dashboard", path: "/_vitehub/content/-/dashboard", redirect: "/_vitehub/content" },
+        { file, meta: expect.objectContaining({ consolePage: "settings", consoleSection: "content" }), name: "vitehub-console-content--settings", path: "/_vitehub/content/-/settings" },
         { file, meta: expect.objectContaining({ consolePage: "media", consoleSection: "content" }), name: "vitehub-console-content--media", path: "/_vitehub/content/-/media" },
         { file, meta: expect.objectContaining({ consoleSection: "content" }), name: "vitehub-console-content", path: "/_vitehub/content/:collection?/:document(.*)*" },
       ])
-      expect(content[2]?.meta).not.toHaveProperty("consolePage")
-      expect(content[2]?.meta?.consoleSectionDetails).toMatchObject({ id: "content", pages: [{ id: "dashboard", index: true }, { id: "media" }] })
+      expect(content[3]?.meta).not.toHaveProperty("consolePage")
+      expect(content[3]?.meta?.consoleSectionDetails).toMatchObject({ id: "content", pages: [{ id: "dashboard", index: true }, { id: "settings" }, { id: "media" }] })
       const icons = new Set<string>()
       development.runIconHook(icons)
-      expect([...icons]).toEqual(expect.arrayContaining(["lucide:layout-dashboard", "lucide:image"]))
+      expect([...icons]).toEqual(expect.arrayContaining(["lucide:layout-dashboard", "lucide:settings-2", "lucide:image"]))
     }
     finally {
       await rm(entry, { force: true })

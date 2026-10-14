@@ -32,6 +32,8 @@ import ConsolePropertyRow from "./console-property-row.vue";
 import ConsoleRelativeTime from "./console-relative-time.vue";
 import ConsoleStatus from "./console-status.vue";
 
+import type { RouteLocationRaw } from "vue-router";
+
 import type { ConsoleDocument, ConsoleDocumentCollection, ConsoleDocumentRevision, ConsoleDocumentsClient, ConsoleDocumentState, ConsoleRawDocument } from "../client/documents";
 
 /**
@@ -47,6 +49,8 @@ const props = defineProps<{
   collection: ConsoleDocumentCollection;
   /** Undefined for a new document. */
   documentId?: string;
+  /** Where Back leads instead of the collection list, such as the Settings page for a singleton. */
+  parent?: { label: string, to: RouteLocationRaw };
 }>();
 
 const emit = defineEmits<{ changed: [] }>();
@@ -192,6 +196,9 @@ function compact(data: Record<string, unknown>): Record<string, unknown> {
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value));
 }
+
+/** Back leads to the parent page, or to the collection list. A singleton has no list. */
+const back = computed(() => props.parent ?? (single.value ? undefined : { label: props.collection.label, to: listRoute() }));
 
 function listRoute() {
   return { name: route.name ?? undefined, params: { collection: props.collection.name, document: [] }, query: consoleListQueryFor(props.collection.name) };
@@ -705,13 +712,13 @@ const menuItems = computed(() => [[
 
 <template>
   <UDashboardNavbar :ui="{ root: 'border-b border-default', right: 'gap-1.5' }" :toggle="{ 'aria-label': 'Open collections' }">
-    <template v-if="!single" #leading>
-      <UButton :to="listRoute()" variant="ghost" size="sm" icon="i-lucide-arrow-left" :aria-label="`Back to ${collection.label}`" />
+    <template v-if="back" #leading>
+      <UButton :to="back.to" variant="ghost" size="sm" icon="i-lucide-arrow-left" :aria-label="`Back to ${back.label}`" />
     </template>
     <template #title>
       <span class="flex min-w-0 items-center gap-2">
-        <template v-if="!single">
-          <RouterLink :to="listRoute()" class="hidden shrink-0 text-sm font-normal text-muted hover:text-highlighted sm:inline">{{ collection.label }}</RouterLink>
+        <template v-if="back">
+          <RouterLink :to="back.to" class="hidden shrink-0 text-sm font-normal text-muted hover:text-highlighted sm:inline">{{ back.label }}</RouterLink>
           <span class="hidden text-dimmed sm:inline" aria-hidden="true">/</span>
         </template>
         <span class="truncate text-sm font-medium text-highlighted">{{ title }}</span>

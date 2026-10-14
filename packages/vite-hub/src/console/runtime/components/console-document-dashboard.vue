@@ -63,7 +63,9 @@ const pending = computed(() => (props.overview?.collections ?? [])
 // Writers see the changes, but only collections they may publish count toward the Publish button.
 const publishable = computed(() => pending.value.filter(entry => entry.collection.access.publish));
 const canPublishAny = computed(() => props.collections.some(collection => collection.access.publish));
-const writable = computed(() => props.collections.filter(collection => collection.access.write));
+// Singletons, such as site settings, have their own page and no New button.
+const listed = computed(() => props.collections.filter(collection => collection.kind !== "singleton"));
+const writable = computed(() => listed.value.filter(collection => collection.access.write));
 const firstLoad = computed(() => props.loading && !props.overview);
 
 function key(collection: string, id: string): string {
@@ -211,11 +213,11 @@ async function publishAll(): Promise<void> {
 
           <section aria-labelledby="collections" class="grid gap-2">
             <h2 id="collections" class="text-[13px] font-medium text-highlighted">Collections</h2>
-            <div v-if="firstLoad && !collections.length" class="grid gap-px">
+            <div v-if="firstLoad && !listed.length" class="grid gap-px">
               <USkeleton v-for="index in 2" :key="index" class="h-11 rounded-md" />
             </div>
             <ul v-else class="divide-y divide-default overflow-hidden rounded-lg border border-default">
-              <li v-for="collection in collections" :key="collection.name" class="flex h-11 items-center gap-3 px-3">
+              <li v-for="collection in listed" :key="collection.name" class="flex h-11 items-center gap-3 px-3">
                 <RouterLink :to="collectionRoute(collection.name)" class="flex min-w-0 flex-1 items-baseline gap-2 rounded-sm hover:text-highlighted focus-visible:outline-2 focus-visible:outline-offset-2">
                   <span class="truncate text-sm font-medium text-highlighted">{{ collection.label }}</span>
                   <span class="hidden truncate font-mono text-xs text-dimmed sm:inline">{{ collection.path }}</span>
@@ -234,7 +236,7 @@ async function publishAll(): Promise<void> {
                 />
               </li>
             </ul>
-            <p v-if="collections.length && !writable.length" class="text-xs text-dimmed">You can read these collections but not edit them.</p>
+            <p v-if="listed.length && !writable.length" class="text-xs text-dimmed">You can read these collections but not edit them.</p>
           </section>
         </div>
 

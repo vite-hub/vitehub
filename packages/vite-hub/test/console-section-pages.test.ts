@@ -20,6 +20,7 @@ describe("Console section pages", () => {
   it("describes the routes of the Content dashboard, its pages, and its collections", () => {
     expect(describeConsoleSectionRoutes(content)).toEqual([
       { name: "vitehub-console-content--dashboard", path: "/content/-/dashboard", redirect: "/content" },
+      { name: "vitehub-console-content--settings", page: "settings", path: "/content/-/settings" },
       { name: "vitehub-console-content--media", page: "media", path: "/content/-/media" },
       { name: "vitehub-console-content", path: "/content/:collection?/:document(.*)*" },
     ])
@@ -57,8 +58,8 @@ describe("Console section pages", () => {
   })
 
   it("shows Media only when the project enables Blob", () => {
-    expect(describeConsoleContributedSections(["content"])[0]?.pages?.map(page => page.id)).toEqual(["dashboard"])
-    expect(content.pages?.map(page => page.id)).toEqual(["dashboard", "media"])
+    expect(describeConsoleContributedSections(["content"])[0]?.pages?.map(page => page.id)).toEqual(["dashboard", "settings"])
+    expect(content.pages?.map(page => page.id)).toEqual(["dashboard", "settings", "media"])
     // The client never receives `requires`.
     expect(JSON.stringify(content)).not.toContain("requires")
   })
@@ -71,11 +72,13 @@ describe("Console section pages", () => {
         { id: "dashboard", label: "Again", icon: "i-lucide-x", view: { kind: "document-dashboard" } },
         { id: "calendar", label: "Calendar", icon: "i-lucide-calendar", view: { kind: "calendar" } },
         { id: "Bad", label: "Bad", icon: "i-lucide-x", view: { kind: "media-library" } },
+        { id: "settings", label: "Settings", icon: "i-lucide-settings-2", group: "Site", view: { kind: "document-settings" } },
         { id: "media", label: "Media", icon: "i-lucide-image", index: true, group: " Assets ", view: { kind: "media-library" } },
       ],
     })
     expect(parsed?.pages).toEqual([
       { icon: "i-lucide-layout-dashboard", id: "dashboard", index: true, label: "Dashboard", view: { kind: "document-dashboard" } },
+      { group: "Site", icon: "i-lucide-settings-2", id: "settings", label: "Settings", view: { kind: "document-settings" } },
       { group: "Assets", icon: "i-lucide-image", id: "media", label: "Media", view: { kind: "media-library" } },
     ])
     expect(parseConsoleContributedSection({ ...content, pages: "x" })).not.toHaveProperty("pages")

@@ -130,6 +130,7 @@ export const contentConsoleSection: ViteHubConsoleDocumentEditorSection<ContentC
   label: "Content",
   pages: [
     { id: "dashboard", label: "Dashboard", icon: "i-lucide-layout-dashboard", index: true, view: { kind: "document-dashboard" } },
+    { id: "settings", label: "Settings", icon: "i-lucide-settings-2", group: "Site", view: { kind: "document-settings" } },
     { id: "media", label: "Media", icon: "i-lucide-image", group: "Assets", requires: ["blob"], view: { kind: "media-library" } },
   ],
   view: {

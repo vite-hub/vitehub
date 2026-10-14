@@ -16,18 +16,20 @@ Console data can contain user prompts, model output, tool activity, Blob metadat
 
 ### Section pages and URLs
 
-A section can have pages next to its main view. Content has a dashboard and, when Blob is enabled, a Media page. Each page has its own URL, so links, reloads, and Back work:
+A section can have pages next to its main view. Content has a dashboard, a Settings page when it defines a singleton, and, when Blob is enabled, a Media page. Each page has its own URL, so links, reloads, and Back work:
 
 | URL | Opens |
 | --- | --- |
 | `/_vitehub/content` | The section's index page, the Content dashboard. A section without one opens its main view. |
 | `/_vitehub/content/-/media` | Another page of the section. |
+| `/_vitehub/content/-/settings` | The singletons of the section, such as site settings. |
 | `/_vitehub/content/posts` | The `posts` collection in the main view. |
+| `/_vitehub/content/settings` | The editor of the `settings` singleton. |
 | `/_vitehub/content/posts/2026/launch` | The document `2026/launch` of `posts`. |
 
 The `-` segment separates pages from the main view, so a collection named `media` stays a collection. `/_vitehub/content/-/dashboard` redirects to `/_vitehub/content`. The Vite Console and the Nuxt module register the same routes.
 
-Pages share the access of their section. `{ sections: ['content'] }` in `console.authorize` allows the dashboard, Media, and every collection. There is no separate page scope; the owner policy, such as `content.can()`, still decides what each action may do.
+Pages share the access of their section. `{ sections: ['content'] }` in `console.authorize` allows the dashboard, Settings, Media, and every collection. There is no separate page scope; the owner policy, such as `content.can()`, still decides what each action may do.
 
 The section sidebar collapses to icons with the button in its header. The Console stores the collapsed state and the sidebar width in the browser.
 

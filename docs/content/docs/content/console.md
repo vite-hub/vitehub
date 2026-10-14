@@ -19,7 +19,7 @@ The section appears when `server/content.ts` passes `collections` to `defineCont
 - **Recent activity** names who saved, deleted, restored, or published which document, and when.
 - **Collections** lists each collection with a **New** button when you may edit it.
 
-The sidebar lists the dashboard, every collection with its draft and changed counts, and Media when the project enables Blob. Media links to the Blob section for now; it does not upload or describe files yet. Each page has a URL, such as `/_vitehub/content/-/media`. See [Section pages and URLs](/docs/development/console#section-pages-and-urls).
+The sidebar lists the dashboard, every collection with its draft and changed counts, **Settings** when you define a [singleton](/docs/content/configure#singletons-and-data-files), and Media when the project enables Blob. Settings lists each singleton, such as site settings, with its state, and opens it in the editor; singletons do not appear among the collections. Media links to the Blob section for now; it does not upload or describe files yet. Each page has a URL, such as `/_vitehub/content/-/media`. See [Section pages and URLs](/docs/development/console#section-pages-and-urls).
 
 <kbd>⌘</kbd> <kbd>K</kbd> searches the drafts of every collection by title, id, fields, and body. <kbd>Enter</kbd> opens a document, and <kbd>⌘</kbd> <kbd>Enter</kbd> opens it in a new tab. The same search creates documents and reviews and publishes all changes. See [Search](/docs/development/console#search).
 
@@ -30,7 +30,7 @@ The sidebar lists the dashboard, every collection with its draft and changed cou
 | Find a document | Search, filter by state (draft, changed, published, deleted), filter by enum, boolean, and tag fields, and sort by title or the first date field. **Updated** shows when each document last changed; hover it for the exact time. |
 | Edit fields | Property rows under the title, built from the collection's [JSON Schema](/docs/content/configure#fields). Empty optional fields fold behind **Show N more**. JSON and YAML documents have no body, so their property rows are the page and show every field. |
 | Edit the body | A block editor over the Markdown. Select text for formatting, type <kbd>/</kbd> to insert blocks, images, and the collection's [components](/docs/content/configure#define-collections), and hover a block for ⋮⋮ (move, turn into, duplicate, copy link, delete) and + (insert below). |
-| Edit settings | A [singleton](/docs/content/configure#singletons-and-data-files), such as `settings`, opens straight into its editor, without a list. Before its first save it shows the field defaults, and the first edit saves it. |
+| Edit settings | Open **Settings** in the sidebar, or search for the singleton with <kbd>⌘</kbd> <kbd>K</kbd>. A [singleton](/docs/content/configure#singletons-and-data-files), such as `settings`, opens straight into its editor, without a list. Before its first save it shows the field defaults, and the first edit saves it. It cannot be deleted from the Console. |
 | See the file | **Source** (<kbd>⌘</kbd> <kbd>/</kbd>) shows the stored file: the frontmatter read-only and the Markdown body editable. |
 | Save | Drafts save one second after typing stops. <kbd>⌘</kbd> <kbd>S</kbd> saves at once. A new document saves when you choose **Create**, since its id names the file. |
 | Publish | **Publish** on a document, **Publish N changes** on a collection, **Publish** on the dashboard for every collection, or select documents and publish only those. |

@@ -48,8 +48,17 @@ export interface ViteHubConsoleMediaLibraryView {
   kind: "media-library"
 }
 
+/**
+ * The singletons of a document editor section, such as site settings: one row per singleton that opens it in the
+ * editor. Singletons appear here instead of among the collections, and the Console hides the page when the section has
+ * none.
+ */
+export interface ViteHubConsoleDocumentSettingsView {
+  kind: "document-settings"
+}
+
 /** A view that the Console UI in `vite-hub` renders for a section page. */
-export type ViteHubConsoleSectionPageView = ViteHubConsoleDocumentDashboardView | ViteHubConsoleMediaLibraryView
+export type ViteHubConsoleSectionPageView = ViteHubConsoleDocumentDashboardView | ViteHubConsoleDocumentSettingsView | ViteHubConsoleMediaLibraryView
 
 /**
  * A page of a section next to its main view, such as the Content dashboard or media library. The section sidebar lists
@@ -519,7 +528,7 @@ export function describeViteHubConsoleSection<TOptions>(section: ViteHubConsoleS
   return descriptor
 }
 
-const sectionPageViewKinds: ReadonlySet<string> = new Set<ViteHubConsoleSectionPageView["kind"]>(["document-dashboard", "media-library"])
+const sectionPageViewKinds: ReadonlySet<string> = new Set<ViteHubConsoleSectionPageView["kind"]>(["document-dashboard", "document-settings", "media-library"])
 
 function describePages(section: ViteHubConsoleSectionDescriptor): ViteHubConsoleSectionPage[] {
   const name = JSON.stringify(section.id)

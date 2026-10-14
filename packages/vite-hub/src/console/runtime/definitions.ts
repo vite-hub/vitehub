@@ -92,7 +92,7 @@ function parseConsoleDocumentComponents(value: unknown): ConsoleDocumentComponen
 }
 
 /** A view that the Console renders for a section page. It mirrors `ViteHubConsoleSectionPageView`. */
-export type ConsoleSectionPageView = { kind: "document-dashboard" } | { kind: "media-library" }
+export type ConsoleSectionPageView = { kind: "document-dashboard" } | { kind: "document-settings" } | { kind: "media-library" }
 
 /**
  * A page next to the main view of a section. It mirrors `ViteHubConsoleSectionPage` after the host dropped the pages
@@ -168,7 +168,7 @@ function parseConsoleSectionView(value: unknown): ConsoleSectionView | undefined
   return { columns, kind: "record-table", notice: view.notice }
 }
 
-const pageViewKinds: ReadonlySet<unknown> = new Set<ConsoleSectionPageView["kind"]>(["document-dashboard", "media-library"])
+const pageViewKinds: ReadonlySet<unknown> = new Set<ConsoleSectionPageView["kind"]>(["document-dashboard", "document-settings", "media-library"])
 const pageIdPattern = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/
 
 /** Reads section pages from untrusted JSON. Pages with an unknown view, a repeated id, or a second index are dropped. */
