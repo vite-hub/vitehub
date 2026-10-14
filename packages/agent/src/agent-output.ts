@@ -709,6 +709,7 @@ export function toAgentStreamEvent(
 export const agentStreamErrorSymbol: unique symbol = Symbol("vitehub.agent-stream-error")
 
 function isBudgetExhaustionEvent(event: StreamEvent): boolean {
+  // SAFETY: Stream events carry this private marker only when the runtime attached an ExecutionBudgetExceededError.
   return event.type === "error"
     && (event as StreamEvent & { [agentStreamErrorSymbol]?: unknown })[agentStreamErrorSymbol] instanceof ExecutionBudgetExceededError
 }

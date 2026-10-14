@@ -5,7 +5,7 @@ import { agentDiagnostics } from "./agent-diagnostics.ts"
 import { agentStreamErrorSymbol } from "./agent-output.ts"
 import { hostObservability, isHostObservabilityCapability } from "./internal/observability-host.ts"
 import { asUnknownBoundary, hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
-import { ExecutionBudgetExceededError, resolveRuntimeValue, ViteHubError } from "@vite-hub/runtime"
+import { resolveRuntimeValue, ViteHubError } from "@vite-hub/runtime"
 import type { StandardSchemaV1 } from "@standard-schema/spec"
 
 import { applyWorkspaceAccessWrapper, grantWorkspaceAccessScope, hasTrustedWorkspaceSourceResolutionDefinition, isTrustedSourceFreeInspection, trustedWorkspaceAccessScope, workspaceOverrideSymbol } from "./access-runtime.ts"
@@ -1991,8 +1991,7 @@ export function withCapabilityCleanup<T extends AsyncIterable<unknown>>(
           break
         }
         const value = result.value
-        if (isRuntimeRecord(value) && value.type === "error" && value.recoverable !== true
-          && value[agentStreamErrorSymbol] instanceof ExecutionBudgetExceededError) {
+        if (isRuntimeRecord(value) && value.type === "error" && value.recoverable !== true) {
           failed = true
           error = value[agentStreamErrorSymbol] ?? (value.error instanceof Error ? value.error : new Error(String(value.error ?? "Unknown stream error")))
           yield value
