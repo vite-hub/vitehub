@@ -133,6 +133,6 @@ The badge uses the error color for `failed`, the warning color for `running`, an
 
 ## Related
 
-- [Invocation](/docs/ui/invocation) shows the activities of a whole Agent Invocation.
+- [Console](/docs/development/console) shows the activities of a whole Agent Invocation.
 - [Marker](/docs/ui/marker) shows status between turns.
 - [Code review block](/docs/ui/blocks/code-review) shows a trace next to a diff.

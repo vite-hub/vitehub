@@ -450,7 +450,7 @@ The Console does not calculate missing provider data. Token counts, model metada
 | The page returns `401` | Sign in through the Auth provider configured by the host. |
 | The page returns `403` | Check the host's `authorize` callback and the current user's role or permission. |
 
-Use [Agent Invocations](/docs/agents/invocations) for custom stores and invocation lifecycle behavior. Use [Invocation UI](/docs/ui/invocation) when building an application-owned inspection page instead of mounting the complete Console.
+Use [Agent Invocations](/docs/agents/invocations) for custom stores and invocation lifecycle behavior. Use the [UI parts](/docs/ui) such as [Trace](/docs/ui/trace) and [Code block](/docs/ui/code-block) when you build an application-owned inspection page instead of mounting the complete Console.
 
 ### Image upload boundaries
 

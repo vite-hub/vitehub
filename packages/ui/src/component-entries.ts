@@ -37,7 +37,6 @@ const partFamilies = {
 } as const;
 
 export const componentNames = [
-  "AgentCapabilityInspector",
   "AgentChat",
   "AgentChatMessage",
   "AgentChatPrompt",
@@ -45,10 +44,6 @@ export const componentNames = [
   "AgentFile",
   "AgentFileDiff",
   "AgentFileTree",
-  "AgentInvocation",
-  "AgentInvocationInspector",
-  "AgentInvocationList",
-  "AgentInvocationTimeline",
   "AgentMarkdown",
   "AgentMessageParts",
   "AgentMultiFileDiff",

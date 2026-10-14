@@ -58,13 +58,6 @@ const packageJson = parsePackageManifest(
   readFileSync(new URL("../package.json", import.meta.url), "utf8"),
 );
 const stylesheet = readFileSync(new URL("../dist/styles.css", import.meta.url), "utf8");
-const compactInvocationRules = `  .vh-invocation-thread__content {
-    padding: 1.5rem 1rem 3rem;
-  }
-
-  .vh-invocation-message[data-role="user"] {
-    margin-inline-start: 1rem;
-  }`;
 
 const componentEntries = [...new Set(componentNames.map((name) => `./${componentEntryName(name)}`))];
 
@@ -85,9 +78,6 @@ describe("@vite-hub/ui package contract", () => {
     });
     expect(packageJson.dependencies).toEqual({
       "@comark/vue": "0.7.0",
-      "@json-render/core": "0.21.0",
-      "@json-render/vue": "0.21.0",
-      "@vueuse/core": "catalog:ui",
       katex: "^0.17.0",
       "@iconify-json/ph": "catalog:ui",
       "@nuxt/kit": "4.5.2",
@@ -118,14 +108,8 @@ describe("@vite-hub/ui package contract", () => {
     }
   });
 
-  it("ships compact invocation styles for narrow sessions and viewports", () => {
-    expect(stylesheet).toMatch(/\.vh-invocation-session\s*\{[^}]*container-type: inline-size;/);
-    expect(stylesheet).toContain(`@container (max-width: 600px) {\n${compactInvocationRules}\n}`);
-    expect(stylesheet).toContain(`@media (max-width: 600px) {\n${compactInvocationRules}\n}`);
-  });
-
   it("ships flat console surfaces that fill their containers", () => {
-    for (const block of [".vh-chat", ".vh-session", ".vh-invocation-session", ".vh-invocation-inspector", ".vh-invocation-list", ".vh-capability-inspector"]) {
+    for (const block of [".vh-chat", ".vh-session"]) {
       expect(stylesheet, block).toMatch(new RegExp(`\\n${block.replace(".", "\\.")}\\s*\\{[^}]*height: 100%;[^}]*min-height: 0;`));
     }
     expect(stylesheet).not.toMatch(/backdrop-filter|mask-image|linear-gradient/);

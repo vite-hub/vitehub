@@ -32,10 +32,6 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./agent-capability-inspector": {
-      "types": "./dist/agent-capability-inspector.d.ts",
-      "import": "./dist/agent-capability-inspector.js"
-    },
     "./agent-chat": {
       "types": "./dist/agent-chat.d.ts",
       "import": "./dist/agent-chat.js"
@@ -63,22 +59,6 @@
     "./agent-file-tree": {
       "types": "./dist/agent-file-tree.d.ts",
       "import": "./dist/agent-file-tree.js"
-    },
-    "./agent-invocation": {
-      "types": "./dist/agent-invocation.d.ts",
-      "import": "./dist/agent-invocation.js"
-    },
-    "./agent-invocation-inspector": {
-      "types": "./dist/agent-invocation-inspector.d.ts",
-      "import": "./dist/agent-invocation-inspector.js"
-    },
-    "./agent-invocation-list": {
-      "types": "./dist/agent-invocation-list.d.ts",
-      "import": "./dist/agent-invocation-list.js"
-    },
-    "./agent-invocation-timeline": {
-      "types": "./dist/agent-invocation-timeline.d.ts",
-      "import": "./dist/agent-invocation-timeline.js"
     },
     "./agent-markdown": {
       "types": "./dist/agent-markdown.d.ts",
@@ -167,10 +147,7 @@
     "@nuxt/kit": "4.5.2",
     "@types/node": "catalog:tooling",
     "nostics": "catalog:runtime",
-    "@vueuse/core": "catalog:ui",
     "katex": "^0.17.0",
-    "@json-render/vue": "0.21.0",
-    "@json-render/core": "0.21.0",
     "reka-ui": "catalog:ui",
     "shiki": "^4.5.0"
   },
