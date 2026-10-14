@@ -561,7 +561,7 @@ describe("agent output helpers", () => {
     const nativeIsError = errorConstructor.isError
     try {
       errorConstructor.isError = isError
-      for (const error of [new Error("boom"), new Error(), runInNewContext("new Error('boom')")]) {
+      for (const error of [new Error("boom"), Object.assign(new Error("tagged"), { [Symbol.toStringTag]: "ProviderError" }), new Error(), runInNewContext("new Error('boom')")]) {
         const event = toAgentStreamEvent({ error, type: "error" })
         expect(event).toMatchObject({ error: error.message, type: "error" })
         expect(Reflect.get(event!, agentStreamErrorSymbol)).toBe(error)

@@ -699,10 +699,25 @@ function crossRealmStreamError(error: unknown): { message: string; value: object
   if (error === null || typeof error !== "object") return
   try {
     const currentIsError: unknown = Reflect.get(Error, "isError")
+    // Node exposes the same intrinsic brand check through util.types. Use it
+    // when Error.isError is unavailable so custom Symbol.toStringTag values
+    // remain valid while prototype-only forgeries are rejected.
+    const processValue: unknown = Reflect.get(globalThis, "process")
+    const getBuiltinModule = processValue && typeof processValue === "object"
+      ? Reflect.get(processValue, "getBuiltinModule")
+      : undefined
+    const nativeIsError = hasRuntimeType(getBuiltinModule, "function")
+      ? Reflect.get(getBuiltinModule.call(processValue, "util"), "types")
+      : undefined
+    const intrinsicIsError = nativeIsError && typeof nativeIsError === "object"
+      ? Reflect.get(nativeIsError, "isNativeError")
+      : undefined
     const branded = hasRuntimeType(currentIsError, "function")
       ? currentIsError(error) === true
-      : (!(Symbol.toStringTag in error)
-        && Object.prototype.toString.call(error) === "[object Error]")
+      : hasRuntimeType(intrinsicIsError, "function")
+        ? intrinsicIsError(error) === true
+        : (error instanceof Error || (!(Symbol.toStringTag in error)
+          && Object.prototype.toString.call(error) === "[object Error]"))
     if (!branded) return
     return { message: String(Reflect.get(error, "message")), value: error }
   }
