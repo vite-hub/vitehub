@@ -37,7 +37,7 @@ const checkedEvents = new WeakMap<object, ConsoleAccess>()
 const modes = new Set<ConsoleAccessMode>(["auth", "cloudflare-access", "host-managed", "local"])
 const objectToString = Object.prototype.toString
 
-function authorizationResponse(value: unknown): Response | undefined {
+async function authorizationResponse(value: unknown): Promise<Response | undefined> {
   if (value instanceof Response) return value
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This boundary validates foreign Fetch fields before constructing a local Response.
   if (!value || typeof value !== "object") return undefined
@@ -65,16 +65,24 @@ function authorizationResponse(value: unknown): Response | undefined {
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Verify the foreign Response clone method before invoking it.
     if (typeof cloneMethod !== "function") return undefined
     const clone = Reflect.apply(cloneMethod, value, [])
-    if (!clone || clone === value) return undefined
+    if (!clone || clone === value || objectToString.call(clone) !== "[object Response]") return undefined
+    // A callable clone spoof must also expose the transferable Response contract.
+    if (!("status" in clone) || typeof clone.status !== "number"
+      || !("statusText" in clone) || typeof clone.statusText !== "string"
+      || !("headers" in clone) || !clone.headers || typeof clone.headers !== "object"
+      || !(Symbol.iterator in clone.headers) || typeof clone.headers[Symbol.iterator] !== "function"
+      || !("body" in clone)) return undefined
     // Validate init before taking ownership of a foreign stream.
     const empty = new Response(null, init)
     if (value.body === null) return empty
     if ([204, 205, 304].includes(value.status)) return undefined
     // Calling the native stream method checks its internal brand across realms;
     // piping into a local stream also avoids realm-sensitive Fetch body checks.
-    const body = ReadableStream.prototype.pipeThrough.call(value.body, new TransformStream())
-    // SAFETY: ReadableStream.prototype.pipeThrough preserves the byte stream produced by a Fetch Response body.
-    return new Response(body as ReadableStream<Uint8Array>, init)
+    // Read the foreign body through its own implementation, then construct the
+    // local response from bytes so independently implemented Fetch realms work.
+    if (!("arrayBuffer" in clone) || typeof clone.arrayBuffer !== "function") return undefined
+    const body = await Reflect.apply(clone.arrayBuffer, clone, [])
+    return new Response(body as ArrayBuffer, init)
   }
   catch {
     return undefined
@@ -126,7 +134,7 @@ async function checkConsoleAccess(event: ConsoleRequestEvent): Promise<ConsoleAc
       return rejection(500, "[vitehub] console: { exposure: \"host-managed\" } requires console.authorize. Set it to a server file that default-exports defineConsoleAuthorize().")
     }
     const result = await policy.authorize({ request: webRequest(event) })
-    const response = authorizationResponse(result)
+    const response = await authorizationResponse(result)
     if (response) return response
     if (result !== true) return rejection(403, "Forbidden.")
   }
@@ -137,7 +145,7 @@ async function checkConsoleAccess(event: ConsoleRequestEvent): Promise<ConsoleAc
         : "[vitehub] Cloudflare Access Console Auth is not configured.")
     }
     const response = await policy.check(event)
-    if (response) return authorizationResponse(response) ?? rejection(403, "Forbidden.")
+    if (response) return await authorizationResponse(response) ?? rejection(403, "Forbidden.")
   }
   return consoleAccessGrant.issue(policy.mode, { mode: policy.mode })
 }
