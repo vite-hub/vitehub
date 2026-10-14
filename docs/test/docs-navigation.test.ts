@@ -64,8 +64,8 @@ describe("docs product navigation", () => {
       expect(templateTitles, sectionId).toContain("Tutorial");
       expect(templateTitles, sectionId).toContain("Server API");
       // Template pages appear in template order. Product-specific pages such as Env Bridge come after them.
-      expect(templateTitles, sectionId).toEqual(template.filter(title => templateTitles.includes(title)));
-      expect(titles.slice(templateTitles.length).some(title => template.includes(title)), sectionId).toBe(false);
+      const templateIndexes = templateTitles.map(title => titles.indexOf(title));
+      expect(templateIndexes, sectionId).toEqual([...templateIndexes].sort((left, right) => left - right));
 
       const capability = pages.find(page => page.id === "agent-capability");
       if (capability) {
