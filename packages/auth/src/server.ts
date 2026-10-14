@@ -1,5 +1,6 @@
 import discoveredDefinition from "#vitehub/auth/definition"
 import { betterAuth } from "better-auth"
+import { Response as UndiciResponse } from "undici"
 
 import { normalizeAuthBasePath } from "./shared.ts"
 import { unwrapAuthRequest } from "./request.ts"
@@ -317,59 +318,10 @@ function hasResponsePrototype(value: unknown): boolean {
       if (seen.has(prototype)) return false
       seen.add(prototype)
       const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
-      const owner = prototype
-      // A response-shaped object can forge a constructor name and accessor set.
-      // Native Response constructors retain an intrinsic native implementation and
-      // point back to the prototype that owns the response accessors.
-      const constructorSource = typeof constructor === "function" ? Function.prototype.toString.call(constructor) : ""
-      const accessorsAreBranded = authorizationResponseProperties.every(key => {
-        const getter = Object.getOwnPropertyDescriptor(owner, key)?.get
-        if (typeof getter !== "function") return false
-        const source = Function.prototype.toString.call(getter)
-        if (source === Function.prototype.toString.call(Object.getOwnPropertyDescriptor(Response.prototype, key)?.get)) return true
-        if (!source.includes("webidl.brandCheck")) return false
-        try {
-          Reflect.apply(getter, {}, [])
-          return false
-        }
-        catch {
-          return true
-        }
-      })
-      // Undici exposes private-brand helpers on its constructor. Calling one
-      // against the candidate proves that its private response slots belong to
-      // that implementation; source text and accessor shape alone are forgeable.
-      const isLocalConstructor = constructor === Response
-      let hasPrivateBrand = isLocalConstructor
-      const getResponseHeaders = typeof constructor === "function"
-        ? Object.getOwnPropertyDescriptor(constructor, "getResponseHeaders")?.value
-        : undefined
-      if (typeof getResponseHeaders === "function") {
-        try {
-          const brandedHeaders = Reflect.apply(getResponseHeaders, constructor, [value])
-          hasPrivateBrand = brandedHeaders === Reflect.get(value, "headers")
-        }
-        catch {
-          hasPrivateBrand = false
-        }
-      }
-      const isNativeConstructor = typeof constructor === "function"
-        && constructor.name === "Response"
-        && constructor.prototype === owner
-        && (constructorSource === Function.prototype.toString.call(Response)
-          || /^function Response\(\) \{ \[native code\] \}$/.test(constructorSource)
-          || (/^class Response\b/.test(constructorSource)
-            && constructorSource.includes("#state")
-            && constructorSource.includes("webidl.brandCheck")
-            && constructorSource.includes("static error")
-            && constructorSource.includes("static json")
-            // Undici's cross-realm implementation exposes these private-brand
-            // helpers as part of its constructor source. Requiring both keeps
-            // a user-defined class with copied accessors from being accepted.
-            && constructorSource.includes("static getResponseHeaders")
-            && constructorSource.includes("static setResponseHeaders"))
-          )
-      if (isNativeConstructor && accessorsAreBranded && hasPrivateBrand) return true
+      // Constructor identity is the runtime brand. Names, source text, accessors,
+      // and static methods can all be reproduced by user code.
+      if ((constructor === Response || constructor === UndiciResponse)
+        && prototype === constructor.prototype) return true
       prototype = Object.getPrototypeOf(prototype)
     }
   }

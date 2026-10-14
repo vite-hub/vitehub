@@ -351,6 +351,26 @@ describe("Auth access handlers", () => {
     await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
   })
 
+  it("rejects a forged foreign response brand and static helpers", async () => {
+    class Response {
+      #state = true
+      brandCheck() {}
+      static error() { return new Response() }
+      static json() { return new Response() }
+      static getResponseHeaders(value: unknown) { return (value as { headers: unknown }).headers }
+      static setResponseHeaders() {}
+      get status() { return 409 }
+      get statusText() { return "Conflict" }
+      get headers() { return new Headers() }
+      get body() { return null }
+    }
+    const candidate = new Response()
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => candidate as never }] },
+    }))
+    await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
+  })
+
   it("preserves foreign status, body, and separate Set-Cookie headers", async () => {
     const foreign = new ForeignResponse("Policy rejected", {
       status: 409,
