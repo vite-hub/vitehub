@@ -1,4 +1,4 @@
-import type { ContentDocumentState, ContentPublishedDocument, ContentRef } from "./collections.ts"
+import type { ContentDocumentState, ContentDocumentStatus, ContentPublishExpectation, ContentPublishedDocument, ContentRef } from "./collections.ts"
 
 /** Vite Development Server route that `vitehub content` commands call. */
 export const contentDevRoute = "/__vitehub/content/dev"
@@ -16,15 +16,17 @@ export interface ContentDevRequestBody {
   operation: ContentDevOperation
   collection?: string
   id?: string
-  /** Documents of `collection` to publish. */
+  /** Documents of `collection` that a `publish` dry run lists. */
   ids?: string[]
+  /** The draft digests that a `publish` dry run listed and the user confirmed. A publish that is not a dry run requires it. */
+  expect?: ContentPublishExpectation[]
   /** `revisions` ref: `draft` (default) or `published`. */
   ref?: ContentRef
   limit?: number
   cursor?: string
   /** `publish` revision message. */
   message?: string
-  /** `publish` only lists what would change. */
+  /** `publish` only lists what would change, with the draft digest of each document. */
   dryRun?: boolean
 }
 
@@ -44,18 +46,8 @@ export interface ContentDevCollectionsResult {
   collections: ContentDevCollection[]
 }
 
-export interface ContentDevDocumentStatus {
-  collection: string
-  id: string
-  state: ContentDocumentState
-  /** Digest on the `draft` ref, or null. */
-  draft: string | null
-  /** Digest on the `published` ref, or null. */
-  published: string | null
-}
-
 export interface ContentDevStatusResult {
-  documents: ContentDevDocumentStatus[]
+  documents: ContentDocumentStatus[]
 }
 
 /** One side of a diff: the raw Markdown file, frontmatter included. */
@@ -90,12 +82,18 @@ export interface ContentDevRevisionsResult {
   cursor?: string
 }
 
+/** A document that a publish changes. A dry run adds the draft `digest` that the publish pins. */
+export interface ContentDevPublishDocument extends ContentPublishedDocument {
+  /** Draft digest, or null for a deletion. Present in dry runs. */
+  digest?: string | null
+}
+
 export interface ContentDevPublishResult {
   /** `true` when the request only listed the changes. */
   dryRun: boolean
   /** The new `published` revision, or null for a dry run or when nothing differed. */
   revision: ContentDevRevision | null
-  documents: ContentPublishedDocument[]
+  documents: ContentDevPublishDocument[]
 }
 
 export function isContentDevOperation(value: unknown): value is ContentDevOperation {

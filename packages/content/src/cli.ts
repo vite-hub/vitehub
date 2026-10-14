@@ -83,7 +83,7 @@ const contentCommands: readonly ContentCliCommand[] = [
   { description: "Show whether each document is draft, published, changed, or deleted.", name: "status", options: [], positionals: ["collection?", "id?"] },
   { description: "Print a unified diff of one document from published to draft, frontmatter included.", name: "diff", options: [], positionals: ["collection", "id"] },
   { description: "List the revisions that saved, removed, restored, or published one document, newest first.", name: "revisions", options: ["ref", "limit", "cursor"], positionals: ["collection", "id"] },
-  { description: "Publish draft documents in one revision. Asks for confirmation unless --yes.", name: "publish", options: ["collection", "id", "message", "dry-run", "yes"], positionals: [] },
+  { description: "Publish the listed draft documents in one revision, pinned to the digests shown. Asks for confirmation unless --yes. A draft saved after the list fails the publish.", name: "publish", options: ["collection", "id", "message", "dry-run", "yes"], positionals: [] },
 ]
 
 const optionUsage: Record<ContentCliOption, string> = {
@@ -100,7 +100,7 @@ const optionUsage: Record<ContentCliOption, string> = {
 const optionHelp: Record<ContentCliOption, string> = {
   "collection": "  --collection <name>  Publish one collection. Omit it to publish every collection.",
   "cursor": "  --cursor <cursor>    Continue after this cursor. `revisions` prints the next cursor.",
-  "dry-run": "  --dry-run            List what would be published without publishing.",
+  "dry-run": "  --dry-run            List what would be published, with each draft digest, without publishing.",
   "id": "  --id <id>            Publish only this document of --collection. Repeatable.",
   "limit": "  --limit <n>          Show at most n revisions. Defaults to 20. Maximum 100.",
   "message": "  --message <text>     Revision message of the publish.",
@@ -213,7 +213,8 @@ function parseArgs(command: ContentCliCommand, args: readonly string[], env: Nod
   return parsed
 }
 
-function requestBody(command: ContentCliCommand, parsed: ParsedContentArgs, dryRun = parsed.dryRun): ContentDevRequestOptions {
+/** The request for a read command, or the dry run that plans a publish. */
+function requestBody(command: ContentCliCommand, parsed: ParsedContentArgs): ContentDevRequestOptions {
   const body: ContentDevRequestOptions = {}
   if (parsed.collection !== undefined) body.collection = parsed.collection
   if (parsed.id !== undefined) body.id = parsed.id
@@ -221,8 +222,7 @@ function requestBody(command: ContentCliCommand, parsed: ParsedContentArgs, dryR
   if (parsed.ref !== undefined) body.ref = parsed.ref
   if (parsed.limit !== undefined) body.limit = parsed.limit
   if (parsed.cursor !== undefined) body.cursor = parsed.cursor
-  if (parsed.message !== undefined) body.message = parsed.message
-  if (command.name === "publish") body.dryRun = dryRun
+  if (command.name === "publish") body.dryRun = true
   return body
 }
 
@@ -316,8 +316,44 @@ function writeRevisions(result: ContentDevRevisionsResult, context: ContentCliCo
   if (result.cursor) context.stderr.write(`More revisions may exist. Next page: --cursor ${result.cursor}\n`)
 }
 
+const shortDigestLength = 12
+
+function shortDigest(digest: string | null | undefined): string {
+  return digest ? digest.slice(0, shortDigestLength) : "deleted"
+}
+
+/** One line per document. Dry runs show the draft digest that the publish pins. */
 function changeLines(documents: ContentDevPublishResult["documents"]): string {
-  return documents.map(document => `  ${document.change.padEnd(6)}  ${document.collection}/${document.id}`).join("\n")
+  return documents.map((document) => {
+    const line = `  ${document.change.padEnd(6)}  ${document.collection}/${document.id}`
+    return document.digest === undefined ? line : `${line}  ${shortDigest(document.digest)}`
+  }).join("\n")
+}
+
+/** The documents of a `publish({ expect })` conflict, from `details.documents`. */
+function changedDocuments(failure: ContentCliFailure): Array<{ actual: string | null, collection: string, expected: string | null, id: string }> {
+  const details = isRecord(failure.details) ? failure.details : {}
+  if (failure.code !== "WORKSPACE_CONFLICT" || details.ref !== "draft" || !Array.isArray(details.documents)) return []
+  return details.documents.filter(isRecord).flatMap((document) => {
+    const { actual, collection, expected, id } = document
+    if (String(collection) !== collection || String(id) !== id) return []
+    const digest = (value: unknown) => String(value) === value ? value : null
+    return [{ actual: digest(actual), collection, expected: digest(expected), id }]
+  })
+}
+
+function writePublishFailure(parsed: Pick<ParsedContentArgs, "json">, context: ContentCliContext, failure: ContentCliFailure): number {
+  const changed = changedDocuments(failure)
+  if (parsed.json || !changed.length) return writeFailure(parsed, context, failure)
+  const lines = changed.map(({ actual, collection, expected, id }) =>
+    `  ${collection}/${id}  ${actual === null ? "deleted on the draft" : `draft is now ${shortDigest(actual)}`} (you confirmed ${shortDigest(expected)})`)
+  context.stderr.write([
+    `Nothing was published. ${plural(changed.length, "draft")} changed after you confirmed:`,
+    ...lines,
+    "Review them with `vitehub content diff <collection> <id>`, then run the publish again.",
+    "",
+  ].join("\n"))
+  return 1
 }
 
 async function defaultConfirm(question: string): Promise<boolean | undefined> {
@@ -355,7 +391,7 @@ async function runPublish(
   call: ContentDevCall,
   options: ContentCliOptions,
 ): Promise<number> {
-  const plan = await call("publish", requestBody(command, parsed, true))
+  const plan = await call("publish", requestBody(command, parsed))
   if (plan.failure) return writeFailure(parsed, context, plan.failure)
   const pending = plan.result
   if (parsed.dryRun || !pending.documents.length) {
@@ -374,8 +410,10 @@ async function runPublish(
       return writeFailure(parsed, context, { code: "CONTENT_PUBLISH_CANCELLED", message: "Publish cancelled." })
     }
   }
-  const published = await call("publish", requestBody(command, parsed, false))
-  if (published.failure) return writeFailure(parsed, context, published.failure)
+  // Publish exactly the draft digests that were listed and confirmed. A draft saved since then fails the publish.
+  const expect = pending.documents.map(({ collection, id, digest }) => ({ collection, id, digest: digest ?? null }))
+  const published = await call("publish", { expect, ...(parsed.message === undefined ? {} : { message: parsed.message }) })
+  if (published.failure) return writePublishFailure(parsed, context, published.failure)
   const result = published.result
   if (parsed.json) {
     context.stdout.write(`${JSON.stringify(result, null, 2)}\n`)

@@ -120,4 +120,4 @@ vitehub content revisions <collection> <id> [--ref published]
 vitehub content publish [--collection <name>] [--id <id>...] [--dry-run] [--yes]
 ```
 
-Every command accepts `--json`. The commands call a guarded endpoint that exists only on the Vite Development Server, which forwards each operation into the Nitro dev environment where `server/content.ts` runs. They do not reach a deployed app. `handleContentDevRequest()` from `@vite-hub/content/runtime/dev` is the Nitro handler; it is not a public runtime API.
+Every command accepts `--json`. `publish` lists each pending change with its draft digest and publishes exactly those digests with `publish({ expect })`, so a draft saved after the list fails the publish instead of going out unreviewed. The commands call a guarded endpoint that exists only on the Vite Development Server, which forwards each operation into the Nitro dev environment where `server/content.ts` runs. They do not reach a deployed app. `handleContentDevRequest()` from `@vite-hub/content/runtime/dev` is the Nitro handler; it is not a public runtime API.

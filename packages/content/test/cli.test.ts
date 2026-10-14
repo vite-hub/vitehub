@@ -257,8 +257,8 @@ describe("vitehub content", { timeout: 30_000 }, () => {
 
   it("publishes only after confirmation and prints the new revision", async () => {
     const { content, pages, posts } = await setup()
-    await posts.save("hello", hello)
-    await pages.save("about", { data: { title: "About" } })
+    const helloDigest = (await posts.save("hello", hello)).digest.slice(0, 12)
+    const aboutDigest = (await pages.save("about", { data: { title: "About" } })).digest.slice(0, 12)
 
     const unconfirmed = await cli(content).run("publish", "--json")
     expect(unconfirmed.code).toBe(1)
@@ -267,11 +267,14 @@ describe("vitehub content", { timeout: 30_000 }, () => {
 
     const declined = await cli(content, { confirm: async () => false }).run("publish")
     expect(declined).toMatchObject({ code: 1, stdout: "" })
-    expect(declined.stderr).toBe("Publish 2 documents:\n  add     posts/hello\n  add     pages/about\nPublish cancelled.\n")
+    expect(declined.stderr).toBe(`Publish 2 documents:\n  add     posts/hello  ${helloDigest}\n  add     pages/about  ${aboutDigest}\nPublish cancelled.\n`)
     expect(await posts.status("hello")).toMatchObject({ state: "draft" })
 
     const dryRun = await cli(content).run("publish", "--collection", "posts", "--dry-run")
-    expect(dryRun).toEqual({ code: 0, stderr: "", stdout: "Would publish 1 document:\n  add     posts/hello\n" })
+    expect(dryRun).toEqual({ code: 0, stderr: "", stdout: `Would publish 1 document:\n  add     posts/hello  ${helloDigest}\n` })
+    expect(JSON.parse((await cli(content).run("publish", "--collection", "posts", "--dry-run", "--json")).stdout)).toEqual({
+      dryRun: true, revision: null, documents: [{ collection: "posts", id: "hello", change: "add", digest: (await posts.status("hello"))!.draft }],
+    })
 
     const confirm = vi.fn(async () => true)
     const confirmed = await cli(content, { confirm }).run("publish", "--collection", "posts", "--id", "hello", "--message", "Ship hello")
@@ -291,6 +294,50 @@ describe("vitehub content", { timeout: 30_000 }, () => {
     expect(byIdWithoutCollection.stderr).toContain("--id requires --collection.")
     const missing = await cli(content).run("publish", "--collection", "posts", "--id", "nope", "--yes", "--json")
     expect(JSON.parse(missing.stdout)).toMatchObject({ error: { code: "CONTENT_NOT_FOUND" } })
+  })
+
+  it("publishes exactly the confirmed drafts and names the ones saved after the list", async () => {
+    const { content, pages, posts } = await setup()
+    const listed = await posts.save("hello", hello)
+    await pages.save("about", { data: { title: "About" } })
+
+    // Someone saves posts/hello while the prompt waits.
+    let saved: Awaited<ReturnType<typeof posts.save>> | undefined
+    const late = await cli(content, {
+      confirm: async () => {
+        saved = await posts.save("hello", { data: { title: "Hello again", tags: [] }, body: "Edited during review\n" })
+        return true
+      },
+    }).run("publish")
+    expect(late).toEqual({
+      code: 1,
+      stderr: expect.stringContaining([
+        "Nothing was published. 1 draft changed after you confirmed:",
+        `  posts/hello  draft is now ${saved!.digest.slice(0, 12)} (you confirmed ${listed.digest.slice(0, 12)})`,
+        "Review them with `vitehub content diff <collection> <id>`, then run the publish again.",
+        "",
+      ].join("\n")),
+      stdout: "",
+    })
+    expect(await posts.status("hello")).toMatchObject({ state: "draft", published: null })
+    expect(await pages.status("about")).toMatchObject({ state: "draft", published: null })
+
+    // A deletion after the list is reported too, and --json carries the conflict details.
+    const removed = await cli(content, {
+      confirm: async () => {
+        await posts.remove("hello")
+        return true
+      },
+    }).run("publish", "--collection", "posts", "--json")
+    expect(removed.code).toBe(1)
+    expect(JSON.parse(removed.stdout)).toMatchObject({
+      error: { code: "WORKSPACE_CONFLICT", details: { ref: "draft", documents: [{ collection: "posts", id: "hello", expected: saved!.digest, actual: null }] } },
+    })
+
+    // The next publish lists the current drafts and publishes them.
+    await posts.save("hello", hello)
+    const retried = await cli(content).run("publish", "--yes", "--json")
+    expect(JSON.parse(retried.stdout)).toMatchObject({ dryRun: false, documents: [{ collection: "posts", id: "hello", change: "add" }, { collection: "pages", id: "about", change: "add" }] })
   })
 
   it("explains when no Vite + Nitro Development Server is reachable", async () => {
@@ -332,8 +379,21 @@ describe("Content dev handler", () => {
     expect((await handleContentDevRequest(new Request(url, { body: "{}", headers: json, method: "POST" }), undefined)).status).toBe(403)
     expect((await handleContentDevRequest(new Request(`http://attacker.test${contentDevRuntimeRoute}`, { body: "{}", headers: { ...json, [contentDevHeader]: contentDevHeaderValue }, method: "POST" }), undefined)).status).toBe(403)
     expect((await handleContentDevRequest(new Request(url, { headers: { [contentDevHeader]: contentDevHeaderValue } }), undefined)).status).toBe(405)
-    const invalid = await handleContentDevRequest(new Request(url, { body: "{\"operation\":\"clear\"}", headers: { ...json, [contentDevHeader]: contentDevHeaderValue }, method: "POST" }), (await setup()).content)
-    expect(invalid.status).toBe(400)
+    const { content } = await setup()
+    const post = (body: unknown) => handleContentDevRequest(new Request(url, { body: JSON.stringify(body), headers: { ...json, [contentDevHeader]: contentDevHeaderValue }, method: "POST" }), content)
+    expect((await post({ operation: "clear" })).status).toBe(400)
+    // A publish must pin the digests a dry run listed.
+    for (const body of [
+      { operation: "publish" },
+      { operation: "publish", collection: "posts" },
+      { operation: "publish", expect: [] },
+      { operation: "publish", expect: [{ collection: "posts", id: "hello" }] },
+      { operation: "publish", expect: [{ collection: "posts", id: "hello", digest: null }], collection: "posts" },
+      { operation: "publish", dryRun: true, expect: [{ collection: "posts", id: "hello", digest: null }] },
+    ]) {
+      const response = await post(body)
+      expect(response.status, JSON.stringify(body)).toBe(400)
+    }
   })
 })
 
