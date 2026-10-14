@@ -264,14 +264,15 @@ describe("independent Console Auth", () => {
       const handlers = await writeConsoleAuthHandlers(root, { server })
       const middleware = await readFile(handlers.middleware, "utf8")
       const route = await readFile(handlers.route, "utf8")
-      expect(middleware).toContain("redirectToSignIn: path === '/_vitehub' && event.url.searchParams.has('auth_start')")
+      expect(middleware).toContain("redirectToSignIn: path === '/_vitehub' && url.searchParams.has('auth_start')")
+      expect(middleware).toContain("const request = toAuthRequest(event)")
       expect(middleware).toContain('from "#vitehub/auth/server"')
       expect(middleware).toContain('requireAuthAccessRoutes(event, [1], definition, [1], { redirectToSignIn: false })')
       expect(middleware).toContain("await prepare(event)")
       expect(middleware).toContain("'/api/_vitehub/console/auth/'")
       expect(middleware).toContain("path === '/_vitehub/sign-in'")
-      expect(await readFile(handlers.signIn, "utf8")).toContain("consoleAuthSignInPage(signInProvider, event.req")
-      expect(route).toContain("handleAuthRequest(definition, event.req")
+      expect(await readFile(handlers.signIn, "utf8")).toContain("consoleAuthSignInPage(signInProvider, toAuthRequest(event)")
+      expect(route).toContain("handleAuthRequest(definition, event, undefined, event)")
       expect(route).toContain('from "#vitehub/auth/server"')
     }
     finally {
@@ -403,7 +404,7 @@ describe("independent Console Auth", () => {
             plugin.onResolve({ filter: /^(#vitehub\/auth\/server|vite-hub\/console\/auth)$/ }, args => ({ path: args.path, namespace: "test-console-auth" }))
             plugin.onLoad({ filter: /.*/, namespace: "test-console-auth" }, (args) => ({
               contents: args.path === "#vitehub/auth/server"
-                ? 'export function requireAuthAccessRoutes(event, indexes, definition, routes, options) { globalThis[Symbol.for("test.console.auth.calls")].push([event.url.pathname, indexes[0], options?.redirectToSignIn]); return new Response("guarded", {status: 401}) }; export function withAuthorization(authorize, handler) { if (typeof authorize !== "function" || typeof handler !== "function") throw new TypeError("guard"); return async event => { globalThis[Symbol.for("test.console.auth.calls")].push([event.url.pathname, "withAuthorization", handler()]); return new Response("guarded", {status: 403}) } }; export function createAuthForRequest() { return { api: { getSession: async () => ({ user: { id: "ada" } }) } } }'
+                ? 'export function toAuthRequest(event) { return event.web?.request ?? event.req ?? { url: event.url.href } }; export function requireAuthAccessRoutes(event, indexes, definition, routes, options) { globalThis[Symbol.for("test.console.auth.calls")].push([event.url.pathname, indexes[0], options?.redirectToSignIn]); return new Response("guarded", {status: 401}) }; export function withAuthorization(authorize, handler) { if (typeof authorize !== "function" || typeof handler !== "function") throw new TypeError("guard"); return async event => { globalThis[Symbol.for("test.console.auth.calls")].push([event.url.pathname, "withAuthorization", handler()]); return new Response("guarded", {status: 403}) } }; export function createAuthForRequest() { return { api: { getSession: async () => ({ user: { id: "ada" } }) } } }'
                 : "export function createConsoleAuthDefinition() { return {} }; export function prepareConsoleAuth() {}; export function consoleAuthPageResponse(_request, response) { return response }; export async function readConsoleSessionUser(auth, request) { return (await auth.api.getSession({ headers: request.headers }))?.user }",
               loader: "js",
             }))
@@ -414,7 +415,7 @@ describe("independent Console Auth", () => {
       await writeFile(modulePath, bundled.outputFiles![0]!.text)
       const guard = (await import(pathToFileURL(modulePath).href)) as {
         checkConsoleAccess: (event: { url: URL; req?: Request }) => Promise<Response | undefined>
-        readConsoleUser: (event: { req: Request }) => Promise<{ id: string } | undefined>
+        readConsoleUser: (event: { req?: Request; web?: { request: Request } }) => Promise<{ id: string } | undefined>
         default: (event: { url: URL; req?: Request }) => Promise<Response | undefined>
       }
       const calls: Array<[string, number, boolean | undefined]> = []
@@ -433,6 +434,7 @@ describe("independent Console Auth", () => {
         expect((await guard.checkConsoleAccess({ url: new URL("https://example.com/api/app"), req: rpcRequest }))?.status).toBe(403)
         // console.authorize and Connections read the signed-in Console Auth user from the same definition.
         await expect(guard.readConsoleUser({ req: rpcRequest })).resolves.toEqual({ id: "ada" })
+        await expect(guard.readConsoleUser({ web: { request: rpcRequest } })).resolves.toEqual({ id: "ada" })
         expect(calls).toEqual([
           ["/_vitehub", 0, false],
           ["/api/_vitehub/console/status", 1, false],
