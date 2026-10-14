@@ -118,6 +118,16 @@ function isResponseLike(value: unknown): value is Response {
       // Requiring `error` as well closes the copied-prototype constructor spoof while
       // retaining foreign implementations such as happy-dom.
       && typeof (constructor as { error?: unknown }).error === "function"
+      // Native and foreign platform constructors expose non-enumerable static
+      // factories. Requiring the descriptor shape prevents an ordinary object
+      // from supplying an ad-hoc constructor with copied methods and slots.
+      && ["json", "redirect", "error"].every((name) => {
+        const descriptor = Object.getOwnPropertyDescriptor(constructor, name)
+        return descriptor?.enumerable === false
+          && descriptor.writable === true
+          && descriptor.configurable === true
+          && typeof descriptor.value === "function"
+      })
       && Function.prototype.toString.call(constructor).startsWith("class ")
       && constructor.prototype === Object.getPrototypeOf(value)
       && factorySurface
