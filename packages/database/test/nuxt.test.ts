@@ -1151,6 +1151,36 @@ describe("Database Nuxt integration", () => {
     }
   })
 
+  it("refreshes the Nitro development runtime after a module schema file changes", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-extend-hmr-"))
+    const buildDir = join(rootDir, ".nuxt")
+    const srcDir = join(rootDir, "app")
+    const definition = join(rootDir, "server/databases/config.ts")
+    const moduleSchema = join(rootDir, "modules/auth/schema.ts")
+    const runtimeFile = join(buildDir, "vitehub/database/local-runtime.mjs")
+    await mkdir(dirname(definition), { recursive: true })
+    await mkdir(dirname(moduleSchema), { recursive: true })
+    await writeFile(definition, "export default defineDatabase({ schema: {} })\n")
+    await writeFile(moduleSchema, "export {}\n")
+    try {
+      const { hooks, nuxt, watchHooks } = createNuxt({ buildDir, dev: true, rootDir, srcDir, vite: {} })
+      nuxt.hook("vitehub:database:extend", (context) => {
+        // SAFETY: the Database Nuxt integration calls this hook with an extend context that has a schemaFiles array.
+        (context.schemaFiles as string[]).push(moduleSchema)
+      })
+      await hubDb({ driver: "sqlite" })(undefined, nuxt)
+      await callHook(hooks, "nitro:config", {})
+      expect(nuxt.options.watch).toContain(moduleSchema)
+
+      await rm(runtimeFile, { force: true })
+      for (const callback of watchHooks) await callback("change", relative(srcDir, moduleSchema))
+      await expect(readFile(runtimeFile, "utf8")).resolves.toContain("definition_0")
+    }
+    finally {
+      await rm(rootDir, { force: true, recursive: true })
+    }
+  })
+
   it("rejects an owned native binding collision during Nuxt dev refresh and recovers after a distinct binding", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-dev-binding-"))
     const definition = join(rootDir, "server/databases/config.ts")

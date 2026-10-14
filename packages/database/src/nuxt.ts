@@ -161,6 +161,8 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
             definitionFiles.add(definition.handler)
             definitionDirectories.add(dirname(definition.handler))
           }
+          // Schema files from other modules can live outside the Definition directories.
+          for (const file of Object.values(runtime?.schemaExtensionsByDatabase ?? {}).flat()) definitionFiles.add(file)
           nuxtOptions.watch = [...new Set([...(nuxtOptions.watch ?? []), ...definitionDirectories, ...definitionFiles])]
         }
         const queued = localRuntimeRefresh.then(refresh, refresh)
