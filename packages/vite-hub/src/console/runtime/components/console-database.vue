@@ -360,7 +360,7 @@ onBeforeUnmount(() => {
               block
               class="justify-start"
               color="neutral"
-              icon="i-ph-table-light"
+              icon="i-lucide-table"
               :variant="view === 'data' && selectedTable?.name === table.name ? 'soft' : 'ghost'"
               :aria-label="collapsed ? table.name : undefined"
               @click="openTable(table.name)"
@@ -406,7 +406,7 @@ onBeforeUnmount(() => {
               <UButton
                 aria-label="Table data"
                 color="neutral"
-                icon="i-ph-table-light"
+                icon="i-lucide-table"
                 size="sm"
                 :variant="view === 'data' ? 'soft' : 'ghost'"
                 @click="selectedTable && openTable(selectedTable.name)"
@@ -416,7 +416,7 @@ onBeforeUnmount(() => {
               <UButton
                 aria-label="Schema diagram"
                 color="neutral"
-                icon="i-ph-share-network-light"
+                icon="i-lucide-share-2"
                 size="sm"
                 :variant="view === 'schema' ? 'soft' : 'ghost'"
                 @click="openSchema"
@@ -450,18 +450,18 @@ onBeforeUnmount(() => {
           class="m-3"
           color="error"
           variant="subtle"
-          icon="i-ph-cloud-slash-light"
+          icon="i-lucide-cloud-off"
           title="Could not load database"
           :description="errorMessage(error)"
           :actions="[
-            { label: 'Try again', icon: 'i-ph-arrows-clockwise-light', onClick: loadDatabase },
+            { label: 'Try again', icon: 'i-lucide-refresh-cw', onClick: loadDatabase },
           ]"
         />
         <div
           v-else-if="loading && !database"
           class="flex min-h-0 flex-1 items-center justify-center"
         >
-          <UIcon name="i-ph-circle-notch-light" class="size-4 animate-spin text-muted opacity-70" />
+          <UIcon name="i-lucide-loader-circle" class="size-4 animate-spin text-muted opacity-70" />
         </div>
 
         <main
@@ -474,7 +474,7 @@ onBeforeUnmount(() => {
             <UInput
               v-model="filter"
               class="mr-auto w-52 sm:w-64"
-              icon="i-ph-magnifying-glass-light"
+              icon="i-lucide-search"
               :placeholder="`Filter ${selectedTable.name}`"
               aria-label="Filter rows"
             />
@@ -518,7 +518,7 @@ onBeforeUnmount(() => {
             />
           </div>
           <footer
-            class="flex h-9 shrink-0 items-center gap-2 border-t border-default px-3 text-[10px] text-muted"
+            class="flex h-9 shrink-0 items-center gap-2 border-t border-default px-3 text-xs text-muted"
           >
             <span>{{ pageStart }}–{{ pageEnd }} of {{ database.total }} rows</span>
             <span class="hidden sm:inline">{{ selectedTable.columns.length }} columns</span>
@@ -582,12 +582,12 @@ onBeforeUnmount(() => {
                   type="button"
                   @click="openTable(table.name)"
                 >
-                  <UIcon name="i-ph-table-light" class="size-3.5 text-muted opacity-70" />
+                  <UIcon name="i-lucide-table" class="size-3.5 text-muted opacity-70" />
                   <span
                     class="min-w-0 flex-1 truncate font-mono text-xs font-medium text-highlighted"
                     >{{ table.name }}</span
                   >
-                  <span class="text-[10px] tabular-nums text-muted">{{
+                  <span class="text-xs tabular-nums text-muted">{{
                     table.columns.length
                   }}</span>
                 </button>
@@ -600,14 +600,14 @@ onBeforeUnmount(() => {
                     <UIcon
                       :name="
                         column.primary
-                          ? 'i-ph-key-light'
+                          ? 'i-lucide-key-round'
                           : column.foreignKey
-                            ? 'i-ph-link-simple-light'
-                            : 'i-ph-dot-outline-fill'
+                            ? 'i-lucide-link'
+                            : 'i-lucide-dot'
                       "
                       class="size-3 shrink-0 text-muted opacity-60"
                     />
-                    <span class="min-w-0 flex-1 truncate font-mono text-[10px] text-toned">{{
+                    <span class="min-w-0 flex-1 truncate font-mono text-xs text-toned">{{
                       column.name
                     }}</span>
                     <span class="font-mono text-[9px] text-muted">{{ column.type }}</span>

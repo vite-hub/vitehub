@@ -231,7 +231,7 @@ onBeforeUnmount(() => {
     <template #title>
       <span class="flex min-w-0 items-baseline gap-2">
         <span class="truncate text-sm font-semibold text-highlighted">{{ collection.label }}</span>
-        <span class="truncate font-mono text-[11px] text-dimmed">{{ collection.path }}</span>
+        <span class="truncate font-mono text-xs text-dimmed">{{ collection.path }}</span>
       </span>
     </template>
     <template #right>
@@ -332,10 +332,10 @@ onBeforeUnmount(() => {
       class="m-4"
       color="error"
       variant="subtle"
-      icon="i-ph-cloud-slash-light"
+      icon="i-lucide-cloud-off"
       title="Could not load documents"
       :description="consoleErrorMessage(error)"
-      :actions="[{ label: 'Try again', icon: 'i-ph-arrows-clockwise-light', onClick: () => load() }]"
+      :actions="[{ label: 'Try again', icon: 'i-lucide-refresh-cw', onClick: () => load() }]"
     />
     <div v-else-if="loading && !items.length" class="grid gap-2 p-4">
       <USkeleton v-for="index in 6" :key="index" class="h-10 rounded-md" />
@@ -349,7 +349,7 @@ onBeforeUnmount(() => {
       :actions="!filtered && collection.access.write ? [{ label: 'New document', icon: 'i-lucide-plus', onClick: create }] : []"
     />
     <table v-else class="w-full table-fixed text-left text-sm">
-      <thead class="sticky top-0 z-10 border-b border-default bg-default text-[11px] uppercase tracking-wide text-muted">
+      <thead class="sticky top-0 z-10 border-b border-default bg-default text-xs text-muted">
         <tr>
           <th v-if="collection.access.publish" class="w-10 px-4 py-2 font-medium">
             <UCheckbox :model-value="allSelected" aria-label="Select every document on this page" @update:model-value="toggleAll" />
@@ -379,7 +379,7 @@ onBeforeUnmount(() => {
               @click.prevent="open(item)"
             >
               <span class="block truncate font-medium text-highlighted" :class="{ 'line-through decoration-muted': item.state === 'deleted' }">{{ item.title }}</span>
-              <span class="block truncate font-mono text-[11px] text-dimmed">{{ item.id }}</span>
+              <span class="block truncate font-mono text-xs text-dimmed">{{ item.id }}</span>
             </a>
           </td>
           <td class="px-2 py-2.5">
@@ -398,6 +398,6 @@ onBeforeUnmount(() => {
     <div v-if="page?.nextCursor" class="flex justify-center p-4">
       <UButton color="neutral" variant="outline" size="sm" label="Load more" :loading="loadingMore" @click="load(true)" />
     </div>
-    <p v-if="items.length" class="px-4 pb-4 text-[11px] text-dimmed">{{ items.length }} of {{ page?.total ?? items.length }}</p>
+    <p v-if="items.length" class="px-4 pb-4 text-xs text-dimmed">{{ items.length }} of {{ page?.total ?? items.length }}</p>
   </div>
 </template>

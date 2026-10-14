@@ -52,10 +52,10 @@ onMounted(loadSections);
           class="max-w-md"
           color="error"
           variant="subtle"
-          icon="i-ph-cloud-slash-light"
+          icon="i-lucide-cloud-off"
           title="Could not load the ViteHub Console"
           :actions="[
-            { label: 'Try again', icon: 'i-ph-arrows-clockwise-light', onClick: loadSections },
+            { label: 'Try again', icon: 'i-lucide-refresh-cw', onClick: loadSections },
           ]"
         />
       </div>

@@ -116,7 +116,7 @@ const toolbar = [
 <template>
   <section class="vitehub-markdown-editor overflow-hidden rounded-md border border-default bg-default" :aria-label="label ?? 'Body'">
     <div class="flex min-h-10 items-center gap-2 border-b border-default px-1.5">
-      <UEditorToolbar v-if="editor && mode === 'rich'" :editor="editor" :items="toolbar" class="min-w-0 flex-1 overflow-x-auto" :ui="{ base: 'gap-0.5' }" />
+      <UEditorToolbar v-if="editor && mode === 'rich'" :editor="editor" :items="toolbar" active-color="neutral" class="min-w-0 flex-1 overflow-x-auto" :ui="{ base: 'gap-0.5' }" />
       <span v-else class="min-w-0 flex-1 px-1.5 text-xs text-muted">Markdown source</span>
       <UTabs
         v-model="mode"
@@ -193,7 +193,7 @@ const toolbar = [
 .vitehub-markdown-editor__content code {
   background: var(--ui-bg-elevated);
   border-radius: 0.25rem;
-  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 0.85em;
   padding: 0.1em 0.3em;
 }
@@ -202,7 +202,7 @@ const toolbar = [
   background: var(--ui-bg-muted);
   border: 1px solid var(--ui-border);
   border-radius: 0.375rem;
-  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 0.8125rem;
   overflow-x: auto;
   padding: 0.75rem 1rem;
