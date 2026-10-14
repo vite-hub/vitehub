@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 import { Diagnostic } from "nostics"
-import { formatRuntimeDiagnosticError } from "@vite-hub/runtime"
+import { formatRuntimeDiagnosticError, ViteHubError } from "@vite-hub/runtime"
 
 import { defineCapability, normalizeCapabilities } from "../src/capability-runtime.ts"
 import { getAgentFromRegistry } from "../src/index.ts"
@@ -108,9 +108,7 @@ describe("Agent diagnostics", () => {
   })
 
   it("maps enforced budget failures with bounded details", () => {
-    const error = new Error("Agent budget exceeded.")
-    Object.assign(error, {
-      code: "AGENT_BUDGET_EXCEEDED",
+    const error = new ViteHubError("AGENT_BUDGET_EXCEEDED", "Agent budget exceeded.", {
       details: {
         limits: { tokens: { total: 100 }, usd: "1.25" },
         exceeded: [{ actual: 120, limit: 100, metric: "totalTokens" }],
