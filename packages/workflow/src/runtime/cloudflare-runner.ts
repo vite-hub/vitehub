@@ -26,38 +26,25 @@ export interface RunCloudflareWorkflowOptions {
 function isNonRetryableError(error: unknown): error is Error & { isRetryable: false } {
   if (!hasRuntimeType(error, "object") || error === null) return false
   try {
+    if (error instanceof Error) return Reflect.get(error, "isRetryable") === false
     const nativeIsError: unknown = Reflect.get(Error, "isError")
-    const branded = hasRuntimeType(nativeIsError, "function")
-      ? (nativeIsError as (value: unknown) => unknown)(error) === true
-      : (() => {
-        const tag = typeof Symbol === "function" ? Symbol.toStringTag : undefined
-        if (tag === undefined) return false
-        const ownTag = Object.getOwnPropertyDescriptor(error as object, tag)
-        if (ownTag && !ownTag.configurable) return false
-        if (!ownTag && !Object.isExtensible(error)) return false
-        try {
-          Object.defineProperty(error, tag, {
-            configurable: true,
-            enumerable: false,
-            value: undefined,
-            writable: true,
-          })
-          // With Symbol.toStringTag masked, this operation uses the internal
-          // Error brand and cannot be spoofed by prototype metadata.
-          return Object.prototype.toString.call(error) === "[object Error]"
-        }
-        finally {
-          if (ownTag) Object.defineProperty(error, tag, ownTag)
-          else Reflect.deleteProperty(error, tag)
-        }
-      })()
+    const branded = hasRuntimeType(nativeIsError, "function") ? (nativeIsError as (value: unknown) => unknown)(error) === true : (() => {
+      const tag = typeof Symbol === "function" ? Symbol.toStringTag : undefined
+      if (tag === undefined) return false
+      const ownTag = Object.getOwnPropertyDescriptor(error as object, tag)
+      if (ownTag && !ownTag.configurable) {
+        if (ownTag.value !== "Error") return false
+        if (!Object.prototype.hasOwnProperty.call(error, "stack") && !Object.prototype.hasOwnProperty.call(error, "message")) return false
+        return Object.prototype.toString.call(error) === "[object Error]"
+      }
+      if (!ownTag && !Object.isExtensible(error)) return false
+      Object.defineProperty(error, tag, { configurable: true, enumerable: false, value: undefined, writable: true })
+      try { return Object.prototype.toString.call(error) === "[object Error]" }
+      finally { if (ownTag) Object.defineProperty(error, tag, ownTag); else Reflect.deleteProperty(error, tag) }
+    })()
     return branded && Reflect.get(error as object, "isRetryable") === false
-  }
-  catch {
-    return false
-  }
+  } catch { return false }
 }
-
 function translateNonRetryableError(
   error: unknown,
   createNonRetryableError: RunCloudflareWorkflowOptions["createNonRetryableError"],
