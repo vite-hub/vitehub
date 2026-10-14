@@ -30,12 +30,12 @@ describe("hubRealtime", () => {
           if (id.startsWith("node:")) throw new Error(`Browser entry imports server builtin ${id}`)
         },
       }],
-      build: { write: false },
+      build: { write: false, rollupOptions: { input: join(root, "entry.js"), preserveEntrySignatures: "strict" } },
     })
     const outputs = Array.isArray(result)
       ? result.flatMap(bundle => bundle.output)
       : "output" in result ? result.output : []
-    const entryChunk = outputs.find(output => output.type === "chunk")
+    const entryChunk = outputs.find(output => output.type === "chunk" && output.facadeModuleId === join(root, "entry.js"))
     if (entryChunk?.type !== "chunk") throw new Error("Vite did not emit a JavaScript entry chunk")
     expect(entryChunk.exports).toContain("useRealtimeTiptap")
   })
