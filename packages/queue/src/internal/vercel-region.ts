@@ -37,6 +37,11 @@ function readHeader(headers: Headers | Record<string, unknown> | undefined, name
 function isHeadersLike(value: unknown): value is Headers {
   if (!value || (typeof value !== "object" && typeof value !== "function")) return false
   try {
+    // A genuine Headers instance inherits get from its realm's prototype.
+    // An own override can be a receiver-sensitive proxy that only looks
+    // branded during the probes below and returns an attacker-controlled
+    // region for the actual object.
+    if (Object.prototype.hasOwnProperty.call(value, "get")) return false
     const descriptor = getPrototypeDescriptor(value, "get")
     if (!isBrandedMethod(descriptor?.value, value, "ce-vqsregion")) return false
     const result = descriptor.value.call(value, "ce-vqsregion")
