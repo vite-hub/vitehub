@@ -20,7 +20,7 @@ export function file<const TKey extends string = string>(input: FileSourceInput<
     : Object.hasOwn(options, "path") && options.path ? options.path : ""
   const key = normalizeSafeWorkspacePath(workspacePath)
   const mountInput = Object.hasOwn(options, "mount") ? options.mount : undefined
-  const mount = typeof mountInput === "object" && mountInput && !("path" in mountInput)
+  const mount = typeof mountInput === "object" && mountInput && !Object.hasOwn(mountInput, "path")
     ? { ...mountInput, path: "" }
     : mountInput ?? ""
   const source = createFileSource(options)
