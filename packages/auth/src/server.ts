@@ -297,33 +297,35 @@ function normalizeResponse(value: unknown): Response | undefined {
     for (const name of ["headers", "status", "statusText", "body", "bodyUsed"]) {
       if (Object.prototype.hasOwnProperty.call(value, name)) return undefined
     }
-    const getters = new Map<string, () => unknown>()
+    const isNativeFunction = (fn: unknown): fn is (...args: never[]) => unknown => typeof fn === "function" && /\[native code\]/.test(Function.prototype.toString.call(fn))
+    const getters = new Map<string, { call: () => unknown, native: boolean }>()
     let prototype: object | null = value as object
-    let hasResponseMethods = false
+    let clone: ((...args: never[]) => unknown) | undefined
+    let text: ((...args: never[]) => unknown) | undefined
     while (prototype) {
       for (const name of ["headers", "status", "statusText", "body", "bodyUsed"]) {
         if (getters.has(name)) continue
         const getter = Object.getOwnPropertyDescriptor(prototype, name)?.get
-        if (getter) getters.set(name, () => getter.call(value))
+        if (getter) getters.set(name, { call: () => getter.call(value), native: isNativeFunction(getter) })
       }
-      const clone = Object.getOwnPropertyDescriptor(prototype, "clone")?.value
-      const text = Object.getOwnPropertyDescriptor(prototype, "text")?.value
-      if (typeof clone === "function" && typeof text === "function") hasResponseMethods = true
+      clone ||= Object.getOwnPropertyDescriptor(prototype, "clone")?.value
+      text ||= Object.getOwnPropertyDescriptor(prototype, "text")?.value
       prototype = Object.getPrototypeOf(prototype) as object | null
     }
-    if (!hasResponseMethods) return undefined
-    const headers = getters.get("headers")?.()
-    const status = getters.get("status")?.()
-    const statusText = getters.get("statusText")?.()
-    getters.get("body")?.()
-    getters.get("bodyUsed")?.()
+    if (!clone || !text || !isNativeFunction(clone) || !isNativeFunction(text)) return undefined
+    if ([...getters.values()].some(getter => !getter.native)) return undefined
+    const headers = getters.get("headers")?.call()
+    const status = getters.get("status")?.call()
+    const statusText = getters.get("statusText")?.call()
+    getters.get("body")?.call()
+    getters.get("bodyUsed")?.call()
     if (typeof status !== "number" || !Number.isInteger(status) || status < 0 || status > 599) return undefined
     if (typeof statusText !== "string" || !isRuntimeObject(headers) || typeof Reflect.get(headers, "get") !== "function") return undefined
     const validStatus: number = status
     const validStatusText: string = statusText
     const validHeaders: object = headers
     if (value instanceof Response) return value
-    return new Response(getters.get("body")?.() as never, { headers: new Headers(validHeaders as never), status: validStatus, statusText: validStatusText })
+    return new Response(getters.get("body")?.call() as never, { headers: new Headers(validHeaders as never), status: validStatus, statusText: validStatusText })
   }
   catch {
     return undefined
