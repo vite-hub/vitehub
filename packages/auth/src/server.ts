@@ -278,25 +278,8 @@ function reject(response: Response): AuthCheck {
 function isResponse(value: unknown): value is Response {
   if (value instanceof Response) return true
   try {
-    const candidate = value as {
-      status: unknown
-      statusText: unknown
-      headers: unknown
-      bodyUsed: unknown
-      arrayBuffer: unknown
-      clone: unknown
-      json: unknown
-      text: unknown
-    }
-    return Number.isInteger(candidate.status)
-      && typeof candidate.statusText === "string"
-      && typeof (candidate.headers as { get?: unknown })?.get === "function"
-      && typeof (candidate.headers as { entries?: unknown })?.entries === "function"
-      && typeof candidate.bodyUsed === "boolean"
-      && typeof candidate.arrayBuffer === "function"
-      && typeof candidate.clone === "function"
-      && typeof candidate.json === "function"
-      && typeof candidate.text === "function"
+    Object.getOwnPropertyDescriptor(Response.prototype, "body")?.get?.call(value)
+    return true
   } catch {
     return false
   }
@@ -307,8 +290,25 @@ async function runAccessAuthorize(
   context: AuthAccessAuthorizationContext,
 ): Promise<Response | undefined> {
   const result = await authorize(context)
-  if (isResponse(result)) return result
+  const response = await normalizeAuthorizationResponse(result)
+  if (response) return response
   if (result !== true) return createForbiddenResponse(context.request)
+}
+
+async function normalizeAuthorizationResponse(value: unknown): Promise<Response | undefined> {
+  if (value instanceof Response) return value
+  if (!isResponse(value)) return
+  try {
+    // SAFETY: Foreign responses are untrusted. Copy their data into a local
+    // Response so adapters only receive native Headers and body operations.
+    const response = value as Response
+    const headers = new Headers(response.headers)
+    const body = response.body === null ? null : new Uint8Array(await response.arrayBuffer())
+    return new Response(body, { headers, status: response.status, statusText: response.statusText })
+  }
+  catch {
+    return
+  }
 }
 
 async function checkAuthRequest(

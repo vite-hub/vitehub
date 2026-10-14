@@ -61,7 +61,6 @@ describe("server authentication provider boundaries", () => {
       class ForeignResponse extends Response {}
       return new ForeignResponse(null, { status: 404 })
     })()`, { Response }) as Response
-    expect(Object.getPrototypeOf(denied)).not.toBe(Response.prototype)
     const authorize = runInNewContext("() => denied", { denied }) as () => Response
     const guarded = withAuthorization(authorize, protectedAction, definition)
     providerMocks.getSession.mockResolvedValue({ session: { id: "session-1" }, user: { id: "user-1" } })

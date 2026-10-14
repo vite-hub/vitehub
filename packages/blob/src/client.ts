@@ -41,8 +41,20 @@ export interface MultipartUploadTask {
 
 const defaultPartSize = 10 * 1024 * 1024
 
+function isFile(value: unknown): value is File {
+  try {
+    // The native name getter validates File slots across realms without trusting
+    // Symbol.toStringTag or the value's prototype chain.
+    const name = Object.getOwnPropertyDescriptor(File.prototype, "name")?.get
+    return name?.call(value) !== undefined
+  }
+  catch {
+    return false
+  }
+}
+
 function toFiles(input: UploadInput): File[] {
-  if (input instanceof File) return [input]
+  if (isFile(input)) return [input]
   if ("files" in input) return Array.from(input.files ?? [])
   return Array.from(input)
 }
@@ -159,7 +171,7 @@ export async function uploadFiles(apiBase: string, input: UploadInput, options: 
   const files = toFiles(input)
   if (!files.length) return []
   const form = new FormData()
-  for (const file of files) form.append(options.formKey ?? "files", file)
+  for (const file of files) form.append(options.formKey ?? "files", file, file.name)
   const request = options.fetch ?? globalThis.fetch
   const response = await request(apiBase, { body: form, headers: mergeHeaders(options.headers), method: options.method ?? "POST" })
   return await readJson(response, parseSerializedBlobObjectArray)
@@ -194,7 +206,7 @@ export function createMultipartUploader(baseURL: string, options: MultipartUploa
       // Drivers accept at most 10,000 parts. Increase the requested size for very large files.
       const effectivePartSize = Math.max(partSize, Math.ceil(file.size / 10_000))
       const partCount = Math.max(1, Math.ceil(file.size / effectivePartSize))
-      const parts: BlobMultipartPart[] = []
+      const parts = new Map<number, BlobMultipartPart>()
       let nextPart = 1
       options.onProgress?.(0)
 
@@ -206,15 +218,18 @@ export function createMultipartUploader(baseURL: string, options: MultipartUploa
             method: "PUT",
             signal: controller.signal,
           }, { partNumber: String(partNumber), uploadId }), parseMultipartPart)
-          parts.push(result.part)
-          options.onProgress?.(Math.round((parts.length / partCount) * 100))
+          parts.set(partNumber, result.part)
+          options.onProgress?.(Math.round((parts.size / partCount) * 100))
         }
       }
       await Promise.all(Array.from({ length: Math.min(concurrency, partCount) }, sendParts))
       if (aborted) return undefined
 
+      const orderedParts = Array.from(parts.entries())
+        .sort(([left], [right]) => left - right)
+        .map(([, part]) => part)
       const result = await readJson(await send("complete", uploadPathname, {
-        body: JSON.stringify({ parts }),
+        body: JSON.stringify({ parts: orderedParts }),
         headers: { "content-type": "application/json" },
         method: "POST",
         signal: controller.signal,
