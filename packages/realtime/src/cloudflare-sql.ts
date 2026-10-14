@@ -14,9 +14,18 @@ export function hasCloudflareSqlExec(sql: unknown): sql is RealtimeRoomSql {
 
     const prototype = Object.getPrototypeOf(sql)
     if (!prototype) return false
-    const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
-    const exec = Object.getOwnPropertyDescriptor(prototype, "exec")?.value
-    const databaseSize = Object.getOwnPropertyDescriptor(prototype, "databaseSize")?.get
+    const findDescriptor = (key: PropertyKey): PropertyDescriptor | undefined => {
+      let current: object | null = prototype
+      while (current && current !== Object.prototype) {
+        const descriptor = Object.getOwnPropertyDescriptor(current, key)
+        if (descriptor) return descriptor
+        current = Object.getPrototypeOf(current)
+      }
+      return undefined
+    }
+    const constructor = findDescriptor("constructor")?.value
+    const exec = findDescriptor("exec")?.value
+    const databaseSize = findDescriptor("databaseSize")?.get
     if (!databaseSize) return false
     // Function source strings and own `prototype` properties vary between
     // workerd versions. The receiver probe below is the platform brand check;
