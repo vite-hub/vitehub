@@ -122,13 +122,21 @@ function isResponseLike(value: unknown): value is Response {
       // factories. Requiring the descriptor shape prevents an ordinary object
       // from supplying an ad-hoc constructor with copied methods and slots.
       && ["json", "redirect", "error"].every((name) => {
-        const descriptor = Object.getOwnPropertyDescriptor(constructor, name)
-        return descriptor?.enumerable === false
-          && descriptor.writable === true
-          && descriptor.configurable === true
-          && typeof descriptor.value === "function"
+        for (let owner = constructor; owner; owner = Object.getPrototypeOf(owner)) {
+          const descriptor = Object.getOwnPropertyDescriptor(owner, name)
+          if (descriptor) {
+            return descriptor.enumerable === false
+              && descriptor.writable === true
+              && descriptor.configurable === true
+              && typeof descriptor.value === "function"
+          }
+        }
+        return false
       })
-      && Function.prototype.toString.call(constructor).startsWith("class ")
+      // Foreign DOM implementations expose a concrete Response subclass. Requiring
+      // the intrinsic class source prevents an ordinary `class Response {}` from
+      // masquerading as the platform constructor while preserving happy-dom.
+      && /^class\s+Response\s+extends\s+/.test(Function.prototype.toString.call(constructor))
       && constructor.prototype === Object.getPrototypeOf(value)
       && factorySurface
     return typeof response.status === "number"
