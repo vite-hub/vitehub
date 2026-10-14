@@ -1457,7 +1457,7 @@ importers:
     dependencies:
       '@vite-hub/agent':
         specifier: ^0.0.4
-        version: 0.0.4(c26b5e2ad5641094043fe7d385113867)
+        version: link:../agent
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime

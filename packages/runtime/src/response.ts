@@ -19,24 +19,15 @@ import { hasRuntimeType, isRuntimeObject } from "./internal/runtime-type.ts"
 function isBlobLike(value: unknown): value is Blob {
   if (value === null || (typeof value !== "object" && typeof value !== "function")) return false
   try {
-    // Blob methods perform an unforgeable internal-slot check, which accepts
-    // native Blobs from other realms without invoking user-defined getters.
-    Blob.prototype.slice.call(value, 0, 0)
+    // A native Blob's own method performs an unforgeable internal-slot check,
+    // which accepts native Blobs from other realms.
+    const slice = (value as { slice?: unknown }).slice
+    if (typeof slice !== "function") return false
+    Reflect.apply(slice, value, [0, 0])
     return true
   }
   catch {
-    try {
-      const blob = value as Record<string | symbol, unknown>
-      return typeof blob.size === "number"
-        && typeof blob.type === "string"
-        && typeof blob.arrayBuffer === "function"
-        && typeof blob.stream === "function"
-        && typeof blob.slice === "function"
-        && typeof blob.text === "function"
-    }
-    catch {
-      return false
-    }
+    return false
   }
 }
 
@@ -49,7 +40,7 @@ export function toResponse(value: unknown): Response {
     return new Response(value as ConstructorParameters<typeof Response>[0])
   }
   if (isBlobLike(value)) {
-    return new Response(value.stream() as ReadableStream, { headers: { "content-type": value.type } })
+    return new Response(value.stream() as ReadableStream, value.type ? { headers: { "content-type": value.type } } : undefined)
   }
   return new Response(JSON.stringify(value), {
     headers: { "content-type": "application/json; charset=utf-8" },
