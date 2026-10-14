@@ -79,4 +79,29 @@ describe("Definition inspection parity", () => {
       expect({ definitions: listed, kind: "definition-catalog" }, kind).toEqual(content)
     }
   }, 60_000)
+
+  it("marks contributed Database tables in `vitehub inspect` and the Console", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-inspect-contributed-tables-"))
+    directories.push(root)
+    await writeProjectFile(root, "package.json", "{}\n")
+    await writeProjectFile(root, "server/databases/config.ts", "export default defineDatabase({ schema: { notes } })\n")
+    const tables = join(root, "vendor/history.mjs")
+    await writeProjectFile(root, "vendor/history.mjs", "export const historySchema = {}\n")
+    const historyOwner = {
+      name: "history-owner/vite",
+      vitehub: { databases: () => [{ export: "historySchema", module: tables }] },
+    }
+
+    const config = await resolveConfig({
+      logLevel: "silent",
+      plugins: [vitehub({ blob: false, console: false, database: true, env: false, preset: "node" }), historyOwner],
+      root,
+    }, "build")
+    const inspector = (await collectViteHubDefinitionInspectors(config.plugins)).find(candidate => candidate.kind === "database")
+    const listed = await inspector!.list()
+    const catalog = await discoverConsoleBuildCatalog({ discoveryRoot: root, plugins: config.plugins, projectRoot: root, sections: ["databases"] })
+
+    expect(listed[0]?.fields).toContainEqual({ label: "Contributed tables", value: `No tables from ${tables}#historySchema (contributed by "history-owner/vite")` })
+    expect(catalog.content.databases).toEqual({ definitions: listed, kind: "definition-catalog" })
+  }, 60_000)
 })

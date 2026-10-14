@@ -11,6 +11,7 @@ import { normalize } from "pathe"
 import { computePackageDir, resolveRuntimeModule } from "@vite-hub/internal/build/paths"
 
 import { createDbCliContributor } from "./cli.ts"
+import { collectDatabaseContributions } from "./contributions.ts"
 import { cloudflareOptions, mergeCloudflareD1Bindings, resolveCloudflareD1Bindings } from "./internal/cloudflare.ts"
 import { resolveDBViteConfig, serializeGeneratedRegistry } from "./config.ts"
 import { removeGeneratedDatabaseTypes, writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
@@ -24,6 +25,8 @@ import type { ViteHubCliContributor } from "@vite-hub/internal/cli"
 import type { ViteHubInspectionContributor } from "@vite-hub/internal/inspect"
 import type { ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import type { Plugin, ResolvedConfig } from "vite"
+import type { CollectedDatabaseContribution, DatabaseContributionPluginMetadata } from "./contributions.ts"
+import type { DatabaseTableNameOptions } from "./internal/schema-tables.ts"
 import type { DBModulePublicOptions, ResolvedDBViteConfig } from "./types.ts"
 
 export const DB_VIRTUAL_SCHEMA_ID = "#vitehub/database/schema"
@@ -31,6 +34,17 @@ export const DB_VIRTUAL_DATABASES_ID = "#vitehub/database/databases"
 const DB_VIRTUAL_DEFINITION_DEFAULTS_ID = "#vitehub/database/definition-defaults"
 export const DB_VITE_PLUGIN_NAME = "@vite-hub/database/vite"
 export { inspectDatabaseDefinitions, type DatabaseInspectionOptions } from "./inspect.ts"
+export { collectDatabaseContributions, describeDatabaseContribution, resolveDatabaseContributionTargets, resolveDefaultDatabase } from "./contributions.ts"
+export type {
+  CollectedDatabaseContribution,
+  DatabaseContributingPlugin,
+  DatabaseContribution,
+  DatabaseContributionContext,
+  DatabaseContributionFactory,
+  DatabaseContributionPluginMetadata,
+  DefaultDatabaseResolution,
+  ResolvedDatabaseContribution,
+} from "./contributions.ts"
 
 const DB_INTERNAL_VIRTUAL_SCHEMA_ID = "virtual:vitehub/database/schema"
 const DB_INTERNAL_VIRTUAL_DATABASES_ID = "virtual:vitehub/database/databases"
@@ -47,7 +61,7 @@ export interface DBVitePluginAPI {
 }
 
 interface DBCliContributingPlugin {
-  vitehub?: {
+  vitehub?: DatabaseContributionPluginMetadata & {
     cli?: () => Promise<ViteHubCliContributor | undefined>
     inspect?: () => ViteHubInspectionContributor | undefined
   }
@@ -69,6 +83,10 @@ export type DBVitePlugin = Plugin & DBCliContributingPlugin & {
 }
 
 const mergeNoExternal = createNoExternalAddition(dbPackageName)
+
+function viteStringAliases(alias: ResolvedConfig["resolve"]["alias"] | undefined): Record<string, string> {
+  return Object.fromEntries((alias ?? []).flatMap(entry => typeof entry.find === "string" ? [[entry.find, entry.replacement]] : []))
+}
 
 function resolveDatabaseVirtualId(id: string) {
   if (id === DB_VIRTUAL_SCHEMA_ID || id === DB_INTERNAL_VIRTUAL_SCHEMA_ID) return RESOLVED_DB_VIRTUAL_SCHEMA_ID
@@ -130,6 +148,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
   let resolved: ResolvedConfig | undefined
   let runtimeConfig: ResolvedDBViteConfig | undefined
   let serverDirs: string[] | undefined
+  let contributions: CollectedDatabaseContribution[] = []
 
   function resolvedOptions() {
     return resolved?.database ?? options
@@ -147,14 +166,24 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
       : serverDirs
   }
 
-  async function refreshRuntimeConfig() {
+  function tableNameOptions(strict = false): DatabaseTableNameOptions {
+    const logger = resolved?.logger
+    return {
+      alias: viteStringAliases(resolved?.resolve?.alias),
+      onFallback: strict ? undefined : message => logger ? logger.warn(message) : console.warn(message),
+    }
+  }
+
+  // `vitehub db generate` passes `strict` so a Definition that cannot load fails instead of dropping tables.
+  async function refreshRuntimeConfig(options: { strict?: boolean } = {}) {
     if (!resolved) return
     runtimeConfig = resolveDBViteConfig(resolvedOptions(), databaseRoot(), {
+      contributions,
       provisionRoot: resolved.root,
       serverDirs: databaseServerDirs(),
     })
     if (runtimeConfig) {
-      await writeGeneratedDatabaseArtifacts(runtimeConfig)
+      await writeGeneratedDatabaseArtifacts(runtimeConfig, tableNameOptions(options.strict))
     } else {
       await removeGeneratedDatabaseTypes(databaseRoot())
     }
@@ -199,7 +228,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
     api: {
       getConfig: () => runtimeConfig,
       isEnabled: () => resolvedOptions() !== false,
-      refresh: refreshRuntimeConfig,
+      refresh: () => refreshRuntimeConfig(),
     },
     nitro: {
       name: "@vite-hub/database/cloudflare-bindings",
@@ -227,6 +256,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
             kind: "database",
             label: "Databases",
             list: () => inspectDatabaseDefinitions({
+              plugins: resolved?.plugins,
               projectRoot: resolveViteHubProjectRoot(resolved?.root ?? process.cwd()),
               rootDir: databaseRoot(),
               serverDirs: databaseServerDirs(),
@@ -245,6 +275,9 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
     async configResolved(config) {
       resolved = config
       providerOutput = useProviderOutputCatalog(config)
+      contributions = resolvedOptions() === false
+        ? []
+        : await collectDatabaseContributions(config.plugins, { rootDir: databaseRoot(), serverDirs: databaseServerDirs() })
       await refreshRuntimeConfig()
       mergeNitroCloudflareD1Bindings()
     },
@@ -292,7 +325,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
         const contributionRuntimeConfig = runtimeConfig
         const contributionProviderOutput = providerOutput
         const generation = providerOutputGenerations.get(this)
-        await writeGeneratedDatabaseArtifacts(contributionRuntimeConfig)
+        await writeGeneratedDatabaseArtifacts(contributionRuntimeConfig, tableNameOptions())
         artifactDir = resolve(contributionResolved.root, ".vitehub/database-generations", randomUUID())
         const contributionArtifactDir = artifactDir
         const retainedSources = await retainProviderOutputSources({

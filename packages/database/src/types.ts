@@ -1,5 +1,6 @@
 import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core/db"
 import type { BatchItem, BatchResponse } from "drizzle-orm/batch"
+import type { ResolvedDatabaseContribution } from "./contributions.ts"
 
 export type DrizzleCasing = "snake_case" | "camelCase"
 export type DatabaseDialect = "sqlite"
@@ -93,7 +94,6 @@ export interface DiscoveredDatabaseDefinition {
   mode: "default" | "named"
   name: string
   source: string
-  tableNames: string[]
 }
 
 export interface ResolvedCloudflareD1BindingConfig {
@@ -141,6 +141,8 @@ export interface ResolvedDBViteConfig {
   generatedDrizzleConfigFilesByDatabase: Record<string, string>
   generatedSchemaFilesByDatabase: Record<string, string>
   rootDir: string
+  /** Tables that Vite plugins contribute, by target Database name. */
+  tableContributionsByDatabase: Record<string, ResolvedDatabaseContribution[]>
 }
 
 export type DBModulePublicOptions = false | DatabaseIntegrationOptions & Partial<DatabaseRuntimeD1Options> & {

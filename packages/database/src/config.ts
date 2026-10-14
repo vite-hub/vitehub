@@ -29,8 +29,12 @@ import type {
 } from "./types.ts"
 
 import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
+import { resolveDatabaseContributionTargets } from "./contributions.ts"
+
+import type { CollectedDatabaseContribution } from "./contributions.ts"
 
 export { resolveConfigValue } from "./config-value.ts"
+export { resolveDefaultDatabase, type DefaultDatabaseResolution } from "./contributions.ts"
 
 /** Serialize generated registries without invoking the legacy __proto__ setter. */
 export function serializeGeneratedRegistry(value: unknown): string {
@@ -86,8 +90,21 @@ function readObjectKeys(body: string | undefined) {
   return [...new Set(splitTopLevel(body).map(readEntryKey).filter((key): key is string => Boolean(key)))]
 }
 
-function readDatabaseTableNames(file: string) {
-  return readObjectKeys(objectLiteralBody(readObjectPropertyValue(readDefinitionObjectBody(file), "schema")))
+export interface StaticDatabaseSchema {
+  /** False when the schema has entries the source cannot show, such as an imported schema or a spread. */
+  complete: boolean
+  tableNames: string[]
+}
+
+/** Reads the keys of a literal `schema: { ... }` without loading the Definition. */
+export function readStaticDatabaseSchema(file: string): StaticDatabaseSchema {
+  const body = objectLiteralBody(readObjectPropertyValue(readDefinitionObjectBody(file), "schema"))
+  if (body === undefined) return { complete: false, tableNames: [] }
+  const entries = splitTopLevel(body).map(stripLeadingEntryComments).filter(entry => entry.trim())
+  return {
+    complete: entries.every(entry => !entry.trimStart().startsWith("...") && readEntryKey(entry)),
+    tableNames: readObjectKeys(body),
+  }
 }
 
 function readConfigValue(body: string | undefined, property: string): DatabaseConfigValue | undefined {
@@ -294,7 +311,6 @@ function createDatabaseDefinition(source: string, file: string, name: string, mo
     mode,
     name,
     source,
-    tableNames: readDatabaseTableNames(file),
   }
 }
 
@@ -413,11 +429,17 @@ function createGeneratedDrizzleConfigFile(rootDir: string, name: string) {
 export function resolveDBViteConfig(
   options?: DBModulePublicOptions,
   rootDir = process.cwd(),
-  context: { provisionRoot?: string, serverDirs?: string[] } = {},
+  context: {
+    /** Tables that Vite plugins contribute. See `collectDatabaseContributions()`. */
+    contributions?: readonly CollectedDatabaseContribution[]
+    provisionRoot?: string
+    serverDirs?: string[]
+  } = {},
 ): ResolvedDBViteConfig | undefined {
   if (options === false) return
 
   const definitions = discoverDatabaseDefinitions(rootDir, context)
+  const tableContributionsByDatabase = resolveDatabaseContributionTargets(definitions.map(definition => definition.name), context.contributions ?? [])
   if (!definitions.length) return
 
   const databases: Record<string, ResolvedDrizzleDatabaseConfig> = Object.create(null)
@@ -473,5 +495,6 @@ export function resolveDBViteConfig(
     generatedDrizzleConfigFilesByDatabase,
     generatedSchemaFilesByDatabase,
     rootDir,
+    tableContributionsByDatabase,
   }
 }
