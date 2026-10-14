@@ -86,6 +86,26 @@ function isResponseLike(value: unknown): value is Response {
       if (tag && typeof tag.get === "function" && tag.get.call(value) === "Response") hasResponseTag = true
     }
     const constructor = Object.getPrototypeOf(value)?.constructor
+    let factorySurface = false
+    if (typeof constructor === "function") {
+      try {
+        // A foreign Response constructor must produce values using its own prototype.
+        // This rejects copied host factory methods, which otherwise look like a
+        // complete static surface on an ordinary object.
+        const factoryResults = [
+          (constructor as { json?: (data: unknown) => unknown }).json?.(null),
+          (constructor as { redirect?: (url: string) => unknown }).redirect?.("https://console.example.test/"),
+          (constructor as { error?: () => unknown }).error?.(),
+        ]
+        factorySurface = factoryResults.every((result, index) => result !== undefined
+          && result !== value
+          && factoryResults.indexOf(result) === index
+          && Object.getPrototypeOf(result) === Object.getPrototypeOf(value))
+      }
+      catch {
+        factorySurface = false
+      }
+    }
     const foreignImplementation = ownSlots
       && Object.getOwnPropertySymbols(value).length > 0
       && hasBodyGetter
@@ -100,6 +120,7 @@ function isResponseLike(value: unknown): value is Response {
       && typeof (constructor as { error?: unknown }).error === "function"
       && Function.prototype.toString.call(constructor).startsWith("class ")
       && constructor.prototype === Object.getPrototypeOf(value)
+      && factorySurface
     return typeof response.status === "number"
       && typeof response.statusText === "string"
       && (nativeBrand || foreignImplementation)
