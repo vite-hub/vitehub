@@ -125,7 +125,6 @@ describe("Auth access handlers", () => {
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
       access: { routes: [{ route: "/**", authorize: () => foreignResponse as never }] },
     }))
-
     await expect(handler(new Request("https://app.example/"))).resolves.toBe(foreignResponse)
   })
 
