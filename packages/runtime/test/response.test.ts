@@ -18,6 +18,15 @@ describe("durable Response representation", () => {
 
     expect(await toResponse(spoof).json()).toEqual({ size: 4, type: "text/plain" })
     expect(await toResponse(hostile).json()).toEqual({})
+    expect(await toResponse([1, 2]).json()).toEqual([1, 2])
+  })
+
+  it("does not add a content type for an untyped Blob", async () => {
+    const blob = new (new Window()).Blob(["test"])
+    const response = toResponse(blob)
+
+    expect(response.headers.has("content-type")).toBe(false)
+    expect(await response.text()).toBe("test")
   })
 
   it.each([204, 205, 304])("round trips a bodyless response with status %s", async (status) => {

@@ -22,7 +22,8 @@ function isBlobLike(value: unknown): value is Blob {
     // A native Blob's own method performs an unforgeable internal-slot check,
     // which accepts native Blobs from other realms.
     const slice = Reflect.get(value, "slice")
-    if (!hasRuntimeType(slice, "function")) return false
+    const stream = Reflect.get(value, "stream")
+    if (!hasRuntimeType(slice, "function") || !hasRuntimeType(stream, "function")) return false
     Reflect.apply(slice, value, [0, 0])
     return true
   }
