@@ -3861,6 +3861,10 @@ describe("Agent invocation console", () => {
       window: "24h",
     })).resolves.toMatchObject({
       available: true,
+      sessions: expect.arrayContaining([
+        expect.objectContaining({ id: "complete", partial: false }),
+        expect.objectContaining({ id: "truncated", partial: true }),
+      ]),
       models: [
         expect.objectContaining({ model: "complete", totalTokens: 10 }),
         expect.objectContaining({ model: "truncated", totalTokens: 10 }),
