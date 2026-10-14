@@ -184,6 +184,7 @@ import type {
   AgentChannelDeliveryFinishEffectContext,
   AgentDataCarrier,
   AgentDataOutputCarrier,
+  AgentBudgetOptions,
   AgentRunInputContextValues,
   AgentInterceptHandler,
   AgentDefinition,
