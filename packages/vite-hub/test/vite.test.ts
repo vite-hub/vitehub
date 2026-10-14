@@ -589,7 +589,6 @@ describe("vitehub", () => {
       "@vite-hub/email/optional-peer-resolver",
       "@vite-hub/kv/optional-peers",
       "@vite-hub/source/vite",
-      "vite-hub/nitro-cache-bypass",
       "vite-hub/types",
     ])
 
@@ -630,7 +629,6 @@ describe("vitehub", () => {
       "@vite-hub/workflow/vite",
       "@vite-hub/workspace/vite",
       "@vite-hub/source/vite",
-      "vite-hub/nitro-cache-bypass",
       "vite-hub/types",
     ])
     expect(pluginNames(vitehub({ preset: "node", sandbox: false }))).not.toContain("@vite-hub/sandbox/vite")
