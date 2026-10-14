@@ -378,21 +378,13 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
       || cookieDescriptor.value === Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value)
     const nativeBodyMethod = body === null || responsePropertyDescriptor(Object(body), "getReader")?.value === ReadableStream.prototype.getReader
     if (value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod && nativeBodyMethod) return value
-    // A released reader leaves a foreign stream unlocked even after it is disturbed.
-    // The response's intrinsic clone operation is the cross-runtime check that still
-    // rejects that state without consuming the body or relying on this realm's brand.
-    if (body !== null) {
-      const clone = responsePropertyDescriptor(candidate, "clone")?.value
-      if (typeof clone === "function") {
-        try {
-          Reflect.apply(clone, candidate, [])
-        }
-        catch {
-          return
-        }
-      }
-    }
     if (bodyUsed !== false) return
+    // An own bodyUsed property can hide the foreign response's disturbed state.
+    // Read its prototype getter without cloning (which tees and locks the body).
+    if (Object.hasOwn(candidate, "bodyUsed")) {
+      const getter = responsePropertyDescriptor(Object.getPrototypeOf(candidate), "bodyUsed")?.get
+      if (!getter || Reflect.apply(getter, candidate, []) !== false) return
+    }
     if (!isSerializableAuthorizationBody(body)) return
     const forEach = Reflect.get(headerCarrier, "forEach")
     const getSetCookie = Reflect.get(headerCarrier, "getSetCookie")

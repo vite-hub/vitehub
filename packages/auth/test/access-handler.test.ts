@@ -297,15 +297,17 @@ describe("Auth access handlers", () => {
     }
   })
 
-  it("rejects a consumed foreign body even when bodyUsed is shadowed", async () => {
+  it.each([false, true])("checks foreign body state when bodyUsed is shadowed (consumed: %s)", async (consumed) => {
     const source = new ForeignResponse("Policy rejected", { status: 409 })
-    await source.text()
+    if (consumed) await source.text()
     Object.defineProperty(source, "bodyUsed", { value: false })
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
       access: { routes: [{ route: "/**", authorize: () => source as never }] },
     }))
 
-    await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
+    const response = await handler(new Request("https://app.example/"))
+    expect(response?.status).toBe(consumed ? 403 : 409)
+    if (!consumed) await expect(response?.text()).resolves.toBe("Policy rejected")
   })
 
   it("rejects an already-consumed body from the foreign runtime", async () => {
@@ -351,6 +353,7 @@ describe("Auth access handlers", () => {
       statusText: { get: () => "Conflict" },
       headers: { get: headers },
       body: { get: body },
+      bodyUsed: { get: () => false },
     })
     const candidate = Object.create(prototype)
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
