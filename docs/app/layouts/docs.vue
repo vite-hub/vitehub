@@ -39,6 +39,8 @@ const docsShellUi = {
         <slot />
       </div>
     </UPage>
+
+    <AppFooter />
   </UMain>
 </template>
 

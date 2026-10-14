@@ -33,7 +33,7 @@ export default defineAppConfig({
       slots: {
         root: "bg-default border-b border-default h-[44px] sticky top-0 z-50",
         container: "flex items-center justify-between gap-0 h-full max-w-none !ps-5 !pe-4 lg:grid lg:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]",
-        left: "flex items-center gap-2 lg:w-[var(--vh-sidebar-width)] lg:flex-none",
+        left: "flex items-center gap-2 lg:w-[var(--vh-panel-width)] lg:flex-none",
         center: "hidden lg:flex lg:items-center lg:justify-center",
         right: "flex items-center justify-end gap-1.5 lg:flex-1",
         title: "shrink-0 font-semibold text-sm text-highlighted flex items-center gap-2 tracking-normal",
