@@ -826,14 +826,23 @@ function isResponseLike(value: unknown): value is Response {
     if (!isRuntimeObject(headers) || !("get" in headers) || !("forEach" in headers)) return false
     if (!hasRuntimeType(headers.get, "function") || !hasRuntimeType(headers.forEach, "function")) return false
     if (body === null) return value.body === null
-    if (!isRuntimeObject(body) || !("pipeThrough" in body) || !hasRuntimeType(body.pipeThrough, "function")) return false
+    if (!isRuntimeObject(body)) return false
+    // Keep the structural contract local so TypeScript does not widen the
+    // foreign stream back to `object` after the runtime checks above.
+    const stream = body as {
+      getReader?: unknown
+      pipeThrough?: unknown
+    }
+    if (!hasRuntimeType(stream.pipeThrough, "function")) return false
     // Calling the stream's own getReader performs a cross-realm brand check.
     // The current realm's ReadableStream accessors reject foreign streams.
-    const getReader = body.getReader
+    const getReader = stream.getReader
     if (!hasRuntimeType(getReader, "function")) return false
     const reader = Reflect.apply(getReader, body, [])
-    if (!isRuntimeObject(reader) || !hasRuntimeType(reader.releaseLock, "function")) return false
-    Reflect.apply(reader.releaseLock, reader, [])
+    if (!isRuntimeObject(reader)) return false
+    const readableReader = reader as { read?: unknown, releaseLock?: unknown }
+    if (!hasRuntimeType(readableReader.read, "function") || !hasRuntimeType(readableReader.releaseLock, "function")) return false
+    Reflect.apply(readableReader.releaseLock, reader, [])
     return value.body === body
   }
   catch {
