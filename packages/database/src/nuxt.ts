@@ -145,6 +145,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
       let contributions: CollectedDatabaseContribution[] = []
       const definitionFiles = new Set<string>()
       const contributionFiles = new Set<string>()
+      const contributionDirectories = new Set<string>()
       const require = createRequire(pathToFileURL(resolve(root, "package.json")))
       const definitionDirectories = new Set([
         ...(serverDirs ?? [resolve(root, "server")]).map(directory => resolve(directory, "databases")),
@@ -160,15 +161,17 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
           }
           for (const contribution of contributions) {
             try {
-              contributionFiles.add(isAbsolute(contribution.module)
+              const file = isAbsolute(contribution.module)
                 ? resolve(contribution.module)
-                : require.resolve(contribution.module))
+                : require.resolve(contribution.module)
+              contributionFiles.add(file)
+              contributionDirectories.add(dirname(file))
             }
             catch {
               // The runtime loader reports unresolved contributions; there is no file to watch yet.
             }
           }
-          nuxtOptions.watch = [...new Set([...(nuxtOptions.watch ?? []), ...definitionDirectories, ...definitionFiles, ...contributionFiles])]
+          nuxtOptions.watch = [...new Set([...(nuxtOptions.watch ?? []), ...definitionDirectories, ...definitionFiles, ...contributionFiles, ...contributionDirectories])]
         }
         const queued = localRuntimeRefresh.then(refresh, refresh)
         localRuntimeRefresh = queued
@@ -178,7 +181,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
         nuxtOptions.watch = [...new Set([...(nuxtOptions.watch ?? []), ...definitionDirectories])]
         hook("builder:watch", async (_event, path) => {
           const file = resolve(nuxtOptions.srcDir || nuxtOptions.rootDir || root, path)
-          if (definitionFiles.has(file) || contributionFiles.has(file) || [...definitionDirectories].some(directory => file === directory || file.startsWith(`${directory}${sep}`))) {
+          if (definitionFiles.has(file) || contributionFiles.has(file) || [...definitionDirectories, ...contributionDirectories].some(directory => file === directory || file.startsWith(`${directory}${sep}`))) {
             await refreshLocalRuntime()
           }
         })

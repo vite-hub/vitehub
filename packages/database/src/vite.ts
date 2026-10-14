@@ -336,11 +336,11 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
       if (!runtimeConfig) return
 
       const changedFile = normalizeModulePath(context.file)
-      const isDatabaseUpdate = runtimeConfig.definitions.some(definition =>
-        normalizeModulePath(definition.handler) === changedFile
-        || moduleGraphContainsFile(context.server, definition.handler, changedFile),
+      // Definitions and contributed table modules can import the changed file.
+      const isDatabaseUpdate = [...runtimeConfig.definitions.map(definition => definition.handler), ...contributionFiles].some(file =>
+        normalizeModulePath(file) === changedFile
+        || moduleGraphContainsFile(context.server, file, changedFile),
       )
-        || contributionFiles.has(changedFile)
       if (!isDatabaseUpdate) return
 
       await refreshRuntimeConfig()
