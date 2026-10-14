@@ -289,6 +289,11 @@ function isResponseLike(value: unknown): value is Response {
   if (!isRuntimeObject(value)) return false
   try {
     if (Object.prototype.toString.call(value) !== "[object Response]") return false
+    // Calling the intrinsic getter verifies the internal Response brand. The
+    // tag and public fields alone can be spoofed by a plain object.
+    const responseBrandGetter = Object.getOwnPropertyDescriptor(Response.prototype, "bodyUsed")?.get
+    if (!responseBrandGetter) return false
+    responseBrandGetter.call(value as object)
     const response = { headers: Reflect.get(value, "headers"), status: Reflect.get(value, "status"), statusText: Reflect.get(value, "statusText") }
     if (!hasRuntimeType(response.status, "number") || !Number.isInteger(response.status) || response.status < 0 || response.status > 599) return false
     if (!hasRuntimeType(response.statusText, "string")) return false
