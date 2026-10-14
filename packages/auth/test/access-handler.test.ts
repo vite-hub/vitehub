@@ -132,7 +132,6 @@ describe("Auth access handlers", () => {
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
       access: { routes: [{ route: "/**", authorize: () => foreignResponse as never }] },
     }))
-
     const response = await handler(new Request("https://app.example/"))
     expect(response).toBeInstanceOf(Response)
     expect(response?.status).toBe(409)
@@ -296,6 +295,17 @@ describe("Auth access handlers", () => {
     finally {
       reader?.releaseLock()
     }
+  })
+
+  it("rejects a consumed foreign body even when bodyUsed is shadowed", async () => {
+    const source = new ForeignResponse("Policy rejected", { status: 409 })
+    await source.text()
+    Object.defineProperty(source, "bodyUsed", { value: false })
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => source as never }] },
+    }))
+
+    await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
   })
 
   it("rejects an already-consumed body from the foreign runtime", async () => {

@@ -2,6 +2,7 @@ import discoveredDefinition from "#vitehub/auth/definition"
 import { betterAuth } from "better-auth"
 
 import { normalizeAuthBasePath } from "./shared.ts"
+import { unwrapAuthRequest } from "./request.ts"
 import { resolveAuthOptions } from "./runtime-options.ts"
 import { throwAuthenticationProviderError } from "./errors.ts"
 import { getAuthenticationSession } from "./session.ts"
@@ -71,11 +72,6 @@ function toRequest(request: AuthRequest): Request {
   return new Request(request.url, init)
 }
 
-function unwrapAuthRequest(input: AuthRequestInput): AuthRequest {
-  // SAFETY: AuthRequestInput is a request or an own-property host wrapper; inherited req values must not replace the request.
-  return Object.hasOwn(input, "req") ? (input as { req: AuthRequest }).req : input as AuthRequest
-}
-
 export function createAuthRequestRuntimeOptions(
   definition: AuthDefinition,
   request: Pick<Request, "headers" | "url">,
@@ -126,11 +122,17 @@ export function createAuthForRequest(
 
 export function handleAuthRequest(
   definition: AuthDefinition,
-  request: AuthRequest,
+  input: AuthRequestInput,
   runtimeOptions?: AuthRuntimeOptions,
-  event?: unknown,
+  event: unknown = input,
 ): Promise<Response> {
+  const request = unwrapAuthRequest(input)
   return createAuthForRequest(definition, request, runtimeOptions, event).handler(toRequest(request))
+}
+
+/** Return the request of a Web Request or a host server event, including an H3 1 event in Nuxt 4. */
+export function toAuthRequest(input: AuthRequestInput): AuthRequest {
+  return unwrapAuthRequest(input)
 }
 
 export function createAuthHandler(
@@ -189,8 +191,7 @@ export function handleAuth(
   input: AuthRequestInput,
   runtimeOptions?: AuthRuntimeOptions,
 ): Promise<Response> {
-  const request = unwrapAuthRequest(input)
-  return handleAuthRequest(resolveDefaultDefinition(), request, runtimeOptions, input)
+  return handleAuthRequest(resolveDefaultDefinition(), input, runtimeOptions, input)
 }
 
 function wantsHtml(request: Pick<Request, "headers" | "method">): boolean {
@@ -377,6 +378,20 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
       || cookieDescriptor.value === Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value)
     const nativeBodyMethod = body === null || responsePropertyDescriptor(Object(body), "getReader")?.value === ReadableStream.prototype.getReader
     if (value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod && nativeBodyMethod) return value
+    // A released reader leaves a foreign stream unlocked even after it is disturbed.
+    // The response's intrinsic clone operation is the cross-runtime check that still
+    // rejects that state without consuming the body or relying on this realm's brand.
+    if (body !== null) {
+      const clone = responsePropertyDescriptor(candidate, "clone")?.value
+      if (typeof clone === "function") {
+        try {
+          Reflect.apply(clone, candidate, [])
+        }
+        catch {
+          return
+        }
+      }
+    }
     if (bodyUsed !== false) return
     if (!isSerializableAuthorizationBody(body)) return
     const forEach = Reflect.get(headerCarrier, "forEach")
