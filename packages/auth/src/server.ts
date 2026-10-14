@@ -368,11 +368,32 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
     if (typeof streamConstructor !== "function") return false
     const freshStream = new streamConstructor()
     const reader = Reflect.apply(getReader, freshStream, [])
-    if (Object(reader) !== reader
-      || typeof Reflect.get(reader, "read") !== "function"
-      || typeof Reflect.get(reader, "cancel") !== "function"
-      || typeof Reflect.get(reader, "releaseLock") !== "function") return false
-    Reflect.apply(Reflect.get(reader, "releaseLock"), reader, [])
+    if (Object(reader) !== reader) return false
+    const readerObject = Object(reader)
+    if (typeof Reflect.get(readerObject, "read") !== "function"
+      || typeof Reflect.get(readerObject, "cancel") !== "function"
+      || typeof Reflect.get(readerObject, "releaseLock") !== "function") return false
+    // A shape-compatible object is not sufficient: invoke the reader's
+    // prototype releaseLock method so the stream implementation performs its
+    // internal reader brand check. Own method replacements are rejected.
+    if (Object.prototype.hasOwnProperty.call(readerObject, "read")
+      || Object.prototype.hasOwnProperty.call(readerObject, "cancel")
+      || Object.prototype.hasOwnProperty.call(readerObject, "releaseLock")) return false
+    let readerPrototype: object | null = Object.getPrototypeOf(readerObject)
+    let releaseLock: (() => void) | undefined
+    const readerPrototypes = new Set<object>()
+    for (let depth = 0; readerPrototype && depth < authorizationResponsePrototypeLimit; depth++) {
+      if (readerPrototypes.has(readerPrototype)) return false
+      readerPrototypes.add(readerPrototype)
+      const descriptor = Object.getOwnPropertyDescriptor(readerPrototype, "releaseLock")
+      if (typeof descriptor?.value === "function") {
+        releaseLock = descriptor.value
+        break
+      }
+      readerPrototype = Object.getPrototypeOf(readerPrototype)
+    }
+    if (!releaseLock) return false
+    Reflect.apply(releaseLock, readerObject, [])
     return responsePropertyDescriptor(candidate, "getReader")?.value === getReader
   }
   catch {
