@@ -12,7 +12,7 @@ import { computePackageDir, resolveRuntimeModule } from "@vite-hub/internal/buil
 
 import { createDbCliContributor } from "./cli.ts"
 import { cloudflareOptions, mergeCloudflareD1Bindings, resolveCloudflareD1Bindings } from "./internal/cloudflare.ts"
-import { resolveDBViteConfig } from "./config.ts"
+import { resolveDBViteConfig, serializeGeneratedRegistry } from "./config.ts"
 import { removeGeneratedDatabaseTypes, writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
 import { renderDatabaseConfigExpression } from "./internal/runtime-config-expression.ts"
 import { dbPackageName, generateProviderOutputs, prepareProviderOutputs, shouldCreateCloudflareOutput, shouldCreateVercelOutput } from "./internal/vite-build.ts"
@@ -104,7 +104,7 @@ function renderDatabasesModule(config: ResolvedDBViteConfig | undefined) {
     `import schema_${index} from ${JSON.stringify(config.generatedSchemaFilesByDatabase[definition.name])}`,
   ].join("\n"))
   const entries = config.definitions.map((definition, index) => [
-    `  ${JSON.stringify(definition.name)}: {`,
+    `  [${JSON.stringify(definition.name)}]: {`,
     `    config: ${renderDatabaseConfigExpression(definition.name, config, `definition_${index}`)},`,
     `    schema: schema_${index},`,
     "  },",
@@ -355,7 +355,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
       if (id === RESOLVED_DB_VIRTUAL_DATABASES_ID) return renderDatabasesModule(runtimeConfig)
       if (id === RESOLVED_DB_VIRTUAL_DEFINITION_DEFAULTS_ID) {
         const options = resolvedOptions()
-        return `export default ${JSON.stringify(runtimeConfig?.definitionDefaults ?? {
+        return `export default ${serializeGeneratedRegistry(runtimeConfig?.definitionDefaults ?? {
           ...(options && options.driver === "d1" ? { cloudflare: cloudflareOptions(options) ?? {} } : {}),
           ...(options && options.connection ? { connection: options.connection } : {}),
         })}\n`

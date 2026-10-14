@@ -98,6 +98,20 @@ describe("discoverDatabaseDefinitions", () => {
     expect(discoverDatabaseDefinitions(rootDir)).toEqual([expect.objectContaining({ name: "alpha" })])
   })
 
+  it("preserves prototype-named databases in resolved maps", async () => {
+    const rootDir = await createTempProject()
+    await writeDefinition(rootDir, "src/__proto__.database.ts")
+
+    const resolved = resolveDBViteConfig(undefined, rootDir)!
+
+    expect(resolved.databaseNames).toEqual(["__proto__"])
+    expect(Object.hasOwn(resolved.databases, "__proto__")).toBe(true)
+    expect(resolved.databases["__proto__"]?.name).toBe("__proto__")
+    expect(Object.hasOwn(resolved.definitionDefaults.cloudflareProjections, "__proto__")).toBe(true)
+    expect(Object.hasOwn(resolved.generatedDrizzleConfigFilesByDatabase, "__proto__")).toBe(true)
+    expect(Object.hasOwn(resolved.generatedSchemaFilesByDatabase, "__proto__")).toBe(true)
+  })
+
   it("discovers Vite default and suffix database definitions", async () => {
     const rootDir = await createTempProject()
     const analytics = await writeDefinition(rootDir, "src/analytics.database.ts", "events")
