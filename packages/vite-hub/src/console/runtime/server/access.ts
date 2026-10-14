@@ -45,7 +45,6 @@ function rejection(status: number, message: string): Response {
 
 function isResponse(value: unknown): value is Response {
   if (value instanceof Response) return true
-  if (value === null || typeof value !== "object") return false
 
   // Response's accessors perform the Fetch brand check and work across realms.
   // Unlike Object.prototype.toString(), this cannot be spoofed with Symbol.toStringTag.
