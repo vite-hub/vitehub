@@ -878,6 +878,47 @@ describe("@vite-hub/runtime", () => {
     }
   })
 
+  it("does not trust forged buffer operations authenticated by a replaced formatter", async () => {
+    const toStringDescriptor = Object.getOwnPropertyDescriptor(Function.prototype, "toString")
+    const arrayBufferDescriptor = Object.getOwnPropertyDescriptor(globalThis, "ArrayBuffer")
+    const sharedArrayBufferDescriptor = Object.getOwnPropertyDescriptor(globalThis, "SharedArrayBuffer")
+    const dataViewDescriptor = Object.getOwnPropertyDescriptor(globalThis, "DataView")
+    if (!toStringDescriptor || !arrayBufferDescriptor || !sharedArrayBufferDescriptor || !dataViewDescriptor) throw new Error("Expected buffer intrinsic descriptors")
+    const names = new WeakMap<Function, string>()
+    const nativeToString = toStringDescriptor.value as (this: Function) => string
+    const makeForged = (name: string, implementation: Function) => {
+      names.set(implementation, name)
+      return implementation
+    }
+    const forgedArrayBuffer = makeForged("ArrayBuffer", function (this: unknown) { return {} })
+    const forgedSharedArrayBuffer = makeForged("SharedArrayBuffer", function (this: unknown) { return {} })
+    const forgedDataView = makeForged("DataView", function (this: unknown) {})
+    Object.defineProperty(forgedSharedArrayBuffer, "prototype", { value: { [Symbol.toStringTag]: "SharedArrayBuffer", get byteLength() { return 0 } } })
+    Object.defineProperty(forgedArrayBuffer, "prototype", { value: { get byteLength() { return 0 } } })
+    const forgedFormatter = function (this: Function) {
+      const name = names.get(this)
+      if (name) return `function ${name}() { [native code] }`
+      return nativeToString.call(this)
+    }
+    Object.defineProperty(Function.prototype, "toString", { ...toStringDescriptor, value: forgedFormatter })
+    Object.defineProperty(globalThis, "ArrayBuffer", { ...arrayBufferDescriptor, value: forgedArrayBuffer })
+    Object.defineProperty(globalThis, "SharedArrayBuffer", { ...sharedArrayBufferDescriptor, value: forgedSharedArrayBuffer })
+    Object.defineProperty(globalThis, "DataView", { ...dataViewDescriptor, value: forgedDataView })
+    try {
+      vi.resetModules()
+      const runtime = await import("../src/index.ts")
+      const log = runtime.createTraceEventLog()
+      await log.append({ name: "object", payload: { value: { files: 1 }, visibility: "public" }, type: "lifecycle" })
+      expect(log.entries()[0]?.payload).toEqual({ visibility: "private" })
+    }
+    finally {
+      Object.defineProperty(Function.prototype, "toString", toStringDescriptor)
+      Object.defineProperty(globalThis, "ArrayBuffer", arrayBufferDescriptor)
+      Object.defineProperty(globalThis, "SharedArrayBuffer", sharedArrayBufferDescriptor)
+      Object.defineProperty(globalThis, "DataView", dataViewDescriptor)
+    }
+  })
+
   it.each([
     new ArrayBuffer(0),
     new ArrayBuffer(4),
