@@ -28,7 +28,7 @@ function parseNamespaces(value: unknown): CloudflareKVNamespace[] {
     }
     const id = Reflect.get(namespace, "id")
     const title = Reflect.get(namespace, "title")
-    if (typeof id !== "string" || typeof title !== "string") {
+    if (!Object.hasOwn(namespace, "id") || !Object.hasOwn(namespace, "title") || typeof id !== "string" || typeof title !== "string") {
       throw kvErrorDiagnostics.KV_R0019({ message: "Cloudflare provisioning returned an invalid KV namespace list." })
     }
   }
@@ -40,7 +40,7 @@ function parseNamespace(value: unknown): CloudflareKVNamespace {
   if (!value || Object(value) !== value) throw kvErrorDiagnostics.KV_R0020({ message: "Cloudflare provisioning returned an invalid KV namespace." })
   const id = Reflect.get(value, "id")
   const title = Reflect.get(value, "title")
-  if (typeof id !== "string" || typeof title !== "string") {
+  if (!Object.hasOwn(value, "id") || !Object.hasOwn(value, "title") || typeof id !== "string" || typeof title !== "string") {
     throw kvErrorDiagnostics.KV_R0020({ message: "Cloudflare provisioning returned an invalid KV namespace." })
   }
   // SAFETY: The structural checks above validate the namespace's required fields.
