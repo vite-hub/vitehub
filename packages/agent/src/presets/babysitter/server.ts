@@ -40,7 +40,7 @@ import type { Claim, PullRequestInboxStorage, ReadGraphql, Snapshot } from "../.
 import { hydrateFailedCiEvidence } from "../../server/github-inbox/ci-evidence.ts";
 import type { PullRequestWake } from "../../server/github-inbox/wait-state.ts";
 import { createHash } from "node:crypto";
-import { babysitterPassResultSchema, resolveBabysitterLifecycleFilter } from "../babysitter.ts";
+import { resolveBabysitterLifecycleFilter } from "../babysitter.ts";
 import type { BabysitterAgent, BabysitterPassResult, BabysitterPlacementLease } from "../babysitter.ts";
 import { asMetadataTarget, copyDefinitionDecorations, getAgentLayerOptions } from "../../agent-layers.ts";
 import { importBoxCommit } from "./box-commit.ts";
