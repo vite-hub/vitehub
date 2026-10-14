@@ -330,7 +330,7 @@ function hasResponsePrototype(value: unknown): boolean {
 
 function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<Uint8Array> | null {
   if (body === null) return true
-  if (Object(body) !== body) return false
+  if (typeof body !== "object") return false
   try {
     const locked = Reflect.get(body, "locked")
     const getReader = Reflect.get(body, "getReader")
@@ -341,9 +341,35 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
   }
 }
 
-function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
+function getNativeAuthorizationBodyReader(body: unknown): ((this: object) => ReadableStreamDefaultReader<Uint8Array>) | undefined {
+  if (body === null || typeof body !== "object") return
+  try {
+    // An own reader (or a reader supplied by an intermediate prototype) is
+    // caller-controlled. Resolve the first descriptor without invoking it,
+    // and accept only a native ReadableStream prototype method. The
+    // constructor-name check is realm-independent, unlike comparing against
+    // this realm's ReadableStream.prototype.
+    if (Object.prototype.hasOwnProperty.call(body, "getReader")) return
+    let prototype: object | null = Object.getPrototypeOf(body)
+    const seen = new Set<object>()
+    for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
+      if (seen.has(prototype)) return false
+      seen.add(prototype)
+      const descriptor = Object.getOwnPropertyDescriptor(prototype, "getReader")
+      if (descriptor) {
+        const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+        if (typeof descriptor.value === "function" && constructor?.name === "ReadableStream") return descriptor.value
+      }
+      prototype = Object.getPrototypeOf(prototype)
+    }
+  }
+  catch {
+    return false
+  }
+}
+
+function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>, getReader: (this: object) => ReadableStreamDefaultReader<Uint8Array>) {
   // Invoke the source stream's native operations so separate realms retain their brand.
-  const getReader = Reflect.get(body, "getReader") as () => ReadableStreamDefaultReader<Uint8Array>
   const reader = Reflect.apply(getReader, body, [])
   const read = Reflect.get(reader, "read") as ReadableStreamDefaultReader<Uint8Array>["read"]
   const cancel = Reflect.get(reader, "cancel") as ReadableStreamDefaultReader<Uint8Array>["cancel"]
@@ -416,9 +442,11 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
     const cookieDescriptor = responsePropertyDescriptor(headerCarrier, "getSetCookie")
     const nativeCookieMethod = !cookieDescriptor?.get && (cookieDescriptor?.value === undefined
       || cookieDescriptor.value === Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value)
-    const nativeBodyMethod = body === null || responsePropertyDescriptor(Object(body), "getReader")?.value === ReadableStream.prototype.getReader
-    if (value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod && nativeBodyMethod) return value
-    if (!isSerializableAuthorizationBody(body)) return
+    const nativeBodyReader = body === null
+      ? (() => { throw new Error("A null body has no reader") })
+      : getNativeAuthorizationBodyReader(body)
+    if (value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod && nativeBodyReader) return value
+    if (!nativeBodyReader || !isSerializableAuthorizationBody(body)) return
     const forEach = Reflect.get(headerCarrier, "forEach")
     const getSetCookie = Reflect.get(headerCarrier, "getSetCookie")
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Headers.getSetCookie is optional across runtimes; capture its result once when callable.
@@ -435,7 +463,7 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
       ? Response.error()
       : new Response(body, { status, statusText, headers: normalizedHeaders })
     if (body === null) return normalizedResponse
-    const bridgedBody = bridgeAuthorizationBody(body)
+    const bridgedBody = bridgeAuthorizationBody(body, nativeBodyReader)
     try {
       return new Response(bridgedBody.stream, { status, statusText, headers: normalizedHeaders })
     }
