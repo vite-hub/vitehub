@@ -47,12 +47,12 @@ function isRequest(value: unknown): value is Request {
     let prototype: object | null = value
     while (prototype) {
       const accessors = ["headers", "url", "method", "bodyUsed"].map((key) =>
-        Object.getOwnPropertyDescriptor(prototype, key)?.get)
+        [key, Object.getOwnPropertyDescriptor(prototype, key)?.get] as const)
       if (
-        accessors.every((accessor): accessor is Function =>
-          typeof accessor === "function" && isRequestAccessor(accessor))
+        accessors.every(([key, accessor]): accessor is Function =>
+          typeof accessor === "function" && isRequestAccessor(key, accessor))
       ) {
-        for (const accessor of accessors) accessor.call(value)
+        for (const [, accessor] of accessors) accessor.call(value)
         return true
       }
       prototype = Object.getPrototypeOf(prototype)
@@ -63,9 +63,10 @@ function isRequest(value: unknown): value is Request {
   }
 }
 
-function isRequestAccessor(accessor: Function): boolean {
+function isRequestAccessor(key: string, accessor: Function): boolean {
   const source = Function.prototype.toString.call(accessor)
-  return source.includes("[native code]") || source.includes("brandCheck(this, Request)")
+  return source.includes("[native code]")
+    || new RegExp(`get\\s+${key}\\s*\\(\\s*\\)[^{]*\\{[\\s\\S]*webidl\\.brandCheck\\(this,\\s*Request\\)`).test(source)
 }
 
 /** Adapt one H3 operation. Await flushWaitUntil when the host has no lifetime API. */
