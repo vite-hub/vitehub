@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import type { AgentTrace as AgentTraceComponent } from "@vite-hub/ui";
+import type { TraceRun as TraceRunComponent } from "@vite-hub/ui";
 
-type TraceRun = InstanceType<typeof AgentTraceComponent>["$props"]["run"];
+type Run = InstanceType<typeof TraceRunComponent>["$props"]["run"];
 
-const run: TraceRun = {
+const run: Run = {
   durationMs: 2_840,
   endTime: "2026-08-23T09:04:12.840Z",
   events: [],
@@ -38,9 +38,9 @@ const run: TraceRun = {
 </script>
 
 <template>
-  <AgentTrace :run="run" default-open>
+  <TraceRun :run="run" default-open>
     <template #title>
       Verification run
     </template>
-  </AgentTrace>
+  </TraceRun>
 </template>

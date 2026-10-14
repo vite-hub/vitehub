@@ -27,10 +27,7 @@ const defaultOptions: ResolvedViteHubUIDefaults = {
 };
 
 const runtimeComponents = {
-  UAlert: defineAsyncComponent(() => import("@nuxt/ui/components/Alert.vue")),
-  UBadge: defineAsyncComponent(() => import("@nuxt/ui/components/Badge.vue")),
   UButton: defineAsyncComponent(() => import("@nuxt/ui/components/Button.vue")),
-  UCollapsible: defineAsyncComponent(() => import("@nuxt/ui/components/Collapsible.vue")),
   // Nuxt UI's Vite build replaces its Nuxt Icon only for imports inside Nuxt UI, so use the Vue version here.
   UIcon: defineAsyncComponent(() => import("@nuxt/ui/runtime/vue/components/Icon.vue")),
   UModal: defineAsyncComponent(() => import("@nuxt/ui/components/Modal.vue")),

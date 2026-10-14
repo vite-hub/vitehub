@@ -16,12 +16,12 @@ vi.mock("../src/internal/pierre-code-view.ts", () => ({
   PierreUnresolvedFile: defineComponent({ render: () => h("div", "unresolved file loaded") }),
 }));
 
-import { AgentPatchDiff } from "../src/components/agent-code-view.ts";
+import { PatchDiff } from "../src/components/code-view.ts";
 
 describe("lazy code views", () => {
   it("resolves the same adapter while rendering on the server", async () => {
     const app = createSSRApp({
-      render: () => h(AgentPatchDiff, { patch: "server.patch" }),
+      render: () => h(PatchDiff, { patch: "server.patch" }),
     });
 
     const html = await renderToString(app);

@@ -6,7 +6,7 @@ navigation.group: Agent work
 icon: i-ph-wrench-light
 ---
 
-`AgentToolList` renders a list of tool contracts. Each tool shows its name, label, icon, and call count. A tool with a description or schemas expands to show them, with a table of input fields. Use it to show which tools an Agent had and which it used. The inspectors use it, and the Capability reference pages in these docs use it too.
+`ToolList` renders a list of tool contracts. Each tool shows its name, label, icon, and call count. A tool with a description or schemas expands to show them, with a table of input fields. Use it to show which tools an Agent had and which it used. The inspectors use it, and the Capability reference pages in these docs use it too.
 
 ::component-preview{name="ToolListExample"}
 ::
@@ -14,7 +14,7 @@ icon: i-ph-wrench-light
 ## Usage
 
 ```vue
-<AgentToolList :tools="configuration.tools" :calls="{ search_meals: 3 }" @select="showFirstCall" />
+<ToolList :tools="configuration.tools" :calls="{ search_meals: 3 }" @select="showFirstCall" />
 ```
 
 ## Examples
@@ -34,7 +34,7 @@ Leave out `calls` to show the contracts only, for example for a build-time refer
 
 ## API reference
 
-### AgentToolList
+### ToolList
 
 #### Props
 

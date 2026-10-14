@@ -43,6 +43,6 @@ const diffStyle = ref<"unified" | "split">("split");
         @click="diffStyle = style"
       />
     </div>
-    <AgentMultiFileDiff :old-file="oldFile" :new-file="newFile" :options="{ diffStyle }" />
+    <MultiFileDiff :old-file="oldFile" :new-file="newFile" :options="{ diffStyle }" />
   </div>
 </template>

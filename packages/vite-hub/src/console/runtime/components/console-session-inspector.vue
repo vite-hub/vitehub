@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { AgentFileTree, AgentPatchDiff } from "@vite-hub/ui";
+import { FileTree, PatchDiff } from "@vite-hub/ui";
 import { AgentCapabilityInspector, AgentInvocationInspector, invocationActivities, type AgentInvocationView } from "./invocation";
 import type { DropdownMenuItem, TabsItem } from "@nuxt/ui";
 import { TabsList, TabsRoot, TabsTrigger } from "reka-ui";
@@ -651,7 +651,7 @@ function message(error: unknown) {
             <input v-model="selectedDiffs" type="checkbox" :value="index" />
             <span>Turn {{ index + 1 }}</span>
           </label>
-          <AgentPatchDiff :patch="diff.patch" class="session-inspector__patch" />
+          <PatchDiff :patch="diff.patch" class="session-inspector__patch" />
         </section>
       </div>
     </div>
@@ -743,7 +743,7 @@ function message(error: unknown) {
             </div>
           </div>
           <aside v-if="treeOpen && workspace" ref="filesPanel" class="session-inspector__files">
-            <AgentFileTree
+            <FileTree
               class="session-inspector__tree"
               :paths="workspace.paths"
               :options="treeOptions"

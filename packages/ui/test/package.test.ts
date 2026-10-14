@@ -118,7 +118,7 @@ describe("@vite-hub/ui package contract", () => {
 
   it("keeps the Pierre renderer behind an on-demand chunk", () => {
     const dist = new URL("../dist/", import.meta.url);
-    const sources = ["index.js", ...readdirSync(dist).filter((name) => /^agent-code-view-[^/]+\.js$/.test(name))]
+    const sources = ["index.js", ...readdirSync(dist).filter((name) => /^code-view-[^/]+\.js$/.test(name))]
       .map((name) => readFileSync(new URL(name, dist), "utf8"));
     const rendererImport = sources
       .map((source) => source.match(/import\("\.\/(pierre-code-view-[^"]+\.js)"\)/)?.[1])

@@ -32,5 +32,5 @@ it("labels a finished run", () => {
 </script>
 
 <template>
-  <AgentCodeView class="h-96" :items="items" />
+  <CodeView class="h-96" :items="items" />
 </template>

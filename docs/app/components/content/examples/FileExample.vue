@@ -16,5 +16,5 @@ const selectedLines: SelectedLineRange = { start: 3, end: 3 };
 </script>
 
 <template>
-  <AgentFile :file="file" :selected-lines="selectedLines" />
+  <FileView :file="file" :selected-lines="selectedLines" />
 </template>

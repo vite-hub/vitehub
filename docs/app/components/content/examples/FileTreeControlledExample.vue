@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { useAgentFileTree, useAgentFileTreeSelection } from "@vite-hub/ui";
+import { useFileTree, useFileTreeSelection } from "@vite-hub/ui";
 
-const tree = useAgentFileTree({
+const tree = useFileTree({
   paths: [
     "src/status.ts",
     "src/retry.ts",
@@ -19,7 +19,7 @@ const tree = useAgentFileTree({
 });
 
 // A reactive copy of the model's selection. It updates when the viewer selects a row.
-const selectedPaths = useAgentFileTreeSelection(tree);
+const selectedPaths = useFileTreeSelection(tree);
 
 // Drive the same model from application code.
 function selectOnly(path: string) {
@@ -31,7 +31,7 @@ function selectOnly(path: string) {
 <template>
   <div class="mx-auto grid max-w-2xl gap-3 sm:grid-cols-[1fr_12rem]">
     <div class="h-72 overflow-auto rounded-md border border-default bg-default p-2">
-      <AgentFileTree :model="tree" aria-label="Changed files" />
+      <FileTree :model="tree" aria-label="Changed files" />
     </div>
     <div class="space-y-2 text-xs">
       <p class="font-medium text-highlighted">Selected</p>
