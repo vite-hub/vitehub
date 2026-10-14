@@ -126,6 +126,7 @@ defineExpose({ pick });
         ref="browser"
         v-model:folder="folder"
         mode="picker"
+        root-label="Media"
         :selected="selected"
         :client="client"
         :accept="accept"
