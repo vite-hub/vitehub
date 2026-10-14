@@ -8,7 +8,7 @@ import { readProvisionedId, readProvisionStateSync } from "@vite-hub/internal/pr
 import { resolve } from "pathe"
 
 import { resolveConfigValue } from "../config-value.ts"
-import { isStaticD1HttpDefinition } from "../config.ts"
+import { isStaticD1HttpDefinition, serializeGeneratedRegistry } from "../config.ts"
 import { resolveCloudflareD1Bindings } from "./cloudflare.ts"
 import { renderDatabaseRuntimeModule } from "./runtime-module.ts"
 import { renderDatabaseConfigExpression } from "./runtime-config-expression.ts"
@@ -90,7 +90,7 @@ function renderRuntimeModule(file: string, runtimeConfig: ResolvedDBViteConfig) 
     `import schema_${index} from ${JSON.stringify(createImportPath(file, runtimeConfig.generatedSchemaFilesByDatabase[definition.name]!))}`,
   ])
   const databaseEntries = runtimeConfig.databaseNames.map((name, index) => [
-    `  ${JSON.stringify(name)}: {`,
+    `  [${JSON.stringify(name)}]: {`,
     `    db: createHostedDrizzleDb(${renderDatabaseConfigExpression(name, runtimeConfig, `definition_${index}`)}, schema_${index}),`,
     `    schema: schema_${index},`,
     "  },",
@@ -151,7 +151,7 @@ export async function writeHostedDatabaseRuntimeModules(
   const definitionDefaultsFile = resolve(generatedDir, "definition-defaults.mjs")
   await mkdir(generatedDir, { recursive: true })
   await Promise.all([
-    writeFile(definitionDefaultsFile, `export default ${JSON.stringify(definitionDefaults)}\n`, "utf8"),
+    writeFile(definitionDefaultsFile, `export default ${serializeGeneratedRegistry(definitionDefaults)}\n`, "utf8"),
     ...providers.map(async (provider) => {
       const file = resolve(generatedDir, `${provider}-runtime.mjs`)
       await writeFile(file, renderRuntimeModule(file, normalizedRuntimeConfig), "utf8")
