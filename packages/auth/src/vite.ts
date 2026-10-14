@@ -247,7 +247,7 @@ async function sendWebResponse(response: Response, target: ServerResponse): Prom
   target.statusMessage = response.statusText
   const setCookieHeaders = typeof response.headers.getSetCookie === "function"
     ? response.headers.getSetCookie()
-    : []
+    : (await import("better-auth/cookies")).splitSetCookieHeader(response.headers.get("set-cookie") ?? "")
   response.headers.forEach((value, key) => {
     if (key.toLowerCase() === "set-cookie" && setCookieHeaders.length > 0) return
     target.appendHeader(key, value)

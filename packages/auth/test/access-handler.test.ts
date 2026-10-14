@@ -105,6 +105,15 @@ describe("Auth access handlers", () => {
     await expect(handler(new Request("https://app.example/"))).resolves.toBe(response)
   })
 
+  it("returns Response subclasses unchanged", async () => {
+    class CustomResponse extends Response {}
+    const response = new CustomResponse("Policy rejected", { status: 409 })
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => response }] },
+    }))
+    await expect(handler(new Request("https://app.example/"))).resolves.toBe(response)
+  })
+
   it("returns authorization responses from another realm unchanged", async () => {
     const foreignResponse = runInNewContext(`new Response("Policy rejected", {
       status: 409, headers: { "x-policy": "rejected" },
@@ -123,32 +132,24 @@ describe("Auth access handlers", () => {
   })
 
   it("rejects objects that only spoof the Response brand", async () => {
-    const spoofedHeaders = { get() { return null }, *[Symbol.iterator]() {} }
-    const SpoofResponse = Object.defineProperty(function () {}, "name", { value: "Response" }) as unknown as {
-      new (): object
-      error: () => unknown
-      json: () => unknown
-      redirect: () => unknown
+    const SpoofResponse = class Response {
+      static error() { return {} }
+      static json() { return {} }
+      static redirect() { return {} }
+      get status() { return 409 }
+      get statusText() { return "Conflict" }
+      get bodyUsed() { return false }
+      get headers() { return new Headers() }
+      get body() { return null }
+      clone() { return this }
+      arrayBuffer() { return Promise.resolve(new ArrayBuffer(0)) }
+      blob() { return Promise.resolve(new Blob([])) }
+      formData() { return Promise.resolve(new FormData()) }
+      json() { return Promise.resolve({}) }
+      text() { return Promise.resolve("") }
+      get [Symbol.toStringTag]() { return "Response" }
     }
-    SpoofResponse.error = () => ({})
-    SpoofResponse.json = () => ({})
-    SpoofResponse.redirect = () => ({})
-    const spoofedResponse = Object.assign(Object.create(Object.assign(SpoofResponse.prototype, {
-      get status() { return 409 },
-      get statusText() { return "Conflict" },
-      get bodyUsed() { return false },
-      get headers() { return spoofedHeaders },
-      get body() { return null },
-    })), {
-      body: null,
-      clone() { return this },
-      arrayBuffer() { return Promise.resolve(new ArrayBuffer(0)) },
-      blob() { return Promise.resolve(new Blob([])) },
-      formData() { return Promise.resolve(new FormData()) },
-      json() { return Promise.resolve({}) },
-      text() { return Promise.resolve("") },
-      get [Symbol.toStringTag]() { return "Response" },
-    })
+    const spoofedResponse = new SpoofResponse()
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
       access: { routes: [{ route: "/**", authorize: () => spoofedResponse as never }] },
     }))

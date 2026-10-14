@@ -280,56 +280,25 @@ async function runAccessAuthorize(
   context: AuthAccessAuthorizationContext,
 ): Promise<Response | undefined> {
   const result = await authorize(context)
-  if (isResponseLike(result)) return result
+  if (await isResponseLike(result)) return result as Response
   if (result !== true) return createForbiddenResponse(context.request)
 }
 
-function isResponseLike(value: unknown): value is Response {
+async function isResponseLike(value: unknown): Promise<boolean> {
   if (value === null || typeof value !== "object") return false
+  // Use accessors from trusted implementations, never from the candidate's
+  // prototype. Undici responses have a separate brand from Node's Response.
+  if (hasResponseBrand(value, Response.prototype)) return true
+  const { Response: UndiciResponse } = await import("undici")
+  return hasResponseBrand(value, UndiciResponse.prototype)
+}
+
+function hasResponseBrand(value: object, prototype: object): boolean {
   try {
-    const response = value as Response
-    let responsePrototype: object | null = Object.getPrototypeOf(response)
-    let responseConstructor: Function | undefined
-    let statusGetter: (() => unknown) | undefined
-    let statusTextGetter: (() => unknown) | undefined
-    let headersGetter: (() => unknown) | undefined
-    let bodyUsedGetter: (() => unknown) | undefined
-    let bodyGetter: (() => unknown) | undefined
-    while (responsePrototype) {
-      const constructor = Object.getOwnPropertyDescriptor(responsePrototype, "constructor")?.value
-      if (typeof constructor === "function" && constructor.name === "Response") responseConstructor = constructor
-      statusGetter ??= Object.getOwnPropertyDescriptor(responsePrototype, "status")?.get
-      statusTextGetter ??= Object.getOwnPropertyDescriptor(responsePrototype, "statusText")?.get
-      headersGetter ??= Object.getOwnPropertyDescriptor(responsePrototype, "headers")?.get
-      bodyUsedGetter ??= Object.getOwnPropertyDescriptor(responsePrototype, "bodyUsed")?.get
-      bodyGetter ??= Object.getOwnPropertyDescriptor(responsePrototype, "body")?.get
-      responsePrototype = Object.getPrototypeOf(responsePrototype)
-    }
-    if (!responseConstructor || !statusGetter || !statusTextGetter || !headersGetter || !bodyUsedGetter || !bodyGetter) return false
-    // A candidate can provide a constructor named `Response` and all of the
-    // expected accessors on a plain object. Native Response constructors are
-    // the authenticity boundary that survives across realms.
-    // Node's Response implementation is JavaScript-defined, so a native-code
-    // source check rejects valid same-realm and foreign responses. Genuine
-    // platform implementations expose a class-shaped Response constructor;
-    // the function-shaped constructor used by plain-object spoofs does not.
-    const constructorSource = Function.prototype.toString.call(responseConstructor)
-    if (responseConstructor !== globalThis.Response
-      && !constructorSource.includes("[native code]")
-      && !/^class\s+Response\b/.test(constructorSource)) return false
-    if (!(response instanceof responseConstructor)) return false
-    if (!["error", "json", "redirect"].every(method => typeof Object.getOwnPropertyDescriptor(responseConstructor, method)?.value === "function")) return false
-    const status = statusGetter.call(response) as unknown
-    const statusText = statusTextGetter.call(response)
-    const headers = headersGetter.call(response) as Headers
-    const bodyUsed = bodyUsedGetter.call(response)
-    const body = bodyGetter.call(response) as ReadableStream<Uint8Array> | null
-    if (typeof status !== "number" || !Number.isInteger(status) || status < 0 || status > 599) return false
-    if (typeof statusText !== "string" || typeof bodyUsed !== "boolean") return false
-    const methods = ["clone", "arrayBuffer", "blob", "formData", "json", "text"] as const
-    if (!methods.every(method => typeof response[method] === "function")) return false
-    if (!headers || typeof headers.get !== "function" || typeof headers[Symbol.iterator] !== "function") return false
-    return body === null || (typeof body === "object" && body !== null && typeof body.getReader === "function" && typeof body.cancel === "function" && typeof body.tee === "function")
+    const status = Object.getOwnPropertyDescriptor(prototype, "status")?.get
+    if (!status) return false
+    status.call(value)
+    return true
   }
   catch {
     return false
