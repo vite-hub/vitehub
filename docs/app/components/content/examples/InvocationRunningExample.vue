@@ -8,7 +8,7 @@ onMounted(() => {
   now.value = Date.now();
 });
 
-const invocation: AgentInvocationView = {
+const invocation = computed<AgentInvocationView>(() => ({
   agentName: "interface-engineer",
   createdAt: time(844),
   id: "ainv_console_navigation",
@@ -55,7 +55,7 @@ const invocation: AgentInvocationView = {
   title: "Polish Console navigation",
   traceId: "trace_console_navigation",
   updatedAt: time(20),
-};
+}));
 </script>
 
 <template>
