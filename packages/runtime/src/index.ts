@@ -1427,6 +1427,12 @@ function isCapabilityHandle(value: unknown): value is CapabilityHandle {
       return false
     }
 
+    // A null prototype cannot establish ownership when proxy detection is
+    // unavailable: a proxy can fabricate both descriptors and its prototype.
+    // Fail closed for this ambiguous shape while preserving ordinary external
+    // structural handles (which use the normal object prototype).
+    if (Object.getPrototypeOf(value) === null) return false
+
     // A proxy can fabricate own descriptors for fields that are actually
     // inherited by its target. Reject that shape while keeping structural
     // handles supplied by other runtime copies compatible.

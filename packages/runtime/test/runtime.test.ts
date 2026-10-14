@@ -407,6 +407,35 @@ describe("@vite-hub/runtime", () => {
     })
   })
 
+  it("fails closed for null-prototype proxy handles without a proxy detector", () => {
+    const target = Object.create(null)
+    const raw = new Proxy(target, {
+      ownKeys: () => ["kind", "value"],
+      getOwnPropertyDescriptor: (_target, property) => {
+        if (property === "kind") return { configurable: true, enumerable: true, value: "spoofed", writable: true }
+        if (property === "value") return { configurable: true, enumerable: true, value: "unexpected", writable: true }
+        return undefined
+      },
+      getPrototypeOf: () => null,
+    })
+    const context = createExecutionContext({
+      capabilities: { raw },
+      memo: vi.fn(),
+      runtime: "vite",
+      waitUntil: vi.fn(),
+    })
+    const processObject = globalThis.process
+    const detector = Object.getOwnPropertyDescriptor(processObject, "getBuiltinModule")
+    Object.defineProperty(processObject, "getBuiltinModule", { configurable: true, value: undefined })
+    try {
+      expect(getCapability(context, "raw").value).toBe(raw)
+    }
+    finally {
+      if (detector) Object.defineProperty(processObject, "getBuiltinModule", detector)
+      else delete (processObject as { getBuiltinModule?: unknown }).getBuiltinModule
+    }
+  })
+
   it("resolves only capabilities registered as own properties", () => {
     const inherited = { inherited: defineCapability("inherited", {}) }
     const context = createExecutionContext({
