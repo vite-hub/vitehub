@@ -7,6 +7,7 @@ import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
 const consoleApiMarker = "/api/_vitehub/console/"
 const consoleRpcCallPath = "/_vitehub/rpc/__call"
+const consoleRpcUploadPath = "/_vitehub/rpc/__upload"
 
 function decodeConsoleId(value: string): string {
   try {
@@ -33,13 +34,21 @@ export class ConsoleRequestError extends Diagnostic {
   }
 }
 
-function consoleRpcCallURL(path: string): string {
+function consoleAppBase(path: string): string {
   const url = new URL(path, "http://vitehub.local")
   // The application mount may itself contain the Console API marker. The
   // final marker is the generated route that belongs to this request.
   const marker = url.pathname.lastIndexOf(consoleApiMarker)
-  const appBase = marker === -1 ? "" : url.pathname.slice(0, marker)
-  return `${appBase}${consoleRpcCallPath}`
+  return marker === -1 ? "" : url.pathname.slice(0, marker)
+}
+
+function consoleRpcCallURL(path: string): string {
+  return `${consoleAppBase(path)}${consoleRpcCallPath}`
+}
+
+/** The media upload route under the application mount of a Console API path. */
+export function consoleRpcUploadURL(path: string): string {
+  return `${consoleAppBase(path)}${consoleRpcUploadPath}`
 }
 
 function consoleRpcCall(path: string): { agent?: string; id?: string; method: ConsoleRpcMethod } {

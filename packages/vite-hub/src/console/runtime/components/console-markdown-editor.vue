@@ -90,7 +90,7 @@ async function insertImages(files: File[], at?: number): Promise<void> {
   if (!instance || !instance.isEditable) return;
   let items: ConsoleMediaItem[];
   try {
-    items = await picker.pick({ collection: props.collection, documentId: props.documentId, files, kind: "image" });
+    items = await picker.pick({ collection: props.collection, documentId: props.documentId, files, kind: "image", multiple: true });
   }
   catch {
     toast.error("Couldn't insert the image. Try again.");

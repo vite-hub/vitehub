@@ -3,6 +3,7 @@ import { CalendarDate, parseDate, Time } from "@internationalized/date";
 import { computed, ref, watch } from "vue";
 
 import { consoleFieldValueIssue } from "../client/documents";
+import ConsoleMediaField from "./console-media-field.vue";
 import ConsolePropertyRow from "./console-property-row.vue";
 
 import type { ConsoleSchemaField, ConsoleSchemaFieldKind } from "../client/documents";
@@ -11,8 +12,8 @@ defineOptions({ name: "ConsoleSchemaField" });
 
 /**
  * One document field as a property row. The control follows the JSON Schema of the field: text, long text, number,
- * switch, choice, date and time, tags, a nested object as a one-line summary that expands in place, a Blob reference,
- * or JSON for any other shape.
+ * switch, choice, date and time, tags, a nested object as a one-line summary that expands in place, a Blob reference
+ * chosen from the media library, or JSON for any other shape.
  */
 const props = defineProps<{
   disabled?: boolean;
@@ -204,14 +205,9 @@ function updateJson(value: string): void {
 }
 
 const blob = computed(() => {
-  const value = record(model.value);
   const hint = record(props.field.schema["x-vitehub-blob"]);
-  return {
-    contentType: String(value.contentType ?? ""),
-    kind: hint.kind === "image" ? "image" : "file",
-    pathname: String(value.pathname ?? ""),
-    store: String(hint.store ?? "default"),
-  };
+  const accept = Array.isArray(hint.accept) ? hint.accept.filter(entry => String(entry) === entry) : undefined;
+  return { accept, kind: hint.kind === "image" ? "image" as const : "file" as const };
 });
 
 // A nested object reads as one line, such as `Ada · https://vitehub.dev`, and expands in place.
@@ -381,11 +377,15 @@ function updateChild(name: string, value: unknown): void {
       placeholder="Empty"
       :aria-invalid="error ? 'true' : undefined"
     />
-    <div v-else-if="field.kind === 'blob'" class="flex h-8 min-w-0 items-center gap-2 px-2.5 text-[13px]" :title="`Blob store ${blob.store}`">
-      <span v-if="blob.pathname" class="truncate font-mono text-xs text-highlighted">{{ blob.pathname }}</span>
-      <span v-else class="text-dimmed">Empty</span>
-      <span class="truncate text-xs text-dimmed">{{ blob.pathname ? blob.contentType : `Choosing ${blob.kind === 'image' ? 'images' : 'files'} from the Console is not available yet` }}</span>
-    </div>
+    <ConsoleMediaField
+      v-else-if="field.kind === 'blob'"
+      v-model="model"
+      :input-id="inputId"
+      :kind="blob.kind"
+      :accept="blob.accept"
+      :label="field.label"
+      :disabled="disabled"
+    />
     <UTextarea
       v-else
       :id="inputId"
