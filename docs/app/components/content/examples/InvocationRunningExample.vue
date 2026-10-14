@@ -9,7 +9,7 @@ onMounted(() => {
 
 const time = (secondsAgo: number) => new Date(now.value - secondsAgo * 1_000).toISOString();
 
-const invocation: AgentInvocationView = {
+const invocation = computed<AgentInvocationView>(() => ({
   agentName: "interface-engineer",
   createdAt: time(844),
   id: "ainv_console_navigation",
@@ -57,7 +57,8 @@ const invocation: AgentInvocationView = {
   traceId: "trace_console_navigation",
   updatedAt: time(20),
 
-};</script>
+}));
+</script>
 
 <template>
   <div class="h-[28rem] min-w-0 bg-default">

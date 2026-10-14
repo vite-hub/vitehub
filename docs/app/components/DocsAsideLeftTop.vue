@@ -1,6 +1,6 @@
 <script setup lang="ts">
-
-import { docsManifest, normalizeDocsPath } from "~~/modules/vitehub-docs/runtime/utils/docs";import { getDocsSectionForPath } from "~~/modules/vitehub-docs/runtime/utils/docs-navigation";
+import { docsManifest, normalizeDocsPath } from "~~/modules/vitehub-docs/runtime/utils/docs";
+import { getDocsSectionForPath } from "~~/modules/vitehub-docs/runtime/utils/docs-navigation";
 
 const route = useRoute();
 const currentSection = computed(() => getDocsSectionForPath(docsManifest.sections, route.path));
@@ -41,7 +41,8 @@ const isDocsIndex = computed(() => normalizeDocsPath(route.path) === "/docs");
       </span>
       <UIcon name="i-lucide-arrow-up-right" class="vh-docs-context-arrow size-3.5 shrink-0" aria-hidden="true" />
     </NuxtLink>
-  </div></template>
+  </div>
+</template>
 
 <style scoped>
 .vh-docs-panel-title {
@@ -107,5 +108,6 @@ const isDocsIndex = computed(() => normalizeDocsPath(route.path) === "/docs");
 .vh-docs-context:hover .vh-docs-context-arrow,
 .vh-docs-context:focus-visible .vh-docs-context-arrow {
   color: var(--ui-text-highlighted);
-  transform: translate(1px, -1px);}
+  transform: translate(1px, -1px);
+}
 </style>
