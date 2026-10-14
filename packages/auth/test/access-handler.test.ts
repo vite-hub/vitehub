@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { runInNewContext } from "node:vm"
 
 import { defineAuth } from "../src/index.ts"
@@ -15,6 +15,8 @@ vi.mock("better-auth", () => ({ betterAuth: provider.betterAuth }))
 const session = { session: { id: "session" }, user: { id: "user" } }
 
 describe("Auth access handlers", () => {
+  afterEach(() => vi.unstubAllGlobals())
+
   beforeEach(() => {
     provider.betterAuth.mockReset().mockReturnValue({
       api: { getSession: provider.getSession },
@@ -106,7 +108,15 @@ describe("Auth access handlers", () => {
 
 
   it("normalizes genuine authorization responses from another realm", async () => {
-    const foreignResponse = runInNewContext(`new Response("Conflict", { status: 409 })`, { Response })
+    const NativeResponse = Response
+    const foreignResponse: Response = runInNewContext(
+      `class ForeignResponse extends NativeResponse {}
+      new ForeignResponse("Conflict", { status: 409 })`,
+      { NativeResponse },
+    )
+    class LocalResponse extends NativeResponse {}
+    Object.defineProperties(LocalResponse.prototype, Object.getOwnPropertyDescriptors(NativeResponse.prototype))
+    vi.stubGlobal("Response", LocalResponse)
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
       access: { routes: [{ route: "/**", authorize: () => foreignResponse as never }] },
     }))

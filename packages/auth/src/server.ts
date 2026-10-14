@@ -289,19 +289,21 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
   if (!isResponseLike(value)) return
   if (value instanceof Response) return value
 
+  const response = value as Response
+
   // Foreign responses have valid Web Response internal slots but belong to a
   // different realm. Copy them into the host realm before adapters consume
   // their Headers and body implementations.
-  const headers = new Headers(value.headers)
-  const body = value.body === null ? null : new Uint8Array(await value.arrayBuffer())
+  const headers = new Headers(response.headers)
+  const body = response.body === null ? null : new Uint8Array(await response.arrayBuffer())
   return new Response(body, {
     headers,
-    status: value.status,
-    statusText: value.statusText,
+    status: response.status,
+    statusText: response.statusText,
   })
 }
 
-function isResponseLike(value: unknown): value is Response {
+function isResponseLike(value: unknown): boolean {
   if (value === null || typeof value !== "object") return false
   try {
     // Use the platform getter's internal-slot check; tags and callable methods
