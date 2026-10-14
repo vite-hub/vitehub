@@ -1,7 +1,3 @@
-import { getTableName, is, Table, View } from "drizzle-orm"
-import { getViewConfig, SQLiteView } from "drizzle-orm/sqlite-core"
-import { createJiti } from "jiti"
-
 import { describeDatabaseContribution } from "../contributions.ts"
 import { readStaticDatabaseSchema } from "../config.ts"
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
@@ -30,6 +26,24 @@ export interface LoadedDatabaseSchema {
   sqlNames: Map<string, string>
 }
 
+/** Reject duplicate schema keys or SQL table names before schemas are merged. */
+export function assertDistinctLoadedSchemas(database: string, parts: readonly { schema: LoadedDatabaseSchema, owner: string }[]) {
+  const keys = new Map<string, string>()
+  const sqlNames = new Map<string, string>()
+  for (const part of parts) {
+    for (const key of part.schema.keys) {
+      const existing = keys.get(key)
+      if (existing) throw databaseErrorDiagnostics.DATABASE_B0010({ message: `[vitehub] Database "${database}" has two schema entries with the key ${JSON.stringify(key)}:\n  - ${existing}\n  - ${part.owner}\nRename one key, or remove the contribution. If the Definition already lists the contributed tables, remove them from its schema.` })
+      keys.set(key, part.owner)
+    }
+    for (const sqlName of new Set(part.schema.sqlNames.values())) {
+      const existing = sqlNames.get(sqlName)
+      if (existing) throw databaseErrorDiagnostics.DATABASE_B0010({ message: `[vitehub] Database "${database}" has two tables named ${JSON.stringify(sqlName)}:\n  - ${existing}\n  - ${part.owner}\nRename one table, or remove the contribution. If the Definition already lists the contributed tables, remove them from its schema.` })
+      sqlNames.set(sqlName, part.owner)
+    }
+  }
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null
 }
@@ -38,14 +52,33 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error)
 }
 
-function sqlName(value: unknown) {
-  if (is(value, Table)) return getTableName(value)
-  if (is(value, SQLiteView)) return getViewConfig(value).name
+// Importing the Vite plugin must stay cheap, so Drizzle and jiti load only when a schema is evaluated.
+type DrizzleSchemaTools = Awaited<ReturnType<typeof importDrizzleSchemaTools>>
+
+async function importDrizzleSchemaTools() {
+  const [{ getTableName, is, Table, View }, { getViewConfig, SQLiteView }] = await Promise.all([
+    import("drizzle-orm"),
+    import("drizzle-orm/sqlite-core"),
+  ])
+  const isTableOrView = (value: unknown) => is(value, Table) || is(value, View)
+  const sqlName = (value: unknown) => {
+    if (is(value, Table)) return getTableName(value)
+    if (is(value, SQLiteView)) return getViewConfig(value).name
+  }
+  return { isTableOrView, sqlName }
 }
 
-function describeSchema(schema: Record<string, unknown>): LoadedDatabaseSchema {
+let drizzleSchemaTools: Promise<DrizzleSchemaTools> | undefined
+
+function loadDrizzleSchemaTools() {
+  drizzleSchemaTools ??= importDrizzleSchemaTools()
+  return drizzleSchemaTools
+}
+
+async function describeSchema(schema: Record<string, unknown>): Promise<LoadedDatabaseSchema> {
+  const { isTableOrView, sqlName } = await loadDrizzleSchemaTools()
   const keys = Object.keys(schema)
-  const tableNames = keys.filter(key => is(schema[key], Table) || is(schema[key], View))
+  const tableNames = keys.filter(key => isTableOrView(schema[key]))
   const sqlNames = new Map(tableNames.flatMap((key) => {
     const name = sqlName(schema[key])
     return name ? [[key, name] as const] : []
@@ -53,7 +86,8 @@ function describeSchema(schema: Record<string, unknown>): LoadedDatabaseSchema {
   return { keys, loaded: true, sqlNames, tableNames }
 }
 
-function createLoader(parent: string, alias: Record<string, string> | undefined) {
+async function createLoader(parent: string, alias: Record<string, string> | undefined) {
+  const { createJiti } = await import("jiti")
   // Read only the requested export. Awaiting a Definition itself would probe `then` and connect its database.
   return createJiti(parent, { alias, fsCache: false, interopDefault: false, moduleCache: false })
 }
@@ -65,9 +99,9 @@ function createLoader(parent: string, alias: Record<string, string> | undefined)
 export async function loadDatabaseSchema(handler: string, options: DatabaseTableNameOptions = {}): Promise<LoadedDatabaseSchema> {
   let failure: { code: "DATABASE_B0007" | "DATABASE_B0008", error?: unknown, message: string }
   try {
-    const module = await createLoader(import.meta.url, options.alias).import<{ default?: unknown }>(handler)
+    const module = await (await createLoader(import.meta.url, options.alias)).import<{ default?: unknown }>(handler)
     const schema = isRecord(module.default) ? module.default.schema : undefined
-    if (isRecord(schema)) return describeSchema(schema)
+    if (isRecord(schema)) return await describeSchema(schema)
     failure = { code: "DATABASE_B0008", message: `[vitehub] Database Definition "${handler}" must default export \`defineDatabase({ schema })\` with a schema object.` }
   }
   catch (error) {
@@ -98,7 +132,7 @@ export async function loadContributedDatabaseSchema(
   const source = describeDatabaseContribution(contribution)
   let module: Record<string, unknown>
   try {
-    module = await createLoader(parent, options.alias).import<Record<string, unknown>>(contribution.module)
+    module = await (await createLoader(parent, options.alias)).import<Record<string, unknown>>(contribution.module)
   }
   catch (error) {
     const message = `[vitehub] Contributed Database tables ${source} could not load: ${errorMessage(error)}`
@@ -108,8 +142,9 @@ export async function loadContributedDatabaseSchema(
   }
   const exportName = contribution.export ?? "default"
   const schema = module[exportName]
-  if (!isRecord(schema) || Array.isArray(schema) || is(schema, Table) || is(schema, View)) {
+  const { isTableOrView } = await loadDrizzleSchemaTools()
+  if (!isRecord(schema) || Array.isArray(schema) || isTableOrView(schema)) {
     throw databaseErrorDiagnostics.DATABASE_B0012({ message: `[vitehub] Contributed Database tables ${source} need ${exportName === "default" ? "a default export" : `the export ${JSON.stringify(exportName)}`} that holds an object of Drizzle tables.` })
   }
-  return describeSchema(schema)
+  return await describeSchema(schema)
 }

@@ -14,11 +14,13 @@ import { mergeCloudflareD1Bindings, resolveCloudflareD1Binding } from "./interna
 import { getDatabaseNuxtProvisionStateKey } from "./provision.ts"
 import { renderDatabaseRuntimeModule } from "./internal/runtime-module.ts"
 import { renderContributionImport, writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
+import { assertDistinctLoadedSchemas, loadContributedDatabaseSchema, loadDatabaseSchema } from "./internal/schema-tables.ts"
 import { collectDatabaseContributions } from "./contributions.ts"
 import { usesD1HttpOnly, writeHostedDatabaseRuntimeModules } from "./internal/vite-build.ts"
 import { resolveConfigValue, withConfigValueFallback } from "./config-value.ts"
 import { resolveDBViteConfig, serializeGeneratedRegistry } from "./config.ts"
 import { hubDb as hubDbVite } from "./vite.ts"
+import { isAbsolute } from "pathe"
 
 import type { CollectedDatabaseContribution } from "./contributions.ts"
 import type { DatabaseNuxtIntegrationOptions, DBModulePublicOptions } from "./types.ts"
@@ -140,6 +142,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
       let localRuntimeRefresh = Promise.resolve()
       let contributions: CollectedDatabaseContribution[] = []
       const definitionFiles = new Set<string>()
+      const contributionFiles = new Set<string>()
       const definitionDirectories = new Set([
         ...(serverDirs ?? [resolve(root, "server")]).map(directory => resolve(directory, "databases")),
         resolve(root, "src"),
@@ -152,7 +155,10 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
             definitionFiles.add(definition.handler)
             definitionDirectories.add(dirname(definition.handler))
           }
-          nuxtOptions.watch = [...new Set([...(nuxtOptions.watch ?? []), ...definitionDirectories, ...definitionFiles])]
+          for (const contribution of contributions) {
+            if (isAbsolute(contribution.module)) contributionFiles.add(contribution.module)
+          }
+          nuxtOptions.watch = [...new Set([...(nuxtOptions.watch ?? []), ...definitionDirectories, ...definitionFiles, ...contributionFiles])]
         }
         const queued = localRuntimeRefresh.then(refresh, refresh)
         localRuntimeRefresh = queued
@@ -162,7 +168,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
         nuxtOptions.watch = [...new Set([...(nuxtOptions.watch ?? []), ...definitionDirectories])]
         hook("builder:watch", async (_event, path) => {
           const file = resolve(nuxtOptions.srcDir || nuxtOptions.rootDir || root, path)
-          if (definitionFiles.has(file) || [...definitionDirectories].some(directory => file === directory || file.startsWith(`${directory}${sep}`))) {
+          if (definitionFiles.has(file) || contributionFiles.has(file) || [...definitionDirectories].some(directory => file === directory || file.startsWith(`${directory}${sep}`))) {
             await refreshLocalRuntime()
           }
         })
@@ -267,6 +273,21 @@ async function installNitroLocalDatabaseRuntime(
       if (!Object.keys(alias).length) delete config.alias
     }
     return
+  }
+
+  // Nitro dev keeps running when a Definition needs Nuxt auto-imports to load; collisions are then checked on literal keys.
+  const tableNameOptions = {
+    alias: isRecord(config.alias)
+      ? Object.fromEntries(Object.entries(config.alias).filter((entry): entry is [string, string] => typeof entry[1] === "string"))
+      : undefined,
+    onFallback: (message: string) => console.warn(message),
+  }
+  for (const definition of runtime.definitions) {
+    const parts = [{ schema: await loadDatabaseSchema(definition.handler, tableNameOptions), owner: `Database Definition ${definition.handler}` }]
+    for (const contribution of runtime.tableContributionsByDatabase[definition.name] ?? []) {
+      parts.push({ schema: await loadContributedDatabaseSchema(contribution, file, tableNameOptions), owner: `contributed tables ${contribution.module}` })
+    }
+    assertDistinctLoadedSchemas(definition.name, parts)
   }
 
   // Contributed tables join the Definition schema, as they do in the generated Drizzle schema.
