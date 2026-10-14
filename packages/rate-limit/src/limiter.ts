@@ -1,5 +1,4 @@
 import * as v from "valibot"
-import { Diagnostic } from "nostics"
 import { normalizeRateLimitPolicy } from "./policy.ts"
 
 import type {
@@ -34,22 +33,21 @@ const driverOutcomeSchema = v.pipe(
   ]),
 )
 
-function resolveDriverCapabilities(options: CreateRateLimiterOptions): RateLimitDriverCapabilities {
-  const capabilities = options.driver.capabilities
+function resolveDriverCapabilities(options: CreateRateLimiterOptions, capabilities: RateLimitDriverCapabilities = options.driver.capabilities, driverName = options.driver.name): RateLimitDriverCapabilities {
   if (!capabilities || typeof capabilities !== "object") {
-    throw rateLimitErrorDiagnostics.RATE_LIMIT_R0019({ message: `[vitehub] Rate Limit driver "${options.driver.name}" must declare capabilities.` })
+    throw rateLimitErrorDiagnostics.RATE_LIMIT_R0019({ message: `[vitehub] Rate Limit driver "${driverName}" must declare capabilities.` })
   }
   if (capabilities.enforcement !== "best-effort" && capabilities.enforcement !== "strict") {
-    throw rateLimitErrorDiagnostics.RATE_LIMIT_R0020({ message: `[vitehub] Rate Limit driver "${options.driver.name}" must declare valid enforcement.` })
+    throw rateLimitErrorDiagnostics.RATE_LIMIT_R0020({ message: `[vitehub] Rate Limit driver "${driverName}" must declare valid enforcement.` })
   }
   if (capabilities.scope !== "process" && capabilities.scope !== "location" && capabilities.scope !== "global") {
-    throw rateLimitErrorDiagnostics.RATE_LIMIT_R0021({ message: `[vitehub] Rate Limit driver "${options.driver.name}" must declare counter scope.` })
+    throw rateLimitErrorDiagnostics.RATE_LIMIT_R0021({ message: `[vitehub] Rate Limit driver "${driverName}" must declare counter scope.` })
   }
   if (capabilities.rejectedAttempts !== "counted" && capabilities.rejectedAttempts !== "not-counted" && capabilities.rejectedAttempts !== "unknown") {
-    throw rateLimitErrorDiagnostics.RATE_LIMIT_R0022({ message: `[vitehub] Rate Limit driver "${options.driver.name}" must declare rejected-attempt behavior.` })
+    throw rateLimitErrorDiagnostics.RATE_LIMIT_R0022({ message: `[vitehub] Rate Limit driver "${driverName}" must declare rejected-attempt behavior.` })
   }
   if (capabilities.windows !== undefined && hasInvalidSupportedWindows(capabilities.windows)) {
-    throw rateLimitErrorDiagnostics.RATE_LIMIT_R0023({ message: `[vitehub] Rate Limit driver "${options.driver.name}" windows must contain positive integer milliseconds.` })
+    throw rateLimitErrorDiagnostics.RATE_LIMIT_R0023({ message: `[vitehub] Rate Limit driver "${driverName}" windows must contain positive integer milliseconds.` })
   }
   return {
     enforcement: capabilities.enforcement,
@@ -103,14 +101,14 @@ function normalizeDriverResult(
     : { ...decision, allowed: false, reason: "limited" }
 }
 
-function assertDriverSupportsPolicy(options: CreateRateLimiterOptions, capabilities: RateLimitDriverCapabilities, windowMs: number): void {
+function assertDriverSupportsPolicy(options: CreateRateLimiterOptions, capabilities: RateLimitDriverCapabilities, windowMs: number, driverName = options.driver.name): void {
   const requestedEnforcement = options.enforcement ?? "best-effort"
   if (requestedEnforcement === "strict" && capabilities.enforcement !== "strict") {
-    throw rateLimitErrorDiagnostics.RATE_LIMIT_R0027({ message: `[vitehub] Rate Limit driver "${options.driver.name}" provides best-effort enforcement, but this policy requires strict enforcement.` })
+    throw rateLimitErrorDiagnostics.RATE_LIMIT_R0027({ message: `[vitehub] Rate Limit driver "${driverName}" provides best-effort enforcement, but this policy requires strict enforcement.` })
   }
   const windows = capabilities.windows
   if (windows?.length && !windows.includes(windowMs)) {
-    throw rateLimitErrorDiagnostics.RATE_LIMIT_R0028({ message: `[vitehub] Rate Limit driver "${options.driver.name}" does not support a ${windowMs}ms window. Supported windows: ${windows.join(", ")}ms.` })
+    throw rateLimitErrorDiagnostics.RATE_LIMIT_R0028({ message: `[vitehub] Rate Limit driver "${driverName}" does not support a ${windowMs}ms window. Supported windows: ${windows.join(", ")}ms.` })
   }
 }
 
@@ -160,43 +158,58 @@ function isRateLimiterOptions(value: unknown): value is CreateRateLimiterOptions
   }
 }
 
-function isRateLimitDiagnostic(value: unknown): boolean {
-  try {
-    // Diagnostic identity is intentionally package-instance local. Nostics does
-    // not expose a non-forgeable cross-realm marker; accepting structural
-    // fallbacks would let user-thrown objects bypass the invalid-options
-    // boundary. Cross-instance and cross-realm diagnostics are therefore
-    // outside createRateLimiter's supported passthrough contract.
-    return value instanceof Diagnostic && rateLimitDiagnosticCodes.has(value.code)
+function inspectRateLimiterOptions(options: CreateRateLimiterOptions): { policy: CreateRateLimiterOptions, capabilities: RateLimitDriverCapabilities, driverName: string } {
+  const driver = Reflect.get(options, "driver") as CreateRateLimiterOptions["driver"]
+  const capabilities = Reflect.get(driver, "capabilities") as RateLimitDriverCapabilities
+  if (!capabilities || typeof capabilities !== "object") {
+    return {
+      policy: {
+        driver,
+        limit: Reflect.get(options, "limit"),
+        window: Reflect.get(options, "window"),
+        enforcement: Reflect.get(options, "enforcement"),
+        failure: Reflect.get(options, "failure"),
+        name: Reflect.get(options, "name"),
+      },
+      capabilities,
+      driverName: Reflect.get(driver, "name"),
+    }
   }
-  catch {
-    return false
+  const windows = Reflect.get(capabilities, "windows")
+  const inspectedCapabilities = {
+    enforcement: Reflect.get(capabilities, "enforcement"),
+    rejectedAttempts: Reflect.get(capabilities, "rejectedAttempts"),
+    scope: Reflect.get(capabilities, "scope"),
+    ...(windows === undefined ? {} : { windows: [...(windows as readonly number[])] }),
+  } as RateLimitDriverCapabilities
+  return {
+    policy: {
+      driver,
+      limit: Reflect.get(options, "limit"),
+      window: Reflect.get(options, "window"),
+      enforcement: Reflect.get(options, "enforcement"),
+      failure: Reflect.get(options, "failure"),
+      name: Reflect.get(options, "name"),
+    },
+    capabilities: inspectedCapabilities,
+    driverName: Reflect.get(driver, "name"),
   }
 }
-
-const rateLimitDiagnosticCodes = new Set([
-  ...Array.from({ length: 45 }, (_, index) => `RATE_LIMIT_R${String(index + 1).padStart(4, "0")}`),
-  "RATE_LIMIT_B0001",
-  "RATE_LIMIT_B0002",
-  "RATE_LIMIT_B0003",
-  "RATE_LIMIT_B0004",
-])
 
 export function createRateLimiter(options: CreateRateLimiterOptions): RateLimiter {
   if (!isRateLimiterOptions(options)) {
     throw rateLimitErrorDiagnostics.RATE_LIMIT_R0029({ message: "[vitehub] createRateLimiter() requires a Rate Limit driver." })
   }
-  let policy: ResolvedRateLimitPolicy
-  let capabilities: RateLimitDriverCapabilities
+  let inspected: ReturnType<typeof inspectRateLimiterOptions>
   try {
-    policy = normalizeRateLimitPolicy(options)
-    capabilities = resolveDriverCapabilities(options)
-    assertDriverSupportsPolicy(options, capabilities, policy.windowMs)
+    inspected = inspectRateLimiterOptions(options)
   }
-  catch (error) {
-    if (isRateLimitDiagnostic(error)) throw error
+  catch {
     throw rateLimitErrorDiagnostics.RATE_LIMIT_R0029({ message: "[vitehub] createRateLimiter() requires inspectable Rate Limit options." })
   }
+  const policy = normalizeRateLimitPolicy(inspected.policy)
+  const capabilities = resolveDriverCapabilities(inspected.policy, inspected.capabilities, inspected.driverName)
+  assertDriverSupportsPolicy(inspected.policy, capabilities, policy.windowMs, inspected.driverName)
 
   const driverInput = (input: RateLimitConsumeInput): RateLimitDriverInput => ({
     key: input.key,
