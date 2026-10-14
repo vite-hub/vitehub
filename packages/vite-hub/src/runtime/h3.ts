@@ -40,16 +40,24 @@ function isRequest(value: unknown): value is Request {
     if (value instanceof Request) return true
     if (value === null || typeof value !== "object") return false
 
-    // Invoke accessors owned by this host's Request prototype. Fetch's Web IDL
-    // getters perform an internal-slot brand check on their receiver, so this
-    // accepts genuine Requests from another realm (and subclasses) while
-    // rejecting tag, prototype, and method shims without cloning the body.
-    for (const key of ["headers", "url", "method", "bodyUsed"] as const) {
-      const getter = Object.getOwnPropertyDescriptor(Request.prototype, key)?.get
-      if (!getter) return false
-      getter.call(value)
+    // Use accessors from the candidate's Fetch realm. Their Web IDL brand
+    // checks validate the receiver without cloning or consuming its body.
+    // Walking the chain preserves genuine Request subclasses while requiring
+    // a coherent Request prototype instead of trusting candidate-owned fields.
+    let prototype: object | null = value
+    while (prototype) {
+      const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+      if (typeof constructor === "function" && constructor.name === "Request") {
+        for (const key of ["headers", "url", "method", "bodyUsed"] as const) {
+          const getter = Object.getOwnPropertyDescriptor(prototype, key)?.get
+          if (typeof getter !== "function") return false
+          getter.call(value)
+        }
+        return true
+      }
+      prototype = Object.getPrototypeOf(prototype)
     }
-    return true
+    return false
   } catch {
     return false
   }
