@@ -283,6 +283,7 @@ function isResponse(value: unknown): value is Response {
     // across realms that share the platform implementation and cannot be
     // satisfied by a plain object with Response-shaped properties.
     const bodyGetter = Object.getOwnPropertyDescriptor(Response.prototype, "body")?.get
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The getter must be callable before applying the cross-realm Web IDL brand check.
     return typeof bodyGetter === "function" && bodyGetter.call(value) !== undefined
   } catch {
     return false
