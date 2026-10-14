@@ -114,24 +114,18 @@ async function workspaceDevTokenRoot(rootDir: string, options: WorkspaceDevToken
 }
 
 function headerValue(headers: Headers | Record<string, string | string[] | undefined>, name: string): string | undefined {
-  const get = typeof Headers === "function" ? Reflect.get(Headers.prototype, "get") : undefined
-  if (hasRuntimeType(get, "function")) {
-    try {
-      const value = Reflect.apply(get, headers, [name])
-      return hasRuntimeType(value, "string") && value ? value : undefined
-    }
-    catch {}
-  }
   const tag = Object.prototype.toString.call(headers)
   const prototype = Object.getPrototypeOf(headers)
   const constructor = prototype && Reflect.get(prototype, "constructor")
   const isCrossRealmHeaders = tag === "[object Headers]"
     || (hasRuntimeType(constructor, "function") && Reflect.get(constructor, "name") === "Headers")
   if (isCrossRealmHeaders) {
+    const get = typeof Headers === "function" ? Reflect.get(Headers.prototype, "get") : undefined
     const crossRealmGet = Reflect.get(headers, "get")
-    if (hasRuntimeType(crossRealmGet, "function")) {
+    for (const getter of [get, crossRealmGet]) {
+      if (!hasRuntimeType(getter, "function")) continue
       try {
-        const value = Reflect.apply(crossRealmGet, headers, [name])
+        const value = Reflect.apply(getter, headers, [name])
         return hasRuntimeType(value, "string") && value ? value : undefined
       }
       catch {}
