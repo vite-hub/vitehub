@@ -1123,6 +1123,19 @@ it("ignores proxies around ordinary header methods", () => {
   expect(runWithQueueRuntimeEvent({ request }, () => resolveVercelQueueRegion(undefined)).region).toBeUndefined()
 })
 
+it("rejects receiver-dependent header method proxies", () => {
+  const headers = Object.create(Headers.prototype) as Headers
+  const get = new Proxy(() => "evil", {
+    apply(_target, thisArg) {
+      if (thisArg === headers) return "evil"
+      throw new TypeError("invalid receiver")
+    },
+  })
+  Object.defineProperty(headers, "get", { value: get })
+  const request = { headers }
+  expect(runWithQueueRuntimeEvent({ request }, () => resolveVercelQueueRegion(undefined)).region).toBeUndefined()
+})
+
 it("ignores request objects that only spoof Web API brands", () => {
   const request = runInNewContext(`({
     headers: {

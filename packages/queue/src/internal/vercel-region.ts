@@ -56,6 +56,22 @@ function isBrandedMethod(value: unknown, receiver: object, ...args: unknown[]): 
     if (Object.prototype.hasOwnProperty.call(value, "prototype")) return false
     const source = Function.prototype.toString.call(value)
     if (!/\[native code\]|(?:webidl\.)?brandCheck\s*\(/.test(source)) return false
+    // Exercise the method with a fresh instance from the same realm. Genuine
+    // Web IDL methods return the missing-header value for an unknown name;
+    // this rejects proxies that only throw for an unrelated probe receiver
+    // and return an attacker-controlled value for the real object.
+    const prototype = Object.getPrototypeOf(receiver)
+    const constructor = prototype && (Object.getOwnPropertyDescriptor(prototype, "constructor")?.value as unknown)
+    if (typeof constructor === "function") {
+      try {
+        const sibling = new constructor()
+        const siblingResult = value.call(sibling, "__vitehub_brand_probe__")
+        if (siblingResult !== undefined && siblingResult !== null) return false
+      }
+      catch {
+        return false
+      }
+    }
     // Genuine Web IDL methods reject an unrelated receiver. This also rejects
     // a Proxy around an ordinary function whose source is reported as native.
     value.call(Object.create(null), ...args)
