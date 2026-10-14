@@ -23,7 +23,13 @@ function isString(value: unknown): value is string {
 }
 
 export function addresses(input: EmailAddressList): EmailAddress[] {
-  if (isAddressArray(input)) return [...input];
+  if (isAddressArray(input)) {
+    try {
+      return [...input];
+    } catch {
+      return [{ email: "" }];
+    }
+  }
   return [input];
 }
 
