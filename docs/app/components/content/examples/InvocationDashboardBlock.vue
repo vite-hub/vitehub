@@ -14,6 +14,7 @@ onMounted(() => {
 });
 const time = (secondsAgo: number) => new Date(now.value - secondsAgo * 1_000).toISOString();
 
+
 // Synthetic, already-authorized records. In an application, load them from your Invocation store.
 const invocations = computed<AgentInvocationView[]>(() => [
   {

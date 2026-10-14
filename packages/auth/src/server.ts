@@ -291,16 +291,27 @@ function normalizeResponse(value: unknown): Response | undefined {
   if (!isRuntimeObject(value)) return undefined
   try {
     if (Object.prototype.toString.call(value) !== "[object Response]") return undefined
+    // A genuine Response exposes its Web API properties through its prototype;
+    // reject objects that manufacture the tag or response accessors as own fields.
+    if (Object.getOwnPropertyDescriptor(value, Symbol.toStringTag)) return undefined
+    for (const name of ["headers", "status", "statusText", "body", "bodyUsed"]) {
+      if (Object.prototype.hasOwnProperty.call(value, name)) return undefined
+    }
     const getters = new Map<string, () => unknown>()
     let prototype: object | null = value as object
+    let hasResponseMethods = false
     while (prototype) {
       for (const name of ["headers", "status", "statusText", "body", "bodyUsed"]) {
         if (getters.has(name)) continue
         const getter = Object.getOwnPropertyDescriptor(prototype, name)?.get
         if (getter) getters.set(name, () => getter.call(value))
       }
+      const clone = Object.getOwnPropertyDescriptor(prototype, "clone")?.value
+      const text = Object.getOwnPropertyDescriptor(prototype, "text")?.value
+      if (typeof clone === "function" && typeof text === "function") hasResponseMethods = true
       prototype = Object.getPrototypeOf(prototype) as object | null
     }
+    if (!hasResponseMethods) return undefined
     const headers = getters.get("headers")?.()
     const status = getters.get("status")?.()
     const statusText = getters.get("statusText")?.()

@@ -109,8 +109,10 @@ describe("Auth access handlers", () => {
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
       access: { routes: [{ route: "/**", authorize: () => foreignResponse as never }] },
     }))
-
-    await expect(handler(new Request("https://app.example/"))).resolves.toBe(foreignResponse)
+    const response = await handler(new Request("https://app.example/"))
+    expect(response).toBeInstanceOf(Response)
+    expect(response).not.toBe(foreignResponse)
+    expect(response?.status).toBe(409)
   })
 
   it("rejects objects that only spoof the Response tag", async () => {
