@@ -280,22 +280,49 @@ async function runAccessAuthorize(
   context: AuthAccessAuthorizationContext,
 ): Promise<Response | undefined> {
   const result = await authorize(context)
-  if (isResponseLike(result)) return result
+  const response = await normalizeAuthorizationResponse(result)
+  if (response) return response
   if (result !== true) return createForbiddenResponse(context.request)
 }
 
-function isResponseLike(value: unknown): value is Response {
-  if (value === null || typeof value !== "object") return false
+async function normalizeAuthorizationResponse(value: unknown): Promise<Response | undefined> {
+  if (value instanceof Response) {
+    try {
+      Object.getOwnPropertyDescriptor(Response.prototype, "status")!.get!.call(value)
+      return value
+    }
+    catch {
+      return
+    }
+  }
+  if (value === null || (typeof value !== "object" && typeof value !== "function")) return
   try {
-    if (Object.prototype.toString.call(value) !== "[object Response]") return false
-    const response = value as { headers?: unknown, status?: unknown, statusText?: unknown }
-    if (typeof response.status !== "number" || !Number.isInteger(response.status) || response.status < 0 || response.status > 599) return false
-    if (typeof response.statusText !== "string") return false
-    const headers = response.headers
-    return headers !== null && typeof headers === "object" && typeof (headers as { get?: unknown }).get === "function"
+    const findDescriptor = (name: string) => {
+      let prototype = Object.getPrototypeOf(value)
+      while (prototype) {
+        const descriptor = Object.getOwnPropertyDescriptor(prototype, name)
+        if (descriptor) return descriptor
+        prototype = Object.getPrototypeOf(prototype)
+      }
+    }
+    const status = findDescriptor("status")?.get
+    const statusText = findDescriptor("statusText")?.get
+    const headers = findDescriptor("headers")?.get
+    const body = findDescriptor("body")?.get
+    const arrayBuffer = (value as { arrayBuffer?: unknown }).arrayBuffer
+    if (typeof status !== "function" || typeof statusText !== "function" || typeof headers !== "function" || typeof body !== "function") return
+    const response = value as Response
+    const nativeHeaders = new Headers(headers.call(response))
+    const foreignBody = body.call(response)
+    // Preserve compatible foreign response objects that expose the body as a
+    // prototype accessor and have no body data to normalize.
+    if (foreignBody === null && !Object.prototype.hasOwnProperty.call(response, "body") && typeof arrayBuffer !== "function") return response
+    if (foreignBody !== null && typeof arrayBuffer !== "function") return
+    const nativeBody = foreignBody === null ? null : new Uint8Array(await (arrayBuffer as () => Promise<ArrayBuffer>).call(response))
+    return new Response(nativeBody, { headers: nativeHeaders, status: status.call(response), statusText: statusText.call(response) })
   }
   catch {
-    return false
+    return
   }
 }
 
