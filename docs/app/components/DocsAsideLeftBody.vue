@@ -79,7 +79,7 @@ function isActive(path: string) {
       </NuxtLink>
     </section>
 
-    <section v-if="section.id === "getting-started" || section.category === "Platform"" class="vh-docs-sidebar-related" aria-label="Build and deploy">
+    <section v-if="section.id === 'getting-started' || section.category === 'Platform'" class="vh-docs-sidebar-related" aria-label="Build and deploy">
       <h2 class="vh-docs-sidebar-heading">Build and deploy</h2>
       <NuxtLink
         v-for="platformSection in platformSections"
