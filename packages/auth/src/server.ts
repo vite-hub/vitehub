@@ -284,6 +284,16 @@ function responseGetter(value: object, property: string): (() => unknown) | unde
   }
 }
 
+function responseMethod(value: object, property: string): ((this: object) => unknown) | undefined {
+  if (Object.prototype.hasOwnProperty.call(value, property)) return
+  let prototype: object | null = Object.getPrototypeOf(value) as object | null
+  while (prototype) {
+    const descriptor = Object.getOwnPropertyDescriptor(prototype, property)
+    if (typeof descriptor?.value === "function") return descriptor.value as (this: object) => unknown
+    prototype = Object.getPrototypeOf(prototype) as object | null
+  }
+}
+
 async function runAccessAuthorize(
   authorize: AuthAccessAuthorize,
   context: AuthAccessAuthorizationContext,
@@ -314,10 +324,14 @@ async function runAccessAuthorize(
       if (body !== null) {
         // Tee through the candidate stream so foreign streams remain usable while
         // forged reader-shaped objects fail before reaching the host adapter.
-        const tee = (body as { tee?: () => unknown }).tee?.()
+        const teeMethod = responseMethod(body as object, "tee")
+        if (!teeMethod) return createForbiddenResponse(context.request)
+        const tee = teeMethod.call(body as object)
         if (!Array.isArray(tee) || tee.length !== 2) return createForbiddenResponse(context.request)
-        const probe = tee[0] as { getReader?: () => { read?: () => unknown, releaseLock?: () => void } }
-        const reader = probe.getReader?.()
+        if (!tee[0] || typeof tee[0] !== "object") return createForbiddenResponse(context.request)
+        const probe = tee[0] as object
+        const readerMethod = responseMethod(probe, "getReader")
+        const reader = readerMethod?.call(probe) as { read?: () => unknown, releaseLock?: () => void } | undefined
         if (!reader || typeof reader.read !== "function" || typeof reader.releaseLock !== "function") return createForbiddenResponse(context.request)
         const readResult = reader.read()
         if (!readResult || typeof (readResult as PromiseLike<unknown>).then !== "function") return createForbiddenResponse(context.request)

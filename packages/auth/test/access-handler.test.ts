@@ -143,6 +143,7 @@ describe("Auth access handlers", () => {
     { body: { getReader: () => ({}) }, headers: new Headers() },
     { body: { getReader: () => ({ releaseLock() {} }) }, headers: new Headers() },
     { body: { getReader: () => ({ read: () => Promise.resolve({ done: true }), releaseLock() {} }) }, headers: new Headers() },
+    { body: { tee: () => [{ getReader: () => ({ read: () => Promise.resolve({ done: true }), releaseLock() {} }) }, new ReadableStream()] }, headers: new Headers() },
   ])("rejects forged response-like authorization results: %j", async (transport) => {
     const forgedResponse = {
       ...transport,
