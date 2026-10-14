@@ -72,7 +72,7 @@ export const CodeBlockLine = defineComponent({
     return () => {
       const content = slots.default?.();
       // An empty line holds a newline, so a copied selection keeps its blank lines.
-      const empty = !content || content.length === 0 || content.every(isEmptyText);
+      const empty = !content || content.every(isEmptyText);
       return h("span", { "data-slot": "code-block-line", "data-variant": props.variant }, [
         h("span", { "data-slot": "code-block-line-content" }, empty ? "\n" : content),
       ]);
