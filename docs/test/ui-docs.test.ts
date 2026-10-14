@@ -158,7 +158,7 @@ describe("UI documentation", () => {
     expect(sidebarTop).not.toContain("getDocsSectionSelectItems");
   });
 
-it("keeps site catalogs in the rail header above the product sections", () => {
+  it("keeps site catalogs in the rail header above the product sections", () => {
     const rail = readFileSync(resolve(docsRoot, "app/components/DocsRail.vue"), "utf8");
 
     expect(rail).toContain('<PrimitiveRail label="ViteHub navigation">');
@@ -178,6 +178,8 @@ it("keeps site catalogs in the rail header above the product sections", () => {
     expect(sidebar).not.toContain("<summary");
     expect(layout).toContain("height: calc(100dvh - var(--ui-header-height));");
     expect(layout).not.toContain(".vh-docs-aside");
+    expect(layout).toContain(".vh-docs-shell > .vh-docs-desktop-nav");
+    expect(layout).toContain("flex: 1;");
   });
 
   it("lists the Vue ecosystem perspective in the getting started sidebar", () => {
