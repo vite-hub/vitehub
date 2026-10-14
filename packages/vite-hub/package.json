@@ -50,6 +50,7 @@
     "./_internal/blob/runtime/dev": "./dist/_internal/blob/runtime/dev.js",
     "./_internal/blob/runtime/state": "./dist/_internal/blob/runtime/state.js",
     "./_internal/content/runtime/console": "./dist/_internal/content/runtime/console.js",
+    "./_internal/content/runtime/dev": "./dist/_internal/content/runtime/dev.js",
     "./_internal/database/runtime/state": "./dist/_internal/database/runtime/state.js",
     "./_internal/email/runtime/console": "./dist/_internal/email/runtime/console.js",
     "./_internal/kv": "./dist/_internal/kv.js",
