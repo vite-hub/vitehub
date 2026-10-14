@@ -105,14 +105,17 @@ describe("Auth access handlers", () => {
   })
 
 
-  it("returns genuine authorization responses unchanged", async () => {
+  it("normalizes genuine authorization responses from another realm", async () => {
     const foreignResponse = runInNewContext(`new Response("Conflict", { status: 409 })`, { Response })
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
       access: { routes: [{ route: "/**", authorize: () => foreignResponse as never }] },
     }))
 
-
-    await expect(handler(new Request("https://app.example/"))).resolves.toBe(foreignResponse)
+    const response = await handler(new Request("https://app.example/"))
+    expect(response).toBeInstanceOf(Response)
+    expect(response).not.toBe(foreignResponse)
+    expect(response?.status).toBe(409)
+    expect(await response?.text()).toBe("Conflict")
   })
 
   it("rejects response tag lookalikes", async () => {

@@ -280,9 +280,25 @@ async function runAccessAuthorize(
   context: AuthAccessAuthorizationContext,
 ): Promise<Response | undefined> {
   const result = await authorize(context)
-
-  if (isResponseLike(result)) return result
+  const response = await normalizeAuthorizationResponse(result)
+  if (response) return response
   if (result !== true) return createForbiddenResponse(context.request)
+}
+
+async function normalizeAuthorizationResponse(value: unknown): Promise<Response | undefined> {
+  if (!isResponseLike(value)) return
+  if (value instanceof Response) return value
+
+  // Foreign responses have valid Web Response internal slots but belong to a
+  // different realm. Copy them into the host realm before adapters consume
+  // their Headers and body implementations.
+  const headers = new Headers(value.headers)
+  const body = value.body === null ? null : new Uint8Array(await value.arrayBuffer())
+  return new Response(body, {
+    headers,
+    status: value.status,
+    statusText: value.statusText,
+  })
 }
 
 function isResponseLike(value: unknown): value is Response {
