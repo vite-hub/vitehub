@@ -13,9 +13,11 @@ export async function copyClientOutput(clientDir: string, targetDir: string, exc
   if (resolvedClientDir === resolvedTargetDir) {
     return
   }
-  const excluded = new Set(excludedDirs.map(dir => resolve(dir)))
-  // A provider can share the client root; only omit nested provider directories.
-  excluded.delete(resolvedClientDir)
+  // Exclude only provider directories inside the copied source tree. An output root
+  // can contain the client directory and must not exclude that ancestor.
+  const excluded = new Set(excludedDirs
+    .map(dir => resolve(dir))
+    .filter(dir => dir !== resolvedClientDir && dir.startsWith(`${resolvedClientDir}/`)))
   const filter = (source: string) => {
     const resolved = resolve(source)
     return ![...excluded].some(dir => resolved === dir || resolved.startsWith(`${dir}/`))

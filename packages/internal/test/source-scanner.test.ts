@@ -833,7 +833,7 @@ describe("source scanner", () => {
 
   it("ignores TypeScript type member signatures with matching names", () => {
     const source = [
-      `interface Fixture { defineThing(value: string): void }`,
+      `interface Fixture<T extends { value: string }> { defineThing(value: string): void }`,
       `type Other = { defineThing(value: string): void }`,
       `const value = defineThing({ value: "real" })`,
     ].join("\n")
