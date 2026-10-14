@@ -77,8 +77,20 @@ function isResponseLike(value: unknown): value is Response {
     }
     const ownSlots = ["bodyUsed", "redirected", "type", "url", "status", "statusText", "ok", "headers"]
       .every((key) => Object.prototype.hasOwnProperty.call(value, key))
+    let hasBodyGetter = false
+    for (let prototype = Object.getPrototypeOf(value); prototype; prototype = Object.getPrototypeOf(prototype)) {
+      const body = Object.getOwnPropertyDescriptor(prototype, "body")
+      if (body) {
+        hasBodyGetter = typeof body.get === "function"
+        break
+      }
+    }
     const constructor = Object.getPrototypeOf(value)?.constructor
-    const foreignImplementation = ownSlots && constructor?.name === "Response"
+    const foreignImplementation = ownSlots
+      && hasBodyGetter
+      && typeof constructor === "function"
+      && constructor.name === "Response"
+      && constructor.prototype === Object.getPrototypeOf(value)
     return typeof response.status === "number"
       && typeof response.statusText === "string"
       && (nativeBrand || foreignImplementation)

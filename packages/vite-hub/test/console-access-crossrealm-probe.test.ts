@@ -49,4 +49,32 @@ describe("cross-realm console access probe", () => {
     expect(result).toBeInstanceOf(Response)
     expect((result as Response).status).toBe(403)
   })
+
+  it("rejects spoofed responses with copied slots", async () => {
+    const request = new Request("https://console.example.test/")
+    const prototype = {
+      get body() { return null },
+      clone() { return this },
+      arrayBuffer() { return Promise.resolve(new ArrayBuffer(0)) },
+      blob() { return Promise.resolve(new Blob([])) },
+      formData() { return Promise.resolve(new FormData()) },
+      json() { return Promise.resolve(null) },
+      text() { return Promise.resolve("") },
+      constructor: class Response {},
+    }
+    const response = Object.assign(Object.create(prototype), {
+      bodyUsed: false,
+      redirected: false,
+      type: "default",
+      url: "",
+      status: 401,
+      statusText: "Unauthorized",
+      ok: false,
+      headers: new Headers(),
+    })
+    installConsoleAccess({ mode: "host-managed", authorize: () => response })
+    const result = await withConsoleAccess(() => "unreachable")({ req: request })
+    expect(result).toBeInstanceOf(Response)
+    expect((result as Response).status).toBe(403)
+  })
 })
