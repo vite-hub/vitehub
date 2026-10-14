@@ -331,6 +331,26 @@ describe("Auth access handlers", () => {
     await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
   })
 
+  it("rejects a forged Response whose accessors throw during provenance probing", async () => {
+    class Response {
+      get status() { throw new Error("forged") }
+      get statusText() { throw new Error("forged") }
+      get headers() { throw new Error("forged") }
+      get body() { throw new Error("forged") }
+    }
+    const candidate = Object.create(Response.prototype, {
+      status: { value: 409 },
+      statusText: { value: "Conflict" },
+      headers: { value: new Headers() },
+      body: { value: null },
+    })
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => candidate }] },
+    }))
+
+    await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
+  })
+
   it("rejects a forged Response-shaped prototype", async () => {
     const sourceBody = new Response("Policy rejected").body
     const headers = vi.fn()

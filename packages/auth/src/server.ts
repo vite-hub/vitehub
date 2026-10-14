@@ -338,7 +338,16 @@ function hasResponsePrototype(value: unknown): boolean {
           return false
         }
         catch {
-          return true
+          // The same accessor must still read successfully from the candidate.
+          // A forged getter can throw for the probe object, but a genuine
+          // Response accessor succeeds only when its internal brand is present.
+          try {
+            Reflect.apply(getter, value, [])
+            return true
+          }
+          catch {
+            return false
+          }
         }
       })
       if (platformConstructor && platformGetters) return true
