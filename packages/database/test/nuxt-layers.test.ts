@@ -20,9 +20,12 @@ afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { force: true, recursive: true })))
 })
 
-// The copy stays inside the package so that the fixture resolves `@vite-hub/database` and Drizzle.
+// The copy stays inside the repository so that the fixture resolves `@vite-hub/database` and Drizzle.
+// It stays outside the package because runtime package staging copies the package directory while other tests build.
 async function createLayeredApp() {
-  const root = await mkdtemp(join(import.meta.dirname, ".nuxt-layers-"))
+  const baseDir = join(import.meta.dirname, "../../../.vitest-tmp")
+  await mkdir(baseDir, { recursive: true })
+  const root = await mkdtemp(join(baseDir, "nuxt-layers-"))
   tempDirs.push(root)
   await cp(fixtureDir, root, { recursive: true })
   const appDir = join(root, "app")
