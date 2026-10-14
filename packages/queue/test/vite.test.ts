@@ -112,7 +112,7 @@ describe("hubQueue", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-queue-inherited-provider-preset-"))
     roots.push(root)
     const options = Object.create({ provider: "cloudflare" }) as { provider: "cloudflare" }
-    const config = { root, command: "build", nitro: { preset: "vercel" } }
+    const config = { root, command: "build", nitro: { preset: "vercel", plugins: [] as unknown[] } }
     const plugin = hubQueue(options)
 
     await (plugin.configResolved as (config: unknown) => Promise<void>)(config)
