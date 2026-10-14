@@ -78,19 +78,21 @@ function isResponseLike(value: unknown): value is Response {
     const ownSlots = ["bodyUsed", "redirected", "type", "url", "status", "statusText", "ok", "headers"]
       .every((key) => Object.prototype.hasOwnProperty.call(value, key))
     let hasBodyGetter = false
+    let hasResponseTag = false
     for (let prototype = Object.getPrototypeOf(value); prototype; prototype = Object.getPrototypeOf(prototype)) {
       const body = Object.getOwnPropertyDescriptor(prototype, "body")
-      if (body) {
-        hasBodyGetter = typeof body.get === "function"
-        break
-      }
+      if (body && typeof body.get === "function") hasBodyGetter = true
+      const tag = Object.getOwnPropertyDescriptor(prototype, Symbol.toStringTag)
+      if (tag && typeof tag.get === "function" && tag.get.call(value) === "Response") hasResponseTag = true
     }
     const constructor = Object.getPrototypeOf(value)?.constructor
     const foreignImplementation = ownSlots
       && Object.getOwnPropertySymbols(value).length > 0
       && hasBodyGetter
+      && hasResponseTag
       && typeof constructor === "function"
       && constructor.name === "Response"
+      && Function.prototype.toString.call(constructor).startsWith("class ")
       && constructor.prototype === Object.getPrototypeOf(value)
     return typeof response.status === "number"
       && typeof response.statusText === "string"
