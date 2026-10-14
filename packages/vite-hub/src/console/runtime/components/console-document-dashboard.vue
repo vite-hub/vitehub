@@ -3,6 +3,7 @@ import { computed, ref } from "vue";
 import { useRoute } from "vue-router";
 
 import {
+  consoleDocumentStates,
   consoleDocumentStateColor,
   consoleDocumentStateLabel,
   consoleErrorMessage,
@@ -46,7 +47,7 @@ const byName = computed(() => new Map(props.collections.map(collection => [colle
 const totals = computed(() => {
   const totals: Record<ConsoleDocumentState, number> = { draft: 0, changed: 0, published: 0, deleted: 0 };
   for (const entry of props.overview?.collections ?? []) {
-    for (const state of Object.keys(totals) as ConsoleDocumentState[]) totals[state] += entry.states[state];
+    for (const state of consoleDocumentStates) totals[state] += entry.states[state];
   }
   return totals;
 });
@@ -85,10 +86,10 @@ function newRoute(collection: string) {
   return { name: mainRouteName(), params: { collection, document: [] }, query: { new: "1" } };
 }
 
-const verbs: Record<string, string> = { publish: "published", remove: "deleted", restore: "restored", save: "edited" };
+const verbs = new Map([["publish", "published"], ["remove", "deleted"], ["restore", "restored"], ["save", "edited"]]);
 
 function activityVerb(entry: ConsoleDocumentActivity): string {
-  return verbs[entry.action] ?? "changed";
+  return verbs.get(entry.action) ?? "changed";
 }
 
 function collectionLabel(name: string): string {

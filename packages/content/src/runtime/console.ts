@@ -230,11 +230,11 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
   async function summaries(collection: ContentCollection, ids: ReadonlySet<string>, statuses: ReadonlyMap<string, ContentDocumentStatus>): Promise<Map<string, ContentDocumentSummary>> {
     const onDraft = [...ids].filter(id => statuses.get(id)?.draft != null)
     const onPublished = [...ids].filter(id => statuses.get(id)?.draft == null && statuses.get(id)?.published != null)
-    const read = (ref: "draft" | "published", list: string[]) => list.length
-      ? collection.list({ ref, filter: { id: list }, limit: Math.min(list.length, 1_000) })
-      : Promise.resolve({ items: [] as ContentDocumentSummary[] })
+    const read = async (ref: "draft" | "published", list: string[]): Promise<ContentDocumentSummary[]> => list.length
+      ? (await collection.list({ ref, filter: { id: list }, limit: Math.min(list.length, 1_000) })).items
+      : []
     const pages = await Promise.all([read("draft", onDraft), read("published", onPublished)])
-    return new Map(pages.flatMap(page => page.items.map(item => [item.id, item] as const)))
+    return new Map(pages.flat().map(item => [item.id, item]))
   }
 
   const actions: ViteHubConsoleDocumentActions = {

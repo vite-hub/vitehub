@@ -165,7 +165,9 @@ export interface ConsoleDocumentsClient {
 /** Calls the owner document actions of one document editor section. */
 export function createConsoleDocumentsClient(base: string, section: string): ConsoleDocumentsClient {
   async function call<TAction extends keyof ConsoleDocumentActionResults>(action: TAction, body: Record<string, unknown>, signal?: AbortSignal): Promise<ConsoleDocumentActionResults[TAction]> {
-    const value = await requestConsole(base, { body, method: "POST", query: { action, section }, ...(signal ? { signal } : {}) })
+    const options: Parameters<typeof requestConsole>[1] = { body, method: "POST", query: { action, section } }
+    if (signal) options.signal = signal
+    const value = await requestConsole(base, options)
     // SAFETY: The owner actions return the mirrored contract for this action. The editor renders fields as text and checks ids before use.
     return value as ConsoleDocumentActionResults[TAction]
   }

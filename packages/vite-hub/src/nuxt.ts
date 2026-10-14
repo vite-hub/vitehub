@@ -409,14 +409,16 @@ async function installConsole(
       // routes match the Vite Console: the main view, its pages under `/-/`, and a redirect from the index page path.
       ...describeConsoleContributedSections([...new Set([...sections, ...documentEditorSections])])
         .filter(details => documentEditorSections.includes(details.id))
-        .flatMap(details => describeConsoleSectionRoutes(details).map((route): NuxtPage => route.redirect
-          ? { name: route.name, path: `/_vitehub${route.path}`, redirect: `/_vitehub${route.redirect}` }
-          : {
-              file: join(consoleRuntimeRoot, "pages/documents.vue"),
-              meta: { consoleSection: details.id, consoleSectionDetails: details, ...(route.page ? { consolePage: route.page } : {}) },
-              name: route.name,
-              path: `/_vitehub${route.path}`,
-            })),
+        .flatMap(details => describeConsoleSectionRoutes(details).map((route): NuxtPage => {
+          if (route.redirect) return { name: route.name, path: `/_vitehub${route.path}`, redirect: `/_vitehub${route.redirect}` }
+          const meta = { consoleSection: details.id, consoleSectionDetails: details }
+          return {
+            file: join(consoleRuntimeRoot, "pages/documents.vue"),
+            meta: route.page ? { ...meta, consolePage: route.page } : meta,
+            name: route.name,
+            path: `/_vitehub${route.path}`,
+          }
+        })),
     ]
     for (const page of additions) {
       if (!pages.some((candidate) => candidate.path === page.path)) pages.push(page)
