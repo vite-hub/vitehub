@@ -346,6 +346,9 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
   if (body === null) return true
   if (Object(body) !== body) return false
   const stream = body as object
+  // An own reader operation belongs to the caller-controlled body object.
+  // Inherited stream methods are resolved from the source realm below.
+  if (Object.prototype.hasOwnProperty.call(stream, "getReader")) return false
   const locked = streamIntrinsic(stream, "locked")
   const getReader = locked && streamIntrinsic(locked.owner, "getReader")
   if (!locked || !getReader || locked.owner !== getReader.owner
@@ -362,6 +365,10 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
   if (!readerPrototype || Object.prototype.hasOwnProperty.call(reader, "read")
     || Object.prototype.hasOwnProperty.call(reader, "cancel")
     || Object.prototype.hasOwnProperty.call(reader, "releaseLock")) throw new Error("Non-native response reader")
+  const readerConstructor = Object.getOwnPropertyDescriptor(readerPrototype, "constructor")?.value
+  if (typeof readerConstructor !== "function"
+    || readerConstructor.name !== "ReadableStreamDefaultReader"
+    || readerConstructor.prototype !== readerPrototype) throw new Error("Non-native response reader")
   // The first reader acquisition locks the source stream. Inspect this reader's
   // prototype directly instead of acquiring a second reader while it is locked.
   const read = Object.getOwnPropertyDescriptor(readerPrototype, "read")?.value as ((this: ReadableStreamDefaultReader<Uint8Array>) => Promise<{ done: true, value?: undefined } | { done: false, value: Uint8Array }>) | undefined
