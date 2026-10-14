@@ -38,6 +38,7 @@ import { viteHubTypesPlugin } from "./internal/types.ts"
 import { consoleConnectionsActorId } from "./console/auth-build.ts"
 import { agentChannelEnvPlugin } from "./agent-channel-env.ts"
 import { databaseDisabledPlugin } from "./database-disabled.ts"
+import { withCmsPresetPlugins } from "./internal/cms-preset-features.ts"
 import { consoleInvocationRootPlugin, consoleVitePlugin, type ConsoleOptions } from "./console/vite.ts"
 import { observabilityVitePlugin, type ObservabilityOptions } from "./observability-vite.ts"
 import { resolveConsoleSectionIds } from "./console/runtime/sections.ts"
@@ -821,8 +822,16 @@ function doctorPlugin(): Plugin {
   }
 }
 
+/**
+ * The ViteHub plugin list. When `server/content.ts` selects the Content `cms` preset and `database`, `blob`, or
+ * `workspace` is unset, ViteHub turns that feature on. See `withCmsPresetPlugins()`.
+ */
 export function vitehub(options: ViteHubOptions): PluginOption[] {
   if (!options || typeof options !== "object") throw viteHubErrorDiagnostics.VITE_HUB_R0085({ message: "vitehub() requires a built-in deployment preset." })
+  return withCmsPresetPlugins(options, createViteHubPlugins)
+}
+
+function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   options = withDataDir(options)
   const plan = resolveDeploymentPlan(options.preset)
   if (options.schedule && plan.preset === "deno") {
@@ -1107,12 +1116,14 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
     importBase: "vite-hub/source",
   })
   plugins.push(sourcePlugin)
-  // Reads the Content cms preset and contributes its Workspace and Database tables. Inert without the preset.
+  // Reads the Content cms preset and contributes its Workspace, Database tables, and, when the app has none, the
+  // default Database. Inert without the preset.
   plugins.push(hubContent({
     imports: {
       blob: "vite-hub/blob",
       blobDatabase: "vite-hub/workspace/blob-database",
       database: "vite-hub/database/drizzle",
+      databaseDefinition: "vite-hub/database",
       workspace: "vite-hub/workspace",
     },
   }))

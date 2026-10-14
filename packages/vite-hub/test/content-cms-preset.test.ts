@@ -1,60 +1,12 @@
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
+import { readFile, readdir, rm } from "node:fs/promises"
 import { delimiter, join } from "node:path"
 import { pathToFileURL } from "node:url"
 
-import { runViteHubCli } from "@vite-hub/cli"
-import { build, createServer, resolveConfig, type InlineConfig, type PluginOption } from "vite"
-import { afterEach, describe, expect, it } from "vitest"
+import { build, createServer, resolveConfig, type PluginOption } from "vite"
+import { describe, expect, it, vi } from "vitest"
 
 import { vitehub } from "../src/index.ts"
-
-const roots: string[] = []
-const path = process.env.PATH
-
-afterEach(async () => {
-  process.env.PATH = path
-  // Vite runs configResolved hooks concurrently, so other plugins can still write after a rejected resolveConfig().
-  await Promise.all(roots.splice(0).map(root => rm(root, { force: true, maxRetries: 10, recursive: true, retryDelay: 100 })))
-})
-
-async function createProject(files: Record<string, string>): Promise<string> {
-  // Inside the package so the app resolves `vite-hub` and its dependencies like an installed app.
-  const root = await mkdtemp(join(import.meta.dirname, ".content-cms-"))
-  roots.push(root)
-  for (const [file, content] of Object.entries(files)) {
-    await mkdir(join(root, file, ".."), { recursive: true })
-    await writeFile(join(root, file), content.replaceAll("<root>", root))
-  }
-  return root
-}
-
-const contentDefinition = [
-  "import { defineContent, documents } from 'vite-hub/content'",
-  "import cms from 'vite-hub/content/presets/cms'",
-  "import * as v from 'valibot'",
-  "",
-  "export const content = defineContent({",
-  "  extends: cms,",
-  "  collections: { posts: documents({ path: 'posts/**/*.md', fields: { title: v.string() } }) },",
-  "  logger: false,",
-  "})",
-  "",
-].join("\n")
-
-const server = [
-  "import { content } from '../server/content'",
-  "",
-  "export async function run(id: string) {",
-  "  const posts = content.collection('posts')",
-  "  await posts.save(id, { data: { title: `Post ${id}` }, body: `# ${id}\\n` })",
-  "  const before = await posts.get(id)",
-  "  const published = await content.publish({ collection: 'posts', ids: [id] })",
-  "  const after = await posts.get(id)",
-  "  const listed = await posts.list()",
-  "  return { before, published: published.documents, after: after && { data: after.data, body: after.body }, ids: listed.items.map(item => item.id) }",
-  "}",
-  "",
-].join("\n")
+import { contentDefinition, createProject, path, runCli, server, serverBuild, type RunResult } from "./support/content-cms.ts"
 
 function project(extra: Record<string, string> = {}) {
   return createProject({
@@ -82,38 +34,24 @@ function plugins(root: string, options: Record<string, unknown> = {}): PluginOpt
   })
 }
 
-function serverBuild(root: string, pluginOptions: PluginOption[]): InlineConfig {
-  return {
-    appType: "custom",
-    build: { outDir: "dist", rolldownOptions: { input: join(root, "src/server.ts") }, ssr: true },
-    configFile: false,
-    logLevel: "silent",
-    plugins: pluginOptions,
-    root,
-  }
-}
-
-async function runCli(root: string, pluginOptions: PluginOption[], args: string[]) {
-  let stderr = ""
-  let stdout = ""
-  const exitCode = await runViteHubCli({
-    args,
-    cwd: root,
-    loadConfig: async (directory, command) => ({
-      ...await resolveConfig(serverBuild(directory, pluginOptions), command),
-      vitehubConfigResolved: true,
-    }),
-    stderr: { write: chunk => (stderr += String(chunk), true) },
-    stdout: { write: chunk => (stdout += String(chunk), true) },
+/** Lists the Cloudflare resources that `vitehub provision run --dry-run` plans, against an empty stubbed account. */
+async function plannedCloudflareResources(root: string, pluginOptions: PluginOption[]) {
+  vi.stubGlobal("fetch", async (input: string | URL | Request) => {
+    const url = String(input instanceof Request ? input.url : input)
+    return Response.json({ result: new URL(url).pathname.endsWith("/r2/buckets") ? { buckets: [] } : [], success: true })
   })
-  return { exitCode, stderr, stdout }
-}
-
-type RunResult = {
-  after: { body: string, data: { title: string } } | null
-  before: { data: { title: string } } | null
-  ids: string[]
-  published: Array<{ change: string, collection: string, id: string }>
+  process.env.CLOUDFLARE_ACCOUNT_ID = "account"
+  process.env.CLOUDFLARE_API_TOKEN = "token"
+  try {
+    const result = await runCli(root, pluginOptions, ["provision", "run", "--provider", "cloudflare", "--dry-run", "--json"])
+    expect(result.exitCode).toBe(0)
+    const plan = JSON.parse(result.stdout) as { actions?: Array<{ kind: string, name: string }>, steps?: unknown }
+    return plan
+  }
+  finally {
+    delete process.env.CLOUDFLARE_ACCOUNT_ID
+    delete process.env.CLOUDFLARE_API_TOKEN
+  }
 }
 
 describe("Content cms preset on libSQL", () => {
@@ -184,5 +122,51 @@ describe("Content cms preset on libSQL", () => {
     await rm(join(root, "server/databases/config.ts"))
     await expect(resolveConfig(serverBuild(root, plugins(root)), "build"))
       .rejects.toThrow("it needs one Database, but the app has several and none is named \"default\": \"audit\", \"blog\". Choose one with extends: [cms, { database: \"audit\" }].")
+  }, 60_000)
+})
+
+// The dev server and build of the zero-config app run in content-cms-preset-zero-config.test.ts, in their own
+// process, because Workspace and Database runtime state is process-wide.
+describe("Content cms preset with only server/content.ts", () => {
+  it("plans the same Cloudflare resources as the explicit setup", async () => {
+    const zeroConfig = await createProject({
+      "package.json": JSON.stringify({ name: "content-cms-zero-config", private: true, type: "module" }),
+      "server/content.ts": contentDefinition,
+    })
+    const explicit = await createProject({
+      "package.json": JSON.stringify({ name: "content-cms-zero-config", private: true, type: "module" }),
+      "server/content.ts": contentDefinition,
+      "server/databases/config.ts": "import { defineDatabase } from 'vite-hub/database'\nexport default defineDatabase({ schema: {} })\n",
+    })
+    const zeroPlan = await plannedCloudflareResources(zeroConfig, vitehub({ preset: "cloudflare", env: false }))
+    const explicitPlan = await plannedCloudflareResources(explicit, vitehub({ preset: "cloudflare", env: false, database: true, blob: true, workspace: true }))
+    expect(zeroPlan).toEqual(explicitPlan)
+    expect(zeroPlan.actions?.map(action => action.kind)).toEqual(["cloudflare-r2-bucket"])
+
+    // The preset's Database is planned like an app Definition once D1 is named.
+    const d1Plan = await plannedCloudflareResources(zeroConfig, vitehub({ preset: "cloudflare", env: false, database: { driver: "d1", databaseName: "cms-db" } }))
+    expect(d1Plan.actions?.map(action => `${action.kind} ${action.name}`).toSorted()).toEqual(["cloudflare-d1 cms-db", "cloudflare-r2-bucket content-cms-zero-config"])
+  }, 60_000)
+
+  it("keeps an explicitly disabled feature off and names it", async () => {
+    const root = await createProject({
+      "package.json": JSON.stringify({ name: "content-cms-zero-config", private: true, type: "module" }),
+      "server/content.ts": contentDefinition,
+    })
+    await expect(resolveConfig(serverBuild(root, vitehub({ preset: "node", env: false, workspace: false })), "build"))
+      .rejects.toThrow("uses the Content cms preset: it needs workspace enabled. Set vitehub({ workspace: true }) in your Vite config.")
+  }, 60_000)
+
+  it("leaves apps without the preset unchanged", async () => {
+    const root = await createProject({
+      "package.json": JSON.stringify({ name: "content-plain", private: true, type: "module" }),
+    })
+    const config = await resolveConfig(serverBuild(root, vitehub({ preset: "node", env: false })), "build")
+    const names = config.plugins.map(plugin => plugin.name)
+    expect(names).not.toContain("@vite-hub/database/vite")
+    expect(names).not.toContain("@vite-hub/workspace/vite")
+    expect(names).not.toContain("@vite-hub/blob/vite")
+    expect(names).toContain("@vite-hub/content/vite")
+    expect(names.filter(name => name === "@vite-hub/content/vite")).toHaveLength(1)
   }, 60_000)
 })

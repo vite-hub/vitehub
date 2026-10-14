@@ -3,21 +3,42 @@ import { dirname, resolve } from "node:path"
 
 import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { discoverContentDefinition } from "@vite-hub/source/vite"
+import { parseAst } from "vite"
 
-import { cmsRequirementError, cmsWorkspaceExport, readCmsPresetUsageFile, renderCmsWorkspaceModule, resolveCmsPresetPlan } from "./cms-build.ts"
+import {
+  cmsDatabaseReason,
+  cmsRequirementError,
+  cmsWorkspaceExport,
+  readCmsPresetUsageFile,
+  renderCmsDatabaseModule,
+  renderCmsWorkspaceModule,
+  resolveCmsPresetPlan,
+  usesCmsPresetSync,
+} from "./cms-build.ts"
 
-import type { DatabaseContributionContext, DatabaseContributionFactory } from "@vite-hub/database/vite"
+import type { DatabaseContributionContext, DatabaseContributionEntry, DatabaseContributionFactory } from "@vite-hub/database/vite"
 import type { WorkspaceContributionContext, WorkspaceContributionFactory } from "@vite-hub/workspace/vite"
 import type { Plugin, ResolvedConfig } from "vite"
 import type { CmsPresetPlan, CmsWorkspaceImports } from "./cms-build.ts"
 
-export { cmsPresetModules, readCmsPresetUsage, resolveCmsPresetPlan, renderCmsWorkspaceModule } from "./cms-build.ts"
+export { cmsPresetModules, readCmsPresetUsage, renderCmsDatabaseModule, renderCmsWorkspaceModule, resolveCmsPresetPlan } from "./cms-build.ts"
 export type { CmsDatabaseChoices, CmsPresetPlan, CmsPresetUsage, CmsWorkspaceImports } from "./cms-build.ts"
 
 export const CONTENT_VITE_PLUGIN_NAME = "@vite-hub/content/vite"
 
 /** Generated Workspace Definition module of the `cms` preset, relative to the project root. */
 export const cmsWorkspaceModulePath = ".vitehub/content/workspace.mjs"
+
+/** Generated Database Definition that the `cms` preset adds when the app has none, relative to the project root. */
+export const cmsDatabaseModulePath = ".vitehub/content/database.ts"
+
+/**
+ * Whether `server/content.ts` selects the `cms` preset. `vitehub()` reads it while Vite filters plugins, so the
+ * preset turns on Workspace, Database, and Blob without settings. Reads the file without running it.
+ */
+export function usesCmsPreset(input: { projectRoot: string, serverDirs?: readonly string[] }): boolean {
+  return usesCmsPresetSync(input, parseAst)
+}
 
 export interface ContentVitePluginOptions {
   /**
@@ -48,6 +69,7 @@ const defaultImports: CmsWorkspaceImports = {
   blob: "@vite-hub/blob",
   blobDatabase: "@vite-hub/workspace/blob-database",
   database: "@vite-hub/database/drizzle",
+  databaseDefinition: "@vite-hub/database",
   workspace: "@vite-hub/workspace",
 }
 
@@ -83,8 +105,9 @@ function blobStoreNames(plugin: Plugin | undefined): string[] | false {
 
 /**
  * Content build integration. When `server/content.ts` selects the `cms` preset, it contributes the preset's Workspace
- * through `vitehub.workspaces` and the Workspace history tables through `vitehub.databases`, and checks that
- * Workspace, Database, and Blob are enabled. Apps without the preset are unaffected.
+ * through `vitehub.workspaces`, and the Workspace history tables through `vitehub.databases`, with the `default`
+ * Database Definition when the app has none. It checks that Workspace, Database, and Blob are enabled. Apps without
+ * the preset are unaffected.
  */
 export function hubContent(options: ContentVitePluginOptions = {}): ContentVitePlugin {
   const imports: CmsWorkspaceImports = { ...defaultImports, ...options.imports }
@@ -95,7 +118,6 @@ export function hubContent(options: ContentVitePluginOptions = {}): ContentViteP
     const root = resolve(input.projectRoot)
     const file = await discoverContentDefinition({ projectRoot: root, serverDirs: input.serverDirs })
     if (!file) return
-    const { parseAst } = await import("vite")
     const usage = await readCmsPresetUsageFile(file, root, parseAst)
     if (!usage) return
     // Loaded only for the preset, so importing the Vite config does not load Database dependencies such as Drizzle.
@@ -120,9 +142,15 @@ export function hubContent(options: ContentVitePluginOptions = {}): ContentViteP
         return [{ export: cmsWorkspaceExport, module, name: plan.workspace }]
       },
       async databases(context: DatabaseContributionContext) {
-        const plan = await resolveCmsPreset({ databaseRoot: context.rootDir, projectRoot: projectRoot ?? context.rootDir, serverDirs: serverDirs ?? context.serverDirs })
+        const root = projectRoot ?? context.rootDir
+        const plan = await resolveCmsPreset({ databaseRoot: context.rootDir, projectRoot: root, serverDirs: serverDirs ?? context.serverDirs })
+        const module = resolve(root, cmsDatabaseModulePath)
+        if (!plan || plan.databaseReason !== "preset") await rm(module, { force: true })
         if (!plan) return []
-        return [{ database: plan.database, export: "workspaceHistorySchema", module: imports.blobDatabase }]
+        const entries: DatabaseContributionEntry[] = [{ database: plan.database, export: "workspaceHistorySchema", module: imports.blobDatabase }]
+        if (plan.databaseReason !== "preset") return entries
+        await writeFileIfChanged(module, renderCmsDatabaseModule(imports))
+        return [{ definition: module, name: plan.database, reason: cmsDatabaseReason(plan.file, root) }, ...entries]
       },
     },
     config: {

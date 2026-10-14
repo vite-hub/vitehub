@@ -5,7 +5,10 @@ import type { ContentPreset } from "../presets.ts"
 
 /** Options of the `cms` Content preset. The build reads them from `server/content.ts`, so pass string literals. */
 export interface CmsPresetOptions {
-  /** Database that receives the Workspace history tables. Defaults to the Database named `default`, or the only one. */
+  /**
+   * Database that receives the Workspace history tables. Defaults to the Database named `default`, or the only one.
+   * Without a Database Definition, the preset adds the `default` Database.
+   */
   database?: string
   /** Blob store that holds file contents. Defaults to `default`. */
   blob?: string
@@ -16,9 +19,11 @@ export interface CmsPresetOptions {
 const namePattern = /^[a-z0-9][a-z0-9._-]*(?:\/[a-z0-9][a-z0-9._-]*)*$/i
 
 /**
- * Store editable collections without wiring. At build time the Content Vite plugin adds a Workspace named `content`
- * on the Blob + Database Store, using the `default` Blob store and the default or only Database, and adds the
- * Workspace history tables to that Database. `defineContent({ extends: cms })` then uses that Workspace.
+ * Store editable collections without wiring. `vitehub()` turns on Workspace, Database, and Blob when they are unset.
+ * At build time the Content Vite plugin adds a Workspace named `content` on the Blob + Database Store, using the
+ * `default` Blob store and the default or only Database, and adds the Workspace history tables to that Database. When
+ * the app has no Database Definition, it adds the `default` Database. `defineContent({ extends: cms })` then uses
+ * that Workspace.
  */
 const cms: ContentPreset<CmsPresetOptions> = defineContentPreset<CmsPresetOptions>({
   name: "cms",

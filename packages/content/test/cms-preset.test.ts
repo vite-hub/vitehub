@@ -16,7 +16,7 @@ import { createDriver } from "../../blob/src/drivers/fs.ts"
 import { readCmsPresetUsage, renderCmsWorkspaceModule, resolveCmsPresetPlan } from "../src/cms-build.ts"
 import { defineContent, documents } from "../src/index.ts"
 import cms from "../src/presets/cms.ts"
-import { hubContent } from "../src/vite.ts"
+import { hubContent, usesCmsPreset } from "../src/vite.ts"
 
 import type { ResolvedConfig } from "vite"
 
@@ -106,12 +106,16 @@ describe("resolving the cms preset resources", () => {
       .toMatchObject({ blob: "media", database: "audit", databaseReason: "option", workspace: "site" })
   })
 
-  it("names the option to set when the Database is ambiguous, missing, or unknown", () => {
+  it("adds the default Database when the app has none", () => {
+    expect(resolveCmsPresetPlan(usage, choices([]), "/app")).toMatchObject({ database: "default", databaseReason: "preset" })
+    expect(errorOf(() => resolveCmsPresetPlan({ file, options: { database: "blog" } }, choices([]), "/app")).message)
+      .toContain("option database is \"blog\", but no Database Definition has that name. Database Definitions: none.")
+  })
+
+  it("names the option to set when the Database is ambiguous or unknown", () => {
     const ambiguous = errorOf(() => resolveCmsPresetPlan(usage, choices(["blog", "audit"]), "/app"))
     expect(ambiguous.code).toBe("CONTENT_B0002")
     expect(ambiguous.message).toBe("[vitehub] \"server/content.ts\" uses the Content cms preset: it needs one Database, but the app has several and none is named \"default\": \"audit\", \"blog\". Choose one with extends: [cms, { database: \"audit\" }].")
-    expect(errorOf(() => resolveCmsPresetPlan(usage, choices([]), "/app")).message)
-      .toContain("the app has no Database Definition. Add server/databases/config.ts with defineDatabase({ schema: {} }) and enable database in vitehub().")
     expect(errorOf(() => resolveCmsPresetPlan({ file, options: { database: "blog" } }, choices(["default"]), "/app")).message)
       .toContain("option database is \"blog\", but no Database Definition has that name. Database Definitions: \"default\".")
   })
@@ -208,6 +212,32 @@ describe("hubContent()", () => {
     expect(generated).toContain("import { blob } from \"vite-hub/blob\"")
     expect(generated).toContain("import { useDatabase } from \"@vite-hub/database/drizzle\"")
     expect(await plugin.vitehub.databases({ rootDir: root })).toEqual([{ database: "default", export: "workspaceHistorySchema", module: "@vite-hub/workspace/blob-database" }])
+  })
+
+  it("adds the default Database Definition when the app has none, and removes it once the app defines one", async () => {
+    const root = await project(presetContent, {})
+    const plugin = hubContent({ imports: { databaseDefinition: "vite-hub/database" } })
+    const definition = join(root, ".vitehub/content/database.ts")
+    expect(await plugin.vitehub.databases({ rootDir: root })).toEqual([
+      { definition, name: "default", reason: "\"server/content.ts\" uses the Content cms preset and the app has no Database Definition. Add server/databases/config.ts to define this Database yourself." },
+      { database: "default", export: "workspaceHistorySchema", module: "@vite-hub/workspace/blob-database" },
+    ])
+    const generated = await readFile(definition, "utf8")
+    expect(generated).toContain("import { defineDatabase } from \"vite-hub/database\"")
+    expect(generated).toContain("export default defineDatabase({ schema: {} })")
+
+    await writeProjectFile(root, "server/databases/config.ts", "export default defineDatabase({ schema: {} })\n")
+    expect(await plugin.vitehub.databases({ rootDir: root })).toEqual([{ database: "default", export: "workspaceHistorySchema", module: "@vite-hub/workspace/blob-database" }])
+    await expect(readFile(definition)).rejects.toThrow()
+  })
+
+  it("reads whether server/content.ts uses the preset without running it", async () => {
+    expect(usesCmsPreset({ projectRoot: await project(presetContent, {}) })).toBe(true)
+    expect(usesCmsPreset({ projectRoot: await project("export const content = defineContent({ workspace: 'site' })\n", {}) })).toBe(false)
+    expect(usesCmsPreset({ projectRoot: await temporaryRoot() })).toBe(false)
+    const custom = await temporaryRoot()
+    await writeProjectFile(custom, "app/server/content.ts", presetContent)
+    expect(usesCmsPreset({ projectRoot: custom, serverDirs: ["app/server"] })).toBe(true)
   })
 
   it("contributes nothing and removes the generated module without the preset", async () => {

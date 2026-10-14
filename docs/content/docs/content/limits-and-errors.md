@@ -40,7 +40,7 @@ icon: i-lucide-circle-alert
 | Code | Cause | What to do |
 | --- | --- | --- |
 | `CONTENT_B0001` | The build cannot read how `server/content.ts` selects the `cms` preset. | Pass `extends: cms` or `extends: [cms, { ... }]` with string literal options. See [CMS preset](/docs/content/cms-preset#errors). |
-| `CONTENT_B0002` | The app lacks a Workspace, Database, or Blob store that the `cms` preset needs, or the Database choice is ambiguous. | Set the `vitehub()` setting or preset option that the message names. |
+| `CONTENT_B0002` | Workspace, Database, or Blob is set to `false` in `vitehub()`, a Blob store or Database that the `cms` preset needs does not exist, or the Database choice is ambiguous. | Set the `vitehub()` setting or preset option that the message names. |
 | `CONTENT_INVALID` | A document failed its fields, from `save()`, `restore()`, `get()`, `publish()`, or any Workspace writer. `details.issues` lists `{ field, path, message }`. | Fix the listed fields. |
 | `WORKSPACE_CONFLICT` | `ifDigest` no longer matches the draft document, or `ifHead` no longer matches the published head. `details` carry `ref`, `expected`, and `actual`. From `publish({ expect })`, a draft changed after review: `details` are `{ ref: 'draft', documents: [{ collection, id, expected, actual }] }`. | Read the document or head again and retry. After a `publish({ expect })` conflict, review the listed documents again. |
 | `CONTENT_NOT_FOUND` | `remove()`, `restore()`, or `publish({ ids })` named a document that does not exist. | Check the id, ref, or revision. |

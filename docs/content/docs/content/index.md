@@ -78,7 +78,7 @@ icon: i-lucide-file-text
   :::
 
   :::product-feature-item{title="One preset stores the collections" icon="i-lucide-newspaper" to="/docs/content/cms-preset"}
-  `extends: cms` adds the Workspace and its Database tables at build time and uses your Blob store.
+  `extends: cms` turns on Workspace, Database, and Blob, adds the Workspace and its Database tables, and adds a Database when the app has none.
   :::
 
   :::product-feature-item{title="Documents, navigation, and search from server code" icon="i-lucide-code-2" to="/docs/content/server-api"}

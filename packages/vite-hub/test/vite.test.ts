@@ -131,6 +131,14 @@ function pluginNames(plugins: PluginOption[]): string[] {
   return plugins.map(plugin => (plugin as Plugin).name)
 }
 
+/** Names of the plugins that Vite keeps for an app without `server/content.ts`. */
+function appliedPluginNames(plugins: PluginOption[]): string[] {
+  // SAFETY: vitehub() returns a flat list of concrete plugins in these integration tests.
+  return (plugins as Plugin[]).filter(plugin => plugin.apply === undefined
+    || (plugin.apply instanceof Function ? plugin.apply({ root: "/vitehub-test-app-without-content" }, { command: "build", mode: "production" }) : plugin.apply === "build"))
+    .map(plugin => plugin.name)
+}
+
 function isCallable(value: unknown): value is CallableFunction {
   if (value === null || value === undefined || Object(value) !== value) return false
   try {
@@ -577,7 +585,9 @@ describe("vitehub", () => {
   })
 
   it("keeps coherent defaults and opt-in integrations", () => {
-    expect(pluginNames(vitehub({ preset: "node" }))).toEqual([
+    // Database, Blob, and Workspace are in the list for the Content cms preset, which turns them on when it is used.
+    expect(pluginNames(vitehub({ preset: "node" }))).toEqual(expect.arrayContaining(["@vite-hub/database/vite", "@vite-hub/blob/vite", "@vite-hub/workspace/vite"]))
+    expect(appliedPluginNames(vitehub({ preset: "node" }))).toEqual([
       "vite-hub/doctor",
       "@vite-hub/markdown-template/vite",
       "vite-hub/deployment-preset",
@@ -1520,9 +1530,11 @@ describe("vitehub", () => {
 
   it("keeps Blob disabled until requested and rejects unsupported presets", () => {
     integrationMocks.hubBlob.mockClear()
-    expect(pluginNames(vitehub({ preset: "node" }))).not.toContain("@vite-hub/blob/vite")
+    expect(appliedPluginNames(vitehub({ preset: "node" }))).not.toContain("@vite-hub/blob/vite")
+    expect(pluginNames(vitehub({ preset: "node", blob: false }))).not.toContain("@vite-hub/blob/vite")
     expect(pluginNames(vitehub({ preset: "deno" }))).not.toContain("@vite-hub/blob/vite")
-    expect(integrationMocks.hubBlob).not.toHaveBeenCalled()
+    // Only the Content cms preset case of the default list builds Blob.
+    expect(integrationMocks.hubBlob).toHaveBeenCalledOnce()
     // SAFETY: The explicit Deno preset installs the named deployment plugin.
     const deployment = vitehub({ preset: "deno", blob: true }).find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
     expect(() => callHook(deployment.resolveId, ["vite-hub/blob", "/app/server/api.ts"])).toThrow("cannot provide blob")
