@@ -174,6 +174,22 @@ describe("Blob reference schemas", () => {
     expect(file()["~standard"].jsonSchema.input({ target: "openapi-3.0" })["x-vitehub-blob"]).not.toHaveProperty("accept")
   })
 
+  it.each(["draft-07", "draft-2020-12", "openapi-3.0"])("bounds JSON Schema sizes to safe integers for %s", (target) => {
+    for (const factory of [file, image]) {
+      for (const maxSize of [undefined, "1KB"] as const) {
+        const standard = factory({ maxSize })["~standard"]
+        const maximum = maxSize ? 1024 : Number.MAX_SAFE_INTEGER
+        for (const direction of ["input", "output"] as const) {
+          expect(standard.jsonSchema[direction]({ target })).toMatchObject({
+            properties: { size: { type: "integer", minimum: 0, maximum } },
+          })
+        }
+        expect(standard.validate({ pathname: "a.png", contentType: "image/png", size: maximum }).issues).toBeUndefined()
+        expect(standard.validate({ pathname: "a.png", contentType: "image/png", size: maximum + 1 }).issues).toHaveLength(1)
+      }
+    }
+  })
+
   it("returns a fresh JSON Schema object on each call", () => {
     const schema = image()
     const first = schema["~standard"].jsonSchema.input({ target: "draft-07" })
