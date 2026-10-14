@@ -15,6 +15,8 @@ import type {
   ViteHubConsoleDocumentPage,
   ViteHubConsoleDocumentPendingChange,
   ViteHubConsoleDocumentPublishExpectation,
+  ViteHubConsoleDocumentReference,
+  ViteHubConsoleDocumentReferences,
   ViteHubConsoleDocumentRevision,
   ViteHubConsoleDocumentSearchResult,
   ViteHubConsoleDocumentSchedule,
@@ -22,6 +24,7 @@ import type {
   ViteHubConsoleDocumentScheduledChange,
   ViteHubConsoleDocumentState,
   ViteHubConsoleDocumentSummary,
+  ViteHubConsoleMediaAccess,
 } from "@vite-hub/internal/console"
 import type { ContentAction, ContentDocumentsRuntime } from "../index.ts"
 import type { AnyContentCollection, ContentDocument, ContentDocumentStatus, ContentDocumentSummary, ContentListOptions } from "../collections.ts"
@@ -34,6 +37,8 @@ const titleFields = ["title", "name", "label", "heading"]
 const maximumListLimit = 200
 const maximumActivity = 50
 const maximumSearchLimit = 50
+const maximumReferencePathnames = 100
+const referencePageSize = 1_000
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && Object(value) === value && !Array.isArray(value)
@@ -190,6 +195,20 @@ function revisionAction(metadata: Record<string, unknown> | undefined): string {
   const content = metadata?.content
   const action = isRecord(content) ? content.action : undefined
   return String(action) === action ? action : "change"
+}
+
+/** True when a field value is the pathname, as a string or as a Blob reference `{ pathname }`, at any depth. */
+function usesPathname(value: unknown, pathnames: ReadonlySet<string>, found: Set<string>): void {
+  if (String(value) === value) {
+    if (pathnames.has(value)) found.add(value)
+    return
+  }
+  if (Array.isArray(value)) {
+    for (const entry of value) usesPathname(entry, pathnames, found)
+    return
+  }
+  if (!isRecord(value)) return
+  for (const entry of Object.values(value)) usesPathname(entry, pathnames, found)
 }
 
 /**
@@ -556,6 +575,60 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
         }
         return { collections: overviews, activity }
       })
+    },
+
+    async references(input, context): Promise<ViteHubConsoleDocumentReferences> {
+      if (!isRecord(input) || !Array.isArray(input.pathnames)) throw invalidInput("references() requires { pathnames }.")
+      const pathnames = [...new Set(input.pathnames.map(pathname => text(pathname, "pathnames")))]
+      if (pathnames.length > maximumReferencePathnames) throw invalidInput(`pathnames must list at most ${maximumReferencePathnames} pathnames.`)
+      const wanted = new Set(pathnames)
+      const collections = await readable(context)
+      return await attempt(async () => {
+        const found = new Map<string, Map<string, ViteHubConsoleDocumentReference>>(pathnames.map(pathname => [pathname, new Map()]))
+        await Promise.all(collections.map(async (collection) => {
+          for (const ref of ["draft", "published"] as const) {
+            const add = (pathname: string, item: Pick<ContentDocumentSummary, "data" | "id">) => {
+              const documents = found.get(pathname)!
+              const reference = documents.get(`${collection.name}\u0000${item.id}`)
+              if (reference) {
+                if (!reference.refs.includes(ref)) reference.refs.push(ref)
+                return
+              }
+              documents.set(`${collection.name}\u0000${item.id}`, { collection: collection.name, id: item.id, title: titleOf(collection, item, item.id), refs: [ref] })
+            }
+            // Field values: walk every document once for all pathnames. The collection index is cached per revision.
+            let cursor: string | undefined
+            do {
+              const page = await collection.list(cursor ? { ref, limit: referencePageSize, cursor } : { ref, limit: referencePageSize })
+              for (const item of page.items) {
+                const used = new Set<string>()
+                usesPathname(item.data, wanted, used)
+                for (const pathname of used) add(pathname, item)
+              }
+              cursor = page.nextCursor ?? undefined
+            } while (cursor)
+            // Bodies: the collection search covers the body of Markdown documents, so a link or an image finds it.
+            if (collection.format !== "markdown") continue
+            for (const pathname of pathnames) {
+              const page = await collection.list({ ref, search: pathname, limit: referencePageSize })
+              for (const item of page.items) add(pathname, item)
+            }
+          }
+        }))
+        return { references: Object.fromEntries([...found].map(([pathname, documents]) => [pathname, [...documents.values()]])) }
+      })
+    },
+
+    async mediaAccess(context): Promise<ViteHubConsoleMediaAccess> {
+      // Media is shared by every collection, so it follows the widest access: anyone who may edit a collection may upload
+      // for it. Moves and deletes change published documents without a publish, so they need publish access.
+      const access = await Promise.all(content.collections().map(collection => Promise.all((["read", "write", "publish"] as const).map(action =>
+        content.can({ user: context.user, collection: collection.name, action })))))
+      return {
+        read: access.some(([read]) => read),
+        write: access.some(([read, write]) => read && write),
+        manage: access.some(([read, write, publish]) => read && write && publish),
+      }
     },
 
     async search(input, context) {
