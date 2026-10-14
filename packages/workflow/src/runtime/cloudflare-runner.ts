@@ -34,16 +34,21 @@ function isNonRetryableError(error: unknown): error is Error & { isRetryable: fa
       const ownTag = Object.getOwnPropertyDescriptor(error as object, tag)
       if (ownTag && !ownTag.configurable) {
         if (ownTag.value !== "Error") return false
-        if (!Object.prototype.hasOwnProperty.call(error, "stack") && !Object.prototype.hasOwnProperty.call(error, "message")) return false
-        return Object.prototype.toString.call(error) === "[object Error]"
+        return hasNativeErrorSlots(error as object)
       }
-      if (!ownTag && !Object.isExtensible(error)) return false
-      Object.defineProperty(error, tag, { configurable: true, enumerable: false, value: undefined, writable: true })
+      if (!ownTag && !Object.isExtensible(error as object)) return hasNativeErrorSlots(error as object)
+      Object.defineProperty(error as object, tag, { configurable: true, enumerable: false, value: undefined, writable: true })
       try { return Object.prototype.toString.call(error) === "[object Error]" }
-      finally { if (ownTag) Object.defineProperty(error, tag, ownTag); else Reflect.deleteProperty(error, tag) }
+      finally { if (ownTag) Object.defineProperty(error as object, tag, ownTag); else Reflect.deleteProperty(error as object, tag) }
     })()
     return branded && Reflect.get(error as object, "isRetryable") === false
   } catch { return false }
+}
+
+function hasNativeErrorSlots(error: object): boolean {
+  const stack = Object.getOwnPropertyDescriptor(error, "stack")
+  const message = Object.getOwnPropertyDescriptor(error, "message")
+  return stack?.configurable === true || message?.configurable === true
 }
 function translateNonRetryableError(
   error: unknown,
