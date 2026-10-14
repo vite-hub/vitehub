@@ -23,6 +23,7 @@ export const consoleRpcMethods = {
   invocationCapabilities: "vitehub:console:invocation-capabilities",
   invocations: "vitehub:console:invocations",
   kv: "vitehub:console:kv",
+  media: "vitehub:console:media",
   scheduleRun: "vitehub:console:schedule-run",
   search: "vitehub:console:search",
   sections: "vitehub:console:sections",
