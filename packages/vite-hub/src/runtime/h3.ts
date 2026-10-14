@@ -46,20 +46,13 @@ function isRequest(value: unknown): value is Request {
     // a coherent Request prototype instead of trusting candidate-owned fields.
     let prototype: object | null = value
     while (prototype) {
-      const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+      const accessors = ["headers", "url", "method", "bodyUsed"].map((key) =>
+        Object.getOwnPropertyDescriptor(prototype, key)?.get)
       if (
-        typeof constructor === "function"
-        && constructor.name === "Request"
-        && constructor.prototype === prototype
+        accessors.every((accessor): accessor is Function =>
+          typeof accessor === "function" && isRequestAccessor(accessor))
       ) {
-        for (const key of ["headers", "url", "method", "bodyUsed"] as const) {
-          const getter = Object.getOwnPropertyDescriptor(prototype, key)?.get
-          if (
-            typeof getter !== "function"
-            || !isRequestAccessor(getter)
-          ) return false
-          getter.call(value)
-        }
+        for (const accessor of accessors) accessor.call(value)
         return true
       }
       prototype = Object.getPrototypeOf(prototype)
