@@ -383,8 +383,16 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
 
 function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
   // Use native operations from the stream's realm, never caller-supplied methods.
-  const streamPrototype = streamIntrinsic(body, "locked")!.owner
-  const getReader = streamIntrinsic(streamPrototype, "getReader")!.value as (this: ReadableStream<Uint8Array>) => ReadableStreamDefaultReader<Uint8Array>
+  const locked = streamIntrinsic(body, "locked")
+  const getReaderIntrinsic = locked && streamIntrinsic(locked.owner, "getReader")
+  if (!locked || !getReaderIntrinsic || locked.owner !== getReaderIntrinsic.owner
+    || !isNativeFunction(locked.value, nativeStreamLocked)
+    || !isNativeFunction(getReaderIntrinsic.value, nativeStreamGetReader)) throw new Error("Non-native response stream")
+  const streamPrototype = locked.owner
+  const streamConstructor = Object.getOwnPropertyDescriptor(streamPrototype, "constructor")?.value
+  if (typeof streamConstructor !== "function" || streamConstructor.name !== "ReadableStream"
+    || streamConstructor.prototype !== streamPrototype) throw new Error("Non-native response stream")
+  const getReader = getReaderIntrinsic.value as (this: ReadableStream<Uint8Array>) => ReadableStreamDefaultReader<Uint8Array>
   const reader = Reflect.apply(getReader, body, [])
   const readerPrototype = Object.getPrototypeOf(reader)
   if (!readerPrototype || Object.prototype.hasOwnProperty.call(reader, "read")
@@ -394,25 +402,8 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
   if (typeof readerConstructor !== "function"
     || readerConstructor.name !== "ReadableStreamDefaultReader"
     || readerConstructor.prototype !== readerPrototype) throw new Error("Non-native response reader")
-  // The returned reader may have a caller-controlled immediate prototype. Create
-  // a fresh reader through the source realm constructor and require the exact
-  // native prototype before invoking any reader operation.
-  const streamConstructor = Object.getOwnPropertyDescriptor(streamPrototype, "constructor")?.value
-  if (typeof streamConstructor !== "function"
-    || streamConstructor.name !== "ReadableStream") throw new Error("Non-native response stream")
-  let nativeReader: ReadableStreamDefaultReader<Uint8Array>
-  try {
-    const probe = Reflect.construct(streamConstructor, []) as ReadableStream<Uint8Array>
-    nativeReader = Reflect.apply(getReader, probe, [])
-  }
-  catch {
-    throw new Error("Non-native response stream")
-  }
-  const nativeReaderPrototype = Object.getPrototypeOf(nativeReader)
-  const nativeReleaseLock = Object.getOwnPropertyDescriptor(nativeReaderPrototype, "releaseLock")?.value
-  if (typeof nativeReleaseLock !== "function") throw new Error("Non-native response reader")
-  Reflect.apply(nativeReleaseLock, nativeReader, [])
-  if (nativeReaderPrototype !== readerPrototype) throw new Error("Non-native response reader")
+  // The returned reader may have a caller-controlled immediate prototype. Its
+  // constructor identity and native operations are checked before invocation.
   // The first reader acquisition locks the source stream. Inspect this reader's
   // prototype directly instead of acquiring a second reader while it is locked.
   const read = readerOperation(readerPrototype, "read") as ((this: ReadableStreamDefaultReader<Uint8Array>) => Promise<{ done: true, value?: undefined } | { done: false, value: Uint8Array }>) | undefined

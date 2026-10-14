@@ -494,6 +494,25 @@ describe("Auth access handlers", () => {
     expect(getReader).not.toHaveBeenCalled()
   })
 
+  it("rejects a polluted stream constructor without invoking it", async () => {
+    const source = new ReadableStream<Uint8Array>()
+    const constructor = vi.fn(function ReadableStream() {
+      throw new Error("must not construct supplied stream")
+    })
+    Object.setPrototypeOf(source, Object.create(ReadableStream.prototype, {
+      locked: { get: Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get },
+      getReader: { value: ReadableStream.prototype.getReader },
+      constructor: { value: constructor },
+    }))
+    const foreign = new ForeignResponse(source, { status: 409 })
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => foreign as never }] },
+    }))
+
+    await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
+    expect(constructor).not.toHaveBeenCalled()
+  })
+
   it.each([["local", Response], ["foreign", ForeignResponse]] as const)("preserves status-zero error semantics from the %s runtime", async (_runtime, ResponseConstructor) => {
     const source = ResponseConstructor.error()
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
