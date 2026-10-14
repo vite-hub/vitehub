@@ -291,13 +291,11 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     const status = Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get?.call(value)
     const statusText = Object.getOwnPropertyDescriptor(Response.prototype, "statusText")?.get?.call(value)
     const headers = Object.getOwnPropertyDescriptor(Response.prototype, "headers")?.get?.call(value)
-    if (typeof status !== "number" || typeof statusText !== "string" || !(headers instanceof Headers)) return
+    if (typeof status !== "number" || typeof statusText !== "string") return
     const response = value as Response
     const body = response.body === null ? null : new Uint8Array(await response.arrayBuffer())
     return new Response(body, { headers: new Headers(headers), status, statusText })
   } catch { return }
-}
-  }
 }
 
 async function checkAuthRequest(

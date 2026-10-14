@@ -433,7 +433,6 @@ Unavailable
     })).rejects.toThrow("cannot target a style attribute")
     await expect(renderMarkdownTemplate('<div style="color: red">Content</div>')).resolves.toContain('style="color: red"')
   })
-  })
 
   it("preserves URL-like attributes on custom tags", async () => {
     await expect(renderMarkdownTemplate('<policy action="review now">Use it.</policy>'))

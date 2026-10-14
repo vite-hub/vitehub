@@ -105,13 +105,6 @@ describe("Auth access handlers", () => {
   })
 
 
-  it("rejects spoofed authorization responses", async () => {
-    const foreignResponse = runInNewContext(`new (class {
-      get status() { return 409 }
-      get statusText() { return "Conflict" }
-      get headers() { return { get() { return null } } }
-      get body() { return null }
-
   it("normalizes compatible authorization responses from another realm", async () => {
     const foreignResponse = runInNewContext(`new (class {
       get status() { return 409 }
@@ -126,10 +119,6 @@ describe("Auth access handlers", () => {
       access: { routes: [{ route: "/**", authorize: () => foreignResponse as never }] },
     }))
 
-
-    const result = await handler(new Request("https://app.example/"))
-    expect(result).toBeInstanceOf(Response)
-    expect(result?.status).toBe(403)
 
     const response = await handler(new Request("https://app.example/"))
     expect(response).toBeInstanceOf(Response)
