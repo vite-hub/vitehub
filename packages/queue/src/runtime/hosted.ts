@@ -31,12 +31,17 @@ function isRequestLike(value: unknown): value is Request {
   // Request, and does not clone, lock, or consume the body.
   try {
     let prototype = Object.getPrototypeOf(value)
+    while (prototype && !Object.prototype.hasOwnProperty.call(prototype, "url")) {
+      prototype = Object.getPrototypeOf(prototype)
+    }
+    if (!prototype) return false
+
+    const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+    if (typeof constructor !== "function" || constructor.prototype !== prototype) return false
+
     const getters = ["url", "method", "headers", "body", "bodyUsed"] as const
     for (const key of getters) {
-      while (prototype && !Object.prototype.hasOwnProperty.call(prototype, key)) {
-        prototype = Object.getPrototypeOf(prototype)
-      }
-      const getter = prototype && Object.getOwnPropertyDescriptor(prototype, key)?.get
+      const getter = Object.getOwnPropertyDescriptor(prototype, key)?.get
       if (!getter) return false
       getter.call(value)
     }
