@@ -38,26 +38,11 @@ function detectRuntime(cloudflare: boolean): H3RuntimeName {
 function isRequest(value: unknown): value is Request {
   try {
     if (value instanceof Request) return true
-    // Request constructors differ across H3 host realms, but their Web IDL tag is shared.
-    if (value === null || typeof value !== "object" || Object.prototype.toString.call(value) !== "[object Request]") {
-      return false
-    }
-    // Validate internal Fetch slots with the candidate realm's accessors.
-    // Calling these accessors performs the realm's brand check without cloning
-    // or consuming the request body, and walking the chain preserves subclasses.
-    let prototype = Object.getPrototypeOf(value)
-    const getters = new Map<string, ((this: object) => unknown)>()
-    while (prototype && prototype !== Object.prototype) {
-      for (const key of ["headers", "url", "method", "bodyUsed"] as const) {
-        const getter = Object.getOwnPropertyDescriptor(prototype, key)?.get
-        if (getter && !getters.has(key)) getters.set(key, getter)
-      }
-      prototype = Object.getPrototypeOf(prototype)
-    }
-    for (const key of ["headers", "url", "method", "bodyUsed"] as const) {
-      getters.get(key)?.call(value)
-    }
-    return getters.size === 4
+    if (value === null || typeof value !== "object") return false
+    // Constructing with a null body makes the host Fetch implementation validate
+    // the candidate's Request internal slots without cloning or consuming it.
+    new Request(value as Request, { body: null })
+    return true
   } catch {
     return false
   }

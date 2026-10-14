@@ -87,6 +87,29 @@ describe("H3 Runtime Context", () => {
     await context.flushWaitUntil()
   })
 
+  it("rejects a Request-shaped custom prototype", async () => {
+    const prototype = {
+      headers: new Headers(),
+      url: "https://example.test",
+      method: "GET",
+      bodyUsed: false,
+      clone: () => ({}),
+      [Symbol.toStringTag]: "Request",
+    }
+    const context = getRuntimeContext({ context: {}, req: Object.create(prototype) })
+    expect(context.request).toBeUndefined()
+    await context.flushWaitUntil()
+  })
+
+  it("rejects a request with a throwing tag getter", async () => {
+    const request = Object.defineProperty({}, Symbol.toStringTag, {
+      get: () => { throw new Error("spoofed tag") },
+    })
+    const context = getRuntimeContext({ context: {}, req: request })
+    expect(context.request).toBeUndefined()
+    await context.flushWaitUntil()
+  })
+
   it("uses a real host lifetime before H3 2's optional request forwarder", async () => {
     const host = { waitUntil: vi.fn() }
     const event = new H3Event(new Request("https://example.test"))
