@@ -377,7 +377,8 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
   const stream = body as object
   // An own reader operation belongs to the caller-controlled body object.
   // Inherited stream methods are resolved from the source realm below.
-  if (Object.prototype.hasOwnProperty.call(stream, "getReader")) return false
+  if (Object.prototype.hasOwnProperty.call(stream, "locked")
+    || Object.prototype.hasOwnProperty.call(stream, "getReader")) return false
   const locked = streamIntrinsic(stream, "locked")
   const getReader = locked && streamIntrinsic(locked.owner, "getReader")
   if (!locked || !getReader || locked.owner !== getReader.owner
@@ -395,7 +396,7 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
   const streamPrototype = locked.owner
   const streamConstructor = Object.getOwnPropertyDescriptor(streamPrototype, "constructor")?.value
   // The constructor is metadata only. Never call or construct a value supplied by the response.
-  if (typeof streamConstructor !== "function" || streamConstructor.name !== "ReadableStream"
+  if (!isNativeFunction(streamConstructor, ReadableStream) || streamConstructor.name !== "ReadableStream"
     || streamConstructor.prototype !== streamPrototype) throw new Error("Non-native response stream")
   const getReader = getReaderIntrinsic.value as (this: ReadableStream<Uint8Array>) => ReadableStreamDefaultReader<Uint8Array>
   const reader = Reflect.apply(getReader, body, [])
@@ -404,7 +405,7 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
     || Object.prototype.hasOwnProperty.call(reader, "cancel")
     || Object.prototype.hasOwnProperty.call(reader, "releaseLock")) throw new Error("Non-native response reader")
   const readerConstructor = Object.getOwnPropertyDescriptor(readerPrototype, "constructor")?.value
-  if (typeof readerConstructor !== "function"
+  if (!isNativeFunction(readerConstructor, nativeReaderPrototype.constructor)
     || readerConstructor.name !== "ReadableStreamDefaultReader"
     || readerConstructor.prototype !== readerPrototype) throw new Error("Non-native response reader")
   // The returned reader may have a caller-controlled immediate prototype. Its
