@@ -56,12 +56,13 @@ function isNonRetryableError(error: unknown): error is Error & { isRetryable: fa
           // Real Error instances receive a native lazy stack accessor. Requiring
           // that descriptor shape rejects Error.prototype-derived records that
           // fabricate a stack value while retaining foreign Error instances.
+          && Object.prototype.hasOwnProperty.call(errorRecord, "stack")
           && typeof stackDescriptor?.get === "function"
           && typeof stackDescriptor.set === "function"
           && stackDescriptor.configurable === true
           && stackDescriptor.enumerable === false
       })()
-    return branded && Reflect.get(error, "isRetryable") === false
+    return branded && Reflect.get(error as object, "isRetryable") === false
   }
   catch {
     return false
