@@ -142,7 +142,7 @@ function moduleGraphContainsFile(server: Pick<ViteDevServer, "moduleGraph">, ent
     const module = pending.pop()!
     if (visited.has(module)) continue
     visited.add(module)
-    if (normalizeModulePath(module.id) === changedFile) return true
+    if (module.id && normalizeModulePath(module.id) === changedFile) return true
     pending.push(...module.importedModules)
   }
   return false
