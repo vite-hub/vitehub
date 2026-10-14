@@ -496,6 +496,29 @@ describe("contentSource", () => {
     await expect(source.getItemRaw("settings.json")).resolves.toEqual({ theme: "dark" })
   })
 
+  it("decodes binary content from another realm", async () => {
+    const binary = runInNewContext("new Uint8Array([72, 105])")
+    const source = contentSource({
+      async items() {
+        return [{ content: binary, key: "hello.txt" }]
+      },
+    } as never)
+
+    await expect(source.getItem("hello.txt")).resolves.toBe("Hi")
+  })
+
+  it("does not decode a tagged non-Uint8Array view", async () => {
+    const view = new DataView(Uint8Array.of(72, 105).buffer)
+    Object.defineProperty(view, Symbol.toStringTag, { value: "Uint8Array" })
+    const source = contentSource({
+      async items() {
+        return [{ content: view, key: "hello.txt" }]
+      },
+    } as never)
+
+    await expect(source.getItem("hello.txt")).resolves.toBe(view)
+  })
+
   it("refreshes a direct adapter passed to raw Comark Content", async () => {
     let revision = 0
     const parsed: string[] = []
@@ -782,6 +805,29 @@ describe("contentSource", () => {
 })
 
 describe("defineContentHandler", () => {
+  it("preserves repeated Node header values from another realm", async () => {
+    let received: string | null = null
+    const handler = defineContentHandler({
+      async handler(request) {
+        received = (request as Request).headers.get("x-test")
+        return new Response("ok")
+      },
+    })
+    const nodeHeaders = runInNewContext("['first', 'second']") as string[]
+    const nodeRequest = {
+      aborted: false,
+      headers: { "x-test": nodeHeaders },
+      method: "GET",
+      url: "/headers",
+      [Symbol.asyncIterator]() {
+        return { next: async () => ({ done: true as const, value: undefined }) }
+      },
+      once() {},
+    }
+
+    await handler({ method: "GET", node: { req: nodeRequest }, req: nodeRequest } as never)
+    expect(received).toBe("first, second")
+  })
   it("copies ArrayBuffer Node body chunks from another realm", async () => {
     let received: Uint8Array | undefined
     const handler = defineContentHandler({

@@ -87,7 +87,7 @@ function assertNoUnsupportedOptions(value: Record<string, unknown>, allowed: Set
   }
 }
 
-function normalizeAgentDriverCapacity(value: unknown): AgentDriverCapacityOptions | undefined {
+export function normalizeAgentDriverCapacity(value: unknown): AgentDriverCapacityOptions | undefined {
   if (value === undefined) return
   if (!isPlainObject(value)) throw agentDiagnostics.AGENT_R0455({ message: "[vitehub] defineAgent({ driver.capacity }) must be an object." })
   assertNoUnsupportedOptions(value, new Set(["adaptive", "concurrency", "queue"]), "defineAgent({ driver.capacity })")
