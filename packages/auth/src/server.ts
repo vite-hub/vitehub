@@ -87,6 +87,7 @@ function isRequestLike(value: AuthRequest): value is Request {
     const constructor = Reflect.getOwnPropertyDescriptor(prototype, "constructor")?.value
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate the foreign Request prototype marker.
     if (typeof constructor !== "function" || constructor.name !== "Request") return false
+    if (Reflect.getOwnPropertyDescriptor(constructor, "prototype")?.value !== prototype) return false
     const hasAccessor = (property: string): boolean => typeof Reflect.getOwnPropertyDescriptor(accessorPrototype, property)?.get === "function"
     // Request implementations expose their state through prototype accessors. This
     // rejects tagged host-shaped objects that merely copy the method names.

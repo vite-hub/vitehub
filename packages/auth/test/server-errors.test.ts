@@ -202,6 +202,7 @@ describe("server authentication provider boundaries", () => {
         get [Symbol.toStringTag]() { return "Request" }
       }
       const intermediate = Object.create(Request.prototype)
+      Object.defineProperty(intermediate, "constructor", { value: Request })
       return Object.create(intermediate)
     })()`)
     const response = new Response("ok")
