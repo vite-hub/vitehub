@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
+import { createCheckWait, wakeReasons } from '../src/presets/babysitter/wait.ts'
 import { PullRequestInbox } from '../src/server/github-inbox.ts'
 
 const repository = 'example/project'
@@ -149,5 +150,60 @@ for (const source of ['seed', 'webhook'] as const) {
     assert.equal((await inbox.get(repository, 7))!.status, 'ready')
     assert.equal((await inbox.get(repository, 7))!.wait, undefined)
     assert.equal((await inbox.claim(1)).length, 1)
+  })
+}
+
+for (const event of ['feedback', 'failure', 'progress'] as const) {
+  test(`pinned waits retain concurrent ${event} for host evaluation`, async t => {
+    const inbox = await setup(t)
+    const claim = (await inbox.claim(1))[0]!
+    const policy = { workerAuthors: new Set<string>(), pendingReviewChecks: new Set<string>(), wakeWhenReady: false, noFindingsReviews: [] }
+    const declared = { ...createCheckWait(claim.snapshot, policy), headSha: pr.head.sha }
+    if (event === 'feedback') {
+      await inbox.ingest('feedback', 'issue_comment', { repository: { full_name: repository }, action: 'created',
+        issue: { number: pr.number, pull_request: {} }, comment: { id: 20, body: 'Please fix this', user: { login: 'reviewer' } } })
+    } else {
+      await inbox.ingest(event, 'check_run', { repository: { full_name: repository }, action: event === 'failure' ? 'completed' : 'created',
+        check_run: { id: 10, name: 'test', app: { slug: 'github-actions' }, head_sha: pr.head.sha,
+          status: event === 'failure' ? 'completed' : 'in_progress', conclusion: event === 'failure' ? 'failure' : null,
+          pull_requests: [{ number: pr.number }] } })
+    }
+    assert.equal(await inbox.finish(claim, { text: 'Waiting', wait: declared }), true)
+    const current = (await inbox.get(repository, pr.number))!
+    assert.deepEqual(current.wait, declared)
+    if (event !== 'progress') {
+      assert.ok(current.generation > current.handled)
+      assert.equal((await inbox.waitsToEvaluate()).length, 1)
+      assert.ok(wakeReasons(current, 'pending', policy).includes(event === 'feedback' ? 'feedback-changed' : 'new-failure'))
+      assert.equal(await inbox.wake(current, `evaluated:${current.generation}`), true)
+      assert.equal((await inbox.claim(1)).length, 1)
+    } else {
+      assert.deepEqual(wakeReasons(current, 'pending', policy), [])
+      assert.equal((await inbox.claim(1)).length, 0)
+    }
+  })
+}
+
+for (const synchronize of [false, true]) {
+  test(`pinned publication chains retain terminal evidence, synchronize=${synchronize}`, async t => {
+    const inbox = await setup(t)
+    const claim = (await inbox.claim(1))[0]!
+    const heads = ['b'.repeat(40), 'c'.repeat(40)]
+    for (const head of heads) {
+      await inbox.ingest(`push:${head}`, 'push', { repository: { full_name: repository }, ref: 'refs/heads/repair', after: head })
+      await inbox.ingest(`failure:${head}`, 'status', { repository: { full_name: repository }, sha: head, context: 'test', state: 'failure' })
+      if (synchronize) await inbox.ingest(`synchronize:${head}`, 'pull_request', {
+        repository: { full_name: repository }, action: 'synchronize', pull_request: { ...pr, head: { ...pr.head, sha: head } },
+      })
+    }
+    const head = heads[1]!
+    assert.equal(await inbox.finish(claim, { text: 'Repair pushed', wait: { ...wait, kind: 'checks', headSha: head },
+      progress: { kind: 'verified', evidence: `push:${head}` }, verifiedPushHeads: heads }), true)
+    const current = (await inbox.get(repository, pr.number))!
+    assert.equal(current.wait?.headSha, head)
+    assert.equal(current.statuses.test?.state, 'failure')
+    assert.equal(current.statuses.test?.sha, head)
+    assert.ok(current.generation > current.handled)
+    assert.equal((await inbox.waitsToEvaluate()).length, 1)
   })
 }

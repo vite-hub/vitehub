@@ -2,6 +2,7 @@ import * as decoding from "lib0/decoding"
 import * as encoding from "lib0/encoding"
 
 import type { RealtimeWorkspaceChange } from "./types.ts"
+import { normalizeSafeWorkspacePath } from "@vite-hub/workspace"
 import { realtimeErrorDiagnostics } from "./error-diagnostics.ts"
 
 export const messageWorkspaceChange = 4
