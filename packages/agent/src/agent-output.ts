@@ -695,37 +695,19 @@ export function toAgentStreamEvent(
   return undefined
 }
 
-const nativeErrorIsError = Reflect.get(Error, "isError")
-
 function crossRealmStreamError(error: unknown): { message: string; value: object } | undefined {
   if (error === null || typeof error !== "object") return
   try {
     const currentIsError: unknown = Reflect.get(Error, "isError")
-    const nativeIsError = hasRuntimeType(currentIsError, "function") ? currentIsError : nativeErrorIsError
-    const branded = hasRuntimeType(nativeIsError, "function")
-      ? nativeIsError(error) === true
-      : ((error instanceof Error && isNativeErrorShape(error)) || (
-        Reflect.getPrototypeOf(error) !== Error.prototype
-        && !(Symbol.toStringTag in error)
-        && Object.prototype.toString.call(error) === "[object Error]"
-      ))
+    const branded = hasRuntimeType(currentIsError, "function")
+      ? currentIsError(error) === true
+      : (!(Symbol.toStringTag in error)
+        && Object.prototype.toString.call(error) === "[object Error]")
     if (!branded) return
     return { message: String(Reflect.get(error, "message")), value: error }
   }
   catch {
     return
-  }
-}
-
-function isNativeErrorShape(error: object): boolean {
-  try {
-    const stack = Reflect.getOwnPropertyDescriptor(error, "stack")?.value
-    const message = Reflect.getOwnPropertyDescriptor(error, "message")?.value
-    return hasRuntimeType(stack, "string") && hasRuntimeType(message, "string")
-      && stack.includes("\n") && stack.includes("    at ")
-  }
-  catch {
-    return false
   }
 }
 

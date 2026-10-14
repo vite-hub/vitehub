@@ -556,14 +556,24 @@ describe("agent output helpers", () => {
     })
   })
 
-  it("preserves local errors when Error.isError is unavailable", () => {
+  it.each([undefined, null])("preserves genuine errors when Error.isError is %s", (isError) => {
     const errorConstructor = Error as ErrorConstructor & { isError?: unknown }
     const nativeIsError = errorConstructor.isError
     try {
-      delete errorConstructor.isError
-      const event = toAgentStreamEvent({ error: new Error("local boom"), type: "error" })
-      expect(event).toMatchObject({ error: "local boom", type: "error" })
-      expect(Object.getOwnPropertySymbols(event!)).toContain(agentStreamErrorSymbol)
+      errorConstructor.isError = isError
+      for (const error of [new Error("boom"), new Error(), runInNewContext("new Error('boom')")]) {
+        const event = toAgentStreamEvent({ error, type: "error" })
+        expect(event).toMatchObject({ error: error.message, type: "error" })
+        expect(Reflect.get(event!, agentStreamErrorSymbol)).toBe(error)
+      }
+      const forged = Object.create(Error.prototype)
+      Object.defineProperties(forged, {
+        message: { value: "forged" },
+        stack: { value: "Error: forged\n    at provider (provider.js:1:1)" },
+      })
+      const event = toAgentStreamEvent({ error: forged, type: "error" })
+      expect(event).toMatchObject({ error: "Error: forged", type: "error" })
+      expect(Object.getOwnPropertySymbols(event!)).not.toContain(agentStreamErrorSymbol)
     }
     finally {
       errorConstructor.isError = nativeIsError
@@ -589,10 +599,10 @@ describe("agent output helpers", () => {
     const forged = Object.create(Error.prototype)
     Object.defineProperties(forged, {
       message: { value: "forged" },
-      stack: { value: "forged stack" },
+      stack: { value: "Error: forged\n    at provider (provider.js:1:1)" },
     })
     const forgedEvent = toAgentStreamEvent({ error: forged, type: "error" })
-    expect(forgedEvent).toMatchObject({ error: "[object Object]", type: "error" })
+    expect(forgedEvent).toMatchObject({ error: "Error: forged", type: "error" })
     expect(Object.getOwnPropertySymbols(forgedEvent!)).not.toContain(agentStreamErrorSymbol)
 
     const hostile = Object.defineProperty({}, Symbol.toStringTag, { get() { throw new Error("hostile tag") } })
