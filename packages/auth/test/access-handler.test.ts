@@ -110,6 +110,7 @@ describe("Auth access handlers", () => {
       get statusText() { return "Conflict" }
       get headers() { return { get() { return null }, forEach() {} } }
       get body() { return null }
+      arrayBuffer() { return new ArrayBuffer(0) }
       get [Symbol.toStringTag]() { return "Response" }
     })()`)
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({

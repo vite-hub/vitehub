@@ -286,9 +286,7 @@ async function runAccessAuthorize(
       const response = result
       const headers = new Headers()
       response.headers.forEach((value, key) => headers.append(key, value))
-      const body = typeof response.arrayBuffer === "function"
-        ? await response.arrayBuffer()
-        : (response.body as ConstructorParameters<typeof Response>[0] | null | undefined) ?? null
+      const body = await response.arrayBuffer()
       return new Response(body, {
         headers,
         status: response.status,
@@ -307,7 +305,7 @@ function isResponseLike(value: unknown): value is Response {
   try {
     if (Object.prototype.toString.call(value) !== "[object Response]") return false
     // SAFETY: These unknown fields are inspected inside the guard before normalization.
-    const response = value as { headers?: unknown, status?: unknown, statusText?: unknown, body?: unknown, arrayBuffer?: unknown }
+    const response = value as { headers?: unknown, status?: unknown, statusText?: unknown, arrayBuffer?: unknown }
     if (typeof response.status !== "number" || !Number.isInteger(response.status) || response.status < 0 || response.status > 599) return false
     if (typeof response.statusText !== "string") return false
     const headers = response.headers
@@ -317,7 +315,7 @@ function isResponseLike(value: unknown): value is Response {
     const sourceHeaders = headers as { get?: unknown, forEach?: unknown }
     return typeof sourceHeaders.get === "function"
       && typeof sourceHeaders.forEach === "function"
-      && (typeof response.arrayBuffer === "function" || "body" in response)
+      && typeof response.arrayBuffer === "function"
   }
   catch {
     return false
