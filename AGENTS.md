@@ -45,7 +45,7 @@ corepack pnpm --dir packages/vite-hub exec vp test test/<file>.test.ts
 corepack pnpm exec vp run verify
 ```
 
-Replace `vite-hub` with the affected package. `verify` is the full local gate and needs the Deno version in `.deno-version`.
+Use the affected package name in vp targets and its directory in pnpm --dir commands. For example, use @vite-hub/agent#build as the vp target and packages/agent as the --dir path. The verify command is the full local gate and needs the Deno version in .deno-version.
 
 Report what changed, why, what you verified, and any remaining uncertainty. Keep the response in normal prose. Return JSON, HTML, or other machine formats only when the user explicitly asks for that format.
 
