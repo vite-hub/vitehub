@@ -104,6 +104,20 @@ describe("Auth access handlers", () => {
     await expect(handler(new Request("https://app.example/"))).resolves.toBe(response)
   })
 
+  it("rejects a forged response body with an unusable reader", async () => {
+    const forgedResponse = {
+      status: 409,
+      statusText: "Conflict",
+      headers: new Headers(),
+      body: { getReader: () => ({}) },
+      [Symbol.toStringTag]: "Response",
+    }
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => forgedResponse as never }] },
+    }))
+    expect((await handler(new Request("https://app.example/"))).status).toBe(403)
+  })
+
   it("returns authorization responses from another realm unchanged", async () => {
     const foreignResponse = runInNewContext(`new (class {
       get status() { return 409 }

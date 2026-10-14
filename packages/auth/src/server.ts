@@ -294,7 +294,19 @@ function isResponseLike(value: unknown): value is Response {
     const headers = response.headers
     if (headers === null || typeof headers !== "object" || typeof (headers as { get?: unknown }).get !== "function") return false
     const body = (response as { body?: unknown }).body
-    return body === null || (body !== undefined && typeof body === "object" && typeof (body as { getReader?: unknown }).getReader === "function")
+    if (body === null) return true
+    if (body === undefined || typeof body !== "object") return false
+    const getReader = (body as { getReader?: unknown }).getReader
+    if (typeof getReader !== "function") return false
+    try {
+      const reader = getReader.call(body)
+      return reader !== null && typeof reader === "object"
+        && typeof (reader as { read?: unknown }).read === "function"
+        && typeof (reader as { releaseLock?: unknown }).releaseLock === "function"
+    }
+    catch {
+      return false
+    }
   }
   catch {
     return false
