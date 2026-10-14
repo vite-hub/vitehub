@@ -128,8 +128,8 @@ function contentTypeSchema(accept: string[] | undefined): Record<string, unknown
   }
   if (!accept) return schema
   const patterns = accept.map(pattern => {
-    if (pattern.endsWith("/*")) return `^${caseInsensitivePattern(pattern.slice(0, -2))}/[^;\\s]*(?:\\s*;.*)?\\s*$`
-    return `^${caseInsensitivePattern(pattern)}(?:\\s*;.*)?\\s*$`
+    if (pattern.endsWith("/*")) return `^\\s*${caseInsensitivePattern(pattern.slice(0, -2))}/[^;\\s]*(?:\\s*;.*)?\\s*$`
+    return `^\\s*${caseInsensitivePattern(pattern)}(?:\\s*;.*)?\\s*$`
   })
   if (patterns.length === 1) schema.pattern = patterns[0]
   else schema.anyOf = patterns.map(pattern => ({ pattern }))

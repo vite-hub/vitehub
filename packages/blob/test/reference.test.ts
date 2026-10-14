@@ -151,6 +151,8 @@ describe("Blob reference schemas", () => {
     expect(pathname.test("_VITEHUB")).toBe(false)
     const contentType = new RegExp(properties.contentType.pattern)
     expect(contentType.test("Image/SVG+XML; charset=utf-8")).toBe(true)
+    expect(contentType.test("  IMAGE/PNG  ")).toBe(true)
+    expect(contentType.test("image/png ; charset=utf-8")).toBe(true)
     expect(contentType.test("application/pdf")).toBe(false)
     const svg = file({ accept: "image/svg+xml" })
     const svgPattern = (svg["~standard"].jsonSchema.input({ target: "draft-07" }) as { properties: { contentType: { pattern: string } } }).properties.contentType.pattern
