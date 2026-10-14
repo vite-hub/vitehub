@@ -56,6 +56,8 @@ export {
 
 export type MaybePromise<T> = T | Promise<T>
 
+// Capture platform methods before application callbacks run. As with the other
+// platform brand checks, the host must supply intact intrinsics at import time.
 const webAssemblyModuleConstructor = (() => {
   const namespace = Object.getOwnPropertyDescriptor(globalThis, "WebAssembly")?.value
   return hasRuntimeType(namespace, "object")

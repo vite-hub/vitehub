@@ -984,7 +984,7 @@ describe("@vite-hub/runtime", () => {
     })
   })
 
-  it("does not trust a replaced WebAssembly.Module.exports method", async () => {
+  it.each(["permissive", "throwing"])("does not trust a %s replacement of WebAssembly.Module.exports after import", async (replacement) => {
     const WebAssemblyModule = (globalThis as typeof globalThis & {
       WebAssembly: {
         Module: {
@@ -993,7 +993,10 @@ describe("@vite-hub/runtime", () => {
       }
     }).WebAssembly.Module
     const originalExports = WebAssemblyModule.exports
-    WebAssemblyModule.exports = () => []
+    WebAssemblyModule.exports = () => {
+      if (replacement === "throwing") throw new Error("replaced exports")
+      return []
+    }
     try {
       const log = createTraceEventLog()
       await log.append({
@@ -1005,6 +1008,16 @@ describe("@vite-hub/runtime", () => {
       expect(log.entries()[0]).toMatchObject({
         attributes: { "vitehub.payload.visibility": "public" },
         payload: { visibility: "public" },
+      })
+      const module = runInNewContext("new WebAssembly.Module(Uint8Array.of(0, 97, 115, 109, 1, 0, 0, 0))")
+      await log.append({
+        name: "foreign.module",
+        payload: { value: { module }, visibility: "public" },
+        type: "lifecycle",
+      })
+      expect(log.entries()[1]).toMatchObject({
+        attributes: { "vitehub.payload.visibility": "private" },
+        payload: { visibility: "private" },
       })
     }
     finally {
