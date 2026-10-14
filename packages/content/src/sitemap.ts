@@ -37,7 +37,8 @@ export function normalizeSeoOptions(options: unknown): DefineContentSeoOptions |
   if (site !== undefined) siteOrigin(site, invalid)
   if (sitemap !== undefined && sitemap !== true && sitemap !== false) throw invalid("sitemap must be true or false.")
   if (robots !== undefined && robots !== true && robots !== false) {
-    const disallow = robots !== null && Object(robots) === robots ? Reflect.get(Object(robots), "disallow") : null
+    if (robots === null || Object(robots) !== robots || Array.isArray(robots)) throw invalid("robots must be true, false, or { disallow: ['/path'] }.")
+    const disallow = Reflect.get(robots, "disallow")
     if (disallow !== undefined && (!Array.isArray(disallow) || disallow.some(path => String(path) !== path || !path.startsWith("/")))) {
       throw invalid("robots must be true, false, or { disallow: ['/path'] }.")
     }
