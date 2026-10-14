@@ -285,7 +285,14 @@ async function runAccessAuthorize(
     try {
       const response = result
       const headers = new Headers()
-      response.headers.forEach((value, key) => headers.append(key, value))
+      const setCookieHeaders = typeof response.headers.getSetCookie === "function"
+        ? response.headers.getSetCookie()
+        : []
+      response.headers.forEach((value, key) => {
+        if (key.toLowerCase() === "set-cookie" && setCookieHeaders.length > 0) return
+        headers.append(key, value)
+      })
+      for (const value of setCookieHeaders) headers.append("set-cookie", value)
       const body = await response.arrayBuffer()
       return new Response(body, {
         headers,
@@ -312,9 +319,10 @@ function isResponseLike(value: unknown): value is Response {
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Inspect the foreign Headers boundary before copying its entries.
     if (headers === null || typeof headers !== "object") return false
     // SAFETY: The headers object exists; each required method is checked before use.
-    const sourceHeaders = headers as { get?: unknown, forEach?: unknown }
+    const sourceHeaders = headers as { get?: unknown, forEach?: unknown, getSetCookie?: unknown }
     return typeof sourceHeaders.get === "function"
       && typeof sourceHeaders.forEach === "function"
+      && (typeof sourceHeaders.getSetCookie === "undefined" || typeof sourceHeaders.getSetCookie === "function")
       && typeof response.arrayBuffer === "function"
   }
   catch {

@@ -125,6 +125,26 @@ describe("Auth access handlers", () => {
     expect(await response.text()).toBe("")
   })
 
+  it("preserves separate foreign Set-Cookie headers", async () => {
+    const foreignResponse = runInNewContext(`new (class {
+      status = 409
+      statusText = "Conflict"
+      headers = {
+        get() { return null },
+        forEach(callback) { callback("a=1, b=2", "set-cookie") },
+        getSetCookie() { return ["a=1; Path=/", "b=2; Path=/"] }
+      }
+      arrayBuffer() { return new ArrayBuffer(0) }
+      get [Symbol.toStringTag]() { return "Response" }
+    })()`)
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => foreignResponse as never }] },
+    }))
+
+    const response = await handler(new Request("https://app.example/"))
+    expect(response?.headers.getSetCookie()).toEqual(["a=1; Path=/", "b=2; Path=/"])
+  })
+
   it("starts provider sign-in only for matched unauthenticated HTML requests", async () => {
     provider.getSession.mockResolvedValue(null)
     provider.handler.mockResolvedValue(Response.json({ url: "https://provider.example/sign-in" }))
