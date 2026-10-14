@@ -289,7 +289,7 @@ function isResponseLike(value: unknown): value is Response {
   try {
     if (Object.prototype.toString.call(value) !== "[object Response]") return false
     const response = value as { headers?: unknown, status?: unknown, statusText?: unknown }
-    if (typeof response.status !== "number" || !Number.isInteger(response.status) || response.status < 0 || response.status > 599) return false
+    if (typeof response.status !== "number" || !Number.isInteger(response.status) || response.status < 200 || response.status > 599) return false
     if (typeof response.statusText !== "string") return false
     const headers = response.headers as { get?: unknown, forEach?: unknown } | null | undefined
     if (headers === null || typeof headers !== "object"

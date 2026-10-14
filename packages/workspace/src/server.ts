@@ -122,6 +122,21 @@ function headerValue(headers: Headers | Record<string, string | string[] | undef
     }
     catch {}
   }
+  const tag = Object.prototype.toString.call(headers)
+  const prototype = Object.getPrototypeOf(headers)
+  const constructor = prototype && Reflect.get(prototype, "constructor")
+  const isCrossRealmHeaders = tag === "[object Headers]"
+    || (hasRuntimeType(constructor, "function") && Reflect.get(constructor, "name") === "Headers")
+  if (isCrossRealmHeaders) {
+    const crossRealmGet = Reflect.get(headers, "get")
+    if (hasRuntimeType(crossRealmGet, "function")) {
+      try {
+        const value = Reflect.apply(crossRealmGet, headers, [name])
+        return hasRuntimeType(value, "string") && value ? value : undefined
+      }
+      catch {}
+    }
+  }
   if (!Object.hasOwn(headers, name)) return undefined
   const value: unknown = Reflect.get(headers, name)
   if (Array.isArray(value)) return hasRuntimeType(value[0], "string") ? value[0] : undefined
