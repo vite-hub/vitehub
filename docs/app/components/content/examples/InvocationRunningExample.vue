@@ -4,7 +4,6 @@ import { computed, onMounted } from "vue";
 
 const now = useState("ui-running-clock", () => Date.now());
 const time = (secondsAgo: number) => new Date(now.value - secondsAgo * 1_000).toISOString();
-
 onMounted(() => {
   now.value = Date.now();
 });

@@ -692,8 +692,9 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     })
     const url = new URL(provider.authorizationEndpoint)
     const scopes = [...new Set([...(provider.identityScopes ?? []), ...(loaded.scopes ?? [])])]
+    const authorizationParams = Object.hasOwn(provider, "authorizationParams") ? provider.authorizationParams : undefined
     for (const [parameter, value] of Object.entries({
-      ...provider.authorizationParams,
+      ...authorizationParams,
       client_id: clientId,
       code_challenge: await codeChallenge(verifier),
       code_challenge_method: "S256",
