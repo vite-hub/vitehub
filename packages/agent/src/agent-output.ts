@@ -895,16 +895,6 @@ export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<
     yield { type: "finish" }
     return
   }
-  // Explicit Agent streams take precedence over response-shaped output fields.
-  if (isResponseLike(value)) {
-    if (value.body) {
-      for await (const text of value.body.pipeThrough(new TextDecoderStream())) {
-        if (text) yield { text, type: "text-delta" }
-      }
-    }
-    yield { type: "finish" }
-    return
-  }
   if (isAsyncIterable(value)) {
     // SAFETY: Agent output normalization establishes the asserted stream result contract.
     yield* streamChunksToEvents(value as AsyncIterable<unknown>)
@@ -926,5 +916,16 @@ export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<
       ? (value as { finishReason: string }).finishReason
       : undefined
     yield { ...(reason ? { reason } : {}), type: "finish" }
+    return
+  }
+  // Explicit Agent streams take precedence over response-shaped output fields.
+  if (isResponseLike(value)) {
+    if (value.body) {
+      for await (const text of value.body.pipeThrough(new TextDecoderStream())) {
+        if (text) yield { text, type: "text-delta" }
+      }
+    }
+    yield { type: "finish" }
+    return
   }
 }
