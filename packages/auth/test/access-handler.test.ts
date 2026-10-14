@@ -117,6 +117,8 @@ describe("Auth access handlers", () => {
     class LocalResponse extends NativeResponse {}
     Object.defineProperties(LocalResponse.prototype, Object.getOwnPropertyDescriptors(NativeResponse.prototype))
     vi.stubGlobal("Response", LocalResponse)
+    expect(foreignResponse).toBeInstanceOf(NativeResponse)
+    expect(foreignResponse).not.toBeInstanceOf(Response)
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
       access: { routes: [{ route: "/**", authorize: () => foreignResponse as never }] },
     }))
