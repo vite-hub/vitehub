@@ -52,11 +52,11 @@ const roles: ContentAuthorize = ({ user, action }) => {
   return user?.role === "reader" && action === "read"
 }
 
-async function setup() {
+async function setup(workspace?: string, title: z.ZodType = z.string().min(1)) {
   const content = defineContent({
-    workspace: await historyWorkspace(),
+    workspace: workspace ?? await historyWorkspace(),
     collections: {
-      posts: documents({ path: "posts/**/*.md", fields: { title: z.string().min(1), date: z.coerce.date(), tags: z.array(z.string()).default([]) } }),
+      posts: documents({ path: "posts/**/*.md", fields: { title, date: z.coerce.date(), tags: z.array(z.string()).default([]) } }),
       notes: documents({ path: "notes/*.md", fields: { body: z.string().optional() } }),
     },
     authorize: roles,
@@ -64,6 +64,15 @@ async function setup() {
   })
   cleanup.push(() => content.dispose())
   return { actions: createContentConsoleActions({ content }), content }
+}
+
+type Actions = ReturnType<typeof createContentConsoleActions>
+type Context = Parameters<Actions["list"]>[1]
+
+/** Publish every change the list shows, as "Publish N changes" does. */
+async function publishAll(actions: Actions, context: Context) {
+  const { changes } = await actions.list({ collection: "posts" }, context)
+  return await actions.publish({ collection: "posts", expect: changes.map(({ id, digest }) => ({ id, digest })) }, context)
 }
 
 const editor = { user: { id: "ada", name: "Ada", email: "ada@example.com", role: "editor" } }
@@ -103,10 +112,9 @@ describe("Content Console actions", { timeout: 30_000 }, () => {
     await expect(failure(actions.list({ collection: "posts" }, anonymous))).resolves.toMatchObject({ status: 403 })
     const saved = await actions.save(hello, writer)
     expect(saved).toMatchObject({ id: "hello", state: "draft", data: { title: "Hello", date: "2026-10-14T00:00:00.000Z" } })
-    await expect(failure(actions.publish({ collection: "posts" }, writer))).resolves.toMatchObject({ status: 403, code: "CONTENT_FORBIDDEN" })
-    await expect(failure(actions.publish({ collection: "posts", ids: ["hello"] }, writer))).resolves.toMatchObject({ status: 403 })
+    await expect(failure(actions.publish({ collection: "posts", expect: [{ id: "hello", digest: saved.digest }] }, writer))).resolves.toMatchObject({ status: 403, code: "CONTENT_FORBIDDEN" })
     await expect(actions.get({ collection: "posts", id: "hello" }, reader)).resolves.toMatchObject({ body: "# Hello\n" })
-    await expect(actions.publish({ collection: "posts", ids: ["hello"] }, editor)).resolves.toMatchObject({ documents: [{ collection: "posts", id: "hello", change: "add" }] })
+    await expect(actions.publish({ collection: "posts", expect: [{ id: "hello", digest: saved.digest }] }, editor)).resolves.toMatchObject({ documents: [{ collection: "posts", id: "hello", change: "add" }] })
   })
 
   it("returns per-field issues for invalid fields", async () => {
@@ -132,7 +140,7 @@ describe("Content Console actions", { timeout: 30_000 }, () => {
     const { actions } = await setup()
     await actions.save(hello, editor)
     await actions.save({ ...hello, id: "launch", data: { title: "Launch", date: "2026-10-01", tags: ["release"] } }, editor)
-    await actions.publish({ collection: "posts" }, editor)
+    await publishAll(actions, editor)
     const launch = await actions.get({ collection: "posts", id: "launch" }, editor)
     await actions.save({ ...hello, id: "launch", data: { title: "Launch v2", date: "2026-10-01" }, ifDigest: launch!.digest }, editor)
     await actions.save({ ...hello, id: "idea", data: { title: "Idea", date: "2026-11-01" } }, editor)
@@ -141,12 +149,19 @@ describe("Content Console actions", { timeout: 30_000 }, () => {
 
     const all = await actions.list({ collection: "posts", facets: ["tags"], sort: { field: "date", direction: "desc" } }, reader)
     expect(all.items.map(item => [item.id, item.title, item.state])).toEqual([["idea", "Idea", "draft"], ["launch", "Launch v2", "changed"]])
+    expect(all.items.every(item => String(item.digest) === item.digest && String(item.updatedAt) === item.updatedAt)).toBe(true)
     expect(all.states).toEqual({ draft: 1, published: 0, changed: 1, deleted: 1 })
+    // Every unpublished change, with the draft digest that "Publish all" sends back.
+    expect(all.changes).toEqual([
+      { id: "hello", state: "deleted", digest: null },
+      { id: "idea", state: "draft", digest: all.items[0]!.digest },
+      { id: "launch", state: "changed", digest: all.items[1]!.digest },
+    ])
     expect(all.total).toBe(2)
     expect(all.facets?.tags).toEqual([])
 
     const deleted = await actions.list({ collection: "posts", state: "deleted" }, reader)
-    expect(deleted.items.map(item => [item.id, item.state])).toEqual([["hello", "deleted"]])
+    expect(deleted.items.map(item => [item.id, item.state, item.digest])).toEqual([["hello", "deleted", null]])
     expect((await actions.list({ collection: "posts", state: "published" }, reader)).items).toEqual([])
     expect((await actions.list({ collection: "posts", search: "v2" }, reader)).items.map(item => item.id)).toEqual(["launch"])
     await expect(failure(actions.list({ collection: "posts", limit: 0 }, reader))).resolves.toMatchObject({ status: 400 })
@@ -156,7 +171,7 @@ describe("Content Console actions", { timeout: 30_000 }, () => {
   it("records the author and restores an earlier revision", async () => {
     const { actions } = await setup()
     const first = await actions.save(hello, editor)
-    await actions.publish({ collection: "posts", ids: ["hello"] }, editor)
+    await actions.publish({ collection: "posts", expect: [{ id: "hello", digest: first.digest }] }, editor)
     const second = await actions.save({ ...hello, data: { ...hello.data, title: "Hello again" }, ifDigest: first.digest }, writer)
     const history = await actions.revisions({ collection: "posts", id: "hello" }, reader)
     expect(history.revisions.map(revision => [revision.action, revision.ref, revision.author])).toEqual([
@@ -165,10 +180,47 @@ describe("Content Console actions", { timeout: 30_000 }, () => {
       ["save", "draft", "Ada"],
     ])
     const oldest = history.revisions.at(-1)!
-    await expect(actions.get({ collection: "posts", id: "hello", revision: oldest.id }, reader)).resolves.toMatchObject({ data: { title: "Hello" } })
+    const stored = await actions.raw({ collection: "posts", id: "hello", revision: oldest.id }, reader)
+    expect(stored).toMatchObject({ path: "posts/hello.md", digest: first.digest, revision: oldest.id })
+    expect(stored?.text).toContain("title: Hello\n")
+    await expect(actions.raw({ collection: "posts", id: "hello" }, reader)).resolves.toMatchObject({ digest: second.digest })
+    await expect(actions.raw({ collection: "posts", id: "missing" }, reader)).resolves.toBeNull()
+    await expect(failure(actions.raw({ collection: "posts", id: "hello" }, anonymous))).resolves.toMatchObject({ status: 403 })
     await expect(failure(actions.restore({ collection: "posts", id: "hello", revision: oldest.id, ifDigest: first.digest }, editor))).resolves.toMatchObject({ status: 409 })
     const restored = await actions.restore({ collection: "posts", id: "hello", revision: oldest.id, ifDigest: second.digest }, editor)
     expect(restored).toMatchObject({ data: { title: "Hello" }, state: "published" })
+  })
+
+  it("publishes only the reviewed drafts and names the documents that moved", async () => {
+    const { actions } = await setup()
+    const first = await actions.save(hello, editor)
+    const reviewed = await actions.list({ collection: "posts" }, editor)
+    // Another user saves after the list loaded.
+    const newer = await actions.save({ ...hello, body: "Edited after review", ifDigest: first.digest }, writer)
+    const conflict = await failure(actions.publish({ collection: "posts", expect: reviewed.changes }, editor))
+    expect(conflict).toMatchObject({
+      status: 409,
+      code: "WORKSPACE_CONFLICT",
+      details: { ref: "draft", documents: [{ id: "hello", expected: first.digest, actual: newer.digest }] },
+    })
+    expect((await actions.list({ collection: "posts" }, editor)).states).toMatchObject({ draft: 1, published: 0 })
+    await expect(publishAll(actions, editor)).resolves.toMatchObject({ documents: [{ id: "hello", change: "add" }] })
+    await expect(failure(actions.publish({ collection: "posts", expect: [] }, editor))).resolves.toMatchObject({ status: 400 })
+    await expect(failure(actions.publish({ collection: "posts" } as never, editor))).resolves.toMatchObject({ status: 400 })
+  })
+
+  it("names the draft that no longer validates when publishing", async () => {
+    const workspace = await historyWorkspace()
+    const before = await setup(workspace)
+    await before.actions.save(hello, editor)
+    // The definition changed after the draft was saved.
+    const after = await setup(workspace, z.string().min(10))
+    const { changes } = await after.actions.list({ collection: "posts" }, editor)
+    await expect(failure(after.actions.publish({ collection: "posts", expect: changes }, editor))).resolves.toMatchObject({
+      status: 422,
+      code: "CONTENT_INVALID",
+      details: { id: "hello", issues: [expect.objectContaining({ field: "title" })] },
+    })
   })
 
   it("rejects malformed input without calling the runtime", async () => {
@@ -186,12 +238,29 @@ describe("Content Console actions", { timeout: 30_000 }, () => {
 })
 
 describe("Content Console section", () => {
-  it("finds server/content.ts for the Console", async () => {
+  async function entryFor(source: string): Promise<boolean> {
     const root = await temporaryRoot()
-    await expect(contentConsoleSection.entry({ projectRoot: root })).resolves.toBeUndefined()
     await mkdir(join(root, "server"))
-    await writeFile(join(root, "server/content.ts"), "export const content = {}\n")
-    await expect(contentConsoleSection.entry({ projectRoot: root })).resolves.toBe(join(root, "server/content.ts"))
+    await writeFile(join(root, "server/content.ts"), source)
+    const entry = await contentConsoleSection.entry({ projectRoot: root })
+    if (entry !== undefined) expect(entry).toBe(join(root, "server/content.ts"))
+    return entry !== undefined
+  }
+
+  it("shows the section only when server/content.ts defines document collections", async () => {
+    await expect(contentConsoleSection.entry({ projectRoot: await temporaryRoot() })).resolves.toBeUndefined()
+    const imports = `import { defineContent, documents } from "vite-hub/content"\n`
+    await expect(entryFor(`${imports}export const content = defineContent({ workspace: "site", collections: { posts: documents({ path: "posts/*.md", fields: {} }) } })\n`)).resolves.toBe(true)
+    // Read-only Sources, or no collections, leave nothing to edit.
+    await expect(entryFor(`${imports}export const content = defineContent({ source: "content" })\n`)).resolves.toBe(false)
+    await expect(entryFor(`${imports}export const content = defineContent()\n`)).resolves.toBe(false)
+    await expect(entryFor(`${imports}export const content = defineContent({ workspace: "site", collections: {} })\n`)).resolves.toBe(false)
+    await expect(entryFor(`import { defineContent as define } from "@vite-hub/content"\nconst options = { sources: {} }\nconst content = define(options)\nexport { content }\n`)).resolves.toBe(false)
+    // Collections that discovery cannot follow keep the section; the editor lists what the runtime has.
+    await expect(entryFor(`${imports}const collections = { posts: documents({ path: "posts/*.md", fields: {} }) }\nexport const content = defineContent({ workspace: "site", collections } satisfies object)\n`)).resolves.toBe(true)
+    await expect(entryFor(`${imports}import { collections } from "./collections"\nexport const content = defineContent({ workspace: "site", collections })\n`)).resolves.toBe(true)
+    await expect(entryFor(`${imports}import { options } from "./options"\nexport const content = defineContent({ ...options })\n`)).resolves.toBe(true)
+    await expect(entryFor(`import { createContent } from "./create"\nexport const content = createContent()\n`)).resolves.toBe(true)
     expect(contentConsoleSection).toMatchObject({ id: "content", view: { kind: "document-editor" }, actions: { module: "@vite-hub/content/runtime/console", export: "createContentConsoleActions" } })
   })
 })

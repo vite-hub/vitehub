@@ -6,10 +6,14 @@ import {
   consoleDocumentStateColor,
   consoleDocumentStateLabel,
   consoleErrorMessage,
+  consoleFieldIssues,
+  consoleInvalidDocument,
+  consolePublishMismatches,
   describeConsoleSchemaFields,
 } from "../client/documents";
+import { recentTimestamp } from "../client/time";
 
-import type { ConsoleDocumentCollection, ConsoleDocumentPage, ConsoleDocumentsClient, ConsoleDocumentState, ConsoleDocumentSummary } from "../client/documents";
+import type { ConsoleDocumentCollection, ConsoleDocumentPage, ConsoleDocumentPublishExpectation, ConsoleDocumentsClient, ConsoleDocumentState, ConsoleDocumentSummary } from "../client/documents";
 
 const props = defineProps<{
   changes: number;
@@ -33,6 +37,9 @@ const selected = ref<Set<string>>(new Set());
 const publishing = ref(false);
 const publishOpen = ref(false);
 const notice = ref<{ color: "error" | "success", text: string }>();
+/** Why the last publish published nothing: drafts that moved after the list loaded, or a draft that no longer validates. */
+const publishProblem = ref<{ actions: Array<{ label: string, onClick: () => void }>, color: "error" | "warning", description: string, title: string }>();
+const loadedAt = ref(Date.now());
 let request = 0;
 let searchTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -50,7 +57,7 @@ const sort = ref(sortOptions.value[0]!.value);
 
 const states = computed(() => page.value?.states ?? { changed: 0, deleted: 0, draft: 0, published: 0 });
 const total = computed(() => states.value.draft + states.value.changed + states.value.published);
-const pendingChanges = computed(() => states.value.draft + states.value.changed + states.value.deleted);
+const pendingChanges = computed(() => page.value?.changes.length ?? 0);
 const stateTabs = computed(() => [
   { label: "All", value: "all", badge: total.value },
   { label: "Drafts", value: "draft", badge: states.value.draft },
@@ -58,7 +65,9 @@ const stateTabs = computed(() => [
   { label: "Published", value: "published", badge: states.value.published },
   ...(states.value.deleted ? [{ label: "Deleted", value: "deleted", badge: states.value.deleted }] : []),
 ]);
-const selectedPublishable = computed(() => items.value.filter(item => selected.value.has(item.id) && item.state !== "published").map(item => item.id));
+const selectedPublishable = computed<ConsoleDocumentPublishExpectation[]>(() => items.value
+  .filter(item => selected.value.has(item.id) && item.state !== "published")
+  .map(item => ({ digest: item.digest, id: item.id })));
 const activeFilterCount = computed(() => Object.keys(activeFilters()).length);
 const filtered = computed(() => Boolean(search.value.trim()) || state.value !== "all" || Object.values(filters.value).some(value => value && value !== "*"));
 
@@ -94,6 +103,7 @@ async function load(append = false): Promise<void> {
     items.value = append ? [...items.value, ...result.items] : result.items;
     if (!append && !Object.keys(activeFilters()).length && result.facets) facetOptions.value = result.facets;
     page.value = append ? { ...result, facets: page.value?.facets ?? result.facets, states: result.states } : result;
+    loadedAt.value = Date.now();
     error.value = undefined;
     if (!append) selected.value = new Set();
   }
@@ -108,7 +118,7 @@ async function load(append = false): Promise<void> {
   }
 }
 
-function open(item: ConsoleDocumentSummary): void {
+function open(item: Pick<ConsoleDocumentSummary, "id">): void {
   void router.push({ name: route.name ?? undefined, params: { collection: props.collection.name, document: item.id.split("/") }, query: {} });
 }
 
@@ -132,22 +142,64 @@ function toggleAll(value: boolean | "indeterminate"): void {
   selected.value = value === true ? new Set(items.value.map(item => item.id)) : new Set();
 }
 
-async function publish(ids?: string[]): Promise<void> {
+function documentTitle(id: string): string {
+  return items.value.find(item => item.id === id)?.title ?? id;
+}
+
+function refreshAfterPublishProblem(): void {
+  publishProblem.value = undefined;
+  void load();
+}
+
+/** Publishes exactly the drafts this list showed: every change, or the selected documents. */
+async function publish(expect: readonly ConsoleDocumentPublishExpectation[] = page.value?.changes ?? []): Promise<void> {
+  if (!expect.length) return;
   publishing.value = true;
   notice.value = undefined;
+  publishProblem.value = undefined;
   try {
-    const result = await props.client.publish(props.collection.name, ids);
+    const result = await props.client.publish(props.collection.name, expect);
     const count = result.documents.length;
     notice.value = { color: "success", text: count ? `Published ${count} ${count === 1 ? "change" : "changes"}.` : "Nothing to publish." };
     publishOpen.value = false;
     emit("changed");
   }
   catch (publishError) {
-    notice.value = { color: "error", text: consoleErrorMessage(publishError, "Could not publish.") };
+    publishOpen.value = false;
+    const moved = consolePublishMismatches(publishError);
+    const invalid = consoleInvalidDocument(publishError);
+    if (moved) {
+      const names = moved.map(entry => `${documentTitle(entry.id)}${entry.actual === null ? " (deleted)" : ""}`).join(", ");
+      publishProblem.value = {
+        actions: [{ label: "Refresh", onClick: refreshAfterPublishProblem }],
+        color: "warning",
+        description: `Nothing was published. ${names} changed after this list loaded. Refresh to review the latest drafts, then publish again.`,
+        title: moved.length === 1 ? "1 document changed since you reviewed it" : `${moved.length} documents changed since you reviewed them`,
+      };
+    }
+    else if (invalid) {
+      const issues = consoleFieldIssues(publishError) ?? [];
+      publishProblem.value = {
+        actions: [{ label: `Open ${documentTitle(invalid)}`, onClick: () => open({ id: invalid }) }],
+        color: "error",
+        description: `Nothing was published. ${issues.map(issue => `${[issue.field, ...issue.path].filter(segment => segment !== undefined).join(".") || "Document"}: ${issue.message}`).join(" ")} Open it, fix the fields, and save before you publish.`,
+        title: `${documentTitle(invalid)} no longer validates`,
+      };
+    }
+    else notice.value = { color: "error", text: consoleErrorMessage(publishError, "Could not publish.") };
   }
   finally {
     publishing.value = false;
   }
+}
+
+function updatedLabel(value: string | null): string {
+  return (value && recentTimestamp(value, loadedAt.value)) ?? "";
+}
+
+function updatedTitle(value: string | null): string {
+  const date = value ? new Date(value) : undefined;
+  return date && !Number.isNaN(date.getTime()) ? date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "Unknown";
 }
 
 function formatValue(value: unknown, kind?: string): string {
@@ -193,7 +245,7 @@ onBeforeUnmount(() => {
             </p>
             <div class="flex justify-end gap-2">
               <UButton color="neutral" variant="ghost" size="sm" label="Cancel" @click="publishOpen = false" />
-              <UButton size="sm" label="Publish all" :loading="publishing" @click="publish()" />
+              <UButton size="sm" label="Publish all" :loading="publishing" @click="publish(page?.changes)" />
             </div>
           </div>
         </template>
@@ -263,6 +315,19 @@ onBeforeUnmount(() => {
 
   <div class="min-h-0 flex-1 overflow-y-auto">
     <UAlert
+      v-if="publishProblem"
+      class="m-4"
+      :color="publishProblem.color"
+      variant="subtle"
+      icon="i-lucide-circle-alert"
+      role="alert"
+      :title="publishProblem.title"
+      :description="publishProblem.description"
+      :actions="publishProblem.actions"
+      close
+      @update:open="publishProblem = undefined"
+    />
+    <UAlert
       v-if="error"
       class="m-4"
       color="error"
@@ -292,6 +357,7 @@ onBeforeUnmount(() => {
           <th class="py-2 font-medium" :class="collection.access.publish ? 'px-2' : 'px-4'">Title</th>
           <th class="w-28 px-2 py-2 font-medium">State</th>
           <th v-if="dateField" class="hidden w-36 px-2 py-2 font-medium md:table-cell">{{ dateField.label }}</th>
+          <th class="hidden w-24 px-2 py-2 font-medium sm:table-cell">Updated</th>
           <th v-if="tagField" class="hidden w-48 px-2 py-2 font-medium lg:table-cell">{{ tagField.label }}</th>
         </tr>
       </thead>
@@ -320,6 +386,11 @@ onBeforeUnmount(() => {
             <UBadge :color="consoleDocumentStateColor(item.state)" variant="subtle" size="sm" :label="consoleDocumentStateLabel(item.state)" />
           </td>
           <td v-if="dateField" class="hidden truncate px-2 py-2.5 text-xs text-muted md:table-cell">{{ formatValue(item.data[dateField.name], dateField.kind) }}</td>
+          <td class="hidden truncate px-2 py-2.5 text-xs text-muted sm:table-cell">
+            <UTooltip v-if="item.updatedAt" :text="updatedTitle(item.updatedAt)">
+              <time :datetime="item.updatedAt">{{ updatedLabel(item.updatedAt) }}</time>
+            </UTooltip>
+          </td>
           <td v-if="tagField" class="hidden truncate px-2 py-2.5 text-xs text-muted lg:table-cell">{{ formatValue(item.data[tagField.name]) }}</td>
         </tr>
       </tbody>

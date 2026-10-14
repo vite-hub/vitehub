@@ -166,6 +166,18 @@ export interface ViteHubConsoleDocumentSummary {
   state: ViteHubConsoleDocumentState
   /** JSON-safe field values. */
   data: Record<string, unknown>
+  /** Draft digest, or null for a document deleted on the draft. Send it back to `publish` to publish what the list showed. */
+  digest: string | null
+  /** When the document last changed, as an ISO timestamp, or null when the owner cannot tell. */
+  updatedAt: string | null
+}
+
+/** One unpublished change of a collection, with the draft digest the editor showed. */
+export interface ViteHubConsoleDocumentChange {
+  id: string
+  state: Exclude<ViteHubConsoleDocumentState, "published">
+  /** Draft digest, or null when the change deletes the document. */
+  digest: string | null
 }
 
 export interface ViteHubConsoleDocumentListInput {
@@ -189,6 +201,8 @@ export interface ViteHubConsoleDocumentPage {
   total: number
   /** Documents of the collection in each state, before `search`, `state`, and `filter`. */
   states: Record<ViteHubConsoleDocumentState, number>
+  /** Every unpublished change of the collection, before `search`, `state`, and `filter`. "Publish all" sends them back. */
+  changes: ViteHubConsoleDocumentChange[]
   facets?: Record<string, Array<{ value: string, count: number }>>
 }
 
@@ -203,8 +217,26 @@ export interface ViteHubConsoleDocument {
   /** Digest of the version the editor read. Send it back as `ifDigest` so a save cannot overwrite a newer version. */
   digest: string
   revision: string
-  /** Absent when the document was read from an earlier revision. */
+  /** When the document last changed on the draft, as an ISO timestamp, or null when the owner cannot tell. */
+  updatedAt: string | null
   state?: ViteHubConsoleDocumentState
+}
+
+/** One stored file as written, without parsing or validation, so any version can be shown and compared. */
+export interface ViteHubConsoleRawDocument {
+  collection: string
+  id: string
+  path: string
+  /** The whole file, frontmatter included. */
+  text: string
+  digest: string
+  revision: string
+}
+
+/** A document to publish and the draft digest the user reviewed. `null` publishes its deletion. */
+export interface ViteHubConsoleDocumentPublishExpectation {
+  id: string
+  digest: string | null
 }
 
 export interface ViteHubConsoleDocumentRevision {
@@ -236,20 +268,25 @@ export interface ViteHubConsoleDocumentActionContext {
 export interface ViteHubConsoleDocumentActions {
   collections(context: ViteHubConsoleDocumentActionContext): MaybePromise<readonly ViteHubConsoleDocumentCollection[]>
   list(input: ViteHubConsoleDocumentListInput, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocumentPage>
-  /** Reads the draft, or one earlier `revision`. Returns null when the document does not exist there. */
-  get(input: { collection: string, id: string, revision?: string }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocument | null>
+  /** Reads the draft. Returns null when the draft has no such document. */
+  get(input: { collection: string, id: string }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocument | null>
+  /** Reads the stored file on the draft, or at one earlier `revision`, without validating it. Null when it does not exist there. */
+  raw(input: { collection: string, id: string, revision?: string }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleRawDocument | null>
   /** `ifDigest: null` creates a document that must not exist yet. */
   save(input: { collection: string, id: string, data: Record<string, unknown>, body: string, ifDigest: string | null }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocument>
   remove(input: { collection: string, id: string, ifDigest: string }, context: ViteHubConsoleDocumentActionContext): MaybePromise<void>
-  /** Publishes the selected documents, or every changed document of the collection. */
-  publish(input: { collection: string, ids?: readonly string[] }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocumentPublished>
+  /**
+   * Publishes exactly the reviewed drafts. When a draft digest no longer matches, it publishes nothing and fails with
+   * `WORKSPACE_CONFLICT` and `details.documents`: `{ id, expected, actual }` for each document that changed.
+   */
+  publish(input: { collection: string, expect: readonly ViteHubConsoleDocumentPublishExpectation[] }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocumentPublished>
   revisions(input: { collection: string, id: string, cursor?: string }, context: ViteHubConsoleDocumentActionContext): MaybePromise<{ revisions: ViteHubConsoleDocumentRevision[], cursor?: string }>
   restore(input: { collection: string, id: string, revision: string, ifDigest: string | null }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocument>
 }
 
 export type ViteHubConsoleDocumentActionName = Exclude<keyof ViteHubConsoleDocumentActions, "collections">
 
-export const viteHubConsoleDocumentActionNames: readonly ViteHubConsoleDocumentActionName[] = ["get", "list", "publish", "remove", "restore", "revisions", "save"]
+export const viteHubConsoleDocumentActionNames: readonly ViteHubConsoleDocumentActionName[] = ["get", "list", "publish", "raw", "remove", "restore", "revisions", "save"]
 
 /** Creates the document actions from the namespace of the application module that `entry` found. */
 export type ViteHubConsoleDocumentActionsFactory = (module: Record<string, unknown>) => ViteHubConsoleDocumentActions

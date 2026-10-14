@@ -6,9 +6,11 @@ import type {
   ViteHubConsoleDocumentActionContext,
   ViteHubConsoleDocumentActions,
   ViteHubConsoleDocumentActionsFactory,
+  ViteHubConsoleDocumentChange,
   ViteHubConsoleDocumentCollection,
   ViteHubConsoleDocumentListInput,
   ViteHubConsoleDocumentPage,
+  ViteHubConsoleDocumentPublishExpectation,
   ViteHubConsoleDocumentRevision,
   ViteHubConsoleDocumentState,
 } from "@vite-hub/internal/console"
@@ -56,9 +58,9 @@ function optionalText(value: unknown, name: string): string | undefined {
   return value === undefined ? undefined : text(value, name)
 }
 
-function digest(value: unknown): string | null {
+function digest(value: unknown, name = "ifDigest"): string | null {
   if (value === null) return null
-  return text(value, "ifDigest")
+  return text(value, name)
 }
 
 /** JSON-safe copy, so `Date` values reach the editor as ISO strings. */
@@ -72,16 +74,32 @@ function fieldValues(value: unknown): Record<string, unknown> {
   return value
 }
 
+/** The documents whose draft moved after review, from a `publish({ expect })` conflict. */
+function publishMismatches(details: Record<string, unknown>): Array<{ id: string, expected: string | null, actual: string | null }> | undefined {
+  if (!Array.isArray(details.documents)) return
+  return details.documents.flatMap((entry: unknown) => {
+    if (!isRecord(entry) || String(entry.id) !== entry.id) return []
+    const digestOrNull = (value: unknown) => String(value) === value ? value : null
+    return [{ id: entry.id, expected: digestOrNull(entry.expected), actual: digestOrNull(entry.actual) }]
+  })
+}
+
 /** Translate the errors that a Content runtime method throws into failures the editor shows. */
 function translate(error: unknown): never {
   const code: unknown = Reflect.get(Object(error), "code")
   const details: unknown = Reflect.get(Object(error), "details")
   const message = error instanceof Error ? error.message : String(error)
   if (code === "CONTENT_INVALID" && isRecord(details)) {
-    throw failure(422, "CONTENT_INVALID", "Some fields are invalid.", { issues: json(details.issues ?? []) })
+    // `publish()` names the draft that no longer validates, so the editor can point at that document.
+    const id = String(details.id) === details.id ? details.id : undefined
+    throw failure(422, "CONTENT_INVALID", id ? `${id} has invalid fields.` : "Some fields are invalid.", id ? { id, issues: json(details.issues ?? []) } : { issues: json(details.issues ?? []) })
   }
   if (code === "WORKSPACE_CONFLICT") {
     const conflict = isRecord(details) ? details : {}
+    const documents = publishMismatches(conflict)
+    if (documents) {
+      throw failure(409, "WORKSPACE_CONFLICT", `${documents.length === 1 ? "1 document" : `${documents.length} documents`} changed since you reviewed them. Nothing was published.`, { documents, ref: "draft" })
+    }
     throw failure(409, "WORKSPACE_CONFLICT", "This document changed since you opened it.", {
       actual: conflict.actual ?? null,
       expected: conflict.expected ?? null,
@@ -182,6 +200,7 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
       body: document.body,
       digest: document.digest,
       revision: document.revision,
+      updatedAt: document.updatedAt,
     }
     const current = state ?? await stateOf(collection, document.id)
     if (current) result.state = current
@@ -220,10 +239,11 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
       return await attempt(async () => {
         const statuses = await collection.status()
         const states: Record<ViteHubConsoleDocumentState, number> = { draft: 0, published: 0, changed: 0, deleted: 0 }
-        const stateById = new Map<string, ViteHubConsoleDocumentState>()
+        const statusById = new Map(statuses.map(status => [status.id, status]))
+        const changes: ViteHubConsoleDocumentChange[] = []
         for (const status of statuses) {
           states[status.state]++
-          stateById.set(status.id, status.state)
+          if (status.state !== "published") changes.push({ id: status.id, state: status.state, digest: status.draft })
         }
         const filter: NonNullable<ContentListOptions["filter"]> = {}
         for (const [field, value] of Object.entries(isRecord(input.filter) ? input.filter : {})) {
@@ -235,7 +255,7 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
         let ref: "draft" | "published" = "draft"
         if (input.state) {
           const ids = statuses.filter(status => status.state === input.state).map(status => status.id)
-          if (!ids.length) return { items: [], nextCursor: null, total: 0, states }
+          if (!ids.length) return { items: [], nextCursor: null, total: 0, states, changes }
           Object.assign(filter, { id: ids })
           if (input.state === "deleted") ref = "published"
         }
@@ -250,17 +270,22 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
         const result: ViteHubConsoleDocumentPage = {
           items: page.items.map((item) => {
             const title = titleField ? item.data[titleField] : undefined
+            const status = statusById.get(item.id)
             return {
               id: item.id,
               path: item.path,
               title: String(title) === title && title.trim() ? title : item.id,
-              state: stateById.get(item.id) ?? (ref === "published" ? "deleted" : "draft"),
+              state: status?.state ?? (ref === "published" ? "deleted" : "draft"),
               data: json(item.data),
+              // A deleted document is listed from `published`, but publishing it expects no draft.
+              digest: status ? status.draft : ref === "draft" ? item.digest : null,
+              updatedAt: item.updatedAt,
             }
           }),
           nextCursor: page.nextCursor,
           total: page.total,
           states,
+          changes,
         }
         if (page.facets) result.facets = json(page.facets)
         return result
@@ -272,13 +297,21 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
       const collection = open(input.collection)
       const id = text(input.id, "id")
       await allow(context, collection, "read", id)
+      return await attempt(async () => {
+        const document = await collection.get(id, { ref: "draft" })
+        return document ? await view(collection, document) : null
+      })
+    },
+
+    async raw(input, context) {
+      if (!isRecord(input)) throw invalidInput("raw() requires { collection, id }.")
+      const collection = open(input.collection)
+      const id = text(input.id, "id")
+      await allow(context, collection, "read", id)
       const revision = optionalText(input.revision, "revision")
       return await attempt(async () => {
-        const document = await collection.get(id, revision ? { revision } : { ref: "draft" })
-        if (!document) return null
-        return revision
-          ? { collection: document.collection, id, path: document.path, data: json(document.data), body: document.body, digest: document.digest, revision: document.revision }
-          : await view(collection, document)
+        const file = await collection.raw(id, revision ? { revision } : { ref: "draft" })
+        return file ? { ...file } : null
       })
     },
 
@@ -303,16 +336,21 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
     },
 
     async publish(input, context) {
-      if (!isRecord(input)) throw invalidInput("publish() requires { collection }.")
+      if (!isRecord(input) || !Array.isArray(input.expect) || !input.expect.length) {
+        throw invalidInput("publish() requires { collection, expect: [{ id, digest }] } with the draft digests that were reviewed.")
+      }
       const collection = open(input.collection)
-      const ids = input.ids === undefined ? undefined : [...input.ids].map(id => text(id, "ids"))
-      if (ids && !ids.length) throw invalidInput("ids must list at least one document.")
-      if (ids) for (const id of ids) await allow(context, collection, "publish", id)
-      else await allow(context, collection, "publish")
+      const expected: ViteHubConsoleDocumentPublishExpectation[] = input.expect.map((entry: unknown) => {
+        if (!isRecord(entry)) throw invalidInput("Each expect entry must be { id, digest }.")
+        return { id: text(entry.id, "expect.id"), digest: digest(entry.digest, "expect.digest") }
+      })
+      for (const { id } of expected) await allow(context, collection, "publish", id)
       return await attempt(async () => {
-        const result = await content.publish(ids
-          ? { collection: collection.name, ids, metadata: writeMetadata(context) }
-          : { collection: collection.name, metadata: writeMetadata(context) })
+        // Publish exactly the reviewed drafts: a draft saved after review fails instead of being published.
+        const result = await content.publish({
+          expect: expected.map(({ id, digest }) => ({ collection: collection.name, id, digest })),
+          metadata: writeMetadata(context),
+        })
         return { revision: result.revision?.id ?? null, documents: result.documents.map(document => ({ ...document })) }
       })
     },

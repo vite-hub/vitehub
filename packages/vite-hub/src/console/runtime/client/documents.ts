@@ -10,13 +10,28 @@ export const consoleDocumentStates: readonly ConsoleDocumentState[] = ["draft", 
 
 export interface ConsoleDocumentSummary {
   data: Record<string, unknown>
+  /** Draft digest, or null for a document deleted on the draft. */
+  digest: string | null
   id: string
   path: string
   state: ConsoleDocumentState
   title: string
+  updatedAt: string | null
+}
+
+/** A document to publish and the draft digest the user reviewed. */
+export interface ConsoleDocumentPublishExpectation {
+  digest: string | null
+  id: string
+}
+
+export interface ConsoleDocumentChange extends ConsoleDocumentPublishExpectation {
+  state: Exclude<ConsoleDocumentState, "published">
 }
 
 export interface ConsoleDocumentPage {
+  /** Every unpublished change of the collection, before search, state, and filters. */
+  changes: ConsoleDocumentChange[]
   facets?: Record<string, Array<{ count: number, value: string }>>
   items: ConsoleDocumentSummary[]
   nextCursor: string | null
@@ -33,6 +48,17 @@ export interface ConsoleDocument {
   path: string
   revision: string
   state?: ConsoleDocumentState
+  updatedAt: string | null
+}
+
+/** One stored file as written, frontmatter included. */
+export interface ConsoleRawDocument {
+  collection: string
+  digest: string
+  id: string
+  path: string
+  revision: string
+  text: string
 }
 
 export interface ConsoleDocumentRevision {
@@ -71,6 +97,7 @@ interface ConsoleDocumentActionResults {
   get: ConsoleDocument | null
   list: ConsoleDocumentPage
   publish: ConsoleDocumentPublished
+  raw: ConsoleRawDocument | null
   remove: null
   restore: ConsoleDocument
   revisions: { cursor?: string, revisions: ConsoleDocumentRevision[] }
@@ -79,9 +106,12 @@ interface ConsoleDocumentActionResults {
 
 /** The owner document actions of one document editor section, called through the Console RPC transport. */
 export interface ConsoleDocumentsClient {
-  get(collection: string, id: string, revision?: string): Promise<ConsoleDocument | null>
+  get(collection: string, id: string): Promise<ConsoleDocument | null>
   list(collection: string, query?: ConsoleDocumentListQuery): Promise<ConsoleDocumentPage>
-  publish(collection: string, ids?: readonly string[]): Promise<ConsoleDocumentPublished>
+  /** Publishes exactly these drafts. A draft saved after review fails with a conflict and nothing is published. */
+  publish(collection: string, expect: readonly ConsoleDocumentPublishExpectation[]): Promise<ConsoleDocumentPublished>
+  /** Reads the stored file on the draft, or at an earlier revision, without validating it. */
+  raw(collection: string, id: string, revision?: string): Promise<ConsoleRawDocument | null>
   remove(collection: string, id: string, ifDigest: string): Promise<null>
   restore(collection: string, id: string, revision: string, ifDigest: string | null): Promise<ConsoleDocument>
   revisions(collection: string, id: string, cursor?: string): Promise<{ cursor?: string, revisions: ConsoleDocumentRevision[] }>
@@ -97,11 +127,13 @@ export function createConsoleDocumentsClient(base: string, section: string): Con
   }
   return {
     list: (collection: string, query: ConsoleDocumentListQuery = {}) => call("list", { collection, ...query }),
-    get: (collection: string, id: string, revision?: string) => call("get", revision ? { collection, id, revision } : { collection, id }),
+    get: (collection: string, id: string) => call("get", { collection, id }),
+    raw: (collection: string, id: string, revision?: string) => call("raw", revision ? { collection, id, revision } : { collection, id }),
     save: (collection: string, id: string, input: { body: string, data: Record<string, unknown>, ifDigest: string | null }) =>
       call("save", { collection, id, ...input }),
     remove: (collection: string, id: string, ifDigest: string) => call("remove", { collection, id, ifDigest }),
-    publish: (collection: string, ids?: readonly string[]) => call("publish", ids ? { collection, ids } : { collection }),
+    publish: (collection: string, expect: readonly ConsoleDocumentPublishExpectation[]) =>
+      call("publish", { collection, expect: expect.map(({ digest, id }) => ({ digest, id })) }),
     revisions: (collection: string, id: string, cursor?: string) =>
       call("revisions", cursor ? { collection, cursor, id } : { collection, id }),
     restore: (collection: string, id: string, revision: string, ifDigest: string | null) => call("restore", { collection, id, ifDigest, revision }),
@@ -126,8 +158,37 @@ export function consoleFieldIssues(error: unknown): ConsoleFieldIssue[] | undefi
   })
 }
 
+/** The document a `CONTENT_INVALID` failure names, as `publish` reports a draft that no longer validates. */
+export function consoleInvalidDocument(error: unknown): string | undefined {
+  if (!(error instanceof ConsoleRequestError) || error.failureCode !== "CONTENT_INVALID") return
+  const id = error.details?.id
+  return String(id) === id ? id : undefined
+}
+
 export function isConsoleConflict(error: unknown): boolean {
   return error instanceof ConsoleRequestError && error.failureCode === "WORKSPACE_CONFLICT"
+}
+
+/** A draft that moved after review, as a publish conflict reports it. `actual` is null when the draft deleted it. */
+export interface ConsolePublishMismatch {
+  actual: string | null
+  expected: string | null
+  id: string
+}
+
+/** Returns the documents that changed after review, from a publish conflict, or undefined for another error. */
+export function consolePublishMismatches(error: unknown): ConsolePublishMismatch[] | undefined {
+  if (!isConsoleConflict(error) || !(error instanceof ConsoleRequestError)) return
+  const documents = error.details?.documents
+  if (!Array.isArray(documents)) return
+  return documents.flatMap((entry) => {
+    if (!(entry instanceof Object) || Array.isArray(entry)) return []
+    const id: unknown = Reflect.get(entry, "id")
+    const expected: unknown = Reflect.get(entry, "expected")
+    const actual: unknown = Reflect.get(entry, "actual")
+    if (String(id) !== id) return []
+    return [{ actual: String(actual) === actual ? actual : null, expected: String(expected) === expected ? expected : null, id }]
+  })
 }
 
 export function consoleErrorMessage(error: unknown, fallback = "The request failed."): string {

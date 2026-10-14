@@ -2,15 +2,19 @@
 import { AgentMultiFileDiff } from "@vite-hub/ui";
 import { computed } from "vue";
 
+/** A stored file as written, or unsaved editor values that the diff renders as one. */
+type Version = string | { body: string, data: Record<string, unknown> } | null;
+
 /** Shows two versions of one document as Markdown files with frontmatter. */
 const props = defineProps<{
-  after: { body: string, data: Record<string, unknown> } | null;
-  before: { body: string, data: Record<string, unknown> } | null;
+  after: Version;
+  before: Version;
   name: string;
 }>();
 
-function render(version: { body: string, data: Record<string, unknown> } | null): string {
-  if (!version) return "";
+function render(version: Version): string {
+  if (version === null) return "";
+  if (!(version instanceof Object)) return version;
   const fields = Object.entries(version.data)
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([key, value]) => `${key}: ${JSON.stringify(value)}`);

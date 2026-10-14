@@ -50,6 +50,7 @@ function fakeActions(overrides: Partial<ConsoleDocumentActions> = {}): ConsoleDo
     get: unused,
     list: unused,
     publish: unused,
+    raw: unused,
     remove: unused,
     restore: unused,
     revisions: unused,
@@ -115,7 +116,7 @@ describe("Console document editor route", () => {
 
   it("serves only Content to an access scoped to Content", async () => {
     installConsoleAccess({ authorize: () => ({ sections: ["content"] }), mode: "open" })
-    install(fakeActions({ list: () => ({ items: [], nextCursor: null, states: { changed: 0, deleted: 0, draft: 0, published: 0 }, total: 0 }) }))
+    install(fakeActions({ list: () => ({ changes: [], items: [], nextCursor: null, states: { changed: 0, deleted: 0, draft: 0, published: 0 }, total: 0 }) }))
     await expect(documents("list", { collection: "posts" })).resolves.toMatchObject({ status: 200 })
     // `scoped` tells the Overview that other sections may exist but are hidden from this user.
     await expect(call(consoleRpcMethods.sections, {})).resolves.toMatchObject({ body: { value: { scoped: true, sections: ["content"] } } })
@@ -205,14 +206,19 @@ describe("Console document editor route", () => {
 })
 
 describe("Console document editor discovery", () => {
-  it("adds the Content section only when server/content.ts exists", async () => {
+  it("adds the Content section only when server/content.ts defines document collections", async () => {
     const root = await temporaryRoot()
     const empty = await discoverConsoleBuildCatalog({ discoveryRoot: root, projectRoot: root, sections: ["kv"] })
     expect(empty.documents).toEqual({})
     expect(withConsoleDocumentEditorSections(["kv"], empty)).toEqual(["kv"])
 
     await mkdir(join(root, "server"), { recursive: true })
-    await writeFile(join(root, "server/content.ts"), "export const content = {}\n")
+    // Read-only Sources have nothing to edit.
+    await writeFile(join(root, "server/content.ts"), `import { defineContent } from "vite-hub/content"\nexport const content = defineContent({ source: "content" })\n`)
+    const sourcesOnly = await discoverConsoleBuildCatalog({ discoveryRoot: root, projectRoot: root, sections: ["kv"] })
+    expect(sourcesOnly.documents).toEqual({})
+
+    await writeFile(join(root, "server/content.ts"), `import { defineContent, documents } from "vite-hub/content"\nexport const content = defineContent({ workspace: "site", collections: { posts: documents({ path: "posts/*.md", fields: {} }) } })\n`)
     const catalog = await discoverConsoleBuildCatalog({ discoveryRoot: root, projectRoot: root, sections: ["env", "kv"] })
     expect(catalog.documents).toEqual({ content: join(root, "server/content.ts") })
     expect(catalog.content.content).toEqual({ collections: [], kind: "document-editor" })

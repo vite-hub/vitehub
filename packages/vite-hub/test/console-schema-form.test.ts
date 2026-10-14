@@ -5,6 +5,8 @@ import {
   consoleDocumentSlug,
   consoleFieldIssues,
   consoleFieldLabel,
+  consoleInvalidDocument,
+  consolePublishMismatches,
   consoleSchemaDefaults,
   describeConsoleSchemaFields,
   groupConsoleFieldIssues,
@@ -87,5 +89,18 @@ describe("Console schema form model", () => {
     // List items belong to their field; nested object keys to the nested field.
     expect(groupConsoleFieldIssues(issues!)).toEqual({ "author.name": ["Required"], tags: ["Expected string"], title: ["Required"] })
     expect(consoleFieldIssues(new ConsoleRequestError(409, "Conflict", { code: "WORKSPACE_CONFLICT" }))).toBeUndefined()
+  })
+
+  it("reads the documents a publish failure names", () => {
+    const moved = new ConsoleRequestError(409, "Changed", {
+      code: "WORKSPACE_CONFLICT",
+      details: { documents: [{ id: "hello", expected: "a", actual: "b" }, { id: "gone", expected: "c", actual: null }, { expected: "x" }] },
+    })
+    expect(consolePublishMismatches(moved)).toEqual([{ id: "hello", expected: "a", actual: "b" }, { id: "gone", expected: "c", actual: null }])
+    // A save conflict names no documents.
+    expect(consolePublishMismatches(new ConsoleRequestError(409, "Changed", { code: "WORKSPACE_CONFLICT", details: { actual: "b" } }))).toBeUndefined()
+    const invalid = new ConsoleRequestError(422, "hello has invalid fields.", { code: "CONTENT_INVALID", details: { id: "hello", issues: [] } })
+    expect(consoleInvalidDocument(invalid)).toBe("hello")
+    expect(consoleInvalidDocument(new ConsoleRequestError(422, "Invalid", { code: "CONTENT_INVALID", details: { issues: [] } }))).toBeUndefined()
   })
 })

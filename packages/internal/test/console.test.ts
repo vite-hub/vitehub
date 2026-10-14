@@ -133,7 +133,7 @@ describe("Console section contributions", () => {
     // Collections are read from the owner actions on each request.
     await expect(readViteHubConsoleSection(editor, { rootDir: "/app" })).resolves.toEqual({ collections: [], kind: "document-editor" })
     expect(() => describeViteHubConsoleDocumentActions({ ...editor, actions: { export: "create", module: "../local.ts" } })).toThrow(TypeError)
-    expect(viteHubConsoleDocumentActionNames).toEqual(["get", "list", "publish", "remove", "restore", "revisions", "save"])
+    expect(viteHubConsoleDocumentActionNames).toEqual(["get", "list", "publish", "raw", "remove", "restore", "revisions", "save"])
   })
 
   it("marks action failures that the Console may return", () => {

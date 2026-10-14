@@ -68,12 +68,19 @@
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "valibot": "catalog:runtime",
+    "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling",
     "zod": "catalog:runtime"
   },
   "peerDependencies": {
-    "comark-content": "catalog:markdown"
+    "comark-content": "catalog:markdown",
+    "vite": "catalog:vite-compat"
+  },
+  "peerDependenciesMeta": {
+    "vite": {
+      "optional": true
+    }
   },
   "engines": {
     "node": ">=24.0.0"

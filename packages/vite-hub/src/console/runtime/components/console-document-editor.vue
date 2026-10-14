@@ -9,6 +9,7 @@ import {
   consoleDocumentStateLabel,
   consoleErrorMessage,
   consoleFieldIssues,
+  consolePublishMismatches,
   consoleSchemaDefaults,
   describeConsoleSchemaFields,
   groupConsoleFieldIssues,
@@ -20,7 +21,7 @@ import ConsoleDocumentDiff from "./console-document-diff.vue";
 import ConsoleMarkdownEditor from "./console-markdown-editor.vue";
 import ConsoleSchemaForm from "./console-schema-form.vue";
 
-import type { ConsoleDocument, ConsoleDocumentCollection, ConsoleDocumentRevision, ConsoleDocumentsClient, ConsoleDocumentState } from "../client/documents";
+import type { ConsoleDocument, ConsoleDocumentCollection, ConsoleDocumentRevision, ConsoleDocumentsClient, ConsoleDocumentState, ConsoleRawDocument } from "../client/documents";
 
 /**
  * Edits one document. Every save sends the digest of the version the editor read, so a save never overwrites a newer
@@ -74,7 +75,8 @@ const revisions = ref<ConsoleDocumentRevision[]>([]);
 const revisionsCursor = ref<string>();
 const revisionsLoading = ref(false);
 const revisionsError = ref<unknown>();
-const preview = ref<{ document: ConsoleDocument | null, revision: ConsoleDocumentRevision }>();
+/** A revision as stored, next to the saved draft. Stored files show even when they no longer validate. */
+const preview = ref<{ current: ConsoleRawDocument | null, document: ConsoleRawDocument | null, revision: ConsoleDocumentRevision }>();
 const previewLoading = ref(false);
 const restoring = ref(false);
 const bodyEditor = ref<{ commit: () => Promise<void> }>();
@@ -211,14 +213,25 @@ async function publish(): Promise<void> {
   publishing.value = true;
   status.value = undefined;
   try {
-    const result = await props.client.publish(props.collection.name, [id.value]);
+    // Publish exactly the draft on screen. A deleted document has no draft to expect.
+    const result = await props.client.publish(props.collection.name, [{ digest: base.value?.digest ?? null, id: id.value }]);
     status.value = { color: "success", text: result.documents.length ? (result.documents[0]?.change === "delete" ? "Removed from the published site" : "Published") : "Already published" };
     emit("changed");
     if (deleted.value) await router.replace(listRoute());
     else await load();
   }
   catch (error) {
-    status.value = { color: "error", text: consoleErrorMessage(error, "Could not publish.") };
+    const issues = consoleFieldIssues(error);
+    if (consolePublishMismatches(error)) {
+      // Someone saved after this editor loaded. Show their draft so it is reviewed before it is published.
+      await load();
+      status.value = { color: "error", text: "Someone saved a newer draft. Review it, then publish again." };
+    }
+    else if (issues) {
+      fieldErrors.value = groupConsoleFieldIssues(issues);
+      status.value = { color: "error", text: "This draft no longer validates. Fix it and save before you publish." };
+    }
+    else status.value = { color: "error", text: consoleErrorMessage(error, "Could not publish.") };
   }
   finally {
     publishing.value = false;
@@ -264,9 +277,13 @@ async function loadRevisions(more = false): Promise<void> {
 
 async function openRevision(revision: ConsoleDocumentRevision): Promise<void> {
   previewLoading.value = true;
-  preview.value = { document: null, revision };
+  preview.value = { current: null, document: null, revision };
   try {
-    preview.value = { document: await props.client.get(props.collection.name, id.value, revision.id), revision };
+    const [document, current] = await Promise.all([
+      props.client.raw(props.collection.name, id.value, revision.id),
+      props.client.raw(props.collection.name, id.value),
+    ]);
+    preview.value = { current, document, revision };
   }
   catch (error) {
     status.value = { color: "error", text: consoleErrorMessage(error, "Could not read this revision.") };
@@ -533,12 +550,12 @@ const menuItems = computed(() => [[
         </div>
         <div>
           <p class="text-sm font-medium text-highlighted">{{ revisionLabel(preview.revision) }} {{ formatTime(preview.revision.createdAt) }}</p>
-          <p class="text-xs text-muted">Compared with the version in the editor.</p>
+          <p class="text-xs text-muted">Compared with the saved draft.</p>
         </div>
         <div v-if="previewLoading" class="flex justify-center py-8"><UIcon name="i-ph-circle-notch-light" class="size-4 animate-spin text-muted" /></div>
         <p v-else-if="!preview.document" class="text-xs text-muted">The document does not exist in this revision.</p>
         <template v-else>
-          <ConsoleDocumentDiff :before="draft" :after="{ body: preview.document.body, data: preview.document.data }" :name="`${id}.md`" />
+          <ConsoleDocumentDiff :before="preview.current?.text ?? null" :after="preview.document.text" :name="`${id}.md`" />
           <UButton v-if="canWrite" class="justify-self-start" icon="i-lucide-rotate-ccw" label="Restore this version" :loading="restoring" @click="restore" />
         </template>
       </div>
