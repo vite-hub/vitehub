@@ -18,24 +18,15 @@ export function hasCloudflareSqlExec(sql: unknown): sql is RealtimeRoomSql {
     const exec = Object.getOwnPropertyDescriptor(prototype, "exec")?.value
     const databaseSize = Object.getOwnPropertyDescriptor(prototype, "databaseSize")?.get
     if (!databaseSize) return false
-    // Native function source formatting is runtime-defined, so only require
-    // the stable native marker and the platform's prototype shape.
-    const isNativeFunction = (value: unknown): value is Function => {
-      if (typeof value !== "function") return false
-      return /\[native code\]/.test(Function.prototype.toString.call(value))
-    }
-    const isNativeMethod = (value: unknown): value is Function => {
-      if (!isNativeFunction(value)) return false
-      // Platform methods and accessors have no user-function `prototype`
-      // own property. A Proxy around an ordinary callback retains it.
-      return !Object.hasOwn(value, "prototype")
-    }
-    // SqlStorage is a constructable platform type. Requiring its own
-    // prototype rejects proxy-wrapped arrow and bound functions, which can
-    // otherwise mimic the native source marker while remaining ordinary JS.
-    const isNativeConstructor = (value: unknown): value is Function =>
-      isNativeFunction(value) && Object.hasOwn(value, "prototype")
-    if (!isNativeConstructor(constructor) || !isNativeMethod(exec) || !isNativeMethod(databaseSize)) return false
+    // Function source strings and own `prototype` properties vary between
+    // workerd versions. The receiver probe below is the platform brand check;
+    // descriptor shape only ensures that invoking discovery cannot run an
+    // arbitrary inherited getter.
+    if (typeof constructor !== "function" || typeof exec !== "function" || typeof databaseSize !== "function") return false
+    // Accessor callbacks supplied by JavaScript have an own `prototype`;
+    // workerd's native getter does not. Reject these before the brand probe so
+    // discovery never invokes a fabricated getter.
+    if (Object.hasOwn(databaseSize, "prototype")) return false
 
     // The native getter must enforce workerd's internal SqlStorage brand.
     // A fabricated getter (including a Proxy-wrapped arrow or bound function)
