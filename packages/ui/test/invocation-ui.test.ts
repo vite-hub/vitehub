@@ -4235,7 +4235,7 @@ describe("Agent Invocation UI", () => {
     expect(inspector.get(".vh-invocation-inspector__metrics").text()).toContain("Messages2");
   });
 
-  it("renders structured workspace sources alongside historical source strings", () => {
+  it("renders structured workspace sources alongside historical source strings", async () => {
     const invocation: AgentInvocationView = {
       id: "sources", traceId: "sources", createdAt: "2026-09-05T00:00:00Z", updatedAt: "2026-09-05T00:00:01Z",
       status: "completed", observations: [],
@@ -4254,6 +4254,12 @@ describe("Agent Invocation UI", () => {
       "https://github.com/vite-hub/vitehub", "https://github.com/legacy/repo",
     ]);
     expect(sources?.findAll("a")[0]?.attributes("title")).toBe("docs: vite-hub/vitehub");
+    await wrapper.setProps({ showSources: false });
+    expect(wrapper.text()).not.toContain("Sources");
+    expect(wrapper.find('a[href="https://github.com/vite-hub/vitehub"]').exists()).toBe(false);
+    await wrapper.setProps({ showSources: true });
+    expect(wrapper.text()).toContain("Sources");
+    expect(wrapper.find('a[href="https://github.com/vite-hub/vitehub"]').exists()).toBe(true);
   });
 
   describe("conversation view", () => {
