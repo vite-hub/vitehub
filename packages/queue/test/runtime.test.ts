@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 import { createServer } from "node:http"
+import { Readable } from "node:stream"
 import { runInNewContext } from "node:vm"
 
 import { clearActiveCloudflareEnv, getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
@@ -768,7 +769,16 @@ describe("vercel provider", () => {
     setQueueRuntimeConfig({ provider: "vercel", region: "iad1" }, createVercelQueueRuntimeClient)
     setQueueRuntimeRegistry({ welcome: async () => ({ default: definition }) })
 
-    await expect(handleHostedVercelQueueCallback({ request }, "welcome", definition)).resolves.toBe("handled")
+    const h3Request = Object.assign(Readable.from(["payload"]), {
+      headers: {},
+      method: "POST",
+      url: "/callback",
+    })
+    await expect(handleHostedVercelQueueCallback({
+      method: "POST",
+      node: { req: h3Request },
+      request,
+    } as never, "welcome", definition)).resolves.toBe("handled")
     expect(captured).not.toBe(request)
     expect(captured).toBeInstanceOf(Request)
   })

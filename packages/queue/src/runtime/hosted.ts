@@ -24,6 +24,10 @@ function isRequestLike(value: unknown): value is Request {
     ]
     return getters.some((getter) => {
       if (!getter) return false
+      // Native accessors are stable across realms; an accessor supplied by the
+      // candidate object is ordinary user code and must not be trusted as a
+      // brand check.
+      if (!Function.prototype.toString.call(getter).includes("[native code]")) return false
       try {
         getter.call(value)
         return true
