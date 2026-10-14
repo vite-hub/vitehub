@@ -107,4 +107,6 @@ curl http://localhost:5173/api/guide
 The response contains the parsed `Hello from Content` document. Read
 [Server API](/docs/content/server-api) for every Content method.
 
+The `docs` Source is read-only: you change it by editing files in the repository. To let people or Agents edit documents at runtime, with drafts and publishing, add a [document collection](/docs/content/configure#document-collections).
+
 ::
