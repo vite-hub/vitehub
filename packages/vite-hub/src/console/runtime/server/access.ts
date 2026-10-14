@@ -106,8 +106,15 @@ function isResponseLike(value: unknown): value is Response {
         factorySurface = false
       }
     }
+    // Foreign DOM implementations keep their internal response state in a
+    // non-enumerable own symbol.  Merely counting symbols is spoofable because
+    // callers can add an arbitrary enumerable symbol to an ordinary object.
+    const hasHiddenState = Object.getOwnPropertySymbols(value).some((symbol) => {
+      const descriptor = Object.getOwnPropertyDescriptor(value, symbol)
+      return descriptor?.enumerable === false && descriptor.value !== undefined
+    })
     const foreignImplementation = ownSlots
-      && Object.getOwnPropertySymbols(value).length > 0
+      && hasHiddenState
       && hasBodyGetter
       && hasResponseTag
       && typeof constructor === "function"
