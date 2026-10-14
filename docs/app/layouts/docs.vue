@@ -59,7 +59,6 @@ const hasPanel = computed(
 @media (min-width: 64rem) {
   .vh-docs-shell {
     display: flex;
-    overflow: hidden;
     align-items: flex-start;
     /* Clip the expanded rail horizontally without creating a vertical scroll ancestor for sticky navigation. */
     overflow-x: clip;
