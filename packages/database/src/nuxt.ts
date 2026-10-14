@@ -276,10 +276,11 @@ async function installNitroLocalDatabaseRuntime(
     return
   }
 
+  const tableNameOptions = { alias: isRecord(config.alias) ? config.alias : undefined }
   for (const definition of runtime.definitions) {
-    const parts = [{ schema: await loadDatabaseSchema(definition.handler), owner: `Database Definition ${definition.handler}` }]
+    const parts = [{ schema: await loadDatabaseSchema(definition.handler, tableNameOptions), owner: `Database Definition ${definition.handler}` }]
     for (const contribution of runtime.tableContributionsByDatabase[definition.name] ?? []) {
-      parts.push({ schema: await loadContributedDatabaseSchema(contribution, file), owner: `contributed tables ${contribution.module}` })
+      parts.push({ schema: await loadContributedDatabaseSchema(contribution, file, tableNameOptions), owner: `contributed tables ${contribution.module}` })
     }
     assertDistinctLoadedSchemas(definition.name, parts)
   }
