@@ -37,7 +37,15 @@ async function toRequest(event: {
   method?: string
   request?: Request
 }) {
-  if (event.request instanceof Request || isRequestLike(event.request)) {
+  // `instanceof` can invoke a proxy's traps; treat hostile callback values as
+  // non-Requests and let the existing H3 normalization handle them.
+  let sameRealmRequest = false
+  try {
+    sameRealmRequest = event.request instanceof Request
+  } catch {
+    sameRealmRequest = false
+  }
+  if (sameRealmRequest || isRequestLike(event.request)) {
     return event.request
   }
 
