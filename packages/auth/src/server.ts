@@ -286,9 +286,15 @@ async function runAccessAuthorize(
     try {
       const response = result
       const headers = new Headers()
-      const setCookieHeaders = typeof response.headers.getSetCookie === "function"
-        ? response.headers.getSetCookie()
-        : []
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Read an optional foreign Headers method before copying it.
+      const getSetCookie = response.headers.getSetCookie
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Branch on the optional foreign method before invoking it.
+      const setCookieHeaders = typeof getSetCookie === "function" ? getSetCookie() : []
+      // A foreign Headers implementation without getSetCookie may collapse
+      // multiple policy headers. Fail closed when it reports one.
+      if (typeof getSetCookie !== "function" && response.headers.get("set-cookie") !== null) {
+        return createForbiddenResponse(context.request)
+      }
       response.headers.forEach((value, key) => {
         if (key.toLowerCase() === "set-cookie" && setCookieHeaders.length > 0) return
         headers.append(key, value)
