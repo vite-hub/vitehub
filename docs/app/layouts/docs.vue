@@ -61,7 +61,8 @@ const hasPanel = computed(
     display: flex;
     align-items: flex-start;
     /* Clip the expanded rail horizontally without creating a vertical scroll ancestor for sticky navigation. */
-    overflow: hidden;
+    overflow-x: clip;
+    overflow-y: visible;
   }
 
   /* The sidebars do not clip, so the expanded rail can cover the page. The z-index keeps it below the site header. */
