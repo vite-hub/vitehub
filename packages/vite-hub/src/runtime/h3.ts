@@ -40,20 +40,27 @@ function isRequest(value: unknown): value is Request {
     if (value instanceof Request) return true
     if (value === null || typeof value !== "object") return false
 
-    // Fetch accessors perform the host's Web IDL brand check. Use the
-    // candidate realm's accessors so foreign Requests remain supported.
-    let prototype: object | null = value
+    // Fetch accessors perform the host's Web IDL brand check. Start at the
+    // candidate's actual constructor prototype so custom intermediate
+    // prototypes cannot supply a Fetch-shaped set of getters.
+    const constructor = (value as { constructor?: unknown }).constructor
+    if (typeof constructor !== "function") return false
+    let prototype = (constructor as { prototype?: unknown }).prototype
+    if (prototype === null || typeof prototype !== "object") return false
     while (prototype) {
+      const ownConstructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
       const accessors = ["headers", "url", "method", "bodyUsed"].map((key) =>
         Object.getOwnPropertyDescriptor(prototype, key)?.get,
       )
-      if (accessors.every((accessor): accessor is () => unknown => typeof accessor === "function")) {
-        const [headers, url, method, bodyUsed] = accessors.map((accessor) => accessor.call(value))
-        if (
-          headers !== null && typeof headers === "object" &&
-          typeof (headers as { get?: unknown }).get === "function" &&
-          typeof url === "string" && typeof method === "string" && typeof bodyUsed === "boolean"
-        ) return true
+      if (typeof ownConstructor === "function" && ownConstructor.name === "Request") {
+        if (accessors.every((accessor): accessor is () => unknown => typeof accessor === "function")) {
+          const [headers, url, method, bodyUsed] = accessors.map((accessor) => accessor.call(value))
+          if (
+            headers !== null && typeof headers === "object" &&
+            typeof (headers as { get?: unknown }).get === "function" &&
+            typeof url === "string" && typeof method === "string" && typeof bodyUsed === "boolean"
+          ) return true
+        }
       }
       prototype = Object.getPrototypeOf(prototype)
     }
