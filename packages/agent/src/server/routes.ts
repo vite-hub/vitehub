@@ -4229,6 +4229,7 @@ function checkedTextAttachmentBytes(value: unknown, options: ChatMessagePartOpti
 function isTextAttachmentOversizeError(error: unknown): boolean {
   if (error instanceof Error) return error.message === chatTextAttachmentOversizeMessage
   if (!isRuntimeObject(error)) return false
+  // SAFETY: Runtime object validation establishes the record shape before reading its optional diagnostic message.
   const message = (error as { message?: unknown }).message
   return isRuntimeString(message) && message === chatTextAttachmentOversizeMessage
 }
@@ -4239,15 +4240,18 @@ async function textAttachmentBytes(attachment: Attachment, options: ChatMessageP
     throw agentDiagnostics.AGENT_R0815({ message: chatTextAttachmentOversizeMessage })
   }
   if (isRuntimeFunction(attachment.fetchData)) {
+    let data: unknown
     try {
-      const data = await attachment.fetchData()
-      if (isAttachmentBlob(data)) {
-        if (data.size > chatTextAttachmentMaxBytes) {
-          if (!options.rejectOversizedTextAttachments) return
-          throw agentDiagnostics.AGENT_R0814({ message: chatTextAttachmentOversizeMessage })
-        }
-        return checkedTextAttachmentBytes(new Uint8Array(await data.arrayBuffer()), options)
-      }
+      data = await attachment.fetchData()
+    } catch {
+      return undefined
+    }
+    if (isAttachmentBlob(data) && data.size > chatTextAttachmentMaxBytes) {
+      if (!options.rejectOversizedTextAttachments) return
+      throw agentDiagnostics.AGENT_R0814({ message: chatTextAttachmentOversizeMessage })
+    }
+    try {
+      if (isAttachmentBlob(data)) return checkedTextAttachmentBytes(new Uint8Array(await data.arrayBuffer()), options)
       return checkedTextAttachmentBytes(data, options)
     } catch (error) {
       if (isTextAttachmentOversizeError(error)) throw error
@@ -7145,7 +7149,9 @@ async function channelHistoryAttachment(
   if (isAttachmentBlob(data)) {
     if (data.size <= maxBytes) {
       try {
-        data = new Uint8Array(await boundedChannelHistoryOperation(() => data.arrayBuffer(), signal) as ArrayBuffer)
+        const blob = data
+        // SAFETY: Blob.arrayBuffer() always resolves to an ArrayBuffer by the Blob contract.
+        data = new Uint8Array(await boundedChannelHistoryOperation(() => blob.arrayBuffer(), signal) as ArrayBuffer)
       } catch {
         data = undefined
       }
