@@ -124,6 +124,7 @@ describe("Auth access handlers", () => {
       access: { routes: [{ route: "/**", authorize: () => foreignResponse as never }] },
     }))
 
+
     await expect(handler(new Request("https://app.example/"))).resolves.toBe(foreignResponse)
   })
 
