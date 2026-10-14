@@ -225,7 +225,7 @@ describe("hubDb", () => {
     expect(options.cloudflare?.wrangler?.d1_databases).toBeUndefined()
     const handler = join(rootDir, ".vitehub/nitro/database/request-scope.mjs")
     expect(options.handlers).toEqual([{ handler, middleware: true }])
-    const middleware = (await import(pathToFileURL(handler).href)).default as (event: unknown, next: () => unknown) => unknown
+    const middleware = (await import(pathToFileURL(handler).href)).default as (event: unknown, next?: () => unknown) => unknown
     const { getActiveCloudflareEnv, getActiveCloudflareRequestScope } = await import("@vite-hub/internal/runtime/cloudflare-env")
     const env = { APP_HYPERDRIVE: { connectionString: "postgres://hyperdrive/app" } }
     const scopes = [
