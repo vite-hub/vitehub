@@ -702,6 +702,47 @@ describe("hubDb", () => {
     await expect(readFile(join(rootDir, ".vitehub/database/schema/default.ts"), "utf8")).resolves.toContain("export const tasks")
   })
 
+  it.each([false, true])("refreshes extension schema artifacts and virtual modules (normalized paths: %s)", async (windowsPath) => {
+    const rootDir = await createTempProject()
+    await writeDefinition(rootDir, "server/databases/config.ts")
+    const extension = join(rootDir, "module-schema.ts")
+    await writeFile(extension, "export const user = {}")
+    const plugin = hubDb()
+    let calls = 0
+    await resolveConfigResolved(plugin)({
+      root: rootDir,
+      plugins: [{
+        name: "fixture-schema",
+        vitehub: { database: { extend({ schemaFiles }: { schemaFiles: string[] }) {
+          calls++
+          schemaFiles.push(extension)
+        } } },
+      }],
+    })
+    const generated = join(rootDir, ".vitehub/database/schema/default.ts")
+    const original = await readFile(generated, "utf8")
+    await writeFile(generated, "// stale artifact")
+    await writeFile(extension, "export const user = {}; export const session = {}")
+    if (windowsPath) {
+      plugin.api.getConfig()!.schemaExtensionsByDatabase.default = [extension.replaceAll("/", "\\")]
+    }
+    const invalidated: string[] = []
+    await resolveHotUpdate(plugin)({
+      file: extension,
+      server: { moduleGraph: {
+        getModuleById: id => ({ id }),
+        invalidateModule: module => { invalidated.push(module.id) },
+      } },
+    })
+    expect(calls).toBe(2)
+    await expect(readFile(generated, "utf8")).resolves.toBe(original)
+    expect(invalidated).toEqual([
+      `\0${DB_VIRTUAL_SCHEMA_ID}`,
+      `\0${DB_VIRTUAL_DATABASES_ID}`,
+      "\0#vitehub/database/definition-defaults",
+    ])
+  })
+
   it("normalizes definition paths before matching hot updates", async () => {
     const rootDir = await createTempProject()
     const definition = await writeDefinition(rootDir, "server/databases/config.ts")
