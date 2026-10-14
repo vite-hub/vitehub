@@ -491,7 +491,7 @@ describe("hubAuth", () => {
     const root = await createTempProject()
     await writeAuth(root)
     const plugin = hubAuth()
-    const configHook = plugin.config as (config: Record<string, unknown>) => unknown
+    const configHook = plugin.config as unknown as (config: Record<string, unknown>) => unknown
     configHook({ root, nitro: { baseURL: "/app/" } })
     await resolvePluginConfig(plugin, root)
 
