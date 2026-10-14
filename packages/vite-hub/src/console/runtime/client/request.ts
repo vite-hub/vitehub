@@ -122,9 +122,10 @@ function consoleRpcCall(path: string): { agent?: string; id?: string; method: Co
 
 /** A retry can succeed only for a transient failure. Configuration and access failures need a change first. */
 export function isRetryableConsoleRequestError(error: unknown): boolean {
-  if (!(error instanceof ConsoleRequestError)) return true
-  if (isConsoleDiagnosticCode(error.code)) return consoleDiagnosticAction(error.code) === "retry"
-  return error.status === 408 || error.status === 429 || error.status >= 500
+  if (!(error instanceof ConsoleRequestError)) return error instanceof TypeError
+  const transientStatus = error.status === 408 || error.status === 429 || error.status === 500 || (error.status >= 502 && error.status <= 504)
+  if (isConsoleDiagnosticCode(error.code)) return transientStatus && consoleDiagnosticAction(error.code) === "retry"
+  return transientStatus
 }
 
 export async function requestConsole(

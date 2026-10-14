@@ -133,7 +133,12 @@ describe("Console problems", () => {
 
   it("keeps the code and guidance of a thrown diagnostic", () => {
     const error = Object.assign(new Error("The Console returned an invalid definition catalog."), { code: "VITE_HUB_R0098", docs: "https://vitehub.dev/docs/reference/diagnostics" })
-    expect(consoleProblem(error)).toMatchObject({ action: "retry", code: "VITE_HUB_R0098", docs: "https://vitehub.dev/docs/reference/diagnostics", why: "The Console returned an invalid definition catalog." })
+    expect(consoleProblem(error)).toMatchObject({ action: "docs", code: "VITE_HUB_R0098", docs: "https://vitehub.dev/docs/reference/diagnostics", why: "The Console returned an invalid definition catalog." })
+  })
+
+  it("does not retry an ordinary client or schema error", () => {
+    expect(consoleProblem(new Error("Invalid Console response"))).toMatchObject({ action: "docs", code: "CONSOLE_REQUEST_FAILED" })
+    expect(isRetryableConsoleRequestError(new Error("Invalid Console response"))).toBe(false)
   })
 
   it("retries automatically only when a retry can succeed", () => {
@@ -141,6 +146,8 @@ describe("Console problems", () => {
     expect(isRetryableConsoleRequestError(new ConsoleRequestError(403))).toBe(false)
     expect(isRetryableConsoleRequestError(new ConsoleRequestError(503))).toBe(true)
     expect(isRetryableConsoleRequestError(new ConsoleRequestError(502, { code: "CONNECTION_PROVIDER" }))).toBe(true)
+    expect(isRetryableConsoleRequestError(new ConsoleRequestError(501))).toBe(false)
+    expect(isRetryableConsoleRequestError(new ConsoleRequestError(505))).toBe(false)
   })
 })
 

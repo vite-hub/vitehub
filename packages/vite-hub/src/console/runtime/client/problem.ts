@@ -26,7 +26,7 @@ function fromCode(code: ConsoleDiagnosticCode, message?: string): ConsoleProblem
 
 function statusAction(status: number, code: string, docs: string | undefined): ConsoleDiagnosticAction {
   if (status === 401) return "sign-in"
-  if ((status === 408 || status === 429 || status >= 500) && !configurationCodes.has(code)) return "retry"
+  if ((status === 408 || status === 429 || status === 500 || (status >= 502 && status <= 504)) && !configurationCodes.has(code)) return "retry"
   return docs ? "docs" : "reload"
 }
 
@@ -56,7 +56,7 @@ export function consoleProblem(error: unknown): ConsoleProblem | undefined {
     const docs = text(Reflect.get(error, "docs"))
     const fallback = fromCode("CONSOLE_REQUEST_FAILED")
     return {
-      action: "retry",
+      action: "docs",
       code: code ?? fallback.code,
       docs: docs ?? fallback.docs,
       fix: text(Reflect.get(error, "fix")) ?? fallback.fix,
