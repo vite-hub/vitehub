@@ -58,6 +58,9 @@ describe("cross realm Blob bodies", () => {
     const body: Uint8Array = new Uint8Array([1, 2, 3])
     const spoof = Object.create(Object.getPrototypeOf(body))
     Object.defineProperties(spoof, {
+      constructor: { value: { name: "Blob" } },
+      arrayBuffer: { value: () => Promise.resolve(new ArrayBuffer(0)) },
+      text: { value: () => Promise.resolve("") },
       type: { get: () => "image/x-spoofed" },
       size: { get: () => 999 },
     })
