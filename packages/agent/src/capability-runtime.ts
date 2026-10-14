@@ -87,11 +87,12 @@ export function trustGitHubPullRequestWorkspaceCapability<T extends object>(capa
   return capability
 }
 export const capabilityFinishDeliveryEffectSymbol: unique symbol = Symbol.for("vitehub.agent.capabilityFinishDeliveryEffect")
-export const capabilityFinishDeliveryRepairSymbol: unique symbol = Symbol.for("vitehub.agent.capabilityFinishDeliveryRepair")
-export interface AgentFinishDeliveryRepair {
-  instruction: string
-  maxAttempts: number
-  shouldRepair: (context: AgentInvocationContextStore) => boolean
+export const capabilityFinishDeliveryReminderSymbol: unique symbol = Symbol.for("vitehub.agent.capabilityFinishDeliveryReminder")
+export interface AgentFinishDeliveryReminder {
+  capabilityId: string
+  tool: string
+  /** Claims the next reminder turn, or returns `undefined` when delivery needs none. */
+  next: (context: AgentInvocationContextStore) => { instruction: string, turn: number, turns: number } | undefined
 }
 export const eagerFinishExtensionSymbol: unique symbol = Symbol("vitehub.agent.eagerFinishExtension")
 type InternalAgentCapabilityDefinition<
@@ -100,7 +101,7 @@ type InternalAgentCapabilityDefinition<
 > = AgentCapabilityDefinition<TRuntimeConfig, Name> & {
   [capabilityInvocationStartSymbol]?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
   [capabilityFinishDeliveryEffectSymbol]?: AgentChannelDeliveryFinishEffect
-  [capabilityFinishDeliveryRepairSymbol]?: AgentFinishDeliveryRepair
+  [capabilityFinishDeliveryReminderSymbol]?: AgentFinishDeliveryReminder
   [eagerFinishExtensionSymbol]?: boolean
   [workspaceMaterializationPathsSymbol]?: readonly string[]
   [workspacePersistencePathsSymbol]?: readonly string[]
@@ -151,7 +152,7 @@ export interface ResolvedAgentOutputExtensionProvider {
 export interface AgentCapabilityRegistries {
   deliveryEffectIntents: AgentChannelDeliveryEffectIntent[]
   finishDeliveryEffectProviders: AgentChannelDeliveryFinishEffect[]
-  finishDeliveryRepairProviders: AgentFinishDeliveryRepair[]
+  finishDeliveryReminderProviders: AgentFinishDeliveryReminder[]
   finishExtensionProviders: ResolvedAgentFinishExtensionProvider[]
   finalOutputRenderers: ResolvedAgentOutputRenderer[]
   modelExecutionInstrumentation: AgentModelExecutionInstrumentation[]
@@ -1276,10 +1277,10 @@ export async function resolveAgentCapabilities<
       }),
     ],
     finishExtensionProviders: [],
-    finishDeliveryRepairProviders: capabilities.flatMap(capability => {
-      // Internal Capabilities can request bounded follow-up turns before teardown.
-      const repair = (capability as InternalAgentCapabilityDefinition<TRuntimeConfig, Name>)[capabilityFinishDeliveryRepairSymbol]
-      return repair ? [repair] : []
+    finishDeliveryReminderProviders: capabilities.flatMap(capability => {
+      // Internal Capabilities can request bounded reminder turns before teardown.
+      const reminder = (capability as InternalAgentCapabilityDefinition<TRuntimeConfig, Name>)[capabilityFinishDeliveryReminderSymbol]
+      return reminder ? [reminder] : []
     }),
     finalOutputRenderers: [],
     modelExecutionInstrumentation: [],
