@@ -25,6 +25,8 @@ export default defineConfig({
       "src/ai.ts",
       "src/blob-database.ts",
       "src/cloudflare.ts",
+      "src/collections.ts",
+      "src/collections/client.ts",
       "src/hosted.ts",
       "src/hosted-vercel-blob.ts",
       "src/index.ts",

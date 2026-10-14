@@ -12,6 +12,7 @@ import {
   parseDocumentFile,
   renderDocumentFile,
   validateFields,
+  warnUntypedFields,
 } from "./documents.ts"
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 
@@ -27,6 +28,7 @@ export type ContentRef = "draft" | "published"
 const contentRefs: ReadonlySet<string> = new Set<ContentRef>(["draft", "published"])
 const maxCommitAttempts = 8
 const maxRevisionScan = 1_000
+const maxUpdatedAtScan = 5_000
 const listDefaultLimit = 50
 const listMaxLimit = 1_000
 
@@ -45,10 +47,29 @@ export interface ContentDocument<TData = Record<string, unknown>> {
   digest: string
   /** History revision the document was read from. */
   revision: string
+  /**
+   * When the document last changed on the ref it was read from: the `createdAt` of the newest revision on that ref
+   * that added or changed its file. Null when the change is older than the 5,000 revisions Content scans.
+   */
+  updatedAt: string | null
 }
 
 /** A listed document. `list()` leaves out the body; read it with `get()`. */
 export type ContentDocumentSummary<TData = Record<string, unknown>> = Omit<ContentDocument<TData>, "body">
+
+/** One stored file as written, without parsing or validation. `raw()` returns it even when the frontmatter no longer validates. */
+export interface ContentRawDocument {
+  collection: string
+  id: string
+  /** Workspace path of the Markdown file, such as `posts/hello.md`. */
+  path: string
+  /** The file text, frontmatter included. */
+  text: string
+  /** SHA-256 of the file bytes, the same digest `get()`, `status()`, and `ifDigest` use. */
+  digest: string
+  /** History revision the file was read from. */
+  revision: string
+}
 
 export interface ContentReadOptions {
   /** `published` (default) or `draft`. */
@@ -117,24 +138,49 @@ export interface ContentWriteOptions {
 export type ContentDocumentState = "draft" | "published" | "changed" | "deleted"
 
 export interface ContentDocumentStatus {
+  collection: string
   id: string
   state: ContentDocumentState
-  /** Digest on the `draft` ref, or null when the draft has no such document. */
+  /** Digest on the `draft` ref, or null when the draft has no such document. Pass it to `publish({ expect })`. */
   draft: string | null
   /** Digest on the `published` ref, or null when it is not published. */
   published: string | null
 }
 
-export interface ContentPublishOptions {
-  /** Publish one collection. Omit to publish every collection. */
-  collection?: string
-  /** Publish only these documents of `collection`. Requires `collection`. */
+/** One document `publish({ expect })` must find on the draft before it publishes it. */
+export interface ContentPublishExpectation {
+  /** Collection name. An unknown name throws `CONTENT_R0008`. */
+  collection: string
+  id: string
+  /** The draft digest that was reviewed, from `status()` or `get({ ref: 'draft' })`. `null` expects the document deleted on the draft. */
+  digest: string | null
+}
+
+export interface ContentPublishOptions<TCollection extends string = string> {
+  /** Publish one collection. Omit to publish every collection. Cannot be combined with `expect`. */
+  collection?: TCollection
+  /** Publish only these documents of `collection`. Requires `collection`. Cannot be combined with `expect`. */
   ids?: readonly string[]
+  /**
+   * Publish exactly these documents, and only if each draft digest still matches. A draft saved after review throws
+   * `WORKSPACE_CONFLICT` instead of being published. Confirm and approve flows must publish this way.
+   */
+  expect?: readonly ContentPublishExpectation[]
   /** Expected `published` head revision id, or null before the first publish. A different head throws `WORKSPACE_CONFLICT`. */
   ifHead?: string | null
   message?: string
   /** JSON-safe revision metadata, such as the author. The `content` key is reserved. */
   metadata?: Record<string, unknown>
+}
+
+/** A document whose draft no longer matches `publish({ expect })`. */
+export interface ContentPublishMismatch {
+  collection: string
+  id: string
+  /** The digest the caller expected. */
+  expected: string | null
+  /** The current draft digest, or null when the draft has no such document. */
+  actual: string | null
 }
 
 export interface ContentPublishedDocument {
@@ -170,12 +216,16 @@ export interface ContentCollection<TFields extends ContentFields = ContentFields
   readonly name: string
   /** The collection glob, such as `posts/**\/*.md`. */
   readonly path: string
+  /** Frontmatter field names, in definition order. */
+  readonly fields: readonly string[]
   /** JSON Schema of the frontmatter, built from each field's Standard JSON Schema. Forms and tools read it. */
   readonly schema: Record<string, unknown>
   /** List documents with filters, search, sort, facets, and a total. Reads `published` unless `ref` says otherwise. */
   list(options?: ContentListOptions<ContentFieldsOutput<TFields>>): Promise<ContentPage<ContentFieldsOutput<TFields>>>
   /** Read one document, or null when it does not exist. Throws `CONTENT_INVALID` when its frontmatter no longer validates. */
   get(id: string, options?: ContentReadOptions): Promise<ContentDocument<ContentFieldsOutput<TFields>> | null>
+  /** Read one stored file without parsing or validating it, or null when it does not exist. Use it to show and diff any version. */
+  raw(id: string, options?: ContentReadOptions): Promise<ContentRawDocument | null>
   /** Validate and commit a document to the `draft` ref. */
   save(id: string, input: ContentSaveInput<ContentFieldsInput<TFields>>, options?: ContentWriteOptions): Promise<ContentDocument<ContentFieldsOutput<TFields>>>
   /** Delete a document from the `draft` ref. It stays published until the next publish. */
@@ -404,6 +454,88 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     return text
   }
 
+  const updatedAtMaps = new BoundedCache<Promise<ReadonlyMap<string, string | null>>>(16)
+
+  function isDocumentPath(path: string): boolean {
+    for (const collection of collections.values()) {
+      if (collection.compiled.match(path)) return true
+    }
+    return false
+  }
+
+  /** Paths a Content commit changed, from its `metadata.content.documents`. Undefined for other commits and seeds. */
+  function contentCommitPaths(revision: WorkspaceRevision): Set<string> | undefined {
+    const content: unknown = revision.metadata?.content
+    const documents: unknown = content !== null && Object(content) === content ? Reflect.get(Object(content), "documents") : undefined
+    if (!Array.isArray(documents)) return
+    const paths = new Set<string>()
+    for (const document of documents) {
+      const collection = collections.get(String(Reflect.get(Object(document), "collection")))
+      const id: unknown = Reflect.get(Object(document), "id")
+      if (!collection || String(id) !== id) return
+      try {
+        paths.add(collection.pathFor(id))
+      }
+      catch {
+        return
+      }
+    }
+    return paths
+  }
+
+  /**
+   * When each document in a revision last changed on its ref. Walks the ref backwards: Content commits name the
+   * documents they changed, and any other commit is compared with its parent. A cached older revision ends the walk.
+   */
+  function updatedAtMap(opened: OpenedRevision): Promise<ReadonlyMap<string, string | null>> {
+    return memoize(updatedAtMaps, opened.revision.id, async () => {
+      const result = new Map<string, string | null>()
+      const pending = new Map<string, string>()
+      for (const [path, digest] of opened.files) {
+        if (isDocumentPath(path)) pending.set(path, digest)
+      }
+      const retained = await history()
+      const ref = opened.revision.ref
+      let queue: WorkspaceRevision[] = [opened.revision]
+      let cursor: string | undefined = opened.revision.id
+      let scanned = 0
+      while (pending.size && scanned < maxUpdatedAtScan) {
+        if (!queue.length) {
+          if (!cursor) break
+          const page = await retained.list({ ref, cursor, limit: 100 })
+          queue = page.revisions
+          cursor = page.cursor
+          if (!queue.length) break
+        }
+        const revision = queue.shift()!
+        scanned++
+        const cached = revision.id === opened.revision.id ? undefined : updatedAtMaps.get(revision.id)
+        if (cached) {
+          // Pending documents did not change after this revision, so they keep its answer.
+          const earlier = await cached
+          for (const path of pending.keys()) result.set(path, earlier.get(path) ?? null)
+          pending.clear()
+          break
+        }
+        const touched = contentCommitPaths(revision)
+        if (touched) {
+          for (const path of touched) {
+            if (pending.delete(path)) result.set(path, revision.createdAt)
+          }
+          continue
+        }
+        const parent = revision.parentId ? await openRevision(revision.parentId) : undefined
+        for (const [path, digest] of pending) {
+          if (parent?.files.get(path) === digest) continue
+          result.set(path, revision.createdAt)
+          pending.delete(path)
+        }
+      }
+      for (const path of pending.keys()) result.set(path, null)
+      return result
+    })
+  }
+
   // Seed an empty draft from the published ref so a first save does not drop every published document.
   async function seedDraft(retained: WorkspaceRetainedHistory): Promise<void> {
     const published = await retained.head({ ref: "published" })
@@ -444,6 +576,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     const compiled: CompiledDocumentsPath = compileDocumentsPath(definition.path)
     const fieldNames = new Set(Object.keys(definition.fields))
     const schema = fieldsJsonSchema(definition.fields)
+    warnUntypedFields(name, definition.fields, schema)
     const comarkSchema: JsonSchema = comarkJsonSchema(schema)
     const parsedTexts = new BoundedCache<Promise<ParsedText>>(10_000)
     const indexes = new BoundedCache<Promise<IndexedDocument[]>>(4)
@@ -495,15 +628,22 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       return await memoize(parsedTexts, entry.digest, async () => await parseText(await readText(opened, entry.path)))
     }
 
-    function documentOf(id: string, entry: CollectionEntry, parsed: { data: Record<string, unknown>, body: string }, revision: string): IndexedDocument {
-      return { collection: name, id, path: entry.path, data: { ...parsed.data }, body: parsed.body, digest: entry.digest, revision }
+    function documentOf(
+      id: string,
+      entry: CollectionEntry,
+      parsed: { data: Record<string, unknown>, body: string },
+      revision: WorkspaceRevision,
+      updatedAt: string | null,
+    ): IndexedDocument {
+      return { collection: name, id, path: entry.path, data: { ...parsed.data }, body: parsed.body, digest: entry.digest, revision: revision.id, updatedAt }
     }
 
     async function index(opened: OpenedRevision): Promise<IndexedDocument[]> {
       return await memoize(indexes, opened.revision.id, async () => {
+        const updated = await updatedAtMap(opened)
         const documents = await mapLimit([...entries(opened.files)], 8, async ([id, entry]) => {
           const parsed = await parseEntry(opened, entry)
-          if (!parsed.issues) return documentOf(id, entry, parsed, opened.revision.id)
+          if (!parsed.issues) return documentOf(id, entry, parsed, opened.revision, updated.get(entry.path) ?? null)
           // Listing skips a document that no longer validates; get() reports why.
           console.warn(contentInvalid(name, id, entry.path, parsed.issues).message)
           return undefined
@@ -549,20 +689,32 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       return result
     }
 
-    async function get(id: string, options: ContentReadOptions = {}): Promise<IndexedDocument | null> {
-      const path = pathFor(id)
+    async function openFor(method: string, options: ContentReadOptions): Promise<OpenedRevision | undefined> {
       if (options.revision !== undefined && options.ref !== undefined) {
-        throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] Content get() takes ref or revision, not both." })
+        throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] Content ${method}() takes ref or revision, not both.` })
       }
-      const opened = options.revision !== undefined
+      return options.revision !== undefined
         ? await openRevision(String(options.revision))
         : (await refState(assertRef(options.ref, "published"))).opened
+    }
+
+    async function get(id: string, options: ContentReadOptions = {}): Promise<IndexedDocument | null> {
+      const path = pathFor(id)
+      const opened = await openFor("get", options)
       const digest = opened?.files.get(path)
       if (!opened || digest === undefined) return null
       const entry = { path, digest }
       const parsed = await parseEntry(opened, entry)
       if (parsed.issues) throw contentInvalid(name, id, path, parsed.issues)
-      return documentOf(id, entry, parsed, opened.revision.id)
+      return documentOf(id, entry, parsed, opened.revision, (await updatedAtMap(opened)).get(path) ?? null)
+    }
+
+    async function raw(id: string, options: ContentReadOptions = {}): Promise<ContentRawDocument | null> {
+      const path = pathFor(id)
+      const opened = await openFor("raw", options)
+      const digest = opened?.files.get(path)
+      if (!opened || digest === undefined) return null
+      return { collection: name, id, path, text: await readText(opened, path), digest, revision: opened.revision.id }
     }
 
     async function commitDocument(
@@ -595,7 +747,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
         if (!("delete" in change) && current === change.digest && opened) {
           // Unchanged content keeps the current draft revision.
           const parsed = await parseEntry(opened, { path, digest: current })
-          if (!parsed.issues) return documentOf(id, { path, digest: current }, parsed, opened.revision.id)
+          if (!parsed.issues) return documentOf(id, { path, digest: current }, parsed, opened.revision, (await updatedAtMap(opened)).get(path) ?? null)
         }
         try {
           const revision = await retained.commit({
@@ -607,7 +759,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
           })
           if ("delete" in change) return
           texts.set(change.digest, change.text)
-          return documentOf(id, { path, digest: change.digest }, change, revision.id)
+          return documentOf(id, { path, digest: change.digest }, change, revision, revision.createdAt)
         }
         catch (error) {
           // Another document moved the draft head. Retry unless this document changed, which the digest check catches.
@@ -668,7 +820,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
         const state: ContentDocumentState = draftDigest === null
           ? "deleted"
           : publishedDigest === null ? "draft" : draftDigest === publishedDigest ? "published" : "changed"
-        return { id: documentId, state, draft: draftDigest, published: publishedDigest }
+        return { collection: name, id: documentId, state, draft: draftDigest, published: publishedDigest }
       }
       if (id !== undefined) return statusOf(id)
       return [...new Set([...draftEntries.keys(), ...publishedEntries.keys()])].sort().map(statusOf).filter(entry => entry !== null)
@@ -690,12 +842,14 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     const collection: ContentCollection = {
       name,
       path: definition.path,
+      fields: Object.freeze([...fieldNames]),
       schema,
       page: published.page,
       parseQuery: published.parseQuery,
       querySchema: published.querySchema,
       list,
       get,
+      raw,
       save,
       remove,
       restore,
@@ -717,15 +871,62 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     return collection
   }
 
+  interface PublishTarget {
+    collection: CollectionRuntime
+    id: string
+    path: string
+    /** The digest `expect` requires on the draft. */
+    digest?: string | null
+  }
+
+  function publishInvalid(message: string): Error {
+    return contentErrorDiagnostics.CONTENT_R0009({ message: `[vitehub] ${message}` })
+  }
+
+  function readExpectations(publishOptions: ContentPublishOptions): PublishTarget[] | undefined {
+    const expected: unknown = publishOptions.expect
+    if (expected === undefined) return
+    if (publishOptions.collection !== undefined || publishOptions.ids !== undefined) {
+      throw publishInvalid("publish({ expect }) names every document to publish. Do not combine it with collection or ids.")
+    }
+    if (!Array.isArray(expected) || !expected.length) {
+      throw publishInvalid("publish({ expect }) requires a non-empty list of { collection, id, digest }.")
+    }
+    const seen = new Set<string>()
+    return expected.map((entry: unknown) => {
+      if (entry === null || Object(entry) !== entry) throw publishInvalid("Each publish({ expect }) entry must be { collection, id, digest }.")
+      const digest: unknown = Reflect.get(Object(entry), "digest")
+      const id: unknown = Reflect.get(Object(entry), "id")
+      const collection = requireCollection(Reflect.get(Object(entry), "collection"))
+      const path = collection.pathFor(id)
+      // SAFETY: pathFor() accepts only nonempty string ids.
+      const documentId = id as string
+      if (digest !== null && (String(digest) !== digest || !digest)) {
+        throw publishInvalid(`publish({ expect }) digest for ${JSON.stringify(`${collection.name}/${documentId}`)} must be a digest string, or null for a deleted document.`)
+      }
+      if (seen.has(path)) throw publishInvalid(`publish({ expect }) lists ${JSON.stringify(`${collection.name}/${documentId}`)} more than once.`)
+      seen.add(path)
+      return { collection, id: documentId, path, digest }
+    })
+  }
+
+  function mismatchMessage(mismatches: ContentPublishMismatch[]): string {
+    const lines = mismatches.map(({ collection, id, actual }) =>
+      `- ${collection}/${id}: ${actual === null ? "deleted on the draft" : `draft is now ${actual.slice(0, 12)}`}`)
+    return `[vitehub] Content changed on the draft after it was reviewed, so publish() published nothing:\n${lines.join("\n")}`
+  }
+
   async function publish(publishOptions: ContentPublishOptions = {}): Promise<ContentPublishResult> {
+    if (publishOptions === null || Object(publishOptions) !== publishOptions) throw publishInvalid("publish() options must be an object.")
+    const expectations = readExpectations(publishOptions)
     if (publishOptions.ids !== undefined && publishOptions.collection === undefined) {
-      throw contentErrorDiagnostics.CONTENT_R0009({ message: "[vitehub] publish({ ids }) requires collection." })
+      throw publishInvalid("publish({ ids }) requires collection.")
     }
     if (publishOptions.ids !== undefined && (!Array.isArray(publishOptions.ids) || !publishOptions.ids.length)) {
-      throw contentErrorDiagnostics.CONTENT_R0009({ message: "[vitehub] publish({ ids }) requires a non-empty list of document ids." })
+      throw publishInvalid("publish({ ids }) requires a non-empty list of document ids.")
     }
     if (publishOptions.ifHead !== undefined && publishOptions.ifHead !== null && (String(publishOptions.ifHead) !== publishOptions.ifHead || !publishOptions.ifHead)) {
-      throw contentErrorDiagnostics.CONTENT_R0009({ message: "[vitehub] publish({ ifHead }) must be a revision id or null." })
+      throw publishInvalid("publish({ ifHead }) must be a revision id or null.")
     }
     const selected = publishOptions.collection === undefined ? [...collections.values()] : [requireCollection(publishOptions.collection)]
     const retained = await history()
@@ -736,33 +937,54 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
           actual: publishedHead?.id ?? null, expected: publishOptions.ifHead, ref: "published",
         })
       }
-      if (!draftHead) {
+      const published = publishedHead ? await openRevision(publishedHead) : undefined
+      // An empty draft mirrors published, as status() reports it.
+      const draft = draftHead ? await openRevision(draftHead) : published
+      if (expectations) {
+        const mismatches: ContentPublishMismatch[] = []
+        for (const { collection, id, path, digest } of expectations) {
+          const actual = draft?.files.get(path) ?? null
+          if (actual !== digest) mismatches.push({ collection: collection.name, id, expected: digest ?? null, actual })
+        }
+        if (mismatches.length) throw contentConflict(mismatchMessage(mismatches), { ref: "draft", documents: mismatches.map(mismatch => ({ ...mismatch })) })
+      }
+      if (!draftHead || !draft) {
         if (publishOptions.ids) throw contentNotFound(selected[0]!.name, publishOptions.ids[0]!)
         return { revision: null, documents: [] }
       }
-      const draft = await openRevision(draftHead)
-      const published = publishedHead ? await openRevision(publishedHead) : undefined
+      const targets: PublishTarget[] = expectations ?? []
+      if (!expectations) {
+        for (const collection of selected) {
+          const ids = publishOptions.ids ?? [...new Set([
+            ...collection.entries(draft.files).keys(),
+            ...(published ? collection.entries(published.files).keys() : []),
+          ])].sort()
+          for (const id of ids) {
+            const path = collection.pathFor(id)
+            if (!draft.files.has(path) && !published?.files.has(path)) throw contentNotFound(collection.name, id)
+            targets.push({ collection, id, path })
+          }
+        }
+      }
       const put: Record<string, Uint8Array> = {}
       const remove: string[] = []
       const documents: ContentPublishedDocument[] = []
-      for (const collection of selected) {
-        const draftEntries = collection.entries(draft.files)
-        const publishedEntries = published ? collection.entries(published.files) : new Map<string, CollectionEntry>()
-        const ids = publishOptions.ids ?? [...new Set([...draftEntries.keys(), ...publishedEntries.keys()])].sort()
-        for (const id of ids) {
-          const path = collection.pathFor(id)
-          const draftDigest = draftEntries.get(id)?.digest
-          const publishedDigest = publishedEntries.get(id)?.digest
-          if (draftDigest === undefined && publishedDigest === undefined) throw contentNotFound(collection.name, id)
-          if (draftDigest === publishedDigest) continue
-          if (draftDigest === undefined) {
-            remove.push(path)
-            documents.push({ collection: collection.name, id, change: "delete" })
-            continue
-          }
-          put[path] = await draft.view.readFile(path, { encoding: "binary" })
-          documents.push({ collection: collection.name, id, change: publishedDigest === undefined ? "add" : "update" })
+      for (const { collection, id, path } of targets) {
+        const draftDigest = draft.files.get(path)
+        const publishedDigest = published?.files.get(path)
+        // Unchanged documents, and an expected deletion of a document that was never published, publish nothing.
+        if (draftDigest === publishedDigest) continue
+        if (draftDigest === undefined) {
+          remove.push(path)
+          documents.push({ collection: collection.name, id, change: "delete" })
+          continue
         }
+        const bytes = await draft.view.readFile(path, { encoding: "binary" })
+        // A file written before the validation hook was installed must not reach `published`.
+        const parsed = await collection.parseText(new TextDecoder().decode(bytes))
+        if (parsed.issues) throw contentInvalid(collection.name, id, path, parsed.issues)
+        put[path] = bytes
+        documents.push({ collection: collection.name, id, change: publishedDigest === undefined ? "add" : "update" })
       }
       if (!documents.length) return { revision: null, documents: [] }
       try {
@@ -782,7 +1004,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
         return { revision, documents }
       }
       catch (error) {
-        // Without ifHead, a concurrent publish only moves the base: recompute against the new head.
+        // Without ifHead, a concurrent publish only moves the base: recompute against the new head and check `expect` again.
         if (isWorkspaceConflict(error) && conflictRef(error) === "published" && publishOptions.ifHead === undefined && attempt < maxCommitAttempts) continue
         throw error
       }

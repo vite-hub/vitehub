@@ -74,18 +74,23 @@ export default defineEventHandler(async (event) => {
 
 | Method | Behavior |
 | --- | --- |
+| `content.collections()` | Every collection in definition order. Each one is the same object `content.collection(name)` returns, with `name`, `path`, `fields`, and `schema`. Empty without `collections`. |
 | `posts.list(options?)` | Lists documents without their body. Returns `{ items, nextCursor, total, facets? }`. Reads `published` unless `ref: 'draft'`. |
 | `posts.get(id, options?)` | Returns one document, or `null`. Reads `published` unless `ref: 'draft'`, or one history revision with `revision`. |
+| `posts.raw(id, options?)` | Returns the stored file as `{ collection, id, path, text, digest, revision }`, or `null`, without parsing or validating it. Takes the same `ref` or `revision` as `get()`. |
 | `posts.save(id, { data, body }, options?)` | Validates the fields and commits the file to `draft`. Returns the saved document. |
 | `posts.remove(id, options?)` | Deletes the document from `draft`. It stays published until the next `publish()`. |
 | `posts.restore(id, revision, options?)` | Saves the document as it was in an earlier revision as the new draft. |
 | `posts.status(id?)` | Compares `draft` and `published` for one document, or for every document when you omit `id`. |
-| `posts.schema` | The frontmatter JSON Schema. |
-| `content.publish(options?)` | Copies draft documents to `published` in one revision. |
+| `posts.name`, `posts.path`, `posts.fields` | The collection name, its glob, and its field names in definition order. |
+| `posts.schema` | The frontmatter [JSON Schema](/docs/content/configure#json-schema). |
+| `content.publish(options?)` | Copies draft documents to `published` in one revision. Pass `expect` to publish exactly what was reviewed. |
 | `content.revisions(collection, id, options?)` | Revisions that saved, removed, restored, or published one document, newest first. |
-| `content.can({ user, collection, action, id? })` | Evaluates `authorize`. Returns `false` when no policy is defined. |
+| `content.can({ user?, actor?, collection, action, id? })` | Evaluates `authorize`. Returns `false` when no policy is defined. |
 
-A document is `{ collection, id, path, data, body, digest, revision }`. `path` is the Workspace file, `data` holds each field's validated output, and `digest` is the SHA-256 of the file bytes. `revision` is the history revision the document was read from.
+A document is `{ collection, id, path, data, body, digest, revision, updatedAt }`. `path` is the Workspace file, `data` holds each field's validated output, and `digest` is the SHA-256 of the file bytes. `revision` is the history revision the document was read from.
+
+`updatedAt` is when the document last changed on the ref it was read from: the `createdAt` of the newest revision on that ref that added or changed its file. On `published`, that is the publish that last changed it. On `draft`, it is the last save or restore, or the revision that started the draft from `published`. Content finds it by walking the ref back from the revision it read, once per revision per runtime, and stops at an earlier answer it already has. It is `null` when the change is older than the 5,000 revisions one walk scans.
 
 ### List documents
 
@@ -113,7 +118,12 @@ const next = page.nextCursor
 
 Listing runs in memory over the documents of one revision, with the [`array()` Collection engine](/docs/source/server-api#collections-over-an-array). It needs no database index and works on every host. A cursor is bound to the revision and the query, so it fails as stale after a publish or with another filter.
 
-A document whose frontmatter no longer validates, for example after a field changed, is left out of `list()` with a warning. `get()` throws `CONTENT_INVALID` for it with each failing field.
+A document whose frontmatter no longer validates, for example after a field changed, is left out of `list()` with a warning. `get()` throws `CONTENT_INVALID` for it with each failing field. `raw()` still returns its text, so a tool can show it, diff it against another ref, and save a repaired version with its `digest` as `ifDigest`.
+
+```ts
+const posts = content.collection('posts')
+const [draft, published] = await Promise.all([posts.raw('hello', { ref: 'draft' }), posts.raw('hello')])
+```
 
 A collection is also a read-only [Collection](/docs/source/server-api) over its published documents. Pass it to `defineCollectionHandler()` or export it from `server/collections/` to serve published listings with field filters.
 
@@ -151,7 +161,7 @@ Saves of different documents never conflict. When another save moved the draft h
 | `changed` | Published, with unpublished draft changes. |
 | `deleted` | Removed from the draft, still published until the next `publish()`. |
 
-`status(id)` returns `{ id, state, draft, published }`, where `draft` and `published` are the document digests on each ref or `null`. It returns `null` when the document exists on neither ref.
+`status(id)` returns `{ collection, id, state, draft, published }`, where `draft` and `published` are the document digests on each ref or `null`. It returns `null` when the document exists on neither ref. An empty draft mirrors `published`, so before the first save `draft` equals `published`.
 
 ### Publish
 
@@ -164,10 +174,27 @@ await content.publish()
 | --- | --- |
 | `collection` | Publish one collection. Omit to publish every collection. |
 | `ids` | Publish only these documents. Requires `collection`. An id that exists on neither ref throws `CONTENT_NOT_FOUND`. |
+| `expect` | `[{ collection, id, digest }]`: publish exactly these documents, and only if each draft digest still matches. `digest: null` expects the document deleted on the draft. Cannot be combined with `collection` or `ids`. See [Publish what was reviewed](#publish-what-was-reviewed). |
 | `ifHead` | Expected `published` head revision id, or `null` before the first publish. A different head throws `WORKSPACE_CONFLICT` with `details.ref` set to `published`. Without it, a concurrent publish is retried on the new head. |
 | `message`, `metadata` | Revision message and JSON-safe metadata. |
 
 `publish()` returns `{ revision, documents }`. `documents` lists each change as `{ collection, id, change }` with `add`, `update`, or `delete`. `revision` is `null` when nothing differed from the draft. Files outside the collection paths are not published.
+
+### Publish what was reviewed
+
+`collection` and `ids` publish whatever the draft holds when `publish()` runs. A draft saved between a confirmation or an approval and the publish would go out unreviewed. Confirm and approve flows must pin the publish with `expect` instead: capture the draft digests that the person or approver saw, and pass them back.
+
+```ts
+const reviewed = (await content.collection('posts').status())
+  .filter(document => document.state !== 'published')
+  .map(({ collection, id, draft }) => ({ collection, id, digest: draft }))
+
+// ...show the changes and wait for confirmation or approval...
+
+await content.publish({ expect: reviewed, message: 'Publish reviewed posts' })
+```
+
+`publish({ expect })` publishes nothing and throws `WORKSPACE_CONFLICT` when any draft digest differs. `details` are `{ ref: 'draft', documents }`, with one `{ collection, id, expected, actual }` per mismatched document, where `actual` is the current draft digest or `null` for a deleted draft. Review those documents again and publish with their new digests. A document whose draft already matches `published` is skipped. A concurrent publish of other documents is retried, and `expect` is checked again each time. Combine `expect` with `ifHead` to also reject any other publish.
 
 ### Revisions
 
@@ -187,7 +214,13 @@ if (!await content.can({ user, collection: 'posts', action: 'publish' }))
 await content.publish({ collection: 'posts' })
 ```
 
-`can()` evaluates [`defineContent({ authorize })`](/docs/content/configure#access) and returns `false` without a policy. An unknown collection throws `CONTENT_R0008`.
+`can()` evaluates [`defineContent({ authorize })`](/docs/content/configure#access) and returns `false` without a policy. Pass the signed-in Auth user as `user`, or omit it for `null`. A surface that acts for an Agent also passes the Invocation's `actor`:
+
+```ts
+await content.can({ user: authUser, actor, collection: 'posts', action: 'write', id: 'hello' })
+```
+
+An unknown collection, a `user` that is not an object or `null`, or an `actor` without an `id` throws `CONTENT_R0008`.
 
 ### Comark refs
 
