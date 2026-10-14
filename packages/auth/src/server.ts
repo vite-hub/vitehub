@@ -281,33 +281,24 @@ async function runAccessAuthorize(
   context: AuthAccessAuthorizationContext,
 ): Promise<Response | undefined> {
   const result = await authorize(context)
-  if (isResponseLike(result)) return result
+  const response = await normalizeAuthorizationResponse(result)
+  if (response) return response
   if (result !== true) return createForbiddenResponse(context.request)
 }
 
-function isResponseLike(value: unknown): value is Response {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- A cross-realm Response needs structural checks before accessing its runtime getters.
-  if (value === null || typeof value !== "object") return false
+async function normalizeAuthorizationResponse(value: unknown): Promise<Response | undefined> {
+  if (value instanceof Response) return value
   try {
-    if (Object.prototype.toString.call(value) !== "[object Response]") return false
-    // SAFETY: Only named properties of the object are read; every property remains unknown until the checks below.
-    const response = value as { body?: unknown, headers?: unknown, status?: unknown, statusText?: unknown }
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The Response boundary requires an integer HTTP status before accepting the object.
-    if (typeof response.status !== "number" || !Number.isInteger(response.status) || response.status < 0 || response.status > 599) return false
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The Response boundary requires the statusText string that response forwarding reads.
-    if (typeof response.statusText !== "string") return false
-    const headers = response.headers
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The Response boundary requires a non-null Headers object before checking its methods.
-    if (headers === null || typeof headers !== "object") return false
-    // SAFETY: Headers is a non-null object and its methods remain unknown until the callable checks below.
-    const headerMethods = headers as { get?: unknown, forEach?: unknown }
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The Response boundary requires both Headers methods used when forwarding a response.
-    if (typeof headerMethods.get !== "function" || typeof headerMethods.forEach !== "function") return false
-    const body = response.body
-    return body === null || (typeof body === "object" && typeof (body as { getReader?: unknown }).getReader === "function")
+    if (Object.prototype.toString.call(value) !== "[object Response]") return
+    // SAFETY: Foreign responses are untrusted. Copy their data into a local
+    // Response so adapters only receive native Headers and body operations.
+    const response = value as Response
+    const headers = new Headers(response.headers)
+    const body = response.body === null ? null : new Uint8Array(await response.arrayBuffer())
+    return new Response(body, { headers, status: response.status, statusText: response.statusText })
   }
   catch {
-    return false
+    return
   }
 }
 
