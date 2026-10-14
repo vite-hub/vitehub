@@ -5820,13 +5820,6 @@ function withStreamedResult(
           ? event.usageRecord
           : attachedUsageRecord ?? usageRecordFromStreamChunk(chunk, result) ?? usageRecord
         yield chunk
-        // A normalized stream terminates after a fatal event. Preserve the
-        // public stream contract by closing the consumer-facing event stream
-        // with a finish marker without pulling any later source chunks.
-        if (event?.type === "error" && !event.recoverable) {
-          yield { type: "finish" }
-          return
-        }
       }
     })(),
   }
