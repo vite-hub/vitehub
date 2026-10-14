@@ -3466,7 +3466,6 @@ type AgentInvocationContext<
   finishDeliveryEffectProviders: AgentChannelDeliveryFinishEffect[]
   finishDeliveryReminderProviders: AgentFinishDeliveryReminder[]
   deliveryReminderRunner?: (result: unknown) => Promise<unknown>
-  deliveryReminderRunner?: (result: unknown) => Promise<unknown>
   finishExtensionProviders: ResolvedAgentFinishExtensionProvider[]
   errorHook?: (event: AgentErrorHookEvent<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<void | AgentChannelDeliveryFinishEffectResult>
   finishHook?: (event: AgentFinishHookEvent<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<void | AgentChannelDeliveryFinishEffectResult>
