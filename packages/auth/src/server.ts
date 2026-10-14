@@ -330,53 +330,38 @@ async function runAccessAuthorize(
         const tee = teeMethod.call(body as object)
         if (!Array.isArray(tee) || tee.length !== 2) return createForbiddenResponse(context.request)
         if (!tee[0] || typeof tee[0] !== "object") return createForbiddenResponse(context.request)
-        const probe = tee[0] as object
-        const readerMethod = responseMethod(probe, "getReader")
-        const reader = readerMethod?.call(probe) as { read?: () => unknown, releaseLock?: () => void } | undefined
-        if (!reader || typeof reader.read !== "function" || typeof reader.releaseLock !== "function") return createForbiddenResponse(context.request)
-        const readResult = reader.read()
-        if (!readResult || typeof (readResult as PromiseLike<unknown>).then !== "function") return createForbiddenResponse(context.request)
-        try {
-          await readResult
-        }
-        catch {
-          return createForbiddenResponse(context.request)
-        }
-        finally {
-          reader.releaseLock()
-        }
-        const second = tee[1]
-        if (!second || typeof second !== "object") return createForbiddenResponse(context.request)
-        // Validate the branch that will be handed to the host Response too.
-        // Calling its own reader methods keeps this cross-realm safe while
-        // rejecting arbitrary values returned by a forged tee implementation.
-        const secondReaderMethod = responseMethod(second, "getReader")
-        const secondReader = secondReaderMethod?.call(second) as { read?: () => unknown, releaseLock?: () => void } | undefined
-        if (!secondReader || typeof secondReader.read !== "function" || typeof secondReader.releaseLock !== "function") return createForbiddenResponse(context.request)
-        const chunks: Uint8Array[] = []
-        let totalLength = 0
-        try {
-          while (true) {
-            const secondRead = secondReader.read()
-            if (!secondRead || typeof (secondRead as PromiseLike<unknown>).then !== "function") return createForbiddenResponse(context.request)
-            const chunk = await secondRead as { done?: unknown, value?: unknown }
-            if (typeof chunk !== "object" || chunk === null || typeof chunk.done !== "boolean") return createForbiddenResponse(context.request)
-            if (chunk.done) break
-            if (!ArrayBuffer.isView(chunk.value) || typeof (chunk.value as { byteLength?: unknown }).byteLength !== "number") return createForbiddenResponse(context.request)
-            const bytes = new Uint8Array(chunk.value)
-            chunks.push(bytes)
-            totalLength += bytes.byteLength
+        const consumeBranch = async (branch: unknown): Promise<Uint8Array[] | undefined> => {
+          if (!branch || typeof branch !== "object") return
+          const readerMethod = responseMethod(branch as object, "getReader")
+          const reader = readerMethod?.call(branch as object) as { read?: () => unknown, releaseLock?: () => void } | undefined
+          if (!reader || typeof reader.read !== "function" || typeof reader.releaseLock !== "function") return
+          const chunks: Uint8Array[] = []
+          try {
+            while (true) {
+              const pending = reader.read()
+              if (!pending || typeof (pending as PromiseLike<unknown>).then !== "function") return
+              const chunk = await pending as { done?: unknown, value?: unknown }
+              if (typeof chunk !== "object" || chunk === null || typeof chunk.done !== "boolean") return
+              if (chunk.done) return chunks
+              if (!ArrayBuffer.isView(chunk.value) || typeof (chunk.value as { byteLength?: unknown }).byteLength !== "number") return
+              chunks.push(Uint8Array.from(chunk.value as unknown as ArrayLike<number>))
+            }
+          }
+          catch {
+            return
+          }
+          finally {
+            try { reader.releaseLock() } catch { /* ignore */ }
           }
         }
-        catch {
+        const firstChunks = await consumeBranch(tee[0])
+        const secondChunks = await consumeBranch(tee[1])
+        if (!firstChunks || !secondChunks) {
           return createForbiddenResponse(context.request)
         }
-        finally {
-          try { secondReader.releaseLock() } catch { /* ignore */ }
-        }
-        const bodyBytes = new Uint8Array(totalLength)
+        const bodyBytes = new Uint8Array(secondChunks.reduce((total, chunk) => total + chunk.byteLength, 0))
         let offset = 0
-        for (const chunk of chunks) {
+        for (const chunk of secondChunks) {
           bodyBytes.set(chunk, offset)
           offset += chunk.byteLength
         }
