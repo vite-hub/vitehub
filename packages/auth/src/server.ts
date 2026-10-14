@@ -386,6 +386,14 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
       if (!getter || Reflect.apply(getter, candidate, []) !== false) return
     }
     if (!isSerializableAuthorizationBody(body)) return
+    // Some foreign stream implementations expose `locked` as false after a
+    // reader is released even though the stream is already disturbed. Let the
+    // native constructor perform its intrinsic disturbed-state check before
+    // taking the snapshot; it does not read or lock an undisturbed stream.
+    if (body !== null) {
+      const probe = new Response(body)
+      if (probe.bodyUsed) return
+    }
     const forEach = Reflect.get(headerCarrier, "forEach")
     const getSetCookie = Reflect.get(headerCarrier, "getSetCookie")
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Headers.getSetCookie is optional across runtimes; capture its result once when callable.
