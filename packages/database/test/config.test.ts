@@ -58,6 +58,14 @@ describe("discoverDatabaseDefinitions", () => {
     }])
   })
 
+  it("keeps an explicitly empty server directory list", async () => {
+    const rootDir = await createTempProject()
+    await writeDefinition(rootDir, "server/databases/config.ts")
+    await writeDefinition(rootDir, "src/analytics.database.ts", "events")
+
+    expect(discoverDatabaseDefinitions(rootDir, { serverDirs: [] }).map(definition => definition.name)).toEqual(["analytics"])
+  })
+
   it("discovers named server database definitions", async () => {
     const rootDir = await createTempProject()
     const analytics = await writeDefinition(rootDir, "server/databases/analytics/config.ts", "events")

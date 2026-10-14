@@ -411,7 +411,7 @@ function mergeLayerDefinitions(name: string, entries: Array<{ definition: FoundD
 }
 
 export function discoverDatabaseDefinitions(rootDir: string, options: { serverDirs?: string[] } = {}): DiscoveredDatabaseDefinition[] {
-  const serverDirs = options.serverDirs?.length ? options.serverDirs : [resolve(rootDir, "server")]
+  const serverDirs = options.serverDirs ?? [resolve(rootDir, "server")]
   const found = [
     ...serverDirs.flatMap((serverDir, layer) => discoverServerDatabases(serverDir).map(definition => ({ definition, layer }))),
     ...discoverViteDatabases(rootDir).map(definition => ({ definition, layer: 0 })),
