@@ -311,13 +311,10 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     const body = findDescriptor("body")?.get
     const arrayBuffer = (value as { arrayBuffer?: unknown }).arrayBuffer
     if (typeof status !== "function" || typeof statusText !== "function" || typeof headers !== "function" || typeof body !== "function") return
+    if (typeof arrayBuffer !== "function") return
     const response = value as Response
     const nativeHeaders = new Headers(headers.call(response))
     const foreignBody = body.call(response)
-    // Preserve compatible foreign response objects that expose the body as a
-    // prototype accessor and have no body data to normalize.
-    if (foreignBody === null && !Object.prototype.hasOwnProperty.call(response, "body") && typeof arrayBuffer !== "function") return response
-    if (foreignBody !== null && typeof arrayBuffer !== "function") return
     const nativeBody = foreignBody === null ? null : new Uint8Array(await (arrayBuffer as () => Promise<ArrayBuffer>).call(response))
     return new Response(nativeBody, { headers: nativeHeaders, status: status.call(response), statusText: statusText.call(response) })
   }
