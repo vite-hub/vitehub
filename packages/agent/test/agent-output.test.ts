@@ -1188,6 +1188,26 @@ describe("agent output helpers", () => {
     expect(events).toEqual([{ text: "generic", type: "text-delta" }, { type: "finish" }])
   })
 
+  it("does not trust spoofed stream methods on Response-shaped objects", async () => {
+    const body = {
+      getReader: () => ({
+        read: () => Promise.resolve({ done: true, value: undefined }),
+        releaseLock: () => {},
+      }),
+      pipeThrough: () => { throw new Error("spoofed pipeThrough") },
+    }
+    const value = Object.create({
+      get status() { return 200 },
+      get statusText() { return "OK" },
+      get headers() { return new Headers() },
+      get body() { return body },
+    })
+    Object.defineProperty(value, Symbol.toStringTag, { value: "Response" })
+    const events = []
+    for await (const event of streamAgentOutputToEvents(value)) events.push(event)
+    expect(events).toEqual([])
+  })
+
   it("preserves text from a spoofed Response-shaped result", async () => {
     const value = Object.create({
       get status() { return 200 },

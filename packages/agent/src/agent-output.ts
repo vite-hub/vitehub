@@ -863,7 +863,7 @@ function isResponseLike(value: unknown): value is Response {
     const stream = new Response(body as ReadableStream).body
     if (!stream) return false
     responseStreams.set(value, stream)
-    return value.body === body
+    return true
   }
   catch {
     return false
@@ -942,7 +942,7 @@ export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<
   if (isResponseLike(value)) {
     const body = responseStreams.get(value)
     if (body) {
-      for await (const text of body.pipeThrough(new TextDecoderStream())) {
+      for await (const text of ReadableStream.prototype.pipeThrough.call(body, new TextDecoderStream())) {
         if (text) yield { text, type: "text-delta" }
       }
     }
