@@ -229,7 +229,7 @@ function readOpaqueResourceOwnership(expression: string | undefined, source: str
   const identifier = /^[A-Za-z_$][\w$]*$/.test(trimmed) ? trimmed : undefined
   if (!identifier || seen.has(identifier)) return undefined
   seen.add(identifier)
-  const declaration = new RegExp(`(?:const|let|var)\\s+${identifier}\\s*=\\s*([^;\\n]+)`).exec(source)?.[1]
+  const declaration = new RegExp(`(?:const|let|var)\\s+${identifier}\\s*=\\s*([^;]+)`, 's').exec(source)?.[1]
   return readOpaqueResourceOwnership(declaration, source, seen)
 }
 
