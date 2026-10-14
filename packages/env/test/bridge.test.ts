@@ -56,6 +56,24 @@ describe("Env Bridge", () => {
     expect(await db.all(sql`SELECT * FROM vitehub_env_activity`)).toEqual([]);
     expect(emit).not.toHaveBeenCalled();
   });
+  it.each([1, new String("owner"), Symbol("owner")])(
+    "rejects non-string actor identifiers before creating a context (%s)",
+    async (id) => {
+      const { store } = setup();
+      await expect(createEnvBridge({
+        ...store,
+        runtimeActor: { id, kind: "service" },
+      } as never).read({ env: {}, keys: ["github"] })).rejects.toMatchObject({
+        code: "ENV_BRIDGE_INVALID",
+      });
+    },
+  );
+  it("rejects non-string direct bridge identifiers", async () => {
+    const { bridge } = setup();
+    await expect(bridge.inspect(admin, 42 as never)).rejects.toMatchObject({
+      code: "ENV_BRIDGE_INVALID",
+    });
+  });
   it("persists encrypted replacements, resolves the new revision, and separates previews from inspection", async () => {
     const { bridge, db } = setup();
     const first = await bridge.replace(admin, {

@@ -62,11 +62,24 @@ function parseRequest(body: unknown): WorkflowDevRequest | undefined {
   }
 }
 
+function isResponse(value: unknown): value is Response {
+  if (value instanceof Response) return true
+  const statusGetter = Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get
+  if (!statusGetter) return false
+  try {
+    statusGetter.call(value)
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
 function jsonReplacer(_key: string, value: unknown): unknown {
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate opaque request or provider values at the Workflow dev endpoint boundary.
   if (typeof value === "bigint") return value.toString()
   if (value instanceof Error) return serializeError(value)
-  if (value instanceof Response) return { response: { status: value.status, statusText: value.statusText } }
+  if (isResponse(value)) return { response: { status: value.status, statusText: value.statusText } }
   return value
 }
 
@@ -114,7 +127,7 @@ function isErrorLike(value: unknown): value is Error {
 // Inline runs store the handler result as a serialized `Response`. Read its body
 // so that the CLI shows the value that the Workflow returned.
 async function readResult(result: unknown): Promise<unknown> {
-  if (!(result instanceof Response)) return result
+  if (!isResponse(result)) return result
   const text = await result.clone().text()
   if (!text) return undefined
   try {
