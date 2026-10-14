@@ -386,16 +386,16 @@ function mergeLayerDefinitions(name: string, entries: Array<{ definition: FoundD
   const layers = ordered.filter(entry => entry.layer > 0).map(entry => entry.definition)
   const configuringLayers = layers.filter(definition => configuresDatabase(definition.handler))
   // The application Definition supplies every option when it sets one, so a layer option that it does not repeat would be lost.
-  const appOptions = app && appConfigures ? readDefinitionOptionKeys(app.handler) : undefined
-  if (app && appOptions) {
+  if (app && appConfigures) {
+    const appOptions = readDefinitionOptionKeys(app.handler)
     for (const layer of configuringLayers) {
       const layerOptions = readDefinitionOptionKeys(layer.handler)
-      if (!layerOptions) {
+      if (!appOptions || !layerOptions) {
         throw databaseErrorDiagnostics.DATABASE_C0008({ message: [
           `[vitehub] The application definition of database "${name}" sets options, so it replaces the options of its Nuxt layers.`,
-          "ViteHub cannot read the options of this layer definition:",
+          "ViteHub cannot read the options of these definitions:",
           ...listDefinitionFiles([app, layer]),
-          "Pass an object literal to defineDatabase() in the layer, or set every option in the layer instead of the application.",
+          "Pass an object literal to defineDatabase() in both files, or keep every option in one of them.",
         ].join("\n") })
       }
       const missing = [...layerOptions].filter(key => !appOptions.has(key))
