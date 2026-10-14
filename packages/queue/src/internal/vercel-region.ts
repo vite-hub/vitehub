@@ -67,11 +67,15 @@ function isBrandedMethod(value: unknown, receiver: object, ...args: unknown[]): 
         const sibling = new constructor()
         const siblingResult = value.call(sibling, "__vitehub_brand_probe__")
         if (siblingResult !== undefined && siblingResult !== null) return false
+        const siblingArgumentResult = value.call(sibling, ...args)
+        if (siblingArgumentResult !== undefined && siblingArgumentResult !== null) return false
         // Probe a second genuine instance as well. A receiver-sensitive proxy
         // must behave like the real Web IDL method for every branded receiver.
         const secondSibling = new constructor()
         const secondResult = value.call(secondSibling, "__vitehub_brand_probe__")
         if (secondResult !== undefined && secondResult !== null) return false
+        const secondArgumentResult = value.call(secondSibling, ...args)
+        if (secondArgumentResult !== undefined && secondArgumentResult !== null) return false
       }
       catch {
         return false
