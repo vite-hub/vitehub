@@ -343,7 +343,10 @@ function hasResponsePrototype(value: unknown): boolean {
           || /^function Response\(\) \{ \[native code\] \}$/.test(constructorSource)
           || (/^class Response\b/.test(constructorSource)
             && constructorSource.includes("#state")
-            && constructorSource.includes("webidl.brandCheck")))
+            && constructorSource.includes("webidl.brandCheck")
+            && constructorSource.includes("static error")
+            && constructorSource.includes("static json"))
+          )
       if (isNativeConstructor && accessorsAreBranded) return true
       prototype = Object.getPrototypeOf(prototype)
     }
