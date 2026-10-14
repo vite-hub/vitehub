@@ -3,9 +3,10 @@ import { computed, ref, shallowRef, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import { consoleErrorMessage } from "../client/documents";
-import { rememberConsoleMediaFolder } from "../client/media-library";
+import { consoleFolderName, consoleFolderTrail, rememberConsoleMediaFolder } from "../client/media-library";
 import ConsoleMediaBrowser from "./console-media-browser.vue";
 import ConsoleMediaDetail from "./console-media-detail.vue";
+import ConsolePageHeader from "./console-page-header.vue";
 
 import type { ConsoleMediaAccess, ConsoleMediaClient, ConsoleMediaFile } from "../client/media-library";
 
@@ -43,6 +44,13 @@ const folder = computed({
 
 watch(folder, value => rememberConsoleMediaFolder(props.section, value), { immediate: true });
 
+// The folders above the open one, as links: Media, then each parent folder.
+const trail = computed(() => consoleFolderTrail(folder.value).slice(0, -1).map(path => ({
+  label: path ? consoleFolderName(path) : props.label,
+  to: { query: path ? { folder: path } : {} },
+})));
+const actions = ref<HTMLElement | null>(null);
+
 // `?file=` opens the details of one file, also after a reload.
 watch(() => query("file"), async (pathname) => {
   if (!pathname) {
@@ -72,21 +80,23 @@ function updated(file: ConsoleMediaFile): void {
 </script>
 
 <template>
-  <UDashboardNavbar :ui="{ root: 'border-b border-default' }" :toggle="{ 'aria-label': 'Open section navigation' }">
-    <template #title>
-      <span class="truncate text-sm font-semibold text-highlighted">{{ label }}</span>
-    </template>
+  <ConsolePageHeader :title="folder ? consoleFolderName(folder) : label" :trail="trail" :back="trail.at(-1)">
     <template #right>
       <span v-if="!access.write" class="text-xs text-dimmed">Read-only</span>
-      <span v-else-if="!access.manage" class="text-xs text-dimmed">Moving and deleting needs publish access</span>
+      <UTooltip v-else-if="!access.manage" text="Moving and deleting files needs publish access">
+        <span class="hidden text-xs text-dimmed sm:inline">Can't move or delete</span>
+      </UTooltip>
+      <div ref="actions" class="flex items-center gap-1.5" />
     </template>
-  </UDashboardNavbar>
+  </ConsolePageHeader>
   <div class="relative flex min-h-0 flex-1">
     <ConsoleMediaBrowser
       ref="browser"
       v-model:folder="folder"
       v-model:selected="selected"
       mode="page"
+      :root-label="label"
+      :actions-target="actions"
       :client="client"
       :active="active?.pathname"
       @open="open"

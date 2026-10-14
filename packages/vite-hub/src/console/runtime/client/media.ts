@@ -47,6 +47,8 @@ export interface ConsoleMediaDetails {
   alt?: string
   /** Average color as `#rrggbb`, for a placeholder. */
   color?: string
+  /** Focal point, from 0 to 1 on each axis, so a square thumbnail keeps the subject in frame. */
+  focal?: { x: number, y: number }
   height?: number
   /** A URL that displays the file, sized for a thumbnail when the picker can. */
   thumbnail?: string
