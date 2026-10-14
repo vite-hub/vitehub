@@ -338,16 +338,25 @@ function discoverViteDatabases(rootDir: string) {
 
 const schemaOnlyDefinitionKeys = new Set(["name", "schema"])
 
+/** Lists the database options that a Definition sets, or returns `undefined` when ViteHub cannot read them. */
+function readDefinitionOptionKeys(file: string): Set<string> | undefined {
+  const body = readDefinitionObjectBody(file)
+  if (body === undefined) return
+  const keys = new Set<string>()
+  for (const entry of splitTopLevel(body)) {
+    const normalized = stripLeadingEntryComments(entry)
+    if (!normalized.trim()) continue
+    const key = readEntryKey(normalized)
+    if (normalized.trimStart().startsWith("...") || !key) return
+    if (!schemaOnlyDefinitionKeys.has(key)) keys.add(key)
+  }
+  return keys
+}
+
 /** Reports whether a Definition can set database options. Opaque Definitions count because ViteHub cannot read them. */
 function configuresDatabase(file: string) {
-  const body = readDefinitionObjectBody(file)
-  if (body === undefined) return true
-  return splitTopLevel(body).some((entry) => {
-    const normalized = stripLeadingEntryComments(entry)
-    if (!normalized.trim()) return false
-    const key = readEntryKey(normalized)
-    return normalized.trimStart().startsWith("...") || !key || !schemaOnlyDefinitionKeys.has(key)
-  })
+  const keys = readDefinitionOptionKeys(file)
+  return keys === undefined || keys.size > 0
 }
 
 function listDefinitionFiles(definitions: Array<{ handler: string }>) {
@@ -376,6 +385,21 @@ function mergeLayerDefinitions(name: string, entries: Array<{ definition: FoundD
   const appConfigures = app !== undefined && configuresDatabase(app.handler)
   const layers = ordered.filter(entry => entry.layer > 0).map(entry => entry.definition)
   const configuringLayers = layers.filter(definition => configuresDatabase(definition.handler))
+  // The application Definition supplies every option when it sets one, so a layer option that it does not repeat would be lost.
+  const appOptions = app && appConfigures ? readDefinitionOptionKeys(app.handler) : undefined
+  if (app && appOptions) {
+    for (const layer of configuringLayers) {
+      const missing = [...readDefinitionOptionKeys(layer.handler) ?? []].filter(key => !appOptions.has(key))
+      if (!missing.length) continue
+      const options = missing.map(key => `\`${key}\``).join(", ")
+      throw databaseErrorDiagnostics.DATABASE_C0008({ message: [
+        `[vitehub] The application definition of database "${name}" sets options, so it replaces the options of its Nuxt layers.`,
+        `It does not set ${options}, which a layer sets:`,
+        ...listDefinitionFiles([app, layer]),
+        `Set ${options} in the application definition too, or move all options to the layer.`,
+      ].join("\n") })
+    }
+  }
   if (!appConfigures && configuringLayers.length > 1) {
     throw databaseErrorDiagnostics.DATABASE_C0008({ message: [
       `[vitehub] More than one Nuxt layer sets options for database "${name}":`,

@@ -157,6 +157,33 @@ describe("Database Definitions in Nuxt layers", () => {
     expect(schema).toContain("export const users = schemaSource_2.schema[\"users\"]")
   }, 60_000)
 
+  it("rejects application options that would drop a layer option", async () => {
+    const app = await createLayeredApp()
+    await writeModule(app.layerDefinition("blog"), [
+      "import { defineDatabase } from '@vite-hub/database'",
+      "import { integer, sqliteTable } from 'drizzle-orm/sqlite-core'",
+      "const posts = sqliteTable('posts', { id: integer('id').primaryKey() })",
+      "export default defineDatabase({ connection: { url: 'file:.data/blog.db' }, schema: { posts } })",
+    ])
+    const appDefinition = join(app.appDir, "server/databases/config.ts")
+    await writeModule(appDefinition, [
+      "import { defineDatabase } from '@vite-hub/database'",
+      "export default defineDatabase({ drizzle: { casing: 'snake_case' }, schema: {} })",
+    ])
+
+    expect(() => discoverDatabaseDefinitions(app.appDir, { serverDirs: app.serverDirs })).toThrow(
+      `It does not set \`connection\`, which a layer sets:\n  - ${appDefinition}\n  - ${app.layerDefinition("blog")}`,
+    )
+
+    await writeModule(appDefinition, [
+      "import { defineDatabase } from '@vite-hub/database'",
+      "export default defineDatabase({ connection: { url: 'file:.data/app.db' }, drizzle: { casing: 'snake_case' }, schema: {} })",
+    ])
+    expect(discoverDatabaseDefinitions(app.appDir, { serverDirs: app.serverDirs })).toEqual([
+      expect.objectContaining({ handler: appDefinition }),
+    ])
+  })
+
   it("rejects two layers that declare the same table until the application declares it", async () => {
     const app = await createLayeredApp()
     await writeModule(app.layerDefinition("blog"), [
