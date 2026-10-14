@@ -15,6 +15,7 @@ onBeforeUnmount(() => {
 });
 
 const invocation = computed<AgentInvocationView>(() => ({
+
   agentName: "interface-engineer",
   createdAt: time(844),
   id: "ainv_console_navigation",
