@@ -125,6 +125,22 @@ describe("Auth access handlers", () => {
     expect(await response.text()).toBe("")
   })
 
+  it("fails closed when a foreign response returns a malformed body", async () => {
+    const foreignResponse = runInNewContext(`new (class {
+      status = 409
+      statusText = "Conflict"
+      headers = { get() { return null }, forEach() {} }
+      arrayBuffer() { return "not an ArrayBuffer" }
+      get [Symbol.toStringTag]() { return "Response" }
+    })()`)
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => foreignResponse as never }] },
+    }))
+
+    const response = await handler(new Request("https://app.example/"))
+    expect(response?.status).toBe(403)
+  })
+
   it("preserves separate foreign Set-Cookie headers", async () => {
     const foreignResponse = runInNewContext(`new (class {
       status = 409

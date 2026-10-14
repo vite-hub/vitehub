@@ -293,7 +293,8 @@ async function runAccessAuthorize(
         headers.append(key, value)
       })
       for (const value of setCookieHeaders) headers.append("set-cookie", value)
-      const body = await response.arrayBuffer()
+      // The intrinsic rejects malformed bodies while accepting buffers from other realms.
+      const body = ArrayBuffer.prototype.slice.call(await response.arrayBuffer(), 0)
       return new Response(body, {
         headers,
         status: response.status,
