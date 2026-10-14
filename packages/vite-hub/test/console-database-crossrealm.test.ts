@@ -30,6 +30,7 @@ describe("console database cross-realm values", () => {
       orderBy() { return this },
       limit() { return this },
       offset: async () => [{ id: 1, value: foreignDate, bytes: foreignBytes, taggedBytes, spoofedDataView }],
+      // eslint-disable-next-line unicorn/no-thenable -- Drizzle query builders are thenable and this fixture exercises that contract.
       then(resolve: (value: unknown) => unknown) { return resolve([{ value: 1 }]) },
     }
     const db = { select: () => query } as unknown as RuntimeDatabaseEntry<Record<string, unknown>>["db"]
