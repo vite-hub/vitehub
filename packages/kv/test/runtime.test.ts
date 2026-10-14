@@ -900,8 +900,8 @@ describe("kv runtime", () => {
     }
     const { default: createDenoKVDriver } = await import("../src/runtime/deno-kv.ts")
 
-    await expect(createDenoKVDriver().listKeys({ cursor: "legacy-next", limit: 1 })).rejects.toThrow("repeated pagination cursor")
-    expect(list).toHaveBeenCalledWith({ prefix: [] }, { cursor: "legacy-next", limit: 1 })
+    await expect(createDenoKVDriver().listKeys({ cursor: "vhc:provider-cursor", limit: 1 })).rejects.toThrow("repeated pagination cursor")
+    expect(list).toHaveBeenCalledWith({ prefix: [] }, { cursor: "vhc:provider-cursor", limit: 1 })
   })
 
   it("rejects a prior Deno provider cursor after resuming on another instance", async () => {

@@ -75,7 +75,7 @@ describe("Cloudflare KV binding", () => {
       list_complete: false,
     })
 
-    await expect(runWithActiveCloudflareEnv({ KV: namespace }, () => storage.listKeys({ cursor: "legacy-next", limit: 1 }))).rejects.toThrow(
+    await expect(runWithActiveCloudflareEnv({ KV: namespace }, () => storage.listKeys({ cursor: "vhc:provider-cursor", limit: 1 }))).rejects.toThrow(
       "repeated pagination cursor",
     )
   })

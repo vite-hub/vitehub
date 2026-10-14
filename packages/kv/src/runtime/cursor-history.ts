@@ -44,7 +44,8 @@ export function createCursorHistory() {
       // resumed by another driver instance.
       const portable = decodeContinuation(cursor)
       if (portable) return portable
-      if (cursor.startsWith("vhc:") || cursor.length > MAX_CURSOR_LENGTH) {
+      // A prefix alone does not identify a portable token: providers own opaque cursors.
+      if (cursor.length > MAX_CURSOR_LENGTH) {
         throw new Error("ViteHub continuation cursor is invalid or exceeds the maximum size.")
       }
       return { providerCursor: cursor, history: new Set([cursor]) }
