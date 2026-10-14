@@ -105,13 +105,15 @@ describe("Auth access handlers", () => {
   })
 
   it("returns authorization responses from another realm unchanged", async () => {
-    const foreignResponse = runInNewContext('new Response("Policy rejected", { status: 409 })', { Response })
+    // Node's VM contexts share the host Fetch implementation, so this covers
+    // a response from another object realm while preserving the as-is contract.
+    const foreignResponse = runInNewContext('new Response("no", { status: 409, headers: { "set-cookie": "policy=denied", "x-policy": "denied" } })', { Response })
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
       access: { routes: [{ route: "/**", authorize: () => foreignResponse as never }] },
     }))
     const response = await handler(new Request("https://app.example/"))
     expect(response).toBeInstanceOf(Response)
-    expect(response).not.toBe(foreignResponse)
+    expect(response).toBe(foreignResponse)
     expect(response?.status).toBe(409)
     expect(response?.headers.getSetCookie()).toEqual(["policy=denied"])
     const headers: string[] = []
