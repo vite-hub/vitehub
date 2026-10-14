@@ -110,9 +110,17 @@ describe("Auth access handlers", () => {
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
       access: { routes: [{ route: "/**", authorize: () => foreignResponse as never }] },
     }))
-
-
-    await expect(handler(new Request("https://app.example/"))).resolves.toBe(foreignResponse)
+    const response = await handler(new Request("https://app.example/"))
+    expect(response).toBeInstanceOf(Response)
+    expect(response).not.toBe(foreignResponse)
+    expect(response?.status).toBe(409)
+    expect(response?.headers.getSetCookie()).toEqual(["policy=denied"])
+    const headers: string[] = []
+    response?.headers.forEach((_value, key) => headers.push(key))
+    expect(headers).toContain("x-policy")
+    const reader = response!.body!.getReader()
+    expect(await reader.read()).toMatchObject({ value: new Uint8Array([110, 111]), done: false })
+    reader.releaseLock()
   })
 
   it("rejects objects that spoof the Response tag", async () => {
