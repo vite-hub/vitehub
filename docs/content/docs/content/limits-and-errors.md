@@ -28,7 +28,9 @@ icon: i-lucide-circle-alert
 - Validation is installed when `server/content.ts` loads. A writer that runs before that, for example in a fresh server instance, is not checked. `publish()` validates every file it publishes, so invalid files never reach `published`.
 - `list()` reads every document of one revision into server memory. Content caches parsed documents by digest and up to 32 MB of file text per runtime, so later revisions reread only changed files. Keep collections to a size you can hold in memory.
 - Content reads check the `published` head with one Database query per call, so they see publishes from other instances.
+- `updatedAt` walks the ref back once per revision per runtime, with one Database query per 100 revisions plus one per commit made outside Content. A walk stops at an earlier cached answer, and after 5,000 revisions it reports `null` for older changes.
 - Frontmatter is YAML and values must survive a JSON round trip. A `Date` is stored as an ISO string.
+- A field without a Standard JSON Schema, such as a plain Valibot schema, appears as `{}` in `schema`, and `defineContent()` warns once per field. Wrap Valibot schemas in `toStandardJsonSchema()`.
 - `/api/content/**` serves published documents, or drafts to a request with a valid [preview cookie](/docs/content/preview). Content has no write routes, and the runtime methods do not call `authorize`.
 - Without `authorize`, `content.can()` denies every action.
 - The Store retains every revision. There is no pruning.
@@ -45,12 +47,12 @@ icon: i-lucide-circle-alert
 | Code | Cause | What to do |
 | --- | --- | --- |
 | `CONTENT_INVALID` | A document failed its fields, from `save()`, `restore()`, `get()`, `publish()`, or any Workspace writer. `details.issues` lists `{ field, path, message }`. | Fix the listed fields. |
-| `WORKSPACE_CONFLICT` | `ifDigest` no longer matches the draft document, or `ifHead` no longer matches the published head. `details` carry `ref`, `expected`, and `actual`. | Read the document or head again and retry. |
+| `WORKSPACE_CONFLICT` | `ifDigest` no longer matches the draft document, or `ifHead` no longer matches the published head. `details` carry `ref`, `expected`, and `actual`. From `publish({ expect })`, a draft changed after review: `details` are `{ ref: 'draft', documents: [{ collection, id, expected, actual }] }`. | Read the document or head again and retry. After a `publish({ expect })` conflict, review the listed documents again. |
 | `CONTENT_NOT_FOUND` | `remove()`, `restore()`, or `publish({ ids })` named a document that does not exist. | Check the id, ref, or revision. |
 | `CONTENT_R0004` | A Comark Source read a file that is not in its revision. | Refresh the instance. |
 | `CONTENT_R0005` | The Content handler received an unsupported request or body. | Send a Web or Node request. |
 | `CONTENT_R0006` | A Content definition is invalid. | Fix `defineContent()` or `documents()`. |
 | `CONTENT_R0007` | The collection Workspace has no retained history. | Use the Blob + Database Store. |
 | `CONTENT_R0008` | An unknown collection, an invalid document id or ref, invalid call options, or `content.preview.enable()` without collections. | Use a defined collection, a relative id inside its path, and `draft` or `published`. Pass `maxAge` from 60 to 86400. |
-| `CONTENT_R0009` | Invalid `publish()` options, such as `ids` without `collection`. | Pass `collection` with `ids`, and `ifHead` as a revision id or `null`. |
+| `CONTENT_R0009` | Invalid `publish()` options, such as `ids` without `collection`, `expect` combined with `collection` or `ids`, an empty or repeated `expect` entry, or an invalid digest. | Pass `collection` with `ids`, or `expect` alone with one entry per document, and `ifHead` as a revision id or `null`. |
 | `CONTENT_R0010` | `content.preview.enable()` has no signing key outside development and tests, or `VITEHUB_CONTENT_KEY` is not 32 bytes. | Set `VITEHUB_CONTENT_KEY` to `openssl rand -base64 32` on every instance. |

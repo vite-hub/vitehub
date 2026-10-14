@@ -53,8 +53,11 @@ export type {
   ContentListOptions,
   ContentPage,
   ContentPublishedDocument,
+  ContentPublishExpectation,
+  ContentPublishMismatch,
   ContentPublishOptions,
   ContentPublishResult,
+  ContentRawDocument,
   ContentReadOptions,
   ContentRef,
   ContentRevisionsOptions,
@@ -111,20 +114,35 @@ type ContentMethods<TPlugins extends ReadonlyArray<ContentPlugin<any, any>>> =
 /** What a Content surface asks permission for: reading drafts, saving or removing documents, or publishing. */
 export type ContentAction = "read" | "write" | "publish"
 
-/** The signed-in user a surface passes to `authorize`, such as an Auth session user. */
+/** The signed-in Auth user a surface passes to `authorize`, such as the Auth session user. */
 export type ContentUser = Record<string, unknown>
 
+/** The Actor of an Agent Invocation. It has the shape of an Agent Actor, so Content does not depend on the Agent package. */
+export interface ContentActor {
+  id: string
+  kind?: "anonymous" | "chat" | (string & {})
+  label?: string
+  meta?: Record<string, unknown>
+}
+
 export interface ContentAuthorizeContext<TCollection extends string = string> {
-  user: ContentUser | null | undefined
+  /** The signed-in Auth user, or null. An Agent passes the Auth user its Actor stands for, when there is one. */
+  user: ContentUser | null
+  /** The invoking Actor when an Agent makes the call, otherwise undefined. */
+  actor?: ContentActor
   collection: TCollection
   action: ContentAction
   /** The document, when the action targets one. */
   id?: string
 }
 
+/** What `content.can()` takes. `user` defaults to null, so an Agent without an Auth user passes only `actor`. */
+export type ContentCanContext<TCollection extends string = string> =
+  Omit<ContentAuthorizeContext<TCollection>, "user"> & { user?: ContentUser | null | undefined }
+
 /**
- * Decide whether a user may take a Content action. Surfaces such as the Console editor and the Content Agent
- * Capability call it through `content.can()`. The runtime methods themselves are trusted server API and do not.
+ * Decide whether a user or an Agent Actor may take a Content action. Surfaces such as the Console editor and the
+ * Content Agent Capability call it through `content.can()`. The runtime methods themselves are trusted server API and do not.
  */
 export type ContentAuthorize<TCollection extends string = string> =
   (context: ContentAuthorizeContext<TCollection>) => boolean | Promise<boolean>
@@ -152,14 +170,16 @@ export type DefineContentOptions<
 
 /** Document operations added by `collections`. */
 export interface ContentDocumentsRuntime<TCollections extends ContentCollections = ContentCollections> {
+  /** Every document collection in definition order, with its `name`, `path`, `fields`, and `schema`. Empty without `collections`. */
+  collections(): ContentCollection[]
   /** Open one collection to list, read, save, remove, restore, and compare documents. */
   collection<TName extends CollectionName<TCollections>>(name: TName): ContentCollection<FieldsOf<TCollections[TName]>>
-  /** Copy draft documents to the `published` ref in one revision. */
-  publish(options?: ContentPublishOptions & { collection?: CollectionName<TCollections> }): Promise<ContentPublishResult>
+  /** Copy draft documents to the `published` ref in one revision. Pass `expect` to publish exactly what was reviewed. */
+  publish(options?: ContentPublishOptions<CollectionName<TCollections>>): Promise<ContentPublishResult>
   /** Revisions that saved, removed, restored, or published one document, newest first. */
   revisions(collection: CollectionName<TCollections>, id: string, options?: ContentRevisionsOptions): Promise<ContentRevisionsResult>
   /** Evaluate `defineContent({ authorize })`. Returns false when no policy is defined. */
-  can(context: ContentAuthorizeContext<CollectionName<TCollections>>): Promise<boolean>
+  can(context: ContentCanContext<CollectionName<TCollections>>): Promise<boolean>
   /** Draft preview: a signed cookie that makes every Content read in its requests use the `draft` ref. */
   readonly preview: ContentPreview
 }
@@ -300,16 +320,27 @@ export function defineContent<
   // SAFETY: collection() returns the runtime built from TCollections[TName], whose fields type its documents.
   const documentsApi = {
     preview,
+    collections: () => documentsRuntime ? [...documentsRuntime.collections.values()] : [],
     collection: (name: string) => requireDocuments().collection(name),
     publish: (publishOptions?: ContentPublishOptions) => requireDocuments().publish(publishOptions),
     revisions: (collection: string, id: string, revisionOptions?: ContentRevisionsOptions) => requireDocuments().revisions(collection, id, revisionOptions),
-    async can(context: ContentAuthorizeContext<CollectionName<TCollections>>): Promise<boolean> {
+    async can(context: ContentCanContext<CollectionName<TCollections>>): Promise<boolean> {
       if (context === null || Object(context) !== context || !contentActions.has(context.action)) {
-        throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] content.can() requires { user, collection, action: 'read' | 'write' | 'publish' }." })
+        throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] content.can() requires { user?, actor?, collection, action: 'read' | 'write' | 'publish', id? }." })
       }
-      requireDocuments().collection(context.collection)
+      const { user = null, actor, collection, action, id } = context
+      if (user !== null && Object(user) !== user) {
+        throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] content.can() user must be the Auth user object or null." })
+      }
+      if (actor !== undefined && (actor === null || Object(actor) !== actor || String(actor.id) !== actor.id)) {
+        throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] content.can() actor must be an Agent Actor with an id, or undefined." })
+      }
+      requireDocuments().collection(collection)
       if (!authorize) return false
-      return await authorize(context) === true
+      const decision: ContentAuthorizeContext<CollectionName<TCollections>> = { user, collection, action }
+      if (actor !== undefined) decision.actor = actor
+      if (id !== undefined) decision.id = id
+      return await authorize(decision) === true
     },
   } as ContentDocumentsRuntime<TCollections>
   const runtime: ContentRuntime & ContentDocumentsRuntime<TCollections> = {
