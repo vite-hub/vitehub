@@ -13,7 +13,7 @@ const time = (secondsAgo: number) => new Date(now.value - secondsAgo * 1_000).to
 
 let clock: ReturnType<typeof setInterval> | undefined;
 onMounted(() => {
-  now.value = Date.now()
+  now.value = Date.now();
   clock = setInterval(() => { now.value = Date.now(); }, 1_000);
 });
 onBeforeUnmount(() => {
