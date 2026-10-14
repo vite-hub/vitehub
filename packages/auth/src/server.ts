@@ -286,8 +286,14 @@ async function runAccessAuthorize(
 }
 
 async function normalizeAuthorizationResponse(value: unknown): Promise<Response | undefined> {
-  if (value instanceof Response) return value
   try {
+    if (value instanceof Response) {
+      // Native accessors reject objects forged with Response.prototype.
+      Object.getOwnPropertyDescriptor(Response.prototype, "status")!.get!.call(value)
+      Object.getOwnPropertyDescriptor(Response.prototype, "headers")!.get!.call(value)
+      Object.getOwnPropertyDescriptor(Response.prototype, "body")!.get!.call(value)
+      return value
+    }
     if (Object.prototype.toString.call(value) !== "[object Response]" || !isNativeResponseShape(value)) return
     // SAFETY: Foreign responses are untrusted. Copy their data into a local
     // Response so adapters only receive native Headers and body operations.
@@ -303,13 +309,17 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
 
 function isNativeResponseShape(value: unknown): value is {
   headers: Headers
-  body: BodyInit | null
+  body: unknown
   arrayBuffer: () => Promise<ArrayBuffer>
   status: number
   statusText: string
 } {
   if (!value || (typeof value !== "object" && typeof value !== "function")) return false
-  const prototype = Object.getPrototypeOf(value)
+  let prototype = Object.getPrototypeOf(value)
+  while (prototype && !Object.getOwnPropertyDescriptor(prototype, "status")) {
+    prototype = Object.getPrototypeOf(prototype)
+  }
+  if (!prototype) return false
   const status = Object.getOwnPropertyDescriptor(prototype, "status")
   const statusText = Object.getOwnPropertyDescriptor(prototype, "statusText")
   const headers = Object.getOwnPropertyDescriptor(prototype, "headers")

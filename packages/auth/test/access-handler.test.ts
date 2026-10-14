@@ -105,7 +105,19 @@ describe("Auth access handlers", () => {
     await expect(handler(new Request("https://app.example/"))).resolves.toBe(response)
   })
 
-  it("normalizes compatible authorization responses from another realm", async () => {
+  it("fails closed for an object forged with Response.prototype", async () => {
+    const spoof = Object.create(Response.prototype) as Response
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => spoof }] },
+    }))
+    const response = await handler(new Request("https://app.example/"))
+    expect(response).not.toBe(spoof)
+    expect(response?.status).toBe(403)
+    expect(response?.headers.getSetCookie()).toEqual([])
+    expect(await response?.text()).toBeTruthy()
+  })
+
+  it.each([false, true])("normalizes foreign authorization responses (subclass: %s)", async (subclass) => {
     // Evaluate Node's bundled Web API implementation in a separate realm,
     // without injecting the host Response or Headers constructors.
     const exports = {} as { Response: typeof Response, Headers: typeof Headers }
@@ -116,7 +128,8 @@ describe("Auth access handlers", () => {
     }
     const natives = (process as unknown as { binding(name: string): Record<string, string> }).binding("natives")
     runInNewContext(natives["internal/deps/undici/undici"]!, context)
-    const foreignResponse = new exports.Response("no", { status: 409, headers: { "set-cookie": "policy=denied", "x-policy": "rejected" } })
+    const ForeignResponse = subclass ? class extends exports.Response {} : exports.Response
+    const foreignResponse = new ForeignResponse("no", { status: 409, headers: { "set-cookie": "policy=denied", "x-policy": "rejected" } })
     expect(foreignResponse).not.toBeInstanceOf(Response)
     expect(foreignResponse.headers).not.toBeInstanceOf(Headers)
     expect(exports.Response.prototype === Response.prototype).toBe(false)
@@ -166,7 +179,7 @@ describe("Auth access handlers", () => {
       [Symbol.toStringTag]: "Response",
       status: 409, statusText: "Conflict", url: "", type: "default",
       ok: false, redirected: false, bodyUsed: false, body: null, headers,
-      arrayBuffer: async () => new ArrayBuffer(0), blob: async () => new Blob(),
+      arrayBuffer: async () => new ArrayBuffer(0), blob: async () => new Blob([]),
       formData: async () => new FormData(), json: async () => ({}), text: async () => "",
       clone: () => spoof,
     }
