@@ -28,7 +28,7 @@ describe("@vite-hub/shell workspace inspection", () => {
   it("bounds no-match feedback by the output limit", async () => {
     const workspace = new MemoryWorkspace({ "models/orders.sql": "select * from orders\n" })
 
-    await expect(runWorkspaceInspectionCommand(workspace, "true | grep missing models", {
+    await expect(runWorkspaceInspectionCommand(workspace, "true | grep missing .", {
       broadSearchPaths: ["/workspace/models"],
       commands: ["grep", "true"],
       cwd: workspaceMountPoint,
