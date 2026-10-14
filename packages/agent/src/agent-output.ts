@@ -853,11 +853,20 @@ function isResponseLike(value: unknown): value is Response {
     if (!hasRuntimeType(headers.get, "function") || !hasRuntimeType(headers.forEach, "function")) return false
     if (body === null) return value.body === null
     if (!isRuntimeObject(body)) return false
-    // Calling the platform prototype method performs the Web Streams brand
-    // check, including for streams created by another realm. It does not
-    // transfer or detach the caller's stream while classifying the result.
-    const reader = ReadableStream.prototype.getReader.call(body as ReadableStream)
-    reader.releaseLock()
+    // A stream may already be locked by its caller. In that state acquiring a
+    // reader throws even though the value is a genuine Web Stream. Use the
+    // intrinsic tag as the non-destructive brand signal, and only probe the
+    // trusted reader operation when it succeeds. Consumption below still
+    // surfaces a locked-body error rather than silently taking the generic path.
+    if (Object.prototype.toString.call(body) !== "[object ReadableStream]") return false
+    try {
+      const reader = ReadableStream.prototype.getReader.call(body as ReadableStream)
+      reader.releaseLock()
+    }
+    catch {
+      // A locked genuine stream remains a Response; incompatible objects were
+      // rejected by the intrinsic stream tag check above.
+    }
     return true
   }
   catch {

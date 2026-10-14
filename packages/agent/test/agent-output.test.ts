@@ -1147,6 +1147,17 @@ describe("agent output helpers", () => {
     expect(events).toEqual([{ text: "foreign", type: "text-delta" }, { type: "finish" }])
   })
 
+  it("surfaces an error for a Response body locked by its caller", async () => {
+    const response = new Response("locked")
+    const reader = response.body?.getReader()
+    await expect(async () => {
+      for await (const _event of streamAgentOutputToEvents(response)) {
+        // Consume the generator until the locked-body failure is raised.
+      }
+    }).rejects.toThrow()
+    reader?.releaseLock()
+  })
+
   it.each([new Response("wrong stream").body, { incompatible: true }])("preserves textStream on outputs with a caller-controlled status getter and body %j", async (body) => {
     class Output {
       body = body
