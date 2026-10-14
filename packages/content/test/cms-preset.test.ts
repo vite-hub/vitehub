@@ -71,6 +71,12 @@ describe("reading the cms preset from server/content.ts", () => {
       "import * as presets from 'vite-hub/content/presets/cms'",
       "export const content = defineContent({ extends: [presets.default, { workspace: 'site' }] as const })",
     ].join("\n"))).toEqual({ file, options: { workspace: "site" } })
+    expect(read([
+      "import { defineContent } from 'vite-hub/content'",
+      "import cms from 'vite-hub/content/presets/cms'",
+      "const content = defineContent({ extends: cms })",
+      "export { content }",
+    ].join("\n"))).toEqual({ file, options: {} })
   })
 
   it("explains selections that the build cannot read", () => {

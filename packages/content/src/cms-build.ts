@@ -136,14 +136,33 @@ export function readCmsPresetUsage(source: string, file: string, projectRoot: st
   }
 
   // Only inspect the options object passed to the exported `content` Definition. Other
-  // objects in this module may use an `extends` property for unrelated purposes.
-  let contentOptions: AstNode | undefined
+  // objects in this module may use an `extends` property for unrelated purposes. The
+  // source discovery accepts both `export const content = ...` and
+  // `const content = ...; export { content }`, so follow both forms here.
+  const exportedContentBindings = new Set<string>()
   for (const statement of Array.isArray(program.body) ? program.body : []) {
     if (!isNode(statement) || statement.type !== "ExportNamedDeclaration") continue
     const declaration = statement.declaration
+    if (isNode(declaration) && declaration.type === "VariableDeclaration") {
+      for (const declarator of Array.isArray(declaration.declarations) ? declaration.declarations : []) {
+        if (isNode(declarator) && isNode(declarator.id) && declarator.id.type === "Identifier" && declarator.id.name === "content") {
+          exportedContentBindings.add(String(declarator.id.name))
+        }
+      }
+    }
+    for (const specifier of Array.isArray(statement.specifiers) ? statement.specifiers : []) {
+      if (!isNode(specifier) || specifier.type !== "ExportSpecifier" || !isNode(specifier.local) || !isNode(specifier.exported)) continue
+      const exported = specifier.exported.type === "Identifier" ? specifier.exported.name : specifier.exported.value
+      if (exported === "content") exportedContentBindings.add(String(specifier.local.name))
+    }
+  }
+  let contentOptions: AstNode | undefined
+  for (const statement of Array.isArray(program.body) ? program.body : []) {
+    if (!isNode(statement)) continue
+    const declaration = statement.type === "ExportNamedDeclaration" ? statement.declaration : statement
     if (!isNode(declaration) || declaration.type !== "VariableDeclaration") continue
     for (const declarator of Array.isArray(declaration.declarations) ? declaration.declarations : []) {
-      if (!isNode(declarator) || !isNode(declarator.id) || declarator.id.type !== "Identifier" || declarator.id.name !== "content") continue
+      if (!isNode(declarator) || !isNode(declarator.id) || declarator.id.type !== "Identifier" || !exportedContentBindings.has(String(declarator.id.name))) continue
       const init = unwrap(declarator.init)
       if (!isNode(init) || init.type !== "CallExpression" || !isNode(init.callee) || init.callee.type !== "Identifier" || !defineContentBindings.has(String(init.callee.name))) continue
       const argument = unwrap(Array.isArray(init.arguments) ? init.arguments[0] : undefined)
