@@ -4629,13 +4629,14 @@ function decorateChatTriggerMessages(
   const currentTime = chatMessageTime(message.metadata.dateSent) ?? Date.now()
   const isRecent = (time: number | undefined) => time !== undefined && currentTime - time <= maxAgeMs
   const retainedIds = new Set([message.id, ...(messageContext?.skipped ?? []).map(item => item.id)].filter(Boolean))
+  const retainedMessages = new Set([message, ...(messageContext?.skipped ?? [])])
   const shownIds = new Set(messages.filter(item => isRecent(chatMessageTime(item.createdAt))).map(item => item.id).filter(isRuntimeString))
   let remainingImages = maxImages
   const decorated = messages.slice().reverse().map((uiMessage): UIMessageLike => {
     if (!Array.isArray(uiMessage.parts)) return uiMessage
     if (uiMessage.role !== "user") return { ...uiMessage, parts: uiMessage.parts.filter(part => !isChatReplyModelPart(part)) }
     const source = chatUiMessageSources.get(uiMessage)
-    const retained = !!uiMessage.id && retainedIds.has(uiMessage.id)
+    const retained = (!!uiMessage.id && retainedIds.has(uiMessage.id)) || (!!source && retainedMessages.has(source))
     if (!source) {
       // A message from an earlier selection already has its header and attachment limit.
       if (!retained) remainingImages -= uiMessage.parts.filter(part => isAttachmentPart(part) && part.type === "image").length
