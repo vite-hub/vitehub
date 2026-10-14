@@ -16,21 +16,10 @@ function isError(value: unknown): value is Error {
       }
       catch {}
     }
-    // Native Error instances materialize their stack as an own property. An
-    // object that merely inherits Error.prototype has no native error slots.
-    if (!Object.prototype.hasOwnProperty.call(value, "stack")) return false
-    const seen = new Set<object>()
-    let prototype = Object.getPrototypeOf(value)
-    for (let depth = 0; depth < 64 && prototype !== null && prototype !== Object.prototype; depth++) {
-      if (seen.has(prototype)) return false
-      seen.add(prototype)
-      const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
-      if (Object.prototype.toString.call(constructor) === "[object Function]" && constructor.prototype === prototype
-        && Function.prototype.toString.call(constructor) === Function.prototype.toString.call(Error)) {
-        return true
-      }
-      prototype = Object.getPrototypeOf(prototype)
-    }
+    // There is no forge-resistant Error brand check when both standard
+    // intrinsics are unavailable. Prototype and own-property heuristics can
+    // be reproduced by ordinary objects, so fail closed rather than trusting
+    // provider fields from a spoofed value.
     return false
   }
   catch {

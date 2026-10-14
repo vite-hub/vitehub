@@ -327,6 +327,29 @@ describe("createEmail", () => {
     }
   })
 
+  it("rejects an own-stack impostor when native brand intrinsics are unavailable", async () => {
+    const cause = Object.assign(Object.create(Error.prototype), {
+      stack: "spoofed stack",
+      code: "RATE_LIMIT" as const,
+      driver: "custom",
+      message: "slow down",
+    }) as EmailProviderError
+    const errorDescriptor = Object.getOwnPropertyDescriptor(Error, "isError")
+    const cloneDescriptor = Object.getOwnPropertyDescriptor(globalThis, "structuredClone")
+    Object.defineProperty(Error, "isError", { configurable: true, value: undefined })
+    Object.defineProperty(globalThis, "structuredClone", { configurable: true, value: undefined })
+    try {
+      const client = createEmail({ driver: fixtureDriver(async () => ({ data: null, error: cause })) })
+      await expect(client.send(message)).rejects.toMatchObject({ code: "EMAIL_PROVIDER_FAILED", details: { driver: "fixture" } })
+    }
+    finally {
+      if (errorDescriptor) Object.defineProperty(Error, "isError", errorDescriptor)
+      else Reflect.deleteProperty(Error, "isError")
+      if (cloneDescriptor) Object.defineProperty(globalThis, "structuredClone", cloneDescriptor)
+      else Reflect.deleteProperty(globalThis, "structuredClone")
+    }
+  })
+
   it.each([
     { realm: "same realm", create: () => Object.assign(new (class Error {})(), { code: "RATE_LIMIT", driver: "custom", message: "slow down" }) },
     { realm: "foreign realm", create: () => runInNewContext('Object.assign(new (class Error {})(), { code: "RATE_LIMIT", driver: "custom", message: "slow down" })') },
