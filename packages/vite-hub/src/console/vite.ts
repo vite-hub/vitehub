@@ -574,6 +574,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
             if (!envKey || !inlineConsoleAuthConfig || !root) return
             inlineConsoleAuthConfig = { ...inlineConsoleAuthConfig, developmentSecretEnvKey: envKey }
             consoleAuthHandlers = await writeConsoleAuthHandlers(root, inlineConsoleAuthConfig, baseURL)
+            if (sections.includes("connections")) await writeConsoleConnectionsActor(root, "console-auth")
           })
         }
       }
@@ -631,7 +632,15 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       }
       const nitro = viteConfig.nitro ??= {}
       const { kit, publicAssets } = configureConsoleNitroRoutes(nitro, baseURL, sections, consoleAuthHandlers, previousConsoleAuthHandlers)
-      viteConfig.nitro = { ...kit.config, publicAssets }
+      const connectionsActor = sections.includes("connections")
+        ? await writeConsoleConnectionsActor(root, consoleAuthHandlers?.auth === true ? "console-auth" : resolvedAppAuth ? "app-auth" : "none")
+        : undefined
+      const alias = kit.config.alias ?? {}
+      viteConfig.nitro = {
+        ...kit.config,
+        ...(connectionsActor ? { alias: { ...alias, [consoleConnectionsActorId]: connectionsActor } } : {}),
+        publicAssets,
+      }
       generatedPlugin = fixture && generatedPlugin
         ? generatedPlugin
         : resolveGeneratedConsolePlugin(projectRoot, fixture, options.invocationRootState)
