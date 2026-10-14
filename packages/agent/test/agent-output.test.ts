@@ -556,6 +556,20 @@ describe("agent output helpers", () => {
     })
   })
 
+  it("preserves local errors when Error.isError is unavailable", () => {
+    const errorConstructor = Error as ErrorConstructor & { isError?: unknown }
+    const nativeIsError = errorConstructor.isError
+    try {
+      delete errorConstructor.isError
+      const event = toAgentStreamEvent({ error: new Error("local boom"), type: "error" })
+      expect(event).toMatchObject({ error: "local boom", type: "error" })
+      expect(Object.getOwnPropertySymbols(event!)).toContain(agentStreamErrorSymbol)
+    }
+    finally {
+      errorConstructor.isError = nativeIsError
+    }
+  })
+
   it("preserves messages from cross-realm stream errors", () => {
     const error = runInNewContext("new Error('cross-realm boom')")
     expect(error).not.toBeInstanceOf(Error)
