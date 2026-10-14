@@ -730,8 +730,8 @@ describe("hubDb", () => {
     await resolveHotUpdate(plugin)({
       file: extension,
       server: { moduleGraph: {
-        getModuleById: id => ({ id }),
-        invalidateModule: module => { invalidated.push(module.id) },
+        getModuleById: (id: string) => ({ id }),
+        invalidateModule: (module: { id: string }) => { invalidated.push(module.id) },
       } },
     })
     expect(calls).toBe(2)

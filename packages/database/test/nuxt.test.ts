@@ -1168,7 +1168,7 @@ describe("Database Nuxt integration", () => {
         // SAFETY: the Database Nuxt integration calls this hook with an extend context that has a schemaFiles array.
         (context.schemaFiles as string[]).push(moduleSchema)
       })
-      await hubDb({ driver: "sqlite" })(undefined, nuxt)
+      await hubDb({})(undefined, nuxt)
       await callHook(hooks, "nitro:config", {})
       expect(nuxt.options.watch).toContain(moduleSchema)
 
