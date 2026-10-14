@@ -14,6 +14,8 @@ import {
   consolePublishMismatches,
   consoleRevisionLabel,
   consoleSchemaDefaults,
+  consoleSeoFallbacks,
+  consoleSeoField,
   consoleSingularLabel,
   describeConsoleSchemaFields,
   groupConsoleFieldIssues,
@@ -30,6 +32,7 @@ import ConsoleDocumentProperties from "./console-document-properties.vue";
 import ConsoleMarkdownEditor from "./console-markdown-editor.vue";
 import ConsolePropertyRow from "./console-property-row.vue";
 import ConsoleRelativeTime from "./console-relative-time.vue";
+import ConsoleSeoPanel from "./console-seo-panel.vue";
 import ConsoleStatus from "./console-status.vue";
 
 import type { RouteLocationRaw } from "vue-router";
@@ -73,6 +76,8 @@ const fields = computed(() => describeConsoleSchemaFields(props.collection.schem
 const noun = computed(() => consoleSingularLabel(props.collection.label));
 // A singleton is named by its label, so every field, a `title` too, is a property row.
 const titleField = computed(() => (single.value ? undefined : fields.value.find(field => field.name === props.collection.titleField && field.kind === "string")));
+// A `seo()` field gets its own group of rows, with counters and previews, under the other properties.
+const seoField = computed(() => consoleSeoField(props.collection.schema));
 
 const loading = ref(!creating.value);
 const loadError = ref<unknown>();
@@ -187,6 +192,14 @@ const headerStatus = computed<{ action?: HeaderAction, label: string, pending?: 
 function notifyChanged(): void {
   ownChanges++;
   emit("changed");
+}
+
+function updateSeo(value: Record<string, unknown> | undefined): void {
+  if (!seoField.value) return;
+  const data = { ...draft.value.data };
+  if (value === undefined) delete data[seoField.value.name];
+  else data[seoField.value.name] = value;
+  draft.value = { ...draft.value, data };
 }
 
 function compact(data: Record<string, unknown>): Record<string, unknown> {
@@ -848,7 +861,7 @@ const menuItems = computed(() => [[
           <ConsoleDocumentProperties
             v-model="draft.data"
             :schema="collection.schema"
-            :exclude="titleField ? [titleField.name] : []"
+            :exclude="[titleField?.name, seoField?.name].filter(name => name !== undefined)"
             :errors="fieldErrors"
             :disabled="!canWrite"
             :unfolded="!hasBody"
@@ -877,6 +890,18 @@ const menuItems = computed(() => [[
               </span>
             </ConsolePropertyRow>
           </ConsoleDocumentProperties>
+
+          <ConsoleSeoPanel
+            v-if="seoField"
+            :model-value="draft.data[seoField.name] as Record<string, unknown> | undefined"
+            :name="seoField.name"
+            :schema="seoField.schema"
+            :hint="seoField.hint"
+            :fallbacks="consoleSeoFallbacks(draft.data, collection.titleField, base?.url)"
+            :errors="fieldErrors"
+            :disabled="!canWrite"
+            @update:model-value="updateSeo"
+          />
 
           <hr v-if="hasBody" class="my-6 border-default">
         </template>

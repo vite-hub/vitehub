@@ -35,6 +35,15 @@ export type ContentFieldsInput<TFields extends ContentFields> = WithOptionalKeys
  */
 export type ContentFormat = "markdown" | "json" | "yaml"
 
+/**
+ * How a document maps to its public URL: a root-relative pattern such as `/blog/:id`, or a function of the document.
+ * A pattern replaces `:id` with the document id and `:<field>` with a text or number field. A function, or a pattern
+ * whose field has no value, may return null for a document without a page.
+ */
+export type ContentDocumentUrl<TData = Record<string, unknown>> =
+  | string
+  | ((document: { id: string, data: TData }) => string | null | undefined)
+
 export interface DocumentsOptions<TFields extends ContentFields> {
   /**
    * Workspace glob for the collection's files, such as `posts/**\/*.md` or `authors/*.json`. The part before the first
@@ -54,6 +63,11 @@ export interface DocumentsOptions<TFields extends ContentFields> {
    * offer them in their insert menu. Content still stores and returns the Markdown as written.
    */
   components?: Record<string, DocumentComponent>
+  /**
+   * The public URL of each document, such as `/blog/:id`. Reads expose it as `document.url`; canonical links, sitemaps,
+   * and previews use it. Omit it for documents without their own page.
+   */
+  url?: ContentDocumentUrl<ContentFieldsOutput<TFields>>
 }
 
 /** One Comark component that document bodies may use. */
@@ -82,6 +96,8 @@ export interface SingletonOptions<TFields extends ContentFields> {
   path: string
   /** Document fields: frontmatter for Markdown, the whole object for JSON and YAML. */
   fields: TFields
+  /** The public URL of the document, such as `/` or `/about`. Omit it for data without a page, such as settings. */
+  url?: ContentDocumentUrl<ContentFieldsOutput<TFields>>
 }
 
 const collectionDefinition: unique symbol = Symbol.for("vitehub.content.documents")
@@ -92,6 +108,8 @@ interface CollectionDefinitionBase<TFields extends ContentFields> {
   readonly path: string
   readonly fields: TFields
   readonly format: ContentFormat
+  /** How each document maps to its public URL, when it has one. */
+  readonly url?: ContentDocumentUrl<any>
 }
 
 /** A document collection definition created by `documents()`. */
@@ -141,6 +159,7 @@ export function documents<const TFields extends ContentFields>(options: Document
   if (options.search !== undefined && (!Array.isArray(options.search) || options.search.some(field => String(field) !== field))) {
     throw invalidDefinition(`documents(${JSON.stringify(options.path)}) search must be a list of field names.`)
   }
+  assertUrl("documents", options.path, options.url, options.fields)
   const definition: { -readonly [K in keyof DocumentsDefinition<TFields>]: DocumentsDefinition<TFields>[K] } = {
     [collectionDefinition]: true,
     kind: "documents",
@@ -150,6 +169,7 @@ export function documents<const TFields extends ContentFields>(options: Document
   }
   if (options.search) definition.search = [...options.search]
   if (options.components !== undefined) definition.components = documentComponents(options.path, options.components)
+  if (options.url !== undefined) definition.url = options.url
   return definition
 }
 
@@ -209,13 +229,56 @@ export function singleton<const TFields extends ContentFields>(options: Singleto
   if (String(options.path) !== options.path || !options.path) throw invalidDefinition("singleton() requires a file path such as 'settings.json'.")
   const compiled = compileSingletonPath(options.path)
   assertFields("singleton", options.path, options.fields)
-  return {
+  assertUrl("singleton", options.path, options.url, options.fields)
+  const definition: { -readonly [K in keyof SingletonDefinition<TFields>]: SingletonDefinition<TFields>[K] } = {
     [collectionDefinition]: true,
     kind: "singleton",
     fields: options.fields,
     format: compiled.format,
     path: compiled.path,
   }
+  if (options.url !== undefined) definition.url = options.url
+  return definition
+}
+
+const urlToken = /:([A-Za-z_$][\w$]*)/g
+
+function assertUrl(helper: string, path: string, url: unknown, fields: ContentFields): void {
+  if (url === undefined || url instanceof Function) return
+  if (String(url) !== url || !url.startsWith("/") || url.startsWith("//")) {
+    throw invalidDefinition(`${helper}(${JSON.stringify(path)}) url must be a function or a path pattern that starts with /, such as '/blog/:id'.`)
+  }
+  for (const [, name] of url.matchAll(urlToken)) {
+    if (name !== "id" && !Object.hasOwn(fields, name!)) {
+      throw invalidDefinition(`${helper}(${JSON.stringify(path)}) url ${JSON.stringify(url)} uses :${name}, which is neither :id nor a field.`)
+    }
+  }
+}
+
+/**
+ * Resolve the public URL of a document from its definition, or null when it has none. Pattern values are encoded per
+ * path segment, so an id such as `2026/hello` keeps its slash.
+ */
+export function contentDocumentUrl(url: ContentDocumentUrl<any> | undefined, document: { id: string, data: Record<string, unknown> }): string | null {
+  if (url === undefined) return null
+  if (url instanceof Function) {
+    const result: unknown = url({ id: document.id, data: document.data })
+    if (result === null || result === undefined) return null
+    if (String(result) !== result || !result.startsWith("/")) {
+      throw invalidDefinition(`Content url() must return a path that starts with /, or null, received ${JSON.stringify(result)} for ${JSON.stringify(document.id)}.`)
+    }
+    return result
+  }
+  let missing = false
+  const resolved = url.replace(urlToken, (_match, name: string) => {
+    const value = name === "id" ? document.id : document.data[name]
+    if (String(value) !== value && !Number.isFinite(value)) {
+      missing = true
+      return ""
+    }
+    return String(value).split("/").map(encodeURIComponent).join("/")
+  })
+  return missing ? null : resolved
 }
 
 export function isContentCollectionDefinition(value: unknown): value is ContentCollectionDefinition {

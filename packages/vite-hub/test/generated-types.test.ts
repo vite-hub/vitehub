@@ -754,6 +754,52 @@ describe("framework generated types", () => {
     await expect(abortedResponse.json()).resolves.toMatchObject({ aborted: true })
   })
 
+  it("generates /sitemap.xml and /robots.txt when defineContent() sets seo", async () => {
+    const { root } = await createNestedProject()
+    await Promise.all([
+      mkdir(join(root, "server"), { recursive: true }),
+      symlink(resolve(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), "dir"),
+    ])
+    const write = async (seo: string) => await writeFile(join(root, "server/content.ts"), [
+      `import { defineContent } from "vite-hub/content"`,
+      `export const content = defineContent({ source: { async items() { return [] } }, seo: ${seo} })`,
+      ``,
+    ].join("\n"))
+    await write(`{ sitemap: true, robots: { disallow: ["/admin"] } }`)
+
+    const handlers = await sourcePlugin().api.prepareSources({ projectRoot: root })
+    expect(handlers.filter((handler: { route?: string }) => handler.route !== undefined)).toEqual([
+      { handler: join(root, ".vitehub/content/route.mjs"), route: "/api/content/**" },
+      { handler: join(root, ".vitehub/content/robots.mjs"), method: "get", route: "/robots.txt" },
+      { handler: join(root, ".vitehub/content/sitemap.mjs"), method: "get", route: "/sitemap.xml" },
+    ])
+    const load = async (name: string) => {
+      const module: unknown = await import(`${pathToFileURL(join(root, `.vitehub/content/${name}.mjs`)).href}?t=${Date.now()}`)
+      const handler = Reflect.get(Object(module), "default")
+      if (!(handler instanceof Function)) throw new TypeError(`Expected a generated ${name} handler.`)
+      return handler
+    }
+    // Nitro 2 passes an H3 v1 event over a Node request; the request origin fills in the site.
+    const nodeRequest = new IncomingMessage(new Socket())
+    nodeRequest.url = "/robots.txt"
+    nodeRequest.headers = { host: "internal.test", "x-forwarded-host": "example.test", "x-forwarded-proto": "https" }
+    const robots: unknown = await (await load("robots"))(createEvent(nodeRequest, new ServerResponse(nodeRequest)))
+    if (!(robots instanceof Response)) throw new TypeError("Expected a robots.txt response.")
+    expect(robots.headers.get("content-type")).toBe("text/plain; charset=utf-8")
+    await expect(robots.text()).resolves.toBe("User-agent: *\nDisallow: /admin\n\nSitemap: https://example.test/sitemap.xml\n")
+    // Nitro 3 passes an H3 v2 event over a Web request.
+    const sitemap = await (await load("sitemap")).fetch(new Request("https://site.test/sitemap.xml"))
+    expect(sitemap.headers.get("content-type")).toBe("application/xml; charset=utf-8")
+    await expect(sitemap.text()).resolves.toContain("<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">")
+
+    // Only the routes the call turns on are generated, and removed again when they are off.
+    await write(`{ sitemap: true, robots: false }`)
+    expect((await sourcePlugin().api.prepareSources({ projectRoot: root })).map((handler: { route?: string }) => handler.route)).toEqual(["/api/content/**", "/sitemap.xml"])
+    await expect(readFile(join(root, ".vitehub/content/robots.mjs"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+    await write(`{ site: "https://example.com" }`)
+    expect((await sourcePlugin().api.prepareSources({ projectRoot: root })).map((handler: { route?: string }) => handler.route)).toEqual(["/api/content/**"])
+  })
+
   it("rejects Content definitions that ViteHub cannot serve unambiguously", async () => {
     const { root } = await createNestedProject()
     const firstServerDir = join(root, "api")
