@@ -369,6 +369,10 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
     if (typeof streamConstructor !== "function") return false
     const freshStream = new streamConstructor()
     const reader = Reflect.apply(getReader, freshStream, [])
+    // A reader returned from another stream can pass its own brand checks, but
+    // it cannot lock this fresh stream. Verify ownership through the stream's
+    // branded locked accessor before validating and releasing the reader.
+    if (!Reflect.apply(locked, freshStream, [])) return false
     if (Object(reader) !== reader) return false
     const readerObject = Object(reader)
     if (typeof Reflect.get(readerObject, "read") !== "function"
