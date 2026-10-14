@@ -71,6 +71,7 @@ const docsShellUi = {
     height: calc(100dvh - var(--ui-header-height));
     max-height: calc(100dvh - var(--ui-header-height));
     min-height: calc(100dvh - var(--ui-header-height));
+    overflow: hidden;
 
   }
 }
