@@ -4,17 +4,20 @@ import { describe, expect, it, vi } from "vitest"
 import { createBlobStorage } from "../src/storage.ts"
 
 describe("cross realm Blob bodies", () => {
-  it("preserves a Blob type from another realm", async () => {
-    // Construct the value in a separate VM context. The platform Blob
-    // implementation is shared across realms, while the prototype is foreign
-    // to this context and therefore fails a local instanceof check.
+  it("preserves a native Blob type without a local prototype", async () => {
+    // Node VM contexts do not supply their own Blob implementation. This
+    // fixture tests the instanceof fallback with real native internal slots;
+    // it does not claim to exercise browser iframe globals.
     const body: Blob = runInNewContext(`(() => {
       const body = new Blob(["payload"], { type: "image/x-custom" })
-      Object.setPrototypeOf(body, null)
+      const prototype = Object.create(null, Object.getOwnPropertyDescriptors(Blob.prototype))
+      Object.setPrototypeOf(body, prototype)
       return body
     })()`, { Blob })
     expect(body instanceof Blob).toBe(false)
-    await expect(Blob.prototype.text.call(body)).resolves.toBe("payload")
+    expect(body.type).toBe("image/x-custom")
+    expect(body.size).toBe(7)
+    await expect(body.text()).resolves.toBe("payload")
     const driver = {
       name: "probe",
       options: {},
@@ -57,12 +60,14 @@ describe("cross realm Blob bodies", () => {
   it("rejects metadata getters on a non-Blob prototype", async () => {
     const body: Uint8Array = new Uint8Array([1, 2, 3])
     const spoof = Object.create(Object.getPrototypeOf(body))
+    const type = vi.fn(() => "image/x-spoofed")
+    const size = vi.fn(() => 999)
     Object.defineProperties(spoof, {
-      constructor: { value: { name: "Blob" } },
+      constructor: { value: function Blob() {} },
       arrayBuffer: { value: () => Promise.resolve(new ArrayBuffer(0)) },
       text: { value: () => Promise.resolve("") },
-      type: { get: () => "image/x-spoofed" },
-      size: { get: () => 999 },
+      type: { get: type },
+      size: { get: size },
     })
     Object.setPrototypeOf(body, spoof)
     const put = vi.fn(async (_pathname: string, _body: unknown, options: { contentType?: string }) => ({
