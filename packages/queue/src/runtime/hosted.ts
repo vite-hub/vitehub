@@ -1,4 +1,5 @@
 import { waitUntil as vercelWaitUntil } from "@vercel/functions"
+import { Request as UndiciRequest } from "undici"
 import { getRequestHeaders, getRequestURL, readRawBody } from "h3"
 
 import { createQueueError } from "../errors.ts"
@@ -14,66 +15,22 @@ export const hostedVercelWaitUntil: (promise: Promise<unknown>) => void | undefi
 function isRequestLike(value: unknown): value is Request {
   if (value === null || typeof value !== "object") return false
 
-  const getter = Object.getOwnPropertyDescriptor(Request.prototype, "url")?.get
-  if (getter) {
+  // Request accessors perform a non-spoofable internal-slot check. Keep the
+  // accessors from trusted implementations instead of reading candidate
+  // prototypes, which ordinary objects can control.
+  const getters = [
+    Object.getOwnPropertyDescriptor(Request.prototype, "url")?.get,
+    Object.getOwnPropertyDescriptor(UndiciRequest.prototype, "url")?.get,
+  ].filter((getter): getter is NonNullable<typeof getter> => typeof getter === "function")
+
+  return getters.some((getter) => {
     try {
       getter.call(value)
       return true
     } catch {
-      // Continue with the cross-implementation Fetch interface check below.
+      return false
     }
-  }
-
-  // Hosted adapters can supply a different Fetch implementation. Its private
-  // slots are not compatible with the host Request's accessors, even in Node.
-  // Probe the implementation's accessors instead of accepting ordinary fields;
-  // this avoids treating a plain object (or a single spoofed `url` getter) as a
-  // Request, and does not clone, lock, or consume the body.
-  try {
-    let prototype = Object.getPrototypeOf(value)
-    while (prototype && !Object.prototype.hasOwnProperty.call(prototype, "url")) {
-      prototype = Object.getPrototypeOf(prototype)
-    }
-    if (!prototype) return false
-
-    const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
-    if (typeof constructor !== "function" || constructor.prototype !== prototype) return false
-
-    // Fetch implementations expose the Request brand through the prototype's
-    // toString tag. Require that tag to come from the same prototype as the
-    // accessors above, so an object-level Symbol.toStringTag cannot spoof it.
-    const tag = Object.getOwnPropertyDescriptor(prototype, Symbol.toStringTag)
-    if (tag?.value !== "Request" && typeof tag?.get !== "function") return false
-
-    const getters = [
-      "url",
-      "method",
-      "headers",
-      "body",
-      "bodyUsed",
-      "signal",
-      "destination",
-      "referrer",
-      "referrerPolicy",
-      "mode",
-      "credentials",
-      "cache",
-      "redirect",
-      "integrity",
-      "keepalive",
-    ] as const
-    for (const key of getters) {
-      const getter = Object.getOwnPropertyDescriptor(prototype, key)?.get
-      if (!getter) return false
-      getter.call(value)
-    }
-    for (const key of ["clone", "text", "json", "arrayBuffer"] as const) {
-      if (typeof Object.getOwnPropertyDescriptor(prototype, key)?.value !== "function") return false
-    }
-    return true
-  } catch {
-    return false
-  }
+  })
 }
 
 async function toRequest(event: {
