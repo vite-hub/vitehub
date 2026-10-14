@@ -360,6 +360,12 @@ function isNativeFunction(value: unknown, localIntrinsic?: unknown): value is (.
   }
 }
 
+function readerOperation(readerPrototype: object, key: "read" | "cancel" | "releaseLock"): unknown {
+  // Reader operations must be owned by the verified native prototype. Never
+  // walk the reader or its prototype chain after the source-realm check.
+  return Object.getOwnPropertyDescriptor(readerPrototype, key)?.value
+}
+
 function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<Uint8Array> | null {
   if (body === null) return true
   if (Object(body) !== body) return false
@@ -408,9 +414,9 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
   if (nativeReaderPrototype !== readerPrototype) throw new Error("Non-native response reader")
   // The first reader acquisition locks the source stream. Inspect this reader's
   // prototype directly instead of acquiring a second reader while it is locked.
-  const read = Object.getOwnPropertyDescriptor(readerPrototype, "read")?.value as ((this: ReadableStreamDefaultReader<Uint8Array>) => Promise<{ done: true, value?: undefined } | { done: false, value: Uint8Array }>) | undefined
-  const cancel = Object.getOwnPropertyDescriptor(readerPrototype, "cancel")?.value as ((this: ReadableStreamDefaultReader<Uint8Array>, reason?: unknown) => Promise<void>) | undefined
-  const releaseLock = Object.getOwnPropertyDescriptor(readerPrototype, "releaseLock")?.value as ((this: ReadableStreamDefaultReader<Uint8Array>) => void) | undefined
+  const read = readerOperation(readerPrototype, "read") as ((this: ReadableStreamDefaultReader<Uint8Array>) => Promise<{ done: true, value?: undefined } | { done: false, value: Uint8Array }>) | undefined
+  const cancel = readerOperation(readerPrototype, "cancel") as ((this: ReadableStreamDefaultReader<Uint8Array>, reason?: unknown) => Promise<void>) | undefined
+  const releaseLock = readerOperation(readerPrototype, "releaseLock") as ((this: ReadableStreamDefaultReader<Uint8Array>) => void) | undefined
   // Native reader operations have stable names across realms. This rejects
   // replacements installed on a shared reader prototype before any
   // caller-controlled operation is invoked.
