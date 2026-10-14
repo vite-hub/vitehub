@@ -43,7 +43,7 @@ import { isAgentInvocationCancellationError } from "../internal/invocation-cance
 import { finalChannelOutputContextKey, hasOnlyPortableAgentWorkflowCapabilities, requireAgentWorkflowContextKey } from "../internal/final-channel-output.ts"
 import { agentChannelHistoryHeader } from "../internal/channel-history.ts"
 import { agentChannelSyncProviderHeader } from "../internal/channel-sync.ts"
-import { attachmentStringBytes, isAttachmentData } from "../messages.ts"
+import { attachmentStringBytes, isArrayBufferValue, isAttachmentData, isBlobValue, isUint8ArrayValue } from "../messages.ts"
 import { agentInvokerLabel, hasResolvedAgentInvokerInput, resolveInputAgentInvoker, resolveAgentInvoker, withResolvedAgentInvokerInput } from "../invoker.ts"
 import { createAgentUIMessageStreamResponse } from "../stream-output.ts"
 import {
@@ -4198,43 +4198,8 @@ interface ChatMessagePartOptions {
   rejectOversizedTextAttachments?: boolean
 }
 
-function isChatArrayBuffer(value: unknown): value is ArrayBuffer {
-  try {
-    const getter = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")?.get
-    if (!getter) return false
-    getter.call(value)
-    return true
-  }
-  catch {
-    return false
-  }
-}
-
-function isChatUint8Array(value: unknown): value is Uint8Array {
-  if (!ArrayBuffer.isView(value)) return false
-  try {
-    const getter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), Symbol.toStringTag)?.get
-    return getter?.call(value) === "Uint8Array"
-  }
-  catch {
-    return false
-  }
-}
-
-function isChatBlob(value: unknown): value is Blob {
-  try {
-    const getter = Object.getOwnPropertyDescriptor(Blob.prototype, "size")?.get
-    if (!getter) return false
-    getter.call(value)
-    return true
-  }
-  catch {
-    return false
-  }
-}
-
 function imageAttachmentMediaType(attachment: Attachment): string | undefined {
-  if (isChatBlob(attachment.data) && attachment.data.type.startsWith("image/")) return attachment.data.type
+  if (isBlobValue(attachment.data) && attachment.data.type.startsWith("image/")) return attachment.data.type
   for (const path of [attachment.name, attachment.url]) {
     const extension = path?.split(/[?#]/)[0]?.split(".").pop()?.toLowerCase()
     if (extension && imageAttachmentMimeTypes[extension]) return imageAttachmentMimeTypes[extension]
@@ -4252,7 +4217,7 @@ function isTextAttachment(attachment: Attachment): boolean {
 }
 
 function checkedTextAttachmentBytes(value: unknown, options: ChatMessagePartOptions = {}): Uint8Array | undefined {
-  const bytes = isChatArrayBuffer(value) ? new Uint8Array(value) : isChatUint8Array(value) ? value : undefined
+  const bytes = isArrayBufferValue(value) ? new Uint8Array(value) : isUint8ArrayValue(value) ? value : undefined
   if (!bytes) return
   if (bytes.byteLength > chatTextAttachmentMaxBytes) {
     if (!options.rejectOversizedTextAttachments) return
@@ -4278,7 +4243,7 @@ async function textAttachmentBytes(attachment: Attachment, options: ChatMessageP
       return undefined
     }
   }
-  if (isChatBlob(attachment.data)) {
+  if (isBlobValue(attachment.data)) {
     return checkedTextAttachmentBytes(await attachment.data.arrayBuffer(), options)
   }
   return checkedTextAttachmentBytes(attachment.data, options)
