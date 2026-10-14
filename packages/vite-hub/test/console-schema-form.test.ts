@@ -3,14 +3,24 @@ import { describe, expect, it } from "vitest"
 import {
   compactConsoleFieldValues,
   consoleDocumentSlug,
+  consoleFieldIssueMessage,
   consoleFieldIssues,
   consoleFieldLabel,
+  consoleFieldValueIssue,
   consoleInvalidDocument,
+  consoleListQuery,
+  consoleListQueryFor,
   consolePublishMismatches,
   consoleSchemaDefaults,
+  consoleSingularLabel,
   describeConsoleSchemaFields,
   groupConsoleFieldIssues,
+  groupConsoleRevisions,
+  humanizeConsoleFieldIssues,
   isConsoleDocumentId,
+  parseConsoleListQuery,
+  rememberConsoleListQuery,
+  renderConsoleFrontmatter,
 } from "../src/console/runtime/client/documents.ts"
 import { ConsoleRequestError } from "../src/console/runtime/client/request.ts"
 
@@ -102,5 +112,98 @@ describe("Console schema form model", () => {
     const invalid = new ConsoleRequestError(422, "hello has invalid fields.", { code: "CONTENT_INVALID", details: { id: "hello", issues: [] } })
     expect(consoleInvalidDocument(invalid)).toBe("hello")
     expect(consoleInvalidDocument(new ConsoleRequestError(422, "Invalid", { code: "CONTENT_INVALID", details: { issues: [] } }))).toBeUndefined()
+  })
+
+  it("writes field issues as the field name and the constraint", () => {
+    expect(consoleFieldIssueMessage("Name", "Invalid input: expected string, received undefined")).toBe("Name is required.")
+    expect(consoleFieldIssueMessage("Title", "Too small: expected string to have >=1 characters")).toBe("Title must be at least 1 characters.")
+    expect(consoleFieldIssueMessage("Summary", "Too big: expected string to have <=280 characters")).toBe("Summary must be at most 280 characters.")
+    expect(consoleFieldIssueMessage("Reading time", "Too small: expected number to be >=1")).toBe("Reading time must be at least 1.")
+    expect(consoleFieldIssueMessage("Url", "Invalid URL")).toBe("Url must be a valid URL.")
+    expect(consoleFieldIssueMessage("Category", "Invalid option: expected one of \"guide\"|\"release\"")).toBe("Category must be one of the listed options.")
+    expect(consoleFieldIssueMessage("Featured", "Invalid input: expected boolean, received string")).toBe("Featured must be on or off.")
+    // Messages the collection author wrote stay as written.
+    expect(consoleFieldIssueMessage("Title", "Add a title.")).toBe("Add a title.")
+    expect(consoleFieldIssueMessage("Summary", "Keep the summary under 280 characters.")).toBe("Keep the summary under 280 characters.")
+
+    const fields = describeConsoleSchemaFields(posts)
+    expect(humanizeConsoleFieldIssues(fields, [
+      { field: "author", message: "Invalid input: expected string, received undefined", path: ["name"] },
+      { field: "title", message: "Required", path: [] },
+      { field: "unknown", message: "Odd", path: [] },
+    ]).map(issue => issue.message)).toEqual(["Author name is required.", "Title is required.", "Odd"])
+  })
+
+  it("checks a value on blur against the schema constraints", () => {
+    const fields = Object.fromEntries(describeConsoleSchemaFields({ ...posts, required: ["title"] }).map(field => [field.name, field]))
+    expect(consoleFieldValueIssue(fields.title!, "  ")).toBe("Title is required.")
+    expect(consoleFieldValueIssue(fields.title!, "Hello")).toBeUndefined()
+    expect(consoleFieldValueIssue(fields.summary!, "x".repeat(501))).toBe("Summary must be at most 500 characters.")
+    expect(consoleFieldValueIssue(fields.readingTime!, 0)).toBe("Reading time must be at least 1.")
+    expect(consoleFieldValueIssue(fields.readingTime!, 1.5)).toBe("Reading time must be a whole number.")
+    // Optional empty values and shapes the form cannot check pass.
+    expect(consoleFieldValueIssue(fields.summary!, "")).toBeUndefined()
+    expect(consoleFieldValueIssue(fields.author!, {})).toBeUndefined()
+    const url = fields.author!.fields!.find(field => field.name === "url")!
+    expect(consoleFieldValueIssue(url, "vitehub dev")).toBe("Url must be a valid URL.")
+    expect(consoleFieldValueIssue(url, "https://vitehub.dev")).toBeUndefined()
+  })
+
+  it("keeps the list view in the URL without defaults", () => {
+    const options = { facets: ["category", "tags"], sorts: ["date:desc", "date:asc", "id:asc"] }
+    const view = parseConsoleListQuery({ q: "launch", state: "draft", sort: "id:asc", "filter.category": "story", "filter.nope": "x" }, options)
+    expect(view).toEqual({ filters: { category: "story" }, search: "launch", sort: "id:asc", state: "draft" })
+    expect(consoleListQuery(view, "date:desc")).toEqual({ "filter.category": "story", q: "launch", sort: "id:asc", state: "draft" })
+    // Unknown values fall back to the defaults, and defaults leave the query empty.
+    const fallback = parseConsoleListQuery({ state: "archived", sort: "title:asc" }, options)
+    expect(fallback).toEqual({ filters: {}, search: "", sort: "date:desc", state: "all" })
+    expect(consoleListQuery(fallback, "date:desc")).toEqual({})
+    rememberConsoleListQuery("posts", { state: "draft" })
+    expect(consoleListQueryFor("posts")).toEqual({ state: "draft" })
+    expect(consoleListQueryFor("pages")).toEqual({})
+  })
+
+  it("renders frontmatter as nested YAML-style lines for comparisons", () => {
+    expect(renderConsoleFrontmatter({
+      title: "Launch notes",
+      author: { url: "https://vitehub.dev", name: "Ada" },
+      tags: ["console", "guide"],
+      draft: "true",
+      count: 3,
+      empty: [],
+    })).toBe([
+      "author:",
+      "  name: Ada",
+      "  url: \"https://vitehub.dev\"",
+      "count: 3",
+      "draft: \"true\"",
+      "empty: []",
+      "tags: [console, guide]",
+      "title: Launch notes",
+    ].join("\n"))
+  })
+
+  it("groups revisions by day and names collections in the singular", () => {
+    const now = Date.parse("2026-10-14T12:00:00.000Z")
+    const revision = (id: string, createdAt: string) => ({ action: "save", createdAt, id, ref: "draft" })
+    const groups = groupConsoleRevisions([
+      revision("a", "2026-10-14T11:00:00.000Z"),
+      revision("b", "2026-10-14T01:00:00.000Z"),
+      revision("c", "2026-10-13T09:00:00.000Z"),
+      revision("d", "2026-10-02T09:00:00.000Z"),
+      revision("e", "2025-12-30T09:00:00.000Z"),
+    ], now, "UTC")
+    expect(groups.map(group => [group.label, group.revisions.map(entry => entry.id).join("")])).toEqual([
+      ["Today", "ab"],
+      ["Yesterday", "c"],
+      ["Oct 2", "d"],
+      ["Dec 30, 2025", "e"],
+    ])
+    expect(consoleSingularLabel("Posts")).toBe("Post")
+    expect(consoleSingularLabel("Pages")).toBe("Page")
+    expect(consoleSingularLabel("Stories")).toBe("Story")
+    expect(consoleSingularLabel("News")).toBe("Document")
+    expect(consoleSingularLabel("Glass")).toBe("Document")
+    expect(consoleSingularLabel("Release notes")).toBe("Document")
   })
 })
