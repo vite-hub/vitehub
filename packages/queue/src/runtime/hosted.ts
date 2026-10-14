@@ -26,24 +26,21 @@ function isRequestLike(value: unknown): value is Request {
 
   // Hosted adapters can supply a different Fetch implementation. Its private
   // slots are not compatible with the host Request's accessors, even in Node.
-  // Check the Fetch interface without cloning, locking, or consuming its body.
-  // This is input normalization for host-provided values, not authentication.
+  // Probe the implementation's accessors instead of accepting ordinary fields;
+  // this avoids treating a plain object (or a single spoofed `url` getter) as a
+  // Request, and does not clone, lock, or consume the body.
   try {
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate the Fetch interface at the hosted adapter boundary; foreign implementations do not share host private slots.
-    return "url" in value && typeof value.url === "string"
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate the Fetch interface at the hosted adapter boundary.
-      && "method" in value && typeof value.method === "string"
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate the Fetch interface at the hosted adapter boundary.
-      && "headers" in value && value.headers !== null && typeof value.headers === "object"
-      && "get" in value.headers && typeof value.headers.get === "function"
-      && "entries" in value.headers && typeof value.headers.entries === "function"
-      && "body" in value && (value.body === null || (typeof value.body === "object"
-        && "getReader" in value.body && typeof value.body.getReader === "function"))
-      && "bodyUsed" in value && typeof value.bodyUsed === "boolean"
-      && "arrayBuffer" in value && typeof value.arrayBuffer === "function"
-      && "text" in value && typeof value.text === "function"
-      && "json" in value && typeof value.json === "function"
-      && "clone" in value && typeof value.clone === "function"
+    let prototype = Object.getPrototypeOf(value)
+    const getters = ["url", "method", "headers", "body", "bodyUsed"] as const
+    for (const key of getters) {
+      while (prototype && !Object.prototype.hasOwnProperty.call(prototype, key)) {
+        prototype = Object.getPrototypeOf(prototype)
+      }
+      const getter = prototype && Object.getOwnPropertyDescriptor(prototype, key)?.get
+      if (!getter) return false
+      getter.call(value)
+    }
+    return true
   } catch {
     return false
   }
