@@ -296,6 +296,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     if (response.headers === null || typeof response.headers !== "object") return
     if (typeof response.headers.forEach !== "function" || typeof response.headers.get !== "function") return
     if (response.body !== null && (typeof response.body !== "object" || typeof response.body.getReader !== "function")) return
+    if (typeof response.arrayBuffer !== "function") return
     const headers = new Headers(response.headers)
     const body = response.body === null ? null : new Uint8Array(await response.arrayBuffer())
     return new Response(body, { headers, status: response.status, statusText: response.statusText })
