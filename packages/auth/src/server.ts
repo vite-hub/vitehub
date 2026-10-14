@@ -3,6 +3,7 @@ import { betterAuth } from "better-auth"
 import { hasRuntimeType, isRuntimeObject } from "@vite-hub/runtime/internal/runtime-type"
 
 import { normalizeAuthBasePath } from "./shared.ts"
+import { unwrapAuthRequest } from "./request.ts"
 import { resolveAuthOptions } from "./runtime-options.ts"
 import { throwAuthenticationProviderError } from "./errors.ts"
 import { getAuthenticationSession } from "./session.ts"
@@ -72,11 +73,6 @@ function toRequest(request: AuthRequest): Request {
   return new Request(request.url, init)
 }
 
-function unwrapAuthRequest(input: AuthRequestInput): AuthRequest {
-  // SAFETY: AuthRequestInput is a request or an own-property host wrapper; inherited req values must not replace the request.
-  return Object.hasOwn(input, "req") ? (input as { req: AuthRequest }).req : input as AuthRequest
-}
-
 export function createAuthRequestRuntimeOptions(
   definition: AuthDefinition,
   request: Pick<Request, "headers" | "url">,
@@ -127,11 +123,17 @@ export function createAuthForRequest(
 
 export function handleAuthRequest(
   definition: AuthDefinition,
-  request: AuthRequest,
+  input: AuthRequestInput,
   runtimeOptions?: AuthRuntimeOptions,
-  event?: unknown,
+  event: unknown = input,
 ): Promise<Response> {
+  const request = unwrapAuthRequest(input)
   return createAuthForRequest(definition, request, runtimeOptions, event).handler(toRequest(request))
+}
+
+/** Return the request of a Web Request or a host server event, including an H3 1 event in Nuxt 4. */
+export function toAuthRequest(input: AuthRequestInput): AuthRequest {
+  return unwrapAuthRequest(input)
 }
 
 export function createAuthHandler(
@@ -190,8 +192,7 @@ export function handleAuth(
   input: AuthRequestInput,
   runtimeOptions?: AuthRuntimeOptions,
 ): Promise<Response> {
-  const request = unwrapAuthRequest(input)
-  return handleAuthRequest(resolveDefaultDefinition(), request, runtimeOptions, input)
+  return handleAuthRequest(resolveDefaultDefinition(), input, runtimeOptions, input)
 }
 
 function wantsHtml(request: Pick<Request, "headers" | "method">): boolean {
@@ -281,27 +282,40 @@ async function runAccessAuthorize(
   context: AuthAccessAuthorizationContext,
 ): Promise<Response | undefined> {
   const result = await authorize(context)
-  if (isResponseLike(result)) return result
+  const response = normalizeResponse(result)
+  if (response) return response
   if (result !== true) return createForbiddenResponse(context.request)
 }
 
-function isResponseLike(value: unknown): value is Response {
-  if (!isRuntimeObject(value)) return false
+function normalizeResponse(value: unknown): Response | undefined {
+  if (!isRuntimeObject(value)) return undefined
   try {
-    if (Object.prototype.toString.call(value) !== "[object Response]") return false
-    // Calling the intrinsic getter verifies the internal Response brand. The
-    // tag and public fields alone can be spoofed by a plain object.
-    const responseBrandGetter = Object.getOwnPropertyDescriptor(Response.prototype, "bodyUsed")?.get
-    if (!responseBrandGetter) return false
-    responseBrandGetter.call(value as object)
-    const response = { headers: Reflect.get(value, "headers"), status: Reflect.get(value, "status"), statusText: Reflect.get(value, "statusText") }
-    if (!hasRuntimeType(response.status, "number") || !Number.isInteger(response.status) || response.status < 0 || response.status > 599) return false
-    if (!hasRuntimeType(response.statusText, "string")) return false
-    const headers = response.headers
-    return isRuntimeObject(headers) && hasRuntimeType(Reflect.get(headers, "get"), "function")
+    if (Object.prototype.toString.call(value) !== "[object Response]") return undefined
+    const getters = new Map<string, () => unknown>()
+    let prototype: object | null = value as object
+    while (prototype) {
+      for (const name of ["headers", "status", "statusText", "body", "bodyUsed"]) {
+        if (getters.has(name)) continue
+        const getter = Object.getOwnPropertyDescriptor(prototype, name)?.get
+        if (getter) getters.set(name, () => getter.call(value))
+      }
+      prototype = Object.getPrototypeOf(prototype) as object | null
+    }
+    const headers = getters.get("headers")?.()
+    const status = getters.get("status")?.()
+    const statusText = getters.get("statusText")?.()
+    getters.get("body")?.()
+    getters.get("bodyUsed")?.()
+    if (typeof status !== "number" || !Number.isInteger(status) || status < 0 || status > 599) return undefined
+    if (typeof statusText !== "string" || !isRuntimeObject(headers) || typeof Reflect.get(headers, "get") !== "function") return undefined
+    const validStatus: number = status
+    const validStatusText: string = statusText
+    const validHeaders: object = headers
+    if (value instanceof Response) return value
+    return new Response(getters.get("body")?.() as never, { headers: new Headers(validHeaders as never), status: validStatus, statusText: validStatusText })
   }
   catch {
-    return false
+    return undefined
   }
 }
 
