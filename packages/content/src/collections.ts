@@ -988,6 +988,20 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       }
       if (!documents.length) return { revision: null, documents: [] }
       try {
+        // A pinned publish must still target the draft that was checked after
+        // all document reads and validation completed.
+        if (expectations) {
+          const currentDraftHead = await retained.head({ ref: "draft" })
+          if ((currentDraftHead?.id ?? null) !== (draftHead?.id ?? null)) {
+            const currentDraft = currentDraftHead ? await openRevision(currentDraftHead) : published
+            const mismatches: ContentPublishMismatch[] = []
+            for (const { collection, id, path, digest } of expectations) {
+              const actual = currentDraft?.files.get(path) ?? null
+              if (actual !== digest) mismatches.push({ collection: collection.name, id, expected: digest ?? null, actual })
+            }
+            if (mismatches.length) throw contentConflict(mismatchMessage(mismatches), { ref: "draft", documents: mismatches.map(mismatch => ({ ...mismatch })) })
+          }
+        }
         const revision = await retained.commit({
           ref: "published",
           ifHead: publishedHead?.id ?? null,

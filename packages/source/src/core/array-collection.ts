@@ -193,7 +193,7 @@ function matches(item: unknown, query: NormalizedQuery, searchFields: readonly s
 function sortItems<TItem>(items: TItem[], sort: ArrayCollectionSort | undefined): TItem[] {
   if (!sort) return items
   const direction = sort.direction === "desc" ? -1 : 1
-  return items.sort((left, right) => {
+  return items.slice().sort((left, right) => {
     const leftValue = firstScalar(collectionValueAt(left, sort.field))
     const rightValue = firstScalar(collectionValueAt(right, sort.field))
     if (Number(leftValue) === leftValue && Number(rightValue) === rightValue) return (leftValue - rightValue) * direction
