@@ -36,29 +36,28 @@ function detectRuntime(cloudflare: boolean): H3RuntimeName {
 }
 
 function isRequest(value: unknown): value is Request {
-  if (value instanceof Request) return true
-  // Request constructors differ across H3 host realms, but their Web IDL tag is shared.
-  if (value === null || typeof value !== "object" || Object.prototype.toString.call(value) !== "[object Request]") {
-    return false
-  }
-  // The tag is spoofable. Check the Fetch prototype surface without invoking
-  // clone(), which would tee an unread body and retain the full payload.
   try {
+    if (value instanceof Request) return true
+    // Request constructors differ across H3 host realms, but their Web IDL tag is shared.
+    if (value === null || typeof value !== "object" || Object.prototype.toString.call(value) !== "[object Request]") {
+      return false
+    }
+    // Validate internal Fetch slots with the candidate realm's accessors.
+    // Calling these accessors performs the realm's brand check without cloning
+    // or consuming the request body, and walking the chain preserves subclasses.
     let prototype = Object.getPrototypeOf(value)
-    let clone: unknown
-    let hasHeaders = false
-    let hasUrl = false
-    let hasMethod = false
-    let hasBodyUsed = false
+    const getters = new Map<string, ((this: object) => unknown)>()
     while (prototype && prototype !== Object.prototype) {
-      clone ??= Object.getOwnPropertyDescriptor(prototype, "clone")?.value
-      hasHeaders ||= typeof Object.getOwnPropertyDescriptor(prototype, "headers")?.get === "function"
-      hasUrl ||= typeof Object.getOwnPropertyDescriptor(prototype, "url")?.get === "function"
-      hasMethod ||= typeof Object.getOwnPropertyDescriptor(prototype, "method")?.get === "function"
-      hasBodyUsed ||= typeof Object.getOwnPropertyDescriptor(prototype, "bodyUsed")?.get === "function"
+      for (const key of ["headers", "url", "method", "bodyUsed"] as const) {
+        const getter = Object.getOwnPropertyDescriptor(prototype, key)?.get
+        if (getter && !getters.has(key)) getters.set(key, getter)
+      }
       prototype = Object.getPrototypeOf(prototype)
     }
-    return typeof clone === "function" && hasHeaders && hasUrl && hasMethod && hasBodyUsed
+    for (const key of ["headers", "url", "method", "bodyUsed"] as const) {
+      getters.get(key)?.call(value)
+    }
+    return getters.size === 4
   } catch {
     return false
   }
