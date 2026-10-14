@@ -52,6 +52,7 @@ describe("discoverDatabaseDefinitions", () => {
       handler: file,
       mode: "default",
       name: "default",
+      schemaSources: [{ handler: file, tableNames: ["notes"] }],
       source: "server-database-default",
       tableNames: ["notes"],
     }])
