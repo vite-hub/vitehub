@@ -291,24 +291,16 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
   try {
     if (Object.prototype.toString.call(value) !== "[object Response]") return
     if (value instanceof Response) {
-      // A callback may have consumed or locked the body before returning it.
-      // Do not pass such a response to an adapter that will need to read it.
       if (value.body && (value.bodyUsed || value.body.locked)) return
       return value
     }
     const response = value as Response
-    // Copy through the standard Fetch interfaces. Adapters only receive host
-    // headers and body readers, never methods supplied by a tagged object.
     const headers = new Headers(response.headers)
     const body = response.body === null ? null : await response.arrayBuffer()
-    if (body !== null) {
-      // Check the intrinsic buffer state, including buffers from other realms.
-      Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")!.get!.call(body)
-    }
+    if (body !== null) Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")!.get!.call(body)
     return new Response(body, { headers, status: response.status, statusText: response.statusText })
   }
   catch {
-    // Malformed authorization values fail closed like other non-true results.
     return
   }
 }
