@@ -311,7 +311,23 @@ function isResponseLike(value: unknown): value is Response {
     const forEach = getMethod("forEach")
     if (typeof get !== "function" || typeof forEach !== "function") return false
     get.call(headers, "x-vitehub-probe")
-    if (body !== null && (typeof body !== "object" || typeof Object.getOwnPropertyDescriptor(Object.getPrototypeOf(body), "getReader")?.value !== "function")) return false
+    if (body !== null) {
+      if (typeof body !== "object") return false
+      let getReader: unknown
+      for (let prototype = Object.getPrototypeOf(body); prototype; prototype = Object.getPrototypeOf(prototype)) {
+        const method = Object.getOwnPropertyDescriptor(prototype, "getReader")?.value
+        if (method !== undefined) {
+          getReader = method
+          break
+        }
+      }
+      if (typeof getReader !== "function") return false
+      const reader = getReader.call(body)
+      if (reader === null || typeof reader !== "object") return false
+      if (typeof (reader as { read?: unknown }).read !== "function") return false
+      if (typeof (reader as { releaseLock?: unknown }).releaseLock !== "function") return false
+      ;(reader as { releaseLock: () => void }).releaseLock()
+    }
     return true
   }
   catch {

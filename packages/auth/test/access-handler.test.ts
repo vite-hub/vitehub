@@ -118,6 +118,16 @@ describe("Auth access handlers", () => {
     expect((await handler(new Request("https://app.example/")))?.status).toBe(403)
   })
 
+  it("rejects authorization responses with locked bodies", async () => {
+    const response = new Response("already locked", { status: 409 })
+    response.body?.getReader()
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => response }] },
+    }))
+
+    expect((await handler(new Request("https://app.example/")))?.status).toBe(403)
+  })
+
   it("starts provider sign-in only for matched unauthenticated HTML requests", async () => {
     provider.getSession.mockResolvedValue(null)
     provider.handler.mockResolvedValue(Response.json({ url: "https://provider.example/sign-in" }))
