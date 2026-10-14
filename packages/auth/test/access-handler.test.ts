@@ -128,7 +128,13 @@ describe("Auth access handlers", () => {
     }
     const natives = (process as unknown as { binding(name: string): Record<string, string> }).binding("natives")
     runInNewContext(natives["internal/deps/undici/undici"]!, context)
-    const ForeignResponse = subclass ? class extends exports.Response {} : exports.Response
+    const ForeignResponse = subclass
+      ? class extends exports.Response {
+          get status() {
+            return super.status
+          }
+        }
+      : exports.Response
     const foreignResponse = new ForeignResponse("no", { status: 409, headers: { "set-cookie": "policy=denied", "x-policy": "rejected" } })
     expect(foreignResponse).not.toBeInstanceOf(Response)
     expect(foreignResponse.headers).not.toBeInstanceOf(Headers)

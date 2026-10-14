@@ -315,17 +315,20 @@ function isNativeResponseShape(value: unknown): value is {
   statusText: string
 } {
   if (!value || (typeof value !== "object" && typeof value !== "function")) return false
-  let prototype = Object.getPrototypeOf(value)
-  while (prototype && !Object.getOwnPropertyDescriptor(prototype, "status")) {
-    prototype = Object.getPrototypeOf(prototype)
+  const findDescriptor = (name: string) => {
+    let prototype = Object.getPrototypeOf(value)
+    while (prototype) {
+      const descriptor = Object.getOwnPropertyDescriptor(prototype, name)
+      if (descriptor) return descriptor
+      prototype = Object.getPrototypeOf(prototype)
+    }
   }
-  if (!prototype) return false
-  const status = Object.getOwnPropertyDescriptor(prototype, "status")
-  const statusText = Object.getOwnPropertyDescriptor(prototype, "statusText")
-  const headers = Object.getOwnPropertyDescriptor(prototype, "headers")
-  const body = Object.getOwnPropertyDescriptor(prototype, "body")
+  const status = findDescriptor("status")
+  const statusText = findDescriptor("statusText")
+  const headers = findDescriptor("headers")
+  const body = findDescriptor("body")
   if (typeof status?.get !== "function" || typeof statusText?.get !== "function" || typeof headers?.get !== "function" || typeof body?.get !== "function") return false
-  return typeof (prototype as { arrayBuffer?: unknown }).arrayBuffer === "function"
+  return typeof (value as { arrayBuffer?: unknown }).arrayBuffer === "function"
 }
 
 async function checkAuthRequest(
