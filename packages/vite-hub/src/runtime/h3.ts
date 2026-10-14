@@ -39,9 +39,11 @@ function isRequest(value: unknown): value is Request {
   try {
     if (value instanceof Request) return true
     if (value === null || typeof value !== "object") return false
-    // Constructing with a null body makes the host Fetch implementation validate
-    // the candidate's Request internal slots without cloning or consuming it.
-    new Request(value as Request, { body: null })
+    // Request accessors perform the host's internal-slot brand check without
+    // reading candidate properties or cloning and consuming the body.
+    const getUrl = Object.getOwnPropertyDescriptor(Request.prototype, "url")?.get
+    if (!getUrl) return false
+    getUrl.call(value)
     return true
   } catch {
     return false
