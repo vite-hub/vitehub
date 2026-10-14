@@ -7130,7 +7130,10 @@ async function channelHistoryAttachment(
   }
   if (isBlob(data)) {
     if (blobSize(data) <= maxBytes) {
-      try { data = new Uint8Array(await boundedChannelHistoryOperation(() => blobArrayBuffer(data as Blob), signal)) } catch { data = undefined }
+      try {
+        const buffer = await boundedChannelHistoryOperation(() => blobArrayBuffer(data as Blob), signal) as ArrayBuffer
+        data = new Uint8Array(buffer)
+      } catch { data = undefined }
     } else data = undefined
   }
   let bytes: Uint8Array | undefined
