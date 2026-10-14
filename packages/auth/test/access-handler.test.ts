@@ -115,8 +115,38 @@ describe("Auth access handlers", () => {
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
       access: { routes: [{ route: "/**", authorize: () => foreignResponse as never }] },
     }))
-
     await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
+  })
+
+  it("does not expose a tag-only response shape to adapters", async () => {
+    const spoof = runInNewContext(`({
+      [Symbol.toStringTag]: "Response",
+      status: 409,
+      statusText: "Conflict",
+      headers: { get() { return null } },
+      body: null,
+    })`)
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => spoof as never }] },
+    }))
+    const response = await handler(new Request("https://app.example/"))
+    expect(response).toBeInstanceOf(Response)
+    expect(response).not.toBe(spoof)
+    expect(() => response!.headers.getSetCookie()).not.toThrow()
+    expect(() => response!.headers.forEach(() => {})).not.toThrow()
+  })
+
+  it("fails closed for a response spoof with an unusable body", async () => {
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => ({
+        [Symbol.toStringTag]: "Response",
+        status: 409,
+        statusText: "Conflict",
+        headers: {},
+        body: {},
+      }) as never }] },
+    }))
+    expect((await handler(new Request("https://app.example/")))?.status).toBe(403)
   })
 
   it("starts provider sign-in only for matched unauthenticated HTML requests", async () => {

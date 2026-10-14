@@ -476,7 +476,7 @@ function serializedQuery(query: Record<string, unknown> | undefined): Record<str
 }
 
 function serializeFetchSourceContent(value: unknown, responseType: FetchSourceResponseType): WorkspaceContent {
-  if (isWorkspaceBytes(value)) return value instanceof Uint8Array ? value : Uint8Array.from(value)
+  if (isWorkspaceBytes(value)) return value
   if (responseType === "json") return JSON.stringify(value, null, 2) ?? "null"
   if (typeof value === "string") return value
   return typeof value === "undefined" ? "" : String(value)
