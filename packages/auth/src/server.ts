@@ -359,9 +359,20 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
       prototype = Object.getPrototypeOf(prototype)
     }
     if (!locked || !getReader || lockedOwner !== getReaderOwner || Reflect.apply(locked, candidate, [])) return false
-    // Genuine Web Streams intrinsics are native functions in every realm. A
-    // prototype-level replacement cannot be distinguished by identity alone.
-    if (!/\[native code\]/.test(Function.prototype.toString.call(getReader))) return false
+    // Validate the reader against a fresh stream from the body's realm. This
+    // avoids relying on function source text while rejecting unrelated native
+    // methods (for example, Array.prototype.values) installed on the stream
+    // prototype. The fresh stream is disposable, so invoking getReader does
+    // not change the candidate's lock state.
+    const streamConstructor = Object.getOwnPropertyDescriptor(lockedOwner, "constructor")?.value
+    if (typeof streamConstructor !== "function") return false
+    const freshStream = new streamConstructor()
+    const reader = Reflect.apply(getReader, freshStream, [])
+    if (Object(reader) !== reader
+      || typeof Reflect.get(reader, "read") !== "function"
+      || typeof Reflect.get(reader, "cancel") !== "function"
+      || typeof Reflect.get(reader, "releaseLock") !== "function") return false
+    Reflect.apply(Reflect.get(reader, "releaseLock"), reader, [])
     return responsePropertyDescriptor(candidate, "getReader")?.value === getReader
   }
   catch {
