@@ -8,6 +8,8 @@ import { getDocsPageFallback } from "~~/modules/vitehub-docs/runtime/utils/docs-
 
 definePageMeta({
   layout: "docs",
+  // The docs layout renders the site footer inside its content column.
+  footer: false,
 });
 
 const docsPage = getDocsPageByPath("/docs");
@@ -42,7 +44,7 @@ const docsPageUi = {
       </template>
     </UPageHeader>
 
-    <UPageBody prose class="docs-content docs-catalog-content pb-0">
+    <UPageBody prose class="docs-content docs-catalog-content pb-16">
       <ContentRenderer :value="page" />
     </UPageBody>
   </UPage>
