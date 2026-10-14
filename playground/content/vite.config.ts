@@ -9,7 +9,8 @@ export default defineConfig({
     vitehub({
       preset: "node",
       auth: true,
-      blob: { driver: "fs", base: ".vitehub/data/blob" },
+      // `serve` exposes stored images at /api/_vitehub/blob, so SEO previews and social cards can show them.
+      blob: { driver: "fs", base: ".vitehub/data/blob", serve: true },
       database: true,
       console: { auth: "app", authorize: "./server/console-authorize.ts" },
       kv: { driver: "fs-lite", base: ".vitehub/data/kv" },

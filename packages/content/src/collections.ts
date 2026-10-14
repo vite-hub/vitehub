@@ -6,6 +6,7 @@ import { isWorkspaceConflict, registerWorkspacePlugin, useWorkspace } from "@vit
 import {
   comarkJsonSchema,
   compileSingletonPath,
+  contentDocumentUrl,
   compileDocumentsPath,
   contentInvalid,
   fieldsJsonSchema,
@@ -16,6 +17,7 @@ import {
   warnUntypedFields,
 } from "./documents.ts"
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
+import { isContentSeoField } from "./seo.ts"
 
 import type { ViteHubErrorDetails } from "@vite-hub/runtime"
 import type { ArrayCollectionQuery, Collection, CollectionFacets } from "@vite-hub/source"
@@ -57,6 +59,11 @@ export interface ContentDocument<TData = Record<string, unknown>> {
   digest: string
   /** History revision the document was read from. */
   revision: string
+  /**
+   * The public URL path from the collection's `url`, such as `/blog/hello`. Absent when the collection has no `url`, and
+   * null when it has no page for this document.
+   */
+  url?: string | null
   /**
    * When the document last changed on the ref it was read from: the `createdAt` of the newest revision on that ref
    * that added or changed its file. Null when the change is older than the 5,000 revisions Content scans.
@@ -233,6 +240,10 @@ interface ContentCollectionInfo {
   readonly fields: readonly string[]
   /** JSON Schema of the fields, built from each field's Standard JSON Schema. Forms and tools read it. */
   readonly schema: Record<string, unknown>
+  /** Whether documents have a public URL from the definition's `url`. Their reads carry `url`. */
+  readonly routable: boolean
+  /** The name of the `seo()` field, when the collection has one. */
+  readonly seo?: string
 }
 
 /** An editable collection of documents. It is also a read-only Collection over the `published` ref. */
@@ -718,7 +729,9 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       revision: WorkspaceRevision,
       updatedAt: string | null,
     ): IndexedDocument {
-      return { collection: name, id, path: entry.path, data: { ...parsed.data }, body: parsed.body, digest: entry.digest, revision: revision.id, updatedAt }
+      const document: IndexedDocument = { collection: name, id, path: entry.path, data: { ...parsed.data }, body: parsed.body, digest: entry.digest, revision: revision.id, updatedAt }
+      if (definition.url !== undefined) document.url = contentDocumentUrl(definition.url, document)
+      return document
     }
 
     async function index(opened: OpenedRevision): Promise<IndexedDocument[]> {
@@ -926,9 +939,12 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       },
     })
 
+    const seoField = Object.entries(definition.fields).find(([, field]) => isContentSeoField(field))?.[0]
     const shared = {
       name,
       format,
+      routable: definition.url !== undefined,
+      ...(seoField ? { seo: seoField } : {}),
       fields: Object.freeze([...fieldNames]),
       schema,
       page: published.page,

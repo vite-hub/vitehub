@@ -19,6 +19,7 @@ import type { H3Event } from "h3"
 import { createContentCollections } from "./collections.ts"
 import { createContentInstance } from "./content-source.ts"
 import { isContentCollectionDefinition } from "./documents.ts"
+import { contentSitemapEntries, normalizeSeoOptions, renderContentRobots, renderContentSitemap, siteOrigin } from "./sitemap.ts"
 import type {
   AnyContentCollection,
   ContentCollection,
@@ -32,11 +33,28 @@ import type {
 } from "./collections.ts"
 import type { ContentSourceInput } from "./content-source.ts"
 import type { ContentCollectionDefinition, SingletonDefinition, DocumentsDefinition } from "./documents.ts"
+import type { ContentSitemapEntry, ContentSitemapOptions, DefineContentSeoOptions } from "./sitemap.ts"
 export { contentSource } from "./content-source.ts"
 export type { ContentSourceInput, ContentSourceOptions, ContentSourceReader } from "./content-source.ts"
 export { documents, optional, singleton } from "./documents.ts"
+export { contentSeoLengths, seo } from "./seo.ts"
+export type { ContentSeo, ContentSeoField, ContentSeoHint, ContentSeoOptions } from "./seo.ts"
+export { contentHead, defaultContentImageUrl } from "./head.ts"
+export type {
+  ContentHead,
+  ContentHeadDefaults,
+  ContentHeadDocument,
+  ContentHeadLink,
+  ContentHeadMeta,
+  ContentHeadOptions,
+  ContentHeadScript,
+  ContentHeadSite,
+} from "./head.ts"
+export { renderContentRobots, renderContentSitemap } from "./sitemap.ts"
+export type { ContentSitemapEntry, ContentSitemapOptions, DefineContentSeoOptions } from "./sitemap.ts"
 export type {
   ContentCollectionDefinition,
+  ContentDocumentUrl,
   ContentField,
   ContentFieldIssue,
   ContentFields,
@@ -181,6 +199,11 @@ export type DefineContentOptions<
   collections?: TCollections
   /** Policy for Content surfaces. Without it, `content.can()` denies every action. */
   authorize?: ContentAuthorize<CollectionName<TCollections>>
+  /**
+   * Site-wide SEO routes. `sitemap: true` serves `/sitemap.xml` from the published documents of collections with a
+   * `url`; `robots: true` serves `/robots.txt`. ViteHub generates the routes when this call sets them.
+   */
+  seo?: DefineContentSeoOptions
 }
 
 /** Document operations added by `collections`. */
@@ -205,6 +228,15 @@ export interface ContentDocumentsRuntime<TCollections extends ContentCollections
   revisions(options?: ContentRevisionsOptions): Promise<ContentRevisionsResult>
   /** Evaluate `defineContent({ authorize })`. Returns false when no policy is defined. */
   can(context: ContentCanContext<CollectionName<TCollections>>): Promise<boolean>
+  /** `defineContent({ seo })`, or undefined. */
+  readonly seo: DefineContentSeoOptions | undefined
+  /**
+   * The sitemap entries: published documents of collections with a `url`, without `noindex` ones or ones whose
+   * canonical URL points elsewhere. `loc` is absolute when `site` is known.
+   */
+  sitemap(options?: ContentSitemapOptions): Promise<ContentSitemapEntry[]>
+  /** The robots.txt text for `defineContent({ seo: { robots } })`. */
+  robots(options?: ContentSitemapOptions): string
 }
 
 /** Named-source operations retained across the Comark instance API migration. */
@@ -228,7 +260,8 @@ export function defineContent<
   const TCollections extends ContentCollections = {},
 >(options: DefineContentOptions<TPlugins, TCollections> = {}): ContentRuntime & Omit<ContentMethods<TPlugins>, "search"> & ContentDocumentsRuntime<TCollections> {
   if (options.source && options.sources) throw new Error("Define either source or sources, not both.")
-  const { source, sources, workspace, collections, authorize, ...sharedOptions } = options
+  const { source, sources, workspace, collections, authorize, seo: seoOptions, ...sharedOptions } = options
+  const seo = normalizeSeoOptions(seoOptions)
   if (authorize !== undefined && !(authorize instanceof Function)) {
     throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ authorize }) must be a function." })
   }
@@ -314,7 +347,20 @@ export function defineContent<
     return instance.cache
   }
   // SAFETY: collection() returns the runtime built from TCollections[TName], whose fields type its documents.
+  const configuredSite = seo?.site === undefined ? undefined : siteOrigin(seo.site)
+  const siteFor = (sitemapOptions: ContentSitemapOptions = {}) => sitemapOptions.site === undefined ? configuredSite : siteOrigin(sitemapOptions.site)
   const documentsApi = {
+    seo,
+    sitemap: async (sitemapOptions?: ContentSitemapOptions) =>
+      documentsRuntime ? await contentSitemapEntries([...documentsRuntime.collections.values()], siteFor(sitemapOptions)) : [],
+    robots: (sitemapOptions?: ContentSitemapOptions) => {
+      const robots = seo?.robots
+      return renderContentRobots({
+        site: siteFor(sitemapOptions),
+        sitemap: seo?.sitemap === true,
+        disallow: robots !== null && Object(robots) === robots ? (robots as { disallow?: readonly string[] }).disallow : undefined,
+      })
+    },
     collections: () => documentsRuntime ? [...documentsRuntime.collections.values()] : [],
     collection: (name: string): unknown => requireDocuments().collection(name),
     publish: (publishOptions?: ContentPublishOptions) => requireDocuments().publish(publishOptions),
@@ -391,51 +437,103 @@ export function defineContentHandler(
   content: Pick<ComarkContent, "handler">,
 ): ContentHandler {
   // SAFETY: ContentHandler preserves the callable and fetch contracts exposed by H3's handler.
+  return defineEventHandler(async (event: H3Event) => await serveContent(content, event)) as ContentHandler
+}
+
+type SeoRuntime = Pick<ContentDocumentsRuntime, "robots" | "seo" | "sitemap">
+
+/**
+ * Serve `/sitemap.xml` from `content.sitemap()`. URLs use `defineContent({ seo: { site } })`, or the request origin.
+ * ViteHub generates this route when `defineContent({ seo: { sitemap: true } })`; mount it yourself in another server.
+ */
+export function defineContentSitemapHandler(content: SeoRuntime): ContentHandler {
+  // SAFETY: ContentHandler preserves the callable and fetch contracts exposed by H3's handler.
   return defineEventHandler(async (event: H3Event) => {
-    if (event.req instanceof Request) return await content.handler(event.req)
-
-    if (!event.node) throw contentErrorDiagnostics.CONTENT_R0005({ message: "[vitehub] Content received an unsupported non-Web request." })
-    // SAFETY: H3 exposes a Node IncomingMessage or HTTP/2 request through event.node.req.
-    const nodeRequest = event.node.req as NodeContentRequest
-    const method = event.method || nodeRequest.method || "GET"
-    const headers = new Headers()
-    for (const [name, value] of Object.entries(nodeRequest.headers)) {
-      if (value === undefined) continue
-      if (Array.isArray(value)) {
-        for (const entry of value) headers.append(name, entry)
-      }
-      else headers.set(name, value)
-    }
-    const protocol = headers.get("x-forwarded-proto")?.split(",", 1)[0]?.trim() || "http"
-    const host = headers.get("x-forwarded-host")?.split(",", 1)[0]?.trim()
-      || headers.get("host")
-      || "localhost"
-    const url = new URL(nodeRequest.url || "/", `${protocol}://${host}`)
-    let body: Uint8Array | undefined
-    if (method !== "GET" && method !== "HEAD") {
-      const chunks: Uint8Array[] = []
-      for await (const chunk of nodeRequest) {
-        const bytes = nodeBodyChunk(chunk)
-        if (!bytes) throw contentErrorDiagnostics.CONTENT_R0005({ message: "[vitehub] Content received an invalid request body chunk." })
-        chunks.push(bytes)
-      }
-      const length = chunks.reduce((total, chunk) => total + chunk.byteLength, 0)
-      body = new Uint8Array(length)
-      let offset = 0
-      for (const chunk of chunks) {
-        body.set(chunk, offset)
-        offset += chunk.byteLength
-      }
-    }
-    const abort = new AbortController()
-    if (nodeRequest.aborted) abort.abort()
-    else nodeRequest.once("aborted", () => abort.abort())
-
-    return await content.handler(new Request(url, {
-      body,
-      headers,
-      method,
-      signal: abort.signal,
-    }))
+    if (content.seo?.sitemap !== true) return new Response("Not Found", { status: 404 })
+    const site = content.seo.site ?? requestUrl(event).origin
+    return new Response(renderContentSitemap(await content.sitemap({ site })), {
+      headers: { "content-type": "application/xml; charset=utf-8", "cache-control": "public, max-age=0, must-revalidate" },
+    })
   }) as ContentHandler
+}
+
+/**
+ * Serve `/robots.txt` from `content.robots()`. It names `/sitemap.xml` when the sitemap is on. ViteHub generates this
+ * route when `defineContent({ seo: { robots: true } })`.
+ */
+export function defineContentRobotsHandler(content: SeoRuntime): ContentHandler {
+  // SAFETY: ContentHandler preserves the callable and fetch contracts exposed by H3's handler.
+  return defineEventHandler(async (event: H3Event) => {
+    const robots = content.seo?.robots
+    if (robots === undefined || robots === false) return new Response("Not Found", { status: 404 })
+    return new Response(content.robots({ site: content.seo?.site ?? requestUrl(event).origin }), {
+      headers: { "content-type": "text/plain; charset=utf-8" },
+    })
+  }) as ContentHandler
+}
+
+function nodeHeaders(nodeRequest: NodeContentRequest): Headers {
+  const headers = new Headers()
+  for (const [name, value] of Object.entries(nodeRequest.headers)) {
+    if (value === undefined) continue
+    if (Array.isArray(value)) {
+      for (const entry of value) headers.append(name, entry)
+    }
+    else headers.set(name, value)
+  }
+  return headers
+}
+
+function nodeUrl(nodeRequest: NodeContentRequest, headers: Headers): URL {
+  const protocol = headers.get("x-forwarded-proto")?.split(",", 1)[0]?.trim() || "http"
+  const host = headers.get("x-forwarded-host")?.split(",", 1)[0]?.trim()
+    || headers.get("host")
+    || "localhost"
+  return new URL(nodeRequest.url || "/", `${protocol}://${host}`)
+}
+
+/** The request URL of an H3 v2 Web event, or of an H3 v1 (Nitro 2) Node event. */
+function requestUrl(event: H3Event): URL {
+  if (event.req instanceof Request) return new URL(event.req.url)
+  if (!event.node) throw contentErrorDiagnostics.CONTENT_R0005({ message: "[vitehub] Content received an unsupported non-Web request." })
+  // SAFETY: H3 exposes a Node IncomingMessage or HTTP/2 request through event.node.req.
+  const nodeRequest = event.node.req as NodeContentRequest
+  return nodeUrl(nodeRequest, nodeHeaders(nodeRequest))
+}
+
+async function serveContent(content: Pick<ComarkContent, "handler">, event: H3Event): Promise<Response> {
+  if (event.req instanceof Request) return await content.handler(event.req)
+
+  if (!event.node) throw contentErrorDiagnostics.CONTENT_R0005({ message: "[vitehub] Content received an unsupported non-Web request." })
+  // SAFETY: H3 exposes a Node IncomingMessage or HTTP/2 request through event.node.req.
+  const nodeRequest = event.node.req as NodeContentRequest
+  const method = event.method || nodeRequest.method || "GET"
+  const headers = nodeHeaders(nodeRequest)
+  const url = nodeUrl(nodeRequest, headers)
+  let body: Uint8Array | undefined
+  if (method !== "GET" && method !== "HEAD") {
+    const chunks: Uint8Array[] = []
+    for await (const chunk of nodeRequest) {
+      const bytes = nodeBodyChunk(chunk)
+      if (!bytes) throw contentErrorDiagnostics.CONTENT_R0005({ message: "[vitehub] Content received an invalid request body chunk." })
+      chunks.push(bytes)
+    }
+    const length = chunks.reduce((total, chunk) => total + chunk.byteLength, 0)
+    body = new Uint8Array(length)
+    let offset = 0
+    for (const chunk of chunks) {
+      body.set(chunk, offset)
+      offset += chunk.byteLength
+    }
+  }
+  const abort = new AbortController()
+  if (nodeRequest.aborted) abort.abort()
+  else nodeRequest.once("aborted", () => abort.abort())
+
+  return await content.handler(new Request(url, {
+    body,
+    headers,
+    method,
+    signal: abort.signal,
+  }))
 }

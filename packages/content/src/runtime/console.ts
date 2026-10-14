@@ -216,6 +216,7 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
       revision: document.revision,
       updatedAt: document.updatedAt,
     }
+    if (document.url !== undefined) result.url = document.url
     const current = state ?? await stateOf(collection, document.id)
     if (current) result.state = current
     return result
