@@ -988,23 +988,10 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       }
       if (!documents.length) return { revision: null, documents: [] }
       try {
-        // A pinned publish must still target the draft that was checked after
-        // all document reads and validation completed.
-        if (expectations) {
-          const currentDraftHead = await retained.head({ ref: "draft" })
-          if ((currentDraftHead?.id ?? null) !== (draftHead?.id ?? null)) {
-            const currentDraft = currentDraftHead ? await openRevision(currentDraftHead) : published
-            const mismatches: ContentPublishMismatch[] = []
-            for (const { collection, id, path, digest } of expectations) {
-              const actual = currentDraft?.files.get(path) ?? null
-              if (actual !== digest) mismatches.push({ collection: collection.name, id, expected: digest ?? null, actual })
-            }
-            if (mismatches.length) throw contentConflict(mismatchMessage(mismatches), { ref: "draft", documents: mismatches.map(mismatch => ({ ...mismatch })) })
-          }
-        }
         const revision = await retained.commit({
           ref: "published",
           ifHead: publishedHead?.id ?? null,
+          ifHeads: expectations ? { draft: draftHead.id } : undefined,
           changes: { put, delete: remove },
           message: publishOptions.message ?? `Publish ${documents.length} Content document${documents.length === 1 ? "" : "s"}`,
           metadata: writeMetadata(publishOptions.metadata, {
@@ -1018,6 +1005,18 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
         return { revision, documents }
       }
       catch (error) {
+        if (expectations && isWorkspaceConflict(error) && conflictRef(error) === "draft") {
+          const head = await retained.head({ ref: "draft" })
+          const current = head ? await openRevision(head) : published
+          const mismatches: ContentPublishMismatch[] = []
+          for (const { collection, id, path, digest } of expectations) {
+            const actual = current?.files.get(path) ?? null
+            if (actual !== digest) mismatches.push({ collection: collection.name, id, expected: digest ?? null, actual })
+          }
+          if (mismatches.length) throw contentConflict(mismatchMessage(mismatches), { ref: "draft", documents: mismatches.map(mismatch => ({ ...mismatch })) })
+          // An unrelated document moved draft: retry with the same reviewed digests.
+          if (attempt < maxCommitAttempts) continue
+        }
         // Without ifHead, a concurrent publish only moves the base: recompute against the new head and check `expect` again.
         if (isWorkspaceConflict(error) && conflictRef(error) === "published" && publishOptions.ifHead === undefined && attempt < maxCommitAttempts) continue
         throw error
