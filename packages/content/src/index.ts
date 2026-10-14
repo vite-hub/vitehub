@@ -18,7 +18,7 @@ import type {
 import type { H3Event } from "h3"
 import { createContentCollections } from "./collections.ts"
 import { createContentInstance } from "./content-source.ts"
-import { isContentCollectionDefinition } from "./documents.ts"
+import { collectionPathsOverlap, isContentCollectionDefinition } from "./documents.ts"
 import { contentSitemapEntries, normalizeSeoOptions, renderContentRobots, renderContentSitemap, siteOrigin } from "./sitemap.ts"
 import type {
   AnyContentCollection,
@@ -343,6 +343,15 @@ export function defineContent<
   for (const [name, definition] of collectionEntries) {
     if (!isContentCollectionDefinition(definition)) {
       throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] Content collection ${JSON.stringify(name)} must be defined with documents() or singleton().` })
+    }
+  }
+  for (let index = 0; index < collectionEntries.length; index++) {
+    const [name, definition] = collectionEntries[index]!
+    if (!isContentCollectionDefinition(definition)) continue
+    for (const [otherName, otherDefinition] of collectionEntries.slice(index + 1)) {
+      if (isContentCollectionDefinition(otherDefinition) && collectionPathsOverlap(definition, otherDefinition)) {
+        throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] Content collection paths ${JSON.stringify(name)} and ${JSON.stringify(otherName)} overlap.` })
+      }
     }
   }
   if (collectionEntries.length && (String(workspace) !== workspace || !workspace)) {
