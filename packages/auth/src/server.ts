@@ -280,36 +280,27 @@ async function runAccessAuthorize(
   context: AuthAccessAuthorizationContext,
 ): Promise<Response | undefined> {
   const result = await authorize(context)
-  if (isResponseLike(result)) return result
+  const response = await normalizeAuthorizationResponse(result)
+  if (response) return response
   if (result !== true) return createForbiddenResponse(context.request)
 }
 
-function isResponseLike(value: unknown): value is Response {
-  if (value === null || typeof value !== "object") return false
+async function normalizeAuthorizationResponse(value: unknown): Promise<Response | undefined> {
+  if (value instanceof Response) return value.status >= 200 && value.status <= 599 ? value : undefined
   try {
-    if (Object.prototype.toString.call(value) !== "[object Response]") return false
-    const response = value as { headers?: unknown, status?: unknown, statusText?: unknown }
-    if (typeof response.status !== "number" || !Number.isInteger(response.status) || response.status < 100 || response.status > 599) return false
-    if (typeof response.statusText !== "string") return false
-    const headers = response.headers
-    if (headers === null || typeof headers !== "object" || typeof (headers as { get?: unknown }).get !== "function") return false
-    const body = (response as { body?: unknown }).body
-    if (body === null) return true
-    if (body === undefined || typeof body !== "object") return false
-    const getReader = (body as { getReader?: unknown }).getReader
-    if (typeof getReader !== "function") return false
-    try {
-      const reader = getReader.call(body)
-      return reader !== null && typeof reader === "object"
-        && typeof (reader as { read?: unknown }).read === "function"
-        && typeof (reader as { releaseLock?: unknown }).releaseLock === "function"
-    }
-    catch {
-      return false
-    }
+    if (Object.prototype.toString.call(value) !== "[object Response]") return
+    // SAFETY: Foreign responses are untrusted. Copy their data into a local
+    // Response so adapters only receive native Headers and body operations.
+    const response = value as Response
+    if (typeof response.headers?.get !== "function" || typeof response.headers.forEach !== "function") return
+    if (typeof response.status !== "number" || !Number.isInteger(response.status) || response.status < 100 || response.status > 599) return
+    if (typeof response.statusText !== "string") return
+    const headers = new Headers(response.headers)
+    const body = response.body === null ? null : new Uint8Array(await response.arrayBuffer())
+    return new Response(body, { headers, status: response.status, statusText: response.statusText })
   }
   catch {
-    return false
+    return
   }
 }
 

@@ -102,6 +102,7 @@ describe("Auth access handlers", () => {
       access: { routes: [{ route: "/**", authorize: () => response }] },
     }))
     await expect(handler(new Request("https://app.example/"))).resolves.toBe(response)
+    await expect(response.text()).resolves.toBe("Policy rejected")
   })
 
   it("rejects a forged response body with an unusable reader", async () => {
@@ -115,22 +116,35 @@ describe("Auth access handlers", () => {
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
       access: { routes: [{ route: "/**", authorize: () => forgedResponse as never }] },
     }))
-    expect((await handler(new Request("https://app.example/"))).status).toBe(403)
+    expect((await handler(new Request("https://app.example/")))!.status).toBe(403)
   })
 
-  it("returns authorization responses from another realm unchanged", async () => {
+  it.each([
+    Response.error(),
+    { status: 409, statusText: "Conflict", headers: { get() { return null } }, body: null, [Symbol.toStringTag]: "Response" },
+  ])("rejects responses that cannot be serialized", async (response) => {
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => response as never }] },
+    }))
+    expect((await handler(new Request("https://app.example/")))!.status).toBe(403)
+  })
+
+  it("normalizes authorization responses from another realm", async () => {
     const foreignResponse = runInNewContext(`new (class {
       get status() { return 409 }
       get statusText() { return "Conflict" }
-      get headers() { return { get() { return null } } }
+      get headers() { return new Headers({ "x-policy": "denied" }) }
       get body() { return null }
       get [Symbol.toStringTag]() { return "Response" }
-    })()`)
+    })()`, { Headers })
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
       access: { routes: [{ route: "/**", authorize: () => foreignResponse as never }] },
     }))
 
-    await expect(handler(new Request("https://app.example/"))).resolves.toBe(foreignResponse)
+    const response = await handler(new Request("https://app.example/"))
+    expect(response).toBeInstanceOf(Response)
+    expect(response!.status).toBe(409)
+    expect(response!.headers.get("x-policy")).toBe("denied")
   })
 
   it("starts provider sign-in only for matched unauthenticated HTML requests", async () => {

@@ -38,6 +38,21 @@ export function getDocsCatalog(sections: DocsSection[]): DocsCatalogGroup[] {
     .filter(group => group.sections.length > 0);
 }
 
+/** Platform topics are reached from Get started and the catalog, instead of adding rail entries. */
+export function getDocsRailCatalog(sections: DocsSection[]) {
+  return getDocsCatalog(sections).filter(group => group.category !== "Platform");
+}
+
+/** Short label shown beside a product in the catalog. Keep the package name as the primary title. */
+export function getDocsSectionKind(section: DocsSection) {
+  if (section.id === "agents") return "Agent runtime";
+  if (section.id === "ui") return "UI components";
+  if (["Data", "Compute", "Access", "Delivery", "Files"].includes(section.category || "")) return "Server Primitive";
+  if (section.category === "Start") return "Getting started";
+  if (section.category === "Platform") return "Platform";
+  return section.category || "Documentation";
+}
+
 export function getUncategorizedDocsSections(sections: DocsSection[]) {
   return sections.filter(section => !isDocsCategory(section.category));
 }
