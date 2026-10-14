@@ -56,6 +56,34 @@ async function executePackageEntry(definitionSource: string, options: {
 }
 
 describe("package entry result transport", () => {
+  it.each([
+    ["subclass tag", "new (class extends Uint8Array { get [Symbol.toStringTag]() { return 'Bytes' } })([0, 1, 2, 3, 4]).subarray(1, 4)"],
+    ["own tag", "Object.defineProperty(new Uint8Array([0, 1, 2, 3, 4]).subarray(1, 4), Symbol.toStringTag, { value: 'Bytes' })"],
+    ["throwing tag", "Object.defineProperty(new Uint8Array([0, 1, 2, 3, 4]).subarray(1, 4), Symbol.toStringTag, { get() { throw new Error('tag read') } })"],
+  ])("extracts foreign byte arrays with a %s", async (_label, expression) => {
+    const execution = await executePackageEntry([
+      "import { runInNewContext } from 'node:vm'",
+      `export default () => runInNewContext(${JSON.stringify(expression)})`,
+    ].join("\n"))
+
+    expect(execution.code).toBe(0)
+    expect(execution.output).toEqual({
+      ok: true,
+      result: { [SANDBOX_VALUE_MARKER]: { id: 0, kind: "uint8array", tag: "binary" } },
+    })
+    expect(Array.from(await execution.readOutputFile(0))).toEqual([1, 2, 3])
+  })
+
+  it("does not extract another typed array with a Uint8Array tag as a byte sidecar", async () => {
+    const execution = await executePackageEntry([
+      "import { runInNewContext } from 'node:vm'",
+      `export default () => runInNewContext("Object.defineProperty(new Uint16Array([1, 2, 3]), Symbol.toStringTag, { value: 'Uint8Array' })")`,
+    ].join("\n"))
+
+    expect(execution.code).toBe(0)
+    expect(execution.output).toEqual({ ok: true, result: { 0: 1, 1: 2, 2: 3 } })
+  })
+
   it.each(["opaque", "opaqueredirect"])("preserves a %s response across the child process", async (type) => {
     const url = type === "opaqueredirect" ? "https://example.com/manual-redirect" : ""
     const execution = await executePackageEntry(
@@ -266,6 +294,24 @@ describe("package entry result transport", () => {
     const execution = await executePackageEntry(
       `export default async function () { return { boolean: new Boolean(true), number: new Number(5), string: new String('ready') } }\n`,
     )
+
+    expect(execution.code).toBe(0)
+    expect(execution.output).toEqual({
+      ok: true,
+      result: { boolean: true, number: 5, string: "ready" },
+    })
+  })
+
+  it("preserves boxed primitive results created in another realm", async () => {
+    const execution = await executePackageEntry([
+      `import { runInNewContext } from 'node:vm'`,
+      `export default async function () { return {`,
+      `  boolean: runInNewContext('new Boolean(true)'),`,
+      `  number: runInNewContext('new Number(5)'),`,
+      `  string: runInNewContext("new String('ready')"),`,
+      `} }`,
+      ``,
+    ].join("\n"))
 
     expect(execution.code).toBe(0)
     expect(execution.output).toEqual({
