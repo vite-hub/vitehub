@@ -18,6 +18,7 @@ Use these imports and methods to work with a Workspace from server code.
 | `createWorkspaceTools` from `@vite-hub/workspace` or `@vite-hub/workspace/ai` | Build AI SDK tools from Workspace access. |
 | Source resolution, request, and preparation helpers from `@vite-hub/workspace/runtime` | Integrate resolved Workspace Sources and process-local readiness into runtime facades. |
 | `defineWorkspaceFileHandler`, `readWorkspaceFileResponse` from `@vite-hub/workspace/server` | Serve Workspace files from H3 routes. |
+| `registerWorkspacePlugin` from `@vite-hub/workspace` or `@vite-hub/workspace/runtime` | Add rules and hooks to a Workspace you do not define. See [Add plugins to a Workspace](#add-plugins-to-a-workspace). |
 | `hubWorkspace` from `@vite-hub/workspace/vite` | Register Workspace discovery, generated types, assets, and runtime wiring. |
 | `@vite-hub/workspace/loader`, `@vite-hub/workspace/publish`, `@vite-hub/workspace/test` | Add loaders and publishers, or register test Workspaces. |
 
@@ -110,23 +111,85 @@ const usage = await workspace.history.usage()
 
 `files` is the whole desired file set. Omitted paths are deleted from the next version. Earlier versions keep their bytes. Paths, write rules, `maxBytes`, validators, hooks, and Source write grants apply to additions, changes, and deletions. Unchanged files keep their MIME type and metadata. Validators can change content and file attributes but cannot rename paths or change operations during a history commit. Revision metadata must contain JSON-safe values. The Source ownership restriction on file `metadata.source` does not apply to revision metadata.
 
-`ifHead` is required. Use `null` for the first publication and a revision id for later publications. If the head changes, the commit fails with `WORKSPACE_CONFLICT` and `details.expected` and `details.actual`. Catch `isWorkspaceConflict(error)` and load the new head before resolving the edits. A head conflict never changes the published folder. On an operational error, read the head before retrying; Database responses and post-write hooks can fail after publication.
+A file value is content, or `{ content, mediaType?, metadata? }` to set stored attributes. Plain content infers the MIME type from the path. File metadata must contain JSON-safe values.
+
+### Refs
+
+A Workspace history has named refs. Each ref has its own head and timeline. Revisions and stored bytes are shared, so `history.open(id)` opens a revision from any ref, and the same bytes on two refs upload once. Calls without `ref` use `main`. Ref names use letters, numbers, `_`, and `-`, joined by single `.` or `/`, up to 128 characters. Invalid names throw `WORKSPACE_R0071`.
+
+Drafts are the usual reason to add a ref. Save each edit to `draft`, then commit the chosen files to `published`:
+
+```ts
+const draft = await workspace.history.head({ ref: 'draft' })
+const saved = await workspace.history.commit({
+  ref: 'draft',
+  ifHead: draft?.id ?? null,
+  changes: {
+    put: { 'posts/hello.md': { content: markdown, metadata: { author: 'maxi' } } },
+    delete: ['posts/old.md'],
+  },
+  message: 'Save hello',
+})
+
+const view = await workspace.history.open(saved.id)
+const published = await workspace.history.head({ ref: 'published' })
+await workspace.history.commit({
+  ref: 'published',
+  ifHead: published?.id ?? null,
+  changes: { put: { 'posts/hello.md': await view.readFile('posts/hello.md') } },
+  message: 'Publish hello',
+})
+```
+
+`changes` patches the head of `ref`. `put` adds or replaces files, `delete` removes files, and every other path keeps its content. A change commit uploads only the bytes it adds. Deleting a path that is missing from the head throws `WORKSPACE_NOT_FOUND`. A path can appear in `put` or `delete`, not both. A commit takes `files` or `changes`, never both.
+
+A commit always builds on the head of its own ref. There is no `base` option. To copy files from another ref, open that revision and `put` the files you want, as in the publish step above. This keeps every ref a straight line of revisions that `ifHead` protects.
+
+Rules, validators, hooks, `maxBytes`, and Source write grants run on every changed path in both forms. A `put` whose content matches the head skips them. With `{ content, mediaType, metadata }`, a different MIME type or metadata counts as a change.
+
+### Conflicts
+
+`ifHead` is required. Use `null` for the first revision on a ref and a revision id for later ones. If the head of that ref changes, the commit fails with `WORKSPACE_CONFLICT` and `details.ref`, `details.expected`, and `details.actual`. Commits to other refs never conflict with it. Catch `isWorkspaceConflict(error)` and load the new head before resolving the edits. A head conflict never changes any ref. On an operational error, read the head before retrying; Database responses and post-write hooks can fail after publication.
 
 | Method | Result |
 | --- | --- |
-| `history.commit({ ifHead, files, message?, metadata? })` | A revision with `id`, `parentId`, `createdAt`, optional message and metadata, file count `files`, and total file `bytes`. |
-| `history.head()` | Current revision or `null`. |
-| `history.list({ cursor?, limit? })` | `{ revisions, cursor? }`, newest first. Default limit `20`, maximum `100`. Pass the returned cursor unchanged to read older revisions. |
+| `history.commit({ ref?, ifHead, files, message?, metadata? })` | A revision with `id`, `ref`, `parentId`, `createdAt`, optional message and metadata, file count `files`, and total file `bytes`. |
+| `history.commit({ ref?, ifHead, changes: { put?, delete? }, message?, metadata? })` | The same revision shape, built from the ref head plus the changes. |
+| `history.head({ ref? })` | Current revision of the ref, or `null` before its first commit. |
+| `history.list({ ref?, cursor?, limit? })` | `{ revisions, cursor? }` for one ref, newest first. Default limit `20`, maximum `100`. Pass the returned cursor unchanged with the same ref; a cursor from another ref throws `WORKSPACE_R0070`. |
+| `history.refs()` | `[{ name, head }]` for every ref with at least one revision, sorted by name. |
 | `history.open(id)` | Read-only view with `revision`, `list(path?, options?)`, `stat(path)`, and `readFile(path, { encoding? })`. Encoding defaults to UTF-8; `'binary'` returns `Uint8Array`. |
-| `history.usage()` | `{ bytes, objects }` for unique retained file content across all published revisions. This excludes manifests, Database storage, Blob metadata, and failed uploads. |
+| `history.usage()` | `{ bytes, objects }` for unique retained file content across committed revisions on every ref. This excludes manifests, Database storage, Blob metadata, and failed uploads. |
 
-Read mode exposes `head`, `list`, `open`, and `usage`. Commit requires write mode. `capabilities().retainedHistory` reports Store support on the writable facade. Stores without retained history throw `WORKSPACE_R0069` for these methods. `history.checkpoint()` and `history.rebase()` keep their existing contracts; a checkpoint is not proof of retained file bytes on every Store.
+Read mode exposes `head`, `list`, `refs`, `open`, and `usage`. Commit requires write mode. `capabilities().retainedHistory` reports Store support on the writable facade. Stores without retained history throw `WORKSPACE_R0069` for these methods. `history.checkpoint()` and `history.rebase()` keep their existing contracts and use `main`; a checkpoint is not proof of retained file bytes on every Store.
 
-History covers the Store file tree. It does not capture live Source responses, resumable drafts, or a running Session. Published revisions are immutable until the workspace is deleted. Empty directories are not part of the file-set history contract.
+History covers the Store file tree. It does not capture live Source responses or a running Session. A Store's working tree follows `main`: a commit to `main` replaces staged `fs` writes, and commits to other refs leave them alone. Committed revisions are immutable until the workspace is deleted. Empty directories are not part of the file-set history contract.
 
-A commit waits for Definition synchronization before checking Source ownership. Synchronization can publish a Source revision and advance the head. If that happens, the commit reports `WORKSPACE_CONFLICT`. Read the new head and retry with the complete file set. Source-owned files cannot be changed or deleted, including materialized files not yet retained in a revision.
+A commit waits for Definition synchronization before checking Source ownership. Synchronization can publish a Source revision and advance the `main` head. If that happens, the commit reports `WORKSPACE_CONFLICT`. Read the new head and retry. Source-owned files cannot be changed or deleted on any ref, including materialized files not yet retained in a revision.
 
 Retained history requires access to the complete Workspace. A facade restricted to selected paths or Sources throws `WORKSPACE_R0069` instead of exposing or replacing a complete folder outside that scope.
+
+## Add plugins to a Workspace
+
+`registerWorkspacePlugin(workspace, plugin)` adds a `WorkspacePlugin` with `id`, `rules`, and `hooks` to a Workspace by name. Use it from a package that owns some paths in a Workspace it does not define, for example to validate documents before every write:
+
+```ts
+import { registerWorkspacePlugin } from '@vite-hub/workspace'
+
+registerWorkspacePlugin('content', {
+  id: 'content-schema',
+  hooks: {
+    'write:validate': (input) => {
+      if (input.operation === 'writeFile' && input.path.startsWith('posts/'))
+        assertPost(input.content)
+    },
+  },
+})
+```
+
+The plugin applies to `fs` writes, Sessions, and history commits on every ref, including facades created before the call. Registering the same id again replaces the earlier plugin. A plugin with the same id in the Workspace Definition wins. The call returns a function that removes this registration. The Workspace does not need to exist yet when you register.
+
+Rules from several plugins and the Definition do not merge per path. For one path, the most specific pattern wins, and a later rule with the same pattern replaces an earlier one. Hooks from every plugin run in order. Prefer a `write:validate` hook that throws when a contributed check must always run.
 
 ## Sync Sources
 

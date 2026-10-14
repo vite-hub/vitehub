@@ -62,6 +62,38 @@ function stripLeadingEntryComments(entry: string) {
   return entry.replace(/^(?:\s|\/\/[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)+/, "")
 }
 
+function stripComments(source: string) {
+  let result = ""
+  let quote: string | undefined
+  for (let index = 0; index < source.length; index++) {
+    const char = source[index]!
+    const next = source[index + 1]
+    if (quote) {
+      result += char
+      if (char === "\\") result += source[++index] || ""
+      else if (char === quote) quote = undefined
+      continue
+    }
+    if (char === "'" || char === '"' || char === "`") {
+      quote = char
+      result += char
+    }
+    else if (char === "/" && next === "/") {
+      result += "\n"
+      index = source.indexOf("\n", index + 2)
+      if (index < 0) break
+    }
+    else if (char === "/" && next === "*") {
+      const end = source.indexOf("*/", index + 2)
+      const comment = source.slice(index, end < 0 ? source.length : end + 2)
+      result += comment.replace(/[^\n]/g, " ")
+      index = end < 0 ? source.length : end + 1
+    }
+    else result += char
+  }
+  return result
+}
+
 function readEntryKey(entry: string): string | undefined {
   const match = /^\s*(?:([A-Za-z_$][\w$]*)|["']([^"']+)["']|\[\s*["']([^"']+)["']\s*\])\s*(?::|$)/.exec(stripLeadingEntryComments(entry))
   return match?.[1] || match?.[2] || match?.[3]
@@ -229,7 +261,7 @@ function readOpaqueResourceOwnership(expression: string | undefined, source: str
   const identifier = /^[A-Za-z_$][\w$]*$/.test(trimmed) ? trimmed : undefined
   if (!identifier || seen.has(identifier)) return undefined
   seen.add(identifier)
-  const declaration = new RegExp(`(?:const|let|var)\\s+${identifier}\\s*=\\s*([^;]+)`, 's').exec(source)?.[1]
+  const declaration = new RegExp(`(?:^|[;\\n\\r])\\s*(?:const|let|var)\\s+${identifier}\\s*=\\s*([^;]+)`, 's').exec(stripComments(source))?.[1]
   return readOpaqueResourceOwnership(declaration, source, seen)
 }
 
