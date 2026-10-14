@@ -52,17 +52,19 @@ export function isValidApiKeyProvider(provider: { header: string, origins: reado
     if (!provider || typeof provider !== "object" || Array.isArray(provider)) return false
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This public validator checks untrusted provider fields at the boundary.
     if (typeof provider.header !== "string" || !Array.isArray(provider.origins)) return false
-    const originIndexes = Object.getOwnPropertyNames(provider.origins).filter(key => {
+    // structuredClone rejects Proxy values and gives us a stable, ordinary-array snapshot.
+    const origins = structuredClone(provider.origins)
+    const originIndexes = Object.getOwnPropertyNames(origins).filter(key => {
       const index = Number(key)
       return String(index) === key && index >= 0 && index < 2 ** 32 - 1
     })
-    if (originIndexes.length !== provider.origins.length) return false
+    if (originIndexes.length !== origins.length) return false
     for (const key of originIndexes) {
       // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Each untrusted origin must be a string before URL policy validation.
-      if (typeof provider.origins[Number(key)] !== "string") return false
+      if (typeof origins[Number(key)] !== "string") return false
     }
     for (const key of originIndexes) {
-      const origin = provider.origins[Number(key)]
+      const origin = origins[Number(key)]
       if (apiKeyOrigin(origin) !== origin) return false
     }
     return tokenPattern.test(provider.header)
@@ -72,7 +74,7 @@ export function isValidApiKeyProvider(provider: { header: string, origins: reado
         if (typeof provider.scheme !== "string") return false
         return tokenPattern.test(provider.scheme)
       })())
-      && provider.origins.length > 0
+      && origins.length > 0
   }
   catch {
     return false

@@ -59,6 +59,11 @@ describe("apiKey()", () => {
     const hugeSparse: string[] = []
     hugeSparse.length = 0xffffffff
     expect(isValidApiKeyProvider({ header: "authorization", origins: hugeSparse })).toBe(false)
+    const hiddenOrigin = new Proxy(["http://api.example.com"], {
+      ownKeys: () => ["length"],
+      get: (target, key) => key === "length" ? 0 : Reflect.get(target, key),
+    })
+    expect(isValidApiKeyProvider({ header: "authorization", origins: hiddenOrigin })).toBe(false)
   })
 
   it("defaults to a Bearer authorization header", () => {
