@@ -94,6 +94,10 @@ function isResponseLike(value: unknown): value is Response {
       && constructor.name === "Response"
       && typeof (constructor as { json?: unknown }).json === "function"
       && typeof (constructor as { redirect?: unknown }).redirect === "function"
+      // All platform Response constructors expose the complete static factory surface.
+      // Requiring `error` as well closes the copied-prototype constructor spoof while
+      // retaining foreign implementations such as happy-dom.
+      && typeof (constructor as { error?: unknown }).error === "function"
       && Function.prototype.toString.call(constructor).startsWith("class ")
       && constructor.prototype === Object.getPrototypeOf(value)
     return typeof response.status === "number"
