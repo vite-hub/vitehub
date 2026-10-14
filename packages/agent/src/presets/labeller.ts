@@ -237,7 +237,7 @@ export const labeller: LabellerAgent = defineAgent({
     validateOptions(options)
     const { labels, rules, actions, bodyLimit, minConfidence, trashEnabled, client } = options
     // Push deliveries inherit the safe default; replay callers still choose dry-run per invocation.
-    const channel = gmail({ labels, bodyLimit, client, ...(options.dryRun ? { dryRun: true } : {}) })
+    const channel = gmail({ labels, bodyLimit, client, ...(options.dryRun ? { dryRun: true } : undefined) })
     return defineAgent({
       description: "Label Gmail messages with ordered rules, then a constrained Jev choice.",
       channels: { gmail: channel },
@@ -265,7 +265,7 @@ export const labeller: LabellerAgent = defineAgent({
           const confidence = selectedConfidence(output)
           if (confidence === undefined || confidence < minConfidence) return
           const rule = output.rule ? rules[output.rule] : undefined
-          const selectedAction = { ...actions[label], ...(rule?.label === label ? explicitAction(rule) : {}) }
+          const selectedAction = { ...actions[label], ...(rule?.label === label ? explicitAction(rule) : undefined) }
           await message.label(label)
           if (selectedAction.archive) await message.archive()
           if (selectedAction.read) await message.markRead()
