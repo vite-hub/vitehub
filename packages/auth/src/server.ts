@@ -314,7 +314,7 @@ function hasResponsePrototype(value: unknown): boolean {
     let prototype: object | null = Object.getPrototypeOf(Object(value))
     const seen = new Set<object>()
     for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
-      if (seen.has(prototype)) return
+      if (seen.has(prototype)) return false
       seen.add(prototype)
       const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
       const owner = prototype
@@ -356,18 +356,19 @@ function getNativeAuthorizationBodyReader(body: unknown): ((this: object) => Rea
     let prototype: object | null = Object.getPrototypeOf(body)
     const seen = new Set<object>()
     for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
-      if (seen.has(prototype)) return false
+      if (seen.has(prototype)) return
       seen.add(prototype)
       const descriptor = Object.getOwnPropertyDescriptor(prototype, "getReader")
       if (descriptor) {
         const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
         if (typeof descriptor.value === "function" && constructor?.name === "ReadableStream") return descriptor.value
+        return
       }
       prototype = Object.getPrototypeOf(prototype)
     }
   }
   catch {
-    return false
+    return
   }
 }
 

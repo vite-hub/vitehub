@@ -381,7 +381,7 @@ describe("Auth access handlers", () => {
     expect(cancel).toHaveBeenCalledWith("client disconnected")
   })
 
-  it("bridges native stream state across distinct inherited reader methods", async () => {
+  it("rejects a response body with an inherited reader override", async () => {
     const source = new ReadableStream<Uint8Array>({
       start(controller) {
         controller.enqueue(new Uint8Array([65, 66]))
@@ -399,8 +399,7 @@ describe("Auth access handlers", () => {
 
     const response = await handler(new Request("https://app.example/"))
 
-    expect(response?.body?.getReader).toBe(ReadableStream.prototype.getReader)
-    await expect(response?.text()).resolves.toBe("AB")
+    expect(response?.status).toBe(403)
     expect(overriddenReader).not.toHaveBeenCalled()
     expect(source.locked).toBe(false)
   })
@@ -511,6 +510,20 @@ describe("Auth access handlers", () => {
     const source = new ForeignResponse("Policy rejected", { status: 409 })
     const getReader = vi.fn(() => { throw new Error("unstable reader") })
     Object.defineProperty(source.body, "getReader", { get: getReader })
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => source as never }] },
+    }))
+
+    await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
+    expect(getReader).not.toHaveBeenCalled()
+  })
+
+  it("rejects a foreign response with an inherited body reader override", async () => {
+    const source = new ForeignResponse("Policy rejected", { status: 409 })
+    const getReader = vi.fn(() => { throw new Error("unstable reader") })
+    const prototype = Object.create(Object.getPrototypeOf(source.body))
+    Object.defineProperty(prototype, "getReader", { value: getReader })
+    Object.setPrototypeOf(source.body, prototype)
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
       access: { routes: [{ route: "/**", authorize: () => source as never }] },
     }))
