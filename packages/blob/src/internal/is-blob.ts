@@ -5,42 +5,12 @@ export default function isBlob(value: unknown): value is Blob {
     // accessors cannot be spoofed with Symbol.toStringTag.
     const blobPrototype = globalThis.Blob?.prototype
     if (!blobPrototype) return false
-    const isBlobPrototype = (prototype: object) => {
-      const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
-      return typeof constructor === "function"
-        && constructor.name === "Blob"
-        && typeof Object.getOwnPropertyDescriptor(prototype, "arrayBuffer")?.value === "function"
-        && typeof Object.getOwnPropertyDescriptor(prototype, "text")?.value === "function"
-    }
-    let prototype: object | null = blobPrototype
-    const accessors: Array<[(this: unknown) => unknown, (this: unknown) => unknown]> = []
-    while (prototype) {
-      if (isBlobPrototype(prototype)) {
-        const typeGetter = Object.getOwnPropertyDescriptor(prototype, "type")?.get
-        const sizeGetter = Object.getOwnPropertyDescriptor(prototype, "size")?.get
-        if (typeGetter && sizeGetter) accessors.push([typeGetter, sizeGetter])
-      }
-      prototype = Object.getPrototypeOf(prototype)
-    }
-    prototype = Object.getPrototypeOf(value as object)
-    while (prototype) {
-      if (isBlobPrototype(prototype)) {
-        const typeGetter = Object.getOwnPropertyDescriptor(prototype, "type")?.get
-        const sizeGetter = Object.getOwnPropertyDescriptor(prototype, "size")?.get
-        if (typeGetter && sizeGetter) accessors.push([typeGetter, sizeGetter])
-      }
-      prototype = Object.getPrototypeOf(prototype)
-    }
-    return accessors.some(([typeGetter, sizeGetter]) => {
-      try {
-        typeGetter.call(value)
-        sizeGetter.call(value)
-        return true
-      }
-      catch {
-        return false
-      }
-    })
+    const typeGetter = Object.getOwnPropertyDescriptor(blobPrototype, "type")?.get
+    const sizeGetter = Object.getOwnPropertyDescriptor(blobPrototype, "size")?.get
+    if (!typeGetter || !sizeGetter) return false
+    typeGetter.call(value)
+    sizeGetter.call(value)
+    return true
   }
   catch {
     return false

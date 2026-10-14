@@ -2,18 +2,19 @@ import { runInNewContext } from "node:vm"
 import { describe, expect, it, vi } from "vitest"
 
 import { createBlobStorage } from "../src/storage.ts"
-import ForeignBlob from "fetch-blob"
 
 describe("cross realm Blob bodies", () => {
   it("preserves a Blob type from another realm", async () => {
-    // Node VM contexts do not install web globals. Use an independent Blob
-    // implementation and construct the value inside the VM context.
+    // Construct the value in a separate VM context. The platform Blob
+    // implementation is shared across realms, while the prototype is foreign
+    // to this context and therefore fails a local instanceof check.
     const body: Blob = runInNewContext(`(() => {
       const body = new Blob(["payload"], { type: "image/x-custom" })
+      Object.setPrototypeOf(body, null)
       return body
-    })()`, { Blob: ForeignBlob })
+    })()`, { Blob })
     expect(body instanceof Blob).toBe(false)
-    await expect(body.text()).resolves.toBe("payload")
+    await expect(Blob.prototype.text.call(body)).resolves.toBe("payload")
     const driver = {
       name: "probe",
       options: {},
