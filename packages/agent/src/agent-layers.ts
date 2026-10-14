@@ -57,7 +57,7 @@ function nativePrototype(value: unknown, constructor: { readonly prototype: obje
 }
 
 function nativeBuffer(value: unknown): boolean {
-  if (globalThis.Buffer === undefined || !Buffer.isBuffer(value)) return false
+  if (globalThis.Buffer === undefined || value === null || !hasRuntimeType(value, "object")) return false
   const prototype = Object.getPrototypeOf(value)
   if (!prototype || !hasRuntimeType(prototype, "object")) return false
   const descriptor = Object.getOwnPropertyDescriptor(prototype, "constructor")

@@ -116,7 +116,11 @@ it("keeps a custom Buffer subclass named Buffer atomic", () => {
     }
   }
   const custom = new Buffer(new Uint8Array([1, 2]))
-  const inherited = defineAgent({ extends: defineAgent({ options: { custom } }) })
+  const preset = defineAgent({
+    options: { custom },
+    configure: (options: { custom: Buffer }) => defineAgent({ driver: "codex", data: options }),
+  })
+  const inherited = defineAgent({ extends: preset })
   expect(inherited.options.custom).toBe(custom)
 })
 
