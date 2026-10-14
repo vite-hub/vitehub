@@ -43,18 +43,6 @@ function isNode(value: unknown): value is AstNode {
   return value !== null && Object(value) === value && String(Reflect.get(Object(value), "type")) === Reflect.get(Object(value), "type")
 }
 
-function children(node: AstNode): AstNode[] {
-  const nodes: AstNode[] = []
-  for (const [key, value] of Object.entries(node)) {
-    if (key === "type") continue
-    if (Array.isArray(value)) {
-      for (const item of value) if (isNode(item)) nodes.push(item)
-    }
-    else if (isNode(value)) nodes.push(value)
-  }
-  return nodes
-}
-
 /** Drop type-only and grouping wrappers such as `x satisfies T`, `x as T`, and `(x)`. */
 function unwrap(node: unknown): unknown {
   let current = node
@@ -126,6 +114,18 @@ export function readCmsPresetUsage(source: string, file: string, projectRoot: st
   }
   if (!bindings.size && !namespaces.size) return
 
+  const defineContentBindings = new Set<string>()
+  for (const statement of Array.isArray(program.body) ? program.body : []) {
+    if (!isNode(statement) || statement.type !== "ImportDeclaration" || statement.importKind === "type") continue
+    const from = isNode(statement.source) ? statement.source.value : undefined
+    if (from !== "vite-hub/content" && from !== "@vite-hub/content") continue
+    for (const specifier of Array.isArray(statement.specifiers) ? statement.specifiers : []) {
+      if (!isNode(specifier) || specifier.type !== "ImportSpecifier" || !isNode(specifier.local) || !isNode(specifier.imported)) continue
+      const imported = specifier.imported.type === "Identifier" ? specifier.imported.name : specifier.imported.value
+      if (imported === "defineContent") defineContentBindings.add(String(specifier.local.name))
+    }
+  }
+
   const isPreset = (node: unknown): boolean => {
     const value = unwrap(node)
     if (!isNode(value)) return false
@@ -135,16 +135,31 @@ export function readCmsPresetUsage(source: string, file: string, projectRoot: st
       && (value.property.name === "cms" || value.property.name === "default")
   }
 
+  // Only inspect the options object passed to the exported `content` Definition. Other
+  // objects in this module may use an `extends` property for unrelated purposes.
+  let contentOptions: AstNode | undefined
+  for (const statement of Array.isArray(program.body) ? program.body : []) {
+    if (!isNode(statement) || statement.type !== "ExportNamedDeclaration") continue
+    const declaration = statement.declaration
+    if (!isNode(declaration) || declaration.type !== "VariableDeclaration") continue
+    for (const declarator of Array.isArray(declaration.declarations) ? declaration.declarations : []) {
+      if (!isNode(declarator) || !isNode(declarator.id) || declarator.id.type !== "Identifier" || declarator.id.name !== "content") continue
+      const init = unwrap(declarator.init)
+      if (!isNode(init) || init.type !== "CallExpression" || !isNode(init.callee) || init.callee.type !== "Identifier" || !defineContentBindings.has(String(init.callee.name))) continue
+      const argument = unwrap(Array.isArray(init.arguments) ? init.arguments[0] : undefined)
+      if (isNode(argument) && argument.type === "ObjectExpression") contentOptions = argument
+    }
+  }
+
   const selections: unknown[] = []
-  const visit = (node: AstNode) => {
-    if (node.type === "Property" && propertyName(node) === "extends") {
-      const value = unwrap(node.value)
+  if (contentOptions) {
+    for (const property of Array.isArray(contentOptions.properties) ? contentOptions.properties : []) {
+      if (!isNode(property) || propertyName(property) !== "extends") continue
+      const value = unwrap(property.value)
       if (isPreset(value)) selections.push(value)
       else if (isNode(value) && value.type === "ArrayExpression" && Array.isArray(value.elements) && isPreset(value.elements[0])) selections.push(value)
     }
-    for (const child of children(node)) visit(child)
   }
-  visit(program)
 
   const usage = "Pass it as defineContent({ extends: cms }) or defineContent({ extends: [cms, { database, blob, workspace }] }) in the exported content Definition."
   if (!selections.length) throw presetError(file, projectRoot, `imports the Content cms preset but does not select it with extends. ${usage}`)

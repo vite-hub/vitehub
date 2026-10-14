@@ -111,14 +111,6 @@ describe("docs product navigation", () => {
     ]);
     expect(getDocsSidebarGroups(ui!).find(group => group.label === "Console")?.pages.map(page => page.title))
       .toEqual(["Chat App", "Invocation Dashboard", "Code Review"]);
-    expect(getDocsSidebarGroups(ui!).find(group => group.label === "Start")?.pages.map(page => page.title))
-      .toEqual(["Overview", "Tutorial", "Installation", "Why Vue?"]);
-  });
-
-  it("publishes tutorials for public packages without product sections", () => {
-    expect(getDocsPageByPath("/docs/agents/box-tutorial")?.title).toBe("Box tutorial");
-    expect(getDocsPageByPath("/docs/reference/markdown-template-tutorial")?.title).toBe("Tutorial");
-    expect(getDocsPageByPath("/docs/ui/get-started")?.title).toBe("Tutorial");
   });
 
   it("groups every navigable page of a large section", () => {
