@@ -435,7 +435,10 @@ async function runContentCommand(command: ContentCliCommand, args: string[], con
   catch (error) {
     const terminator = args.indexOf("--")
     if (args.slice(0, terminator < 0 ? args.length : terminator).includes("--json")) {
-      return writeFailure({ json: true }, context, { message: error instanceof Error ? error.message : String(error) })
+      const failure: ContentCliFailure = { message: error instanceof Error ? error.message : String(error) }
+      if (isRecord(error) && String(error.code) === error.code) failure.code = error.code
+      if (isRecord(error) && error.details !== undefined) failure.details = error.details
+      return writeFailure({ json: true }, context, failure)
     }
     context.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
     writeUsage(command, context.stderr)
