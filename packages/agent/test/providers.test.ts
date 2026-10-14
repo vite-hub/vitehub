@@ -7394,6 +7394,110 @@ describe("server helpers", () => {
     expect(largePrompt).toHaveLength(attachmentPrefix.length + attachmentBody.length)
   })
 
+  it("maps text-like file attachments from another realm to text parts", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const foreignData = runInNewContext("new Uint8Array([35, 32, 78, 111, 116, 101, 115, 10])") as never
+    const adapter = createTestChatAdapter({ attachmentFetchData: async () => foreignData })
+    const run = vi.fn(({ messages }) => messages.at(-1)?.parts)
+    const agent = defineAgent({
+      channels: {
+        // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+        telegram: testTelegram(telegram, { adapter: () => adapter as never }),
+      },
+      driver: { run },
+    })
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(
+      new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+        body: JSON.stringify({
+          update_id: 43,
+          message: {
+            chat: { id: 456, type: "private" },
+            date: 1781092800,
+            document: {
+              content: "# Notes\n",
+              file_id: "foreign-notes-file",
+              file_name: "notes.md",
+              file_size: 8,
+              mime_type: "text/markdown",
+            },
+            from: { first_name: "Maxi", id: 123, username: "maxi" },
+            message_id: 1011,
+          },
+        }),
+        method: "POST",
+      }),
+      "telegram",
+    )
+
+    expect(response.status).toBe(200)
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({
+      messages: [expect.objectContaining({
+        parts: [expect.objectContaining({ text: "\n\nText attachment (notes.md):\n\n# Notes", type: "text" })],
+      })],
+    }))
+  })
+
+  it("rejects oversized foreign text attachment bytes before copying them", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const foreignData = runInNewContext("new Uint8Array(8 * 1024 * 1024 + 1)") as never
+    const adapter = createTestChatAdapter({ attachmentFetchData: async () => foreignData })
+    const run = vi.fn(({ messages }) => messages.at(-1)?.parts)
+    const agent = defineAgent({
+      channels: {
+        // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+        telegram: testTelegram(telegram, { adapter: () => adapter as never }),
+      },
+      driver: { run },
+    })
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const copyAttachment = vi.fn()
+    vi.stubGlobal("Uint8Array", new Proxy(Uint8Array, {
+      construct(target, args, newTarget) {
+        if (args[0] === foreignData) copyAttachment()
+        return Reflect.construct(target, args, newTarget)
+      },
+    }))
+
+    try {
+      await expect(handler(
+        new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+          body: JSON.stringify({
+            update_id: 222044,
+            message: {
+              chat: { id: 456, type: "private" },
+              date: 1781092800,
+              document: {
+                content: "# Notes\n",
+                file_id: "foreign-notes-file",
+                file_name: "notes.md",
+                file_size: 8,
+                mime_type: "text/markdown",
+              },
+              from: { first_name: "Maxi", id: 123, username: "maxi" },
+              message_id: 2221012,
+            },
+          }),
+          method: "POST",
+        }),
+        "telegram",
+      )).rejects.toThrow("[vitehub] Chat text attachment exceeds 8388608 bytes.")
+
+      expect(copyAttachment).not.toHaveBeenCalled()
+      expect(run).not.toHaveBeenCalled()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it("maps audio mime file attachments for custom audio capabilities", async () => {
     const { defineAgent, defineCapability } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
@@ -22335,6 +22439,102 @@ describe("server helpers", () => {
     await expect(handler(request(21, "what marker did I ask you to remember?"), "telegram")).resolves.toMatchObject({ status: 200 })
 
     expect(runs).toEqual([["remember BROWSER-HISTORY"], ["what marker did I ask you to remember?"]])
+  })
+
+  it.each(["local bytes", "local buffer", "foreign bytes", "foreign buffer", "foreign subarray", "foreign prototype blob", "spoofed blob", "shadowed local bytes", "shadowed foreign bytes", "tagged local bytes", "tagged foreign bytes", "prototype-tagged foreign bytes", "throwing-tag foreign bytes"])("exports Channel history attachment %s", async (kind) => {
+    let data: unknown = kind === "local bytes"
+      ? new Uint8Array([1, 2, 3])
+      : kind === "local buffer"
+        ? new Uint8Array([1, 2, 3]).buffer
+        : kind === "foreign prototype blob"
+          ? runInNewContext(`
+            // Native Blob slots with a constructor and prototype created in this VM.
+            class RealmBlob {
+              constructor(parts, options) {
+                return Reflect.construct(NativeBlob, [parts, options], new.target)
+              }
+            }
+            new RealmBlob([new Uint8Array([1, 2, 3])], { type: "application/octet-stream" })
+          `, { NativeBlob: Blob })
+          : kind === "spoofed blob"
+            ? { [Symbol.toStringTag]: "Blob", size: 3, arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer }
+            : runInNewContext(kind === "foreign bytes"
+              ? "new Uint8Array([1, 2, 3])"
+              : kind === "foreign subarray"
+                ? "new Uint8Array([9, 1, 2, 3, 9]).subarray(1, 4)"
+                : "new Uint8Array([1, 2, 3]).buffer")
+    if (kind.startsWith("shadowed")) {
+      data = kind === "shadowed local bytes"
+        ? new Uint8Array([9, 1, 2, 3, 9]).subarray(1, 4)
+        : runInNewContext("new Uint8Array([9, 1, 2, 3, 9]).subarray(1, 4)")
+      Object.defineProperties(data, {
+        buffer: { value: new Uint8Array([8]).buffer },
+        byteOffset: { value: 0 },
+        byteLength: { value: 1 },
+      })
+    }
+    let tagReads = 0
+    if (kind.includes("tagged") || kind === "throwing-tag foreign bytes") {
+      data = kind === "tagged local bytes"
+        ? new Uint8Array([1, 2, 3])
+        : runInNewContext("new Uint8Array([9, 1, 2, 3, 9]).subarray(1, 4)")
+      const target = kind === "prototype-tagged foreign bytes" ? Object.getPrototypeOf(data) : data
+      Object.defineProperty(target, Symbol.toStringTag, kind === "throwing-tag foreign bytes"
+        ? { get() { tagReads++; throw new Error("Do not read the supplied tag") } }
+        : { value: "ProviderBytes" })
+    }
+    if (kind === "foreign prototype blob") {
+      expect(data).not.toBeInstanceOf(Blob)
+      expect(Object.getOwnPropertyDescriptor(Blob.prototype, "size")!.get!.call(data)).toBe(3)
+      const nativeBytes: ArrayBuffer = await Blob.prototype.arrayBuffer.call(data)
+      expect([...new Uint8Array(nativeBytes)]).toEqual([1, 2, 3])
+    }
+    const adapter = createTestChatAdapter({
+      historyMessages: [new Message({
+        attachments: [{
+          // SAFETY: The fixtures include foreign byte brands and a native-slot Blob with a VM-created prototype; the spoof deliberately lacks Blob slots.
+          data: data as never,
+          mimeType: "application/octet-stream",
+          name: "bytes.bin",
+          size: 3,
+          type: "file",
+        }],
+        author: { fullName: "Maxi", isBot: false, isMe: false, userId: "123", userName: "maxi" },
+        formatted: { children: [], type: "root" },
+        id: "20",
+        metadata: { dateSent: new Date("2026-08-15T00:00:00.000Z"), edited: false },
+        raw: {},
+        text: "attachment",
+        threadId: "telegram:456",
+      })],
+    })
+    const agent = defineAgent({
+      channels: {
+        // SAFETY: createTestChatAdapter implements the Channel adapter contract.
+        telegram: testTelegram(telegram, { adapter: () => adapter as never, webhooks: { secretHeader: "x-test-secret", secretToken: "history-secret" } }),
+      },
+      driver: { run: () => "saved" },
+      messages: { stream: false },
+    })
+    // SAFETY: The Agent Definition is valid for the internal webhook route.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      body: JSON.stringify({ threadId: "telegram:456" }),
+      headers: { "content-type": "application/json", "x-test-secret": "history-secret", "x-vitehub-channel-history": "1" },
+      method: "POST",
+    }), "telegram")
+    expect(response.status).toBe(200)
+    expect(tagReads).toBe(0)
+    if (kind === "spoofed blob") {
+      const history = await response.json()
+      expect(history).toMatchObject({ messages: [{ attachments: [{ name: "bytes.bin", unavailable: true }] }] })
+      expect(history).toMatchObject({ messages: [{ attachments: [expect.not.objectContaining({ data: expect.anything() })] }] })
+    }
+    else {
+      await expect(response.json()).resolves.toMatchObject({
+        messages: [{ attachments: [{ data: "AQID", name: "bytes.bin" }], id: "20" }],
+      })
+    }
   })
 
   it("exports authenticated Channel history with attachment data", async () => {
