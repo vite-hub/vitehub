@@ -53,14 +53,6 @@
       "types": "./dist/cloudflare.d.ts",
       "import": "./dist/cloudflare.js"
     },
-    "./collections": {
-      "types": "./dist/collections.d.ts",
-      "import": "./dist/collections.js"
-    },
-    "./collections/client": {
-      "types": "./dist/collections/client.d.ts",
-      "import": "./dist/collections/client.js"
-    },
     "./loader": {
       "types": "./dist/loader.d.ts",
       "import": "./dist/loader.js"
