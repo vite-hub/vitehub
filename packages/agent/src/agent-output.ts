@@ -815,8 +815,6 @@ function hasPropertyGetter(value: unknown, key: PropertyKey): boolean {
   return false
 }
 
-const responseStreams = new WeakMap<object, ReadableStream<Uint8Array>>()
-
 function isResponseLike(value: unknown): value is Response {
   if (!isRuntimeObject(value)) return false
   try {
@@ -855,14 +853,11 @@ function isResponseLike(value: unknown): value is Response {
     if (!hasRuntimeType(headers.get, "function") || !hasRuntimeType(headers.forEach, "function")) return false
     if (body === null) return value.body === null
     if (!isRuntimeObject(body)) return false
-    // Keep the structural contract local so TypeScript does not widen the
-    // foreign stream back to `object` after the runtime checks above.
-    // The Response constructor performs a trusted Web Streams brand check,
-    // including for streams created by another realm. It does not transfer or
-    // detach the caller's stream while classifying the result.
-    const stream = new Response(body as ReadableStream).body
-    if (!stream) return false
-    responseStreams.set(value, stream)
+    // Calling the platform prototype method performs the Web Streams brand
+    // check, including for streams created by another realm. It does not
+    // transfer or detach the caller's stream while classifying the result.
+    const reader = ReadableStream.prototype.getReader.call(body as ReadableStream)
+    reader.releaseLock()
     return true
   }
   catch {
@@ -940,7 +935,7 @@ export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<
   }
   // Explicit Agent streams take precedence over response-shaped output fields.
   if (isResponseLike(value)) {
-    const body = responseStreams.get(value)
+    const body = value.body
     if (body) {
       for await (const text of ReadableStream.prototype.pipeThrough.call(body, new TextDecoderStream())) {
         if (text) yield { text, type: "text-delta" }
