@@ -7139,7 +7139,17 @@ async function channelHistoryAttachment(
   }
   const maxBytes = Math.min(channelHistoryAttachmentMaxBytes, budget.remaining)
   let data: unknown = isRuntimeNumber(resolved.size) && resolved.size > maxBytes ? undefined : resolved.data
-  if (isAttachmentBlob(data)) data = data.size <= maxBytes ? new Uint8Array(await data.arrayBuffer()) : undefined
+  if (isAttachmentBlob(data)) {
+    if (data.size <= maxBytes) {
+      try {
+        const blob = data
+        // SAFETY: Blob.arrayBuffer() always resolves to an ArrayBuffer by the Blob contract.
+        data = new Uint8Array(await boundedChannelHistoryOperation(() => blob.arrayBuffer(), signal) as ArrayBuffer)
+      } catch {
+        data = undefined
+      }
+    } else data = undefined
+  }
   const boundedLazySize = isRuntimeNumber(resolved.size) && Number.isFinite(resolved.size) && resolved.size >= 0 && resolved.size <= maxBytes
   if (!data && resolved.fetchData && boundedLazySize) {
     try {
