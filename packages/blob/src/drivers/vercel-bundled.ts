@@ -88,11 +88,11 @@ function isMissingBlobError(error: unknown) {
           if (typeof nativeErrorConstructor !== "function") return false
           // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The descriptor is validated before reading its getter.
           if (typeof stack.get !== "function") return false
-          const nativeStackGetter = Object.getOwnPropertyDescriptor(new Error(), "stack")?.get
-          // Cross-realm native accessors have the same intrinsic source text, while
-          // receiver-sensitive functions cannot impersonate that native accessor.
-          if (typeof nativeStackGetter !== "function"
-            || Function.prototype.toString.call(stack.get) !== Function.prototype.toString.call(nativeStackGetter)) return false
+          // Compare with the accessor produced by the candidate's own native
+          // Error constructor. This preserves foreign-realm errors while rejecting
+          // proxies that only imitate the native getter's source and behavior.
+          const nativeStackGetter = Object.getOwnPropertyDescriptor(new nativeErrorConstructor(), "stack")?.get
+          if (typeof nativeStackGetter !== "function" || stack.get !== nativeStackGetter) return false
           // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The native getter result is the legacy brand check.
           if (typeof stack.get.call(candidate) !== "string") return false
           // A genuine native getter returns no stack for an object which merely shares
