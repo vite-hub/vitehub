@@ -128,6 +128,10 @@ export const contentConsoleSection: ViteHubConsoleDocumentEditorSection<ContentC
   icon: "i-lucide-file-pen-line",
   id: "content",
   label: "Content",
+  pages: [
+    { id: "dashboard", label: "Dashboard", icon: "i-lucide-layout-dashboard", index: true, view: { kind: "document-dashboard" } },
+    { id: "media", label: "Media", icon: "i-lucide-image", group: "Assets", requires: ["blob"], view: { kind: "media-library" } },
+  ],
   view: {
     kind: "document-editor",
     notice: "Saves commit to the draft ref of the Content Workspace. Publishing copies documents to the published ref, which /api/content serves. content.can() decides what each user may read, write, and publish.",
