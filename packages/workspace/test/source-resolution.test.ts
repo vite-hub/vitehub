@@ -1377,6 +1377,7 @@ describe("Workspace Source Resolution", () => {
       #history = writableFacade(base).history
       async head() { return await this.#history.head() }
       async list(options: Parameters<WritableWorkspaceFacade["history"]["list"]>[0]) { return await this.#history.list(options) }
+      async refs() { return await this.#history.refs() }
       async open(id: string) { return await this.#history.open(id) }
       async usage() { return await this.#history.usage() }
       async commit(options: Parameters<WritableWorkspaceFacade["history"]["commit"]>[0]) { return await this.#history.commit(options) }
