@@ -439,7 +439,18 @@ function isWebAssemblyModule(value: unknown): boolean {
 const intrinsicFunctionToString = Function.prototype.toString
 const nativeFunctionToString = (() => {
   try {
-    return intrinsicFunctionToString.call(intrinsicFunctionToString).replace(/\s+/g, " ") === "function toString() { [native code] }"
+    if (intrinsicFunctionToString.call(intrinsicFunctionToString).replace(/\s+/g, " ") !== "function toString() { [native code] }") return false
+    // A replacement can forge native-looking source for selected functions. Probe
+    // the ordinary source and required TypeError behavior before trusting it.
+    function probe() {}
+    if (intrinsicFunctionToString.call(probe) !== "function probe() {}") return false
+    try {
+      intrinsicFunctionToString.call(null)
+      return false
+    }
+    catch {
+      return true
+    }
   }
   catch {
     return false

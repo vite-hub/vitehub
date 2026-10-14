@@ -854,6 +854,30 @@ describe("@vite-hub/runtime", () => {
     }
   })
 
+  it.each(["throw", "forge"])("fails closed when Function.prototype.toString is %s before import", async (mode) => {
+    const descriptor = Object.getOwnPropertyDescriptor(Function.prototype, "toString")
+    if (!descriptor) throw new Error("Expected the native Function.prototype.toString descriptor")
+    const shared = runInNewContext("new SharedArrayBuffer(0)")
+    Object.defineProperty(Function.prototype, "toString", {
+      configurable: true,
+      value: mode === "throw"
+        ? function () { throw new Error("replaced toString") }
+        : function () { return "function toString() { [native code] }" },
+      writable: true,
+    })
+    try {
+      vi.resetModules()
+      const runtime = await import("../src/index.ts")
+      Object.defineProperty(Function.prototype, "toString", descriptor)
+      const log = runtime.createTraceEventLog()
+      await log.append({ name: "shared", payload: { value: shared, visibility: "public" }, type: "lifecycle" })
+      expect(log.entries()[0]?.payload).toEqual({ visibility: "private" })
+    }
+    finally {
+      Object.defineProperty(Function.prototype, "toString", descriptor)
+    }
+  })
+
   it.each([
     new ArrayBuffer(0),
     new ArrayBuffer(4),
