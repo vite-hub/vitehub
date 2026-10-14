@@ -104,7 +104,7 @@ describe("Auth access handlers", () => {
     await expect(handler(new Request("https://app.example/"))).resolves.toBe(response)
   })
 
-  it("normalizes compatible authorization responses from another realm", async () => {
+  it("normalizes compatible cross-realm authorization responses", async () => {
     const foreignResponse = runInNewContext(`new (class {
       get status() { return 409 }
       get statusText() { return "Conflict" }
