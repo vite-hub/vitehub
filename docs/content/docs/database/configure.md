@@ -64,6 +64,66 @@ export default defineDatabase({
 })
 ```
 
+## Add tables from a module
+
+A Nuxt module or Vite plugin can add its own tables to a Database that the app defines. The app does not import or list those tables. The added tables join the queries from `useDatabase()`, the generated types, and the migrations from `vitehub db generate`.
+
+In a Nuxt module, use the `vitehub:database:extend` hook. Push the absolute path of a schema file to `schemaFiles`:
+
+```ts [modules/auth/index.ts]
+import { createResolver, defineNuxtModule } from 'nuxt/kit'
+
+export default defineNuxtModule({
+  setup(_options, nuxt) {
+    const { resolve } = createResolver(import.meta.url)
+    nuxt.hook('vitehub:database:extend', ({ name, dialect, schemaFiles }) => {
+      if (name === 'default') schemaFiles.push(resolve(`./schema.${dialect}.ts`))
+    })
+  },
+})
+```
+
+```ts [modules/auth/schema.sqlite.ts]
+import { sqliteTable, text } from 'drizzle-orm/sqlite-core'
+
+export const user = sqliteTable('user', {
+  id: text('id').primaryKey(),
+  email: text('email').notNull(),
+})
+```
+
+A Vite plugin uses the same context through `vitehub.database.extend`:
+
+```ts [vite.config.ts]
+import { hubDb } from '@vite-hub/database/vite'
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  plugins: [hubDb(), {
+    name: 'auth-tables',
+    vitehub: {
+      database: {
+        extend: ({ name, schemaFiles }) => {
+          if (name === 'default') schemaFiles.push('/absolute/path/to/auth/schema.sqlite.ts')
+        },
+      },
+    },
+  }],
+})
+```
+
+The hook runs once for each discovered Database, each time ViteHub resolves its Databases. It runs after all modules and plugins are installed, so their order does not matter. The context has these fields:
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `name` | `string` | Database name. A Default Database uses `default`. |
+| `dialect` | `DatabaseDialect` | SQL dialect of the Database. Use it to select a dialect-specific schema file. |
+| `schemaFiles` | `string[]` | Schema files to add. Relative paths resolve from the Database project root. |
+
+Every named export of a schema file joins the Database schema. The default export does not. Drizzle relations in the file also apply to relational queries. A schema file that does not exist fails with `DATABASE_C0008`. An added export with the same key as another table fails when the schema loads, unless both keys refer to the same table object.
+
+A module adds tables only to a Database that the app defines. When no Database Definition is discovered, the hook does not run. `vitehub inspect definitions --kind database` lists the added schema files of each Database under `Schema extensions`. The Definition object that `defineDatabase()` returns keeps only the Definition schema. Use `useDatabase()` to query added tables.
+
 ## Database Definition options
 
 `defineDatabase()` accepts one object.

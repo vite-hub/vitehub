@@ -4,6 +4,30 @@ import type { BatchItem, BatchResponse } from "drizzle-orm/batch"
 export type DrizzleCasing = "snake_case" | "camelCase"
 export type DatabaseDialect = "sqlite"
 
+/** Describes one Database that a framework module or Vite plugin can extend with more tables. */
+export interface DatabaseExtendContext {
+  /** SQL dialect of the Database. Use it to select a dialect-specific schema file. */
+  readonly dialect: DatabaseDialect
+  /** Database name. A Default Database uses `default`. */
+  readonly name: string
+  /**
+   * Schema files to merge into this Database. Add absolute paths, or paths relative to the Database project root.
+   * Every named export of a file joins the Database schema, its generated migrations, and `useDatabase()`.
+   */
+  readonly schemaFiles: string[]
+}
+
+export type DatabaseExtendHook = (context: DatabaseExtendContext) => void | Promise<void>
+
+/** A Vite plugin that adds schema files to discovered Databases. */
+export interface DatabaseExtendingPlugin {
+  vitehub?: {
+    database?: {
+      extend?: DatabaseExtendHook
+    }
+  }
+}
+
 export interface RuntimeEnvDeclarationLike {
   default?: unknown
   kind: "env-variable"
@@ -141,6 +165,8 @@ export interface ResolvedDBViteConfig {
   generatedDrizzleConfigFilesByDatabase: Record<string, string>
   generatedSchemaFilesByDatabase: Record<string, string>
   rootDir: string
+  /** Absolute schema files that extensions add to each Database, in registration order. */
+  schemaExtensionsByDatabase: Record<string, string[]>
 }
 
 export type DBModulePublicOptions = false | DatabaseIntegrationOptions & Partial<DatabaseRuntimeD1Options> & {

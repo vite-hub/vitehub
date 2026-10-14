@@ -168,6 +168,7 @@ function createRuntimeConfig(rootDir: string, database: Pick<RuntimeDrizzleDatab
     generatedDrizzleConfigFilesByDatabase: {},
     generatedSchemaFilesByDatabase: { primary: generatedSchemaFile },
     rootDir,
+    schemaExtensionsByDatabase: {},
   }
 }
 
@@ -956,6 +957,41 @@ describe("Vite db provider outputs", () => {
     expect(vercelServerCode).toContain("process.env.TURSO_DATABASE_URL")
     expect(vercelServerCode).not.toContain("libsql://analytics.example.turso.io")
     expect(vercelServerCode).not.toContain("libsql://database.example.turso.io")
+  }, 30_000)
+
+  it("keeps extension tables in generated Vercel output", async () => {
+    const rootDir = await createDbBuildProject("vitehub-db-vite-extend-")
+    await mkdir(join(rootDir, "modules/auth"), { recursive: true })
+    await writeFile(join(rootDir, "modules/auth/schema.ts"), [
+      "import { sqliteTable, text } from 'drizzle-orm/sqlite-core'",
+      "export const user = sqliteTable('user', { id: text('id').primaryKey() })",
+      "",
+    ].join("\n"))
+    const viteConfig = join(rootDir, "vite.config.ts")
+    await writeFile(viteConfig, (await readFile(viteConfig, "utf8")).replace(
+      "plugins: [hubDb()],",
+      "plugins: [hubDb(), { name: 'auth-tables', vitehub: { database: { extend: ({ name, schemaFiles }) => { if (name === 'primary') schemaFiles.push('modules/auth/schema.ts') } } } }],",
+    ))
+
+    await runDbBuild(rootDir, {
+      TURSO_AUTH_TOKEN: "token",
+      TURSO_DATABASE_URL: "libsql://database.example.turso.io",
+    })
+
+    const vercelServer = join(rootDir, ".vercel", "output", "functions", "__server.func", "index.mjs")
+    const app = createServer()
+    try {
+      const handler = (await import(`${pathToFileURL(vercelServer).href}?t=${Date.now()}`)).default
+      app.on("request", (request, response) => void Promise.resolve(handler(request, response)).catch((error) => {
+        response.statusCode = 500
+        response.end(String(error))
+      }))
+      const response = await fetch(await listen(app))
+      await expect(response.text()).resolves.toBe("analytics,primary,default:primaryItems,user")
+    }
+    finally {
+      await close(app)
+    }
   }, 30_000)
 
   it("builds Vercel output from an integration-level external connection", async () => {

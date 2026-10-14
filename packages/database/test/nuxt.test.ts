@@ -37,6 +37,9 @@ function createNuxt(options: Record<string, unknown>) {
     watchHooks,
     nuxt: {
       options,
+      async callHook(name: string, value: Record<string, unknown>) {
+        await callHook(hooks, name, value)
+      },
       hook(name: string, callback: (value: Record<string, unknown>) => Promise<void> | void) {
         if (name === "builder:watch") {
           // SAFETY: Nuxt supplies the native builder:watch event and file path to this callback.
@@ -127,6 +130,7 @@ describe("Database Nuxt integration", () => {
     expect(nuxt.options.vite).toMatchObject({
       plugins: [
         expect.objectContaining({ name: "@vite-hub/database/vite" }),
+        expect.objectContaining({ name: "@vite-hub/database/nuxt-extend" }),
       ],
     })
 
@@ -483,8 +487,9 @@ describe("Database Nuxt integration", () => {
       await callHook(hooks, "nitro:config", {})
       const code = await readFile(join(buildDir, "vitehub/database/local-runtime.mjs"), "utf8")
       const evaluable = code.replace(/^import .+$/gm, "").replace(/^export /gm, "") + "\nreturn { databases, useDatabase }"
-      const runtime = new Function("definition_0", "createDefinitionRuntime", "createAgentDatabase", "defaultDatabaseNotConfiguredError", evaluable)(
-        { name: "__proto__", schema: { marker: "schema" } },
+      const runtime = new Function("definition_0", "schema_0", "createDefinitionRuntime", "createAgentDatabase", "defaultDatabaseNotConfiguredError", evaluable)(
+        { name: "__proto__", schema: {} },
+        { marker: "schema" },
         () => ({ marker: "database" }),
         () => ({}),
         () => new Error("missing"),
@@ -492,6 +497,57 @@ describe("Database Nuxt integration", () => {
 
       expect(Object.hasOwn(runtime.databases, "__proto__")).toBe(true)
       expect(runtime.useDatabase("__proto__")).toEqual({ db: { marker: "database" }, schema: { marker: "schema" } })
+    }
+    finally {
+      await rm(rootDir, { force: true, recursive: true })
+    }
+  })
+
+  it("adds tables from a Nuxt module that registers after ViteHub", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-extend-"))
+    const buildDir = join(rootDir, ".nuxt")
+    const definition = join(rootDir, "server/databases/config.ts")
+    const authSchema = join(rootDir, "modules/auth/schema.sqlite.ts")
+    try {
+      await mkdir(dirname(definition), { recursive: true })
+      await mkdir(dirname(authSchema), { recursive: true })
+      await writeFile(definition, "export default defineDatabase({ schema: { notes } })\n")
+      await writeFile(authSchema, "export const user = sqliteTable('user', {})\n")
+      const { hooks, nuxt } = createNuxt({ buildDir, dev: true, rootDir, vite: {} })
+      await hubDb()(undefined, nuxt)
+
+      // A fixture module, installed after ViteHub, adds its dialect-specific tables to the Default Database.
+      const contexts: unknown[] = []
+      nuxt.hook("vitehub:database:extend", (context) => {
+        contexts.push({ dialect: context.dialect, name: context.name })
+        if (context.name === "default") (context.schemaFiles as string[]).push(`./modules/auth/schema.${context.dialect}.ts`)
+      })
+
+      await callHook(hooks, "nitro:config", {})
+      expect(contexts).toEqual([{ dialect: "sqlite", name: "default" }])
+      const schema = await readFile(join(rootDir, ".vitehub/database/schema/default.ts"), "utf8")
+      expect(schema).toContain('export * from "../../../modules/auth/schema.sqlite.ts"')
+      expect(schema).toContain('["modules/auth/schema.sqlite.ts", extension_0, true]')
+      const runtime = await readFile(join(buildDir, "vitehub/database/local-runtime.mjs"), "utf8")
+      expect(runtime).toContain(`import schema_0 from ${JSON.stringify(pathToFileURL(join(rootDir, ".vitehub/database/schema/default.ts")).href)}`)
+      expect(runtime).toContain("db: createDefinitionRuntime({ ...definition_0, schema: schema_0 }, definitionDefaults)")
+      await expect(readFile(join(rootDir, ".vitehub/types/database.d.ts"), "utf8")).resolves.toContain(
+        'import type * as database_0_extension_0 from "../../modules/auth/schema.sqlite.ts"',
+      )
+
+      const production = createNuxt({ buildDir, dev: false, nitro: { preset: "vercel" }, rootDir, vite: {} })
+      await hubDb()(undefined, production.nuxt)
+      production.nuxt.hook("vitehub:database:extend", (context) => {
+        (context.schemaFiles as string[]).push(authSchema)
+      })
+      await rm(join(rootDir, ".vitehub/database/schema"), { force: true, recursive: true })
+      await callHook(production.hooks, "nitro:config", { preset: "vercel" })
+      await expect(readFile(join(rootDir, ".vitehub/database/schema/default.ts"), "utf8")).resolves.toContain(
+        'export * from "../../../modules/auth/schema.sqlite.ts"',
+      )
+      await expect(readFile(join(rootDir, ".vitehub/database/vercel-runtime.mjs"), "utf8")).resolves.toContain(
+        'import schema_0 from "./schema/default.ts"',
+      )
     }
     finally {
       await rm(rootDir, { force: true, recursive: true })
@@ -949,7 +1005,7 @@ describe("Database Nuxt integration", () => {
     await hubDb()(undefined, nuxt)
 
     expect(nuxt.options.vite).toMatchObject({
-      plugins: [existingPlugin],
+      plugins: [existingPlugin, expect.objectContaining({ name: "@vite-hub/database/nuxt-extend" })],
     })
   })
 

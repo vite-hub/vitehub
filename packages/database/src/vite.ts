@@ -13,6 +13,7 @@ import { computePackageDir, resolveRuntimeModule } from "@vite-hub/internal/buil
 import { createDbCliContributor } from "./cli.ts"
 import { cloudflareOptions, mergeCloudflareD1Bindings, resolveCloudflareD1Bindings } from "./internal/cloudflare.ts"
 import { resolveDBViteConfig, serializeGeneratedRegistry } from "./config.ts"
+import { collectDatabaseExtendHooks, extendDatabaseSchema } from "./internal/extend.ts"
 import { removeGeneratedDatabaseTypes, writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
 import { renderDatabaseConfigExpression } from "./internal/runtime-config-expression.ts"
 import { dbPackageName, generateProviderOutputs, prepareProviderOutputs, shouldCreateCloudflareOutput, shouldCreateVercelOutput } from "./internal/vite-build.ts"
@@ -149,10 +150,11 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
 
   async function refreshRuntimeConfig() {
     if (!resolved) return
-    runtimeConfig = resolveDBViteConfig(resolvedOptions(), databaseRoot(), {
+    const config = resolveDBViteConfig(resolvedOptions(), databaseRoot(), {
       provisionRoot: resolved.root,
       serverDirs: databaseServerDirs(),
     })
+    runtimeConfig = config && await extendDatabaseSchema(config, collectDatabaseExtendHooks(resolved.plugins))
     if (runtimeConfig) {
       await writeGeneratedDatabaseArtifacts(runtimeConfig)
     } else {
@@ -229,6 +231,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
             list: () => inspectDatabaseDefinitions({
               projectRoot: resolveViteHubProjectRoot(resolved?.root ?? process.cwd()),
               rootDir: databaseRoot(),
+              schemaExtensionsByDatabase: runtime?.schemaExtensionsByDatabase,
               serverDirs: databaseServerDirs(),
             }),
           }],
@@ -300,6 +303,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
           paths: [
             ...contributionRuntimeConfig.definitions.map(definition => definition.handler),
             ...Object.values(contributionRuntimeConfig.generatedSchemaFilesByDatabase),
+            ...Object.values(contributionRuntimeConfig.schemaExtensionsByDatabase).flat(),
           ],
           roots: [contributionResolved.root],
         })
@@ -311,6 +315,8 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
           })),
           generatedSchemaFilesByDatabase: Object.fromEntries(Object.entries(contributionRuntimeConfig.generatedSchemaFilesByDatabase)
             .map(([name, file]) => [name, retainedSources.resolve(file)])),
+          schemaExtensionsByDatabase: Object.fromEntries(Object.entries(contributionRuntimeConfig.schemaExtensionsByDatabase)
+            .map(([name, files]) => [name, files.map(file => retainedSources.resolve(file))])),
         }
         const contributionArtifacts = await prepareProviderOutputs({
           appRootDir: retainedSources.resolve(contributionResolved.root),

@@ -262,6 +262,13 @@ export default defineConfig({
           }
         },
       },
+      {
+        name: "vite-hub-database-nuxt-hooks",
+        generateBundle(_options, bundle) {
+          const chunk = bundle["nuxt.d.ts"];
+          if (chunk?.type === "chunk") chunk.code = `import type {} from "@vite-hub/database/nuxt";\n${chunk.code}`;
+        },
+      },
     ],
     entry: [
       ...distributionEntries,

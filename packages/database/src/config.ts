@@ -31,6 +31,7 @@ import type {
 import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
 
 export { resolveConfigValue } from "./config-value.ts"
+export { collectDatabaseExtendHooks, extendDatabaseSchema } from "./internal/extend.ts"
 
 /** Serialize generated registries without invoking the legacy __proto__ setter. */
 export function serializeGeneratedRegistry(value: unknown): string {
@@ -473,5 +474,6 @@ export function resolveDBViteConfig(
     generatedDrizzleConfigFilesByDatabase,
     generatedSchemaFilesByDatabase,
     rootDir,
+    schemaExtensionsByDatabase: Object.create(null),
   }
 }

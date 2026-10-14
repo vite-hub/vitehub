@@ -17,9 +17,10 @@ import { writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
 import { usesD1HttpOnly, writeHostedDatabaseRuntimeModules } from "./internal/vite-build.ts"
 import { resolveConfigValue, withConfigValueFallback } from "./config-value.ts"
 import { resolveDBViteConfig, serializeGeneratedRegistry } from "./config.ts"
+import { collectDatabaseExtendHooks, extendDatabaseSchema } from "./internal/extend.ts"
 import { hubDb as hubDbVite } from "./vite.ts"
 
-import type { DatabaseNuxtIntegrationOptions, DBModulePublicOptions } from "./types.ts"
+import type { DatabaseExtendContext, DatabaseExtendingPlugin, DatabaseNuxtIntegrationOptions, DBModulePublicOptions, ResolvedDBViteConfig } from "./types.ts"
 import type { Plugin } from "vite"
 import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
 
@@ -30,6 +31,9 @@ const generatedNitroMigrationsDir = ".vitehub/database/migrations"
 const databaseDefinitionDefaultsImport = "#vitehub/database/definition-defaults"
 const databaseDrizzleImport = "@vite-hub/database/drizzle"
 const databaseRuntimeDir = fileURLToPath(new URL("./runtime/", import.meta.url))
+/** Nuxt hook that lets other modules add schema files to a discovered Database. */
+const databaseExtendNuxtHook = "vitehub:database:extend"
+const databaseExtendNuxtPluginName = "@vite-hub/database/nuxt-extend"
 
 type NuxtModuleDependencies = Record<string, {
   defaults?: Record<string, unknown>
@@ -51,9 +55,11 @@ type DatabaseNuxtModule = {
 }
 
 type NuxtLike = {
+  callHook?: (name: typeof databaseExtendNuxtHook, context: DatabaseExtendContext) => Promise<unknown>
   hook?: {
     (name: "nitro:config", callback: (value: Record<string, unknown>) => Promise<void> | void): void
     (name: "builder:watch", callback: (event: string, path: string) => Promise<void> | void): void
+    (name: "close", callback: () => Promise<void> | void): void
   }
   options: Record<string, unknown> & {
     buildDir?: string
@@ -130,6 +136,12 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
       viteConfig.database = { ...configuredDatabase, ...viteOptions }
     }
     installVitePlugin(viteConfig, { ...runtimeOptions, projectRoot: root })
+    installNuxtExtendPlugin(viteConfig, nuxt as NuxtLike)
+    // Other Nuxt modules extend Databases through the Nuxt hook or Vite plugins, after every module has run setup.
+    const resolveRuntime = async () => {
+      const runtime = resolveDBViteConfig(runtimeOptions, root, { provisionRoot, serverDirs })
+      return runtime && await extendDatabaseSchema(runtime, collectDatabaseExtendHooks(viteConfig.plugins))
+    }
 
     const hook = (nuxt as NuxtLike).hook
     if (typeof hook === "function") {
@@ -143,7 +155,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
       const refreshLocalRuntime = () => {
         const refresh = async () => {
           if (!localNitroConfig) return
-          const runtime = await installNitroLocalDatabaseRuntime(localNitroConfig, root, provisionRoot, generatedRoot, runtimeOptions, serverDirs, d1)
+          const runtime = await installNitroLocalDatabaseRuntime(localNitroConfig, generatedRoot, resolveRuntime, d1)
           for (const definition of runtime?.definitions ?? []) {
             definitionFiles.add(definition.handler)
             definitionDirectories.add(dirname(definition.handler))
@@ -177,7 +189,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
           await refreshLocalRuntime()
         }
         if (!nuxtOptions.dev) {
-          const runtime = resolveDBViteConfig(runtimeOptions, root, { provisionRoot, serverDirs })
+          const runtime = await resolveRuntime()
           if (provider === "cloudflare") assertDistinctNuxtD1Bindings(runtime, d1, config)
           const d1Only = runtime && usesD1HttpOnly(runtime)
           const runtimeProvider = provider === "vercel" ? "vercel" : provider === "cloudflare" || d1 || d1Only ? "cloudflare" : provider
@@ -233,11 +245,8 @@ export default nuxtModule
 
 async function installNitroLocalDatabaseRuntime(
   config: Record<string, unknown>,
-  root: string,
-  provisionRoot: string,
   generatedRoot: string,
-  options: ResolvedDatabaseNuxtIntegrationOptions,
-  serverDirs?: string[],
+  resolveRuntime: () => Promise<ResolvedDBViteConfig | undefined>,
   d1?: ResolvedDatabaseNuxtD1Options,
 ) {
   const file = resolve(generatedRoot, generatedNitroLocalDatabaseRuntime)
@@ -248,7 +257,7 @@ async function installNitroLocalDatabaseRuntime(
     return
   }
 
-  const runtime = resolveDBViteConfig(options, root, { provisionRoot, serverDirs })
+  const runtime = await resolveRuntime()
   assertDistinctNuxtD1Bindings(runtime, d1, config)
   if (!runtime?.definitions.length) {
     await rm(file, { force: true })
@@ -259,12 +268,15 @@ async function installNitroLocalDatabaseRuntime(
     return
   }
 
-  const imports = runtime.definitions.map((definition, index) =>
-    `import definition_${index} from ${JSON.stringify(pathToFileURL(definition.handler).href)}`)
+  await writeGeneratedDatabaseArtifacts(runtime)
+  const imports = runtime.definitions.flatMap((definition, index) => [
+    `import definition_${index} from ${JSON.stringify(pathToFileURL(definition.handler).href)}`,
+    `import schema_${index} from ${JSON.stringify(pathToFileURL(runtime.generatedSchemaFilesByDatabase[definition.name]!).href)}`,
+  ])
   const entries = runtime.definitions.map((definition, index) => [
     `  [${JSON.stringify(definition.name)}]: {`,
-    `    db: createDefinitionRuntime(definition_${index}, definitionDefaults),`,
-    `    schema: definition_${index}.schema,`,
+    `    db: createDefinitionRuntime({ ...definition_${index}, schema: schema_${index} }, definitionDefaults),`,
+    `    schema: schema_${index},`,
     "  },",
   ].join("\n"))
   await writeFileIfChanged(file, renderDatabaseRuntimeModule({
@@ -373,6 +385,34 @@ function resolveDatabaseNuxtD1Options(
     ...(projection.unresolved ? { unresolved: projection.unresolved } : {}),
     viteOptions: resolveDatabaseViteOptions(options) ?? {},
   }
+}
+
+function installNuxtExtendPlugin(viteConfig: Record<string, unknown>, nuxt: NuxtLike) {
+  const plugins = Array.isArray(viteConfig.plugins) ? viteConfig.plugins : []
+  if (plugins.some(plugin => isRecord(plugin) && plugin.name === databaseExtendNuxtPluginName)) return
+  // CLI commands can resolve Databases after Nuxt closes and drops its hooks, so the last live answer is kept.
+  const captured = new Map<string, string[]>()
+  let closed = false
+  nuxt.hook?.("close", () => {
+    closed = true
+  })
+  const plugin: Plugin & DatabaseExtendingPlugin = {
+    name: databaseExtendNuxtPluginName,
+    vitehub: {
+      database: {
+        extend: async (context) => {
+          if (closed) {
+            context.schemaFiles.push(...captured.get(context.name) ?? [])
+            return
+          }
+          const start = context.schemaFiles.length
+          await nuxt.callHook?.(databaseExtendNuxtHook, context)
+          captured.set(context.name, context.schemaFiles.slice(start))
+        },
+      },
+    },
+  }
+  viteConfig.plugins = [...plugins, plugin]
 }
 
 function installVitePlugin(viteConfig: Record<string, unknown>, options: ResolvedDatabaseNuxtIntegrationOptions) {

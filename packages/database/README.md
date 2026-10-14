@@ -77,6 +77,18 @@ When the Nitro Vite plugin builds with a Cloudflare preset, the Vite integration
 
 Production Nuxt builds with only D1-over-HTTP Databases do not bundle libSQL or its native libraries. Local SQLite development and projects with libSQL connections keep their existing drivers.
 
+## Add tables from a module
+
+A Nuxt module can add its own tables to the app's Database with the `vitehub:database:extend` hook. The tables join `useDatabase()`, the generated types, and `vitehub db generate` migrations.
+
+```ts
+nuxt.hook("vitehub:database:extend", ({ name, dialect, schemaFiles }) => {
+  if (name === "default") schemaFiles.push(resolve(`./schema.${dialect}.ts`))
+})
+```
+
+A Vite plugin uses the same context through `vitehub.database.extend`. Every named export of an added schema file joins the Database schema.
+
 ## Remote D1 development
 
 Set `cloudflare.http` on a Database Definition to query remote D1 during local development. `true` uses Cloudflare's API with `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`; an object selects an authenticated D1-compatible proxy.

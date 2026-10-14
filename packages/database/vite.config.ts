@@ -6,6 +6,7 @@ export default defineConfig({
     copy: [
       { from: "src/drizzle-subpath.d.ts", rename: "drizzle-subpath.d.ts", to: "dist" },
       { from: "src/virtual-module.d.ts", rename: "virtual-module.d.ts", to: "dist" },
+      { from: "src/nuxt-hooks.d.ts", rename: "nuxt-hooks.d.ts", to: "dist" },
     ],
     deps: {
       alwaysBundle: [/^@vite-hub\/internal/],
@@ -18,6 +19,10 @@ export default defineConfig({
         const chunk = bundle["virtual.d.ts"]
         if (chunk?.type === "chunk") {
           chunk.code = `/// <reference path="./virtual-module.d.ts" />\n${chunk.code}`
+        }
+        const nuxtChunk = bundle["nuxt.d.ts"]
+        if (nuxtChunk?.type === "chunk") {
+          nuxtChunk.code = `/// <reference path="./nuxt-hooks.d.ts" />\n${nuxtChunk.code}`
         }
       },
     }],
