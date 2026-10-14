@@ -760,7 +760,9 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
             documents.push({ collection: collection.name, id, change: "delete" })
             continue
           }
-          put[path] = await draft.view.readFile(path, { encoding: "binary" })
+          const bytes = await draft.view.readFile(path, { encoding: "binary" })
+          await collection.parseText(new TextDecoder().decode(bytes))
+          put[path] = bytes
           documents.push({ collection: collection.name, id, change: publishedDigest === undefined ? "add" : "update" })
         }
       }
