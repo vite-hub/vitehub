@@ -158,7 +158,7 @@ function referenceJsonSchema(hint: BlobReferenceHint, maxBytes: number | undefin
   }
   const description = "Size in bytes recorded at upload."
   const size = maxBytes === undefined
-    ? { type: "integer", minimum: 0, description }
+    ? { type: "integer", minimum: 0, maximum: Number.MAX_SAFE_INTEGER, description }
     : { type: "integer", minimum: 0, maximum: maxBytes, description }
   const properties = {
     pathname: { type: "string", minLength: 1, pattern: pathnamePattern, description: "Pathname in the Blob Store." },
