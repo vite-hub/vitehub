@@ -65,7 +65,22 @@ export async function runWorkspaceInspectionCommand(
   })
   const noMatchFeedback = searchNoMatchFeedback(command, result, options.broadSearchPaths, options.cwd)
 
-  return noMatchFeedback ? { ...result, stdout: noMatchFeedback, workspaceGuardrail: { kind: "no_match" } } : result
+  if (!noMatchFeedback) return result
+  const bounded = limitInspectionFeedback(noMatchFeedback, maxOutputLength)
+  return {
+    ...result,
+    stdout: bounded.stdout,
+    outputTruncated: result.outputTruncated || bounded.outputTruncated,
+    workspaceGuardrail: { kind: "no_match" },
+  }
+}
+
+function limitInspectionFeedback(feedback: string, maxLength: number | undefined) {
+  if (maxLength === undefined || feedback.length <= maxLength) return { stdout: feedback, outputTruncated: false }
+  return {
+    stdout: `${feedback.slice(0, maxLength)}\n[output truncated to ${maxLength} characters]\n`,
+    outputTruncated: true,
+  }
 }
 
 function normalizeOutputLength(value: number | undefined): number | undefined {
