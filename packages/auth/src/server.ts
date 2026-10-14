@@ -279,16 +279,11 @@ function isResponse(value: unknown): value is Response {
   if (value instanceof Response) return true
   if (value === null || typeof value !== "object") return false
   try {
-    const response = value as Partial<Response> & { body?: unknown }
-    const body = response.body
-    const status = response.status
-    return typeof status === "number"
-      && Number.isInteger(status)
-      && status >= 200
-      && status <= 599
-      && typeof response.statusText === "string"
-      && typeof response.arrayBuffer === "function"
-      && (body === null || (typeof body === "object" && typeof (body as { getReader?: unknown }).getReader === "function"))
+    // The Web IDL getter performs the native Response brand check. It works
+    // across realms that share the platform implementation and cannot be
+    // satisfied by a plain object with Response-shaped properties.
+    const bodyGetter = Object.getOwnPropertyDescriptor(Response.prototype, "body")?.get
+    return typeof bodyGetter === "function" && bodyGetter.call(value) !== undefined
   } catch {
     return false
   }
