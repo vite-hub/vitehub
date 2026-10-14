@@ -71,7 +71,7 @@ function decimalExceeds(actual: string, limit: number | string): boolean {
   return left.units * right.scale > right.units * left.scale
 }
 
-function validateOptions(options: AgentBudgetOptions): { tokens: AgentBudgetTokenLimits, usd?: number | string } {
+function validateOptions(options: AgentBudgetOptions, allowCapacity: boolean): { tokens: AgentBudgetTokenLimits, usd?: number | string } {
   const tokens = normalizeTokens(options.tokens)
   let usd: number | string | undefined
   if (options.usd !== undefined) {
@@ -79,8 +79,11 @@ function validateOptions(options: AgentBudgetOptions): { tokens: AgentBudgetToke
     decimalParts(options.usd)
     usd = options.usd
   }
-  if (!Object.keys(tokens).length && usd === undefined) {
-    throw new TypeError("[vitehub] budget requires tokens or usd.")
+  if (!allowCapacity && options.capacity !== undefined) {
+    throw new TypeError("[vitehub] budget capacity is only supported through defineAgent({ budget }).")
+  }
+  if (!Object.keys(tokens).length && usd === undefined && (!allowCapacity || options.capacity === undefined)) {
+    throw new TypeError("[vitehub] budget requires tokens, usd, or capacity.")
   }
   const result: { tokens: AgentBudgetTokenLimits, usd?: number | string } = { tokens }
   if (usd !== undefined) result.usd = usd
@@ -111,8 +114,17 @@ function outputTokenLimit(tokens: AgentBudgetTokenLimits): number | undefined {
 }
 
 export function budget(options: AgentBudgetOptions): AgentCapabilityDefinition {
+  return createBudgetCapability(options, false)
+}
+
+// Package-internal composition. Only defineAgent installs and normalizes capacity.
+export function createAgentBudgetCapability(options: AgentBudgetOptions): AgentCapabilityDefinition {
+  return createBudgetCapability(options, true)
+}
+
+function createBudgetCapability(options: AgentBudgetOptions, allowCapacity: boolean): AgentCapabilityDefinition {
   const id = options.id || "budget"
-  const limits = validateOptions(options)
+  const limits = validateOptions(options, allowCapacity)
   const pricing = options.pricing === false || (limits.usd === undefined && options.pricing === undefined)
     ? undefined
     : options.pricing || modelsDevPricing()
@@ -132,7 +144,7 @@ export function budget(options: AgentBudgetOptions): AgentCapabilityDefinition {
         callSettings: ({ callSettings }) => {
           const current = callSettings.maxOutputTokens
           if (hasRuntimeType(current, "number") && current <= maxOutputTokens) return
-          return { maxOutputTokens }
+          return { maxOutputTokens: hasRuntimeType(current, "number") ? Math.min(current, maxOutputTokens) : maxOutputTokens }
         },
       })
     },

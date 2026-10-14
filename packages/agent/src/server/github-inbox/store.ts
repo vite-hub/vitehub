@@ -812,9 +812,9 @@ export class PullRequestInbox {
       if (event === 'pull_request' && !['opened','synchronize','reopened','closed','edited','ready_for_review','converted_to_draft','labeled','unlabeled','enqueued','dequeued'].includes(payload.action ?? '')) return await finish('irrelevant PR action')
       if (event === 'pull_request_review_thread' && (!['resolved', 'unresolved'].includes(payload.action ?? '') || !payload.thread?.node_id)) return await finish('irrelevant review thread action')
       const check = payload.check_run ?? payload.check_suite ?? payload.workflow_run
-      // Push payloads expose the updated commit as `after`; use it for
-      // head matching when a provider does not include a check object.
-      const sha = check?.head_sha ?? payload.sha ?? payload.after
+      // Match commit-scoped evidence to the current head. Pull request
+      // synchronize payloads also have `after`, but must advance that head.
+      const sha = check?.head_sha ?? (event === 'status' ? payload.sha : event === 'push' ? payload.after : undefined)
       const numbers = new Set<number>()
       const direct = payload.pull_request?.number ?? (payload.issue?.pull_request ? payload.issue.number : undefined)
       if (direct) numbers.add(direct)

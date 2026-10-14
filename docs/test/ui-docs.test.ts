@@ -75,9 +75,7 @@ describe("UI documentation", () => {
   it("gives every block page a full-width, resettable preview", () => {
     expect(blockPages.length).toBeGreaterThanOrEqual(3);
     for (const page of blockPages) {
-      expect(page.source, page.name).toMatch(
-        /::component-preview\{name="[A-Za-z]+Block" flush reset\}/,
-      );
+      expect(page.source, page.name).toMatch(/::component-preview\{name="[A-Za-z]+Block" flush reset\}/);
       expect(page.source, page.name).toContain("navigation.group: Console");
     }
   });
@@ -151,15 +149,11 @@ describe("UI documentation", () => {
     expect(inspector).toContain('class="h-full border-x border-default"');
   });
 
-  it("switches sections with the primitive rail instead of a product selector", () => {
-    const sidebarTop = readFileSync(
-      resolve(docsRoot, "app/components/DocsAsideLeftTop.vue"),
-      "utf8",
-    );
-    const sidebars = readFileSync(resolve(docsRoot, "app/components/DocsSidebars.vue"), "utf8");
+  it("uses a static context link instead of a product disclosure control", () => {
+    const sidebarTop = readFileSync(resolve(docsRoot, "app/components/DocsAsideLeftTop.vue"), "utf8");
 
-    expect(sidebars).toContain("<DocsRail />");
-    expect(sidebarTop).toContain('<h2 class="vh-docs-panel-title">');
+    expect(sidebarTop).toContain("vh-docs-context");
+    expect(sidebarTop).toContain('<NuxtLink');
     expect(sidebarTop).not.toContain("USelectMenu");
     expect(sidebarTop).not.toContain("getDocsSectionSelectItems");
   });
@@ -175,18 +169,15 @@ describe("UI documentation", () => {
     expect(rail).toContain("<template #default");
   });
 
-  it("keeps the docs sidebar visible without a duplicate picker or search", () => {
-    const sidebarTop = readFileSync(
-      resolve(docsRoot, "app/components/DocsAsideLeftTop.vue"),
-      "utf8",
-    );
+
+  it("keeps the docs sidebar visible without disclosure toggles", () => {
     const sidebar = readFileSync(resolve(docsRoot, "app/components/DocsAsideLeftBody.vue"), "utf8");
     const layout = readFileSync(resolve(docsRoot, "app/layouts/docs.vue"), "utf8");
 
     expect(sidebar).toContain("flex: 1 1 0");
     expect(sidebar).toContain("min-height: 0");
-    expect(sidebarTop).not.toContain("<details");
-    expect(sidebarTop).not.toContain("UContentSearchButton");
+    expect(sidebar).not.toContain("<details");
+    expect(sidebar).not.toContain("<summary");
     expect(layout).toContain("height: calc(100dvh - var(--ui-header-height));");
   });
 
