@@ -33,19 +33,16 @@ const typedArrayTag = Object.getOwnPropertyDescriptor(
 
 function isUint8Array(value: unknown): value is Uint8Array {
   if (!ArrayBuffer.isView(value) || !typedArrayTag) return false
-  try {
-    return typedArrayTag.call(value) === 'Uint8Array'
-  }
-  catch {
-    return false
-  }
+  try { return typedArrayTag.call(value) === 'Uint8Array' }
+  catch { return false }
 }
 
-function isBoxedJsonPrimitive(value: object) {
-  return value instanceof Boolean
-    || value instanceof Number
-    || value instanceof String
-    || Object.getPrototypeOf(value) === BigInt.prototype
+function unboxJsonPrimitive(value: unknown): { value: unknown } | undefined {
+  for (const unbox of [Boolean.prototype.valueOf, Number.prototype.valueOf, String.prototype.valueOf, BigInt.prototype.valueOf]) {
+    try { return { value: Reflect.apply(unbox, value, []) } }
+    catch {}
+  }
+  return undefined
 }
 
 function hasMarker(value: Record<string, unknown>) {
@@ -122,7 +119,8 @@ export async function encodeSandboxValue(
     }
 
     if (!isObjectRecord(entry)) return entry
-    if (isBoxedJsonPrimitive(entry)) return await encode(entry.valueOf(), ancestors, key, false)
+    const boxed = unboxJsonPrimitive(entry)
+    if (boxed) return await encode(boxed.value, ancestors, key, false)
     if (ancestors.has(entry))
       throw serializationError(`Sandbox ${label} must be JSON-serializable.`, { label })
 
