@@ -368,9 +368,10 @@ function inferredSourceDefaults(family: WorkspaceSourceFamily, input: WorkspaceS
   }
 
   if (family === "file") {
-    const mount = typeof input.mount === "object" && input.mount && !("path" in input.mount)
-      ? { ...input.mount, path: "" }
-      : input.mount ?? ""
+    const mountInput = hasOwn(input, "mount") ? input.mount : undefined
+    const mount = typeof mountInput === "object" && mountInput && !("path" in mountInput)
+      ? { ...mountInput, path: "" }
+      : mountInput ?? ""
     return copySourceRuntimeOptions(input, {
       mount,
       probeKeys: [inferredFileSourceKey(input)],
