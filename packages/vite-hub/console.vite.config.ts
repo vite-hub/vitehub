@@ -54,6 +54,9 @@ export default defineConfig({
           ? "console-[hash][extname]"
           : "assets/[name]-[hash][extname]",
         chunkFileNames: "chunks/[name]-[hash].js",
+        // VueUse holds the color mode writer that Nuxt UI's search keeps behind `colorMode: false`.
+        // A separate chunk keeps it out of the entry, so the entry only carries the Console appearance module.
+        codeSplitting: { groups: [{ name: "vueuse", test: /[\\/]@vueuse[\\/]core[\\/]/ }] },
         entryFileNames: "console-[hash].js",
       },
     },
