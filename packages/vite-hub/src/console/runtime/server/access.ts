@@ -68,7 +68,8 @@ async function authorizationResponse(value: unknown): Promise<Response | undefin
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Verify the foreign Response clone method before invoking it.
     if (typeof cloneMethod !== "function") return undefined
     const clone = Reflect.apply(cloneMethod, value, [])
-    if (!clone || clone === value || Object.getPrototypeOf(clone) !== Object.getPrototypeOf(value)
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Narrow the foreign clone result before inspecting its fields.
+    if (!clone || typeof clone !== "object" || clone === value || Object.getPrototypeOf(clone) !== Object.getPrototypeOf(value)
       || objectToString.call(clone) !== "[object Response]"
       || Object.prototype.hasOwnProperty.call(clone, Symbol.toStringTag)) return undefined
     // A callable clone spoof must also expose the transferable Response contract.
