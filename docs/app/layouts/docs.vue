@@ -61,7 +61,7 @@ const hasPanel = computed(
     display: flex;
     align-items: flex-start;
     /* Clip the expanded rail horizontally without creating a vertical scroll ancestor for sticky navigation. */
-    overflow: hidden;
+    overflow-x: clip;
   }
 
   .vh-docs-shell > .vh-docs-desktop-nav {
