@@ -108,7 +108,12 @@ describe("Auth access handlers", () => {
     const foreignResponse = runInNewContext(`new (class {
       get status() { return 409 }
       get statusText() { return "Conflict" }
-      get headers() { return [["set-cookie", "policy=denied"], ["x-policy", "rejected"]] }
+      get headers() {
+        const headers = [["set-cookie", "policy=denied"], ["x-policy", "rejected"]]
+        headers.get = (name) => headers.find(([key]) => key === name.toLowerCase())?.[1] ?? null
+        headers.forEach = (callback) => headers.forEach(([value, key]) => callback(value, key, headers))
+        return headers
+      }
       get body() { return { getReader() { return {} } } }
       async arrayBuffer() { return new Uint8Array([110, 111]).buffer }
       get [Symbol.toStringTag]() { return "Response" }
