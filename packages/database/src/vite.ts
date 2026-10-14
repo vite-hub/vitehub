@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto"
 import { copyFile, mkdir, readdir, rm } from "node:fs/promises"
+import { createRequire } from "node:module"
 import { resolve } from "node:path"
+import { pathToFileURL } from "node:url"
 
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
@@ -149,6 +151,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
   let runtimeConfig: ResolvedDBViteConfig | undefined
   let serverDirs: string[] | undefined
   let contributions: CollectedDatabaseContribution[] = []
+  let contributionFiles = new Set<string>()
 
   function resolvedOptions() {
     return resolved?.database ?? options
@@ -278,6 +281,15 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
       contributions = resolvedOptions() === false
         ? []
         : await collectDatabaseContributions(config.plugins, { rootDir: databaseRoot(), serverDirs: databaseServerDirs() })
+      const require = createRequire(pathToFileURL(resolve(databaseRoot(), "package.json")))
+      contributionFiles = new Set(contributions.flatMap(contribution => {
+        try {
+          return [normalize(require.resolve(contribution.module))]
+        }
+        catch {
+          return []
+        }
+      }))
       await refreshRuntimeConfig()
       mergeNitroCloudflareD1Bindings()
     },
@@ -299,6 +311,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
 
       const changedFile = normalize(context.file)
       const isDatabaseUpdate = runtimeConfig.definitions.some(definition => normalize(definition.handler) === changedFile)
+        || contributionFiles.has(changedFile)
       if (!isDatabaseUpdate) return
 
       await refreshRuntimeConfig()
