@@ -30,6 +30,24 @@ export interface LoadedDatabaseSchema {
   sqlNames: Map<string, string>
 }
 
+/** Reject duplicate schema keys or SQL table names before schemas are merged. */
+export function assertDistinctLoadedSchemas(database: string, parts: readonly { schema: LoadedDatabaseSchema, owner: string }[]) {
+  const keys = new Map<string, string>()
+  const sqlNames = new Map<string, string>()
+  for (const part of parts) {
+    for (const key of part.schema.keys) {
+      const existing = keys.get(key)
+      if (existing) throw databaseErrorDiagnostics.DATABASE_B0010({ message: `[vitehub] Database "${database}" has two schema entries with the key ${JSON.stringify(key)}:\n  - ${existing}\n  - ${part.owner}\nRename one key, or remove the contribution. If the Definition already lists the contributed tables, remove them from its schema.` })
+      keys.set(key, part.owner)
+    }
+    for (const sqlName of new Set(part.schema.sqlNames.values())) {
+      const existing = sqlNames.get(sqlName)
+      if (existing) throw databaseErrorDiagnostics.DATABASE_B0010({ message: `[vitehub] Database "${database}" has two tables named ${JSON.stringify(sqlName)}:\n  - ${existing}\n  - ${part.owner}\nRename one table, or remove the contribution. If the Definition already lists the contributed tables, remove them from its schema.` })
+      sqlNames.set(sqlName, part.owner)
+    }
+  }
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null
 }
