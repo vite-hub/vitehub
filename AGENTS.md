@@ -33,9 +33,19 @@ Use Better Auth as a reference for composability and UnJS as a reference for hos
 
 ## Before and after a change
 
-Read `CONTRIBUTING.md` and the nearest package README. Trace contract changes from configuration through generated output, runtime behavior, and consumers. Check every affected host, provider, and configuration form.
+Read the nearest package README. Trace contract changes from configuration through generated output, runtime behavior, and consumers. Check every affected host, provider, and configuration form.
 
 Run focused checks for the files you changed. Build the affected package and its dependencies when the change affects runtime or generated output. Do not run repository wide suites unless the task needs them.
+
+```sh
+corepack pnpm install --frozen-lockfile
+corepack pnpm exec vp run -t vite-hub#build
+corepack pnpm --dir packages/vite-hub run test
+corepack pnpm --dir packages/vite-hub exec vp test test/<file>.test.ts
+corepack pnpm exec vp run verify
+```
+
+Replace `vite-hub` with the affected package. `verify` is the full local gate and needs the Deno version in `.deno-version`.
 
 Report what changed, why, what you verified, and any remaining uncertainty. Keep the response in normal prose. Return JSON, HTML, or other machine formats only when the user explicitly asks for that format.
 
