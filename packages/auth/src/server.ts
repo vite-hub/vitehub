@@ -283,15 +283,12 @@ async function runAccessAuthorize(
   if (result instanceof Response) return result
   if (isResponseLike(result)) {
     try {
-      const response = result as Response & { body?: BodyInit | null, arrayBuffer?: () => Promise<ArrayBuffer> }
+      const response = result
       const headers = new Headers()
-      const sourceHeaders = response.headers as Headers & { forEach?: (callback: (value: string, key: string) => void) => void }
-      if (typeof sourceHeaders.forEach === "function") {
-        sourceHeaders.forEach((value, key) => headers.set(key, value))
-      }
+      response.headers.forEach((value, key) => headers.append(key, value))
       const body = typeof response.arrayBuffer === "function"
         ? await response.arrayBuffer()
-        : response.body ?? null
+        : (response.body as ConstructorParameters<typeof Response>[0] | null | undefined) ?? null
       return new Response(body, {
         headers,
         status: response.status,
@@ -299,7 +296,7 @@ async function runAccessAuthorize(
       })
     }
     catch {
-      return undefined
+      return createForbiddenResponse(context.request)
     }
   }
   if (result !== true) return createForbiddenResponse(context.request)
@@ -309,11 +306,18 @@ function isResponseLike(value: unknown): value is Response {
   if (value === null || typeof value !== "object") return false
   try {
     if (Object.prototype.toString.call(value) !== "[object Response]") return false
-    const response = value as { headers?: unknown, status?: unknown, statusText?: unknown }
+    // SAFETY: These unknown fields are inspected inside the guard before normalization.
+    const response = value as { headers?: unknown, status?: unknown, statusText?: unknown, body?: unknown, arrayBuffer?: unknown }
     if (typeof response.status !== "number" || !Number.isInteger(response.status) || response.status < 0 || response.status > 599) return false
     if (typeof response.statusText !== "string") return false
     const headers = response.headers
-    return headers !== null && typeof headers === "object" && typeof (headers as { get?: unknown }).get === "function"
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Inspect the foreign Headers boundary before copying its entries.
+    if (headers === null || typeof headers !== "object") return false
+    // SAFETY: The headers object exists; each required method is checked before use.
+    const sourceHeaders = headers as { get?: unknown, forEach?: unknown }
+    return typeof sourceHeaders.get === "function"
+      && typeof sourceHeaders.forEach === "function"
+      && (typeof response.arrayBuffer === "function" || "body" in response)
   }
   catch {
     return false

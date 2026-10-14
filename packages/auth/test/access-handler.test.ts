@@ -108,7 +108,7 @@ describe("Auth access handlers", () => {
     const foreignResponse = runInNewContext(`new (class {
       get status() { return 409 }
       get statusText() { return "Conflict" }
-      get headers() { return { get() { return null } } }
+      get headers() { return { get() { return null }, forEach() {} } }
       get body() { return null }
       get [Symbol.toStringTag]() { return "Response" }
     })()`)
@@ -119,6 +119,7 @@ describe("Auth access handlers", () => {
     const response = await handler(new Request("https://app.example/"))
     expect(response).toBeInstanceOf(Response)
     expect(response).not.toBe(foreignResponse)
+    if (!response) throw new Error("Expected an authorization response")
     expect(response.status).toBe(409)
     expect(await response.text()).toBe("")
   })
