@@ -88,8 +88,11 @@ describe("createMultipartUploader", () => {
 
   it("aborts a server upload that finishes creating after local abort", async () => {
     let releaseCreate!: (response: Response) => void
-    const fetch = vi.fn((url: FetchInput) => {
-      if (String(url).includes("/create/")) return new Promise<Response>(resolve => { releaseCreate = resolve })
+    const fetch = vi.fn((url: FetchInput, init?: RequestInit) => {
+      if (String(url).includes("/create/")) return new Promise<Response>((resolve, reject) => {
+        releaseCreate = resolve
+        init?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true })
+      })
       return Promise.resolve(json({ action: "abort" }))
     })
     const task = createMultipartUploader("/api/multipart", { fetch })(new File(["a"], "a.txt"))

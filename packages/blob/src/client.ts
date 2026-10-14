@@ -264,7 +264,9 @@ export function createMultipartUploader(baseURL: string, options: MultipartUploa
     async function abort() {
       if (aborted) return
       aborted = true
-      controller.abort()
+      // Keep the create request alive until its response gives us the upload ID.
+      // Once the upload exists, cancel any in-flight part or completion request.
+      if (upload) controller.abort()
       await abortRemoteUpload()
     }
 

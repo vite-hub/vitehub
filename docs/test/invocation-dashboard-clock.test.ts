@@ -53,3 +53,34 @@ it("refreshes prerendered invocation timestamps after hydration and preserves se
   expect(dashboard.selected.value.id).toBe(selectedId);
   expect(dashboard.selected.value.createdAt).toBe(new Date(clientTime - 2_400_000).toISOString());
 });
+
+it("refreshes the running invocation and its observations after hydration", () => {
+  const buildTime = Date.parse("2026-01-01T00:00:00Z");
+  const clientTime = Date.parse("2026-01-08T00:00:00Z");
+  vi.useFakeTimers();
+  vi.setSystemTime(clientTime);
+  const mounted: Array<() => void> = [];
+  const source = readFileSync(new URL("../app/components/content/examples/InvocationRunningExample.vue", import.meta.url), "utf8");
+  const script = source.split('<script setup lang="ts">')[1]!.split("</script>")[0]!;
+  const code = transpileModule(`${script}\nexport { invocation };`, {
+    compilerOptions: { module: ModuleKind.CommonJS },
+  }).outputText;
+  const exports = {};
+  runInNewContext(code, {
+    Date,
+    exports,
+    require(id: string) {
+      if (id === "vue") return { ...vue, onMounted: (callback: () => void) => mounted.push(callback) };
+      throw new Error(`Unexpected running example dependency: ${id}`);
+    },
+    useState: () => vue.ref(buildTime),
+  });
+  const { invocation } = exports as {
+    invocation: { value: { createdAt: string; observations: Array<{ timestamp: string }> } };
+  };
+  expect(invocation.value.createdAt).toBe(new Date(buildTime - 844_000).toISOString());
+  expect(mounted).toHaveLength(1);
+  mounted[0]!();
+  expect(invocation.value.createdAt).toBe(new Date(clientTime - 844_000).toISOString());
+  expect(invocation.value.observations[2]!.timestamp).toBe(new Date(clientTime - 20_000).toISOString());
+});
