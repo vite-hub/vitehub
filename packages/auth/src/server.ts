@@ -288,7 +288,7 @@ async function runAccessAuthorize(
 
 const authorizationResponseProperties = ["status", "statusText", "headers", "body"] as const
 
-const authorizationResponsePrototypeLimit = 32
+const authorizationResponsePrototypeLimit = 8
 
 function responsePropertyDescriptor(value: unknown, key: PropertyKey): PropertyDescriptor | undefined {
   try {
@@ -317,15 +317,28 @@ const authorizationResponseGetters = authorizationResponseProperties.map(key =>
 
 function hasResponseBrand(value: object): boolean {
   try {
-    return authorizationResponseGetters.every(getter => {
+    if (authorizationResponseGetters.every(getter => {
       if (!getter) return false
       Reflect.apply(getter, value, [])
       return true
-    })
+    })) return true
+    let prototype: object | null = Object.getPrototypeOf(value)
+    for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
+      const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+      if (typeof constructor === "function" && constructor.name === "Response" && /\[native code\]/.test(Function.prototype.toString.call(constructor))) {
+        const getters = authorizationResponseProperties.map(key => Object.getOwnPropertyDescriptor(prototype, key)?.get)
+        if (getters.every(getter => typeof getter === "function")) {
+          getters.forEach(getter => Reflect.apply(getter, value, []))
+          return true
+        }
+      }
+      prototype = Object.getPrototypeOf(prototype)
+    }
   }
   catch {
     return false
   }
+  return false
 }
 
 function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<Uint8Array> | null {
@@ -534,7 +547,8 @@ export function withAuthorization<TInput extends AuthRequestInput, TResult>(
   handler: AuthGuardedHandler<TInput, TResult>,
   definition?: AuthDefinition,
 ): (input: TInput) => Promise<TResult | Response> {
-  if (authorize !== true && !(authorize instanceof Function)) {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The public authorization boundary accepts callable callbacks from any JavaScript realm.
+  if (authorize !== true && typeof authorize !== "function") {
     throw authErrorDiagnostics.AUTH_R0014({ message: "[vitehub] `authorize` must be true or a function." })
   }
   if (!(handler instanceof Function)) {
