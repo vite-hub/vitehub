@@ -284,15 +284,27 @@ async function runAccessAuthorize(
   if (result !== true) return createForbiddenResponse(context.request)
 }
 
+let responseConstructors: readonly (typeof Response)[] | undefined
+
 async function isResponseLike(value: unknown): Promise<boolean> {
   if (value === null || typeof value !== "object") return false
-  // `instanceof` checks the constructor's native prototype chain and cannot be
+  // `instanceof` checks a platform constructor's prototype chain and cannot be
   // satisfied by a plain object that merely imitates the Response surface.
-  // Keep both implementations because Auth can receive either runtime's
-  // Response (including subclasses and responses created in another VM).
-  if (value instanceof Response) return true
-  const { Response: UndiciResponse } = await import("undici")
-  return value instanceof UndiciResponse
+  // Keep the host and Undici constructors because Auth can receive either
+  // runtime's Response, including subclasses and values from another VM that
+  // uses one of these supported implementations.
+  if (!responseConstructors) {
+    const constructors: (typeof Response)[] = [Response]
+    try {
+      const { Response: UndiciResponse } = await import("undici")
+      if (UndiciResponse !== Response) constructors.push(UndiciResponse)
+    }
+    catch {
+      // Undici is optional in runtimes that provide a host Response.
+    }
+    responseConstructors = constructors
+  }
+  return responseConstructors.some((ResponseConstructor) => value instanceof ResponseConstructor)
 }
 
 async function checkAuthRequest(
