@@ -7,6 +7,7 @@ import { isViteHubSecretEqual } from "@vite-hub/internal/secret"
 
 import { getWorkspaceCollectionItem, queryWorkspaceCollection, workspaceCollectionEmpty } from "./collections.ts"
 import { matchesAny, normalizeSafeWorkspacePath } from "./core/path.ts"
+import { workspaceDefinitionPlugins } from "./core/plugins.ts"
 import { resolveWorkspaceAutoCommit } from "./core/rules.ts"
 import { useWorkspace } from "./core/use.ts"
 import { withWorkspaceProgress } from "./session/progress.ts"
@@ -38,7 +39,7 @@ type ResponseHeaders = ConstructorParameters<typeof Headers>[0]
 function hasWorkspaceCommitRules(definition: WorkspaceDefinition): boolean {
   return [
     ...Object.values(definition.rules || {}),
-    ...(definition.plugins || []).flatMap(plugin => Object.values(plugin.rules || {})),
+    ...workspaceDefinitionPlugins(definition).flatMap(plugin => Object.values(plugin.rules || {})),
   ].some(rule => rule.commit !== undefined)
 }
 
