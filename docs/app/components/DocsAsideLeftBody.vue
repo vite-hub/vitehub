@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import {
   docsManifest,
-  getDocsPageByPath,
   normalizeDocsPath,
 } from "~~/modules/vitehub-docs/runtime/utils/docs";
 import {
@@ -16,12 +15,7 @@ const currentPath = computed(() => normalizeDocsPath(route.path));
 const section = computed(() => getDocsSectionForPath(docsManifest.sections, route.path));
 const pageGroups = computed(() => {
   if (!section.value) return [];
-  const groups = getDocsSidebarGroups(section.value);
-  const perspective = getDocsPageByPath("/docs/getting-started/built-for-vue");
-  if (section.value.id !== "ui" || !perspective) return groups;
-  return groups.map((group) =>
-    group.label === "Start" ? { ...group, pages: [...group.pages, perspective] } : group,
-  );
+  return getDocsSidebarGroups(section.value);
 });
 
 const related = computed(() =>
