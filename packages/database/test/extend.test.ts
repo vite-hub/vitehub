@@ -140,6 +140,36 @@ describe("Database extensions", () => {
     }
   }, 30_000)
 
+  it("rejects a schema key that two extension files export", async () => {
+    const rootDir = await createProject()
+    const auth = await createAuthModule(rootDir)
+    // The same table object under a second binding makes `export *` ambiguous, so Drizzle Kit would not see it.
+    const billing = await writeProjectFile(rootDir, "modules/billing/schema.ts", [
+      "import { user as authUser } from '../auth/schema.ts'",
+      "export const user = authUser",
+      "",
+    ])
+    const plugin: Plugin & DatabaseExtendingPlugin = {
+      name: "fixture-billing",
+      vitehub: { database: { extend: ({ schemaFiles }) => { schemaFiles.push(billing) } } },
+    }
+    const server = await createViteServer({
+      configFile: false,
+      logLevel: "silent",
+      plugins: [auth.plugin, plugin, hubDb()],
+      root: rootDir,
+      server: { middlewareMode: true, watch: null },
+    })
+    try {
+      await expect(server.ssrLoadModule(join(rootDir, ".vitehub/database/schema/default.ts"))).rejects.toThrow(
+        "[vitehub] Database \"default\" schema key \"user\" is exported by both modules/auth/schema.ts and modules/billing/schema.ts.",
+      )
+    }
+    finally {
+      await server.close()
+    }
+  }, 30_000)
+
   it("rejects a schema file that does not exist", async () => {
     const rootDir = await createProject()
     const config = resolveDBViteConfig({}, rootDir)!
