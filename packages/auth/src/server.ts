@@ -387,6 +387,25 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
   if (typeof readerConstructor !== "function"
     || readerConstructor.name !== "ReadableStreamDefaultReader"
     || readerConstructor.prototype !== readerPrototype) throw new Error("Non-native response reader")
+  // The returned reader may have a caller-controlled immediate prototype. Create
+  // a fresh reader through the source realm constructor and require the exact
+  // native prototype before invoking any reader operation.
+  const streamConstructor = Object.getOwnPropertyDescriptor(streamPrototype, "constructor")?.value
+  if (typeof streamConstructor !== "function"
+    || streamConstructor.name !== "ReadableStream") throw new Error("Non-native response stream")
+  let nativeReader: ReadableStreamDefaultReader<Uint8Array>
+  try {
+    const probe = Reflect.construct(streamConstructor, []) as ReadableStream<Uint8Array>
+    nativeReader = Reflect.apply(getReader, probe, [])
+  }
+  catch {
+    throw new Error("Non-native response stream")
+  }
+  const nativeReaderPrototype = Object.getPrototypeOf(nativeReader)
+  const nativeReleaseLock = Object.getOwnPropertyDescriptor(nativeReaderPrototype, "releaseLock")?.value
+  if (typeof nativeReleaseLock !== "function") throw new Error("Non-native response reader")
+  Reflect.apply(nativeReleaseLock, nativeReader, [])
+  if (nativeReaderPrototype !== readerPrototype) throw new Error("Non-native response reader")
   // The first reader acquisition locks the source stream. Inspect this reader's
   // prototype directly instead of acquiring a second reader while it is locked.
   const read = Object.getOwnPropertyDescriptor(readerPrototype, "read")?.value as ((this: ReadableStreamDefaultReader<Uint8Array>) => Promise<{ done: true, value?: undefined } | { done: false, value: Uint8Array }>) | undefined
