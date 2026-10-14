@@ -479,7 +479,12 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
         : consoleAuthConfig
       // Env may be ordered after this plugin. In that case wait for its
       // resolved project secret before writing the generated auth definition.
-      const canWriteInlineAuth = !inlineConsoleAuthConfig || inlineConsoleAuthConfig.provider !== "github" || Boolean(developmentSecretEnvKey)
+      // Production builds must emit the handlers during the config hook. In
+      // development, Env may run later and supply the project-scoped key.
+      const canWriteInlineAuth = environment.command === "build"
+        || !inlineConsoleAuthConfig
+        || inlineConsoleAuthConfig.provider !== "github"
+        || Boolean(developmentSecretEnvKey)
       consoleAuthHandlers = inlineConsoleAuthConfig && canWriteInlineAuth ? await writeConsoleAuthHandlers(root, inlineConsoleAuthConfig, baseURL) : undefined
       refreshConsoleAuthClient = consoleAuthConfig
         ? serializeConsoleRefresh(async () => {

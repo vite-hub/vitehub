@@ -332,7 +332,7 @@ describe("independent Console Auth", () => {
       expect(secrets[0]).not.toBe(secrets[1])
       for (const [index, root] of roots.entries()) {
         const definition = await readFile(join(root, ".vitehub/nitro/console/auth-definition.mjs"), "utf8")
-        expect(definition).toContain(`"developmentSecret":${JSON.stringify(secrets[index])}`)
+        expect(definition).toContain('"developmentSecretEnvKey":"VITEHUB_SECRET_')
         expect(definition).not.toContain(secrets[1 - index]!)
       }
     }
