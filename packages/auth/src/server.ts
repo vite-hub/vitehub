@@ -336,6 +336,24 @@ function isSerializableAuthorizationBody(
   if (body === null) return true
   if (typeof body !== "object" || !nativeReader) return false
   try {
+    // Re-check the descriptor before bridging. This keeps the verified native
+    // operation tied to the stream shape and fails closed if a caller adds an
+    // own or intermediate reader override between inspection and invocation.
+    if (Object.prototype.hasOwnProperty.call(body, "getReader")) return false
+    let prototype: object | null = Object.getPrototypeOf(body)
+    const seen = new Set<object>()
+    let readerVerified = false
+    for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
+      if (seen.has(prototype)) return false
+      seen.add(prototype)
+      const descriptor = Object.getOwnPropertyDescriptor(prototype, "getReader")
+      if (descriptor) {
+        readerVerified = "value" in descriptor && descriptor.value === nativeReader
+        break
+      }
+      prototype = Object.getPrototypeOf(prototype)
+    }
+    if (!readerVerified) return false
     const locked = Reflect.get(body, "locked")
     return locked === false
   }
