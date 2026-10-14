@@ -1720,6 +1720,9 @@ importers:
       typescript:
         specifier: catalog:tooling
         version: 6.0.3
+      undici:
+        specifier: 7.30.0
+        version: 7.30.0
       valibot:
         specifier: catalog:runtime
         version: 1.5.0(typescript@6.0.3)

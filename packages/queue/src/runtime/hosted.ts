@@ -14,17 +14,33 @@ export const hostedVercelWaitUntil: (promise: Promise<unknown>) => void | undefi
 function isRequestLike(value: unknown): value is Request {
   if (value === null || typeof value !== "object") return false
 
-  // Request methods perform a native brand check, including for Requests from
-  // another realm. Unlike Symbol.toStringTag and public fields, this cannot be
-  // spoofed by an ordinary object.
+  const getter = Object.getOwnPropertyDescriptor(Request.prototype, "url")?.get
+  if (getter) {
+    try {
+      getter.call(value)
+      return true
+    } catch {
+      // Continue with the cross-implementation Fetch interface check below.
+    }
+  }
+
+  // Hosted adapters can supply a different Fetch implementation. Its private
+  // slots are not compatible with the host Request's accessors, even in Node.
+  // Check the Fetch interface without cloning, locking, or consuming its body.
+  // This is input normalization for host-provided values, not authentication.
   try {
-    const getter = Object.getOwnPropertyDescriptor(Request.prototype, "url")?.get
-    if (!getter) return false
-    // The accessor is obtained from the trusted host Request prototype. Calling
-    // it validates the Fetch internal slots without reading candidate-controlled
-    // getters or cloning/consuming the body.
-    getter.call(value)
-    return true
+    return "url" in value && typeof value.url === "string"
+      && "method" in value && typeof value.method === "string"
+      && "headers" in value && value.headers !== null && typeof value.headers === "object"
+      && "get" in value.headers && typeof value.headers.get === "function"
+      && "entries" in value.headers && typeof value.headers.entries === "function"
+      && "body" in value && (value.body === null || (typeof value.body === "object"
+        && "getReader" in value.body && typeof value.body.getReader === "function"))
+      && "bodyUsed" in value && typeof value.bodyUsed === "boolean"
+      && "arrayBuffer" in value && typeof value.arrayBuffer === "function"
+      && "text" in value && typeof value.text === "function"
+      && "json" in value && typeof value.json === "function"
+      && "clone" in value && typeof value.clone === "function"
   } catch {
     return false
   }

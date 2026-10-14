@@ -6,6 +6,7 @@ import { runInNewContext } from "node:vm"
 import { clearActiveCloudflareEnv, getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { ViteHubError } from "@vite-hub/runtime"
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { Request as ForeignRequest } from "undici"
 
 import { createCloudflareQueueBatchHandler, createCloudflareQueueClient } from "../src/providers/cloudflare.ts"
 import { getCloudflareQueueBindingName } from "../src/integrations/cloudflare.ts"
@@ -732,14 +733,15 @@ describe("cloudflare queue runtime", () => {
 })
 
 describe("vercel provider", () => {
-  it("preserves hosted callback Requests from another realm", async () => {
+  it.each(["unused", "consumed", "locked"])("preserves hosted callback Requests from an independent Fetch implementation with a %s body", async (state) => {
     const request = runInNewContext(`
-      class ForeignRequest extends Request {}
-      new ForeignRequest("https://queue.example.test/callback", { method: "POST", body: "payload" })
-    `, { Request }) as Request
+      new Request("https://queue.example.test/callback", { method: "POST", body: "payload" })
+    `, { Request: ForeignRequest }) as Request
     expect(request.constructor).not.toBe(Request)
     expect(Object.getPrototypeOf(request)).not.toBe(Request.prototype)
-    await request.text()
+    expect(request).not.toBeInstanceOf(Request)
+    if (state === "consumed") await request.text()
+    const reader = state === "locked" ? request.body?.getReader() : undefined
     let captured: unknown
     vercelQueueMock.handleCallback.mockImplementationOnce(() => async (...values: unknown[]) => {
       captured = values[0]
@@ -751,6 +753,9 @@ describe("vercel provider", () => {
 
     await expect(handleHostedVercelQueueCallback({ request }, "welcome", definition)).resolves.toBe("handled")
     expect(captured).toBe(request)
+    expect(request.bodyUsed).toBe(state === "consumed")
+    reader?.releaseLock()
+    if (state !== "consumed") expect(await request.text()).toBe("payload")
   })
 
   it("converts spoofed Request-shaped objects through H3", async () => {
