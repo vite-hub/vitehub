@@ -71,19 +71,20 @@ function isRequestLike(value: AuthRequest): value is Request {
       return undefined
     }, undefined)
     if (!accessorPrototype) return false
-    // Request implementations keep their accessors and body methods on the same
-    // Request prototype. Requiring its constructor identity avoids accepting a
-    // caller-controlled object prototype that merely copies the interface.
-    if (Reflect.getOwnPropertyDescriptor(accessorPrototype, "constructor")?.value?.name !== "Request") return false
     const hasAccessor = (property: string): boolean => typeof Reflect.getOwnPropertyDescriptor(accessorPrototype, property)?.get === "function"
     // Request implementations expose their state through prototype accessors. This
     // rejects tagged host-shaped objects that merely copy the method names.
     if (!["body", "bodyUsed", "headers", "method", "signal", "url"].every(hasAccessor)) return false
-    return ["clone", "arrayBuffer", "blob", "formData", "json", "text"].every((method) => {
+    if (!["clone", "arrayBuffer", "blob", "formData", "json", "text"].every((method) => {
       if (Object.hasOwn(value, method)) return false
       // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Check the foreign Request's capabilities before bypassing host-input normalization.
       return typeof Reflect.getOwnPropertyDescriptor(accessorPrototype, method)?.value === "function"
-    })
+    })) return false
+    // A real Request clone creates a distinct request. This exercises the
+    // implementation's internal request state and rejects interface spoofs.
+    const clone = Reflect.get(value, "clone")
+    if (typeof clone !== "function" || Reflect.apply(clone, value, []) === value) return false
+    return true
   }
   catch {
     return false

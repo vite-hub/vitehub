@@ -155,8 +155,8 @@ describe("server authentication provider boundaries", () => {
     }
   })
 
-  it("normalizes a request-shaped object that spoofs the Request tag", async () => {
-    const spoofedRequest = runInNewContext(`new (class SpoofedRequest {
+  it("normalizes a method-bearing Request-named spoof", async () => {
+    const spoofedRequest = runInNewContext(`new (class Request {
       get body() { return null }
       get bodyUsed() { return false }
       get headers() { return { get() { return null } } }
