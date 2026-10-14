@@ -115,7 +115,6 @@ describe("Auth access handlers", () => {
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
       access: { routes: [{ route: "/**", authorize: () => foreignResponse as never }] },
     }))
-
     const result = await handler(new Request("https://app.example/"))
     expect(result?.status).toBe(403)
   })
