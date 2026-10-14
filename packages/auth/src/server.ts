@@ -299,7 +299,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     if (typeof status !== "number" || !Number.isInteger(status) || status < 0 || status > 599 || typeof statusText !== "string") return
     if (response instanceof Response) return response
     const body = bodyStream === null ? null : await responsePrototype.arrayBuffer.call(response)
-    return new Response(body, { headers: new Headers(headers), status, statusText })
+    return new Response(body, { headers: new Headers(headers as HeadersInit), status, statusText })
   }
   catch {
     return
@@ -307,31 +307,37 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
 }
 
 function findResponsePrototype(value: object) {
+  return {
+    status: findGetter(value, "status"),
+    statusText: findGetter(value, "statusText"),
+    headers: findGetter(value, "headers"),
+    body: findGetter(value, "body"),
+    arrayBuffer: findMethod(value, "arrayBuffer"),
+  }
+}
+
+function findGetter(value: object, name: string) {
   let prototype = Object.getPrototypeOf(value)
   while (prototype) {
-    const descriptors = Object.getOwnPropertyDescriptors(prototype)
-    if (descriptors.status?.get && descriptors.statusText?.get && descriptors.headers?.get && descriptors.body?.get && descriptors.arrayBuffer?.value) {
-      return {
-        status: descriptors.status.get,
-        statusText: descriptors.statusText.get,
-        headers: descriptors.headers.get,
-        body: descriptors.body.get,
-        arrayBuffer: descriptors.arrayBuffer.value,
-      }
-    }
+    const getter = Object.getOwnPropertyDescriptor(prototype, name)?.get
+    if (getter) return getter as (this: object) => unknown
+    prototype = Object.getPrototypeOf(prototype)
+  }
+  throw new TypeError("Invalid Web response")
+}
+
+function findMethod(value: object, name: string) {
+  let prototype = Object.getPrototypeOf(value)
+  while (prototype) {
+    const method = Object.getOwnPropertyDescriptor(prototype, name)?.value
+    if (typeof method === "function") return method as (this: object) => Promise<ArrayBuffer>
     prototype = Object.getPrototypeOf(prototype)
   }
   throw new TypeError("Invalid Web response")
 }
 
 function findHeadersGet(value: object) {
-  let prototype = Object.getPrototypeOf(value)
-  while (prototype) {
-    const get = Object.getOwnPropertyDescriptor(prototype, "get")?.value
-    if (typeof get === "function") return get as (this: object, name: string) => unknown
-    prototype = Object.getPrototypeOf(prototype)
-  }
-  throw new TypeError("Invalid Web headers")
+  return findMethod(value, "get") as (this: object, name: string) => unknown
 }
 
 async function checkAuthRequest(
