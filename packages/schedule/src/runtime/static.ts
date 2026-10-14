@@ -38,14 +38,18 @@ interface CloudflareScheduledEventLike {
 const intrinsicErrorIsError = (Error as ErrorConstructor & { isError?: (value: unknown) => boolean }).isError
 const intrinsicNativeErrorIsError = (() => {
   try {
+    // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- Node's optional process bridge is inspected at runtime to avoid importing Node-only modules in provider bundles.
     const process = (globalThis as typeof globalThis & {
       process?: { getBuiltinModule?: (name: string) => unknown }
     }).process
     const getBuiltinModule = process?.getBuiltinModule
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The optional Node API must be validated before invocation.
     if (typeof getBuiltinModule !== "function") return undefined
+    // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- getBuiltinModule returns an unknown namespace that is narrowed by the guarded predicate below.
     const util = getBuiltinModule.call(process, "util") as {
       types?: { isNativeError?: (value: unknown) => boolean }
     } | undefined
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The optional Node API must be validated before capture.
     return typeof util?.types?.isNativeError === "function" ? util.types.isNativeError : undefined
   }
   catch {
@@ -102,6 +106,7 @@ function isScheduleRuntimeError(error: unknown): error is Error {
     return false
   }
   if (error === null || typeof error !== "object") return false
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The optional intrinsic predicate is captured from the host at module load.
   if (typeof intrinsicNativeErrorIsError === "function") {
     try {
       return intrinsicNativeErrorIsError(error)
