@@ -1,16 +1,15 @@
 import { validateViteHubNitroDevRequest } from "@vite-hub/internal/dev-endpoint"
 import { redactInspectionText } from "@vite-hub/internal/inspect"
 
-import { compileDocumentsPath } from "../documents.ts"
 import { contentDevHeader, contentDevHeaderValue, isContentDevOperation } from "../dev.ts"
 
 import type {
   ContentCollection,
   ContentDocumentState,
-  ContentDocumentStatus,
+  ContentPublishExpectation,
   ContentPublishOptions,
   ContentPublishResult,
-  ContentRef,
+  ContentRawDocument,
   ContentRevisionsOptions,
   ContentRevisionsResult,
 } from "../collections.ts"
@@ -19,7 +18,6 @@ import type {
   ContentDevCollectionsResult,
   ContentDevDiffResult,
   ContentDevDiffSide,
-  ContentDevDocumentStatus,
   ContentDevPublishResult,
   ContentDevRequestBody,
   ContentDevRevisionsResult,
@@ -28,9 +26,8 @@ import type {
 
 /** The parts of a `defineContent()` runtime that the dev endpoint uses. */
 interface ContentDevRuntime {
-  names: readonly string[]
+  collections(): ContentCollection[]
   collection(name: string): ContentCollection
-  getSource(name: string): unknown
   publish(options?: ContentPublishOptions): Promise<ContentPublishResult>
   revisions(collection: string, id: string, options?: ContentRevisionsOptions): Promise<ContentRevisionsResult>
 }
@@ -63,23 +60,10 @@ function failure(message: string, status: number, code?: string, details?: unkno
 
 function isContentRuntime(value: unknown): value is ContentDevRuntime {
   return value !== null && Object(value) === value
-    && Array.isArray(Reflect.get(Object(value), "names"))
+    && Reflect.get(Object(value), "collections") instanceof Function
     && Reflect.get(Object(value), "collection") instanceof Function
-    && Reflect.get(Object(value), "getSource") instanceof Function
     && Reflect.get(Object(value), "publish") instanceof Function
     && Reflect.get(Object(value), "revisions") instanceof Function
-}
-
-function collectionNames(content: ContentDevRuntime): string[] {
-  return content.names.filter((name) => {
-    try {
-      content.collection(name)
-      return true
-    }
-    catch {
-      return false
-    }
-  })
 }
 
 function readString(body: Record<string, unknown>, name: string): string | undefined {
@@ -117,7 +101,22 @@ function readBody(value: unknown): ContentDevRequestBody {
     if (body.dryRun !== true && body.dryRun !== false) throw new ContentDevRequestError("dryRun must be a boolean.", 400)
     parsed.dryRun = body.dryRun
   }
+  if (body.expect !== undefined) parsed.expect = readExpect(body.expect)
   return parsed
+}
+
+function readExpect(value: unknown): ContentPublishExpectation[] {
+  const invalid = () => new ContentDevRequestError("expect must be a non-empty list of { collection, id, digest }, with digest a string or null.", 400)
+  if (!Array.isArray(value) || !value.length) throw invalid()
+  return value.map((entry: unknown) => {
+    if (entry === null || Object(entry) !== entry) throw invalid()
+    const collection: unknown = Reflect.get(Object(entry), "collection")
+    const id: unknown = Reflect.get(Object(entry), "id")
+    const digest: unknown = Reflect.get(Object(entry), "digest")
+    if (String(collection) !== collection || !collection || String(id) !== id || !id) throw invalid()
+    if (digest !== null && (String(digest) !== digest || !digest)) throw invalid()
+    return { collection, id, digest }
+  })
 }
 
 function requireCollection(body: ContentDevRequestBody): string {
@@ -134,26 +133,18 @@ function notFound(collection: string, id: string): ContentDevRequestError {
   return new ContentDevRequestError(`Content document ${JSON.stringify(`${collection}/${id}`)} exists on neither draft nor published.`, 404, "CONTENT_NOT_FOUND")
 }
 
-function withCollection(collection: string, status: ContentDocumentStatus): ContentDevDocumentStatus {
-  return { collection, id: status.id, state: status.state, draft: status.draft, published: status.published }
-}
-
 async function listCollections(content: ContentDevRuntime): Promise<ContentDevCollectionsResult> {
-  const collections = await Promise.all(collectionNames(content).map(async (name): Promise<ContentDevCollection> => {
-    const collection = content.collection(name)
+  const collections = await Promise.all(content.collections().map(async (collection): Promise<ContentDevCollection> => {
     const statuses = await collection.status()
     const states: Record<ContentDocumentState, number> = { draft: 0, published: 0, changed: 0, deleted: 0 }
     for (const status of statuses) states[status.state]++
-    const properties: unknown = Reflect.get(Object(collection.schema), "properties")
-    return {
-      name,
-      path: collection.path,
-      fields: properties !== null && Object(properties) === properties ? Object.keys(Object(properties)) : [],
-      documents: statuses.length,
-      states,
-    }
+    return { name: collection.name, path: collection.path, fields: [...collection.fields], documents: statuses.length, states }
   }))
   return { collections }
+}
+
+function selectedCollections(content: ContentDevRuntime, name: string | undefined): ContentCollection[] {
+  return name === undefined ? content.collections() : [content.collection(name)]
 }
 
 async function readStatus(content: ContentDevRuntime, body: ContentDevRequestBody): Promise<ContentDevStatusResult> {
@@ -161,38 +152,29 @@ async function readStatus(content: ContentDevRuntime, body: ContentDevRequestBod
     const collection = requireCollection(body)
     const status = await content.collection(collection).status(body.id)
     if (!status) throw notFound(collection, body.id)
-    return { documents: [withCollection(collection, status)] }
+    return { documents: [status] }
   }
-  const names = body.collection === undefined ? collectionNames(content) : [body.collection]
-  const documents = await Promise.all(names.map(async name => (await content.collection(name).status()).map(status => withCollection(name, status))))
+  const documents = await Promise.all(selectedCollections(content, body.collection).map(collection => collection.status()))
   return { documents: documents.flat() }
 }
 
-async function readSide(content: ContentDevRuntime, collection: string, path: string, ref: ContentRef, digest: string | null): Promise<ContentDevDiffSide | null> {
-  if (digest === null) return null
-  const source = content.getSource(collection)
-  const withRef: unknown = Reflect.get(Object(source), "withRef")
-  if (!(withRef instanceof Function)) throw new ContentDevRequestError(`Content collection ${JSON.stringify(collection)} cannot read the ${ref} ref.`, 500)
-  const pinned: unknown = withRef.call(source, ref)
-  const getItemRaw: unknown = Reflect.get(Object(pinned), "getItemRaw")
-  if (!(getItemRaw instanceof Function)) throw new ContentDevRequestError(`Content collection ${JSON.stringify(collection)} cannot read raw documents.`, 500)
-  const text: unknown = await getItemRaw.call(pinned, path)
-  return { digest, text: String(text) }
+function diffSide(raw: ContentRawDocument | null): ContentDevDiffSide | null {
+  return raw ? { digest: raw.digest, text: raw.text } : null
 }
 
 async function readDiff(content: ContentDevRuntime, body: ContentDevRequestBody): Promise<ContentDevDiffResult> {
   const name = requireCollection(body)
   const id = requireId(body)
   const collection = content.collection(name)
-  const status = await collection.status(id)
-  if (!status) throw notFound(name, id)
-  const compiled = compileDocumentsPath(collection.path)
-  const path = `${compiled.base}${id}${compiled.extension}`
-  const [published, draft] = await Promise.all([
-    readSide(content, name, path, "published", status.published),
-    readSide(content, name, path, "draft", status.draft),
+  // raw() returns the stored file even when it no longer validates, so a diff can show what to repair.
+  const [status, published, draft] = await Promise.all([
+    collection.status(id),
+    collection.raw(id, { ref: "published" }),
+    collection.raw(id, { ref: "draft" }),
   ])
-  return { collection: name, id, path, state: status.state, published, draft }
+  const path = draft?.path ?? published?.path
+  if (!status || !path) throw notFound(name, id)
+  return { collection: name, id, path, state: status.state, published: diffSide(published), draft: diffSide(draft) }
 }
 
 async function readRevisions(content: ContentDevRuntime, body: ContentDevRequestBody): Promise<ContentDevRevisionsResult> {
@@ -210,29 +192,36 @@ async function readRevisions(content: ContentDevRuntime, body: ContentDevRequest
 
 const pendingChange = { draft: "add", changed: "update", deleted: "delete" } as const
 
+/**
+ * A dry run selects documents by `collection` and `ids` and lists each pending change with its draft digest. A publish
+ * takes those digests back as `expect`, so it publishes exactly what the user confirmed, or nothing.
+ */
 async function publish(content: ContentDevRuntime, body: ContentDevRequestBody): Promise<ContentDevPublishResult> {
-  if (body.ids !== undefined && body.collection === undefined) throw new ContentDevRequestError("Publishing documents by id requires a collection.", 400)
   if (body.dryRun) {
-    const names = body.collection === undefined ? collectionNames(content) : [body.collection]
+    if (body.expect !== undefined) throw new ContentDevRequestError("A publish dry run selects documents with collection and ids, not expect.", 400)
+    if (body.ids !== undefined && body.collection === undefined) throw new ContentDevRequestError("Publishing documents by id requires a collection.", 400)
     const documents: ContentDevPublishResult["documents"] = []
-    for (const name of names) {
-      const collection = content.collection(name)
+    for (const collection of selectedCollections(content, body.collection)) {
       const statuses = body.ids === undefined
         ? await collection.status()
         : await Promise.all(body.ids.map(async (id) => {
             const status = await collection.status(id)
-            if (!status) throw notFound(name, id)
+            if (!status) throw notFound(collection.name, id)
             return status
           }))
       for (const status of statuses) {
-        if (status.state !== "published") documents.push({ collection: name, id: status.id, change: pendingChange[status.state] })
+        if (status.state !== "published") documents.push({ collection: status.collection, id: status.id, change: pendingChange[status.state], digest: status.draft })
       }
     }
     return { dryRun: true, revision: null, documents }
   }
-  const options: ContentPublishOptions = {}
-  if (body.collection !== undefined) options.collection = body.collection
-  if (body.ids !== undefined) options.ids = body.ids
+  if (body.expect === undefined) {
+    throw new ContentDevRequestError("A publish needs expect: the draft digests from a dry run that the user confirmed.", 400)
+  }
+  if (body.collection !== undefined || body.ids !== undefined) {
+    throw new ContentDevRequestError("A publish names its documents in expect. Do not combine it with collection or ids.", 400)
+  }
+  const options: ContentPublishOptions = { expect: body.expect }
   if (body.message !== undefined) options.message = body.message
   const result = await content.publish(options)
   return { dryRun: false, revision: result.revision, documents: result.documents }

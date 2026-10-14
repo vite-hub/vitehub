@@ -75,7 +75,7 @@ Available namespaces:
 | `vitehub content status` | Available | Content Package | Show whether each document is draft, published, changed, or deleted. |
 | `vitehub content diff` | Available | Content Package | Print a unified diff of one document from published to draft. |
 | `vitehub content revisions` | Available | Content Package | List the revisions of one document, newest first. |
-| `vitehub content publish` | Available | Content Package | Publish draft documents in one revision after confirmation. |
+| `vitehub content publish` | Available | Content Package | Publish the listed draft documents in one revision after confirmation, pinned to their digests. |
 | `vitehub console dev` | Available | Console integration | Start the app's development command with deterministic Console fixture data. |
 | `vitehub connections` | Available | Connections Package | Connect OAuth accounts, set API keys, list Connections, read activity, and approve or deny writes. |
 | `vitehub env inspect` | Available | Env Package | List declared Server Env variables and their status without values. |
@@ -339,7 +339,7 @@ pnpm vitehub content revisions posts hello --ref published
 pnpm vitehub content publish --collection posts --id hello
 ```
 
-`publish` lists the pending changes and asks for confirmation. Pass `--yes` to skip the prompt, or `--dry-run` to only list the changes. Without an interactive terminal, `publish` fails unless you pass `--yes`. Every command accepts `--json`, `--url <url>`, and `--timeout <ms>`.
+`publish` lists the pending changes with their draft digests, asks for confirmation, and publishes exactly those digests. A draft saved in between fails the publish and nothing is published. Pass `--yes` to skip the prompt, or `--dry-run` to only list the changes. Without an interactive terminal, `publish` fails unless you pass `--yes`. Every command accepts `--json`, `--url <url>`, and `--timeout <ms>`.
 
 The commands use a guarded dev endpoint that the Content Vite plugin registers only on the Development Server. They cannot reach a deployed app, and Nuxt and plain Vite hosts are not supported. Read [Content CLI](/docs/content/cli) for each command's output.
 

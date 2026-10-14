@@ -27,7 +27,7 @@ The namespace appears when the app has a Content file. The commands work only ag
 | `vitehub content status [collection] [id]` | Print the state of every document, of one collection, or of one document. |
 | `vitehub content diff <collection> <id>` | Print a unified diff of one document from `published` to `draft`, frontmatter included. |
 | `vitehub content revisions <collection> <id>` | List the revisions that saved, removed, restored, or published one document, newest first. |
-| `vitehub content publish` | Publish draft documents in one revision. It asks for confirmation unless you pass `--yes`. |
+| `vitehub content publish` | Publish the listed draft documents in one revision, exactly as listed. It asks for confirmation unless you pass `--yes`. |
 
 Every command accepts `--json`, `--url <url>` when Vite does not listen on `http://localhost:5173` (or set `VITEHUB_DEV_SERVER_URL`), and `--timeout <ms>`. Errors go to stderr, or into `{ "error": { "code", "message", "details"? } }` on stdout with `--json`. Failed commands exit with status 1.
 
@@ -72,17 +72,25 @@ pnpm vitehub content publish --yes --json
 
 ```txt [Output]
 Publish 2 documents:
-  add     posts/hello
-  update  posts/2026/launch
+  add     posts/hello        4f1c2a9be07d
+  update  posts/2026/launch  9a03d1c4e8b2
 Publish? [y/N] y
 Published 2 documents in revision 3f1c…:
   add     posts/hello
   update  posts/2026/launch
 ```
 
-Without `--collection`, `publish` publishes every collection. `--id` selects documents of `--collection` and is repeatable. The command lists the pending changes, asks for confirmation, and then calls `content.publish()`. Without an interactive terminal it fails with `CONTENT_PUBLISH_UNCONFIRMED` unless you pass `--yes`. `--dry-run` only lists the changes. `--json` prints `{ "dryRun", "revision", "documents" }`.
+Without `--collection`, `publish` publishes every collection. `--id` selects documents of `--collection` and is repeatable. The command lists each pending change with the first 12 characters of its draft digest (`deleted` for a deletion), asks for confirmation, and then calls [`content.publish({ expect })`](/docs/content/server-api#publish-what-was-reviewed) with those digests. Without an interactive terminal it fails with `CONTENT_PUBLISH_UNCONFIRMED` unless you pass `--yes`. `--dry-run` only lists the changes. `--json` prints `{ "dryRun", "revision", "documents" }`; in a dry run each document carries its full draft `digest`.
 
-`publish` copies the draft as it is when you confirm. A save between the list and the confirmation is published too. When nothing differs from `published`, the command exits with status 0 and creates no revision.
+`publish` publishes exactly the drafts it listed, also with `--yes`. If a draft is saved between the list and the publish, nothing is published and the command exits with status 1:
+
+```txt [Output]
+Nothing was published. 1 draft changed after you confirmed:
+  posts/hello  draft is now 7be5d20c13fa (you confirmed 4f1c2a9be07d)
+Review them with `vitehub content diff <collection> <id>`, then run the publish again.
+```
+
+With `--json`, the error is `WORKSPACE_CONFLICT` and `details.documents` lists `{ collection, id, expected, actual }` for each changed draft. When nothing differs from `published`, the command exits with status 0 and creates no revision.
 
 The CLI does not call `authorize`: anyone who can reach the local Development Server can publish, as with the [trusted runtime methods](/docs/content/server-api#collections).
 
