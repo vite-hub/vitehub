@@ -345,18 +345,24 @@ async function runAccessAuthorize(
           reader.releaseLock()
         }
         const second = tee[1]
-        if (!second || typeof second !== "object" || typeof ReadableStream !== "function") return createForbiddenResponse(context.request)
-        let secondReader: { releaseLock?: () => void } | undefined
+        if (!second || typeof second !== "object") return createForbiddenResponse(context.request)
+        // Validate the branch that will be handed to the host Response too.
+        // Calling its own reader methods keeps this cross-realm safe while
+        // rejecting arbitrary values returned by a forged tee implementation.
+        const secondReaderMethod = responseMethod(second, "getReader")
+        const secondReader = secondReaderMethod?.call(second) as { read?: () => unknown, releaseLock?: () => void } | undefined
+        if (!secondReader || typeof secondReader.read !== "function" || typeof secondReader.releaseLock !== "function") return createForbiddenResponse(context.request)
         try {
-          const getReader = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "getReader")?.value
-          if (typeof getReader !== "function") return createForbiddenResponse(context.request)
-          secondReader = getReader.call(second) as { releaseLock?: () => void }
+          const secondRead = secondReader.read()
+          if (!secondRead || typeof (secondRead as PromiseLike<unknown>).then !== "function") return createForbiddenResponse(context.request)
+          await secondRead
         }
         catch {
           return createForbiddenResponse(context.request)
         }
-        if (!secondReader || typeof secondReader.releaseLock !== "function") return createForbiddenResponse(context.request)
-        secondReader.releaseLock()
+        finally {
+          secondReader.releaseLock()
+        }
         normalizedBody = new Response(second as ConstructorParameters<typeof Response>[0]).body
       }
       return new Response(normalizedBody, {
