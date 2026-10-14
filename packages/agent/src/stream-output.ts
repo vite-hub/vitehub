@@ -68,10 +68,11 @@ export function isUIMessageStreamResponse(value: unknown): value is Response & {
     const headersGetter = responsePropertyDescriptor(Response.prototype, "headers")?.get
     const body = bodyGetter && Reflect.apply(bodyGetter, value, [])
     const headers = headersGetter && Reflect.apply(headersGetter, value, [])
-    const lockedGetter = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
-    if (!body || !headers || !lockedGetter) return false
+    const lockedGetter = body && readableStreamDescriptor(body, "locked")?.get
+    const get = headers && headersDescriptor(headers, "get")?.value
+    if (!body || !headers || !lockedGetter || !hasRuntimeType(get, "function")) return false
     Reflect.apply(lockedGetter, body, [])
-    return Reflect.apply(Headers.prototype.get, headers, ["x-vercel-ai-ui-message-stream"]) === "v1"
+    return Reflect.apply(get, headers, ["x-vercel-ai-ui-message-stream"]) === "v1"
   }
   catch {
     return false
@@ -98,6 +99,22 @@ function readableStreamDescriptor(value: unknown, key: PropertyKey): PropertyDes
     if (descriptor) {
       const constructor = Object.getOwnPropertyDescriptor(current, "constructor")?.value
       if (constructor?.name !== "ReadableStream") return
+      return descriptor
+    }
+    current = Object.getPrototypeOf(current)
+  }
+}
+
+function headersDescriptor(value: unknown, key: PropertyKey): PropertyDescriptor | undefined {
+  let current: object | null = Object(value)
+  const seen = new Set<object>()
+  for (let depth = 0; current && depth < responsePrototypeLimit; depth++) {
+    if (seen.has(current)) return
+    seen.add(current)
+    const descriptor = Object.getOwnPropertyDescriptor(current, key)
+    if (descriptor) {
+      const constructor = Object.getOwnPropertyDescriptor(current, "constructor")?.value
+      if (constructor?.name !== "Headers") return
       return descriptor
     }
     current = Object.getPrototypeOf(current)

@@ -82,10 +82,11 @@ describe("Agent UI stream response boundaries", () => {
     expect(response).not.toBeInstanceOf(Response)
     expect(response.constructor).not.toBe(Response)
     expect(Object.prototype.toString.call(response)).toBe("[object Response]")
-    // A local native accessor would reintroduce the cross-realm rejection.
+    // A local native body accessor rejects the foreign stream; the predicate
+    // must select and apply the foreign stream and Headers accessors instead.
     const localBody = Object.getOwnPropertyDescriptor(Response.prototype, "body")!.get!
     expect(() => localBody.call(response)).toThrow()
-    expect(isUIMessageStreamResponse(response)).toBe(false)
+    expect(isUIMessageStreamResponse(response)).toBe(true)
     const normalized = normalizeUIMessageStreamResponse(response)
     expect(normalized).toBeInstanceOf(Response)
     if (!normalized) throw new Error("Expected normalized UI stream response")
