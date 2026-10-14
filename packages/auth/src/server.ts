@@ -361,9 +361,16 @@ function getNativeAuthorizationBodyReader(body: unknown): ((this: object) => Rea
       const descriptor = Object.getOwnPropertyDescriptor(prototype, "getReader")
       if (descriptor) {
         const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+        // A reader on an intermediate prototype can shadow the stream
+        // implementation. Genuine stream prototypes have no second reader
+        // further up their chain, so reject shadowed methods before invoking.
+        let parent = Object.getPrototypeOf(prototype)
+        for (let parentDepth = 0; parent && parentDepth < authorizationResponsePrototypeLimit; parentDepth++) {
+          if (Object.getOwnPropertyDescriptor(parent, "getReader")) return
+          parent = Object.getPrototypeOf(parent)
+        }
         if (typeof descriptor.value === "function"
-          && constructor?.name === "ReadableStream"
-          && /\[native code\]/.test(Function.prototype.toString.call(descriptor.value))) return descriptor.value
+          && constructor?.name === "ReadableStream") return descriptor.value
         return
       }
       prototype = Object.getPrototypeOf(prototype)
