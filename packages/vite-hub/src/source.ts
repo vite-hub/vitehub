@@ -297,6 +297,7 @@ const defineCollectionImplementation = (
   const core: unknown = defineCoreCollection
   // SAFETY: This adapter forwards one of the public defineCollection overload argument sets.
   const callCore = core as (...args: unknown[]) => unknown
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Collection loaders may come from another JavaScript realm, so callable dispatch cannot use instanceof Function.
   if (typeof input === "function") return callCore(input, options)
   const { authorize, route, source, transform } = input
   const definition = {
