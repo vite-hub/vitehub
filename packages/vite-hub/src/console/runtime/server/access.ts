@@ -45,6 +45,9 @@ async function authorizationResponse(value: unknown): Promise<Response | undefin
     // A foreign Response cannot be branded by this realm's constructor. Validate
     // its transferable fields and let Fetch construct the route's actual Response.
     if (objectToString.call(value) !== "[object Response]"
+      // A genuine Fetch Response exposes its tag on the prototype. An own tag
+      // is caller-controlled and cannot establish the Response brand.
+      || Object.prototype.hasOwnProperty.call(value, Symbol.toStringTag)
       // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Fetch validates these primitive response-init fields below.
       || !("status" in value) || typeof value.status !== "number"
       // doctor-disable-next-line typescript/strict/no-runtime-typeof -- These response-init strings are validated by Fetch below.
@@ -65,7 +68,9 @@ async function authorizationResponse(value: unknown): Promise<Response | undefin
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Verify the foreign Response clone method before invoking it.
     if (typeof cloneMethod !== "function") return undefined
     const clone = Reflect.apply(cloneMethod, value, [])
-    if (!clone || clone === value || objectToString.call(clone) !== "[object Response]") return undefined
+    if (!clone || clone === value || Object.getPrototypeOf(clone) !== Object.getPrototypeOf(value)
+      || objectToString.call(clone) !== "[object Response]"
+      || Object.prototype.hasOwnProperty.call(clone, Symbol.toStringTag)) return undefined
     // A callable clone spoof must also expose the transferable Response contract.
     if (!("status" in clone) || typeof clone.status !== "number"
       || !("statusText" in clone) || typeof clone.statusText !== "string"
