@@ -27,9 +27,15 @@ import type {
   ResolvedDBViteConfig,
   ResolvedDrizzleDatabaseConfig,
 } from "./types.ts"
+
 import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
 
 export { resolveConfigValue } from "./config-value.ts"
+
+/** Serialize generated registries without invoking the legacy __proto__ setter. */
+export function serializeGeneratedRegistry(value: unknown): string {
+  return JSON.stringify(value).replace(/"__proto__":/g, '["__proto__"]:')
+}
 
 const configFilePattern = /^config\.(?:c|m)?[jt]s$/i
 const viteDatabaseSuffixPattern = /\.database\.(?:c|m)?[jt]s$/i
@@ -219,7 +225,7 @@ function readDefinitionCloudflareConfig(file: string): { resource: DefinitionClo
   }
   const body = objectLiteralBody(expression)
   if (resource === "opaque") {
-    const ownsOpaqueResource = /\b(?:databaseId|databaseName)\s*:/.test(readFileSync(file, "utf8"))
+    const ownsOpaqueResource = /\b(?:databaseId|databaseName)\s*:/.test(expression ?? "")
     if (cloudflareEntries.length && expression?.trim() !== "undefined") return { resource, configured: true, ownsOpaqueResource, value: {} }
     return { resource, configured: false, ownsOpaqueResource }
   }
@@ -417,10 +423,10 @@ export function resolveDBViteConfig(
   const definitions = discoverDatabaseDefinitions(rootDir, context)
   if (!definitions.length) return
 
-  const databases: Record<string, ResolvedDrizzleDatabaseConfig> = {}
-  const cloudflareProjections: Record<string, CloudflareD1Projection> = {}
-  const generatedDrizzleConfigFilesByDatabase: Record<string, string> = {}
-  const generatedSchemaFilesByDatabase: Record<string, string> = {}
+  const databases: Record<string, ResolvedDrizzleDatabaseConfig> = Object.create(null)
+  const cloudflareProjections: Record<string, CloudflareD1Projection> = Object.create(null)
+  const generatedDrizzleConfigFilesByDatabase: Record<string, string> = Object.create(null)
+  const generatedSchemaFilesByDatabase: Record<string, string> = Object.create(null)
   const provisionState = readProvisionStateSync(context.provisionRoot ?? rootDir)
   for (const definition of definitions) {
     const migrationsDir = getDefaultMigrationsDir(rootDir, definition)
