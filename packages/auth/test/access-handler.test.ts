@@ -318,10 +318,10 @@ describe("Auth access handlers", () => {
 
   it("rejects a forged class Response prototype", async () => {
     class Response {
-      get status() { return 409 }
-      get statusText() { return "Conflict" }
-      get headers() { return new Headers() }
-      get body() { return null }
+      get status() { /* brandCheck */ return 409 }
+      get statusText() { /* brandCheck */ return "Conflict" }
+      get headers() { /* brandCheck */ return new Headers() }
+      get body() { /* brandCheck */ return null }
     }
     const candidate = Object.create(Response.prototype)
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({

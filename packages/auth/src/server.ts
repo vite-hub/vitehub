@@ -328,11 +328,17 @@ function hasResponsePrototype(value: unknown): boolean {
       const platformGetters = authorizationResponseProperties.every((key) => {
         const getter = Object.getOwnPropertyDescriptor(owner, key)?.get
         if (typeof getter !== "function") return false
-        // Platform accessors perform an intrinsic brand check. Require the
-        // implementation marker as well as the constructor shape so a user
-        // supplied class with matching getters cannot forge provenance.
-        const source = Function.prototype.toString.call(getter)
-        return source.includes("[native code]") || source.includes("brandCheck")
+        // Platform accessors perform an intrinsic brand check. Calling one
+        // with an object that only inherits the prototype must therefore
+        // throw; a user supplied getter that merely mentions a marker does
+        // not provide that runtime provenance.
+        try {
+          Reflect.apply(getter, Object.create(owner), [])
+          return false
+        }
+        catch {
+          return true
+        }
       })
       if (platformConstructor && platformGetters) return true
       prototype = Object.getPrototypeOf(prototype)
