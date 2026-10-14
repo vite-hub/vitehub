@@ -350,7 +350,11 @@ function hasResponsePrototype(value: unknown): boolean {
           }
         }
       })
-      if (platformConstructor && platformGetters) return true
+      const ownSnapshot = authorizationResponseProperties.every(key => {
+        const descriptor = Object.getOwnPropertyDescriptor(value, key)
+        return descriptor && "value" in descriptor
+      })
+      if (platformConstructor && platformGetters && !ownSnapshot) return true
       prototype = Object.getPrototypeOf(prototype)
     }
   }
