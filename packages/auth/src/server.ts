@@ -315,7 +315,12 @@ function isResponseLike(value: unknown): value is Response {
     if (!Array.isArray(setCookieHeaders) || setCookieHeaders.some((header: unknown) => typeof header !== "string")) return false
     if (body === null) return true
     if (typeof body !== "object" || typeof body.getReader !== "function") return false
-    return true
+    const reader = body.getReader() as { read?: unknown; releaseLock?: unknown }
+    const validReader = typeof reader === "object" && reader !== null
+      && typeof reader.read === "function"
+      && typeof reader.releaseLock === "function"
+    if (typeof reader.releaseLock === "function") reader.releaseLock()
+    return validReader
   }
   catch {
     return false
