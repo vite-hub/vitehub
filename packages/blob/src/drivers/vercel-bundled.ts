@@ -64,9 +64,9 @@ function isMissingBlobError(error: unknown) {
       : (() => {
           const stack = Object.getOwnPropertyDescriptor(candidate, "stack")
           // Native errors expose their lazily materialized stack through an intrinsic
-          // accessor. Match that accessor's native source and verify it can read the
-          // candidate's branded stack; forged accessors and Error.prototype descendants
-          // therefore fail even when they mimic the descriptor shape.
+          // accessor. Verify the accessor's intrinsic behavior rather than its identity:
+          // each realm has a distinct native getter, while a forged or bound getter can
+          // return a stack for an object that has no Error state.
           // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The descriptor is validated before reading its getter.
           if (!stack || typeof stack.get !== "function") return false
           let nativeErrorConstructor: unknown
@@ -86,11 +86,14 @@ function isMissingBlobError(error: unknown) {
           }
           // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The legacy path validates the constructor before invoking it.
           if (typeof nativeErrorConstructor !== "function") return false
-          const nativeStackGetter = Object.getOwnPropertyDescriptor(Reflect.construct(nativeErrorConstructor, []), "stack")?.get
           // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The descriptor is validated before reading its getter.
-          if (typeof nativeStackGetter !== "function" || stack.get !== nativeStackGetter) return false
+          if (typeof stack.get !== "function") return false
           // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The native getter result is the legacy brand check.
           if (typeof stack.get.call(candidate) !== "string") return false
+          // A genuine native getter returns no stack for an object which merely shares
+          // the Error prototype. Bound and forged getters instead return their captured
+          // or fabricated value, so they cannot establish the candidate's Error brand.
+          if (stack.get.call(Object.create(prototype)) !== undefined) return false
           return true
         })()
     if (!isError) return false
