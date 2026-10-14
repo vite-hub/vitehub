@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, onBeforeUnmount, ref, watch } from "vue";
 
 import { consoleImageUrl, consoleTruncate, describeConsoleSchemaFields } from "../client/documents";
 import { useConsoleMediaPicker } from "../client/media";
@@ -94,7 +94,29 @@ const titleLong = computed(() => titleCount.value > props.hint.title.recommended
 const descriptionOff = computed(() => descriptionCount.value > props.hint.description.recommended || (descriptionCount.value > 0 && descriptionCount.value < props.hint.description.min));
 
 // Ghost controls, as in the other property rows: no fill, a border on hover and focus.
-const ghost = "bg-transparent hover:bg-transparent focus:bg-transparent disabled:bg-transparent ring-0 hover:ring-1 hover:ring-inset hover:ring-(--ui-border) focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-(--ui-border-accented) aria-invalid:ring-1 aria-invalid:ring-error/60 text-[13px]";
+// Autoresize measures the value, not the placeholder. An empty description gets as many rows as its fallback needs at
+// the current width, so the placeholder is never cut off.
+const descriptionBox = ref<HTMLElement>();
+const descriptionWidth = ref(0);
+const descriptionFont = ref(14);
+const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(([entry]) => {
+  descriptionWidth.value = entry?.contentRect.width ?? 0;
+  const textarea = descriptionBox.value?.querySelector("textarea");
+  if (textarea) descriptionFont.value = Number.parseFloat(getComputedStyle(textarea).fontSize) || 14;
+});
+watch(descriptionBox, (element, previous) => {
+  if (previous) observer?.unobserve(previous);
+  if (element) observer?.observe(element);
+});
+onBeforeUnmount(() => observer?.disconnect());
+const placeholderRows = computed(() => {
+  const fallback = props.fallbacks.description ?? "";
+  if (text(values.value.description) || !fallback || !descriptionWidth.value) return 1;
+  // Geist averages a little over half its size per character. The padding and the counter take about 84px.
+  const perRow = Math.max(12, Math.floor((descriptionWidth.value - 84) / (descriptionFont.value * 0.54)));
+  return Math.min(6, Math.ceil(fallback.length / perRow));
+});
+const ghost = "bg-transparent hover:bg-transparent focus:bg-transparent disabled:bg-transparent ring-0 hover:ring-1 hover:ring-inset hover:ring-(--ui-border) focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-(--ui-border-accented) aria-invalid:ring-1 aria-invalid:ring-error/60 text-base md:text-sm";
 </script>
 
 <template>
@@ -119,7 +141,7 @@ const ghost = "bg-transparent hover:bg-transparent focus:bg-transparent disabled
           :model-value="text(values.title)"
           class="w-full"
           variant="ghost"
-          :ui="{ base: ghost, trailing: 'pe-2' }"
+          :ui="{ base: ghost, trailing: 'pe-2.5' }"
           :disabled="disabled"
           :placeholder="fallbacks.title"
           :aria-invalid="error('title') ? 'true' : undefined"
@@ -135,23 +157,26 @@ const ghost = "bg-transparent hover:bg-transparent focus:bg-transparent disabled
       </ConsolePropertyRow>
 
       <ConsolePropertyRow icon="i-lucide-align-left" label="Description" :control="controlId('description')" :error="error('description')">
-        <UTextarea
-          :id="controlId('description')"
-          :model-value="text(values.description)"
-          class="w-full"
-          variant="ghost"
-          autoresize
-          :rows="1"
-          :ui="{ base: ghost }"
-          :disabled="disabled"
-          :placeholder="fallbacks.description || 'Search engines pick text from the page'"
-          :aria-invalid="error('description') ? 'true' : undefined"
-          :aria-describedby="`${controlId('description')}-count`"
-          @update:model-value="update('description', String($event ?? ''))"
-        />
-        <p :id="`${controlId('description')}-count`" class="px-2.5 pb-1 text-right text-xs tabular-nums" :class="descriptionOff ? 'text-warning' : 'text-dimmed'">
-          {{ descriptionCount }}/{{ hint.description.recommended }}<span class="sr-only"> characters{{ descriptionOff ? `, recommended ${hint.description.min} to ${hint.description.recommended}` : "" }}</span>
-        </p>
+        <!-- The counter sits where the title's does, so both counts line up in one column. -->
+        <div ref="descriptionBox" class="relative">
+          <UTextarea
+            :id="controlId('description')"
+            :model-value="text(values.description)"
+            class="w-full"
+            variant="ghost"
+            autoresize
+            :rows="placeholderRows"
+            :ui="{ base: `${ghost} pe-16` }"
+            :disabled="disabled"
+            :placeholder="fallbacks.description || 'Search engines pick text from the page'"
+            :aria-invalid="error('description') ? 'true' : undefined"
+            :aria-describedby="`${controlId('description')}-count`"
+            @update:model-value="update('description', String($event ?? ''))"
+          />
+          <span :id="`${controlId('description')}-count`" class="pointer-events-none absolute top-2 right-2.5 text-xs tabular-nums" :class="descriptionOff ? 'text-warning' : 'text-dimmed'">
+            {{ descriptionCount }}/{{ hint.description.recommended }}<span class="sr-only"> characters{{ descriptionOff ? `, recommended ${hint.description.min} to ${hint.description.recommended}` : "" }}</span>
+          </span>
+        </div>
       </ConsolePropertyRow>
 
       <ConsoleSchemaField
@@ -182,7 +207,7 @@ const ghost = "bg-transparent hover:bg-transparent focus:bg-transparent disabled
           :model-value="text(values.canonical)"
           class="w-full"
           variant="ghost"
-          :ui="{ base: `${ghost} font-mono text-xs` }"
+          :ui="{ base: `${ghost} font-mono text-xs md:text-xs` }"
           :disabled="disabled"
           :placeholder="fallbacks.url ?? 'The document URL'"
           @update:model-value="update('canonical', String($event ?? ''))"
@@ -195,7 +220,7 @@ const ghost = "bg-transparent hover:bg-transparent focus:bg-transparent disabled
         </span>
       </ConsolePropertyRow>
 
-      <div class="mt-3 grid gap-4 sm:grid-cols-2">
+      <div class="mt-4 grid items-start gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,16rem)]">
         <figure class="grid content-start gap-1.5">
           <figcaption class="text-xs text-muted">Search result</figcaption>
           <div class="grid gap-0.5 rounded-md border border-default p-3" :class="noindex ? 'opacity-50' : undefined">
