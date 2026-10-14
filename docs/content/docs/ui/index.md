@@ -23,6 +23,7 @@ Select an Invocation to read its messages, tool calls, and result. The inspector
 ## Components
 
 ::ui-component-gallery
+- **Start:** [Get started](/docs/ui/get-started)
 - **Console:** [Chat app](/docs/ui/blocks/chat-app), [Invocation dashboard](/docs/ui/blocks/invocation-dashboard), [Code review](/docs/ui/blocks/code-review)
 - **Perspective:** [Built for the Vue ecosystem](/docs/getting-started/built-for-vue)
 - **Chat:** [Chat](/docs/ui/chat), [Chat message](/docs/ui/chat-message), [Message parts](/docs/ui/message-parts), [Markdown](/docs/ui/markdown), [Chat prompt](/docs/ui/chat-prompt), [Session](/docs/ui/session)
